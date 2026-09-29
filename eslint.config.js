@@ -11,6 +11,7 @@ export default tseslint.config(
       '**/.wrangler/**',
       '**/worker-configuration.d.ts',
       'apps/worker/migrations/**',
+      '.claude/**',
     ],
   },
   js.configs.recommended,
