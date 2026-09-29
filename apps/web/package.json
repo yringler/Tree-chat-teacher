@@ -8,7 +8,7 @@
     "start": "ng serve --proxy-config proxy.conf.json",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "typecheck": "tsc -p tsconfig.app.json --noEmit",
+    "typecheck": "ngc -p tsconfig.app.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
@@ -21,6 +21,7 @@
     "@tangent/core": "workspace:*",
     "@tangent/render": "workspace:*",
     "@tangent/shared": "workspace:*",
+    "highlight.js": "^11.12.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },

@@ -1,0 +1,85 @@
+@if (store.detailError(); as err) {
+  <div class="empty-state">
+    <h1>Can’t open this conversation</h1>
+    <p class="muted">{{ err }}</p>
+    <a routerLink="/" class="btn btn-primary">Back to conversations</a>
+  </div>
+} @else if (!store.index()) {
+  <div class="empty-state" aria-busy="true">
+    <p class="muted">
+      {{ store.detail() ? 'This conversation could not be indexed.' : 'Loading…' }}
+    </p>
+  </div>
+} @else {
+  <div class="chat-layout" [class.with-inspector]="ui.inspectorOpen()">
+    <section class="chat" aria-label="Conversation">
+      <app-chat-header />
+
+      <div class="messages" #scroller (scroll)="onScroll(scroller)" tabindex="-1">
+        <div class="messages-inner">
+          @if (store.path().length === 0) {
+            <div class="empty-state">
+              <p class="muted">No messages yet. Say something to start.</p>
+            </div>
+          }
+          @for (e of entries(); track e.node.id) {
+            @if (e.divider; as b) {
+              <div class="fork-divider" [class.fork-current]="b.id === store.selectedBranchId()">
+                <span class="fork-line"></span>
+                <span class="fork-label">
+                  Branched here · <app-mode-badge [mode]="b.contextMode" [long]="true" /> ·
+                  {{ b.title }}
+                </span>
+                <span class="fork-line"></span>
+              </div>
+              @if (b.anchorQuote) {
+                <blockquote
+                  class="anchor-quote"
+                  [class.msg-ancestor]="b.id !== store.selectedBranchId()"
+                >
+                  {{ b.anchorQuote }}
+                </blockquote>
+              }
+            }
+            <app-message-item
+              [node]="e.node"
+              [ancestor]="e.ancestor"
+              [focused]="e.node.id === store.focusedNodeId()"
+              [chainIds]="chainIds()"
+            />
+          }
+          @if (emptyBranch(); as b) {
+            <div class="fork-divider fork-current">
+              <span class="fork-line"></span>
+              <span class="fork-label"
+                >Branched here · <app-mode-badge [mode]="b.contextMode" [long]="true" /> ·
+                {{ b.title }}</span
+              >
+              <span class="fork-line"></span>
+            </div>
+            @if (b.anchorQuote) {
+              <blockquote class="anchor-quote">{{ b.anchorQuote }}</blockquote>
+            }
+            <p class="muted small center">New branch. Your next message starts it.</p>
+          }
+        </div>
+      </div>
+
+      <div class="composer-dock">
+        <app-composer
+          [placeholder]="placeholder()"
+          [disabled]="store.busy()"
+          [busy]="store.streamingNode() !== null"
+          (send)="send($event)"
+          (stop)="stop()"
+        />
+      </div>
+    </section>
+
+    @if (ui.inspectorOpen()) {
+      <aside class="inspector-pane" aria-label="Context inspector">
+        <app-inspector />
+      </aside>
+    }
+  </div>
+}
