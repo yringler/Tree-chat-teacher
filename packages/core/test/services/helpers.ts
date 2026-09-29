@@ -15,7 +15,7 @@ import { createMemoryRepositories } from '../../src/testing/memory-repositories.
  * summary / title / chat calls apart. Records every request.
  */
 export class ScriptedProvider implements LlmProvider {
-  readonly kind = 'fake' as const;
+  readonly kind = 'openai-compatible' as const;
   readonly label = 'Scripted';
   readonly calls: GenerateRequest[] = [];
   failNext: string | null = null;

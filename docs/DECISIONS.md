@@ -47,3 +47,11 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 - **Exports exclude private branches by default.** The owner can opt in with `includePrivate=true`. JSON backups always include everything.
 - **The Worker fails closed if Access isn't configured.** `DEV_ALLOW_NO_AUTH=true` is honoured only when `ACCESS_AUD` is empty, and belongs in `.dev.vars` only.
 - **Markdown uses markdown-it (`html:false`) + highlight.js, shared by Angular and the Worker.** It needs no DOM, so there is one renderer and the output can't diverge. Angular's sanitizer is a second layer.
+
+## Integration (post-merge)
+- **Stale `streaming` nodes are recovered lazily**, when a fresh DO instance first serves a tree and when a client reconnects. No alarm is needed, because a restart always precedes the next access.
+- **The Fake provider never auto-titles**: the title would just echo the prompt. Branches keep the readable default title, which is the anchor quote or the first words of the message.
+- **Angular bundle budget warning set at 1.5 MB (≈235 kB gzipped).** zod, markdown-it and highlight.js ship with the shared packages; that is acceptable for a single-user app.
+- **The Hono app lives in `apps/worker/src/app.ts` (`createApp`)**, so tests can inject a local JWKS. `index.ts` only exports the handler and the Durable Object.
+- **Viewer tables use `ta-left/center/right` classes instead of inline `style`**, because the share page's strict hash-based CSP blocks inline styles.
+- **A share whose fork node is filtered out** (a system, streaming or error node, or a node before a subtree target) drops that child branch and everything below it.

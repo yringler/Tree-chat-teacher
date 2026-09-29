@@ -228,6 +228,10 @@ app-root {
   gap: 12px;
 }
 
+.home-start .composer-host {
+  width: 100%;
+}
+
 .lead {
   margin: 0;
   color: var(--fg-muted);

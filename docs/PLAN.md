@@ -57,7 +57,7 @@ Workspace packages export their TypeScript sources directly (`"exports": "./src/
 6. A browser that disconnects can reconnect with `GET /api/nodes/:id/stream`. The response starts with a `snapshot` (content so far) and then continues live. If the generation has finished, it returns `snapshot` + `done` straight from D1.
 7. `POST /api/nodes/:id/cancel` aborts the provider fetch. The partial content is persisted with status `error` and the message "cancelled".
 
-Why a DO rather than `waitUntil`: `waitUntil` only lasts 30 s after the client disconnects, but a long generation must survive a closed tab. A DO has no wall-clock limit while it has I/O in flight. It is also the natural per-tree serialization point. An alarm-based watchdog marks nodes left `streaming` after a DO restart as `error: interrupted` (`recoverInterrupted`).
+Why a DO rather than `waitUntil`: `waitUntil` only lasts 30 s after the client disconnects, but a long generation must survive a closed tab. A DO has no wall-clock limit while it has I/O in flight. It is also the natural per-tree serialization point. Nodes left `streaming` by a DO restart (eviction, redeploy) are marked `error: interrupted` lazily: on the first request a fresh DO instance serves (`recoverInterrupted`), and by the reconnect endpoint when it finds a `streaming` node with no running generation.
 
 **Context plan** (`GET /api/branches/:id/context?nodeId=&resolve=`): this runs in the Worker without the DO. It uses `ChatService.planContext`, which returns the plan, the exact rendered prompt, the provider/model and, when supported, an exact token count.
 
@@ -188,6 +188,7 @@ class ChatService { constructor(deps: { repos: Repositories; providers: Provider
   beginSend(branchId, content): Promise<{ branch; userNode; assistantNode }>;
   runGeneration(begin, signal): AsyncIterable<StreamEvent>;       // never throws; persists final state
   recoverInterrupted(treeId); exportBackup(treeId); importBackup(backup) }
+// packages/core/testing: createMemoryRepositories() — in-memory reference implementation of the ports
 class ShareService { constructor(deps: { repos; publicBaseUrl; clock?; newId?; newToken? })
   list(); create(req); update(id, req); republish(id); revoke(id);
   checkPublic(token); resolvePublic(token); recordView(shareId) }
@@ -360,7 +361,7 @@ Execution: the contracts (§3) were frozen first. Implementation then fanned out
 - **Provider tests** (Vitest, Node, injected `fetch`): the SSE parser (chunk boundaries, CRLF, comments, multi-byte UTF-8), Anthropic event mapping (usage, mid-stream error, HTTP errors → codes, abort), OpenAI/OpenRouter (both usage shapes, `[DONE]`, in-stream error, abort), FakeProvider determinism, and the registry (availability and config parsing).
 - **Worker integration tests** (`@cloudflare/vitest-pool-workers`, real D1 and DO in workerd): repositories (CTE, batch atomicity, snapshot chunking); the API (CRUD, branching, validation, 404s); the send → SSE → persisted flow with FakeProvider; reconnect, cancel and 409 on a concurrent send; the context-plan endpoint; summary mode with cache hits; Access middleware (JWT signed with a local JWKS, missing/invalid → 401/403, fail-closed); and shares (snapshot immutability after new messages, republish, revoke → 410, expiry, private exclusion in the payload, rate limit → 429, view count, cache-version bump).
 - **Angular**: pure logic lives in `@tangent/core` and is tested there. A small set of Vitest tests covers the SSE client parser and the store reducers without a DOM. `ng build` runs in CI as a compile check (strict templates).
-- **Manual/E2E**: `wrangler dev` smoke script (`scripts/smoke.sh`) that creates a tree, sends, branches, shares and fetches the public page with curl.
+- **Manual/E2E**: `scripts/smoke.sh` runs against `wrangler dev` with curl: create, send, branch, plan, share, public view, revoke → 410, export. The UI was also walked through in headless Chromium (Playwright) under `wrangler dev`: chat, branch dialog in all three modes, inspector, outline, breadcrumbs, keyboard navigation, share → logged-out phone view → revoke. The same was done for the viewer/export page (path composition, no CSP violations, mobile drawer).
 
 ---
 
@@ -389,3 +390,14 @@ Execution: the contracts (§3) were frozen first. Implementation then fanned out
 - **Long generations after a disconnect.** `waitUntil` caps at 30 s, so a Durable Object owns each generation. On the Free plan (10 ms CPU per request) streaming parse and re-encode is tight; the Paid plan is recommended (README).
 - **Global cache purge.** The Cache API is per colo and cannot be purged globally by URL. We avoid needing a purge by doing a per-request validity check plus versioned cache keys. The CDN (`Cache-Control: public`) is never used for share responses.
 - **Exact token counts.** There is no tokenizer in the bundle. We use estimates plus the provider's reported usage, and the Anthropic `count_tokens` endpoint in the inspector when available.
+
+---
+
+## 12. Status (end of initial build)
+
+All nine milestones are implemented. `pnpm test` runs 461 tests: providers 93, core 208, render 67, web 16 and worker 77. The worker tests run in workerd against real D1 and a real Durable Object. `pnpm typecheck` (including Angular strict templates) and `pnpm lint` are clean.
+
+Known gaps and follow-ups:
+- **Not verified against live accounts.** The real Anthropic and OpenAI-compatible providers are tested against recorded-style SSE streams with an injected `fetch`, not live APIs, because this environment has no keys. Likewise, the Cloudflare Access setup, the rate-limit binding and the Cache API have not been exercised against a real Cloudflare account. The JWT check is tested with locally signed tokens.
+- **Missing automated tests.** Share-route rate limiting (429) has no automated test; the limiter fails open when unavailable, and that behaviour is tested. The Angular components have no DOM tests; they were checked through Playwright walkthroughs.
+- **Deferred by design:** regenerate, edit-and-resend (as a sibling branch), delete subtree, search, "fork this share into my tree", and share passwords. §5 describes how the last two slot in.

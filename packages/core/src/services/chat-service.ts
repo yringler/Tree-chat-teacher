@@ -567,6 +567,8 @@ export class ChatService {
     if (!titleBranch && !titleTree) return null;
     try {
       const { provider, model } = this.summaryTarget(branch);
+      // The offline fake would just echo the prompt; keep the readable default title instead.
+      if (provider.kind === 'fake') return null;
       const messages: ChatMessage[] = [];
       if (branch.anchorQuote) messages.push({ role: 'user', content: `Focus: ${branch.anchorQuote}` });
       messages.push({ role: 'user', content: userNode.content });
@@ -709,5 +711,5 @@ function defaultBranchTitle(anchorQuote: string | null, node: ChatNode): string 
   if (!source) return 'New branch';
   const words = source.split(' ').slice(0, 6).join(' ');
   const clipped = words.length > 48 ? `${words.slice(0, 47)}…` : words;
-  return anchorQuote ? `“${clipped}”` : `Branch: ${clipped}`;
+  return anchorQuote ? clipped : `Branch: ${clipped}`;
 }
