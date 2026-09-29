@@ -1,7 +1,7 @@
-import { treeBackupSchema, type TreeBackup } from '@tangent/shared';
+import { treeBackupSchema, type TreeBackupInput } from '@tangent/shared';
 
 /** Reads and validates a JSON backup chosen with a file input. Throws with a readable message. */
-export async function readBackupFile(file: File): Promise<TreeBackup> {
+export async function readBackupFile(file: File): Promise<TreeBackupInput> {
   let json: unknown;
   try {
     json = JSON.parse(await file.text());

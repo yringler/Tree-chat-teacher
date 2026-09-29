@@ -1,4 +1,5 @@
 import {
+  DEFAULT_ACCOUNT_ID,
   createShareRequestSchema,
   updateShareRequestSchema,
   type CreateShareRequest,
@@ -14,6 +15,8 @@ import { newId as defaultNewId, newShareToken, systemClock, type Clock } from '.
 
 export interface ShareServiceDeps {
   repos: Repositories;
+  /** Account acting through this service instance. Default DEFAULT_ACCOUNT_ID. */
+  accountId?: string;
   /** Origin used to build share URLs, e.g. https://tangent.example.com */
   publicBaseUrl: string;
   clock?: Clock;
@@ -45,8 +48,10 @@ export class ShareService {
   private readonly clock: Clock;
   private readonly newId: () => string;
   private readonly newToken: () => string;
+  readonly accountId: string;
 
   constructor(readonly deps: ShareServiceDeps) {
+    this.accountId = deps.accountId ?? DEFAULT_ACCOUNT_ID;
     this.clock = deps.clock ?? systemClock;
     this.newId = deps.newId ?? (() => defaultNewId());
     this.newToken = deps.newToken ?? newShareToken;
@@ -61,7 +66,7 @@ export class ShareService {
   }
 
   async list(): Promise<ShareSummary[]> {
-    const rows = await this.shares.listShares();
+    const rows = await this.shares.listShares(this.accountId);
     return rows.map((s) => this.summarize(s));
   }
 
@@ -71,11 +76,12 @@ export class ShareService {
     const now = this.now();
     if (req.expiresAt && req.expiresAt <= now) throw new ValidationError('Expiry must be in the future');
     const tree = await this.deps.repos.trees.getTree(req.treeId);
-    if (!tree) throw new NotFoundError('Tree');
+    if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Tree');
 
     const share: Share = {
       id: this.newId(),
       token: this.newToken(),
+      accountId: tree.accountId,
       treeId: tree.id,
       scope: req.scope,
       targetNodeId: req.scope === 'tree' ? null : (req.nodeId ?? null),
@@ -98,6 +104,7 @@ export class ShareService {
 
   async update(shareId: string, request: UpdateShareRequest): Promise<ShareSummary> {
     const req = updateShareRequestSchema.parse(request);
+    await this.requireOwnedShare(shareId);
     const patch: Parameters<Repositories['shares']['updateShare']>[1] = { updatedAt: this.now() };
     if (req.title !== undefined) patch.title = req.title?.trim() ? req.title.trim() : null;
     if (req.expiresAt !== undefined) patch.expiresAt = req.expiresAt;
@@ -108,8 +115,7 @@ export class ShareService {
 
   /** Snapshot: re-project and replace the stored payload, bump version. Live: bump version only. */
   async republish(shareId: string): Promise<ShareSummary> {
-    const share = await this.shares.getShare(shareId);
-    if (!share) throw new NotFoundError('Share');
+    const share = await this.requireOwnedShare(shareId);
     if (share.revokedAt) throw new GoneError('This share has been revoked');
     const now = this.now();
     const patch = { updatedAt: now, version: share.version + 1 };
@@ -130,8 +136,7 @@ export class ShareService {
 
   /** Sets revokedAt and deletes the stored snapshot. Idempotent. */
   async revoke(shareId: string): Promise<ShareSummary> {
-    const share = await this.shares.getShare(shareId);
-    if (!share) throw new NotFoundError('Share');
+    const share = await this.requireOwnedShare(shareId);
     if (share.revokedAt) return this.summarize(share);
     const now = this.now();
     const updated = await this.shares.updateShare(
@@ -173,6 +178,13 @@ export class ShareService {
       }
       throw err;
     }
+  }
+
+  /** A share owned by another account is reported as not found. */
+  private async requireOwnedShare(shareId: string): Promise<ShareWithTree> {
+    const share = await this.shares.getShare(shareId);
+    if (!share || share.accountId !== this.accountId) throw new NotFoundError('Share');
+    return share;
   }
 
   recordView(shareId: string): Promise<void> {

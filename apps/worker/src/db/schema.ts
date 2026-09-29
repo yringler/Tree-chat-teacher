@@ -16,15 +16,32 @@ import {
  * level, O(depth)); see docs/DECISIONS.md.
  */
 
-export const trees = sqliteTable('trees', {
+/**
+ * Owner of trees and shares. Single-user today: every row belongs to the
+ * seeded `default` account (see migration 0001). Multi-user later means
+ * mapping verified identities to accounts; the data is already partitioned.
+ */
+export const accounts = sqliteTable('accounts', {
   id: text('id').primaryKey(),
-  title: text('title').notNull(),
-  systemPrompt: text('system_prompt'),
-  // No FK: trees and trunk branches reference each other; inserted in one batch.
-  trunkBranchId: text('trunk_branch_id').notNull(),
+  name: text('name').notNull(),
   createdAt: text('created_at').notNull(),
-  updatedAt: text('updated_at').notNull(),
 });
+
+export const trees = sqliteTable(
+  'trees',
+  {
+    id: text('id').primaryKey(),
+    title: text('title').notNull(),
+    systemPrompt: text('system_prompt'),
+    // No FK: trees and trunk branches reference each other; inserted in one batch.
+    trunkBranchId: text('trunk_branch_id').notNull(),
+    // No FK: SQLite cannot ALTER TABLE ADD COLUMN with REFERENCES and a non-null default.
+    accountId: text('account_id').notNull().default('default'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [index('trees_account_idx').on(t.accountId, t.updatedAt)],
+);
 
 export const branches = sqliteTable(
   'branches',
@@ -78,7 +95,9 @@ export const nodes = sqliteTable(
     uniqueIndex('nodes_branch_seq_uq').on(t.branchId, t.seq),
     index('nodes_tree_idx').on(t.treeId),
     index('nodes_parent_idx').on(t.parentId),
-    index('nodes_streaming_idx').on(t.treeId).where(sql`status = 'streaming'`),
+    index('nodes_streaming_idx')
+      .on(t.treeId)
+      .where(sql`status = 'streaming'`),
   ],
 );
 
@@ -106,6 +125,7 @@ export const shares = sqliteTable(
   {
     id: text('id').primaryKey(),
     token: text('token').notNull(),
+    accountId: text('account_id').notNull().default('default'),
     treeId: text('tree_id')
       .notNull()
       .references(() => trees.id, { onDelete: 'cascade' }),
@@ -122,7 +142,11 @@ export const shares = sqliteTable(
     version: integer('version').notNull().default(1),
     viewCount: integer('view_count').notNull().default(0),
   },
-  (t) => [uniqueIndex('shares_token_uq').on(t.token), index('shares_tree_idx').on(t.treeId)],
+  (t) => [
+    uniqueIndex('shares_token_uq').on(t.token),
+    index('shares_tree_idx').on(t.treeId),
+    index('shares_account_idx').on(t.accountId),
+  ],
 );
 
 /**

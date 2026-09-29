@@ -52,6 +52,7 @@ type SummaryRow = typeof summaries.$inferSelect;
 function toTree(r: TreeRow): Tree {
   return {
     id: r.id,
+    accountId: r.accountId,
     title: r.title,
     systemPrompt: r.systemPrompt,
     trunkBranchId: r.trunkBranchId,
@@ -105,6 +106,7 @@ function toShare(r: ShareRow): Share {
   return {
     id: r.id,
     token: r.token,
+    accountId: r.accountId,
     treeId: r.treeId,
     scope: r.scope,
     targetNodeId: r.targetNodeId,
@@ -321,7 +323,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
       .innerJoin(trees, eq(trees.id, shares.treeId));
 
   const treeRepo: TreeRepository = {
-    async listTrees(): Promise<TreeSummary[]> {
+    async listTrees(accountId): Promise<TreeSummary[]> {
       // Correlated subqueries reference "trees"."id" literally: drizzle renders
       // ${trees.id} unqualified in single-table selects, which would bind to
       // the subquery's own `id` column.
@@ -335,6 +337,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
           messageCount: sql<number>`(SELECT count(*) FROM "nodes" n WHERE n.tree_id = "trees"."id")`,
         })
         .from(trees)
+        .where(eq(trees.accountId, accountId))
         .orderBy(desc(trees.updatedAt), asc(trees.id));
       return rows.map((r) => ({
         ...r,
@@ -352,6 +355,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
       await runBatch(db, [
         db.insert(trees).values({
           id: tree.id,
+          accountId: tree.accountId,
           title: tree.title,
           systemPrompt: tree.systemPrompt,
           trunkBranchId: tree.trunkBranchId,
@@ -523,6 +527,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
       await runBatch(db, [
         db.insert(trees).values({
           id: tree.id,
+          accountId: tree.accountId,
           title: tree.title,
           systemPrompt: tree.systemPrompt,
           trunkBranchId: tree.trunkBranchId,
@@ -576,8 +581,10 @@ export function createD1Repositories(d1: D1Database): Repositories {
   };
 
   const shareRepo: ShareRepository = {
-    async listShares() {
-      const rows = await shareSelect().orderBy(desc(shares.createdAt), asc(shares.id));
+    async listShares(accountId) {
+      const rows = await shareSelect()
+        .where(eq(shares.accountId, accountId))
+        .orderBy(desc(shares.createdAt), asc(shares.id));
       return rows.map(toShareWithTree);
     },
 
@@ -596,6 +603,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
         db.insert(shares).values({
           id: share.id,
           token: share.token,
+          accountId: share.accountId,
           treeId: share.treeId,
           scope: share.scope,
           targetNodeId: share.targetNodeId,

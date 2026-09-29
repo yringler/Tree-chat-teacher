@@ -26,15 +26,21 @@ export function chatSettings(env: AppEnv): ChatSettings {
   };
 }
 
-export function chatService(env: AppEnv): ChatService {
+/** `accountId` defaults to the built-in account (used by the Durable Object, which works by branch/node id). */
+export function chatService(env: AppEnv, accountId?: string): ChatService {
   return new ChatService({
     repos: createD1Repositories(env.DB),
+    ...(accountId ? { accountId } : {}),
     providers: providerRegistry(env),
     settings: chatSettings(env),
   });
 }
 
-export function shareService(env: AppEnv, requestUrl: string): ShareService {
+export function shareService(env: AppEnv, requestUrl: string, accountId?: string): ShareService {
   const base = env.PUBLIC_BASE_URL?.trim() || new URL(requestUrl).origin;
-  return new ShareService({ repos: createD1Repositories(env.DB), publicBaseUrl: base });
+  return new ShareService({
+    repos: createD1Repositories(env.DB),
+    publicBaseUrl: base,
+    ...(accountId ? { accountId } : {}),
+  });
 }

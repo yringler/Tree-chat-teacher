@@ -1,4 +1,4 @@
-import type { Branch, ChatNode, Share, Tree } from '@tangent/shared';
+import { DEFAULT_ACCOUNT_ID, type Branch, type ChatNode, type Share, type Tree } from '@tangent/shared';
 
 let counter = 0;
 /** Unique id per call so tests within a file never collide. */
@@ -11,6 +11,7 @@ export function makeTree(overrides: Partial<Tree> = {}): Tree {
   const id = overrides.id ?? uid('tree');
   return {
     id,
+    accountId: DEFAULT_ACCOUNT_ID,
     title: 'Tree',
     systemPrompt: null,
     trunkBranchId: overrides.trunkBranchId ?? `${id}_trunk`,
@@ -88,6 +89,7 @@ export function makeShare(tree: Tree, overrides: Partial<Share> = {}): Share {
   return {
     id: uid('sh'),
     token: uid('tok'),
+    accountId: tree.accountId,
     treeId: tree.id,
     scope: 'tree',
     targetNodeId: null,

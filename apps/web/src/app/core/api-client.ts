@@ -13,7 +13,7 @@ import type {
   ShareScope,
   ShareSummary,
   Tree,
-  TreeBackup,
+  TreeBackupInput,
   TreeDetail,
   TreeSummary,
   UpdateBranchRequest,
@@ -162,7 +162,7 @@ export class ApiClient {
     return `${this.base}/trees/${enc(treeId)}/backup`;
   }
 
-  importBackup(backup: TreeBackup): Promise<TreeDetail> {
+  importBackup(backup: TreeBackupInput): Promise<TreeDetail> {
     return this.json('POST', '/import', backup);
   }
 

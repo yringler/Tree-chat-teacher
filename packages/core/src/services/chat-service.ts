@@ -1,4 +1,5 @@
 import {
+  DEFAULT_ACCOUNT_ID,
   createBranchRequestSchema,
   createTreeRequestSchema,
   treeBackupSchema,
@@ -18,6 +19,7 @@ import {
   type TokenUsage,
   type Tree,
   type TreeBackup,
+  type TreeBackupInput,
   type TreeDetail,
   type TreeSummary,
   type UpdateBranchRequest,
@@ -59,6 +61,8 @@ const TITLE_TIMEOUT_MS = 15_000;
 
 export interface ChatServiceDeps {
   repos: Repositories;
+  /** Account acting through this service instance. Default DEFAULT_ACCOUNT_ID. */
+  accountId?: string;
   providers: ProviderRegistry;
   settings: ChatSettings;
   clock?: Clock;
@@ -88,8 +92,10 @@ interface PlanInputs {
 export class ChatService {
   private readonly clock: Clock;
   private readonly newId: () => string;
+  readonly accountId: string;
 
   constructor(readonly deps: ChatServiceDeps) {
+    this.accountId = deps.accountId ?? DEFAULT_ACCOUNT_ID;
     this.clock = deps.clock ?? systemClock;
     this.newId = deps.newId ?? (() => defaultNewId());
   }
@@ -105,7 +111,18 @@ export class ChatService {
   // ---------------------------------------------------------------- trees
 
   listTrees(): Promise<TreeSummary[]> {
-    return this.repo.listTrees();
+    return this.repo.listTrees(this.accountId);
+  }
+
+  /**
+   * Loads a tree owned by this service's account. Another account's tree is
+   * reported as not found. (Branch/node-level routes are not scoped yet; see
+   * docs/DECISIONS.md "Accounts".)
+   */
+  private async requireOwnedTree(treeId: string): Promise<Tree> {
+    const tree = await this.repo.getTree(treeId);
+    if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Tree');
+    return tree;
   }
 
   /** Creates the tree and an empty trunk (provider/model default from the registry). */
@@ -117,6 +134,7 @@ export class ChatService {
     const now = this.now();
     const tree: Tree = {
       id: this.newId(),
+      accountId: this.accountId,
       title: req.title ?? DEFAULT_TREE_TITLE,
       systemPrompt: emptyToNull(req.systemPrompt),
       trunkBranchId: this.newId(),
@@ -143,8 +161,7 @@ export class ChatService {
   }
 
   async getTreeDetail(treeId: string): Promise<TreeDetail> {
-    const tree = await this.repo.getTree(treeId);
-    if (!tree) throw new NotFoundError('Tree');
+    const tree = await this.requireOwnedTree(treeId);
     const [branches, nodes] = await Promise.all([
       this.repo.listBranches(treeId),
       this.repo.listNodes(treeId),
@@ -154,6 +171,7 @@ export class ChatService {
 
   async updateTree(treeId: string, request: UpdateTreeRequest): Promise<Tree> {
     const req = updateTreeRequestSchema.parse(request);
+    await this.requireOwnedTree(treeId);
     const patch: Partial<Pick<Tree, 'title' | 'systemPrompt' | 'updatedAt'>> = { updatedAt: this.now() };
     if (req.title !== undefined) patch.title = req.title;
     if (req.systemPrompt !== undefined) patch.systemPrompt = emptyToNull(req.systemPrompt);
@@ -163,6 +181,7 @@ export class ChatService {
   }
 
   async deleteTree(treeId: string): Promise<void> {
+    await this.requireOwnedTree(treeId);
     const deleted = await this.repo.deleteTree(treeId);
     if (!deleted) throw new NotFoundError('Tree');
   }
@@ -619,7 +638,7 @@ export class ChatService {
   }
 
   /** Restores a backup under fresh ids. */
-  async importBackup(backup: TreeBackup): Promise<TreeDetail> {
+  async importBackup(backup: TreeBackup | TreeBackupInput): Promise<TreeDetail> {
     const data = treeBackupSchema.parse(backup);
     const branchIds = new Map(data.branches.map((b) => [b.id, this.newId()] as const));
     const nodeIds = new Map(data.nodes.map((n) => [n.id, this.newId()] as const));
@@ -639,9 +658,11 @@ export class ChatService {
     }
     const treeId = this.newId();
     const now = this.now();
+    const { accountId: _ignored, ...backupTree } = data.tree;
     const tree: Tree = {
-      ...data.tree,
+      ...backupTree,
       id: treeId,
+      accountId: this.accountId,
       trunkBranchId: mapBranch(data.tree.trunkBranchId),
       updatedAt: now,
     };

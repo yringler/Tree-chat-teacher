@@ -13,6 +13,13 @@
  * All timestamps are ISO-8601 UTC strings. All ids are opaque strings.
  */
 
+/**
+ * The built-in owner account. Tangent is single-user for now: every tree and
+ * share belongs to this account. Multi-user later maps verified identities to
+ * their own accounts; nothing else in the data model has to change.
+ */
+export const DEFAULT_ACCOUNT_ID = 'default';
+
 export type Role = 'user' | 'assistant' | 'system';
 export type NodeStatus = 'streaming' | 'complete' | 'error';
 
@@ -34,6 +41,8 @@ export interface TokenUsage {
 
 export interface Tree {
   id: string;
+  /** Owner. Branches, nodes and summaries inherit ownership through the tree. */
+  accountId: string;
   title: string;
   /** Tree-wide system prompt; sent in every mode, including `independent`. */
   systemPrompt: string | null;
@@ -100,6 +109,8 @@ export interface Share {
   id: string;
   /** Unguessable URL token (>= 128 bits, base64url). */
   token: string;
+  /** Owner (always the owner of `treeId`). */
+  accountId: string;
   treeId: string;
   scope: ShareScope;
   /** Required for `subtree` and `path`; null for `tree`. */

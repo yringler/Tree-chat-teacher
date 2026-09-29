@@ -55,3 +55,14 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 - **The Hono app lives in `apps/worker/src/app.ts` (`createApp`)**, so tests can inject a local JWKS. `index.ts` only exports the handler and the Durable Object.
 - **Viewer tables use `ta-left/center/right` classes instead of inline `style`**, because the share page's strict hash-based CSP blocks inline styles.
 - **A share whose fork node is filtered out** (a system, streaming or error node, or a node before a subtree target) drops that child branch and everything below it.
+
+## Accounts (ownership groundwork, not multi-user)
+- **Trees and shares carry `account_id`.** It references an `accounts` table seeded with a single `default` account in migration 0001. Existing rows backfill via the column default, so there is no data rewrite.
+- **Branches, nodes and summaries inherit ownership through `tree_id`.** They have no column of their own, which keeps a future split into per-user data a matter of filtering by tree.
+- **One place decides the acting account:** `resolveAccountId(identity)` in `apps/worker/src/auth/account.ts`. Today it always returns `default`. Multi-user replaces only this function, for example by keying on the Access JWT `sub` claim (stable) rather than email.
+- **Services take `accountId` (default `default`).**
+  - `listTrees`/`listShares` filter by it.
+  - Tree-level operations (detail, update, delete, backup) and share management treat another account's rows as not found.
+  - Imports are assigned to the importing account.
+- **Not scoped yet (the remaining multi-user step):** routes addressed only by branch or node id (`/api/branches/:id`, `/api/nodes/:id/*`, the Durable Object). They would need a tree-ownership check before multi-user. Provider keys and budgets are also global.
+- **`account_id` has no FK constraint.** SQLite cannot `ALTER TABLE … ADD COLUMN` with `REFERENCES` and a non-null default.

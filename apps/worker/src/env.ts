@@ -22,6 +22,8 @@ export interface Identity {
 
 export interface AppVariables {
   identity: Identity;
+  /** Account the request acts as (see auth/account.ts). */
+  accountId: string;
 }
 
 export interface AppBindings {

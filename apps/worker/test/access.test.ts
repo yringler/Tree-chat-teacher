@@ -170,7 +170,7 @@ describe('accessMiddleware via the Hono app', () => {
     const t = await token();
     expect(await call(configured, { 'Cf-Access-Jwt-Assertion': t })).toEqual({
       status: 200,
-      body: { email: 'owner@example.com', devMode: false },
+      body: { email: 'owner@example.com', devMode: false, accountId: 'default' },
     });
   });
 
@@ -222,7 +222,7 @@ describe('accessMiddleware via the Hono app', () => {
 
   it('dev bypass only applies when ACCESS_AUD is empty', async () => {
     const dev = await call({ ...configured, ACCESS_AUD: '', DEV_ALLOW_NO_AUTH: 'true' } as AppEnv);
-    expect(dev).toEqual({ status: 200, body: { email: null, devMode: true } });
+    expect(dev).toEqual({ status: 200, body: { email: null, devMode: true, accountId: 'default' } });
 
     // AUD configured: DEV_ALLOW_NO_AUTH is ignored and a token is required.
     const r = await call({ ...configured, DEV_ALLOW_NO_AUTH: 'true' } as AppEnv);
@@ -246,6 +246,6 @@ describe('deployed Worker entrypoint', () => {
   it('serves /api/me in dev-bypass mode (test config: AUD empty, DEV_ALLOW_NO_AUTH=true)', async () => {
     const res = await exports.default.fetch('https://tangent.example.com/api/me');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ email: null, devMode: true });
+    expect(await res.json()).toEqual({ email: null, devMode: true, accountId: 'default' });
   });
 });

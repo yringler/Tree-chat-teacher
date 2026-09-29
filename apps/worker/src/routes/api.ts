@@ -33,46 +33,46 @@ export function apiRoutes(): Hono<AppBindings> {
 
   api.get('/me', (c) => {
     const { email, devMode } = c.var.identity;
-    return c.json({ email, devMode } satisfies MeResponse);
+    return c.json({ email, devMode, accountId: c.var.accountId } satisfies MeResponse);
   });
 
   api.get('/providers', (c) => c.json(providerRegistry(c.env).list()));
 
   // ---- trees
-  api.get('/trees', async (c) => c.json(await chatService(c.env).listTrees()));
+  api.get('/trees', async (c) => c.json(await chatService(c.env, c.var.accountId).listTrees()));
   api.post('/trees', validateJson(createTreeRequestSchema), async (c) =>
-    c.json(await chatService(c.env).createTree(c.req.valid('json')), 201),
+    c.json(await chatService(c.env, c.var.accountId).createTree(c.req.valid('json')), 201),
   );
   api.get('/trees/:treeId', async (c) =>
-    c.json(await chatService(c.env).getTreeDetail(c.req.param('treeId'))),
+    c.json(await chatService(c.env, c.var.accountId).getTreeDetail(c.req.param('treeId'))),
   );
   api.patch('/trees/:treeId', validateJson(updateTreeRequestSchema), async (c) =>
-    c.json(await chatService(c.env).updateTree(c.req.param('treeId'), c.req.valid('json'))),
+    c.json(await chatService(c.env, c.var.accountId).updateTree(c.req.param('treeId'), c.req.valid('json'))),
   );
   api.delete('/trees/:treeId', async (c) => {
-    await chatService(c.env).deleteTree(c.req.param('treeId'));
+    await chatService(c.env, c.var.accountId).deleteTree(c.req.param('treeId'));
     return c.body(null, 204);
   });
   api.get('/trees/:treeId/backup', async (c) => {
-    const backup = await chatService(c.env).exportBackup(c.req.param('treeId'));
+    const backup = await chatService(c.env, c.var.accountId).exportBackup(c.req.param('treeId'));
     return c.json(backup, 200, {
       'Content-Disposition': `attachment; filename="${slug(backup.tree.title)}.tangent.json"`,
     });
   });
   api.post('/import', validateJson(treeBackupSchema), async (c) =>
-    c.json(await chatService(c.env).importBackup(c.req.valid('json')), 201),
+    c.json(await chatService(c.env, c.var.accountId).importBackup(c.req.valid('json')), 201),
   );
 
   // ---- branches
   api.post('/branches', validateJson(createBranchRequestSchema), async (c) =>
-    c.json(await chatService(c.env).createBranch(c.req.valid('json')), 201),
+    c.json(await chatService(c.env, c.var.accountId).createBranch(c.req.valid('json')), 201),
   );
   api.patch('/branches/:branchId', validateJson(updateBranchRequestSchema), async (c) =>
-    c.json(await chatService(c.env).updateBranch(c.req.param('branchId'), c.req.valid('json'))),
+    c.json(await chatService(c.env, c.var.accountId).updateBranch(c.req.param('branchId'), c.req.valid('json'))),
   );
   api.get('/branches/:branchId/context', validateQuery(contextQuerySchema), async (c) => {
     const q = c.req.valid('query');
-    const res = await chatService(c.env).planContext(c.req.param('branchId'), q.nodeId ?? null, {
+    const res = await chatService(c.env, c.var.accountId).planContext(c.req.param('branchId'), q.nodeId ?? null, {
       resolveSummaries: q.resolve,
       signal: c.req.raw.signal,
     });
@@ -82,7 +82,7 @@ export function apiRoutes(): Hono<AppBindings> {
   // ---- messages (delegated to the tree's Durable Object)
   api.post('/branches/:branchId/messages', validateJson(sendMessageRequestSchema), async (c) => {
     const branchId = c.req.param('branchId');
-    const branch = await chatService(c.env).deps.repos.trees.getBranch(branchId);
+    const branch = await chatService(c.env, c.var.accountId).deps.repos.trees.getBranch(branchId);
     if (!branch) throw new NotFoundError('Branch');
     return session(c.env, branch.treeId).fetch(
       sessionUrl('/send', { treeId: branch.treeId, branchId }),
@@ -104,22 +104,22 @@ export function apiRoutes(): Hono<AppBindings> {
   });
 
   // ---- shares
-  api.get('/shares', async (c) => c.json(await shareService(c.env, c.req.url).list()));
+  api.get('/shares', async (c) => c.json(await shareService(c.env, c.req.url, c.var.accountId).list()));
   api.post('/shares', validateJson(createShareRequestSchema), async (c) =>
-    c.json(await shareService(c.env, c.req.url).create(c.req.valid('json')), 201),
+    c.json(await shareService(c.env, c.req.url, c.var.accountId).create(c.req.valid('json')), 201),
   );
   api.patch('/shares/:shareId', validateJson(updateShareRequestSchema), async (c) =>
     c.json(
-      await shareService(c.env, c.req.url).update(c.req.param('shareId'), c.req.valid('json')),
+      await shareService(c.env, c.req.url, c.var.accountId).update(c.req.param('shareId'), c.req.valid('json')),
     ),
   );
   api.post('/shares/:shareId/republish', async (c) => {
-    const s = await shareService(c.env, c.req.url).republish(c.req.param('shareId'));
+    const s = await shareService(c.env, c.req.url, c.var.accountId).republish(c.req.param('shareId'));
     c.executionCtx.waitUntil(purgeShare(s.token, [s.version - 1]));
     return c.json(s);
   });
   api.post('/shares/:shareId/revoke', async (c) => {
-    const s = await shareService(c.env, c.req.url).revoke(c.req.param('shareId'));
+    const s = await shareService(c.env, c.req.url, c.var.accountId).revoke(c.req.param('shareId'));
     c.executionCtx.waitUntil(purgeShare(s.token, [s.version - 1, s.version]));
     return c.json(s);
   });
@@ -127,7 +127,7 @@ export function apiRoutes(): Hono<AppBindings> {
   // ---- export (Markdown / self-contained HTML, built on the viewer renderer)
   api.get('/export', validateQuery(exportQuerySchema), async (c) => {
     const q = c.req.valid('query');
-    const detail = await chatService(c.env).getTreeDetail(q.treeId);
+    const detail = await chatService(c.env, c.var.accountId).getTreeDetail(q.treeId);
     const result = projectShare({
       tree: detail.tree,
       branches: detail.branches,

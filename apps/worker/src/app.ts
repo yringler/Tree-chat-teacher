@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { accessMiddleware, type AccessMiddlewareOptions } from './auth/access.js';
+import { accountMiddleware } from './auth/account.js';
 import type { AppBindings } from './env.js';
 import { notFound, onError } from './http/errors.js';
 import { apiRoutes } from './routes/api.js';
@@ -19,6 +20,7 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   app.onError(onError);
   app.notFound(notFound);
   app.use('/api/*', accessMiddleware(options.access));
+  app.use('/api/*', accountMiddleware);
   app.route('/api', apiRoutes());
   app.route('/s', shareRoutes());
   return app;

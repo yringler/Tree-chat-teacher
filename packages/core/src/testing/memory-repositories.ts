@@ -25,8 +25,9 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
   return {
     dump: () => state,
     trees: {
-      async listTrees(): Promise<TreeSummary[]> {
+      async listTrees(accountId): Promise<TreeSummary[]> {
         return [...state.trees.values()]
+          .filter((t) => t.accountId === accountId)
           .map((t) => ({
             id: t.id,
             title: t.title,
@@ -153,8 +154,9 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
       },
     },
     shares: {
-      async listShares() {
+      async listShares(accountId) {
         return [...state.shares.values()]
+          .filter((s) => s.accountId === accountId)
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
           .map(withTree);
       },

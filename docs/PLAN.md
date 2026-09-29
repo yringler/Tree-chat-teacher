@@ -76,11 +76,12 @@ Schema: `apps/worker/src/db/schema.ts`. Migration: `apps/worker/migrations/0000_
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `trees` | `id` PK, `title`, `system_prompt`, `trunk_branch_id` | The trunk is created with the tree, in the same batch |
+| `accounts` | `id` PK, `name` | Owner of trees and shares. Seeded with the single `default` account (single-user for now; see DECISIONS "Accounts") |
+| `trees` | `id` PK, `account_id`, `title`, `system_prompt`, `trunk_branch_id` | The trunk is created with the tree, in the same batch. Branches, nodes and summaries inherit ownership through `tree_id` |
 | `branches` | `id` PK, `tree_id` FK cascade, `parent_branch_id`, `branch_point_node_id`, `context_mode`, `anchor_quote`, `title`, `title_source`, `is_private`, `provider_id`, `model` | A branch is a linear chain of nodes. The trunk has null parent and null branch point |
 | `nodes` | `id` PK, `tree_id`, `branch_id` FK cascade, `parent_id`, `seq`, `role`, `content`, `status`, `error`, `provider_id`, `model`, `input_tokens`, `output_tokens` | `UNIQUE(branch_id, seq)` serializes appends. Indexes on `parent_id` and on `tree_id` (partial index for `status='streaming'`) |
 | `summaries` | PK `(anchor_node_id, source_hash, model)`, `provider_id`, `tree_id`, `content` | Lazy cache. A changed path gives a new hash, so it is a cache miss |
-| `shares` | `id` PK, `token` UNIQUE, `tree_id`, `scope`, `target_node_id`, `include_ancestors`, `mode`, `title`, `expires_at`, `revoked_at`, `published_at`, `version`, `view_count` | |
+| `shares` | `id` PK, `token` UNIQUE, `account_id`, `tree_id`, `scope`, `target_node_id`, `include_ancestors`, `mode`, `title`, `expires_at`, `revoked_at`, `published_at`, `version`, `view_count` | |
 | `share_snapshots` | PK `(share_id, chunk)`, `data` | The snapshot JSON is chunked at 256K chars to stay under D1's 2 MB row limit, and replaced atomically in a batch |
 
 **Branch and node invariants**

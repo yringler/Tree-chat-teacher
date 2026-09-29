@@ -16,7 +16,8 @@ import type {
  * signalled by `null` / `false`, never by throwing.
  */
 export interface TreeRepository {
-  listTrees(): Promise<TreeSummary[]>;
+  /** Trees owned by `accountId`, most recently updated first. */
+  listTrees(accountId: string): Promise<TreeSummary[]>;
   getTree(treeId: string): Promise<Tree | null>;
   /** Atomically inserts the tree and its trunk branch. */
   createTree(tree: Tree, trunk: Branch): Promise<void>;
@@ -81,7 +82,8 @@ export interface ShareWithTree extends Share {
 }
 
 export interface ShareRepository {
-  listShares(): Promise<ShareWithTree[]>;
+  /** Shares owned by `accountId`, newest first. */
+  listShares(accountId: string): Promise<ShareWithTree[]>;
   getShare(shareId: string): Promise<ShareWithTree | null>;
   getShareByToken(token: string): Promise<ShareWithTree | null>;
   /** Atomically inserts the share and (for snapshots) its serialized payload. */

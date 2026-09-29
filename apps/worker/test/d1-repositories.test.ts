@@ -1,5 +1,5 @@
 import { ConflictError } from '@tangent/core';
-import type { Branch, ChatNode, Tree } from '@tangent/shared';
+import { DEFAULT_ACCOUNT_ID, type Branch, type ChatNode, type Tree } from '@tangent/shared';
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { createD1Repositories, SNAPSHOT_CHUNK_CHARS } from '../src/db/d1-repositories.js';
@@ -89,7 +89,7 @@ describe('trees', () => {
     const multi = await seedMultiBranch();
     const { tree: older } = await seedTree({ updatedAt: '2025-01-01T00:00:00.000Z' });
     await repos.trees.updateTree(multi.tree.id, { updatedAt: '2030-01-01T00:00:00.000Z' });
-    const list = await repos.trees.listTrees();
+    const list = await repos.trees.listTrees(DEFAULT_ACCOUNT_ID);
     const ids = list.map((t) => t.id);
     expect(ids.indexOf(multi.tree.id)).toBeLessThan(ids.indexOf(older.id));
     for (let i = 1; i < list.length; i++) {
@@ -414,7 +414,7 @@ describe('shares', () => {
     expect(await repos.shares.getShare(share.id)).toEqual(expected);
     expect(await repos.shares.getShareByToken(share.token)).toEqual(expected);
     expect(await repos.shares.getSnapshot(share.id)).toBeNull();
-    expect((await repos.shares.listShares()).find((s) => s.id === share.id)).toEqual(expected);
+    expect((await repos.shares.listShares(DEFAULT_ACCOUNT_ID)).find((s) => s.id === share.id)).toEqual(expected);
     expect(await repos.shares.getShare('missing')).toBeNull();
     expect(await repos.shares.getShareByToken('missing')).toBeNull();
   });

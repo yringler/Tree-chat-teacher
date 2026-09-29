@@ -64,6 +64,8 @@ export type ApiErrorCode =
 
 export interface MeResponse {
   email: string | null;
+  /** Account the caller acts as (always the built-in default account for now). */
+  accountId: string;
   /** True when running with DEV_ALLOW_NO_AUTH (wrangler dev only). */
   devMode: boolean;
 }
@@ -224,12 +226,17 @@ const isoDate = z.string().min(1).max(64);
 const role = z.enum(['user', 'assistant', 'system']);
 const nodeStatus = z.enum(['streaming', 'complete', 'error']);
 
+/** A parsed backup as accepted by import (owner fields optional). */
+export type TreeBackupInput = z.infer<typeof treeBackupSchema>;
+
 export const treeBackupSchema = z.object({
   format: z.literal('tangent-tree-backup'),
   version: z.literal(1),
   exportedAt: isoDate,
   tree: z.object({
     id,
+    /** Ignored on import: restored trees belong to the importing account. */
+    accountId: id.optional(),
     title: z.string().max(200),
     systemPrompt: z.string().max(20_000).nullable(),
     trunkBranchId: id,

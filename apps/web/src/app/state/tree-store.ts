@@ -20,7 +20,7 @@ import type {
   ProviderInfo,
   ShareScope,
   StreamEvent,
-  TreeBackup,
+  TreeBackupInput,
   TreeDetail,
   TreeSummary,
   UpdateBranchRequest,
@@ -350,7 +350,7 @@ export class TreeStore {
     }
   }
 
-  async importBackup(backup: TreeBackup): Promise<void> {
+  async importBackup(backup: TreeBackupInput): Promise<void> {
     try {
       const detail = await this.api.importBackup(backup);
       this.trees.update((list) => [this.summaryOf(detail), ...list]);
