@@ -4,12 +4,19 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/memory-repositories.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": {"@tangent/shared": "workspace:*"},
-  "devDependencies": {"typescript": "~6.0.3", "vitest": "~4.1.11"}
+  "dependencies": {
+    "@tangent/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3",
+    "vitest": "~4.1.11",
+    "@tangent/providers": "workspace:*"
+  }
 }

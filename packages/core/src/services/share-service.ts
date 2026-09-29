@@ -1,12 +1,16 @@
-import type {
-  CreateShareRequest,
-  Share,
-  SharePayload,
-  ShareSummary,
-  UpdateShareRequest,
+import {
+  createShareRequestSchema,
+  updateShareRequestSchema,
+  type CreateShareRequest,
+  type Share,
+  type SharePayload,
+  type ShareSummary,
+  type UpdateShareRequest,
 } from '@tangent/shared';
-import type { Repositories } from '../repository.js';
-import type { Clock } from '../util.js';
+import { GoneError, NotFoundError, ValidationError } from '../errors.js';
+import type { Repositories, ShareWithTree } from '../repository.js';
+import { projectShare, type ProjectShareResult } from '../share-projection.js';
+import { newId as defaultNewId, newShareToken, systemClock, type Clock } from '../util.js';
 
 export interface ShareServiceDeps {
   repos: Repositories;
@@ -21,6 +25,16 @@ export type PublicShareResult =
   | { ok: true; share: Share; payload: SharePayload }
   | { ok: false; reason: 'not_found' | 'gone' };
 
+export type PublicShareCheck =
+  | { ok: true; share: Share }
+  | { ok: false; reason: 'not_found' | 'gone' };
+
+const PROJECTION_ERRORS: Record<Exclude<ProjectShareResult, { ok: true }>['reason'], string> = {
+  target_not_found: 'The message to share was not found in this conversation',
+  target_private: 'That message is inside a private branch',
+  empty: 'There is nothing to share yet',
+};
+
 /**
  * Owner-side share management plus public resolution.
  * Snapshot shares store the projected payload JSON at create/republish time;
@@ -28,46 +42,173 @@ export type PublicShareResult =
  * `projectShare`, so excluded content never reaches the payload.
  */
 export class ShareService {
-  constructor(readonly deps: ShareServiceDeps) {}
+  private readonly clock: Clock;
+  private readonly newId: () => string;
+  private readonly newToken: () => string;
 
-  list(): Promise<ShareSummary[]> {
-    throw new Error('not implemented');
+  constructor(readonly deps: ShareServiceDeps) {
+    this.clock = deps.clock ?? systemClock;
+    this.newId = deps.newId ?? (() => defaultNewId());
+    this.newToken = deps.newToken ?? newShareToken;
   }
+
+  private get shares() {
+    return this.deps.repos.shares;
+  }
+
+  private now(): string {
+    return this.clock().toISOString();
+  }
+
+  async list(): Promise<ShareSummary[]> {
+    const rows = await this.shares.listShares();
+    return rows.map((s) => this.summarize(s));
+  }
+
   /** Rejects with ValidationError if the target is missing, private, or the scope is empty. */
-  create(request: CreateShareRequest): Promise<ShareSummary> {
-    void request;
-    throw new Error('not implemented');
+  async create(request: CreateShareRequest): Promise<ShareSummary> {
+    const req = createShareRequestSchema.parse(request);
+    const now = this.now();
+    if (req.expiresAt && req.expiresAt <= now) throw new ValidationError('Expiry must be in the future');
+    const tree = await this.deps.repos.trees.getTree(req.treeId);
+    if (!tree) throw new NotFoundError('Tree');
+
+    const share: Share = {
+      id: this.newId(),
+      token: this.newToken(),
+      treeId: tree.id,
+      scope: req.scope,
+      targetNodeId: req.scope === 'tree' ? null : (req.nodeId ?? null),
+      includeAncestors: req.scope === 'subtree' && req.includeAncestors,
+      mode: req.mode,
+      title: req.title?.trim() ? req.title.trim() : null,
+      expiresAt: req.expiresAt ?? null,
+      revokedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      publishedAt: req.mode === 'snapshot' ? now : null,
+      version: 1,
+      viewCount: 0,
+    };
+    // Validate for both modes; only snapshots store the payload.
+    const payload = await this.project(share);
+    await this.shares.createShare(share, share.mode === 'snapshot' ? JSON.stringify(payload) : null);
+    return this.summarize({ ...share, treeTitle: tree.title });
   }
-  update(shareId: string, request: UpdateShareRequest): Promise<ShareSummary> {
-    void shareId;
-    void request;
-    throw new Error('not implemented');
+
+  async update(shareId: string, request: UpdateShareRequest): Promise<ShareSummary> {
+    const req = updateShareRequestSchema.parse(request);
+    const patch: Parameters<Repositories['shares']['updateShare']>[1] = { updatedAt: this.now() };
+    if (req.title !== undefined) patch.title = req.title?.trim() ? req.title.trim() : null;
+    if (req.expiresAt !== undefined) patch.expiresAt = req.expiresAt;
+    const updated = await this.shares.updateShare(shareId, patch);
+    if (!updated) throw new NotFoundError('Share');
+    return this.summarize(updated);
   }
+
   /** Snapshot: re-project and replace the stored payload, bump version. Live: bump version only. */
-  republish(shareId: string): Promise<ShareSummary> {
-    void shareId;
-    throw new Error('not implemented');
+  async republish(shareId: string): Promise<ShareSummary> {
+    const share = await this.shares.getShare(shareId);
+    if (!share) throw new NotFoundError('Share');
+    if (share.revokedAt) throw new GoneError('This share has been revoked');
+    const now = this.now();
+    const patch = { updatedAt: now, version: share.version + 1 };
+    let updated: ShareWithTree | null;
+    if (share.mode === 'snapshot') {
+      const payload = await this.project(share);
+      updated = await this.shares.updateShare(
+        shareId,
+        { ...patch, publishedAt: now },
+        JSON.stringify(payload),
+      );
+    } else {
+      updated = await this.shares.updateShare(shareId, patch);
+    }
+    if (!updated) throw new NotFoundError('Share');
+    return this.summarize(updated);
   }
+
   /** Sets revokedAt and deletes the stored snapshot. Idempotent. */
-  revoke(shareId: string): Promise<ShareSummary> {
-    void shareId;
-    throw new Error('not implemented');
+  async revoke(shareId: string): Promise<ShareSummary> {
+    const share = await this.shares.getShare(shareId);
+    if (!share) throw new NotFoundError('Share');
+    if (share.revokedAt) return this.summarize(share);
+    const now = this.now();
+    const updated = await this.shares.updateShare(
+      shareId,
+      { revokedAt: now, updatedAt: now, version: share.version + 1 },
+      null,
+    );
+    if (!updated) throw new NotFoundError('Share');
+    return this.summarize(updated);
   }
-  /** Validates token state (revoked/expired → gone) and returns the payload. */
-  resolvePublic(token: string): Promise<PublicShareResult> {
-    void token;
-    throw new Error('not implemented');
-  }
+
   /**
    * Cheap validity check (no payload) used before serving an edge-cached copy.
    * Returns the share when active.
    */
-  checkPublic(token: string): Promise<{ ok: true; share: Share } | { ok: false; reason: 'not_found' | 'gone' }> {
-    void token;
-    throw new Error('not implemented');
+  async checkPublic(token: string): Promise<PublicShareCheck> {
+    if (!token || token.length > 128) return { ok: false, reason: 'not_found' };
+    const share = await this.shares.getShareByToken(token);
+    if (!share) return { ok: false, reason: 'not_found' };
+    if (this.stateOf(share) !== 'active') return { ok: false, reason: 'gone' };
+    return { ok: true, share };
   }
+
+  /** Validates token state (revoked/expired → gone) and returns the payload. */
+  async resolvePublic(token: string): Promise<PublicShareResult> {
+    const check = await this.checkPublic(token);
+    if (!check.ok) return check;
+    const { share } = check;
+    if (share.mode === 'snapshot') {
+      const json = await this.shares.getSnapshot(share.id);
+      if (!json) return { ok: false, reason: 'gone' };
+      return { ok: true, share, payload: JSON.parse(json) as SharePayload };
+    }
+    try {
+      return { ok: true, share, payload: await this.project(share) };
+    } catch (err) {
+      if (err instanceof ValidationError || err instanceof NotFoundError) {
+        return { ok: false, reason: 'gone' };
+      }
+      throw err;
+    }
+  }
+
   recordView(shareId: string): Promise<void> {
-    void shareId;
-    throw new Error('not implemented');
+    return this.shares.incrementViewCount(shareId);
+  }
+
+  private async project(share: Share): Promise<SharePayload> {
+    const trees = this.deps.repos.trees;
+    const tree = await trees.getTree(share.treeId);
+    if (!tree) throw new NotFoundError('Tree');
+    const [branches, nodes] = await Promise.all([
+      trees.listBranches(share.treeId),
+      trees.listNodes(share.treeId),
+    ]);
+    const result = projectShare({
+      tree,
+      branches,
+      nodes,
+      scope: share.scope,
+      targetNodeId: share.targetNodeId,
+      includeAncestors: share.includeAncestors,
+      title: share.title,
+      now: this.now(),
+    });
+    if (!result.ok) throw new ValidationError(PROJECTION_ERRORS[result.reason]);
+    return result.payload;
+  }
+
+  private stateOf(share: Share): ShareSummary['state'] {
+    if (share.revokedAt) return 'revoked';
+    if (share.expiresAt && share.expiresAt <= this.now()) return 'expired';
+    return 'active';
+  }
+
+  private summarize(share: ShareWithTree): ShareSummary {
+    const base = this.deps.publicBaseUrl.replace(/\/+$/, '');
+    return { ...share, url: `${base}/s/${share.token}`, state: this.stateOf(share) };
   }
 }
