@@ -1,0 +1,275 @@
+import { z } from 'zod';
+import type { ContextPlan } from './context-plan.js';
+import type {
+  Branch,
+  ChatNode,
+  ContextMode,
+  Share,
+  ShareMode,
+  ShareScope,
+  TokenUsage,
+  Tree,
+} from './domain.js';
+import type { ProviderInfo } from './provider.js';
+
+/**
+ * HTTP API contract between the Angular app and the Worker.
+ *
+ * Owner API (Cloudflare Access JWT required), all JSON unless noted:
+ *
+ *   GET    /api/me                               -> MeResponse
+ *   GET    /api/providers                        -> ProviderInfo[]
+ *   GET    /api/trees                            -> TreeSummary[]
+ *   POST   /api/trees            CreateTreeRequest -> TreeDetail
+ *   GET    /api/trees/:treeId                    -> TreeDetail
+ *   PATCH  /api/trees/:treeId     UpdateTreeRequest -> Tree
+ *   DELETE /api/trees/:treeId                    -> 204
+ *   POST   /api/branches          CreateBranchRequest -> Branch
+ *   PATCH  /api/branches/:branchId UpdateBranchRequest -> Branch
+ *   POST   /api/branches/:branchId/messages SendMessageRequest -> text/event-stream of StreamEvent
+ *   GET    /api/nodes/:nodeId/stream              -> text/event-stream of StreamEvent (reconnect)
+ *   POST   /api/nodes/:nodeId/cancel              -> 204
+ *   GET    /api/branches/:branchId/context?nodeId=&resolve=true|false -> ContextPlanResponse
+ *   GET    /api/shares                            -> ShareSummary[]
+ *   POST   /api/shares            CreateShareRequest -> ShareSummary
+ *   PATCH  /api/shares/:shareId   UpdateShareRequest -> ShareSummary
+ *   POST   /api/shares/:shareId/republish         -> ShareSummary
+ *   POST   /api/shares/:shareId/revoke            -> ShareSummary
+ *   GET    /api/export?treeId=&scope=&nodeId=&format=md|html&includeAncestors= -> file download
+ *   GET    /api/trees/:treeId/backup              -> TreeBackup (JSON download)
+ *   POST   /api/import            TreeBackup      -> TreeDetail (new ids)
+ *
+ * Public (no Access; rate-limited; read-only):
+ *
+ *   GET /s/:token            -> text/html viewer page (Open Graph tags, self-contained)
+ *   GET /s/:token/data.json  -> SharePayload
+ *
+ * Errors: non-2xx responses carry ApiError.
+ */
+
+export interface ApiError {
+  error: { code: ApiErrorCode; message: string };
+}
+
+export type ApiErrorCode =
+  | 'bad_request'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'not_found'
+  | 'conflict'
+  | 'gone'
+  | 'rate_limited'
+  | 'provider_error'
+  | 'internal';
+
+export interface MeResponse {
+  email: string | null;
+  /** True when running with DEV_ALLOW_NO_AUTH (wrangler dev only). */
+  devMode: boolean;
+}
+
+export interface TreeSummary {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  branchCount: number;
+  messageCount: number;
+}
+
+/** Whole tree in one response; the client builds the outline with @tangent/core. */
+export interface TreeDetail {
+  tree: Tree;
+  branches: Branch[];
+  nodes: ChatNode[];
+}
+
+const id = z.string().min(1).max(64);
+const contextMode = z.enum(['path', 'summary', 'independent']) satisfies z.ZodType<ContextMode>;
+
+export const createTreeRequestSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  systemPrompt: z.string().max(20_000).nullable().optional(),
+  providerId: id.optional(),
+  model: z.string().min(1).max(200).optional(),
+});
+export type CreateTreeRequest = z.infer<typeof createTreeRequestSchema>;
+
+export const updateTreeRequestSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  systemPrompt: z.string().max(20_000).nullable().optional(),
+});
+export type UpdateTreeRequest = z.infer<typeof updateTreeRequestSchema>;
+
+export const createBranchRequestSchema = z.object({
+  /** The branch point: any node of the tree. */
+  fromNodeId: id,
+  contextMode: contextMode.default('path'),
+  anchorQuote: z.string().max(10_000).nullable().optional(),
+  title: z.string().trim().min(1).max(200).optional(),
+  /** Defaults to the parent branch's provider/model. */
+  providerId: id.optional(),
+  model: z.string().min(1).max(200).optional(),
+  isPrivate: z.boolean().optional(),
+});
+export type CreateBranchRequest = z.input<typeof createBranchRequestSchema>;
+
+export const updateBranchRequestSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  contextMode: contextMode.optional(),
+  anchorQuote: z.string().max(10_000).nullable().optional(),
+  isPrivate: z.boolean().optional(),
+  providerId: id.optional(),
+  model: z.string().min(1).max(200).optional(),
+});
+export type UpdateBranchRequest = z.infer<typeof updateBranchRequestSchema>;
+
+export const sendMessageRequestSchema = z.object({
+  content: z.string().min(1).max(200_000),
+});
+export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
+
+/**
+ * Server-sent events on the message stream. Each SSE frame is
+ * `event: <type>\ndata: <JSON StreamEvent>\n\n`.
+ *
+ * Order: `start` → (`status`)* → (`delta` | `usage`)* → exactly one of `done` | `error`.
+ * A reconnect (`GET /api/nodes/:id/stream`) starts with `snapshot` instead of `start`.
+ */
+export type StreamEvent =
+  | { type: 'start'; userNode: ChatNode; assistantNode: ChatNode; branch: Branch }
+  | { type: 'snapshot'; node: ChatNode }
+  | { type: 'status'; message: string }
+  | { type: 'delta'; nodeId: string; text: string }
+  | { type: 'usage'; nodeId: string; usage: Partial<TokenUsage> }
+  | { type: 'done'; node: ChatNode; branch: Branch }
+  | { type: 'error'; nodeId: string | null; message: string; node: ChatNode | null };
+
+export interface ContextPlanResponse {
+  plan: ContextPlan;
+  /** Exactly what would be sent to the provider. */
+  rendered: { system: string | null; messages: { role: 'user' | 'assistant'; content: string }[] };
+  providerId: string;
+  model: string;
+  /** Exact provider count when supported; otherwise null (plan has estimates). */
+  exactInputTokens: number | null;
+}
+
+export const shareScopeSchema = z.enum(['tree', 'subtree', 'path']) satisfies z.ZodType<ShareScope>;
+export const shareModeSchema = z.enum(['snapshot', 'live']) satisfies z.ZodType<ShareMode>;
+
+export const createShareRequestSchema = z
+  .object({
+    treeId: id,
+    scope: shareScopeSchema,
+    /** Required for subtree/path. */
+    nodeId: id.nullable().optional(),
+    includeAncestors: z.boolean().default(false),
+    mode: shareModeSchema.default('snapshot'),
+    title: z.string().trim().max(200).nullable().optional(),
+    expiresAt: z.iso.datetime().nullable().optional(),
+  })
+  .refine((v) => v.scope === 'tree' || !!v.nodeId, {
+    message: 'nodeId is required for subtree and path shares',
+    path: ['nodeId'],
+  });
+export type CreateShareRequest = z.input<typeof createShareRequestSchema>;
+
+export const updateShareRequestSchema = z.object({
+  title: z.string().trim().max(200).nullable().optional(),
+  expiresAt: z.iso.datetime().nullable().optional(),
+});
+export type UpdateShareRequest = z.infer<typeof updateShareRequestSchema>;
+
+export interface ShareSummary extends Share {
+  treeTitle: string;
+  /** Absolute URL of the public viewer page. */
+  url: string;
+  /** Derived: revoked, expired, or active. */
+  state: 'active' | 'revoked' | 'expired';
+}
+
+export const exportQuerySchema = z
+  .object({
+    treeId: id,
+    scope: shareScopeSchema.default('tree'),
+    nodeId: id.optional(),
+    format: z.enum(['md', 'html']).default('md'),
+    includeAncestors: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
+    includePrivate: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
+  })
+  .refine((v) => v.scope === 'tree' || !!v.nodeId, {
+    message: 'nodeId is required for subtree and path exports',
+    path: ['nodeId'],
+  });
+export type ExportQuery = z.infer<typeof exportQuerySchema>;
+
+/** JSON backup of one tree (owner data, including private branches). */
+export interface TreeBackup {
+  format: 'tangent-tree-backup';
+  version: 1;
+  exportedAt: string;
+  tree: Tree;
+  branches: Branch[];
+  nodes: ChatNode[];
+}
+
+const isoDate = z.string().min(1).max(64);
+const role = z.enum(['user', 'assistant', 'system']);
+const nodeStatus = z.enum(['streaming', 'complete', 'error']);
+
+export const treeBackupSchema = z.object({
+  format: z.literal('tangent-tree-backup'),
+  version: z.literal(1),
+  exportedAt: isoDate,
+  tree: z.object({
+    id,
+    title: z.string().max(200),
+    systemPrompt: z.string().max(20_000).nullable(),
+    trunkBranchId: id,
+    createdAt: isoDate,
+    updatedAt: isoDate,
+  }),
+  branches: z.array(
+    z.object({
+      id,
+      treeId: id,
+      parentBranchId: id.nullable(),
+      branchPointNodeId: id.nullable(),
+      contextMode,
+      anchorQuote: z.string().max(10_000).nullable(),
+      title: z.string().max(200),
+      titleSource: z.enum(['default', 'auto', 'user']),
+      isPrivate: z.boolean(),
+      providerId: z.string().max(64),
+      model: z.string().max(200),
+      createdAt: isoDate,
+      updatedAt: isoDate,
+    }),
+  ),
+  nodes: z.array(
+    z.object({
+      id,
+      treeId: id,
+      branchId: id,
+      parentId: id.nullable(),
+      seq: z.number().int().min(0),
+      role,
+      content: z.string().max(1_000_000),
+      status: nodeStatus,
+      error: z.string().nullable(),
+      providerId: z.string().nullable(),
+      model: z.string().nullable(),
+      usage: z.object({ inputTokens: z.number(), outputTokens: z.number() }).nullable(),
+      createdAt: isoDate,
+    }),
+  ),
+});
+
+export type { ProviderInfo };

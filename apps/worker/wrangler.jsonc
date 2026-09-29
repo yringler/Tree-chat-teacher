@@ -1,0 +1,53 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tangent",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-15",
+  // enable_request_signal: lets us observe client disconnects on request.signal.
+  "compatibility_flags": ["enable_request_signal"],
+  // Set to false once a custom domain behind Cloudflare Access is configured (see README).
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "assets": {
+    "directory": "../web/dist/web/browser",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // API and public share routes must reach the Worker even for browser navigations.
+    "run_worker_first": ["/api/*", "/s/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tangent",
+      // Replace with the id printed by `wrangler d1 create tangent` (README step 2).
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "TREE_SESSION", "class_name": "TreeSession" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TreeSession"] }],
+  "ratelimits": [
+    {
+      "name": "SHARE_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 120, "period": 60 }
+    }
+  ],
+  "vars": {
+    // Cloudflare Access: team domain (https://<team>.cloudflareaccess.com) and application AUD tag.
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": "",
+    // Public origin used to build share links; empty = derive from the request URL.
+    "PUBLIC_BASE_URL": "",
+    // JSON array of ProviderConfig; empty = built-in defaults (anthropic, openai, openrouter, fake).
+    "PROVIDERS": "",
+    // Provider/model for summaries; empty = use the branch's provider/model.
+    "SUMMARY_PROVIDER_ID": "",
+    "SUMMARY_MODEL": "",
+    "AUTO_TITLE": "true"
+  }
+  // Secrets (wrangler secret put): ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_TOKEN
+  // Local only (.dev.vars): DEV_ALLOW_NO_AUTH=true
+}
