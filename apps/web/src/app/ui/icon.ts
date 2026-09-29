@@ -1,0 +1,55 @@
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+
+/** Stroke icons (24×24 viewBox, currentColor). Decorative: pair with a text label or aria-label. */
+const PATHS = {
+  menu: 'M4 6h16M4 12h16M4 18h16',
+  plus: 'M12 5v14M5 12h14',
+  x: 'M6 6l12 12M18 6L6 18',
+  chevronRight: 'M9 6l6 6-6 6',
+  chevronDown: 'M6 9l6 6 6-6',
+  lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z',
+  branch:
+    'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
+  copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
+  settings: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6',
+  share: 'M4 12v8h16v-8M12 3v13M7 8l5-5 5 5',
+  download: 'M12 3v12M7 10l5 5 5-5M4 21h16',
+  upload: 'M12 21V9M7 14l5-5 5 5M4 3h16',
+  panel: 'M3 4h18v16H3zM15 4v16',
+  help: 'M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.5',
+  stop: 'M7 7h10v10H7z',
+  send: 'M5 12h14M13 6l6 6-6 6',
+  back: 'M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3',
+  tree: 'M12 3v18M12 8l-5 4M12 13l5 4',
+  external: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
+  trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
+  refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6',
+  edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4',
+} as const;
+
+export type IconName = keyof typeof PATHS;
+
+@Component({
+  selector: 'app-icon',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<svg
+    viewBox="0 0 24 24"
+    [attr.width]="size()"
+    [attr.height]="size()"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path [attr.d]="d()" />
+  </svg>`,
+  host: { class: 'icon' },
+})
+export class Icon {
+  readonly name = input.required<IconName>();
+  readonly size = input(16);
+  protected readonly d = computed(() => PATHS[this.name()]);
+}

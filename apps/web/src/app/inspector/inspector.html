@@ -1,0 +1,140 @@
+<header class="inspector-head">
+  <h2>Context</h2>
+  <button
+    type="button"
+    class="icon-btn"
+    aria-label="Refresh"
+    title="Refresh"
+    [disabled]="loading()"
+    (click)="refresh()"
+  >
+    <app-icon name="refresh" />
+  </button>
+  <button
+    type="button"
+    class="icon-btn"
+    aria-label="Close inspector (i)"
+    (click)="ui.toggleInspector()"
+  >
+    <app-icon name="x" />
+  </button>
+</header>
+
+<p class="muted small">
+  What this branch sends to the model
+  {{
+    store.focusedInPath()
+      ? 'when replying to the focused
+  message'
+      : 'with its next reply'
+  }}.
+</p>
+
+@if (error(); as err) {
+  <p class="notice notice-error" role="alert">{{ err }}</p>
+}
+@if (data(); as d) {
+  <div class="inspector-body" [class.is-stale]="loading()" [attr.aria-busy]="loading()">
+    <dl class="kv">
+      <dt>Model</dt>
+      <dd>{{ store.providerMap().get(d.providerId)?.label ?? d.providerId }} · {{ d.model }}</dd>
+      <dt>Segments</dt>
+      <dd>{{ d.plan.segments.length }}</dd>
+      @if (d.exactInputTokens !== null) {
+        <dt>Exact input</dt>
+        <dd>{{ d.exactInputTokens.toLocaleString() }} tokens</dd>
+      }
+    </dl>
+
+    <div class="budget" [attr.title]="budgetPct() + '% of the input budget'">
+      <div
+        class="budget-bar"
+        role="meter"
+        aria-label="Context budget"
+        [attr.aria-valuenow]="d.plan.budget.usedTokens"
+        aria-valuemin="0"
+        [attr.aria-valuemax]="d.plan.budget.maxInputTokens"
+      >
+        <span [style.width.%]="budgetPct()" [class.budget-high]="budgetPct() > 85"></span>
+      </div>
+      <span class="small muted">
+        ~{{ d.plan.budget.usedTokens.toLocaleString() }} /
+        {{ d.plan.budget.maxInputTokens.toLocaleString() }} tokens (est.)
+      </span>
+    </div>
+
+    @if (d.plan.compaction; as c) {
+      <p class="notice">
+        Compacted: the {{ c.compactedNodeIds.length }} oldest messages were replaced by a summary
+        (~{{ c.tokensBefore.toLocaleString() }} → {{ c.tokensAfter.toLocaleString() }} tokens).
+      </p>
+    }
+    @if (d.plan.truncation; as t) {
+      <p class="notice notice-error">
+        Truncated: {{ t.droppedNodeIds.length }} messages were dropped to fit the budget (~{{
+          t.tokensBefore.toLocaleString()
+        }}
+        → {{ t.tokensAfter.toLocaleString() }} tokens).
+      </p>
+    }
+    @if (!d.plan.complete || pendingCount() > 0) {
+      <div class="notice">
+        <span
+          >{{ pendingCount() || d.plan.pendingSummaries.length }} summary(ies) not generated yet.
+          They are generated on send, or now:</span
+        >
+        <button type="button" class="btn btn-sm" [disabled]="loading()" (click)="resolve()">
+          {{ loading() && resolved() ? 'Resolving…' : 'Resolve summaries' }}
+        </button>
+      </div>
+    }
+
+    <div class="tabs" role="tablist" aria-label="Inspector view">
+      <button
+        type="button"
+        role="tab"
+        [attr.aria-selected]="tab() === 'segments'"
+        (click)="tab.set('segments')"
+      >
+        Segments
+      </button>
+      <button
+        type="button"
+        role="tab"
+        [attr.aria-selected]="tab() === 'rendered'"
+        (click)="tab.set('rendered')"
+      >
+        Rendered prompt
+      </button>
+    </div>
+
+    @if (tab() === 'segments') {
+      <ol class="segments" role="tabpanel">
+        @for (s of d.plan.segments; track s.id) {
+          <li><app-segment-card [segment]="s" (focusNode)="focusNode($event)" /></li>
+        } @empty {
+          <li class="muted small">Nothing is sent yet.</li>
+        }
+      </ol>
+    } @else {
+      <div class="rendered" role="tabpanel">
+        <section class="rendered-msg">
+          <h3>system</h3>
+          @if (d.rendered.system) {
+            <pre>{{ d.rendered.system }}</pre>
+          } @else {
+            <p class="muted small">(none)</p>
+          }
+        </section>
+        @for (m of d.rendered.messages; track $index) {
+          <section class="rendered-msg rendered-{{ m.role }}">
+            <h3>{{ m.role }}</h3>
+            <pre>{{ m.content }}</pre>
+          </section>
+        }
+      </div>
+    }
+  </div>
+} @else if (loading()) {
+  <p class="muted small">Loading…</p>
+}
