@@ -66,7 +66,9 @@ export function sleep(ms: number, signal: AbortSignal | undefined): Promise<void
   const p = new Promise<void>((resolve) => {
     timer = setTimeout(resolve, ms);
   });
-  return abortable(p, signal).finally(() => clearTimeout(timer));
+  return abortable(p, signal).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
 }
 
 const RETRYABLE: ReadonlySet<ProviderErrorCode> = new Set<ProviderErrorCode>([

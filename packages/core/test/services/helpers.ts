@@ -41,8 +41,8 @@ export class ScriptedProvider implements LlmProvider {
 
   kindOf(req: GenerateRequest): 'title' | 'summary' | 'chat' {
     const sys = (req.system ?? '').toLowerCase();
-    if (sys.includes('title')) return 'title';
-    if (sys.includes('summar')) return 'summary';
+    if (sys.startsWith('you write faithful, concise summaries')) return 'summary';
+    if (sys.includes('title') && !sys.includes('## ')) return 'title';
     return 'chat';
   }
 

@@ -346,15 +346,20 @@ export class ChatService {
     let current = plan();
     for (let round = 0; round < MAX_RESOLVE_ROUNDS; round++) {
       // 1. Cache lookups for every pending summary we haven't looked up yet.
+      // Requests can name inner summaries that have no segment of their own
+      // (nested summary modes), so check both.
       let progressed = false;
-      for (const seg of current.segments) {
-        if (seg.kind !== 'summary' || seg.status !== 'pending') continue;
-        const k = summaryKeyString(seg.key);
+      const keys = [
+        ...current.segments.flatMap((s) => (s.kind === 'summary' && s.status === 'pending' ? [s.key] : [])),
+        ...current.pendingSummaries.map((r) => r.key),
+      ];
+      for (const key of keys) {
+        const k = summaryKeyString(key);
         if (lookedUp.has(k)) continue;
         lookedUp.add(k);
         const hit = await this.deps.repos.summaries.getSummary(
-          seg.key.anchorNodeId,
-          seg.key.sourceHash,
+          key.anchorNodeId,
+          key.sourceHash,
           summaryModel,
         );
         if (hit) {
