@@ -102,6 +102,9 @@ importers:
       jose:
         specifier: ^6.2.12
         version: 6.2.12
+      zod:
+        specifier: ^4.4.3
+        version: 4.6.5
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: ^0.22.0
