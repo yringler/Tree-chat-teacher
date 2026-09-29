@@ -106,7 +106,7 @@ code,pre,kbd{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"L
 .forks li a{display:flex;justify-content:space-between;gap:.75rem;padding:.2rem .5rem;border-radius:6px;text-decoration:none}
 .forks li a:hover{background:var(--accent-soft)}
 .forks a.on-path{font-weight:600}
-.forks a.on-path::before{content:"\\25B8\\00A0"}
+.forks a.on-path>span:first-child::before{content:"\\25B8\\00A0"}
 .branch-start{margin:1.75rem 0 1.1rem;padding-top:1rem;border-top:1px dashed var(--border);scroll-margin-top:4.5rem}
 .bs-label{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2rem .5rem;font-size:.75rem;color:var(--muted)}
 .bs-kicker{font-weight:650;letter-spacing:.06em;text-transform:uppercase}
