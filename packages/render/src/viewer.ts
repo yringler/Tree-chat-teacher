@@ -27,8 +27,8 @@ export function renderViewerPage(payload: SharePayload, options: ViewerPageOptio
 /**
  * Content-Security-Policy for viewer pages, e.g.
  * "default-src 'none'; script-src 'sha256-…'; style-src 'sha256-…'; img-src https: data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'".
- * Computed lazily from the constant inline script/style.
+ * Computed (and memoized) from the constant inline script/style with Web Crypto.
  */
-export function viewerCsp(): string {
+export function viewerCsp(): Promise<string> {
   throw new Error('not implemented');
 }
