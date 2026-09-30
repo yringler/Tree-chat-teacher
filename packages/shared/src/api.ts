@@ -38,6 +38,9 @@ import type { ProviderInfo } from './provider.js';
  *   GET    /api/export?treeId=&scope=&nodeId=&format=md|html&includeAncestors= -> file download
  *   GET    /api/trees/:treeId/backup              -> TreeBackup (JSON download)
  *   POST   /api/import            TreeBackup      -> TreeDetail (new ids)
+ *   GET    /api/key/status                        -> KeyStatusResponse
+ *   POST   /api/key              SaveKeyRequest  -> 204 + Set-Cookie (sealed, HttpOnly)
+ *   DELETE /api/key              ForgetKeyRequest -> 204 + Set-Cookie (cleared or re-sealed)
  *
  * Public (no Access; rate-limited; read-only):
  *
@@ -59,6 +62,8 @@ export type ApiErrorCode =
   | 'conflict'
   | 'gone'
   | 'rate_limited'
+  /** 401: no usable API key for the provider (missing, tampered, expired or rotated key cookie). */
+  | 'key_required'
   | 'provider_error'
   | 'internal';
 
@@ -130,6 +135,30 @@ export const sendMessageRequestSchema = z.object({
   content: z.string().min(1).max(200_000),
 });
 export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
+
+/**
+ * Bring-your-own-key. The key is sent once, sealed by the Worker into an
+ * HttpOnly cookie, and never returned by any endpoint.
+ */
+export const saveKeyRequestSchema = z.object({
+  provider: z.string().min(1).max(64),
+  apiKey: z.string().trim().min(1).max(512),
+});
+export type SaveKeyRequest = z.infer<typeof saveKeyRequestSchema>;
+
+/** Omit `provider` to forget every stored key. */
+export const forgetKeyRequestSchema = z.object({
+  provider: z.string().min(1).max(64).optional(),
+});
+export type ForgetKeyRequest = z.infer<typeof forgetKeyRequestSchema>;
+
+export interface KeyStatusResponse {
+  /** False when the server has no KEY_ENCRYPTION_SECRET (keys can't be stored). */
+  enabled: boolean;
+  hasKey: boolean;
+  /** Provider ids with a stored key. Never any part of a key. */
+  providers: string[];
+}
 
 /**
  * Server-sent events on the message stream. Each SSE frame is

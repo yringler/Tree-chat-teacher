@@ -4,6 +4,7 @@ declare global {
   namespace Cloudflare {
     interface Env {
       TEST_MIGRATIONS: D1Migration[];
+      KEY_ENCRYPTION_SECRET: string;
     }
   }
 }

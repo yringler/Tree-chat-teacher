@@ -10,6 +10,12 @@ export interface AppEnv extends Env {
   OPENAI_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
   AI_GATEWAY_TOKEN?: string;
+  /**
+   * 32 random bytes, base64 (`openssl rand -base64 32`). Seals user-supplied
+   * API keys into their cookie. Unset = bring-your-own-key disabled.
+   * Rotating it invalidates every stored key.
+   */
+  KEY_ENCRYPTION_SECRET?: string;
 }
 
 /** Caller identity established by the Access middleware for `/api/*`. */

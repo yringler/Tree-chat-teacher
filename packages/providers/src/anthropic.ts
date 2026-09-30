@@ -21,6 +21,7 @@ import {
   providerError,
   redact,
   resolveCapabilities,
+  resolveApiKey,
   resolveConfigHeaders,
   stripTrailingSlash,
 } from './internal.js';
@@ -81,11 +82,12 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
     if (resolved.missing !== undefined) return { missing: resolved.missing };
     const headers = resolved.headers;
     const secrets = [...resolved.secrets];
-    if (config.apiKeySecret) {
-      const key = env.secrets[config.apiKeySecret];
-      if (!key) return { missing: config.apiKeySecret };
+    const key = resolveApiKey(config, env);
+    if (key) {
       headers['x-api-key'] = key;
       secrets.push(key);
+    } else if (config.apiKeySecret) {
+      return { missing: config.apiKeySecret };
     }
     headers['anthropic-version'] = ANTHROPIC_VERSION;
     headers['content-type'] = 'application/json';

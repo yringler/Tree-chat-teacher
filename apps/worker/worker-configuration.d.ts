@@ -4,6 +4,8 @@
 interface __BaseEnv_Env {
 	DB: D1Database;
 	SHARE_RATE_LIMITER: RateLimit;
+	CHAT_RATE_LIMITER: RateLimit;
+	KEY_RATE_LIMITER: RateLimit;
 	ASSETS: Fetcher;
 	ACCESS_TEAM_DOMAIN: string;
 	ACCESS_AUD: string;

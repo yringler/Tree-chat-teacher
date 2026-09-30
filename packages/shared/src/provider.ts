@@ -118,8 +118,12 @@ export interface ProviderInfo {
   label: string;
   models: ModelInfo[];
   defaultModel: string;
-  /** False when the API key secret is missing. */
+  /** False when neither a user key nor the API key secret is present. */
   available: boolean;
+  /** True when the user may supply their own key for this provider (bring-your-own-key). */
+  acceptsUserKey: boolean;
+  /** Where the key used for this provider comes from; null when it needs none or has none. */
+  keySource: 'user' | 'server' | null;
 }
 
 /** Looks up configured provider instances. Implemented in @tangent/providers. */

@@ -1,12 +1,19 @@
-import { DomainError, HTTP_STATUS, type BeginSendResult, type ChatService } from '@tangent/core';
+import { DomainError, HTTP_STATUS, KeyRequiredError, type BeginSendResult, type ChatService } from '@tangent/core';
 import type { ApiError, ChatNode, StreamEvent } from '@tangent/shared';
 import { DurableObject } from 'cloudflare:workers';
+import { openKeys } from '../byok/keys.js';
 import type { AppEnv } from '../env.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { chatService } from '../services.js';
 
 const KEEPALIVE_MS = 15_000;
 const encoder = new TextEncoder();
+
+/** Body of the internal POST /send. `sealedKeys` is the user's key cookie, still sealed. */
+export interface SessionSendBody {
+  content: string;
+  sealedKeys?: string;
+}
 
 interface Run {
   /** Assistant node with content accumulated so far (for reconnect snapshots). */
@@ -21,7 +28,7 @@ interface Run {
  * reconnect with a snapshot, and serializes sends per tree.
  *
  * Internal protocol (called only by the Worker, never exposed):
- *   POST /send?treeId=&branchId=   body {content}   → SSE
+ *   POST /send?treeId=&branchId=   body SessionSendBody → SSE
  *   GET  /stream?treeId=&nodeId=                    → SSE (snapshot, then live)
  *   POST /cancel?treeId=&nodeId=                    → 204
  */
@@ -38,8 +45,12 @@ export class TreeSession extends DurableObject<AppEnv> {
     try {
       await this.recoverOnce(chat, treeId);
       if (request.method === 'POST' && url.pathname === '/send') {
-        const { content } = (await request.json()) as { content: string };
-        return await this.send(chat, url.searchParams.get('branchId') ?? '', content);
+        const { content, sealedKeys } = (await request.json()) as SessionSendBody;
+        // Keys stay in memory only for this generation (the ChatService closes over them).
+        const keys = await openKeys(sealedKeys, this.env);
+        if (keys.state === 'invalid') throw new KeyRequiredError('Your stored API key could not be read. Enter it again.');
+        const sendChat = keys.state === 'ok' ? chatService(this.env, undefined, keys.keys) : chat;
+        return await this.send(sendChat, url.searchParams.get('branchId') ?? '', content);
       }
       if (request.method === 'GET' && url.pathname === '/stream') {
         return await this.reconnect(chat, url.searchParams.get('nodeId') ?? '');

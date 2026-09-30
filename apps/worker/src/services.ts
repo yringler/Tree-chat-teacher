@@ -3,18 +3,32 @@ import {
   createProviderRegistry,
   DEFAULT_PROVIDER_CONFIGS,
   parseProviderConfigs,
+  type ProviderEnv,
 } from '@tangent/providers';
-import type { ProviderRegistry } from '@tangent/shared';
+import type { ProviderConfig, ProviderRegistry } from '@tangent/shared';
 import { createD1Repositories } from './db/d1-repositories.js';
 import type { AppEnv } from './env.js';
 
-/** The only place Worker env is translated into runtime-agnostic services. */
-export function providerRegistry(env: AppEnv): ProviderRegistry {
-  const configs = env.PROVIDERS?.trim() ? parseProviderConfigs(env.PROVIDERS) : DEFAULT_PROVIDER_CONFIGS;
-  // Secrets and vars share the env object; providers look up only the names they are configured with.
+/** Provider id → user-supplied API key (bring-your-own-key, see byok/keys.ts). */
+export type UserApiKeys = Readonly<Record<string, string>>;
+
+export function providerConfigs(env: AppEnv): ProviderConfig[] {
+  return env.PROVIDERS?.trim() ? parseProviderConfigs(env.PROVIDERS) : DEFAULT_PROVIDER_CONFIGS;
+}
+
+/** Secrets and vars share the env object; providers look up only the names they are configured with. */
+export function providerEnv(env: AppEnv, apiKeys?: UserApiKeys): ProviderEnv {
   const secrets: Record<string, string | undefined> = {};
-  for (const [k, v] of Object.entries(env)) if (typeof v === 'string') secrets[k] = v;
-  return createProviderRegistry(configs, { secrets });
+  for (const [k, v] of Object.entries(env)) {
+    // The cookie-sealing secret is never a provider credential.
+    if (typeof v === 'string' && k !== 'KEY_ENCRYPTION_SECRET') secrets[k] = v;
+  }
+  return apiKeys ? { secrets, apiKeys } : { secrets };
+}
+
+/** The only place Worker env is translated into runtime-agnostic services. */
+export function providerRegistry(env: AppEnv, apiKeys?: UserApiKeys): ProviderRegistry {
+  return createProviderRegistry(providerConfigs(env), providerEnv(env, apiKeys));
 }
 
 export function chatSettings(env: AppEnv): ChatSettings {
@@ -26,12 +40,16 @@ export function chatSettings(env: AppEnv): ChatSettings {
   };
 }
 
-/** `accountId` defaults to the built-in account (used by the Durable Object, which works by branch/node id). */
-export function chatService(env: AppEnv, accountId?: string): ChatService {
+/**
+ * `accountId` defaults to the built-in account (used by the Durable Object,
+ * which works by branch/node id). `apiKeys` override server secrets per
+ * provider for everything this service generates (replies, summaries, titles).
+ */
+export function chatService(env: AppEnv, accountId?: string, apiKeys?: UserApiKeys): ChatService {
   return new ChatService({
     repos: createD1Repositories(env.DB),
     ...(accountId ? { accountId } : {}),
-    providers: providerRegistry(env),
+    providers: providerRegistry(env, apiKeys),
     settings: chatSettings(env),
   });
 }

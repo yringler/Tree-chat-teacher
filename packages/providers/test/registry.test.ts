@@ -96,7 +96,16 @@ describe('provider registry', () => {
     expect(json).not.toContain('secret-value');
     expect(json).not.toContain('OPENROUTER_API_KEY');
     expect(json).not.toContain('https://');
-    expect(Object.keys(reg.list()[0]!).sort()).toEqual(['available', 'defaultModel', 'id', 'kind', 'label', 'models']);
+    expect(Object.keys(reg.list()[0]!).sort()).toEqual([
+      'acceptsUserKey',
+      'available',
+      'defaultModel',
+      'id',
+      'keySource',
+      'kind',
+      'label',
+      'models',
+    ]);
   });
 
   it('streams through an available fake provider', async () => {

@@ -14,10 +14,14 @@ import {
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { assertGenerationAllowed, enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
+import { readKeys, requireReadableKeys } from '../byok/keys.js';
+import type { SessionSendBody } from '../do/tree-session.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { validateJson, validateQuery } from '../http/errors.js';
 import { purgeShare } from '../share/cache.js';
 import { chatService, providerRegistry, shareService } from '../services.js';
+import { keyRoutes } from './key.js';
 
 const contextQuerySchema = z.object({
   nodeId: z.string().min(1).max(64).optional(),
@@ -36,7 +40,13 @@ export function apiRoutes(): Hono<AppBindings> {
     return c.json({ email, devMode, accountId: c.var.accountId } satisfies MeResponse);
   });
 
-  api.get('/providers', (c) => c.json(providerRegistry(c.env).list()));
+  api.get('/providers', async (c) => {
+    // An unreadable key cookie simply counts as no user keys here; /key/status clears it.
+    const keys = await readKeys(c);
+    return c.json(providerRegistry(c.env, keys.state === 'ok' ? keys.keys : undefined).list());
+  });
+
+  api.route('/key', keyRoutes());
 
   // ---- trees
   api.get('/trees', async (c) => c.json(await chatService(c.env, c.var.accountId).listTrees()));
@@ -70,9 +80,12 @@ export function apiRoutes(): Hono<AppBindings> {
   api.patch('/branches/:branchId', validateJson(updateBranchRequestSchema), async (c) =>
     c.json(await chatService(c.env, c.var.accountId).updateBranch(c.req.param('branchId'), c.req.valid('json'))),
   );
-  api.get('/branches/:branchId/context', validateQuery(contextQuerySchema), async (c) => {
+  api.get('/branches/:branchId/context', sameOriginOnly, validateQuery(contextQuerySchema), async (c) => {
     const q = c.req.valid('query');
-    const res = await chatService(c.env, c.var.accountId).planContext(c.req.param('branchId'), q.nodeId ?? null, {
+    const keys = await requireReadableKeys(c);
+    // resolve=true may generate summaries (billed); a plain plan only counts tokens.
+    if (q.resolve) await enforceRateLimit(c, keys, 'chat');
+    const res = await chatService(c.env, c.var.accountId, keys?.keys).planContext(c.req.param('branchId'), q.nodeId ?? null, {
       resolveSummaries: q.resolve,
       signal: c.req.raw.signal,
     });
@@ -80,13 +93,20 @@ export function apiRoutes(): Hono<AppBindings> {
   });
 
   // ---- messages (delegated to the tree's Durable Object)
-  api.post('/branches/:branchId/messages', validateJson(sendMessageRequestSchema), async (c) => {
+  api.post('/branches/:branchId/messages', sameOriginOnly, validateJson(sendMessageRequestSchema), async (c) => {
     const branchId = c.req.param('branchId');
-    const branch = await chatService(c.env, c.var.accountId).deps.repos.trees.getBranch(branchId);
+    const keys = await requireReadableKeys(c);
+    const chat = chatService(c.env, c.var.accountId, keys?.keys);
+    const branch = await chat.deps.repos.trees.getBranch(branchId);
     if (!branch) throw new NotFoundError('Branch');
+    assertGenerationAllowed(chat.deps.providers, branch.providerId, branch.model);
+    await enforceRateLimit(c, keys, 'chat');
+    // The Durable Object gets the still-sealed cookie value in the body (never
+    // a header, which request logs may capture) and opens it itself.
+    const body: SessionSendBody = { ...c.req.valid('json'), ...(keys ? { sealedKeys: keys.sealed } : {}) };
     return session(c.env, branch.treeId).fetch(
       sessionUrl('/send', { treeId: branch.treeId, branchId }),
-      { method: 'POST', body: JSON.stringify(c.req.valid('json')) },
+      { method: 'POST', body: JSON.stringify(body) },
     );
   });
   api.get('/nodes/:nodeId/stream', async (c) => {

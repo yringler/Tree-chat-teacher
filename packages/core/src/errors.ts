@@ -43,6 +43,14 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   conflict: 409,
   gone: 410,
   rate_limited: 429,
+  key_required: 401,
   provider_error: 502,
   internal: 500,
 };
+
+/** No usable API key for the provider (missing, or an unreadable key cookie). */
+export class KeyRequiredError extends DomainError {
+  constructor(message: string) {
+    super('key_required', message);
+  }
+}

@@ -94,6 +94,8 @@ export function registryOf(...providers: LlmProvider[]): ProviderRegistry {
         models: p.models(),
         defaultModel: p.defaultModel(),
         available: true,
+        acceptsUserKey: p.kind !== 'fake',
+        keySource: null,
       })),
     defaultProviderId: () => providers[0]!.id,
   };

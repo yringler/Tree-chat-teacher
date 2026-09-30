@@ -3,17 +3,30 @@ import type {
   ModelInfo,
   ProviderConfig,
   ProviderError,
+  ProviderInfo,
   ProviderKind,
   ProviderRegistry,
 } from '@tangent/shared';
 import { createAnthropicProvider } from './anthropic.js';
 import { createFakeProvider } from './fake.js';
 import { createOpenAiCompatibleProvider } from './openai-compatible.js';
-import { ProviderFailure, guardStream, isRecord, missingSecretError, providerError } from './internal.js';
+import {
+  ProviderFailure,
+  guardStream,
+  isRecord,
+  missingSecretError,
+  providerError,
+  resolveApiKey,
+} from './internal.js';
 
 export interface ProviderEnv {
   /** Secret name → value (Worker secrets / process.env). */
   secrets: Readonly<Record<string, string | undefined>>;
+  /**
+   * Provider id → API key supplied by the user for this request
+   * (bring-your-own-key). Takes precedence over `apiKeySecret`.
+   */
+  apiKeys?: Readonly<Record<string, string>>;
   /** Injected fetch (tests). Defaults to globalThis.fetch. */
   fetch?: typeof fetch;
 }
@@ -248,6 +261,7 @@ function unavailableReason(config: ProviderConfig, env: ProviderEnv): ProviderEr
     if (!env.secrets[name]) return missingSecretError(name);
   }
   if (config.kind === 'fake') return undefined;
+  if (resolveApiKey(config, env)) return undefined;
   if (config.apiKeySecret) return env.secrets[config.apiKeySecret] ? undefined : missingSecretError(config.apiKeySecret);
   // No key configured: only a keyless local/self-hosted OpenAI-compatible server is usable.
   if (config.kind === 'openai-compatible' && config.baseUrl) return undefined;
@@ -271,15 +285,31 @@ function unavailableProvider(inner: LlmProvider, error: ProviderError): LlmProvi
   };
 }
 
+/** Whether a user-supplied key can be used with this config (every kind but fake). */
+export function acceptsUserKey(config: Pick<ProviderConfig, 'kind'>): boolean {
+  return config.kind !== 'fake';
+}
+
+function keySourceOf(config: ProviderConfig, env: ProviderEnv): ProviderInfo['keySource'] {
+  if (!acceptsUserKey(config)) return null;
+  if (env.apiKeys?.[config.id]) return 'user';
+  if (config.apiKeySecret && env.secrets[config.apiKeySecret]) return 'server';
+  return null;
+}
+
 /**
- * A provider is `available` when its kind needs no key (fake) or its
- * apiKeySecret resolves to a non-empty secret. Unavailable providers are
+ * A provider is `available` when its kind needs no key (fake), the caller
+ * supplied a key for it (`env.apiKeys`) or its apiKeySecret resolves to a
+ * non-empty secret. Unavailable providers are
  * still listed (so the UI can explain), but `get` returns an instance whose
  * stream yields error{code:'config'}.
  */
 export function createProviderRegistry(configs: readonly ProviderConfig[], env: ProviderEnv): ProviderRegistry {
   if (configs.length === 0) throw new Error('Invalid provider config: no providers configured');
-  const entries = new Map<string, { config: ProviderConfig; provider: LlmProvider; available: boolean }>();
+  const entries = new Map<
+    string,
+    { config: ProviderConfig; provider: LlmProvider; available: boolean; keySource: ProviderInfo['keySource'] }
+  >();
   for (const config of configs) {
     if (entries.has(config.id)) throw new Error(`Invalid provider config: duplicate provider id "${config.id}"`);
     const factory = PROVIDER_FACTORIES[config.kind];
@@ -289,6 +319,7 @@ export function createProviderRegistry(configs: readonly ProviderConfig[], env: 
       config,
       provider: reason === undefined ? real : unavailableProvider(real, reason),
       available: reason === undefined,
+      keySource: keySourceOf(config, env),
     });
   }
   const all = [...entries.values()];
@@ -300,13 +331,15 @@ export function createProviderRegistry(configs: readonly ProviderConfig[], env: 
   return {
     get: (providerId) => entries.get(providerId)?.provider,
     list: () =>
-      all.map(({ provider, available }) => ({
+      all.map(({ config, provider, available, keySource }) => ({
         id: provider.id,
         kind: provider.kind,
         label: provider.label,
         models: provider.models(),
         defaultModel: provider.defaultModel(),
         available,
+        acceptsUserKey: acceptsUserKey(config),
+        keySource,
       })),
     defaultProviderId: () => defaultId,
   };

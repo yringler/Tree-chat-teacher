@@ -1,0 +1,147 @@
+import { KeyRequiredError } from '@tangent/core';
+import type { ProviderConfig } from '@tangent/shared';
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
+import { z } from 'zod';
+import type { AppContext, AppEnv } from '../env.js';
+import { open, seal, UnsealError } from './seal.js';
+
+/**
+ * Bring-your-own-key storage. The user's provider keys live only in the
+ * browser, as one AES-GCM-sealed HttpOnly cookie (`__Host-llmkey`). The
+ * Worker opens it per request and never persists or logs the plaintext.
+ *
+ * One cookie holds a map of provider id → key rather than one cookie per
+ * provider: a conversation can switch providers per branch, and summaries or
+ * titles may run on a different provider than the branch, so every
+ * provider-calling request needs the whole set. One cookie means one decrypt,
+ * atomic updates, and one name to clear on "forget".
+ */
+
+/** Cookie name without the `__Host-` prefix, which hono adds (and enforces Secure + Path=/). */
+const COOKIE = 'llmkey';
+export const KEY_COOKIE_NAME = `__Host-${COOKIE}`;
+export const KEY_TTL_SECONDS = 7 * 24 * 60 * 60;
+/** Stay under the ~4096-byte per-cookie limit browsers enforce. */
+const MAX_SEALED_LENGTH = 3800;
+
+const payloadSchema = z.object({
+  keys: z.record(z.string().min(1).max(64), z.string().min(1).max(512)),
+  /** Unix seconds. Enforced server-side too, so a replayed old cookie stops working. */
+  exp: z.number().int(),
+});
+type KeyPayload = z.infer<typeof payloadSchema>;
+
+export type UserKeys =
+  | { state: 'none' }
+  /** A cookie was sent but can't be used: tampered, expired, malformed, or sealed with a rotated secret. */
+  | { state: 'invalid' }
+  | { state: 'ok'; keys: Readonly<Record<string, string>>; exp: number; sealed: string };
+
+/** The configured secret, or null when bring-your-own-key is disabled. */
+export function keySecret(env: AppEnv): string | null {
+  return env.KEY_ENCRYPTION_SECRET?.trim() || null;
+}
+
+const nowSeconds = (): number => Math.floor(Date.now() / 1000);
+
+/** Opens a sealed key cookie value. Never throws for a bad value (only for a broken server secret). */
+export async function openKeys(sealed: string | undefined, env: AppEnv): Promise<UserKeys> {
+  if (!sealed) return { state: 'none' };
+  const secret = keySecret(env);
+  if (!secret) return { state: 'invalid' };
+  let payload: KeyPayload;
+  try {
+    const parsed = payloadSchema.safeParse(JSON.parse(await open(sealed, secret)));
+    if (!parsed.success) return { state: 'invalid' };
+    payload = parsed.data;
+  } catch (err) {
+    if (err instanceof UnsealError || err instanceof SyntaxError) return { state: 'invalid' };
+    throw err;
+  }
+  if (payload.exp <= nowSeconds()) return { state: 'invalid' };
+  return { state: 'ok', keys: payload.keys, exp: payload.exp, sealed };
+}
+
+export function readKeys(c: AppContext): Promise<UserKeys> {
+  return openKeys(getCookie(c, COOKIE, 'host'), c.env);
+}
+
+/**
+ * For routes that call a provider. Returns the user's keys (null when no
+ * cookie was sent: server secrets apply). An unreadable cookie is cleared
+ * and answered with 401 key_required so the UI asks for the key again.
+ */
+export async function requireReadableKeys(
+  c: AppContext,
+): Promise<Extract<UserKeys, { state: 'ok' }> | null> {
+  const keys = await readKeys(c);
+  if (keys.state === 'ok') return keys;
+  if (keys.state === 'invalid') {
+    clearKeyCookie(c);
+    throw new KeyRequiredError(
+      'Your stored API key could not be read (it expired or was reset). Enter it again.',
+    );
+  }
+  return null;
+}
+
+/** Seals `keys` into the cookie (or clears it when empty). */
+export async function writeKeys(
+  c: AppContext,
+  keys: Record<string, string>,
+  exp: number,
+): Promise<void> {
+  if (Object.keys(keys).length === 0) {
+    clearKeyCookie(c);
+    return;
+  }
+  const secret = keySecret(c.env);
+  if (!secret) throw new Error('writeKeys called without KEY_ENCRYPTION_SECRET');
+  const sealed = await seal(JSON.stringify({ keys, exp } satisfies KeyPayload), secret);
+  if (sealed.length > MAX_SEALED_LENGTH) throw new KeyTooLargeError();
+  setCookie(c, COOKIE, sealed, {
+    prefix: 'host',
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Strict',
+    path: '/',
+    maxAge: Math.max(0, exp - nowSeconds()),
+  });
+}
+
+export function freshExpiry(): number {
+  return nowSeconds() + KEY_TTL_SECONDS;
+}
+
+export function clearKeyCookie(c: AppContext): void {
+  deleteCookie(c, COOKIE, {
+    prefix: 'host',
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Strict',
+    path: '/',
+  });
+}
+
+export class KeyTooLargeError extends Error {
+  constructor() {
+    super('Too many or too long API keys to store in one cookie');
+    this.name = 'KeyTooLargeError';
+  }
+}
+
+/**
+ * Cheap offline shape check before anything is sealed or sent upstream.
+ * Returns a user-facing problem, or null when the key looks plausible.
+ */
+export function keyShapeProblem(config: ProviderConfig, apiKey: string): string | null {
+  if (!/^[\x21-\x7e]+$/.test(apiKey)) return 'An API key has no spaces or special characters';
+  if (apiKey.length < 20) return 'That is too short to be an API key';
+  if (config.kind === 'anthropic' && !config.baseUrl && !apiKey.startsWith('sk-ant-')) {
+    return 'Anthropic API keys start with "sk-ant-"';
+  }
+  if (config.kind === 'openai-compatible' && !config.baseUrl && !apiKey.startsWith('sk-')) {
+    return 'OpenAI API keys start with "sk-"';
+  }
+  return null;
+}

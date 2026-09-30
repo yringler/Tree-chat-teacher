@@ -7,6 +7,9 @@
   "compatibility_flags": ["enable_request_signal"],
   // Set to false once a custom domain behind Cloudflare Access is configured (see README).
   "workers_dev": true,
+  // Logs never contain user API keys: our code doesn't log request headers or bodies, the sealed key
+  // cookie reaches the Durable Object in a request body, and outbound provider calls aren't logged.
+  // Don't add request logging that dumps headers (Cookie) or bodies of /api/key.
   "observability": { "enabled": true },
   "assets": {
     "directory": "../web/dist/web/browser",
@@ -33,6 +36,18 @@
       "name": "SHARE_RATE_LIMITER",
       "namespace_id": "1001",
       "simple": { "limit": 120, "period": 60 }
+    },
+    {
+      // Requests that spend a user-supplied API key, per key cookie (see src/byok/guard.ts).
+      "name": "CHAT_RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": { "limit": 30, "period": 60 }
+    },
+    {
+      // Saving a key (each save makes one verification call upstream), per account.
+      "name": "KEY_RATE_LIMITER",
+      "namespace_id": "1003",
+      "simple": { "limit": 10, "period": 60 }
     }
   ],
   "vars": {
@@ -48,6 +63,7 @@
     "SUMMARY_MODEL": "",
     "AUTO_TITLE": "true"
   }
-  // Secrets (wrangler secret put): ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_TOKEN
+  // Secrets (wrangler secret put): ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_TOKEN,
+  //   KEY_ENCRYPTION_SECRET (`openssl rand -base64 32`; enables bring-your-own-key, rotate to revoke all stored keys)
   // Local only (.dev.vars): DEV_ALLOW_NO_AUTH=true
 }

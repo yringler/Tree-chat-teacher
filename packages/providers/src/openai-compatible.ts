@@ -22,6 +22,7 @@ import {
   providerError,
   redact,
   resolveCapabilities,
+  resolveApiKey,
   resolveConfigHeaders,
   stripTrailingSlash,
 } from './internal.js';
@@ -77,14 +78,12 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
     const secrets = [...resolved.secrets];
     let missing = resolved.missing;
     const headers = resolved.headers;
-    if (config.apiKeySecret) {
-      const key = env.secrets[config.apiKeySecret];
-      if (key) {
-        headers['authorization'] = `Bearer ${key}`;
-        secrets.push(key);
-      } else {
-        missing ??= config.apiKeySecret;
-      }
+    const key = resolveApiKey(config, env);
+    if (key) {
+      headers['authorization'] = `Bearer ${key}`;
+      secrets.push(key);
+    } else if (config.apiKeySecret) {
+      missing ??= config.apiKeySecret;
     }
     headers['content-type'] = 'application/json';
 

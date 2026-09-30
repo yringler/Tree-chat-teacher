@@ -278,6 +278,16 @@ export function resolveConfigHeaders(config: ProviderConfig, env: ProviderEnv): 
   return out;
 }
 
+/**
+ * The API key for `config`: the caller-supplied key for this provider id
+ * (bring-your-own-key) wins over the configured secret.
+ */
+export function resolveApiKey(config: ProviderConfig, env: ProviderEnv): string | undefined {
+  const own = env.apiKeys?.[config.id];
+  if (own) return own;
+  return config.apiKeySecret ? env.secrets[config.apiKeySecret] || undefined : undefined;
+}
+
 export function getFetch(env: ProviderEnv): typeof fetch {
   return env.fetch ?? ((input, init) => globalThis.fetch(input, init));
 }

@@ -54,7 +54,7 @@ function textOf(events: StreamEvent[]): string {
 describe('owner API', () => {
   it('lists providers without secrets', async () => {
     const providers = await ok<ProviderInfo[]>(call('/api/providers'));
-    expect(providers.map((p) => p.id)).toEqual(['fake', 'slow']);
+    expect(providers.map((p) => p.id)).toEqual(['fake', 'slow', 'ant']);
     expect(JSON.stringify(providers)).not.toMatch(/apiKey|baseUrl/);
   });
 
