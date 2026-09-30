@@ -66,3 +66,19 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
   - Imports are assigned to the importing account.
 - **Not scoped yet (the remaining multi-user step):** routes addressed only by branch or node id (`/api/branches/:id`, `/api/nodes/:id/*`, the Durable Object). They would need a tree-ownership check before multi-user. Provider keys and budgets are also global.
 - **`account_id` has no FK constraint.** SQLite cannot `ALTER TABLE … ADD COLUMN` with `REFERENCES` and a non-null default.
+
+## Bring-your-own-key
+- **User keys live only in the browser, as one AES-256-GCM-sealed HttpOnly cookie (`__Host-llmkey`).** Only the Worker has the secret (`KEY_ENCRYPTION_SECRET`). We rejected localStorage/IndexedDB, where XSS or a compromised dependency can read the key, and client-side passphrase or WebCrypto schemes, where XSS can simply call `decrypt()`.
+- **One cookie holds a map of provider id → key**, not one cookie per provider. Branches pick their provider, and summaries or titles can run on another one, so every provider-calling request needs the whole set. One cookie also means one decrypt, atomic updates, and a single "forget".
+- **The sealed format is `v1.` + base64url(iv ‖ ciphertext ‖ tag).** It uses a fresh 12-byte IV per seal and AAD `tangent/llmkey/v1`. The payload carries `exp`, which is enforced server-side as well as by `Max-Age`. Every failure to open it means "no key" (401 `key_required` plus clearing the cookie), never a 500.
+- **User keys override server secrets per provider id** through `ProviderEnv.apiKeys`. A provider with no `apiKeySecret` becomes available once the user supplies a key.
+- **The Durable Object receives the still-sealed cookie value in the internal request body** and opens it itself. The body is not logged, whereas headers may be. The plaintext key lives only in the ChatService for that generation.
+- **Generations still outlive the tab.** This is the existing reconnect design, so closing the tab does not abort. The Stop button (`/cancel`) aborts the upstream request, which stops billing.
+- **The proxy is the abuse boundary**, because XSS can still ride the cookie:
+  - requests must be same-origin (a `same-site` subdomain is rejected too, which SameSite alone allows);
+  - the model must be in the provider config;
+  - `max_tokens` is server-set;
+  - there are 30 generations/min per cookie, bucketed by the SHA-256 of the sealed value;
+  - saving a key (which makes a verification call) is limited per account.
+- **Key verification is `GET /v1/models` (Anthropic) or `GET {baseUrl}/models` (OpenAI-compatible).** Only 401/403 rejects a key; if the provider is unreachable, saving is not blocked. OpenRouter's `/models` is public, so there the check proves nothing.
+- **The web app gets a strict CSP via Workers Static Assets `_headers`**: `script-src 'self'`, `connect-src 'self'`, `img-src 'self'`, Trusted Types (`angular`, `angular#bundler`). Critical-CSS inlining is off because it needs an inline script. zod runs `jitless`, because its `new Function` probe is reported as a violation.

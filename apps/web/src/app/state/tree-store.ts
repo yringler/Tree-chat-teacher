@@ -16,6 +16,7 @@ import type {
   Branch,
   ChatNode,
   CreateBranchRequest,
+  KeyStatusResponse,
   MeResponse,
   ProviderInfo,
   ShareScope,
@@ -61,6 +62,8 @@ export class TreeStore {
   // Global data
   readonly me = signal<MeResponse | null>(null);
   readonly providers = signal<ProviderInfo[]>([]);
+  /** Which providers have a user-supplied key stored (never the key itself). */
+  readonly keyStatus = signal<KeyStatusResponse | null>(null);
   readonly trees = signal<TreeSummary[]>([]);
   readonly treesLoaded = signal(false);
 
@@ -177,12 +180,51 @@ export class TreeStore {
         (m) => this.me.set(m),
         (e: unknown) => this.fail(e),
       ),
+      this.refreshKeys(),
+      this.loadTrees(),
+    ]);
+  }
+
+  // API keys (bring-your-own-key)
+
+  /** Key status and provider availability both change when a key is saved or forgotten. */
+  async refreshKeys(): Promise<void> {
+    await Promise.all([
+      this.api.keyStatus().then(
+        (s) => this.keyStatus.set(s),
+        (e: unknown) => this.fail(e),
+      ),
       this.api.providers().then(
         (p) => this.providers.set(p),
         (e: unknown) => this.fail(e),
       ),
-      this.loadTrees(),
     ]);
+  }
+
+  /**
+   * Sends the key to the Worker once. It is sealed into an HttpOnly cookie
+   * and nothing here keeps a copy.
+   */
+  async saveKey(provider: string, apiKey: string): Promise<boolean> {
+    try {
+      await this.api.saveKey(provider, apiKey);
+      return true;
+    } catch (err) {
+      this.fail(err);
+      return false;
+    } finally {
+      await this.refreshKeys();
+    }
+  }
+
+  async forgetKey(provider?: string): Promise<void> {
+    try {
+      await this.api.forgetKey(provider);
+    } catch (err) {
+      this.fail(err);
+    } finally {
+      await this.refreshKeys();
+    }
   }
 
   async loadTrees(): Promise<void> {
@@ -589,5 +631,12 @@ export class TreeStore {
   fail(err: unknown): void {
     console.error(err);
     this.ui.notify(errorMessage(err), 'error');
+    if (err instanceof ApiError && err.code === 'key_required') {
+      // Missing, expired or reset key: ask for it for the provider in use.
+      void this.refreshKeys();
+      if (!this.ui.keysDialog()) {
+        this.ui.keysDialog.set({ provider: this.selectedBranch()?.providerId ?? null });
+      }
+    }
   }
 }

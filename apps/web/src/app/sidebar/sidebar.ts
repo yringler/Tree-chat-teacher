@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
@@ -80,6 +80,17 @@ import { OutlineItem } from './outline-item';
       >
         <app-icon name="share" /> Shares
       </a>
+      <button
+        type="button"
+        class="btn btn-ghost"
+        [attr.title]="keyTitle()"
+        (click)="ui.keysDialog.set({ provider: null }); ui.drawerOpen.set(false)"
+      >
+        <app-icon name="key" /> Keys
+        @if (store.keyStatus()?.hasKey) {
+          <span class="dot-key" aria-label="Your key is stored"></span>
+        }
+      </button>
       <app-import-button />
     </div>
   `,
@@ -88,4 +99,10 @@ import { OutlineItem } from './outline-item';
 export class Sidebar {
   protected readonly store = inject(TreeStore);
   protected readonly ui = inject(UiStore);
+  protected readonly keyTitle = computed(() => {
+    const ids = this.store.keyStatus()?.providers ?? [];
+    if (ids.length === 0) return 'API keys: none of your own stored';
+    const labels = ids.map((id) => this.store.providerMap().get(id)?.label ?? id);
+    return `API keys: yours for ${labels.join(', ')}`;
+  });
 }

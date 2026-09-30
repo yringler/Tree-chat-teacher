@@ -41,6 +41,8 @@ export class UiStore {
   readonly treeSettingsOpen = signal(false);
   readonly shareDialogOpen = signal(false);
   readonly exportMenuOpen = signal(false);
+  /** API keys dialog; `provider` preselects the provider to enter a key for. */
+  readonly keysDialog = signal<{ provider: string | null } | null>(null);
   /** Outline items the user collapsed (by branch id). */
   readonly collapsed = signal<ReadonlySet<string>>(new Set());
   /** Bumped to ask the composer to take focus. */
@@ -73,12 +75,17 @@ export class UiStore {
       this.branchSettingsOpen() ||
       this.treeSettingsOpen() ||
       this.shareDialogOpen() ||
-      this.shortcutsOpen()
+      this.shortcutsOpen() ||
+      this.keysDialog() !== null
     );
   }
 
   /** Escape: closes the top-most overlay. Returns true if something closed. */
   closeTop(): boolean {
+    if (this.keysDialog()) {
+      this.keysDialog.set(null);
+      return true;
+    }
     if (this.branchDialog()) {
       this.branchDialog.set(null);
       return true;

@@ -75,6 +75,10 @@ All commands run from `apps/worker` (use `npx wrangler …` or `pnpm exec wrangl
    npx wrangler secret put OPENAI_API_KEY        # optional
    npx wrangler secret put OPENROUTER_API_KEY    # optional
    ```
+   Provider secrets are optional if users bring their own keys. To allow that, set the key-sealing secret (next section):
+   ```bash
+   openssl rand -base64 32 | npx wrangler secret put KEY_ENCRYPTION_SECRET
+   ```
 5. **Attach a custom domain.** Add this to `wrangler.jsonc`:
    ```jsonc
    "routes": [{ "pattern": "tangent.example.com", "custom_domain": true }]
@@ -123,6 +127,8 @@ The Worker **fails closed**: every `/api/*` request returns 500 until Access is 
 | `AUTO_TITLE` | var | `false` disables automatic branch/tree titles |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` | secret | Provider keys, referenced by name from provider configs |
 | `AI_GATEWAY_TOKEN` | secret | Optional, for an authenticated AI Gateway |
+| `KEY_ENCRYPTION_SECRET` | secret | 32 random bytes, base64 (`openssl rand -base64 32`). Enables bring-your-own-key; rotating it revokes every stored user key |
+| `CHAT_RATE_LIMITER`, `KEY_RATE_LIMITER` | rate limit binding | Requests spending a user key (30/min per key cookie); key saves (10/min per account) |
 | `DEV_ALLOW_NO_AUTH` | `.dev.vars` only | Skip Access locally |
 
 **Providers.** Each provider instance in `PROVIDERS` has `id`, `kind` (`anthropic` | `openai-compatible` | `fake`), `label`, `models`, `defaultModel` and `apiKeySecret`. It can also take `baseUrl`, `headers`, `extraHeaderSecrets`, `maxContextTokens`, `maxOutputTokens`, `supportsSystemPrompt` and `options`. Any OpenAI-compatible endpoint is config only:
@@ -143,6 +149,21 @@ The Worker **fails closed**: every `/api/*` request returns 500 until Access is 
 - OpenRouter: `…/openrouter/v1`
 
 For an authenticated gateway, add `"extraHeaderSecrets": { "cf-aig-authorization": "AI_GATEWAY_TOKEN" }` and store `Bearer <token>` in that secret. Gateway caching does not apply to streamed chat, so it is off.
+
+### Bring your own key
+
+With `KEY_ENCRYPTION_SECRET` set, users can paste their own Anthropic / OpenAI / OpenRouter key under **Keys** in the sidebar. A user key overrides the server secret for that provider, for replies, summaries and titles alike.
+
+- The browser sends the key once (`POST /api/key`). The Worker checks it with one unbilled provider call (`GET /v1/models`), then seals `{ keys, exp }` with AES-256-GCM and returns it as `__Host-llmkey` (`HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=604800`). The server stores nothing. Page scripts can't read the cookie, and the input field is cleared as soon as the key is sent.
+- Each chat request carries the cookie back. The Worker decrypts it in memory, calls the provider and streams the reply. No endpoint returns any part of a key.
+- If the cookie is tampered with, expired, or sealed with an older secret, the request gets `401 key_required`, the cookie is cleared and the UI asks for the key again. **Rotating `KEY_ENCRYPTION_SECRET` revokes every stored key.**
+- Limits on the proxy: same-origin requests only (`Sec-Fetch-Site`), JSON bodies only on mutations, models limited to the provider config, output tokens capped server-side, and a rate limit per key cookie.
+- Trade-offs:
+  - The key passes through the Worker on every request, so users trust the operator not to log it. The code never logs request headers or bodies. Keep it that way, and don't enable anything that captures them, such as Logpush with headers.
+  - An XSS on the origin can spend the user's credit while the page is open, within the limits above, but it cannot extract the key.
+  - Browser extensions with host permissions are out of scope.
+
+The Angular app is served with a strict CSP (`apps/web/public/_headers`): `script-src 'self'`, `connect-src 'self'`, `img-src 'self'`, Trusted Types. The browser never talks to a provider directly.
 
 ## Using it
 

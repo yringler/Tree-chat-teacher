@@ -156,6 +156,14 @@ app-root {
   display: inline-flex;
 }
 
+.dot-key {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: none;
+}
+
 .dot-live {
   width: 7px;
   height: 7px;
@@ -173,6 +181,7 @@ app-root {
 
 .sidebar-foot {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 4px;
   border-top: 1px solid var(--border);

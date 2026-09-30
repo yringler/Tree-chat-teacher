@@ -1,0 +1,12 @@
+# Workers Static Assets response headers for the Angular app (not /api/* or /s/*,
+# which the Worker answers itself; share pages carry their own hash-based CSP).
+#
+# The browser never talks to an LLM provider directly (connect-src 'self'), no
+# inline or remote script runs (the build turns off critical-CSS inlining, which
+# needs an inline script), and images are same-origin only so injected markup in
+# model output can't exfiltrate data through an <img> URL. Trusted Types limits
+# DOM HTML sinks to Angular's sanitizing policies.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types angular angular#bundler
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin

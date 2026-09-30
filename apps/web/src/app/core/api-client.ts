@@ -7,6 +7,7 @@ import type {
   CreateBranchRequest,
   CreateShareRequest,
   CreateTreeRequest,
+  KeyStatusResponse,
   MeResponse,
   ProviderInfo,
   SendMessageRequest,
@@ -63,6 +64,22 @@ export class ApiClient {
 
   providers(): Promise<ProviderInfo[]> {
     return this.json('GET', '/providers');
+  }
+
+  // Bring-your-own-key. The key goes to the Worker once and comes back only
+  // as a sealed HttpOnly cookie that this code can't read.
+
+  keyStatus(): Promise<KeyStatusResponse> {
+    return this.json('GET', '/key/status');
+  }
+
+  saveKey(provider: string, apiKey: string): Promise<void> {
+    return this.json('POST', '/key', { provider, apiKey });
+  }
+
+  /** Omit `provider` to forget every stored key. */
+  forgetKey(provider?: string): Promise<void> {
+    return this.json('DELETE', '/key', provider ? { provider } : {});
   }
 
   // Trees

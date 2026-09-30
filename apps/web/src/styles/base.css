@@ -302,6 +302,11 @@ hr {
   color: var(--warn);
 }
 
+.badge-ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
 .mode-path {
   background: var(--mode-path-soft);
   color: var(--mode-path);

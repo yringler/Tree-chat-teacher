@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
+import { ApiKeys } from './api-keys';
 import { BranchDialog } from './branch-dialog';
 import { BranchSettings } from './branch-settings';
 import { ShareDialog } from './share-dialog';
@@ -10,7 +11,7 @@ import { TreeSettings } from './tree-settings';
 /** Renders whichever dialog UiStore says is open. */
 @Component({
   selector: 'app-dialog-host',
-  imports: [BranchDialog, BranchSettings, TreeSettings, ShareDialog, ShortcutsHelp],
+  imports: [ApiKeys, BranchDialog, BranchSettings, TreeSettings, ShareDialog, ShortcutsHelp],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (ui.branchDialog(); as state) {
@@ -29,6 +30,9 @@ import { TreeSettings } from './tree-settings';
     }
     @if (ui.shortcutsOpen()) {
       <app-shortcuts-help />
+    }
+    @if (ui.keysDialog(); as keys) {
+      <app-api-keys [initialProvider]="keys.provider" />
     }
   `,
 })
