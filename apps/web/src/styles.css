@@ -1,7 +1,7 @@
 /* Tangent — global styles. Components use these classes; component-scoped CSS is avoided on purpose. */
 @import 'highlight.js/styles/github.css' (prefers-color-scheme: light);
 @import 'highlight.js/styles/github-dark.css' (prefers-color-scheme: dark);
-@import './styles/base.css';
+@import '@tangent/web-shared/styles/base.css';
 @import './styles/layout.css';
 @import './styles/chat.css';
 @import './styles/panels.css';

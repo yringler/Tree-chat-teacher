@@ -15,11 +15,16 @@
   // Don't add request logging that dumps headers (Cookie) or bodies of /api/key.
   "observability": { "enabled": true },
   "assets": {
-    "directory": "../web/dist/web/browser",
+    // Assembled by scripts/assemble-assets.mjs (root `pnpm build`): the power app at the
+    // root, the simple app under learn/. Holds only .gitkeep until something is built.
+    "directory": "./site",
     "binding": "ASSETS",
+    // The power app's deep links. SPA fallback always serves the root index.html, so
+    // the simple app can't use it: /learn* goes to the Worker (src/http/learn-app.ts).
     "not_found_handling": "single-page-application",
-    // API and public share routes must reach the Worker even for browser navigations.
-    "run_worker_first": ["/api/*", "/s/*"]
+    // API and public share routes must reach the Worker even for browser navigations;
+    // /learn* does too, for the simple app's index.html and its CSP.
+    "run_worker_first": ["/api/*", "/s/*", "/learn", "/learn/*"]
   },
   "d1_databases": [
     {

@@ -128,4 +128,35 @@ describe('fake provider', () => {
       supportsTokenCount: true,
     });
   });
+
+  it('with costUsd: yields the generation id before deltas and the cost before done, unique per stream', async () => {
+    const p = createFakeProvider({ ...BASE, options: { costUsd: 0.001234 } }, { secrets: {} });
+    const events = await collect(p.stream(req()));
+    expect(events[0]).toEqual({ type: 'billing', generationId: 'gen-fake-1' });
+    expect(events[1]?.type).toBe('delta');
+    expect(events.slice(-3)).toEqual([
+      { type: 'usage', usage: { inputTokens: 11, outputTokens: expect.any(Number) as unknown } },
+      { type: 'billing', generationId: 'gen-fake-1', costUsd: 0.001234 },
+      { type: 'done', stopReason: 'end_turn' },
+    ]);
+    const again = await collect(p.stream(req()));
+    expect(again.filter((e) => e.type === 'billing')).toEqual([
+      { type: 'billing', generationId: 'gen-fake-2' },
+      { type: 'billing', generationId: 'gen-fake-2', costUsd: 0.001234 },
+    ]);
+  });
+
+  it('with costUsd and failWith: yields the id but no cost', async () => {
+    const p = createFakeProvider({ ...BASE, options: { costUsd: 0.5, failWith: 'server' } }, { secrets: {} });
+    const events = await collect(p.stream(req()));
+    expect(events[0]).toEqual({ type: 'billing', generationId: 'gen-fake-1' });
+    expect(events.filter((e) => e.type === 'billing')).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({ type: 'error', error: { code: 'server' } });
+  });
+
+  it('without costUsd: yields no billing events', async () => {
+    const p = createFakeProvider({ ...BASE, options: { costUsd: 'free' } }, { secrets: {} });
+    const events = await collect(p.stream(req()));
+    expect(events.some((e) => e.type === 'billing')).toBe(false);
+  });
 });

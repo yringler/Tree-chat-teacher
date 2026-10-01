@@ -4,7 +4,7 @@ import { RouterLink } from '@angular/router';
 import { Composer } from '../chat/composer';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '../ui/icon';
+import { Icon } from '@tangent/web-shared';
 import { ImportButton } from '../ui/import-button';
 import { ModelPicker } from '../ui/model-picker';
 

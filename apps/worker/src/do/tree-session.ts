@@ -1,18 +1,41 @@
 import { DomainError, HTTP_STATUS, KeyRequiredError, type BeginSendResult, type ChatService } from '@tangent/core';
-import type { ApiError, ChatNode, StreamEvent } from '@tangent/shared';
+import { DEFAULT_ACCOUNT_ID, type ApiError, type ChatNode, type StreamEvent } from '@tangent/shared';
 import { DurableObject } from 'cloudflare:workers';
 import { openKeys } from '../byok/keys.js';
-import type { AppEnv } from '../env.js';
+import type { AccountContext, AppEnv } from '../env.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { chatService } from '../services.js';
 
 const KEEPALIVE_MS = 15_000;
 const encoder = new TextEncoder();
 
-/** Body of the internal POST /send. `sealedKeys` is the user's key cookie, still sealed. */
+/**
+ * Body of the internal POST /send. `sealedKeys` is the user's key cookie,
+ * still sealed (power accounts only). `account` is the caller's account as
+ * the Worker resolved it; the DO trusts it (its routes are internal) and the
+ * Worker has already checked that the branch belongs to it.
+ */
 export interface SessionSendBody {
   content: string;
+  account: AccountContext;
   sealedKeys?: string;
+}
+
+/** The account as query parameters, for the internal routes without a body. */
+export function accountParams(account: AccountContext): Record<string, string> {
+  return {
+    accountId: account.id,
+    mode: account.mode,
+    ...(account.userId ? { userId: account.userId } : {}),
+  };
+}
+
+function accountFromParams(params: URLSearchParams): AccountContext {
+  return {
+    id: params.get('accountId') || DEFAULT_ACCOUNT_ID,
+    mode: params.get('mode') === 'simple' ? 'simple' : 'power',
+    userId: params.get('userId') || null,
+  };
 }
 
 interface Run {
@@ -29,11 +52,15 @@ interface Run {
  * tree so it keeps running when the browser disconnects, lets clients
  * reconnect with a snapshot, and serializes sends per tree.
  *
- * Internal protocol (called only by the Worker, never exposed):
+ * Internal protocol (called only by the Worker, never exposed; `&account`
+ * is accountParams(), i.e. `accountId=&mode=[&userId=]`):
  *   POST /send?treeId=&branchId=   body SessionSendBody → SSE
- *   GET  /stream?treeId=&nodeId=                    → SSE (snapshot, then live)
- *   POST /cancel?treeId=&nodeId=                    → 204
- *   POST /delete-branch?treeId=&branchId=&accountId= → DeleteBranchResponse
+ *   GET  /stream?treeId=&nodeId=&account            → SSE (snapshot, then live)
+ *   POST /cancel?treeId=&nodeId=&account            → 204
+ *   POST /delete-branch?treeId=&branchId=&account   → DeleteBranchResponse
+ * The Worker resolves every branch/node id through the caller's account
+ * before calling in, so the DO doesn't re-check ownership except where the
+ * ChatService does it anyway (beginSend, deleteBranch).
  */
 export class TreeSession extends DurableObject<AppEnv> {
   private readonly runs = new Map<string, Run>();
@@ -44,17 +71,23 @@ export class TreeSession extends DurableObject<AppEnv> {
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const treeId = url.searchParams.get('treeId') ?? '';
-    const chat = chatService(this.env);
     try {
-      await this.recoverOnce(chat, treeId);
       if (request.method === 'POST' && url.pathname === '/send') {
-        const { content, sealedKeys } = (await request.json()) as SessionSendBody;
+        const { content, account, sealedKeys } = (await request.json()) as SessionSendBody;
+        await this.recoverOnce(chatService(this.env, account), treeId);
+        // Simple accounts never use their own keys (the Worker doesn't send them either).
+        const keys = account.mode === 'simple' ? null : await openKeys(sealedKeys, this.env);
+        if (keys?.state === 'invalid') throw new KeyRequiredError('Your stored API key could not be read. Enter it again.');
         // Keys stay in memory only for this generation (the ChatService closes over them).
-        const keys = await openKeys(sealedKeys, this.env);
-        if (keys.state === 'invalid') throw new KeyRequiredError('Your stored API key could not be read. Enter it again.');
-        const sendChat = keys.state === 'ok' ? chatService(this.env, undefined, keys.keys) : chat;
-        return await this.send(sendChat, url.searchParams.get('branchId') ?? '', content);
+        const chat = chatService(this.env, account, {
+          ...(keys?.state === 'ok' ? { apiKeys: keys.keys } : {}),
+          // The usage meter (simple accounts) settles or reconciles after the stream ends.
+          defer: (p) => this.ctx.waitUntil(p),
+        });
+        return await this.send(chat, url.searchParams.get('branchId') ?? '', content);
       }
+      const chat = chatService(this.env, accountFromParams(url.searchParams));
+      await this.recoverOnce(chat, treeId);
       if (request.method === 'GET' && url.pathname === '/stream') {
         return await this.reconnect(chat, url.searchParams.get('nodeId') ?? '');
       }
@@ -62,8 +95,7 @@ export class TreeSession extends DurableObject<AppEnv> {
         return await this.cancel(chat, treeId, url.searchParams.get('nodeId') ?? '');
       }
       if (request.method === 'POST' && url.pathname === '/delete-branch') {
-        const accountId = url.searchParams.get('accountId') ?? undefined;
-        return await this.deleteBranch(chatService(this.env, accountId), url.searchParams.get('branchId') ?? '');
+        return await this.deleteBranch(chat, url.searchParams.get('branchId') ?? '');
       }
       return errorResponse('not_found', 'Unknown session route');
     } catch (err) {

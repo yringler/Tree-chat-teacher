@@ -12,8 +12,7 @@ import {
 import type { ProviderInfo } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '../ui/icon';
-import { Modal } from '../ui/modal';
+import { Icon, Modal } from '@tangent/web-shared';
 
 /**
  * Bring-your-own-key. The key is read from the input only at submit time,

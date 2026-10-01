@@ -30,17 +30,20 @@ export const sameOriginOnly = createMiddleware<AppBindings>(async (c, next) => {
 
 /**
  * The branch's provider must have a key (the user's or the server's) and the
- * model must be one the provider config lists.
+ * model must be one the provider config lists. `userKeys: false` (simple
+ * accounts, which never bring a key) reports a missing server key as a
+ * configuration problem rather than asking for the user's key.
  */
 export function assertGenerationAllowed(
   registry: ProviderRegistry,
   providerId: string,
   model: string,
+  opts: { userKeys?: boolean } = {},
 ): void {
   const info = registry.list().find((p) => p.id === providerId);
   if (!info) throw new ValidationError(`Unknown provider "${providerId}"`);
   if (!info.available) {
-    if (info.acceptsUserKey && info.keySource !== 'user') {
+    if ((opts.userKeys ?? true) && info.acceptsUserKey && info.keySource !== 'user') {
       throw new KeyRequiredError(`Add your ${info.label} API key to continue this conversation.`);
     }
     throw new ValidationError(`${info.label} is not configured on this server`);
@@ -53,9 +56,11 @@ export function assertGenerationAllowed(
 /**
  * Rate limit on requests that spend a user's key. `chat`: per key cookie, the
  * bucket being a hash of the sealed value (never of the plaintext key);
- * requests on server keys are not limited here. `key`: saving a key makes a
- * verification call upstream, limited per account (a fresh cookie per save
- * would otherwise reset the bucket).
+ * requests of power accounts on server keys are not limited here. Simple
+ * accounts spend the operator's key, so their `chat` bucket is the account
+ * (`account:<id>`). `key`: saving a key makes a verification call upstream,
+ * limited per account (a fresh cookie per save would otherwise reset the
+ * bucket).
  * A missing binding or a limiter failure lets the request through
  * (availability over strictness; the model allowlist and output cap still apply).
  */
@@ -68,7 +73,7 @@ export async function enforceRateLimit(
     RateLimit | undefined;
   if (!limiter || typeof limiter.limit !== 'function') return;
   let who: string;
-  if (scope === 'key') who = `account:${c.var.accountId}`;
+  if (scope === 'key' || c.var.account.mode === 'simple') who = `account:${c.var.accountId}`;
   else if (keys?.state === 'ok') who = `cookie:${await fingerprint(keys.sealed)}`;
   else return;
   let success = true;

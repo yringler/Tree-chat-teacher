@@ -28,8 +28,13 @@ import type {
   UpdateBranchRequest,
   UpdateTreeRequest,
 } from '@tangent/shared';
-import { ApiClient, ApiError, errorMessage } from '../core/api-client';
-import { runStream, type StreamOutcome } from '../sse/stream-runner';
+import {
+  ApiClient,
+  ApiError,
+  errorMessage,
+  runStream,
+  type StreamOutcome,
+} from '@tangent/web-shared';
 import { UiStore } from './ui-store';
 
 /** Live state of a generation, kept apart from `detail` so deltas don't re-index the tree. */

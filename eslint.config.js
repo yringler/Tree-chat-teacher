@@ -12,6 +12,7 @@ export default tseslint.config(
       '**/worker-configuration.d.ts',
       'apps/worker/migrations/**',
       '.claude/**',
+      'apps/worker/site/**',
     ],
   },
   js.configs.recommended,

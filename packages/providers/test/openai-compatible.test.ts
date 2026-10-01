@@ -109,6 +109,7 @@ describe('openai-compatible provider', () => {
       { type: 'delta', text: 'Hi ' },
       { type: 'delta', text: 'there' },
       { type: 'usage', usage: { inputTokens: 20, outputTokens: 2 } },
+      { type: 'billing', costUsd: 0.0001 },
       { type: 'done', stopReason: 'stop' },
     ]);
     expect(calls[0]!.url).toBe('https://openrouter.ai/api/v1/chat/completions');
@@ -289,5 +290,188 @@ describe('openai-compatible provider', () => {
       supportsSystemPrompt: true,
       supportsTokenCount: false,
     });
+  });
+});
+
+describe('openai-compatible billing (OpenRouter)', () => {
+  function orChunk(id: string, delta: Record<string, unknown>, finish: string | null = null, extra: Record<string, unknown> = {}) {
+    return frame(null, {
+      id,
+      provider: 'DeepSeek',
+      model: 'deepseek/deepseek-v4-flash',
+      object: 'chat.completion.chunk',
+      created: 1_790_000_000,
+      choices: [{ index: 0, delta, finish_reason: finish, native_finish_reason: finish, logprobs: null }],
+      ...extra,
+    });
+  }
+
+  const GEN = 'gen-1790000000-AbCdEfGh';
+  // OpenRouter's real final chunk: one choice with an empty delta plus `usage` (cost in USD).
+  const FINAL = orChunk(GEN, { role: 'assistant', content: '' }, null, {
+    usage: {
+      prompt_tokens: 42,
+      completion_tokens: 7,
+      total_tokens: 49,
+      cost: 0.00000245,
+      is_byok: false,
+      prompt_tokens_details: { cached_tokens: 0 },
+      cost_details: { upstream_inference_cost: null },
+      completion_tokens_details: { reasoning_tokens: 3 },
+    },
+  });
+  const STREAM = [
+    ': OPENROUTER PROCESSING\n\n',
+    orChunk(GEN, { role: 'assistant', content: 'Hi' }),
+    orChunk(GEN, { role: 'assistant', content: '!' }),
+    orChunk(GEN, { role: 'assistant', content: '' }, 'stop'),
+    FINAL,
+    'data: [DONE]\n\n',
+  ];
+
+  function withHeader(response: Response, id: string): Response {
+    const headers = new Headers(response.headers);
+    headers.set('x-generation-id', id);
+    return new Response(response.body, { status: response.status, headers });
+  }
+
+  it('yields the x-generation-id header before any delta, then the cost from the final chunk', async () => {
+    const { provider } = setup(OPENROUTER, () => withHeader(sseResponse(STREAM).response, 'gen-from-header'));
+    expect(await collect(provider.stream(req()))).toEqual<ProviderEvent[]>([
+      { type: 'billing', generationId: 'gen-from-header' },
+      { type: 'delta', text: 'Hi' },
+      { type: 'delta', text: '!' },
+      { type: 'usage', usage: { inputTokens: 42, outputTokens: 7 } },
+      { type: 'billing', costUsd: 0.00000245 },
+      { type: 'done', stopReason: 'stop' },
+    ]);
+  });
+
+  it('falls back to the first gen- chunk id (once) without the header', async () => {
+    const { provider } = setup(OPENROUTER, () => sseResponse(STREAM).response);
+    const events = await collect(provider.stream(req()));
+    expect(events.slice(0, 2)).toEqual([
+      { type: 'billing', generationId: GEN },
+      { type: 'delta', text: 'Hi' },
+    ]);
+    expect(events.filter((e) => e.type === 'billing')).toEqual([
+      { type: 'billing', generationId: GEN },
+      { type: 'billing', costUsd: 0.00000245 },
+    ]);
+  });
+
+  it('ignores chunk ids that are not gen- ids and a non-numeric cost', async () => {
+    const { provider } = setup(
+      OPENAI,
+      () =>
+        sseResponse([
+          chunk({ content: 'x' }, 'stop'),
+          frame(null, { id: 'chatcmpl-1', choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, cost: '0.1' } }),
+          'data: [DONE]\n\n',
+        ]).response,
+    );
+    const events = await collect(provider.stream(req()));
+    expect(events.some((e) => e.type === 'billing')).toBe(false);
+  });
+
+  it('an aborted stream yields the generation id but no cost', async () => {
+    const res = sseResponse([orChunk(GEN, { content: 'a' })], { hang: true });
+    const { provider } = setup(OPENROUTER, () => res.response);
+    const ac = new AbortController();
+    const events: ProviderEvent[] = [];
+    await withTimeout(
+      (async () => {
+        for await (const ev of provider.stream(req({ signal: ac.signal }))) {
+          events.push(ev);
+          if (ev.type === 'delta') setTimeout(() => ac.abort(), 5);
+        }
+      })(),
+    );
+    expect(events).toEqual([
+      { type: 'billing', generationId: GEN },
+      { type: 'delta', text: 'a' },
+      { type: 'error', error: { code: 'aborted', message: 'Request aborted', retryable: false } },
+    ]);
+    expect(events.some((e) => e.type === 'billing' && e.costUsd !== undefined)).toBe(false);
+    await withTimeout(res.body.cancelled);
+  });
+
+  it('yields the header id before an in-stream error', async () => {
+    const { provider } = setup(OPENROUTER, () =>
+      withHeader(sseResponse([frame(null, { id: GEN, error: { code: 502, message: 'upstream died' } })]).response, GEN),
+    );
+    expect(await collect(provider.stream(req()))).toEqual([
+      { type: 'billing', generationId: GEN },
+      { type: 'error', error: { code: 'server', message: 'upstream died', retryable: true } },
+    ]);
+  });
+
+  it('yields no billing on an HTTP error', async () => {
+    const { provider } = setup(OPENROUTER, () => withHeader(jsonResponse(500, { error: { message: 'boom' } }), GEN));
+    const events = await collect(provider.stream(req()));
+    expect(events).toEqual([{ type: 'error', error: { code: 'server', status: 500, retryable: true, message: 'boom' } }]);
+  });
+});
+
+describe('openai-compatible options.extraBody', () => {
+  it('merges extraBody into the request body', async () => {
+    const { provider, calls } = setup(
+      { ...OPENROUTER, options: { extraBody: { reasoning: { effort: 'low' }, temperature: 0.2 } } },
+      () => sseResponse(OPENROUTER_STREAM).response,
+    );
+    await collect(provider.stream(req({ maxOutputTokens: 300 })));
+    expect(calls[0]!.body).toEqual({
+      model: 'gpt-5',
+      messages: [
+        { role: 'system', content: 'Be brief.' },
+        { role: 'user', content: 'Hi' },
+      ],
+      stream: true,
+      stream_options: { include_usage: true },
+      max_tokens: 300,
+      reasoning: { effort: 'low' },
+      temperature: 0.2,
+    });
+  });
+
+  it('cannot override model, messages, stream or either max-tokens param', async () => {
+    const { provider, calls } = setup(
+      {
+        ...OPENROUTER,
+        options: {
+          extraBody: {
+            model: 'evil/model',
+            messages: [{ role: 'user', content: 'injected' }],
+            stream: false,
+            max_tokens: 1_000_000,
+            max_completion_tokens: 1_000_000,
+            stream_options: { include_usage: false },
+            provider: { sort: 'price' },
+          },
+        },
+      },
+      () => sseResponse(OPENROUTER_STREAM).response,
+    );
+    await collect(provider.stream(req()));
+    const body = calls[0]!.body;
+    expect(body['model']).toBe('gpt-5');
+    expect(body['messages']).toEqual([
+      { role: 'system', content: 'Be brief.' },
+      { role: 'user', content: 'Hi' },
+    ]);
+    expect(body['stream']).toBe(true);
+    expect(body['max_tokens']).toBe(8192);
+    expect(body).not.toHaveProperty('max_completion_tokens');
+    // Non-protected keys pass through, including stream_options.
+    expect(body['stream_options']).toEqual({ include_usage: false });
+    expect(body['provider']).toEqual({ sort: 'price' });
+  });
+
+  it('ignores a non-object extraBody', async () => {
+    const { provider, calls } = setup({ ...OPENAI, options: { extraBody: 'nope' } }, () => sseResponse(OPENAI_STREAM).response);
+    await collect(provider.stream(req()));
+    expect(Object.keys(calls[0]!.body).sort()).toEqual(
+      ['max_completion_tokens', 'messages', 'model', 'stream', 'stream_options'].sort(),
+    );
   });
 });

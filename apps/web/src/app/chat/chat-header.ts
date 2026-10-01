@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import type { Branch } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '../ui/icon';
+import { Icon } from '@tangent/web-shared';
 import { ModeBadge } from '../ui/mode-badge';
 import { ExportMenu } from './export-menu';
 

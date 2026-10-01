@@ -7,3 +7,8 @@ dist/
 coverage/
 .DS_Store
 .claude/worktrees/
+# Assembled Workers Static Assets (scripts/assemble-assets.mjs). Not under dist/:
+# git can't re-include a file inside an ignored directory, and .gitkeep keeps the
+# directory present for wrangler and vitest-pool-workers before anything is built.
+apps/worker/site/*
+!apps/worker/site/.gitkeep

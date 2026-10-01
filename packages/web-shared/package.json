@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./styles/base.css": "./src/styles/base.css"
   },
   "scripts": {
     "typecheck": "ngc -p tsconfig.json --noEmit",

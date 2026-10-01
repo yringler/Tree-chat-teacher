@@ -3,7 +3,7 @@ import { ReviewStore } from '../state/review-store';
 import { SettingsStore } from '../state/settings-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Modal } from '../ui/modal';
+import { Modal } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
 
 /** App-wide preferences, one section per feature. Saved in this browser. */

@@ -1,15 +1,57 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
-
-/**
- * Wave 1 probe (foundation): proves that both Angular apps compile (AOT) a
- * TS-source Angular library linked through pnpm. Renders nothing visible.
- * Removed by the `web-shared` agent once real shared code lives here.
+/*
+ * @tangent/web-shared: Angular code shared by the power app (apps/web) and
+ * the simple app (apps/simple). Consumed as TS source (exports ./src/index.ts);
+ * each app's Angular builder compiles it. Styles: src/styles/base.css
+ * (`@tangent/web-shared/styles/base.css`).
  */
-@Component({
-  selector: 'tangent-probe',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '<span hidden data-tangent-probe>{{ name }}</span>',
-})
-export class TangentProbe {
-  protected readonly name = '@tangent/web-shared';
-}
+
+// Core services
+export {
+  ApiClient,
+  ApiError,
+  errorMessage,
+  isPaymentRequired,
+  type ExportParams,
+} from './core/api-client';
+export { APP_PATHS, provideAppPaths, type AppPaths } from './core/app-paths';
+export {
+  AUTH_CLIENT,
+  authErrorMessage,
+  createTangentAuthClient,
+  type TangentAuthClient,
+} from './core/auth-client';
+export { AuthService, loginErrorMessage, type PasskeyInfo, type SocialProvider } from './core/auth';
+export {
+  absoluteUrl,
+  BillingClient,
+  BillingError,
+  type BillingSubscription,
+} from './core/billing-client';
+export { MarkdownService } from './core/markdown.service';
+
+// Server-sent events
+export {
+  isTerminal,
+  parseReviewEvent,
+  parseStreamEvent,
+  readSseEvents,
+  readStreamEvents,
+  SseParser,
+  type SseFrame,
+} from './sse/sse-parser';
+export {
+  defaultSleep,
+  runStream,
+  type StreamOutcome,
+  type StreamRunnerDeps,
+  type StreamRunOptions,
+} from './sse/stream-runner';
+
+// UI
+export { Icon, type IconName } from './ui/icon';
+export { Modal } from './ui/modal';
+export { Turnstile } from './ui/turnstile';
+export { LoginPage } from './login/login-page';
+
+// removed in wave 3: the foundation probe, still imported by apps/simple until it's replaced.
+export { TangentProbe } from './probe';

@@ -2,7 +2,9 @@ import { Injectable } from '@angular/core';
 import type {
   ApiError as ApiErrorBody,
   ApiErrorCode,
+  BillingSummary,
   Branch,
+  CheckoutResponse,
   ContextPlanResponse,
   CreateBranchRequest,
   CreateShareRequest,
@@ -22,6 +24,7 @@ import type {
   UpdateBranchRequest,
   UpdateShareRequest,
   UpdateTreeRequest,
+  UsageListResponse,
 } from '@tangent/shared';
 
 /** Thrown for every non-2xx API response (and for network failures, with status 0). */
@@ -55,6 +58,12 @@ function isErrorBody(value: unknown): value is ApiErrorBody {
 
 const enc = encodeURIComponent;
 
+/** Error code for a non-2xx response without our JSON error body (e.g. a proxy page). */
+function fallbackCode(status: number): ApiErrorCode {
+  if (status === 402) return 'payment_required';
+  return status >= 500 ? 'internal' : 'bad_request';
+}
+
 /** Typed fetch wrapper for the owner API (`/api/*`). */
 @Injectable({ providedIn: 'root' })
 export class ApiClient {
@@ -82,6 +91,26 @@ export class ApiClient {
   /** Omit `provider` to forget every stored key. */
   forgetKey(provider?: string): Promise<void> {
     return this.json('DELETE', '/key', provider ? { provider } : {});
+  }
+
+  // Billing (simple accounts; power accounts get 403)
+
+  billing(): Promise<BillingSummary> {
+    return this.json('GET', '/billing');
+  }
+
+  /** One page of metered usage, newest first. Pass the previous page's `nextCursor` for the next. */
+  usage(cursor?: string | null, limit?: number): Promise<UsageListResponse> {
+    const q = new URLSearchParams();
+    if (cursor) q.set('cursor', cursor);
+    if (limit !== undefined) q.set('limit', String(limit));
+    const qs = q.toString();
+    return this.json('GET', qs ? `/billing/usage?${qs}` : '/billing/usage');
+  }
+
+  /** Starts a one-time credit top-up; resolves with the Stripe Checkout URL to send the browser to. */
+  createCheckout(amountCents: number): Promise<CheckoutResponse> {
+    return this.json('POST', '/billing/checkout', { amountCents });
   }
 
   // Trees
@@ -257,15 +286,16 @@ export class ApiClient {
     }
     if (isErrorBody(parsed))
       return new ApiError(res.status, parsed.error.code, parsed.error.message);
-    return new ApiError(
-      res.status,
-      res.status >= 500 ? 'internal' : 'bad_request',
-      `${res.status} ${res.statusText}`,
-    );
+    return new ApiError(res.status, fallbackCode(res.status), `${res.status} ${res.statusText}`);
   }
 }
 
 export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+/** True for a 402 `payment_required` ApiError (a simple account is out of credit). */
+export function isPaymentRequired(err: unknown): boolean {
+  return err instanceof ApiError && err.code === 'payment_required';
 }

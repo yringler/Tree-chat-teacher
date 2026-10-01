@@ -1,3 +1,8 @@
+/*
+ * @tangent/web-shared base styles: theme tokens, typography, buttons, forms,
+ * notices, the modal shell (Modal) and the login page (LoginPage, Turnstile).
+ * Imported first by both apps' styles.css; app-specific CSS comes after it.
+ */
 :root {
   color-scheme: light dark;
   --bg: #fbfbfa;
@@ -507,4 +512,139 @@ textarea:focus-visible {
 .card-link:hover {
   border-color: var(--border-strong);
   background: var(--bg-hover);
+}
+
+/* Modal */
+
+.modal-host {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.4);
+}
+
+.modal {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+
+.modal-wide {
+  width: min(760px, 100%);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 8px 20px;
+}
+
+.modal-body {
+  padding: 4px 20px 20px;
+  overflow-y: auto;
+}
+
+@media (max-width: 560px) {
+  .modal-host {
+    padding: 0;
+    align-items: end;
+  }
+
+  .modal {
+    width: 100%;
+    max-height: 92dvh;
+    border-radius: 14px 14px 0 0;
+  }
+}
+
+/* Intro line (home page, login page) */
+
+.lead {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 1.02rem;
+}
+
+/* Login page (its own document: no app shell) */
+
+.login {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background: var(--bg);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 28px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 1.3rem;
+}
+
+.login-methods {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.login-btn {
+  justify-content: center;
+  width: 100%;
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+.login-remember {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+.turnstile {
+  min-height: 65px;
 }

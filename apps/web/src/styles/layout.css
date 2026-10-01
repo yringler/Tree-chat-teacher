@@ -241,12 +241,6 @@ app-root {
   width: 100%;
 }
 
-.lead {
-  margin: 0;
-  color: var(--fg-muted);
-  font-size: 1.02rem;
-}
-
 .section-head {
   display: flex;
   align-items: center;
@@ -395,73 +389,4 @@ app-root {
   margin: 1px 4px 1px 2px;
   padding: 2px 6px;
   font-size: 0.88rem;
-}
-
-/* Login page (its own document: no app shell) */
-
-.login {
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  padding: 24px 16px;
-  background: var(--bg);
-}
-
-.login-card {
-  width: 100%;
-  max-width: 380px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 28px 24px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-elev);
-  box-shadow: var(--shadow);
-}
-
-.login-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 4px;
-  font-size: 1.3rem;
-}
-
-.login-methods {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.login-btn {
-  justify-content: center;
-  width: 100%;
-}
-
-.login-divider {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--fg-muted);
-  font-size: 0.8rem;
-}
-
-.login-divider::before,
-.login-divider::after {
-  content: '';
-  flex: 1;
-  border-top: 1px solid var(--border);
-}
-
-.login-remember {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px;
-  font-size: 0.9rem;
-}
-
-.turnstile {
-  min-height: 65px;
 }

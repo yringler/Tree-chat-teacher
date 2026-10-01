@@ -10,7 +10,7 @@ import {
 import type { ContextMode } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore, type BranchDialogState } from '../state/ui-store';
-import { Modal } from '../ui/modal';
+import { Modal } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
 import { ModePicker } from '../ui/mode-picker';
 

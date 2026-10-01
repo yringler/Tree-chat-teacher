@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '../ui/icon';
+import { Icon } from '@tangent/web-shared';
 import { ImportButton } from '../ui/import-button';
 import { OutlineItem } from './outline-item';
 

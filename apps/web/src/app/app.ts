@@ -1,18 +1,19 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { TangentProbe } from '@tangent/web-shared';
-import { AuthService, LOGIN_PATH } from './core/auth';
+import { APP_PATHS, AuthService, Icon } from '@tangent/web-shared';
 import { Keyboard } from './core/keyboard';
 import { RouteSync } from './core/route-sync';
 import { DialogHost } from './dialogs/dialog-host';
 import { Sidebar } from './sidebar/sidebar';
 import { TreeStore } from './state/tree-store';
 import { UiStore } from './state/ui-store';
-import { Icon } from './ui/icon';
+
+/** Where the simple app lives (apps/simple, `baseHref: '/learn/'`). */
+const SIMPLE_APP_HOME = '/learn/';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, Sidebar, DialogHost, Icon, TangentProbe],
+  imports: [RouterOutlet, Sidebar, DialogHost, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.html',
   host: { '(document:keydown)': 'loginPage || keyboard.handle($event)' },
@@ -27,7 +28,7 @@ export class App {
    * fixed for the page's lifetime. It renders without the app shell and
    * loads no data.
    */
-  protected readonly loginPage = location.pathname === LOGIN_PATH;
+  protected readonly loginPage = location.pathname === inject(APP_PATHS).login;
 
   constructor() {
     if (this.loginPage) return;
@@ -38,7 +39,13 @@ export class App {
   private async boot(): Promise<void> {
     try {
       const me = await this.auth.requireUser();
-      if (me) await this.store.init(me);
+      if (!me) return;
+      // Simple (metered) accounts use the /learn/ app; this one is power-only.
+      if (me.mode === 'simple') {
+        location.replace(SIMPLE_APP_HOME);
+        return;
+      }
+      await this.store.init(me);
     } catch (err) {
       this.store.fail(err);
     }

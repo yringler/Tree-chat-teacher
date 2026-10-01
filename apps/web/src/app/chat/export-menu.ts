@@ -1,9 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import type { ShareScope } from '@tangent/shared';
-import { ApiClient } from '../core/api-client';
+import { ApiClient, Icon } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '../ui/icon';
 import { ScopePicker } from '../ui/scope-picker';
 
 /** Export dropdown: Markdown / HTML (with scope) and JSON backup, as download links. */

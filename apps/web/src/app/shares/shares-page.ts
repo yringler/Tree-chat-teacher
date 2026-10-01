@@ -2,12 +2,11 @@ import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { ShareSummary } from '@tangent/shared';
-import { ApiClient } from '../core/api-client';
+import { ApiClient, Icon } from '@tangent/web-shared';
 import { copyText } from '../core/selection';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ExpiryPicker } from '../ui/expiry-picker';
-import { Icon } from '../ui/icon';
 
 const SCOPE_LABEL: Record<ShareSummary['scope'], string> = {
   tree: 'Whole conversation',

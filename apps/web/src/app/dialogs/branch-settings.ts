@@ -9,8 +9,7 @@ import {
 import type { Branch, ContextMode, UpdateBranchRequest } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '../ui/icon';
-import { Modal } from '../ui/modal';
+import { Icon, Modal } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
 import { ModePicker } from '../ui/mode-picker';
 
