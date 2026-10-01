@@ -53,6 +53,10 @@ export default defineConfig({
           bindings: {
             TEST_MIGRATIONS: migrations,
             DEV_ALLOW_NO_AUTH: 'true',
+            // Pin these so tests hold whatever wrangler.jsonc deploys with: no Access
+            // configured (dev bypass), share links derived from the request URL.
+            ACCESS_AUD: '',
+            PUBLIC_BASE_URL: '',
             AUTO_TITLE: 'false',
             PROVIDERS: JSON.stringify([
               { id: 'fake', kind: 'fake', label: 'Fake', defaultModel: 'fake-1', models: [{ id: 'fake-1', label: 'Fake 1' }], options: { chunkSize: 4 } },

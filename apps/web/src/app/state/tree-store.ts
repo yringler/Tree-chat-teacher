@@ -16,6 +16,7 @@ import type {
   Branch,
   ChatNode,
   CreateBranchRequest,
+  DeleteBranchResponse,
   KeyStatusResponse,
   MeResponse,
   ProviderInfo,
@@ -428,6 +429,31 @@ export class TreeStore {
     }
   }
 
+  /**
+   * Deletes a branch with everything below it. If the selection is inside it,
+   * moves to the message it branched from. The caller confirms first.
+   */
+  async deleteBranch(branchId: string): Promise<boolean> {
+    const doomed = this.index()?.branches.get(branchId);
+    try {
+      const res = await this.api.deleteBranch(branchId);
+      const selected = this.selectedBranchId();
+      if (doomed?.parentBranchId && selected && res.branchIds.includes(selected)) {
+        this.go(doomed.parentBranchId, doomed.branchPointNodeId, true);
+      }
+      this.removeBranches(res);
+      this.ui.notify(
+        res.branchIds.length > 1
+          ? `Deleted the branch and ${res.branchIds.length - 1} below it`
+          : 'Branch deleted',
+      );
+      return true;
+    } catch (err) {
+      this.fail(err);
+      return false;
+    }
+  }
+
   // Messages and streams
 
   async send(branchId: string, content: string): Promise<boolean> {
@@ -597,6 +623,36 @@ export class TreeStore {
     this.detail.update((d) =>
       d && d.tree.id === branch.treeId ? { ...d, branches: upsertById(d.branches, [branch]) } : d,
     );
+  }
+
+  private removeBranches(res: DeleteBranchResponse): void {
+    const branchIds = new Set(res.branchIds);
+    const nodeIds = new Set(res.nodeIds);
+    // Their generations were stopped server-side; stop following them here too.
+    for (const id of nodeIds) {
+      this.controllers.get(id)?.abort();
+      this.controllers.delete(id);
+      this.dropLive(id);
+    }
+    this.detail.update((d) =>
+      d && d.tree.id === res.treeId
+        ? {
+            ...d,
+            branches: d.branches.filter((b) => !branchIds.has(b.id)),
+            nodes: d.nodes.filter((n) => !nodeIds.has(n.id)),
+          }
+        : d,
+    );
+    const d = this.detail();
+    if (d && d.tree.id === res.treeId) {
+      this.trees.update((list) =>
+        list.map((t) =>
+          t.id === res.treeId
+            ? { ...t, branchCount: d.branches.length, messageCount: d.nodes.length }
+            : t,
+        ),
+      );
+    }
   }
 
   private setLive(s: LiveStream): void {

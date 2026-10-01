@@ -71,6 +71,75 @@ describe('ChatService trees and branches', () => {
   });
 });
 
+describe('ChatService.deleteBranch', () => {
+  /** trunk → a (off m1) → a1 (off a's reply); trunk → b (sibling of a). */
+  async function fixture() {
+    const ctx = setup({ autoTitle: false });
+    const { chat } = ctx;
+    const { tree } = await chat.createTree({});
+    const m1 = await send(chat, tree.trunkBranchId, 'root question');
+    const a = await chat.createBranch({ fromNodeId: m1.begin.assistantNode.id });
+    const aMsg = await send(chat, a.id, 'in a');
+    const a1 = await chat.createBranch({ fromNodeId: aMsg.begin.assistantNode.id });
+    const a1Msg = await send(chat, a1.id, 'in a1');
+    const b = await chat.createBranch({ fromNodeId: m1.begin.assistantNode.id });
+    const bMsg = await send(chat, b.id, 'in b');
+    return { ...ctx, tree, m1, a, aMsg, a1, a1Msg, b, bMsg };
+  }
+
+  it('deletes the branch with its descendants, their messages, summaries and shares', async () => {
+    const { chat, repos, shares, tree, m1, a, aMsg, a1, a1Msg, b, bMsg } = await fixture();
+    const doomedShare = await shares.create({ treeId: tree.id, scope: 'path', nodeId: a1Msg.begin.assistantNode.id });
+    const keptShare = await shares.create({ treeId: tree.id, scope: 'path', nodeId: bMsg.begin.assistantNode.id });
+    const summary = { sourceHash: 'h', model: 'm1', providerId: 'scripted', treeId: tree.id, content: 's', createdAt: 'x' };
+    await repos.summaries.putSummary({ ...summary, anchorNodeId: aMsg.begin.assistantNode.id });
+    await repos.summaries.putSummary({ ...summary, anchorNodeId: m1.begin.assistantNode.id });
+    const before = (await chat.getTreeDetail(tree.id)).tree.updatedAt;
+
+    const res = await chat.deleteBranch(a.id);
+
+    expect(res.treeId).toBe(tree.id);
+    expect(res.branchIds).toEqual([a.id, a1.id]);
+    expect(res.nodeIds.sort()).toEqual(
+      [aMsg.begin.userNode.id, aMsg.begin.assistantNode.id, a1Msg.begin.userNode.id, a1Msg.begin.assistantNode.id].sort(),
+    );
+    const detail = await chat.getTreeDetail(tree.id);
+    expect(detail.branches.map((x) => x.id).sort()).toEqual([tree.trunkBranchId, b.id].sort());
+    expect(detail.nodes.some((n) => res.nodeIds.includes(n.id))).toBe(false);
+    expect(detail.nodes).toHaveLength(4);
+    expect(detail.tree.updatedAt > before).toBe(true);
+    expect(await repos.summaries.getSummary(aMsg.begin.assistantNode.id, 'h', 'm1')).toBeNull();
+    expect(await repos.summaries.getSummary(m1.begin.assistantNode.id, 'h', 'm1')).not.toBeNull();
+    expect(await repos.shares.getShare(doomedShare.id)).toBeNull();
+    expect(await repos.shares.getShare(keptShare.id)).not.toBeNull();
+    await expect(chat.beginSend(a1.id, 'still there?')).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('refuses the trunk and unknown branches', async () => {
+    const { chat, tree } = await fixture();
+    await expect(chat.deleteBranch(tree.trunkBranchId)).rejects.toBeInstanceOf(ValidationError);
+    await expect(chat.deleteBranch('missing')).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('refuses while a reply is generating in the subtree, unless the caller stops it', async () => {
+    const { chat, a, a1, b } = await fixture();
+    const begin = await chat.beginSend(a1.id, 'slow one');
+    await expect(chat.deleteBranch(a.id)).rejects.toBeInstanceOf(ConflictError);
+
+    // Generating elsewhere does not block.
+    await expect(chat.deleteBranch(b.id)).resolves.toMatchObject({ branchIds: [b.id] });
+
+    const stopped: string[][] = [];
+    const res = await chat.deleteBranch(a.id, {
+      stopGenerations: async (ids) => {
+        stopped.push([...ids]);
+      },
+    });
+    expect(stopped).toEqual([[a.id, a1.id]]);
+    expect(res.nodeIds).toContain(begin.assistantNode.id);
+  });
+});
+
 describe('ChatService sending', () => {
   it('streams a reply and persists it with usage', async () => {
     const { chat, repos } = setup({ autoTitle: false });

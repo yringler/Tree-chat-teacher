@@ -46,6 +46,13 @@ export interface TreeRepository {
       >
     >,
   ): Promise<Branch | null>;
+  /**
+   * Atomically deletes the given branches of `treeId` with their nodes, the
+   * summaries anchored on those nodes, and the shares (with snapshots) whose
+   * target is one of those nodes; then bumps the tree's updatedAt. The caller
+   * passes a whole subtree (see ChatService.deleteBranch).
+   */
+  deleteBranches(treeId: string, branchIds: readonly string[], treeUpdatedAt: string): Promise<void>;
 
   getNode(nodeId: string): Promise<ChatNode | null>;
   listNodes(treeId: string): Promise<ChatNode[]>;
