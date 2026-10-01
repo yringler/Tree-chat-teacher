@@ -163,3 +163,12 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 - **`stripe@^22.6.2`, not 23.** `@better-auth/stripe@1.7.7` accepts `stripe` ^18–^22 only. 22.6.2 pins API version `2026-08-26.dahlia`; the webhook endpoint is created on the same version.
 - **The plugin is registered only when both Stripe secrets are set,** but its `subscription` table is always mapped, so the schema doesn't depend on configuration. Without Stripe, simple accounts can't spend.
 - **Known margin problem (R1): the default markups likely lose money** after OpenRouter's ~5.5% credit fee and Stripe's fees. They are the owner's numbers, implemented exactly but as config (`MARKUP_*_BPS`), and flagged in the README.
+
+## Landing page and demo
+
+- **The landing page is rendered by the Worker, like the share viewer** (`http/landing.ts`): one self-contained document with no script and one constant inline stylesheet, allowed by its SHA-256 in a `default-src 'none'` CSP. It needs no Angular bundle, loads instantly and can't be broken by an app build.
+- **`/` checks for the session cookie's presence, not a D1 session lookup.** The page is served on every visit to `/`, and a lookup would cost a D1 read per request. A stale or forged cookie only lands in the power app, which asks the API, gets 401 and redirects to sign in. The dev bypass (`DEV_ALLOW_NO_AUTH` without a secret) keeps `/` as the app.
+- **`/` is `no-cache` with `Vary: Cookie`; `/welcome` is cached for 5 minutes.** `/` answers differently by cookie, so a browser must never reuse the landing page after sign-in. `/welcome` serves everyone the same page.
+- **`/welcome` always serves the landing page,** signed in or not: an escape hatch for signed-in users, dev mode and links that must show the page.
+- **The Worker sets the `_headers` `/*` CSP on the power app's `/`** when it passes the request to `ASSETS`: `_headers` doesn't apply to Worker responses, the same reason as `/learn*`.
+- **The demo (`/learn/demo`) runs entirely in the browser against an in-memory `ChatService`.** It costs nothing, needs no account and sends nothing to a model, and it exercises the real tree logic (branching, context assembly, "Ask about this"). Replies come from random English sentences (`txtgen`), so nobody mistakes them for tutoring.

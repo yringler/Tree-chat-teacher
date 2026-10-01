@@ -10,6 +10,7 @@ import {
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { MonthlyPlanInfo, UsageEntry, UsagePurpose } from '@tangent/shared';
 import { ApiClient, BillingClient, Icon } from '@tangent/web-shared';
+import { DEMO_MODE } from '../demo/demo-mode';
 import { BillingController } from './billing-controller';
 import { formatBps, formatCents, formatCharge, formatMicros } from './format';
 
@@ -108,7 +109,9 @@ const STATUS_LABELS: Record<string, string> = {
 
         <section class="card billing-section" aria-labelledby="billing-topup-h">
           <h2 id="billing-topup-h" class="billing-h">Add credit</h2>
-          @if (s.topUpsEnabled === false) {
+          @if (demo) {
+            <p class="muted small">Adding credit is not available in the demo.</p>
+          } @else if (s.topUpsEnabled === false) {
             <p class="muted small">One-time top-ups aren't available on this server right now.</p>
           } @else {
             <div class="billing-presets" role="group" aria-label="Top-up amounts">
@@ -157,7 +160,7 @@ const STATUS_LABELS: Record<string, string> = {
           }
         </section>
 
-        @if (s.monthlyPlans.length > 0) {
+        @if (s.monthlyPlans.length > 0 && !demo) {
           <section class="billing-section" aria-labelledby="billing-plans-h">
             <h2 id="billing-plans-h" class="billing-h">Monthly plans</h2>
             <p class="muted small">
@@ -224,13 +227,17 @@ const STATUS_LABELS: Record<string, string> = {
 
         <section class="billing-section billing-manage" aria-labelledby="billing-manage-h">
           <h2 id="billing-manage-h" class="sr-only">Manage billing</h2>
-          <button type="button" class="btn" [disabled]="ctl.busy()" (click)="ctl.manage()">
+          <button type="button" class="btn" [disabled]="demo || ctl.busy()" (click)="ctl.manage()">
             <app-icon name="external" [size]="14" />
             {{ ctl.pending()?.kind === 'portal' ? 'Opening…' : 'Manage billing' }}
           </button>
-          <span class="muted small"
-            >Payment methods, invoices, and changing or cancelling your plan.</span
-          >
+          @if (demo) {
+            <span class="muted small">Not available in the demo.</span>
+          } @else {
+            <span class="muted small"
+              >Payment methods, invoices, and changing or cancelling your plan.</span
+            >
+          }
         </section>
 
         @if (ctl.actionError(); as e) {
@@ -477,6 +484,8 @@ export class BillingPage implements OnInit, OnDestroy {
   /** `?checkout=success|cancel` when the router binds query params to inputs. */
   readonly checkout = input<string | undefined>();
 
+  /** The demo can't buy anything: top-ups, plans and the portal are off. */
+  protected readonly demo = inject(DEMO_MODE);
   private readonly route = inject(ActivatedRoute, { optional: true });
   private readonly router = inject(Router, { optional: true });
 

@@ -11,13 +11,16 @@ The idea: any message can spawn child **branches**. Each branch sends the model 
 ## 1. Architecture
 
 ```
-Power app  /  (owner)     Simple app  /learn/  (learners)       Anonymous viewer (phone/desktop)
-   │  fetch + SSE (/api/*), Better Auth session cookie              │  GET /s/<token>[/data.json]
+Power app  /  (owner)     Simple app  /learn/  (learners)       Anonymous visitor / viewer (phone/desktop)
+   │  fetch + SSE (/api/*), Better Auth session cookie              │  GET /, /welcome, /learn/demo, /s/<token>
    ▼                                                                ▼
 ┌───────────────────────────────── Worker "tangent" (Hono) ──────────────────────────────────┐
 │ static assets ./site: power app at / (SPA fallback)                                        │
-│ run_worker_first: /api/*, /s/*, /learn, /learn/*                                           │
+│ run_worker_first: /api/*, /s/*, /learn, /learn/*, / (exact), /welcome                      │
+│ / → no session cookie (and no dev bypass): landing page; else power index.html + CSP       │
+│ /welcome → landing page, always (http/landing.ts: Worker-rendered, no JS, hash CSP)        │
 │ /learn, /learn/* → simple app files, or its index.html + CSP (http/learn-app.ts)           │
+│ /learn/demo → simple app; runs in the browser (in-memory ChatService, no model calls)      │
 │ /api/auth/*  → Better Auth (Google, GitHub, magic link, passkey; D1 tables)                │
 │ /api/auth/stripe/webhook → Stripe plugin → onEvent → credit_grants         ◄── Stripe      │
 │ /api/auth/subscription/* → Stripe plugin (monthly plans, Customer Portal)  ──► Stripe      │
@@ -53,7 +56,7 @@ Power app  /  (owner)     Simple app  /learn/  (learners)       Anonymous viewer
 
 Workspace packages export their TypeScript sources directly (`"exports": "./src/index.ts"`). There is no build step: Wrangler's esbuild, Vite/Vitest and the Angular builder all compile TS from the workspace. That includes the Angular library `@tangent/web-shared`, which each app's builder compiles AOT.
 
-**Build and serve.** The root `pnpm build` runs `ng build` for `apps/web` and `apps/simple`, then `scripts/assemble-assets.mjs` copies `apps/web/dist/web/browser/**` to `apps/worker/site/` and `apps/simple/dist/simple/browser/**` to `apps/worker/site/learn/`. `wrangler.jsonc` points `assets.directory` at `./site` (git-ignored except `.gitkeep`). The power app uses the assets' SPA fallback. The simple app can't, because the fallback always serves the root `index.html`, so `/learn` and `/learn/*` run the Worker first: `/learn` redirects to `/learn/`, a path whose last segment contains a `.` is passed to `ASSETS` as is, and every other path gets the simple app's `index.html`. The Worker sets the CSP on those responses itself (the login policy on `/learn/login`), because `_headers` doesn't apply to Worker-generated responses.
+**Build and serve.** The root `pnpm build` runs `ng build` for `apps/web` and `apps/simple`, then `scripts/assemble-assets.mjs` copies `apps/web/dist/web/browser/**` to `apps/worker/site/` and `apps/simple/dist/simple/browser/**` to `apps/worker/site/learn/`. `wrangler.jsonc` points `assets.directory` at `./site` (git-ignored except `.gitkeep`). The power app uses the assets' SPA fallback. The simple app can't, because the fallback always serves the root `index.html`, so `/learn` and `/learn/*` run the Worker first: `/learn` redirects to `/learn/`, a path whose last segment contains a `.` is passed to `ASSETS` as is, and every other path gets the simple app's `index.html`. The Worker sets the CSP on those responses itself (the login policy on `/learn/login`), because `_headers` doesn't apply to Worker-generated responses. `/` (exact path) and `/welcome` also run the Worker first, for the landing page (`http/landing.ts`); see "Landing page and demo" below.
 
 ### Request flows
 
@@ -586,3 +589,11 @@ Added after the initial build (migration `0003_billing`). Setup and pricing for 
 - **Code:** `apps/worker/src/simple-mode.ts` (provider and settings), `src/billing/` (`pricing`, `ledger`, `meter`, `reconcile`, `usage-store`, `service`, `stripe`, `webhook`), `src/routes/billing.ts`, `src/http/learn-app.ts`, `src/auth/account.ts`, `packages/web-shared`, `apps/simple`.
 - **Not verified against live accounts:** Stripe and OpenRouter are exercised against mocks in the Worker tests (signed webhook deliveries through the real plugin endpoint, a mocked generation endpoint). Real Checkout, Stripe Tax and the Customer Portal need the Dashboard setup in the README.
 - **Out of scope (launch blockers first):** terms and privacy pages; account deletion and data export for simple users; auto-recharge; free credit; promotion codes; trials; low-balance emails; multi-currency; metered (postpaid) billing; Managed Payments; an admin UI.
+
+## 14. Landing page and demo
+
+- **Routes:** `GET /welcome` always serves the landing page. `GET /` serves it to anonymous visitors: no `tangent.session_token` / `__Secure-tangent.session_token` cookie and not the dev bypass. Otherwise `/` goes to `ASSETS` (the power app's `index.html`) with the `_headers` `/*` CSP set by the Worker. HEAD is answered like GET; other methods fall through to the 404 handler.
+- **Page:** server-rendered by `apps/worker/src/http/landing.ts`. One HTML document under 25 KB, no JavaScript, one constant inline `<style>` allowed by its SHA-256: `default-src 'none'; style-src 'sha256-…'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`, plus `Referrer-Policy: same-origin` and `nosniff`. `/` is `no-cache` with `Vary: Cookie`; `/welcome` is `public, max-age=300`. Light and dark follow `prefers-color-scheme` with the base.css palette.
+- **Calls to action:** "Try the demo" → `/learn/demo`, "Start learning" → `/learn/login`, "Power users: sign in" → `/login`.
+- **Demo:** `/learn/demo` is a route of the simple app that runs against an in-memory `ChatService`, with replies generated from random English sentences (`txtgen`). No sign-in, no model calls, no cost; state lives only in the browser tab (`sessionStorage`).
+- **Tests:** `apps/worker/test/landing.test.ts` (CSP hash against the inline style, cookie and dev-bypass routing, HEAD, fall-through).

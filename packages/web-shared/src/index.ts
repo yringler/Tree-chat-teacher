@@ -13,6 +13,7 @@ export {
   isPaymentRequired,
   type ExportParams,
 } from './core/api-client';
+export { API_FETCH, defaultApiFetch } from './core/api-fetch';
 export { APP_PATHS, provideAppPaths, type AppPaths } from './core/app-paths';
 export {
   AUTH_CLIENT,

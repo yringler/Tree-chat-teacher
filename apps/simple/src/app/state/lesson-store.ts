@@ -1,6 +1,7 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { branchChain, branchPath, indexTree, type TreeIndex } from '@tangent/core';
+// The tree helpers only: the rest of @tangent/core (the ChatService) is for the lazy demo chunk.
+import { branchChain, branchPath, indexTree, type TreeIndex } from '@tangent/core/tree';
 import type {
   Branch,
   ChatNode,

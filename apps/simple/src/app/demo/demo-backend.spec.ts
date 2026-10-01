@@ -1,0 +1,286 @@
+import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classes without the Angular CLI.
+import { Injector } from '@angular/core';
+import type { StreamEvent } from '@tangent/shared';
+import { API_FETCH, ApiClient, ApiError, readStreamEvents } from '@tangent/web-shared';
+import { describe, expect, it } from 'vitest';
+import {
+  createDemoFetch,
+  DEMO_START_BALANCE_MICROS,
+  DemoBackend,
+  sseFrame,
+  type DemoBackendOptions,
+  type DemoStorage,
+} from './demo-backend';
+import { createLoremProvider, seededRandom, type LoremProviderOptions } from './lorem';
+
+/** The real ApiClient over the demo backend (no network, no DOM). */
+function setup(options: DemoBackendOptions & { lorem?: LoremProviderOptions } = {}) {
+  const { lorem, ...rest } = options;
+  const backend = new DemoBackend({
+    storage: null,
+    provider: createLoremProvider({
+      random: seededRandom(42),
+      sleep: async () => undefined,
+      ...lorem,
+    }),
+    ...rest,
+  });
+  const api = Injector.create({
+    providers: [{ provide: ApiClient }, { provide: API_FETCH, useValue: backend.fetch }],
+  }).get(ApiClient);
+  return { backend, api };
+}
+
+async function events(res: Response): Promise<StreamEvent[]> {
+  const out: StreamEvent[] = [];
+  for await (const e of readStreamEvents(res.body!)) out.push(e);
+  return out;
+}
+
+/** Resolves once `predicate` holds (polling the event loop). */
+async function until(predicate: () => boolean | Promise<boolean>, timeoutMs = 2000): Promise<void> {
+  const end = Date.now() + timeoutMs;
+  while (!(await predicate())) {
+    if (Date.now() > end) throw new Error('timed out');
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+describe('demo backend', () => {
+  it('answers /api/me and /api/providers like a simple account on the tangent provider', async () => {
+    const { api } = setup();
+    await expect(api.me()).resolves.toMatchObject({ mode: 'simple', devMode: false });
+    const [provider, ...others] = await api.providers();
+    expect(others).toEqual([]);
+    expect(provider).toMatchObject({ id: 'tangent', defaultModel: 'smart', available: true });
+    expect(provider!.models).toEqual([
+      { id: 'smart', label: 'Smart' },
+      { id: 'simple', label: 'Simple' },
+    ]);
+  });
+
+  it('starts with the example lesson (main thread and one side question)', async () => {
+    const { api } = setup();
+    const trees = await api.listTrees();
+    expect(trees).toHaveLength(1);
+    expect(trees[0]).toMatchObject({ branchCount: 2, messageCount: 6 });
+    const detail = await api.getTree(trees[0]!.id);
+    const side = detail.branches.find((b) => b.parentBranchId !== null)!;
+    expect(side.anchorQuote).toBeTruthy();
+    const point = detail.nodes.find((n) => n.id === side.branchPointNodeId)!;
+    expect(point.content).toContain(side.anchorQuote!);
+    expect(detail.nodes.every((n) => n.status === 'complete')).toBe(true);
+    const usage = await api.usage();
+    expect(usage.entries.length).toBe(3);
+  });
+
+  it('creates a lesson, streams a reply over SSE, stores it, titles the lesson and charges for it', async () => {
+    const { api } = setup({ seed: false });
+    const detail = await api.createTree({ providerId: 'tangent', model: 'smart' });
+    expect(detail.tree.title).toBe('New conversation');
+    expect(detail.tree.systemPrompt).toContain('Demo');
+
+    const res = await api.sendMessage(
+      detail.tree.trunkBranchId,
+      { content: 'Why is the sky blue?' },
+      new AbortController().signal,
+    );
+    expect(res.headers.get('content-type')).toMatch(/^text\/event-stream/);
+    const stream = await events(res);
+    const types = stream.map((e) => e.type);
+    expect(types[0]).toBe('start');
+    expect(types.at(-1)).toBe('done');
+    expect(types.filter((t) => t === 'delta').length).toBeGreaterThan(10);
+    expect(types.indexOf('usage')).toBeGreaterThan(types.lastIndexOf('delta'));
+    expect(types.filter((t) => t === 'start' || t === 'done' || t === 'error')).toEqual([
+      'start',
+      'done',
+    ]);
+
+    const start = stream[0] as Extract<StreamEvent, { type: 'start' }>;
+    const done = stream.at(-1) as Extract<StreamEvent, { type: 'done' }>;
+    const text = stream.flatMap((e) => (e.type === 'delta' ? [e.text] : [])).join('');
+    expect(start.userNode.content).toBe('Why is the sky blue?');
+    expect(start.assistantNode.status).toBe('streaming');
+    expect(done.node).toMatchObject({
+      id: start.assistantNode.id,
+      status: 'complete',
+      content: text,
+    });
+    expect(text.trimEnd()).toMatch(/\?$/);
+
+    const after = await api.getTree(detail.tree.id);
+    const stored = after.nodes.find((n) => n.id === start.assistantNode.id)!;
+    expect(stored).toMatchObject({ status: 'complete', content: text, model: 'smart' });
+    expect(stored.usage?.outputTokens).toBeGreaterThan(0);
+    // Auto-titled after the first reply, like production.
+    expect(after.tree.title).not.toBe('New conversation');
+    expect((await api.listTrees())[0]!.title).toBe(after.tree.title);
+
+    const billing = await api.billing();
+    expect(billing).toMatchObject({ enabled: true, topUpsEnabled: false, monthlyPlans: [] });
+    expect(billing.heldMicros).toBe(0);
+    expect(billing.balanceMicros).toBeLessThan(DEMO_START_BALANCE_MICROS);
+    expect(DEMO_START_BALANCE_MICROS - billing.balanceMicros).toBeLessThan(50_000);
+    const usage = await api.usage();
+    expect(usage.entries.map((e) => [e.purpose, e.status])).toEqual([
+      ['title', 'settled'],
+      ['reply', 'settled'],
+    ]);
+  });
+
+  it('asks a side question with the parent path as context', async () => {
+    const { api } = setup();
+    const [lesson] = await api.listTrees();
+    const detail = await api.getTree(lesson!.id);
+    const reply = detail.nodes.find(
+      (n) => n.role === 'assistant' && n.branchId === detail.tree.trunkBranchId,
+    )!;
+    const branch = await api.createBranch({
+      fromNodeId: reply.id,
+      contextMode: 'path',
+      anchorQuote: 'a pineapple',
+    });
+    expect(branch).toMatchObject({
+      parentBranchId: detail.tree.trunkBranchId,
+      anchorQuote: 'a pineapple',
+    });
+    const plan = await api.getContext(branch.id, null, false);
+    expect(plan.rendered.messages.map((m) => m.content)).toContain(reply.content);
+    const stream = await events(
+      await api.sendMessage(branch.id, { content: 'What?' }, new AbortController().signal),
+    );
+    expect(stream.at(-1)).toMatchObject({ type: 'done', node: { branchId: branch.id } });
+    const updated = (stream.at(-1) as Extract<StreamEvent, { type: 'done' }>).branch;
+    expect(updated.titleSource).toBe('auto');
+  });
+
+  it('cancels a running reply: the stream ends with an error and the partial reply is kept', async () => {
+    const { api } = setup({
+      seed: false,
+      lorem: { sleep: undefined, minDelayMs: 5, maxDelayMs: 5 },
+    });
+    const tree = await api.createTree({});
+    const res = await api.sendMessage(
+      tree.tree.trunkBranchId,
+      { content: 'Hi' },
+      new AbortController().signal,
+    );
+    const seen: StreamEvent[] = [];
+    for await (const e of readStreamEvents(res.body!)) {
+      seen.push(e);
+      if (seen.filter((x) => x.type === 'delta').length === 2) {
+        await api.cancelNode((seen[0] as Extract<StreamEvent, { type: 'start' }>).assistantNode.id);
+      }
+    }
+    const last = seen.at(-1)!;
+    expect(last).toMatchObject({ type: 'error', message: 'Cancelled', node: { status: 'error' } });
+    const node = (await api.getTree(tree.tree.id)).nodes.find((n) => n.role === 'assistant')!;
+    expect(node.status).toBe('error');
+    expect(node.content.length).toBeGreaterThan(0);
+    expect((await api.usage()).entries[0]).toMatchObject({
+      status: 'unresolved',
+      chargeMicros: null,
+    });
+    expect((await api.billing()).balanceMicros).toBe(DEMO_START_BALANCE_MICROS);
+  });
+
+  it('reconnects to a running reply with a snapshot, and replays a finished one', async () => {
+    const { api } = setup({
+      seed: false,
+      lorem: { sleep: undefined, minDelayMs: 2, maxDelayMs: 2 },
+    });
+    const tree = await api.createTree({});
+    const ctrl = new AbortController();
+    const first = await api.sendMessage(tree.tree.trunkBranchId, { content: 'Hi' }, ctrl.signal);
+    const reader = readStreamEvents(first.body!);
+    const start = (await reader.next()).value as Extract<StreamEvent, { type: 'start' }>;
+    await reader.next(); // one delta
+    ctrl.abort(); // the reader goes away; the generation goes on
+    await reader.return();
+
+    const again = await events(
+      await api.streamNode(start.assistantNode.id, new AbortController().signal),
+    );
+    expect(again[0]).toMatchObject({ type: 'snapshot', node: { id: start.assistantNode.id } });
+    expect(again.at(-1)?.type).toBe('done');
+    const done = again.at(-1) as Extract<StreamEvent, { type: 'done' }>;
+    const snapshot = again[0] as Extract<StreamEvent, { type: 'snapshot' }>;
+    const rest = again.flatMap((e) => (e.type === 'delta' ? [e.text] : [])).join('');
+    expect(snapshot.node.content + rest).toBe(done.node.content);
+
+    const replay = await events(
+      await api.streamNode(start.assistantNode.id, new AbortController().signal),
+    );
+    expect(replay.map((e) => e.type)).toEqual(['snapshot', 'done']);
+  });
+
+  it('answers unknown routes with a JSON 404 in the API error shape', async () => {
+    const demoFetch = createDemoFetch({ storage: null });
+    const res = await demoFetch('/api/shares', { method: 'GET' });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({
+      error: { code: 'not_found', message: 'Not available in the demo' },
+    });
+    const { api } = setup();
+    await expect(api.getTree('nope')).rejects.toMatchObject({ status: 404, code: 'not_found' });
+    await expect(api.createCheckout(500)).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('rejects invalid bodies with a 400', async () => {
+    const { api } = setup();
+    await expect(api.createBranch({ fromNodeId: '' })).rejects.toMatchObject({
+      status: 400,
+      code: 'bad_request',
+    });
+  });
+
+  it('answers 402 when the pretend credit is used up', async () => {
+    const storage = memoryStorage();
+    const { api } = setup({ storage });
+    const tree = await api.createTree({});
+    const saved = JSON.parse(storage.data.get('tangent.learn-demo.v1')!) as {
+      balanceMicros: number;
+    };
+    storage.data.set('tangent.learn-demo.v1', JSON.stringify({ ...saved, balanceMicros: 0 }));
+    const { api: next } = setup({ storage });
+    await expect(
+      next.sendMessage(tree.tree.trunkBranchId, { content: 'Hi' }, new AbortController().signal),
+    ).rejects.toMatchObject({ status: 402, code: 'payment_required' });
+  });
+
+  it('mirrors the session to storage and restores it after a reload', async () => {
+    const storage = memoryStorage();
+    const { api } = setup({ storage, seed: false });
+    const tree = await api.createTree({});
+    await events(
+      await api.sendMessage(
+        tree.tree.trunkBranchId,
+        { content: 'Hi' },
+        new AbortController().signal,
+      ),
+    );
+    await until(() => storage.data.has('tangent.learn-demo.v1'));
+
+    const { api: reloaded } = setup({ storage });
+    const detail = await reloaded.getTree(tree.tree.id);
+    expect(detail.nodes.map((n) => n.status)).toEqual(['complete', 'complete']);
+    expect((await reloaded.listTrees()).map((t) => t.id)).toEqual([tree.tree.id]); // not re-seeded
+    expect((await reloaded.billing()).balanceMicros).toBeLessThan(DEMO_START_BALANCE_MICROS);
+  });
+
+  it('serializes SSE frames like the Worker', () => {
+    expect(sseFrame({ type: 'status', message: 'x' })).toBe(
+      'event: status\ndata: {"type":"status","message":"x"}\n\n',
+    );
+  });
+});
+
+function memoryStorage(): DemoStorage & { data: Map<string, string> } {
+  const data = new Map<string, string>();
+  return {
+    data,
+    getItem: (k) => data.get(k) ?? null,
+    setItem: (k, v) => void data.set(k, v),
+  };
+}

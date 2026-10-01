@@ -24,6 +24,11 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 
 Each app sends the other kind of account away: a simple account opening `/` is redirected to `/learn/`, and a power account opening `/learn/` is redirected to `/`. An allowlisted owner therefore can't use the simple app; to try it, sign in with an address that is not on `ALLOWED_EMAILS`.
 
+Two public pages sit in front of both apps:
+
+- **Landing page.** Anonymous visitors to `/` get a marketing page instead of the power app: what Tangent is, the two modes, and links to the demo, Learn sign-in (`/learn/login`) and power sign-in (`/login`). "Anonymous" means no Better Auth session cookie (`tangent.session_token`, or `__Secure-tangent.session_token` on https) and not the local dev bypass; with a cookie, `/` is the power app as before. `/welcome` always serves the page, signed in or not. The Worker renders it (`apps/worker/src/http/landing.ts`): one HTML document, no JavaScript, one inline stylesheet allowed by a hash-based CSP.
+- **Free demo at `/learn/demo`.** The Learn interface running entirely in the browser: no sign-in, no model calls, and its state lives only in the browser tab. Replies are generated from random English sentences (the `txtgen` package), so they are playful nonsense, but branching, "Ask about this" and the tree all behave as in the real app.
+
 Design docs:
 
 - [docs/PLAN.md](docs/PLAN.md): architecture, data model, interfaces, the context algorithm and portability.
@@ -73,7 +78,7 @@ apps/web/dist/web/browser/**        → apps/worker/site/         served at /
 apps/simple/dist/simple/browser/**  → apps/worker/site/learn/   served at /learn/
 ```
 
-`apps/worker/site/` is git-ignored except for a `.gitkeep`, so `wrangler dev` and the tests start before anything is built. `/` and the power app's deep links come straight from Workers Static Assets (SPA fallback). `/learn` and `/learn/*` run the Worker first (`run_worker_first`): `apps/worker/src/http/learn-app.ts` serves files as they are and every other path as the simple app's `index.html`, because the SPA fallback only ever serves the root `index.html`.
+`apps/worker/site/` is git-ignored except for a `.gitkeep`, so `wrangler dev` and the tests start before anything is built. The power app's deep links come straight from Workers Static Assets (SPA fallback). `/` (exact path) and `/welcome` run the Worker first: `apps/worker/src/http/landing.ts` serves the landing page there, and passes `/` to the power app's `index.html` when the request carries a session cookie or the dev bypass is on. `/learn` and `/learn/*` run the Worker first (`run_worker_first`): `apps/worker/src/http/learn-app.ts` serves files as they are and every other path as the simple app's `index.html`, because the SPA fallback only ever serves the root `index.html`.
 
 Checks:
 
@@ -278,6 +283,8 @@ These are out of scope for now. The first two are **launch blockers** before ope
 | `STRIPE_PLANS`                                                                         | var                | Monthly plans as JSON `[{ "name", "label", "priceId", "amountCents" }]` (default `[]` = none)                                                                                            |
 | `triggers.crons`                                                                       | cron trigger       | `*/10 * * * *`: settles usage whose cost the stream didn't report (`apps/worker/src/billing/reconcile.ts`)                                                                               |
 | `DEV_ALLOW_NO_AUTH`                                                                    | `.dev.vars` only   | Skip sign-in locally (only while `BETTER_AUTH_SECRET` is unset)                                                                                                                          |
+
+**Routing.** `assets.run_worker_first` in `wrangler.jsonc` lists the paths the Worker sees before Workers Static Assets: `/api/*`, `/s/*`, `/learn`, `/learn/*`, `/` and `/welcome`. Keep `/` an exact path (not `/*`), or every asset request would run the Worker. In local dev with `DEV_ALLOW_NO_AUTH=true`, `/` is the app; open `/welcome` to see the landing page.
 
 **Providers.** Each provider instance in `PROVIDERS` has `id`, `kind` (`anthropic` | `openai-compatible` | `fake`), `label`, `models`, `defaultModel` and `apiKeySecret`. It can also take `baseUrl`, `headers`, `extraHeaderSecrets`, `maxContextTokens`, `maxOutputTokens`, `supportsSystemPrompt` and `options`. Any OpenAI-compatible endpoint is config only:
 

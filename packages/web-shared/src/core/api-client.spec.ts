@@ -1,8 +1,15 @@
+import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classes without the Angular CLI.
+import { Injector, type Provider } from '@angular/core';
 import type { BillingSummary, UsageListResponse } from '@tangent/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiClient, ApiError, isPaymentRequired } from './api-client';
+import { API_FETCH } from './api-fetch';
 
 type FetchArgs = [input: string, init: RequestInit];
+
+function createApi(providers: Provider[] = []): ApiClient {
+  return Injector.create({ providers: [{ provide: ApiClient }, ...providers] }).get(ApiClient);
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -26,7 +33,7 @@ const SUMMARY: BillingSummary = {
 
 describe('ApiClient billing', () => {
   let fetchMock: ReturnType<typeof vi.fn<(...args: FetchArgs) => Promise<Response>>>;
-  const api = new ApiClient();
+  const api = createApi();
 
   beforeEach(() => {
     fetchMock = vi.fn<(...args: FetchArgs) => Promise<Response>>();
@@ -89,5 +96,61 @@ describe('ApiClient billing', () => {
     expect(isPaymentRequired(err)).toBe(true);
     expect(isPaymentRequired(new ApiError(403, 'forbidden', 'x'))).toBe(false);
     expect(isPaymentRequired(new Error('x'))).toBe(false);
+  });
+});
+
+describe('ApiClient transport (API_FETCH)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends every request through the provided API_FETCH, never the global fetch', async () => {
+    const globalFetch = vi.fn<(...args: FetchArgs) => Promise<Response>>();
+    vi.stubGlobal('fetch', globalFetch);
+    const transport = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void init;
+      return input === '/api/trees'
+        ? jsonResponse([])
+        : new Response('data: {}\n\n', { headers: { 'content-type': 'text/event-stream' } });
+    });
+    const api = createApi([{ provide: API_FETCH, useValue: transport }]);
+
+    await expect(api.listTrees()).resolves.toEqual([]);
+    const signal = new AbortController().signal;
+    const res = await api.sendMessage('b1', { content: 'hi' }, signal);
+    expect(res.body).not.toBeNull();
+
+    expect(globalFetch).not.toHaveBeenCalled();
+    expect(transport.mock.calls.map(([url]) => url)).toEqual([
+      '/api/trees',
+      '/api/branches/b1/messages',
+    ]);
+    const init = transport.mock.calls[1]![1]!;
+    expect(init.method).toBe('POST');
+    expect(init.signal).toBe(signal);
+    expect(JSON.parse(String(init.body))).toEqual({ content: 'hi' });
+  });
+
+  it("maps the transport's error responses like fetch's", async () => {
+    const api = createApi([
+      {
+        provide: API_FETCH,
+        useValue: async () =>
+          jsonResponse({ error: { code: 'not_found', message: 'Route not found' } }, 404),
+      },
+    ]);
+    await expect(api.getTree('x')).rejects.toMatchObject({
+      status: 404,
+      code: 'not_found',
+      message: 'Route not found',
+    });
+  });
+
+  it('defaults to the global fetch, looked up per call', async () => {
+    const api = createApi();
+    const later = vi.fn(async () => jsonResponse([]));
+    vi.stubGlobal('fetch', later);
+    await api.listTrees();
+    expect(later).toHaveBeenCalledOnce();
   });
 });

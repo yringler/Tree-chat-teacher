@@ -1,6 +1,7 @@
 import { inject, Injectable } from '@angular/core';
 import type { LoginOptionsResponse, MeResponse } from '@tangent/shared';
 import { ApiClient, ApiError } from './api-client';
+import { API_FETCH, defaultApiFetch } from './api-fetch';
 import { AUTH_CLIENT, authErrorMessage as messageFor } from './auth-client';
 import { APP_PATHS } from './app-paths';
 
@@ -36,9 +37,11 @@ export class AuthService {
   private readonly api = inject(ApiClient);
   private readonly paths = inject(APP_PATHS);
   private readonly client = inject(AUTH_CLIENT);
+  private readonly transport = inject(API_FETCH, { optional: true }) ?? defaultApiFetch;
 
   async loginOptions(): Promise<LoginOptionsResponse> {
-    const res = await fetch('/api/login-options', { credentials: 'same-origin' });
+    const transport = this.transport;
+    const res = await transport('/api/login-options', { credentials: 'same-origin' });
     if (!res.ok) throw new Error(`Couldn't load sign-in options (${res.status})`);
     return (await res.json()) as LoginOptionsResponse;
   }

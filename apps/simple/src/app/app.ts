@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { APP_PATHS, AuthService, Icon } from '@tangent/web-shared';
+import { ApiClient, APP_PATHS, AuthService, Icon } from '@tangent/web-shared';
 import { RouteSync } from './core/route-sync';
+import { DEMO_MODE, DEMO_SIGNUP_URL } from './demo/demo-mode';
 import { AppHeader } from './shell/app-header';
 import { PasskeysDialog } from './shell/passkeys-dialog';
 import { AccountStore } from './state/account-store';
@@ -22,6 +23,12 @@ const POWER_APP_HOME = '/';
     } @else {
       <div class="shell">
         <app-header />
+        @if (demo) {
+          <p class="demo-banner" role="note">
+            <span><strong>Demo:</strong> replies are generated nonsense and nothing is saved.</span>
+            <a class="demo-banner-cta" [href]="signupUrl">Start learning for real</a>
+          </p>
+        }
         <main class="shell-main">
           @if (ready()) {
             <router-outlet />
@@ -53,13 +60,18 @@ export class App {
   private readonly lessons = inject(LessonStore);
   private readonly account = inject(AccountStore);
   private readonly auth = inject(AuthService);
+  private readonly api = inject(ApiClient);
+  /** `/learn/demo/`: an in-browser backend, no sign-in (see demo/demo-mode.ts). */
+  protected readonly demo = inject(DEMO_MODE);
+  protected readonly signupUrl = DEMO_SIGNUP_URL;
   /** The signed-in caller is known and is a simple account. */
   protected readonly ready = this.account.me;
   /**
    * The login page is always its own document (see AuthService), so this is
    * fixed for the page's lifetime. It renders without the shell and loads no data.
    */
-  protected readonly loginPage = location.pathname.replace(/\/+$/, '') === inject(APP_PATHS).login;
+  protected readonly loginPage =
+    !this.demo && location.pathname.replace(/\/+$/, '') === inject(APP_PATHS).login;
 
   constructor() {
     if (this.loginPage) return;
@@ -69,7 +81,8 @@ export class App {
 
   private async boot(): Promise<void> {
     try {
-      const me = await this.auth.requireUser();
+      // The demo's caller always exists; nothing to redirect to.
+      const me = this.demo ? await this.api.me() : await this.auth.requireUser();
       if (!me) return;
       // Power (allowlisted) accounts use the full app at the root.
       if (me.mode === 'power') {

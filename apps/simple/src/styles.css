@@ -115,6 +115,31 @@ body {
   min-height: 0;
 }
 
+/* The demo's banner (/learn/demo/): under the header, always visible. */
+
+.demo-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 6px var(--gutter);
+  border-bottom: 1px solid var(--border);
+  background: var(--warn-soft);
+  font-size: 0.88rem;
+  text-align: center;
+}
+
+.demo-banner-cta {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.demo-banner-cta::after {
+  content: ' →';
+}
+
 .page {
   display: flex;
   flex-direction: column;

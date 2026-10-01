@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, ElementRef, inject } from '@angular
 import { RouterLink } from '@angular/router';
 import { AuthService, Icon } from '@tangent/web-shared';
 import { BRAND } from '../brand';
+import { DEMO_EXIT_URL, DEMO_MODE } from '../demo/demo-mode';
 import { AccountStore } from '../state/account-store';
 import { UiStore } from '../state/ui-store';
 
@@ -45,9 +46,11 @@ import { UiStore } from '../state/ui-store';
             <a routerLink="/billing" class="menu-item" role="menuitem" (click)="close()">
               Billing and credit
             </a>
-            <button type="button" class="menu-item" role="menuitem" (click)="openPasskeys()">
-              Manage passkeys
-            </button>
+            @if (!demo) {
+              <button type="button" class="menu-item" role="menuitem" (click)="openPasskeys()">
+                Manage passkeys
+              </button>
+            }
             <button type="button" class="menu-item" role="menuitem" (click)="signOut()">
               Sign out
             </button>
@@ -64,6 +67,7 @@ export class AppHeader {
   private readonly auth = inject(AuthService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly brand = BRAND;
+  protected readonly demo = inject(DEMO_MODE);
 
   protected onDocumentClick(e: MouseEvent): void {
     if (this.ui.menuOpen() && !this.host.nativeElement.contains(e.target as Node | null)) {
@@ -82,6 +86,11 @@ export class AppHeader {
 
   protected async signOut(): Promise<void> {
     this.close();
+    if (this.demo) {
+      // Nobody is signed in: leave the demo for the landing page.
+      location.assign(DEMO_EXIT_URL);
+      return;
+    }
     try {
       await this.auth.signOut();
     } catch (err) {

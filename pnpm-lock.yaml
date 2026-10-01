@@ -77,6 +77,9 @@ importers:
       tslib:
         specifier: ^2.3.0
         version: 2.8.1
+      txtgen:
+        specifier: ^3.0.7
+        version: 3.0.7
     devDependencies:
       '@angular/build':
         specifier: ^22.2.0
@@ -3857,6 +3860,10 @@ packages:
     resolution: {integrity: sha512-axr3IdNuVIxnaK5XGEUFTu3YmAQ6lllgrvqfEoR16g/HGnYY/6We4oWENtAnzK6/LpJ2ur9PAb80RBt7/U4ugw==}
     engines: {node: '>= 6.0.0'}
 
+  txtgen@3.0.7:
+    resolution: {integrity: sha512-1yIREceryZibOmv3CU+rUFTnGJLLSyiB336E9P5+cRru8RLoSAzmm6F6ACkaSoC3uCWykICMKm5GGNlriJxdbA==}
+    engines: {node: '>= 18'}
+
   type-check@0.4.0:
     resolution: {integrity: sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew==}
     engines: {node: '>= 0.8.0'}
@@ -7003,6 +7010,8 @@ snapshots:
   tsyringe@4.10.0:
     dependencies:
       tslib: 1.14.1
+
+  txtgen@3.0.7: {}
 
   type-check@0.4.0:
     dependencies:

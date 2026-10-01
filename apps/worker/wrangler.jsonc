@@ -23,8 +23,9 @@
     // the simple app can't use it: /learn* goes to the Worker (src/http/learn-app.ts).
     "not_found_handling": "single-page-application",
     // API and public share routes must reach the Worker even for browser navigations;
-    // /learn* does too, for the simple app's index.html and its CSP.
-    "run_worker_first": ["/api/*", "/s/*", "/learn", "/learn/*"]
+    // /learn* does too, for the simple app's index.html and its CSP. "/welcome" is the
+    // landing page, and "/" (exact path) is too for anonymous visitors (src/http/landing.ts).
+    "run_worker_first": ["/api/*", "/s/*", "/learn", "/learn/*", "/", "/welcome"]
   },
   "d1_databases": [
     {
