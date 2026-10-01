@@ -99,7 +99,10 @@ export function openSignup(env: AppEnv): boolean {
   return env.OPEN_SIGNUP?.trim() === 'true';
 }
 
-/** Whether an account may be created for (or a magic link sent to) `email`. */
+/**
+ * Whether `email` may sign in at all (and be sent a magic link). Creating the
+ * user of an open sign-up also needs a verified email (databaseHooks below).
+ */
 export function mayUseApp(env: AppEnv, email: string | null | undefined): boolean {
   return isEmailAllowed(env, email) || (openSignup(env) && !!email);
 }
@@ -214,7 +217,14 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
           // Covers every sign-up path (OAuth callback, magic link). Returning
           // false (rather than throwing) makes the OAuth callback redirect to
           // the login page with an error instead of answering with JSON.
-          before: async (user) => (mayUseApp(env, user.email) ? { data: user } : false),
+          // Open sign-ups also need a verified email (magic links always are;
+          // OAuth reports it): the session middleware refuses unverified
+          // simple users, so creating one would only leave a user that can
+          // never get in.
+          before: async (user) =>
+            isEmailAllowed(env, user.email) || (mayUseApp(env, user.email) && user.emailVerified)
+              ? { data: user }
+              : false,
         },
       },
     },
@@ -293,8 +303,8 @@ function stripePlugin(env: AppEnv) {
         plans: stripePlans(env).map((p) => ({
           name: p.name,
           priceId: p.priceId,
-          // Plan switches take effect next cycle; credit comes only from
-          // subscription_create / subscription_cycle invoices.
+          // Plan switches take effect next cycle. Every paid subscription
+          // invoice is credited anyway (billing/webhook.ts), prorated or not.
           prorationBehavior: 'none' as const,
         })),
         // Stripe Tax on exclusive prices; tax never enters our ledger.

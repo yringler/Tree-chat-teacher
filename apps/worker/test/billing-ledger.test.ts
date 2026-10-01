@@ -172,6 +172,7 @@ describe('billing summary', () => {
 
     expect(await getBillingSummary(env, account)).toEqual({
       enabled: true,
+      topUpsEnabled: true,
       currency: 'usd',
       balanceMicros: 9_000_000,
       heldMicros: 20_000,
@@ -193,11 +194,20 @@ describe('billing summary', () => {
     const summary = await getBillingSummary({ ...env, STRIPE_SECRET_KEY: '' }, simpleAccount());
     expect(summary).toMatchObject({
       enabled: false,
+      topUpsEnabled: false,
       balanceMicros: 0,
       availableMicros: 0,
       markupBps: 1000,
       subscription: null,
     });
+  });
+
+  it('reports top-ups as unavailable without a credits product, though billing is enabled', async () => {
+    const summary = await getBillingSummary(
+      { ...env, STRIPE_CREDITS_PRODUCT_ID: '' },
+      simpleAccount(),
+    );
+    expect(summary).toMatchObject({ enabled: true, topUpsEnabled: false });
   });
 });
 

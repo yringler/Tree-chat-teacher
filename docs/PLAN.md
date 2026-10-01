@@ -94,7 +94,7 @@ Why a DO rather than `waitUntil`: `waitUntil` only lasts 30 s after the client d
 **Stripe webhook** (`POST /api/auth/stripe/webhook`, routed to Better Auth before the session middleware): the plugin verifies the signature, syncs `auth_subscriptions` for `checkout.session.completed` and `customer.subscription.*`, then calls our `onEvent` for every event:
 
 - `checkout.session.completed` (payment mode, `kind=credits`, paid) or `checkout.session.async_payment_succeeded` → grant `amount_subtotal` (ref: session id);
-- `invoice.paid` with `parent.type = 'subscription_details'` and `billing_reason` `subscription_create`/`subscription_cycle` → grant `subtotal` (ref: invoice id);
+- `invoice.paid` with `parent.type = 'subscription_details'` (any `billing_reason`) and a positive `subtotal` → grant `subtotal` (ref: invoice id);
 - `charge.refunded` → a negative grant per refund (ref: refund id), the pre-tax share for top-ups.
 
 The account comes from `metadata.accountId`, or `customer` → `auth_users.stripe_customer_id` → `u_<userId>`. Grants are idempotent on `stripe_ref`. A D1 error throws, the plugin answers 400 and Stripe retries.

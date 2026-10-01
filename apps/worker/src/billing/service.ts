@@ -108,6 +108,7 @@ export async function getBillingSummary(
   ]);
   return {
     enabled: billingConfigured(env),
+    topUpsEnabled: billingConfigured(env) && !!env.STRIPE_CREDITS_PRODUCT_ID?.trim(),
     currency: 'usd',
     balanceMicros,
     heldMicros,

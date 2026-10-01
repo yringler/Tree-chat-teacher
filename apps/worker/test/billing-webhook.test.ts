@@ -143,15 +143,45 @@ describe('Stripe webhook fulfilment', () => {
     ]);
   });
 
-  it('ignores non-subscription invoices and other billing reasons', async () => {
+  it('credits every paid subscription invoice with a positive subtotal, prorated ones included', async () => {
+    const { customer, accountId } = await userWithCustomer();
+    const update = invoice(customer, { billing_reason: 'subscription_update', subtotal: 512 });
+    const threshold = invoice(customer, {
+      billing_reason: 'subscription_threshold',
+      subtotal: 300,
+    });
+    await handleStripeEvent(env, event('invoice.paid', update));
+    await handleStripeEvent(env, event('invoice.paid', threshold));
+    // A prorated downgrade can net to zero or less: nothing to credit.
+    await handleStripeEvent(
+      env,
+      event(
+        'invoice.paid',
+        invoice(customer, { billing_reason: 'subscription_update', subtotal: 0 }),
+      ),
+    );
+    await handleStripeEvent(
+      env,
+      event(
+        'invoice.paid',
+        invoice(customer, { billing_reason: 'subscription_update', subtotal: -250 }),
+      ),
+    );
+    const grants = await grantsFor(env, accountId);
+    expect(grants).toHaveLength(2);
+    expect(grants).toEqual(
+      expect.arrayContaining([
+        { kind: 'subscription', amount_micros: 5_120_000, stripe_ref: update['id'] },
+        { kind: 'subscription', amount_micros: 3_000_000, stripe_ref: threshold['id'] },
+      ]),
+    );
+  });
+
+  it('ignores invoices that are not for a subscription', async () => {
     const { customer, accountId } = await userWithCustomer();
     await handleStripeEvent(
       env,
       event('invoice.paid', invoice(customer, { parent: null, billing_reason: 'manual' })),
-    );
-    await handleStripeEvent(
-      env,
-      event('invoice.paid', invoice(customer, { billing_reason: 'subscription_update' })),
     );
     await handleStripeEvent(
       env,

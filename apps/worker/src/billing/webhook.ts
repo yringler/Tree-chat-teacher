@@ -3,7 +3,8 @@
 //
 // - checkout.session.completed (payment mode, kind=credits, paid) and
 //   checkout.session.async_payment_succeeded → + amount_subtotal (ref: session id)
-// - invoice.paid for a subscription (create/cycle) → + subtotal (ref: invoice id)
+// - invoice.paid for a subscription (any billing reason: create, cycle, a
+//   prorated update, threshold) with a positive subtotal → + subtotal (ref: invoice id)
 // - charge.refunded → − pre-tax share of each refund (ref: refund id)
 //
 // Every grant is idempotent on its Stripe ref, so redeliveries are no-ops. D1
@@ -13,11 +14,6 @@ import type { AppEnv } from '../env.js';
 import { grantCredit } from './ledger.js';
 import { centsToMicros } from './pricing.js';
 import { accountIdForUser, getStripe, userIdForCustomer } from './stripe.js';
-
-const SUBSCRIPTION_CREDIT_REASONS: ReadonlySet<string> = new Set([
-  'subscription_create',
-  'subscription_cycle',
-]);
 
 function idOf(ref: string | { id: string } | null | undefined): string | null {
   if (!ref) return null;
@@ -64,8 +60,9 @@ async function creditCheckout(env: AppEnv, session: Stripe.Checkout.Session): Pr
 
 async function creditInvoice(env: AppEnv, invoice: Stripe.Invoice): Promise<void> {
   // One-off invoices (e.g. Checkout's invoice_creation receipts) have no subscription parent.
+  // Every paid subscription invoice counts, whatever its billing_reason: a customer who
+  // pays a prorated invoice (e.g. a plan switch in the Customer Portal) gets that credit.
   if (invoice.parent?.type !== 'subscription_details') return;
-  if (!invoice.billing_reason || !SUBSCRIPTION_CREDIT_REASONS.has(invoice.billing_reason)) return;
   if (invoice.currency && invoice.currency !== 'usd') {
     console.error(
       'Ignoring a subscription invoice in an unexpected currency',

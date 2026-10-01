@@ -108,48 +108,52 @@ const STATUS_LABELS: Record<string, string> = {
 
         <section class="card billing-section" aria-labelledby="billing-topup-h">
           <h2 id="billing-topup-h" class="billing-h">Add credit</h2>
-          <div class="billing-presets" role="group" aria-label="Top-up amounts">
-            @for (cents of ctl.presets(); track cents) {
-              <button
-                type="button"
-                class="btn"
-                [disabled]="ctl.busy()"
-                [attr.aria-busy]="isPendingTopUp(cents) || null"
-                (click)="ctl.topUp(cents)"
-              >
-                {{ isPendingTopUp(cents) ? 'Opening…' : cents_(cents) }}
+          @if (s.topUpsEnabled === false) {
+            <p class="muted small">One-time top-ups aren't available on this server right now.</p>
+          } @else {
+            <div class="billing-presets" role="group" aria-label="Top-up amounts">
+              @for (cents of ctl.presets(); track cents) {
+                <button
+                  type="button"
+                  class="btn"
+                  [disabled]="ctl.busy()"
+                  [attr.aria-busy]="isPendingTopUp(cents) || null"
+                  (click)="ctl.topUp(cents)"
+                >
+                  {{ isPendingTopUp(cents) ? 'Opening…' : cents_(cents) }}
+                </button>
+              }
+            </div>
+            <form
+              class="billing-custom"
+              novalidate
+              (submit)="$event.preventDefault(); ctl.topUpCustom()"
+            >
+              <label class="field">
+                <span class="field-label">
+                  Other amount ({{ cents_(ctl.minCents()) }} to {{ cents_(ctl.maxCents()) }})
+                </span>
+                <span class="billing-amount">
+                  <span class="billing-currency" aria-hidden="true">$</span>
+                  <input
+                    type="text"
+                    inputmode="decimal"
+                    autocomplete="off"
+                    placeholder="25.00"
+                    [value]="ctl.customInput()"
+                    [attr.aria-invalid]="showCustomError() ? 'true' : null"
+                    [attr.aria-describedby]="showCustomError() ? 'billing-custom-err' : null"
+                    (input)="ctl.setCustomInput(inputValue($event))"
+                  />
+                </span>
+              </label>
+              <button type="submit" class="btn btn-primary" [disabled]="ctl.busy()">
+                {{ customPending() ? 'Opening…' : 'Add credit' }}
               </button>
+            </form>
+            @if (showCustomError()) {
+              <p id="billing-custom-err" class="small billing-error">{{ ctl.customError() }}</p>
             }
-          </div>
-          <form
-            class="billing-custom"
-            novalidate
-            (submit)="$event.preventDefault(); ctl.topUpCustom()"
-          >
-            <label class="field">
-              <span class="field-label">
-                Other amount ({{ cents_(ctl.minCents()) }} to {{ cents_(ctl.maxCents()) }})
-              </span>
-              <span class="billing-amount">
-                <span class="billing-currency" aria-hidden="true">$</span>
-                <input
-                  type="text"
-                  inputmode="decimal"
-                  autocomplete="off"
-                  placeholder="25.00"
-                  [value]="ctl.customInput()"
-                  [attr.aria-invalid]="showCustomError() ? 'true' : null"
-                  [attr.aria-describedby]="showCustomError() ? 'billing-custom-err' : null"
-                  (input)="ctl.setCustomInput(inputValue($event))"
-                />
-              </span>
-            </label>
-            <button type="submit" class="btn btn-primary" [disabled]="ctl.busy()">
-              {{ customPending() ? 'Opening…' : 'Add credit' }}
-            </button>
-          </form>
-          @if (showCustomError()) {
-            <p id="billing-custom-err" class="small billing-error">{{ ctl.customError() }}</p>
           }
         </section>
 

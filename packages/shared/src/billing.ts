@@ -51,6 +51,11 @@ export interface SubscriptionInfo {
 export interface BillingSummary {
   /** False when Stripe isn't configured on the server (no top-ups, no spending). */
   enabled: boolean;
+  /**
+   * False when one-time top-ups can't be sold (no `STRIPE_CREDITS_PRODUCT_ID`),
+   * even though billing is enabled. Absent = assume they can.
+   */
+  topUpsEnabled?: boolean;
   currency: 'usd';
   /** Credits minus settled charges (may be negative). */
   balanceMicros: number;

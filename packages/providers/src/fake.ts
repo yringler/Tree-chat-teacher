@@ -74,9 +74,9 @@ function inputTokens(request: Input): number {
  * - delayMs: number (default 0) — await between deltas (to test abort);
  * - failWith: ProviderErrorCode — emit this error after the first delta;
  * - costUsd: number — simulate OpenRouter billing: yield
- *   `{type:'billing', generationId:'gen-fake-<n>'}` before the first delta and
+ *   `{type:'billing', generationId:'gen-fake-<uuid>'}` before the first delta and
  *   `{type:'billing', generationId, costUsd}` right before `done` (not on
- *   failure or abort). n counts streams per provider instance, from 1;
+ *   failure or abort). Every stream gets a fresh id;
  * - maxContextTokens / maxOutputTokens via config.
  * Usage: inputTokens = ceil(total input chars / 4), outputTokens = ceil(reply chars / 4),
  * emitted once before `done`. countTokens returns the same inputTokens figure.
@@ -87,7 +87,6 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
   const models = config.models.length > 0 ? config.models : DEFAULT_MODELS;
   const defaultModel = config.defaultModel || (models[0]?.id ?? 'fake-1');
   const effectiveConfig: ProviderConfig = { ...config, models };
-  let generationCounter = 0;
 
   const replyFor = (request: Input): string => {
     let lastUser = '';
@@ -104,7 +103,8 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
 
   function stream(request: GenerateRequest): AsyncIterable<ProviderEvent> {
     return guardStream(request.signal, [], async function* () {
-      const generationId = opts.costUsd === null ? null : `gen-fake-${++generationCounter}`;
+      // Unique across provider instances, isolates and restarts (usage_events.generation_id is UNIQUE).
+      const generationId = opts.costUsd === null ? null : `gen-fake-${crypto.randomUUID()}`;
       if (generationId !== null) yield { type: 'billing', generationId };
       const reply = replyFor(request);
       const chars = Array.from(reply);
