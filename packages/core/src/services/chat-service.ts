@@ -141,6 +141,30 @@ export class ChatService {
     return tree;
   }
 
+  /**
+   * Loads a branch whose tree is owned by this service's account. A missing
+   * branch, or one in another account's tree, is reported as not found.
+   */
+  async getOwnedBranch(branchId: string): Promise<Branch> {
+    const branch = await this.repo.getBranch(branchId);
+    if (!branch) throw new NotFoundError('Branch');
+    const tree = await this.repo.getTree(branch.treeId);
+    if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Branch');
+    return branch;
+  }
+
+  /**
+   * Loads a node whose tree is owned by this service's account. A missing
+   * node, or one in another account's tree, is reported as not found.
+   */
+  async getOwnedNode(nodeId: string): Promise<ChatNode> {
+    const node = await this.repo.getNode(nodeId);
+    if (!node) throw new NotFoundError('Node');
+    const tree = await this.repo.getTree(node.treeId);
+    if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Node');
+    return node;
+  }
+
   /** Creates the tree and an empty trunk (provider/model default from the registry). */
   async createTree(request: CreateTreeRequest): Promise<TreeDetail> {
     const req = createTreeRequestSchema.parse(request);
@@ -598,6 +622,9 @@ export class ChatService {
           yield { type: 'usage', nodeId: assistantNode.id, usage: event.usage };
         } else if (event.type === 'done') {
           terminal = { status: 'complete' };
+        } else if (event.type === 'billing') {
+          // Metered by the Worker's registry wrapper; nothing to store here.
+          continue;
         } else {
           terminal = {
             status: 'error',
@@ -718,6 +745,7 @@ export class ChatService {
       })) {
         if (event.type === 'delta') yield { type: 'delta', text: event.text };
         else if (event.type === 'usage') Object.assign(usage, stripUndefined(event.usage));
+        else if (event.type === 'billing') continue;
         else if (event.type === 'done') {
           const finalUsage =
             usage.inputTokens !== undefined || usage.outputTokens !== undefined
@@ -839,6 +867,7 @@ async function collectText(
     signal,
   })) {
     if (event.type === 'delta') text += event.text;
+    else if (event.type === 'billing') continue;
     else if (event.type === 'error') return null;
   }
   return text;

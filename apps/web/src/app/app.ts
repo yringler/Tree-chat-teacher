@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { TangentProbe } from '@tangent/web-shared';
 import { AuthService, LOGIN_PATH } from './core/auth';
 import { Keyboard } from './core/keyboard';
 import { RouteSync } from './core/route-sync';
@@ -11,7 +12,7 @@ import { Icon } from './ui/icon';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, Sidebar, DialogHost, Icon],
+  imports: [RouterOutlet, Sidebar, DialogHost, Icon, TangentProbe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.html',
   host: { '(document:keydown)': 'loginPage || keyboard.handle($event)' },

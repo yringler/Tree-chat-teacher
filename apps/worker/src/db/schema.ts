@@ -17,15 +17,24 @@ import {
  */
 
 /**
- * Owner of trees and shares. Single-user today: every row belongs to the
- * seeded `default` account (see migration 0001). Multi-user later means
- * mapping verified identities to accounts; the data is already partitioned.
+ * Owner of trees and shares. The seeded `default` account (migration 0001) is
+ * the shared `power` account of allowlisted users. Open sign-ups get a personal
+ * `simple` account `u_<userId>` (migration 0003), created on first request.
  */
-export const accounts = sqliteTable('accounts', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  createdAt: text('created_at').notNull(),
-});
+export const accounts = sqliteTable(
+  'accounts',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    createdAt: text('created_at').notNull(),
+    /** Better Auth user id of a personal account; null for the shared `default` account. */
+    userId: text('user_id'),
+    mode: text('mode', { enum: ['power', 'simple'] })
+      .notNull()
+      .default('power'),
+  },
+  (t) => [uniqueIndex('accounts_user_uq').on(t.userId)],
+);
 
 export const trees = sqliteTable(
   'trees',
@@ -172,15 +181,21 @@ export const shareSnapshots = sqliteTable(
 // ownership). Property names are the field names Better Auth uses; columns are
 // snake_case like the rest of the schema. Better Auth generates the ids.
 
-export const authUsers = sqliteTable('auth_users', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  email: text('email').notNull().unique(),
-  emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
-  image: text('image'),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
-});
+export const authUsers = sqliteTable(
+  'auth_users',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    email: text('email').notNull().unique(),
+    emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
+    image: text('image'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+    /** Stripe customer (Better Auth Stripe plugin field); set lazily on the first checkout. */
+    stripeCustomerId: text('stripe_customer_id'),
+  },
+  (t) => [index('auth_users_stripe_customer_idx').on(t.stripeCustomerId)],
+);
 
 export const authSessions = sqliteTable(
   'auth_sessions',
@@ -266,3 +281,91 @@ export const authRateLimits = sqliteTable('auth_rate_limits', {
   count: integer('count').notNull(),
   lastRequest: integer('last_request').notNull(),
 });
+
+/**
+ * Better Auth Stripe plugin `subscription` model (monthly credit plans).
+ * `referenceId` is the Better Auth user id. Mapped as `subscription` in the
+ * drizzleAdapter schema (src/auth/auth.ts).
+ */
+export const authSubscriptions = sqliteTable(
+  'auth_subscriptions',
+  {
+    id: text('id').primaryKey(),
+    plan: text('plan').notNull(),
+    referenceId: text('reference_id').notNull(),
+    stripeCustomerId: text('stripe_customer_id'),
+    stripeSubscriptionId: text('stripe_subscription_id'),
+    status: text('status').notNull().default('incomplete'),
+    periodStart: integer('period_start', { mode: 'timestamp_ms' }),
+    periodEnd: integer('period_end', { mode: 'timestamp_ms' }),
+    trialStart: integer('trial_start', { mode: 'timestamp_ms' }),
+    trialEnd: integer('trial_end', { mode: 'timestamp_ms' }),
+    cancelAtPeriodEnd: integer('cancel_at_period_end', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    cancelAt: integer('cancel_at', { mode: 'timestamp_ms' }),
+    canceledAt: integer('canceled_at', { mode: 'timestamp_ms' }),
+    endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
+    seats: integer('seats'),
+    billingInterval: text('billing_interval'),
+    stripeScheduleId: text('stripe_schedule_id'),
+  },
+  (t) => [
+    index('auth_subscriptions_reference_idx').on(t.referenceId),
+    index('auth_subscriptions_stripe_sub_idx').on(t.stripeSubscriptionId),
+  ],
+);
+
+// ---- Billing (simple accounts; see src/billing/)
+//
+// Ledger in integer micro-USD. Balance = Σ credit_grants.amount_micros
+// − Σ settled usage_events.charge_micros; pending usage holds `hold_micros`.
+// No cached balance column: every write is one idempotent statement.
+
+/** Credits (purchases, subscription invoices) and debits (refunds, manual adjustments). */
+export const creditGrants = sqliteTable(
+  'credit_grants',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull(),
+    kind: text('kind', { enum: ['purchase', 'subscription', 'refund', 'adjustment'] }).notNull(),
+    /** Signed: refunds are negative. */
+    amountMicros: integer('amount_micros').notNull(),
+    /** Stripe object id (checkout session, invoice, refund); unique for idempotency. */
+    stripeRef: text('stripe_ref').unique(),
+    note: text('note'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [index('credit_grants_account_idx').on(t.accountId)],
+);
+
+/** One metered provider call. No FK to trees: billing history outlives deleted trees. */
+export const usageEvents = sqliteTable(
+  'usage_events',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull(),
+    treeId: text('tree_id'),
+    nodeId: text('node_id'),
+    purpose: text('purpose', { enum: ['reply', 'summary', 'title', 'review', 'other'] }).notNull(),
+    providerId: text('provider_id').notNull(),
+    model: text('model').notNull(),
+    /** Upstream (OpenRouter) generation id, once known. */
+    generationId: text('generation_id').unique(),
+    status: text('status', { enum: ['pending', 'settled', 'unresolved'] }).notNull(),
+    holdMicros: integer('hold_micros').notNull(),
+    markupBps: integer('markup_bps').notNull(),
+    costNanos: integer('cost_nanos'),
+    chargeMicros: integer('charge_micros'),
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    createdAt: text('created_at').notNull(),
+    settledAt: text('settled_at'),
+  },
+  (t) => [
+    index('usage_events_account_idx').on(t.accountId, t.createdAt),
+    index('usage_events_pending_idx')
+      .on(t.createdAt)
+      .where(sql`status = 'pending'`),
+  ],
+);

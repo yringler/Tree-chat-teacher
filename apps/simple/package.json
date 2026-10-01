@@ -1,11 +1,11 @@
 {
-  "name": "@tangent/web",
+  "name": "@tangent/simple",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve --proxy-config proxy.conf.json",
+    "start": "ng serve --proxy-config proxy.conf.json --serve-path /learn/ --port 4201",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "typecheck": "ngc -p tsconfig.app.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
@@ -19,6 +19,7 @@
     "@angular/platform-browser": "^22.2.0",
     "@angular/router": "^22.2.0",
     "@better-auth/passkey": "1.7.7",
+    "@better-auth/stripe": "1.7.7",
     "@tangent/core": "workspace:*",
     "@tangent/render": "workspace:*",
     "@tangent/shared": "workspace:*",

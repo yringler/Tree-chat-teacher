@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
 import { defineConfig } from 'vitest/config';
+import { mockOpenRouter, OPENROUTER_ORIGIN } from './test/mocks/openrouter.js';
+import { mockStripe, STRIPE_ORIGIN } from './test/mocks/stripe.js';
 
 const MOCK_UPSTREAM = 'https://llm.test';
 /** Test-only 32-byte secret (base64). */
@@ -10,9 +12,21 @@ const TEST_KEY_SECRET = Buffer.alloc(32, 7).toString('base64');
  * Stand-in for every outbound request: Turnstile's siteverify, Google's token endpoint, and api.anthropic.com. Keys starting with `sk-ant-good` are valid;
  * the reply echoes the rest of the key so tests can tell which key was used.
  * `…-slow` keys stream slowly (abort tests).
+ *
+ * Stripe (api.stripe.com) and OpenRouter (openrouter.ai) are delegated to
+ * test/mocks/stripe.ts and test/mocks/openrouter.ts. Mechanism: miniflare's
+ * `outboundService` (this function) receives every global `fetch()` made by the
+ * Worker, its Durable Objects and the test files themselves, and runs in the
+ * Node host process. The mocks are therefore plain Node modules imported here;
+ * their module state lives in Node and persists across requests in a run.
+ * vitest-pool-workers 0.22 has no `fetchMock` export, so this is the single
+ * interception point; a test can drive a mock's control endpoints (if it
+ * defines any) with a plain `fetch()` to that origin.
  */
 async function mockUpstream(request: Request): Promise<Response> {
   const url = new URL(request.url);
+  if (url.origin === STRIPE_ORIGIN) return mockStripe(request);
+  if (url.origin === OPENROUTER_ORIGIN) return mockOpenRouter(request);
   // Cloudflare Turnstile siteverify: the token `pass` is valid.
   if (url.origin === 'https://challenges.cloudflare.com' && url.pathname === '/turnstile/v0/siteverify') {
     const body = (await request.json()) as { response?: string };
@@ -81,6 +95,24 @@ export default defineConfig({
               { id: 'ant', kind: 'anthropic', label: 'Ant', baseUrl: MOCK_UPSTREAM, defaultModel: 'claude-test', models: [{ id: 'claude-test', label: 'Claude Test' }] },
             ]),
             KEY_ENCRYPTION_SECRET: TEST_KEY_SECRET,
+            // Simple mode and billing. OPEN_SIGNUP stays false so the allowlist tests hold;
+            // multi-user tests pass an env override (as auth.test.ts does for BETTER_AUTH_SECRET).
+            OPEN_SIGNUP: 'false',
+            // The simple-mode provider `tangent`: fake, reporting a fixed cost per call.
+            SIMPLE_PROVIDER: JSON.stringify({
+              id: 'tangent',
+              kind: 'fake',
+              label: 'Tangent',
+              defaultModel: 'smart',
+              models: [{ id: 'smart', label: 'Smart' }, { id: 'simple', label: 'Simple' }],
+              options: { chunkSize: 4, costUsd: 0.001234 },
+            }),
+            STRIPE_SECRET_KEY: 'sk_test_x',
+            STRIPE_WEBHOOK_SECRET: 'whsec_test',
+            STRIPE_CREDITS_PRODUCT_ID: 'prod_test',
+            STRIPE_PLANS: JSON.stringify([
+              { name: 'monthly-10', label: '$10 / month', priceId: 'price_test_monthly_10', amountCents: 1000 },
+            ]),
           },
           ratelimits: {
             CHAT_RATE_LIMITER: { namespace_id: '1002', simple: { limit: 5, period: 60 } },

@@ -43,6 +43,7 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   conflict: 409,
   gone: 410,
   rate_limited: 429,
+  payment_required: 402,
   key_required: 401,
   provider_error: 502,
   internal: 500,
@@ -52,5 +53,12 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
 export class KeyRequiredError extends DomainError {
   constructor(message: string) {
     super('key_required', message);
+  }
+}
+
+/** A simple account lacks the credit (or billing setup) to start a metered generation. */
+export class PaymentRequiredError extends DomainError {
+  constructor(message = 'Add credit to keep learning') {
+    super('payment_required', message);
   }
 }

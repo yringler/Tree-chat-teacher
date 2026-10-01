@@ -41,7 +41,12 @@ export function apiRoutes(): Hono<AppBindings> {
 
   api.get('/me', (c) => {
     const { email, devMode } = c.var.identity;
-    return c.json({ email, devMode, accountId: c.var.accountId } satisfies MeResponse);
+    return c.json({
+      email,
+      devMode,
+      accountId: c.var.accountId,
+      mode: c.var.account.mode,
+    } satisfies MeResponse);
   });
 
   api.get('/providers', async (c) => {

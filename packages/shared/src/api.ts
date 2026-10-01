@@ -16,6 +16,7 @@ import type {
   Tree,
 } from './domain.js';
 import type { ProviderInfo } from './provider.js';
+import type { AccountMode } from './billing.js';
 
 /**
  * HTTP API contract between the Angular app and the Worker.
@@ -53,6 +54,18 @@ import type { ProviderInfo } from './provider.js';
  *   GET    /api/key/status                        -> KeyStatusResponse
  *   POST   /api/key              SaveKeyRequest  -> 204 + Set-Cookie (sealed, HttpOnly)
  *   DELETE /api/key              ForgetKeyRequest -> 204 + Set-Cookie (cleared or re-sealed)
+ *                                                (power accounts only; simple accounts get 403)
+ *
+ * Billing (simple accounts only; power accounts get 403; billing.ts):
+ *
+ *   GET    /api/billing                          -> BillingSummary
+ *   GET    /api/billing/usage?cursor=&limit=     -> UsageListResponse (newest first, limit <= 100, default 50)
+ *   POST   /api/billing/checkout CreateCheckoutRequest -> CheckoutResponse (same-origin only)
+ *   POST   /api/auth/subscription/{upgrade,billing-portal,list,cancel,restore}  Better Auth Stripe plugin
+ *   POST   /api/auth/stripe/webhook               Stripe webhooks (plugin + our onEvent)
+ *
+ * Spending routes (messages, review, context?resolve=true) answer 402
+ * `payment_required` when a simple account's available credit is too low.
  *
  * Public (no sign-in; rate-limited; read-only):
  *
@@ -74,6 +87,8 @@ export type ApiErrorCode =
   | 'conflict'
   | 'gone'
   | 'rate_limited'
+  /** 402: a simple account needs more credit (or billing isn't configured). */
+  | 'payment_required'
   /** 401: no usable API key for the provider (missing, tampered, expired or rotated key cookie). */
   | 'key_required'
   | 'provider_error'
@@ -82,8 +97,10 @@ export type ApiErrorCode =
 export interface MeResponse {
   /** Signed-in user's email; null only in dev bypass mode. */
   email: string | null;
-  /** Account the caller acts as (always the built-in default account for now). */
+  /** Account the caller acts as: `default` for allowlisted users, `u_<userId>` for open sign-ups. */
   accountId: string;
+  /** `power` (the full app) or `simple` (the /learn/ app, metered). */
+  mode: AccountMode;
   /** True when running with DEV_ALLOW_NO_AUTH (wrangler dev only). */
   devMode: boolean;
 }
@@ -98,6 +115,8 @@ export interface LoginOptionsResponse {
   social: { google: boolean; github: boolean };
   /** Cloudflare Turnstile site key for the magic-link form; null = not configured. */
   turnstileSiteKey: string | null;
+  /** True when anyone may sign up (as a simple account); false = allowlist only. */
+  openSignup: boolean;
 }
 
 export interface TreeSummary {

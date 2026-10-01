@@ -136,6 +136,7 @@ describe('fail closed', () => {
       email: null,
       devMode: true,
       accountId: 'default',
+      mode: 'power',
     } satisfies MeResponse);
 
     // Secret set: DEV_ALLOW_NO_AUTH=true is ignored and a session is required.
@@ -155,7 +156,12 @@ describe('fail closed', () => {
   it('the deployed entrypoint serves /api/me in dev-bypass mode (test config)', async () => {
     const res = await exports.default.fetch(`${ORIGIN}/api/me`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ email: null, devMode: true, accountId: 'default' });
+    expect(await res.json()).toEqual({
+      email: null,
+      devMode: true,
+      accountId: 'default',
+      mode: 'power',
+    });
   });
 });
 
@@ -175,6 +181,7 @@ describe('login options', () => {
       devMode: false,
       social: { google: true, github: false },
       turnstileSiteKey: 'site-key',
+      openSignup: false,
     } satisfies LoginOptionsResponse);
   });
 
@@ -185,6 +192,7 @@ describe('login options', () => {
       devMode: true,
       social: { google: false, github: false },
       turnstileSiteKey: null,
+      openSignup: false,
     } satisfies LoginOptionsResponse);
   });
 });
@@ -229,6 +237,7 @@ describe('magic link', () => {
       email: 'owner@example.com',
       devMode: false,
       accountId: 'default',
+      mode: 'power',
     });
   });
 

@@ -14,8 +14,11 @@ export function resolveAccountId(_identity: Identity): string {
   return DEFAULT_ACCOUNT_ID;
 }
 
-/** Sets `c.var.accountId` for owner routes. Must run after the session middleware. */
+/** Sets `c.var.account` / `c.var.accountId` for owner routes. Must run after the session middleware. */
 export const accountMiddleware = createMiddleware<AppBindings>(async (c, next) => {
-  c.set('accountId', resolveAccountId(c.var.identity));
+  // wave 2: worker-core replaces this with resolveAccount (simple accounts, row ensured).
+  const id = resolveAccountId(c.var.identity);
+  c.set('account', { id, mode: 'power', userId: c.var.identity.userId });
+  c.set('accountId', id);
   await next();
 });

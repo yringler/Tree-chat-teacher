@@ -40,6 +40,7 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
       devMode: !configured && c.env.DEV_ALLOW_NO_AUTH === 'true',
       social: configured ? socialProviderFlags(c.env) : { google: false, github: false },
       turnstileSiteKey: c.env.TURNSTILE_SITE_KEY?.trim() || null,
+      openSignup: false, // wave 2: worker-core
     };
     return c.json(body);
   });

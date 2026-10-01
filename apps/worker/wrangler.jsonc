@@ -34,6 +34,8 @@
     "bindings": [{ "name": "TREE_SESSION", "class_name": "TreeSession" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TreeSession"] }],
+  // Usage reconciliation backstop for simple-mode billing (src/billing/reconcile.ts).
+  "triggers": { "crons": ["*/10 * * * *"] },
   "ratelimits": [
     {
       "name": "SHARE_RATE_LIMITER",
@@ -71,12 +73,35 @@
     // Provider/model for summaries; empty = use the branch's provider/model.
     "SUMMARY_PROVIDER_ID": "",
     "SUMMARY_MODEL": "",
-    "AUTO_TITLE": "true"
+    "AUTO_TITLE": "true",
+    // ---- Simple mode (/learn/) and billing.
+    // "true" = anyone may sign in; users not on ALLOWED_EMAILS get a personal, metered simple account.
+    "OPEN_SIGNUP": "false",
+    // OpenRouter models for the Smart / Simple tiers (key: OPENROUTER_SIMPLE_API_KEY).
+    "SIMPLE_SMART_MODEL": "deepseek/deepseek-v4-pro",
+    "SIMPLE_FAST_MODEL": "deepseek/deepseek-v4-flash",
+    // Full ProviderConfig JSON for the simple-mode provider `tangent`; empty = OpenRouter with the models above.
+    "SIMPLE_PROVIDER": "",
+    // Per-request input-token cap for simple accounts (bounds the cost of one call).
+    "SIMPLE_MAX_INPUT_TOKENS": "60000",
+    // Default system prompt for new simple-mode trees; empty = the built-in Socratic prompt.
+    "SIMPLE_SYSTEM_PROMPT": "",
+    // Held per in-flight call, and the minimum available balance to start one (micro-USD; 20000 = $0.02).
+    "USAGE_HOLD_MICROS": "20000",
+    // Markup on provider cost in basis points: without / with an active monthly plan.
+    "MARKUP_PREPAID_BPS": "1000",
+    "MARKUP_MONTHLY_BPS": "500",
+    // Stripe product (with a tax code) for one-time credit top-ups.
+    "STRIPE_CREDITS_PRODUCT_ID": "",
+    // JSON [{ "name", "label", "priceId", "amountCents" }]: monthly credit plans (Better Auth Stripe plugin).
+    "STRIPE_PLANS": "[]"
   }
   // Secrets (wrangler secret put): ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_TOKEN,
   //   KEY_ENCRYPTION_SECRET (`openssl rand -base64 32`; enables bring-your-own-key, rotate to revoke all stored keys)
   //   BETTER_AUTH_SECRET (`openssl rand -base64 32`; signs session cookies, rotate to sign everyone out)
   //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET (each pair optional)
   //   TURNSTILE_SECRET_KEY, RESEND_API_KEY
+  //   OPENROUTER_SIMPLE_API_KEY (simple mode only; set a credit limit on it in OpenRouter)
+  //   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET (both set = billing enabled)
   // Local only (.dev.vars): DEV_ALLOW_NO_AUTH=true (honoured only while BETTER_AUTH_SECRET is unset)
 }
