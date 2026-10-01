@@ -98,9 +98,18 @@ const STATUS_LABELS: Record<string, string> = {
             </p>
           }
           <p class="muted small">
-            Replies cost the model's price plus 10% (5% with a monthly plan). Prices exclude tax;
-            tax is calculated at checkout.
+            Each reply costs the model's price, including the provider's credit-purchase fee, plus
+            10% (5% with a monthly plan). Payment processing fees are deducted from each purchase,
+            so the credit added is slightly less than the amount paid. Prices exclude tax; tax is
+            calculated at checkout.
           </p>
+          @if (s.lastPurchase; as p) {
+            <p class="muted small billing-last-purchase">
+              Last {{ p.kind === 'subscription' ? 'plan payment' : 'top-up' }}: paid
+              {{ money(p.grossMicros) }}, credit {{ money(p.creditMicros) }} after payment
+              processing.
+            </p>
+          }
           <p class="muted small">
             You're paying the {{ bps(s.markupBps) }} rate right now. The rate follows your plan when
             a reply is sent, including for credit you added earlier.
@@ -164,8 +173,8 @@ const STATUS_LABELS: Record<string, string> = {
           <section class="billing-section" aria-labelledby="billing-plans-h">
             <h2 id="billing-plans-h" class="billing-h">Monthly plans</h2>
             <p class="muted small">
-              A plan adds its amount as credit every month, and every reply is charged at the 5%
-              rate while it's active. Unused credit rolls over.
+              A plan adds its amount as credit every month, less payment processing fees, and every
+              reply is charged at the 5% rate while it's active. Unused credit rolls over.
             </p>
             <ul class="billing-plans">
               @for (plan of s.monthlyPlans; track plan.name) {
@@ -181,7 +190,7 @@ const STATUS_LABELS: Record<string, string> = {
                     {{ cents_(plan.amountCents) }}<span class="muted small"> / month</span>
                   </p>
                   <p class="muted small">
-                    {{ cents_(plan.amountCents) }} credit added every month at the 5% rate.
+                    Credit added every month (after processing fees), at the 5% rate.
                   </p>
                   @if (current) {
                     @if (ctl.currentPlan(); as sub) {

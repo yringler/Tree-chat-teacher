@@ -2,7 +2,7 @@
 // in workerd; not by vitest.config.ts). Ids are unique per call, so files and
 // tests sharing a D1 database or the Node-side mocks never collide.
 import type { AppEnv, AccountContext } from '../../src/env.js';
-import type { MockStripeCall } from './stripe.js';
+import type { MockPaymentIntent, MockStripeCall } from './stripe.js';
 import type { ScriptedGeneration } from './openrouter.js';
 
 let seq = 0;
@@ -60,6 +60,7 @@ export interface UsageRowInput {
   generationId?: string | null;
   holdMicros?: number;
   markupBps?: number;
+  feeBps?: number;
   chargeMicros?: number | null;
   purpose?: string;
   model?: string;
@@ -70,8 +71,8 @@ export async function insertUsage(env: AppEnv, row: UsageRowInput): Promise<stri
   const id = uniq('use');
   await env.DB.prepare(
     `INSERT INTO usage_events (id, account_id, tree_id, purpose, provider_id, model, generation_id, status,
-       hold_micros, markup_bps, charge_micros, created_at)
-     VALUES (?, ?, ?, ?, 'tangent', ?, ?, ?, ?, ?, ?, ?)`,
+       hold_micros, markup_bps, fee_bps, charge_micros, created_at)
+     VALUES (?, ?, ?, ?, 'tangent', ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id,
@@ -83,6 +84,7 @@ export async function insertUsage(env: AppEnv, row: UsageRowInput): Promise<stri
       row.status ?? 'pending',
       row.holdMicros ?? 20_000,
       row.markupBps ?? 1000,
+      row.feeBps ?? 550,
       row.chargeMicros ?? null,
       row.createdAt ?? new Date().toISOString(),
     )
@@ -102,6 +104,7 @@ export interface UsageRow {
   status: string;
   hold_micros: number;
   markup_bps: number;
+  fee_bps: number;
   cost_nanos: number | null;
   charge_micros: number | null;
   input_tokens: number | null;
@@ -136,6 +139,34 @@ export async function grantsFor(
   )
     .bind(accountId)
     .all<{ kind: string; amount_micros: number; stripe_ref: string | null }>();
+  return results;
+}
+
+/** Grants with their gross amount and processing fee. */
+export async function grantDetailsFor(
+  env: AppEnv,
+  accountId: string,
+): Promise<
+  {
+    kind: string;
+    amount_micros: number;
+    gross_micros: number | null;
+    fee_micros: number;
+    stripe_ref: string | null;
+  }[]
+> {
+  const { results } = await env.DB.prepare(
+    `SELECT kind, amount_micros, gross_micros, fee_micros, stripe_ref FROM credit_grants
+     WHERE account_id = ? ORDER BY created_at, id`,
+  )
+    .bind(accountId)
+    .all<{
+      kind: string;
+      amount_micros: number;
+      gross_micros: number | null;
+      fee_micros: number;
+      stripe_ref: string | null;
+    }>();
   return results;
 }
 
@@ -174,6 +205,8 @@ export async function stripeCalls(path?: string): Promise<MockStripeCall[]> {
 export async function stripeFixtures(objects: {
   checkoutSessions?: Record<string, unknown>[];
   refunds?: Record<string, unknown>[];
+  paymentIntents?: MockPaymentIntent[];
+  invoicePayments?: Record<string, unknown>[];
 }): Promise<void> {
   const res = await fetch('https://api.stripe.com/__mock/objects', {
     method: 'POST',

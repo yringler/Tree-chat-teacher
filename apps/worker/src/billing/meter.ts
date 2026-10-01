@@ -2,7 +2,7 @@
 // decorator that records one `usage_events` row per provider call.
 //
 // 1. Before the upstream call: insert a pending row holding USAGE_HOLD_MICROS
-//    at the markup in force now (awaited; no row, no call).
+//    at the markup and OpenRouter fee in force now (awaited; no row, no call).
 // 2. Tap `billing` (generation id, reported cost) and `usage` (tokens).
 // 3. At the terminal event: settle inline when the cost is known; else, with a
 //    generation id, reconcile in the background via OpenRouter; else (the
@@ -19,7 +19,7 @@ import type {
 import type { AccountContext, AppEnv } from '../env.js';
 import { costUsdToNanos } from './pricing.js';
 import { reconcileGeneration, RECONCILE_RETRY_DELAYS_MS } from './reconcile.js';
-import { markupFor, usageHoldMicros } from './service.js';
+import { markupFor, openRouterFeeBps, usageHoldMicros } from './service.js';
 import { insertPendingUsage, setGenerationId, settleUsage } from './usage-store.js';
 
 export interface UsageMeter {
@@ -61,6 +61,7 @@ class Run implements MeterRun {
     private readonly env: AppEnv,
     private readonly usageId: string,
     private readonly markupBps: number,
+    private readonly feeBps: number,
     private readonly defer: (p: Promise<unknown>) => void,
     private readonly options: UsageMeterOptions,
   ) {}
@@ -109,6 +110,7 @@ class Run implements MeterRun {
         const target = {
           usageId: this.usageId,
           markupBps: this.markupBps,
+          feeBps: this.feeBps,
           inputTokens: this.inputTokens,
           outputTokens: this.outputTokens,
         };
@@ -133,6 +135,7 @@ class Run implements MeterRun {
     return settleUsage(this.env.DB, this.usageId, {
       costNanos,
       markupBps: this.markupBps,
+      feeBps: this.feeBps,
       inputTokens: this.inputTokens,
       outputTokens: this.outputTokens,
     });
@@ -170,6 +173,7 @@ export function createUsageMeter(
   return {
     async begin({ tag, providerId, model }) {
       const markupBps = await markupFor(env, account);
+      const feeBps = openRouterFeeBps(env);
       const usageId = crypto.randomUUID();
       await insertPendingUsage(env.DB, {
         id: usageId,
@@ -181,9 +185,10 @@ export function createUsageMeter(
         model,
         holdMicros: usageHoldMicros(env),
         markupBps,
+        feeBps,
         createdAt: new Date().toISOString(),
       });
-      return new Run(env, usageId, markupBps, defer, options);
+      return new Run(env, usageId, markupBps, feeBps, defer, options);
     },
   };
 }

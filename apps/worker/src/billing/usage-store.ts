@@ -15,6 +15,8 @@ export interface PendingUsageRow {
   model: string;
   holdMicros: number;
   markupBps: number;
+  /** OpenRouter's credit-purchase fee in force when the call started (OPENROUTER_FEE_BPS). */
+  feeBps: number;
   createdAt: string;
 }
 
@@ -22,8 +24,8 @@ export async function insertPendingUsage(db: D1Database, row: PendingUsageRow): 
   await db
     .prepare(
       `INSERT INTO usage_events
-         (id, account_id, tree_id, node_id, purpose, provider_id, model, status, hold_micros, markup_bps, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+         (id, account_id, tree_id, node_id, purpose, provider_id, model, status, hold_micros, markup_bps, fee_bps, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
     )
     .bind(
       row.id,
@@ -35,6 +37,7 @@ export async function insertPendingUsage(db: D1Database, row: PendingUsageRow): 
       row.model,
       row.holdMicros,
       row.markupBps,
+      row.feeBps,
       row.createdAt,
     )
     .run();
@@ -62,6 +65,8 @@ export interface Settlement {
   /** Provider cost in nano-USD (0 when nothing was billed upstream). */
   costNanos: number;
   markupBps: number;
+  /** The row's stored `fee_bps`, so a later config change never reprices it. */
+  feeBps: number;
   inputTokens?: number | null;
   outputTokens?: number | null;
   now?: Date;
@@ -83,7 +88,7 @@ export async function settleUsage(
     )
     .bind(
       s.costNanos,
-      chargeMicros(s.costNanos, s.markupBps),
+      chargeMicros(s.costNanos, s.markupBps, s.feeBps),
       s.inputTokens ?? null,
       s.outputTokens ?? null,
       (s.now ?? new Date()).toISOString(),

@@ -119,6 +119,7 @@ const BILLING: BillingSummary = {
   heldMicros: 0,
   availableMicros: 0,
   markupBps: 0,
+  openRouterFeeBps: 0,
   subscription: null,
   monthlyPlans: [],
   minTopUpCents: 500,

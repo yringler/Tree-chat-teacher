@@ -57,6 +57,8 @@ export const DEMO_EMAIL = 'demo@example.com';
 export const DEMO_START_BALANCE_MICROS = 4_200_000;
 /** +10%, the pay-as-you-go rate. */
 const MARKUP_BPS = 1000;
+/** OpenRouter's credit-purchase fee, part of the cost the markup applies to (as in the Worker). */
+const OPENROUTER_FEE_BPS = 550;
 /** Held per in-flight provider call, like the real meter's reservation. */
 const HOLD_MICROS = 20_000;
 const STORAGE_KEY = 'tangent.learn-demo.v1';
@@ -473,7 +475,7 @@ export class DemoBackend {
 
   // ------------------------------------------------------------- billing
 
-  /** Meters every provider call like the Worker's usage meter: hold, then settle at cost + markup. */
+  /** Meters every provider call like the Worker's usage meter: hold, then settle at cost × fee × markup. */
   private async *meter(
     inner: LlmProvider,
     request: GenerateRequest,
@@ -509,7 +511,10 @@ export class DemoBackend {
       } else {
         const charge = Math.max(
           1,
-          Math.round((costUsd * MICROS_PER_USD * (10_000 + MARKUP_BPS)) / 10_000),
+          Math.ceil(
+            (costUsd * MICROS_PER_USD * (10_000 + OPENROUTER_FEE_BPS) * (10_000 + MARKUP_BPS)) /
+              100_000_000,
+          ),
         );
         entry.status = 'settled';
         entry.chargeMicros = charge;
@@ -527,6 +532,8 @@ export class DemoBackend {
       heldMicros: this.heldMicros,
       availableMicros: this.balanceMicros - this.heldMicros,
       markupBps: MARKUP_BPS,
+      openRouterFeeBps: OPENROUTER_FEE_BPS,
+      lastPurchase: null,
       subscription: null,
       monthlyPlans: [],
       minTopUpCents: MIN_TOP_UP_CENTS,

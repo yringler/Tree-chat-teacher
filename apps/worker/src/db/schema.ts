@@ -329,8 +329,12 @@ export const creditGrants = sqliteTable(
     id: text('id').primaryKey(),
     accountId: text('account_id').notNull(),
     kind: text('kind', { enum: ['purchase', 'subscription', 'refund', 'adjustment'] }).notNull(),
-    /** Signed: refunds are negative. */
+    /** Signed: refunds are negative. For purchases, the credit net of Stripe's fee. */
     amountMicros: integer('amount_micros').notNull(),
+    /** Purchases: the pre-tax amount paid (`amount + fee`); null for refunds and adjustments. */
+    grossMicros: integer('gross_micros'),
+    /** Purchases: Stripe's actual processing fee, deducted from the credit. */
+    feeMicros: integer('fee_micros').notNull().default(0),
     /** Stripe object id (checkout session, invoice, refund); unique for idempotency. */
     stripeRef: text('stripe_ref').unique(),
     note: text('note'),
@@ -355,6 +359,8 @@ export const usageEvents = sqliteTable(
     status: text('status', { enum: ['pending', 'settled', 'unresolved'] }).notNull(),
     holdMicros: integer('hold_micros').notNull(),
     markupBps: integer('markup_bps').notNull(),
+    /** OpenRouter's credit-purchase fee in force at the call (rows before 0004: 0). */
+    feeBps: integer('fee_bps').notNull().default(0),
     costNanos: integer('cost_nanos'),
     chargeMicros: integer('charge_micros'),
     inputTokens: integer('input_tokens'),

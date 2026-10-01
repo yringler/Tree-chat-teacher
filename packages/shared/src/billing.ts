@@ -47,6 +47,18 @@ export interface SubscriptionInfo {
   cancelAtPeriodEnd: boolean;
 }
 
+/** The latest credit purchase (top-up or plan invoice): what was paid vs. credited. */
+export interface PurchaseInfo {
+  kind: 'purchase' | 'subscription';
+  /** Pre-tax amount paid. */
+  grossMicros: number;
+  /** Stripe's payment processing fee, deducted from the credit. */
+  feeMicros: number;
+  /** Credit added: `grossMicros - feeMicros`. */
+  creditMicros: number;
+  createdAt: string;
+}
+
 /** `GET /api/billing`. */
 export interface BillingSummary {
   /** False when Stripe isn't configured on the server (no top-ups, no spending). */
@@ -63,8 +75,15 @@ export interface BillingSummary {
   heldMicros: number;
   /** `balanceMicros - heldMicros`. */
   availableMicros: number;
-  /** Markup applied to provider cost right now, in basis points (1000 = +10%). */
+  /** Markup applied to the true provider cost right now, in basis points (1000 = +10%). */
   markupBps: number;
+  /**
+   * OpenRouter's credit-purchase fee, in basis points (550 = 5.5%), included in
+   * the provider cost before the markup: charge = price × (1 + fee) × (1 + markup).
+   */
+  openRouterFeeBps: number;
+  /** The latest purchase whose processing fee is known; absent or null when none. */
+  lastPurchase?: PurchaseInfo | null;
   subscription: SubscriptionInfo | null;
   monthlyPlans: MonthlyPlanInfo[];
   minTopUpCents: number;

@@ -25,6 +25,7 @@ const SUMMARY: BillingSummary = {
   heldMicros: 0,
   availableMicros: 5_000_000,
   markupBps: 1000,
+  openRouterFeeBps: 550,
   subscription: null,
   monthlyPlans: [{ name: 'basic', label: 'Basic', amountCents: 1000 }],
   minTopUpCents: 500,

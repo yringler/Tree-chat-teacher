@@ -1,4 +1,4 @@
-// Simple-account billing: markup, spend gate, summary, usage history and
+// Simple-account billing: markup and fee pass-through, spend gate, summary, usage history and
 // credit top-ups (PLAN §2.3–2.6).
 import { DomainError, PaymentRequiredError, ValidationError } from '@tangent/core';
 import {
@@ -6,6 +6,7 @@ import {
   MIN_TOP_UP_CENTS,
   type BillingSummary,
   type CheckoutResponse,
+  type PurchaseInfo,
   type SubscriptionInfo,
   type UsageEntry,
   type UsageListResponse,
@@ -18,6 +19,8 @@ import { billingConfigured, ensureStripeCustomer, getStripe, stripePlans } from 
 export const DEFAULT_USAGE_HOLD_MICROS = 20_000;
 export const DEFAULT_MARKUP_PREPAID_BPS = 1000;
 export const DEFAULT_MARKUP_MONTHLY_BPS = 500;
+/** OpenRouter's fee on credit purchases (5.5%; higher for top-ups under ~$15, see README). */
+export const DEFAULT_OPENROUTER_FEE_BPS = 550;
 export const MAX_USAGE_PAGE = 100;
 
 function intVar(raw: string | undefined, fallback: number): number {
@@ -30,6 +33,11 @@ function intVar(raw: string | undefined, fallback: number): number {
 /** Per-call hold and minimum available balance (`USAGE_HOLD_MICROS`). */
 export function usageHoldMicros(env: AppEnv): number {
   return intVar(env.USAGE_HOLD_MICROS, DEFAULT_USAGE_HOLD_MICROS);
+}
+
+/** OpenRouter's credit-purchase fee in bps (`OPENROUTER_FEE_BPS`), part of the provider cost. */
+export function openRouterFeeBps(env: AppEnv): number {
+  return intVar(env.OPENROUTER_FEE_BPS, DEFAULT_OPENROUTER_FEE_BPS);
 }
 
 /** True when the user has an `active` monthly plan (plugin `subscription` row). */
@@ -97,14 +105,42 @@ async function currentSubscription(
   };
 }
 
+interface PurchaseRow {
+  kind: 'purchase' | 'subscription';
+  amount_micros: number;
+  gross_micros: number;
+  fee_micros: number;
+  created_at: string;
+}
+
+/** The latest top-up or plan credit recorded with its gross amount and processing fee. */
+async function lastPurchase(env: AppEnv, accountId: string): Promise<PurchaseInfo | null> {
+  const row = await env.DB.prepare(
+    `SELECT kind, amount_micros, gross_micros, fee_micros, created_at FROM credit_grants
+     WHERE account_id = ? AND kind IN ('purchase', 'subscription') AND gross_micros IS NOT NULL
+     ORDER BY created_at DESC, id DESC LIMIT 1`,
+  )
+    .bind(accountId)
+    .first<PurchaseRow>();
+  if (!row) return null;
+  return {
+    kind: row.kind,
+    grossMicros: row.gross_micros,
+    feeMicros: row.fee_micros,
+    creditMicros: row.amount_micros,
+    createdAt: row.created_at,
+  };
+}
+
 export async function getBillingSummary(
   env: AppEnv,
   account: AccountContext,
 ): Promise<BillingSummary> {
-  const [{ balanceMicros, heldMicros }, markupBps, subscription] = await Promise.all([
+  const [{ balanceMicros, heldMicros }, markupBps, subscription, purchase] = await Promise.all([
     getBalance(env.DB, account.id),
     markupFor(env, account),
     currentSubscription(env, account.userId),
+    lastPurchase(env, account.id),
   ]);
   return {
     enabled: billingConfigured(env),
@@ -114,6 +150,8 @@ export async function getBillingSummary(
     heldMicros,
     availableMicros: balanceMicros - heldMicros,
     markupBps,
+    openRouterFeeBps: openRouterFeeBps(env),
+    lastPurchase: purchase,
     subscription,
     monthlyPlans: stripePlans(env).map(({ name, label, amountCents }) => ({
       name,

@@ -65,6 +65,7 @@ async function lookup(
 export interface ReconcileTarget {
   usageId: string;
   markupBps: number;
+  feeBps: number;
   inputTokens?: number | null;
   outputTokens?: number | null;
 }
@@ -97,6 +98,7 @@ export async function reconcileGeneration(
       await settleUsage(env.DB, target.usageId, {
         costNanos: costUsdToNanos(cost.costUsd),
         markupBps: target.markupBps,
+        feeBps: target.feeBps,
         inputTokens: target.inputTokens ?? cost.inputTokens,
         outputTokens: target.outputTokens ?? cost.outputTokens,
       });
@@ -112,6 +114,7 @@ interface PendingRow {
   id: string;
   generation_id: string | null;
   markup_bps: number;
+  fee_bps: number;
   created_at: string;
   input_tokens: number | null;
   output_tokens: number | null;
@@ -129,7 +132,7 @@ export async function reconcilePendingUsage(
 ): Promise<{ settled: number; unresolved: number }> {
   const nowMs = now.getTime();
   const { results } = await env.DB.prepare(
-    `SELECT id, generation_id, markup_bps, created_at, input_tokens, output_tokens
+    `SELECT id, generation_id, markup_bps, fee_bps, created_at, input_tokens, output_tokens
      FROM usage_events WHERE status = 'pending' AND created_at < ?
      ORDER BY created_at LIMIT ?`,
   )
@@ -148,6 +151,7 @@ export async function reconcilePendingUsage(
           const changed = await settleUsage(env.DB, row.id, {
             costNanos: costUsdToNanos(cost.costUsd),
             markupBps: row.markup_bps,
+            feeBps: row.fee_bps,
             inputTokens: row.input_tokens ?? cost.inputTokens,
             outputTokens: row.output_tokens ?? cost.outputTokens,
             now,
@@ -163,8 +167,8 @@ export async function reconcilePendingUsage(
           }
         }
       } else if (age > CRON_NO_ID_AGE_MS) {
-        if (await settleUsage(env.DB, row.id, { costNanos: 0, markupBps: row.markup_bps, now }))
-          settled++;
+        const zero = { costNanos: 0, markupBps: row.markup_bps, feeBps: row.fee_bps, now };
+        if (await settleUsage(env.DB, row.id, zero)) settled++;
       }
     } catch (e) {
       console.error('Usage reconciliation failed for row', row.id, e);

@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { getBalance } from '../src/billing/ledger.js';
 import type { AppEnv } from '../src/env.js';
-import { grantsFor, insertUser, uniq } from './mocks/billing-helpers.js';
+import { grantsFor, insertUser, stripeFixtures, uniq } from './mocks/billing-helpers.js';
 
 const ORIGIN = 'https://tangent.example.com';
 /** Auth configured (the default test env runs in dev-bypass mode); Stripe as in vitest.config.ts. */
@@ -49,8 +49,10 @@ function eventOf(type: string, object: Record<string, unknown>): Record<string, 
 }
 
 describe('Stripe webhook endpoint', () => {
-  it('credits a paid top-up once despite the plugin’s subscription lookup', async () => {
+  it('credits a paid top-up once (net of Stripe’s fee) despite the plugin’s subscription lookup', async () => {
     const accountId = uniq('u_acct');
+    const paymentIntent = uniq('pi_test');
+    await stripeFixtures({ paymentIntents: [{ id: paymentIntent, amount: 2180, fee: 104 }] });
     const session = {
       id: uniq('cs_test'),
       object: 'checkout.session',
@@ -63,6 +65,7 @@ describe('Stripe webhook endpoint', () => {
       customer: uniq('cus'),
       subscription: null,
       client_reference_id: accountId,
+      payment_intent: paymentIntent,
       metadata: { kind: 'credits', accountId, amountCents: '2000' },
     };
     const first = await deliver(eventOf('checkout.session.completed', session));
@@ -71,9 +74,9 @@ describe('Stripe webhook endpoint', () => {
     expect(again.status).toBe(200);
 
     expect(await grantsFor(env, accountId)).toEqual([
-      { kind: 'purchase', amount_micros: 20_000_000, stripe_ref: session.id },
+      { kind: 'purchase', amount_micros: 18_960_000, stripe_ref: session.id },
     ]);
-    expect((await getBalance(env.DB, accountId)).balanceMicros).toBe(20_000_000);
+    expect((await getBalance(env.DB, accountId)).balanceMicros).toBe(18_960_000);
   });
 
   it('credits a subscription invoice through the endpoint', async () => {
@@ -88,11 +91,26 @@ describe('Stripe webhook endpoint', () => {
       billing_reason: 'subscription_create',
       subtotal: 1000,
       total: 1090,
+      amount_paid: 1090,
       parent: { type: 'subscription_details', subscription_details: { subscription: uniq('sub') } },
     };
+    const paymentIntent = uniq('pi_test');
+    await stripeFixtures({
+      paymentIntents: [{ id: paymentIntent, amount: 1090, fee: 67 }],
+      invoicePayments: [
+        {
+          id: uniq('inpay'),
+          object: 'invoice_payment',
+          invoice: invoice.id,
+          status: 'paid',
+          amount_paid: 1090,
+          payment: { type: 'payment_intent', payment_intent: paymentIntent },
+        },
+      ],
+    });
     const res = await deliver(eventOf('invoice.paid', invoice));
     expect(res.status, await res.text()).toBe(200);
-    expect((await getBalance(env.DB, `u_${userId}`)).balanceMicros).toBe(10_000_000);
+    expect((await getBalance(env.DB, `u_${userId}`)).balanceMicros).toBe(9_330_000);
   });
 
   it('rejects a bad signature without crediting', async () => {

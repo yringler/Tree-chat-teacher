@@ -133,7 +133,7 @@ const COST = 0.001234;
 const tag: UsageTag = { purpose: 'reply', treeId: 'tree_1', nodeId: 'node_1' };
 
 describe('usage meter', () => {
-  it('settles cost × 1.10 inline (no subscription), with tokens, tag and generation id', async () => {
+  it('settles cost × 1.055 (OpenRouter fee) × 1.10 inline (no subscription), with tokens, tag and generation id', async () => {
     const h = harness();
     const gen = uniq('gen');
     const events = await h.run(
@@ -166,8 +166,9 @@ describe('usage meter', () => {
       model: 'smart',
       hold_micros: 20_000,
       markup_bps: 1000,
+      fee_bps: 550,
       cost_nanos: 1_234_000,
-      charge_micros: 1358, // ceil(1234 × 1.10)
+      charge_micros: 1433, // ceil(1234 × 1.055 × 1.10 = 1432.057)
       input_tokens: 12,
       output_tokens: 34,
     });
@@ -176,7 +177,7 @@ describe('usage meter', () => {
     expect((await h.rows())[0]!.generation_id).toBe(gen);
   });
 
-  it('settles cost × 1.05 with an active subscription', async () => {
+  it('settles cost × 1.055 × 1.05 with an active subscription', async () => {
     const account = simpleAccount();
     await insertSubscription(env, account.userId!, 'active');
     const h = harness(account);
@@ -188,7 +189,8 @@ describe('usage meter', () => {
     expect((await h.rows())[0]).toMatchObject({
       status: 'settled',
       markup_bps: 500,
-      charge_micros: 1296,
+      fee_bps: 550,
+      charge_micros: 1367, // ceil(1234 × 1.055 × 1.05 = 1366.96)
     });
   });
 
@@ -219,7 +221,7 @@ describe('usage meter', () => {
     });
     expect((await h.rows())[0]).toMatchObject({
       status: 'settled',
-      charge_micros: chargeMicros(costUsdToNanos(0.5), 1000),
+      charge_micros: chargeMicros(costUsdToNanos(0.5), 1000, 550),
     });
   });
 
@@ -257,13 +259,35 @@ describe('usage meter', () => {
       status: 'settled',
       generation_id: gen,
       cost_nanos: 2_000_000,
-      charge_micros: 2200,
+      fee_bps: 550,
+      charge_micros: 2321, // 2000 × 1.055 × 1.10
       input_tokens: 100,
       output_tokens: 7,
     });
     const calls = await generationCalls(gen);
     expect(calls.count).toBe(2);
     expect(calls.authorizations.every((a) => a === 'Bearer sk-or-simple-test')).toBe(true);
+  });
+
+  it('records OPENROUTER_FEE_BPS on the row and reconciles an aborted run at it', async () => {
+    const h = harness();
+    const gen = uniq('gen-fee');
+    await scriptGeneration(gen, [{ costUsd: 0.001 }]);
+    const custom = { ...env, OPENROUTER_FEE_BPS: '800' } as AppEnv;
+    await h.run(
+      [
+        { type: 'billing', generationId: gen },
+        { type: 'error', error: { code: 'aborted', message: 'aborted', retryable: false } },
+      ],
+      { env: custom },
+    );
+    expect((await h.rows())[0]).toMatchObject({ status: 'pending', fee_bps: 800 });
+    await h.settleBackground();
+    expect((await h.rows())[0]).toMatchObject({
+      status: 'settled',
+      fee_bps: 800,
+      charge_micros: 1188, // 1000 × 1.08 × 1.10
+    });
   });
 
   it('leaves the row pending for the cron when the generation never shows up', async () => {
@@ -302,7 +326,7 @@ describe('usage meter', () => {
       { env: custom },
     );
     await h.settleBackground();
-    expect((await h.rows())[0]).toMatchObject({ status: 'settled', charge_micros: 1100 });
+    expect((await h.rows())[0]).toMatchObject({ status: 'settled', charge_micros: 1161 });
     expect((await generationCalls(gen)).authorizations).toEqual(['Bearer sk-or-custom']);
   });
 

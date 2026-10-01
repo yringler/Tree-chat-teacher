@@ -94,7 +94,11 @@
     "SIMPLE_SYSTEM_PROMPT": "",
     // Held per in-flight call, and the minimum available balance to start one (micro-USD; 20000 = $0.02).
     "USAGE_HOLD_MICROS": "20000",
-    // Markup on provider cost in basis points: without / with an active monthly plan.
+    // OpenRouter's fee on credit purchases in basis points (550 = 5.5%), passed through as part of
+    // the provider cost: charge = reported cost × (1 + fee) × (1 + markup). Raise it if you top up
+    // OpenRouter in amounts under ~$15, where its $0.80 minimum fee is more than 5.5%.
+    "OPENROUTER_FEE_BPS": "550",
+    // Margin on the true provider cost in basis points: without / with an active monthly plan.
     "MARKUP_PREPAID_BPS": "1000",
     "MARKUP_MONTHLY_BPS": "500",
     // Stripe product (with a tax code) for one-time credit top-ups.

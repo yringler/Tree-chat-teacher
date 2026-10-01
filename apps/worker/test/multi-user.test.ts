@@ -297,7 +297,7 @@ describe('ownership across accounts', () => {
 });
 
 describe('simple-mode spending', () => {
-  it('402 without credit; after a grant the send streams and is charged cost + 10%', async () => {
+  it('402 without credit; after a grant the send streams and is charged cost + fee + 10%', async () => {
     const u = await simpleUser();
     const { trunk, assistant } = await treeWithNodes(u);
 
@@ -341,8 +341,10 @@ describe('simple-mode spending', () => {
       .bind(u.me.accountId)
       .all<{ status: string; cost_nanos: number; charge_micros: number; provider_id: string }>();
     expect(rows.results.length).toBeGreaterThan(0);
-    // The fake provider reports $0.001234 per call: 1,234,000 nano-USD; +10% rounded up to micro-USD.
-    const charge = Math.ceil((1_234_000 * 11_000) / 10_000_000);
+    // The fake provider reports $0.001234 per call: 1,234,000 nano-USD; + OpenRouter's 5.5%
+    // purchase fee, then +10%, rounded up to micro-USD (1432.057 → 1433).
+    const charge = Math.ceil((1_234_000 * 10_550 * 11_000) / 100_000_000_000);
+    expect(charge).toBe(1433);
     for (const row of rows.results) {
       expect(row).toEqual({
         status: 'settled',

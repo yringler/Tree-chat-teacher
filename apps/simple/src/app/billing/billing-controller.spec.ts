@@ -18,6 +18,7 @@ function summary(overrides: Partial<BillingSummary> = {}): BillingSummary {
     heldMicros: 0,
     availableMicros: 1_000_000,
     markupBps: 1000,
+    openRouterFeeBps: 550,
     subscription: null,
     monthlyPlans: [
       { name: 'basic', label: 'Basic', amountCents: 1000 },

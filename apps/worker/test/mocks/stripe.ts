@@ -13,12 +13,21 @@
 // - GET  /v1/checkout/sessions?payment_intent= → sessions stored with that payment intent
 // - GET  /v1/subscriptions/:id              → 404 resource_missing (the plugin's payment-mode noise)
 // - GET  /v1/refunds?charge=                → refunds registered for that charge (default none)
+// - GET  /v1/payment_intents/:id            → a succeeded PaymentIntent whose `latest_charge`
+//   (`ch_of_<id>`) and its `balance_transaction` (`txn_of_<id>`) are expanded per `expand[]`.
+//   Known when registered (control endpoint) or when a stored Checkout Session names it.
+//   Fee: the registered `fee`, else 2.9% + 30¢ of the amount plus a 0.5% Stripe Tax fee;
+//   `latestCharge: false` / `balanceTransaction: false` leave them null (not settled yet).
+// - GET  /v1/charges/:id                    → `ch_of_<pi>` of a known PaymentIntent (expand[])
+// - GET  /v1/invoice_payments?invoice=&status= → registered invoice payments for that invoice
 // - anything else                           → 404 resource_missing
 // Every request without `Authorization: Bearer sk_…` gets 401.
 //
 // Control endpoints (plain `fetch()` from a test):
 // - GET  /__mock/calls[?path=/v1/customers] → MockStripeCall[] (oldest first)
-// - POST /__mock/objects { checkoutSessions?: object[], refunds?: object[] } → stores fixtures
+// - POST /__mock/objects { checkoutSessions?, refunds?, paymentIntents?, invoicePayments? } →
+//   stores fixtures; a payment intent is { id, amount (cents, tax included), fee?,
+//   latestCharge?: false, balanceTransaction?: false } and re-posting an id replaces it
 // - POST /__mock/reset                      → clears all state (only for files that own the run)
 
 export const STRIPE_ORIGIN = 'https://api.stripe.com';
@@ -43,6 +52,21 @@ interface State {
   idempotent: Map<string, Obj>;
   sessions: Map<string, Obj>;
   refunds: Obj[];
+  paymentIntents: Map<string, MockPaymentIntent>;
+  invoicePayments: Obj[];
+}
+
+/** A payment intent fixture (`POST /__mock/objects { paymentIntents }`). */
+export interface MockPaymentIntent {
+  id: string;
+  /** Amount charged in cents, tax included (default: the stored session's `amount_total`). */
+  amount?: number;
+  /** Stripe's fee in cents (default: 2.9% + 30¢ + 0.5% Stripe Tax fee of `amount`). */
+  fee?: number;
+  /** false: no charge yet (`latest_charge: null`). */
+  latestCharge?: boolean;
+  /** false: the charge has no balance transaction yet. */
+  balanceTransaction?: boolean;
 }
 
 const state: State = fresh();
@@ -55,6 +79,8 @@ function fresh(): State {
     idempotent: new Map(),
     sessions: new Map(),
     refunds: [],
+    paymentIntents: new Map(),
+    invoicePayments: [],
   };
 }
 
@@ -151,15 +177,121 @@ function createSession(call: MockStripeCall): Obj {
   return session;
 }
 
+/** Card processing (2.9% + 30¢) and the Stripe Tax fee (0.5%), in cents. */
+export function defaultFeeDetails(amount: number): { stripe: number; tax: number } {
+  return { stripe: Math.round(amount * 0.029) + 30, tax: Math.round(amount * 0.005) };
+}
+
+function knownPaymentIntent(id: string): (MockPaymentIntent & { amount: number }) | null {
+  const fixture = state.paymentIntents.get(id);
+  const session = [...state.sessions.values()].find((s) => s['payment_intent'] === id);
+  const amount = fixture?.amount ?? (session ? Number(session['amount_total'] ?? 0) : null);
+  if (amount === null) return null;
+  return { ...fixture, id, amount };
+}
+
+/** Requested expansions, from `expand[0]=a.b` / `expand[]=a.b` query parameters. */
+function expansions(query: Record<string, string>): string[] {
+  return Object.entries(query)
+    .filter(([k]) => k === 'expand' || k.startsWith('expand['))
+    .map(([, v]) => v);
+}
+
+function balanceTransaction(pi: MockPaymentIntent & { amount: number }): Obj {
+  const detail = defaultFeeDetails(pi.amount);
+  const fee = pi.fee ?? detail.stripe + detail.tax;
+  const feeDetails =
+    pi.fee === undefined
+      ? [
+          {
+            amount: detail.stripe,
+            currency: 'usd',
+            description: 'Stripe processing fees',
+            type: 'stripe_fee',
+            application: null,
+          },
+          {
+            amount: detail.tax,
+            currency: 'usd',
+            description: 'Stripe Tax fee',
+            type: 'stripe_fee',
+            application: null,
+          },
+        ]
+      : [
+          {
+            amount: fee,
+            currency: 'usd',
+            description: 'Stripe processing fees',
+            type: 'stripe_fee',
+            application: null,
+          },
+        ];
+  return {
+    id: `txn_of_${pi.id}`,
+    object: 'balance_transaction',
+    amount: pi.amount,
+    currency: 'usd',
+    exchange_rate: null,
+    fee,
+    fee_details: feeDetails,
+    net: pi.amount - fee,
+    type: 'charge',
+    status: 'pending',
+  };
+}
+
+function chargeOf(pi: MockPaymentIntent & { amount: number }, expandTxn: boolean): Obj {
+  return {
+    id: `ch_of_${pi.id}`,
+    object: 'charge',
+    amount: pi.amount,
+    currency: 'usd',
+    paid: true,
+    status: 'succeeded',
+    payment_intent: pi.id,
+    balance_transaction:
+      pi.balanceTransaction === false
+        ? null
+        : expandTxn
+          ? balanceTransaction(pi)
+          : `txn_of_${pi.id}`,
+  };
+}
+
+function paymentIntent(pi: MockPaymentIntent & { amount: number }, expand: string[]): Obj {
+  const hasCharge = pi.latestCharge !== false;
+  return {
+    id: pi.id,
+    object: 'payment_intent',
+    amount: pi.amount,
+    amount_received: hasCharge ? pi.amount : 0,
+    currency: 'usd',
+    status: hasCharge ? 'succeeded' : 'processing',
+    latest_charge: !hasCharge
+      ? null
+      : expand.some((e) => e === 'latest_charge' || e.startsWith('latest_charge.'))
+        ? chargeOf(pi, expand.includes('latest_charge.balance_transaction'))
+        : `ch_of_${pi.id}`,
+  };
+}
+
 async function control(request: Request, url: URL): Promise<Response> {
   if (request.method === 'GET' && url.pathname === '/__mock/calls') {
     const path = url.searchParams.get('path');
     return Response.json(path ? state.calls.filter((c) => c.path === path) : state.calls);
   }
   if (request.method === 'POST' && url.pathname === '/__mock/objects') {
-    const body = (await request.json()) as { checkoutSessions?: Obj[]; refunds?: Obj[] };
+    const body = (await request.json()) as {
+      checkoutSessions?: Obj[];
+      refunds?: Obj[];
+      paymentIntents?: MockPaymentIntent[];
+      invoicePayments?: Obj[];
+    };
     for (const s of body.checkoutSessions ?? []) state.sessions.set(String(s['id']), s);
     state.refunds.push(...(body.refunds ?? []));
+    for (const pi of body.paymentIntents ?? []) state.paymentIntents.set(pi.id, pi);
+    state.invoicePayments.push(...(body.invoicePayments ?? []));
     return Response.json({ ok: true });
   }
   if (request.method === 'POST' && url.pathname === '/__mock/reset') {
@@ -207,6 +339,29 @@ export async function mockStripe(request: Request): Promise<Response> {
     const charge = call.query['charge'];
     return list(
       state.refunds.filter((r) => !charge || r['charge'] === charge),
+      path,
+    );
+  }
+  const piMatch = /^\/v1\/payment_intents\/([^/]+)$/.exec(path);
+  if (method === 'GET' && piMatch) {
+    const id = decodeURIComponent(piMatch[1]!);
+    const pi = knownPaymentIntent(id);
+    return pi
+      ? Response.json(paymentIntent(pi, expansions(call.query)))
+      : stripeError(404, `No such payment_intent: '${id}'`);
+  }
+  const chargeMatch = /^\/v1\/charges\/ch_of_([^/]+)$/.exec(path);
+  if (method === 'GET' && chargeMatch) {
+    const pi = knownPaymentIntent(decodeURIComponent(chargeMatch[1]!));
+    if (pi && pi.latestCharge !== false)
+      return Response.json(chargeOf(pi, expansions(call.query).includes('balance_transaction')));
+  }
+  if (method === 'GET' && path === '/v1/invoice_payments') {
+    const { invoice, status } = call.query;
+    return list(
+      state.invoicePayments.filter(
+        (p) => (!invoice || p['invoice'] === invoice) && (!status || p['status'] === status),
+      ),
       path,
     );
   }

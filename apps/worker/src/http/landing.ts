@@ -187,7 +187,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. The side question opens its own branch, so detours never clutter the main thread, and every branch stays one click away.</p></article>
 <article class="card">${ICON_QUESTION}<h3>A tutor that asks before it tells</h3><p>Tangent guides you with questions until the idea clicks, then fills in what's missing. Choose <strong>Smart</strong> for hard topics or <strong>Simple</strong> for quick ones, and switch at any time.</p></article>
 <article class="card">${ICON_EYE}<h3>See exactly what the model sees</h3><p>In power mode, decide how much each branch inherits: the full path, a summary, or a clean slate. The inspector shows the exact prompt before anything is sent.</p></article>
-<article class="card">${ICON_COIN}<h3>Pay only for what you use</h3><p>Each reply costs what the model provider charges plus a small markup, with tax added at checkout. Top up prepaid credit or choose a monthly plan, and manage billing in Stripe.</p></article>
+<article class="card">${ICON_COIN}<h3>Pay only for what you use</h3><p>Each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up prepaid credit or choose a monthly plan, and manage billing in Stripe.</p></article>
 </div>
 </div>
 </section>

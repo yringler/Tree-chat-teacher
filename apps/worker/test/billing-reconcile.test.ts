@@ -39,6 +39,7 @@ describe('usage reconciliation cron', () => {
       generationId: genOk,
       createdAt: ago(5 * MIN),
       markupBps: 500,
+      feeBps: 200, // the fee in force when the call started, not today's 550
     });
     const notYet = await insertUsage(env, {
       accountId,
@@ -72,7 +73,8 @@ describe('usage reconciliation cron', () => {
     expect(await usageRow(env, withId)).toMatchObject({
       status: 'settled',
       cost_nanos: 10_000_000,
-      charge_micros: 10_500,
+      fee_bps: 200,
+      charge_micros: 10_710, // 10_000 × 1.02 × 1.05
       input_tokens: 5,
       output_tokens: 6,
       settled_at: NOW.toISOString(),

@@ -9,8 +9,12 @@ export type CreditGrantKind = 'purchase' | 'subscription' | 'refund' | 'adjustme
 export interface CreditGrantInput {
   accountId: string;
   kind: CreditGrantKind;
-  /** Signed micro-USD (refunds are negative). */
+  /** Signed micro-USD (refunds are negative); for purchases, net of the processing fee. */
   amountMicros: number;
+  /** Purchases: the pre-tax amount paid, before Stripe's fee. */
+  grossMicros?: number | null;
+  /** Purchases: Stripe's actual processing fee (`grossMicros - amountMicros`). */
+  feeMicros?: number;
   /** Stripe object id for idempotency; null for manual adjustments. */
   stripeRef: string | null;
   note?: string;
@@ -36,10 +40,15 @@ export async function getBalance(
 export async function grantCredit(db: D1Database, g: CreditGrantInput): Promise<boolean> {
   if (!Number.isSafeInteger(g.amountMicros))
     throw new Error('grantCredit: amountMicros must be an integer');
+  const gross = g.grossMicros ?? null;
+  const fee = g.feeMicros ?? 0;
+  if ((gross !== null && !Number.isSafeInteger(gross)) || !Number.isSafeInteger(fee))
+    throw new Error('grantCredit: grossMicros and feeMicros must be integers');
   const result = await db
     .prepare(
-      `INSERT INTO credit_grants (id, account_id, kind, amount_micros, stripe_ref, note, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO credit_grants
+         (id, account_id, kind, amount_micros, gross_micros, fee_micros, stripe_ref, note, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(stripe_ref) DO NOTHING`,
     )
     .bind(
@@ -47,10 +56,21 @@ export async function grantCredit(db: D1Database, g: CreditGrantInput): Promise<
       g.accountId,
       g.kind,
       g.amountMicros,
+      gross,
+      fee,
       g.stripeRef,
       g.note ?? null,
       new Date().toISOString(),
     )
     .run();
   return (result.meta.changes ?? 0) > 0;
+}
+
+/** True when a grant for this Stripe object already exists (a redelivered event). */
+export async function hasGrant(db: D1Database, stripeRef: string): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT 1 AS one FROM credit_grants WHERE stripe_ref = ? LIMIT 1')
+    .bind(stripeRef)
+    .first<{ one: number }>();
+  return row !== null;
 }

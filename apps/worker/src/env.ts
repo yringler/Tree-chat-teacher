@@ -36,6 +36,8 @@ export interface AppEnv extends Env {
   /**
    * OpenRouter key for simple-mode generations (provider `tangent`). Never
    * falls back to OPENROUTER_API_KEY; set a credit limit on it in OpenRouter.
+   * Its spend is billed at the reported cost grossed up by the `OPENROUTER_FEE_BPS`
+   * var (OpenRouter's credit-purchase fee), then marked up.
    */
   OPENROUTER_SIMPLE_API_KEY?: string;
   /** Stripe API key. Billing is enabled only when this and STRIPE_WEBHOOK_SECRET are set. */

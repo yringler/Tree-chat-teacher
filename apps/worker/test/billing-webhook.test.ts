@@ -6,12 +6,14 @@ import { handleStripeEvent } from '../src/billing/webhook.js';
 import type { AppEnv } from '../src/env.js';
 import {
   envWithFailingDb,
+  grantDetailsFor,
   grantsFor,
   insertUser,
   stripeCalls,
   stripeFixtures,
   uniq,
 } from './mocks/billing-helpers.js';
+import { defaultFeeDetails, type MockPaymentIntent } from './mocks/stripe.js';
 
 const env = rawEnv as unknown as AppEnv;
 
@@ -30,8 +32,21 @@ function event(type: string, object: Record<string, unknown>): Stripe.Event {
   } as unknown as Stripe.Event;
 }
 
-function checkoutSession(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
+/** The mock's default fee: 2.9% + 30¢ card processing and the 0.5% Stripe Tax fee. */
+function defaultFee(totalCents: number): number {
+  const { stripe, tax } = defaultFeeDetails(totalCents);
+  return stripe + tax;
+}
+
+/**
+ * A paid credits Checkout Session; its PaymentIntent is registered with the
+ * Stripe mock (amount = `amount_total`) unless `payment` is null.
+ */
+async function checkoutSession(
+  overrides: Record<string, unknown> = {},
+  payment: Partial<MockPaymentIntent> | null = {},
+): Promise<Record<string, unknown>> {
+  const session: Record<string, unknown> = {
     id: uniq('cs_test'),
     object: 'checkout.session',
     mode: 'payment',
@@ -42,27 +57,70 @@ function checkoutSession(overrides: Record<string, unknown> = {}): Record<string
     amount_total: 1087, // tax on top: never credited
     customer: uniq('cus'),
     subscription: null,
+    payment_intent: uniq('pi_test'),
     metadata: { kind: 'credits', accountId: uniq('u_acct'), amountCents: '1000' },
     ...overrides,
   };
+  if (payment) {
+    await stripeFixtures({
+      paymentIntents: [
+        {
+          id: session['payment_intent'] as string,
+          amount: session['amount_total'] as number,
+          ...payment,
+        },
+      ],
+    });
+  }
+  return session;
 }
 
-function invoice(
+/**
+ * A paid subscription invoice (tax on top of the subtotal); one invoice
+ * payment through a registered PaymentIntent unless `payment` is null.
+ */
+async function invoice(
   customer: string,
   overrides: Record<string, unknown> = {},
-): Record<string, unknown> {
-  return {
+  payment: Partial<MockPaymentIntent> | null = {},
+): Promise<Record<string, unknown>> {
+  const subtotal = (overrides['subtotal'] as number | undefined) ?? 2000;
+  const total = Math.max(0, Math.round(subtotal * 1.085));
+  const inv: Record<string, unknown> = {
     id: uniq('in_test'),
     object: 'invoice',
     customer,
     currency: 'usd',
     billing_reason: 'subscription_cycle',
-    subtotal: 2000,
-    total: 2170,
+    subtotal,
+    total,
+    amount_paid: total,
     parent: { type: 'subscription_details', subscription_details: { subscription: uniq('sub') } },
     ...overrides,
   };
+  if (payment && (inv['amount_paid'] as number) > 0) {
+    const pi = uniq('pi_inv');
+    await stripeFixtures({
+      paymentIntents: [{ id: pi, amount: inv['amount_paid'] as number, ...payment }],
+      invoicePayments: [
+        {
+          id: uniq('inpay'),
+          object: 'invoice_payment',
+          invoice: inv['id'],
+          status: 'paid',
+          amount_paid: inv['amount_paid'],
+          amount_requested: inv['amount_paid'],
+          is_default: true,
+          payment: { type: 'payment_intent', payment_intent: pi },
+        },
+      ],
+    });
+  }
+  return inv;
 }
+
+/** micro-USD credited for `subtotal` cents paid with `fee` cents of fees. */
+const net = (subtotal: number, fee: number) => (subtotal - fee) * 10_000;
 
 async function userWithCustomer(): Promise<{
   userId: string;
@@ -82,8 +140,36 @@ afterEach(() => {
 });
 
 describe('Stripe webhook fulfilment', () => {
-  it('credits a paid top-up its pre-tax subtotal, once per session', async () => {
-    const session = checkoutSession();
+  it("credits a $5 top-up its pre-tax subtotal minus Stripe's actual fee", async () => {
+    // $5.00 + $0.40 tax = $5.40 charged; Stripe's fee 46¢ (processing + Stripe Tax).
+    const session = await checkoutSession(
+      {
+        amount_subtotal: 500,
+        amount_total: 540,
+        metadata: { kind: 'credits', accountId: uniq('u_acct') },
+      },
+      { fee: 46 },
+    );
+    const accountId = (session['metadata'] as Record<string, string>)['accountId']!;
+    await handleStripeEvent(env, event('checkout.session.completed', session));
+    // 500 − 46 = 454¢: not 500 (gross), not 460 (fee taken off the taxed total).
+    expect(await grantDetailsFor(env, accountId)).toEqual([
+      {
+        kind: 'purchase',
+        amount_micros: 4_540_000,
+        gross_micros: 5_000_000,
+        fee_micros: 460_000,
+        stripe_ref: session['id'],
+      },
+    ]);
+    expect(await balance(accountId)).toBe(4_540_000);
+    const lookups = await stripeCalls(`/v1/payment_intents/${String(session['payment_intent'])}`);
+    expect(lookups).toHaveLength(1);
+    expect(Object.values(lookups[0]!.query)).toContain('latest_charge.balance_transaction');
+  });
+
+  it('credits a paid top-up once per session, net of the default card + tax fees', async () => {
+    const session = await checkoutSession();
     const accountId = (session['metadata'] as Record<string, string>)['accountId']!;
     await handleStripeEvent(env, event('checkout.session.completed', session));
     await handleStripeEvent(env, event('checkout.session.completed', session));
@@ -91,14 +177,49 @@ describe('Stripe webhook fulfilment', () => {
       env,
       event('checkout.session.async_payment_succeeded', { ...session, payment_status: 'paid' }),
     );
+    const fee = defaultFee(1087); // 2.9% + 30¢ + 0.5% of the taxed total = 67¢
+    expect(fee).toBe(67);
     expect(await grantsFor(env, accountId)).toEqual([
-      { kind: 'purchase', amount_micros: 10_000_000, stripe_ref: session['id'] },
+      { kind: 'purchase', amount_micros: net(1000, fee), stripe_ref: session['id'] },
     ]);
-    expect(await balance(accountId)).toBe(10_000_000);
+    expect(await balance(accountId)).toBe(net(1000, fee));
+    // Redeliveries are answered from the ledger, without another fee lookup.
+    const lookups = await stripeCalls(`/v1/payment_intents/${String(session['payment_intent'])}`);
+    expect(lookups).toHaveLength(1);
+  });
+
+  it('throws (so Stripe retries) while the fee is unknown, then credits on redelivery', async () => {
+    const noTxn = await checkoutSession({}, { balanceTransaction: false });
+    const accountId = (noTxn['metadata'] as Record<string, string>)['accountId']!;
+    await expect(
+      handleStripeEvent(env, event('checkout.session.completed', noTxn)),
+    ).rejects.toThrow(/balance transaction/);
+    expect(await grantsFor(env, accountId)).toEqual([]);
+
+    const noCharge = await checkoutSession({}, { latestCharge: false });
+    await expect(
+      handleStripeEvent(env, event('checkout.session.completed', noCharge)),
+    ).rejects.toThrow(/No charge/);
+
+    const unknown = await checkoutSession({}, null); // the API answers 404
+    await expect(
+      handleStripeEvent(env, event('checkout.session.completed', unknown)),
+    ).rejects.toThrow();
+    const noIntent = await checkoutSession({ payment_intent: null }, null);
+    await expect(
+      handleStripeEvent(env, event('checkout.session.completed', noIntent)),
+    ).rejects.toThrow(/PaymentIntent/);
+
+    // The charge settles: Stripe's next delivery credits it.
+    await stripeFixtures({
+      paymentIntents: [{ id: noTxn['payment_intent'] as string, amount: 1087, fee: 60 }],
+    });
+    await handleStripeEvent(env, event('checkout.session.completed', noTxn));
+    expect(await balance(accountId)).toBe(net(1000, 60));
   });
 
   it('waits for async payment methods to succeed', async () => {
-    const session = checkoutSession({ payment_status: 'unpaid' });
+    const session = await checkoutSession({ payment_status: 'unpaid' });
     const accountId = (session['metadata'] as Record<string, string>)['accountId']!;
     await handleStripeEvent(env, event('checkout.session.completed', session));
     expect(await balance(accountId)).toBe(0);
@@ -106,12 +227,12 @@ describe('Stripe webhook fulfilment', () => {
       env,
       event('checkout.session.async_payment_succeeded', { ...session, payment_status: 'paid' }),
     );
-    expect(await balance(accountId)).toBe(10_000_000);
+    expect(await balance(accountId)).toBe(net(1000, defaultFee(1087)));
   });
 
   it('ignores subscription checkouts and payments that are not credits', async () => {
-    const sub = checkoutSession({ mode: 'subscription', subscription: 'sub_1' });
-    const other = checkoutSession({
+    const sub = await checkoutSession({ mode: 'subscription', subscription: 'sub_1' });
+    const other = await checkoutSession({
       metadata: { kind: 'something-else', accountId: uniq('u_acct') },
     });
     await handleStripeEvent(env, event('checkout.session.completed', sub));
@@ -125,77 +246,139 @@ describe('Stripe webhook fulfilment', () => {
 
   it('finds the account through the Stripe customer when metadata lacks it', async () => {
     const { customer, accountId } = await userWithCustomer();
-    const session = checkoutSession({ customer, metadata: { kind: 'credits' } });
+    const session = await checkoutSession({ customer, metadata: { kind: 'credits' } });
     await handleStripeEvent(env, event('checkout.session.completed', session));
-    expect(await balance(accountId)).toBe(10_000_000);
+    expect(await balance(accountId)).toBe(net(1000, defaultFee(1087)));
   });
 
-  it('credits a subscription invoice its subtotal, once per invoice', async () => {
+  it('credits a subscription invoice its subtotal minus the fee, once per invoice', async () => {
     const { customer, accountId } = await userWithCustomer();
-    const first = invoice(customer, { billing_reason: 'subscription_create', subtotal: 1000 });
-    const renewal = invoice(customer, { subtotal: 1000 });
+    // $10.00 + 85¢ tax; Stripe's fee 66¢.
+    const first = await invoice(
+      customer,
+      { billing_reason: 'subscription_create', subtotal: 1000 },
+      { fee: 66 },
+    );
+    const renewal = await invoice(customer, { subtotal: 1000 });
     await handleStripeEvent(env, event('invoice.paid', first));
     await handleStripeEvent(env, event('invoice.paid', first));
     await handleStripeEvent(env, event('invoice.paid', renewal));
-    expect(await grantsFor(env, accountId)).toEqual([
-      { kind: 'subscription', amount_micros: 10_000_000, stripe_ref: first['id'] },
-      { kind: 'subscription', amount_micros: 10_000_000, stripe_ref: renewal['id'] },
+    expect(await grantDetailsFor(env, accountId)).toEqual([
+      {
+        kind: 'subscription',
+        amount_micros: 9_340_000,
+        gross_micros: 10_000_000,
+        fee_micros: 660_000,
+        stripe_ref: first['id'],
+      },
+      {
+        kind: 'subscription',
+        amount_micros: net(1000, defaultFee(1085)),
+        gross_micros: 10_000_000,
+        fee_micros: defaultFee(1085) * 10_000,
+        stripe_ref: renewal['id'],
+      },
     ]);
+    const listed = await stripeCalls('/v1/invoice_payments');
+    expect(listed.filter((c) => c.query['invoice'] === first['id'])).toHaveLength(1);
+    expect(listed.find((c) => c.query['invoice'] === first['id'])!.query['status']).toBe('paid');
   });
 
   it('credits every paid subscription invoice with a positive subtotal, prorated ones included', async () => {
     const { customer, accountId } = await userWithCustomer();
-    const update = invoice(customer, { billing_reason: 'subscription_update', subtotal: 512 });
-    const threshold = invoice(customer, {
-      billing_reason: 'subscription_threshold',
-      subtotal: 300,
-    });
+    const update = await invoice(
+      customer,
+      { billing_reason: 'subscription_update', subtotal: 512 },
+      { fee: 50 },
+    );
+    const threshold = await invoice(
+      customer,
+      { billing_reason: 'subscription_threshold', subtotal: 300 },
+      { fee: 40 },
+    );
     await handleStripeEvent(env, event('invoice.paid', update));
     await handleStripeEvent(env, event('invoice.paid', threshold));
-    // A prorated downgrade can net to zero or less: nothing to credit.
-    await handleStripeEvent(
-      env,
-      event(
-        'invoice.paid',
-        invoice(customer, { billing_reason: 'subscription_update', subtotal: 0 }),
-      ),
-    );
-    await handleStripeEvent(
-      env,
-      event(
-        'invoice.paid',
-        invoice(customer, { billing_reason: 'subscription_update', subtotal: -250 }),
-      ),
-    );
+    // A prorated downgrade can net to zero or less, and a trial invoice is $0: nothing to credit.
+    for (const subtotal of [0, -250]) {
+      await handleStripeEvent(
+        env,
+        event(
+          'invoice.paid',
+          await invoice(customer, { billing_reason: 'subscription_update', subtotal }, null),
+        ),
+      );
+    }
     const grants = await grantsFor(env, accountId);
     expect(grants).toHaveLength(2);
     expect(grants).toEqual(
       expect.arrayContaining([
-        { kind: 'subscription', amount_micros: 5_120_000, stripe_ref: update['id'] },
-        { kind: 'subscription', amount_micros: 3_000_000, stripe_ref: threshold['id'] },
+        { kind: 'subscription', amount_micros: net(512, 50), stripe_ref: update['id'] },
+        { kind: 'subscription', amount_micros: net(300, 40), stripe_ref: threshold['id'] },
       ]),
     );
+  });
+
+  it('credits a $0 trial invoice nothing, without asking Stripe for a fee', async () => {
+    const { customer, accountId } = await userWithCustomer();
+    const trial = await invoice(
+      customer,
+      { billing_reason: 'subscription_create', subtotal: 0, amount_paid: 0 },
+      null,
+    );
+    await handleStripeEvent(env, event('invoice.paid', trial));
+    expect(await grantsFor(env, accountId)).toEqual([]);
+    const listed = await stripeCalls('/v1/invoice_payments');
+    expect(listed.some((c) => c.query['invoice'] === trial['id'])).toBe(false);
+  });
+
+  it('charges no fee on an invoice paid entirely from the customer balance', async () => {
+    const { customer, accountId } = await userWithCustomer();
+    const inv = await invoice(customer, { subtotal: 1000, amount_paid: 0 }, null);
+    await handleStripeEvent(env, event('invoice.paid', inv));
+    expect(await grantDetailsFor(env, accountId)).toEqual([
+      {
+        kind: 'subscription',
+        amount_micros: 10_000_000,
+        gross_micros: 10_000_000,
+        fee_micros: 0,
+        stripe_ref: inv['id'],
+      },
+    ]);
+  });
+
+  it("throws (so Stripe retries) when a paid invoice's fee cannot be read yet", async () => {
+    const { customer, accountId } = await userWithCustomer();
+    const pending = await invoice(customer, {}, { balanceTransaction: false });
+    await expect(handleStripeEvent(env, event('invoice.paid', pending))).rejects.toThrow(
+      /balance transaction/,
+    );
+    const noPayment = await invoice(customer, {}, null);
+    await expect(handleStripeEvent(env, event('invoice.paid', noPayment))).rejects.toThrow(
+      /No paid Stripe payment/,
+    );
+    expect(await grantsFor(env, accountId)).toEqual([]);
   });
 
   it('ignores invoices that are not for a subscription', async () => {
     const { customer, accountId } = await userWithCustomer();
     await handleStripeEvent(
       env,
-      event('invoice.paid', invoice(customer, { parent: null, billing_reason: 'manual' })),
+      event('invoice.paid', await invoice(customer, { parent: null, billing_reason: 'manual' })),
     );
     await handleStripeEvent(
       env,
-      event('invoice.paid', invoice(customer, { parent: { type: 'quote_details' } })),
+      event('invoice.paid', await invoice(customer, { parent: { type: 'quote_details' } })),
     );
     expect(await grantsFor(env, accountId)).toEqual([]);
   });
 
   it('throws (so Stripe retries) for a subscription invoice of an unknown customer', async () => {
     await expect(
-      handleStripeEvent(env, event('invoice.paid', invoice(uniq('cus_unknown')))),
+      handleStripeEvent(env, event('invoice.paid', await invoice(uniq('cus_unknown')))),
     ).rejects.toThrow(/No user/);
   });
 
+  // Refunds debit the pre-tax refund in full: Stripe keeps its fee on a refund.
   it('debits the pre-tax share of each refund, once per refund', async () => {
     const accountId = uniq('u_acct');
     const pi = uniq('pi');
@@ -294,7 +477,7 @@ describe('Stripe webhook fulfilment', () => {
   it('throws on D1 errors so Stripe retries', async () => {
     const broken = envWithFailingDb(env, /INSERT INTO credit_grants/);
     await expect(
-      handleStripeEvent(broken, event('checkout.session.completed', checkoutSession())),
+      handleStripeEvent(broken, event('checkout.session.completed', await checkoutSession())),
     ).rejects.toThrow(/D1_ERROR/);
   });
 });

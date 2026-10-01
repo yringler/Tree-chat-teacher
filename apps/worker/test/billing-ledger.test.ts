@@ -1,7 +1,7 @@
 import { DomainError, PaymentRequiredError, ValidationError } from '@tangent/core';
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-import { getBalance, grantCredit } from '../src/billing/ledger.js';
+import { getBalance, grantCredit, hasGrant } from '../src/billing/ledger.js';
 import { assertCanSpend, getBillingSummary, listUsage, markupFor } from '../src/billing/service.js';
 import { billingConfigured, stripePlans } from '../src/billing/stripe.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
@@ -18,7 +18,9 @@ describe('ledger', () => {
     const accountId = uniq('acct');
     const ref = uniq('cs');
     const g = { accountId, kind: 'purchase' as const, amountMicros: 5_000_000, stripeRef: ref };
+    expect(await hasGrant(env.DB, ref)).toBe(false);
     expect(await grantCredit(env.DB, g)).toBe(true);
+    expect(await hasGrant(env.DB, ref)).toBe(true);
     expect(await grantCredit(env.DB, g)).toBe(false);
     expect(await grantCredit(env.DB, { ...g, amountMicros: 9 })).toBe(false);
     expect((await getBalance(env.DB, accountId)).balanceMicros).toBe(5_000_000);
@@ -153,13 +155,22 @@ describe('assertCanSpend', () => {
 });
 
 describe('billing summary', () => {
-  it('reports balance, holds, markup, plans and the subscription', async () => {
+  it('reports balance, holds, markup, fee, last purchase, plans and the subscription', async () => {
     const account = simpleAccount();
     await grantCredit(env.DB, {
       accountId: account.id,
       kind: 'purchase',
       amountMicros: 10_000_000,
+      grossMicros: 10_670_000,
+      feeMicros: 670_000,
       stripeRef: uniq('cs'),
+    });
+    // Without a gross amount (an adjustment), a grant is not a purchase to show.
+    await grantCredit(env.DB, {
+      accountId: account.id,
+      kind: 'adjustment',
+      amountMicros: 0,
+      stripeRef: null,
     });
     await insertUsage(env, { accountId: account.id, status: 'settled', chargeMicros: 1_000_000 });
     await insertUsage(env, { accountId: account.id, status: 'pending', holdMicros: 20_000 });
@@ -178,6 +189,14 @@ describe('billing summary', () => {
       heldMicros: 20_000,
       availableMicros: 8_980_000,
       markupBps: 500,
+      openRouterFeeBps: 550,
+      lastPurchase: {
+        kind: 'purchase',
+        grossMicros: 10_670_000,
+        feeMicros: 670_000,
+        creditMicros: 10_000_000,
+        createdAt: expect.any(String),
+      },
       subscription: {
         plan: 'monthly-10',
         status: 'active',
@@ -198,8 +217,14 @@ describe('billing summary', () => {
       balanceMicros: 0,
       availableMicros: 0,
       markupBps: 1000,
+      openRouterFeeBps: 550,
+      lastPurchase: null,
       subscription: null,
     });
+    const custom = await getBillingSummary({ ...env, OPENROUTER_FEE_BPS: '700' }, simpleAccount());
+    expect(custom.openRouterFeeBps).toBe(700);
+    const bad = await getBillingSummary({ ...env, OPENROUTER_FEE_BPS: 'x' }, simpleAccount());
+    expect(bad.openRouterFeeBps).toBe(550);
   });
 
   it('reports top-ups as unavailable without a credits product, though billing is enabled', async () => {
