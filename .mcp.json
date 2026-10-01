@@ -1,0 +1,12 @@
+{
+	"mcpServers": {
+		"cloudflare-api": {
+		  "type": "http",
+			"url": "https://mcp.cloudflare.com/mcp"
+		},
+		"google cli": {
+		  "type": "http",
+		  "url": "https://cloudcli.googleapis.com/mcp"
+		}
+	}
+}
