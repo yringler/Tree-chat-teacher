@@ -26,3 +26,25 @@ DEV_ALLOW_NO_AUTH=true
 # Enables bring-your-own-key (users paste their own provider key in the UI). 32 random bytes, base64:
 #   openssl rand -base64 32
 # KEY_ENCRYPTION_SECRET=
+
+# --- Simple mode (/learn/) and billing. See README "Simple mode and billing".
+# OpenRouter key that simple accounts spend (give it a small credit limit). No fallback to OPENROUTER_API_KEY:
+# OPENROUTER_SIMPLE_API_KEY=sk-or-...
+# Stripe test mode. Both must be set for billing (and for simple accounts to spend at all).
+# STRIPE_SECRET_KEY=sk_test_...
+# The whsec_... that `stripe listen --forward-to localhost:8787/api/auth/stripe/webhook` prints:
+# STRIPE_WEBHOOK_SECRET=whsec_...
+# STRIPE_CREDITS_PRODUCT_ID=prod_...
+# STRIPE_PLANS='[{"name":"monthly-10","label":"$10 / month","priceId":"price_...","amountCents":1000}]'
+
+# --- Option C: simple mode offline (no OpenRouter, no Stripe).
+# The dev bypass (Option A) always acts as the shared power account, so simple mode needs
+# real sign-in: set up Option B, then sign in with an email that is NOT on ALLOWED_EMAILS.
+# OPEN_SIGNUP=true
+# A fake `tangent` provider that reports a fixed cost per call (the shape the worker tests use):
+# SIMPLE_PROVIDER='{"id":"tangent","kind":"fake","label":"Tangent","defaultModel":"smart","models":[{"id":"smart","label":"Smart"},{"id":"simple","label":"Simple"}],"options":{"chunkSize":4,"costUsd":0.001234}}'
+# Placeholders so sends are allowed (top-ups and plans won't work with them):
+# STRIPE_SECRET_KEY=sk_test_placeholder
+# STRIPE_WEBHOOK_SECRET=whsec_placeholder
+# Then grant yourself credit (5000000 = $5) with the SQL insert into credit_grants from the README
+# ("Manual credit or adjustments", with --local), and chat at http://localhost:8787/learn/.

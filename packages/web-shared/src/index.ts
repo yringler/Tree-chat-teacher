@@ -52,6 +52,3 @@ export { Icon, type IconName } from './ui/icon';
 export { Modal } from './ui/modal';
 export { Turnstile } from './ui/turnstile';
 export { LoginPage } from './login/login-page';
-
-// removed in wave 3: the foundation probe, still imported by apps/simple until it's replaced.
-export { TangentProbe } from './probe';
