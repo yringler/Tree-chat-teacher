@@ -12,6 +12,7 @@ import {
   type ContextPlanResponse,
   type CreateBranchRequest,
   type CreateTreeRequest,
+  type DeleteBranchResponse,
   type LlmProvider,
   type ProviderRegistry,
   type ReviewEvent,
@@ -263,6 +264,46 @@ export class ChatService {
     const updated = await this.repo.updateBranch(branchId, patch);
     if (!updated) throw new NotFoundError('Branch');
     return updated;
+  }
+
+  /**
+   * Deletes a branch with every branch below it: child branches hang off
+   * its messages, so they cannot outlive it. Their messages, the summaries
+   * anchored on them and the shares targeting them go too. The trunk cannot
+   * be deleted (delete the tree instead).
+   *
+   * Without `stopGenerations` it rejects with ConflictError while any of
+   * those branches is generating. With it, the caller (the Worker's Durable
+   * Object, which owns generations) is handed the doomed branch ids to stop
+   * its runs first, and leftover `streaming` nodes are deleted as orphans.
+   */
+  async deleteBranch(
+    branchId: string,
+    options: { stopGenerations?: (branchIds: ReadonlySet<string>) => Promise<void> } = {},
+  ): Promise<DeleteBranchResponse> {
+    const branch = await this.repo.getBranch(branchId);
+    if (!branch) throw new NotFoundError('Branch');
+    const tree = await this.requireOwnedTree(branch.treeId);
+    if (branch.parentBranchId === null || branch.id === tree.trunkBranchId) {
+      throw new ValidationError('The main thread cannot be deleted; delete the conversation instead');
+    }
+
+    const all = await this.repo.listBranches(tree.id);
+    const branchIds = subtreeBranchIds(all, branch.id);
+    const doomed = new Set(branchIds);
+    if (options.stopGenerations) {
+      await options.stopGenerations(doomed);
+    } else {
+      const streaming = await this.repo.listStreamingNodes(tree.id);
+      if (streaming.some((n) => doomed.has(n.branchId))) {
+        throw new ConflictError('A reply is still being generated in this branch; stop it first');
+      }
+    }
+    const nodeIds = (await this.repo.listNodes(tree.id))
+      .filter((n) => doomed.has(n.branchId))
+      .map((n) => n.id);
+    await this.repo.deleteBranches(tree.id, branchIds, this.now());
+    return { treeId: tree.id, branchIds, nodeIds };
   }
 
   // -------------------------------------------------------------- context
@@ -818,6 +859,23 @@ function stripUndefined(usage: Partial<TokenUsage>): Partial<TokenUsage> {
   const out: Partial<TokenUsage> = {};
   if (usage.inputTokens !== undefined) out.inputTokens = usage.inputTokens;
   if (usage.outputTokens !== undefined) out.outputTokens = usage.outputTokens;
+  return out;
+}
+
+/** `rootId` first, then its descendants breadth-first (via parentBranchId). */
+function subtreeBranchIds(branches: readonly Branch[], rootId: string): string[] {
+  const children = new Map<string, string[]>();
+  for (const b of branches) {
+    if (b.parentBranchId === null) continue;
+    const list = children.get(b.parentBranchId);
+    if (list) list.push(b.id);
+    else children.set(b.parentBranchId, [b.id]);
+  }
+  const out = [rootId];
+  for (let i = 0; i < out.length; i++) {
+    const id = out[i];
+    if (id !== undefined) out.push(...(children.get(id) ?? []));
+  }
   return out;
 }
 

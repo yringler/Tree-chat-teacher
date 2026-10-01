@@ -15,7 +15,7 @@ import type {
   Tree,
   TreeSummary,
 } from '@tangent/shared';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
 import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
 import * as schema from './schema.js';
@@ -438,6 +438,27 @@ export function createD1Repositories(d1: D1Database): Repositories {
         .returning()
         .get();
       return row ? toBranch(row) : null;
+    },
+
+    async deleteBranches(treeId, branchIds, treeUpdatedAt) {
+      // One batch (= one transaction). Node ids are selected in subqueries so
+      // only branch ids are bound, chunked under D1's parameter limit.
+      const items: Batch = [];
+      for (const chunk of chunkArray(branchIds, MAX_BOUND_PARAMS - 1)) {
+        const doomedNodes = db
+          .select({ id: nodes.id })
+          .from(nodes)
+          .where(and(eq(nodes.treeId, treeId), inArray(nodes.branchId, chunk)));
+        items.push(
+          db.delete(summaries).where(inArray(summaries.anchorNodeId, doomedNodes)),
+          // Snapshots go via FK cascade.
+          db.delete(shares).where(inArray(shares.targetNodeId, doomedNodes)),
+          db.delete(nodes).where(and(eq(nodes.treeId, treeId), inArray(nodes.branchId, chunk))),
+          db.delete(branches).where(and(eq(branches.treeId, treeId), inArray(branches.id, chunk))),
+        );
+      }
+      items.push(db.update(trees).set({ updatedAt: treeUpdatedAt }).where(eq(trees.id, treeId)));
+      await runBatch(db, items);
     },
 
     async getNode(nodeId) {

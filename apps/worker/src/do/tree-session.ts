@@ -20,6 +20,8 @@ interface Run {
   node: ChatNode;
   subscribers: Set<WritableStreamDefaultWriter<Uint8Array>>;
   controller: AbortController;
+  /** Settles when the generation has finished and persisted its final state. */
+  finished: Promise<void>;
 }
 
 /**
@@ -31,11 +33,12 @@ interface Run {
  *   POST /send?treeId=&branchId=   body SessionSendBody → SSE
  *   GET  /stream?treeId=&nodeId=                    → SSE (snapshot, then live)
  *   POST /cancel?treeId=&nodeId=                    → 204
+ *   POST /delete-branch?treeId=&branchId=&accountId= → DeleteBranchResponse
  */
 export class TreeSession extends DurableObject<AppEnv> {
   private readonly runs = new Map<string, Run>();
   private recovered = false;
-  /** Serializes beginSend within this tree. */
+  /** Serializes beginSend (and branch deletion) within this tree. */
   private sendLock: Promise<unknown> = Promise.resolve();
 
   override async fetch(request: Request): Promise<Response> {
@@ -57,6 +60,10 @@ export class TreeSession extends DurableObject<AppEnv> {
       }
       if (request.method === 'POST' && url.pathname === '/cancel') {
         return await this.cancel(chat, treeId, url.searchParams.get('nodeId') ?? '');
+      }
+      if (request.method === 'POST' && url.pathname === '/delete-branch') {
+        const accountId = url.searchParams.get('accountId') ?? undefined;
+        return await this.deleteBranch(chatService(this.env, accountId), url.searchParams.get('branchId') ?? '');
       }
       return errorResponse('not_found', 'Unknown session route');
     } catch (err) {
@@ -82,14 +89,34 @@ export class TreeSession extends DurableObject<AppEnv> {
       node: { ...started.assistantNode },
       subscribers: new Set(),
       controller: new AbortController(),
+      finished: Promise.resolve(),
     };
     this.runs.set(started.assistantNode.id, run);
     const response = this.subscribe(run, [
       { type: 'start', userNode: started.userNode, assistantNode: started.assistantNode, branch: started.branch },
     ]);
     // Detached: keeps running after the client disconnects (DOs stay alive while I/O is in flight).
-    this.ctx.waitUntil(this.pump(chat, run, started));
+    run.finished = this.pump(chat, run, started);
+    this.ctx.waitUntil(run.finished);
     return response;
+  }
+
+  /**
+   * Holds the send lock so no message lands in the doomed branches, cancels
+   * their generations and waits for them to persist, then deletes.
+   */
+  private async deleteBranch(chat: ChatService, branchId: string): Promise<Response> {
+    const deleted = this.sendLock.then(() =>
+      chat.deleteBranch(branchId, {
+        stopGenerations: async (branchIds) => {
+          const doomed = [...this.runs.values()].filter((r) => branchIds.has(r.node.branchId));
+          for (const run of doomed) run.controller.abort();
+          await Promise.all(doomed.map((r) => r.finished));
+        },
+      }),
+    );
+    this.sendLock = deleted.catch(() => undefined);
+    return Response.json(await deleted);
   }
 
   private async pump(chat: ChatService, run: Run, begin: BeginSendResult): Promise<void> {

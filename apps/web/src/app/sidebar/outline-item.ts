@@ -1,11 +1,21 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  type ElementRef,
+  inject,
+  input,
+  signal,
+  viewChild,
+} from '@angular/core';
 import type { OutlineItem as OutlineNode } from '@tangent/core';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { Icon } from '../ui/icon';
+import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { ModeBadge } from '../ui/mode-badge';
 
-/** One branch in the outline (recursive). */
+/** One branch in the outline (recursive), with inline rename and delete. */
 @Component({
   selector: 'app-outline-item',
   imports: [Icon, ModeBadge, OutlineItem],
@@ -32,33 +42,70 @@ import { ModeBadge } from '../ui/mode-badge';
         } @else {
           <span class="twisty-spacer"></span>
         }
-        <button
-          type="button"
-          class="outline-link"
-          [attr.aria-current]="selected() ? 'page' : null"
-          [attr.title]="b.title"
-          (click)="open()"
-        >
-          <span class="outline-title">{{ b.title }}</span>
-          @if (streaming()) {
-            <span class="dot-live" aria-label="generating"></span>
-          }
-          @if (b.isPrivate) {
-            <span
-              class="lock"
-              title="Private: excluded from shares and exports"
-              aria-label="private"
+        @if (editing()) {
+          <input
+            #titleInput
+            type="text"
+            class="outline-rename"
+            maxlength="200"
+            aria-label="Branch title"
+            [value]="b.title"
+            (keydown.enter)="$event.preventDefault(); commitRename(titleInput.value)"
+            (keydown.escape)="$event.preventDefault(); editing.set(false)"
+            (blur)="commitRename(titleInput.value)"
+          />
+        } @else {
+          <button
+            type="button"
+            class="outline-link"
+            [attr.aria-current]="selected() ? 'page' : null"
+            [attr.title]="b.title + ' (double-click to rename)'"
+            (click)="open()"
+            (dblclick)="startRename()"
+          >
+            <span class="outline-title">{{ b.title }}</span>
+            @if (streaming()) {
+              <span class="dot-live" aria-label="generating"></span>
+            }
+            @if (b.isPrivate) {
+              <span
+                class="lock"
+                title="Private: excluded from shares and exports"
+                aria-label="private"
+              >
+                <app-icon name="lock" [size]="12" />
+              </span>
+            }
+            @if (item().depth > 0) {
+              <app-mode-badge [mode]="b.contextMode" />
+            }
+            <span class="count" [attr.aria-label]="item().messageCount + ' messages'">{{
+              item().messageCount
+            }}</span>
+          </button>
+          <span class="outline-actions">
+            <button
+              type="button"
+              class="icon-btn"
+              [attr.aria-label]="'Rename ' + b.title"
+              title="Rename"
+              (click)="startRename()"
             >
-              <app-icon name="lock" [size]="12" />
-            </span>
-          }
-          @if (item().depth > 0) {
-            <app-mode-badge [mode]="b.contextMode" />
-          }
-          <span class="count" [attr.aria-label]="item().messageCount + ' messages'">{{
-            item().messageCount
-          }}</span>
-        </button>
+              <app-icon name="edit" [size]="13" />
+            </button>
+            @if (item().depth > 0) {
+              <button
+                type="button"
+                class="icon-btn icon-btn-danger"
+                [attr.aria-label]="'Delete ' + b.title"
+                title="Delete branch"
+                (click)="remove()"
+              >
+                <app-icon name="trash" [size]="13" />
+              </button>
+            }
+          </span>
+        }
       </div>
       @if (hasChildren() && !collapsed()) {
         <ul role="group">
@@ -90,8 +137,41 @@ export class OutlineItem {
     return false;
   });
 
+  protected readonly editing = signal(false);
+  private readonly titleInput = viewChild<ElementRef<HTMLInputElement>>('titleInput');
+  /** Enter commits and then blur fires again on the removed input; only save once. */
+  private saving = false;
+
   protected open(): void {
     const b = this.item().branch;
     this.store.go(b.id, null);
+  }
+
+  protected startRename(): void {
+    this.editing.set(true);
+    queueMicrotask(() => {
+      const el = this.titleInput()?.nativeElement;
+      el?.focus();
+      el?.select();
+    });
+  }
+
+  protected async commitRename(value: string): Promise<void> {
+    if (!this.editing() || this.saving) return;
+    const b = this.item().branch;
+    const title = value.trim();
+    if (!title || title === b.title) {
+      this.editing.set(false);
+      return;
+    }
+    this.saving = true;
+    const ok = await this.store.updateBranch(b.id, { title });
+    this.saving = false;
+    // On failure the error toast shows and the input stays open to retry or Esc.
+    if (ok) this.editing.set(false);
+  }
+
+  protected async remove(): Promise<void> {
+    await confirmDeleteBranch(this.store, this.item().branch.id);
   }
 }

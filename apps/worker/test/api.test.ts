@@ -1,6 +1,7 @@
 import type {
   Branch,
   ContextPlanResponse,
+  DeleteBranchResponse,
   ProviderInfo,
   ReviewEvent,
   StreamEvent,
@@ -195,6 +196,42 @@ describe('owner API', () => {
     await ok(call(`/api/trees/${detail.tree.id}`, { method: 'PATCH', json: { systemPrompt: 'Be terse' } }));
     expect((await call(`/api/trees/${detail.tree.id}`, { method: 'DELETE' })).status).toBe(204);
     expect((await call(`/api/trees/${detail.tree.id}`)).status).toBe(404);
+  });
+
+  it('deletes a branch with its descendants, stopping a running reply', async () => {
+    const detail = await newTree('slow');
+    const trunkEvents = await sendMessage(detail.tree.trunkBranchId, 'short');
+    const trunkStart = trunkEvents[0];
+    if (trunkStart?.type !== 'start') throw new Error('expected start');
+    const branch = await ok<Branch>(
+      call('/api/branches', { method: 'POST', json: { fromNodeId: trunkStart.assistantNode.id } }),
+      201,
+    );
+    const res = await call(`/api/branches/${branch.id}/messages`, {
+      method: 'POST',
+      json: { content: 'please write a long answer about everything' },
+    });
+    const reader = res.body!.getReader();
+    const start = parseSse(new TextDecoder().decode((await reader.read()).value))[0];
+    if (start?.type !== 'start') throw new Error('expected start');
+
+    const deleted = await ok<DeleteBranchResponse>(call(`/api/branches/${branch.id}`, { method: 'DELETE' }));
+    expect(deleted).toMatchObject({ treeId: detail.tree.id, branchIds: [branch.id] });
+    expect(deleted.nodeIds).toEqual(expect.arrayContaining([start.userNode.id, start.assistantNode.id]));
+
+    let rest = '';
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      rest += new TextDecoder().decode(chunk.value);
+    }
+    expect(parseSse(rest).at(-1)).toMatchObject({ type: 'error', message: 'Cancelled' });
+
+    const after = await ok<TreeDetail>(call(`/api/trees/${detail.tree.id}`));
+    expect(after.branches.map((b) => b.id)).toEqual([detail.tree.trunkBranchId]);
+    expect(after.nodes).toHaveLength(2);
+    expect((await call(`/api/branches/${branch.id}`, { method: 'DELETE' })).status).toBe(404);
+    expect((await call(`/api/branches/${detail.tree.trunkBranchId}`, { method: 'DELETE' })).status).toBe(400);
   });
 
   it('backs up and restores a tree', async () => {

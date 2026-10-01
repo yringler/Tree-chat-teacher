@@ -83,6 +83,13 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 - **Key verification is `GET /v1/models` (Anthropic) or `GET {baseUrl}/models` (OpenAI-compatible).** Only 401/403 rejects a key; if the provider is unreachable, saving is not blocked. OpenRouter's `/models` is public, so there the check proves nothing.
 - **The web app gets a strict CSP via Workers Static Assets `_headers`**: `script-src 'self'`, `connect-src 'self'`, `img-src 'self'`, Trusted Types (`angular`, `angular#bundler`). Critical-CSS inlining is off because it needs an inline script. zod runs `jitless`, because its `new Function` probe is reported as a violation.
 
+## Deleting branches
+
+- **Deleting a branch deletes its whole subtree.** Child branches hang off its messages, so they cannot outlive it. The trunk cannot be deleted; deleting the conversation covers that.
+- **Summaries anchored on deleted messages and shares targeting them are deleted too** (in the same D1 batch). Whole-tree snapshot shares keep their frozen copy until republished or revoked.
+- **Deletion goes through the tree's Durable Object.** It holds the send lock so no message lands in the doomed branches, aborts their running generations and waits for them to persist, then deletes. Without that hook (e.g. a Node port), `ChatService.deleteBranch` refuses with 409 while a reply is generating there.
+- **Branch titles are editable inline in the outline** (double-click or the pencil) as well as in Branch settings; either marks the title `user` so auto-titling leaves it alone.
+
 ## Reviewer ("Review up to here")
 - **A review is advice about the tree, not part of it.** It is streamed and never stored, so it can't leak into later context, shares or exports. It enters the conversation only if the user sends it, through "Add corrections to the message box". The web app keeps reviews in memory for the session.
 - **The reviewer sees exactly what the reviewed model saw.** That is the branch's rendered context plan for that reply, with summaries resolved and cached as on a normal send, so a mistake caused by a lossy summary shows up as one. It is wrapped as a transcript in one user message, so the reviewer judges the replies instead of continuing the chat.

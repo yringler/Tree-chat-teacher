@@ -38,6 +38,8 @@ describe('accounts', () => {
     await expect(otherChat.getTreeDetail(tree.id)).rejects.toBeInstanceOf(NotFoundError);
     await expect(otherChat.updateTree(tree.id, { title: 'x' })).rejects.toBeInstanceOf(NotFoundError);
     await expect(otherChat.deleteTree(tree.id)).rejects.toBeInstanceOf(NotFoundError);
+    const branch = await chat.createBranch({ fromNodeId: (await chat.getTreeDetail(tree.id)).nodes[0]!.id });
+    await expect(otherChat.deleteBranch(branch.id)).rejects.toBeInstanceOf(NotFoundError);
     await expect(otherChat.exportBackup(tree.id)).rejects.toBeInstanceOf(NotFoundError);
 
     expect(await otherShares.list()).toEqual([]);

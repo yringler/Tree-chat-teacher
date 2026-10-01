@@ -7,6 +7,7 @@ import type {
   CreateBranchRequest,
   CreateShareRequest,
   CreateTreeRequest,
+  DeleteBranchResponse,
   KeyStatusResponse,
   MeResponse,
   ProviderInfo,
@@ -113,6 +114,10 @@ export class ApiClient {
 
   updateBranch(branchId: string, req: UpdateBranchRequest): Promise<Branch> {
     return this.json('PATCH', `/branches/${enc(branchId)}`, req);
+  }
+
+  deleteBranch(branchId: string): Promise<DeleteBranchResponse> {
+    return this.json('DELETE', `/branches/${enc(branchId)}`);
   }
 
   getContext(

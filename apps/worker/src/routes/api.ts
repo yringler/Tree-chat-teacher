@@ -84,6 +84,15 @@ export function apiRoutes(): Hono<AppBindings> {
   api.patch('/branches/:branchId', validateJson(updateBranchRequestSchema), async (c) =>
     c.json(await chatService(c.env, c.var.accountId).updateBranch(c.req.param('branchId'), c.req.valid('json'))),
   );
+  api.delete('/branches/:branchId', async (c) => {
+    // Through the tree's Durable Object: it owns the generations it has to stop first.
+    const branch = await chatService(c.env).deps.repos.trees.getBranch(c.req.param('branchId'));
+    if (!branch) throw new NotFoundError('Branch');
+    return session(c.env, branch.treeId).fetch(
+      sessionUrl('/delete-branch', { treeId: branch.treeId, branchId: branch.id, accountId: c.var.accountId }),
+      { method: 'POST' },
+    );
+  });
   api.get('/branches/:branchId/context', sameOriginOnly, validateQuery(contextQuerySchema), async (c) => {
     const q = c.req.valid('query');
     const keys = await requireReadableKeys(c);
