@@ -22,8 +22,8 @@
     {
       "binding": "DB",
       "database_name": "tangent",
-      // Replace with the id printed by `wrangler d1 create tangent` (README step 2).
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // D1 database "tangent" on the owner's account (migrations 0000-0001 applied).
+      "database_id": "6f9486ed-e5fd-4dfa-b434-10274a650297",
       "migrations_dir": "migrations"
     }
   ],
