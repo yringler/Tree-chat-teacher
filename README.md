@@ -9,6 +9,7 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
   - `summary`: a cached summary of the parent context.
   - `independent`: only the highlighted quote or topic.
 - The **Context Inspector** shows exactly what will be sent to the model, and why.
+- **Review up to here** (on any assistant reply, or `v`) sends the conversation, as the model saw it, to a reviewer model of your choice (default in **Settings**). The reviewer lists corrections and says whether to continue on a stronger model. One click moves the branch to the reviewer's model, branches off on it, or puts the corrections in the message box.
 - Conversations can be shared as read-only links (the whole tree, one subtree, or one path; as a frozen snapshot or live). They can also be exported as Markdown or as one self-contained HTML file.
 
 Design docs:

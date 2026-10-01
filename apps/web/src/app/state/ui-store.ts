@@ -43,6 +43,11 @@ export class UiStore {
   readonly exportMenuOpen = signal(false);
   /** API keys dialog; `provider` preselects the provider to enter a key for. */
   readonly keysDialog = signal<{ provider: string | null } | null>(null);
+  readonly settingsOpen = signal(false);
+  /** Review dialog for one assistant message. */
+  readonly reviewDialog = signal<{ nodeId: string } | null>(null);
+  /** Text for the composer to insert; `seq` makes repeated inserts of the same text distinct. */
+  readonly composerInsert = signal<{ seq: number; text: string } | null>(null);
   /** Outline items the user collapsed (by branch id). */
   readonly collapsed = signal<ReadonlySet<string>>(new Set());
   /** Bumped to ask the composer to take focus. */
@@ -69,6 +74,11 @@ export class UiStore {
     this.composerFocus.update((n) => n + 1);
   }
 
+  /** Appends `text` to the composer draft and focuses it. */
+  insertIntoComposer(text: string): void {
+    this.composerInsert.update((cur) => ({ seq: (cur?.seq ?? 0) + 1, text }));
+  }
+
   anyDialogOpen(): boolean {
     return (
       this.branchDialog() !== null ||
@@ -76,7 +86,9 @@ export class UiStore {
       this.treeSettingsOpen() ||
       this.shareDialogOpen() ||
       this.shortcutsOpen() ||
-      this.keysDialog() !== null
+      this.keysDialog() !== null ||
+      this.settingsOpen() ||
+      this.reviewDialog() !== null
     );
   }
 
@@ -90,11 +102,16 @@ export class UiStore {
       this.branchDialog.set(null);
       return true;
     }
+    if (this.reviewDialog()) {
+      this.reviewDialog.set(null);
+      return true;
+    }
     for (const s of [
       this.branchSettingsOpen,
       this.treeSettingsOpen,
       this.shareDialogOpen,
       this.shortcutsOpen,
+      this.settingsOpen,
     ]) {
       if (s()) {
         s.set(false);

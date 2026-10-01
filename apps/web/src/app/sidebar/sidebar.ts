@@ -92,6 +92,13 @@ import { OutlineItem } from './outline-item';
         }
       </button>
       <app-import-button />
+      <button
+        type="button"
+        class="btn btn-ghost"
+        (click)="ui.settingsOpen.set(true); ui.drawerOpen.set(false)"
+      >
+        <app-icon name="gear" /> Settings
+      </button>
     </div>
   `,
   host: { class: 'sidebar-inner' },

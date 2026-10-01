@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { StreamEvent } from '@tangent/shared';
-import { parseStreamEvent, readStreamEvents, SseParser, type SseFrame } from './sse-parser';
+import {
+  parseReviewEvent,
+  parseStreamEvent,
+  readSseEvents,
+  readStreamEvents,
+  SseParser,
+  type SseFrame,
+} from './sse-parser';
 
 function feed(chunks: string[]): SseFrame[] {
   const parser = new SseParser();
@@ -105,5 +112,25 @@ describe('readStreamEvents', () => {
       out.push(e);
     }
     expect(out).toEqual([{ type: 'status', message: 'ok' }]);
+  });
+});
+
+describe('review events', () => {
+  it('parses review frames and rejects chat-only types', () => {
+    const done = { type: 'done', providerId: 'p', model: 'm', usage: null };
+    expect(parseReviewEvent({ event: 'done', data: JSON.stringify(done), id: null })).toEqual(done);
+    expect(parseReviewEvent({ event: 'start', data: '{"type":"start"}', id: null })).toBeNull();
+  });
+
+  it('reads a review stream', async () => {
+    const text =
+      'event: status\ndata: {"type":"status","message":"Reviewing…"}\n\n' +
+      ': keepalive\n\n' +
+      'event: delta\ndata: {"type":"delta","text":"ok"}\n\n' +
+      'event: done\ndata: {"type":"done","providerId":"p","model":"m","usage":null}\n\n';
+    const body = new Response(text).body!;
+    const types: string[] = [];
+    for await (const e of readSseEvents(body, parseReviewEvent)) types.push(e.type);
+    expect(types).toEqual(['status', 'delta', 'done']);
   });
 });

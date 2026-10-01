@@ -5,6 +5,7 @@ import {
   createShareRequestSchema,
   createTreeRequestSchema,
   exportQuerySchema,
+  reviewRequestSchema,
   sendMessageRequestSchema,
   treeBackupSchema,
   updateBranchRequestSchema,
@@ -19,9 +20,12 @@ import { readKeys, requireReadableKeys } from '../byok/keys.js';
 import type { SessionSendBody } from '../do/tree-session.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { validateJson, validateQuery } from '../http/errors.js';
+import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { purgeShare } from '../share/cache.js';
 import { chatService, providerRegistry, shareService } from '../services.js';
 import { keyRoutes } from './key.js';
+
+const REVIEW_KEEPALIVE_MS = 15_000;
 
 const contextQuerySchema = z.object({
   nodeId: z.string().min(1).max(64).optional(),
@@ -121,6 +125,36 @@ export function apiRoutes(): Hono<AppBindings> {
       sessionUrl('/cancel', { treeId: node.treeId, nodeId: node.id }),
       { method: 'POST' },
     );
+  });
+
+  // ---- reviews: streamed straight from the Worker. Nothing is persisted, so
+  // there is no Durable Object run to reconnect to; a dropped client aborts
+  // the upstream request (stops billing) through the request signal.
+  api.post('/nodes/:nodeId/review', sameOriginOnly, validateJson(reviewRequestSchema), async (c) => {
+    const req = c.req.valid('json');
+    const keys = await requireReadableKeys(c);
+    const chat = chatService(c.env, c.var.accountId, keys?.keys);
+    // The client picks the reviewer model here, so the allowlist is what bounds it.
+    assertGenerationAllowed(chat.deps.providers, req.providerId, req.model);
+    const prepared = await chat.prepareReview(c.req.param('nodeId'), req);
+    await enforceRateLimit(c, keys, 'chat');
+
+    const encoder = new TextEncoder();
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = writable.getWriter();
+    const signal = c.req.raw.signal;
+    const write = (frame: string) => writer.write(encoder.encode(frame)).catch(() => undefined);
+    const pump = async () => {
+      const keepalive = setInterval(() => void write(sseKeepAliveFrame()), REVIEW_KEEPALIVE_MS);
+      try {
+        for await (const event of chat.runReview(prepared, signal)) await write(sseFrame(event));
+      } finally {
+        clearInterval(keepalive);
+        await writer.close().catch(() => undefined);
+      }
+    };
+    c.executionCtx.waitUntil(pump());
+    return sseResponse(readable);
   });
 
   // ---- shares

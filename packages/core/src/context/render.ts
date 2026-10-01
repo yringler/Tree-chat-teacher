@@ -1,4 +1,13 @@
-import type { ChatMessage, ContextPlan, RenderedPrompt, SummaryRequest } from '@tangent/shared';
+import {
+  REVIEW_ACCURACY_LABEL,
+  REVIEW_ACCURACY_VALUES,
+  REVIEW_RECOMMENDATION_LABEL,
+  REVIEW_RECOMMENDATION_VALUES,
+  type ChatMessage,
+  type ContextPlan,
+  type RenderedPrompt,
+  type SummaryRequest,
+} from '@tangent/shared';
 
 export interface RenderOptions {
   supportsSystemPrompt: boolean;
@@ -82,6 +91,51 @@ export function buildSummaryPrompt(request: SummaryRequest): RenderedPrompt {
   }
   const content = `<conversation>\n${serializeTranscript(request.transcript)}\n</conversation>\n\n${instruction}`;
   return { system, messages: [{ role: 'user', content }] };
+}
+
+const choices = (values: Readonly<Record<string, string>>): string =>
+  Object.keys(values).join(' | ');
+
+const REVIEW_SYSTEM =
+  'You are a meticulous reviewer. You are given a conversation between a user and an AI assistant ' +
+  '(not you), exactly as the assistant saw it. Check the assistant replies for factual errors, ' +
+  'faulty reasoning or math, code that is wrong or would not run, requirements of the user that were ' +
+  'missed or misread, and claims stated with more confidence than they deserve. Give the most ' +
+  'attention to the final assistant reply; check earlier replies too, since later answers build on them.\n\n' +
+  'Be concrete: quote or pinpoint each problem, say why it is wrong and give the correction. ' +
+  'Do not repeat what is correct and do not pad. If you find nothing wrong, say so in one sentence. ' +
+  'If something cannot be verified, say that instead of guessing.\n\n' +
+  'Then judge whether the conversation should continue on a more capable model: recommend upgrading ' +
+  'when the work needs deeper reasoning or expertise than the replies show (errors of substance, ' +
+  'shallow treatment of a hard problem, a task growing in complexity); recommend staying when the ' +
+  'current model is handling it well.\n\n' +
+  'Format your answer in Markdown:\n' +
+  '## Corrections\n(numbered list, or "No errors found.")\n' +
+  '## Assessment\n(one to three sentences on reliability and on the model choice)\n\n' +
+  'End with exactly these two lines and nothing after them:\n' +
+  `${REVIEW_ACCURACY_LABEL}: ${choices(REVIEW_ACCURACY_VALUES)}\n` +
+  `${REVIEW_RECOMMENDATION_LABEL}: ${choices(REVIEW_RECOMMENDATION_VALUES)}`;
+
+/**
+ * Prompt for reviewing a conversation up to an assistant reply. `context` is
+ * the rendered prompt that produced that reply (its last message is the reply
+ * itself), so the reviewer judges the answer against what the model was given.
+ */
+export function buildReviewPrompt(
+  context: RenderedPrompt,
+  reviewedModel: string | null,
+): RenderedPrompt {
+  const parts: string[] = [];
+  if (context.system !== null && context.system.trim() !== '') {
+    parts.push(`<instructions_and_context>\n${context.system}\n</instructions_and_context>`);
+  }
+  parts.push(`<conversation>\n${serializeTranscript(context.messages)}\n</conversation>`);
+  const who = reviewedModel ? ` They were written by the model "${reviewedModel}".` : '';
+  parts.push(
+    `Review the assistant replies above, focusing on the final one.${who} ` +
+      'Follow the required format, including the two closing lines.',
+  );
+  return { system: REVIEW_SYSTEM, messages: [{ role: 'user', content: parts.join('\n\n') }] };
 }
 
 const TITLE_MESSAGE_CHARS = 2000;

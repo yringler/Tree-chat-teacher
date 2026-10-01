@@ -541,3 +541,30 @@ button.crumb:hover {
     font-size: 1rem;
   }
 }
+
+/* Reviews */
+
+.review-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.review-chip:hover {
+  background: var(--bg-hover);
+}
+
+.review-verdict {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}

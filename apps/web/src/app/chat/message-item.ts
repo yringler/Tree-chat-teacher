@@ -8,18 +8,20 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import type { Branch, ChatNode } from '@tangent/shared';
+import { parseReview, type Branch, type ChatNode } from '@tangent/shared';
 import { MarkdownService } from '../core/markdown.service';
 import { copyText, selectionWithin } from '../core/selection';
+import { ReviewStore } from '../state/review-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { Icon } from '../ui/icon';
 import { ModeBadge } from '../ui/mode-badge';
+import { ReviewVerdict } from '../ui/review-verdict';
 
 /** One message of the linear branch view. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, ModeBadge],
+  imports: [Icon, ModeBadge, ReviewVerdict],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -47,6 +49,16 @@ import { ModeBadge } from '../ui/mode-badge';
           >
             <app-icon name="branch" [size]="14" /> Branch from here
           </button>
+          @if (reviewable()) {
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              (click)="openReview($event)"
+              title="Have a stronger model check the conversation up to here (v)"
+            >
+              <app-icon name="review" [size]="14" /> Review
+            </button>
+          }
           <button
             type="button"
             class="icon-btn"
@@ -65,6 +77,26 @@ import { ModeBadge } from '../ui/mode-badge';
       @if (streaming()) {
         <span class="cursor" aria-hidden="true"></span>
         <span class="sr-only">Generating…</span>
+      }
+      @if (review(); as r) {
+        <button type="button" class="review-chip" (click)="openReview($event)">
+          <app-icon name="review" [size]="13" />
+          @switch (r.phase) {
+            @case ('running') {
+              <span>Reviewing…</span>
+            }
+            @case ('error') {
+              <span>Review failed</span>
+            }
+            @default {
+              <span>Reviewed</span>
+              <app-review-verdict
+                [accuracy]="verdict()?.accuracy ?? null"
+                [recommendation]="verdict()?.recommendation ?? null"
+              />
+            }
+          }
+        </button>
       }
       @if (n.status === 'error') {
         <div class="msg-error-box" role="alert">
@@ -121,6 +153,7 @@ export class MessageItem {
   private readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
   private readonly md = inject(MarkdownService);
+  private readonly reviews = inject(ReviewStore);
 
   readonly node = input.required<ChatNode>();
   readonly ancestor = input(false);
@@ -141,6 +174,14 @@ export class MessageItem {
   });
   protected readonly content = computed(() => this.live()?.content ?? this.node().content);
   protected readonly html = computed(() => this.md.render(this.content(), !this.streaming()));
+  protected readonly reviewable = computed(
+    () => this.node().role === 'assistant' && this.node().status === 'complete',
+  );
+  protected readonly review = computed(() => this.reviews.reviews().get(this.node().id) ?? null);
+  protected readonly verdict = computed(() => {
+    const r = this.review();
+    return r?.phase === 'done' ? parseReview(r.text) : null;
+  });
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
   protected readonly roleLabel = computed(() => {
     const r = this.node().role;
@@ -167,6 +208,11 @@ export class MessageItem {
     const quote = this.pendingQuote ?? selectionWithin(this.bodyRef().nativeElement);
     this.pendingQuote = null;
     this.ui.branchDialog.set({ fromNodeId: this.node().id, quote });
+  }
+
+  protected openReview(e: Event): void {
+    e.stopPropagation();
+    this.ui.reviewDialog.set({ nodeId: this.node().id });
   }
 
   protected async copy(e: Event): Promise<void> {
