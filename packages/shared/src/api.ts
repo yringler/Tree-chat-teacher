@@ -31,6 +31,7 @@ import type { ProviderInfo } from './provider.js';
  *   DELETE /api/trees/:treeId                    -> 204
  *   POST   /api/branches          CreateBranchRequest -> Branch
  *   PATCH  /api/branches/:branchId UpdateBranchRequest -> Branch
+ *   DELETE /api/branches/:branchId               -> DeleteBranchResponse (not the trunk)
  *   POST   /api/branches/:branchId/messages SendMessageRequest -> text/event-stream of StreamEvent
  *   GET    /api/nodes/:nodeId/stream              -> text/event-stream of StreamEvent (reconnect)
  *   POST   /api/nodes/:nodeId/cancel              -> 204
@@ -135,6 +136,17 @@ export const updateBranchRequestSchema = z.object({
   model: z.string().min(1).max(200).optional(),
 });
 export type UpdateBranchRequest = z.infer<typeof updateBranchRequestSchema>;
+
+/**
+ * Deleting a branch removes it with every branch below it (their messages,
+ * cached summaries, and shares that target one of their messages).
+ */
+export interface DeleteBranchResponse {
+  treeId: string;
+  /** The deleted branch first, then its descendants. */
+  branchIds: string[];
+  nodeIds: string[];
+}
 
 export const sendMessageRequestSchema = z.object({
   content: z.string().min(1).max(200_000),

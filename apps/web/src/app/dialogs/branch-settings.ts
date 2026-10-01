@@ -9,14 +9,44 @@ import {
 import type { Branch, ContextMode, UpdateBranchRequest } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
+import { Icon } from '../ui/icon';
 import { Modal } from '../ui/modal';
 import { ModelPicker } from '../ui/model-picker';
 import { ModePicker } from '../ui/mode-picker';
 
-/** Edit the selected branch: title, mode, anchor quote, privacy, provider/model. */
+/**
+ * Asks, then deletes a branch with every branch below it. Shared by the
+ * settings dialog and the outline. Resolves true if it was deleted.
+ */
+export async function confirmDeleteBranch(store: TreeStore, branchId: string): Promise<boolean> {
+  const idx = store.index();
+  const branch = idx?.branches.get(branchId);
+  if (!idx || !branch?.parentBranchId) return false;
+  let branches = 0;
+  let messages = 0;
+  const stack = [branch];
+  for (let b = stack.pop(); b; b = stack.pop()) {
+    branches++;
+    messages += idx.nodesByBranch.get(b.id)?.length ?? 0;
+    stack.push(...(idx.childBranches.get(b.id) ?? []));
+  }
+  const what =
+    branches > 1
+      ? `“${branch.title}” and the ${branches - 1} branch${branches === 2 ? '' : 'es'} below it (${messages} message${messages === 1 ? '' : 's'})`
+      : `“${branch.title}” (${messages} message${messages === 1 ? '' : 's'})`;
+  if (
+    !confirm(
+      `Delete ${what}? Replies still generating there are stopped, and shares of its messages stop working. This cannot be undone.`,
+    )
+  )
+    return false;
+  return store.deleteBranch(branchId);
+}
+
+/** Edit the selected branch: title, mode, anchor quote, privacy, provider/model; delete it. */
 @Component({
   selector: 'app-branch-settings',
-  imports: [Modal, ModePicker, ModelPicker],
+  imports: [Icon, Modal, ModePicker, ModelPicker],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="Branch settings" (closed)="close()">
@@ -61,6 +91,11 @@ import { ModePicker } from '../ui/mode-picker';
         </label>
 
         <div class="form-actions">
+          @if (branch().parentBranchId) {
+            <button type="button" class="btn btn-danger btn-left" (click)="remove()">
+              <app-icon name="trash" /> Delete branch
+            </button>
+          }
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
           <button type="submit" class="btn btn-primary" [disabled]="saving()">
             {{ saving() ? 'Saving…' : 'Save' }}
@@ -95,6 +130,10 @@ export class BranchSettings implements OnInit {
 
   protected close(): void {
     this.ui.branchSettingsOpen.set(false);
+  }
+
+  protected async remove(): Promise<void> {
+    if (await confirmDeleteBranch(this.store, this.branch().id)) this.close();
   }
 
   protected async save(): Promise<void> {

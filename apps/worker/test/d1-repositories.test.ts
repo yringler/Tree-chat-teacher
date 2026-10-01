@@ -182,6 +182,40 @@ describe('branches', () => {
     expect(await repos.trees.updateBranch('missing', { title: 'x' })).toBeNull();
   });
 
+  it('deleteBranches removes the branches with their nodes, summaries and targeted shares', async () => {
+    const { tree, trunk, b1, b2, t, a, c } = await seedMultiBranch();
+    const summary = { sourceHash: 'h', providerId: 'fake', model: 'm', content: 's', treeId: tree.id, createdAt: 'x' };
+    await repos.summaries.putSummary({ ...summary, anchorNodeId: a[1]!.id });
+    await repos.summaries.putSummary({ ...summary, anchorNodeId: t[1]!.id });
+    const doomed = makeShare(tree, { scope: 'path', targetNodeId: c[1]!.id });
+    const kept = makeShare(tree, { scope: 'path', targetNodeId: t[3]!.id });
+    const whole = makeShare(tree);
+    await repos.shares.createShare(doomed, '{"v":1}');
+    await repos.shares.createShare(kept, null);
+    await repos.shares.createShare(whole, null);
+
+    await repos.trees.deleteBranches(tree.id, [b1.id, b2.id], '2026-04-01T00:00:00.000Z');
+
+    expect(await repos.trees.listBranches(tree.id)).toEqual([trunk]);
+    expect((await repos.trees.listNodes(tree.id)).map((n) => n.id).sort()).toEqual(t.map((n) => n.id).sort());
+    expect(await repos.summaries.getSummary(a[1]!.id, 'h', 'm')).toBeNull();
+    expect(await repos.summaries.getSummary(t[1]!.id, 'h', 'm')).not.toBeNull();
+    expect(await repos.shares.getShare(doomed.id)).toBeNull();
+    expect(await count('share_snapshots', 'share_id', doomed.id)).toBe(0);
+    expect(await repos.shares.getShare(kept.id)).not.toBeNull();
+    expect(await repos.shares.getShare(whole.id)).not.toBeNull();
+    expect((await repos.trees.getTree(tree.id))?.updatedAt).toBe('2026-04-01T00:00:00.000Z');
+  });
+
+  it('deleteBranches only touches the given tree', async () => {
+    const { tree, b1 } = await seedMultiBranch();
+    const other = await seedMultiBranch();
+    await repos.trees.deleteBranches(other.tree.id, [b1.id], 'x');
+    expect(await repos.trees.getBranch(b1.id)).toEqual(b1);
+    expect(await count('nodes', 'branch_id', b1.id)).toBe(2);
+    expect((await repos.trees.getTree(tree.id))?.updatedAt).not.toBe('x');
+  });
+
   it('getBranchChain returns trunk → branch', async () => {
     const { trunk, b1, b2 } = await seedMultiBranch();
     expect((await repos.trees.getBranchChain(b2.id)).map((b) => b.id)).toEqual([

@@ -90,6 +90,30 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
         Object.assign(b, patch);
         return clone(b);
       },
+      async deleteBranches(treeId, branchIds, treeUpdatedAt) {
+        const ids = new Set(branchIds);
+        const nodeIds = new Set<string>();
+        for (const [id, b] of state.branches) {
+          if (b.treeId === treeId && ids.has(id)) state.branches.delete(id);
+        }
+        for (const [id, n] of state.nodes) {
+          if (n.treeId === treeId && ids.has(n.branchId)) {
+            nodeIds.add(id);
+            state.nodes.delete(id);
+          }
+        }
+        for (const [key, s] of state.summaries) {
+          if (nodeIds.has(s.anchorNodeId)) state.summaries.delete(key);
+        }
+        for (const [id, s] of state.shares) {
+          if (s.targetNodeId !== null && nodeIds.has(s.targetNodeId)) {
+            state.shares.delete(id);
+            state.snapshots.delete(id);
+          }
+        }
+        const t = state.trees.get(treeId);
+        if (t) t.updatedAt = treeUpdatedAt;
+      },
       async getNode(nodeId) {
         const n = state.nodes.get(nodeId);
         return n ? clone(n) : null;
