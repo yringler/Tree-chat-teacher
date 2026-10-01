@@ -205,8 +205,6 @@ export class ApiClient {
     const init: RequestInit = {
       method,
       credentials: 'same-origin',
-      // Cloudflare Access answers an expired session with a redirect to its login page.
-      redirect: 'manual',
       headers: { accept: 'application/json, text/event-stream' },
     };
     if (signal) init.signal = signal;
@@ -221,7 +219,7 @@ export class ApiClient {
       if (signal?.aborted) throw err;
       throw new ApiError(0, 'network', err instanceof Error ? err.message : 'Network error');
     }
-    if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+    if (res.status === 401) {
       throw new ApiError(
         401,
         'unauthorized',

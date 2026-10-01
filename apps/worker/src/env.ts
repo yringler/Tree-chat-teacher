@@ -16,13 +16,31 @@ export interface AppEnv extends Env {
    * Rotating it invalidates every stored key.
    */
   KEY_ENCRYPTION_SECRET?: string;
+  /**
+   * 32+ random bytes (`openssl rand -base64 32`). Signs Better Auth session
+   * cookies. Unset = authentication not configured: `/api/*` refuses every
+   * request unless DEV_ALLOW_NO_AUTH applies. Rotating it signs everyone out.
+   */
+  BETTER_AUTH_SECRET?: string;
+  /** OAuth apps. Each provider is offered only when both of its values are set. */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
+  /** Cloudflare Turnstile secret. Without it the magic-link endpoint fails closed. */
+  TURNSTILE_SECRET_KEY?: string;
+  RESEND_API_KEY?: string;
+  /** Local dev only (.dev.vars): skip sign-in. Honoured only while BETTER_AUTH_SECRET is unset. */
+  DEV_ALLOW_NO_AUTH?: string;
 }
 
-/** Caller identity established by the Access middleware for `/api/*`. */
+/** Caller identity established by the session middleware for `/api/*`. */
 export interface Identity {
-  /** Access-verified email; null in dev bypass mode or for service tokens. */
+  /** Better Auth user id; null only in dev bypass mode. */
+  userId: string | null;
+  /** Verified email of the signed-in user; null only in dev bypass mode. */
   email: string | null;
-  /** True only when DEV_ALLOW_NO_AUTH is honoured (ACCESS_AUD empty). */
+  /** True only when DEV_ALLOW_NO_AUTH is honoured (BETTER_AUTH_SECRET unset). */
   devMode: boolean;
 }
 

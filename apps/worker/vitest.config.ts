@@ -7,12 +7,26 @@ const MOCK_UPSTREAM = 'https://llm.test';
 const TEST_KEY_SECRET = Buffer.alloc(32, 7).toString('base64');
 
 /**
- * Stand-in for api.anthropic.com. Keys starting with `sk-ant-good` are valid;
+ * Stand-in for every outbound request: Turnstile's siteverify, Google's token endpoint, and api.anthropic.com. Keys starting with `sk-ant-good` are valid;
  * the reply echoes the rest of the key so tests can tell which key was used.
  * `…-slow` keys stream slowly (abort tests).
  */
 async function mockUpstream(request: Request): Promise<Response> {
   const url = new URL(request.url);
+  // Cloudflare Turnstile siteverify: the token `pass` is valid.
+  if (url.origin === 'https://challenges.cloudflare.com' && url.pathname === '/turnstile/v0/siteverify') {
+    const body = (await request.json()) as { response?: string };
+    const ok = body.response === 'pass';
+    return Response.json({ success: ok, hostname: 'tangent.example.com', 'error-codes': ok ? [] : ['invalid-input-response'] });
+  }
+  // Google's OAuth token endpoint: the authorization code is the email to sign in as.
+  // Better Auth reads the user from the (here unsigned) id_token it gets back.
+  if (url.origin === 'https://oauth2.googleapis.com' && url.pathname === '/token') {
+    const code = new URLSearchParams(await request.text()).get('code') ?? '';
+    const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const claims = { sub: `google-${code}`, email: code, email_verified: true, name: 'Test User', iss: 'https://accounts.google.com' };
+    return Response.json({ access_token: 'at', token_type: 'Bearer', expires_in: 3600, id_token: `${b64({ alg: 'none' })}.${b64(claims)}.` });
+  }
   if (url.origin !== MOCK_UPSTREAM) return new Response('blocked in tests', { status: 599 });
   const key = request.headers.get('x-api-key') ?? '';
   if (!key.startsWith('sk-ant-good')) {
@@ -52,16 +66,13 @@ export default defineConfig({
           // Test-only bindings: migrations to apply, and dev auth bypass.
           bindings: {
             TEST_MIGRATIONS: migrations,
-            // wrangler.jsonc carries the production Access config; the bypass
-            // is only honoured with ACCESS_AUD empty, and share URLs follow the request origin.
-            ACCESS_AUD: '',
-            ACCESS_TEAM_DOMAIN: '',
+            // Pin these so tests hold whatever wrangler.jsonc deploys with (and
+            // whatever a local .dev.vars sets): no BETTER_AUTH_SECRET (dev bypass,
+            // so API tests need no session), share links derived from the request
+            // URL. Auth tests (test/auth.test.ts) pass an env with the secret set.
+            BETTER_AUTH_SECRET: '',
             PUBLIC_BASE_URL: '',
             DEV_ALLOW_NO_AUTH: 'true',
-            // Pin these so tests hold whatever wrangler.jsonc deploys with: no Access
-            // configured (dev bypass), share links derived from the request URL.
-            ACCESS_AUD: '',
-            PUBLIC_BASE_URL: '',
             AUTO_TITLE: 'false',
             PROVIDERS: JSON.stringify([
               { id: 'fake', kind: 'fake', label: 'Fake', defaultModel: 'fake-1', models: [{ id: 'fake-1', label: 'Fake 1' }], options: { chunkSize: 4 } },

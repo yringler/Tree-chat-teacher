@@ -4,8 +4,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-15",
   // enable_request_signal: lets us observe client disconnects on request.signal.
-  "compatibility_flags": ["enable_request_signal"],
-  // Served only on the custom domain behind Cloudflare Access (see README).
+  // nodejs_compat: Better Auth needs node:async_hooks (AsyncLocalStorage).
+  "compatibility_flags": ["enable_request_signal", "nodejs_compat"],
+  // Served only on the custom domain, so PUBLIC_BASE_URL is the only origin sign-in works on.
   "workers_dev": false,
   "preview_urls": false,
   "routes": [{ "pattern": "tangent.yehudardevelopment.com", "custom_domain": true }],
@@ -53,11 +54,18 @@
     }
   ],
   "vars": {
-    // Cloudflare Access: team domain (https://<team>.cloudflareaccess.com) and application AUD tag.
-    "ACCESS_TEAM_DOMAIN": "https://soft-rice-dd2f.cloudflareaccess.com",
-    "ACCESS_AUD": "a9ebe48ff8e1e5e4879267cb0833bdf1e3b256f1712e1da9d8116fff1a1ebb0c",
-    // Public origin used to build share links; empty = derive from the request URL.
+    // Public origin: share links, sign-in callbacks, magic links and the passkey relying party.
+    // Empty = derive from the request URL (local dev and tests only).
     "PUBLIC_BASE_URL": "https://tangent.yehudardevelopment.com",
+    // Who may sign in: comma-separated emails, or "@example.com" for a whole domain.
+    // Empty = nobody (fails closed). Everyone listed shares the one built-in account.
+    "ALLOWED_EMAILS": "",
+    // Email delivery for magic links: "resend" (needs RESEND_API_KEY) or "log" (localhost only).
+    "EMAIL_PROVIDER": "resend",
+    // Sender for magic links; its domain must be verified in Resend.
+    "EMAIL_FROM": "Tangent <login@yehudardevelopment.com>",
+    // Cloudflare Turnstile site key (public) for the magic-link form. Its secret is TURNSTILE_SECRET_KEY.
+    "TURNSTILE_SITE_KEY": "",
     // JSON array of ProviderConfig; empty = built-in defaults (anthropic, openai, openrouter, fake).
     "PROVIDERS": "",
     // Provider/model for summaries; empty = use the branch's provider/model.
@@ -67,5 +75,8 @@
   }
   // Secrets (wrangler secret put): ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_TOKEN,
   //   KEY_ENCRYPTION_SECRET (`openssl rand -base64 32`; enables bring-your-own-key, rotate to revoke all stored keys)
-  // Local only (.dev.vars): DEV_ALLOW_NO_AUTH=true
+  //   BETTER_AUTH_SECRET (`openssl rand -base64 32`; signs session cookies, rotate to sign everyone out)
+  //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET (each pair optional)
+  //   TURNSTILE_SECRET_KEY, RESEND_API_KEY
+  // Local only (.dev.vars): DEV_ALLOW_NO_AUTH=true (honoured only while BETTER_AUTH_SECRET is unset)
 }

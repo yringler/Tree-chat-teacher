@@ -1,16 +1,20 @@
-<div class="app" [class.drawer-open]="ui.drawerOpen()">
-  <aside class="sidebar" id="sidebar" aria-label="Conversations">
-    <app-sidebar />
-  </aside>
-  @if (ui.drawerOpen()) {
-    <div class="scrim" (click)="ui.drawerOpen.set(false)"></div>
-  }
-  <main class="main">
-    <router-outlet />
-  </main>
-</div>
+@if (loginPage) {
+  <router-outlet />
+} @else {
+  <div class="app" [class.drawer-open]="ui.drawerOpen()">
+    <aside class="sidebar" id="sidebar" aria-label="Conversations">
+      <app-sidebar />
+    </aside>
+    @if (ui.drawerOpen()) {
+      <div class="scrim" (click)="ui.drawerOpen.set(false)"></div>
+    }
+    <main class="main">
+      <router-outlet />
+    </main>
+  </div>
 
-<app-dialog-host />
+  <app-dialog-host />
+}
 
 <div class="toasts" role="status" aria-live="polite">
   @for (t of ui.toasts(); track t.id) {

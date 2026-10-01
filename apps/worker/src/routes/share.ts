@@ -9,8 +9,8 @@ import { shareService } from '../services.js';
 const SNAPSHOT_TTL_SECONDS = 86_400;
 
 /**
- * Public, read-only share routes. Reached without Cloudflare Access (path
- * bypass on /s/*) and never check a JWT. Validity (revoked/expired) is
+ * Public, read-only share routes. They never look at the session and serve
+ * no identity, only allow-listed DTOs. Validity (revoked/expired) is
  * checked against D1 on every request; only snapshot rendering is
  * edge-cached, under a key that includes the share version.
  */

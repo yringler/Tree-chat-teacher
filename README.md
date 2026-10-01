@@ -22,7 +22,7 @@ packages/shared     domain types, API + SSE contract (zod), share DTO
 packages/core       context assembly (pure), tree utils, share projection, services, repository ports
 packages/providers  Anthropic, OpenAI-compatible (OpenAI/OpenRouter/…), Fake — raw fetch + SSE
 packages/render     markdown → safe HTML, self-contained viewer page, Markdown export
-apps/worker         Hono API, D1 repositories, TreeSession Durable Object, Access JWT, share routes
+apps/worker         Hono API, D1 repositories, TreeSession Durable Object, Better Auth, email, share routes
 apps/web            Angular 22 (standalone, signals, zoneless)
 ```
 
@@ -31,20 +31,22 @@ apps/web            Angular 22 (standalone, signals, zoneless)
 - **Node ≥ 22.22.3**. Node 24 is recommended (`.nvmrc`), and the Angular 22 CLI refuses older versions.
 - **pnpm 10** (`corepack enable`).
 - To deploy you need a Cloudflare account. The **Workers Paid** plan is recommended: the Free plan's 10 ms CPU per request is tight for streaming.
-- You also need a domain on Cloudflare if you want Cloudflare Access with a share-route bypass (recommended).
+- You also need a domain on Cloudflare: sign-in callbacks, magic links and passkeys are tied to one public origin.
 
 ## Local development
 
 ```bash
 pnpm install
-cp apps/worker/.dev.vars.example apps/worker/.dev.vars   # DEV_ALLOW_NO_AUTH=true, optional API keys
+cp apps/worker/.dev.vars.example apps/worker/.dev.vars   # DEV_ALLOW_NO_AUTH=true (no sign-in), optional API keys
 pnpm --filter @tangent/worker db:migrate:local            # create the local D1 database
 pnpm dev                                                  # builds the Angular app, then `wrangler dev`
 ```
 
 Open <http://localhost:8787>. Without any API keys, use the **Fake (offline)** provider, which echoes deterministic replies, so the whole app works offline. To use real providers, add `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY` to `apps/worker/.dev.vars`.
 
-For UI work with hot reload, run `pnpm --filter @tangent/worker dev` and `pnpm --filter @tangent/web start` in two terminals, then open <http://localhost:4200>. The Angular dev server proxies `/api` and `/s` to the Worker on port 8787.
+To try real sign-in locally, follow "Option B" in `.dev.vars.example`: it sets a `BETTER_AUTH_SECRET`, prints magic links to the `wrangler dev` console instead of emailing them (`EMAIL_PROVIDER=log`, allowed on localhost only), and uses Cloudflare's always-pass Turnstile test keys. Passkeys work on `localhost` too. `pnpm dev` runs `wrangler dev --local-upstream localhost:8787`: without that flag, wrangler rewrites requests to the production hostname from `routes`, and Better Auth rejects the mismatched origin.
+
+For UI work with hot reload, run `pnpm --filter @tangent/worker dev` and `pnpm --filter @tangent/web start` in two terminals, then open <http://localhost:4200>. The Angular dev server proxies `/api` and `/s` to the Worker on port 8787. With real sign-in, set `PUBLIC_BASE_URL=http://localhost:4200` in `.dev.vars` so links and passkeys use that origin.
 
 Checks:
 
@@ -89,48 +91,72 @@ All commands run from `apps/worker` (use `npx wrangler …` or `pnpm exec wrangl
    ```bash
    pnpm deploy
    ```
-   Do not use `workers_dev: true` in production (step 8).
+   Do not use `workers_dev: true` in production (see step 8 of "Sign-in" below).
 
-### Cloudflare Access (required)
+### Sign-in (required)
 
-The Worker **fails closed**: every `/api/*` request returns 500 until Access is configured. There are two Access applications on the same hostname; the more specific path wins.
+Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Google, GitHub, a magic link by email, or a passkey. The Worker **fails closed**: every `/api/*` request returns 500 until `BETTER_AUTH_SECRET` is set, and nobody can sign in until their email is on `ALLOWED_EMAILS`.
 
-1. In **Zero Trust → Access → Applications → Add → Self-hosted**, create:
-   - **Application 1 — "Tangent"**: domain `tangent.example.com`, no path. Policy: **Allow** → *Emails* → your email.
-   - **Application 2 — "Tangent shares"**: domain `tangent.example.com`, path `s/*`. Policy: action **Bypass** → *Everyone*.
-
-   The bypass exists because anonymous viewers must be able to open `/s/<token>`. The Worker serves those routes read-only, rate-limited, and with an allow-listed DTO.
-2. Copy Application 1's **Application Audience (AUD) tag** (under *Additional settings*) and your **team domain** (`https://<team>.cloudflareaccess.com`) into `wrangler.jsonc`:
-   ```jsonc
-   "vars": {
-     "ACCESS_TEAM_DOMAIN": "https://<team>.cloudflareaccess.com",
-     "ACCESS_AUD": "<aud tag>",
-     "PUBLIC_BASE_URL": "https://tangent.example.com"
-   }
-   ```
-3. Set `"workers_dev": false` so the `*.workers.dev` URL is not reachable. The API would still reject it without a valid JWT, but the Angular bundle would be public. Then run `pnpm deploy` again.
-4. **Verify.** The Worker validates `Cf-Access-Jwt-Assertion` on every `/api/*` request, using Access's JWKS and checking issuer and audience.
+1. **Session secret.** It signs session cookies; rotating it signs everyone out.
    ```bash
-   curl -i https://tangent.example.com/api/me           # 302 to the Access login
-   curl -i https://tangent.example.com/s/does-not-exist # 404 page from the Worker (bypass works)
+   openssl rand -base64 32 | npx wrangler secret put BETTER_AUTH_SECRET
+   ```
+2. **Who may sign in.** In `wrangler.jsonc`, set `ALLOWED_EMAILS` to a comma-separated list (`you@example.com, @yourcompany.com` allows a whole domain) and `PUBLIC_BASE_URL` to your origin. Everyone on the list shares the one built-in account (Tangent is single-user; see *Accounts* in [DECISIONS.md](docs/DECISIONS.md)). Users not on the list are never created and never sent a magic link, and removing an email locks out its existing sessions on the next request.
+3. **Email (magic links) through [Resend](https://resend.com).** Verify your sending domain in Resend, set `EMAIL_FROM` in `wrangler.jsonc` to an address on it, then:
+   ```bash
+   npx wrangler secret put RESEND_API_KEY
+   ```
+   Email goes through the `EmailSender` interface (`apps/worker/src/email/`). To switch providers, add a class implementing it and a case in `createEmailSender`, then set `EMAIL_PROVIDER`.
+4. **Captcha ([Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/)).** It protects the magic-link form, the one endpoint that sends email. Create a widget for your hostname in the Cloudflare dashboard, put its site key in `TURNSTILE_SITE_KEY` (`wrangler.jsonc`), and:
+   ```bash
+   npx wrangler secret put TURNSTILE_SECRET_KEY
+   ```
+   Without the secret, magic-link requests are refused.
+5. **Google and GitHub (optional; each one appears on the login page only when configured).**
+   - Google: in Google Cloud Console → *APIs & Services → Credentials*, create an OAuth client ID (*Web application*) with the redirect URI `https://tangent.example.com/api/auth/callback/google`.
+   - GitHub: in *Settings → Developer settings → OAuth Apps*, create an app with the callback URL `https://tangent.example.com/api/auth/callback/github`.
+   ```bash
+   npx wrangler secret put GOOGLE_CLIENT_ID
+   npx wrangler secret put GOOGLE_CLIENT_SECRET
+   npx wrangler secret put GITHUB_CLIENT_ID
+   npx wrangler secret put GITHUB_CLIENT_SECRET
+   ```
+   Signing in with Google, GitHub or a magic link for the same email lands on the same user.
+6. **Passkeys** need no setup: once signed in, open **Account** in the sidebar and add one on each device. The relying party is the `PUBLIC_BASE_URL` host, so passkeys stop working if the domain changes.
+7. **Remember me.** Checked, the session lasts 30 days and is extended by use. Unchecked, the cookie ends with the browser session and the session expires after a day at most.
+8. Keep `"workers_dev": false` so the `*.workers.dev` URL is not reachable: sign-in only works on `PUBLIC_BASE_URL`.
+9. **Verify.**
+   ```bash
+   curl -i https://tangent.example.com/api/me             # 401 {"error":{"code":"unauthorized",…}}
+   curl -i https://tangent.example.com/api/login-options  # which sign-in methods are configured
+   curl -i https://tangent.example.com/s/does-not-exist   # 404 page from the Worker (shares are public)
    ```
 
-`DEV_ALLOW_NO_AUTH=true` is honoured **only** while `ACCESS_AUD` is empty, and it belongs in `.dev.vars` only. Never set it as a deployed variable.
+**Upgrading from the Cloudflare Access setup:** run `pnpm db:migrate:remote` (migration `0002_auth` adds the sign-in tables), set the secrets and vars above, deploy, then delete both Access applications ("Tangent" and "Tangent shares") in Zero Trust. Until they are deleted, Access still sits in front of the app. Existing conversations belong to the built-in account, so they appear as soon as you sign in.
+
+`DEV_ALLOW_NO_AUTH=true` is honoured **only** while `BETTER_AUTH_SECRET` is unset, and it belongs in `.dev.vars` only. Never set it as a deployed variable.
 
 ## Configuration
 
 | Name | Kind | Purpose |
 |---|---|---|
-| `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` | var | Cloudflare Access JWT verification (required in production) |
-| `PUBLIC_BASE_URL` | var | Origin used in share links (default: the request's origin) |
+| `PUBLIC_BASE_URL` | var | Public origin: share links, sign-in callbacks, magic links, passkey relying party (default: the request's origin; set it in production) |
+| `ALLOWED_EMAILS` | var | Who may sign in: emails and/or `@domain` entries, comma-separated. Empty = nobody |
+| `EMAIL_PROVIDER` | var | `resend` (default) or `log` (prints emails to the console; localhost only) |
+| `EMAIL_FROM` | var | Sender address for magic links (its domain must be verified in Resend) |
+| `TURNSTILE_SITE_KEY` | var | Cloudflare Turnstile site key for the magic-link form |
 | `PROVIDERS` | var | JSON array of provider configs (default: anthropic, openai, openrouter, fake) |
 | `SUMMARY_PROVIDER_ID`, `SUMMARY_MODEL` | var | Cheaper model for summaries and titles, e.g. `anthropic` + `claude-haiku-4-5`. Empty = the branch's own model |
 | `AUTO_TITLE` | var | `false` disables automatic branch/tree titles |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` | secret | Provider keys, referenced by name from provider configs |
 | `AI_GATEWAY_TOKEN` | secret | Optional, for an authenticated AI Gateway |
+| `BETTER_AUTH_SECRET` | secret | Signs session cookies (`openssl rand -base64 32`). Required; rotating it signs everyone out |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | secret | OAuth apps; each provider is offered only when both of its values are set |
+| `TURNSTILE_SECRET_KEY` | secret | Turnstile secret; without it magic-link sign-in is refused |
+| `RESEND_API_KEY` | secret | Resend API key for magic-link emails |
 | `KEY_ENCRYPTION_SECRET` | secret | 32 random bytes, base64 (`openssl rand -base64 32`). Enables bring-your-own-key; rotating it revokes every stored user key |
 | `CHAT_RATE_LIMITER`, `KEY_RATE_LIMITER` | rate limit binding | Requests spending a user key (30/min per key cookie); key saves (10/min per account) |
-| `DEV_ALLOW_NO_AUTH` | `.dev.vars` only | Skip Access locally |
+| `DEV_ALLOW_NO_AUTH` | `.dev.vars` only | Skip sign-in locally (only while `BETTER_AUTH_SECRET` is unset) |
 
 **Providers.** Each provider instance in `PROVIDERS` has `id`, `kind` (`anthropic` | `openai-compatible` | `fake`), `label`, `models`, `defaultModel` and `apiKeySecret`. It can also take `baseUrl`, `headers`, `extraHeaderSecrets`, `maxContextTokens`, `maxOutputTokens`, `supportsSystemPrompt` and `options`. Any OpenAI-compatible endpoint is config only:
 

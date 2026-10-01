@@ -1,6 +1,25 @@
 # Copy to .dev.vars for `wrangler dev`. Never commit .dev.vars.
-# Skips Cloudflare Access JWT verification. Only honored when ACCESS_AUD is empty.
+# Values here override the production vars in wrangler.jsonc.
+
+# --- Option A: no sign-in at all (quickest). Honoured only while BETTER_AUTH_SECRET is unset.
 DEV_ALLOW_NO_AUTH=true
+
+# --- Option B: real sign-in, locally. Comment out DEV_ALLOW_NO_AUTH above and fill these in.
+# PUBLIC_BASE_URL=http://localhost:8787
+# BETTER_AUTH_SECRET=            # openssl rand -base64 32
+# ALLOWED_EMAILS=you@example.com
+# Magic links are printed to the wrangler console instead of emailed (localhost only):
+# EMAIL_PROVIDER=log
+# Cloudflare's Turnstile test keys (always pass):
+# TURNSTILE_SITE_KEY=1x00000000000000000000AA
+# TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+# Optional OAuth apps (callback URLs: http://localhost:8787/api/auth/callback/google and .../github):
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
+# GITHUB_CLIENT_ID=
+# GITHUB_CLIENT_SECRET=
+# To send real email instead: EMAIL_PROVIDER=resend, RESEND_API_KEY=re_..., EMAIL_FROM=...
+
 # ANTHROPIC_API_KEY=sk-ant-...
 # OPENAI_API_KEY=sk-...
 # OPENROUTER_API_KEY=sk-or-...

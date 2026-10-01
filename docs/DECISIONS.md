@@ -39,13 +39,13 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 - **Compaction replaces the oldest prefix of the context with one cached summary.** Truncation is only a last resort, and both are recorded in the plan.
 
 ## Sharing & access
-- **The public viewer is a self-contained, server-rendered page, not the Angular app.** It needs only a single `/s/*` Access bypass, works on phones, uses a strict hash-based CSP, and is the *same function* as the HTML export.
-- **Path-scoped Access Bypass on `/s/*` rather than a separate hostname.** There is one domain to manage. The page is self-contained under a strict CSP, and the Worker enforces the JWT on `/api/*` regardless of host.
+- **The public viewer is a self-contained, server-rendered page, not the Angular app.** It needs no session, works on phones, uses a strict hash-based CSP, and is the *same function* as the HTML export.
+- **Shares live on `/s/*` of the app's own hostname rather than a separate one.** There is one domain to manage. The page is self-contained under a strict CSP, `/s/*` never reads the session, and session cookies are HttpOnly.
 - **Revocation is checked on every request against D1, and cache keys include `version`.** Revoke and republish take effect instantly and globally without a global purge (the Cache API is per-colo).
 - **Private exclusion happens in the pure projection.** Private branches never enter the payload, and creating a share of a private target is rejected.
 - **Share keys (`b0`, `m3`) are per payload.** No internal ids leak to viewers.
 - **Exports exclude private branches by default.** The owner can opt in with `includePrivate=true`. JSON backups always include everything.
-- **The Worker fails closed if Access isn't configured.** `DEV_ALLOW_NO_AUTH=true` is honoured only when `ACCESS_AUD` is empty, and belongs in `.dev.vars` only.
+- **The Worker fails closed if sign-in isn't configured.** `DEV_ALLOW_NO_AUTH=true` is honoured only while `BETTER_AUTH_SECRET` is unset, and belongs in `.dev.vars` only.
 - **Markdown uses markdown-it (`html:false`) + highlight.js, shared by Angular and the Worker.** It needs no DOM, so there is one renderer and the output can't diverge. Angular's sanitizer is a second layer.
 
 ## Integration (post-merge)
@@ -59,7 +59,7 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 ## Accounts (ownership groundwork, not multi-user)
 - **Trees and shares carry `account_id`.** It references an `accounts` table seeded with a single `default` account in migration 0001. Existing rows backfill via the column default, so there is no data rewrite.
 - **Branches, nodes and summaries inherit ownership through `tree_id`.** They have no column of their own, which keeps a future split into per-user data a matter of filtering by tree.
-- **One place decides the acting account:** `resolveAccountId(identity)` in `apps/worker/src/auth/account.ts`. Today it always returns `default`. Multi-user replaces only this function, for example by keying on the Access JWT `sub` claim (stable) rather than email.
+- **One place decides the acting account:** `resolveAccountId(identity)` in `apps/worker/src/auth/account.ts`. Today it always returns `default`. Multi-user replaces only this function, for example by keying on the Better Auth user id (`identity.userId`, stable) rather than email.
 - **Services take `accountId` (default `default`).**
   - `listTrees`/`listShares` filter by it.
   - Tree-level operations (detail, update, delete, backup) and share management treat another account's rows as not found.
@@ -97,3 +97,17 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 - **The client picks the reviewer's provider/model per request.** This is the one generation route where it does. The model allowlist, the server-set output cap, same-origin and the per-cookie rate limit still apply.
 - **Reviews stream straight from the Worker, not through the tree's Durable Object.** There is no persisted run to reconnect to. A client disconnect aborts the upstream request.
 - **The default reviewer is a browser setting (localStorage, `tangent.settings`).** It is not a secret, and every request names its model anyway. If it is unset or unusable, the branch's provider default is used. Server-side per-account settings can replace it when multi-user arrives.
+
+## Authentication (replaced Cloudflare Access)
+- **Better Auth in the Worker instead of Cloudflare Access in front of it.** Sign-in is part of the app (Google, GitHub, magic link, passkeys), it works on any host, and the Worker stays the only security boundary. Its tables live in D1 as `auth_*` (Drizzle schema, migration 0002), so its `account` model can't be confused with our `accounts`.
+- **No passwords.** Email+password stays disabled; the methods are OAuth, magic link and passkeys. Passkeys are added from the Account dialog once signed in.
+- **`ALLOWED_EMAILS` gates sign-in, and everyone on it shares the default account.** It replaces the Access policy. Users outside it are never created (`user.create.before` returns false, so the OAuth callback redirects to `/login?error=unable_to_create_user` instead of answering JSON), never sent a magic link (same response either way, so the form doesn't reveal who is allowed), and the middleware re-checks it on every request. Multi-user is still the step described under *Accounts*.
+- **The API session check never refreshes the session.** A refresh must re-issue the cookie, which only `GET /api/auth/get-session` does; the web app calls it at startup. Refreshing in the middleware would move the database expiry while the cookie kept its old one.
+- **"Remember me" for every method via an after-hook.** Better Auth only has it for email+password. Sessions start remembered (30 days, extended at most daily); when the login page's one-shot `tangent-remember` cookie isn't `1`, the hook shortens the row to 1 day and re-issues the cookie with no Max-Age plus Better Auth's signed `dont_remember` cookie. It's a cookie because the OAuth callback and magic link are top-level navigations. Missing (e.g. a link opened in another browser) means not remembered.
+- **Captcha only on `/sign-in/magic-link`.** It is the one endpoint that sends email; OAuth providers run their own bot checks and passkeys can't be scripted. Without `TURNSTILE_SECRET_KEY` the plugin refuses the request (fails closed). Hostname pinning is skipped on localhost because Turnstile's test keys report their own hostname.
+- **Turnstile only runs in the `/login` document, which has its own CSP.** `_headers` detaches the app-wide CSP for `/login` and allows `challenges.cloudflare.com` there, without Trusted Types (the page renders no model output). The app reaches `/login` and leaves it only by full page loads, so third-party script never runs in a document holding conversations or the key cookie's API access.
+- **Better Auth's rate limiter stores counters in D1.** Memory storage would be per isolate. The client IP comes from `cf-connecting-ip`.
+- **Email goes through an `EmailSender` interface** (`apps/worker/src/email/`), picked by `EMAIL_PROVIDER` in one function. Resend is called with raw `fetch` (no SDK), like the LLM providers. The `log` sender prints links to the console and is refused off localhost, since a logged magic link is a credential.
+- **Magic-link tokens are stored hashed** and expire after 15 minutes.
+- **`nodejs_compat` is on**, because Better Auth imports `node:async_hooks`.
+- **`pnpm dev` passes `--local-upstream localhost:8787`.** Otherwise wrangler rewrites local requests to the production hostname from `routes`, and Better Auth's origin check rejects them.

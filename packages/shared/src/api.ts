@@ -20,7 +20,12 @@ import type { ProviderInfo } from './provider.js';
 /**
  * HTTP API contract between the Angular app and the Worker.
  *
- * Owner API (Cloudflare Access JWT required), all JSON unless noted:
+ * Authentication (Better Auth, apps/worker/src/auth/auth.ts):
+ *
+ *   /api/auth/*                                  Better Auth endpoints (sign-in, callbacks, session, passkeys)
+ *   GET    /api/login-options                    -> LoginOptionsResponse (public)
+ *
+ * Owner API (signed-in session required), all JSON unless noted:
  *
  *   GET    /api/me                               -> MeResponse
  *   GET    /api/providers                        -> ProviderInfo[]
@@ -49,7 +54,7 @@ import type { ProviderInfo } from './provider.js';
  *   POST   /api/key              SaveKeyRequest  -> 204 + Set-Cookie (sealed, HttpOnly)
  *   DELETE /api/key              ForgetKeyRequest -> 204 + Set-Cookie (cleared or re-sealed)
  *
- * Public (no Access; rate-limited; read-only):
+ * Public (no sign-in; rate-limited; read-only):
  *
  *   GET /s/:token            -> text/html viewer page (Open Graph tags, self-contained)
  *   GET /s/:token/data.json  -> SharePayload
@@ -75,11 +80,24 @@ export type ApiErrorCode =
   | 'internal';
 
 export interface MeResponse {
+  /** Signed-in user's email; null only in dev bypass mode. */
   email: string | null;
   /** Account the caller acts as (always the built-in default account for now). */
   accountId: string;
   /** True when running with DEV_ALLOW_NO_AUTH (wrangler dev only). */
   devMode: boolean;
+}
+
+/** What the login page offers. Magic links and passkeys are always available once auth is configured. */
+export interface LoginOptionsResponse {
+  /** False when the server has no BETTER_AUTH_SECRET (sign-in can't work). */
+  configured: boolean;
+  /** True when DEV_ALLOW_NO_AUTH applies: no sign-in needed. */
+  devMode: boolean;
+  /** OAuth providers with credentials configured. */
+  social: { google: boolean; github: boolean };
+  /** Cloudflare Turnstile site key for the magic-link form; null = not configured. */
+  turnstileSiteKey: string | null;
 }
 
 export interface TreeSummary {
