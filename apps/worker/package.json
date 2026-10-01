@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --local-upstream localhost:8787",
     "deploy": "pnpm --filter @tangent/web build && wrangler deploy",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
@@ -14,13 +14,14 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@better-auth/passkey": "1.7.7",
     "@tangent/core": "workspace:*",
     "@tangent/providers": "workspace:*",
     "@tangent/render": "workspace:*",
     "@tangent/shared": "workspace:*",
+    "better-auth": "1.7.7",
     "drizzle-orm": "^0.45.3",
     "hono": "^4.13.10",
-    "jose": "^6.2.12",
     "zod": "^4.4.3"
   },
   "devDependencies": {

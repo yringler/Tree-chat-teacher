@@ -175,15 +175,10 @@ export class TreeStore {
 
   // Bootstrapping
 
-  async init(): Promise<void> {
-    await Promise.all([
-      this.api.me().then(
-        (m) => this.me.set(m),
-        (e: unknown) => this.fail(e),
-      ),
-      this.refreshKeys(),
-      this.loadTrees(),
-    ]);
+  /** `me`: the signed-in caller, already fetched by the sign-in check (AuthService.requireUser). */
+  async init(me: MeResponse): Promise<void> {
+    this.me.set(me);
+    await Promise.all([this.refreshKeys(), this.loadTrees()]);
   }
 
   // API keys (bring-your-own-key)

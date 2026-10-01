@@ -14,12 +14,12 @@ The idea: any message can spawn child **branches**. Each branch sends the model 
 Browser (Angular 22, zoneless, signals)          Anonymous viewer (phone/desktop)
    │  fetch + SSE (/api/*)                            │  GET /s/<token>[/data.json]
    ▼                                                  ▼
-Cloudflare Access (whole host)  ──── path app /s/* with a Bypass policy ────┐
-   │ Cf-Access-Jwt-Assertion                                                │ (no JWT)
-   ▼                                                                        ▼
+   │ session cookie (Better Auth)                     │ (no session)
+   ▼                                                  ▼
 ┌──────────────────────────── Worker "tangent" (Hono) ────────────────────────────┐
 │ static assets (Angular build; SPA fallback)   run_worker_first: /api/*, /s/*     │
-│ /api/*  → verify Access JWT (jose, JWKS) → owner routes                          │
+│ /api/auth/* → Better Auth (Google, GitHub, magic link, passkey; D1 tables)       │
+│ /api/*  → session + ALLOWED_EMAILS check → owner routes                          │
 │ /s/*    → rate limit (ratelimits binding) → ShareService.checkPublic →           │
 │           edge cache (Cache API, versioned key) → viewer HTML / JSON DTO         │
 │ POST /api/branches/:id/messages ─┐                                               │
@@ -41,7 +41,7 @@ Cloudflare Access (whole host)  ──── path app /s/* with a Bypass policy 
 | `packages/core` (`@tangent/core`) | shared | **Context assembly** (pure), prompt rendering, token estimation, sync SHA-256, tree utilities (outline, paths, keyboard navigation), share projection, repository ports, and the `ChatService`/`ShareService` application services |
 | `packages/providers` (`@tangent/providers`) | shared | SSE parser, Anthropic provider, OpenAI-compatible provider, `FakeProvider`, config-driven registry |
 | `packages/render` (`@tangent/render`) | shared, core, markdown-it, highlight.js | Safe markdown → HTML, the self-contained viewer page (used for both public shares and HTML export), and Markdown export |
-| `apps/worker` (`@tangent/worker`) | all packages, hono, drizzle-orm, jose | Hono app, D1 repositories, the `TreeSession` Durable Object, Access JWT, share routes, edge cache, rate limit |
+| `apps/worker` (`@tangent/worker`) | all packages, hono, drizzle-orm, better-auth | Hono app, D1 repositories, the `TreeSession` Durable Object, Better Auth sign-in, email (Resend behind an interface), share routes, edge cache, rate limit |
 | `apps/web` (`@tangent/web`) | shared, core, render, Angular | The owner UI |
 
 Workspace packages export their TypeScript sources directly (`"exports": "./src/index.ts"`). There is no build step: Wrangler's esbuild, Vite/Vitest and the Angular builder all compile TS from the workspace.
@@ -49,7 +49,7 @@ Workspace packages export their TypeScript sources directly (`"exports": "./src/
 ### Request flows
 
 **Send a message** (`POST /api/branches/:branchId/messages {content}`):
-1. The Worker verifies the JWT, validates the body and looks up the branch's tree. It forwards the request to `TREE_SESSION.idFromName(treeId)`.
+1. The Worker checks the session, validates the body and looks up the branch's tree. It forwards the request to `TREE_SESSION.idFromName(treeId)`.
 2. The DO calls `ChatService.beginSend`. This atomically inserts the user node and a `streaming` assistant node in one D1 batch. A unique `(branch_id, seq)` index rejects a racing append with 409; the DO also serializes sends per tree. The DO then emits `start`.
 3. The DO starts `ChatService.runGeneration` as a detached task. That task loads the ancestor slice with a recursive CTE and runs `assembleContext`. It then generates any missing summaries (emitting `status` events), stores them in D1 and re-plans. It renders the plan and streams the provider.
 4. Every event is appended to an in-memory buffer and fanned out to all SSE subscribers. The POST response is the first subscriber.
@@ -303,7 +303,7 @@ The tests cover:
 - **Snapshot**: the payload is projected at creation and stored as chunked JSON. **Republish** re-projects it in place: same token, and `version++` busts the edge cache. **Live**: projected on each view, never cached.
 - **Links**: `/s/<token>`, where the token is 192 random bits in base64url. Shares support an optional title, an optional expiry and instant revocation (checked on every request). The Shares page lists scope, mode, created/updated/published times, state and view count.
 - **Viewer**: a server-rendered, self-contained page from `@tangent/render`. It uses a hash-based strict CSP, an inline constant script/style, and messages pre-rendered with the shared markdown renderer. Its outline, breadcrumbs and linear view work offline. The **same function** produces the HTML export, so the two cannot diverge. `/s/<token>/data.json` returns the DTO.
-- **Why not reuse Angular for viewers?** Anonymous viewers would need the Angular bundle to be reachable without Access, which means bypassing assets too. They would also run owner code. A self-contained page needs only the single `/s/*` bypass rule, loads fast on phones, and doubles as the offline export.
+- **Why not reuse Angular for viewers?** Viewers would run owner code, and the page would have to work without a session. A self-contained page has its own strict CSP, loads fast on phones, and doubles as the offline export.
 - **Exports**: `/api/export?format=md|html&scope=…` builds the payload with `projectShare`. Owners may pass `includePrivate=true`. It then calls `payloadToMarkdown` or `renderViewerPage({ variant: 'export' })`. The JSON backup/restore (`/api/trees/:id/backup`, `/api/import`) is owner-only and includes everything.
 - **Later (designed for, not built)**:
   - *Fork this share into my tree*: `POST /api/import-share {token}` would map a `SharePayload` back to branches and nodes. Keys make this lossless for content, and modes default to `path`.
@@ -313,14 +313,15 @@ The tests cover:
 
 ## 6. Access control
 
-- Two Access applications cover one hostname. The first protects `tangent.example.com` (allow: the owner's email). The second covers `tangent.example.com/s/*` with a **Bypass** policy; the more specific path wins.
-- The Worker verifies `Cf-Access-Jwt-Assertion` on every `/api/*` request using `jose.createRemoteJWKSet(https://<team>.cloudflareaccess.com/cdn-cgi/access/certs)`, with `issuer` = team domain and `audience` = AUD tag. So even a direct `*.workers.dev` hit cannot use the API.
-- If `ACCESS_AUD` is empty, the Worker refuses all `/api/*` requests with 500 "not configured". The exception is `DEV_ALLOW_NO_AUTH=true` (in `.dev.vars` only), which lets local dev run without auth. The Worker fails closed.
-- `/s/*` never checks a JWT. Because it bypasses Access, it gets no identity, and it serves only allow-listed DTOs.
-- Static assets are protected by Access at the edge. They contain no data; the API is what is gated. Once a custom domain is set, `workers_dev` should be set to false (README).
-- The alternative was a separate share hostname. That gives stronger origin isolation but requires a second domain. We chose the path bypass because the viewer is self-contained, under a strict CSP, and holds no credentials: the owner app's cookies are Access cookies, and the viewer page runs no owner code. See DECISIONS.
-
----
+- Sign-in is [Better Auth](https://better-auth.com), mounted at `/api/auth/*`, with its tables in D1 (`auth_*`, migration 0002). Methods: Google, GitHub, magic link (email, via the `EmailSender` interface; Resend today) and passkeys. There are no passwords.
+- `ALLOWED_EMAILS` decides who may sign in. Users outside it are never created (a `user.create.before` hook), never sent a magic link, and the session middleware re-checks it on every `/api/*` request, so removing an email locks that user out at once.
+- Every `/api/*` route except `/api/auth/*` and `/api/login-options` requires a session (`auth/session.ts`). The lookup never refreshes the session; the web app's startup call to `GET /api/auth/get-session` does, because only that path re-issues the cookie.
+- If `BETTER_AUTH_SECRET` is unset, the Worker refuses all `/api/*` requests with 500 "not configured". The exception is `DEV_ALLOW_NO_AUTH=true` (in `.dev.vars` only), which lets local dev run without auth. The Worker fails closed.
+- The magic-link endpoint is protected by Cloudflare Turnstile (Better Auth's captcha plugin) and rate limited (5/min per IP, in D1). Turnstile's script runs only in the `/login` document, which gets its own CSP (`public/_headers`); the app moves to and from it by full page loads.
+- "Remember me" covers every method: sessions start remembered (30 days, rolling) and an after-hook shortens them to a browser-session cookie and a 1-day session when the login page asked for that.
+- `/s/*` never looks at the session. It gets no identity and serves only allow-listed DTOs.
+- Static assets contain no data; the API is what is gated. `workers_dev` is false so sign-in only happens on `PUBLIC_BASE_URL`.
+- Shares stay on the same hostname as the app. The viewer is self-contained, under a strict CSP, and runs no owner code; session cookies are HttpOnly. See DECISIONS.
 
 ## 7. Front end (Angular 22)
 
@@ -343,14 +344,14 @@ The app uses standalone components, signals, zoneless change detection (the defa
 Each milestone ends green on `pnpm test`, `pnpm typecheck` and `pnpm lint`, and is checked under `wrangler dev`.
 
 1. **Foundation**: monorepo, shared contracts, D1 schema and migration, `FakeProvider`, and context assembly with exhaustive tests.
-2. **Worker API**: D1 repositories, `ChatService`, Hono routes, the `TreeSession` DO with SSE, reconnect and cancel, the context-plan endpoint, and Access JWT middleware.
+2. **Worker API**: D1 repositories, `ChatService`, Hono routes, the `TreeSession` DO with SSE, reconnect and cancel, the context-plan endpoint, and the auth middleware (Better Auth since the sign-in migration).
 3. **Real providers**: SSE parser, Anthropic, OpenAI-compatible (OpenRouter), registry, secrets, and optional AI Gateway `baseUrl`.
 4. **Angular UI**: sidebar outline, chat view with streaming, branch dialog, breadcrumbs, navigation.
 5. **Summary mode end to end**: the resolve loop, D1 cache, invalidation by hash, and the summary model setting.
 6. **Inspector, auto-titles and polish**.
 7. **Sharing**: scopes, snapshot/live, private exclusion, viewer, revoke/expiry, rate limit, edge cache.
 8. **Publishing**: Markdown and HTML export on the viewer renderer.
-9. **Deployment**: README (D1 create, migrations, secrets, Access apps and bypass, deploy), JSON backup/import.
+9. **Deployment**: README (D1 create, migrations, secrets, sign-in setup, deploy), JSON backup/import.
 
 Execution: the contracts (§3) were frozen first. Implementation then fanned out to parallel worktree agents: (a) context assembly, rendering and hashing; (b) providers; (c) tree utilities, share projection and the render package; (d) Worker, repositories and services; (e) the Angular UI. After that came integration, milestone verification and polish.
 
@@ -360,7 +361,7 @@ Execution: the contracts (§3) were frozen first. Implementation then fanned out
 
 - **Pure unit tests** (Vitest, Node): context assembly (§4.6), rendering, SHA-256 against known vectors, tree utilities and navigation, share projection (scopes, private exclusion, no id leakage), markdown sanitization (XSS corpus: `<script>`, `javascript:` links, raw HTML, `onerror`), the viewer page (CSP hashes match the inline script/style), and Markdown export.
 - **Provider tests** (Vitest, Node, injected `fetch`): the SSE parser (chunk boundaries, CRLF, comments, multi-byte UTF-8), Anthropic event mapping (usage, mid-stream error, HTTP errors → codes, abort), OpenAI/OpenRouter (both usage shapes, `[DONE]`, in-stream error, abort), FakeProvider determinism, and the registry (availability and config parsing).
-- **Worker integration tests** (`@cloudflare/vitest-pool-workers`, real D1 and DO in workerd): repositories (CTE, batch atomicity, snapshot chunking); the API (CRUD, branching, validation, 404s); the send → SSE → persisted flow with FakeProvider; reconnect, cancel and 409 on a concurrent send; the context-plan endpoint; summary mode with cache hits; Access middleware (JWT signed with a local JWKS, missing/invalid → 401/403, fail-closed); and shares (snapshot immutability after new messages, republish, revoke → 410, expiry, private exclusion in the payload, rate limit → 429, view count, cache-version bump).
+- **Worker integration tests** (`@cloudflare/vitest-pool-workers`, real D1 and DO in workerd): repositories (CTE, batch atomicity, snapshot chunking); the API (CRUD, branching, validation, 404s); the send → SSE → persisted flow with FakeProvider; reconnect, cancel and 409 on a concurrent send; the context-plan endpoint; summary mode with cache hits; sign-in (magic link end to end, Google callback against a mocked token endpoint, remember me, allowlist, captcha, passkey gating, fail-closed); and shares (snapshot immutability after new messages, republish, revoke → 410, expiry, private exclusion in the payload, rate limit → 429, view count, cache-version bump).
 - **Angular**: pure logic lives in `@tangent/core` and is tested there. A small set of Vitest tests covers the SSE client parser and the store reducers without a DOM. `ng build` runs in CI as a compile check (strict templates).
 - **Manual/E2E**: `scripts/smoke.sh` runs against `wrangler dev` with curl: create, send, branch, plan, share, public view, revoke → 410, export. The UI was also walked through in headless Chromium (Playwright) under `wrangler dev`: chat, branch dialog in all three modes, inspector, outline, breadcrumbs, keyboard navigation, share → logged-out phone view → revoke. The same was done for the viewer/export page (path composition, no CSP violations, mobile drawer).
 
@@ -378,7 +379,7 @@ Execution: the contracts (§3) were frozen first. Implementation then fanned out
 - Hono wiring. Hono itself runs on Node via `@hono/node-server`, so the routes port nearly unchanged.
 - The D1 repositories (`src/db/*`). Replace them with better-sqlite3 or Postgres implementations of the same interfaces. The SQL, including the recursive CTEs, is plain SQLite and the Drizzle schema can be reused.
 - The `TreeSession` Durable Object. Replace it with an in-process `Map<treeId, TreeSessionState>` that holds the running generation, the event buffer and the subscribers, plus a per-tree async mutex. It calls the same `ChatService.beginSend`/`runGeneration`, and `recoverInterrupted` runs at startup.
-- Access JWT verification. It is the same `jose` code if the app stays behind Access (e.g. via Cloudflare Tunnel). Otherwise swap in a reverse-proxy auth.
+- Sign-in. Better Auth runs on Node too; swap the D1 Drizzle instance for a better-sqlite3 or Postgres one, and replace Workers Static Assets' `_headers` CSPs with server headers.
 - The edge Cache API and the rate-limit binding. Replace them with an in-memory LRU (or nginx) and a token-bucket middleware.
 - `waitUntil`. Replace it with fire-and-forget promises.
 - Static assets. Replace them with `serveStatic`, or nginx in front.
@@ -399,6 +400,6 @@ Execution: the contracts (§3) were frozen first. Implementation then fanned out
 All nine milestones are implemented. `pnpm test` runs 461 tests: providers 93, core 208, render 67, web 16 and worker 77. The worker tests run in workerd against real D1 and a real Durable Object. `pnpm typecheck` (including Angular strict templates) and `pnpm lint` are clean.
 
 Known gaps and follow-ups:
-- **Not verified against live accounts.** The real Anthropic and OpenAI-compatible providers are tested against recorded-style SSE streams with an injected `fetch`, not live APIs, because this environment has no keys. Likewise, the Cloudflare Access setup, the rate-limit binding and the Cache API have not been exercised against a real Cloudflare account. The JWT check is tested with locally signed tokens.
+- **Not verified against live accounts.** The real Anthropic and OpenAI-compatible providers are tested against recorded-style SSE streams with an injected `fetch`, not live APIs, because this environment has no keys. Likewise, the rate-limit binding and the Cache API have not been exercised against a real Cloudflare account. Sign-in was exercised end to end in `wrangler dev` (magic link, Turnstile test keys, passkeys with a virtual authenticator); Google/GitHub were tested against mocked token endpoints, not live OAuth apps, and Resend against a stubbed `fetch`.
 - **Missing automated tests.** Share-route rate limiting (429) has no automated test; the limiter fails open when unavailable, and that behaviour is tested. The Angular components have no DOM tests; they were checked through Playwright walkthroughs.
 - **Deferred by design:** regenerate, edit-and-resend (as a sibling branch), delete subtree, search, "fork this share into my tree", and share passwords. §5 describes how the last two slot in.

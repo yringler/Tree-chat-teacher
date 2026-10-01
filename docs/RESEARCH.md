@@ -72,10 +72,14 @@ This is a summary of the research that preceded [PLAN.md](./PLAN.md). Every poin
   - Zoneless has been the default since v21, the builder is `@angular/build:application`, and Vitest is the default test runner.
   - Sources: https://angular.dev/reference/versions · https://angular.dev/guide/zoneless
 
-## Access
-- **Validating the JWT.** Read the `Cf-Access-Jwt-Assertion` header. Verify it against the JWKS at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`, checking the `iss` (team domain) and `aud` (AUD tag) claims. — https://developers.cloudflare.com/cloudflare-one/identity/authorization-cookie/validating-json/
-- **Path precedence.** The more specific path application wins, so an app on `host/s/*` with a Bypass policy overrides the host-wide app. Bypass means no JWT is sent and requests are not logged. — https://developers.cloudflare.com/cloudflare-one/policies/access/app-paths/
-- **workers.dev.** There is a one-click Access toggle for workers.dev and preview URLs. — https://developers.cloudflare.com/workers/configuration/cloudflare-access/
+## Authentication
+- **Better Auth on Workers.** It needs `nodejs_compat` (it imports `node:async_hooks`), and the env is per request, so the instance is built from the request's env. The Drizzle adapter works with D1 (it only opens transactions for MySQL). — https://better-auth.com/docs/integrations/hono
+- **Captcha plugin.** Checks the `x-captcha-response` header on the listed endpoints before they run; supports Cloudflare Turnstile. — https://better-auth.com/docs/plugins/captcha
+- **Passkeys.** `@better-auth/passkey` (SimpleWebAuthn); registering needs a session by default; `rpID` must be the site's host. — https://better-auth.com/docs/plugins/passkey
+- **Remember me.** Better Auth only exposes it on email+password sign-in. Internally it means: session row expires in 1 day, cookie without Max-Age, and a signed `dont_remember` cookie that stops refreshes (`setSessionCookie(ctx, session, true)`).
+- **Turnstile test keys.** Site key `1x00000000000000000000AA` and secret `1x0000000000000000000000000000000AA` always pass. — https://developers.cloudflare.com/turnstile/troubleshooting/testing/
+- **Resend.** `POST https://api.resend.com/emails` with a bearer key and `{ from, to, subject, html, text }`. — https://resend.com/docs/api-reference/emails/send-email
+- **`_headers` detach.** A `! Header` line in a more specific rule removes a header set by a broader one, so `/login` can have its own CSP. — https://developers.cloudflare.com/workers/static-assets/headers/
 
 ## Sharing
 - **Cache API.**

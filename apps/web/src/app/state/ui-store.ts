@@ -44,6 +44,7 @@ export class UiStore {
   /** API keys dialog; `provider` preselects the provider to enter a key for. */
   readonly keysDialog = signal<{ provider: string | null } | null>(null);
   readonly settingsOpen = signal(false);
+  readonly accountOpen = signal(false);
   /** Review dialog for one assistant message. */
   readonly reviewDialog = signal<{ nodeId: string } | null>(null);
   /** Text for the composer to insert; `seq` makes repeated inserts of the same text distinct. */
@@ -88,6 +89,7 @@ export class UiStore {
       this.shortcutsOpen() ||
       this.keysDialog() !== null ||
       this.settingsOpen() ||
+      this.accountOpen() ||
       this.reviewDialog() !== null
     );
   }
@@ -112,6 +114,7 @@ export class UiStore {
       this.shareDialogOpen,
       this.shortcutsOpen,
       this.settingsOpen,
+      this.accountOpen,
     ]) {
       if (s()) {
         s.set(false);

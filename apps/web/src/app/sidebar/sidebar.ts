@@ -99,6 +99,14 @@ import { OutlineItem } from './outline-item';
       >
         <app-icon name="gear" /> Settings
       </button>
+      <button
+        type="button"
+        class="btn btn-ghost"
+        [attr.title]="store.me()?.email ?? 'Account'"
+        (click)="ui.accountOpen.set(true); ui.drawerOpen.set(false)"
+      >
+        <app-icon name="user" /> Account
+      </button>
     </div>
   `,
   host: { class: 'sidebar-inner' },

@@ -35,7 +35,7 @@ const contextQuerySchema = z.object({
     .transform((v) => v === 'true'),
 });
 
-/** Owner API. Mounted under /api behind the Access middleware. */
+/** Owner API. Mounted under /api behind the session middleware (auth/session.ts). */
 export function apiRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();
 

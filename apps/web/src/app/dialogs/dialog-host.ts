@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
+import { AccountDialog } from './account-dialog';
 import { ApiKeys } from './api-keys';
 import { BranchDialog } from './branch-dialog';
 import { BranchSettings } from './branch-settings';
@@ -14,6 +15,7 @@ import { TreeSettings } from './tree-settings';
 @Component({
   selector: 'app-dialog-host',
   imports: [
+    AccountDialog,
     ApiKeys,
     BranchDialog,
     BranchSettings,
@@ -44,6 +46,9 @@ import { TreeSettings } from './tree-settings';
     }
     @if (ui.settingsOpen()) {
       <app-settings-dialog />
+    }
+    @if (ui.accountOpen()) {
+      <app-account-dialog />
     }
     @if (ui.shortcutsOpen()) {
       <app-shortcuts-help />
