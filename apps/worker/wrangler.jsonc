@@ -9,7 +9,7 @@
   // Served only on the custom domain, so PUBLIC_BASE_URL is the only origin sign-in works on.
   "workers_dev": false,
   "preview_urls": false,
-  "routes": [{ "pattern": "tangent.yehudardevelopment.com", "custom_domain": true }],
+  "routes": [{ "pattern": "tangentailearning.com", "custom_domain": true }],
   // Logs never contain user API keys: our code doesn't log request headers or bodies, the sealed key
   // cookie reaches the Durable Object in a request body, and outbound provider calls aren't logged.
   // Don't add request logging that dumps headers (Cookie) or bodies of /api/key.
@@ -56,14 +56,14 @@
   "vars": {
     // Public origin: share links, sign-in callbacks, magic links and the passkey relying party.
     // Empty = derive from the request URL (local dev and tests only).
-    "PUBLIC_BASE_URL": "https://tangent.yehudardevelopment.com",
+    "PUBLIC_BASE_URL": "https://tangentailearning.com",
     // Who may sign in: comma-separated emails, or "@example.com" for a whole domain.
     // Empty = nobody (fails closed). Everyone listed shares the one built-in account.
     "ALLOWED_EMAILS": "",
     // Email delivery for magic links: "resend" (needs RESEND_API_KEY) or "log" (localhost only).
     "EMAIL_PROVIDER": "resend",
     // Sender for magic links; its domain must be verified in Resend.
-    "EMAIL_FROM": "Tangent <login@yehudardevelopment.com>",
+    "EMAIL_FROM": "Tangent <login@email.tangentailearning.com>",
     // Cloudflare Turnstile site key (public) for the magic-link form. Its secret is TURNSTILE_SECRET_KEY.
     "TURNSTILE_SITE_KEY": "",
     // JSON array of ProviderConfig; empty = built-in defaults (anthropic, openai, openrouter, fake).
