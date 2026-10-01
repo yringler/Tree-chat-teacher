@@ -16,6 +16,14 @@ export interface ViewerPageOptions {
 }
 
 /**
+ * App icon (same artwork as apps/web/public/favicon.svg; keep them in sync).
+ * Embedded as a data: URI so exported files stay self-contained; the viewer
+ * CSP's `img-src https: data:` allows it.
+ */
+export const FAVICON_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#2f6fdb"/><g fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><path d="M11 9v14"/><path d="M11 11c0 5 3 7 8.5 7"/></g><circle cx="11" cy="8" r="3" fill="#fff"/><circle cx="11" cy="24" r="3" fill="#fff"/><circle cx="22" cy="18" r="3" fill="#2f6fdb" stroke="#fff" stroke-width="2.5"/></svg>';
+
+/**
  * Constant inline stylesheet of the viewer page. Hashed for the CSP; never
  * interpolate anything into it.
  */
@@ -499,6 +507,7 @@ export function renderViewerPage(payload: SharePayload, options: ViewerPageOptio
   head.push(
     '<meta name="color-scheme" content="light dark">',
     `<title>${title}</title>`,
+    `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,${encodeURIComponent(FAVICON_SVG)}">`,
     `<meta name="description" content="${description}">`,
     `<meta property="og:title" content="${title}">`,
     `<meta property="og:description" content="${description}">`,
