@@ -4,6 +4,8 @@ import { UiStore } from '../state/ui-store';
 import { ApiKeys } from './api-keys';
 import { BranchDialog } from './branch-dialog';
 import { BranchSettings } from './branch-settings';
+import { ReviewDialog } from './review-dialog';
+import { SettingsDialog } from './settings-dialog';
 import { ShareDialog } from './share-dialog';
 import { ShortcutsHelp } from './shortcuts-help';
 import { TreeSettings } from './tree-settings';
@@ -11,7 +13,16 @@ import { TreeSettings } from './tree-settings';
 /** Renders whichever dialog UiStore says is open. */
 @Component({
   selector: 'app-dialog-host',
-  imports: [ApiKeys, BranchDialog, BranchSettings, TreeSettings, ShareDialog, ShortcutsHelp],
+  imports: [
+    ApiKeys,
+    BranchDialog,
+    BranchSettings,
+    TreeSettings,
+    ShareDialog,
+    ShortcutsHelp,
+    SettingsDialog,
+    ReviewDialog,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (ui.branchDialog(); as state) {
@@ -27,6 +38,12 @@ import { TreeSettings } from './tree-settings';
       @if (ui.shareDialogOpen()) {
         <app-share-dialog />
       }
+      @if (ui.reviewDialog(); as review) {
+        <app-review-dialog [nodeId]="review.nodeId" />
+      }
+    }
+    @if (ui.settingsOpen()) {
+      <app-settings-dialog />
     }
     @if (ui.shortcutsOpen()) {
       <app-shortcuts-help />

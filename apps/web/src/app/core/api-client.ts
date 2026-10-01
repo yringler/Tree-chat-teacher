@@ -11,6 +11,7 @@ import type {
   KeyStatusResponse,
   MeResponse,
   ProviderInfo,
+  ReviewRequest,
   SendMessageRequest,
   ShareScope,
   ShareSummary,
@@ -144,6 +145,11 @@ export class ApiClient {
 
   cancelNode(nodeId: string): Promise<void> {
     return this.json('POST', `/nodes/${enc(nodeId)}/cancel`);
+  }
+
+  /** Review the conversation up to an assistant reply; resolves with the open event stream. */
+  reviewNode(nodeId: string, req: ReviewRequest, signal: AbortSignal): Promise<Response> {
+    return this.stream('POST', `/nodes/${enc(nodeId)}/review`, req, signal);
   }
 
   // Shares

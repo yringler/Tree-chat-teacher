@@ -1,7 +1,7 @@
-import type { StreamEvent } from '@tangent/shared';
+import type { ReviewEvent, StreamEvent } from '@tangent/shared';
 
 /** One SSE frame: `event: <type>\ndata: <json>\n\n`. JSON never contains raw newlines. */
-export function sseFrame(event: StreamEvent): string {
+export function sseFrame(event: StreamEvent | ReviewEvent): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 

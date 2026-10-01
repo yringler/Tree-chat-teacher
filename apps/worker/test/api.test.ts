@@ -3,6 +3,7 @@ import type {
   ContextPlanResponse,
   DeleteBranchResponse,
   ProviderInfo,
+  ReviewEvent,
   StreamEvent,
   TreeBackup,
   TreeDetail,
@@ -242,5 +243,35 @@ describe('owner API', () => {
     const restored = await ok<TreeDetail>(call('/api/import', { method: 'POST', json: backup }), 201);
     expect(restored.tree.id).not.toBe(detail.tree.id);
     expect(restored.nodes.map((n) => n.content)).toEqual(backup.nodes.map((n) => n.content));
+  });
+  it('streams a review of an assistant reply and validates the request', async () => {
+    const detail = await newTree();
+    const events = await sendMessage(detail.tree.trunkBranchId, 'Check me');
+    const start = events[0];
+    if (start?.type !== 'start') throw new Error('expected start');
+    const assistantId = start.assistantNode.id;
+
+    const res = await call(`/api/nodes/${assistantId}/review`, {
+      method: 'POST',
+      json: { providerId: 'slow', model: 'fake-1' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('text/event-stream');
+    const review = parseSse(await res.text()) as unknown as ReviewEvent[];
+    expect(review.at(-1)).toMatchObject({ type: 'done', providerId: 'slow', model: 'fake-1' });
+    const text = review.map((e) => (e.type === 'delta' ? e.text : '')).join('');
+    expect(text).toContain('Fake reply (fake-1)');
+
+    // Reviews are not stored in the tree.
+    const after = await ok<TreeDetail>(call(`/api/trees/${detail.tree.id}`));
+    expect(after.nodes).toHaveLength(2);
+
+    const post = (nodeId: string, json: unknown) =>
+      call(`/api/nodes/${nodeId}/review`, { method: 'POST', json });
+    expect((await post(assistantId, { providerId: 'fake', model: 'not-listed' })).status).toBe(400);
+    expect((await post(assistantId, { providerId: 'nope', model: 'fake-1' })).status).toBe(400);
+    expect((await post(start.userNode.id, { providerId: 'fake', model: 'fake-1' })).status).toBe(400);
+    expect((await post('missing', { providerId: 'fake', model: 'fake-1' })).status).toBe(404);
+    expect((await post(assistantId, {})).status).toBe(400);
   });
 });

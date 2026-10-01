@@ -15,6 +15,8 @@ import {
   type DeleteBranchResponse,
   type LlmProvider,
   type ProviderRegistry,
+  type ReviewEvent,
+  type ReviewRequest,
   type StreamEvent,
   type SummaryRequest,
   type TokenUsage,
@@ -27,7 +29,13 @@ import {
   type UpdateTreeRequest,
 } from '@tangent/shared';
 import { assembleContext, summaryKeyString } from '../context/assemble.js';
-import { buildSummaryPrompt, buildTitlePrompt, cleanTitle, renderPlan } from '../context/render.js';
+import {
+  buildReviewPrompt,
+  buildSummaryPrompt,
+  buildTitlePrompt,
+  cleanTitle,
+  renderPlan,
+} from '../context/render.js';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
 import type { Repositories } from '../repository.js';
 import { newId as defaultNewId, systemClock, type Clock } from '../util.js';
@@ -74,6 +82,13 @@ export interface BeginSendResult {
   branch: Branch;
   userNode: ChatNode;
   assistantNode: ChatNode;
+}
+
+/** A validated review, ready to run (see `prepareReview`). */
+export interface PreparedReview {
+  node: ChatNode;
+  providerId: string;
+  model: string;
 }
 
 interface PlanInputs {
@@ -652,6 +667,78 @@ export class ChatService {
     }
   }
 
+  // -------------------------------------------------------------- reviews
+
+  /**
+   * Validates a review of the conversation up to `nodeId` before any stream
+   * opens, so bad requests fail as plain HTTP errors. Only finished
+   * assistant replies can be reviewed.
+   */
+  async prepareReview(nodeId: string, request: ReviewRequest): Promise<PreparedReview> {
+    const node = await this.repo.getNode(nodeId);
+    if (!node) throw new NotFoundError('Node');
+    if (node.role !== 'assistant') throw new ValidationError('Only assistant replies can be reviewed');
+    if (node.status !== 'complete') throw new ValidationError('That reply has not finished');
+    this.requireProvider(request.providerId);
+    return { node, providerId: request.providerId, model: request.model };
+  }
+
+  /**
+   * Streams a review. The reviewer gets the context exactly as the branch's
+   * model rendered it for this reply (summaries resolved and cached like a
+   * normal send), followed by the reply itself. Nothing is persisted.
+   * Never throws; ends with exactly one `done` or `error`.
+   */
+  async *runReview(review: PreparedReview, signal: AbortSignal): AsyncIterable<ReviewEvent> {
+    try {
+      const inputs = await this.loadPlanInputs(review.node.branchId, review.node.id);
+      const steps = this.resolvePlan(inputs, true, signal);
+      let step = await steps.next();
+      while (!step.done) {
+        yield { type: 'status', message: step.value };
+        step = await steps.next();
+      }
+      const caps = inputs.provider.capabilities(inputs.branch.model);
+      const context = renderPlan(step.value, { supportsSystemPrompt: caps.supportsSystemPrompt });
+      const reviewer = this.requireProvider(review.providerId);
+      const prompt = buildReviewPrompt(context, review.node.model);
+      const rendered = reviewer.capabilities(review.model).supportsSystemPrompt
+        ? prompt
+        : foldSystem(prompt);
+      const { maxOutput } = this.budgetFor(reviewer, review.model);
+      yield { type: 'status', message: 'Reviewing…' };
+
+      const usage: Partial<TokenUsage> = {};
+      for await (const event of reviewer.stream({
+        model: review.model,
+        system: rendered.system,
+        messages: rendered.messages,
+        maxOutputTokens: maxOutput,
+        signal,
+      })) {
+        if (event.type === 'delta') yield { type: 'delta', text: event.text };
+        else if (event.type === 'usage') Object.assign(usage, stripUndefined(event.usage));
+        else if (event.type === 'done') {
+          const finalUsage =
+            usage.inputTokens !== undefined || usage.outputTokens !== undefined
+              ? { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0 }
+              : null;
+          yield { type: 'done', providerId: review.providerId, model: review.model, usage: finalUsage };
+          return;
+        } else {
+          yield {
+            type: 'error',
+            message: event.error.code === 'aborted' ? 'Cancelled' : event.error.message,
+          };
+          return;
+        }
+      }
+      yield { type: 'error', message: 'The provider stream ended unexpectedly' };
+    } catch (err) {
+      yield { type: 'error', message: err instanceof Error ? err.message : 'Review failed' };
+    }
+  }
+
   /** Marks leftover `streaming` nodes of a tree as `error` ("interrupted"). */
   async recoverInterrupted(treeId: string): Promise<number> {
     const stale = await this.repo.listStreamingNodes(treeId);
@@ -755,6 +842,13 @@ async function collectText(
     else if (event.type === 'error') return null;
   }
   return text;
+}
+
+/** For providers without a system prompt: fold it into the first user message. */
+function foldSystem(prompt: { system: string | null; messages: ChatMessage[] }) {
+  const [first, ...rest] = prompt.messages;
+  if (prompt.system === null || !first) return prompt;
+  return { system: null, messages: [{ ...first, content: `${prompt.system}\n\n${first.content}` }, ...rest] };
 }
 
 function emptyToNull(value: string | null | undefined): string | null {

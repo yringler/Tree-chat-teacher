@@ -35,6 +35,7 @@ import type { ProviderInfo } from './provider.js';
  *   POST   /api/branches/:branchId/messages SendMessageRequest -> text/event-stream of StreamEvent
  *   GET    /api/nodes/:nodeId/stream              -> text/event-stream of StreamEvent (reconnect)
  *   POST   /api/nodes/:nodeId/cancel              -> 204
+ *   POST   /api/nodes/:nodeId/review ReviewRequest -> text/event-stream of ReviewEvent (review.ts)
  *   GET    /api/branches/:branchId/context?nodeId=&resolve=true|false -> ContextPlanResponse
  *   GET    /api/shares                            -> ShareSummary[]
  *   POST   /api/shares            CreateShareRequest -> ShareSummary

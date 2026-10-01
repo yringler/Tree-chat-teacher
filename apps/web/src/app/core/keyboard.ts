@@ -14,6 +14,7 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
   { keys: ['Alt+↓', ']'], label: 'First child branch' },
   { keys: ['j', 'k'], label: 'Next / previous message' },
   { keys: ['b'], label: 'Branch from the focused message' },
+  { keys: ['v'], label: 'Review up to the focused (or latest) reply' },
   { keys: ['/'], label: 'Focus the composer' },
   { keys: ['i'], label: 'Toggle the context inspector' },
   { keys: ['?'], label: 'Show this help' },
@@ -85,6 +86,16 @@ export class Keyboard {
         if (!node) return;
         const body = document.getElementById(`msg-${node.id}`)?.querySelector('.msg-body') ?? null;
         this.ui.branchDialog.set({ fromNodeId: node.id, quote: selectionWithin(body) });
+        break;
+      }
+      case 'v': {
+        // The focused reply, else the last reply above the focused message (or overall).
+        const path = this.store.path();
+        const focused = this.store.focusedInPath();
+        const upTo = focused ? path.slice(0, path.indexOf(focused) + 1) : path;
+        const node = upTo.findLast((n) => n.role === 'assistant');
+        if (!node || node.status !== 'complete') return;
+        this.ui.reviewDialog.set({ nodeId: node.id });
         break;
       }
       case '/':

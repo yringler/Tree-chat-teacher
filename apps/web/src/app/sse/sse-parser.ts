@@ -1,4 +1,4 @@
-import type { StreamEvent } from '@tangent/shared';
+import { REVIEW_EVENT_TYPES, type ReviewEvent, type StreamEvent } from '@tangent/shared';
 
 /**
  * Pure `text/event-stream` parsing (WHATWG SSE rules, the subset we need).
@@ -126,6 +126,15 @@ const STREAM_EVENT_TYPES: ReadonlySet<string> = new Set<StreamEvent['type']>([
  * yield null (ignored by callers).
  */
 export function parseStreamEvent(frame: SseFrame): StreamEvent | null {
+  return parseTyped<StreamEvent>(frame, STREAM_EVENT_TYPES);
+}
+
+/** Same as parseStreamEvent, for the review stream. */
+export function parseReviewEvent(frame: SseFrame): ReviewEvent | null {
+  return parseTyped<ReviewEvent>(frame, REVIEW_EVENT_TYPES);
+}
+
+function parseTyped<T>(frame: SseFrame, types: ReadonlySet<string>): T | null {
   let value: unknown;
   try {
     value = JSON.parse(frame.data);
@@ -134,9 +143,9 @@ export function parseStreamEvent(frame: SseFrame): StreamEvent | null {
   }
   if (typeof value !== 'object' || value === null || !('type' in value)) return null;
   const type = value.type;
-  if (typeof type !== 'string' || !STREAM_EVENT_TYPES.has(type)) return null;
+  if (typeof type !== 'string' || !types.has(type)) return null;
   // Shape is trusted beyond the discriminant: the server is ours and typed by the same contract.
-  return value as StreamEvent;
+  return value as T;
 }
 
 export function isTerminal(event: StreamEvent): boolean {
@@ -144,9 +153,17 @@ export function isTerminal(event: StreamEvent): boolean {
 }
 
 /** Reads a fetch Response body as a sequence of StreamEvents. */
-export async function* readStreamEvents(
+export function readStreamEvents(
   body: ReadableStream<Uint8Array>,
 ): AsyncGenerator<StreamEvent, void, undefined> {
+  return readSseEvents(body, parseStreamEvent);
+}
+
+/** Reads a fetch Response body as typed events; frames `parse` rejects are skipped. */
+export async function* readSseEvents<T>(
+  body: ReadableStream<Uint8Array>,
+  parse: (frame: SseFrame) => T | null,
+): AsyncGenerator<T, void, undefined> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   const parser = new SseParser();
@@ -155,12 +172,12 @@ export async function* readStreamEvents(
       const { done, value } = await reader.read();
       if (done) break;
       for (const frame of parser.push(decoder.decode(value, { stream: true }))) {
-        const event = parseStreamEvent(frame);
+        const event = parse(frame);
         if (event) yield event;
       }
     }
     for (const frame of parser.push(decoder.decode())) {
-      const event = parseStreamEvent(frame);
+      const event = parse(frame);
       if (event) yield event;
     }
     parser.end();

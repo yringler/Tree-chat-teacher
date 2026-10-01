@@ -52,6 +52,11 @@ export default defineConfig({
           // Test-only bindings: migrations to apply, and dev auth bypass.
           bindings: {
             TEST_MIGRATIONS: migrations,
+            // wrangler.jsonc carries the production Access config; the bypass
+            // is only honoured with ACCESS_AUD empty, and share URLs follow the request origin.
+            ACCESS_AUD: '',
+            ACCESS_TEAM_DOMAIN: '',
+            PUBLIC_BASE_URL: '',
             DEV_ALLOW_NO_AUTH: 'true',
             // Pin these so tests hold whatever wrangler.jsonc deploys with: no Access
             // configured (dev bypass), share links derived from the request URL.

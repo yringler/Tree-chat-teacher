@@ -344,3 +344,44 @@
 .key-name {
   flex: 1;
 }
+
+/* Review and settings dialogs */
+
+.review-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+
+.review-body {
+  margin: 8px 0;
+  font-size: 0.92rem;
+}
+
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.review-form {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-section {
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.settings-section legend {
+  margin-bottom: 4px;
+  padding: 0;
+  font-weight: 600;
+}

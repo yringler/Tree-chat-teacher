@@ -81,6 +81,23 @@ export class Composer {
         queueMicrotask(() => this.box().nativeElement.focus());
       }
     });
+    // Text handed over from elsewhere (e.g. a review's corrections) is appended to the draft.
+    let lastInsert = untracked(() => this.ui.composerInsert())?.seq ?? 0;
+    effect(() => {
+      const insert = this.ui.composerInsert();
+      if (!insert || insert.seq === lastInsert) return;
+      lastInsert = insert.seq;
+      const box = this.box().nativeElement;
+      const draft = untracked(this.text).trimEnd();
+      const next = draft ? `${draft}\n\n${insert.text}` : insert.text;
+      this.text.set(next);
+      box.value = next;
+      this.autosize(box);
+      queueMicrotask(() => {
+        box.focus();
+        box.setSelectionRange(next.length, next.length);
+      });
+    });
     // Re-focus when the composer becomes enabled again after a reply.
     effect(() => {
       // Not on touch devices: focusing would pop up the on-screen keyboard.
