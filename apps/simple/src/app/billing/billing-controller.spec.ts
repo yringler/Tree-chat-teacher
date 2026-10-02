@@ -13,6 +13,7 @@ import {
 function summary(overrides: Partial<BillingSummary> = {}): BillingSummary {
   return {
     enabled: true,
+    builtInCredit: true,
     currency: 'usd',
     balanceMicros: 1_000_000,
     heldMicros: 0,

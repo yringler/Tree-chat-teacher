@@ -19,7 +19,11 @@ function call(path: string, init: RequestInit & { json?: unknown } = {}): Promis
   const headers = new Headers(rest.headers);
   if (json !== undefined) headers.set('Content-Type', 'application/json');
   return exports.default.fetch(
-    new Request(BASE + path, { ...rest, headers, body: json !== undefined ? JSON.stringify(json) : rest.body }),
+    new Request(BASE + path, {
+      ...rest,
+      headers,
+      body: json !== undefined ? JSON.stringify(json) : rest.body,
+    }),
   );
 }
 
@@ -39,14 +43,20 @@ function parseSse(text: string): StreamEvent[] {
 }
 
 async function sendMessage(branchId: string, content: string): Promise<StreamEvent[]> {
-  const res = await call(`/api/branches/${branchId}/messages`, { method: 'POST', json: { content } });
+  const res = await call(`/api/branches/${branchId}/messages`, {
+    method: 'POST',
+    json: { content },
+  });
   expect(res.status).toBe(200);
   expect(res.headers.get('Content-Type')).toContain('text/event-stream');
   return parseSse(await res.text());
 }
 
 async function newTree(providerId = 'fake'): Promise<TreeDetail> {
-  return ok<TreeDetail>(call('/api/trees', { method: 'POST', json: { title: 'Test', providerId } }), 201);
+  return ok<TreeDetail>(
+    call('/api/trees', { method: 'POST', json: { title: 'Test', providerId } }),
+    201,
+  );
 }
 
 function textOf(events: StreamEvent[]): string {
@@ -56,7 +66,8 @@ function textOf(events: StreamEvent[]): string {
 describe('owner API', () => {
   it('lists providers without secrets', async () => {
     const providers = await ok<ProviderInfo[]>(call('/api/providers'));
-    expect(providers.map((p) => p.id)).toEqual(['fake', 'slow', 'ant']);
+    // The dev bypass has the built-in provider too (billing is configured in tests).
+    expect(providers.map((p) => p.id)).toEqual(['fake', 'slow', 'ant', 'tangent']);
     expect(JSON.stringify(providers)).not.toMatch(/apiKey|baseUrl/);
   });
 
@@ -75,7 +86,10 @@ describe('owner API', () => {
     expect(assistant.usage?.outputTokens).toBeGreaterThan(0);
 
     const trees = await ok<TreeSummary[]>(call('/api/trees'));
-    expect(trees.find((t) => t.id === detail.tree.id)).toMatchObject({ messageCount: 2, branchCount: 1 });
+    expect(trees.find((t) => t.id === detail.tree.id)).toMatchObject({
+      messageCount: 2,
+      branchCount: 1,
+    });
   });
 
   it('branches with different modes and plans their context', async () => {
@@ -91,7 +105,10 @@ describe('owner API', () => {
     for (const contextMode of modes) {
       branches.push(
         await ok<Branch>(
-          call('/api/branches', { method: 'POST', json: { fromNodeId: fork, contextMode, anchorQuote: 'the quote' } }),
+          call('/api/branches', {
+            method: 'POST',
+            json: { fromNodeId: fork, contextMode, anchorQuote: 'the quote' },
+          }),
           201,
         ),
       );
@@ -105,7 +122,9 @@ describe('owner API', () => {
     );
     const [path, summary, independent] = plans;
     expect(JSON.stringify(path!.rendered)).toContain('TRUNK-CONTENT');
-    expect(summary!.plan.segments.some((s) => s.kind === 'summary' && s.status === 'ready')).toBe(true);
+    expect(summary!.plan.segments.some((s) => s.kind === 'summary' && s.status === 'ready')).toBe(
+      true,
+    );
     expect(JSON.stringify(summary!.rendered.messages)).not.toContain('TRUNK-CONTENT');
     expect(JSON.stringify(independent!.rendered)).not.toContain('TRUNK-CONTENT');
     expect(independent!.rendered.system).toContain('the quote');
@@ -149,7 +168,9 @@ describe('owner API', () => {
     const snap = parseSse(new TextDecoder().decode((await r2.read()).value));
     expect(snap[0]?.type).toBe('snapshot');
 
-    expect((await call(`/api/nodes/${start.assistantNode.id}/cancel`, { method: 'POST' })).status).toBe(204);
+    expect(
+      (await call(`/api/nodes/${start.assistantNode.id}/cancel`, { method: 'POST' })).status,
+    ).toBe(204);
     let rest = '';
     for (;;) {
       const chunk = await r2.read();
@@ -160,7 +181,9 @@ describe('owner API', () => {
     expect(last).toMatchObject({ type: 'error', message: 'Cancelled' });
 
     // After completion the stream endpoint serves the persisted state.
-    const replay = parseSse(await (await call(`/api/nodes/${start.assistantNode.id}/stream`)).text());
+    const replay = parseSse(
+      await (await call(`/api/nodes/${start.assistantNode.id}/stream`)).text(),
+    );
     expect(replay.map((e) => e.type)).toEqual(['snapshot', 'error']);
   });
 
@@ -174,7 +197,9 @@ describe('owner API', () => {
     const start = parseSse(new TextDecoder().decode((await reader.read()).value))[0];
     if (start?.type !== 'start') throw new Error('expected start');
     await reader.cancel();
-    const replay = parseSse(await (await call(`/api/nodes/${start.assistantNode.id}/stream`)).text());
+    const replay = parseSse(
+      await (await call(`/api/nodes/${start.assistantNode.id}/stream`)).text(),
+    );
     expect(replay.at(-1)?.type).toBe('done');
   });
 
@@ -183,17 +208,25 @@ describe('owner API', () => {
     expect(bad.status).toBe(400);
     expect(((await bad.json()) as { error: { code: string } }).error.code).toBe('bad_request');
     expect((await call('/api/trees/missing')).status).toBe(404);
-    expect((await call('/api/branches/missing/messages', { method: 'POST', json: { content: 'x' } })).status).toBe(404);
+    expect(
+      (await call('/api/branches/missing/messages', { method: 'POST', json: { content: 'x' } }))
+        .status,
+    ).toBe(404);
     expect((await call('/api/nothing-here')).status).toBe(404);
   });
 
   it('updates branches and trees, and deletes trees', async () => {
     const detail = await newTree();
     const b = await ok<Branch>(
-      call(`/api/branches/${detail.tree.trunkBranchId}`, { method: 'PATCH', json: { title: 'Renamed' } }),
+      call(`/api/branches/${detail.tree.trunkBranchId}`, {
+        method: 'PATCH',
+        json: { title: 'Renamed' },
+      }),
     );
     expect(b.titleSource).toBe('user');
-    await ok(call(`/api/trees/${detail.tree.id}`, { method: 'PATCH', json: { systemPrompt: 'Be terse' } }));
+    await ok(
+      call(`/api/trees/${detail.tree.id}`, { method: 'PATCH', json: { systemPrompt: 'Be terse' } }),
+    );
     expect((await call(`/api/trees/${detail.tree.id}`, { method: 'DELETE' })).status).toBe(204);
     expect((await call(`/api/trees/${detail.tree.id}`)).status).toBe(404);
   });
@@ -215,9 +248,13 @@ describe('owner API', () => {
     const start = parseSse(new TextDecoder().decode((await reader.read()).value))[0];
     if (start?.type !== 'start') throw new Error('expected start');
 
-    const deleted = await ok<DeleteBranchResponse>(call(`/api/branches/${branch.id}`, { method: 'DELETE' }));
+    const deleted = await ok<DeleteBranchResponse>(
+      call(`/api/branches/${branch.id}`, { method: 'DELETE' }),
+    );
     expect(deleted).toMatchObject({ treeId: detail.tree.id, branchIds: [branch.id] });
-    expect(deleted.nodeIds).toEqual(expect.arrayContaining([start.userNode.id, start.assistantNode.id]));
+    expect(deleted.nodeIds).toEqual(
+      expect.arrayContaining([start.userNode.id, start.assistantNode.id]),
+    );
 
     let rest = '';
     for (;;) {
@@ -231,7 +268,9 @@ describe('owner API', () => {
     expect(after.branches.map((b) => b.id)).toEqual([detail.tree.trunkBranchId]);
     expect(after.nodes).toHaveLength(2);
     expect((await call(`/api/branches/${branch.id}`, { method: 'DELETE' })).status).toBe(404);
-    expect((await call(`/api/branches/${detail.tree.trunkBranchId}`, { method: 'DELETE' })).status).toBe(400);
+    expect(
+      (await call(`/api/branches/${detail.tree.trunkBranchId}`, { method: 'DELETE' })).status,
+    ).toBe(400);
   });
 
   it('backs up and restores a tree', async () => {
@@ -240,7 +279,10 @@ describe('owner API', () => {
     const res = await call(`/api/trees/${detail.tree.id}/backup`);
     expect(res.headers.get('Content-Disposition')).toContain('attachment');
     const backup = (await res.json()) as TreeBackup;
-    const restored = await ok<TreeDetail>(call('/api/import', { method: 'POST', json: backup }), 201);
+    const restored = await ok<TreeDetail>(
+      call('/api/import', { method: 'POST', json: backup }),
+      201,
+    );
     expect(restored.tree.id).not.toBe(detail.tree.id);
     expect(restored.nodes.map((n) => n.content)).toEqual(backup.nodes.map((n) => n.content));
   });
@@ -270,7 +312,9 @@ describe('owner API', () => {
       call(`/api/nodes/${nodeId}/review`, { method: 'POST', json });
     expect((await post(assistantId, { providerId: 'fake', model: 'not-listed' })).status).toBe(400);
     expect((await post(assistantId, { providerId: 'nope', model: 'fake-1' })).status).toBe(400);
-    expect((await post(start.userNode.id, { providerId: 'fake', model: 'fake-1' })).status).toBe(400);
+    expect((await post(start.userNode.id, { providerId: 'fake', model: 'fake-1' })).status).toBe(
+      400,
+    );
     expect((await post('missing', { providerId: 'fake', model: 'fake-1' })).status).toBe(404);
     expect((await post(assistantId, {})).status).toBe(400);
   });

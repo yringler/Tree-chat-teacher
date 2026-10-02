@@ -1,17 +1,21 @@
 import { DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
 import { parseProviderConfigs } from '@tangent/providers';
-import { DEFAULT_SYSTEM_PROMPT, type ProviderConfig } from '@tangent/shared';
+import { DEFAULT_SYSTEM_PROMPT, type ModelInfo, type ProviderConfig } from '@tangent/shared';
 import type { AppEnv } from './env.js';
 
 /**
- * Simple mode (the /learn/ app): one server-side provider, `tangent`, paid
- * for by the operator's OpenRouter key and metered per account (PLAN §2.2).
- * It is the only provider in a simple account's registry, so the generic
- * provider checks (`assertGenerationAllowed`, `/api/providers`, tree and
- * branch validation) apply unchanged.
+ * The built-in provider, `tangent`: the operator's OpenRouter key, metered
+ * per call and paid from the user's prepaid credit (PLAN §13). It is the only
+ * provider in a Learn account's registry, so the generic provider checks
+ * (`assertGenerationAllowed`, `/api/providers`, tree and branch validation)
+ * apply unchanged; power lists it after the user's own providers, with any
+ * OpenRouter model allowed (`builtInPowerConfig`). Learn also runs it on the
+ * user's own OpenRouter key, unmetered (services.ts `registryFor`).
  */
 
 export const SIMPLE_PROVIDER_ID = 'tangent';
+/** The built-in provider's id in both modes (an alias that reads better outside Learn). */
+export const BUILT_IN_PROVIDER_ID = SIMPLE_PROVIDER_ID;
 export const DEFAULT_SIMPLE_SMART_MODEL = 'deepseek/deepseek-v4-pro';
 export const DEFAULT_SIMPLE_FAST_MODEL = 'deepseek/deepseek-v4-flash';
 export const DEFAULT_SIMPLE_MAX_INPUT_TOKENS = 60_000;
@@ -27,10 +31,11 @@ function fastModel(env: AppEnv): string {
 }
 
 /**
- * The `tangent` provider. `SIMPLE_PROVIDER` (one ProviderConfig as JSON)
- * replaces it wholesale, e.g. a fake provider in tests or the AI Gateway.
- * There is deliberately no fallback to OPENROUTER_API_KEY: customer spend
- * stays on its own key, which can carry a hard credit limit.
+ * The `tangent` provider as Learn uses it. `SIMPLE_PROVIDER` (one
+ * ProviderConfig as JSON, id `tangent`) replaces it wholesale, e.g. a fake
+ * provider in tests or the AI Gateway. The id is fixed because metering is
+ * keyed on it. There is deliberately no fallback to OPENROUTER_API_KEY:
+ * customer spend stays on its own key, which can carry a hard credit limit.
  */
 export function simpleProviderConfig(env: AppEnv): ProviderConfig {
   const override = env.SIMPLE_PROVIDER?.trim();
@@ -38,6 +43,8 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
     const configs = parseProviderConfigs(override.startsWith('[') ? override : `[${override}]`);
     if (configs.length !== 1)
       throw new Error('Invalid SIMPLE_PROVIDER: expected exactly one provider config');
+    if (configs[0]!.id !== SIMPLE_PROVIDER_ID)
+      throw new Error(`Invalid SIMPLE_PROVIDER: id must be "${SIMPLE_PROVIDER_ID}"`);
     return configs[0]!;
   }
   const smart = smartModel(env);
@@ -56,6 +63,47 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
             { id: smart, label: 'Smart' },
             { id: fast, label: 'Simple' },
           ],
+  };
+}
+
+/**
+ * The suggested OpenRouter models, smart first (SIMPLE_SMART_MODEL,
+ * SIMPLE_FAST_MODEL): Learn's two tiers, and the models power lists first for
+ * OpenRouter, on the user's own key or on credit.
+ */
+export function suggestedModels(env: AppEnv): ModelInfo[] {
+  const smart = smartModel(env);
+  const fast = fastModel(env);
+  const models: ModelInfo[] = [{ id: smart, label: 'Smart (suggested)' }];
+  if (fast !== smart) models.push({ id: fast, label: 'Simple (suggested)' });
+  return models;
+}
+
+/** Learn's per-call input cap (`SIMPLE_MAX_INPUT_TOKENS`). */
+export function simpleMaxInputTokens(env: AppEnv): number {
+  return positiveInt(env.SIMPLE_MAX_INPUT_TOKENS, DEFAULT_SIMPLE_MAX_INPUT_TOKENS);
+}
+
+/**
+ * The built-in provider as power lists it: Learn's config (same key, same
+ * SIMPLE_PROVIDER override), labelled "Tangent credit", with any model id
+ * allowed (its models are suggestions) and one call's cost bounded like
+ * Learn's: the context window is Learn's input cap plus its output reserve,
+ * and output is capped at SIMPLE_RESERVED_OUTPUT_TOKENS. Per-model limits are
+ * dropped so no listed model can widen those bounds.
+ */
+export function builtInPowerConfig(env: AppEnv): ProviderConfig {
+  const base = simpleProviderConfig(env);
+  return {
+    ...base,
+    label: 'Tangent credit',
+    models: base.models.map(({ id, label }) => ({
+      id,
+      label: label.endsWith('(suggested)') ? label : `${label} (suggested)`,
+    })),
+    openModels: true,
+    maxContextTokens: simpleMaxInputTokens(env) + SIMPLE_RESERVED_OUTPUT_TOKENS,
+    maxOutputTokens: SIMPLE_RESERVED_OUTPUT_TOKENS,
   };
 }
 
@@ -85,7 +133,7 @@ export function simpleChatSettings(env: AppEnv): ChatSettings {
     ...DEFAULT_CHAT_SETTINGS,
     summaryProviderId: config.id,
     summaryModel: simpleFastModel(env, config),
-    maxInputTokens: positiveInt(env.SIMPLE_MAX_INPUT_TOKENS, DEFAULT_SIMPLE_MAX_INPUT_TOKENS),
+    maxInputTokens: simpleMaxInputTokens(env),
     reservedOutputTokens: SIMPLE_RESERVED_OUTPUT_TOKENS,
     autoTitle: true,
   };

@@ -1,8 +1,20 @@
-import { DomainError, HTTP_STATUS, KeyRequiredError, type BeginSendResult, type ChatService } from '@tangent/core';
-import { DEFAULT_ACCOUNT_ID, type ApiError, type ChatNode, type StreamEvent } from '@tangent/shared';
+import {
+  DomainError,
+  HTTP_STATUS,
+  KeyRequiredError,
+  type BeginSendResult,
+  type ChatService,
+} from '@tangent/core';
+import {
+  DEFAULT_ACCOUNT_ID,
+  type ApiError,
+  type ChatNode,
+  type StreamEvent,
+} from '@tangent/shared';
 import { DurableObject } from 'cloudflare:workers';
 import { openKeys } from '../byok/keys.js';
-import { isMetered, type AccountContext, type AppEnv } from '../env.js';
+import { billingAccountIdFor } from '../auth/account.js';
+import { usesUserKeys, type AccountContext, type AppEnv } from '../env.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { chatService } from '../services.js';
 
@@ -11,7 +23,7 @@ const encoder = new TextEncoder();
 
 /**
  * Body of the internal POST /send. `sealedKeys` is the user's key cookie,
- * still sealed (never sent on paid credit). `account` is the caller's account as
+ * still sealed (never sent by Learn on credit). `account` is the caller's account as
  * the Worker resolved it; the DO trusts it (its routes are internal) and the
  * Worker has already checked that the branch belongs to it.
  */
@@ -26,16 +38,21 @@ export function accountParams(account: AccountContext): Record<string, string> {
   return {
     accountId: account.id,
     mode: account.mode,
+    billingAccountId: account.billingAccountId,
+    builtIn: account.builtIn ? '1' : '0',
     operatorKeys: account.operatorKeys ? '1' : '0',
     ...(account.userId ? { userId: account.userId } : {}),
   };
 }
 
 function accountFromParams(params: URLSearchParams): AccountContext {
+  const userId = params.get('userId') || null;
   return {
     id: params.get('accountId') || DEFAULT_ACCOUNT_ID,
     mode: params.get('mode') === 'simple' ? 'simple' : 'power',
-    userId: params.get('userId') || null,
+    userId,
+    billingAccountId: params.get('billingAccountId') || billingAccountIdFor(userId),
+    builtIn: params.get('builtIn') === '1',
     operatorKeys: params.get('operatorKeys') === '1',
   };
 }
@@ -55,7 +72,7 @@ interface Run {
  * reconnect with a snapshot, and serializes sends per tree.
  *
  * Internal protocol (called only by the Worker, never exposed; `&account`
- * is accountParams(), i.e. `accountId=&mode=&operatorKeys=[&userId=]`):
+ * is accountParams(), i.e. `accountId=&mode=&billingAccountId=&builtIn=&operatorKeys=[&userId=]`):
  *   POST /send?treeId=&branchId=   body SessionSendBody → SSE
  *   GET  /stream?treeId=&nodeId=&account            → SSE (snapshot, then live)
  *   POST /cancel?treeId=&nodeId=&account            → 204
@@ -77,13 +94,14 @@ export class TreeSession extends DurableObject<AppEnv> {
       if (request.method === 'POST' && url.pathname === '/send') {
         const { content, account, sealedKeys } = (await request.json()) as SessionSendBody;
         await this.recoverOnce(chatService(this.env, account), treeId);
-        // Paid credit never uses the user's own keys (the Worker doesn't send them either).
-        const keys = isMetered(account) ? null : await openKeys(sealedKeys, this.env);
-        if (keys?.state === 'invalid') throw new KeyRequiredError('Your stored API key could not be read. Enter it again.');
+        // Learn on credit never uses the user's own keys (the Worker doesn't send them either).
+        const keys = usesUserKeys(account) ? await openKeys(sealedKeys, this.env) : null;
+        if (keys?.state === 'invalid')
+          throw new KeyRequiredError('Your stored API key could not be read. Enter it again.');
         // Keys stay in memory only for this generation (the ChatService closes over them).
         const chat = chatService(this.env, account, {
           ...(keys?.state === 'ok' ? { apiKeys: keys.keys } : {}),
-          // The usage meter (paid credit) settles or reconciles after the stream ends.
+          // The usage meter (built-in provider) settles or reconciles after the stream ends.
           defer: (p) => this.ctx.waitUntil(p),
         });
         return await this.send(chat, url.searchParams.get('branchId') ?? '', content);
@@ -127,7 +145,12 @@ export class TreeSession extends DurableObject<AppEnv> {
     };
     this.runs.set(started.assistantNode.id, run);
     const response = this.subscribe(run, [
-      { type: 'start', userNode: started.userNode, assistantNode: started.assistantNode, branch: started.branch },
+      {
+        type: 'start',
+        userNode: started.userNode,
+        assistantNode: started.assistantNode,
+        branch: started.branch,
+      },
     ]);
     // Detached: keeps running after the client disconnects (DOs stay alive while I/O is in flight).
     run.finished = this.pump(chat, run, started);
@@ -157,7 +180,8 @@ export class TreeSession extends DurableObject<AppEnv> {
     const keepalive = setInterval(() => this.broadcastRaw(run, sseKeepAliveFrame()), KEEPALIVE_MS);
     try {
       for await (const event of chat.runGeneration(begin, run.controller.signal)) {
-        if (event.type === 'delta') run.node = { ...run.node, content: run.node.content + event.text };
+        if (event.type === 'delta')
+          run.node = { ...run.node, content: run.node.content + event.text };
         if (event.type === 'done' || event.type === 'error') {
           if (event.node) run.node = event.node;
         }
@@ -187,7 +211,13 @@ export class TreeSession extends DurableObject<AppEnv> {
     const branch = await repo.getBranch(final.branchId);
     const events: StreamEvent[] = [{ type: 'snapshot', node: final }];
     if (final.status === 'complete' && branch) events.push({ type: 'done', node: final, branch });
-    else events.push({ type: 'error', nodeId: final.id, message: final.error ?? 'Generation failed', node: final });
+    else
+      events.push({
+        type: 'error',
+        nodeId: final.id,
+        message: final.error ?? 'Generation failed',
+        node: final,
+      });
     return sseResponse(streamOf(events.map(sseFrame).join('')));
   }
 
@@ -226,5 +256,7 @@ function streamOf(text: string): ReadableStream<Uint8Array> {
 }
 
 function errorResponse(code: ApiError['error']['code'], message: string): Response {
-  return Response.json({ error: { code, message } } satisfies ApiError, { status: HTTP_STATUS[code] });
+  return Response.json({ error: { code, message } } satisfies ApiError, {
+    status: HTTP_STATUS[code],
+  });
 }

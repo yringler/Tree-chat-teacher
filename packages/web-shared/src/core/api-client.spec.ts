@@ -20,6 +20,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 const SUMMARY: BillingSummary = {
   enabled: true,
+  builtInCredit: true,
   currency: 'usd',
   balanceMicros: 5_000_000,
   heldMicros: 0,

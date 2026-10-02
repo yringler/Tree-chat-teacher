@@ -1,5 +1,5 @@
 import { inject, Injectable, signal } from '@angular/core';
-import type { ProviderInfo, TokenUsage } from '@tangent/shared';
+import { isModelAllowed, type ProviderInfo, type TokenUsage } from '@tangent/shared';
 import {
   ApiClient,
   ApiError,
@@ -25,9 +25,9 @@ export interface ReviewState {
   usage: TokenUsage | null;
 }
 
-/** Usable for generation: has a key and lists the model (or lists none). */
+/** Usable for generation: has a key and allows the model (the server's allowlist rule). */
 function offers(p: ProviderInfo | undefined, model: string): p is ProviderInfo {
-  return !!p && p.available && (p.models.length === 0 || p.models.some((m) => m.id === model));
+  return !!p && p.available && isModelAllowed(p, model);
 }
 
 /**

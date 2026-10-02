@@ -14,6 +14,10 @@
 // error) the handler throws so Stripe redelivers. Every grant is idempotent on
 // its Stripe ref, so redeliveries are no-ops. D1 and Stripe API errors
 // propagate: the plugin answers 400 and Stripe retries.
+//
+// Grants go to the user's ledger, `u_<userId>`, whichever app the purchase
+// came from: top-ups carry it as `metadata.accountId`, and a Stripe customer
+// maps to it through `auth_users.stripe_customer_id`.
 import type Stripe from 'stripe';
 import type { AppEnv } from '../env.js';
 import { grantCredit, hasGrant } from './ledger.js';

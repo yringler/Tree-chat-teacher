@@ -268,7 +268,7 @@ export class DemoBackend {
         mode: this.mode,
         devMode: false,
         operatorKeys: true,
-        paidCredit: this.mode === 'simple',
+        builtInCredit: this.mode === 'simple',
       } satisfies MeResponse);
     }
     if (method === 'GET' && path === '/api/login-options') {
@@ -606,6 +606,7 @@ export class DemoBackend {
   private billingSummary(): BillingSummary {
     return {
       enabled: true,
+      builtInCredit: true,
       topUpsEnabled: false,
       currency: 'usd',
       balanceMicros: this.balanceMicros,
@@ -701,6 +702,7 @@ function providerInfo(provider: LlmProvider): ProviderInfo {
     label: provider.label,
     models: provider.models(),
     defaultModel: provider.defaultModel(),
+    openModels: false,
     available: true,
     acceptsUserKey: false,
     keySource: 'server',

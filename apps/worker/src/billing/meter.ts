@@ -1,5 +1,6 @@
-// Usage metering for simple accounts (PLAN §2.4): a `ProviderRegistry`
-// decorator that records one `usage_events` row per provider call.
+// Usage metering for the built-in provider (PLAN §2.4): a `ProviderRegistry`
+// decorator that records one `usage_events` row per call on a metered
+// provider, on the user's ledger (`AccountContext.billingAccountId`).
 //
 // 1. Before the upstream call: insert a pending row holding USAGE_HOLD_MICROS
 //    at the markup and OpenRouter fee in force now (awaited; no row, no call).
@@ -177,7 +178,7 @@ export function createUsageMeter(
       const usageId = crypto.randomUUID();
       await insertPendingUsage(env.DB, {
         id: usageId,
-        accountId: account.id,
+        accountId: account.billingAccountId,
         treeId: tag?.treeId ?? null,
         nodeId: tag?.nodeId ?? null,
         purpose: tag?.purpose ?? 'other',
@@ -257,13 +258,20 @@ function meteredProvider(provider: LlmProvider, meter: UsageMeter): LlmProvider 
   return wrapped;
 }
 
-/** Wraps `get(id).stream(req)` of every provider with the meter. */
-export function meteredRegistry(inner: ProviderRegistry, meter: UsageMeter): ProviderRegistry {
+/**
+ * Wraps `get(id).stream(req)` with the meter for the providers `metered`
+ * accepts (the built-in one, see `isMetered`); the others pass through.
+ */
+export function meteredRegistry(
+  inner: ProviderRegistry,
+  meter: UsageMeter,
+  metered: (providerId: string) => boolean,
+): ProviderRegistry {
   const cache = new WeakMap<LlmProvider, LlmProvider>();
   return {
     get(providerId) {
       const provider = inner.get(providerId);
-      if (!provider) return undefined;
+      if (!provider || !metered(providerId)) return provider;
       let wrapped = cache.get(provider);
       if (!wrapped) {
         wrapped = meteredProvider(provider, meter);

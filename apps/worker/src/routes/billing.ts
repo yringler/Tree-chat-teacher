@@ -20,16 +20,14 @@ const usageQuerySchema = z.object({
 });
 
 /**
- * Simple-account billing API, mounted at /api/billing by `worker-core`:
+ * Billing API, mounted at /api/billing by `worker-core`, in both modes: the
+ * credit is the user's (`billingAccountId`), whichever app shows it.
  * `GET /` → BillingSummary, `GET /usage` → UsageListResponse,
- * `POST /checkout` → CheckoutResponse. Power accounts get 403.
+ * `POST /checkout` → CheckoutResponse (returns to the calling app's billing page).
  */
 export function billingRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
   r.use('*', async (c, next) => {
-    if (c.var.account.mode !== 'simple') {
-      throw new DomainError('forbidden', 'Billing is only available in Learn mode');
-    }
     await next();
     c.header('Cache-Control', 'no-store');
   });

@@ -89,7 +89,10 @@ export function stripePlans(env: AppEnv): StripePlanConfig[] {
   return plans;
 }
 
-/** The personal (simple) account id of a Better Auth user (PLAN §2.1). */
+/**
+ * A Better Auth user's Learn account id, `u_<userId>`, which is also the
+ * ledger id of their credit in both modes (`AccountContext.billingAccountId`).
+ */
 export function accountIdForUser(userId: string): string {
   return `u_${userId}`;
 }

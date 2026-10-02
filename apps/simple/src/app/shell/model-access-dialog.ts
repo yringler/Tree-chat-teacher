@@ -25,7 +25,7 @@ import { UiStore } from '../state/ui-store';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="How replies are paid for" (closed)="close()">
-      @if (account.payment.paidCredit()) {
+      @if (account.payment.builtInCredit()) {
         <fieldset class="access-choice">
           <legend class="sr-only">Pay with</legend>
           <label class="access-option">

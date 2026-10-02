@@ -2,7 +2,8 @@ import { z } from 'zod';
 import type { UsagePurpose } from './provider.js';
 
 /**
- * Simple-mode billing contract (prepaid credits and monthly credit plans).
+ * Billing contract (prepaid credit for the built-in provider, and monthly
+ * credit plans). Credit is per user and shared by both apps.
  *
  * Units: the ledger is integer micro-USD (`MICROS_PER_USD`); top-ups are whole
  * US cents. Every amount shown to users is pre-tax (Stripe Tax adds tax at
@@ -12,9 +13,10 @@ import type { UsagePurpose } from './provider.js';
 /**
  * Which app a request comes from. Every user has one account per mode, so the
  * two apps keep separate conversations.
- * - `power`: the full app at `/` (bring-your-own-key, unmetered).
+ * - `power`: the full app at `/`: the user's own keys (unmetered), plus the
+ *   built-in provider on credit where the server offers it.
  * - `simple`: Tangent Learn at `/learn/`, on the user's own OpenRouter key or
- *   on paid credit (`LearnPayment`).
+ *   on credit (`LearnPayment`).
  */
 export type AccountMode = 'power' | 'simple';
 
@@ -22,8 +24,9 @@ export type AccountMode = 'power' | 'simple';
  * How a Learn (simple) request pays for its model calls:
  * - `own-key`: the user's own OpenRouter key (the `openrouter` entry of the
  *   sealed key cookie). Free; nothing is metered.
- * - `credit`: the operator's key, metered and charged to prepaid credit.
- *   Only offered when the server has billing and the operator key configured.
+ * - `credit`: the built-in provider on the operator's key, metered and charged
+ *   to the user's prepaid credit. Only offered when the server has billing and
+ *   the operator key configured (`MeResponse.builtInCredit`).
  */
 export type LearnPayment = 'own-key' | 'credit';
 
@@ -86,12 +89,17 @@ export interface BillingSummary {
   /** False when Stripe isn't configured on the server (no top-ups, no spending). */
   enabled: boolean;
   /**
+   * True when the built-in provider is offered on credit (billing and the
+   * operator's OpenRouter key set up), as `MeResponse.builtInCredit`.
+   */
+  builtInCredit: boolean;
+  /**
    * False when one-time top-ups can't be sold (no `STRIPE_CREDITS_PRODUCT_ID`),
    * even though billing is enabled. Absent = assume they can.
    */
   topUpsEnabled?: boolean;
   currency: 'usd';
-  /** Credits minus settled charges (may be negative). */
+  /** The user's credits minus settled charges (may be negative); the same in both apps. */
   balanceMicros: number;
   /** Held by in-flight generations. */
   heldMicros: number;

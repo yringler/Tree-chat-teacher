@@ -5,7 +5,14 @@ import { getBalance, grantCredit, hasGrant } from '../src/billing/ledger.js';
 import { assertCanSpend, getBillingSummary, listUsage, markupFor } from '../src/billing/service.js';
 import { billingConfigured, stripePlans } from '../src/billing/stripe.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
-import { insertSubscription, insertUsage, simpleAccount, uniq } from './mocks/billing-helpers.js';
+import {
+  devPowerAccount,
+  insertSubscription,
+  insertUsage,
+  powerAccount,
+  simpleAccount,
+  uniq,
+} from './mocks/billing-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
 
@@ -98,25 +105,41 @@ describe('markupFor', () => {
   });
 
   it('uses the prepaid rate for an account without a user (dev mode)', async () => {
-    expect(
-      await markupFor(env, { id: 'default', mode: 'power', userId: null, operatorKeys: true }),
-    ).toBe(1000);
+    expect(await markupFor(env, devPowerAccount())).toBe(1000);
   });
 });
 
 describe('assertCanSpend', () => {
-  it("is a no-op for power accounts and for Learn on the user's own key", async () => {
+  it("is a no-op for calls on the user's own keys, in either mode", async () => {
+    // Power on a BYOK provider, even with the built-in provider in its registry.
+    await expect(assertCanSpend(env, powerAccount(), 'ant')).resolves.toBeUndefined();
     await expect(
-      assertCanSpend(env, { id: 'default', mode: 'power', userId: null, operatorKeys: true }),
+      assertCanSpend(env, devPowerAccount({ builtIn: false }), 'tangent'),
     ).resolves.toBeUndefined();
+    // Learn on the user's own key.
     await expect(
-      assertCanSpend(env, { ...simpleAccount(), operatorKeys: false }),
+      assertCanSpend(env, { ...simpleAccount(), builtIn: false }, 'tangent'),
     ).resolves.toBeUndefined();
+  });
+
+  it("checks the user's shared ledger for power calls on the built-in provider", async () => {
+    const account = powerAccount();
+    await expect(assertCanSpend(env, account, 'tangent')).rejects.toBeInstanceOf(
+      PaymentRequiredError,
+    );
+    // Credit bought in Learn (on u_<userId>) pays for power calls too.
+    await grantCredit(env.DB, {
+      accountId: account.billingAccountId,
+      kind: 'purchase',
+      amountMicros: 5_000_000,
+      stripeRef: uniq('cs'),
+    });
+    await expect(assertCanSpend(env, account, 'tangent')).resolves.toBeUndefined();
   });
 
   it('gives 402 at a zero balance and passes after a grant', async () => {
     const account = simpleAccount();
-    const err = await assertCanSpend(env, account).catch((e: unknown) => e);
+    const err = await assertCanSpend(env, account, 'tangent').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(PaymentRequiredError);
     expect((err as PaymentRequiredError).code).toBe('payment_required');
     await grantCredit(env.DB, {
@@ -125,7 +148,7 @@ describe('assertCanSpend', () => {
       amountMicros: 5_000_000,
       stripeRef: uniq('cs'),
     });
-    await expect(assertCanSpend(env, account)).resolves.toBeUndefined();
+    await expect(assertCanSpend(env, account, 'tangent')).resolves.toBeUndefined();
   });
 
   it('counts pending holds against the available balance', async () => {
@@ -136,9 +159,11 @@ describe('assertCanSpend', () => {
       amountMicros: 39_999,
       stripeRef: null,
     });
-    await expect(assertCanSpend(env, account)).resolves.toBeUndefined();
+    await expect(assertCanSpend(env, account, 'tangent')).resolves.toBeUndefined();
     await insertUsage(env, { accountId: account.id, status: 'pending', holdMicros: 20_000 });
-    await expect(assertCanSpend(env, account)).rejects.toBeInstanceOf(PaymentRequiredError);
+    await expect(assertCanSpend(env, account, 'tangent')).rejects.toBeInstanceOf(
+      PaymentRequiredError,
+    );
   });
 
   it('refuses when billing is not configured', async () => {
@@ -149,9 +174,11 @@ describe('assertCanSpend', () => {
       amountMicros: 5_000_000,
       stripeRef: null,
     });
-    const err = await assertCanSpend({ ...env, STRIPE_WEBHOOK_SECRET: '' }, account).catch(
-      (e: unknown) => e,
-    );
+    const err = await assertCanSpend(
+      { ...env, STRIPE_WEBHOOK_SECRET: '' },
+      account,
+      'tangent',
+    ).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(DomainError);
     expect(err).not.toBeInstanceOf(PaymentRequiredError);
     expect((err as DomainError).code).toBe('bad_request');
@@ -188,6 +215,7 @@ describe('billing summary', () => {
 
     expect(await getBillingSummary(env, account)).toEqual({
       enabled: true,
+      builtInCredit: true,
       topUpsEnabled: true,
       currency: 'usd',
       balanceMicros: 9_000_000,
@@ -218,6 +246,7 @@ describe('billing summary', () => {
     const summary = await getBillingSummary({ ...env, STRIPE_SECRET_KEY: '' }, simpleAccount());
     expect(summary).toMatchObject({
       enabled: false,
+      builtInCredit: false,
       topUpsEnabled: false,
       balanceMicros: 0,
       availableMicros: 0,
@@ -238,6 +267,35 @@ describe('billing summary', () => {
       simpleAccount(),
     );
     expect(summary).toMatchObject({ enabled: true, topUpsEnabled: false });
+  });
+});
+
+describe('billing summary in power mode', () => {
+  it("shows the user's shared ledger: Learn credit and power usage alike", async () => {
+    const power = powerAccount();
+    await grantCredit(env.DB, {
+      accountId: power.billingAccountId,
+      kind: 'adjustment',
+      amountMicros: 3_000_000,
+      stripeRef: null,
+    });
+    await insertUsage(env, {
+      accountId: power.billingAccountId,
+      status: 'settled',
+      chargeMicros: 1_000_000,
+    });
+    // The power account id itself holds no ledger.
+    await grantCredit(env.DB, {
+      accountId: power.id,
+      kind: 'adjustment',
+      amountMicros: 7_000_000,
+      stripeRef: null,
+    });
+    expect(await getBillingSummary(env, power)).toMatchObject({
+      builtInCredit: true,
+      balanceMicros: 2_000_000,
+    });
+    expect((await listUsage(env, power, null, 10)).entries).toHaveLength(1);
   });
 });
 

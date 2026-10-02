@@ -315,7 +315,7 @@ describe('demo backend', () => {
 describe('power demo backend', () => {
   it('acts as a power account with no stored keys and no shares', async () => {
     const { api } = setup({ mode: 'power' });
-    await expect(api.me()).resolves.toMatchObject({ mode: 'power', paidCredit: false });
+    await expect(api.me()).resolves.toMatchObject({ mode: 'power', builtInCredit: false });
     await expect(api.keyStatus()).resolves.toEqual({
       enabled: false,
       hasKey: false,

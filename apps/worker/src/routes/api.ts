@@ -21,11 +21,11 @@ import { assertGenerationAllowed, enforceRateLimit, sameOriginOnly } from '../by
 import { assertCanSpend } from '../billing/service.js';
 import { readKeys, requireReadableKeys, type UserKeys } from '../byok/keys.js';
 import { accountParams, type SessionSendBody } from '../do/tree-session.js';
-import { isMetered, type AppBindings, type AppContext, type AppEnv } from '../env.js';
+import { isMetered, usesUserKeys, type AppBindings, type AppContext, type AppEnv } from '../env.js';
 import { validateJson, validateQuery } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { purgeShare } from '../share/cache.js';
-import { chatService, paidCreditAvailable, registryFor, shareService } from '../services.js';
+import { builtInAvailable, chatService, registryFor, shareService } from '../services.js';
 import { keyRoutes } from './key.js';
 
 const REVIEW_KEEPALIVE_MS = 15_000;
@@ -40,8 +40,8 @@ const contextQuerySchema = z.object({
 
 /**
  * The caller's ChatService. `keys` are the user's own provider keys (unused
- * on paid credit); the usage meter of paid credit defers its work to the
- * request's `waitUntil`.
+ * by Learn on credit); the usage meter of the built-in provider defers its
+ * work to the request's `waitUntil`.
  */
 function chatOf(
   c: AppContext,
@@ -54,11 +54,12 @@ function chatOf(
 }
 
 /**
- * The user's key cookie for routes that call a provider. Paid credit never
- * uses the user's own keys, so the cookie (if any) is not even read.
+ * The user's key cookie for routes that call a provider. Learn on credit
+ * never uses the user's own keys, so the cookie (if any) is not even read;
+ * power always reads it, for its other providers.
  */
 async function keysOf(c: AppContext): Promise<Extract<UserKeys, { state: 'ok' }> | null> {
-  return isMetered(c.var.account) ? null : requireReadableKeys(c);
+  return usesUserKeys(c.var.account) ? requireReadableKeys(c) : null;
 }
 
 /**
@@ -66,7 +67,7 @@ async function keysOf(c: AppContext): Promise<Extract<UserKeys, { state: 'ok' }>
  * and the account middleware (auth/account.ts). Every branch or node id is
  * resolved through the caller's account (`getOwnedBranch`/`getOwnedNode`)
  * before anything else happens, so another account's ids are 404. Routes that
- * may spend money check the balance first when on paid credit (402).
+ * may spend credit (a call on the built-in provider) check the balance first (402).
  */
 export function apiRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();
@@ -80,12 +81,12 @@ export function apiRoutes(): Hono<AppBindings> {
       accountId: account.id,
       mode: account.mode,
       operatorKeys: account.operatorKeys,
-      paidCredit: paidCreditAvailable(c.env),
+      builtInCredit: builtInAvailable(c.env),
     } satisfies MeResponse);
   });
 
   api.get('/providers', async (c) => {
-    if (isMetered(c.var.account)) return c.json(registryFor(c.env, c.var.account).list());
+    if (!usesUserKeys(c.var.account)) return c.json(registryFor(c.env, c.var.account).list());
     // An unreadable key cookie simply counts as no user keys here; /key/status clears it.
     const keys = await readKeys(c);
     return c.json(
@@ -162,10 +163,11 @@ export function apiRoutes(): Hono<AppBindings> {
       const keys = await keysOf(c);
       const chat = chatOf(c, keys);
       const branch = await chat.getOwnedBranch(c.req.param('branchId'));
-      // resolve=true may generate summaries (billed); a plain plan only counts tokens.
+      // resolve=true may generate summaries (billed on the built-in provider, which
+      // summarizes its own branches); a plain plan only counts tokens.
       if (q.resolve) {
-        await assertCanSpend(c.env, c.var.account);
-        await enforceRateLimit(c, keys, 'chat');
+        await assertCanSpend(c.env, c.var.account, branch.providerId);
+        await enforceRateLimit(c, keys, 'chat', branch.providerId);
       }
       const res = await chat.planContext(branch.id, q.nodeId ?? null, {
         resolveSummaries: q.resolve,
@@ -186,10 +188,10 @@ export function apiRoutes(): Hono<AppBindings> {
       const chat = chatOf(c, keys);
       const branch = await chat.getOwnedBranch(c.req.param('branchId'));
       assertGenerationAllowed(chat.deps.providers, branch.providerId, branch.model, {
-        userKeys: !isMetered(account),
+        userKeys: !isMetered(account, branch.providerId),
       });
-      await assertCanSpend(c.env, account);
-      await enforceRateLimit(c, keys, 'chat');
+      await assertCanSpend(c.env, account, branch.providerId);
+      await enforceRateLimit(c, keys, 'chat', branch.providerId);
       // The Durable Object gets the still-sealed cookie value in the body (never
       // a header, which request logs may capture) and opens it itself.
       const body: SessionSendBody = {
@@ -238,12 +240,13 @@ export function apiRoutes(): Hono<AppBindings> {
       const chat = chatOf(c, keys);
       const node = await chat.getOwnedNode(c.req.param('nodeId'));
       // The client picks the reviewer model here, so the allowlist is what bounds it.
+      // The review is metered iff the reviewer is the built-in provider.
       assertGenerationAllowed(chat.deps.providers, req.providerId, req.model, {
-        userKeys: !isMetered(c.var.account),
+        userKeys: !isMetered(c.var.account, req.providerId),
       });
-      await assertCanSpend(c.env, c.var.account);
+      await assertCanSpend(c.env, c.var.account, req.providerId);
       const prepared = await chat.prepareReview(node.id, req);
-      await enforceRateLimit(c, keys, 'chat');
+      await enforceRateLimit(c, keys, 'chat', req.providerId);
 
       const encoder = new TextEncoder();
       const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();

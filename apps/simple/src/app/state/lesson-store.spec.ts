@@ -108,6 +108,7 @@ const PROVIDER: ProviderInfo = {
     { id: 'fast-model', label: 'Simple' },
   ],
   defaultModel: 'smart-model',
+  openModels: false,
   available: true,
   acceptsUserKey: false,
   keySource: 'server',
@@ -115,6 +116,7 @@ const PROVIDER: ProviderInfo = {
 
 const BILLING: BillingSummary = {
   enabled: true,
+  builtInCredit: true,
   currency: 'usd',
   balanceMicros: 0,
   heldMicros: 0,

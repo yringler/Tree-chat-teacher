@@ -6,7 +6,11 @@ import type {
   ProviderRegistry,
   StreamEvent,
 } from '@tangent/shared';
-import { ChatService, DEFAULT_CHAT_SETTINGS, type ChatSettings } from '../../src/services/chat-service.js';
+import {
+  ChatService,
+  DEFAULT_CHAT_SETTINGS,
+  type ChatSettings,
+} from '../../src/services/chat-service.js';
 import { ShareService } from '../../src/services/share-service.js';
 import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
 
@@ -93,6 +97,7 @@ export function registryOf(...providers: LlmProvider[]): ProviderRegistry {
         label: p.label,
         models: p.models(),
         defaultModel: p.defaultModel(),
+        openModels: false,
         available: true,
         acceptsUserKey: p.kind !== 'fake',
         keySource: null,

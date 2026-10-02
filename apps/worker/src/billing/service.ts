@@ -1,5 +1,6 @@
-// Simple-account billing: markup and fee pass-through, spend gate, summary, usage history and
-// credit top-ups (PLAN §2.3–2.6).
+// Billing for the built-in provider: markup and fee pass-through, spend gate, summary, usage
+// history and credit top-ups (PLAN §2.3–2.6, §13). Credit is per user: every ledger read and
+// write goes to `AccountContext.billingAccountId`, the same in both modes.
 import { DomainError, PaymentRequiredError, ValidationError } from '@tangent/core';
 import {
   MAX_TOP_UP_CENTS,
@@ -13,6 +14,7 @@ import {
   type UsagePurpose,
 } from '@tangent/shared';
 import { isMetered, type AccountContext, type AppEnv } from '../env.js';
+import { builtInAvailable } from '../services.js';
 import { getBalance } from './ledger.js';
 import { billingConfigured, ensureStripeCustomer, getStripe, stripePlans } from './stripe.js';
 
@@ -64,14 +66,19 @@ function notConfigured(): DomainError {
 }
 
 /**
- * Throws `PaymentRequiredError` (402) when a request on paid credit can't
- * start a metered call: available = balance − pending holds must cover one
- * more hold. Always a no-op for power mode and for Learn on the user's own key.
+ * Throws `PaymentRequiredError` (402) when a call on `providerId` is metered
+ * (the built-in provider, see `isMetered`) and the user's credit can't start
+ * it: available = balance − pending holds must cover one more hold. A no-op
+ * for every call on the user's own keys, in either mode.
  */
-export async function assertCanSpend(env: AppEnv, account: AccountContext): Promise<void> {
-  if (!isMetered(account)) return;
+export async function assertCanSpend(
+  env: AppEnv,
+  account: AccountContext,
+  providerId: string,
+): Promise<void> {
+  if (!isMetered(account, providerId)) return;
   if (!billingConfigured(env)) throw notConfigured();
-  const { balanceMicros, heldMicros } = await getBalance(env.DB, account.id);
+  const { balanceMicros, heldMicros } = await getBalance(env.DB, account.billingAccountId);
   if (balanceMicros - heldMicros < usageHoldMicros(env)) throw new PaymentRequiredError();
 }
 
@@ -137,13 +144,14 @@ export async function getBillingSummary(
   account: AccountContext,
 ): Promise<BillingSummary> {
   const [{ balanceMicros, heldMicros }, markupBps, subscription, purchase] = await Promise.all([
-    getBalance(env.DB, account.id),
+    getBalance(env.DB, account.billingAccountId),
     markupFor(env, account),
     currentSubscription(env, account.userId),
-    lastPurchase(env, account.id),
+    lastPurchase(env, account.billingAccountId),
   ]);
   return {
     enabled: billingConfigured(env),
+    builtInCredit: builtInAvailable(env),
     topUpsEnabled: billingConfigured(env) && !!env.STRIPE_CREDITS_PRODUCT_ID?.trim(),
     currency: 'usd',
     balanceMicros,
@@ -209,11 +217,11 @@ export async function listUsage(
         `SELECT ${columns} FROM usage_events
          WHERE account_id = ?1 AND (created_at < ?2 OR (created_at = ?2 AND id < ?3))
          ORDER BY created_at DESC, id DESC LIMIT ?4`,
-      ).bind(account.id, after.createdAt, after.id, size + 1)
+      ).bind(account.billingAccountId, after.createdAt, after.id, size + 1)
     : env.DB.prepare(
         `SELECT ${columns} FROM usage_events WHERE account_id = ?1
          ORDER BY created_at DESC, id DESC LIMIT ?2`,
-      ).bind(account.id, size + 1);
+      ).bind(account.billingAccountId, size + 1);
   const { results } = await stmt.all<UsageRow>();
   const page = results.slice(0, size);
   const last = page.at(-1);
@@ -233,7 +241,21 @@ export async function listUsage(
   };
 }
 
-/** Creates a Stripe Checkout Session (mode `payment`) for a credit top-up. */
+/**
+ * The page Stripe Checkout returns to: the billing page of the app the
+ * checkout started from (`/billing` in power, `/learn/billing` in Learn).
+ */
+export function checkoutReturnUrl(
+  baseUrl: string,
+  account: AccountContext,
+  outcome: 'success' | 'cancel',
+): string {
+  const base = baseUrl.replace(/\/+$/, '');
+  const page = account.mode === 'simple' ? '/learn/billing' : '/billing';
+  return `${base}${page}?checkout=${outcome}`;
+}
+
+/** Creates a Stripe Checkout Session (mode `payment`) for a credit top-up, in either mode. */
 export async function createCreditCheckout(
   env: AppEnv,
   account: AccountContext,
@@ -250,15 +272,14 @@ export async function createCreditCheckout(
       `amountCents must be a whole number from ${MIN_TOP_UP_CENTS} to ${MAX_TOP_UP_CENTS}`,
     );
   }
-  if (account.mode !== 'simple')
-    throw new DomainError('forbidden', 'Billing is only available in Learn mode');
   const stripe = getStripe(env);
   const productId = env.STRIPE_CREDITS_PRODUCT_ID?.trim();
   if (!billingConfigured(env) || !stripe || !productId) throw notConfigured();
 
   const customer = await ensureStripeCustomer(env, user);
-  const base = baseUrl.replace(/\/+$/, '');
-  const metadata = { kind: 'credits', accountId: account.id, amountCents: String(amountCents) };
+  // The user's ledger, whichever app the top-up was bought from.
+  const accountId = account.billingAccountId;
+  const metadata = { kind: 'credits', accountId, amountCents: String(amountCents) };
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
     customer,
@@ -277,12 +298,12 @@ export async function createCreditCheckout(
         },
       },
     ],
-    client_reference_id: account.id,
+    client_reference_id: accountId,
     metadata,
     // Lets refunds (charge.refunded) find the account and the pre-tax share.
     payment_intent_data: { metadata },
-    success_url: `${base}/learn/billing?checkout=success`,
-    cancel_url: `${base}/learn/billing?checkout=cancel`,
+    success_url: checkoutReturnUrl(baseUrl, account, 'success'),
+    cancel_url: checkoutReturnUrl(baseUrl, account, 'cancel'),
   });
   if (!session.url) throw new Error('Stripe returned a Checkout Session without a URL');
   return { url: session.url };

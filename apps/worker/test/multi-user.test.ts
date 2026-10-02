@@ -3,6 +3,7 @@ import {
   MODE_HEADER,
   PAYMENT_HEADER,
   type ApiError,
+  type BillingSummary,
   type Branch,
   type LearnPayment,
   type LoginOptionsResponse,
@@ -191,7 +192,8 @@ describe('open sign-up', () => {
     const b = await newUser();
     for (const u of [a, b]) {
       expect(u.power).toMatchObject({ mode: 'power', devMode: false, operatorKeys: false });
-      expect(u.learn).toMatchObject({ mode: 'simple', operatorKeys: true, paidCredit: true });
+      expect(u.learn).toMatchObject({ mode: 'simple', operatorKeys: false, builtInCredit: true });
+      expect(u.power).toMatchObject({ builtInCredit: true });
       expect(u.power.accountId).toMatch(/^p_.+/);
       expect(u.learn.accountId).toBe(`u_${u.power.accountId.slice(2)}`);
     }
@@ -243,9 +245,9 @@ describe('switching modes', () => {
       201,
     );
     expect(own.tree.systemPrompt).toBe('Be brief.');
-    // Power mode lists the configured providers, never `tangent`.
+    // Power mode lists the configured providers, then `tangent` as the built-in (on credit).
     const providers = await json<ProviderInfo[]>(await u.call('/api/providers'));
-    expect(providers.map((p) => p.id)).not.toContain('tangent');
+    expect(providers.map((p) => p.id)).toEqual(['fake', 'slow', 'ant', 'tangent']);
   });
 });
 
@@ -492,16 +494,179 @@ describe('Learn mode on paid credit', () => {
   it('is hidden without billing: credit falls back to the own-key mode', async () => {
     const e = authEnv({ STRIPE_SECRET_KEY: '' });
     const u = await newUser(e);
-    expect(u.learn).toMatchObject({ mode: 'simple', operatorKeys: false, paidCredit: false });
+    expect(u.learn).toMatchObject({ mode: 'simple', operatorKeys: false, builtInCredit: false });
     const res = await u.call('/api/billing', { learn: 'credit' });
     expect(await json<{ enabled: boolean }>(res)).toMatchObject({ enabled: false });
   });
 
-  it('billing stays forbidden in power mode', async () => {
+  it('billing answers in power mode too, with the same per-user credit', async () => {
     const u = await newUser();
-    const res = await u.call('/api/billing');
-    expect(res.status).toBe(403);
-    expect(await errorCode(res)).toBe('forbidden');
+    await grantCredit(env.DB, {
+      accountId: u.learn.accountId,
+      kind: 'adjustment',
+      amountMicros: 1_500_000,
+      stripeRef: null,
+    });
+    for (const learn of [undefined, 'credit', 'own-key'] as const) {
+      const summary = await json<BillingSummary>(
+        await u.call('/api/billing', learn ? { learn } : {}),
+      );
+      expect(summary).toMatchObject({ builtInCredit: true, balanceMicros: 1_500_000 });
+    }
+  });
+});
+
+describe('power mode with the built-in provider (Tangent credit)', () => {
+  async function powerTree(u: User, providerId: string, model: string) {
+    return treeWithNodes(u, undefined, { providerId, model });
+  }
+
+  it('lists `tangent` after the own providers, with open models, when it is offered', async () => {
+    const u = await newUser();
+    const providers = await json<ProviderInfo[]>(await u.call('/api/providers'));
+    expect(providers.map((p) => p.id)).toEqual(['fake', 'slow', 'ant', 'tangent']);
+    expect(providers.at(-1)).toMatchObject({
+      id: 'tangent',
+      label: 'Tangent credit',
+      available: true,
+      acceptsUserKey: false,
+      openModels: true,
+      models: [
+        { id: 'smart', label: 'Smart (suggested)' },
+        { id: 'simple', label: 'Simple (suggested)' },
+      ],
+    });
+    expect(providers.filter((p) => p.openModels).map((p) => p.id)).toEqual(['tangent']);
+
+    // Not offered without billing, or without the operator's key.
+    for (const e of [
+      authEnv({ STRIPE_SECRET_KEY: '' }),
+      authEnv({ SIMPLE_PROVIDER: '', OPENROUTER_SIMPLE_API_KEY: '' }),
+    ]) {
+      const v = await newUser(e);
+      expect(v.power.builtInCredit).toBe(false);
+      const ids = (await json<ProviderInfo[]>(await v.call('/api/providers'))).map((p) => p.id);
+      expect(ids).toEqual(['fake', 'slow', 'ant']);
+    }
+  });
+
+  it("meters sends on `tangent` to the user's ledger u_<userId>; BYOK sends are not metered", async () => {
+    const u = await newUser();
+    const userId = u.power.accountId.slice(2);
+    const onTangent = await powerTree(u, 'tangent', 'smart');
+    const send = (branchId: string) =>
+      u.call(`/api/branches/${branchId}/messages`, {
+        method: 'POST',
+        json: { content: 'Explain primes' },
+      });
+
+    const short = await send(onTangent.trunk.id);
+    expect(short.status).toBe(402);
+    expect(await errorCode(short)).toBe('payment_required');
+
+    // Credit is per user: a Learn grant pays for power calls.
+    await grantCredit(env.DB, {
+      accountId: `u_${userId}`,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      stripeRef: null,
+    });
+    const res = await send(onTangent.trunk.id);
+    expect(res.status).toBe(200);
+    expect(parseSse(await res.text()).at(-1)?.type).toBe('done');
+    const metered = await usageRows(`u_${userId}`);
+    expect(metered).toBeGreaterThan(0);
+    expect(await usageRows(u.power.accountId)).toBe(0);
+
+    // A provider of the user's own (here the keyless fake) is never metered.
+    const own = await powerTree(u, 'fake', 'fake-1');
+    const free = await send(own.trunk.id);
+    expect(free.status).toBe(200);
+    expect(parseSse(await free.text()).at(-1)?.type).toBe('done');
+    expect(await usageRows(`u_${userId}`)).toBe(metered);
+
+    const billing = await json<BillingSummary>(await u.call('/api/billing'));
+    expect(billing.balanceMicros).toBeLessThan(1_000_000);
+  });
+
+  it('a review is metered iff the reviewer is the built-in provider', async () => {
+    const u = await newUser();
+    const userId = u.power.accountId.slice(2);
+    const { assistant } = await powerTree(u, 'fake', 'fake-1');
+    const review = (providerId: string, model: string) =>
+      u.call(`/api/nodes/${assistant.id}/review`, {
+        method: 'POST',
+        json: { providerId, model },
+      });
+    expect((await review('fake', 'fake-1')).status).toBe(200);
+    const onCredit = await review('tangent', 'smart');
+    expect(onCredit.status).toBe(402);
+    expect(await errorCode(onCredit)).toBe('payment_required');
+    await grantCredit(env.DB, {
+      accountId: `u_${userId}`,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      stripeRef: null,
+    });
+    expect((await review('tangent', 'smart')).status).toBe(200);
+    expect(await usageRows(`u_${userId}`)).toBe(1);
+  });
+
+  it('rate limits built-in calls per user, across both apps (5/min in tests)', async () => {
+    const u = await newUser();
+    await grantCredit(env.DB, {
+      accountId: u.learn.accountId,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      stripeRef: null,
+    });
+    const power = await powerTree(u, 'tangent', 'smart');
+    const learn = await treeWithNodes(u, 'credit');
+    const resolve = (branchId: string, init: CallInit = {}) =>
+      u.call(`/api/branches/${branchId}/context?resolve=true`, init);
+    const statuses: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      statuses.push((await resolve(power.trunk.id)).status);
+      statuses.push((await resolve(learn.trunk.id, { learn: 'credit' })).status);
+    }
+    expect(statuses).toEqual([200, 200, 200, 200, 200, 429]);
+    // A power branch on the user's own provider has its own (cookie) bucket: none here.
+    const own = await powerTree(u, 'fake', 'fake-1');
+    expect((await resolve(own.trunk.id)).status).toBe(200);
+  });
+
+  it('accepts an unlisted model only on an openModels provider', async () => {
+    const u = await newUser();
+    await grantCredit(env.DB, {
+      accountId: u.learn.accountId,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      stripeRef: null,
+    });
+    const open = await powerTree(u, 'tangent', 'vendor/any-model:free');
+    const ok = await u.call(`/api/branches/${open.trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'hi' },
+    });
+    expect(ok.status).toBe(200);
+    expect(parseSse(await ok.text()).at(-1)?.type).toBe('done');
+    const row = await env.DB.prepare('SELECT model FROM usage_events WHERE account_id = ?1')
+      .bind(u.learn.accountId)
+      .first<{ model: string }>();
+    expect(row?.model).toBe('vendor/any-model:free');
+
+    for (const [providerId, model] of [
+      ['tangent', 'not a model id'],
+      ['fake', 'vendor/any-model:free'],
+    ]) {
+      const t = await powerTree(u, providerId!, model!);
+      const res = await u.call(`/api/branches/${t.trunk.id}/messages`, {
+        method: 'POST',
+        json: { content: 'hi' },
+      });
+      expect(res.status, `${providerId} ${model}`).toBe(400);
+      expect(await errorCode(res)).toBe('bad_request');
+    }
   });
 });
 
@@ -542,7 +707,7 @@ describe("Learn mode on the user's own OpenRouter key", () => {
   // the same registryFor.
   it("never spends the operator's key or touches the ledger", async () => {
     const u = await newUser(ownKeyEnv());
-    expect(u.learn.paidCredit).toBe(true);
+    expect(u.learn.builtInCredit).toBe(true);
     const { assistant } = await treeWithNodes(u, 'own-key');
     const send = (learn: LearnPayment = 'own-key') =>
       u.call(`/api/nodes/${assistant.id}/review`, {

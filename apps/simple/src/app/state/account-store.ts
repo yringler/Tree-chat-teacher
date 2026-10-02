@@ -46,7 +46,7 @@ export class AccountStore {
   /** Records the caller and whether this server sells credit. */
   setMe(me: MeResponse): void {
     this.me.set(me);
-    this.payment.paidCredit.set(me.paidCredit);
+    this.payment.builtInCredit.set(me.builtInCredit);
   }
 
   /** Re-reads the balance; failures keep the last known value (it's informational). */

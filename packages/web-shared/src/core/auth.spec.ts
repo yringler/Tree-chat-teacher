@@ -41,7 +41,7 @@ const ME: MeResponse = {
   mode: 'simple',
   devMode: false,
   operatorKeys: true,
-  paidCredit: true,
+  builtInCredit: true,
 };
 
 describe('AuthService with APP_PATHS', () => {

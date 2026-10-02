@@ -119,7 +119,7 @@ describe('fail closed', () => {
       accountId: 'default',
       mode: 'power',
       operatorKeys: true,
-      paidCredit: true,
+      builtInCredit: true,
     } satisfies MeResponse);
 
     // Secret set: DEV_ALLOW_NO_AUTH=true is ignored and a session is required.
@@ -145,7 +145,7 @@ describe('fail closed', () => {
       accountId: 'default',
       mode: 'power',
       operatorKeys: true,
-      paidCredit: true,
+      builtInCredit: true,
     });
   });
 });

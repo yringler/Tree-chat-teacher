@@ -61,7 +61,7 @@ import type { AccountMode } from './billing.js';
  *   DELETE /api/key              ForgetKeyRequest -> 204 + Set-Cookie (cleared or re-sealed)
  *                                                (simple: only the `openrouter` key, used as Learn's own key)
  *
- * Billing (simple accounts only; power accounts get 403; billing.ts):
+ * Billing (both apps; the credit is per user, shared by both; billing.ts):
  *
  *   GET    /api/billing                          -> BillingSummary
  *   GET    /api/billing/usage?cursor=&limit=     -> UsageListResponse (newest first, limit <= 100, default 50)
@@ -70,8 +70,9 @@ import type { AccountMode } from './billing.js';
  *   POST   /api/auth/stripe/webhook               Stripe webhooks (plugin + our onEvent)
  *
  * Spending routes (messages, review, context?resolve=true) answer 402
- * `payment_required` when a simple request on paid credit finds the
- * available credit too low. Requests on the user's own key never touch credit.
+ * `payment_required` when a call on the built-in provider (`tangent`, on
+ * credit) finds the available credit too low. Calls on the user's own keys
+ * never touch credit.
  *
  * Public (no sign-in; rate-limited; read-only):
  *
@@ -93,7 +94,7 @@ export type ApiErrorCode =
   | 'conflict'
   | 'gone'
   | 'rate_limited'
-  /** 402: a simple account needs more credit (or billing isn't configured). */
+  /** 402: a call on the built-in provider needs more credit (or billing isn't configured). */
   | 'payment_required'
   /** 401: no usable API key for the provider (missing, tampered, expired or rotated key cookie). */
   | 'key_required'
@@ -113,13 +114,18 @@ export interface MeResponse {
   /** True when running with DEV_ALLOW_NO_AUTH (wrangler dev only). */
   devMode: boolean;
   /**
-   * Whether this request may spend the operator's server-side keys. Power:
-   * the server's provider keys (only the local dev bypass). Simple:
-   * paid credit was asked for (PAYMENT_HEADER) and is offered.
+   * True only in the local dev bypass, whose power account may use the
+   * server's PROVIDERS keys. Every signed-in user brings their own keys, or
+   * uses the built-in provider on credit (`builtInCredit`).
    */
   operatorKeys: boolean;
-  /** True when the server offers paid credit in Learn mode (Stripe and the operator's key set up). */
-  paidCredit: boolean;
+  /**
+   * True when the server offers the built-in provider (`tangent`, the
+   * operator's OpenRouter key) on prepaid credit: Stripe and the operator's
+   * key are set up. Power lists it among its providers; Learn offers it as
+   * "Use Tangent credit". The credit is per user, shared by both apps.
+   */
+  builtInCredit: boolean;
 }
 
 /** What the login page offers. Magic links and passkeys are always available once auth is configured. */
