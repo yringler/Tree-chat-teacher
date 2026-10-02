@@ -59,7 +59,7 @@ describe('accounts (dev bypass: the default account)', () => {
 
 describe('resolveAccount', () => {
   const withEnv = (overrides: Partial<AppEnv> = {}) =>
-    ({ ...env, SERVER_KEY_EMAILS: 'owner@example.com', ...overrides }) as AppEnv;
+    ({ ...env, ...overrides }) as AppEnv;
   const user = (email: string) => ({ userId: 'usr1', email, devMode: false });
   const dev = { userId: null, email: null, devMode: true };
   const power: AccountRequest = { mode: 'power', payment: 'own-key' };
@@ -95,18 +95,9 @@ describe('resolveAccount', () => {
     });
   });
 
-  it('only SERVER_KEY_EMAILS may spend the server keys in power mode', () => {
-    expect(resolveAccount(withEnv(), user('Owner@example.com'), power).operatorKeys).toBe(true);
-    expect(
-      resolveAccount(withEnv({ SERVER_KEY_EMAILS: '@example.com' }), user('x@example.com'), power)
-        .operatorKeys,
-    ).toBe(true);
-    for (const list of ['', 'other@example.com', '@evil.example.com']) {
-      expect(
-        resolveAccount(withEnv({ SERVER_KEY_EMAILS: list }), user('owner@example.com'), power)
-          .operatorKeys,
-      ).toBe(false);
-    }
+  it('power mode never gets the server keys for a signed-in user, only the dev bypass', () => {
+    expect(resolveAccount(withEnv(), user('owner@example.com'), power).operatorKeys).toBe(false);
+    expect(resolveAccount(withEnv(), dev, power).operatorKeys).toBe(true);
   });
 
   it('Learn is on paid credit only when asked for and offered', () => {

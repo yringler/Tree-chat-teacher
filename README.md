@@ -29,7 +29,7 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 - **Use my own OpenRouter key.** The key is stored like any bring-your-own-key (a sealed cookie, the same one power mode uses, so one OpenRouter key serves both apps). Nothing is metered, there is no balance check, and the operator's key is never used.
 - **Use paid credit** (pay as you go: true provider cost + 10%, 5% on a monthly plan, tax on top; see [How pricing works](#how-pricing-works)). Offered only when the operator has set up Stripe and `OPENROUTER_SIMPLE_API_KEY`. Without them (for example a self-hosted install) Learn runs on the learner's own key only and the paid option is hidden.
 
-**Server keys.** Anyone can sign up, so the server-side keys of the power-mode providers (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, or whatever `PROVIDERS` names) are only used for the emails on `SERVER_KEY_EMAILS`. Everyone else brings their own key. Leave `SERVER_KEY_EMAILS` unset on a public deployment, or list only yourself. `OPENROUTER_SIMPLE_API_KEY` only ever serves paid Learn mode.
+**Server keys.** Anyone can sign up, so the server-side keys of the power-mode providers (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, or whatever `PROVIDERS` names) are never used for a signed-in user: power mode is bring-your-own-key for everyone. Those secrets serve only the local dev bypass (`DEV_ALLOW_NO_AUTH`), so leave them unset in production. `OPENROUTER_SIMPLE_API_KEY` only ever serves paid Learn mode.
 
 Two public pages sit in front of both apps:
 
@@ -115,13 +115,7 @@ All commands run from `apps/worker` (use `npx wrangler …` or `pnpm exec wrangl
    ```bash
    openssl rand -base64 32 | npx wrangler secret put KEY_ENCRYPTION_SECRET
    ```
-   **Server-side provider keys are optional**, and only the emails on `SERVER_KEY_EMAILS` can spend them. They are Worker secrets and are never sent to the browser. On a public deployment, leave them unset, or set `SERVER_KEY_EMAILS` to yourself only:
-   ```bash
-   npx wrangler secret put ANTHROPIC_API_KEY     # optional
-   npx wrangler secret put OPENAI_API_KEY        # optional
-   npx wrangler secret put OPENROUTER_API_KEY    # optional
-   npx wrangler secret put SERVER_KEY_EMAILS     # e.g. you@example.com; unset = nobody
-   ```
+   **Don't set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `OPENROUTER_API_KEY` in production.** Power mode is bring-your-own-key for every signed-in user, including you; those secrets are used only by the local dev bypass (`.dev.vars`). If they are already set, `npx wrangler secret delete <name>` removes them.
 5. **Attach a custom domain.** Add this to `wrangler.jsonc`:
    ```jsonc
    "routes": [{ "pattern": "tangent.example.com", "custom_domain": true }]
@@ -141,7 +135,7 @@ Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Googl
    ```bash
    openssl rand -base64 32 | npx wrangler secret put BETTER_AUTH_SECRET
    ```
-2. **Public origin.** Set `PUBLIC_BASE_URL` in `wrangler.jsonc` to your origin. Every user gets their own accounts (`p_<userId>` for power, `u_<userId>` for Learn; see _Accounts_ in [DECISIONS.md](docs/DECISIONS.md)), and every tree, branch, message and share is scoped to them. Users are only created with a verified email (Google and GitHub report it, a magic link proves it). `SERVER_KEY_EMAILS` (step 4 above) is the only list of emails, and it only decides who may spend the server's provider keys.
+2. **Public origin.** Set `PUBLIC_BASE_URL` in `wrangler.jsonc` to your origin. Every user gets their own accounts (`p_<userId>` for power, `u_<userId>` for Learn; see _Accounts_ in [DECISIONS.md](docs/DECISIONS.md)), and every tree, branch, message and share is scoped to them. Users are only created with a verified email (Google and GitHub report it, a magic link proves it). There is no list of emails anywhere.
 3. **Email (magic links) through [Resend](https://resend.com).** Verify your sending domain in Resend, set `EMAIL_FROM` in `wrangler.jsonc` to an address on it, then:
    ```bash
    npx wrangler secret put RESEND_API_KEY
@@ -177,9 +171,10 @@ Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Googl
 **Upgrading from the allowlist (`ALLOWED_EMAILS`, `OPEN_SIGNUP`):** sign-up is now open, and allowlisted users no longer share the `default` account.
 
 1. Migrate: `pnpm db:migrate:remote` (migration `0005_accounts_per_mode` lets each user have a power and a Learn account).
-2. If you used server-side provider keys, keep them for yourself: `npx wrangler secret put SERVER_KEY_EMAILS` with your address. Otherwise they are no longer used by anyone.
-3. Deploy: `pnpm run deploy`.
-4. Remove the old allowlist: `npx wrangler secret delete ALLOWED_EMAILS`. (`OPEN_SIGNUP` is gone from `wrangler.jsonc`.)
+2. Deploy: `pnpm run deploy`.
+3. Remove the old allowlist: `npx wrangler secret delete ALLOWED_EMAILS`. (`OPEN_SIGNUP` is gone from `wrangler.jsonc`.)
+
+Power mode is now bring-your-own-key for everyone, you included: add your own key under **Keys** in the sidebar. Server-side `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `OPENROUTER_API_KEY` are no longer used by any signed-in user, and you can delete them (`npx wrangler secret delete <name>`).
 
 Conversations and shares under the old shared `default` account are **not carried over**: they stay in the database, unreachable. To keep a conversation, download its JSON backup (**Backup** in the power app) before you upgrade, then **Import** it after signing in. Learn accounts (`u_<userId>`) keep their lessons and credit.
 
@@ -273,14 +268,13 @@ These are out of scope for now. Sign-up is open to anyone, so the first two are 
 | Name                                                                                   | Kind               | Purpose                                                                                                                                                                                  |
 | -------------------------------------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PUBLIC_BASE_URL`                                                                      | var                | Public origin: share links, sign-in callbacks, magic links, passkey relying party (default: the request's origin; set it in production)                                                  |
-| `SERVER_KEY_EMAILS`                                                                    | secret             | Who may spend the server-side power-provider keys: emails and/or `@domain` entries, comma-separated. Empty = nobody (everyone brings their own key)                                      |
 | `EMAIL_PROVIDER`                                                                       | var                | `resend` (default) or `log` (prints emails to the console; localhost only)                                                                                                               |
 | `EMAIL_FROM`                                                                           | var                | Sender address for magic links (its domain must be verified in Resend)                                                                                                                   |
 | `TURNSTILE_SITE_KEY`                                                                   | var                | Cloudflare Turnstile site key for the magic-link form                                                                                                                                    |
 | `PROVIDERS`                                                                            | var                | JSON array of provider configs (default: anthropic, openai, openrouter, fake)                                                                                                            |
 | `SUMMARY_PROVIDER_ID`, `SUMMARY_MODEL`                                                 | var                | Cheaper model for summaries and titles, e.g. `anthropic` + `claude-haiku-4-5`. Empty = the branch's own model                                                                            |
 | `AUTO_TITLE`                                                                           | var                | `false` disables automatic branch/tree titles                                                                                                                                            |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`                            | secret             | Provider keys, referenced by name from provider configs. Used only for `SERVER_KEY_EMAILS`                                                                                               |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`                            | secret             | Provider keys, referenced by name from provider configs. Used only by the local dev bypass; leave unset in production                                                                    |
 | `AI_GATEWAY_TOKEN`                                                                     | secret             | Optional, for an authenticated AI Gateway                                                                                                                                                |
 | `BETTER_AUTH_SECRET`                                                                   | secret             | Signs session cookies (`openssl rand -base64 32`). Required; rotating it signs everyone out                                                                                              |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | secret             | OAuth apps; each provider is offered only when both of its values are set                                                                                                                |

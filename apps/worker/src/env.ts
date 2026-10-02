@@ -23,14 +23,6 @@ export interface AppEnv extends Env {
    * request unless DEV_ALLOW_NO_AUTH applies. Rotating it signs everyone out.
    */
   BETTER_AUTH_SECRET?: string;
-  /**
-   * Who may spend the server-side keys of the power-mode providers
-   * (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, or whatever
-   * PROVIDERS names): comma-separated emails, or `@example.com` for a whole
-   * domain. Anyone can sign up, so unset or empty = nobody (fails closed):
-   * everyone else brings their own key. A secret so the addresses stay out of git.
-   */
-  SERVER_KEY_EMAILS?: string;
   /** OAuth apps. Each provider is offered only when both of its values are set. */
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
@@ -66,8 +58,8 @@ export interface AccountContext {
   userId: string | null;
   /**
    * May this request spend the operator's server-side keys?
-   * - power: the PROVIDERS keys, for SERVER_KEY_EMAILS and the dev bypass;
-   *   everyone else is bring-your-own-key only.
+   * - power: the PROVIDERS keys, for the local dev bypass only; every
+   *   signed-in user is bring-your-own-key only.
    * - simple: true = paid credit (the `tangent` provider on
    *   OPENROUTER_SIMPLE_API_KEY, metered and billed); false = the user's own
    *   OpenRouter key, unmetered.

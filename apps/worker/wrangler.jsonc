@@ -102,12 +102,11 @@
     // JSON [{ "name", "label", "priceId", "amountCents" }]: monthly credit plans (Better Auth Stripe plugin).
     "STRIPE_PLANS": "[]"
   }
-  // Secrets (wrangler secret put): ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_TOKEN,
+  // Secrets (wrangler secret put): AI_GATEWAY_TOKEN,
   //   KEY_ENCRYPTION_SECRET (`openssl rand -base64 32`; enables bring-your-own-key, rotate to revoke all stored keys)
   //   BETTER_AUTH_SECRET (`openssl rand -base64 32`; signs session cookies, rotate to sign everyone out)
-  //   SERVER_KEY_EMAILS (who may spend ANTHROPIC/OPENAI/OPENROUTER_API_KEY in power mode: comma-separated
-  //     emails, or "@example.com" for a whole domain; unset = nobody, everyone brings their own key.
-  //     Sign-up is open to anyone, so on a public deployment leave it unset or list only yourself)
+  //   ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY: not needed in production. Power mode is
+  //     bring-your-own-key for every signed-in user; these serve only the local dev bypass (.dev.vars)
   //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET (each pair optional)
   //   TURNSTILE_SECRET_KEY, RESEND_API_KEY
   //   OPENROUTER_SIMPLE_API_KEY (paid Learn mode only; set a credit limit on it in OpenRouter)

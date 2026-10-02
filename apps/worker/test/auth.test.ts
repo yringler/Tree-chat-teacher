@@ -2,7 +2,7 @@ import type { LoginOptionsResponse, MeResponse } from '@tangent/shared';
 import { env, exports } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
-import { mayUseServerKeys, parseEmailList, REMEMBER_COOKIE } from '../src/auth/auth.js';
+import { REMEMBER_COOKIE } from '../src/auth/auth.js';
 import type { EmailMessage, EmailSender } from '../src/email/index.js';
 import type { AppEnv } from '../src/env.js';
 
@@ -23,7 +23,6 @@ function authEnv(overrides: Partial<AppEnv> = {}): AppEnv {
   return {
     ...env,
     BETTER_AUTH_SECRET: 'test-secret-test-secret-test-secret-0123',
-    SERVER_KEY_EMAILS: 'owner@example.com, @team.example',
     TURNSTILE_SECRET_KEY: 'turnstile-secret',
     TURNSTILE_SITE_KEY: 'site-key',
     DEV_ALLOW_NO_AUTH: 'true',
@@ -98,27 +97,6 @@ async function signIn(
     redirect: 'manual',
   });
 }
-
-describe('SERVER_KEY_EMAILS', () => {
-  it('parses emails and @domain entries, case-insensitively', () => {
-    const list = parseEmailList(' A@x.com,b@y.com\n@Team.Example  not-an-email ');
-    expect([...list.emails]).toEqual(['a@x.com', 'b@y.com']);
-    expect(list.domains).toEqual(['team.example']);
-  });
-
-  it('matches listed emails and domains only; empty matches nobody', () => {
-    const e = authEnv();
-    expect(mayUseServerKeys(e, 'Owner@Example.com')).toBe(true);
-    expect(mayUseServerKeys(e, 'anyone@team.example')).toBe(true);
-    expect(mayUseServerKeys(e, 'anyone@evilteam.example')).toBe(false);
-    expect(mayUseServerKeys(e, 'stranger@example.com')).toBe(false);
-    expect(mayUseServerKeys(authEnv({ SERVER_KEY_EMAILS: '' }), 'owner@example.com')).toBe(false);
-    expect(mayUseServerKeys(authEnv({ SERVER_KEY_EMAILS: undefined }), 'owner@example.com')).toBe(
-      false,
-    );
-    expect(mayUseServerKeys(e, null)).toBe(false);
-  });
-});
 
 describe('fail closed', () => {
   it('500 on /api/* and /api/auth/* with no BETTER_AUTH_SECRET and no dev bypass', async () => {
@@ -243,7 +221,7 @@ describe('magic link', () => {
       email: 'owner@example.com',
       devMode: false,
       mode: 'power',
-      operatorKeys: true,
+      operatorKeys: false,
     });
     expect(body.accountId).toMatch(/^p_.+/);
   });

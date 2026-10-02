@@ -29,7 +29,7 @@ export function sessionMiddleware(deps: AuthDeps = {}) {
     });
     if (!result) return apiError(c, 'unauthorized', 'Sign in required');
     // Anyone may sign up, but only with a verified email: it is what makes the
-    // accounts theirs, and what SERVER_KEY_EMAILS matches (auth/account.ts).
+    // accounts theirs (auth/account.ts).
     // Users are only created verified, so this is a backstop.
     if (!result.user.emailVerified) {
       return apiError(c, 'forbidden', 'Sign in with a verified email address');

@@ -10,7 +10,6 @@ import { createMiddleware } from 'hono/factory';
 import { accountIdForUser } from '../billing/stripe.js';
 import type { AccountContext, AppBindings, AppEnv, Identity } from '../env.js';
 import { paidCreditAvailable } from '../services.js';
-import { mayUseServerKeys } from './auth.js';
 
 /** Prefix of power-mode account ids: `p_<Better Auth user id>`. */
 export const POWER_ACCOUNT_PREFIX = 'p_';
@@ -42,7 +41,8 @@ export function accountRequest(headers: Headers): AccountRequest {
  * uses `default` and `default_simple`.
  *
  * `operatorKeys` (see AccountContext) never follows from the request alone:
- * power needs SERVER_KEY_EMAILS (or the dev bypass), and paid credit needs
+ * power is bring-your-own-key for every signed-in user (only the local dev
+ * bypass may use the server's provider keys), and paid credit needs
  * the server to offer it. Asking for credit where it isn't offered falls back
  * to the user's own key, which never costs the operator anything.
  */
@@ -65,7 +65,7 @@ export function resolveAccount(
     id: userId ? POWER_ACCOUNT_PREFIX + userId : DEFAULT_ACCOUNT_ID,
     mode: 'power',
     userId,
-    operatorKeys: identity.devMode || mayUseServerKeys(env, identity.email),
+    operatorKeys: identity.devMode,
   };
 }
 

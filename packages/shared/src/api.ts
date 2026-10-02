@@ -111,7 +111,7 @@ export interface MeResponse {
   devMode: boolean;
   /**
    * Whether this request may spend the operator's server-side keys. Power:
-   * the server's provider keys (SERVER_KEY_EMAILS, or the dev bypass). Simple:
+   * the server's provider keys (only the local dev bypass). Simple:
    * paid credit was asked for (PAYMENT_HEADER) and is offered.
    */
   operatorKeys: boolean;

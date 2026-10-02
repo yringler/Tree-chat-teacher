@@ -43,7 +43,6 @@ function authEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     BETTER_AUTH_SECRET: 'test-secret-test-secret-test-secret-0123',
     TURNSTILE_SECRET_KEY: 'turnstile-secret',
     TURNSTILE_SITE_KEY: 'site-key',
-    SERVER_KEY_EMAILS: 'owner@example.com',
     ...overrides,
   } as AppEnv;
 }
@@ -552,8 +551,9 @@ describe('power-mode server keys', () => {
     });
   }
 
-  it('a stranger cannot spend them and is asked for their own key', async () => {
-    const u = await newUser(serverKeyEnv());
+  it('a signed-in user never spends them and is asked for their own key', async () => {
+    const u = await newUser(serverKeyEnv(), 'owner@example.com');
+    expect(u.power.operatorKeys).toBe(false);
     const providers = await json<ProviderInfo[]>(await u.call('/api/providers'));
     for (const id of ['srv', 'leak']) {
       expect(providers.find((p) => p.id === id)).toMatchObject({
@@ -564,18 +564,53 @@ describe('power-mode server keys', () => {
     const res = await sendOnSrv(u);
     expect(res.status).toBe(401);
     expect(await errorCode(res)).toBe('key_required');
+
+    // Their own key works, and is the one used.
+    const saved = await u.call('/api/key', {
+      method: 'POST',
+      json: { provider: 'srv', apiKey: 'sk-ant-goodPOWERUSER-0123' },
+    });
+    expect(saved.status, await saved.text()).toBe(204);
+    const own = await sendOnSrv(u);
+    expect(own.status).toBe(200);
+    expect(replyText(parseSse(await own.text()))).toBe('key=POWERUSER-0123');
   });
 
-  it('SERVER_KEY_EMAILS can, but never the paid-Learn key', async () => {
-    const owner = await newUser(serverKeyEnv(), 'owner@example.com');
-    expect(owner.power.operatorKeys).toBe(true);
-    const providers = await json<ProviderInfo[]>(await owner.call('/api/providers'));
+  it('only the local dev bypass uses them, and never the paid-Learn key', async () => {
+    const dev = client(authEnv({ BETTER_AUTH_SECRET: '', DEV_ALLOW_NO_AUTH: 'true' }));
+    const devEnv = {
+      ...serverKeyEnv(),
+      BETTER_AUTH_SECRET: '',
+      DEV_ALLOW_NO_AUTH: 'true',
+    } as AppEnv;
+    const me = await json<MeResponse>(await dev.call('/api/me', {}, devEnv));
+    expect(me).toMatchObject({ devMode: true, mode: 'power', operatorKeys: true });
+    const providers = await json<ProviderInfo[]>(await dev.call('/api/providers', {}, devEnv));
     expect(providers.find((p) => p.id === 'srv')).toMatchObject({
       available: true,
       keySource: 'server',
     });
     expect(providers.find((p) => p.id === 'leak')).toMatchObject({ available: false });
-    const res = await sendOnSrv(owner);
+    const detail = await json<TreeDetail>(
+      await dev.call(
+        '/api/trees',
+        { method: 'POST', json: { title: 'Dev', providerId: 'srv', model: 'claude-test' } },
+        devEnv,
+      ),
+      201,
+    );
+    const trunk = detail.branches[0]!;
+    const user = makeNode(trunk, 0, null, { role: 'user', content: 'Hi' });
+    const assistant = makeNode(trunk, 1, user.id, { role: 'assistant', content: 'Hello' });
+    await createD1Repositories(env.DB).trees.appendNodes(
+      [user, assistant],
+      new Date().toISOString(),
+    );
+    const res = await dev.call(
+      `/api/nodes/${assistant.id}/review`,
+      { method: 'POST', json: { providerId: 'srv', model: 'claude-test' } },
+      devEnv,
+    );
     expect(res.status).toBe(200);
     expect(replyText(parseSse(await res.text()))).toBe('key=SERVER-0123');
   });

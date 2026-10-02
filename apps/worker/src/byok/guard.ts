@@ -56,7 +56,7 @@ export function assertGenerationAllowed(
 /**
  * Rate limit on requests that spend a user's key. `chat`: per key cookie, the
  * bucket being a hash of the sealed value (never of the plaintext key);
- * power requests on server keys (SERVER_KEY_EMAILS) are not limited here.
+ * power requests on server keys (dev bypass only) are not limited here.
  * Paid credit spends the operator's key, so its `chat` bucket is the account
  * (`account:<id>`). `key`: saving a key makes a verification call upstream,
  * limited per account (a fresh cookie per save would otherwise reset the

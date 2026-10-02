@@ -68,7 +68,7 @@ export function paidCreditAvailable(env: AppEnv): boolean {
  * - simple, own key: the same provider config, on the user's OpenRouter key
  *   (key cookie entry LEARN_KEY_PROVIDER) and never the operator's.
  * - power: the configured providers, user keys overriding server secrets.
- *   Server secrets only for operatorKeys (SERVER_KEY_EMAILS, dev bypass), and
+ *   Server secrets only for operatorKeys (the local dev bypass), and
  *   never the paid-Learn key.
  */
 export function registryFor(

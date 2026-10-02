@@ -31,8 +31,8 @@ import type { AppEnv } from '../env.js';
  * Anyone may sign up; abuse is bounded by Turnstile and the rate limits on
  * magic links. A user needs a verified email (OAuth providers report it, a
  * magic link proves it): unverified users are never created. Each user gets
- * their own accounts (auth/account.ts). Only SERVER_KEY_EMAILS may spend the
- * operator's power-mode provider keys (see mayUseServerKeys).
+ * their own accounts (auth/account.ts). Power mode is bring-your-own-key for
+ * every signed-in user: the server's provider keys serve only the local dev bypass.
  *
  * When Stripe is configured (billing/stripe.ts) the Better Auth Stripe plugin
  * adds the monthly-plan endpoints (`/api/auth/subscription/*`) and the one
@@ -62,45 +62,6 @@ function isSignInCompletion(path: string | undefined): boolean {
     path === '/passkey/verify-authentication' ||
     (path?.startsWith('/callback/') ?? false)
   );
-}
-
-// ---- Email lists (SERVER_KEY_EMAILS)
-
-interface EmailList {
-  emails: ReadonlySet<string>;
-  /** Lower-cased domains from `@domain` entries. */
-  domains: readonly string[];
-}
-
-export function parseEmailList(raw: string | undefined): EmailList {
-  const emails = new Set<string>();
-  const domains: string[] = [];
-  for (const entry of (raw ?? '').split(/[\s,]+/)) {
-    const e = entry.trim().toLowerCase();
-    if (!e) continue;
-    if (e.startsWith('@') && e.length > 1) domains.push(e.slice(1));
-    else if (e.includes('@')) emails.add(e);
-  }
-  return { emails, domains };
-}
-
-/** True when `email` is on the list (an email or its `@domain`). An empty list matches nobody. */
-export function emailListed(raw: string | undefined, email: string | null | undefined): boolean {
-  if (!email) return false;
-  const e = email.trim().toLowerCase();
-  const { emails, domains } = parseEmailList(raw);
-  if (emails.has(e)) return true;
-  const at = e.lastIndexOf('@');
-  return at > 0 && domains.includes(e.slice(at + 1));
-}
-
-/**
- * Whether a signed-in user may spend the server-side keys of the power-mode
- * providers. Sign-up is open, so only SERVER_KEY_EMAILS may (unset = nobody);
- * the session middleware only lets in verified emails.
- */
-export function mayUseServerKeys(env: AppEnv, email: string | null | undefined): boolean {
-  return emailListed(env.SERVER_KEY_EMAILS, email);
 }
 
 // ---- Configuration
