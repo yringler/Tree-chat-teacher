@@ -1141,3 +1141,20 @@
   background: var(--danger);
   color: #fff;
 }
+
+/* Reduced motion: moves jump instead of sliding, and nothing pulses or blinks. */
+
+@media (prefers-reduced-motion: reduce) {
+  .world.is-smooth,
+  .lane,
+  .viewport.is-dragging .lane,
+  .budget-bar,
+  .card {
+    transition: none;
+  }
+
+  .dot-live,
+  .cursor {
+    animation: none;
+  }
+}

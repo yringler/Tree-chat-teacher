@@ -7,6 +7,7 @@ import {
   inject,
   input,
   OnDestroy,
+  untracked,
 } from '@angular/core';
 import { branchLeaf } from '@tangent/core/tree';
 import type { ChatNode } from '@tangent/shared';
@@ -176,6 +177,8 @@ export class Lane implements OnDestroy {
   protected readonly nodes = computed<readonly ChatNode[]>(
     () => this.store.index()?.nodesByBranch.get(this.place().branch.id) ?? [],
   );
+  /** `place()` is a new object after every layout pass; this only changes when the fold does. */
+  private readonly collapsed = computed(() => this.place().collapsed);
   protected readonly hasChildren = computed(
     () => (this.store.index()?.childBranches.get(this.place().branch.id)?.length ?? 0) > 0,
   );
@@ -212,9 +215,13 @@ export class Lane implements OnDestroy {
   });
 
   constructor() {
-    // Re-measure whenever the lane's content changes shape (the arguments only
-    // make the effect depend on them; the ResizeObserver covers everything else).
-    afterRenderEffect(() => this.measure(this.nodes().length, this.place().collapsed));
+    // Re-measure whenever the lane's content changes shape: cards added or
+    // removed, folded, selected (compact cards open up) or the lineage toggled
+    // (badges). The arguments only make the effect depend on them; it must not
+    // re-run on every layout pass, and the ResizeObserver covers everything else.
+    afterRenderEffect(() =>
+      this.measure(this.nodes().length, this.collapsed(), this.isSelected(), this.lineageOn()),
+    );
   }
 
   ngOnDestroy(): void {
@@ -235,8 +242,12 @@ export class Lane implements OnDestroy {
     return 'outside';
   }
 
+  /** Pointer down anywhere on the lane selects it, without moving the camera mid-gesture. */
   protected select(): void {
-    if (!this.isSelected()) this.store.go(this.place().branch.id);
+    if (this.isSelected()) return;
+    const id = this.place().branch.id;
+    this.layout.pointerSelect = id;
+    this.store.go(id);
   }
 
   protected toParent(e: Event): void {
@@ -268,13 +279,19 @@ export class Lane implements OnDestroy {
     if (n) void this.store.cancel(n.id);
   }
 
-  private measure(_cards: number, _collapsed: boolean): void {
+  private measure(
+    _cards: number,
+    _collapsed: boolean,
+    _selected: boolean,
+    _lineage: boolean,
+  ): void {
     const el = this.host.nativeElement;
     if (!this.observer) {
       this.observer = new ResizeObserver(() => this.report());
       this.observer.observe(el);
     }
-    this.report();
+    // Untracked: `place()` and the measures it reads are not reasons to re-measure.
+    untracked(() => this.report());
   }
 
   private report(): void {

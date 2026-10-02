@@ -140,6 +140,10 @@ export class CanvasStore {
   readonly lineages = signal<ReadonlyMap<string, Lineage>>(new Map());
   readonly lineageLoading = signal<string | null>(null);
   private lineageSeq = 0;
+  /** `branch|leaf` keys with a request running, so a re-run effect doesn't send another. */
+  private readonly lineageInFlight = new Set<string>();
+  /** `branch|leaf` keys whose request failed: not retried until the tree or the lane changes. */
+  private readonly lineageFailed = new Set<string>();
 
   readonly index = computed<TreeIndex | null>(() => {
     const d = this.detail();
@@ -198,16 +202,30 @@ export class CanvasStore {
     return l && l.leafId === leaf ? l : null;
   });
 
-  /** Branch ids with a reply generating or a send in flight. */
-  readonly busyBranches = computed<ReadonlySet<string>>(() => {
-    const set = new Set(this.sending());
-    for (const l of this.live().values()) set.add(l.branchId);
+  /** Branch ids whose leaf the tree has as streaming (re-read only when the tree changes). */
+  private readonly streamingBranches = computed<ReadonlySet<string>>(() => {
+    const set = new Set<string>();
     const idx = this.index();
     if (idx) {
       for (const n of idx.nodes.values()) if (n.status === 'streaming') set.add(n.branchId);
     }
     return set;
   });
+
+  /**
+   * Branch ids with a reply generating or a send in flight. Every delta
+   * replaces `live`, so the set is compared by content: readers are only
+   * notified when a lane starts or stops being busy, not once per frame.
+   */
+  readonly busyBranches = computed<ReadonlySet<string>>(
+    () => {
+      const set = new Set(this.sending());
+      for (const l of this.live().values()) set.add(l.branchId);
+      for (const id of this.streamingBranches()) set.add(id);
+      return set;
+    },
+    { equal: (a, b) => a.size === b.size && [...a].every((x) => b.has(x)) },
+  );
 
   // Bootstrapping
 
@@ -269,6 +287,7 @@ export class CanvasStore {
     if (treeId !== this.selectedTreeId()) {
       this.selectedTreeId.set(treeId);
       this.lineages.set(new Map());
+      this.lineageFailed.clear();
       if (treeId) void this.loadTree(treeId);
       else {
         this.detail.set(null);
@@ -499,22 +518,41 @@ export class CanvasStore {
     const leafId = branchLeaf(idx, branchId)?.id ?? null;
     const cached = this.lineages().get(branchId);
     if (cached && cached.leafId === leafId) return;
+    // One request per lane and leaf: the effect calling this may re-run while
+    // it is out, and a plan the server refused is not asked for again.
+    const key = `${branchId}|${leafId ?? ''}`;
+    if (this.lineageInFlight.has(key) || this.lineageFailed.has(key)) return;
+    this.lineageInFlight.add(key);
     const seq = ++this.lineageSeq;
     this.lineageLoading.set(branchId);
     try {
       const res = await this.api.getContext(branchId, null, false);
-      if (seq !== this.lineageSeq) return;
-      this.lineages.update((m) => new Map(m).set(branchId, toLineage(branchId, leafId, res.plan)));
+      const lineage = toLineage(branchId, leafId, res.plan);
+      // A late plan for an older leaf is still stored (`selectedLineage` checks
+      // the leaf), unless it would replace the plan for the lane's current leaf.
+      this.lineages.update((m) => {
+        const cur = m.get(branchId);
+        if (cur && cur.leafId !== leafId && cur.leafId === this.leafOf(branchId)) return m;
+        return new Map(m).set(branchId, lineage);
+      });
     } catch (err) {
-      if (seq !== this.lineageSeq) return;
+      this.lineageFailed.add(key);
       // Informational: a lane without a plan just shows every card the same.
       console.warn('Could not load the lineage', err);
     } finally {
+      this.lineageInFlight.delete(key);
       if (seq === this.lineageSeq) this.lineageLoading.set(null);
     }
   }
 
+  private leafOf(branchId: string): string | null {
+    const idx = this.index();
+    return idx?.branches.has(branchId) ? (branchLeaf(idx, branchId)?.id ?? null) : null;
+  }
+
   private dropLineage(branchId: string): void {
+    // A lane's settings changed or lanes went away: plans that failed may load now.
+    this.lineageFailed.clear();
     if (!this.lineages().has(branchId)) return;
     this.lineages.update((m) => {
       const next = new Map(m);

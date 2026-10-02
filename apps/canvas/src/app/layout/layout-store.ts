@@ -46,6 +46,12 @@ export class LayoutStore {
   readonly dragging = signal(false);
   /** Bumped when a move should animate (fit, centre on a lane). */
   readonly smooth = signal(0);
+  /**
+   * The lane a pointer down just selected. Following that selection would
+   * zoom and slide the lane away under a starting drag or text selection, so
+   * the page leaves the camera alone for it (see `consumePointerSelect`).
+   */
+  pointerSelect: string | null = null;
 
   readonly layout = computed<Layout>(() => {
     const idx = this.store.index();
@@ -82,6 +88,17 @@ export class LayoutStore {
 
   cardOf(branchId: string, nodeId: string): { top: number; height: number } | null {
     return this.measures().get(branchId)?.cards.get(nodeId) ?? null;
+  }
+
+  /**
+   * True when the selection of `id` came from a pointer down on its lane.
+   * Always resets, so a later selection (a fork chip clicked in that lane, the
+   * keyboard) centres again.
+   */
+  consumePointerSelect(id: string): boolean {
+    const fromPointer = this.pointerSelect === id;
+    this.pointerSelect = null;
+    return fromPointer;
   }
 
   // ---- The viewport

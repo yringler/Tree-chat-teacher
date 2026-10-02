@@ -31,6 +31,19 @@ interface PendingBranch {
 const MAX_QUOTE = 10_000;
 /** Wheel without a modifier pans; with Ctrl or ⌘ (and a trackpad pinch) it zooms. */
 const WHEEL_ZOOM = 0.0015;
+/** The wheel has no "up": the transform animates again once it has been still this long. */
+const WHEEL_SETTLE_MS = 150;
+/** A touch becomes a pan once it moves this far; until then it may still be a tap. */
+const TOUCH_SLOP = 8;
+/** A touch held still this long is a long press: left to the browser (text selection). */
+const LONG_PRESS_MS = 500;
+
+/** A touch that has not moved past the slop yet: no capture, so taps still click. */
+interface PendingTouch {
+  x: number;
+  y: number;
+  timer: ReturnType<typeof setTimeout>;
+}
 
 /**
  * `/t/:treeId[/b/:branchId]`: the whole conversation on one pannable,
@@ -59,7 +72,10 @@ export class CanvasPage implements OnDestroy {
   private fitted = false;
   /** Active pointers, for drag-panning and two-finger pinch. */
   private readonly pointers = new Map<number, { x: number; y: number }>();
+  /** Touches (and pens) still deciding between a tap, a pan and a long press. */
+  private readonly pending = new Map<number, PendingTouch>();
   private pinchDistance = 0;
+  private wheelTimer: ReturnType<typeof setTimeout> | undefined;
 
   protected readonly treeTitle = computed(() => {
     const t = this.store.detail()?.tree.title;
@@ -114,7 +130,12 @@ export class CanvasPage implements OnDestroy {
       untracked(() => {
         this.pendingBranch.set(null);
         this.ui.expand(this.store.chain().map((b) => b.id));
-        if (this.fitted) requestAnimationFrame(() => this.geo.centerOn(branchId, focus));
+        // A lane picked with the pointer is already in view, and the gesture
+        // that picked it (a drag, a text selection) is still going: stay put.
+        const fromPointer = this.geo.consumePointerSelect(branchId);
+        if (this.fitted && !fromPointer) {
+          requestAnimationFrame(() => this.geo.centerOn(branchId, focus));
+        }
       });
     });
 
@@ -139,6 +160,8 @@ export class CanvasPage implements OnDestroy {
 
   ngOnDestroy(): void {
     clearTimeout(this.clearTimer);
+    clearTimeout(this.wheelTimer);
+    this.dropPending();
     this.observer?.disconnect();
   }
 
@@ -159,6 +182,10 @@ export class CanvasPage implements OnDestroy {
     const el = this.viewport()?.nativeElement;
     if (!el) return;
     this.geo.dragging.set(true);
+    clearTimeout(this.wheelTimer);
+    this.wheelTimer = setTimeout(() => {
+      if (this.pointers.size === 0) this.geo.dragging.set(false);
+    }, WHEEL_SETTLE_MS);
     if (e.ctrlKey || e.metaKey) {
       const rect = el.getBoundingClientRect();
       const factor = Math.exp(-e.deltaY * WHEEL_ZOOM * (e.deltaMode === 1 ? 20 : 1));
@@ -170,18 +197,70 @@ export class CanvasPage implements OnDestroy {
   }
 
   protected onPointerDown(e: PointerEvent): void {
+    if (e.pointerType !== 'mouse') {
+      this.onTouchDown(e);
+      return;
+    }
     // Only the background and lane chrome pan; text, buttons and boxes keep their own behaviour.
     const target = e.target as HTMLElement | null;
     if (target?.closest('button, a, textarea, input, select, .card-body, .tangents, .anchor'))
       return;
-    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    if (e.button !== 0) return;
+    this.capture(e);
+  }
+
+  /**
+   * Touch and pen: a finger on a card body may be a tap, a pan or a long
+   * press, so it waits as pending until it moves past the slop (a pan) or is
+   * held still (left to the browser's text selection). A second finger
+   * anywhere turns both into a pinch at once.
+   */
+  private onTouchDown(e: PointerEvent): void {
+    if (this.pointers.size > 0 || this.pending.size > 0) {
+      for (const [id, p] of [...this.pending]) this.promote(id, p, e.currentTarget);
+      this.capture(e);
+      return;
+    }
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('button, a, textarea, input, select')) return;
+    const id = e.pointerId;
+    const timer = setTimeout(() => this.pending.delete(id), LONG_PRESS_MS);
+    this.pending.set(id, { x: e.clientX, y: e.clientY, timer });
+  }
+
+  /** Captures a pointer for panning (a second one starts a pinch). */
+  private capture(e: PointerEvent): void {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (this.pointers.size === 2) this.pinchDistance = this.distance();
     this.geo.dragging.set(true);
   }
 
+  /** A pending touch becomes an active pointer, panning from where it went down. */
+  private promote(id: number, p: PendingTouch, viewport: EventTarget | null): void {
+    clearTimeout(p.timer);
+    this.pending.delete(id);
+    try {
+      (viewport as HTMLElement | null)?.setPointerCapture(id);
+    } catch {
+      // The pointer is already gone; its pointerup still arrives and clears it.
+    }
+    this.pointers.set(id, { x: p.x, y: p.y });
+    if (this.pointers.size === 2) this.pinchDistance = this.distance();
+    this.geo.dragging.set(true);
+  }
+
+  private dropPending(): void {
+    for (const p of this.pending.values()) clearTimeout(p.timer);
+    this.pending.clear();
+  }
+
   protected onPointerMove(e: PointerEvent): void {
+    const waiting = this.pending.get(e.pointerId);
+    if (waiting) {
+      if (Math.hypot(e.clientX - waiting.x, e.clientY - waiting.y) <= TOUCH_SLOP) return;
+      this.promote(e.pointerId, waiting, e.currentTarget);
+    }
     const prev = this.pointers.get(e.pointerId);
     if (!prev) return;
     const cur = { x: e.clientX, y: e.clientY };
@@ -205,6 +284,11 @@ export class CanvasPage implements OnDestroy {
   }
 
   protected onPointerUp(e: PointerEvent): void {
+    const waiting = this.pending.get(e.pointerId);
+    if (waiting) {
+      clearTimeout(waiting.timer);
+      this.pending.delete(e.pointerId);
+    }
     this.pointers.delete(e.pointerId);
     if (this.pointers.size < 2) this.pinchDistance = 0;
     if (this.pointers.size === 0) this.geo.dragging.set(false);
@@ -226,6 +310,8 @@ export class CanvasPage implements OnDestroy {
 
   /** Maps the document selection to one finished message, if it lies inside one. */
   protected onSelectionChange(): void {
+    // A touch that started a text selection (long press, handles) is not a pan.
+    if (this.pending.size > 0 && window.getSelection()?.isCollapsed === false) this.dropPending();
     const found = this.selectedQuote();
     clearTimeout(this.clearTimer);
     if (found) {

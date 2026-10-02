@@ -6,17 +6,27 @@ Known gaps and follow-ups that were consciously left out of a change. Each entry
 
 Found in an independent review of the first cut of the experimental Canvas app. None of these block using it; together they are a day or two of iteration.
 
+### Done since (second pass)
+
+An Opus triage of the list below ranked the items and found two problems it had missed that were worse than any of them. Fixed, with a spec and Playwright checks:
+
+- **Lineage request storm.** `busyBranches` returned a new Set per streamed delta, which re-ran the lineage effect, and `loadLineage` neither skipped an in-flight request nor kept earlier responses: one `GET /context` per frame while any lane streamed, none of them kept (37 requests in one second against a delayed demo backend; now 1). Fixed in `CanvasStore` (content-compared `busyBranches`, in-flight and failed keys) and in `Lane` (the measure effect no longer re-runs on every layout pass).
+- **Pointer selection moved the camera.** A pointer down on an unselected lane selected it and the follow effect then zoomed to it mid-drag, and text selections scrolled away. `LayoutStore.consumePointerSelect` tells the follow effect to stay put for pointer selections; keyboard, chips, minimap and the URL still centre.
+- **Touch panning and pinch** over card text (a touch is pending until it moves past 8px; a long press is left to text selection; a second finger starts a pinch), and the wheel now releases the dragging state after 150ms.
+- **`prefers-reduced-motion`** disables the camera and lane transitions and the pulsing and blinking.
+
 ### Not done yet
 
-- **No culling of off-screen lanes.** `LayoutStore.isVisible()` (`apps/canvas/src/app/layout/layout-store.ts`) exists but nothing calls it: `canvas-page.html` renders every `<app-lane>` always, so a large tree keeps the full markdown DOM of every card alive and re-rasterizes all of it on each zoom step. Fix: render a placeholder of the measured height for lanes that are off screen (keep their last `LaneMeasure` so the layout does not shift), swap the real lane back in when they scroll into view.
-- **Markdown re-rendered on every delta.** `Card.html` (`apps/canvas/src/app/canvas/card.ts`) runs the whole reply through markdown-it and highlight.js, uncached, for each streamed delta; with several lanes streaming that is several full renders per frame on the main thread. Fix: throttle streaming renders to one per animation frame, or render only the tail while streaming and the full message on `done`.
-- **Fan-out creates branches one after another.** `CanvasStore.fanOut` (`apps/canvas/src/app/state/canvas-store.ts`) awaits each `createBranch` in a `for` loop. Fix: create them with `Promise.all` and then send; keep the outline order by the created branches' order, not by completion.
-- **New lanes jump once measured.** A lane is placed at `defaultLaneHeight` (240) until its first `ResizeObserver` report, so lanes below it slide after the first paint. Fix: estimate the height from the message lengths (or the number of cards) before the first measurement.
-- **No fling inertia.** Drag-panning stops dead on pointer up (`CanvasPage.onPointerUp`, `apps/canvas/src/app/canvas/canvas-page.ts`). Fix: track the pointer velocity over the last few moves and decay it with `requestAnimationFrame`, cancelled by the next pointer down or wheel.
-- **No `prefers-reduced-motion`.** The world transform, lane moves and the budget bar animate unconditionally (`apps/canvas/src/styles.css`). Fix: a media query that drops those transitions, and skip the pulsing "writing" dot.
-- **Touch: most touches cannot pan.** `onPointerDown` refuses to pan when the touch starts on a card body, the tangents or a text box, which on a phone is most of a lane; `touch-action: none` on the viewport also turns off native scroll physics. Fix: a drag threshold (pan once the pointer moves more than ~8px, select text on long press), so card bodies can still be panned from.
-- **Safari pinch is untested.** Zoom relies on ctrl-modified wheel events and two-pointer distance; check it on Safari and iOS.
-- **Lanes stay long.** Unselected lanes off the ancestry clip each card at 150px (`.lane-cards.is-compact`), but a lane with many turns is still tall. Consider clamping the number of cards shown in compact lanes, with a "N more" stub.
+Ranked by the same triage. None of these block using the app.
+
+- **Fan-out creates branches one after another.** `CanvasStore.fanOut` (`apps/canvas/src/app/state/canvas-store.ts`) awaits each `createBranch` in a `for` loop, so the first reply waits for N−1 round trips. A plain `Promise.all` would scramble the lane order, which the outline sorts by `createdAt`; keep creating in order but start each variant's `send` as soon as that variant exists.
+- **Markdown re-rendered on every delta.** `Card` (`apps/canvas/src/app/canvas/card.ts`) runs the whole reply through markdown-it and highlight.js per delta. Change detection is zoneless and `html` is computed lazily, so it is already at most one render per streaming card per frame (the power app does the same); it only hurts with long, code-heavy replies in several lanes. Profile a four-way fan-out before changing it (render only the tail while streaming, or throttle).
+- **New lanes jump once measured.** A lane is placed at `defaultLaneHeight` (240) until its first `ResizeObserver` report, so lanes below it slide once (0.38s). Cosmetic. Estimating the height from the message lengths would change the "uses the default height" layout spec.
+- **No culling of off-screen lanes.** `LayoutStore.isVisible()` exists but nothing calls it: every `<app-lane>` renders always, so a large tree keeps the full markdown DOM of every card alive. Big and risky: find-in-page and text selection break for placeholders, and `forget()` on destroy would collapse measured heights back to the default. Try `content-visibility: auto` with `contain-intrinsic-size` first. A cheaper win: reuse unchanged `LanePlacement` objects in `LayoutStore.layout`, since every height change currently rebuilds all of them and refreshes every lane.
+- **Safari pinch is untested.** Desktop Safari sends `gesturechange` events rather than ctrl-modified wheel; Playwright's WebKit cannot fake a trackpad pinch. Needs a Mac and an iPad. Touch and pinch were checked only with Chromium's CDP touch events; long-press-to-select was not exercised in a browser.
+- **Lanes stay long.** Unselected lanes off the ancestry clip each card at 150px (`.lane-cards.is-compact`), but a lane with many turns is still tall. A design question: clamp the number of cards in compact lanes with a "N more" stub.
+- **A text drag that starts in an unselected lane can lose its selection.** Selecting the lane adds the budget bar to its head and removes the "not sent" badges, so the cards shift under the pointer and the selection collapses. The camera no longer moves; the shift is the remaining cause. Keep the lane head's height stable across selection (reserve the budget bar's space) and the badge row's height across lineage states.
+- **Dropped: fling inertia.** Trackpad panning arrives as wheel events that already carry the OS momentum. Reconsider only with a phone-first design.
 
 ### Inherent to the DOM approach (noted, not planned)
 
