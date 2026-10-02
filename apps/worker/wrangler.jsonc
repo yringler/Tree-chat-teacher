@@ -15,9 +15,9 @@
   // Don't add request logging that dumps headers (Cookie) or bodies of /api/key.
   "observability": { "enabled": true },
   // Builds both Angular apps into ./site (root `pnpm build`) before every `wrangler deploy` and
-  // `wrangler dev`, so no deploy path (a bare `wrangler deploy`, Workers Builds) can ship the
-  // empty assets directory: that serves the Worker alone, and /learn/*, /login and every asset 404.
-  // Under `wrangler dev` it reruns when the apps' sources change.
+  // `wrangler dev`, so a bare `wrangler deploy` can't ship the empty assets directory: that serves
+  // the Worker alone, and /learn/*, /login and every asset 404. Under `wrangler dev` it reruns when
+  // the apps' sources change. Workers Builds ignores this key: see "Deploying from Git" in the README.
   "build": {
     "command": "pnpm -w build",
     "watch_dir": ["../web/src", "../simple/src", "../../packages/web-shared/src"]

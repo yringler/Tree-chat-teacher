@@ -121,11 +121,24 @@ All commands run from `apps/worker` (use `npx wrangler …` or `pnpm exec wrangl
    "routes": [{ "pattern": "tangent.example.com", "custom_domain": true }]
    ```
    The edge cache for share pages only works on a custom domain.
-6. **Deploy.** This builds both Angular apps, assembles them into `apps/worker/site/` and deploys the Worker together with the static assets. `pnpm run deploy` and `npx wrangler deploy` are the same thing: the build is the Worker's `build.command`, so a Git-connected Workers Builds deploy builds the apps too. A bare `pnpm deploy` is pnpm's own built-in command, not this script.
+6. **Deploy.** This builds both Angular apps, assembles them into `apps/worker/site/` and deploys the Worker together with the static assets. `pnpm run deploy` and `npx wrangler deploy` are the same thing: the build is the Worker's `build.command` in `wrangler.jsonc`. Workers Builds ignores that key, so a Git-connected deploy needs the settings in [Deploying from Git](#deploying-from-git). A bare `pnpm deploy` is pnpm's own built-in command, not this script.
    ```bash
    pnpm run deploy
    ```
    Do not use `workers_dev: true` in production (see step 8 of "Sign-in" below).
+
+### Deploying from Git
+
+Workers Builds (the Worker's **Settings → Build**, connected to this repository) doesn't run `build.command` from `wrangler.jsonc`. Without its own build step it deploys an empty `apps/worker/site/`, and every static file 404s. Use:
+
+| Setting                              | Value                                                                                          |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Root directory                       | `/` (the repository root, so the install covers the whole pnpm workspace and `.nvmrc` applies) |
+| Build command                        | `pnpm build`                                                                                   |
+| Deploy command                       | `pnpm --filter @tangent/worker exec wrangler deploy`                                           |
+| Non-production branch deploy command | `pnpm --filter @tangent/worker exec wrangler versions upload`                                  |
+
+Runtime secrets and variables are unaffected: they live on the Worker, not in the build settings.
 
 ### Sign-in (required)
 
