@@ -1,4 +1,5 @@
 import {
+  DEFAULT_SYSTEM_PROMPT,
   MODE_HEADER,
   PAYMENT_HEADER,
   type ApiError,
@@ -7,6 +8,7 @@ import {
   type LoginOptionsResponse,
   type MeResponse,
   type ProviderInfo,
+  type SettingsResponse,
   type ShareSummary,
   type StreamEvent,
   type TreeDetail,
@@ -21,7 +23,6 @@ import { grantCredit } from '../src/billing/ledger.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { EmailMessage, EmailSender } from '../src/email/index.js';
 import type { AppEnv } from '../src/env.js';
-import { DEFAULT_SIMPLE_SYSTEM_PROMPT } from '../src/simple-mode.js';
 import { makeNode } from './fixtures.js';
 
 const ORIGIN = 'https://tangent.example.com';
@@ -231,7 +232,7 @@ describe('switching modes', () => {
       await u.call('/api/trees', { method: 'POST', json: { title: 'A' }, learn: 'own-key' }),
       201,
     );
-    expect(plain.tree.systemPrompt).toBe(DEFAULT_SIMPLE_SYSTEM_PROMPT);
+    expect(plain.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
     expect(plain.branches[0]).toMatchObject({ providerId: 'tangent', model: 'smart' });
     const own = await json<TreeDetail>(
       await u.call('/api/trees', {
@@ -245,6 +246,95 @@ describe('switching modes', () => {
     // Power mode lists the configured providers, never `tangent`.
     const providers = await json<ProviderInfo[]>(await u.call('/api/providers'));
     expect(providers.map((p) => p.id)).not.toContain('tangent');
+  });
+});
+
+describe('account settings: the default system prompt', () => {
+  const newTree = async (u: User, learn?: LearnPayment, body: Record<string, unknown> = {}) =>
+    (
+      await json<TreeDetail>(
+        await u.call('/api/trees', { method: 'POST', json: body, ...(learn ? { learn } : {}) }),
+        201,
+      )
+    ).tree;
+  const patch = (u: User, systemPrompt: unknown, learn?: LearnPayment) =>
+    u.call('/api/settings', {
+      method: 'PATCH',
+      json: { systemPrompt },
+      ...(learn ? { learn } : {}),
+    });
+
+  it('power trees start with the built-in prompt, then with the saved one', async () => {
+    const u = await newUser();
+    expect(await json<SettingsResponse>(await u.call('/api/settings'))).toEqual({
+      systemPrompt: null,
+      defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+    });
+    expect((await newTree(u)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+
+    expect(await json<SettingsResponse>(await patch(u, 'Answer in French.'))).toEqual({
+      systemPrompt: 'Answer in French.',
+      defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+    });
+    expect((await json<SettingsResponse>(await u.call('/api/settings'))).systemPrompt).toBe(
+      'Answer in French.',
+    );
+    expect((await newTree(u)).systemPrompt).toBe('Answer in French.');
+    expect((await newTree(u, undefined, { systemPrompt: '  ' })).systemPrompt).toBe(
+      'Answer in French.',
+    );
+    // A prompt in the request wins.
+    expect((await newTree(u, undefined, { systemPrompt: 'Be brief.' })).systemPrompt).toBe(
+      'Be brief.',
+    );
+
+    // A blank or null prompt goes back to the built-in one.
+    expect((await json<SettingsResponse>(await patch(u, ' '))).systemPrompt).toBeNull();
+    expect((await newTree(u)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    await json<SettingsResponse>(await patch(u, 'Again.'));
+    expect((await json<SettingsResponse>(await patch(u, null))).systemPrompt).toBeNull();
+  });
+
+  it('is per account: power and Learn, and other users, keep their own', async () => {
+    const u = await newUser();
+    const other = await newUser();
+    await json<SettingsResponse>(await patch(u, 'Power prompt.'));
+    expect(
+      await json<SettingsResponse>(await u.call('/api/settings', { learn: 'own-key' })),
+    ).toEqual({ systemPrompt: null, defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT });
+    expect((await newTree(u, 'own-key')).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    await json<SettingsResponse>(await patch(u, 'Learn prompt.', 'credit'));
+    expect((await newTree(u, 'credit')).systemPrompt).toBe('Learn prompt.');
+    expect((await newTree(u)).systemPrompt).toBe('Power prompt.');
+    expect(
+      (await json<SettingsResponse>(await other.call('/api/settings'))).systemPrompt,
+    ).toBeNull();
+    expect((await newTree(other)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+  });
+
+  it('SIMPLE_SYSTEM_PROMPT replaces the built-in prompt of Learn only', async () => {
+    const u = await newUser(authEnv({ SIMPLE_SYSTEM_PROMPT: 'Operator tutor prompt.' }));
+    expect(
+      (await json<SettingsResponse>(await u.call('/api/settings', { learn: 'credit' })))
+        .defaultSystemPrompt,
+    ).toBe('Operator tutor prompt.');
+    expect((await newTree(u, 'credit')).systemPrompt).toBe('Operator tutor prompt.');
+    expect((await json<SettingsResponse>(await u.call('/api/settings'))).defaultSystemPrompt).toBe(
+      DEFAULT_SYSTEM_PROMPT,
+    );
+    expect((await newTree(u)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    // A saved prompt still wins over the operator's.
+    await json<SettingsResponse>(await patch(u, 'My own.', 'credit'));
+    expect((await newTree(u, 'credit')).systemPrompt).toBe('My own.');
+  });
+
+  it('rejects malformed updates and needs a session', async () => {
+    const u = await newUser();
+    expect((await patch(u, 'x'.repeat(20_001))).status).toBe(400);
+    expect((await patch(u, 42)).status).toBe(400);
+    expect((await u.call('/api/settings', { method: 'PATCH', json: {} })).status).toBe(400);
+    const anonymous = client();
+    expect((await anonymous.call('/api/settings')).status).toBe(401);
   });
 });
 

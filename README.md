@@ -14,15 +14,20 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 
 ## Two ways to use Tangent
 
-|          | Power mode                                                                              | Learn mode ("simple")                                                                           |
-| -------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| URL      | `/` (`apps/web`)                                                                        | `/learn/` (`apps/simple`)                                                                       |
-| Who      | Anyone who signs in with a verified email. Account `p_<userId>`                         | The same users. Account `u_<userId>`, with its own conversations                                |
-| Models   | Every configured provider and model, on the user's own keys (bring-your-own-key)        | Two tiers, **Smart** and **Simple**, on OpenRouter                                              |
-| Controls | All of them: context modes, inspector, reviewer, system prompt, shares, export, backups | Nothing to configure: a built-in tutor prompt, "Ask about this" branches, a Smart/Simple toggle |
-| Cost     | Your own provider keys, unmetered                                                       | Your own OpenRouter key, unmetered; or, where the operator sells it, paid credit (see below)    |
+|          | Power mode                                                                              | Learn mode ("simple")                                                                                                        |
+| -------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| URL      | `/` (`apps/web`)                                                                        | `/learn/` (`apps/simple`)                                                                                                    |
+| Who      | Anyone who signs in with a verified email. Account `p_<userId>`                         | The same users. Account `u_<userId>`, with its own conversations                                                             |
+| Models   | Every configured provider and model, on the user's own keys (bring-your-own-key)        | Two tiers, **Smart** and **Simple**, on OpenRouter                                                                           |
+| Controls | All of them: context modes, inspector, reviewer, system prompt, shares, export, backups | Nothing to configure: a built-in tutor prompt, tangents after every answer, "Ask about this" branches, a Smart/Simple toggle |
+| Cost     | Your own provider keys, unmetered                                                       | Your own OpenRouter key, unmetered; or, where the operator sells it, paid credit (see below)                                 |
 
-**Switching modes.** Both apps show a **Power | Learn** switch (the sidebar of the power app, the header of Learn). It is a link to the other app: one sign-in covers both. Each user has one account per mode, so power conversations and Learn lessons are kept apart (a Learn lesson runs on the tutor's provider and prompt, which the power app doesn't have, and the reverse). The app tells the API which mode it is with the `x-tangent-mode` header.
+**How Tangent answers.** New conversations in both apps start with the same built-in system prompt (`DEFAULT_SYSTEM_PROMPT` in `packages/shared/src/default-prompt.ts`). It answers the question asked, directly and in depth, and never quizzes the user: whatever they don't follow, they branch into. Every substantive reply ends with a `<tangents>` block of two to four directions to explore next ("Why ice is less dense than water — …"). Both apps keep that block out of the rendered reply and show it as buttons under the message; tapping one creates a `path` branch titled after the tangent and sends the title as its first message (the parser is `splitTangents` in `packages/shared`). The block stays in the stored message, so the model sees what it already offered; shares and exports show it as a plain "Where next?" list.
+
+- **Power mode:** **Settings** → **Default system prompt** sets your own prompt for new conversations, saved to your account (`GET`/`PATCH /api/settings`, table `account_settings`), so it follows you to every device. **Use default** copies the built-in prompt into the editor to edit from; an empty editor means the built-in one. A conversation's own prompt (**Conversation settings**) overrides it for that conversation; clear it there for a conversation without a system prompt.
+- **Learn:** the operator can replace the built-in prompt with `SIMPLE_SYSTEM_PROMPT`; learners have no prompt editor.
+
+**Switching modes.** Both apps show a **Power | Learn** switch (the sidebar of the power app, the header of Learn). It is a link to the other app: one sign-in covers both. Each user has one account per mode, so power conversations and Learn lessons are kept apart (a Learn lesson runs on the tutor's provider, which the power app doesn't have, and the reverse). The app tells the API which mode it is with the `x-tangent-mode` header.
 
 **How Learn pays.** In Learn, **How replies are paid for** (account menu) offers:
 
@@ -34,7 +39,7 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 Two public pages sit in front of both apps:
 
 - **Landing page.** Anonymous visitors to `/` get a marketing page instead of the power app: what Tangent is, the two modes, and links to the demo, Learn sign-in (`/learn/login`) and power sign-in (`/login`). "Anonymous" means no Better Auth session cookie (`tangent.session_token`, or `__Secure-tangent.session_token` on https) and not the local dev bypass; with a cookie, `/` is the power app as before. `/welcome` always serves the page, signed in or not. The Worker renders it (`apps/worker/src/http/landing.ts`): one HTML document, no JavaScript, one inline stylesheet allowed by a hash-based CSP.
-- **Free demo at `/learn/demo`.** The Learn interface running entirely in the browser: no sign-in, no model calls, and its state lives only in the browser tab. Replies are generated from random English sentences (the `txtgen` package), so they are playful nonsense, but branching, "Ask about this" and the tree all behave as in the real app. The power app has the same demo at `/demo` (without shares, keys or server-made exports), and the Power / Learn switch moves between the two demos. Both run on the in-browser backend in `@tangent/web-shared/demo`.
+- **Free demo at `/learn/demo`.** The Learn interface running entirely in the browser: no sign-in, no model calls, and its state lives only in the browser tab. Replies are generated from random English sentences (the `txtgen` package), so they are playful nonsense, but branching, "Ask about this", the tangents under each reply and the tree all behave as in the real app. The power app has the same demo at `/demo` (without shares, keys or server-made exports), and the Power / Learn switch moves between the two demos. Both run on the in-browser backend in `@tangent/web-shared/demo`.
 
 Design docs:
 
@@ -183,7 +188,7 @@ Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Googl
 
 **Upgrading from the allowlist (`ALLOWED_EMAILS`, `OPEN_SIGNUP`):** sign-up is now open, and allowlisted users no longer share the `default` account.
 
-1. Migrate: `pnpm db:migrate:remote` (migration `0005_accounts_per_mode` lets each user have a power and a Learn account).
+1. Migrate: `pnpm db:migrate:remote` (migration `0005_accounts_per_mode` lets each user have a power and a Learn account, and `0006_account_settings` stores each account's default system prompt).
 2. Deploy: `pnpm run deploy`.
 3. Remove the old allowlist: `npx wrangler secret delete ALLOWED_EMAILS`. (`OPEN_SIGNUP` is gone from `wrangler.jsonc`.)
 
@@ -299,7 +304,7 @@ These are out of scope for now. Sign-up is open to anyone, so the first two are 
 | `SIMPLE_SMART_MODEL`, `SIMPLE_FAST_MODEL`                                              | var                | OpenRouter models of the Smart and Simple tiers (default `deepseek/deepseek-v4-pro`, `deepseek/deepseek-v4-flash`). The fast one also writes summaries and titles                        |
 | `SIMPLE_PROVIDER`                                                                      | var                | One `ProviderConfig` as JSON that replaces the simple-mode provider entirely (tests, offline dev, AI Gateway, `options.extraBody`). Default empty = OpenRouter with the two models above |
 | `SIMPLE_MAX_INPUT_TOKENS`                                                              | var                | Input-token cap per simple-mode call; bounds the cost of one request (default `60000`). Output is capped at 4,096 tokens                                                                 |
-| `SIMPLE_SYSTEM_PROMPT`                                                                 | var                | System prompt for new Learn trees (default empty = the built-in tutor prompt in `apps/worker/src/simple-mode.ts`)                                                                        |
+| `SIMPLE_SYSTEM_PROMPT`                                                                 | var                | Built-in prompt of new Learn trees with none saved (default empty = `DEFAULT_SYSTEM_PROMPT` in `packages/shared`). Learn only: power users set their own in Settings                     |
 | `USAGE_HOLD_MICROS`                                                                    | var                | Micro-dollars held per call in flight, and the minimum available balance to start one (default `20000` = $0.02)                                                                          |
 | `OPENROUTER_FEE_BPS`                                                                   | var                | OpenRouter's credit-purchase fee in bps, added to the reported cost of each simple-mode call before the markup (default `550` = 5.5%; raise it for OpenRouter top-ups under ~$15)        |
 | `MARKUP_PREPAID_BPS`, `MARKUP_MONTHLY_BPS`                                             | var                | Margin on the true provider cost in basis points, without / with an active monthly plan (default `1000` = +10%, `500` = +5%)                                                             |
@@ -381,6 +386,8 @@ This section describes the power app. The simple app at `/learn/` keeps only the
   | `i`               | Context Inspector              |
   | `?`               | Show all shortcuts             |
 
+- **Tangents:** a reply that ends with suggested tangents shows them under the message (**Where next?**). Clicking one branches off in `path` mode, titles the branch after it and asks it as the first message; a tangent you already followed opens its branch.
+- **Settings** (sidebar): your **default system prompt** for new conversations (saved to your account; **Use default** starts from the built-in one) and the default reviewer model (saved in this browser).
 - **Private branches** (a branch setting) are left out of every share and export, together with everything below them.
 - **Sharing:**
   - Use **Share…** in the chat header to pick a scope (tree / subtree / path) and a mode (snapshot / live), plus an optional title and expiry.

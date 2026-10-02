@@ -12,11 +12,13 @@ import { createMemoryRepositories, type MemoryState } from '@tangent/core/testin
 import {
   createBranchRequestSchema,
   createTreeRequestSchema,
+  DEFAULT_SYSTEM_PROMPT,
   MAX_TOP_UP_CENTS,
   MICROS_PER_USD,
   MIN_TOP_UP_CENTS,
   sendMessageRequestSchema,
   updateBranchRequestSchema,
+  updateSettingsRequestSchema,
   updateTreeRequestSchema,
   type ApiError,
   type AccountMode,
@@ -73,9 +75,6 @@ const STORAGE_KEYS: Readonly<Record<AccountMode, string>> = {
   simple: 'tangent.learn-demo.v1',
   power: 'tangent.power-demo.v1',
 };
-/** Learn's new lessons get the tutor prompt; power keeps whatever the user wrote. */
-const DEMO_SYSTEM_PROMPT =
-  'You are Tangent, a patient tutor. (Demo: replies are generated nonsense; no model is called.)';
 
 /** The bits of `Storage` the demo uses to survive a reload within the tab. */
 export interface DemoStorage {
@@ -114,6 +113,8 @@ interface Saved {
   summaries: SummaryRecord[];
   balanceMicros: number;
   usage: UsageEntry[];
+  /** The account's saved default system prompt (Settings); absent in sessions saved before it existed. */
+  systemPrompt?: string | null;
 }
 
 const encoder = new TextEncoder();
@@ -208,6 +209,8 @@ export class DemoBackend {
       accountId: DEMO_ACCOUNT_ID,
       providers: registry,
       settings: { ...DEFAULT_CHAT_SETTINGS, maxInputTokens: 60_000 },
+      // New conversations get the same built-in prompt as on the server (both modes).
+      defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
       clock: this.clock,
     });
     if (!this.restore() && options.seed !== false) {
@@ -295,14 +298,21 @@ export class DemoBackend {
       return apiError('bad_request', "Adding credit isn't available in the demo.");
     }
 
-    // Trees
+    // Account settings (the default system prompt), kept with the session
+    if (path === '/api/settings') {
+      if (method === 'GET') return json(await this.chat.getSettings());
+      if (method === 'PATCH') {
+        const req = updateSettingsRequestSchema.parse(body ?? {});
+        return this.saved(json(await this.chat.updateSettings(req)));
+      }
+    }
+
+    // Trees (without a prompt in the request: the saved one, else the built-in one)
     if (path === '/api/trees') {
       if (method === 'GET') return json(await this.chat.listTrees());
       if (method === 'POST') {
         const req = createTreeRequestSchema.parse(body ?? {});
-        const systemPrompt =
-          req.systemPrompt?.trim() || this.mode === 'power' ? req.systemPrompt : DEMO_SYSTEM_PROMPT;
-        return this.saved(json(await this.chat.createTree({ ...req, systemPrompt }), 201));
+        return this.saved(json(await this.chat.createTree(req), 201));
       }
     }
     if ((id = seg(/^\/api\/trees\/([^/]+)$/))) {
@@ -640,6 +650,7 @@ export class DemoBackend {
       summaries: [...this.state.summaries.values()],
       balanceMicros: this.balanceMicros,
       usage: this.usage,
+      systemPrompt: this.state.settings.get(DEMO_ACCOUNT_ID)?.systemPrompt ?? null,
     };
     try {
       this.storage.setItem(this.storageKey, JSON.stringify(saved));
@@ -671,6 +682,9 @@ export class DemoBackend {
     }
     for (const s of saved.summaries) {
       this.state.summaries.set(`${s.anchorNodeId}|${s.sourceHash}|${s.model}`, s);
+    }
+    if (typeof saved.systemPrompt === 'string') {
+      this.state.settings.set(DEMO_ACCOUNT_ID, { systemPrompt: saved.systemPrompt });
     }
     this.balanceMicros = saved.balanceMicros;
     this.usage = saved.usage.map((e) =>

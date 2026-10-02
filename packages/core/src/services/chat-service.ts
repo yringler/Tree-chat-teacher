@@ -7,6 +7,7 @@ import {
   createTreeRequestSchema,
   treeBackupSchema,
   updateBranchRequestSchema,
+  updateSettingsRequestSchema,
   updateTreeRequestSchema,
   type Branch,
   type ChatMessage,
@@ -20,6 +21,7 @@ import {
   type ProviderRegistry,
   type ReviewEvent,
   type ReviewRequest,
+  type SettingsResponse,
   type StreamEvent,
   type SummaryRequest,
   type TokenUsage,
@@ -29,6 +31,7 @@ import {
   type TreeDetail,
   type TreeSummary,
   type UpdateBranchRequest,
+  type UpdateSettingsRequest,
   type UsageTag,
   type UpdateTreeRequest,
 } from '@tangent/shared';
@@ -78,6 +81,11 @@ export interface ChatServiceDeps {
   accountId?: string;
   providers: ProviderRegistry;
   settings: ChatSettings;
+  /**
+   * Built-in system prompt of new trees, used when neither the request nor
+   * the account's saved settings name one. Default: none.
+   */
+  defaultSystemPrompt?: string | null;
   clock?: Clock;
   newId?: () => string;
 }
@@ -174,18 +182,23 @@ export class ChatService {
     return node;
   }
 
-  /** Creates the tree and an empty trunk (provider/model default from the registry). */
+  /**
+   * Creates the tree and an empty trunk (provider/model default from the
+   * registry). Without a system prompt in the request, the tree gets the
+   * account's saved default, else the built-in one (`deps.defaultSystemPrompt`).
+   */
   async createTree(request: CreateTreeRequest): Promise<TreeDetail> {
     const req = createTreeRequestSchema.parse(request);
     const providerId = req.providerId ?? this.deps.providers.defaultProviderId();
     const provider = this.requireProvider(providerId);
     const model = req.model ?? provider.defaultModel();
+    const systemPrompt = emptyToNull(req.systemPrompt) ?? (await this.newTreeSystemPrompt());
     const now = this.now();
     const tree: Tree = {
       id: this.newId(),
       accountId: this.accountId,
       title: req.title ?? DEFAULT_TREE_TITLE,
-      systemPrompt: emptyToNull(req.systemPrompt),
+      systemPrompt,
       trunkBranchId: this.newId(),
       createdAt: now,
       updatedAt: now,
@@ -221,7 +234,9 @@ export class ChatService {
   async updateTree(treeId: string, request: UpdateTreeRequest): Promise<Tree> {
     const req = updateTreeRequestSchema.parse(request);
     await this.requireOwnedTree(treeId);
-    const patch: Partial<Pick<Tree, 'title' | 'systemPrompt' | 'updatedAt'>> = { updatedAt: this.now() };
+    const patch: Partial<Pick<Tree, 'title' | 'systemPrompt' | 'updatedAt'>> = {
+      updatedAt: this.now(),
+    };
     if (req.title !== undefined) patch.title = req.title;
     if (req.systemPrompt !== undefined) patch.systemPrompt = emptyToNull(req.systemPrompt);
     const tree = await this.repo.updateTree(treeId, patch);
@@ -233,6 +248,32 @@ export class ChatService {
     await this.requireOwnedTree(treeId);
     const deleted = await this.repo.deleteTree(treeId);
     if (!deleted) throw new NotFoundError('Tree');
+  }
+
+  // ------------------------------------------------------------- settings
+
+  /** The account's settings, with the built-in default prompt a client can show ("Use default"). */
+  async getSettings(): Promise<SettingsResponse> {
+    const saved = await this.deps.repos.settings.getSettings(this.accountId);
+    return this.settingsResponse(saved?.systemPrompt ?? null);
+  }
+
+  /** Saves the account's default system prompt; a blank one means the built-in default (null). */
+  async updateSettings(request: UpdateSettingsRequest): Promise<SettingsResponse> {
+    const req = updateSettingsRequestSchema.parse(request);
+    const systemPrompt = emptyToNull(req.systemPrompt);
+    await this.deps.repos.settings.putSettings(this.accountId, { systemPrompt }, this.now());
+    return this.settingsResponse(systemPrompt);
+  }
+
+  private settingsResponse(systemPrompt: string | null): SettingsResponse {
+    return { systemPrompt, defaultSystemPrompt: this.deps.defaultSystemPrompt ?? '' };
+  }
+
+  /** The account's saved default prompt, else the built-in one. */
+  private async newTreeSystemPrompt(): Promise<string | null> {
+    const saved = await this.deps.repos.settings.getSettings(this.accountId);
+    return emptyToNull(saved?.systemPrompt) ?? emptyToNull(this.deps.defaultSystemPrompt);
   }
 
   // ------------------------------------------------------------- branches
@@ -314,7 +355,9 @@ export class ChatService {
   ): Promise<DeleteBranchResponse> {
     const { branch, tree } = await this.requireOwnedBranch(branchId);
     if (branch.parentBranchId === null || branch.id === tree.trunkBranchId) {
-      throw new ValidationError('The main thread cannot be deleted; delete the conversation instead');
+      throw new ValidationError(
+        'The main thread cannot be deleted; delete the conversation instead',
+      );
     }
 
     const all = await this.repo.listBranches(tree.id);
@@ -386,7 +429,8 @@ export class ChatService {
     let path: ChatNode[];
     if (nodeId) {
       const node = await this.repo.getNode(nodeId);
-      if (!node || node.branchId !== branchId) throw new ValidationError('Node is not in this branch');
+      if (!node || node.branchId !== branchId)
+        throw new ValidationError('Node is not in this branch');
       path = await this.repo.getAncestorPath(nodeId);
     } else {
       const own = await this.repo.listBranchNodes(branchId);
@@ -398,7 +442,10 @@ export class ChatService {
     return { tree, chain, path, branch, targetNodeId: nodeId, provider };
   }
 
-  private budgetFor(provider: LlmProvider, model: string): { maxInputTokens: number; maxOutput: number } {
+  private budgetFor(
+    provider: LlmProvider,
+    model: string,
+  ): { maxInputTokens: number; maxOutput: number } {
     const caps = provider.capabilities(model);
     const maxOutput = Math.min(this.deps.settings.reservedOutputTokens, caps.maxOutputTokens);
     let maxInputTokens = Math.max(1, caps.maxContextTokens - maxOutput);
@@ -453,7 +500,9 @@ export class ChatService {
       // (nested summary modes), so check both.
       let progressed = false;
       const keys = [
-        ...current.segments.flatMap((s) => (s.kind === 'summary' && s.status === 'pending' ? [s.key] : [])),
+        ...current.segments.flatMap((s) =>
+          s.kind === 'summary' && s.status === 'pending' ? [s.key] : [],
+        ),
         ...current.pendingSummaries.map((r) => r.key),
       ];
       for (const key of keys) {
@@ -483,7 +532,13 @@ export class ChatService {
         yield request.purpose === 'branch'
           ? 'Summarizing the parent conversation…'
           : 'Compacting older messages to fit the context window…';
-        const text = await this.generateSummary(summaryProvider, summaryModel, request, inputs.tree.id, signal);
+        const text = await this.generateSummary(
+          summaryProvider,
+          summaryModel,
+          request,
+          inputs.tree.id,
+          signal,
+        );
         if (text === null) {
           failed.add(k);
           continue;
@@ -586,7 +641,10 @@ export class ChatService {
     let branch = begin.branch;
     let content = '';
     const usage: Partial<TokenUsage> = {};
-    const finish = async (status: 'complete' | 'error', error: string | null): Promise<ChatNode> => {
+    const finish = async (
+      status: 'complete' | 'error',
+      error: string | null,
+    ): Promise<ChatNode> => {
       const finalUsage: TokenUsage | null =
         usage.inputTokens !== undefined || usage.outputTokens !== undefined
           ? { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0 }
@@ -683,7 +741,8 @@ export class ChatService {
       // The offline fake would just echo the prompt; keep the readable default title instead.
       if (provider.kind === 'fake') return null;
       const messages: ChatMessage[] = [];
-      if (branch.anchorQuote) messages.push({ role: 'user', content: `Focus: ${branch.anchorQuote}` });
+      if (branch.anchorQuote)
+        messages.push({ role: 'user', content: `Focus: ${branch.anchorQuote}` });
       messages.push({ role: 'user', content: userNode.content });
       messages.push({ role: 'assistant', content: assistantNode.content.slice(0, 4000) });
       const raw = await collectText(
@@ -698,7 +757,11 @@ export class ChatService {
       const now = this.now();
       if (titleTree) await this.repo.updateTree(tree.id, { title, updatedAt: now });
       if (titleBranch) {
-        return await this.repo.updateBranch(branch.id, { title, titleSource: 'auto', updatedAt: now });
+        return await this.repo.updateBranch(branch.id, {
+          title,
+          titleSource: 'auto',
+          updatedAt: now,
+        });
       }
       return null;
     } catch {
@@ -715,7 +778,8 @@ export class ChatService {
    */
   async prepareReview(nodeId: string, request: ReviewRequest): Promise<PreparedReview> {
     const node = await this.getOwnedNode(nodeId);
-    if (node.role !== 'assistant') throw new ValidationError('Only assistant replies can be reviewed');
+    if (node.role !== 'assistant')
+      throw new ValidationError('Only assistant replies can be reviewed');
     if (node.status !== 'complete') throw new ValidationError('That reply has not finished');
     this.requireProvider(request.providerId);
     return { node, providerId: request.providerId, model: request.model };
@@ -763,7 +827,12 @@ export class ChatService {
             usage.inputTokens !== undefined || usage.outputTokens !== undefined
               ? { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0 }
               : null;
-          yield { type: 'done', providerId: review.providerId, model: review.model, usage: finalUsage };
+          yield {
+            type: 'done',
+            providerId: review.providerId,
+            model: review.model,
+            usage: finalUsage,
+          };
           return;
         } else {
           yield {
@@ -891,7 +960,10 @@ async function collectText(
 function foldSystem(prompt: { system: string | null; messages: ChatMessage[] }) {
   const [first, ...rest] = prompt.messages;
   if (prompt.system === null || !first) return prompt;
-  return { system: null, messages: [{ ...first, content: `${prompt.system}\n\n${first.content}` }, ...rest] };
+  return {
+    system: null,
+    messages: [{ ...first, content: `${prompt.system}\n\n${first.content}` }, ...rest],
+  };
 }
 
 function emptyToNull(value: string | null | undefined): string | null {

@@ -38,6 +38,21 @@ export const accounts = sqliteTable(
   (t) => [uniqueIndex('accounts_user_mode_uq').on(t.userId, t.mode)],
 );
 
+/**
+ * Per-account settings, one row per account, written on the first save
+ * (`PATCH /api/settings`); no row = the defaults. A table of its own rather
+ * than columns on `accounts`: settings are large (a system prompt can be
+ * 20k chars), change rarely and are read only when needed, while `accounts`
+ * stays the small row every request ensures. No FK, like the other
+ * `account_id` columns.
+ */
+export const accountSettings = sqliteTable('account_settings', {
+  accountId: text('account_id').primaryKey(),
+  /** System prompt of new trees; null = the built-in default. */
+  systemPrompt: text('system_prompt'),
+  updatedAt: text('updated_at').notNull(),
+});
+
 export const trees = sqliteTable(
   'trees',
   {

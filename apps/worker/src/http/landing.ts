@@ -67,6 +67,12 @@ h1{margin:0;font-size:clamp(2rem,7vw,3.1rem);line-height:1.1;letter-spacing:-.02
 .msg.you{margin-left:auto;background:var(--user-bg)}
 .msg.tutor{border:1px solid var(--border)}
 mark{background:var(--accent-soft);color:inherit;border-radius:4px;padding:0 2px;box-shadow:inset 0 -2px 0 var(--accent)}
+.next{margin:6px 0 12px;padding:0 4px}
+.next .tag{display:block;margin:0 0 6px;color:var(--muted);font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.next span+span{display:block;margin:0 0 6px;padding:6px 10px;border:1px solid var(--border);border-radius:10px;background:var(--bg-elev)}
+.next b{font-weight:600}
+.next i{color:var(--muted);font-style:normal}
+.next .on{border-color:var(--accent);background:var(--accent-soft)}
 .side{margin:4px 0 0 18px;padding:12px 14px;border-left:3px solid var(--branch);border-radius:0 12px 12px 0;background:var(--branch-soft)}
 .side .tag{display:inline-block;margin:0 0 6px;color:var(--branch);font-size:.75rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
 .side p{margin:0}
@@ -109,8 +115,8 @@ function icon(path: string): string {
 const ICON_BRANCH = icon(
   '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 7v10M18 11c0 4-6 3-11.5 6.5"/>',
 );
-const ICON_QUESTION = icon(
-  '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M10 9.5a2.2 2.2 0 1 1 3 2.1c-.6.3-1 .8-1 1.4"/><path d="M12 16h.01"/>',
+const ICON_COMPASS = icon(
+  '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.2 5-5 2.2 2.2-5z"/>',
 );
 const ICON_EYE = icon(
   '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
@@ -124,9 +130,9 @@ export interface LandingPageOptions {
   canonicalUrl: string;
 }
 
-const TITLE = 'Tangent: a Socratic tutor where every question can branch';
+const TITLE = 'Tangent: learn by following your curiosity, one branch at a time';
 const DESCRIPTION =
-  'Tangent is a Socratic tutor that lets any conversation branch. Ask about any phrase on the side, keep the main thread clean, and pay only for what you use.';
+  'Tangent answers your question straight, then offers tangents worth following. Each one opens its own branch, so you can go down any rabbit hole and come back to the main thread exactly where you left it.';
 
 /**
  * The landing page for anonymous visitors: one self-contained document, no
@@ -159,9 +165,9 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <main>
 <div class="wrap hero">
 <div>
-<p class="eyebrow">Socratic tutoring, branching conversations</p>
+<p class="eyebrow">Curiosity-driven learning, branching conversations</p>
 <h1>Follow every tangent. Never lose the thread.</h1>
-<p class="lede">Tangent is a Socratic tutor that lets any conversation branch. Highlight a phrase you don't follow, ask about it on the side, then step back into the main thread exactly where you left it. The tutor asks before it tells, so you work ideas out instead of skimming answers.</p>
+<p class="lede">Tangent is for people who learn by going down rabbit holes. Ask anything and get a straight answer that explains how the thing actually works, then pick a tangent worth following. Every tangent opens its own branch, so you can wander as far as you like and step back into the main thread exactly where you left it.</p>
 <div class="ctas">
 <a class="btn primary" href="/learn/demo">Try the demo</a>
 <a class="btn" href="/learn/login">Start learning</a>
@@ -169,13 +175,19 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <p class="note">The demo is free and runs in your browser. Nothing is sent to a model and the replies are playful nonsense, so you can explore branching without signing up.</p>
 <p class="power"><a href="/login">Power users: sign in</a></p>
 </div>
-<figure class="demo" aria-label="Example: a side question branching off a lesson">
+<figure class="demo" aria-label="Example: an answer, its tangents, and a side question branching off it">
 <p class="msg you">Why does ice float?</p>
-<p class="msg tutor">Good question. Before I answer: what happens to most substances when they freeze? Think about how tightly their molecules pack, and compare that with <mark>hydrogen bonds</mark> in water.</p>
+<p class="msg tutor">Because water expands when it freezes. In the liquid, molecules tumble past each other; in ice, each one locks into a hexagonal lattice held open by <mark>hydrogen bonds</mark>, with more empty space than the liquid had. Same mass, more volume, lower density.</p>
+<div class="next">
+<span class="tag">Where next?</span>
+<span class="on"><b>Why lakes freeze from the top down</b> <i>— the same fact, seen from a fish's point of view</i></span>
+<span><b>The other substances that expand on freezing</b> <i>— silicon, gallium, and why they are rare</i></span>
+<span><b>What a hydrogen bond actually is</b> <i>— one layer down</i></span>
+</div>
 <div class="side">
 <span class="tag">Ask about this</span>
-<p>What are hydrogen bonds, exactly?</p>
-<p>A side branch. The main lesson stays exactly as it was.</p>
+<p>Why hexagonal?</p>
+<p>A side branch from a highlighted phrase. The main thread stays exactly as it was.</p>
 </div>
 </figure>
 </div>
@@ -184,8 +196,8 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <h2 id="features">Learning that follows your curiosity</h2>
 <p class="sub">Every lesson is a tree. Wander off as far as you like, and the conversation stays easy to follow.</p>
 <div class="grid four">
-<article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. The side question opens its own branch, so detours never clutter the main thread, and every branch stays one click away.</p></article>
-<article class="card">${ICON_QUESTION}<h3>A tutor that asks before it tells</h3><p>Tangent guides you with questions until the idea clicks, then fills in what's missing. Choose <strong>Smart</strong> for hard topics or <strong>Simple</strong> for quick ones, and switch at any time.</p></article>
+<article class="card">${ICON_COMPASS}<h3>Answers first, tangents next</h3><p>Ask a question and get the answer, straight away and in real depth: the mechanism, not just the fact, and no quiz in between. Every answer ends with a few tangents worth following. One tap opens any of them as a branch of its own.</p></article>
+<article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. The side question opens its own branch, so detours never clutter the main thread, and every branch stays one click away. Choose <strong>Smart</strong> for hard topics or <strong>Simple</strong> for quick ones.</p></article>
 <article class="card">${ICON_EYE}<h3>See exactly what the model sees</h3><p>In power mode, decide how much each branch inherits: the full path, a summary, or a clean slate. The inspector shows the exact prompt before anything is sent.</p></article>
 <article class="card">${ICON_COIN}<h3>Your key, or pay as you go</h3><p>Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or use prepaid credit: each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up or choose a monthly plan, and manage billing in Stripe.</p></article>
 </div>
@@ -200,9 +212,10 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <h3>Learn</h3>
 <p class="for">For students and the curious. Nothing to set up.</p>
 <ul>
-<li>A built-in Socratic tutor, ready the moment you sign in</li>
-<li>Smart and Simple tiers, one toggle</li>
+<li>Straight answers that explain the mechanism, ready the moment you sign in</li>
+<li>Tangents after every answer, each one a tap away</li>
 <li>Side questions with Ask about this</li>
+<li>Smart and Simple tiers, one toggle</li>
 <li>Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit or a monthly plan</li>
 </ul>
 <a class="btn primary" href="/learn/login">Start learning</a>

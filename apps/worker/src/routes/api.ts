@@ -9,6 +9,7 @@ import {
   sendMessageRequestSchema,
   treeBackupSchema,
   updateBranchRequestSchema,
+  updateSettingsRequestSchema,
   updateShareRequestSchema,
   updateTreeRequestSchema,
   type MeResponse,
@@ -24,7 +25,6 @@ import { validateJson, validateQuery } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { purgeShare } from '../share/cache.js';
 import { chatService, paidCreditAvailable, registryFor, shareService } from '../services.js';
-import { simpleSystemPrompt } from '../simple-mode.js';
 import { keyRoutes } from './key.js';
 
 const REVIEW_KEEPALIVE_MS = 15_000;
@@ -42,7 +42,10 @@ const contextQuerySchema = z.object({
  * on paid credit); the usage meter of paid credit defers its work to the
  * request's `waitUntil`.
  */
-function chatOf(c: AppContext, keys: Extract<UserKeys, { state: 'ok' }> | null = null): ChatService {
+function chatOf(
+  c: AppContext,
+  keys: Extract<UserKeys, { state: 'ok' }> | null = null,
+): ChatService {
   return chatService(c.env, c.var.account, {
     ...(keys ? { apiKeys: keys.keys } : {}),
     defer: (p) => c.executionCtx.waitUntil(p),
@@ -84,20 +87,26 @@ export function apiRoutes(): Hono<AppBindings> {
     if (isMetered(c.var.account)) return c.json(registryFor(c.env, c.var.account).list());
     // An unreadable key cookie simply counts as no user keys here; /key/status clears it.
     const keys = await readKeys(c);
-    return c.json(registryFor(c.env, c.var.account, keys.state === 'ok' ? keys.keys : undefined).list());
+    return c.json(
+      registryFor(c.env, c.var.account, keys.state === 'ok' ? keys.keys : undefined).list(),
+    );
   });
 
   api.route('/key', keyRoutes());
 
+  // ---- account settings (per account, so power and Learn each have their own)
+  api.get('/settings', async (c) => c.json(await chatOf(c).getSettings()));
+  api.patch('/settings', validateJson(updateSettingsRequestSchema), async (c) =>
+    c.json(await chatOf(c).updateSettings(c.req.valid('json'))),
+  );
+
   // ---- trees
   api.get('/trees', async (c) => c.json(await chatOf(c).listTrees()));
-  api.post('/trees', validateJson(createTreeRequestSchema), async (c) => {
-    const req = c.req.valid('json');
-    // Simple accounts get the built-in tutor prompt unless they bring their own.
-    const systemPrompt =
-      c.var.account.mode === 'simple' && !req.systemPrompt?.trim() ? simpleSystemPrompt(c.env) : req.systemPrompt;
-    return c.json(await chatOf(c).createTree({ ...req, systemPrompt }), 201);
-  });
+  // Without a system prompt in the request, the tree gets the account's saved
+  // default, else the built-in one (defaultSystemPromptFor in services.ts).
+  api.post('/trees', validateJson(createTreeRequestSchema), async (c) =>
+    c.json(await chatOf(c).createTree(c.req.valid('json')), 201),
+  );
   api.get('/trees/:treeId', async (c) =>
     c.json(await chatOf(c).getTreeDetail(c.req.param('treeId'))),
   );
@@ -134,60 +143,82 @@ export function apiRoutes(): Hono<AppBindings> {
     const branch = await chatOf(c).getOwnedBranch(c.req.param('branchId'));
     // Through the tree's Durable Object: it owns the generations it has to stop first.
     return session(c.env, branch.treeId).fetch(
-      sessionUrl('/delete-branch', { treeId: branch.treeId, branchId: branch.id, ...accountParams(c.var.account) }),
+      sessionUrl('/delete-branch', {
+        treeId: branch.treeId,
+        branchId: branch.id,
+        ...accountParams(c.var.account),
+      }),
       { method: 'POST' },
     );
   });
-  api.get('/branches/:branchId/context', sameOriginOnly, validateQuery(contextQuerySchema), async (c) => {
-    const q = c.req.valid('query');
-    const keys = await keysOf(c);
-    const chat = chatOf(c, keys);
-    const branch = await chat.getOwnedBranch(c.req.param('branchId'));
-    // resolve=true may generate summaries (billed); a plain plan only counts tokens.
-    if (q.resolve) {
-      await assertCanSpend(c.env, c.var.account);
-      await enforceRateLimit(c, keys, 'chat');
-    }
-    const res = await chat.planContext(branch.id, q.nodeId ?? null, {
-      resolveSummaries: q.resolve,
-      signal: c.req.raw.signal,
-    });
-    return c.json(res);
-  });
+  api.get(
+    '/branches/:branchId/context',
+    sameOriginOnly,
+    validateQuery(contextQuerySchema),
+    async (c) => {
+      const q = c.req.valid('query');
+      const keys = await keysOf(c);
+      const chat = chatOf(c, keys);
+      const branch = await chat.getOwnedBranch(c.req.param('branchId'));
+      // resolve=true may generate summaries (billed); a plain plan only counts tokens.
+      if (q.resolve) {
+        await assertCanSpend(c.env, c.var.account);
+        await enforceRateLimit(c, keys, 'chat');
+      }
+      const res = await chat.planContext(branch.id, q.nodeId ?? null, {
+        resolveSummaries: q.resolve,
+        signal: c.req.raw.signal,
+      });
+      return c.json(res);
+    },
+  );
 
   // ---- messages (delegated to the tree's Durable Object)
-  api.post('/branches/:branchId/messages', sameOriginOnly, validateJson(sendMessageRequestSchema), async (c) => {
-    const keys = await keysOf(c);
-    const { account } = c.var;
-    const chat = chatOf(c, keys);
-    const branch = await chat.getOwnedBranch(c.req.param('branchId'));
-    assertGenerationAllowed(chat.deps.providers, branch.providerId, branch.model, {
-      userKeys: !isMetered(account),
-    });
-    await assertCanSpend(c.env, account);
-    await enforceRateLimit(c, keys, 'chat');
-    // The Durable Object gets the still-sealed cookie value in the body (never
-    // a header, which request logs may capture) and opens it itself.
-    const body: SessionSendBody = {
-      ...c.req.valid('json'),
-      account,
-      ...(keys ? { sealedKeys: keys.sealed } : {}),
-    };
-    return session(c.env, branch.treeId).fetch(
-      sessionUrl('/send', { treeId: branch.treeId, branchId: branch.id }),
-      { method: 'POST', body: JSON.stringify(body) },
-    );
-  });
+  api.post(
+    '/branches/:branchId/messages',
+    sameOriginOnly,
+    validateJson(sendMessageRequestSchema),
+    async (c) => {
+      const keys = await keysOf(c);
+      const { account } = c.var;
+      const chat = chatOf(c, keys);
+      const branch = await chat.getOwnedBranch(c.req.param('branchId'));
+      assertGenerationAllowed(chat.deps.providers, branch.providerId, branch.model, {
+        userKeys: !isMetered(account),
+      });
+      await assertCanSpend(c.env, account);
+      await enforceRateLimit(c, keys, 'chat');
+      // The Durable Object gets the still-sealed cookie value in the body (never
+      // a header, which request logs may capture) and opens it itself.
+      const body: SessionSendBody = {
+        ...c.req.valid('json'),
+        account,
+        ...(keys ? { sealedKeys: keys.sealed } : {}),
+      };
+      return session(c.env, branch.treeId).fetch(
+        sessionUrl('/send', { treeId: branch.treeId, branchId: branch.id }),
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+    },
+  );
   api.get('/nodes/:nodeId/stream', async (c) => {
     const node = await chatOf(c).getOwnedNode(c.req.param('nodeId'));
     return session(c.env, node.treeId).fetch(
-      sessionUrl('/stream', { treeId: node.treeId, nodeId: node.id, ...accountParams(c.var.account) }),
+      sessionUrl('/stream', {
+        treeId: node.treeId,
+        nodeId: node.id,
+        ...accountParams(c.var.account),
+      }),
     );
   });
   api.post('/nodes/:nodeId/cancel', async (c) => {
     const node = await chatOf(c).getOwnedNode(c.req.param('nodeId'));
     return session(c.env, node.treeId).fetch(
-      sessionUrl('/cancel', { treeId: node.treeId, nodeId: node.id, ...accountParams(c.var.account) }),
+      sessionUrl('/cancel', {
+        treeId: node.treeId,
+        nodeId: node.id,
+        ...accountParams(c.var.account),
+      }),
       { method: 'POST' },
     );
   });
@@ -195,49 +226,61 @@ export function apiRoutes(): Hono<AppBindings> {
   // ---- reviews: streamed straight from the Worker. Nothing is persisted, so
   // there is no Durable Object run to reconnect to; a dropped client aborts
   // the upstream request (stops billing) through the request signal.
-  api.post('/nodes/:nodeId/review', sameOriginOnly, validateJson(reviewRequestSchema), async (c) => {
-    const req = c.req.valid('json');
-    const keys = await keysOf(c);
-    const chat = chatOf(c, keys);
-    const node = await chat.getOwnedNode(c.req.param('nodeId'));
-    // The client picks the reviewer model here, so the allowlist is what bounds it.
-    assertGenerationAllowed(chat.deps.providers, req.providerId, req.model, {
-      userKeys: !isMetered(c.var.account),
-    });
-    await assertCanSpend(c.env, c.var.account);
-    const prepared = await chat.prepareReview(node.id, req);
-    await enforceRateLimit(c, keys, 'chat');
+  api.post(
+    '/nodes/:nodeId/review',
+    sameOriginOnly,
+    validateJson(reviewRequestSchema),
+    async (c) => {
+      const req = c.req.valid('json');
+      const keys = await keysOf(c);
+      const chat = chatOf(c, keys);
+      const node = await chat.getOwnedNode(c.req.param('nodeId'));
+      // The client picks the reviewer model here, so the allowlist is what bounds it.
+      assertGenerationAllowed(chat.deps.providers, req.providerId, req.model, {
+        userKeys: !isMetered(c.var.account),
+      });
+      await assertCanSpend(c.env, c.var.account);
+      const prepared = await chat.prepareReview(node.id, req);
+      await enforceRateLimit(c, keys, 'chat');
 
-    const encoder = new TextEncoder();
-    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-    const writer = writable.getWriter();
-    const signal = c.req.raw.signal;
-    const write = (frame: string) => writer.write(encoder.encode(frame)).catch(() => undefined);
-    const pump = async () => {
-      const keepalive = setInterval(() => void write(sseKeepAliveFrame()), REVIEW_KEEPALIVE_MS);
-      try {
-        for await (const event of chat.runReview(prepared, signal)) await write(sseFrame(event));
-      } finally {
-        clearInterval(keepalive);
-        await writer.close().catch(() => undefined);
-      }
-    };
-    c.executionCtx.waitUntil(pump());
-    return sseResponse(readable);
-  });
+      const encoder = new TextEncoder();
+      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+      const writer = writable.getWriter();
+      const signal = c.req.raw.signal;
+      const write = (frame: string) => writer.write(encoder.encode(frame)).catch(() => undefined);
+      const pump = async () => {
+        const keepalive = setInterval(() => void write(sseKeepAliveFrame()), REVIEW_KEEPALIVE_MS);
+        try {
+          for await (const event of chat.runReview(prepared, signal)) await write(sseFrame(event));
+        } finally {
+          clearInterval(keepalive);
+          await writer.close().catch(() => undefined);
+        }
+      };
+      c.executionCtx.waitUntil(pump());
+      return sseResponse(readable);
+    },
+  );
 
   // ---- shares
-  api.get('/shares', async (c) => c.json(await shareService(c.env, c.req.url, c.var.accountId).list()));
+  api.get('/shares', async (c) =>
+    c.json(await shareService(c.env, c.req.url, c.var.accountId).list()),
+  );
   api.post('/shares', validateJson(createShareRequestSchema), async (c) =>
     c.json(await shareService(c.env, c.req.url, c.var.accountId).create(c.req.valid('json')), 201),
   );
   api.patch('/shares/:shareId', validateJson(updateShareRequestSchema), async (c) =>
     c.json(
-      await shareService(c.env, c.req.url, c.var.accountId).update(c.req.param('shareId'), c.req.valid('json')),
+      await shareService(c.env, c.req.url, c.var.accountId).update(
+        c.req.param('shareId'),
+        c.req.valid('json'),
+      ),
     ),
   );
   api.post('/shares/:shareId/republish', async (c) => {
-    const s = await shareService(c.env, c.req.url, c.var.accountId).republish(c.req.param('shareId'));
+    const s = await shareService(c.env, c.req.url, c.var.accountId).republish(
+      c.req.param('shareId'),
+    );
     c.executionCtx.waitUntil(purgeShare(s.token, [s.version - 1]));
     return c.json(s);
   });

@@ -45,7 +45,7 @@ export class ModeSwitch {
       mode: 'simple',
       label: 'Learn',
       href: this.demo ? DEMO_BASES.simple : '/learn/',
-      title: 'Learn mode: a Socratic tutor',
+      title: 'Learn mode: straight answers, with tangents to follow',
     },
   ] as const;
 }

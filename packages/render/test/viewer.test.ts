@@ -56,6 +56,34 @@ describe('renderViewerPage', () => {
     expect(html.trimEnd().endsWith('</html>')).toBe(true);
   });
 
+  it("shows a reply's tangents as a plain list, never as raw tags", () => {
+    const page = renderViewerPage(
+      samplePayload({
+        context: null,
+        branches: [
+          {
+            key: 'b0',
+            parentKey: null,
+            forkMessageKey: null,
+            title: 'Trunk',
+            anchorQuote: null,
+            messages: [
+              {
+                key: 'm0',
+                role: 'assistant',
+                content: 'Answer.\n\n<tangents>\n- Why ice floats — density\n</tangents>',
+              },
+            ],
+          },
+        ],
+      }),
+      { variant: 'export' },
+    );
+    expect(page).not.toContain('tangents&gt;');
+    expect(page).toContain('<p><strong>Where next?</strong></p>');
+    expect(page).toContain('<li><strong>Why ice floats</strong> — density</li>');
+  });
+
   it('contains every message pre-rendered with renderMarkdown', () => {
     for (const m of [...(payload.context ?? []), ...payload.branches.flatMap((b) => b.messages)]) {
       expect(html).toContain(renderMarkdown(m.content));

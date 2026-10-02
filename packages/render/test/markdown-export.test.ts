@@ -74,3 +74,43 @@ describe('payloadToMarkdown', () => {
     expect(payloadToMarkdown(p)).toContain('> line one\n>\n> line two');
   });
 });
+
+describe('tangents in shared replies', () => {
+  const reply =
+    'The answer.\n\n<tangents>\n- Why ice floats — density again\n- Heavy water\n</tangents>';
+  const payload = samplePayload({
+    context: null,
+    branches: [
+      {
+        key: 'b0',
+        parentKey: null,
+        forkMessageKey: null,
+        title: 'Trunk',
+        anchorQuote: null,
+        messages: [
+          { key: 'm0', role: 'user', content: 'Q <tangents>\n- kept\n</tangents>' },
+          { key: 'm1', role: 'assistant', content: reply },
+        ],
+      },
+      {
+        key: 'b1',
+        parentKey: 'b0',
+        forkMessageKey: 'm1',
+        title: 'Why ice floats',
+        anchorQuote: null,
+        messages: [{ key: 'm2', role: 'user', content: 'Why ice floats' }],
+      },
+    ],
+  });
+
+  it('turns the block into a "Where next?" list and keeps it out of fork excerpts', () => {
+    const md = payloadToMarkdown(payload);
+    expect(md).toContain(
+      '**Assistant:**\n\nThe answer.\n\n**Where next?**\n\n- **Why ice floats** — density again\n- **Heavy water**',
+    );
+    expect(md).not.toContain('<tangents>\n- Why');
+    expect(md).toContain('Forked from: “The answer.”');
+    // Only assistant replies carry tangents; user text stays verbatim.
+    expect(md).toContain('Q <tangents>\n- kept\n</tangents>');
+  });
+});

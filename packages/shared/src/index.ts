@@ -5,3 +5,5 @@ export * from './share.js';
 export * from './api.js';
 export * from './review.js';
 export * from './billing.js';
+export * from './tangents.js';
+export * from './default-prompt.js';

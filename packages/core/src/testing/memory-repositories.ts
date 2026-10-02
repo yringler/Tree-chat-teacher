@@ -1,6 +1,6 @@
 import type { Branch, ChatNode, Share, SummaryRecord, Tree, TreeSummary } from '@tangent/shared';
 import { ConflictError } from '../errors.js';
-import type { Repositories, ShareWithTree } from '../repository.js';
+import type { AccountSettings, Repositories, ShareWithTree } from '../repository.js';
 
 /**
  * In-memory implementation of the repository ports. Used by service tests and
@@ -15,6 +15,7 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
     summaries: new Map(),
     shares: new Map(),
     snapshots: new Map(),
+    settings: new Map(),
   };
   const clone = <T>(v: T): T => structuredClone(v);
   const withTree = (s: Share): ShareWithTree => ({
@@ -137,9 +138,7 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
         return path;
       },
       async appendNodes(nodes, treeUpdatedAt) {
-        const taken = new Set(
-          [...state.nodes.values()].map((n) => `${n.branchId}:${n.seq}`),
-        );
+        const taken = new Set([...state.nodes.values()].map((n) => `${n.branchId}:${n.seq}`));
         for (const n of nodes) {
           const k = `${n.branchId}:${n.seq}`;
           if (taken.has(k)) throw new ConflictError('Branch was modified concurrently');
@@ -212,6 +211,15 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
         if (s) s.viewCount += 1;
       },
     },
+    settings: {
+      async getSettings(accountId) {
+        const s = state.settings.get(accountId);
+        return s ? clone(s) : null;
+      },
+      async putSettings(accountId, settings) {
+        state.settings.set(accountId, clone(settings));
+      },
+    },
   };
 }
 
@@ -222,4 +230,6 @@ export interface MemoryState {
   summaries: Map<string, SummaryRecord>;
   shares: Map<string, Share>;
   snapshots: Map<string, string>;
+  /** Keyed by account id. */
+  settings: Map<string, AccountSettings>;
 }

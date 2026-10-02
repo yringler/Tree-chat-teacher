@@ -14,7 +14,11 @@ function twoAccounts() {
     settings: { ...DEFAULT_CHAT_SETTINGS, autoTitle: false },
     accountId: 'other',
   });
-  const otherShares = new ShareService({ repos: base.repos, publicBaseUrl: 'https://t.test', accountId: 'other' });
+  const otherShares = new ShareService({
+    repos: base.repos,
+    publicBaseUrl: 'https://t.test',
+    accountId: 'other',
+  });
   return { ...base, otherChat, otherShares };
 }
 
@@ -36,17 +40,25 @@ describe('accounts', () => {
 
     expect(await otherChat.listTrees()).toEqual([]);
     await expect(otherChat.getTreeDetail(tree.id)).rejects.toBeInstanceOf(NotFoundError);
-    await expect(otherChat.updateTree(tree.id, { title: 'x' })).rejects.toBeInstanceOf(NotFoundError);
+    await expect(otherChat.updateTree(tree.id, { title: 'x' })).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
     await expect(otherChat.deleteTree(tree.id)).rejects.toBeInstanceOf(NotFoundError);
-    const branch = await chat.createBranch({ fromNodeId: (await chat.getTreeDetail(tree.id)).nodes[0]!.id });
+    const branch = await chat.createBranch({
+      fromNodeId: (await chat.getTreeDetail(tree.id)).nodes[0]!.id,
+    });
     await expect(otherChat.deleteBranch(branch.id)).rejects.toBeInstanceOf(NotFoundError);
     await expect(otherChat.exportBackup(tree.id)).rejects.toBeInstanceOf(NotFoundError);
 
     expect(await otherShares.list()).toEqual([]);
-    await expect(otherShares.create({ treeId: tree.id, scope: 'tree' })).rejects.toBeInstanceOf(NotFoundError);
+    await expect(otherShares.create({ treeId: tree.id, scope: 'tree' })).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
     await expect(otherShares.revoke(share.id)).rejects.toBeInstanceOf(NotFoundError);
     await expect(otherShares.republish(share.id)).rejects.toBeInstanceOf(NotFoundError);
-    await expect(otherShares.update(share.id, { title: 'x' })).rejects.toBeInstanceOf(NotFoundError);
+    await expect(otherShares.update(share.id, { title: 'x' })).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
 
     // The owner still sees everything; public links are account-independent.
     expect(await chat.listTrees()).toHaveLength(1);
@@ -66,5 +78,51 @@ describe('accounts', () => {
     const { accountId: _drop, ...legacyTree } = backup.tree;
     const legacy = await chat.importBackup({ ...backup, tree: legacyTree });
     expect(legacy.tree.accountId).toBe(DEFAULT_ACCOUNT_ID);
+  });
+});
+
+describe('account settings', () => {
+  function withDefault(accountId: string, base = setup({ autoTitle: false })) {
+    return new ChatService({
+      repos: base.repos,
+      providers: registryOf(base.provider),
+      settings: { ...DEFAULT_CHAT_SETTINGS, autoTitle: false },
+      accountId,
+      defaultSystemPrompt: 'BUILT-IN',
+    });
+  }
+
+  it('gives new trees the saved prompt, else the built-in one, unless the request names one', async () => {
+    const base = setup({ autoTitle: false });
+    const chat = withDefault('a', base);
+    const other = withDefault('b', base);
+    expect(await chat.getSettings()).toEqual({
+      systemPrompt: null,
+      defaultSystemPrompt: 'BUILT-IN',
+    });
+    expect((await chat.createTree({})).tree.systemPrompt).toBe('BUILT-IN');
+    expect((await chat.createTree({ systemPrompt: '  ' })).tree.systemPrompt).toBe('BUILT-IN');
+
+    expect(await chat.updateSettings({ systemPrompt: 'MINE' })).toEqual({
+      systemPrompt: 'MINE',
+      defaultSystemPrompt: 'BUILT-IN',
+    });
+    expect((await chat.createTree({})).tree.systemPrompt).toBe('MINE');
+    expect((await chat.createTree({ systemPrompt: 'THIS ONE' })).tree.systemPrompt).toBe(
+      'THIS ONE',
+    );
+    // Settings are per account.
+    expect((await other.getSettings()).systemPrompt).toBeNull();
+    expect((await other.createTree({})).tree.systemPrompt).toBe('BUILT-IN');
+
+    // A blank prompt goes back to the built-in one.
+    expect((await chat.updateSettings({ systemPrompt: ' \n' })).systemPrompt).toBeNull();
+    expect((await chat.createTree({})).tree.systemPrompt).toBe('BUILT-IN');
+  });
+
+  it('has no default prompt without a built-in one', async () => {
+    const { chat } = setup({ autoTitle: false });
+    expect((await chat.createTree({})).tree.systemPrompt).toBeNull();
+    expect(await chat.getSettings()).toEqual({ systemPrompt: null, defaultSystemPrompt: '' });
   });
 });

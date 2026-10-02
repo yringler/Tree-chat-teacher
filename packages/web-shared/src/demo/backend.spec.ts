@@ -1,6 +1,11 @@
 import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classes without the Angular CLI.
 import { Injector } from '@angular/core';
-import type { ReviewEvent, StreamEvent } from '@tangent/shared';
+import {
+  DEFAULT_SYSTEM_PROMPT,
+  splitTangents,
+  type ReviewEvent,
+  type StreamEvent,
+} from '@tangent/shared';
 import {
   API_FETCH,
   ApiClient,
@@ -66,26 +71,33 @@ describe('demo backend', () => {
     ]);
   });
 
-  it('starts with the example lesson (main thread and one side question)', async () => {
+  it('starts with the example lesson (main thread, a side question and a followed tangent)', async () => {
     const { api } = setup();
     const trees = await api.listTrees();
     expect(trees).toHaveLength(1);
-    expect(trees[0]).toMatchObject({ branchCount: 2, messageCount: 6 });
+    expect(trees[0]).toMatchObject({ branchCount: 3, messageCount: 8 });
     const detail = await api.getTree(trees[0]!.id);
-    const side = detail.branches.find((b) => b.parentBranchId !== null)!;
-    expect(side.anchorQuote).toBeTruthy();
+    const side = detail.branches.find((b) => b.anchorQuote !== null)!;
+    expect(side.parentBranchId).not.toBeNull();
     const point = detail.nodes.find((n) => n.id === side.branchPointNodeId)!;
     expect(point.content).toContain(side.anchorQuote!);
+    // The followed tangent: titled after one of the first reply's tangents, asked as its first message.
+    const tangent = detail.branches.find((b) => b.titleSource === 'user')!;
+    expect(tangent.branchPointNodeId).toBe(point.id);
+    expect(splitTangents(point.content).tangents.map((t) => t.title)).toContain(tangent.title);
+    expect(detail.nodes.find((n) => n.branchId === tangent.id && n.role === 'user')?.content).toBe(
+      tangent.title,
+    );
     expect(detail.nodes.every((n) => n.status === 'complete')).toBe(true);
     const usage = await api.usage();
-    expect(usage.entries.length).toBe(3);
+    expect(usage.entries.length).toBe(4);
   });
 
   it('creates a lesson, streams a reply over SSE, stores it, titles the lesson and charges for it', async () => {
     const { api } = setup({ seed: false });
     const detail = await api.createTree({ providerId: 'tangent', model: 'smart' });
     expect(detail.tree.title).toBe('New conversation');
-    expect(detail.tree.systemPrompt).toContain('Demo');
+    expect(detail.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
 
     const res = await api.sendMessage(
       detail.tree.trunkBranchId,
@@ -114,7 +126,7 @@ describe('demo backend', () => {
       status: 'complete',
       content: text,
     });
-    expect(text.trimEnd()).toMatch(/\?$/);
+    expect(text.trimEnd()).toMatch(/<\/tangents>$/);
 
     const after = await api.getTree(detail.tree.id);
     const stored = after.nodes.find((n) => n.id === start.assistantNode.id)!;
@@ -316,11 +328,11 @@ describe('power demo backend', () => {
     await expect(api.saveKey('openai', 'sk-x')).rejects.toMatchObject({ status: 400 });
   });
 
-  it('keeps an empty system prompt and is never out of credit', async () => {
+  it('starts conversations with the built-in prompt and is never out of credit', async () => {
     const storage = memoryStorage();
     const { api } = setup({ mode: 'power', storage, seed: false });
     const tree = await api.createTree({});
-    expect(tree.tree.systemPrompt).toBeFalsy();
+    expect(tree.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
     const saved = JSON.parse(storage.data.get('tangent.power-demo.v1')!) as object;
     storage.data.set('tangent.power-demo.v1', JSON.stringify({ ...saved, balanceMicros: 0 }));
     const { api: next } = setup({ mode: 'power', storage });
@@ -335,6 +347,31 @@ describe('power demo backend', () => {
     expect(storage.data.has('tangent.learn-demo.v1')).toBe(false);
   });
 
+  it('saves a default system prompt in Settings, keeps it across a reload, and resets it', async () => {
+    const storage = memoryStorage();
+    const { api } = setup({ mode: 'power', storage, seed: false });
+    await expect(api.settings()).resolves.toEqual({
+      systemPrompt: null,
+      defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+    });
+    await expect(api.updateSettings({ systemPrompt: 'Be terse.' })).resolves.toEqual({
+      systemPrompt: 'Be terse.',
+      defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+    });
+    expect((await api.createTree({})).tree.systemPrompt).toBe('Be terse.');
+    expect((await api.createTree({ systemPrompt: 'Mine.' })).tree.systemPrompt).toBe('Mine.');
+
+    const { api: next } = setup({ mode: 'power', storage });
+    await expect(next.settings()).resolves.toMatchObject({ systemPrompt: 'Be terse.' });
+    await expect(next.updateSettings({ systemPrompt: null })).resolves.toMatchObject({
+      systemPrompt: null,
+    });
+    expect((await next.createTree({})).tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    await expect(next.updateSettings({ systemPrompt: 'x'.repeat(20_001) })).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+
   it('backs up a conversation and imports it as a copy', async () => {
     const { api, backend } = setup({ mode: 'power' });
     const [lesson] = await api.listTrees();
@@ -342,7 +379,7 @@ describe('power demo backend', () => {
     const backup = (await res.json()) as Parameters<ApiClient['importBackup']>[0];
     const copy = await api.importBackup(backup);
     expect(copy.tree.id).not.toBe(lesson!.id);
-    expect(copy.nodes).toHaveLength(6);
+    expect(copy.nodes).toHaveLength(8);
     expect(await api.listTrees()).toHaveLength(2);
   });
 });

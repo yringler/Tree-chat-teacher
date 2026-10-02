@@ -1,10 +1,15 @@
-import { parseReview, type GenerateRequest, type ProviderEvent } from '@tangent/shared';
+import {
+  parseReview,
+  splitTangents,
+  type GenerateRequest,
+  type ProviderEvent,
+} from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import {
   createLoremProvider,
   DEMO_SIMPLE_MODEL,
   DEMO_SMART_MODEL,
-  loremQuestion,
+  loremTangents,
   loremReply,
   loremReview,
   loremTitle,
@@ -39,15 +44,22 @@ describe('lorem text', () => {
     );
   });
 
-  it('always ends with a question in its own paragraph', () => {
+  it('always ends with a tangents block the app can parse', () => {
     for (let seed = 1; seed <= 40; seed++) {
       const reply = loremReply(seed % 2 ? DEMO_SMART_MODEL : DEMO_SIMPLE_MODEL, seeded(seed));
-      const last = reply.split('\n\n').at(-1)!;
-      expect(last).toMatch(/^[A-Z][^\n]*\?$/);
+      expect(reply.endsWith('</tangents>')).toBe(true);
+      const { body, tangents, partial } = splitTangents(reply);
+      expect(partial).toBe(false);
+      expect(body).not.toContain('<tangents>');
+      expect(body.length).toBeGreaterThan(20);
+      expect(tangents.length).toBeGreaterThanOrEqual(2);
+      expect(tangents.length).toBeLessThanOrEqual(4);
+      for (const t of tangents) expect(t.why).not.toBeNull();
       expect(reply).not.toContain('{{');
       expect(reply).not.toContain('undefined');
     }
-    expect(loremQuestion(seeded(3))).toMatch(/\?$/);
+    const titles = loremTangents(seeded(3)).map((t) => t.title);
+    expect(new Set(titles).size).toBe(titles.length);
   });
 
   it('writes longer replies for Smart than for Simple', () => {
@@ -123,7 +135,7 @@ describe('createLoremProvider', () => {
     for (const d of deltas) expect(d.text).toMatch(/^\S+\s*$/);
     const text = deltas.map((d) => d.text).join('');
     expect(text).toBe(loremReply(DEMO_SMART_MODEL, seeded(1)));
-    expect(text.trimEnd()).toMatch(/\?$/);
+    expect(text.trimEnd()).toMatch(/<\/tangents>$/);
     expect(events.slice(-3).map((e) => e.type)).toEqual(['usage', 'billing', 'done']);
     const billing = events.find((e) => e.type === 'billing');
     expect(billing?.type === 'billing' && billing.costUsd).toBeGreaterThan(0.001);

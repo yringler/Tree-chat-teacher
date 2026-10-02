@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
-import type { ChatNode } from '@tangent/shared';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { splitTangents, type ChatNode } from '@tangent/shared';
 import { Icon, MarkdownService } from '@tangent/web-shared';
 import { LessonStore } from '../state/lesson-store';
 import { branchTitle } from './titles';
@@ -51,14 +51,37 @@ import { branchTitle } from './titles';
         </div>
       }
 
-      @if (children().length > 0) {
+      @if (tangents().length > 0) {
+        <nav class="tangents" aria-label="Tangents worth following">
+          <span class="tangents-label muted small">Where next?</span>
+          @for (t of tangents(); track t.title) {
+            <button
+              type="button"
+              class="tangent"
+              [class.is-followed]="followed().has(t.title)"
+              [class.is-on]="followedOn().has(t.title)"
+              [disabled]="opening() !== null"
+              [title]="followed().has(t.title) ? 'Open this side question' : (t.why ?? t.title)"
+              (click)="follow(t.title)"
+            >
+              <app-icon [name]="followed().has(t.title) ? 'chevronRight' : 'branch'" [size]="14" />
+              <span class="tangent-title">{{ t.title }}</span>
+              @if (t.why) {
+                <span class="tangent-why muted">{{ t.why }}</span>
+              }
+            </button>
+          }
+        </nav>
+      }
+
+      @if (otherChildren().length > 0) {
         <nav class="side-questions" [attr.aria-label]="'Side questions from this message'">
           <span class="muted small">
             <app-icon name="branch" [size]="13" />
-            {{ children().length }}
-            {{ children().length === 1 ? 'side question' : 'side questions' }}
+            {{ otherChildren().length }}
+            {{ otherChildren().length === 1 ? 'side question' : 'side questions' }}
           </span>
-          @for (b of children(); track b.id) {
+          @for (b of otherChildren(); track b.id) {
             <button
               type="button"
               class="chip"
@@ -93,10 +116,53 @@ export class MessageItem {
     return l.reconnecting ? 'Reconnecting…' : l.status;
   });
   protected readonly content = computed(() => this.live()?.content ?? this.node().content);
+  /** The reply split from its `<tangents>` block (never rendered as text, even half-streamed). */
+  private readonly split = computed(() =>
+    this.node().role === 'assistant'
+      ? splitTangents(this.content())
+      : { body: this.content(), tangents: [], partial: false },
+  );
   /** Rendered by the shared markdown pipeline; [innerHTML] adds Angular's sanitizer on top. */
-  protected readonly html = computed(() => this.md.render(this.content(), !this.streaming()));
+  protected readonly html = computed(() => this.md.render(this.split().body, !this.streaming()));
   protected readonly askable = computed(
     () => this.node().role === 'assistant' && this.node().status === 'complete',
   );
+  /** The tutor's suggested tangents, offered once the reply is complete. */
+  protected readonly tangents = computed(() => (this.askable() ? this.split().tangents : []));
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
+  /** Titles of the tangents the learner already followed (a child branch carries the title). */
+  protected readonly followed = computed<ReadonlySet<string>>(() => {
+    const titles = new Set(this.tangents().map((t) => t.title));
+    return new Set(
+      this.children()
+        .map((b) => b.title)
+        .filter((t) => titles.has(t)),
+    );
+  });
+  /** Followed tangents on the current path. */
+  protected readonly followedOn = computed<ReadonlySet<string>>(() => {
+    const on = this.chainIds();
+    return new Set(
+      this.children()
+        .filter((b) => on.has(b.id))
+        .map((b) => b.title),
+    );
+  });
+  /** Side questions that are not followed tangents (those show in the tangents row). */
+  protected readonly otherChildren = computed(() => {
+    const followed = this.followed();
+    return this.children().filter((b) => !followed.has(b.title));
+  });
+  /** Title of the tangent whose branch is being created. */
+  protected readonly opening = signal<string | null>(null);
+
+  protected async follow(title: string): Promise<void> {
+    if (this.opening() !== null) return;
+    this.opening.set(title);
+    try {
+      await this.store.followTangent(this.node().id, title);
+    } finally {
+      this.opening.set(null);
+    }
+  }
 }

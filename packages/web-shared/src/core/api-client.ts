@@ -15,6 +15,7 @@ import type {
   ProviderInfo,
   ReviewRequest,
   SendMessageRequest,
+  SettingsResponse,
   ShareScope,
   ShareSummary,
   Tree,
@@ -22,6 +23,7 @@ import type {
   TreeDetail,
   TreeSummary,
   UpdateBranchRequest,
+  UpdateSettingsRequest,
   UpdateShareRequest,
   UpdateTreeRequest,
   UsageListResponse,
@@ -115,6 +117,18 @@ export class ApiClient {
   /** Starts a one-time credit top-up; resolves with the Stripe Checkout URL to send the browser to. */
   createCheckout(amountCents: number): Promise<CheckoutResponse> {
     return this.json('POST', '/billing/checkout', { amountCents });
+  }
+
+  // Account settings (server-side, per account)
+
+  /** The account's saved settings and the built-in default system prompt. */
+  settings(): Promise<SettingsResponse> {
+    return this.json('GET', '/settings');
+  }
+
+  /** `systemPrompt: null` (or blank) goes back to the built-in default. */
+  updateSettings(req: UpdateSettingsRequest): Promise<SettingsResponse> {
+    return this.json('PATCH', '/settings', req);
   }
 
   // Trees

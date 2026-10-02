@@ -5,12 +5,17 @@ import {
   parseProviderConfigs,
   type ProviderEnv,
 } from '@tangent/providers';
-import { LEARN_KEY_PROVIDER, type ProviderConfig, type ProviderRegistry } from '@tangent/shared';
+import {
+  DEFAULT_SYSTEM_PROMPT,
+  LEARN_KEY_PROVIDER,
+  type ProviderConfig,
+  type ProviderRegistry,
+} from '@tangent/shared';
 import { createUsageMeter, meteredRegistry } from './billing/meter.js';
 import { billingConfigured } from './billing/stripe.js';
 import { createD1Repositories } from './db/d1-repositories.js';
 import { isMetered, type AccountContext, type AppEnv } from './env.js';
-import { simpleChatSettings, simpleProviderConfig } from './simple-mode.js';
+import { simpleChatSettings, simpleProviderConfig, simpleSystemPrompt } from './simple-mode.js';
 
 /** Provider id → user-supplied API key (bring-your-own-key, see byok/keys.ts). */
 export type UserApiKeys = Readonly<Record<string, string>>;
@@ -105,6 +110,16 @@ export function chatSettingsFor(env: AppEnv, account: AccountContext): ChatSetti
   };
 }
 
+/**
+ * Built-in system prompt of an account's new trees, used when the request
+ * names none and the account has none saved (GET/PATCH /api/settings). Both
+ * modes share DEFAULT_SYSTEM_PROMPT; only Learn honours the operator's
+ * SIMPLE_SYSTEM_PROMPT, since power users can set their own.
+ */
+export function defaultSystemPromptFor(env: AppEnv, account: AccountContext): string {
+  return account.mode === 'simple' ? simpleSystemPrompt(env) : DEFAULT_SYSTEM_PROMPT;
+}
+
 export interface ChatServiceOptions {
   /** Bring-your-own-key overrides (ignored on paid credit, see registryFor). */
   apiKeys?: UserApiKeys;
@@ -154,6 +169,7 @@ export function chatService(
       ? meteredLazily(registry, env, account, opts.defer ?? detach)
       : registry,
     settings: chatSettingsFor(env, account),
+    defaultSystemPrompt: defaultSystemPromptFor(env, account),
   });
 }
 
