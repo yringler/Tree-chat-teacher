@@ -16,6 +16,7 @@ import {
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { accountDeletionRoutes } from '../auth/delete-account.js';
 import { assertGenerationAllowed, enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
 import { assertCanSpend } from '../billing/service.js';
 import { readKeys, requireReadableKeys, type UserKeys } from '../byok/keys.js';
@@ -93,6 +94,7 @@ export function apiRoutes(): Hono<AppBindings> {
   });
 
   api.route('/key', keyRoutes());
+  api.route('/account', accountDeletionRoutes());
 
   // ---- account settings (per account, so power and Learn each have their own)
   api.get('/settings', async (c) => c.json(await chatOf(c).getSettings()));

@@ -34,6 +34,7 @@
     // API and public share routes must reach the Worker even for browser navigations;
     // /learn* and /canvas* do too, for those apps' index.html and CSP. "/welcome" is the
     // landing page, and "/" (exact path) is too for anonymous visitors (src/http/landing.ts).
+    // "/privacy" and "/terms" are the public legal pages (src/http/legal.ts).
     "run_worker_first": [
       "/api/*",
       "/s/*",
@@ -42,7 +43,9 @@
       "/canvas",
       "/canvas/*",
       "/",
-      "/welcome"
+      "/welcome",
+      "/privacy",
+      "/terms"
     ]
   },
   "d1_databases": [
@@ -87,6 +90,14 @@
     "EMAIL_PROVIDER": "resend",
     // Sender for magic links; its domain must be verified in Resend.
     "EMAIL_FROM": "Tangent <login@email.tangentailearning.com>",
+    // ---- Legal pages (/privacy, /terms; src/http/legal.ts and docs/LEGAL.md).
+    // Legal name of whoever runs this deployment (a person or a company); empty = "the operator of <host>".
+    "LEGAL_OPERATOR": "Yehuda Ringler",
+    // Where privacy requests, legal notices and copyright complaints go. The mailbox must exist
+    // (Cloudflare Email Routing can forward it for free). Empty = privacy@<PUBLIC_BASE_URL host>.
+    "LEGAL_CONTACT_EMAIL": "yrappdev@gmail.com",
+    // Governing law of the terms, e.g. "the State of New York, USA"; empty = where the operator is established.
+    "LEGAL_JURISDICTION": "the Commonwealth of Pennsylvania, USA",
     // Cloudflare Turnstile site key (public) for the magic-link form. Its secret is TURNSTILE_SECRET_KEY.
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFLlFryv5vXul-MG",
     // JSON array of ProviderConfig; empty = built-in defaults (anthropic, openai, openrouter, fake).

@@ -2,6 +2,7 @@ import { escapeHtml } from '@tangent/render';
 import { Hono, type Context } from 'hono';
 import { authBaseUrl, authConfigured } from '../auth/auth.js';
 import type { AppBindings, AppEnv } from '../env.js';
+import { copyrightNotice, legalInfo } from './legal-info.js';
 import { LEARN_APP_CSP, LEARN_COMMON_HEADERS } from './learn-app.js';
 
 /**
@@ -98,7 +99,7 @@ footer a{color:var(--muted)}
 @media (min-width:720px){.wrap{padding:0 32px}.hero{grid-template-columns:1.15fr 1fr;align-items:center;padding-top:56px;padding-bottom:80px}.grid.four{grid-template-columns:1fr 1fr}.grid.two{grid-template-columns:1fr 1fr}section{padding:72px 0}}
 `;
 
-const MARK =
+export const MARK =
   '<svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">' +
   '<rect x="1" y="1" width="26" height="26" rx="8" stroke="currentColor" stroke-width="2"/>' +
   '<path d="M9 21V7M9 14c0-3 2-5 5.5-5H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>' +
@@ -128,6 +129,8 @@ const ICON_COIN = icon(
 export interface LandingPageOptions {
   /** Absolute URL of the page's canonical address (the site root). */
   canonicalUrl: string;
+  /** Who runs the service, for the footer's copyright line (http/legal.ts). */
+  operator: string;
 }
 
 const TITLE = 'Tangent: learn by following your curiosity, one branch at a time';
@@ -237,8 +240,8 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 </main>
 <footer>
 <div class="wrap">
-<span>Tangent</span>
-<nav aria-label="Footer"><a href="/learn/demo">Try the demo</a><a href="/learn/login">Sign in to Learn</a><a href="/login">Power sign in</a><a href="/welcome">About Tangent</a></nav>
+<span>${escapeHtml(copyrightNotice(opts.operator))}</span>
+<nav aria-label="Footer"><a href="/learn/demo">Try the demo</a><a href="/learn/login">Sign in to Learn</a><a href="/login">Power sign in</a><a href="/welcome">About Tangent</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
 </div>
 </footer>
 </body>
@@ -253,23 +256,33 @@ async function sha256Base64(text: string): Promise<string> {
   return btoa(bin);
 }
 
-let cspPromise: Promise<string> | null = null;
+const cspByStyle = new Map<string, Promise<string>>();
 
 /**
- * The landing page's Content-Security-Policy: nothing but the hashed inline
- * stylesheet and same-origin or data: images (the favicon). Memoized.
+ * Content-Security-Policy of a static page (landing, legal): nothing but its
+ * one hashed inline stylesheet and same-origin or data: images (the favicon).
+ * Memoized per stylesheet.
  */
+export function styleCsp(style: string): Promise<string> {
+  let csp = cspByStyle.get(style);
+  if (!csp) {
+    csp = sha256Base64(style).then(
+      (hash) =>
+        `default-src 'none'; style-src 'sha256-${hash}'; img-src 'self' data:; ` +
+        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      (err: unknown) => {
+        cspByStyle.delete(style);
+        throw err;
+      },
+    );
+    cspByStyle.set(style, csp);
+  }
+  return csp;
+}
+
+/** The landing page's Content-Security-Policy. */
 export function landingCsp(): Promise<string> {
-  cspPromise ??= sha256Base64(LANDING_STYLE).then(
-    (style) =>
-      `default-src 'none'; style-src 'sha256-${style}'; img-src 'self' data:; ` +
-      "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-    (err: unknown) => {
-      cspPromise = null;
-      throw err;
-    },
-  );
-  return cspPromise;
+  return styleCsp(LANDING_STYLE);
 }
 
 /** The landing page; `headers` adds to (or overrides) the common ones. */
@@ -278,7 +291,8 @@ async function landingResponse(
   headers: Record<string, string>,
 ): Promise<Response> {
   const canonicalUrl = new URL('/', authBaseUrl(c.env, c.req.raw)).toString();
-  return new Response(renderLandingPage({ canonicalUrl }), {
+  const { operator } = legalInfo(c.env, c.req.raw);
+  return new Response(renderLandingPage({ canonicalUrl, operator }), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Security-Policy': await landingCsp(),

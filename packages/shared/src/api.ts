@@ -31,6 +31,7 @@ import type { AccountMode } from './billing.js';
  * when absent); Learn requests also send the PAYMENT_HEADER (billing.ts):
  *
  *   GET    /api/me                               -> MeResponse
+ *   DELETE /api/account          DeleteAccountRequest -> 204 + cleared cookies (both accounts, same-origin only)
  *   GET    /api/providers                        -> ProviderInfo[]
  *   GET    /api/trees                            -> TreeSummary[]
  *   POST   /api/trees            CreateTreeRequest -> TreeDetail
@@ -186,6 +187,17 @@ export const updateSettingsRequestSchema = z.object({
   systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable(),
 });
 export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
+
+/**
+ * Permanently deletes the signed-in user: both of their accounts (power and
+ * Learn) with every conversation, share link and setting, their sign-in
+ * methods and sessions, and their Stripe customer (which cancels any monthly
+ * plan). `confirmEmail` must be the user's email, so a stray request can't do it.
+ */
+export const deleteAccountRequestSchema = z.object({
+  confirmEmail: z.string().trim().min(1).max(320),
+});
+export type DeleteAccountRequest = z.infer<typeof deleteAccountRequestSchema>;
 
 export const updateTreeRequestSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),

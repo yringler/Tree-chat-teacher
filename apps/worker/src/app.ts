@@ -7,6 +7,7 @@ import type { AppBindings } from './env.js';
 import { apiError, notFound, onError } from './http/errors.js';
 import { landingRoutes } from './http/landing.js';
 import { canvasAppRoutes, learnAppRoutes } from './http/learn-app.js';
+import { legalRoutes } from './http/legal.js';
 import { apiRoutes } from './routes/api.js';
 import { billingRoutes } from './routes/billing.js';
 import { shareRoutes } from './routes/share.js';
@@ -25,6 +26,7 @@ export interface AppOptions {
  * - `/s/*` is public and read-only.
  * - `/learn`, `/learn/*` serve the simple app and `/canvas`, `/canvas/*` the
  *   canvas app (http/learn-app.ts).
+ * - `/privacy` and `/terms` are the public legal pages (http/legal.ts).
  * - `/welcome`, and `/` for anonymous visitors, serve the landing page
  *   (http/landing.ts); `/` with a session cookie is the power app's index.
  * Everything else is served by Workers Static Assets before the Worker runs
@@ -60,6 +62,7 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   app.route('/s', shareRoutes());
   app.route('/', learnAppRoutes());
   app.route('/', canvasAppRoutes());
+  app.route('/', legalRoutes());
   app.route('/', landingRoutes());
   return app;
 }

@@ -9,6 +9,7 @@ import type {
   CreateBranchRequest,
   CreateShareRequest,
   CreateTreeRequest,
+  DeleteAccountRequest,
   DeleteBranchResponse,
   KeyStatusResponse,
   MeResponse,
@@ -77,6 +78,11 @@ export class ApiClient {
 
   me(): Promise<MeResponse> {
     return this.json('GET', '/me');
+  }
+
+  /** Permanently deletes the signed-in user (both accounts); `confirmEmail` must be their email. */
+  deleteAccount(confirmEmail: string): Promise<void> {
+    return this.json('DELETE', '/account', { confirmEmail } satisfies DeleteAccountRequest);
   }
 
   providers(): Promise<ProviderInfo[]> {

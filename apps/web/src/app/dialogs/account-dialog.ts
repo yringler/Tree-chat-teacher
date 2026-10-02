@@ -1,13 +1,13 @@
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, type OnInit, signal } from '@angular/core';
-import { AuthService, Icon, Modal, type PasskeyInfo } from '@tangent/web-shared';
+import { AuthService, DeleteAccount, Icon, Modal, type PasskeyInfo } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 
-/** Who is signed in, their passkeys, and sign-out. */
+/** Who is signed in, their passkeys, sign-out, the legal pages and account deletion. */
 @Component({
   selector: 'app-account-dialog',
-  imports: [Modal, Icon, DatePipe],
+  imports: [Modal, Icon, DatePipe, DeleteAccount],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="Account" (closed)="close()">
@@ -77,7 +77,18 @@ import { UiStore } from '../state/ui-store';
               Sign out
             </button>
           </div>
+
+          @if (me.email; as email) {
+            <fieldset class="settings-section">
+              <legend>Delete account</legend>
+              <app-delete-account [email]="email" />
+            </fieldset>
+          }
         }
+        <p class="muted small">
+          <a href="/privacy" target="_blank" rel="noopener">Privacy policy</a> ·
+          <a href="/terms" target="_blank" rel="noopener">Terms of service</a>
+        </p>
       }
     </app-modal>
   `,

@@ -37,6 +37,7 @@ export class UiStore {
   readonly branchDialog = signal<BranchDialogState | null>(null);
   readonly branchSettings = signal<BranchSettingsState | null>(null);
   readonly helpOpen = signal(false);
+  readonly deleteAccountOpen = signal(false);
   /** The "experimental" notice until it is dismissed (remembered in this browser). */
   readonly experimentalAck = signal(storedAck());
   /**
@@ -55,7 +56,8 @@ export class UiStore {
       this.keysOpen() ||
       this.branchDialog() !== null ||
       this.branchSettings() !== null ||
-      this.helpOpen(),
+      this.helpOpen() ||
+      this.deleteAccountOpen(),
   );
 
   notify(text: string, kind: Toast['kind'] = 'info'): void {
@@ -104,6 +106,10 @@ export class UiStore {
 
   /** Escape: closes the top-most overlay. Returns true if something closed. */
   closeTop(): boolean {
+    if (this.deleteAccountOpen()) {
+      this.deleteAccountOpen.set(false);
+      return true;
+    }
     if (this.helpOpen()) {
       this.helpOpen.set(false);
       return true;

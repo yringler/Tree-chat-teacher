@@ -62,3 +62,4 @@ export { Modal } from './ui/modal';
 export { ModeSwitch } from './ui/mode-switch';
 export { Turnstile } from './ui/turnstile';
 export { LoginPage } from './login/login-page';
+export { DeleteAccount } from './account/delete-account';

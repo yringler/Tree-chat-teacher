@@ -128,6 +128,11 @@ import { Turnstile } from '../ui/turnstile';
                 >(stay signed in for 30 days; otherwise until you close the browser)</span
               >
             </label>
+
+            <p class="login-legal muted small">
+              By signing in you confirm you are at least 13 and agree to the
+              <a href="/terms">Terms of service</a> and <a href="/privacy">Privacy policy</a>.
+            </p>
           }
         } @else if (!error()) {
           <p class="muted">Loading…</p>

@@ -5,6 +5,7 @@ import { RouteSync } from './core/route-sync';
 import { DEMO_SIGNUP_URL } from './demo/demo-mode';
 import { AppHeader } from './shell/app-header';
 import { ModelAccessDialog } from './shell/model-access-dialog';
+import { DeleteAccountDialog } from './shell/delete-account-dialog';
 import { PasskeysDialog } from './shell/passkeys-dialog';
 import { AccountStore } from './state/account-store';
 import { LessonStore } from './state/lesson-store';
@@ -13,7 +14,7 @@ import { UiStore } from './state/ui-store';
 /** Simple-mode shell, served under /learn/. */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, AppHeader, ModelAccessDialog, PasskeysDialog, Icon],
+  imports: [RouterOutlet, AppHeader, ModelAccessDialog, PasskeysDialog, DeleteAccountDialog, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (loginPage) {
@@ -37,6 +38,9 @@ import { UiStore } from './state/ui-store';
       </div>
       @if (ui.passkeysOpen()) {
         <app-passkeys-dialog />
+      }
+      @if (ui.deleteAccountOpen()) {
+        <app-delete-account-dialog />
       }
       @if (ui.accessOpen()) {
         <app-model-access-dialog />

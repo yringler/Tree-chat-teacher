@@ -118,6 +118,10 @@
   background: var(--bg-hover);
 }
 
+.menu-item-danger {
+  color: var(--danger);
+}
+
 .shell-main {
   flex: 1;
   min-height: 0;

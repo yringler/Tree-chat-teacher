@@ -65,6 +65,22 @@ import { UiStore } from '../state/ui-store';
             <button type="button" class="menu-item" role="menuitem" (click)="signOut()">
               {{ demo ? 'Leave the demo' : 'Sign out' }}
             </button>
+            @if (!demo && store.me()?.email) {
+              <button
+                type="button"
+                class="menu-item menu-item-danger"
+                role="menuitem"
+                (click)="openDeleteAccount()"
+              >
+                Delete account
+              </button>
+            }
+            <a href="/privacy" target="_blank" rel="noopener" class="menu-item" role="menuitem">
+              Privacy policy
+            </a>
+            <a href="/terms" target="_blank" rel="noopener" class="menu-item" role="menuitem">
+              Terms of service
+            </a>
           </div>
         }
       </div>
@@ -88,6 +104,11 @@ export class AppHeader {
     if (this.ui.menuOpen() && !this.host.nativeElement.contains(e.target as Node | null)) {
       this.ui.menuOpen.set(false);
     }
+  }
+
+  protected openDeleteAccount(): void {
+    this.ui.menuOpen.set(false);
+    this.ui.deleteAccountOpen.set(true);
   }
 
   protected async signOut(): Promise<void> {
