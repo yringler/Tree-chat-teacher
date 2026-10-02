@@ -236,6 +236,17 @@ hr {
   box-shadow: 0 0 0 1px var(--border-strong);
 }
 
+/* The experimental app's option wears a small flask-coloured dot. */
+.mode-switch-opt.is-experimental::after {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 0 0 6px 3px;
+  border-radius: 50%;
+  background: var(--mode-independent);
+}
+
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);

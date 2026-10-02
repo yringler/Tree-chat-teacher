@@ -27,7 +27,19 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 - **Power mode:** **Settings** → **Default system prompt** sets your own prompt for new conversations, saved to your account (`GET`/`PATCH /api/settings`, table `account_settings`), so it follows you to every device. **Use default** copies the built-in prompt into the editor to edit from; an empty editor means the built-in one. A conversation's own prompt (**Conversation settings**) overrides it for that conversation; clear it there for a conversation without a system prompt.
 - **Learn:** the operator can replace the built-in prompt with `SIMPLE_SYSTEM_PROMPT`; learners have no prompt editor.
 
-**Switching modes.** Both apps show a **Power | Learn** switch (the sidebar of the power app, the header of Learn). It is a link to the other app: one sign-in covers both. Each user has one account per mode, so power conversations and Learn lessons are kept apart (a Learn lesson runs on the tutor's provider, which the power app doesn't have, and the reverse). The app tells the API which mode it is with the `x-tangent-mode` header.
+### Experimental: Canvas (for the brave)
+
+A third UI, **Tangent Canvas** at `/canvas/` (`apps/canvas`), takes branching as far as it goes. It is a view of the **power** account's conversations (same account `p_<userId>`, same keys, same API, no header of its own), so anything started in Power mode can be opened on the canvas and the other way round. Instead of one branch at a time:
+
+- **Every branch is a lane on one pannable, zoomable surface.** A lane hangs to the right of the message it forks from, connected by a curve whose stroke is its context mode (solid for `path`, dashed for `summary`, dotted and cut short for `independent`). The layout is a contour sweep in `apps/canvas/src/app/layout/layout.ts` over the lanes' measured heights.
+- **Every lane has its own message box and streams on its own.** Any number of lanes can generate at once (the server only refuses a send into a branch whose last reply is still streaming); the bar counts how many are writing.
+- **Branch into variants.** The branch button on any message opens one lane, or several at once, each with its own context mode and model, and an optional first message sent to all of them in parallel ("Every context mode" opens the same question three ways, side by side).
+- **Lineage.** With the selected lane, the canvas asks the context planner (`GET /api/branches/:id/context`, summaries not generated) what the model would see and lights those cards up; cards that reach the model only through a summary are marked, dropped ones too, and everything else dims. The lane head shows the plan's token budget.
+- **Fold** any lane's subtree into a capsule; a minimap and keyboard navigation (`?` lists it) cover the rest.
+
+It is marked experimental in the app and in the **Power | Learn | Canvas** switch. There is no reviewer, no share or export UI and no settings editor there yet; use Power mode for those. Its demo runs at `/canvas/demo` over the power demo's in-browser backend.
+
+**Switching modes.** All apps show a **Power | Learn | Canvas** switch (the sidebar of the power app, the header of Learn). It is a link to the other app: one sign-in covers both. Each user has one account per mode, so power conversations and Learn lessons are kept apart (a Learn lesson runs on the tutor's provider, which the power app doesn't have, and the reverse). The app tells the API which mode it is with the `x-tangent-mode` header.
 
 **How Learn pays.** In Learn, **How replies are paid for** (account menu) offers:
 
@@ -46,16 +58,18 @@ Design docs:
 - [docs/PLAN.md](docs/PLAN.md): architecture, data model, interfaces, the context algorithm and portability.
 - [docs/DECISIONS.md](docs/DECISIONS.md): one-line decision log.
 - [docs/RESEARCH.md](docs/RESEARCH.md): research notes, with sources.
+- [docs/DEFERRED.md](docs/DEFERRED.md): known gaps and follow-ups left out of a change, with what fixing them takes.
 
 ```
 packages/shared     domain types, API + SSE contract (zod), share DTO
 packages/core       context assembly (pure), tree utils, share projection, services, repository ports
 packages/providers  Anthropic, OpenAI-compatible (OpenAI/OpenRouter/…), Fake — raw fetch + SSE
 packages/render     markdown → safe HTML, self-contained viewer page, Markdown export
-packages/web-shared Angular code shared by both apps: API client, auth, billing client, SSE, markdown, login page, base styles
+packages/web-shared Angular code shared by the apps: API client, auth, billing client, SSE, markdown, login page, base styles
 apps/worker         Hono API, D1 repositories, TreeSession Durable Object, Better Auth, email, share routes, billing
 apps/web            Power app at /: Angular 22 (standalone, signals, zoneless)
 apps/simple         Simple "Learn" app at /learn/: Angular 22
+apps/canvas         Experimental Canvas app at /canvas/ (a map of the power account's trees): Angular 22
 ```
 
 ## Requirements
@@ -83,11 +97,14 @@ For UI work with hot reload, run `pnpm --filter @tangent/worker dev` and `pnpm -
 
 The simple app works the same way: `pnpm --filter @tangent/simple start` serves it on <http://localhost:4201/learn/> (`ng serve --serve-path /learn/ --port 4201`, same proxy). The dev bypass acts as the `default` account in power mode and `default_simple` in Learn; to try paid credit offline, see "Option C" in `.dev.vars.example` and [Testing billing locally](#testing-billing-locally). With real sign-in on the dev server, set `PUBLIC_BASE_URL=http://localhost:4201`.
 
-**Build layout.** `pnpm build` builds the power app, then the simple app, then runs `scripts/assemble-assets.mjs`, which copies both into the Worker's static assets directory. `wrangler.jsonc` sets it as the Worker's `build.command`, so every `wrangler deploy` and `wrangler dev` runs it first (and `wrangler dev` reruns it when the apps' sources change):
+The canvas app too: `pnpm --filter @tangent/canvas start` serves it on <http://localhost:4202/canvas/> (`ng serve --serve-path /canvas/ --port 4202`, same proxy), acting as the `default` power account.
+
+**Build layout.** `pnpm build` builds the power app, the simple app and the canvas app, then runs `scripts/assemble-assets.mjs`, which copies them into the Worker's static assets directory. `wrangler.jsonc` sets it as the Worker's `build.command`, so every `wrangler deploy` and `wrangler dev` runs it first (and `wrangler dev` reruns it when the apps' sources change):
 
 ```
 apps/web/dist/web/browser/**        → apps/worker/site/         served at /
 apps/simple/dist/simple/browser/**  → apps/worker/site/learn/   served at /learn/
+apps/canvas/dist/canvas/browser/**  → apps/worker/site/canvas/  served at /canvas/
 ```
 
 `apps/worker/site/` is git-ignored except for a `.gitkeep`, so `wrangler dev` and the tests start before anything is built. The power app's deep links come straight from Workers Static Assets (SPA fallback). `/` (exact path) and `/welcome` run the Worker first: `apps/worker/src/http/landing.ts` serves the landing page there, and passes `/` to the power app's `index.html` when the request carries a session cookie or the dev bypass is on. `/learn` and `/learn/*` run the Worker first (`run_worker_first`): `apps/worker/src/http/learn-app.ts` serves files as they are and every other path as the simple app's `index.html`, because the SPA fallback only ever serves the root `index.html`.

@@ -203,3 +203,11 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 - **Power renders tangents like Learn: hidden from the reply (also mid-stream), buttons under a finished reply, a click makes a titled `path` branch and sends the title.** The branch takes the message's branch's provider/model, like "Branch from here". The component is duplicated rather than shared because the two stores differ; the CSS moved to `base.css`.
 - **Shares and exports turn the block into a plain "Where next?" list** (`tangentsAsMarkdown`, used by the viewer and the Markdown export). There are no buttons outside the apps, and raw tags would show as escaped text (markdown-it runs with `html: false`). The payload itself is unchanged.
 - **The demos use the real built-in prompt** (replaces the Learn demo's own short tutor prompt), and their `/api/settings` works in memory, saved with the session.
+
+## Canvas (experimental third app)
+
+- **Canvas is a view of the power account, not a third account.** It sends no `x-tangent-mode` header, so every tree it opens is a power tree on the user's own keys; nothing had to change server-side beyond serving `/canvas/*` like `/learn/*`. A third account would have split a user's conversations three ways for no benefit.
+- **Layout is computed from measured DOM heights, not estimated ones.** Lanes are absolutely positioned; each reports its box through a `ResizeObserver`, and a pure, tested contour sweep places the lanes. Estimating heights from text would drift as replies stream and markdown renders.
+- **Lineage uses the real context planner, unresolved.** The canvas calls `/api/branches/:id/context?resolve=false` and lights the plan's source nodes. Re-deriving "what the model sees" in the client would be a second implementation of the context algorithm; `resolve=false` keeps it from generating summaries (a model call) just to show the map.
+- **Parallel streams need no server change.** `beginSend` only refuses a send into a branch whose leaf is still streaming, so different lanes may generate at once; the store keeps every live reply in one map.
+- **Marked experimental, in the switch and with a dismissable notice.** The surface is unusual and unpolished on small screens; the Power | Learn | Canvas switch carries a dot on Canvas and the app explains that what is sent there is real.

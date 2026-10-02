@@ -14,26 +14,36 @@
   // cookie reaches the Durable Object in a request body, and outbound provider calls aren't logged.
   // Don't add request logging that dumps headers (Cookie) or bodies of /api/key.
   "observability": { "enabled": true },
-  // Builds both Angular apps into ./site (root `pnpm build`) before every `wrangler deploy` and
+  // Builds the Angular apps into ./site (root `pnpm build`) before every `wrangler deploy` and
   // `wrangler dev`, so a bare `wrangler deploy` can't ship the empty assets directory: that serves
-  // the Worker alone, and /learn/*, /login and every asset 404. Under `wrangler dev` it reruns when
+  // the Worker alone, and /learn/*, /canvas/*, /login and every asset 404. Under `wrangler dev` it reruns when
   // the apps' sources change. Workers Builds ignores this key: see "Deploying from Git" in the README.
   "build": {
     "command": "pnpm -w build",
-    "watch_dir": ["../web/src", "../simple/src", "../../packages/web-shared/src"]
+    "watch_dir": ["../web/src", "../simple/src", "../canvas/src", "../../packages/web-shared/src"]
   },
   "assets": {
     // Assembled by scripts/assemble-assets.mjs (root `pnpm build`): the power app at the
-    // root, the simple app under learn/. Holds only .gitkeep until something is built.
+    // root, the simple app under learn/, the canvas app under canvas/. Holds only .gitkeep
+    // until something is built.
     "directory": "./site",
     "binding": "ASSETS",
     // The power app's deep links. SPA fallback always serves the root index.html, so
-    // the simple app can't use it: /learn* goes to the Worker (src/http/learn-app.ts).
+    // the other apps can't use it: /learn* and /canvas* go to the Worker (src/http/learn-app.ts).
     "not_found_handling": "single-page-application",
     // API and public share routes must reach the Worker even for browser navigations;
-    // /learn* does too, for the simple app's index.html and its CSP. "/welcome" is the
+    // /learn* and /canvas* do too, for those apps' index.html and CSP. "/welcome" is the
     // landing page, and "/" (exact path) is too for anonymous visitors (src/http/landing.ts).
-    "run_worker_first": ["/api/*", "/s/*", "/learn", "/learn/*", "/", "/welcome"]
+    "run_worker_first": [
+      "/api/*",
+      "/s/*",
+      "/learn",
+      "/learn/*",
+      "/canvas",
+      "/canvas/*",
+      "/",
+      "/welcome"
+    ]
   },
   "d1_databases": [
     {

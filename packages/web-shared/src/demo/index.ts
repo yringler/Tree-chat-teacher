@@ -1,10 +1,9 @@
 import { APP_BASE_HREF } from '@angular/common';
 import type { Provider } from '@angular/core';
-import type { AccountMode } from '@tangent/shared';
 import { API_FETCH } from '../core/api-fetch';
 import { provideAppPaths } from '../core/app-paths';
 import { AUTH_CLIENT, type TangentAuthClient } from '../core/auth-client';
-import { DEMO_BASES, DEMO_MODE } from '../core/demo';
+import { accountModeOf, DEMO_BASES, DEMO_MODE, type AppId } from '../core/demo';
 import { createDemoFetch } from './backend';
 
 /*
@@ -46,10 +45,12 @@ export function createDemoAuthClient(): TangentAuthClient {
  * Extra root providers for an app's demo URL (added after its appConfig's,
  * so they win): the in-browser backend as the API transport, the router
  * based at the demo URL, sign-in paths that stay in the demo, and no auth
- * client.
+ * client. The backend acts as the app's account (Canvas shares the power
+ * demo's conversations, as it shares the power account for real).
  */
-export function demoProviders(mode: AccountMode): Provider[] {
-  const base = DEMO_BASES[mode];
+export function demoProviders(app: AppId): Provider[] {
+  const base = DEMO_BASES[app];
+  const mode = accountModeOf(app);
   return [
     { provide: DEMO_MODE, useValue: true },
     { provide: API_FETCH, useFactory: () => createDemoFetch({ mode }) },

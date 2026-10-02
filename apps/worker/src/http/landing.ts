@@ -173,7 +173,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <a class="btn" href="/learn/login">Start learning</a>
 </div>
 <p class="note">The demo is free and runs in your browser. Nothing is sent to a model and the replies are playful nonsense, so you can explore branching without signing up.</p>
-<p class="power"><a href="/login">Power users: sign in</a></p>
+<p class="power"><a href="/login">Power users: sign in</a> · <a href="/canvas/demo">Feeling brave? Try Canvas</a>, an experimental map of a whole conversation</p>
 </div>
 <figure class="demo" aria-label="Example: an answer, its tangents, and a side question branching off it">
 <p class="msg you">Why does ice float?</p>
