@@ -5,17 +5,6 @@ import type { AppEnv } from '../env.js';
 /** The API version stripe@22.6.2 pins; create the webhook endpoint on the same one. */
 export const STRIPE_API_VERSION = '2026-08-26.dahlia' satisfies Stripe.LatestApiVersion;
 
-/** A monthly credit plan from the `STRIPE_PLANS` var (Better Auth Stripe plugin plan). */
-export interface StripePlanConfig {
-  /** Plugin plan name (`subscription.upgrade({ plan })`). */
-  name: string;
-  label: string;
-  /** Stripe recurring price id (`price_…`). */
-  priceId: string;
-  /** Display price per month; the credit granted comes from the paid invoice's subtotal. */
-  amountCents: number;
-}
-
 // One client per secret key per isolate (the client holds no request state).
 const clients = new Map<string, Stripe>();
 
@@ -40,53 +29,12 @@ export function billingConfigured(env: AppEnv): boolean {
   return !!env.STRIPE_SECRET_KEY?.trim() && !!env.STRIPE_WEBHOOK_SECRET?.trim();
 }
 
-function isPlan(v: unknown): v is StripePlanConfig {
-  if (typeof v !== 'object' || v === null) return false;
-  const p = v as Record<string, unknown>;
-  return (
-    typeof p['name'] === 'string' &&
-    p['name'] !== '' &&
-    typeof p['label'] === 'string' &&
-    typeof p['priceId'] === 'string' &&
-    p['priceId'] !== '' &&
-    typeof p['amountCents'] === 'number' &&
-    Number.isInteger(p['amountCents']) &&
-    p['amountCents'] > 0
-  );
-}
-
 /**
- * Parses `STRIPE_PLANS` (empty or `[]` = no monthly plans). Malformed JSON or
- * entries are logged and skipped rather than taking the Worker down.
+ * The membership's Stripe price (`STRIPE_MEMBERSHIP_PRICE_ID`, a yearly
+ * recurring price); null when unset, i.e. no membership is sold or required.
  */
-export function stripePlans(env: AppEnv): StripePlanConfig[] {
-  const raw = env.STRIPE_PLANS?.trim();
-  if (!raw) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    console.error('STRIPE_PLANS is not valid JSON; no monthly plans offered');
-    return [];
-  }
-  if (!Array.isArray(parsed)) {
-    console.error('STRIPE_PLANS must be a JSON array; no monthly plans offered');
-    return [];
-  }
-  const plans: StripePlanConfig[] = [];
-  for (const entry of parsed) {
-    if (!isPlan(entry)) {
-      console.error('STRIPE_PLANS: skipping an invalid plan entry');
-      continue;
-    }
-    plans.push({
-      name: entry.name,
-      label: entry.label,
-      priceId: entry.priceId,
-      amountCents: entry.amountCents,
-    });
-  }
-  return plans;
+export function membershipPriceId(env: AppEnv): string | null {
+  return env.STRIPE_MEMBERSHIP_PRICE_ID?.trim() || null;
 }
 
 /**

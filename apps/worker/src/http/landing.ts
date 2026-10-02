@@ -206,7 +206,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <article class="card">${ICON_COMPASS}<h3>Answers first, tangents next</h3><p>Ask a question and get the answer, straight away and in real depth: the mechanism, not just the fact, and no quiz in between. Every answer ends with a few tangents worth following. One tap opens any of them as a branch of its own.</p></article>
 <article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. The side question opens its own branch, so detours never clutter the main thread, and every branch stays one click away. Choose <strong>Smart</strong> for hard topics or <strong>Simple</strong> for quick ones.</p></article>
 <article class="card">${ICON_EYE}<h3>See exactly what the model sees</h3><p>In power mode, decide how much each branch inherits: the full path, a summary, or a clean slate. The inspector shows the exact prompt before anything is sent.</p></article>
-<article class="card">${ICON_COIN}<h3>Your key, or pay as you go</h3><p>Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or use prepaid credit: each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up or choose a monthly plan, and manage billing in Stripe.</p></article>
+<article class="card">${ICON_COIN}<h3>Your key, or pay as you go</h3><p>Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or use prepaid credit: each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up when you need to, and manage billing in Stripe.</p></article>
 </div>
 </div>
 </section>
@@ -223,7 +223,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <li>Tangents after every answer, each one a tap away</li>
 <li>Side questions with Ask about this</li>
 <li>Smart and Simple tiers, one toggle</li>
-<li>Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit or a monthly plan</li>
+<li>Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit</li>
 </ul>
 <a class="btn primary" href="/learn/login">Start learning</a>
 </article>

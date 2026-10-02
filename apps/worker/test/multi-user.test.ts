@@ -8,6 +8,7 @@ import {
   type LearnPayment,
   type LoginOptionsResponse,
   type MeResponse,
+  type MembershipInfo,
   type ProviderInfo,
   type SettingsResponse,
   type ShareSummary,
@@ -25,6 +26,7 @@ import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { EmailMessage, EmailSender } from '../src/email/index.js';
 import type { AppEnv } from '../src/env.js';
 import { makeNode } from './fixtures.js';
+import { insertSubscription } from './mocks/billing-helpers.js';
 
 const ORIGIN = 'https://tangent.example.com';
 /** The Anthropic-style mock upstream of vitest.config.ts: `sk-ant-good…` keys work, replies echo `key=<rest>`. */
@@ -667,6 +669,127 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       expect(res.status, `${providerId} ${model}`).toBe(400);
       expect(await errorCode(res)).toBe('bad_request');
     }
+  });
+});
+
+describe('membership', () => {
+  const WAIVER = 'let-me-in';
+  /** The membership sold and required, with a waiver code. */
+  const memberEnv = () =>
+    authEnv({
+      STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership',
+      MEMBERSHIP_WAIVER_CODE: WAIVER,
+    });
+
+  /** The three generating requests on `owner`'s tree (power on the keyless fake provider, or Learn). */
+  async function generating(owner: User, learn?: LearnPayment) {
+    const { trunk, assistant } = learn
+      ? await treeWithNodes(owner, learn)
+      : await treeWithNodes(owner, undefined, { providerId: 'fake', model: 'fake-1' });
+    const review = learn
+      ? { providerId: 'tangent', model: 'smart' }
+      : { providerId: 'fake', model: 'fake-1' };
+    return {
+      trunk,
+      requests: [
+        [`/api/branches/${trunk.id}/messages`, { method: 'POST', json: { content: 'Hi' } }],
+        [`/api/nodes/${assistant.id}/review`, { method: 'POST', json: review }],
+        [`/api/branches/${trunk.id}/context?resolve=true`, {}],
+      ] as [string, CallInit][],
+    };
+  }
+
+  it('/api/me carries it in both modes; not required without the price id', async () => {
+    const free = await newUser();
+    for (const me of [free.power, free.learn]) {
+      expect(me.membership).toEqual({
+        required: false,
+        status: 'inactive',
+        stripeStatus: null,
+        periodEnd: null,
+        cancelAtPeriodEnd: false,
+        priceCents: 1000,
+        includedCreditCents: 200,
+      } satisfies MembershipInfo);
+    }
+    const u = await newUser(memberEnv());
+    for (const me of [u.power, u.learn])
+      expect(me.membership).toMatchObject({ required: true, status: 'inactive' });
+  });
+
+  it('402 membership_required on the three generating routes, in both apps, before the credit check', async () => {
+    const u = await newUser(memberEnv());
+    for (const learn of [undefined, 'credit', 'own-key'] as const) {
+      const { trunk, requests } = await generating(u, learn);
+      for (const [path, init] of requests) {
+        const res = await u.call(path, { ...init, ...(learn ? { learn } : {}) });
+        expect(res.status, `${learn ?? 'power'} ${path}`).toBe(402);
+        expect(await errorCode(res)).toBe('membership_required');
+      }
+      // Reading, exporting and settings stay open: nobody is locked out of their data.
+      const opts = learn ? { learn } : {};
+      for (const path of [
+        '/api/trees',
+        `/api/trees/${trunk.treeId}`,
+        `/api/trees/${trunk.treeId}/backup`,
+        `/api/export?treeId=${trunk.treeId}&scope=tree&format=md`,
+        `/api/branches/${trunk.id}/context`,
+        '/api/settings',
+        '/api/billing',
+        '/api/providers',
+      ]) {
+        expect((await u.call(path, opts)).status, path).toBe(200);
+      }
+    }
+    // Another user's ids are still 404, not 402.
+    const other = await newUser(memberEnv());
+    const { trunk } = await generating(u);
+    const res = await other.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Hi' },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('a paid membership opens generating; credit is checked next', async () => {
+    const u = await newUser(memberEnv());
+    await insertSubscription(env, u.power.accountId.slice(2), 'past_due');
+    expect(
+      (await json<MeResponse>(await u.call('/api/me', { learn: 'credit' }))).membership,
+    ).toMatchObject({ required: true, status: 'active', stripeStatus: 'past_due' });
+    const { requests } = await generating(u);
+    const res = await u.call(...requests[0]!);
+    expect(res.status).toBe(200);
+    expect(parseSse(await res.text()).at(-1)?.type).toBe('done');
+    // Learn on credit, without any: now the credit check answers.
+    const learn = await generating(u, 'credit');
+    const short = await u.call(learn.requests[0]![0], {
+      ...learn.requests[0]![1],
+      learn: 'credit',
+    });
+    expect(short.status).toBe(402);
+    expect(await errorCode(short)).toBe('payment_required');
+  });
+
+  it('the waiver code opens generating, in both apps', async () => {
+    const u = await newUser(memberEnv());
+    const wrong = await u.call('/api/billing/membership/waiver', {
+      method: 'POST',
+      json: { code: 'guess' },
+    });
+    expect(wrong.status).toBe(403);
+    const info = await json<MembershipInfo>(
+      await u.call('/api/billing/membership/waiver', {
+        method: 'POST',
+        json: { code: WAIVER },
+        learn: 'own-key',
+      }),
+    );
+    expect(info).toMatchObject({ required: true, status: 'waived' });
+    expect((await json<MeResponse>(await u.call('/api/me'))).membership.status).toBe('waived');
+    const { requests } = await generating(u);
+    const res = await u.call(...requests[1]!);
+    expect(res.status).toBe(200);
   });
 });
 

@@ -18,6 +18,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { accountDeletionRoutes } from '../auth/delete-account.js';
 import { assertGenerationAllowed, enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
+import { assertMember, membershipFor } from '../billing/membership.js';
 import { assertCanSpend } from '../billing/service.js';
 import { readKeys, requireReadableKeys, type UserKeys } from '../byok/keys.js';
 import { accountParams, type SessionSendBody } from '../do/tree-session.js';
@@ -67,12 +68,16 @@ async function keysOf(c: AppContext): Promise<Extract<UserKeys, { state: 'ok' }>
  * and the account middleware (auth/account.ts). Every branch or node id is
  * resolved through the caller's account (`getOwnedBranch`/`getOwnedNode`)
  * before anything else happens, so another account's ids are 404. Routes that
- * may spend credit (a call on the built-in provider) check the balance first (402).
+ * generate check the membership (402 `membership_required`, when one is
+ * required), then, for a call on the built-in provider, the credit (402
+ * `payment_required`). Every other route stays open without a membership.
  */
 export function apiRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();
 
-  api.get('/me', (c) => {
+  // The membership rides along so the apps can gate at startup without a second
+  // request (one query, none when no membership is required).
+  api.get('/me', async (c) => {
     const { email, devMode } = c.var.identity;
     const { account } = c.var;
     return c.json({
@@ -82,6 +87,7 @@ export function apiRoutes(): Hono<AppBindings> {
       mode: account.mode,
       operatorKeys: account.operatorKeys,
       builtInCredit: builtInAvailable(c.env),
+      membership: await membershipFor(c.env, account),
     } satisfies MeResponse);
   });
 
@@ -166,6 +172,7 @@ export function apiRoutes(): Hono<AppBindings> {
       // resolve=true may generate summaries (billed on the built-in provider, which
       // summarizes its own branches); a plain plan only counts tokens.
       if (q.resolve) {
+        await assertMember(c.env, c.var.account);
         await assertCanSpend(c.env, c.var.account, branch.providerId);
         await enforceRateLimit(c, keys, 'chat', branch.providerId);
       }
@@ -187,6 +194,8 @@ export function apiRoutes(): Hono<AppBindings> {
       const { account } = c.var;
       const chat = chatOf(c, keys);
       const branch = await chat.getOwnedBranch(c.req.param('branchId'));
+      // The route is the Durable Object's only way in, so this gate covers it.
+      await assertMember(c.env, account);
       assertGenerationAllowed(chat.deps.providers, branch.providerId, branch.model, {
         userKeys: !isMetered(account, branch.providerId),
       });
@@ -239,6 +248,7 @@ export function apiRoutes(): Hono<AppBindings> {
       const keys = await keysOf(c);
       const chat = chatOf(c, keys);
       const node = await chat.getOwnedNode(c.req.param('nodeId'));
+      await assertMember(c.env, c.var.account);
       // The client picks the reviewer model here, so the allowlist is what bounds it.
       // The review is metered iff the reviewer is the built-in provider.
       assertGenerationAllowed(chat.deps.providers, req.providerId, req.model, {

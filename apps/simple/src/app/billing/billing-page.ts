@@ -8,7 +8,7 @@ import {
   type OnInit,
 } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import type { MonthlyPlanInfo, UsageEntry, UsagePurpose } from '@tangent/shared';
+import type { UsageEntry, UsagePurpose } from '@tangent/shared';
 import { ApiClient, BillingClient, DEMO_MODE, Icon } from '@tangent/web-shared';
 import { BillingController } from './billing-controller';
 import { formatBps, formatCents, formatCharge, formatMicros } from './format';
@@ -21,18 +21,9 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
   other: 'Other',
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  active: 'Active',
-  trialing: 'Trial',
-  past_due: 'Payment due',
-  canceled: 'Cancelled',
-  incomplete: 'Incomplete',
-  unpaid: 'Unpaid',
-};
-
 /**
- * `/learn/billing`: balance, top-ups, monthly plans, the Stripe customer
- * portal and recent usage. Stripe sends the browser back here with
+ * `/learn/billing`: balance, top-ups, the Stripe customer portal and recent
+ * usage. (The membership section arrives with the shared billing page.) Stripe sends the browser back here with
  * `?checkout=success|cancel` (bound as the `checkout` input when the router
  * has component input binding, otherwise read from the route).
  */
@@ -98,8 +89,8 @@ const STATUS_LABELS: Record<string, string> = {
           }
           <p class="muted small">
             Each reply costs the model's price, including the provider's credit-purchase fee, plus
-            10% (5% with a monthly plan). Payment processing fees are deducted from each purchase,
-            so the credit added is slightly less than the amount paid. Prices exclude tax; tax is
+            {{ bps(s.markupBps) }}. Payment processing fees are deducted from each purchase, so the
+            credit added is slightly less than the amount paid. Prices exclude tax; tax is
             calculated at checkout.
           </p>
           @if (s.lastPurchase; as p) {
@@ -109,10 +100,6 @@ const STATUS_LABELS: Record<string, string> = {
               processing.
             </p>
           }
-          <p class="muted small">
-            You're paying the {{ bps(s.markupBps) }} rate right now. The rate follows your plan when
-            a reply is sent, including for credit you added earlier.
-          </p>
         </section>
 
         <section class="card billing-section" aria-labelledby="billing-topup-h">
@@ -168,71 +155,6 @@ const STATUS_LABELS: Record<string, string> = {
           }
         </section>
 
-        @if (s.monthlyPlans.length > 0 && !demo) {
-          <section class="billing-section" aria-labelledby="billing-plans-h">
-            <h2 id="billing-plans-h" class="billing-h">Monthly plans</h2>
-            <p class="muted small">
-              A plan adds its amount as credit every month, less payment processing fees, and every
-              reply is charged at the 5% rate while it's active. Unused credit rolls over.
-            </p>
-            <ul class="billing-plans">
-              @for (plan of s.monthlyPlans; track plan.name) {
-                @let current = isCurrent(plan);
-                <li class="card billing-plan" [class.billing-plan-current]="current">
-                  <div class="billing-plan-head">
-                    <strong>{{ plan.label }}</strong>
-                    @if (current) {
-                      <span class="badge badge-ok">Your plan</span>
-                    }
-                  </div>
-                  <p class="billing-plan-price">
-                    {{ cents_(plan.amountCents) }}<span class="muted small"> / month</span>
-                  </p>
-                  <p class="muted small">
-                    Credit added every month (after processing fees), at the 5% rate.
-                  </p>
-                  @if (current) {
-                    @if (ctl.currentPlan(); as sub) {
-                      <p class="small">
-                        <span class="badge" [class.badge-warn]="sub.status !== 'active'">{{
-                          statusLabel(sub.status)
-                        }}</span>
-                        @if (sub.periodEnd) {
-                          @if (sub.cancelAtPeriodEnd) {
-                            Ends on {{ sub.periodEnd | date: 'mediumDate' }}
-                          } @else {
-                            Renews on {{ sub.periodEnd | date: 'mediumDate' }}
-                          }
-                        } @else if (sub.cancelAtPeriodEnd) {
-                          Ends at the end of this period
-                        }
-                      </p>
-                    }
-                  } @else {
-                    <button
-                      type="button"
-                      class="btn"
-                      [disabled]="ctl.busy()"
-                      [attr.aria-label]="
-                        (ctl.currentPlan() ? 'Switch to ' : 'Choose ') + plan.label
-                      "
-                      (click)="ctl.choosePlan(plan)"
-                    >
-                      {{
-                        isPendingPlan(plan)
-                          ? 'Opening…'
-                          : ctl.currentPlan()
-                            ? 'Switch to this plan'
-                            : 'Choose'
-                      }}
-                    </button>
-                  }
-                </li>
-              }
-            </ul>
-          </section>
-        }
-
         <section class="billing-section billing-manage" aria-labelledby="billing-manage-h">
           <h2 id="billing-manage-h" class="sr-only">Manage billing</h2>
           <button type="button" class="btn" [disabled]="demo || ctl.busy()" (click)="ctl.manage()">
@@ -243,7 +165,7 @@ const STATUS_LABELS: Record<string, string> = {
             <span class="muted small">Not available in the demo.</span>
           } @else {
             <span class="muted small"
-              >Payment methods, invoices, and changing or cancelling your plan.</span
+              >Payment methods, invoices, and cancelling your membership.</span
             >
           }
         </section>
@@ -421,30 +343,6 @@ const STATUS_LABELS: Record<string, string> = {
     .billing-error {
       color: var(--danger);
     }
-    .billing-plans {
-      list-style: none;
-      padding: 0;
-      margin: 8px 0 0;
-      display: grid;
-      gap: 8px;
-      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    }
-    .billing-plan {
-      align-items: flex-start;
-    }
-    .billing-plan-current {
-      border-color: var(--accent);
-      box-shadow: inset 0 0 0 1px var(--accent);
-    }
-    .billing-plan-head {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .billing-plan-price {
-      font-size: 1.25rem;
-      font-weight: 600;
-    }
     .billing-manage {
       display: flex;
       flex-wrap: wrap;
@@ -494,7 +392,7 @@ export class BillingPage implements OnInit, OnDestroy {
   /** `?checkout=success|cancel` when the router binds query params to inputs. */
   readonly checkout = input<string | undefined>();
 
-  /** The demo can't buy anything: top-ups, plans and the portal are off. */
+  /** The demo can't buy anything: top-ups and the portal are off. */
   protected readonly demo = inject(DEMO_MODE);
   private readonly route = inject(ActivatedRoute, { optional: true });
   private readonly router = inject(Router, { optional: true });
@@ -552,19 +450,6 @@ export class BillingPage implements OnInit, OnDestroy {
   protected customPending(): boolean {
     const p = this.ctl.pending();
     return p?.kind === 'top-up' && p.source === 'custom';
-  }
-
-  protected isPendingPlan(plan: MonthlyPlanInfo): boolean {
-    const p = this.ctl.pending();
-    return p?.kind === 'plan' && p.plan === plan.name;
-  }
-
-  protected isCurrent(plan: MonthlyPlanInfo): boolean {
-    return this.ctl.currentPlan()?.plan === plan.name;
-  }
-
-  protected statusLabel(status: string): string {
-    return STATUS_LABELS[status] ?? status;
   }
 
   protected purposeLabel(u: UsageEntry): string {

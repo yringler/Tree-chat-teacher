@@ -181,15 +181,18 @@ describe('usage meter', () => {
     expect((await h.rows())[0]!.generation_id).toBe(gen);
   });
 
-  it('settles cost × 1.055 × 1.05 with an active subscription', async () => {
+  it('settles at MARKUP_BPS, the same with a membership (no plan discounts)', async () => {
     const account = simpleAccount();
     await insertSubscription(env, account.userId!, 'active');
     const h = harness(account);
-    await h.run([
-      { type: 'delta', text: 'x' },
-      { type: 'billing', generationId: uniq('gen'), costUsd: COST },
-      { type: 'done', stopReason: 'stop' },
-    ]);
+    await h.run(
+      [
+        { type: 'delta', text: 'x' },
+        { type: 'billing', generationId: uniq('gen'), costUsd: COST },
+        { type: 'done', stopReason: 'stop' },
+      ],
+      { env: { ...env, MARKUP_BPS: '500', STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership' } },
+    );
     expect((await h.rows())[0]).toMatchObject({
       status: 'settled',
       markup_bps: 500,

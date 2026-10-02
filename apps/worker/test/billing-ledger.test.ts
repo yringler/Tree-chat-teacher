@@ -3,7 +3,7 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { getBalance, grantCredit, hasGrant } from '../src/billing/ledger.js';
 import { assertCanSpend, getBillingSummary, listUsage, markupFor } from '../src/billing/service.js';
-import { billingConfigured, stripePlans } from '../src/billing/stripe.js';
+import { billingConfigured } from '../src/billing/stripe.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import {
   devPowerAccount,
@@ -87,25 +87,19 @@ describe('ledger', () => {
 });
 
 describe('markupFor', () => {
-  it('is the prepaid rate without a subscription and the monthly rate with an active one', async () => {
-    const account = simpleAccount();
-    expect(await markupFor(env, account)).toBe(1000);
-    await insertSubscription(env, account.userId!, 'past_due');
-    expect(await markupFor(env, account)).toBe(1000);
-    await insertSubscription(env, account.userId!, 'active');
-    expect(await markupFor(env, account)).toBe(500);
+  it('is MARKUP_BPS, the same for every user (1000 by default)', () => {
+    expect(markupFor(env)).toBe(1000);
+    expect(markupFor({ ...env, MARKUP_BPS: '2500' })).toBe(2500);
+    expect(markupFor({ ...env, MARKUP_BPS: '0' })).toBe(0);
   });
 
-  it('reads MARKUP_*_BPS and falls back on invalid values', async () => {
-    const account = simpleAccount();
-    expect(await markupFor({ ...env, MARKUP_PREPAID_BPS: '2500' }, account)).toBe(2500);
-    expect(await markupFor({ ...env, MARKUP_PREPAID_BPS: 'oops' }, account)).toBe(1000);
-    await insertSubscription(env, account.userId!, 'active');
-    expect(await markupFor({ ...env, MARKUP_MONTHLY_BPS: '0' }, account)).toBe(0);
-  });
-
-  it('uses the prepaid rate for an account without a user (dev mode)', async () => {
-    expect(await markupFor(env, devPowerAccount())).toBe(1000);
+  it('falls back to the deprecated MARKUP_PREPAID_BPS while MARKUP_BPS is empty, then to 1000', () => {
+    expect(markupFor({ ...env, MARKUP_BPS: '', MARKUP_PREPAID_BPS: '1500' })).toBe(1500);
+    expect(markupFor({ ...env, MARKUP_BPS: 'oops', MARKUP_PREPAID_BPS: '1500' })).toBe(1500);
+    // MARKUP_BPS wins when both are set.
+    expect(markupFor({ ...env, MARKUP_BPS: '800', MARKUP_PREPAID_BPS: '1500' })).toBe(800);
+    expect(markupFor({ ...env, MARKUP_BPS: '', MARKUP_PREPAID_BPS: 'oops' })).toBe(1000);
+    expect(markupFor({ ...env, MARKUP_BPS: '', MARKUP_PREPAID_BPS: '' })).toBe(1000);
   });
 });
 
@@ -187,7 +181,7 @@ describe('assertCanSpend', () => {
 });
 
 describe('billing summary', () => {
-  it('reports balance, holds, markup, fee, last purchase, plans and the subscription', async () => {
+  it('reports balance, holds, markup, fee, last purchase and the membership', async () => {
     const account = simpleAccount();
     await grantCredit(env.DB, {
       accountId: account.id,
@@ -206,22 +200,35 @@ describe('billing summary', () => {
     });
     await insertUsage(env, { accountId: account.id, status: 'settled', chargeMicros: 1_000_000 });
     await insertUsage(env, { accountId: account.id, status: 'pending', holdMicros: 20_000 });
-    const periodEnd = Date.UTC(2026, 10, 1);
-    await insertSubscription(env, account.userId!, 'incomplete', { plan: 'ignored' });
-    await insertSubscription(env, account.userId!, 'active', {
-      periodEnd,
-      cancelAtPeriodEnd: true,
+    // A subscription row doesn't matter while no membership is required.
+    await insertSubscription(env, account.userId!, 'active');
+    // Membership credit (no gross amount) is a gift, not a purchase to show.
+    await grantCredit(env.DB, {
+      accountId: account.id,
+      kind: 'subscription',
+      amountMicros: 2_000_000,
+      grossMicros: null,
+      stripeRef: uniq('in'),
     });
 
     expect(await getBillingSummary(env, account)).toEqual({
       enabled: true,
+      membership: {
+        required: false,
+        status: 'inactive',
+        stripeStatus: null,
+        periodEnd: null,
+        cancelAtPeriodEnd: false,
+        priceCents: 1000,
+        includedCreditCents: 200,
+      },
       builtInCredit: true,
       topUpsEnabled: true,
       currency: 'usd',
-      balanceMicros: 9_000_000,
+      balanceMicros: 11_000_000,
       heldMicros: 20_000,
-      availableMicros: 8_980_000,
-      markupBps: 500,
+      availableMicros: 10_980_000,
+      markupBps: 1000,
       openRouterFeeBps: 550,
       lastPurchase: {
         kind: 'purchase',
@@ -230,13 +237,6 @@ describe('billing summary', () => {
         creditMicros: 10_000_000,
         createdAt: expect.any(String),
       },
-      subscription: {
-        plan: 'monthly-10',
-        status: 'active',
-        periodEnd: new Date(periodEnd).toISOString(),
-        cancelAtPeriodEnd: true,
-      },
-      monthlyPlans: [{ name: 'monthly-10', label: '$10 / month', amountCents: 1000 }],
       minTopUpCents: 500,
       maxTopUpCents: 50_000,
     });
@@ -253,7 +253,7 @@ describe('billing summary', () => {
       markupBps: 1000,
       openRouterFeeBps: 550,
       lastPurchase: null,
-      subscription: null,
+      membership: { required: false, includedCreditCents: 0 },
     });
     const custom = await getBillingSummary({ ...env, OPENROUTER_FEE_BPS: '700' }, simpleAccount());
     expect(custom.openRouterFeeBps).toBe(700);
@@ -304,31 +304,6 @@ describe('stripe config', () => {
     expect(billingConfigured(env)).toBe(true);
     expect(billingConfigured({ ...env, STRIPE_SECRET_KEY: ' ' })).toBe(false);
     expect(billingConfigured({ ...env, STRIPE_WEBHOOK_SECRET: '' })).toBe(false);
-  });
-
-  it('parses STRIPE_PLANS safely', () => {
-    expect(stripePlans(env)).toEqual([
-      {
-        name: 'monthly-10',
-        label: '$10 / month',
-        priceId: 'price_test_monthly_10',
-        amountCents: 1000,
-      },
-    ]);
-    expect(stripePlans({ ...env, STRIPE_PLANS: '' })).toEqual([]);
-    expect(stripePlans({ ...env, STRIPE_PLANS: '[]' })).toEqual([]);
-    expect(stripePlans({ ...env, STRIPE_PLANS: '{not json' })).toEqual([]);
-    expect(stripePlans({ ...env, STRIPE_PLANS: '{"name":"x"}' })).toEqual([]);
-    expect(
-      stripePlans({
-        ...env,
-        STRIPE_PLANS: JSON.stringify([
-          { name: 'ok', label: 'OK', priceId: 'price_1', amountCents: 2000, extra: true },
-          { name: 'bad', label: 'Bad', priceId: '', amountCents: 1000 },
-          { name: 'bad2', label: 'Bad', priceId: 'price_2', amountCents: 10.5 },
-        ]),
-      }),
-    ).toEqual([{ name: 'ok', label: 'OK', priceId: 'price_1', amountCents: 2000 }]);
   });
 });
 

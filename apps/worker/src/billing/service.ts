@@ -1,5 +1,5 @@
 // Billing for the built-in provider: markup and fee pass-through, spend gate, summary, usage
-// history and credit top-ups (PLAN §2.3–2.6, §13). Credit is per user: every ledger read and
+// history and credit top-ups (PLAN §2.3–2.6, §13). The membership is in membership.ts. Credit is per user: every ledger read and
 // write goes to `AccountContext.billingAccountId`, the same in both modes.
 import { DomainError, PaymentRequiredError, ValidationError } from '@tangent/core';
 import {
@@ -8,7 +8,6 @@ import {
   type BillingSummary,
   type CheckoutResponse,
   type PurchaseInfo,
-  type SubscriptionInfo,
   type UsageEntry,
   type UsageListResponse,
   type UsagePurpose,
@@ -16,21 +15,15 @@ import {
 import { isMetered, type AccountContext, type AppEnv } from '../env.js';
 import { builtInAvailable } from '../services.js';
 import { getBalance } from './ledger.js';
-import { billingConfigured, ensureStripeCustomer, getStripe, stripePlans } from './stripe.js';
+import { membershipFor } from './membership.js';
+import { billingConfigured, ensureStripeCustomer, getStripe } from './stripe.js';
+import { intVar } from './vars.js';
 
 export const DEFAULT_USAGE_HOLD_MICROS = 20_000;
-export const DEFAULT_MARKUP_PREPAID_BPS = 1000;
-export const DEFAULT_MARKUP_MONTHLY_BPS = 500;
+export const DEFAULT_MARKUP_BPS = 1000;
 /** OpenRouter's fee on credit purchases (5.5%; higher for top-ups under ~$15, see README). */
 export const DEFAULT_OPENROUTER_FEE_BPS = 550;
 export const MAX_USAGE_PAGE = 100;
-
-function intVar(raw: string | undefined, fallback: number): number {
-  const s = raw?.trim();
-  if (!s || !/^\d+$/.test(s)) return fallback;
-  const n = Number(s);
-  return Number.isSafeInteger(n) ? n : fallback;
-}
 
 /** Per-call hold and minimum available balance (`USAGE_HOLD_MICROS`). */
 export function usageHoldMicros(env: AppEnv): number {
@@ -42,23 +35,13 @@ export function openRouterFeeBps(env: AppEnv): number {
   return intVar(env.OPENROUTER_FEE_BPS, DEFAULT_OPENROUTER_FEE_BPS);
 }
 
-/** True when the user has an `active` monthly plan (plugin `subscription` row). */
-async function hasActiveSubscription(env: AppEnv, userId: string | null): Promise<boolean> {
-  if (!userId) return false;
-  const row = await env.DB.prepare(
-    "SELECT 1 AS one FROM auth_subscriptions WHERE reference_id = ? AND status = 'active' LIMIT 1",
-  )
-    .bind(userId)
-    .first<{ one: number }>();
-  return row !== null;
-}
-
-/** Markup in bps: MARKUP_MONTHLY_BPS with an active subscription, else MARKUP_PREPAID_BPS. */
-export async function markupFor(env: AppEnv, account: AccountContext): Promise<number> {
-  const monthly = await hasActiveSubscription(env, account.userId);
-  return monthly
-    ? intVar(env.MARKUP_MONTHLY_BPS, DEFAULT_MARKUP_MONTHLY_BPS)
-    : intVar(env.MARKUP_PREPAID_BPS, DEFAULT_MARKUP_PREPAID_BPS);
+/**
+ * Markup on the true provider cost, in bps: `MARKUP_BPS`; while that is empty
+ * or malformed, the deprecated `MARKUP_PREPAID_BPS` (read for one release);
+ * else 1000 (+10%). The same for every user: there are no plan discounts.
+ */
+export function markupFor(env: AppEnv): number {
+  return intVar(env.MARKUP_BPS, intVar(env.MARKUP_PREPAID_BPS, DEFAULT_MARKUP_BPS));
 }
 
 function notConfigured(): DomainError {
@@ -82,36 +65,6 @@ export async function assertCanSpend(
   if (balanceMicros - heldMicros < usageHoldMicros(env)) throw new PaymentRequiredError();
 }
 
-interface SubscriptionRow {
-  plan: string;
-  status: string;
-  period_end: number | null;
-  cancel_at_period_end: number;
-}
-
-/** The most relevant plugin subscription row: active first, then the latest period. */
-async function currentSubscription(
-  env: AppEnv,
-  userId: string | null,
-): Promise<SubscriptionInfo | null> {
-  if (!userId) return null;
-  const row = await env.DB.prepare(
-    `SELECT plan, status, period_end, cancel_at_period_end FROM auth_subscriptions
-     WHERE reference_id = ? AND status NOT IN ('incomplete', 'incomplete_expired')
-     ORDER BY (status = 'active') DESC, COALESCE(period_end, 0) DESC
-     LIMIT 1`,
-  )
-    .bind(userId)
-    .first<SubscriptionRow>();
-  if (!row) return null;
-  return {
-    plan: row.plan,
-    status: row.status,
-    periodEnd: row.period_end === null ? null : new Date(row.period_end).toISOString(),
-    cancelAtPeriodEnd: !!row.cancel_at_period_end,
-  };
-}
-
 interface PurchaseRow {
   kind: 'purchase' | 'subscription';
   amount_micros: number;
@@ -120,7 +73,11 @@ interface PurchaseRow {
   created_at: string;
 }
 
-/** The latest top-up or plan credit recorded with its gross amount and processing fee. */
+/**
+ * The latest purchase recorded with its gross amount and processing fee: a
+ * top-up, or a monthly-plan invoice on ledgers from before the membership.
+ * Membership credit (gross null) is a gift, not a purchase, and is skipped.
+ */
 async function lastPurchase(env: AppEnv, accountId: string): Promise<PurchaseInfo | null> {
   const row = await env.DB.prepare(
     `SELECT kind, amount_micros, gross_micros, fee_micros, created_at FROM credit_grants
@@ -143,29 +100,23 @@ export async function getBillingSummary(
   env: AppEnv,
   account: AccountContext,
 ): Promise<BillingSummary> {
-  const [{ balanceMicros, heldMicros }, markupBps, subscription, purchase] = await Promise.all([
+  const [{ balanceMicros, heldMicros }, membership, purchase] = await Promise.all([
     getBalance(env.DB, account.billingAccountId),
-    markupFor(env, account),
-    currentSubscription(env, account.userId),
+    membershipFor(env, account),
     lastPurchase(env, account.billingAccountId),
   ]);
   return {
     enabled: billingConfigured(env),
+    membership,
     builtInCredit: builtInAvailable(env),
     topUpsEnabled: billingConfigured(env) && !!env.STRIPE_CREDITS_PRODUCT_ID?.trim(),
     currency: 'usd',
     balanceMicros,
     heldMicros,
     availableMicros: balanceMicros - heldMicros,
-    markupBps,
+    markupBps: markupFor(env),
     openRouterFeeBps: openRouterFeeBps(env),
     lastPurchase: purchase,
-    subscription,
-    monthlyPlans: stripePlans(env).map(({ name, label, amountCents }) => ({
-      name,
-      label,
-      amountCents,
-    })),
     minTopUpCents: MIN_TOP_UP_CENTS,
     maxTopUpCents: MAX_TOP_UP_CENTS,
   };

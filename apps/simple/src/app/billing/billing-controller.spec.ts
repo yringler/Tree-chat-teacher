@@ -13,6 +13,15 @@ import {
 function summary(overrides: Partial<BillingSummary> = {}): BillingSummary {
   return {
     enabled: true,
+    membership: {
+      required: true,
+      status: 'inactive',
+      stripeStatus: null,
+      periodEnd: null,
+      cancelAtPeriodEnd: false,
+      priceCents: 1000,
+      includedCreditCents: 200,
+    },
     builtInCredit: true,
     currency: 'usd',
     balanceMicros: 1_000_000,
@@ -20,11 +29,6 @@ function summary(overrides: Partial<BillingSummary> = {}): BillingSummary {
     availableMicros: 1_000_000,
     markupBps: 1000,
     openRouterFeeBps: 550,
-    subscription: null,
-    monthlyPlans: [
-      { name: 'basic', label: 'Basic', amountCents: 1000 },
-      { name: 'plus', label: 'Plus', amountCents: 2000 },
-    ],
     minTopUpCents: 500,
     maxTopUpCents: 50_000,
     ...overrides,
@@ -137,11 +141,9 @@ describe('BillingController: ?checkout=success', () => {
     expect(clearCheckoutParam).toHaveBeenCalledTimes(1);
   });
 
-  it('stops when a new plan shows up even if no credit landed yet', async () => {
+  it('stops when the membership becomes active even if no credit landed yet', async () => {
     const before = summary();
-    const after = summary({
-      subscription: { plan: 'basic', status: 'active', periodEnd: null, cancelAtPeriodEnd: false },
-    });
+    const after = summary({ membership: { ...before.membership, status: 'active' } });
     const { ctl, api } = setup([before, after]);
     await ctl.init('success');
     expect(api.billing).toHaveBeenCalledTimes(2);
@@ -274,47 +276,11 @@ describe('BillingController: top-ups', () => {
   });
 });
 
-describe('BillingController: plans and the portal', () => {
-  it('choosing a plan goes through the plugin with the billing return paths', async () => {
-    const { ctl, billing } = setup();
-    await ctl.load();
-    await ctl.choosePlan(ctl.summary()!.monthlyPlans[1]!);
-    expect(billing.upgrade).toHaveBeenCalledWith(
-      'plus',
-      CHECKOUT_SUCCESS_PATH,
-      CHECKOUT_CANCEL_PATH,
-      BILLING_PATH,
-    );
+describe('BillingController: the portal', () => {
+  it('Stripe returns to the Learn billing page', () => {
+    expect(BILLING_PATH).toBe('/learn/billing');
     expect(CHECKOUT_SUCCESS_PATH).toBe('/learn/billing?checkout=success');
     expect(CHECKOUT_CANCEL_PATH).toBe('/learn/billing?checkout=cancel');
-    expect(ctl.pending()).toEqual({ kind: 'plan', plan: 'plus' });
-  });
-
-  it('knows the current plan, including one that is cancelling', async () => {
-    const sub = {
-      plan: 'basic',
-      status: 'active',
-      periodEnd: '2026-11-01T00:00:00.000Z',
-      cancelAtPeriodEnd: true,
-    };
-    const { ctl } = setup([summary({ subscription: sub, markupBps: 500 })]);
-    await ctl.load();
-    expect(ctl.currentPlan()).toEqual(sub);
-  });
-
-  it('a cancelled subscription is not a current plan', async () => {
-    const { ctl } = setup([
-      summary({
-        subscription: {
-          plan: 'basic',
-          status: 'canceled',
-          periodEnd: null,
-          cancelAtPeriodEnd: false,
-        },
-      }),
-    ]);
-    await ctl.load();
-    expect(ctl.currentPlan()).toBeNull();
   });
 
   it('"Manage billing" opens the portal and returns to the billing page', async () => {
@@ -335,23 +301,6 @@ describe('BillingController: plans and the portal', () => {
     );
     await ctl.manage();
     expect(ctl.actionError()).toMatch(/nothing to manage yet/);
-    expect(ctl.busy()).toBe(false);
-  });
-
-  it('other plugin errors are shown as they are', async () => {
-    const { ctl, billing } = setup();
-    billing.upgrade.mockRejectedValueOnce(
-      Object.assign(
-        new Error('Email verification is required before you can subscribe to a plan'),
-        {
-          code: 'EMAIL_VERIFICATION_REQUIRED',
-        },
-      ),
-    );
-    await ctl.choosePlan({ name: 'basic', label: 'Basic', amountCents: 1000 });
-    expect(ctl.actionError()).toBe(
-      'Email verification is required before you can subscribe to a plan',
-    );
     expect(ctl.busy()).toBe(false);
   });
 });

@@ -116,6 +116,15 @@ const PROVIDER: ProviderInfo = {
 
 const BILLING: BillingSummary = {
   enabled: true,
+  membership: {
+    required: false,
+    status: 'inactive',
+    stripeStatus: null,
+    periodEnd: null,
+    cancelAtPeriodEnd: false,
+    priceCents: 1000,
+    includedCreditCents: 200,
+  },
   builtInCredit: true,
   currency: 'usd',
   balanceMicros: 0,
@@ -123,8 +132,6 @@ const BILLING: BillingSummary = {
   availableMicros: 0,
   markupBps: 0,
   openRouterFeeBps: 0,
-  subscription: null,
-  monthlyPlans: [],
   minTopUpCents: 500,
   maxTopUpCents: 50_000,
 };

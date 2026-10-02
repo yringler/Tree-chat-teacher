@@ -58,25 +58,35 @@ export async function insertUser(
   return { id: user.id, email, name };
 }
 
+/** A Better Auth Stripe plugin subscription row (plan `membership` unless given); returns its id. */
 export async function insertSubscription(
   env: AppEnv,
   userId: string,
   status: string,
-  extra: { plan?: string; periodEnd?: number | null; cancelAtPeriodEnd?: boolean } = {},
-): Promise<void> {
+  extra: {
+    plan?: string;
+    periodEnd?: number | null;
+    cancelAtPeriodEnd?: boolean;
+    stripeSubscriptionId?: string | null;
+  } = {},
+): Promise<string> {
+  const id = uniq('sub');
   await env.DB.prepare(
-    `INSERT INTO auth_subscriptions (id, plan, reference_id, status, period_end, cancel_at_period_end)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO auth_subscriptions
+       (id, plan, reference_id, status, period_end, cancel_at_period_end, stripe_subscription_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
-      uniq('sub'),
-      extra.plan ?? 'monthly-10',
+      id,
+      extra.plan ?? 'membership',
       userId,
       status,
       extra.periodEnd ?? null,
       extra.cancelAtPeriodEnd ? 1 : 0,
+      extra.stripeSubscriptionId ?? null,
     )
     .run();
+  return id;
 }
 
 export interface UsageRowInput {

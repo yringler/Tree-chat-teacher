@@ -46,6 +46,17 @@ export interface AppEnv extends Env {
   STRIPE_SECRET_KEY?: string;
   /** Signing secret of the webhook endpoint `/api/auth/stripe/webhook`. */
   STRIPE_WEBHOOK_SECRET?: string;
+  /**
+   * A code users redeem (`POST /api/billing/membership/waiver`) to have the
+   * membership fee waived. Empty = no code redemption. If it leaks, change it
+   * and clear `auth_users.membership_waived` for whoever shouldn't have it.
+   */
+  MEMBERSHIP_WAIVER_CODE?: string;
+  /**
+   * Deprecated: the markup before `MARKUP_BPS`, read only while `MARKUP_BPS`
+   * is empty. No longer in wrangler.jsonc; kept for one release.
+   */
+  MARKUP_PREPAID_BPS?: string;
 }
 
 /**

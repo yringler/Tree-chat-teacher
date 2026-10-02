@@ -31,6 +31,7 @@ import {
   type LlmProvider,
   type LoginOptionsResponse,
   type MeResponse,
+  type MembershipInfo,
   type ProviderEvent,
   type ProviderInfo,
   type ProviderRegistry,
@@ -66,6 +67,16 @@ export const DEMO_EMAIL = 'demo@example.com';
 export const DEMO_START_BALANCE_MICROS = 4_200_000;
 /** +10%, the pay-as-you-go rate. */
 const MARKUP_BPS = 1000;
+/** The demos sell nothing: no membership is required. */
+const DEMO_MEMBERSHIP: MembershipInfo = {
+  required: false,
+  status: 'inactive',
+  stripeStatus: null,
+  periodEnd: null,
+  cancelAtPeriodEnd: false,
+  priceCents: 1000,
+  includedCreditCents: 0,
+};
 /** OpenRouter's credit-purchase fee, part of the cost the markup applies to (as in the Worker). */
 const OPENROUTER_FEE_BPS = 550;
 /** Held per in-flight provider call, like the real meter's reservation. */
@@ -269,6 +280,7 @@ export class DemoBackend {
         devMode: false,
         operatorKeys: true,
         builtInCredit: this.mode === 'simple',
+        membership: { ...DEMO_MEMBERSHIP },
       } satisfies MeResponse);
     }
     if (method === 'GET' && path === '/api/login-options') {
@@ -606,6 +618,7 @@ export class DemoBackend {
   private billingSummary(): BillingSummary {
     return {
       enabled: true,
+      membership: { ...DEMO_MEMBERSHIP },
       builtInCredit: true,
       topUpsEnabled: false,
       currency: 'usd',
@@ -615,8 +628,6 @@ export class DemoBackend {
       markupBps: MARKUP_BPS,
       openRouterFeeBps: OPENROUTER_FEE_BPS,
       lastPurchase: null,
-      subscription: null,
-      monthlyPlans: [],
       minTopUpCents: MIN_TOP_UP_CENTS,
       maxTopUpCents: MAX_TOP_UP_CENTS,
     };

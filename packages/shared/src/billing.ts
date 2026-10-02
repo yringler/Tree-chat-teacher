@@ -2,8 +2,9 @@ import { z } from 'zod';
 import type { UsagePurpose } from './provider.js';
 
 /**
- * Billing contract (prepaid credit for the built-in provider, and monthly
- * credit plans). Credit is per user and shared by both apps.
+ * Billing contract: the yearly membership (required to generate in either app
+ * once the operator sets it up) and prepaid credit for the built-in provider.
+ * Credit and membership are per user and shared by both apps.
  *
  * Units: the ledger is integer micro-USD (`MICROS_PER_USD`); top-ups are whole
  * US cents. Every amount shown to users is pre-tax (Stripe Tax adds tax at
@@ -54,25 +55,53 @@ export interface CheckoutResponse {
   url: string;
 }
 
-/** A monthly credit plan offered through the Better Auth Stripe plugin. */
-export interface MonthlyPlanInfo {
-  /** Plugin plan name (`subscription.upgrade({ plan })`). */
-  name: string;
-  label: string;
-  /** Display price per month (the credit granted comes from the paid invoice). */
-  amountCents: number;
-}
+export const membershipWaiverRequestSchema = z.object({
+  code: z.string().trim().min(1).max(200),
+});
+/** `POST /api/billing/membership/waiver`: redeem the operator's code to waive the fee. */
+export type MembershipWaiverRequest = z.infer<typeof membershipWaiverRequestSchema>;
 
-export interface SubscriptionInfo {
-  plan: string;
-  /** Stripe subscription status (`active`, `past_due`, `canceled`, ...). */
-  status: string;
+/** The Better Auth Stripe plugin's plan name of the membership (`subscription.upgrade({ plan })`). */
+export const MEMBERSHIP_PLAN = 'membership';
+
+/**
+ * Where the user stands with the yearly membership:
+ * - `active`: the membership subscription is `active`, `trialing` or
+ *   `past_due` (Stripe is still retrying a failed renewal);
+ * - `waived`: the operator waived the fee for this user (it wins over Stripe);
+ * - `inactive`: neither; generating answers 402 `membership_required` while
+ *   `required` is true. Reading, exporting and deleting stay open.
+ */
+export type MembershipStatus = 'active' | 'waived' | 'inactive';
+
+export interface MembershipInfo {
+  /**
+   * True when generating needs a membership: billing and the membership price
+   * are configured on the server. False in the local dev bypass and on
+   * servers without billing; the other fields then carry no meaning.
+   */
+  required: boolean;
+  status: MembershipStatus;
+  /** Status of the membership subscription in Stripe (`active`, `past_due`, `canceled`, ...); null when none. */
+  stripeStatus: string | null;
   /** ISO timestamp of the current period's end; null when unknown. */
   periodEnd: string | null;
+  /** The subscription ends at `periodEnd` (cancelled in the Customer Portal). */
   cancelAtPeriodEnd: boolean;
+  /** Display price per year, pre-tax (Stripe Tax adds tax at checkout). */
+  priceCents: number;
+  /**
+   * Credit granted with each paid membership year; 0 when the server doesn't
+   * offer the built-in provider (no credit is then promised or granted).
+   */
+  includedCreditCents: number;
 }
 
-/** The latest credit purchase (top-up or plan invoice): what was paid vs. credited. */
+/**
+ * The latest credit purchase with a known processing fee: a top-up (or, on
+ * older ledgers, a monthly-plan invoice). Credit included with the membership
+ * is a fixed gift, not a purchase, and never shows here.
+ */
 export interface PurchaseInfo {
   kind: 'purchase' | 'subscription';
   /** Pre-tax amount paid. */
@@ -88,6 +117,8 @@ export interface PurchaseInfo {
 export interface BillingSummary {
   /** False when Stripe isn't configured on the server (no top-ups, no spending). */
   enabled: boolean;
+  /** The user's membership, as `MeResponse.membership`. */
+  membership: MembershipInfo;
   /**
    * True when the built-in provider is offered on credit (billing and the
    * operator's OpenRouter key set up), as `MeResponse.builtInCredit`.
@@ -105,7 +136,7 @@ export interface BillingSummary {
   heldMicros: number;
   /** `balanceMicros - heldMicros`. */
   availableMicros: number;
-  /** Markup applied to the true provider cost right now, in basis points (1000 = +10%). */
+  /** Markup applied to the true provider cost, in basis points (1000 = +10%). */
   markupBps: number;
   /**
    * OpenRouter's credit-purchase fee, in basis points (550 = 5.5%), included in
@@ -114,8 +145,6 @@ export interface BillingSummary {
   openRouterFeeBps: number;
   /** The latest purchase whose processing fee is known; absent or null when none. */
   lastPurchase?: PurchaseInfo | null;
-  subscription: SubscriptionInfo | null;
-  monthlyPlans: MonthlyPlanInfo[];
   minTopUpCents: number;
   maxTopUpCents: number;
 }

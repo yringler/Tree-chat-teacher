@@ -6,6 +6,7 @@ import { createAuthMiddleware } from 'better-auth/api';
 import { setSessionCookie } from 'better-auth/cookies';
 import { captcha } from 'better-auth/plugins';
 import { magicLink } from 'better-auth/plugins/magic-link';
+import { MEMBERSHIP_PLAN } from '@tangent/shared';
 import { drizzle } from 'drizzle-orm/d1';
 import {
   authAccounts,
@@ -16,7 +17,7 @@ import {
   authUsers,
   authVerifications,
 } from '../db/schema.js';
-import { billingConfigured, getStripe, stripePlans } from '../billing/stripe.js';
+import { billingConfigured, getStripe, membershipPriceId } from '../billing/stripe.js';
 import { handleStripeEvent } from '../billing/webhook.js';
 import { createEmailSender, magicLinkEmail, type EmailSender } from '../email/index.js';
 import type { AppEnv } from '../env.js';
@@ -35,7 +36,7 @@ import type { AppEnv } from '../env.js';
  * every signed-in user: the server's provider keys serve only the local dev bypass.
  *
  * When Stripe is configured (billing/stripe.ts) the Better Auth Stripe plugin
- * adds the monthly-plan endpoints (`/api/auth/subscription/*`) and the one
+ * adds the membership endpoints (`/api/auth/subscription/*`) and the one
  * Stripe webhook, `/api/auth/stripe/webhook`, whose events also reach our
  * ledger through `onEvent` (billing/webhook.ts).
  */
@@ -236,9 +237,11 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
 
 /**
  * The Better Auth Stripe plugin, only when billing is configured (PLAN §2.3).
- * Customers are created lazily (first checkout), monthly plans come from
- * STRIPE_PLANS, and every webhook event is passed on to our ledger. Throwing
- * from `onEvent` makes the plugin answer 400, so Stripe retries.
+ * Customers are created lazily (first checkout). Its one plan is the yearly
+ * membership (`MEMBERSHIP_PLAN`, STRIPE_MEMBERSHIP_PRICE_ID; none while that
+ * is unset): the plugin holds one subscription per user, so there is room for
+ * nothing else. Every webhook event is passed on to our ledger. Throwing from
+ * `onEvent` makes the plugin answer 400, so Stripe retries.
  */
 function stripePlugin(env: AppEnv) {
   const client = billingConfigured(env) ? getStripe(env) : null;
@@ -252,13 +255,7 @@ function stripePlugin(env: AppEnv) {
       subscription: {
         enabled: true,
         requireEmailVerification: true,
-        plans: stripePlans(env).map((p) => ({
-          name: p.name,
-          priceId: p.priceId,
-          // Plan switches take effect next cycle. Every paid subscription
-          // invoice is credited anyway (billing/webhook.ts), prorated or not.
-          prorationBehavior: 'none' as const,
-        })),
+        plans: membershipPlans(env),
         // Stripe Tax on exclusive prices; tax never enters our ledger.
         getCheckoutSessionParams: () => ({
           params: {
@@ -270,6 +267,13 @@ function stripePlugin(env: AppEnv) {
       },
     }),
   ];
+}
+
+function membershipPlans(env: AppEnv) {
+  const priceId = membershipPriceId(env);
+  if (!priceId) return [];
+  // One plan, so there is nothing to switch to and nothing to prorate.
+  return [{ name: MEMBERSHIP_PLAN, priceId, prorationBehavior: 'none' as const }];
 }
 
 export type Auth = ReturnType<typeof createAuth>;

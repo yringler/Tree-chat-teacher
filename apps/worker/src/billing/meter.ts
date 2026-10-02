@@ -173,7 +173,7 @@ export function createUsageMeter(
 ): UsageMeter {
   return {
     async begin({ tag, providerId, model }) {
-      const markupBps = await markupFor(env, account);
+      const markupBps = markupFor(env);
       const feeBps = openRouterFeeBps(env);
       const usageId = crypto.randomUUID();
       await insertPendingUsage(env.DB, {

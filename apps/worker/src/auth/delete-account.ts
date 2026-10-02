@@ -29,12 +29,12 @@ export interface DeletedUser {
  * Permanently deletes a Better Auth user and everything they own, in this order:
  *
  * 1. Their Stripe customer, if any. Stripe cancels every subscription of a
- *    deleted customer at once, so no monthly plan keeps charging a user who
+ *    deleted customer at once, so no membership keeps charging a user who
  *    no longer exists. A failure here aborts the whole deletion: better a
  *    retry than a subscription with nobody behind it.
  * 2. In one D1 batch (a transaction): both accounts' trees (branches, nodes,
  *    summaries and shares with their snapshots go by ON DELETE CASCADE),
- *    any share or setting left over, their monthly-plan rows, the account
+ *    any share or setting left over, their subscription rows, the account
  *    rows, and the auth user (sessions, linked OAuth identities and passkeys
  *    cascade).
  * 3. Best-effort purge of their share links from this colo's edge cache.

@@ -137,7 +137,11 @@ describe('demo backend', () => {
     expect((await api.listTrees())[0]!.title).toBe(after.tree.title);
 
     const billing = await api.billing();
-    expect(billing).toMatchObject({ enabled: true, topUpsEnabled: false, monthlyPlans: [] });
+    expect(billing).toMatchObject({
+      enabled: true,
+      topUpsEnabled: false,
+      membership: { required: false },
+    });
     expect(billing.heldMicros).toBe(0);
     expect(billing.balanceMicros).toBeLessThan(DEMO_START_BALANCE_MICROS);
     expect(DEMO_START_BALANCE_MICROS - billing.balanceMicros).toBeLessThan(50_000);
@@ -315,7 +319,11 @@ describe('demo backend', () => {
 describe('power demo backend', () => {
   it('acts as a power account with no stored keys and no shares', async () => {
     const { api } = setup({ mode: 'power' });
-    await expect(api.me()).resolves.toMatchObject({ mode: 'power', builtInCredit: false });
+    await expect(api.me()).resolves.toMatchObject({
+      mode: 'power',
+      builtInCredit: false,
+      membership: { required: false },
+    });
     await expect(api.keyStatus()).resolves.toEqual({
       enabled: false,
       hasKey: false,

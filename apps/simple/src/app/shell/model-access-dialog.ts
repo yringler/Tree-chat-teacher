@@ -52,8 +52,7 @@ import { UiStore } from '../state/ui-store';
             <span>
               <strong>Use paid credit</strong>
               <span class="muted small">
-                Prepaid credit or a monthly plan. Each reply costs the model's price plus a small
-                markup.
+                Prepaid credit. Each reply costs the model's price plus a small markup.
               </span>
             </span>
           </label>

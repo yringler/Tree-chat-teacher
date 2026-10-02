@@ -42,8 +42,9 @@ interface PluginError {
 }
 
 /**
- * Monthly plans and the Stripe customer portal, through the Better Auth
- * Stripe plugin (`/api/auth/subscription/*`). One-time top-ups are not the
+ * The membership and the Stripe customer portal, through the Better Auth
+ * Stripe plugin (`/api/auth/subscription/*`), whose one plan is the
+ * membership (`MEMBERSHIP_PLAN` in `@tangent/shared`). One-time top-ups are not the
  * plugin's: they go through `ApiClient.createCheckout`.
  *
  * Every redirect is done here with `location.assign` (the plugin is called
@@ -55,9 +56,10 @@ export class BillingClient {
   private readonly client = inject(AUTH_CLIENT);
 
   /**
-   * Starts (or changes) the caller's monthly plan and navigates to Stripe
-   * Checkout. `returnPath` (default `successPath`) is where Stripe's portal
-   * sends the browser back when an existing plan is changed instead.
+   * Subscribes the caller to `plan` (the membership: `MEMBERSHIP_PLAN`) and
+   * navigates to Stripe Checkout. `returnPath` (default `successPath`) is
+   * where Stripe's portal sends the browser back when the plugin finds an
+   * existing subscription to change instead.
    */
   async upgrade(
     plan: string,

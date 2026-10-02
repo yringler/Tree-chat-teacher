@@ -120,6 +120,15 @@ describe('fail closed', () => {
       mode: 'power',
       operatorKeys: true,
       builtInCredit: true,
+      membership: {
+        required: false,
+        status: 'inactive',
+        stripeStatus: null,
+        periodEnd: null,
+        cancelAtPeriodEnd: false,
+        priceCents: 1000,
+        includedCreditCents: 200,
+      },
     } satisfies MeResponse);
 
     // Secret set: DEV_ALLOW_NO_AUTH=true is ignored and a session is required.
@@ -146,6 +155,15 @@ describe('fail closed', () => {
       mode: 'power',
       operatorKeys: true,
       builtInCredit: true,
+      membership: {
+        required: false,
+        status: 'inactive',
+        stripeStatus: null,
+        periodEnd: null,
+        cancelAtPeriodEnd: false,
+        priceCents: 1000,
+        includedCreditCents: 200,
+      },
     });
   });
 });

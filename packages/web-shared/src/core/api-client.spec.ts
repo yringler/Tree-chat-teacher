@@ -20,6 +20,15 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 const SUMMARY: BillingSummary = {
   enabled: true,
+  membership: {
+    required: false,
+    status: 'inactive',
+    stripeStatus: null,
+    periodEnd: null,
+    cancelAtPeriodEnd: false,
+    priceCents: 1000,
+    includedCreditCents: 200,
+  },
   builtInCredit: true,
   currency: 'usd',
   balanceMicros: 5_000_000,
@@ -27,8 +36,6 @@ const SUMMARY: BillingSummary = {
   availableMicros: 5_000_000,
   markupBps: 1000,
   openRouterFeeBps: 550,
-  subscription: null,
-  monthlyPlans: [{ name: 'basic', label: 'Basic', amountCents: 1000 }],
   minTopUpCents: 500,
   maxTopUpCents: 50_000,
 };

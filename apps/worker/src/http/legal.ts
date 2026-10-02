@@ -98,7 +98,7 @@ export function renderPrivacyPage(info: LegalInfo): string {
 <tr><td>Sessions</td><td>For each signed-in browser: the IP address and browser user agent at sign-in, and when the session expires.</td><td>Security: to keep you signed in and to spot misuse.</td></tr>
 <tr><td>Your content</td><td>Conversations (messages, replies, branch titles, summaries), system prompts, settings, and share links you create.</td><td>This is the service. Stored in our database until you delete it.</td></tr>
 <tr><td>AI provider API keys</td><td>If you add your own key, it is encrypted into a cookie that only your browser holds. We never store it on our servers; it is decrypted in memory for each request and never logged.</td><td>To call the provider on your behalf.</td></tr>
-<tr><td>Billing (paid credit only)</td><td>Your Stripe customer id, credit purchases and refunds, monthly-plan status, and for each paid reply: the model, token counts, cost and time. Card numbers and billing addresses go to Stripe and never reach us.</td><td>To charge for what you use, show you your usage, and keep the records tax law requires.</td></tr>
+<tr><td>Billing (paid credit only)</td><td>Your Stripe customer id, credit purchases and refunds, membership status, and for each paid reply: the model, token counts, cost and time. Card numbers and billing addresses go to Stripe and never reach us.</td><td>To charge for what you use, show you your usage, and keep the records tax law requires.</td></tr>
 <tr><td>Technical logs</td><td>Errors and request metadata (time, path, status, IP address) kept by our hosting provider's logs for a short time. Rate-limit counters per IP address. Never message content or API keys.</td><td>Security, abuse prevention and fixing bugs.</td></tr>
 </tbody>
 </table>
@@ -205,13 +205,13 @@ export function renderTermsPage(info: LegalInfo): string {
 <h2>6. Your own API keys</h2>
 <p>If you add your own AI provider key, your use of that provider is between you and them: their terms apply and they bill you directly. We don't charge for replies on your own key.</p>
 
-<h2>7. Paid credit and plans</h2>
+<h2>7. Membership and paid credit</h2>
 <ul>
 <li>Prices for paid replies are the AI provider's cost (including its credit-purchase fee) plus a markup shown in the app. Stripe's processing fee comes out of each purchase, and tax is added at checkout.</li>
 <li>Credit is prepaid, is used up as you send messages, has no cash value and can't be transferred. It doesn't expire while your account exists. Deleting your account forfeits any credit left.</li>
-<li>Monthly plans renew automatically each month until you cancel them under "Manage billing". Cancelling stops future renewals; credit already granted stays usable.</li>
+<li>Where the service requires a membership to generate replies, it renews automatically each year until you cancel it under "Manage billing". Cancelling stops future renewals; the membership runs to the end of the paid year, and credit already granted stays usable.</li>
 <li>Purchases are not refundable except where the law requires, or where we decide otherwise. If you're a consumer in the EU or UK, you agree that credit is delivered right away and acknowledge that, once you start using it, you lose the 14-day right of withdrawal for the part used.</li>
-<li>We may change prices; changes apply to credit bought or plan periods starting after the change.</li>
+<li>We may change prices; changes apply to credit bought or membership periods starting after the change.</li>
 </ul>
 
 <h2>8. Copyright complaints</h2>

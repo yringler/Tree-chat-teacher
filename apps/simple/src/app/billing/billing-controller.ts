@@ -2,8 +2,6 @@ import { computed, signal } from '@angular/core';
 import type {
   BillingSummary,
   CheckoutResponse,
-  MonthlyPlanInfo,
-  SubscriptionInfo,
   UsageEntry,
   UsageListResponse,
 } from '@tangent/shared';
@@ -35,6 +33,7 @@ export interface BillingDeps {
     usage(cursor?: string | null, limit?: number): Promise<UsageListResponse>;
     createCheckout(amountCents: number): Promise<CheckoutResponse>;
   };
+  /** The Better Auth Stripe plugin: `upgrade` subscribes to the membership, `portal` manages it. */
   billing: {
     upgrade(
       plan: string,
@@ -61,9 +60,7 @@ export type CheckoutNotice = 'waiting' | 'credited' | 'slow' | 'cancelled';
 
 /** Which action is talking to Stripe (every action button is disabled meanwhile). */
 export type PendingAction =
-  | { kind: 'top-up'; cents: number; source: 'preset' | 'custom' }
-  | { kind: 'plan'; plan: string }
-  | { kind: 'portal' };
+  { kind: 'top-up'; cents: number; source: 'preset' | 'custom' } | { kind: 'portal' };
 
 /** State and actions of the billing page, framework-light so it can be unit tested. */
 export class BillingController {
@@ -95,12 +92,6 @@ export class BillingController {
     topUpError(this.customCents(), this.minCents(), this.maxCents()),
   );
   readonly busy = computed(() => this.pending() !== null);
-
-  /** The plan the account is on (still shown while it runs out after cancelling). */
-  readonly currentPlan = computed<SubscriptionInfo | null>(() => {
-    const sub = this.summary()?.subscription ?? null;
-    return sub && isLiveStatus(sub.status) ? sub : null;
-  });
 
   private readonly sleep: (ms: number) => Promise<void>;
   private destroyed = false;
@@ -159,7 +150,7 @@ export class BillingController {
 
   /**
    * Webhooks credit the account asynchronously, so after a successful checkout
-   * poll until the balance (or the plan) differs from `before`.
+   * poll until the balance (or the membership) differs from `before`.
    */
   async waitForCredit(before: BillingSummary): Promise<void> {
     const run = ++this.pollRun;
@@ -213,18 +204,6 @@ export class BillingController {
     this.actionError.set(null);
   }
 
-  async choosePlan(plan: MonthlyPlanInfo): Promise<void> {
-    if (this.busy()) return;
-    await this.leaveFor({ kind: 'plan', plan: plan.name }, () =>
-      this.deps.billing.upgrade(
-        plan.name,
-        CHECKOUT_SUCCESS_PATH,
-        CHECKOUT_CANCEL_PATH,
-        BILLING_PATH,
-      ),
-    );
-  }
-
   async manage(): Promise<void> {
     if (this.busy()) return;
     await this.leaveFor(
@@ -268,16 +247,10 @@ export class BillingController {
   }
 }
 
-/** Statuses that still count as "your plan" on the page. */
-function isLiveStatus(status: string): boolean {
-  return status === 'active' || status === 'trialing' || status === 'past_due';
-}
-
 function changed(before: BillingSummary, after: BillingSummary): boolean {
   return (
     before.balanceMicros !== after.balanceMicros ||
-    before.subscription?.plan !== after.subscription?.plan ||
-    before.subscription?.status !== after.subscription?.status
+    before.membership.status !== after.membership.status
   );
 }
 

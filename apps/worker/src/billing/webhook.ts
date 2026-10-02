@@ -1,12 +1,17 @@
 // Stripe webhook fulfilment: the Better Auth Stripe plugin's `onEvent`
-// (PLAN §2.3). Credits the pre-tax amount net of Stripe's actual processing
-// fee (tax goes to Stripe Tax and is never credited):
+// (PLAN §2.3). The plugin itself keeps `auth_subscriptions` (the membership)
+// in sync; here only the ledger moves:
 //
 // - checkout.session.completed (payment mode, kind=credits, paid) and
-//   checkout.session.async_payment_succeeded → + amount_subtotal − fee (ref: session id)
-// - invoice.paid for a subscription (any billing reason: create, cycle, a
-//   prorated update, threshold) with a positive subtotal → + subtotal − fee (ref: invoice id)
-// - charge.refunded → − pre-tax share of each refund (ref: refund id)
+//   checkout.session.async_payment_succeeded → + amount_subtotal − fee (ref: session id).
+//   A top-up is credited its pre-tax amount net of Stripe's actual processing
+//   fee (tax goes to Stripe Tax and is never credited).
+// - invoice.paid of the membership (the first year and every renewal), when
+//   something was paid → + MEMBERSHIP_CREDIT_CENTS, a fixed gift with no fee
+//   (ref: invoice id); only while the built-in provider is offered. Any other
+//   subscription invoice grants nothing.
+// - charge.refunded → a top-up: − pre-tax share of each refund (ref: refund id);
+//   a membership invoice: − the credit it included, once (ref: its first refund id).
 //
 // The fee is the charge's balance transaction `fee` (in cents; its
 // `fee_details` itemise card processing and any other fee Stripe books on the
@@ -15,14 +20,21 @@
 // its Stripe ref, so redeliveries are no-ops. D1 and Stripe API errors
 // propagate: the plugin answers 400 and Stripe retries.
 //
-// Grants go to the user's ledger, `u_<userId>`, whichever app the purchase
-// came from: top-ups carry it as `metadata.accountId`, and a Stripe customer
-// maps to it through `auth_users.stripe_customer_id`.
+// Grants go to the user's ledger, `u_<userId>` (`billingAccountIdFor`),
+// whichever app the purchase came from: top-ups carry it as
+// `metadata.accountId`, and a Stripe customer maps to it through
+// `auth_users.stripe_customer_id`.
+import { MEMBERSHIP_PLAN } from '@tangent/shared';
 import type Stripe from 'stripe';
+import { billingAccountIdFor } from '../auth/account.js';
 import type { AppEnv } from '../env.js';
 import { grantCredit, hasGrant } from './ledger.js';
+import { membershipCreditCents } from './membership.js';
 import { centsToMicros } from './pricing.js';
-import { accountIdForUser, getStripe, userIdForCustomer } from './stripe.js';
+import { getStripe, membershipPriceId, userIdForCustomer } from './stripe.js';
+
+/** The note on the credit a membership invoice includes (and that a refund of it takes back). */
+export const MEMBERSHIP_CREDIT_NOTE = 'Included with membership';
 
 function idOf(ref: string | { id: string } | null | undefined): string | null {
   if (!ref) return null;
@@ -50,7 +62,7 @@ async function accountForCustomer(
   const customerId = idOf(customer);
   if (!customerId) return null;
   const userId = await userIdForCustomer(env.DB, customerId);
-  return userId ? accountIdForUser(userId) : null;
+  return userId ? billingAccountIdFor(userId) : null;
 }
 
 /** Stripe's fee on a charge, in US cents, from its (expanded) balance transaction. */
@@ -83,53 +95,6 @@ async function paymentIntentFee(
     feeCents: chargeFeeCents(charge, ref),
     chargedCents: typeof charge === 'object' && charge ? charge.amount : intent.amount_received,
   };
-}
-
-/** Fee of a charge with no PaymentIntent, in cents. */
-async function chargeFee(
-  stripe: Stripe,
-  chargeId: string,
-  ref: string,
-): Promise<{ feeCents: number; chargedCents: number }> {
-  const charge = await stripe.charges.retrieve(chargeId, { expand: ['balance_transaction'] });
-  return { feeCents: chargeFeeCents(charge, ref), chargedCents: charge.amount };
-}
-
-/**
- * Stripe's processing fee for a paid subscription invoice, in cents: the sum
- * over its paid invoice payments (dahlia: `invoice_payments`, each naming a
- * PaymentIntent or a bare charge). A payment that also paid other invoices
- * contributes its fee pro rata. Zero when nothing was charged (paid entirely
- * from the customer's credit balance).
- */
-async function invoiceFeeCents(
-  stripe: Stripe,
-  invoiceId: string,
-  amountPaidCents: number,
-): Promise<number> {
-  if (!(amountPaidCents > 0)) return 0;
-  const payments = await stripe.invoicePayments.list({
-    invoice: invoiceId,
-    status: 'paid',
-    limit: 100,
-  });
-  let fee = 0;
-  let charged = 0;
-  for (const p of payments.data) {
-    const paid = p.amount_paid ?? 0;
-    if (paid <= 0) continue;
-    const intent = idOf(p.payment.payment_intent);
-    const charge = idOf(p.payment.charge);
-    let r: { feeCents: number; chargedCents: number };
-    if (intent) r = await paymentIntentFee(stripe, intent, invoiceId);
-    else if (charge) r = await chargeFee(stripe, charge, invoiceId);
-    else continue; // a payment record: paid outside Stripe, no Stripe fee
-    fee += r.chargedCents > paid ? Math.ceil((r.feeCents * paid) / r.chargedCents) : r.feeCents;
-    charged += paid;
-  }
-  if (charged <= 0)
-    throw new Error(`No paid Stripe payment found for invoice ${invoiceId}; retry later`);
-  return fee;
 }
 
 async function creditCheckout(env: AppEnv, session: Stripe.Checkout.Session): Promise<void> {
@@ -167,41 +132,65 @@ async function creditCheckout(env: AppEnv, session: Stripe.Checkout.Session): Pr
   });
 }
 
-async function creditInvoice(env: AppEnv, invoice: Stripe.Invoice): Promise<void> {
+/**
+ * True when a subscription invoice is the membership's: one of its lines is
+ * the membership price, or its subscription is the plugin's `membership` plan
+ * (found by the plugin's own row id in the subscription metadata, or by the
+ * Stripe subscription id). The second test keeps renewals of an older price
+ * recognised after the operator changes STRIPE_MEMBERSHIP_PRICE_ID.
+ */
+async function isMembershipInvoice(env: AppEnv, invoice: Stripe.Invoice): Promise<boolean> {
+  const priceId = membershipPriceId(env);
+  if (priceId && invoice.lines?.data.some((l) => idOf(l.pricing?.price_details?.price) === priceId))
+    return true;
+  const details = invoice.parent?.subscription_details;
+  const pluginId = details?.metadata?.['subscriptionId'] ?? null;
+  const stripeId = idOf(details?.subscription);
+  if (!pluginId && !stripeId) return false;
+  const row = await env.DB.prepare(
+    `SELECT 1 AS one FROM auth_subscriptions
+     WHERE plan = ?1 AND (id = ?2 OR stripe_subscription_id = ?3) LIMIT 1`,
+  )
+    .bind(MEMBERSHIP_PLAN, pluginId, stripeId)
+    .first<{ one: number }>();
+  return row !== null;
+}
+
+/**
+ * A paid membership invoice (the first year or a renewal) includes
+ * MEMBERSHIP_CREDIT_CENTS of credit: a fixed gift, not a purchase, so no
+ * gross amount or fee. Nothing when the built-in provider isn't offered (the
+ * amount is then 0) or nothing was paid (a trial or a 100% discount).
+ */
+async function creditMembershipInvoice(env: AppEnv, invoice: Stripe.Invoice): Promise<void> {
   // One-off invoices (e.g. Checkout's invoice_creation receipts) have no subscription parent.
-  // Every paid subscription invoice counts, whatever its billing_reason: a customer who
-  // pays a prorated invoice (e.g. a plan switch in the Customer Portal) gets that credit.
-  if (invoice.parent?.type !== 'subscription_details') return;
-  if (invoice.currency && invoice.currency !== 'usd') {
-    console.error(
-      'Ignoring a subscription invoice in an unexpected currency',
-      invoice.id,
-      invoice.currency,
-    );
-    return;
-  }
-  if (invoice.subtotal <= 0 || !invoice.id) return;
+  if (invoice.parent?.type !== 'subscription_details' || !invoice.id) return;
+  if (!(invoice.total > 0)) return;
+  const cents = membershipCreditCents(env);
+  if (cents <= 0) return;
+  if (!(await isMembershipInvoice(env, invoice))) return;
   const accountId = await accountForCustomer(env, invoice.customer);
   // The plugin stores the customer id before Checkout opens, so this is a race at worst: retry.
   if (!accountId) throw new Error(`No user for Stripe customer of invoice ${invoice.id}`);
-  if (await hasGrant(env.DB, invoice.id)) return; // redelivery: skip the fee lookup
-  const stripe = getStripe(env);
-  if (!stripe) throw new Error('Stripe is not configured');
-  const feeCents = await invoiceFeeCents(stripe, invoice.id, invoice.amount_paid);
   await grantCredit(env.DB, {
     accountId,
     kind: 'subscription',
-    ...netOfFee(invoice.subtotal, feeCents),
+    amountMicros: centsToMicros(cents),
+    grossMicros: null,
+    feeMicros: 0,
     stripeRef: invoice.id,
-    note: 'Monthly plan credit',
+    note: MEMBERSHIP_CREDIT_NOTE,
   });
 }
 
-/** Pre-tax share of the charge (credits never include tax); 1 when unknown. */
+/**
+ * Pre-tax share of the charge (credits never include tax); 1 when unknown.
+ * `topUp`: the charge paid a credits Checkout Session.
+ */
 async function preTaxShare(
   stripe: Stripe,
   charge: Stripe.Charge,
-): Promise<{ ratio: number; accountId: string | null }> {
+): Promise<{ ratio: number; accountId: string | null; topUp: boolean }> {
   const paymentIntent = idOf(charge.payment_intent);
   if (paymentIntent) {
     const sessions = await stripe.checkout.sessions.list({
@@ -215,10 +204,42 @@ async function preTaxShare(
       return {
         ratio: total > 0 ? Math.min(1, subtotal / total) : 1,
         accountId: session.metadata['accountId'] || null,
+        topUp: true,
       };
     }
   }
-  return { ratio: 1, accountId: null };
+  return { ratio: 1, accountId: null, topUp: false };
+}
+
+/** The invoice a charge paid (through its PaymentIntent), if any. */
+async function invoiceOfCharge(stripe: Stripe, charge: Stripe.Charge): Promise<string | null> {
+  const paymentIntent = idOf(charge.payment_intent);
+  if (!paymentIntent) return null;
+  const payments = await stripe.invoicePayments.list({
+    payment: { type: 'payment_intent', payment_intent: paymentIntent },
+    limit: 1,
+  });
+  return idOf(payments.data[0]?.invoice);
+}
+
+/** The credit an invoice granted: the membership's included credit, or (older ledgers) a monthly plan's. */
+async function invoiceGrant(
+  db: D1Database,
+  invoiceId: string,
+): Promise<{ accountId: string; amountMicros: number; included: boolean } | null> {
+  const row = await db
+    .prepare(
+      `SELECT account_id, amount_micros, gross_micros FROM credit_grants
+       WHERE stripe_ref = ? AND kind = 'subscription' LIMIT 1`,
+    )
+    .bind(invoiceId)
+    .first<{ account_id: string; amount_micros: number; gross_micros: number | null }>();
+  if (!row) return null;
+  return {
+    accountId: row.account_id,
+    amountMicros: row.amount_micros,
+    included: row.gross_micros === null,
+  };
 }
 
 /**
@@ -238,6 +259,32 @@ async function debitRefunds(env: AppEnv, charge: Stripe.Charge): Promise<void> {
   if (live.length === 0) return;
 
   const share = await preTaxShare(stripe, charge);
+  if (!share.topUp) {
+    const invoiceId = await invoiceOfCharge(stripe, charge);
+    if (invoiceId) {
+      const grant = await invoiceGrant(env.DB, invoiceId);
+      // The invoice granted no credit (no built-in provider then, or nothing paid): nothing to take back.
+      if (!grant) return;
+      if (grant.included) {
+        // The membership's included credit is taken back once, whatever the refunded amount
+        // (a fixed gift, not a share of the price). Keyed on the first refund, so a later
+        // partial refund of the same charge, or a redelivery, adds nothing.
+        const first = [...live].sort(
+          (a, b) => a.created - b.created || a.id.localeCompare(b.id),
+        )[0]!;
+        if (grant.amountMicros <= 0) return;
+        await grantCredit(env.DB, {
+          accountId: grant.accountId,
+          kind: 'refund',
+          amountMicros: -grant.amountMicros,
+          stripeRef: first.id,
+          note: `Refund of membership invoice ${invoiceId}`,
+        });
+        return;
+      }
+      // A monthly-plan invoice from before the membership: debited like any other charge below.
+    }
+  }
   const accountId = share.accountId ?? (await accountForCustomer(env, charge.customer));
   if (!accountId) {
     console.error('Refunded charge without a known account; not debited', charge.id);
@@ -257,8 +304,9 @@ async function debitRefunds(env: AppEnv, charge: Stripe.Charge): Promise<void> {
 }
 
 /**
- * The Better Auth Stripe plugin's `onEvent`: credits top-ups and subscription
- * invoices, debits refunds (idempotent). Throws on D1 errors so Stripe retries.
+ * The Better Auth Stripe plugin's `onEvent`: credits top-ups and the credit a
+ * membership invoice includes, debits refunds (idempotent). Throws on D1
+ * errors so Stripe retries.
  */
 export async function handleStripeEvent(env: AppEnv, event: Stripe.Event): Promise<void> {
   switch (event.type) {
@@ -266,7 +314,7 @@ export async function handleStripeEvent(env: AppEnv, event: Stripe.Event): Promi
     case 'checkout.session.async_payment_succeeded':
       return creditCheckout(env, event.data.object);
     case 'invoice.paid':
-      return creditInvoice(env, event.data.object);
+      return creditMembershipInvoice(env, event.data.object);
     case 'charge.refunded':
       return debitRefunds(env, event.data.object);
     default:
