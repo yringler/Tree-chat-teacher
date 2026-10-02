@@ -27,8 +27,7 @@
     "better-auth": "1.7.7",
     "highlight.js": "^11.12.0",
     "rxjs": "~7.8.0",
-    "tslib": "^2.3.0",
-    "txtgen": "^3.0.7"
+    "tslib": "^2.3.0"
   },
   "devDependencies": {
     "@angular/build": "^22.2.0",

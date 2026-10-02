@@ -1,7 +1,14 @@
 import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classes without the Angular CLI.
 import { Injector } from '@angular/core';
-import type { StreamEvent } from '@tangent/shared';
-import { API_FETCH, ApiClient, ApiError, readStreamEvents } from '@tangent/web-shared';
+import type { ReviewEvent, StreamEvent } from '@tangent/shared';
+import {
+  API_FETCH,
+  ApiClient,
+  ApiError,
+  parseReviewEvent,
+  readSseEvents,
+  readStreamEvents,
+} from '../index';
 import { describe, expect, it } from 'vitest';
 import {
   createDemoFetch,
@@ -10,7 +17,7 @@ import {
   sseFrame,
   type DemoBackendOptions,
   type DemoStorage,
-} from './demo-backend';
+} from './backend';
 import { createLoremProvider, seededRandom, type LoremProviderOptions } from './lorem';
 
 /** The real ApiClient over the demo backend (no network, no DOM). */
@@ -217,7 +224,7 @@ describe('demo backend', () => {
 
   it('answers unknown routes with a JSON 404 in the API error shape', async () => {
     const demoFetch = createDemoFetch({ storage: null });
-    const res = await demoFetch('/api/shares', { method: 'GET' });
+    const res = await demoFetch('/api/nope', { method: 'GET' });
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({
       error: { code: 'not_found', message: 'Not available in the demo' },
@@ -269,10 +276,74 @@ describe('demo backend', () => {
     expect((await reloaded.billing()).balanceMicros).toBeLessThan(DEMO_START_BALANCE_MICROS);
   });
 
+  it('reviews a reply over SSE without storing anything', async () => {
+    const { api } = setup();
+    const [lesson] = await api.listTrees();
+    const before = await api.getTree(lesson!.id);
+    const reply = before.nodes.find((n) => n.role === 'assistant')!;
+    const res = await api.reviewNode(
+      reply.id,
+      { providerId: 'tangent', model: 'smart' },
+      new AbortController().signal,
+    );
+    const seen: ReviewEvent[] = [];
+    for await (const e of readSseEvents(res.body!, parseReviewEvent)) seen.push(e);
+    expect(seen.some((e) => e.type === 'delta')).toBe(true);
+    expect(seen.at(-1)).toMatchObject({ type: 'done', providerId: 'tangent', model: 'smart' });
+    expect((await api.getTree(lesson!.id)).nodes).toEqual(before.nodes);
+  });
+
   it('serializes SSE frames like the Worker', () => {
     expect(sseFrame({ type: 'status', message: 'x' })).toBe(
       'event: status\ndata: {"type":"status","message":"x"}\n\n',
     );
+  });
+});
+
+describe('power demo backend', () => {
+  it('acts as a power account with no stored keys and no shares', async () => {
+    const { api } = setup({ mode: 'power' });
+    await expect(api.me()).resolves.toMatchObject({ mode: 'power', paidCredit: false });
+    await expect(api.keyStatus()).resolves.toEqual({
+      enabled: false,
+      hasKey: false,
+      providers: [],
+    });
+    await expect(api.listShares()).resolves.toEqual([]);
+    await expect(
+      api.createShare({ treeId: 'x', scope: 'tree' } as Parameters<ApiClient['createShare']>[0]),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(api.saveKey('openai', 'sk-x')).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('keeps an empty system prompt and is never out of credit', async () => {
+    const storage = memoryStorage();
+    const { api } = setup({ mode: 'power', storage, seed: false });
+    const tree = await api.createTree({});
+    expect(tree.tree.systemPrompt).toBeFalsy();
+    const saved = JSON.parse(storage.data.get('tangent.power-demo.v1')!) as object;
+    storage.data.set('tangent.power-demo.v1', JSON.stringify({ ...saved, balanceMicros: 0 }));
+    const { api: next } = setup({ mode: 'power', storage });
+    const stream = await events(
+      await next.sendMessage(
+        tree.tree.trunkBranchId,
+        { content: 'Hi' },
+        new AbortController().signal,
+      ),
+    );
+    expect(stream.at(-1)?.type).toBe('done');
+    expect(storage.data.has('tangent.learn-demo.v1')).toBe(false);
+  });
+
+  it('backs up a conversation and imports it as a copy', async () => {
+    const { api, backend } = setup({ mode: 'power' });
+    const [lesson] = await api.listTrees();
+    const res = await backend.fetch(api.backupUrl(lesson!.id));
+    const backup = (await res.json()) as Parameters<ApiClient['importBackup']>[0];
+    const copy = await api.importBackup(backup);
+    expect(copy.tree.id).not.toBe(lesson!.id);
+    expect(copy.nodes).toHaveLength(6);
+    expect(await api.listTrees()).toHaveLength(2);
   });
 });
 

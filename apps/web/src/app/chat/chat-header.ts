@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import type { Branch } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '@tangent/web-shared';
+import { DEMO_MODE, Icon } from '@tangent/web-shared';
 import { ModeBadge } from '../ui/mode-badge';
 import { ExportMenu } from './export-menu';
 
@@ -42,10 +42,17 @@ interface Crumb {
           >
             <app-icon name="settings" /> <span class="hide-narrow">Branch</span>
           </button>
-          <button type="button" class="btn btn-ghost btn-sm" (click)="ui.shareDialogOpen.set(true)">
-            <app-icon name="share" /> <span class="hide-narrow">Share…</span>
-          </button>
-          <app-export-menu />
+          <!-- Shares and exports are made by the server; the demo has none. -->
+          @if (!demo) {
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              (click)="ui.shareDialogOpen.set(true)"
+            >
+              <app-icon name="share" /> <span class="hide-narrow">Share…</span>
+            </button>
+            <app-export-menu />
+          }
           <button
             type="button"
             class="btn btn-ghost btn-sm"
@@ -126,6 +133,7 @@ interface Crumb {
 export class ChatHeader {
   protected readonly store = inject(TreeStore);
   protected readonly ui = inject(UiStore);
+  protected readonly demo = inject(DEMO_MODE);
 
   protected readonly crumbs = computed<Crumb[]>(() => {
     const chain = this.store.chain();

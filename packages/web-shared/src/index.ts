@@ -28,6 +28,7 @@ export {
   BillingError,
   type BillingSubscription,
 } from './core/billing-client';
+export { DEMO_BASES, DEMO_MODE, isDemoPath } from './core/demo';
 export { MarkdownService } from './core/markdown.service';
 
 // Server-sent events

@@ -9,8 +9,7 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { MonthlyPlanInfo, UsageEntry, UsagePurpose } from '@tangent/shared';
-import { ApiClient, BillingClient, Icon } from '@tangent/web-shared';
-import { DEMO_MODE } from '../demo/demo-mode';
+import { ApiClient, BillingClient, DEMO_MODE, Icon } from '@tangent/web-shared';
 import { BillingController } from './billing-controller';
 import { formatBps, formatCents, formatCharge, formatMicros } from './format';
 

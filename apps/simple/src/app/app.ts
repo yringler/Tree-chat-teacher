@@ -1,8 +1,8 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { ApiClient, APP_PATHS, AuthService, Icon } from '@tangent/web-shared';
+import { ApiClient, APP_PATHS, AuthService, DEMO_MODE, Icon } from '@tangent/web-shared';
 import { RouteSync } from './core/route-sync';
-import { DEMO_MODE, DEMO_SIGNUP_URL } from './demo/demo-mode';
+import { DEMO_SIGNUP_URL } from './demo/demo-mode';
 import { AppHeader } from './shell/app-header';
 import { ModelAccessDialog } from './shell/model-access-dialog';
 import { PasskeysDialog } from './shell/passkeys-dialog';
@@ -62,7 +62,7 @@ export class App {
   private readonly account = inject(AccountStore);
   private readonly auth = inject(AuthService);
   private readonly api = inject(ApiClient);
-  /** `/learn/demo/`: an in-browser backend, no sign-in (see demo/demo-mode.ts). */
+  /** `/learn/demo/`: an in-browser backend, no sign-in (see @tangent/web-shared/demo). */
   protected readonly demo = inject(DEMO_MODE);
   protected readonly signupUrl = DEMO_SIGNUP_URL;
   /** The signed-in caller is known. */
