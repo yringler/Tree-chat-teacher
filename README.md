@@ -20,7 +20,7 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 | Who      | Anyone who signs in with a verified email. Account `p_<userId>`                                                                                                                                                                                           | The same users. Account `u_<userId>`, with its own conversations (credit is per user, shared by both apps)                   |
 | Models   | Every configured provider and model, on the user's own keys (bring-your-own-key); OpenRouter suggests the Learn models first and takes any model id. Where the operator sells credit, also **Tangent credit**: any OpenRouter model on the operator's key | Two tiers, **Smart** and **Simple**, on OpenRouter                                                                           |
 | Controls | All of them: context modes, inspector, reviewer, system prompt, shares, export, backups                                                                                                                                                                   | Nothing to configure: a built-in tutor prompt, tangents after every answer, "Ask about this" branches, a Smart/Simple toggle |
-| Cost     | Your own provider keys, unmetered; or Tangent credit, metered (see below)                                                                                                                                                                                 | Your own OpenRouter key, unmetered; or, where the operator sells it, Tangent credit (see below)                              |
+| Cost     | Where the operator charges for it, a membership ($10 a year plus tax, one for both apps); then your own provider keys, unmetered, or Tangent credit, metered (see below)                                                                                  | The same membership; then your own OpenRouter key, unmetered, or, where the operator sells it, Tangent credit (see below)    |
 
 **How Tangent answers.** New conversations in both apps start with the same built-in system prompt (`DEFAULT_SYSTEM_PROMPT` in `packages/shared/src/default-prompt.ts`). It answers the question asked, directly and in depth, and never quizzes the user: whatever they don't follow, they branch into. Every substantive reply ends with a `<tangents>` block of two to four directions to explore next ("Why ice is less dense than water — …"). Both apps keep that block out of the rendered reply and show it as buttons under the message; tapping one creates a `path` branch titled after the tangent and sends the title as its first message (the parser is `splitTangents` in `packages/shared`). The block stays in the stored message, so the model sees what it already offered; shares and exports show it as a plain "Where next?" list.
 
@@ -44,7 +44,9 @@ It is marked experimental in the app and in the **Power | Learn | Canvas** switc
 **How Learn pays.** In Learn, **How replies are paid for** (account menu) offers:
 
 - **Use my own OpenRouter key.** The key is stored like any bring-your-own-key (a sealed cookie, the same one power mode uses, so one OpenRouter key serves both apps). Nothing is metered, there is no balance check, and the operator's key is never used.
-- **Use paid credit** (pay as you go: true provider cost + 10%, 5% on a monthly plan, tax on top; see [How pricing works](#how-pricing-works)). Offered only when the operator has set up Stripe and `OPENROUTER_SIMPLE_API_KEY`. Without them (for example a self-hosted install) Learn runs on the learner's own key only and the paid option is hidden.
+- **Use paid credit** (pay as you go: true provider cost + 10%, tax on top; see [How pricing works](#how-pricing-works)). Offered only when the operator has set up Stripe and `OPENROUTER_SIMPLE_API_KEY`. Without them (for example a self-hosted install) Learn runs on the learner's own key only and the paid option is hidden.
+
+Either way, where the operator has set up the membership, generating in either app needs it ($10 a year plus tax, or a waiver from the operator); see [Membership, credit and billing](#membership-credit-and-billing).
 
 **Server keys.** Anyone can sign up, so the server-side keys of the power-mode providers (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, or whatever `PROVIDERS` names) are never used for a signed-in user: power mode is bring-your-own-key for everyone. Those secrets serve only the local dev bypass (`DEV_ALLOW_NO_AUTH`), so leave them unset in production. `OPENROUTER_SIMPLE_API_KEY` only ever serves paid Learn mode.
 
@@ -83,7 +85,7 @@ The code is released under the [MIT License](LICENSE), © 2026 Yehuda Ringler. T
 - **pnpm 10** (`corepack enable`).
 - To deploy you need a Cloudflare account. The **Workers Paid** plan is recommended: the Free plan's 10 ms CPU per request is tight for streaming.
 - You also need a domain on Cloudflare: sign-in callbacks, magic links and passkeys are tied to one public origin.
-- Paid Learn mode also needs an [OpenRouter](https://openrouter.ai) account and a [Stripe](https://stripe.com) account (see [Learn mode and billing](#learn-mode-and-billing)). Learn on the learner's own OpenRouter key only needs `KEY_ENCRYPTION_SECRET`.
+- Paid Learn mode also needs an [OpenRouter](https://openrouter.ai) account and a [Stripe](https://stripe.com) account (see [Membership, credit and billing](#membership-credit-and-billing)). Learn on the learner's own OpenRouter key only needs `KEY_ENCRYPTION_SECRET`.
 
 ## Local development
 
@@ -220,17 +222,20 @@ Conversations and shares under the old shared `default` account are **not carrie
 
 `DEV_ALLOW_NO_AUTH=true` is honoured **only** while `BETTER_AUTH_SECRET` is unset, and it belongs in `.dev.vars` only. Never set it as a deployed variable.
 
-### Learn mode and billing
+### Membership, credit and billing
 
-Learn mode (`/learn/`, called "simple" in the code) is always on. Learners can run it on their own OpenRouter key at no charge, which needs only `KEY_ENCRYPTION_SECRET`, and power users bring their own keys. This section sets up the paid option, the **built-in provider** (`tangent`, "Tangent credit"): it spends the operator's OpenRouter key, so each call on it is metered and charged against prepaid credit, bought through Stripe. Both apps offer it, once both Stripe secrets and `OPENROUTER_SIMPLE_API_KEY` are set; until then both are own-key only and the paid option is hidden.
+Learn mode (`/learn/`, called "simple" in the code) is always on. Learners can run it on their own OpenRouter key, which needs only `KEY_ENCRYPTION_SECRET`, and power users bring their own keys. This section sets up the two things the operator can charge for, both through Stripe:
+
+- **The membership**: **$10 a year plus tax**, one subscription per user that covers both apps. Once it is set up (`STRIPE_MEMBERSHIP_PRICE_ID`), generating (sending a message, a review, resolving summaries) needs it, on any provider, own keys included. Reading, exporting, deleting and settings stay open without it, so nobody is locked out of their data. The operator can waive it per user. Each paid year includes **$2 of credit** (`MEMBERSHIP_CREDIT_CENTS`) when the built-in provider below is offered.
+- **The built-in provider** (`tangent`, "Tangent credit"): it spends the operator's OpenRouter key, so each call on it is metered and charged against prepaid credit. Both apps offer it, once both Stripe secrets and `OPENROUTER_SIMPLE_API_KEY` are set; until then both are own-key only and the paid option is hidden.
 
 - **Learn** runs on it when the learner picks **Use paid credit**; Learn on credit ignores the learner's own key.
 - **Power** lists it after the user's own providers as **Tangent credit**, with the Learn models as suggestions and any OpenRouter model id allowed (`openModels`). Only calls on it are metered: a branch on it pays for its replies, summaries and titles, a review pays when the reviewer is Tangent credit, and everything on the user's own keys stays free.
 - **Credit is per user**, shared by both apps: one balance on the ledger id `u_<userId>` (the Learn account's id, so balances from before power could use credit carry over). `/api/billing` answers in both apps.
 
-A call on the built-in provider answers **402** when the balance is short; a call on the user's own key never touches the balance or the operator's key.
+A generating request answers **402 `membership_required`** when the membership is required and the user has none (the apps then show the subscribe panel), then, for a call on the built-in provider, **402 `payment_required`** when the balance is short; a call on the user's own key never touches the balance or the operator's key.
 
-Users pay the operator's true cost plus the markup: the model price OpenRouter reports, grossed up by OpenRouter's fee for buying credits, then +10% (+5% on a monthly plan); and each purchase is credited net of Stripe's actual fee. The markups are configuration (`MARKUP_PREPAID_BPS`, `MARKUP_MONTHLY_BPS`) and, with both fees passed through, they are the operator's real margin. See [How pricing works](#how-pricing-works).
+Users pay the operator's true cost plus the markup: the model price OpenRouter reports, grossed up by OpenRouter's fee for buying credits, then +10%; and each purchase is credited net of Stripe's actual fee. The markup is configuration (`MARKUP_BPS`) and, with both fees passed through, it is the operator's real margin. See [How pricing works](#how-pricing-works).
 
 1. **OpenRouter key.** Create a key just for the built-in provider at <https://openrouter.ai/settings/keys> and **give it a credit limit**: it is the backstop if anything goes wrong with metering. The built-in provider never falls back to `OPENROUTER_API_KEY`.
    ```bash
@@ -240,8 +245,8 @@ Users pay the operator's true cost plus the markup: the model price OpenRouter r
 2. **Stripe Dashboard.** Set these up in test mode first, then again in live mode:
    - **Stripe Tax** (_Settings → Tax_): your origin address and a registration for every place you must collect tax. Checkout fails while Tax isn't set up, because every Checkout Session enables `automatic_tax`.
    - **A credits product** (_Product catalog → Add product_), e.g. "Tangent credits", with a tax code for digital services (e.g. _General – Electronically Supplied Services_, `txcd_10000000`; pick what fits your business). It needs no price: each top-up creates its price inline. Put its id (`prod_…`) in `STRIPE_CREDITS_PRODUCT_ID`.
-   - **Monthly plans** (optional): a product with the same tax code and one **recurring monthly** price per tier (e.g. $10, $20, $50), each with tax behaviour **exclusive** (tax is added on top). Their `price_…` ids go into `STRIPE_PLANS`.
-   - **Customer Portal** (_Settings → Billing → Customer portal_): turn on invoice history, payment method updates, billing address and tax ID updates, cancellation **at the end of the billing period**, and plan switching between the monthly prices with **no proration** (the plans' `prorationBehavior` is `none` too, so switches apply from the next cycle). Every paid subscription invoice credits its pre-tax subtotal (less Stripe's fee) whatever its billing reason, so if you do allow proration, a prorated mid-cycle invoice is credited as well.
+   - **The membership** (optional; without it nobody needs one): a product, e.g. "Tangent membership", with the same kind of tax code and one **recurring yearly** price of **$10.00**, tax behaviour **exclusive** (tax is added on top). Put the price id (`price_…`) in `STRIPE_MEMBERSHIP_PRICE_ID` (step 4). Users subscribe from the billing page (Stripe Checkout, through the Better Auth Stripe plugin's plan `membership`).
+   - **Customer Portal** (_Settings → Billing → Customer portal_): turn on invoice history, payment method updates, billing address and tax ID updates, and cancellation **at the end of the billing period**. There is one plan, so no plan switching is needed. Members cancel, update cards and download invoices there ("Manage billing").
    - **Webhook endpoint** (_Developers → Webhooks → Add endpoint_): URL `https://tangent.example.com/api/auth/stripe/webhook`, API version **`2026-08-26.dahlia`** (the version `stripe@22.6.2` pins), and exactly these events:
      `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `charge.refunded`.
 3. **Stripe secrets.** Billing is enabled only when both are set:
@@ -249,35 +254,32 @@ Users pay the operator's true cost plus the markup: the model price OpenRouter r
    npx wrangler secret put STRIPE_SECRET_KEY       # sk_live_… (or a restricted key)
    npx wrangler secret put STRIPE_WEBHOOK_SECRET   # whsec_… of the endpoint above
    ```
-4. **Plans.** `STRIPE_PLANS` in `wrangler.jsonc` is a string holding a JSON array (`"[]"`, the default, offers no monthly plans). `name` is the plan's id in the Better Auth Stripe plugin, `label` is shown to users, and `amountCents` is only for display: the credit granted always comes from the paid invoice.
-   ```json
-   [
-     { "name": "monthly-10", "label": "$10 / month", "priceId": "price_…", "amountCents": 1000 },
-     { "name": "monthly-20", "label": "$20 / month", "priceId": "price_…", "amountCents": 2000 }
-   ]
+4. **Membership.** In `wrangler.jsonc`, set `STRIPE_MEMBERSHIP_PRICE_ID` to the yearly price above (empty = no membership: everyone may generate). `MEMBERSHIP_PRICE_CENTS` (default `1000`) is only what the apps display; Stripe charges the price itself. `MEMBERSHIP_CREDIT_CENTS` (default `200` = $2.00) is the credit each paid membership invoice includes, granted only while the built-in provider is offered (`0` = none). Optionally, a waiver code for friends (see [Waiving the membership](#waiving-the-membership)):
+   ```bash
+   npx wrangler secret put MEMBERSHIP_WAIVER_CODE
    ```
-5. **Migrate and deploy.** Migration `0003_billing` adds the billing tables and `0004_fees` the fee columns. The cron trigger (`*/10 * * * *` in `wrangler.jsonc`) deploys with the Worker.
+5. **Migrate and deploy.** Migration `0003_billing` adds the billing tables, `0004_fees` the fee columns and `0007_membership` the waiver flag. The cron trigger (`*/10 * * * *` in `wrangler.jsonc`) deploys with the Worker.
    ```bash
    pnpm db:migrate:remote
    pnpm run deploy
    ```
-6. **Verify.** Sign in at `https://tangent.example.com/learn/`, choose **Use paid credit** under **How replies are paid for**, buy $5 (with test-mode keys, the [test card](https://docs.stripe.com/testing) `4242 4242 4242 4242`), and check that the balance appears and goes down as you chat. In the power app, a conversation on **Tangent credit** spends the same balance. _Developers → Webhooks_ shows every delivery and its response.
+6. **Verify.** Sign in at `https://tangent.example.com/learn/`, subscribe to the membership (if you set it up) and check that $2 of credit appears, choose **Use paid credit** under **How replies are paid for**, buy $5 (with test-mode keys, the [test card](https://docs.stripe.com/testing) `4242 4242 4242 4242`), and check that the balance appears and goes down as you chat. In the power app, a conversation on **Tangent credit** spends the same balance. _Developers → Webhooks_ shows every delivery and its response.
 
 #### How pricing works
 
-- **The rule.** Users pay the operator's true cost plus a markup: **+10%** (`MARKUP_PREPAID_BPS`), or **+5%** (`MARKUP_MONTHLY_BPS`) while the user has an active monthly plan. "True cost" passes two fees through, so the markup is real margin:
+- **Membership.** **$10 a year plus tax** (Stripe Tax on an exclusive price), one per user for both apps, renewing yearly until cancelled in the Customer Portal (it then runs to the end of the paid year). Each paid membership invoice, the first and every renewal, adds **$2 of credit** (`MEMBERSHIP_CREDIT_CENTS`) as a fixed gift (no fee is deducted from it), only while the built-in provider is offered; the apps mention it only then. A renewal whose payment failed (`past_due`) still counts while Stripe retries it.
+- **The rule.** Users pay the operator's true cost plus one markup, **+10%** (`MARKUP_BPS`; the older `MARKUP_PREPAID_BPS` is still read while `MARKUP_BPS` is empty, for one release, then dropped). "True cost" passes two fees through, so the markup is real margin:
   - **OpenRouter's credit-purchase fee** is added to the cost of each call (`OPENROUTER_FEE_BPS`, default 5.5%).
   - **Stripe's payment processing fee** is deducted from each purchase: the credit is what the user paid before tax, minus the exact fee Stripe reports for that payment.
 - **Balance.** Each user has one balance in US dollars, shared by both apps and kept as integer micro-dollars: what the user paid before tax, less Stripe's fee on each payment, less what they have used.
 - **Charges.** Every call on the built-in provider (replies, summaries, titles, reviews) is charged `ceil(cost × (1 + fee bps / 10000) × (1 + markup bps / 10000))`, rounded up to the next micro-dollar, where `cost` is the model price OpenRouter reports for the call. The fee and markup are fixed when the call starts and stored with it, so changing the config never reprices past calls. Credit bought at one rate is spent at whatever rate applies when it is used.
 - **Top-ups.** One-time payments of **$5 to $500** through Stripe Checkout. When Stripe reports the payment, the Worker reads the fee from the payment's balance transaction (`fee`, itemised in `fee_details`) and credits the pre-tax amount minus that fee. The billing page shows the last purchase as "paid $5.00, credit $4.52 after payment processing".
-- **Monthly plans.** A subscription for a fixed amount a month. Every paid subscription invoice (the first one, every renewal, and any prorated mid-cycle invoice) credits its pre-tax subtotal minus Stripe's fee on its payment. A $0 invoice (a trial) credits nothing. Unused credit rolls over and never expires. Plan changes take effect from the next cycle. Users change plans, cancel, update cards and download invoices in the Stripe Customer Portal ("Manage billing").
 - **Worked example.** A user buys **$5** of credit. Stripe Tax adds tax on top, say $0.40, so the card is charged $5.40. Stripe's fee is about 2.9% + 30¢ for the card plus about 0.5% for Stripe Tax, about $0.48 here, so the user gets about **$4.52** of credit (tax never enters the balance). A reply that OpenRouter reports at **$0.0010** is charged $0.0010 × 1.055 × 1.10 ≈ **$0.00116**. The exact fees come from Stripe and OpenRouter's current terms; check <https://stripe.com/pricing>.
 - **Tax.** Prices exclude tax. Stripe Tax computes it at checkout from the billing address and adds it on top. Tax never enters the balance.
-- **Holds.** Each call in flight holds `USAGE_HOLD_MICROS` (default `20000` = $0.02) until it settles. A message, review or summary can only start when the available balance (balance − holds) covers one more hold; otherwise the API answers **402 `payment_required`** and the app sends the user to the billing page. A reply that has started is never cut off, so the balance can go a few cents negative; the next purchase absorbs that.
+- **Holds.** Each call in flight holds `USAGE_HOLD_MICROS` (default `20000` = $0.02) until it settles. A message, review or summary on the built-in provider can only start when the available balance (balance − holds) covers one more hold; otherwise the API answers **402 `payment_required`** and the app sends the user to the billing page. A reply that has started is never cut off, so the balance can go a few cents negative; the next purchase absorbs that.
 - **Stopped and lost replies.** Stopping a reply still costs what OpenRouter billed for it. When a stream ends without a cost, the Worker asks OpenRouter's generation endpoint (with retries), and a cron every 10 minutes settles anything left over. A call that never reached OpenRouter is charged $0, and one still unknown after 24 hours is marked `unresolved` at $0 and logged for review.
-- **Refunds.** Refunding a payment in Stripe debits the refunded amount (the pre-tax share for top-ups) automatically. Stripe keeps its fee on a refund, so a full refund debits the whole pre-tax amount, including the fee that was never credited; an unspent top-up refunded in full leaves the balance negative by that fee. Disputes are handled by hand in Stripe, with a manual adjustment if needed (below).
-- **History.** `/learn/billing` shows the balance, top-ups, plans and recent usage (`GET /api/billing/usage`) of both apps. A top-up returns to the billing page of the app it was bought from (`/learn/billing`, or `/billing` in power).
+- **Refunds.** Refunding a top-up in Stripe debits the pre-tax share of the refunded amount automatically. Stripe keeps its fee on a refund, so a full refund debits the whole pre-tax amount, including the fee that was never credited; an unspent top-up refunded in full leaves the balance negative by that fee. Refunding a membership invoice (in part or in full) takes back the credit it included, once, and nothing more; cancel the subscription in Stripe as well if the membership should end. Disputes are handled by hand in Stripe, with a manual adjustment if needed (below).
+- **History.** `/learn/billing` shows the balance, top-ups and recent usage (`GET /api/billing/usage`) of both apps. A top-up returns to the billing page of the app it was bought from (`/learn/billing`, or `/billing` in power).
 - **Cost bounds.** Every call on the built-in provider, in either app, sends at most `SIMPLE_MAX_INPUT_TOKENS` (default 60,000) input tokens and 4,096 output tokens, and those calls are rate limited per user across both apps (`CHAT_RATE_LIMITER`, 30 a minute). In power the user picks the model, so a call on an expensive model costs more within the same token bounds.
 
 **Manual credit or adjustments** (refund disputes, goodwill credit) are a SQL insert into `credit_grants` with `kind='adjustment'` and a signed amount in micro-dollars (`5000000` = $5; negative to debit). The ledger id is `u_<userId>` in both apps (`default_simple` for the dev bypass). Find it first:
@@ -289,15 +291,27 @@ npx wrangler d1 execute DB --remote --command "INSERT INTO credit_grants (id, ac
 
 Use `--local` instead of `--remote` for the local database.
 
+#### Waiving the membership
+
+A user whose `auth_users.membership_waived` is `1` needs no membership, whatever Stripe says. Set it by hand, or give friends the code in the `MEMBERSHIP_WAIVER_CODE` secret: entering it on the billing page ("Have a code?", `POST /api/billing/membership/waiver`) sets the flag for that user (rate limited, compared in constant time). If the code leaks, change the secret (`npx wrangler secret put MEMBERSHIP_WAIVER_CODE`; set it empty to stop code redemption) and clear the flag of whoever shouldn't have it. Clearing it doesn't touch a paid membership.
+
+```bash
+# Who has it, and since when
+npx wrangler d1 execute DB --remote --command "SELECT id, email, membership_waived_at FROM auth_users WHERE membership_waived = 1"
+# Waive (set) or revoke (clear) it for one user
+npx wrangler d1 execute DB --remote --command "UPDATE auth_users SET membership_waived = 1, membership_waived_at = COALESCE(membership_waived_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) WHERE email = 'friend@example.com'"
+npx wrangler d1 execute DB --remote --command "UPDATE auth_users SET membership_waived = 0 WHERE email = 'friend@example.com'"
+```
+
 #### Testing billing locally
 
-- **Offline, no Stripe or OpenRouter.** Use "Option C" in `apps/worker/.dev.vars.example`: a fake `SIMPLE_PROVIDER` that reports a fixed cost per call, and placeholder Stripe values so paid credit is offered. Grant yourself credit with the SQL insert above (`--local`; the account is `default_simple` with the dev bypass), choose **Use paid credit**, then chat at <http://localhost:8787/learn/> (or pick **Tangent credit** in the power app, on the same balance). Top-ups and plans won't work with placeholder keys.
-- **Real Stripe test mode.** Put your test keys in `apps/worker/.dev.vars` (`STRIPE_SECRET_KEY=sk_test_…`, a test `STRIPE_CREDITS_PRODUCT_ID`, and test price ids in `STRIPE_PLANS`), set up Stripe Tax in test mode, and forward webhooks with the [Stripe CLI](https://docs.stripe.com/stripe-cli):
+- **Offline, no Stripe or OpenRouter.** Use "Option C" in `apps/worker/.dev.vars.example`: a fake `SIMPLE_PROVIDER` that reports a fixed cost per call, and placeholder Stripe values so paid credit is offered. Grant yourself credit with the SQL insert above (`--local`; the account is `default_simple` with the dev bypass), choose **Use paid credit**, then chat at <http://localhost:8787/learn/> (or pick **Tangent credit** in the power app, on the same balance). Top-ups and the membership checkout won't work with placeholder keys; leave `STRIPE_MEMBERSHIP_PRICE_ID` empty, or set it and waive yourself with the SQL above (`--local`).
+- **Real Stripe test mode.** Put your test keys in `apps/worker/.dev.vars` (`STRIPE_SECRET_KEY=sk_test_…`, a test `STRIPE_CREDITS_PRODUCT_ID`, and a test yearly price in `STRIPE_MEMBERSHIP_PRICE_ID`), set up Stripe Tax in test mode, and forward webhooks with the [Stripe CLI](https://docs.stripe.com/stripe-cli):
   ```bash
   stripe login
   stripe listen --forward-to localhost:8787/api/auth/stripe/webhook
   ```
-  `stripe listen` prints a `whsec_…` signing secret; set it as `STRIPE_WEBHOOK_SECRET` and restart `wrangler dev`. The CLI formats events with your account's default API version; if that is older than the `dahlia` releases, add `--latest` (subscription invoices are read from `invoice.parent`, which older versions don't send). Pay with the test card `4242 4242 4242 4242`. `stripe trigger` events don't carry the metadata a top-up needs, so go through Checkout from the app instead.
+  `stripe listen` prints a `whsec_…` signing secret; set it as `STRIPE_WEBHOOK_SECRET` and restart `wrangler dev`. The CLI formats events with your account's default API version; if that is older than the `dahlia` releases, add `--latest` (membership invoices are read from `invoice.parent` and `pricing.price_details`, which older versions don't send). Pay with the test card `4242 4242 4242 4242`. `stripe trigger` events don't carry the metadata a top-up needs, so go through Checkout from the app instead.
 - **Real models.** Add `OPENROUTER_SIMPLE_API_KEY` (and remove `SIMPLE_PROVIDER`). Use a key with a small credit limit.
 
 #### Not included yet
@@ -306,7 +320,7 @@ These are out of scope for now. Sign-up is open to anyone, so the first two are 
 
 - **Terms of service and privacy policy pages.**
 - **Account deletion and data export** for users (power conversations have per-tree JSON backups).
-- Auto-recharge, free sign-up credit, promotion codes, trials, low-balance emails, multi-currency (USD only), and an admin UI (adjustments are the SQL insert above).
+- Auto-recharge, free sign-up credit, promotion codes, trials, low-balance or membership-lapse emails, multi-currency (USD only), and an admin UI (adjustments and waivers are the SQL above).
 - Metered (postpaid) Stripe billing. [Stripe Managed Payments](https://docs.stripe.com/payments/managed-payments) (Stripe as merchant of record) would take tax liability off the operator, but isn't wired up.
 
 ## Configuration
@@ -336,11 +350,14 @@ These are out of scope for now. Sign-up is open to anyone, so the first two are 
 | `SIMPLE_SYSTEM_PROMPT`                                                                 | var                | Built-in prompt of new Learn trees with none saved (default empty = `DEFAULT_SYSTEM_PROMPT` in `packages/shared`). Learn only: power users set their own in Settings                                                                                          |
 | `USAGE_HOLD_MICROS`                                                                    | var                | Micro-dollars held per call in flight, and the minimum available balance to start one (default `20000` = $0.02)                                                                                                                                               |
 | `OPENROUTER_FEE_BPS`                                                                   | var                | OpenRouter's credit-purchase fee in bps, added to the reported cost of each built-in provider call before the markup (default `550` = 5.5%; raise it for OpenRouter top-ups under ~$15)                                                                       |
-| `MARKUP_PREPAID_BPS`, `MARKUP_MONTHLY_BPS`                                             | var                | Margin on the true provider cost in basis points, without / with an active monthly plan (default `1000` = +10%, `500` = +5%)                                                                                                                                  |
+| `MARKUP_BPS`                                                                           | var                | Margin on the true provider cost in basis points (default `1000` = +10%). The deprecated `MARKUP_PREPAID_BPS` is still read while this is empty, for one release                                                                                              |
 | `STRIPE_SECRET_KEY`                                                                    | secret             | Stripe API key. Billing is enabled only when this and `STRIPE_WEBHOOK_SECRET` are set                                                                                                                                                                         |
 | `STRIPE_WEBHOOK_SECRET`                                                                | secret             | Signing secret of the webhook endpoint `/api/auth/stripe/webhook`                                                                                                                                                                                             |
 | `STRIPE_CREDITS_PRODUCT_ID`                                                            | var                | Stripe product (with a tax code) that one-time top-ups are sold as (default empty = no top-ups)                                                                                                                                                               |
-| `STRIPE_PLANS`                                                                         | var                | Monthly plans as JSON `[{ "name", "label", "priceId", "amountCents" }]` (default `[]` = none)                                                                                                                                                                 |
+| `STRIPE_MEMBERSHIP_PRICE_ID`                                                           | var                | Stripe price of the membership: yearly, recurring, tax behaviour exclusive. Set = generating in either app needs a membership (or a waiver); empty (default) = no membership                                                                                  |
+| `MEMBERSHIP_PRICE_CENTS`                                                               | var                | The membership's yearly price shown to users (default `1000` = $10.00); Stripe charges the price above                                                                                                                                                        |
+| `MEMBERSHIP_CREDIT_CENTS`                                                              | var                | Credit included with each paid membership year, in cents (default `200` = $2.00), granted only while the built-in provider is offered                                                                                                                         |
+| `MEMBERSHIP_WAIVER_CODE`                                                               | secret             | Optional code users enter to waive the membership fee (sets `auth_users.membership_waived`). Empty = no code redemption; change it if it leaks                                                                                                                |
 | `triggers.crons`                                                                       | cron trigger       | `*/10 * * * *`: settles usage whose cost the stream didn't report (`apps/worker/src/billing/reconcile.ts`)                                                                                                                                                    |
 | `DEV_ALLOW_NO_AUTH`                                                                    | `.dev.vars` only   | Skip sign-in locally (only while `BETTER_AUTH_SECRET` is unset)                                                                                                                                                                                               |
 
@@ -397,7 +414,7 @@ The power app is served with a strict CSP (`apps/web/public/_headers`): `script-
 
 ## Using it
 
-This section describes the power app. The simple app at `/learn/` keeps only the essentials: a list of lessons, a chat with a Smart/Simple toggle, **Ask about this** on selected text (a new branch that keeps the conversation so far), **How replies are paid for** (your own OpenRouter key or paid credit), and, with paid credit, a **Billing** page with the balance, top-ups, monthly plans, "Manage billing" and recent usage. The **Power | Learn** switch at the top of either app opens the other one.
+This section describes the power app. The simple app at `/learn/` keeps only the essentials: a list of lessons, a chat with a Smart/Simple toggle, **Ask about this** on selected text (a new branch that keeps the conversation so far), **How replies are paid for** (your own OpenRouter key or paid credit), and, with paid credit, a **Billing** page with the balance, top-ups, "Manage billing" and recent usage. The **Power | Learn** switch at the top of either app opens the other one.
 
 - **Replying** in the composer appends to the end of the current branch.
 - **Branch from here** is available on any message. You can quote the text you highlighted, pick a mode, and choose a provider and model; by default a branch inherits its parent's.
