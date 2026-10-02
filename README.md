@@ -46,6 +46,7 @@ Design docs:
 - [docs/PLAN.md](docs/PLAN.md): architecture, data model, interfaces, the context algorithm and portability.
 - [docs/DECISIONS.md](docs/DECISIONS.md): one-line decision log.
 - [docs/RESEARCH.md](docs/RESEARCH.md): research notes, with sources.
+- [docs/LEGAL.md](docs/LEGAL.md): legal and compliance checklist (privacy policy, terms, account deletion, trademark, payments, what the operator must do before launch).
 
 ```
 packages/shared     domain types, API + SSE contract (zod), share DTO
@@ -288,6 +289,7 @@ These are out of scope for now. Sign-up is open to anyone, so the first two are 
 | `PUBLIC_BASE_URL`                                                                      | var                | Public origin: share links, sign-in callbacks, magic links, passkey relying party (default: the request's origin; set it in production)                                                  |
 | `EMAIL_PROVIDER`                                                                       | var                | `resend` (default) or `log` (prints emails to the console; localhost only)                                                                                                               |
 | `EMAIL_FROM`                                                                           | var                | Sender address for magic links (its domain must be verified in Resend)                                                                                                                   |
+| `LEGAL_OPERATOR`, `LEGAL_CONTACT_EMAIL`, `LEGAL_JURISDICTION`                          | var                | Who runs the deployment, where privacy and legal requests go, and the governing law, for `/privacy`, `/terms` and page footers (see [docs/LEGAL.md](docs/LEGAL.md))                      |
 | `TURNSTILE_SITE_KEY`                                                                   | var                | Cloudflare Turnstile site key for the magic-link form                                                                                                                                    |
 | `PROVIDERS`                                                                            | var                | JSON array of provider configs (default: anthropic, openai, openrouter, fake)                                                                                                            |
 | `SUMMARY_PROVIDER_ID`, `SUMMARY_MODEL`                                                 | var                | Cheaper model for summaries and titles, e.g. `anthropic` + `claude-haiku-4-5`. Empty = the branch's own model                                                                            |

@@ -12,6 +12,7 @@ export class UiStore {
   readonly toasts = signal<readonly Toast[]>([]);
   readonly menuOpen = signal(false);
   readonly passkeysOpen = signal(false);
+  readonly deleteAccountOpen = signal(false);
   /** The "How replies are paid for" dialog (own OpenRouter key or credit). */
   readonly accessOpen = signal(false);
   /** Bumped to ask the composer to take focus. */
@@ -34,6 +35,10 @@ export class UiStore {
 
   /** Escape: closes the top-most overlay. Returns true if something closed. */
   closeTop(): boolean {
+    if (this.deleteAccountOpen()) {
+      this.deleteAccountOpen.set(false);
+      return true;
+    }
     if (this.passkeysOpen()) {
       this.passkeysOpen.set(false);
       return true;

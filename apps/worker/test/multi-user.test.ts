@@ -705,3 +705,136 @@ describe('power-mode server keys', () => {
     expect(replyText(parseSse(await res.text()))).toBe('key=SERVER-0123');
   });
 });
+
+describe('account deletion', () => {
+  async function count(sql: string, ...binds: unknown[]): Promise<number> {
+    const row = await env.DB.prepare(sql)
+      .bind(...binds)
+      .first<{ n: number }>();
+    return row?.n ?? 0;
+  }
+
+  /** A real customer in the Stripe mock, linked to the user as the first checkout would. */
+  async function linkStripeCustomer(userId: string): Promise<string> {
+    const res = await fetch('https://api.stripe.com/v1/customers', {
+      method: 'POST',
+      headers: { authorization: 'Bearer sk_test_x' },
+      body: new URLSearchParams({ email: `${userId}@example.org` }),
+    });
+    const { id } = (await res.json()) as { id: string };
+    await env.DB.prepare('UPDATE auth_users SET stripe_customer_id = ?1 WHERE id = ?2')
+      .bind(id, userId)
+      .run();
+    return id;
+  }
+
+  it('deletes both accounts, their data, sign-in and Stripe customer; keeps the ledger and other users', async () => {
+    const a = await newUser();
+    const other = await newUser();
+    const userId = a.power.accountId.slice(2);
+    const { detail: powerTree } = await treeWithNodes(a);
+    const { detail: learnTree } = await treeWithNodes(a, 'credit');
+    const { detail: otherTree } = await treeWithNodes(other);
+    const share = await json<ShareSummary>(
+      await a.call('/api/shares', {
+        method: 'POST',
+        json: { treeId: powerTree.tree.id, scope: 'tree' },
+      }),
+      201,
+    );
+    await json(await a.call('/api/settings', { method: 'PATCH', json: { systemPrompt: 'Mine' } }));
+    await grantCredit(env.DB, {
+      accountId: a.learn.accountId,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      stripeRef: null,
+      note: 'test',
+    });
+    const customerId = await linkStripeCustomer(userId);
+
+    // The confirmation must be the user's own email.
+    const wrong = await a.call('/api/account', {
+      method: 'DELETE',
+      json: { confirmEmail: 'x@example.org' },
+    });
+    expect(wrong.status).toBe(400);
+    expect(await count('SELECT COUNT(*) AS n FROM auth_users WHERE id = ?1', userId)).toBe(1);
+    // And cross-site requests are refused outright.
+    const forged = await a.call('/api/account', {
+      method: 'DELETE',
+      headers: { 'sec-fetch-site': 'cross-site' },
+      json: { confirmEmail: a.power.email },
+    });
+    expect(forged.status).toBe(403);
+
+    const res = await a.call('/api/account', {
+      method: 'DELETE',
+      json: { confirmEmail: a.power.email!.toUpperCase() },
+    });
+    expect(res.status, await res.clone().text()).toBe(204);
+    const cleared = res.headers.getSetCookie().join('\n');
+    expect(cleared).toMatch(/__Secure-tangent\.session_token=;.*Max-Age=0/);
+    expect(cleared).toMatch(/__Host-llmkey=;.*Max-Age=0/);
+
+    const ids = [a.power.accountId, a.learn.accountId];
+    for (const [table, column] of [
+      ['trees', 'account_id'],
+      ['shares', 'account_id'],
+      ['account_settings', 'account_id'],
+      ['accounts', 'id'],
+    ] as const) {
+      expect(
+        await count(`SELECT COUNT(*) AS n FROM ${table} WHERE ${column} IN (?1, ?2)`, ...ids),
+        table,
+      ).toBe(0);
+    }
+    for (const tree of [powerTree, learnTree]) {
+      for (const table of ['branches', 'nodes']) {
+        expect(
+          await count(`SELECT COUNT(*) AS n FROM ${table} WHERE tree_id = ?1`, tree.tree.id),
+          table,
+        ).toBe(0);
+      }
+    }
+    for (const table of ['auth_sessions', 'auth_accounts', 'auth_passkeys']) {
+      expect(
+        await count(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id = ?1`, userId),
+        table,
+      ).toBe(0);
+    }
+    expect(await count('SELECT COUNT(*) AS n FROM auth_users WHERE id = ?1', userId)).toBe(0);
+    // Payment records stay for accounting; they hold no conversation content.
+    expect(
+      await count(
+        'SELECT COUNT(*) AS n FROM credit_grants WHERE account_id = ?1',
+        a.learn.accountId,
+      ),
+    ).toBe(1);
+
+    const calls = (await (
+      await fetch(`https://api.stripe.com/__mock/calls?path=/v1/customers/${customerId}`)
+    ).json()) as { method: string }[];
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(true);
+
+    // The share link is gone and the old session no longer signs anyone in.
+    expect((await a.call(`/s/${share.token}`)).status).toBe(404);
+    expect((await a.call('/api/me')).status).toBe(401);
+
+    // Someone else's data is untouched.
+    expect((await other.call(`/api/trees/${otherTree.tree.id}`)).status).toBe(200);
+  });
+
+  it('signing up again with the same email starts from nothing', async () => {
+    const email = `again-${Math.random().toString(36).slice(2, 8)}@example.org`;
+    const first = await newUser(authEnv(), email);
+    await treeWithNodes(first);
+    expect(
+      (await first.call('/api/account', { method: 'DELETE', json: { confirmEmail: email } }))
+        .status,
+    ).toBe(204);
+
+    const second = await newUser(authEnv(), email);
+    expect(second.power.accountId).not.toBe(first.power.accountId);
+    expect(await json<TreeSummary[]>(await second.call('/api/trees'))).toEqual([]);
+  });
+});

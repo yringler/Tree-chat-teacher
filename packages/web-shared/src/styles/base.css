@@ -673,6 +673,10 @@ textarea:focus-visible {
   font-size: 0.9rem;
 }
 
+.login-legal {
+  margin: 0;
+}
+
 .turnstile {
   min-height: 65px;
 }

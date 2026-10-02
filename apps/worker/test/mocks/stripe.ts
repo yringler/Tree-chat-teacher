@@ -9,6 +9,7 @@
 // Stripe API (form-encoded bodies, as the SDK sends them):
 // - POST /v1/customers                      → `cus_mock_<n>`; same Idempotency-Key → same customer
 // - GET  /v1/customers/:id                  → the stored customer, else 404
+// - DELETE /v1/customers/:id                → `{ deleted: true }` and forgets it, else 404
 // - POST /v1/checkout/sessions              → `cs_mock_<n>` with a checkout.stripe.com url
 // - GET  /v1/checkout/sessions?payment_intent= → sessions stored with that payment intent
 // - GET  /v1/subscriptions/:id              → 404 resource_missing (the plugin's payment-mode noise)
@@ -324,6 +325,11 @@ export async function mockStripe(request: Request): Promise<Response> {
   if (method === 'GET' && customerMatch) {
     const customer = state.customers.get(decodeURIComponent(customerMatch[1]!));
     return customer ? Response.json(customer) : stripeError(404, 'No such customer');
+  }
+  if (method === 'DELETE' && customerMatch) {
+    const id = decodeURIComponent(customerMatch[1]!);
+    if (!state.customers.delete(id)) return stripeError(404, 'No such customer');
+    return Response.json({ id, object: 'customer', deleted: true });
   }
   if (method === 'POST' && path === '/v1/checkout/sessions')
     return Response.json(createSession(call));

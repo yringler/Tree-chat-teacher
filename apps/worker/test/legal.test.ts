@@ -1,0 +1,75 @@
+import { env } from 'cloudflare:workers';
+import { Hono } from 'hono';
+import { describe, expect, it } from 'vitest';
+import type { AppBindings, AppEnv } from '../src/env.js';
+import { landingRoutes } from '../src/http/landing.js';
+import { LEGAL_STYLE, legalRoutes } from '../src/http/legal.js';
+
+const ORIGIN = 'https://tangent.example.com';
+
+function setup(overrides: Partial<AppEnv> = {}) {
+  const app = new Hono<AppBindings>();
+  app.route('/', legalRoutes());
+  app.route('/', landingRoutes());
+  const e = { ...env, BETTER_AUTH_SECRET: 'secret', ...overrides } as AppEnv;
+  return (path: string) => app.request(`${ORIGIN}${path}`, {}, e);
+}
+
+async function sha256Base64(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return btoa(String.fromCharCode(...new Uint8Array(digest)));
+}
+
+describe('legal pages', () => {
+  for (const [path, heading] of [
+    ['/privacy', 'Privacy policy'],
+    ['/terms', 'Terms of service'],
+  ] as const) {
+    it(`${path} is a public, script-free page allowed only its own stylesheet`, async () => {
+      const res = await setup()(path);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+      const csp = res.headers.get('Content-Security-Policy')!;
+      expect(csp).toContain(`style-src 'sha256-${await sha256Base64(LEGAL_STYLE)}'`);
+      expect(csp).toContain("default-src 'none'");
+      const html = await res.text();
+      expect(html).toContain(`<h1>${heading}</h1>`);
+      expect(html).not.toContain('<script');
+      expect(html).toContain(`<style>${LEGAL_STYLE}</style>`);
+    });
+  }
+
+  it('names the operator and contact from the LEGAL_* vars, escaped', async () => {
+    const request = setup({
+      LEGAL_OPERATOR: 'Ada <Lovelace> LLC',
+      LEGAL_CONTACT_EMAIL: 'legal@example.org',
+      LEGAL_JURISDICTION: 'the State of New York, USA',
+    });
+    const privacy = await (await request('/privacy')).text();
+    expect(privacy).toContain('Ada &lt;Lovelace&gt; LLC');
+    expect(privacy).not.toContain('<Lovelace>');
+    expect(privacy).toContain('href="mailto:legal@example.org"');
+    const terms = await (await request('/terms')).text();
+    expect(terms).toContain('the laws of the State of New York, USA');
+    expect(terms).toMatch(/© \d{4} Ada &lt;Lovelace&gt; LLC/);
+  });
+
+  it('falls back to the host when the operator vars are empty', async () => {
+    const html = await (
+      await setup({ LEGAL_OPERATOR: '', LEGAL_CONTACT_EMAIL: '', LEGAL_JURISDICTION: '' })(
+        '/privacy',
+      )
+    ).text();
+    expect(html).toContain('the operator of tangent.example.com');
+    expect(html).toContain('mailto:privacy@tangent.example.com');
+  });
+
+  it('the landing page links both and carries the copyright line', async () => {
+    const html = await (await setup({ LEGAL_OPERATOR: 'Ada LLC' })('/welcome')).text();
+    expect(html).toContain('<a href="/privacy">Privacy</a>');
+    expect(html).toContain('<a href="/terms">Terms</a>');
+    expect(html).toMatch(
+      /© \d{4} Ada LLC\. Tangent and the Tangent logo are trademarks of Ada LLC\./,
+    );
+  });
+});
