@@ -179,6 +179,10 @@ function parseConfig(v: unknown, path: string): ProviderConfig {
   const options = v['options'];
   if (options !== undefined) {
     if (!isRecord(options)) throw new ConfigError(`${path}.options`, 'must be an object');
+    const extraBody = options['extraBody'];
+    if (extraBody !== undefined && !isRecord(extraBody)) {
+      throw new ConfigError(`${path}.options.extraBody`, 'must be an object');
+    }
     config.options = options;
   }
   return config;

@@ -9,12 +9,11 @@ import {
   viewChild,
 } from '@angular/core';
 import { parseReview, type Branch, type ChatNode } from '@tangent/shared';
-import { MarkdownService } from '../core/markdown.service';
+import { Icon, MarkdownService } from '@tangent/web-shared';
 import { copyText, selectionWithin } from '../core/selection';
 import { ReviewStore } from '../state/review-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '../ui/icon';
 import { ModeBadge } from '../ui/mode-badge';
 import { ReviewVerdict } from '../ui/review-verdict';
 

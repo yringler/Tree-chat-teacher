@@ -1,6 +1,6 @@
 # Tangent — branching LLM chat
 
-Tangent is a self-hosted, single-user chat app for having tree-shaped conversations with LLMs. It runs on **Cloudflare Workers + D1 + Durable Objects** and has an **Angular** UI.
+Tangent is a self-hosted chat app for having tree-shaped conversations with LLMs. It runs on **Cloudflare Workers + D1 + Durable Objects** and has two **Angular** UIs: a full-featured power app for the owner and a simple, pay-as-you-go "Learn" app for everyone else.
 
 In a normal chat, digging into a side topic pollutes the main thread, and starting a new chat loses the connection to where the question came from. In Tangent any message can spawn any number of **branches**:
 
@@ -12,7 +12,25 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 - **Review up to here** (on any assistant reply, or `v`) sends the conversation, as the model saw it, to a reviewer model of your choice (default in **Settings**). The reviewer lists corrections and says whether to continue on a stronger model. One click moves the branch to the reviewer's model, branches off on it, or puts the corrections in the message box.
 - Conversations can be shared as read-only links (the whole tree, one subtree, or one path; as a frozen snapshot or live). They can also be exported as Markdown or as one self-contained HTML file.
 
+## Two ways to use Tangent
+
+|          | Power mode                                                                              | Simple mode ("Learn")                                                                                                         |
+| -------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| URL      | `/` (`apps/web`)                                                                        | `/learn/` (`apps/simple`)                                                                                                     |
+| Who      | Emails on `ALLOWED_EMAILS`. They all share the built-in `default` account               | Anyone else who signs in with a verified email, while `OPEN_SIGNUP=true`. Each gets a personal account (`u_<userId>`)         |
+| Models   | Every configured provider and model, plus bring-your-own-key                            | Two tiers, **Smart** and **Simple**, on the operator's OpenRouter key. No own keys                                            |
+| Controls | All of them: context modes, inspector, reviewer, system prompt, shares, export, backups | Nothing to configure: a built-in tutor prompt, "Ask about this" branches, a Smart/Simple toggle                               |
+| Cost     | Your own provider keys, unmetered                                                       | Pay as you go: true provider cost + 10% (5% on a monthly plan), tax added on top. See [How pricing works](#how-pricing-works) |
+
+Each app sends the other kind of account away: a simple account opening `/` is redirected to `/learn/`, and a power account opening `/learn/` is redirected to `/`. An allowlisted owner therefore can't use the simple app; to try it, sign in with an address that is not on `ALLOWED_EMAILS`.
+
+Two public pages sit in front of both apps:
+
+- **Landing page.** Anonymous visitors to `/` get a marketing page instead of the power app: what Tangent is, the two modes, and links to the demo, Learn sign-in (`/learn/login`) and power sign-in (`/login`). "Anonymous" means no Better Auth session cookie (`tangent.session_token`, or `__Secure-tangent.session_token` on https) and not the local dev bypass; with a cookie, `/` is the power app as before. `/welcome` always serves the page, signed in or not. The Worker renders it (`apps/worker/src/http/landing.ts`): one HTML document, no JavaScript, one inline stylesheet allowed by a hash-based CSP.
+- **Free demo at `/learn/demo`.** The Learn interface running entirely in the browser: no sign-in, no model calls, and its state lives only in the browser tab. Replies are generated from random English sentences (the `txtgen` package), so they are playful nonsense, but branching, "Ask about this" and the tree all behave as in the real app.
+
 Design docs:
+
 - [docs/PLAN.md](docs/PLAN.md): architecture, data model, interfaces, the context algorithm and portability.
 - [docs/DECISIONS.md](docs/DECISIONS.md): one-line decision log.
 - [docs/RESEARCH.md](docs/RESEARCH.md): research notes, with sources.
@@ -22,8 +40,10 @@ packages/shared     domain types, API + SSE contract (zod), share DTO
 packages/core       context assembly (pure), tree utils, share projection, services, repository ports
 packages/providers  Anthropic, OpenAI-compatible (OpenAI/OpenRouter/…), Fake — raw fetch + SSE
 packages/render     markdown → safe HTML, self-contained viewer page, Markdown export
-apps/worker         Hono API, D1 repositories, TreeSession Durable Object, Better Auth, email, share routes
-apps/web            Angular 22 (standalone, signals, zoneless)
+packages/web-shared Angular code shared by both apps: API client, auth, billing client, SSE, markdown, login page, base styles
+apps/worker         Hono API, D1 repositories, TreeSession Durable Object, Better Auth, email, share routes, billing
+apps/web            Power app at /: Angular 22 (standalone, signals, zoneless)
+apps/simple         Simple "Learn" app at /learn/: Angular 22
 ```
 
 ## Requirements
@@ -32,6 +52,7 @@ apps/web            Angular 22 (standalone, signals, zoneless)
 - **pnpm 10** (`corepack enable`).
 - To deploy you need a Cloudflare account. The **Workers Paid** plan is recommended: the Free plan's 10 ms CPU per request is tight for streaming.
 - You also need a domain on Cloudflare: sign-in callbacks, magic links and passkeys are tied to one public origin.
+- Simple mode also needs an [OpenRouter](https://openrouter.ai) account and a [Stripe](https://stripe.com) account (see [Simple mode and billing](#simple-mode-and-billing)).
 
 ## Local development
 
@@ -39,7 +60,7 @@ apps/web            Angular 22 (standalone, signals, zoneless)
 pnpm install
 cp apps/worker/.dev.vars.example apps/worker/.dev.vars   # DEV_ALLOW_NO_AUTH=true (no sign-in), optional API keys
 pnpm --filter @tangent/worker db:migrate:local            # create the local D1 database
-pnpm dev                                                  # builds the Angular app, then `wrangler dev`
+pnpm dev                                                  # builds both Angular apps, then `wrangler dev`
 ```
 
 Open <http://localhost:8787>. Without any API keys, use the **Fake (offline)** provider, which echoes deterministic replies, so the whole app works offline. To use real providers, add `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY` to `apps/worker/.dev.vars`.
@@ -47,6 +68,17 @@ Open <http://localhost:8787>. Without any API keys, use the **Fake (offline)** p
 To try real sign-in locally, follow "Option B" in `.dev.vars.example`: it sets a `BETTER_AUTH_SECRET`, prints magic links to the `wrangler dev` console instead of emailing them (`EMAIL_PROVIDER=log`, allowed on localhost only), and uses Cloudflare's always-pass Turnstile test keys. Passkeys work on `localhost` too. `pnpm dev` runs `wrangler dev --local-upstream localhost:8787`: without that flag, wrangler rewrites requests to the production hostname from `routes`, and Better Auth rejects the mismatched origin.
 
 For UI work with hot reload, run `pnpm --filter @tangent/worker dev` and `pnpm --filter @tangent/web start` in two terminals, then open <http://localhost:4200>. The Angular dev server proxies `/api` and `/s` to the Worker on port 8787. With real sign-in, set `PUBLIC_BASE_URL=http://localhost:4200` in `.dev.vars` so links and passkeys use that origin.
+
+The simple app works the same way: `pnpm --filter @tangent/simple start` serves it on <http://localhost:4201/learn/> (`ng serve --serve-path /learn/ --port 4201`, same proxy). Simple mode needs real sign-in, because the dev bypass always acts as the power account; see "Option C" in `.dev.vars.example` and [Testing billing locally](#testing-billing-locally). With real sign-in on the dev server, set `PUBLIC_BASE_URL=http://localhost:4201`.
+
+**Build layout.** `pnpm build` builds the power app, then the simple app, then runs `scripts/assemble-assets.mjs`, which copies both into the Worker's static assets directory:
+
+```
+apps/web/dist/web/browser/**        → apps/worker/site/         served at /
+apps/simple/dist/simple/browser/**  → apps/worker/site/learn/   served at /learn/
+```
+
+`apps/worker/site/` is git-ignored except for a `.gitkeep`, so `wrangler dev` and the tests start before anything is built. The power app's deep links come straight from Workers Static Assets (SPA fallback). `/` (exact path) and `/welcome` run the Worker first: `apps/worker/src/http/landing.ts` serves the landing page there, and passes `/` to the power app's `index.html` when the request carries a session cookie or the dev bypass is on. `/learn` and `/learn/*` run the Worker first (`run_worker_first`): `apps/worker/src/http/learn-app.ts` serves files as they are and every other path as the simple app's `index.html`, because the SPA fallback only ever serves the root `index.html`.
 
 Checks:
 
@@ -87,9 +119,9 @@ All commands run from `apps/worker` (use `npx wrangler …` or `pnpm exec wrangl
    "routes": [{ "pattern": "tangent.example.com", "custom_domain": true }]
    ```
    The edge cache for share pages only works on a custom domain.
-6. **Deploy.** This builds the Angular app and deploys the Worker together with the static assets.
+6. **Deploy.** This builds both Angular apps, assembles them into `apps/worker/site/` and deploys the Worker together with the static assets. Use `pnpm run deploy`: a bare `pnpm deploy` is pnpm's own built-in command, not this script.
    ```bash
-   pnpm deploy
+   pnpm run deploy
    ```
    Do not use `workers_dev: true` in production (see step 8 of "Sign-in" below).
 
@@ -105,7 +137,7 @@ Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Googl
    ```bash
    npx wrangler secret put ALLOWED_EMAILS
    ```
-   Everyone on the list shares the one built-in account (Tangent is single-user; see *Accounts* in [DECISIONS.md](docs/DECISIONS.md)). Users not on the list are never created and never sent a magic link, and removing an email locks out its existing sessions on the next request.
+   Everyone on the list shares the one built-in power account (see _Accounts_ in [DECISIONS.md](docs/DECISIONS.md)). While `OPEN_SIGNUP` is `false` (the default), users not on the list are never created and never sent a magic link, and removing an email locks out its existing sessions on the next request. `OPEN_SIGNUP=true` lets anyone else in with a personal simple account (next section).
 3. **Email (magic links) through [Resend](https://resend.com).** Verify your sending domain in Resend, set `EMAIL_FROM` in `wrangler.jsonc` to an address on it, then:
    ```bash
    npx wrangler secret put RESEND_API_KEY
@@ -117,8 +149,8 @@ Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Googl
    ```
    Without the secret, magic-link requests are refused.
 5. **Google and GitHub (optional; each one appears on the login page only when configured).**
-   - Google: in Google Cloud Console → *APIs & Services → Credentials*, create an OAuth client ID (*Web application*) with the redirect URI `https://tangent.example.com/api/auth/callback/google`.
-   - GitHub: in *Settings → Developer settings → OAuth Apps*, create an app with the callback URL `https://tangent.example.com/api/auth/callback/github`.
+   - Google: in Google Cloud Console → _APIs & Services → Credentials_, create an OAuth client ID (_Web application_) with the redirect URI `https://tangent.example.com/api/auth/callback/google`.
+   - GitHub: in _Settings → Developer settings → OAuth Apps_, create an app with the callback URL `https://tangent.example.com/api/auth/callback/github`.
    ```bash
    npx wrangler secret put GOOGLE_CLIENT_ID
    npx wrangler secret put GOOGLE_CLIENT_SECRET
@@ -140,42 +172,158 @@ Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Googl
 
 `DEV_ALLOW_NO_AUTH=true` is honoured **only** while `BETTER_AUTH_SECRET` is unset, and it belongs in `.dev.vars` only. Never set it as a deployed variable.
 
+### Simple mode and billing
+
+Simple mode is off until you set `OPEN_SIGNUP=true`. Simple accounts spend the operator's OpenRouter key, so each provider call is metered and charged against prepaid credit. Credit is bought through Stripe. Until both Stripe secrets are set, simple accounts can sign in but can't spend: sends answer 400 "Billing is not configured" and the billing page shows billing as not set up.
+
+Users pay the operator's true cost plus the markup: the model price OpenRouter reports, grossed up by OpenRouter's fee for buying credits, then +10% (+5% on a monthly plan); and each purchase is credited net of Stripe's actual fee. The markups are configuration (`MARKUP_PREPAID_BPS`, `MARKUP_MONTHLY_BPS`) and, with both fees passed through, they are the operator's real margin. See [How pricing works](#how-pricing-works).
+
+1. **Turn on open sign-up.** In `wrangler.jsonc`, set `OPEN_SIGNUP` to `"true"`. Anyone who signs in with a verified email and is not on `ALLOWED_EMAILS` then gets a personal simple account. Turnstile still guards magic links, and nobody gets free credit, so an account costs nothing until it pays.
+2. **OpenRouter key.** Create a key just for simple mode at <https://openrouter.ai/settings/keys> and **give it a credit limit**: it is the backstop if anything goes wrong with metering. Simple mode never falls back to `OPENROUTER_API_KEY`.
+   ```bash
+   npx wrangler secret put OPENROUTER_SIMPLE_API_KEY
+   ```
+   The tiers default to `deepseek/deepseek-v4-pro` (Smart) and `deepseek/deepseek-v4-flash` (Simple); change them with `SIMPLE_SMART_MODEL` / `SIMPLE_FAST_MODEL`. Users are billed OpenRouter's reported cost, never a price table, so price changes need no update. That cost is grossed up by `OPENROUTER_FEE_BPS` (default `550` = 5.5%), OpenRouter's fee when you buy its credits. OpenRouter's minimum fee is $0.80 a purchase, so top-ups under about $15 cost more than 5.5% (a $10 top-up costs 8%): buy credits in bulk, or set `OPENROUTER_FEE_BPS` to the rate you actually pay (`800` for $10 top-ups). `SIMPLE_PROVIDER` replaces the whole provider config (one `ProviderConfig` JSON with id `tangent`), for example to route through AI Gateway or to add `"options": { "extraBody": { "reasoning": { "effort": "low" } } }`.
+3. **Stripe Dashboard.** Set these up in test mode first, then again in live mode:
+   - **Stripe Tax** (_Settings → Tax_): your origin address and a registration for every place you must collect tax. Checkout fails while Tax isn't set up, because every Checkout Session enables `automatic_tax`.
+   - **A credits product** (_Product catalog → Add product_), e.g. "Tangent credits", with a tax code for digital services (e.g. _General – Electronically Supplied Services_, `txcd_10000000`; pick what fits your business). It needs no price: each top-up creates its price inline. Put its id (`prod_…`) in `STRIPE_CREDITS_PRODUCT_ID`.
+   - **Monthly plans** (optional): a product with the same tax code and one **recurring monthly** price per tier (e.g. $10, $20, $50), each with tax behaviour **exclusive** (tax is added on top). Their `price_…` ids go into `STRIPE_PLANS`.
+   - **Customer Portal** (_Settings → Billing → Customer portal_): turn on invoice history, payment method updates, billing address and tax ID updates, cancellation **at the end of the billing period**, and plan switching between the monthly prices with **no proration** (the plans' `prorationBehavior` is `none` too, so switches apply from the next cycle). Every paid subscription invoice credits its pre-tax subtotal (less Stripe's fee) whatever its billing reason, so if you do allow proration, a prorated mid-cycle invoice is credited as well.
+   - **Webhook endpoint** (_Developers → Webhooks → Add endpoint_): URL `https://tangent.example.com/api/auth/stripe/webhook`, API version **`2026-08-26.dahlia`** (the version `stripe@22.6.2` pins), and exactly these events:
+     `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `charge.refunded`.
+4. **Stripe secrets.** Billing is enabled only when both are set:
+   ```bash
+   npx wrangler secret put STRIPE_SECRET_KEY       # sk_live_… (or a restricted key)
+   npx wrangler secret put STRIPE_WEBHOOK_SECRET   # whsec_… of the endpoint above
+   ```
+5. **Plans.** `STRIPE_PLANS` in `wrangler.jsonc` is a string holding a JSON array (`"[]"`, the default, offers no monthly plans). `name` is the plan's id in the Better Auth Stripe plugin, `label` is shown to users, and `amountCents` is only for display: the credit granted always comes from the paid invoice.
+   ```json
+   [
+     { "name": "monthly-10", "label": "$10 / month", "priceId": "price_…", "amountCents": 1000 },
+     { "name": "monthly-20", "label": "$20 / month", "priceId": "price_…", "amountCents": 2000 }
+   ]
+   ```
+6. **Migrate and deploy.** Migration `0003_billing` adds the billing tables and `0004_fees` the fee columns. The cron trigger (`*/10 * * * *` in `wrangler.jsonc`) deploys with the Worker.
+   ```bash
+   pnpm db:migrate:remote
+   pnpm run deploy
+   ```
+7. **Verify.** Sign in at `https://tangent.example.com/learn/` with an address that is not on `ALLOWED_EMAILS`, buy $5 (with test-mode keys, the [test card](https://docs.stripe.com/testing) `4242 4242 4242 4242`), and check that the balance appears and goes down as you chat. _Developers → Webhooks_ shows every delivery and its response.
+
+#### How pricing works
+
+- **The rule.** Users pay the operator's true cost plus a markup: **+10%** (`MARKUP_PREPAID_BPS`), or **+5%** (`MARKUP_MONTHLY_BPS`) while the user has an active monthly plan. "True cost" passes two fees through, so the markup is real margin:
+  - **OpenRouter's credit-purchase fee** is added to the cost of each call (`OPENROUTER_FEE_BPS`, default 5.5%).
+  - **Stripe's payment processing fee** is deducted from each purchase: the credit is what the user paid before tax, minus the exact fee Stripe reports for that payment.
+- **Balance.** Each simple account has a balance in US dollars, kept as integer micro-dollars: what the user paid before tax, less Stripe's fee on each payment, less what they have used.
+- **Charges.** Every provider call (replies, summaries, titles) is charged `ceil(cost × (1 + fee bps / 10000) × (1 + markup bps / 10000))`, rounded up to the next micro-dollar, where `cost` is the model price OpenRouter reports for the call. The fee and markup are fixed when the call starts and stored with it, so changing the config never reprices past calls. Credit bought at one rate is spent at whatever rate applies when it is used.
+- **Top-ups.** One-time payments of **$5 to $500** through Stripe Checkout. When Stripe reports the payment, the Worker reads the fee from the payment's balance transaction (`fee`, itemised in `fee_details`) and credits the pre-tax amount minus that fee. The billing page shows the last purchase as "paid $5.00, credit $4.52 after payment processing".
+- **Monthly plans.** A subscription for a fixed amount a month. Every paid subscription invoice (the first one, every renewal, and any prorated mid-cycle invoice) credits its pre-tax subtotal minus Stripe's fee on its payment. A $0 invoice (a trial) credits nothing. Unused credit rolls over and never expires. Plan changes take effect from the next cycle. Users change plans, cancel, update cards and download invoices in the Stripe Customer Portal ("Manage billing").
+- **Worked example.** A user buys **$5** of credit. Stripe Tax adds tax on top, say $0.40, so the card is charged $5.40. Stripe's fee is about 2.9% + 30¢ for the card plus about 0.5% for Stripe Tax, about $0.48 here, so the user gets about **$4.52** of credit (tax never enters the balance). A reply that OpenRouter reports at **$0.0010** is charged $0.0010 × 1.055 × 1.10 ≈ **$0.00116**. The exact fees come from Stripe and OpenRouter's current terms; check <https://stripe.com/pricing>.
+- **Tax.** Prices exclude tax. Stripe Tax computes it at checkout from the billing address and adds it on top. Tax never enters the balance.
+- **Holds.** Each call in flight holds `USAGE_HOLD_MICROS` (default `20000` = $0.02) until it settles. A message, review or summary can only start when the available balance (balance − holds) covers one more hold; otherwise the API answers **402 `payment_required`** and the app sends the user to the billing page. A reply that has started is never cut off, so the balance can go a few cents negative; the next purchase absorbs that.
+- **Stopped and lost replies.** Stopping a reply still costs what OpenRouter billed for it. When a stream ends without a cost, the Worker asks OpenRouter's generation endpoint (with retries), and a cron every 10 minutes settles anything left over. A call that never reached OpenRouter is charged $0, and one still unknown after 24 hours is marked `unresolved` at $0 and logged for review.
+- **Refunds.** Refunding a payment in Stripe debits the refunded amount (the pre-tax share for top-ups) automatically. Stripe keeps its fee on a refund, so a full refund debits the whole pre-tax amount, including the fee that was never credited; an unspent top-up refunded in full leaves the balance negative by that fee. Disputes are handled by hand in Stripe, with a manual adjustment if needed (below).
+- **History.** `/learn/billing` shows the balance, top-ups, plans and recent usage (`GET /api/billing/usage`).
+- **Cost bounds.** Simple accounts send at most `SIMPLE_MAX_INPUT_TOKENS` (default 60,000) input tokens and 4,096 output tokens per call, and are rate limited per account (`CHAT_RATE_LIMITER`, 30 a minute).
+
+**Manual credit or adjustments** (refund disputes, goodwill credit) are a SQL insert into `credit_grants` with `kind='adjustment'` and a signed amount in micro-dollars (`5000000` = $5; negative to debit). Find the account id first:
+
+```bash
+npx wrangler d1 execute DB --remote --command "SELECT a.id, u.email FROM accounts a JOIN auth_users u ON u.id = a.user_id WHERE a.mode = 'simple'"
+npx wrangler d1 execute DB --remote --command "INSERT INTO credit_grants (id, account_id, kind, amount_micros, stripe_ref, note, created_at) VALUES (lower(hex(randomblob(16))), 'u_<userId>', 'adjustment', 5000000, NULL, 'Manual credit', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+```
+
+Use `--local` instead of `--remote` for the local database.
+
+#### Testing billing locally
+
+- **Offline, no Stripe or OpenRouter.** Use "Option C" in `apps/worker/.dev.vars.example`: real sign-in (Option B) with an address that is **not** on `ALLOWED_EMAILS`, `OPEN_SIGNUP=true`, a fake `SIMPLE_PROVIDER` that reports a fixed cost per call, and placeholder Stripe values so sends are allowed. Grant yourself credit with the SQL insert above (`--local`), then chat at <http://localhost:8787/learn/>. Top-ups and plans won't work with placeholder keys.
+- **Real Stripe test mode.** Put your test keys in `apps/worker/.dev.vars` (`STRIPE_SECRET_KEY=sk_test_…`, a test `STRIPE_CREDITS_PRODUCT_ID`, and test price ids in `STRIPE_PLANS`), set up Stripe Tax in test mode, and forward webhooks with the [Stripe CLI](https://docs.stripe.com/stripe-cli):
+  ```bash
+  stripe login
+  stripe listen --forward-to localhost:8787/api/auth/stripe/webhook
+  ```
+  `stripe listen` prints a `whsec_…` signing secret; set it as `STRIPE_WEBHOOK_SECRET` and restart `wrangler dev`. The CLI formats events with your account's default API version; if that is older than the `dahlia` releases, add `--latest` (subscription invoices are read from `invoice.parent`, which older versions don't send). Pay with the test card `4242 4242 4242 4242`. `stripe trigger` events don't carry the metadata a top-up needs, so go through Checkout from the app instead.
+- **Real models.** Add `OPENROUTER_SIMPLE_API_KEY` (and remove `SIMPLE_PROVIDER`). Use a key with a small credit limit.
+
+#### Not included yet
+
+These are out of scope for now. The first two are **launch blockers** before opening sign-up to the public:
+
+- **Terms of service and privacy policy pages.**
+- **Account deletion and data export** for simple users.
+- Auto-recharge, free sign-up credit, promotion codes, trials, low-balance emails, multi-currency (USD only), and an admin UI (adjustments are the SQL insert above).
+- Metered (postpaid) Stripe billing. [Stripe Managed Payments](https://docs.stripe.com/payments/managed-payments) (Stripe as merchant of record) would take tax liability off the operator, but isn't wired up.
+- Power accounts are kept out of the subscription endpoints by the UI only; a grant they triggered would land on a `u_<id>` account they don't use.
+
 ## Configuration
 
-| Name | Kind | Purpose |
-|---|---|---|
-| `PUBLIC_BASE_URL` | var | Public origin: share links, sign-in callbacks, magic links, passkey relying party (default: the request's origin; set it in production) |
-| `ALLOWED_EMAILS` | secret | Who may sign in: emails and/or `@domain` entries, comma-separated. Empty = nobody |
-| `EMAIL_PROVIDER` | var | `resend` (default) or `log` (prints emails to the console; localhost only) |
-| `EMAIL_FROM` | var | Sender address for magic links (its domain must be verified in Resend) |
-| `TURNSTILE_SITE_KEY` | var | Cloudflare Turnstile site key for the magic-link form |
-| `PROVIDERS` | var | JSON array of provider configs (default: anthropic, openai, openrouter, fake) |
-| `SUMMARY_PROVIDER_ID`, `SUMMARY_MODEL` | var | Cheaper model for summaries and titles, e.g. `anthropic` + `claude-haiku-4-5`. Empty = the branch's own model |
-| `AUTO_TITLE` | var | `false` disables automatic branch/tree titles |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` | secret | Provider keys, referenced by name from provider configs |
-| `AI_GATEWAY_TOKEN` | secret | Optional, for an authenticated AI Gateway |
-| `BETTER_AUTH_SECRET` | secret | Signs session cookies (`openssl rand -base64 32`). Required; rotating it signs everyone out |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | secret | OAuth apps; each provider is offered only when both of its values are set |
-| `TURNSTILE_SECRET_KEY` | secret | Turnstile secret; without it magic-link sign-in is refused |
-| `RESEND_API_KEY` | secret | Resend API key for magic-link emails |
-| `KEY_ENCRYPTION_SECRET` | secret | 32 random bytes, base64 (`openssl rand -base64 32`). Enables bring-your-own-key; rotating it revokes every stored user key |
-| `CHAT_RATE_LIMITER`, `KEY_RATE_LIMITER` | rate limit binding | Requests spending a user key (30/min per key cookie); key saves (10/min per account) |
-| `DEV_ALLOW_NO_AUTH` | `.dev.vars` only | Skip sign-in locally (only while `BETTER_AUTH_SECRET` is unset) |
+| Name                                                                                   | Kind               | Purpose                                                                                                                                                                                  |
+| -------------------------------------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PUBLIC_BASE_URL`                                                                      | var                | Public origin: share links, sign-in callbacks, magic links, passkey relying party (default: the request's origin; set it in production)                                                  |
+| `ALLOWED_EMAILS`                                                                       | secret             | Who gets the shared power account: emails and/or `@domain` entries, comma-separated. Empty = nobody                                                                                      |
+| `OPEN_SIGNUP`                                                                          | var                | `true` lets anyone else with a verified email sign in, as a personal simple account (default `false`)                                                                                    |
+| `EMAIL_PROVIDER`                                                                       | var                | `resend` (default) or `log` (prints emails to the console; localhost only)                                                                                                               |
+| `EMAIL_FROM`                                                                           | var                | Sender address for magic links (its domain must be verified in Resend)                                                                                                                   |
+| `TURNSTILE_SITE_KEY`                                                                   | var                | Cloudflare Turnstile site key for the magic-link form                                                                                                                                    |
+| `PROVIDERS`                                                                            | var                | JSON array of provider configs (default: anthropic, openai, openrouter, fake)                                                                                                            |
+| `SUMMARY_PROVIDER_ID`, `SUMMARY_MODEL`                                                 | var                | Cheaper model for summaries and titles, e.g. `anthropic` + `claude-haiku-4-5`. Empty = the branch's own model                                                                            |
+| `AUTO_TITLE`                                                                           | var                | `false` disables automatic branch/tree titles                                                                                                                                            |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`                            | secret             | Provider keys, referenced by name from provider configs                                                                                                                                  |
+| `AI_GATEWAY_TOKEN`                                                                     | secret             | Optional, for an authenticated AI Gateway                                                                                                                                                |
+| `BETTER_AUTH_SECRET`                                                                   | secret             | Signs session cookies (`openssl rand -base64 32`). Required; rotating it signs everyone out                                                                                              |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | secret             | OAuth apps; each provider is offered only when both of its values are set                                                                                                                |
+| `TURNSTILE_SECRET_KEY`                                                                 | secret             | Turnstile secret; without it magic-link sign-in is refused                                                                                                                               |
+| `RESEND_API_KEY`                                                                       | secret             | Resend API key for magic-link emails                                                                                                                                                     |
+| `KEY_ENCRYPTION_SECRET`                                                                | secret             | 32 random bytes, base64 (`openssl rand -base64 32`). Enables bring-your-own-key; rotating it revokes every stored user key                                                               |
+| `CHAT_RATE_LIMITER`, `KEY_RATE_LIMITER`                                                | rate limit binding | Requests spending a user key (30/min per key cookie) or, for simple accounts, the operator's key (30/min per account); key saves (10/min per account)                                    |
+| `OPENROUTER_SIMPLE_API_KEY`                                                            | secret             | OpenRouter key for simple mode (provider `tangent`). Give it a credit limit in OpenRouter. No fallback to `OPENROUTER_API_KEY`                                                           |
+| `SIMPLE_SMART_MODEL`, `SIMPLE_FAST_MODEL`                                              | var                | OpenRouter models of the Smart and Simple tiers (default `deepseek/deepseek-v4-pro`, `deepseek/deepseek-v4-flash`). The fast one also writes summaries and titles                        |
+| `SIMPLE_PROVIDER`                                                                      | var                | One `ProviderConfig` as JSON that replaces the simple-mode provider entirely (tests, offline dev, AI Gateway, `options.extraBody`). Default empty = OpenRouter with the two models above |
+| `SIMPLE_MAX_INPUT_TOKENS`                                                              | var                | Input-token cap per simple-mode call; bounds the cost of one request (default `60000`). Output is capped at 4,096 tokens                                                                 |
+| `SIMPLE_SYSTEM_PROMPT`                                                                 | var                | System prompt for trees created by simple accounts (default empty = the built-in tutor prompt in `apps/worker/src/simple-mode.ts`)                                                       |
+| `USAGE_HOLD_MICROS`                                                                    | var                | Micro-dollars held per call in flight, and the minimum available balance to start one (default `20000` = $0.02)                                                                          |
+| `OPENROUTER_FEE_BPS`                                                                   | var                | OpenRouter's credit-purchase fee in bps, added to the reported cost of each simple-mode call before the markup (default `550` = 5.5%; raise it for OpenRouter top-ups under ~$15)        |
+| `MARKUP_PREPAID_BPS`, `MARKUP_MONTHLY_BPS`                                             | var                | Margin on the true provider cost in basis points, without / with an active monthly plan (default `1000` = +10%, `500` = +5%)                                                             |
+| `STRIPE_SECRET_KEY`                                                                    | secret             | Stripe API key. Billing is enabled only when this and `STRIPE_WEBHOOK_SECRET` are set                                                                                                    |
+| `STRIPE_WEBHOOK_SECRET`                                                                | secret             | Signing secret of the webhook endpoint `/api/auth/stripe/webhook`                                                                                                                        |
+| `STRIPE_CREDITS_PRODUCT_ID`                                                            | var                | Stripe product (with a tax code) that one-time top-ups are sold as (default empty = no top-ups)                                                                                          |
+| `STRIPE_PLANS`                                                                         | var                | Monthly plans as JSON `[{ "name", "label", "priceId", "amountCents" }]` (default `[]` = none)                                                                                            |
+| `triggers.crons`                                                                       | cron trigger       | `*/10 * * * *`: settles usage whose cost the stream didn't report (`apps/worker/src/billing/reconcile.ts`)                                                                               |
+| `DEV_ALLOW_NO_AUTH`                                                                    | `.dev.vars` only   | Skip sign-in locally (only while `BETTER_AUTH_SECRET` is unset)                                                                                                                          |
+
+**Routing.** `assets.run_worker_first` in `wrangler.jsonc` lists the paths the Worker sees before Workers Static Assets: `/api/*`, `/s/*`, `/learn`, `/learn/*`, `/` and `/welcome`. Keep `/` an exact path (not `/*`), or every asset request would run the Worker. In local dev with `DEV_ALLOW_NO_AUTH=true`, `/` is the app; open `/welcome` to see the landing page.
 
 **Providers.** Each provider instance in `PROVIDERS` has `id`, `kind` (`anthropic` | `openai-compatible` | `fake`), `label`, `models`, `defaultModel` and `apiKeySecret`. It can also take `baseUrl`, `headers`, `extraHeaderSecrets`, `maxContextTokens`, `maxOutputTokens`, `supportsSystemPrompt` and `options`. Any OpenAI-compatible endpoint is config only:
 
 ```json
 [
-  { "id": "anthropic", "kind": "anthropic", "label": "Anthropic", "apiKeySecret": "ANTHROPIC_API_KEY",
+  {
+    "id": "anthropic",
+    "kind": "anthropic",
+    "label": "Anthropic",
+    "apiKeySecret": "ANTHROPIC_API_KEY",
     "defaultModel": "claude-opus-5-5",
-    "models": [{ "id": "claude-opus-5-5", "label": "Claude Opus 5.5" }, { "id": "claude-haiku-4-5", "label": "Claude Haiku 4.5" }] },
-  { "id": "openrouter", "kind": "openai-compatible", "label": "OpenRouter", "baseUrl": "https://openrouter.ai/api/v1",
-    "apiKeySecret": "OPENROUTER_API_KEY", "defaultModel": "anthropic/claude-sonnet-5.5",
-    "models": [{ "id": "anthropic/claude-sonnet-5.5", "label": "Claude Sonnet 5.5" }] }
+    "models": [
+      { "id": "claude-opus-5-5", "label": "Claude Opus 5.5" },
+      { "id": "claude-haiku-4-5", "label": "Claude Haiku 4.5" }
+    ]
+  },
+  {
+    "id": "openrouter",
+    "kind": "openai-compatible",
+    "label": "OpenRouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "apiKeySecret": "OPENROUTER_API_KEY",
+    "defaultModel": "anthropic/claude-sonnet-5.5",
+    "models": [{ "id": "anthropic/claude-sonnet-5.5", "label": "Claude Sonnet 5.5" }]
+  }
 ]
 ```
 
 **AI Gateway (optional).** It gives you logging, analytics and retries. Point `baseUrl` at the gateway:
+
 - Anthropic: `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic`
 - OpenRouter: `…/openrouter/v1`
 
@@ -183,7 +331,7 @@ For an authenticated gateway, add `"extraHeaderSecrets": { "cf-aig-authorization
 
 ### Bring your own key
 
-With `KEY_ENCRYPTION_SECRET` set, users can paste their own Anthropic / OpenAI / OpenRouter key under **Keys** in the sidebar. A user key overrides the server secret for that provider, for replies, summaries and titles alike.
+With `KEY_ENCRYPTION_SECRET` set, power users can paste their own Anthropic / OpenAI / OpenRouter key under **Keys** in the sidebar. Simple accounts can't (`/api/key` answers 403). A user key overrides the server secret for that provider, for replies, summaries and titles alike.
 
 - The browser sends the key once (`POST /api/key`). The Worker checks it with one unbilled provider call (`GET /v1/models`), then seals `{ keys, exp }` with AES-256-GCM and returns it as `__Host-llmkey` (`HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=604800`). The server stores nothing. Page scripts can't read the cookie, and the input field is cleared as soon as the key is sent.
 - Each chat request carries the cookie back. The Worker decrypts it in memory, calls the provider and streams the reply. No endpoint returns any part of a key.
@@ -194,25 +342,28 @@ With `KEY_ENCRYPTION_SECRET` set, users can paste their own Anthropic / OpenAI /
   - An XSS on the origin can spend the user's credit while the page is open, within the limits above, but it cannot extract the key.
   - Browser extensions with host permissions are out of scope.
 
-The Angular app is served with a strict CSP (`apps/web/public/_headers`): `script-src 'self'`, `connect-src 'self'`, `img-src 'self'`, Trusted Types. The browser never talks to a provider directly.
+The power app is served with a strict CSP (`apps/web/public/_headers`): `script-src 'self'`, `connect-src 'self'`, `img-src 'self'`, Trusted Types. The browser never talks to a provider directly. The simple app under `/learn/` gets the same two policies (app and login page) from the Worker (`apps/worker/src/http/learn-app.ts`), because `_headers` doesn't apply to responses the Worker generates; a test keeps the copies identical.
 
 ## Using it
+
+This section describes the power app. The simple app at `/learn/` keeps only the essentials: a list of lessons, a chat with a Smart/Simple toggle, **Ask about this** on selected text (a new branch that keeps the conversation so far), and a **Billing** page with the balance, top-ups, monthly plans, "Manage billing" and recent usage.
 
 - **Replying** in the composer appends to the end of the current branch.
 - **Branch from here** is available on any message. You can quote the text you highlighted, pick a mode, and choose a provider and model; by default a branch inherits its parent's.
 - **"N branches"** under a message lists its children. Breadcrumbs and **↩ Parent message** take you back to the exact branch point.
 - **Keyboard shortcuts:**
 
-  | Keys | Action |
-  |---|---|
-  | `Alt+↑` or `[` | Go to the parent branch |
+  | Keys              | Action                         |
+  | ----------------- | ------------------------------ |
+  | `Alt+↑` or `[`    | Go to the parent branch        |
   | `Alt+←` / `Alt+→` | Previous / next sibling branch |
-  | `Alt+↓` or `]` | First child branch |
-  | `j` / `k` | Next / previous message |
-  | `b` | Branch from here |
-  | `/` | Focus the composer |
-  | `i` | Context Inspector |
-  | `?` | Show all shortcuts |
+  | `Alt+↓` or `]`    | First child branch             |
+  | `j` / `k`         | Next / previous message        |
+  | `b`               | Branch from here               |
+  | `/`               | Focus the composer             |
+  | `i`               | Context Inspector              |
+  | `?`               | Show all shortcuts             |
+
 - **Private branches** (a branch setting) are left out of every share and export, together with everything below them.
 - **Sharing:**
   - Use **Share…** in the chat header to pick a scope (tree / subtree / path) and a mode (snapshot / live), plus an optional title and expiry.

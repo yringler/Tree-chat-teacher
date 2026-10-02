@@ -1,4 +1,4 @@
-import { NotFoundError, projectShare, ValidationError } from '@tangent/core';
+import { NotFoundError, projectShare, ValidationError, type ChatService } from '@tangent/core';
 import { payloadToMarkdown, renderViewerPage, viewerCsp } from '@tangent/render';
 import {
   createBranchRequestSchema,
@@ -16,13 +16,15 @@ import {
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { assertGenerationAllowed, enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
-import { readKeys, requireReadableKeys } from '../byok/keys.js';
-import type { SessionSendBody } from '../do/tree-session.js';
-import type { AppBindings, AppEnv } from '../env.js';
+import { assertCanSpend } from '../billing/service.js';
+import { readKeys, requireReadableKeys, type UserKeys } from '../byok/keys.js';
+import { accountParams, type SessionSendBody } from '../do/tree-session.js';
+import type { AppBindings, AppContext, AppEnv } from '../env.js';
 import { validateJson, validateQuery } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { purgeShare } from '../share/cache.js';
-import { chatService, providerRegistry, shareService } from '../services.js';
+import { chatService, registryFor, shareService } from '../services.js';
+import { simpleSystemPrompt } from '../simple-mode.js';
 import { keyRoutes } from './key.js';
 
 const REVIEW_KEEPALIVE_MS = 15_000;
@@ -35,70 +37,115 @@ const contextQuerySchema = z.object({
     .transform((v) => v === 'true'),
 });
 
-/** Owner API. Mounted under /api behind the session middleware (auth/session.ts). */
+/**
+ * The caller's ChatService. `keys` are the user's own provider keys (power
+ * accounts only); the usage meter of simple accounts defers its work to the
+ * request's `waitUntil`.
+ */
+function chatOf(c: AppContext, keys: Extract<UserKeys, { state: 'ok' }> | null = null): ChatService {
+  return chatService(c.env, c.var.account, {
+    ...(keys ? { apiKeys: keys.keys } : {}),
+    defer: (p) => c.executionCtx.waitUntil(p),
+  });
+}
+
+/**
+ * The user's key cookie for routes that call a provider. Simple accounts
+ * never use their own keys, so their cookie (if any) is not even read.
+ */
+async function keysOf(c: AppContext): Promise<Extract<UserKeys, { state: 'ok' }> | null> {
+  return c.var.account.mode === 'simple' ? null : requireReadableKeys(c);
+}
+
+/**
+ * Owner API. Mounted under /api behind the session middleware (auth/session.ts)
+ * and the account middleware (auth/account.ts). Every branch or node id is
+ * resolved through the caller's account (`getOwnedBranch`/`getOwnedNode`)
+ * before anything else happens, so another account's ids are 404. Routes that
+ * may spend money check the balance of simple accounts first (402).
+ */
 export function apiRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();
 
   api.get('/me', (c) => {
     const { email, devMode } = c.var.identity;
-    return c.json({ email, devMode, accountId: c.var.accountId } satisfies MeResponse);
+    return c.json({
+      email,
+      devMode,
+      accountId: c.var.accountId,
+      mode: c.var.account.mode,
+    } satisfies MeResponse);
   });
 
   api.get('/providers', async (c) => {
+    if (c.var.account.mode === 'simple') return c.json(registryFor(c.env, c.var.account).list());
     // An unreadable key cookie simply counts as no user keys here; /key/status clears it.
     const keys = await readKeys(c);
-    return c.json(providerRegistry(c.env, keys.state === 'ok' ? keys.keys : undefined).list());
+    return c.json(registryFor(c.env, c.var.account, keys.state === 'ok' ? keys.keys : undefined).list());
   });
 
   api.route('/key', keyRoutes());
 
   // ---- trees
-  api.get('/trees', async (c) => c.json(await chatService(c.env, c.var.accountId).listTrees()));
-  api.post('/trees', validateJson(createTreeRequestSchema), async (c) =>
-    c.json(await chatService(c.env, c.var.accountId).createTree(c.req.valid('json')), 201),
-  );
+  api.get('/trees', async (c) => c.json(await chatOf(c).listTrees()));
+  api.post('/trees', validateJson(createTreeRequestSchema), async (c) => {
+    const req = c.req.valid('json');
+    // Simple accounts get the built-in tutor prompt unless they bring their own.
+    const systemPrompt =
+      c.var.account.mode === 'simple' && !req.systemPrompt?.trim() ? simpleSystemPrompt(c.env) : req.systemPrompt;
+    return c.json(await chatOf(c).createTree({ ...req, systemPrompt }), 201);
+  });
   api.get('/trees/:treeId', async (c) =>
-    c.json(await chatService(c.env, c.var.accountId).getTreeDetail(c.req.param('treeId'))),
+    c.json(await chatOf(c).getTreeDetail(c.req.param('treeId'))),
   );
   api.patch('/trees/:treeId', validateJson(updateTreeRequestSchema), async (c) =>
-    c.json(await chatService(c.env, c.var.accountId).updateTree(c.req.param('treeId'), c.req.valid('json'))),
+    c.json(await chatOf(c).updateTree(c.req.param('treeId'), c.req.valid('json'))),
   );
   api.delete('/trees/:treeId', async (c) => {
-    await chatService(c.env, c.var.accountId).deleteTree(c.req.param('treeId'));
+    await chatOf(c).deleteTree(c.req.param('treeId'));
     return c.body(null, 204);
   });
   api.get('/trees/:treeId/backup', async (c) => {
-    const backup = await chatService(c.env, c.var.accountId).exportBackup(c.req.param('treeId'));
+    const backup = await chatOf(c).exportBackup(c.req.param('treeId'));
     return c.json(backup, 200, {
       'Content-Disposition': `attachment; filename="${slug(backup.tree.title)}.tangent.json"`,
     });
   });
   api.post('/import', validateJson(treeBackupSchema), async (c) =>
-    c.json(await chatService(c.env, c.var.accountId).importBackup(c.req.valid('json')), 201),
+    c.json(await chatOf(c).importBackup(c.req.valid('json')), 201),
   );
 
   // ---- branches
-  api.post('/branches', validateJson(createBranchRequestSchema), async (c) =>
-    c.json(await chatService(c.env, c.var.accountId).createBranch(c.req.valid('json')), 201),
-  );
-  api.patch('/branches/:branchId', validateJson(updateBranchRequestSchema), async (c) =>
-    c.json(await chatService(c.env, c.var.accountId).updateBranch(c.req.param('branchId'), c.req.valid('json'))),
-  );
+  api.post('/branches', validateJson(createBranchRequestSchema), async (c) => {
+    const req = c.req.valid('json');
+    const chat = chatOf(c);
+    await chat.getOwnedNode(req.fromNodeId);
+    return c.json(await chat.createBranch(req), 201);
+  });
+  api.patch('/branches/:branchId', validateJson(updateBranchRequestSchema), async (c) => {
+    const chat = chatOf(c);
+    const branch = await chat.getOwnedBranch(c.req.param('branchId'));
+    return c.json(await chat.updateBranch(branch.id, c.req.valid('json')));
+  });
   api.delete('/branches/:branchId', async (c) => {
+    const branch = await chatOf(c).getOwnedBranch(c.req.param('branchId'));
     // Through the tree's Durable Object: it owns the generations it has to stop first.
-    const branch = await chatService(c.env).deps.repos.trees.getBranch(c.req.param('branchId'));
-    if (!branch) throw new NotFoundError('Branch');
     return session(c.env, branch.treeId).fetch(
-      sessionUrl('/delete-branch', { treeId: branch.treeId, branchId: branch.id, accountId: c.var.accountId }),
+      sessionUrl('/delete-branch', { treeId: branch.treeId, branchId: branch.id, ...accountParams(c.var.account) }),
       { method: 'POST' },
     );
   });
   api.get('/branches/:branchId/context', sameOriginOnly, validateQuery(contextQuerySchema), async (c) => {
     const q = c.req.valid('query');
-    const keys = await requireReadableKeys(c);
+    const keys = await keysOf(c);
+    const chat = chatOf(c, keys);
+    const branch = await chat.getOwnedBranch(c.req.param('branchId'));
     // resolve=true may generate summaries (billed); a plain plan only counts tokens.
-    if (q.resolve) await enforceRateLimit(c, keys, 'chat');
-    const res = await chatService(c.env, c.var.accountId, keys?.keys).planContext(c.req.param('branchId'), q.nodeId ?? null, {
+    if (q.resolve) {
+      await assertCanSpend(c.env, c.var.account);
+      await enforceRateLimit(c, keys, 'chat');
+    }
+    const res = await chat.planContext(branch.id, q.nodeId ?? null, {
       resolveSummaries: q.resolve,
       signal: c.req.raw.signal,
     });
@@ -107,31 +154,37 @@ export function apiRoutes(): Hono<AppBindings> {
 
   // ---- messages (delegated to the tree's Durable Object)
   api.post('/branches/:branchId/messages', sameOriginOnly, validateJson(sendMessageRequestSchema), async (c) => {
-    const branchId = c.req.param('branchId');
-    const keys = await requireReadableKeys(c);
-    const chat = chatService(c.env, c.var.accountId, keys?.keys);
-    const branch = await chat.deps.repos.trees.getBranch(branchId);
-    if (!branch) throw new NotFoundError('Branch');
-    assertGenerationAllowed(chat.deps.providers, branch.providerId, branch.model);
+    const keys = await keysOf(c);
+    const { account } = c.var;
+    const chat = chatOf(c, keys);
+    const branch = await chat.getOwnedBranch(c.req.param('branchId'));
+    assertGenerationAllowed(chat.deps.providers, branch.providerId, branch.model, {
+      userKeys: account.mode !== 'simple',
+    });
+    await assertCanSpend(c.env, account);
     await enforceRateLimit(c, keys, 'chat');
     // The Durable Object gets the still-sealed cookie value in the body (never
     // a header, which request logs may capture) and opens it itself.
-    const body: SessionSendBody = { ...c.req.valid('json'), ...(keys ? { sealedKeys: keys.sealed } : {}) };
+    const body: SessionSendBody = {
+      ...c.req.valid('json'),
+      account,
+      ...(keys ? { sealedKeys: keys.sealed } : {}),
+    };
     return session(c.env, branch.treeId).fetch(
-      sessionUrl('/send', { treeId: branch.treeId, branchId }),
+      sessionUrl('/send', { treeId: branch.treeId, branchId: branch.id }),
       { method: 'POST', body: JSON.stringify(body) },
     );
   });
   api.get('/nodes/:nodeId/stream', async (c) => {
-    const node = await nodeOr404(c.env, c.req.param('nodeId'));
+    const node = await chatOf(c).getOwnedNode(c.req.param('nodeId'));
     return session(c.env, node.treeId).fetch(
-      sessionUrl('/stream', { treeId: node.treeId, nodeId: node.id }),
+      sessionUrl('/stream', { treeId: node.treeId, nodeId: node.id, ...accountParams(c.var.account) }),
     );
   });
   api.post('/nodes/:nodeId/cancel', async (c) => {
-    const node = await nodeOr404(c.env, c.req.param('nodeId'));
+    const node = await chatOf(c).getOwnedNode(c.req.param('nodeId'));
     return session(c.env, node.treeId).fetch(
-      sessionUrl('/cancel', { treeId: node.treeId, nodeId: node.id }),
+      sessionUrl('/cancel', { treeId: node.treeId, nodeId: node.id, ...accountParams(c.var.account) }),
       { method: 'POST' },
     );
   });
@@ -141,11 +194,15 @@ export function apiRoutes(): Hono<AppBindings> {
   // the upstream request (stops billing) through the request signal.
   api.post('/nodes/:nodeId/review', sameOriginOnly, validateJson(reviewRequestSchema), async (c) => {
     const req = c.req.valid('json');
-    const keys = await requireReadableKeys(c);
-    const chat = chatService(c.env, c.var.accountId, keys?.keys);
+    const keys = await keysOf(c);
+    const chat = chatOf(c, keys);
+    const node = await chat.getOwnedNode(c.req.param('nodeId'));
     // The client picks the reviewer model here, so the allowlist is what bounds it.
-    assertGenerationAllowed(chat.deps.providers, req.providerId, req.model);
-    const prepared = await chat.prepareReview(c.req.param('nodeId'), req);
+    assertGenerationAllowed(chat.deps.providers, req.providerId, req.model, {
+      userKeys: c.var.account.mode !== 'simple',
+    });
+    await assertCanSpend(c.env, c.var.account);
+    const prepared = await chat.prepareReview(node.id, req);
     await enforceRateLimit(c, keys, 'chat');
 
     const encoder = new TextEncoder();
@@ -190,7 +247,7 @@ export function apiRoutes(): Hono<AppBindings> {
   // ---- export (Markdown / self-contained HTML, built on the viewer renderer)
   api.get('/export', validateQuery(exportQuerySchema), async (c) => {
     const q = c.req.valid('query');
-    const detail = await chatService(c.env, c.var.accountId).getTreeDetail(q.treeId);
+    const detail = await chatOf(c).getTreeDetail(q.treeId);
     const result = projectShare({
       tree: detail.tree,
       branches: detail.branches,
@@ -233,12 +290,6 @@ function session(env: AppEnv, treeId: string) {
 
 function sessionUrl(path: string, params: Record<string, string>): string {
   return `https://tree-session${path}?${new URLSearchParams(params).toString()}`;
-}
-
-async function nodeOr404(env: AppEnv, nodeId: string) {
-  const node = await chatService(env).deps.repos.trees.getNode(nodeId);
-  if (!node) throw new NotFoundError('Node');
-  return node;
 }
 
 export function slug(title: string): string {

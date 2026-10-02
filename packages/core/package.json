@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./tree": "./src/tree.ts",
     "./testing": "./src/testing/memory-repositories.ts"
   },
   "scripts": {

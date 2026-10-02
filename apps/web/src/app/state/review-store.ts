@@ -1,7 +1,12 @@
 import { inject, Injectable, signal } from '@angular/core';
 import type { ProviderInfo, TokenUsage } from '@tangent/shared';
-import { ApiClient, ApiError, errorMessage } from '../core/api-client';
-import { parseReviewEvent, readSseEvents } from '../sse/sse-parser';
+import {
+  ApiClient,
+  ApiError,
+  errorMessage,
+  parseReviewEvent,
+  readSseEvents,
+} from '@tangent/web-shared';
 import { type ModelChoice, SettingsStore } from './settings-store';
 import { TreeStore } from './tree-store';
 import { UiStore } from './ui-store';

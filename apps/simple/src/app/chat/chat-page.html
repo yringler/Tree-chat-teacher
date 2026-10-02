@@ -1,0 +1,130 @@
+@if (store.detailError(); as err) {
+  <div class="empty-state">
+    <h1>Can’t open this lesson</h1>
+    <p class="muted">{{ err }}</p>
+    <a routerLink="/" class="btn btn-primary">Back to your lessons</a>
+  </div>
+} @else if (!store.index()) {
+  <div class="empty-state" aria-busy="true">
+    <p class="muted">{{ store.detail() ? 'This lesson could not be opened.' : 'Loading…' }}</p>
+  </div>
+} @else {
+  <header class="lesson-head">
+    <div class="lesson-head-row">
+      <a routerLink="/" class="icon-btn" aria-label="All lessons" title="All lessons">
+        <app-icon name="back" />
+      </a>
+      <h1 class="lesson-title" [attr.title]="store.detail()?.tree?.title">
+        {{ store.detail()?.tree?.title }}
+      </h1>
+      @if (store.models().length > 1 && store.selectedBranch(); as b) {
+        <app-model-toggle
+          [models]="store.models()"
+          [value]="b.model"
+          [disabled]="store.busy() || switching()"
+          (changed)="setModel(b.id, $event)"
+        />
+      }
+      <button
+        type="button"
+        class="icon-btn"
+        aria-label="Delete this lesson"
+        title="Delete this lesson"
+        (click)="deleteLesson()"
+      >
+        <app-icon name="trash" />
+      </button>
+    </div>
+    @if (store.parentBranch(); as parent) {
+      <nav class="crumbs" aria-label="Side question path">
+        <button type="button" class="btn btn-ghost btn-sm" (click)="store.goToParent()">
+          <app-icon name="back" [size]="14" /> Back to “{{ parent.title }}”
+        </button>
+        <ol>
+          @for (b of store.chain(); track b.id; let last = $last) {
+            <li>
+              @if (last) {
+                <span class="crumb crumb-current" aria-current="page">{{ b.title }}</span>
+              } @else {
+                <button type="button" class="crumb" (click)="store.go(b.id)">
+                  {{ $first ? 'Lesson' : b.title }}
+                </button>
+                <app-icon name="chevronRight" [size]="12" />
+              }
+            </li>
+          }
+        </ol>
+      </nav>
+    }
+  </header>
+
+  <div class="messages" #scroller (scroll)="onScroll(scroller)" tabindex="-1">
+    <div class="messages-inner">
+      @if (store.path().length === 0) {
+        <div class="empty-state">
+          <p class="lead">What would you like to learn?</p>
+          <p class="muted">
+            Ask a question or name a topic. Your tutor will guide you with questions of its own.
+          </p>
+        </div>
+      }
+      @for (e of entries(); track e.node.id) {
+        @if (e.divider; as b) {
+          <ng-container
+            *ngTemplateOutlet="
+              fork;
+              context: { $implicit: b, current: b.id === store.selectedBranchId() }
+            "
+          />
+        }
+        <app-message-item
+          [node]="e.node"
+          [ancestor]="e.ancestor"
+          [focused]="e.node.id === store.focusedNodeId()"
+          [chainIds]="chainIds()"
+        />
+      }
+      @if (emptyBranch(); as b) {
+        <ng-container *ngTemplateOutlet="fork; context: { $implicit: b, current: true }" />
+        <p class="muted small center">Ask your side question below.</p>
+      }
+    </div>
+  </div>
+
+  @if (pendingAsk(); as ask) {
+    <div class="ask-bar">
+      <button
+        type="button"
+        class="btn btn-primary ask-btn"
+        (mousedown)="$event.preventDefault()"
+        (click)="askAbout(ask.nodeId, ask.quote)"
+      >
+        <app-icon name="branch" /> Ask about this
+      </button>
+    </div>
+  }
+
+  <div class="composer-dock">
+    <app-composer
+      [placeholder]="placeholder()"
+      [initial]="initialDraft()"
+      [disabled]="store.busy()"
+      [busy]="store.streamingNode() !== null"
+      (send)="send($event)"
+      (stop)="stop()"
+    />
+  </div>
+}
+
+<ng-template #fork let-b let-current="current">
+  <div class="fork-divider" [class.fork-current]="current">
+    <span class="fork-line"></span>
+    <span class="fork-label">Side question · {{ b.title }}</span>
+    <span class="fork-line"></span>
+  </div>
+  @if (b.anchorQuote) {
+    <blockquote class="anchor-quote" [class.msg-ancestor]="!current">
+      {{ b.anchorQuote }}
+    </blockquote>
+  }
+</ng-template>

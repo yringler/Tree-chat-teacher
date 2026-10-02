@@ -1,0 +1,309 @@
+import { escapeHtml } from '@tangent/render';
+import { Hono, type Context } from 'hono';
+import { authBaseUrl, authConfigured } from '../auth/auth.js';
+import type { AppBindings, AppEnv } from '../env.js';
+import { LEARN_APP_CSP, LEARN_COMMON_HEADERS } from './learn-app.js';
+
+/**
+ * Better Auth's session cookie (`cookiePrefix: 'tangent'` in auth/auth.ts),
+ * plain on http://localhost and `__Secure-` prefixed on https.
+ */
+const SESSION_COOKIES: ReadonlySet<string> = new Set([
+  'tangent.session_token',
+  '__Secure-tangent.session_token',
+]);
+
+/** True when the Cookie header carries a non-empty Better Auth session cookie. */
+export function hasSessionCookie(cookieHeader: string | null | undefined): boolean {
+  if (!cookieHeader) return false;
+  for (const part of cookieHeader.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq < 0) continue;
+    if (SESSION_COOKIES.has(part.slice(0, eq).trim()) && part.slice(eq + 1).trim() !== '') {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** The local dev bypass (auth/session.ts): everyone is the owner, so `/` is the app. */
+function devBypass(env: AppEnv): boolean {
+  return !authConfigured(env) && env.DEV_ALLOW_NO_AUTH === 'true';
+}
+
+/**
+ * Constant inline stylesheet of the landing page. Hashed for the CSP; never
+ * interpolate anything into it. Colours follow packages/web-shared base.css.
+ */
+export const LANDING_STYLE = `
+:root{color-scheme:light dark;--bg:#fbfbfa;--bg-elev:#fff;--bg-sunken:#f2f2ef;--fg:#1d1d1b;--muted:#6b6b66;--border:#e2e2dd;--accent:#2f6fdb;--accent-fg:#fff;--accent-soft:#e6eefc;--branch:#7a45c7;--branch-soft:#f0e8fb;--user-bg:#f1f3f8;--shadow:0 1px 2px rgb(0 0 0/.05),0 12px 32px rgb(0 0 0/.08);--font:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}
+@media (prefers-color-scheme:dark){:root{--bg:#161616;--bg-elev:#1f1f1e;--bg-sunken:#121212;--fg:#e9e9e4;--muted:#9b9b94;--border:#2f2f2c;--accent:#6b9cf0;--accent-fg:#0d1526;--accent-soft:#1d2a42;--branch:#b893f0;--branch-soft:#2e2242;--user-bg:#22242a;--shadow:0 1px 2px rgb(0 0 0/.4),0 12px 32px rgb(0 0 0/.45)}}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 var(--font);-webkit-font-smoothing:antialiased}
+a{color:var(--accent)}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+.wrap{max-width:960px;margin:0 auto;padding:0 20px}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:20px;padding-bottom:20px}
+.brand{display:inline-flex;align-items:center;gap:10px;color:var(--fg);font-weight:650;font-size:1.1rem;text-decoration:none}
+.brand svg{color:var(--accent)}
+.top nav{display:flex;gap:18px;font-size:.92rem}
+@media (max-width:479px){.top nav a+a{display:none}}
+.top nav a{color:var(--muted);text-decoration:none}
+.top nav a:hover{color:var(--fg)}
+.hero{display:grid;gap:40px;padding-top:32px;padding-bottom:56px}
+.eyebrow{margin:0 0 12px;color:var(--accent);font-size:.8rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+h1{margin:0;font-size:clamp(2rem,7vw,3.1rem);line-height:1.1;letter-spacing:-.02em;font-weight:700}
+.lede{margin:20px 0 0;max-width:34rem;color:var(--muted);font-size:1.08rem}
+.ctas{display:flex;flex-wrap:wrap;gap:12px;margin:28px 0 0}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:0 22px;border-radius:999px;border:1px solid var(--border);background:var(--bg-elev);color:var(--fg);font-weight:600;text-decoration:none}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn.primary:hover{filter:brightness(1.08)}
+.note{margin:14px 0 0;max-width:30rem;color:var(--muted);font-size:.88rem}
+.power{margin:18px 0 0;font-size:.92rem}
+.demo{position:relative;margin:0;padding:20px;border:1px solid var(--border);border-radius:16px;background:var(--bg-elev);box-shadow:var(--shadow);font-size:.9rem}
+.msg{margin:0 0 12px;padding:10px 14px;border-radius:12px;max-width:92%}
+.msg.you{margin-left:auto;background:var(--user-bg)}
+.msg.tutor{border:1px solid var(--border)}
+mark{background:var(--accent-soft);color:inherit;border-radius:4px;padding:0 2px;box-shadow:inset 0 -2px 0 var(--accent)}
+.side{margin:4px 0 0 18px;padding:12px 14px;border-left:3px solid var(--branch);border-radius:0 12px 12px 0;background:var(--branch-soft)}
+.side .tag{display:inline-block;margin:0 0 6px;color:var(--branch);font-size:.75rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.side p{margin:0}
+.side p+p{margin-top:6px;color:var(--muted)}
+section{padding:56px 0;border-top:1px solid var(--border)}
+h2{margin:0 0 8px;font-size:clamp(1.4rem,4vw,1.85rem);line-height:1.2;letter-spacing:-.01em}
+.sub{margin:0 0 32px;max-width:36rem;color:var(--muted)}
+.grid{display:grid;gap:16px}
+.card{padding:22px;border:1px solid var(--border);border-radius:14px;background:var(--bg-elev)}
+.card h3{margin:0 0 8px;font-size:1.05rem}
+.card p{margin:0;color:var(--muted);font-size:.95rem}
+.icon{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;margin:0 0 14px;border-radius:10px;background:var(--accent-soft);color:var(--accent)}
+.mode h3{font-size:1.2rem}
+.mode .for{margin:0 0 14px}
+.mode ul{margin:0 0 20px;padding:0 0 0 18px;font-size:.95rem}
+.mode li{margin:0 0 6px}
+.mode li::marker{color:var(--accent)}
+.mode.learn{border-color:var(--accent);box-shadow:var(--shadow)}
+footer{padding:32px 0 48px;border-top:1px solid var(--border);color:var(--muted);font-size:.9rem}
+footer .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px}
+footer nav{display:flex;flex-wrap:wrap;gap:18px}
+footer a{color:var(--muted)}
+@media (min-width:720px){.wrap{padding:0 32px}.hero{grid-template-columns:1.15fr 1fr;align-items:center;padding-top:56px;padding-bottom:80px}.grid.four{grid-template-columns:1fr 1fr}.grid.two{grid-template-columns:1fr 1fr}section{padding:72px 0}}
+`;
+
+const MARK =
+  '<svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">' +
+  '<rect x="1" y="1" width="26" height="26" rx="8" stroke="currentColor" stroke-width="2"/>' +
+  '<path d="M9 21V7M9 14c0-3 2-5 5.5-5H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>' +
+  '<circle cx="19" cy="9" r="2.4" fill="currentColor"/><circle cx="9" cy="21" r="2.4" fill="currentColor"/></svg>';
+
+/** 20×20 stroke icons for the feature cards. */
+function icon(path: string): string {
+  return (
+    '<span class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    `stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg></span>`
+  );
+}
+
+const ICON_BRANCH = icon(
+  '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 7v10M18 11c0 4-6 3-11.5 6.5"/>',
+);
+const ICON_QUESTION = icon(
+  '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M10 9.5a2.2 2.2 0 1 1 3 2.1c-.6.3-1 .8-1 1.4"/><path d="M12 16h.01"/>',
+);
+const ICON_EYE = icon(
+  '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+);
+const ICON_COIN = icon(
+  '<circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.8 0-3 .9-3 2s1 1.7 3 2 3 .9 3 2-1.2 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6.5V8M12 16v1.5"/>',
+);
+
+export interface LandingPageOptions {
+  /** Absolute URL of the page's canonical address (the site root). */
+  canonicalUrl: string;
+}
+
+const TITLE = 'Tangent: a Socratic tutor where every question can branch';
+const DESCRIPTION =
+  'Tangent is a Socratic tutor that lets any conversation branch. Ask about any phrase on the side, keep the main thread clean, and pay only for what you use.';
+
+/**
+ * The landing page for anonymous visitors: one self-contained document, no
+ * script, one constant inline stylesheet (LANDING_STYLE) allowed by hash.
+ */
+export function renderLandingPage(opts: LandingPageOptions): string {
+  const canonical = escapeHtml(opts.canonicalUrl);
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>${escapeHtml(TITLE)}</title>
+<meta name="description" content="${escapeHtml(DESCRIPTION)}">
+<link rel="canonical" href="${canonical}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Tangent">
+<meta property="og:title" content="${escapeHtml(TITLE)}">
+<meta property="og:description" content="${escapeHtml(DESCRIPTION)}">
+<meta property="og:url" content="${canonical}">
+<meta name="twitter:card" content="summary">
+<style>${LANDING_STYLE}</style>
+</head>
+<body>
+<header class="wrap top">
+<a class="brand" href="/welcome">${MARK}Tangent</a>
+<nav aria-label="Account"><a href="/learn/login">Sign in to Learn</a><a href="/login">Power sign in</a></nav>
+</header>
+<main>
+<div class="wrap hero">
+<div>
+<p class="eyebrow">Socratic tutoring, branching conversations</p>
+<h1>Follow every tangent. Never lose the thread.</h1>
+<p class="lede">Tangent is a Socratic tutor that lets any conversation branch. Highlight a phrase you don't follow, ask about it on the side, then step back into the main thread exactly where you left it. The tutor asks before it tells, so you work ideas out instead of skimming answers.</p>
+<div class="ctas">
+<a class="btn primary" href="/learn/demo">Try the demo</a>
+<a class="btn" href="/learn/login">Start learning</a>
+</div>
+<p class="note">The demo is free and runs in your browser. Nothing is sent to a model and the replies are playful nonsense, so you can explore branching without signing up.</p>
+<p class="power"><a href="/login">Power users: sign in</a></p>
+</div>
+<figure class="demo" aria-label="Example: a side question branching off a lesson">
+<p class="msg you">Why does ice float?</p>
+<p class="msg tutor">Good question. Before I answer: what happens to most substances when they freeze? Think about how tightly their molecules pack, and compare that with <mark>hydrogen bonds</mark> in water.</p>
+<div class="side">
+<span class="tag">Ask about this</span>
+<p>What are hydrogen bonds, exactly?</p>
+<p>A side branch. The main lesson stays exactly as it was.</p>
+</div>
+</figure>
+</div>
+<section aria-labelledby="features">
+<div class="wrap">
+<h2 id="features">Learning that follows your curiosity</h2>
+<p class="sub">Every lesson is a tree. Wander off as far as you like, and the conversation stays easy to follow.</p>
+<div class="grid four">
+<article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. The side question opens its own branch, so detours never clutter the main thread, and every branch stays one click away.</p></article>
+<article class="card">${ICON_QUESTION}<h3>A tutor that asks before it tells</h3><p>Tangent guides you with questions until the idea clicks, then fills in what's missing. Choose <strong>Smart</strong> for hard topics or <strong>Simple</strong> for quick ones, and switch at any time.</p></article>
+<article class="card">${ICON_EYE}<h3>See exactly what the model sees</h3><p>In power mode, decide how much each branch inherits: the full path, a summary, or a clean slate. The inspector shows the exact prompt before anything is sent.</p></article>
+<article class="card">${ICON_COIN}<h3>Pay only for what you use</h3><p>Each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up prepaid credit or choose a monthly plan, and manage billing in Stripe.</p></article>
+</div>
+</div>
+</section>
+<section aria-labelledby="modes">
+<div class="wrap">
+<h2 id="modes">Two ways to use it</h2>
+<p class="sub">Same branching conversations, two levels of control.</p>
+<div class="grid two">
+<article class="card mode learn">
+<h3>Learn</h3>
+<p class="for">For students and the curious. Nothing to set up.</p>
+<ul>
+<li>A built-in Socratic tutor, ready the moment you sign in</li>
+<li>Smart and Simple tiers, one toggle</li>
+<li>Side questions with Ask about this</li>
+<li>Pay as you go from prepaid credit or a monthly plan</li>
+</ul>
+<a class="btn primary" href="/learn/login">Start learning</a>
+</article>
+<article class="card mode">
+<h3>Power</h3>
+<p class="for">For tinkerers and the people who run Tangent.</p>
+<ul>
+<li>Bring your own API keys for any configured provider</li>
+<li>Every control: context modes, inspector, reviewer, system prompts</li>
+<li>Read-only share links and Markdown or HTML export</li>
+<li>Self-host it on your own Cloudflare account</li>
+</ul>
+<a class="btn" href="/login">Power sign in</a>
+</article>
+</div>
+</div>
+</section>
+</main>
+<footer>
+<div class="wrap">
+<span>Tangent</span>
+<nav aria-label="Footer"><a href="/learn/demo">Try the demo</a><a href="/learn/login">Sign in to Learn</a><a href="/login">Power sign in</a><a href="/welcome">About Tangent</a></nav>
+</div>
+</footer>
+</body>
+</html>
+`;
+}
+
+async function sha256Base64(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  let bin = '';
+  for (const b of new Uint8Array(digest)) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+let cspPromise: Promise<string> | null = null;
+
+/**
+ * The landing page's Content-Security-Policy: nothing but the hashed inline
+ * stylesheet and same-origin or data: images (the favicon). Memoized.
+ */
+export function landingCsp(): Promise<string> {
+  cspPromise ??= sha256Base64(LANDING_STYLE).then(
+    (style) =>
+      `default-src 'none'; style-src 'sha256-${style}'; img-src 'self' data:; ` +
+      "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    (err: unknown) => {
+      cspPromise = null;
+      throw err;
+    },
+  );
+  return cspPromise;
+}
+
+/** The landing page; `headers` adds to (or overrides) the common ones. */
+async function landingResponse(
+  c: Context<AppBindings>,
+  headers: Record<string, string>,
+): Promise<Response> {
+  const canonicalUrl = new URL('/', authBaseUrl(c.env, c.req.raw)).toString();
+  return new Response(renderLandingPage({ canonicalUrl }), {
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Security-Policy': await landingCsp(),
+      'Referrer-Policy': 'same-origin',
+      'X-Content-Type-Options': 'nosniff',
+      ...headers,
+    },
+  });
+}
+
+/**
+ * The landing page (PLAN §14), mounted at the root by `createApp`.
+ * - `GET /welcome` always serves it.
+ * - `GET /` serves it to anonymous visitors only: no Better Auth session
+ *   cookie and not the dev bypass. Everyone else gets the power app's
+ *   index.html from ASSETS, with the headers `_headers` gives it (they don't
+ *   apply to Worker responses). A stale cookie lands in the app, which sends
+ *   the visitor to sign in, so presence is enough and no D1 lookup is needed.
+ * `/` varies by cookie, so it is never cached as is (`no-cache` + `Vary`):
+ * after signing in, `/` must be the app at once. HEAD is answered by Hono
+ * through the GET handlers; other methods fall through.
+ */
+export function landingRoutes(): Hono<AppBindings> {
+  const app = new Hono<AppBindings>();
+
+  app.get('/welcome', (c) => landingResponse(c, { 'Cache-Control': 'public, max-age=300' }));
+
+  app.get('/', async (c) => {
+    if (!devBypass(c.env) && !hasSessionCookie(c.req.header('Cookie'))) {
+      return landingResponse(c, { 'Cache-Control': 'no-cache', Vary: 'Cookie' });
+    }
+    const res = await c.env.ASSETS.fetch(c.req.raw);
+    const out = new Response(res.body, res);
+    out.headers.set('Content-Security-Policy', LEARN_APP_CSP);
+    for (const [name, value] of Object.entries(LEARN_COMMON_HEADERS)) out.headers.set(name, value);
+    out.headers.append('Vary', 'Cookie');
+    return out;
+  });
+
+  return app;
+}

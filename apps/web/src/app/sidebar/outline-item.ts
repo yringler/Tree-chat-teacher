@@ -11,7 +11,7 @@ import {
 import type { OutlineItem as OutlineNode } from '@tangent/core';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '../ui/icon';
+import { Icon } from '@tangent/web-shared';
 import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { ModeBadge } from '../ui/mode-badge';
 

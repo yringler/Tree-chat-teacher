@@ -8,10 +8,9 @@ import {
   untracked,
 } from '@angular/core';
 import type { ContextPlanResponse } from '@tangent/shared';
-import { ApiClient, errorMessage } from '../core/api-client';
+import { ApiClient, errorMessage, Icon } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '../ui/icon';
 import { SegmentCard } from './segment-card';
 
 type Tab = 'segments' | 'rendered';

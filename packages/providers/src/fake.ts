@@ -29,6 +29,7 @@ interface FakeOptions {
   chunkSize: number;
   delayMs: number;
   failWith: ProviderErrorCode | null;
+  costUsd: number | null;
 }
 
 function readOptions(options: Record<string, unknown> | undefined): FakeOptions {
@@ -41,11 +42,13 @@ function readOptions(options: Record<string, unknown> | undefined): FakeOptions 
   const cs = o['chunkSize'];
   const dm = o['delayMs'];
   const fw = o['failWith'];
+  const cost = o['costUsd'];
   return {
     responses,
     chunkSize: typeof cs === 'number' && Number.isInteger(cs) && cs > 0 ? cs : 8,
     delayMs: typeof dm === 'number' && dm > 0 ? dm : 0,
     failWith: typeof fw === 'string' && ERROR_CODES.has(fw) ? (fw as ProviderErrorCode) : null,
+    costUsd: typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? cost : null,
   };
 }
 
@@ -70,6 +73,10 @@ function inputTokens(request: Input): number {
  * - chunkSize: number (default 8) — characters per `delta`;
  * - delayMs: number (default 0) — await between deltas (to test abort);
  * - failWith: ProviderErrorCode — emit this error after the first delta;
+ * - costUsd: number — simulate OpenRouter billing: yield
+ *   `{type:'billing', generationId:'gen-fake-<uuid>'}` before the first delta and
+ *   `{type:'billing', generationId, costUsd}` right before `done` (not on
+ *   failure or abort). Every stream gets a fresh id;
  * - maxContextTokens / maxOutputTokens via config.
  * Usage: inputTokens = ceil(total input chars / 4), outputTokens = ceil(reply chars / 4),
  * emitted once before `done`. countTokens returns the same inputTokens figure.
@@ -96,6 +103,9 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
 
   function stream(request: GenerateRequest): AsyncIterable<ProviderEvent> {
     return guardStream(request.signal, [], async function* () {
+      // Unique across provider instances, isolates and restarts (usage_events.generation_id is UNIQUE).
+      const generationId = opts.costUsd === null ? null : `gen-fake-${crypto.randomUUID()}`;
+      if (generationId !== null) yield { type: 'billing', generationId };
       const reply = replyFor(request);
       const chars = Array.from(reply);
       let first = true;
@@ -118,6 +128,9 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
         type: 'usage',
         usage: { inputTokens: inputTokens(request), outputTokens: Math.ceil(reply.length / 4) },
       };
+      if (generationId !== null && opts.costUsd !== null) {
+        yield { type: 'billing', generationId, costUsd: opts.costUsd };
+      }
       yield { type: 'done', stopReason: 'end_turn' };
     });
   }

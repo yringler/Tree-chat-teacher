@@ -1,0 +1,40 @@
+{
+  "name": "@tangent/web-shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles/base.css": "./src/styles/base.css"
+  },
+  "scripts": {
+    "typecheck": "ngc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@better-auth/passkey": "1.7.7",
+    "@better-auth/stripe": "1.7.7",
+    "@tangent/core": "workspace:*",
+    "@tangent/render": "workspace:*",
+    "@tangent/shared": "workspace:*",
+    "better-auth": "1.7.7"
+  },
+  "peerDependencies": {
+    "@angular/common": "^22.2.0",
+    "@angular/core": "^22.2.0",
+    "@angular/platform-browser": "^22.2.0",
+    "@angular/router": "^22.2.0"
+  },
+  "devDependencies": {
+    "@angular/common": "^22.2.0",
+    "@angular/compiler": "^22.2.0",
+    "@angular/compiler-cli": "^22.2.0",
+    "@angular/core": "^22.2.0",
+    "@angular/platform-browser": "^22.2.0",
+    "@angular/router": "^22.2.0",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0",
+    "typescript": "~6.0.3",
+    "vitest": "~4.1.11"
+  }
+}

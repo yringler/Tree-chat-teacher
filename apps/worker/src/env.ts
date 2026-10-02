@@ -1,3 +1,4 @@
+import type { AccountMode } from '@tangent/shared';
 import type { Context } from 'hono';
 
 /**
@@ -38,6 +39,29 @@ export interface AppEnv extends Env {
   RESEND_API_KEY?: string;
   /** Local dev only (.dev.vars): skip sign-in. Honoured only while BETTER_AUTH_SECRET is unset. */
   DEV_ALLOW_NO_AUTH?: string;
+  /**
+   * OpenRouter key for simple-mode generations (provider `tangent`). Never
+   * falls back to OPENROUTER_API_KEY; set a credit limit on it in OpenRouter.
+   * Its spend is billed at the reported cost grossed up by the `OPENROUTER_FEE_BPS`
+   * var (OpenRouter's credit-purchase fee), then marked up.
+   */
+  OPENROUTER_SIMPLE_API_KEY?: string;
+  /** Stripe API key. Billing is enabled only when this and STRIPE_WEBHOOK_SECRET are set. */
+  STRIPE_SECRET_KEY?: string;
+  /** Signing secret of the webhook endpoint `/api/auth/stripe/webhook`. */
+  STRIPE_WEBHOOK_SECRET?: string;
+}
+
+/**
+ * The account a request acts as (see auth/account.ts).
+ * - `power`: the shared `default` account of allowlisted users (own keys, unmetered).
+ * - `simple`: a personal account `u_<userId>` of an open sign-up (operator key, metered).
+ */
+export interface AccountContext {
+  id: string;
+  mode: AccountMode;
+  /** Better Auth user id; null in dev bypass mode. */
+  userId: string | null;
 }
 
 /** Caller identity established by the session middleware for `/api/*`. */
@@ -53,6 +77,8 @@ export interface Identity {
 export interface AppVariables {
   identity: Identity;
   /** Account the request acts as (see auth/account.ts). */
+  account: AccountContext;
+  /** Alias of `account.id`. */
   accountId: string;
 }
 

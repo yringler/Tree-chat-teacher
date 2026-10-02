@@ -1,9 +1,9 @@
 import { inject, Injectable } from '@angular/core';
-import { passkeyClient } from '@better-auth/passkey/client';
 import type { LoginOptionsResponse, MeResponse } from '@tangent/shared';
-import { createAuthClient } from 'better-auth/client';
-import { magicLinkClient } from 'better-auth/client/plugins';
 import { ApiClient, ApiError } from './api-client';
+import { API_FETCH, defaultApiFetch } from './api-fetch';
+import { AUTH_CLIENT, authErrorMessage as messageFor } from './auth-client';
+import { APP_PATHS } from './app-paths';
 
 export type SocialProvider = 'google' | 'github';
 
@@ -21,8 +21,6 @@ const REMEMBER_PREF_KEY = 'tangent.rememberMe';
 /** Long enough to finish an OAuth round trip or open the magic-link email. */
 const REMEMBER_COOKIE_SECONDS = 15 * 60;
 
-export const LOGIN_PATH = '/login';
-
 /**
  * Sign-in, sign-out and passkeys, on top of Better Auth's browser client
  * (`/api/auth/*`). Session cookies are HttpOnly; nothing here can read them.
@@ -31,18 +29,19 @@ export const LOGIN_PATH = '/login';
  * (`location.assign`), never a router navigation: the login page is served
  * with its own CSP that allows Cloudflare Turnstile, which the app's CSP
  * doesn't (see public/_headers).
+ *
+ * Where "home" and "login" are comes from the app's APP_PATHS.
  */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly api = inject(ApiClient);
-  private readonly client = createAuthClient({
-    baseURL: location.origin,
-    basePath: '/api/auth',
-    plugins: [magicLinkClient(), passkeyClient()],
-  });
+  private readonly paths = inject(APP_PATHS);
+  private readonly client = inject(AUTH_CLIENT);
+  private readonly transport = inject(API_FETCH, { optional: true }) ?? defaultApiFetch;
 
   async loginOptions(): Promise<LoginOptionsResponse> {
-    const res = await fetch('/api/login-options', { credentials: 'same-origin' });
+    const transport = this.transport;
+    const res = await transport('/api/login-options', { credentials: 'same-origin' });
     if (!res.ok) throw new Error(`Couldn't load sign-in options (${res.status})`);
     return (await res.json()) as LoginOptionsResponse;
   }
@@ -59,12 +58,12 @@ export class AuthService {
       return me;
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
-        location.replace(LOGIN_PATH);
+        location.replace(this.paths.login);
         return null;
       }
       if (err instanceof ApiError && err.status === 403) {
         await this.client.signOut().catch(() => undefined);
-        location.replace(`${LOGIN_PATH}?error=not_allowed`);
+        location.replace(`${this.paths.login}?error=not_allowed`);
         return null;
       }
       throw err;
@@ -110,8 +109,8 @@ export class AuthService {
     // On success the client follows the provider's redirect itself.
     const { error } = await this.client.signIn.social({
       provider,
-      callbackURL: '/',
-      errorCallbackURL: LOGIN_PATH,
+      callbackURL: this.paths.home,
+      errorCallbackURL: this.paths.login,
     });
     return error ? messageFor(error) : null;
   }
@@ -123,7 +122,7 @@ export class AuthService {
   ): Promise<string | null> {
     this.setRemember(remember);
     const { error } = await this.client.signIn.magicLink(
-      { email, callbackURL: '/', errorCallbackURL: LOGIN_PATH },
+      { email, callbackURL: this.paths.home, errorCallbackURL: this.paths.login },
       { headers: { 'x-captcha-response': captchaToken } },
     );
     return error ? messageFor(error) : null;
@@ -134,13 +133,13 @@ export class AuthService {
     this.setRemember(remember);
     const res = await this.client.signIn.passkey({ autoFill });
     if (res?.error) return autoFill ? null : messageFor(res.error);
-    location.assign('/');
+    location.assign(this.paths.home);
     return null;
   }
 
   async signOut(): Promise<void> {
     await this.client.signOut();
-    location.assign(LOGIN_PATH);
+    location.assign(this.paths.login);
   }
 
   // ---- Passkeys (signed in)
@@ -169,12 +168,12 @@ export class AuthService {
 }
 
 /** Login-page messages for `?error=` codes from OAuth and magic-link redirects. */
-export function loginErrorMessage(code: string | null): string | null {
+export function loginErrorMessage(code: string | null, brand = 'Tangent'): string | null {
   if (!code) return null;
   switch (code) {
     case 'unable_to_create_user':
     case 'not_allowed':
-      return "This account isn't allowed to use Tangent.";
+      return `This account isn't allowed to use ${brand}.`;
     case 'INVALID_TOKEN':
     case 'EXPIRED_TOKEN':
     case 'ATTEMPTS_EXCEEDED':
@@ -184,13 +183,4 @@ export function loginErrorMessage(code: string | null): string | null {
     default:
       return 'Sign-in failed. Please try again.';
   }
-}
-
-function messageFor(error: {
-  message?: string | undefined;
-  status?: number;
-  code?: string | undefined;
-}): string {
-  if (error.status === 429) return 'Too many attempts. Wait a minute and try again.';
-  return error.message || 'Something went wrong. Please try again.';
 }

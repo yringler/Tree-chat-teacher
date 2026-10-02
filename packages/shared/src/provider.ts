@@ -27,12 +27,25 @@ export interface ModelInfo {
   maxOutputTokens?: number;
 }
 
+/** Why a provider call is made; recorded with its usage for billing. */
+export type UsagePurpose = 'reply' | 'summary' | 'title' | 'review' | 'other';
+
+/** Attribution of one provider call (billing). Providers ignore it. */
+export interface UsageTag {
+  purpose: UsagePurpose;
+  treeId: string;
+  /** The node the call produces or is about (reply/review); null for summaries and titles. */
+  nodeId: string | null;
+}
+
 export interface GenerateRequest {
   model: string;
   system: string | null;
   messages: ChatMessage[];
   maxOutputTokens?: number;
   signal: AbortSignal;
+  /** Who/what the call is for; read by the Worker's usage meter, never sent upstream. */
+  usageTag?: UsageTag;
 }
 
 export type ProviderErrorCode =
@@ -64,11 +77,15 @@ export interface ProviderError {
  *   `done` or `error` event, then finishes;
  * - `usage` may be yielded more than once; later values override earlier ones
  *   field by field (providers report cumulative numbers);
- * - aborting `signal` ends the stream promptly with `error{code:'aborted'}`.
+ * - aborting `signal` ends the stream promptly with `error{code:'aborted'}`;
+ * - `billing` (upstream generation id and/or reported cost in USD) may be
+ *   yielded any number of times before the terminal event; later fields
+ *   override earlier ones. Consumers that don't bill must ignore it.
  */
 export type ProviderEvent =
   | { type: 'delta'; text: string }
   | { type: 'usage'; usage: Partial<TokenUsage> }
+  | { type: 'billing'; generationId?: string; costUsd?: number }
   | { type: 'done'; stopReason: string | null }
   | { type: 'error'; error: ProviderError };
 

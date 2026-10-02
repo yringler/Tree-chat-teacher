@@ -9,8 +9,7 @@ import {
 import type { Tree, UpdateTreeRequest } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '../ui/icon';
-import { Modal } from '../ui/modal';
+import { Icon, Modal } from '@tangent/web-shared';
 
 /** Rename the tree, edit its system prompt, delete it. */
 @Component({

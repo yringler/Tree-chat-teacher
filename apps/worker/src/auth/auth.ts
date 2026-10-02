@@ -1,4 +1,5 @@
 import { passkey } from '@better-auth/passkey';
+import { stripe } from '@better-auth/stripe';
 import { betterAuth, type BetterAuthOptions } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { createAuthMiddleware } from 'better-auth/api';
@@ -11,9 +12,12 @@ import {
   authPasskeys,
   authRateLimits,
   authSessions,
+  authSubscriptions,
   authUsers,
   authVerifications,
 } from '../db/schema.js';
+import { billingConfigured, getStripe, stripePlans } from '../billing/stripe.js';
+import { handleStripeEvent } from '../billing/webhook.js';
 import { createEmailSender, magicLinkEmail, type EmailSender } from '../email/index.js';
 import type { AppEnv } from '../env.js';
 
@@ -24,9 +28,16 @@ import type { AppEnv } from '../env.js';
  * no passwords: the email+password method is never enabled. Passkeys are
  * added from the account dialog once signed in, then work as a sign-in method.
  *
- * Who may sign in is decided by ALLOWED_EMAILS (see isEmailAllowed): users
- * outside it are never created, never sent a magic link, and an existing
- * session stops working as soon as its email is removed from the list.
+ * Who may sign in is decided by ALLOWED_EMAILS (see isEmailAllowed) and
+ * OPEN_SIGNUP (see mayUseApp): with sign-up closed, users outside the list are
+ * never created, never sent a magic link, and an existing session stops
+ * working as soon as its email is removed from the list. With OPEN_SIGNUP=true
+ * anyone may sign up and gets a personal simple account (auth/account.ts).
+ *
+ * When Stripe is configured (billing/stripe.ts) the Better Auth Stripe plugin
+ * adds the monthly-plan endpoints (`/api/auth/subscription/*`) and the one
+ * Stripe webhook, `/api/auth/stripe/webhook`, whose events also reach our
+ * ledger through `onEvent` (billing/webhook.ts).
  */
 
 export const AUTH_BASE_PATH = '/api/auth';
@@ -81,6 +92,19 @@ export function isEmailAllowed(env: AppEnv, email: string | null | undefined): b
   if (emails.has(e)) return true;
   const at = e.lastIndexOf('@');
   return at > 0 && domains.includes(e.slice(at + 1));
+}
+
+/** True when anyone may sign up, as a simple account (OPEN_SIGNUP). */
+export function openSignup(env: AppEnv): boolean {
+  return env.OPEN_SIGNUP?.trim() === 'true';
+}
+
+/**
+ * Whether `email` may sign in at all (and be sent a magic link). Creating the
+ * user of an open sign-up also needs a verified email (databaseHooks below).
+ */
+export function mayUseApp(env: AppEnv, email: string | null | undefined): boolean {
+  return isEmailAllowed(env, email) || (openSignup(env) && !!email);
 }
 
 // ---- Configuration
@@ -161,6 +185,9 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
         verification: authVerifications,
         passkey: authPasskeys,
         rateLimit: authRateLimits,
+        // The Stripe plugin's table; mapped even when billing is off so the
+        // schema doesn't depend on configuration.
+        subscription: authSubscriptions,
       },
     }),
     // No passwords, ever: email+password stays disabled (the default), so
@@ -190,7 +217,14 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
           // Covers every sign-up path (OAuth callback, magic link). Returning
           // false (rather than throwing) makes the OAuth callback redirect to
           // the login page with an error instead of answering with JSON.
-          before: async (user) => (isEmailAllowed(env, user.email) ? { data: user } : false),
+          // Open sign-ups also need a verified email (magic links always are;
+          // OAuth reports it): the session middleware refuses unverified
+          // simple users, so creating one would only leave a user that can
+          // never get in.
+          before: async (user) =>
+            isEmailAllowed(env, user.email) || (mayUseApp(env, user.email) && user.emailVerified)
+              ? { data: user }
+              : false,
         },
       },
     },
@@ -223,7 +257,7 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
         storeToken: 'hashed',
         sendMagicLink: async ({ email, url }) => {
           // Same response either way, so the form doesn't reveal who is allowed.
-          if (!isEmailAllowed(env, email)) return;
+          if (!mayUseApp(env, email)) return;
           const sender = deps.emailSender ?? createEmailSender(env, base.origin);
           await sender.send(magicLinkEmail(email, url, MAGIC_LINK_MINUTES));
         },
@@ -243,8 +277,47 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
         // Turnstile's test keys report their own hostname, so only pin it in deployments.
         ...(local ? {} : { allowedHostnames: [base.hostname] }),
       }),
+      ...stripePlugin(env),
     ],
   });
+}
+
+/**
+ * The Better Auth Stripe plugin, only when billing is configured (PLAN §2.3).
+ * Customers are created lazily (first checkout), monthly plans come from
+ * STRIPE_PLANS, and every webhook event is passed on to our ledger. Throwing
+ * from `onEvent` makes the plugin answer 400, so Stripe retries.
+ */
+function stripePlugin(env: AppEnv) {
+  const client = billingConfigured(env) ? getStripe(env) : null;
+  if (!client) return [];
+  return [
+    stripe({
+      stripeClient: client,
+      stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET?.trim() ?? '',
+      createCustomerOnSignUp: false,
+      onEvent: (event) => handleStripeEvent(env, event),
+      subscription: {
+        enabled: true,
+        requireEmailVerification: true,
+        plans: stripePlans(env).map((p) => ({
+          name: p.name,
+          priceId: p.priceId,
+          // Plan switches take effect next cycle. Every paid subscription
+          // invoice is credited anyway (billing/webhook.ts), prorated or not.
+          prorationBehavior: 'none' as const,
+        })),
+        // Stripe Tax on exclusive prices; tax never enters our ledger.
+        getCheckoutSessionParams: () => ({
+          params: {
+            automatic_tax: { enabled: true },
+            billing_address_collection: 'required' as const,
+            tax_id_collection: { enabled: true },
+          },
+        }),
+      },
+    }),
+  ];
 }
 
 export type Auth = ReturnType<typeof createAuth>;

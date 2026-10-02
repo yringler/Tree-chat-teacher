@@ -1,8 +1,10 @@
-import { Injectable } from '@angular/core';
+import { inject, Injectable } from '@angular/core';
 import type {
   ApiError as ApiErrorBody,
   ApiErrorCode,
+  BillingSummary,
   Branch,
+  CheckoutResponse,
   ContextPlanResponse,
   CreateBranchRequest,
   CreateShareRequest,
@@ -22,7 +24,9 @@ import type {
   UpdateBranchRequest,
   UpdateShareRequest,
   UpdateTreeRequest,
+  UsageListResponse,
 } from '@tangent/shared';
+import { API_FETCH, defaultApiFetch } from './api-fetch';
 
 /** Thrown for every non-2xx API response (and for network failures, with status 0). */
 export class ApiError extends Error {
@@ -55,10 +59,18 @@ function isErrorBody(value: unknown): value is ApiErrorBody {
 
 const enc = encodeURIComponent;
 
-/** Typed fetch wrapper for the owner API (`/api/*`). */
+/** Error code for a non-2xx response without our JSON error body (e.g. a proxy page). */
+function fallbackCode(status: number): ApiErrorCode {
+  if (status === 402) return 'payment_required';
+  return status >= 500 ? 'internal' : 'bad_request';
+}
+
+/** Typed fetch wrapper for the owner API (`/api/*`), over the API_FETCH transport. */
 @Injectable({ providedIn: 'root' })
 export class ApiClient {
   private readonly base = '/api';
+  /** Optional so a bare `Injector.create` (tests) falls back to the global fetch. */
+  private readonly transport = inject(API_FETCH, { optional: true }) ?? defaultApiFetch;
 
   me(): Promise<MeResponse> {
     return this.json('GET', '/me');
@@ -82,6 +94,26 @@ export class ApiClient {
   /** Omit `provider` to forget every stored key. */
   forgetKey(provider?: string): Promise<void> {
     return this.json('DELETE', '/key', provider ? { provider } : {});
+  }
+
+  // Billing (simple accounts; power accounts get 403)
+
+  billing(): Promise<BillingSummary> {
+    return this.json('GET', '/billing');
+  }
+
+  /** One page of metered usage, newest first. Pass the previous page's `nextCursor` for the next. */
+  usage(cursor?: string | null, limit?: number): Promise<UsageListResponse> {
+    const q = new URLSearchParams();
+    if (cursor) q.set('cursor', cursor);
+    if (limit !== undefined) q.set('limit', String(limit));
+    const qs = q.toString();
+    return this.json('GET', qs ? `/billing/usage?${qs}` : '/billing/usage');
+  }
+
+  /** Starts a one-time credit top-up; resolves with the Stripe Checkout URL to send the browser to. */
+  createCheckout(amountCents: number): Promise<CheckoutResponse> {
+    return this.json('POST', '/billing/checkout', { amountCents });
   }
 
   // Trees
@@ -213,8 +245,10 @@ export class ApiClient {
       init.headers = { ...init.headers, 'content-type': 'application/json' };
     }
     let res: Response;
+    // Called detached: a provided bare `fetch` must not be invoked with `this` set.
+    const transport = this.transport;
     try {
-      res = await fetch(this.base + path, init);
+      res = await transport(this.base + path, init);
     } catch (err) {
       if (signal?.aborted) throw err;
       throw new ApiError(0, 'network', err instanceof Error ? err.message : 'Network error');
@@ -257,15 +291,16 @@ export class ApiClient {
     }
     if (isErrorBody(parsed))
       return new ApiError(res.status, parsed.error.code, parsed.error.message);
-    return new ApiError(
-      res.status,
-      res.status >= 500 ? 'internal' : 'bad_request',
-      `${res.status} ${res.statusText}`,
-    );
+    return new ApiError(res.status, fallbackCode(res.status), `${res.status} ${res.statusText}`);
   }
 }
 
 export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+/** True for a 402 `payment_required` ApiError (a simple account is out of credit). */
+export function isPaymentRequired(err: unknown): boolean {
+  return err instanceof ApiError && err.code === 'payment_required';
 }

@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { SHORTCUTS } from '../core/keyboard';
 import { UiStore } from '../state/ui-store';
-import { Modal } from '../ui/modal';
+import { Modal } from '@tangent/web-shared';
 
 @Component({
   selector: 'app-shortcuts-help',

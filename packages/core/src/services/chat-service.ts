@@ -26,6 +26,7 @@ import {
   type TreeDetail,
   type TreeSummary,
   type UpdateBranchRequest,
+  type UsageTag,
   type UpdateTreeRequest,
 } from '@tangent/shared';
 import { assembleContext, summaryKeyString } from '../context/assemble.js';
@@ -132,13 +133,42 @@ export class ChatService {
 
   /**
    * Loads a tree owned by this service's account. Another account's tree is
-   * reported as not found. (Branch/node-level routes are not scoped yet; see
-   * docs/DECISIONS.md "Accounts".)
+   * reported as not found. Branch- and node-level entry points go through
+   * `getOwnedBranch`/`getOwnedNode`, so every public method is scoped.
    */
   private async requireOwnedTree(treeId: string): Promise<Tree> {
     const tree = await this.repo.getTree(treeId);
     if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Tree');
     return tree;
+  }
+
+  /**
+   * Loads a branch whose tree is owned by this service's account. A missing
+   * branch, or one in another account's tree, is reported as not found.
+   */
+  async getOwnedBranch(branchId: string): Promise<Branch> {
+    return (await this.requireOwnedBranch(branchId)).branch;
+  }
+
+  /** `getOwnedBranch` that also returns the (already loaded) tree. */
+  private async requireOwnedBranch(branchId: string): Promise<{ branch: Branch; tree: Tree }> {
+    const branch = await this.repo.getBranch(branchId);
+    if (!branch) throw new NotFoundError('Branch');
+    const tree = await this.repo.getTree(branch.treeId);
+    if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Branch');
+    return { branch, tree };
+  }
+
+  /**
+   * Loads a node whose tree is owned by this service's account. A missing
+   * node, or one in another account's tree, is reported as not found.
+   */
+  async getOwnedNode(nodeId: string): Promise<ChatNode> {
+    const node = await this.repo.getNode(nodeId);
+    if (!node) throw new NotFoundError('Node');
+    const tree = await this.repo.getTree(node.treeId);
+    if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Node');
+    return node;
   }
 
   /** Creates the tree and an empty trunk (provider/model default from the registry). */
@@ -207,8 +237,7 @@ export class ChatService {
   /** New branch hanging off `fromNodeId`; inherits provider/model from the parent branch. */
   async createBranch(request: CreateBranchRequest): Promise<Branch> {
     const req = createBranchRequestSchema.parse(request);
-    const node = await this.repo.getNode(req.fromNodeId);
-    if (!node) throw new NotFoundError('Node');
+    const node = await this.getOwnedNode(req.fromNodeId);
     const parent = await this.repo.getBranch(node.branchId);
     if (!parent) throw new NotFoundError('Branch');
 
@@ -240,8 +269,7 @@ export class ChatService {
 
   async updateBranch(branchId: string, request: UpdateBranchRequest): Promise<Branch> {
     const req = updateBranchRequestSchema.parse(request);
-    const branch = await this.repo.getBranch(branchId);
-    if (!branch) throw new NotFoundError('Branch');
+    const branch = await this.getOwnedBranch(branchId);
     const isTrunk = branch.parentBranchId === null;
     if (isTrunk && (req.contextMode !== undefined || req.anchorQuote !== undefined)) {
       throw new ValidationError('The main thread has no context mode or anchor quote');
@@ -281,9 +309,7 @@ export class ChatService {
     branchId: string,
     options: { stopGenerations?: (branchIds: ReadonlySet<string>) => Promise<void> } = {},
   ): Promise<DeleteBranchResponse> {
-    const branch = await this.repo.getBranch(branchId);
-    if (!branch) throw new NotFoundError('Branch');
-    const tree = await this.requireOwnedTree(branch.treeId);
+    const { branch, tree } = await this.requireOwnedBranch(branchId);
     if (branch.parentBranchId === null || branch.id === tree.trunkBranchId) {
       throw new ValidationError('The main thread cannot be deleted; delete the conversation instead');
     }
@@ -346,14 +372,13 @@ export class ChatService {
     };
   }
 
+  /**
+   * Loads everything needed to plan a reply in an owned branch. A `nodeId`
+   * must belong to that branch (and hence to the same owned tree).
+   */
   private async loadPlanInputs(branchId: string, nodeId: string | null): Promise<PlanInputs> {
-    const branch = await this.repo.getBranch(branchId);
-    if (!branch) throw new NotFoundError('Branch');
-    const [tree, chain] = await Promise.all([
-      this.repo.getTree(branch.treeId),
-      this.repo.getBranchChain(branchId),
-    ]);
-    if (!tree) throw new NotFoundError('Tree');
+    const { branch, tree } = await this.requireOwnedBranch(branchId);
+    const chain = await this.repo.getBranchChain(branchId);
 
     let path: ChatNode[];
     if (nodeId) {
@@ -455,7 +480,7 @@ export class ChatService {
         yield request.purpose === 'branch'
           ? 'Summarizing the parent conversation…'
           : 'Compacting older messages to fit the context window…';
-        const text = await this.generateSummary(summaryProvider, summaryModel, request, signal);
+        const text = await this.generateSummary(summaryProvider, summaryModel, request, inputs.tree.id, signal);
         if (text === null) {
           failed.add(k);
           continue;
@@ -481,10 +506,17 @@ export class ChatService {
     provider: LlmProvider,
     model: string,
     request: SummaryRequest,
+    treeId: string,
     signal?: AbortSignal,
   ): Promise<string | null> {
     const prompt = buildSummaryPrompt(request);
-    const text = await collectText(provider, model, prompt, signal ?? new AbortController().signal);
+    const text = await collectText(
+      provider,
+      model,
+      prompt,
+      signal ?? new AbortController().signal,
+      { purpose: 'summary', treeId, nodeId: null },
+    );
     return text?.trim() ? text.trim() : null;
   }
 
@@ -496,8 +528,7 @@ export class ChatService {
    * Rejects with ConflictError if the branch leaf is still streaming.
    */
   async beginSend(branchId: string, content: string): Promise<BeginSendResult> {
-    const branch = await this.repo.getBranch(branchId);
-    if (!branch) throw new NotFoundError('Branch');
+    const branch = await this.getOwnedBranch(branchId);
     if (!content.trim()) throw new ValidationError('Message is empty');
     this.requireProvider(branch.providerId);
     const own = await this.repo.listBranchNodes(branchId);
@@ -589,6 +620,7 @@ export class ChatService {
         messages: rendered.messages,
         maxOutputTokens: maxOutput,
         signal,
+        usageTag: { purpose: 'reply', treeId: inputs.tree.id, nodeId: assistantNode.id },
       })) {
         if (event.type === 'delta') {
           content += event.text;
@@ -598,6 +630,9 @@ export class ChatService {
           yield { type: 'usage', nodeId: assistantNode.id, usage: event.usage };
         } else if (event.type === 'done') {
           terminal = { status: 'complete' };
+        } else if (event.type === 'billing') {
+          // Metered by the Worker's registry wrapper; nothing to store here.
+          continue;
         } else {
           terminal = {
             status: 'error',
@@ -653,6 +688,7 @@ export class ChatService {
         model,
         buildTitlePrompt(messages),
         AbortSignal.timeout(TITLE_TIMEOUT_MS),
+        { purpose: 'title', treeId: tree.id, nodeId: null },
       );
       const title = raw ? cleanTitle(raw) : null;
       if (!title) return null;
@@ -675,8 +711,7 @@ export class ChatService {
    * assistant replies can be reviewed.
    */
   async prepareReview(nodeId: string, request: ReviewRequest): Promise<PreparedReview> {
-    const node = await this.repo.getNode(nodeId);
-    if (!node) throw new NotFoundError('Node');
+    const node = await this.getOwnedNode(nodeId);
     if (node.role !== 'assistant') throw new ValidationError('Only assistant replies can be reviewed');
     if (node.status !== 'complete') throw new ValidationError('That reply has not finished');
     this.requireProvider(request.providerId);
@@ -715,9 +750,11 @@ export class ChatService {
         messages: rendered.messages,
         maxOutputTokens: maxOutput,
         signal,
+        usageTag: { purpose: 'review', treeId: review.node.treeId, nodeId: review.node.id },
       })) {
         if (event.type === 'delta') yield { type: 'delta', text: event.text };
         else if (event.type === 'usage') Object.assign(usage, stripUndefined(event.usage));
+        else if (event.type === 'billing') continue;
         else if (event.type === 'done') {
           const finalUsage =
             usage.inputTokens !== undefined || usage.outputTokens !== undefined
@@ -829,6 +866,7 @@ async function collectText(
   model: string,
   prompt: { system: string | null; messages: ChatMessage[] },
   signal: AbortSignal,
+  usageTag: UsageTag,
 ): Promise<string | null> {
   let text = '';
   for await (const event of provider.stream({
@@ -837,8 +875,10 @@ async function collectText(
     messages: prompt.messages,
     maxOutputTokens: 1024,
     signal,
+    usageTag,
   })) {
     if (event.type === 'delta') text += event.text;
+    else if (event.type === 'billing') continue;
     else if (event.type === 'error') return null;
   }
   return text;

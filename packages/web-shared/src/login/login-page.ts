@@ -3,18 +3,24 @@ import {
   Component,
   computed,
   inject,
+  input,
   type OnInit,
   signal,
   viewChild,
 } from '@angular/core';
 import type { LoginOptionsResponse } from '@tangent/shared';
+import { APP_PATHS } from '../core/app-paths';
 import { AuthService, loginErrorMessage, type SocialProvider } from '../core/auth';
 import { Icon } from '../ui/icon';
 import { Turnstile } from '../ui/turnstile';
 
 /**
- * `/login`, always loaded as its own document (see AuthService). No
- * passwords: Google, GitHub, a magic link by email, or a passkey.
+ * The login page (APP_PATHS.login), always loaded as its own document (see
+ * AuthService). No passwords: Google, GitHub, a magic link by email, or a
+ * passkey. A completed sign-in lands on APP_PATHS.home.
+ *
+ * Copy is configurable through inputs (e.g. route `data` with
+ * `withComponentInputBinding()`, or a wrapper component).
  */
 @Component({
   selector: 'app-login-page',
@@ -23,25 +29,30 @@ import { Turnstile } from '../ui/turnstile';
   template: `
     <main class="login">
       <section class="login-card" aria-labelledby="login-title">
-        <h1 id="login-title" class="login-brand"><app-icon name="tree" [size]="22" /> Tangent</h1>
+        <h1 id="login-title" class="login-brand">
+          <app-icon name="tree" [size]="22" /> {{ brand() }}
+        </h1>
 
         @if (error(); as e) {
           <p class="notice notice-error" role="alert">{{ e }}</p>
         }
 
         @if (options(); as o) {
+          @if (o.configured && o.openSignup && !sentTo() && openSignupMessage()) {
+            <p class="lead">{{ openSignupMessage() }}</p>
+          }
           @if (!o.configured) {
             <p class="notice">
               Sign-in isn't set up on this server (BETTER_AUTH_SECRET is not set).
               @if (o.devMode) {
-                Dev mode is on, so you can <a href="/">go straight to the app</a>.
+                Dev mode is on, so you can <a [href]="paths.home">go straight to the app</a>.
               }
             </p>
           } @else if (sentTo(); as email) {
             <p class="lead">Check your email</p>
             <p>
-              We sent a sign-in link to <strong>{{ email }}</strong> (if it's allowed to use this
-              app). It works once and expires in 15 minutes.
+              We sent a sign-in link to <strong>{{ email }}</strong
+              >{{ o.openSignup ? '' : allowedNote }}. It works once and expires in 15 minutes.
             </p>
             <button type="button" class="btn btn-ghost" (click)="sentTo.set(null)">
               Use a different method
@@ -126,13 +137,19 @@ import { Turnstile } from '../ui/turnstile';
   `,
 })
 export class LoginPage implements OnInit {
+  /** Product name in the heading and in "not allowed" errors. */
+  readonly brand = input('Tangent');
+  /** Shown above the sign-in methods when the server allows open sign-up; empty hides it. */
+  readonly openSignupMessage = input('Sign in or create an account');
+
   private readonly auth = inject(AuthService);
+  protected readonly paths = inject(APP_PATHS);
+  protected readonly allowedNote = " (if it's allowed to use this app)";
   private readonly captcha = viewChild<Turnstile>('captcha');
 
   protected readonly options = signal<LoginOptionsResponse | null>(null);
-  protected readonly error = signal<string | null>(
-    loginErrorMessage(new URLSearchParams(location.search).get('error')),
-  );
+  private readonly errorCode = new URLSearchParams(location.search).get('error');
+  protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected readonly sentTo = signal<string | null>(null);
   protected readonly captchaToken = signal<string | null>(null);
@@ -144,14 +161,16 @@ export class LoginPage implements OnInit {
   );
 
   async ngOnInit(): Promise<void> {
+    // Inputs are set by now (not yet in the constructor).
+    this.error.set(loginErrorMessage(this.errorCode, this.brand()));
     try {
       const options = await this.auth.loginOptions();
       if (options.devMode) {
-        location.replace('/');
+        location.replace(this.paths.home);
         return;
       }
       if (options.configured && (await this.auth.hasSession())) {
-        location.replace('/');
+        location.replace(this.paths.home);
         return;
       }
       this.options.set(options);

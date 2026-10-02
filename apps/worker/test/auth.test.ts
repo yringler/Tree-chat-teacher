@@ -136,6 +136,7 @@ describe('fail closed', () => {
       email: null,
       devMode: true,
       accountId: 'default',
+      mode: 'power',
     } satisfies MeResponse);
 
     // Secret set: DEV_ALLOW_NO_AUTH=true is ignored and a session is required.
@@ -155,7 +156,12 @@ describe('fail closed', () => {
   it('the deployed entrypoint serves /api/me in dev-bypass mode (test config)', async () => {
     const res = await exports.default.fetch(`${ORIGIN}/api/me`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ email: null, devMode: true, accountId: 'default' });
+    expect(await res.json()).toEqual({
+      email: null,
+      devMode: true,
+      accountId: 'default',
+      mode: 'power',
+    });
   });
 });
 
@@ -175,6 +181,7 @@ describe('login options', () => {
       devMode: false,
       social: { google: true, github: false },
       turnstileSiteKey: 'site-key',
+      openSignup: false,
     } satisfies LoginOptionsResponse);
   });
 
@@ -185,6 +192,7 @@ describe('login options', () => {
       devMode: true,
       social: { google: false, github: false },
       turnstileSiteKey: null,
+      openSignup: false,
     } satisfies LoginOptionsResponse);
   });
 });
@@ -229,6 +237,7 @@ describe('magic link', () => {
       email: 'owner@example.com',
       devMode: false,
       accountId: 'default',
+      mode: 'power',
     });
   });
 
@@ -372,6 +381,27 @@ describe('social sign-in', () => {
     expect(findSetCookie(res, SESSION_COOKIE)).toBeUndefined();
     const row = await env.DB.prepare('SELECT id FROM auth_users WHERE email = ?')
       .bind('outsider@example.com')
+      .first();
+    expect(row).toBeNull();
+  });
+
+  it('with open sign-up, creates a verified Google user but refuses an unverified one', async () => {
+    const open = () =>
+      authEnv({ GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret', OPEN_SIGNUP: 'true' });
+    const s = setup(open());
+    const ok = await googleSignIn(s, 'learner@example.org', true);
+    expect(ok.status).toBe(302);
+    expect(ok.headers.get('location')).toBe('/');
+    const me = await s.call('/api/me', { headers: { cookie: cookieHeader(ok) } });
+    expect(await me.json()).toMatchObject({ email: 'learner@example.org', mode: 'simple' });
+
+    // An unverified open sign-up would be refused by the session check forever: never created.
+    const res = await googleSignIn(setup(open()), 'unverified-learner@example.org', true);
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/login?error=unable_to_create_user');
+    expect(findSetCookie(res, SESSION_COOKIE)).toBeUndefined();
+    const row = await env.DB.prepare('SELECT id FROM auth_users WHERE email = ?')
+      .bind('unverified-learner@example.org')
       .first();
     expect(row).toBeNull();
   });

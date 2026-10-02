@@ -1,7 +1,7 @@
 import type { Routes } from '@angular/router';
 import { ChatPage } from './chat/chat-page';
 import { HomePage } from './home/home-page';
-import { LoginPage } from './login/login-page';
+import { LoginPage } from '@tangent/web-shared';
 import { SharesPage } from './shares/shares-page';
 
 /**

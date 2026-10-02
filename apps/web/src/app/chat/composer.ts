@@ -12,7 +12,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '../ui/icon';
+import { Icon } from '@tangent/web-shared';
 
 /** Message box. Enter sends, Shift+Enter inserts a newline. */
 @Component({

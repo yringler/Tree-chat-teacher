@@ -40,6 +40,24 @@ function defaultMaxTokensParam(baseUrl: string): MaxTokensParam {
   }
 }
 
+/** Keys of the request body that `options.extraBody` may not override. */
+const PROTECTED_BODY_KEYS: ReadonlySet<string> = new Set([
+  'model',
+  'messages',
+  'stream',
+  'max_tokens',
+  'max_completion_tokens',
+]);
+
+/** `options.extraBody` minus the protected keys (empty when absent or not an object). */
+function readExtraBody(options: Record<string, unknown> | undefined): Record<string, unknown> {
+  const raw = options?.['extraBody'];
+  const out: Record<string, unknown> = {};
+  if (!isRecord(raw)) return out;
+  for (const [k, v] of Object.entries(raw)) if (!PROTECTED_BODY_KEYS.has(k)) out[k] = v;
+  return out;
+}
+
 function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
@@ -63,6 +81,15 @@ function codeForStreamError(err: Record<string, unknown>, message: string): Prov
  * and in-stream `error` objects (HTTP 200 with finish_reason "error").
  * options.maxTokensParam: 'max_tokens' | 'max_completion_tokens'
  * (default: 'max_completion_tokens' for api.openai.com, else 'max_tokens').
+ * options.extraBody: JSON object merged into the request body (e.g.
+ * `{"reasoning": {"effort": "low"}}`); it cannot override `model`,
+ * `messages`, `stream`, `max_tokens` or `max_completion_tokens` (it may
+ * replace `stream_options`).
+ *
+ * Billing (OpenRouter): yields `{type:'billing', generationId}` right after a
+ * 2xx response when the `x-generation-id` header is present (before any
+ * delta), otherwise once for the first chunk whose `id` starts with `gen-`;
+ * and `{type:'billing', costUsd}` when a chunk's `usage.cost` is a number.
  */
 export function createOpenAiCompatibleProvider(config: ProviderConfig, env: ProviderEnv): LlmProvider {
   const baseUrl = stripTrailingSlash(config.baseUrl ?? DEFAULT_BASE_URL);
@@ -70,6 +97,7 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
   const optParam = config.options?.['maxTokensParam'];
   const maxTokensParam: MaxTokensParam =
     optParam === 'max_tokens' || optParam === 'max_completion_tokens' ? optParam : defaultMaxTokensParam(baseUrl);
+  const extraBody = readExtraBody(config.options);
 
   const capabilities = (model: string) => resolveCapabilities(config, model, DEFAULTS, false);
 
@@ -105,10 +133,11 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
         }
       }
       const body: Record<string, unknown> = {
+        stream_options: { include_usage: true },
+        ...extraBody,
         model: request.model,
         messages,
         stream: true,
-        stream_options: { include_usage: true },
         [maxTokensParam]: request.maxOutputTokens ?? caps.maxOutputTokens,
       };
 
@@ -130,6 +159,10 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
       if (!res.ok) throw new ProviderFailure(await errorFromResponse(res, signal, secrets));
       if (!res.body) throw new ProviderFailure(providerError('network', 'Response has no body'));
 
+      const headerId = res.headers.get('x-generation-id')?.trim();
+      let generationId: string | undefined = headerId || undefined;
+      if (generationId !== undefined) yield { type: 'billing', generationId };
+
       let finishReason: string | null = null;
       let sawFinish = false;
       for await (const msg of parseSse(res.body, signal)) {
@@ -145,6 +178,12 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
           throw new ProviderFailure(providerError('unknown', 'Malformed chunk from provider'));
         }
         if (!isRecord(chunk)) continue;
+
+        const chunkId = chunk['id'];
+        if (generationId === undefined && typeof chunkId === 'string' && chunkId.startsWith('gen-')) {
+          generationId = chunkId;
+          yield { type: 'billing', generationId };
+        }
 
         const err = chunk['error'];
         if (isRecord(err) || typeof err === 'string') {
@@ -176,6 +215,8 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
           const output = num(usage['completion_tokens']);
           if (output !== undefined) u.outputTokens = output;
           if (Object.keys(u).length > 0) yield { type: 'usage', usage: u };
+          const costUsd = num(usage['cost']);
+          if (costUsd !== undefined) yield { type: 'billing', costUsd };
         }
       }
       // No [DONE]: fine if the model finished; otherwise guardStream reports truncation.

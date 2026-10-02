@@ -1,6 +1,6 @@
 # Tangent: plan
 
-Tangent is a self-hosted, single-user web app for tree-structured LLM conversations. It runs on Cloudflare Workers with D1 and a Durable Object, and has an Angular front end.
+Tangent is a self-hosted web app for tree-structured LLM conversations. It runs on Cloudflare Workers with D1 and a Durable Object, and has two Angular front ends: the full-featured **power app** at `/` for the owner (allowlisted emails, their own provider keys), and the **simple app** ("Learn") at `/learn/` for anyone else, who pays as they go for a server-side model (§13).
 
 The idea: any message can spawn child **branches**. Each branch sends the model exactly the context its **context mode** allows. The UI is a linear chat of the selected branch's path plus a collapsible outline of the branches.
 
@@ -11,44 +11,57 @@ The idea: any message can spawn child **branches**. Each branch sends the model 
 ## 1. Architecture
 
 ```
-Browser (Angular 22, zoneless, signals)          Anonymous viewer (phone/desktop)
-   │  fetch + SSE (/api/*)                            │  GET /s/<token>[/data.json]
-   ▼                                                  ▼
-   │ session cookie (Better Auth)                     │ (no session)
-   ▼                                                  ▼
-┌──────────────────────────── Worker "tangent" (Hono) ────────────────────────────┐
-│ static assets (Angular build; SPA fallback)   run_worker_first: /api/*, /s/*     │
-│ /api/auth/* → Better Auth (Google, GitHub, magic link, passkey; D1 tables)       │
-│ /api/*  → session + ALLOWED_EMAILS check → owner routes                          │
-│ /s/*    → rate limit (ratelimits binding) → ShareService.checkPublic →           │
-│           edge cache (Cache API, versioned key) → viewer HTML / JSON DTO         │
-│ POST /api/branches/:id/messages ─┐                                               │
-│ GET  /api/nodes/:id/stream ──────┼─► Durable Object TreeSession (one per tree)   │
-│ POST /api/nodes/:id/cancel ──────┘   owns the generation: provider fetch,        │
-│                                      buffers deltas, fans out SSE, persists      │
-│ D1 (Drizzle) ◄── D1 repositories (the only D1-aware code)                        │
-└──────────────────────────────────────────────────────────────────────────────────┘
-           │ fetch (raw, SSE)                         optional
-           ▼                                          ▼
+Power app  /  (owner)     Simple app  /learn/  (learners)       Anonymous visitor / viewer (phone/desktop)
+   │  fetch + SSE (/api/*), Better Auth session cookie              │  GET /, /welcome, /learn/demo, /s/<token>
+   ▼                                                                ▼
+┌───────────────────────────────── Worker "tangent" (Hono) ──────────────────────────────────┐
+│ static assets ./site: power app at / (SPA fallback)                                        │
+│ run_worker_first: /api/*, /s/*, /learn, /learn/*, / (exact), /welcome                      │
+│ / → no session cookie (and no dev bypass): landing page; else power index.html + CSP       │
+│ /welcome → landing page, always (http/landing.ts: Worker-rendered, no JS, hash CSP)        │
+│ /learn, /learn/* → simple app files, or its index.html + CSP (http/learn-app.ts)           │
+│ /learn/demo → simple app; runs in the browser (in-memory ChatService, no model calls)      │
+│ /api/auth/*  → Better Auth (Google, GitHub, magic link, passkey; D1 tables)                │
+│ /api/auth/stripe/webhook → Stripe plugin → onEvent → credit_grants         ◄── Stripe      │
+│ /api/auth/subscription/* → Stripe plugin (monthly plans, Customer Portal)  ──► Stripe      │
+│ /api/*       → session → account: power `default` | simple `u_<userId>` → owner routes     │
+│ /api/billing → balance, usage, top-up Checkout (simple accounts only)      ──► Stripe      │
+│ /s/*         → rate limit → ShareService.checkPublic → edge cache → viewer HTML / JSON     │
+│ POST /api/branches/:id/messages ─┐ (simple: 402 unless the balance covers a hold)          │
+│ GET  /api/nodes/:id/stream ──────┼─► Durable Object TreeSession (one per tree)             │
+│ POST /api/nodes/:id/cancel ──────┘   owns the generation: provider fetch, buffers          │
+│                                      deltas, fans out SSE, persists. Simple accounts:      │
+│                                      metered registry → usage_events                       │
+│ scheduled (cron */10 * * * *) → reconcile pending usage_events                             │
+│ D1 (Drizzle) ◄── D1 repositories, Better Auth adapter, billing ledger                      │
+└────────────────────────────────────────────────────────────────────────────────────────────┘
+           │ fetch (raw, SSE)                                  optional
+           ▼                                                   ▼
    Anthropic Messages API / OpenAI-compatible (OpenAI, OpenRouter, …) ◄─ AI Gateway
+   OpenRouter GET /api/v1/generation (cost of streams that ended without one)
 ```
 
 ### Packages (pnpm workspace)
 
-| Package | Runtime deps | Contents |
-|---|---|---|
-| `packages/shared` (`@tangent/shared`) | zod | Domain types, `ContextPlan`, provider interface, `SharePayload` DTO, and the HTTP/SSE API contract with zod request schemas |
-| `packages/core` (`@tangent/core`) | shared | **Context assembly** (pure), prompt rendering, token estimation, sync SHA-256, tree utilities (outline, paths, keyboard navigation), share projection, repository ports, and the `ChatService`/`ShareService` application services |
-| `packages/providers` (`@tangent/providers`) | shared | SSE parser, Anthropic provider, OpenAI-compatible provider, `FakeProvider`, config-driven registry |
-| `packages/render` (`@tangent/render`) | shared, core, markdown-it, highlight.js | Safe markdown → HTML, the self-contained viewer page (used for both public shares and HTML export), and Markdown export |
-| `apps/worker` (`@tangent/worker`) | all packages, hono, drizzle-orm, better-auth | Hono app, D1 repositories, the `TreeSession` Durable Object, Better Auth sign-in, email (Resend behind an interface), share routes, edge cache, rate limit |
-| `apps/web` (`@tangent/web`) | shared, core, render, Angular | The owner UI |
+| Package                                       | Runtime deps                                                                      | Contents                                                                                                                                                                                                                                                                           |
+| --------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/shared` (`@tangent/shared`)         | zod                                                                               | Domain types, `ContextPlan`, provider interface, `SharePayload` DTO, and the HTTP/SSE API contract with zod request schemas                                                                                                                                                        |
+| `packages/core` (`@tangent/core`)             | shared                                                                            | **Context assembly** (pure), prompt rendering, token estimation, sync SHA-256, tree utilities (outline, paths, keyboard navigation), share projection, repository ports, and the `ChatService`/`ShareService` application services                                                 |
+| `packages/providers` (`@tangent/providers`)   | shared                                                                            | SSE parser, Anthropic provider, OpenAI-compatible provider, `FakeProvider`, config-driven registry                                                                                                                                                                                 |
+| `packages/render` (`@tangent/render`)         | shared, core, markdown-it, highlight.js                                           | Safe markdown → HTML, the self-contained viewer page (used for both public shares and HTML export), and Markdown export                                                                                                                                                            |
+| `packages/web-shared` (`@tangent/web-shared`) | shared, core, render, better-auth (+ passkey, stripe clients); Angular as a peer  | Angular code both apps use: `ApiClient`, `AuthService` (paths from the `APP_PATHS` token), `BillingClient` (Stripe plugin client), SSE parsing and `runStream`, `MarkdownService`, `Icon`/`Modal`/`Turnstile`, `LoginPage`, `styles/base.css`                                      |
+| `apps/worker` (`@tangent/worker`)             | all packages, hono, drizzle-orm, better-auth, `@better-auth/stripe`, `stripe@^22` | Hono app, D1 repositories, the `TreeSession` Durable Object, Better Auth sign-in, email (Resend behind an interface), share routes, edge cache, rate limit, simple mode (`simple-mode.ts`), billing (`src/billing/`), the `/learn/` server (`http/learn-app.ts`), the cron handler |
+| `apps/web` (`@tangent/web`)                   | shared, core, render, web-shared, Angular                                         | The power app, served at `/`                                                                                                                                                                                                                                                       |
+| `apps/simple` (`@tangent/simple`)             | shared, core, render, web-shared, Angular                                         | The simple "Learn" app, built with `baseHref: '/learn/'` and served at `/learn/`                                                                                                                                                                                                   |
 
-Workspace packages export their TypeScript sources directly (`"exports": "./src/index.ts"`). There is no build step: Wrangler's esbuild, Vite/Vitest and the Angular builder all compile TS from the workspace.
+Workspace packages export their TypeScript sources directly (`"exports": "./src/index.ts"`). There is no build step: Wrangler's esbuild, Vite/Vitest and the Angular builder all compile TS from the workspace. That includes the Angular library `@tangent/web-shared`, which each app's builder compiles AOT.
+
+**Build and serve.** The root `pnpm build` runs `ng build` for `apps/web` and `apps/simple`, then `scripts/assemble-assets.mjs` copies `apps/web/dist/web/browser/**` to `apps/worker/site/` and `apps/simple/dist/simple/browser/**` to `apps/worker/site/learn/`. `wrangler.jsonc` points `assets.directory` at `./site` (git-ignored except `.gitkeep`). The power app uses the assets' SPA fallback. The simple app can't, because the fallback always serves the root `index.html`, so `/learn` and `/learn/*` run the Worker first: `/learn` redirects to `/learn/`, a path whose last segment contains a `.` is passed to `ASSETS` as is, and every other path gets the simple app's `index.html`. The Worker sets the CSP on those responses itself (the login policy on `/learn/login`), because `_headers` doesn't apply to Worker-generated responses. `/` (exact path) and `/welcome` also run the Worker first, for the landing page (`http/landing.ts`); see "Landing page and demo" below.
 
 ### Request flows
 
 **Send a message** (`POST /api/branches/:branchId/messages {content}`):
+
 1. The Worker checks the session, validates the body and looks up the branch's tree. It forwards the request to `TREE_SESSION.idFromName(treeId)`.
 2. The DO calls `ChatService.beginSend`. This atomically inserts the user node and a `streaming` assistant node in one D1 batch. A unique `(branch_id, seq)` index rejects a racing append with 409; the DO also serializes sends per tree. The DO then emits `start`.
 3. The DO starts `ChatService.runGeneration` as a detached task. That task loads the ancestor slice with a recursive CTE and runs `assembleContext`. It then generates any missing summaries (emitting `status` events), stores them in D1 and re-plans. It renders the plan and streams the provider.
@@ -62,32 +75,60 @@ Why a DO rather than `waitUntil`: `waitUntil` only lasts 30 s after the client d
 **Context plan** (`GET /api/branches/:id/context?nodeId=&resolve=`): this runs in the Worker without the DO. It uses `ChatService.planContext`, which returns the plan, the exact rendered prompt, the provider/model and, when supported, an exact token count.
 
 **Public share** (`GET /s/:token`):
+
 1. The rate limiter (keyed by `CF-Connecting-IP`) rejects excess requests with 429.
 2. `ShareService.checkPublic` does one indexed D1 read. A revoked or expired share returns 410 and an unknown token returns 404. This check runs on every request, which is how revocation takes effect at once without relying on a global purge.
 3. The edge cache is keyed by `https://share-cache.internal/<token>/v<version>/<variant>`. Snapshots are cached for 1 day. Republishing bumps `version`, which changes the key, and `cache.delete` best-effort purges the local colo on revoke/republish. Live shares are never cached.
 4. On a cache miss the Worker loads the stored snapshot or projects the live payload. It renders the viewer page with Open Graph tags and a hash-based CSP.
 5. `recordView` runs in `waitUntil`.
 
+**Simple-account send** (same route, a `simple` account):
+
+1. The Worker resolves the branch through the account (404 if foreign), checks the model against the `tangent` provider, then `assertCanSpend`: billing must be configured and `available = balance − pending holds` must cover one more `USAGE_HOLD_MICROS`, otherwise **402 `payment_required`**. It applies the per-account rate limit and forwards the account to the DO in the `/send` body.
+2. In the DO, `chatService(env, account, { defer: ctx.waitUntil })` wraps the registry in the usage meter. Every `stream()` (the reply, summaries, the title) first inserts a `pending` `usage_events` row with the hold, the markup and the OpenRouter fee rate (`OPENROUTER_FEE_BPS`) in force (awaited), then taps `billing` events (generation id, `usage.cost`) and `usage` events.
+3. At `done`/`error` the row is settled inline when the cost is known: `charge = ceil(costNanos × (10000 + fee_bps) × (10000 + markup_bps) / 10¹¹)` micro-USD, the row's stored rates: the reported cost grossed up by OpenRouter's credit-purchase fee (the true cost), then marked up. With only a generation id (abort, truncation), `GET https://openrouter.ai/api/v1/generation?id=` is polled in the background (1, 3, 10, 30 s). With neither, the call never reached OpenRouter and settles at 0.
+
+**Usage cron** (`scheduled`, `*/10 * * * *`): pending rows older than 2 minutes with a generation id are settled from OpenRouter; rows without one after 10 minutes settle at 0; rows still pending after 24 hours become `unresolved` at 0 and are logged.
+
+**Top-up** (`POST /api/billing/checkout {amountCents}`, $5–$500, same-origin only): the Worker ensures the user's Stripe customer (created lazily, idempotency key per user), then creates a Checkout Session in `payment` mode with an inline tax-exclusive price on `STRIPE_CREDITS_PRODUCT_ID`, `automatic_tax`, required billing address, `invoice_creation`, and `metadata { kind: 'credits', accountId, amountCents }`. It returns the URL; success and cancel go back to `/learn/billing?checkout=success|cancel`.
+
+**Monthly plan**: the simple app calls the Better Auth Stripe plugin (`/api/auth/subscription/upgrade`), which opens Checkout in `subscription` mode for a `STRIPE_PLANS` price, with Stripe Tax and `prorationBehavior: 'none'`. The Customer Portal (`/api/auth/subscription/billing-portal`) handles changes, cancellation, cards and invoices.
+
+**Stripe webhook** (`POST /api/auth/stripe/webhook`, routed to Better Auth before the session middleware): the plugin verifies the signature, syncs `auth_subscriptions` for `checkout.session.completed` and `customer.subscription.*`, then calls our `onEvent` for every event:
+
+- `checkout.session.completed` (payment mode, `kind=credits`, paid) or `checkout.session.async_payment_succeeded` → grant `amount_subtotal − fee` (ref: session id), where `fee` is Stripe's actual fee from `paymentIntents.retrieve(session.payment_intent, { expand: ['latest_charge.balance_transaction'] })`;
+- `invoice.paid` with `parent.type = 'subscription_details'` (any `billing_reason`) and a positive `subtotal` → grant `subtotal − fee` (ref: invoice id), the fee summed over the invoice's paid `invoicePayments.list({ invoice, status: 'paid' })` the same way (0 when nothing was charged, e.g. paid from the customer balance);
+- `charge.refunded` → a negative grant per refund (ref: refund id), the pre-tax share for top-ups, in full (Stripe keeps its fee on a refund).
+
+The account comes from `metadata.accountId`, or `customer` → `auth_users.stripe_customer_id` → `u_<userId>`. Grants are idempotent on `stripe_ref` and record `gross_micros` and `fee_micros` beside the net `amount_micros`. A D1 or Stripe API error, or a fee that can't be read yet (no charge or balance transaction), throws; the plugin answers 400 and Stripe retries.
+
 ---
 
 ## 2. Data model (D1)
 
-Schema: `apps/worker/src/db/schema.ts`. Migration: `apps/worker/migrations/0000_init.sql`, generated by drizzle-kit and applied with `wrangler d1 migrations apply`.
+Schema: `apps/worker/src/db/schema.ts`. Migrations (`apps/worker/migrations/`, generated by drizzle-kit and applied with `wrangler d1 migrations apply`): `0000_init`, `0001_accounts`, `0002_auth` (Better Auth's `auth_*` tables) `0003_billing` (simple mode and billing) and `0004_fees` (the fee columns: `usage_events.fee_bps`, `credit_grants.gross_micros`/`fee_micros`).
 
-| Table | Key columns | Notes |
-|---|---|---|
-| `accounts` | `id` PK, `name` | Owner of trees and shares. Seeded with the single `default` account (single-user for now; see DECISIONS "Accounts") |
-| `trees` | `id` PK, `account_id`, `title`, `system_prompt`, `trunk_branch_id` | The trunk is created with the tree, in the same batch. Branches, nodes and summaries inherit ownership through `tree_id` |
-| `branches` | `id` PK, `tree_id` FK cascade, `parent_branch_id`, `branch_point_node_id`, `context_mode`, `anchor_quote`, `title`, `title_source`, `is_private`, `provider_id`, `model` | A branch is a linear chain of nodes. The trunk has null parent and null branch point |
-| `nodes` | `id` PK, `tree_id`, `branch_id` FK cascade, `parent_id`, `seq`, `role`, `content`, `status`, `error`, `provider_id`, `model`, `input_tokens`, `output_tokens` | `UNIQUE(branch_id, seq)` serializes appends. Indexes on `parent_id` and on `tree_id` (partial index for `status='streaming'`) |
-| `summaries` | PK `(anchor_node_id, source_hash, model)`, `provider_id`, `tree_id`, `content` | Lazy cache. A changed path gives a new hash, so it is a cache miss |
-| `shares` | `id` PK, `token` UNIQUE, `account_id`, `tree_id`, `scope`, `target_node_id`, `include_ancestors`, `mode`, `title`, `expires_at`, `revoked_at`, `published_at`, `version`, `view_count` | |
-| `share_snapshots` | PK `(share_id, chunk)`, `data` | The snapshot JSON is chunked at 256K chars to stay under D1's 2 MB row limit, and replaced atomically in a batch |
+| Table                      | Key columns                                                                                                                                                                                                                                                                               | Notes                                                                                                                                                                                          |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `accounts`                 | `id` PK, `name`, `user_id` (unique, nullable), `mode` (`power`\|`simple`, default `power`), `created_at`                                                                                                                                                                                  | Owner of trees and shares. `default` (seeded, `power`, no user) is shared by allowlisted users; each open sign-up gets `u_<userId>` (`simple`), created on first use. See DECISIONS "Accounts" |
+| `trees`                    | `id` PK, `account_id`, `title`, `system_prompt`, `trunk_branch_id`                                                                                                                                                                                                                        | The trunk is created with the tree, in the same batch. Branches, nodes and summaries inherit ownership through `tree_id`                                                                       |
+| `branches`                 | `id` PK, `tree_id` FK cascade, `parent_branch_id`, `branch_point_node_id`, `context_mode`, `anchor_quote`, `title`, `title_source`, `is_private`, `provider_id`, `model`                                                                                                                  | A branch is a linear chain of nodes. The trunk has null parent and null branch point                                                                                                           |
+| `nodes`                    | `id` PK, `tree_id`, `branch_id` FK cascade, `parent_id`, `seq`, `role`, `content`, `status`, `error`, `provider_id`, `model`, `input_tokens`, `output_tokens`                                                                                                                             | `UNIQUE(branch_id, seq)` serializes appends. Indexes on `parent_id` and on `tree_id` (partial index for `status='streaming'`)                                                                  |
+| `summaries`                | PK `(anchor_node_id, source_hash, model)`, `provider_id`, `tree_id`, `content`                                                                                                                                                                                                            | Lazy cache. A changed path gives a new hash, so it is a cache miss                                                                                                                             |
+| `shares`                   | `id` PK, `token` UNIQUE, `account_id`, `tree_id`, `scope`, `target_node_id`, `include_ancestors`, `mode`, `title`, `expires_at`, `revoked_at`, `published_at`, `version`, `view_count`                                                                                                    |                                                                                                                                                                                                |
+| `share_snapshots`          | PK `(share_id, chunk)`, `data`                                                                                                                                                                                                                                                            | The snapshot JSON is chunked at 256K chars to stay under D1's 2 MB row limit, and replaced atomically in a batch                                                                               |
+| `auth_users` (Better Auth) | … plus `stripe_customer_id` (indexed)                                                                                                                                                                                                                                                     | Set on the first checkout; webhooks map a Stripe customer back to the user, and so to `u_<userId>`                                                                                             |
+| `auth_subscriptions`       | `id` PK, `plan`, `reference_id` (the user id), `stripe_customer_id`, `stripe_subscription_id`, `status`, `period_start`/`period_end`, `cancel_at_period_end`, …                                                                                                                           | The Better Auth Stripe plugin's `subscription` table, kept in sync by its webhook handling. An `active` row means the monthly markup applies                                                   |
+| `credit_grants`            | `id` PK, `account_id`, `kind` (`purchase`\|`subscription`\|`refund`\|`adjustment`), `amount_micros` (signed, net of fees), `gross_micros`, `fee_micros`, `stripe_ref` UNIQUE, `note`, `created_at`                                                                                        | Every credit or debit except usage. Idempotent on `stripe_ref` (session, invoice or refund id; null for manual adjustments)                                                                    |
+| `usage_events`             | `id` PK, `account_id`, `tree_id`, `node_id`, `purpose`, `provider_id`, `model`, `generation_id` UNIQUE, `status` (`pending`\|`settled`\|`unresolved`), `hold_micros`, `markup_bps`, `fee_bps`, `cost_nanos`, `charge_micros`, `input_tokens`, `output_tokens`, `created_at`, `settled_at` | One row per metered provider call. Indexes on `(account_id, created_at)` and a partial index on pending rows. No FK to trees: billing history outlives deleted trees                           |
 
 **Branch and node invariants**
+
 - The first node of branch B has `parentId = B.branchPointNodeId` (`null` for the trunk). Node `seq=k>0` has the node at `seq=k-1` as its parent.
 - A normal reply appends to the branch leaf. "Branch from here" on any node creates a new branch, even from the leaf, for example to switch mode or model.
 - `branchPointNodeId` always belongs to `parentBranchId`.
+
+**Balance.** It is computed, never cached: `Σ credit_grants.amount_micros − Σ charge_micros of settled usage_events`, and the held amount is `Σ hold_micros of pending usage_events` (`billing/ledger.ts`, one query). Money is integer micro-USD (provider cost in nano-USD); every write is a single idempotent statement, and a usage row settles at most once (`UPDATE … WHERE status = 'pending'`).
 
 **Ancestor lookup.** A recursive CTE walks `parent_id` from the target. Each level is a primary-key lookup, so the cost is O(depth). A second CTE walks `parent_branch_id` for the branch chain. Neither needs extra write-time bookkeeping, and both were verified on D1/miniflare (`apps/worker/test/smoke.test.ts`). A materialized path or a closure table would speed up subtree queries. We don't need that: subtrees are only computed when sharing or exporting, and those load the whole tree with `WHERE tree_id = ?`.
 
@@ -103,18 +144,74 @@ The code is the source of truth. The signatures are abbreviated here.
 type Role = 'user' | 'assistant' | 'system';
 type NodeStatus = 'streaming' | 'complete' | 'error';
 type ContextMode = 'path' | 'summary' | 'independent';
-interface TokenUsage { inputTokens: number; outputTokens: number }
-interface Tree { id; title; systemPrompt: string | null; trunkBranchId; createdAt; updatedAt }
-interface Branch { id; treeId; parentBranchId: string | null; branchPointNodeId: string | null;
-  contextMode: ContextMode; anchorQuote: string | null; title; titleSource: 'default'|'auto'|'user';
-  isPrivate: boolean; providerId; model; createdAt; updatedAt }
-interface ChatNode { id; treeId; branchId; parentId: string | null; seq: number; role: Role; content;
-  status: NodeStatus; error: string | null; providerId: string | null; model: string | null;
-  usage: TokenUsage | null; createdAt }
-interface SummaryRecord { anchorNodeId; sourceHash; providerId; model; content; treeId; createdAt }
-interface Share { id; token; treeId; scope: 'tree'|'subtree'|'path'; targetNodeId: string | null;
-  includeAncestors: boolean; mode: 'snapshot'|'live'; title: string | null; expiresAt: string | null;
-  revokedAt: string | null; createdAt; updatedAt; publishedAt: string | null; version: number; viewCount: number }
+interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+interface Tree {
+  id;
+  title;
+  systemPrompt: string | null;
+  trunkBranchId;
+  createdAt;
+  updatedAt;
+}
+interface Branch {
+  id;
+  treeId;
+  parentBranchId: string | null;
+  branchPointNodeId: string | null;
+  contextMode: ContextMode;
+  anchorQuote: string | null;
+  title;
+  titleSource: 'default' | 'auto' | 'user';
+  isPrivate: boolean;
+  providerId;
+  model;
+  createdAt;
+  updatedAt;
+}
+interface ChatNode {
+  id;
+  treeId;
+  branchId;
+  parentId: string | null;
+  seq: number;
+  role: Role;
+  content;
+  status: NodeStatus;
+  error: string | null;
+  providerId: string | null;
+  model: string | null;
+  usage: TokenUsage | null;
+  createdAt;
+}
+interface SummaryRecord {
+  anchorNodeId;
+  sourceHash;
+  providerId;
+  model;
+  content;
+  treeId;
+  createdAt;
+}
+interface Share {
+  id;
+  token;
+  treeId;
+  scope: 'tree' | 'subtree' | 'path';
+  targetNodeId: string | null;
+  includeAncestors: boolean;
+  mode: 'snapshot' | 'live';
+  title: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt;
+  updatedAt;
+  publishedAt: string | null;
+  version: number;
+  viewCount: number;
+}
 ```
 
 ### Context plan (`packages/shared/src/context-plan.ts`)
@@ -144,32 +241,86 @@ interface RenderedPrompt { system: string | null; messages: ChatMessage[] }
 
 ```ts
 type ProviderKind = 'anthropic' | 'openai-compatible' | 'fake';
-interface ProviderCapabilities { maxContextTokens; maxOutputTokens; supportsSystemPrompt: boolean; supportsTokenCount: boolean }
-interface GenerateRequest { model: string; system: string | null; messages: ChatMessage[]; maxOutputTokens?: number; signal: AbortSignal }
+interface ProviderCapabilities {
+  maxContextTokens;
+  maxOutputTokens;
+  supportsSystemPrompt: boolean;
+  supportsTokenCount: boolean;
+}
+type UsagePurpose = 'reply' | 'summary' | 'title' | 'review' | 'other';
+interface UsageTag {
+  purpose: UsagePurpose;
+  treeId: string;
+  nodeId: string | null;
+} // attribution for billing
+interface GenerateRequest {
+  model: string;
+  system: string | null;
+  messages: ChatMessage[];
+  maxOutputTokens?: number;
+  signal: AbortSignal;
+  usageTag?: UsageTag;
+}
 type ProviderEvent =
   | { type: 'delta'; text: string }
   | { type: 'usage'; usage: Partial<TokenUsage> }
+  | { type: 'billing'; generationId?: string; costUsd?: number } // OpenRouter id / reported cost; may repeat
   | { type: 'done'; stopReason: string | null }
-  | { type: 'error'; error: { code: ProviderErrorCode; message: string; status?: number; retryable: boolean } };
+  | {
+      type: 'error';
+      error: { code: ProviderErrorCode; message: string; status?: number; retryable: boolean };
+    };
 interface LlmProvider {
-  readonly id: string; readonly kind: ProviderKind; readonly label: string;
-  models(): ModelInfo[]; defaultModel(): string; capabilities(model: string): ProviderCapabilities;
-  stream(request: GenerateRequest): AsyncIterable<ProviderEvent>;   // never throws; ends with done|error
-  countTokens?(request: Omit<GenerateRequest, 'signal'> & { signal?: AbortSignal }): Promise<number>;
+  readonly id: string;
+  readonly kind: ProviderKind;
+  readonly label: string;
+  models(): ModelInfo[];
+  defaultModel(): string;
+  capabilities(model: string): ProviderCapabilities;
+  stream(request: GenerateRequest): AsyncIterable<ProviderEvent>; // never throws; ends with done|error
+  countTokens?(
+    request: Omit<GenerateRequest, 'signal'> & { signal?: AbortSignal },
+  ): Promise<number>;
 }
-interface ProviderConfig { id; kind; label; baseUrl?; apiKeySecret?; headers?; extraHeaderSecrets?;
-  models: ModelInfo[]; defaultModel; maxContextTokens?; maxOutputTokens?; supportsSystemPrompt?; options? }
-interface ProviderRegistry { get(id): LlmProvider | undefined; list(): ProviderInfo[]; defaultProviderId(): string }
+interface ProviderConfig {
+  id;
+  kind;
+  label;
+  baseUrl?;
+  apiKeySecret?;
+  headers?;
+  extraHeaderSecrets?;
+  models: ModelInfo[];
+  defaultModel;
+  maxContextTokens?;
+  maxOutputTokens?;
+  supportsSystemPrompt?;
+  options?;
+}
+interface ProviderRegistry {
+  get(id): LlmProvider | undefined;
+  list(): ProviderInfo[];
+  defaultProviderId(): string;
+}
 // packages/providers/src/registry.ts
-const PROVIDER_FACTORIES: Record<ProviderKind, (config: ProviderConfig, env: ProviderEnv) => LlmProvider>;
-function createProviderRegistry(configs: readonly ProviderConfig[], env: ProviderEnv): ProviderRegistry;
+const PROVIDER_FACTORIES: Record<
+  ProviderKind,
+  (config: ProviderConfig, env: ProviderEnv) => LlmProvider
+>;
+function createProviderRegistry(
+  configs: readonly ProviderConfig[],
+  env: ProviderEnv,
+): ProviderRegistry;
 ```
+
+The OpenAI-compatible provider yields `billing` with the `X-Generation-Id` header (or the first `gen-…` chunk id) and with `usage.cost` from the final chunk, and accepts `options.extraBody` (merged into the request body; it can't override `model`, `messages`, `stream` or the max-tokens parameter). The Fake provider reports a fixed `options.costUsd`. `ChatService` ignores `billing` events; the Worker's usage meter consumes them. `fetchOpenRouterGeneration(id, key)` looks up the cost of a finished generation.
 
 Adding a provider **kind** means one module plus one `PROVIDER_FACTORIES` entry. Adding a provider **instance** (OpenRouter, a local server, an AI Gateway route) is config only: the `PROVIDERS` JSON var plus a secret.
 
 ### Repositories (`packages/core/src/repository.ts`)
 
 `TreeRepository` has these methods:
+
 - Trees: `listTrees`, `getTree`, `createTree`, `updateTree`, `deleteTree`
 - Branches: `getBranch`, `listBranches`, `getBranchChain`, `createBranch`, `updateBranch`
 - Nodes: `getNode`, `listNodes`, `listBranchNodes`, `getAncestorPath`, `appendNodes`, `updateNode`, `listStreamingNodes`
@@ -182,7 +333,8 @@ Adding a provider **kind** means one module plus one `PROVIDER_FACTORIES` entry.
 ### Services (`packages/core/src/services`)
 
 ```ts
-class ChatService { constructor(deps: { repos: Repositories; providers: ProviderRegistry; settings: ChatSettings; clock?; newId? })
+class ChatService { constructor(deps: { repos: Repositories; accountId?; providers: ProviderRegistry; settings: ChatSettings; clock?; newId? })
+  getOwnedBranch(id); getOwnedNode(id);                               // 404 for another account's ids
   listTrees(); createTree(req); getTreeDetail(id); updateTree(id, req); deleteTree(id);
   createBranch(req); updateBranch(id, req);
   planContext(branchId, nodeId | null, { resolveSummaries, signal? }): Promise<ContextPlanResponse>;
@@ -197,7 +349,7 @@ class ShareService { constructor(deps: { repos; publicBaseUrl; clock?; newId?; n
 
 ### HTTP API and SSE (`packages/shared/src/api.ts`)
 
-The full route table is in the file header. SSE frames are `event: <type>\ndata: <json>\n\n`, where `StreamEvent` is one of `start | snapshot | status | delta | usage | done | error`. The order is `start` → `status*` → (`delta`|`usage`)* → exactly one of `done` or `error`. Clients parse SSE from `fetch()` (POST bodies rule out `EventSource`).
+The full route table is in the file header. Simple mode adds `GET /api/billing` (`BillingSummary`), `GET /api/billing/usage?cursor=&limit=` (`UsageListResponse`, newest first) and `POST /api/billing/checkout` (`{ amountCents }` → `{ url }`), all for simple accounts only (power → 403), plus the Stripe plugin's `/api/auth/subscription/*` and `/api/auth/stripe/webhook`. `MeResponse` carries `mode`, `LoginOptionsResponse` carries `openSignup`, and the error code `payment_required` maps to HTTP 402. The billing types are in `packages/shared/src/billing.ts`. SSE frames are `event: <type>\ndata: <json>\n\n`, where `StreamEvent` is one of `start | snapshot | status | delta | usage | done | error`. The order is `start` → `status*` → (`delta`|`usage`)* → exactly one of `done` or `error`. Clients parse SSE from `fetch()` (POST bodies rule out `EventSource`).
 
 ### Share DTO (`packages/shared/src/share.ts`)
 
@@ -208,6 +360,7 @@ The full route table is in the file header. SSE frames are `event: <type>\ndata:
 ## 4. Context assembly (`packages/core/src/context/assemble.ts`)
 
 `assembleContext(input: AssembleInput): ContextPlan` is **pure**: no I/O, no clock, no randomness. It is synchronous; SHA-256 is implemented in TypeScript. Its input is:
+
 - the tree's system prompt;
 - the branches (at least the trunk→target chain);
 - the nodes (at least the root→target ancestor path);
@@ -231,6 +384,7 @@ plan.segments = [treeSystemPrompt?] ++ ctx(k)           // then the budget pass
 ```
 
 Resulting semantics:
+
 - **The trunk stays trim.** `ctx(i)` only ever looks up the chain, never at siblings or descendants.
 - **`path` is compositional.** A `path` branch continues exactly what its parent branch would have sent at the branch point. It does not re-expand content that an ancestor `summary` or `independent` branch deliberately dropped. For example, a `path` branch under a `summary` branch under the trunk sends [summary of trunk up to P1] + [anchor1] + [summary-branch messages up to P2] + [anchor2] + [own messages].
 - **`summary` summarizes the parent's effective context**, which may itself contain a summary. Nested summaries therefore compose, and the inner one is simply part of the transcript being summarized.
@@ -261,8 +415,9 @@ Resulting semantics:
 `maxInputTokens = min(providerContext − reservedOutput, settings.maxInputTokens ?? ∞)`. Tokens are estimated as `ceil(chars/3.5)` plus 4 per message. That is deliberately conservative; exact usage is recorded from provider `usage` events afterwards.
 
 When the total exceeds the budget:
+
 1. **Candidates.** The candidates are the non-system body segments in order, excluding the last `minTailMessages` (default 2) message segments. The target message is never a candidate.
-2. **Compaction.** Find the shortest *oldest-first prefix* P of the candidates such that `total − tokens(P) + compactionSummaryTokens (default 1024) ≤ budget`. Replace P with one compaction summary segment. Its key is `{ anchorNodeId: last node in P, sourceHash: hash(flatten(P)) }` and it has `reason: budget-compaction`. Record `CompactionRecord { compactedNodeIds, tokensBefore, tokensAfter, key }`. P may include inherited summaries and anchors; they are re-summarized.
+2. **Compaction.** Find the shortest _oldest-first prefix_ P of the candidates such that `total − tokens(P) + compactionSummaryTokens (default 1024) ≤ budget`. Replace P with one compaction summary segment. Its key is `{ anchorNodeId: last node in P, sourceHash: hash(flatten(P)) }` and it has `reason: budget-compaction`. Record `CompactionRecord { compactedNodeIds, tokensBefore, tokensAfter, key }`. P may include inherited summaries and anchors; they are re-summarized.
 3. **Truncation.** Truncation applies if no prefix fits (the tail alone is too large), or if the resolved compaction summary is larger than estimated and still overflows. In that case, drop the oldest non-system segments (never the target) until the total fits, or until only system segments plus the target remain. Record `TruncationRecord`. This is the last resort, and the inspector shows it.
 
 Compaction only exists because the plan is over budget. It therefore applies to any mode, not only `path`; in practice it triggers for long `path` chains. Compaction summaries are cached exactly like branch summaries.
@@ -276,6 +431,7 @@ Compaction only exists because the plan is over budget. It therefore applies to 
 ### 4.6 Test matrix (`packages/core/test/context/*.test.ts`)
 
 The tests cover:
+
 - the trunk only;
 - each mode as a direct child of the trunk;
 - every two-level nesting (3×3), plus selected three-level chains;
@@ -306,26 +462,31 @@ The tests cover:
 - **Why not reuse Angular for viewers?** Viewers would run owner code, and the page would have to work without a session. A self-contained page has its own strict CSP, loads fast on phones, and doubles as the offline export.
 - **Exports**: `/api/export?format=md|html&scope=…` builds the payload with `projectShare`. Owners may pass `includePrivate=true`. It then calls `payloadToMarkdown` or `renderViewerPage({ variant: 'export' })`. The JSON backup/restore (`/api/trees/:id/backup`, `/api/import`) is owner-only and includes everything.
 - **Later (designed for, not built)**:
-  - *Fork this share into my tree*: `POST /api/import-share {token}` would map a `SharePayload` back to branches and nodes. Keys make this lossless for content, and modes default to `path`.
-  - *Share passwords*: a `password_hash` column on `shares` and a `/s/<token>/unlock` form that sets a signed, token-scoped cookie. `checkPublic` already centralizes access decisions.
+  - _Fork this share into my tree_: `POST /api/import-share {token}` would map a `SharePayload` back to branches and nodes. Keys make this lossless for content, and modes default to `path`.
+  - _Share passwords_: a `password_hash` column on `shares` and a `/s/<token>/unlock` form that sets a signed, token-scoped cookie. `checkPublic` already centralizes access decisions.
 
 ---
 
 ## 6. Access control
 
 - Sign-in is [Better Auth](https://better-auth.com), mounted at `/api/auth/*`, with its tables in D1 (`auth_*`, migration 0002). Methods: Google, GitHub, magic link (email, via the `EmailSender` interface; Resend today) and passkeys. There are no passwords.
-- `ALLOWED_EMAILS` decides who may sign in. Users outside it are never created (a `user.create.before` hook), never sent a magic link, and the session middleware re-checks it on every `/api/*` request, so removing an email locks that user out at once.
+- `ALLOWED_EMAILS` decides who gets the shared power account. While `OPEN_SIGNUP` is false, users outside it are never created (a `user.create.before` hook), never sent a magic link, and the session middleware re-checks it on every `/api/*` request, so removing an email locks that user out at once. With `OPEN_SIGNUP=true`, anyone else with a verified email gets a personal simple account.
+- The account middleware (`auth/account.ts`) resolves the caller to an account and creates its row on first use. Every branch or node id is resolved through `ChatService.getOwnedBranch`/`getOwnedNode` before the Worker acts on it or calls the Durable Object, so another account's ids are 404. The DO trusts the account the Worker passes on its internal routes.
+- Simple accounts can't use bring-your-own-key (`/api/key/*` → 403, the key cookie is never read), are rate limited per account, and can't start a metered call without enough credit (402). Power accounts can't use `/api/billing/*` (403).
 - Every `/api/*` route except `/api/auth/*` and `/api/login-options` requires a session (`auth/session.ts`). The lookup never refreshes the session; the web app's startup call to `GET /api/auth/get-session` does, because only that path re-issues the cookie.
 - If `BETTER_AUTH_SECRET` is unset, the Worker refuses all `/api/*` requests with 500 "not configured". The exception is `DEV_ALLOW_NO_AUTH=true` (in `.dev.vars` only), which lets local dev run without auth. The Worker fails closed.
 - The magic-link endpoint is protected by Cloudflare Turnstile (Better Auth's captcha plugin) and rate limited (5/min per IP, in D1). Turnstile's script runs only in the `/login` document, which gets its own CSP (`public/_headers`); the app moves to and from it by full page loads.
 - "Remember me" covers every method: sessions start remembered (30 days, rolling) and an after-hook shortens them to a browser-session cookie and a 1-day session when the login page asked for that.
 - `/s/*` never looks at the session. It gets no identity and serves only allow-listed DTOs.
+- The Stripe webhook is public but signature-verified by the plugin (`STRIPE_WEBHOOK_SECRET`).
 - Static assets contain no data; the API is what is gated. `workers_dev` is false so sign-in only happens on `PUBLIC_BASE_URL`.
 - Shares stay on the same hostname as the app. The viewer is self-contained, under a strict CSP, and runs no owner code; session cookies are HttpOnly. See DECISIONS.
 
 ## 7. Front end (Angular 22)
 
-The app uses standalone components, signals, zoneless change detection (the default in v21+) and the `@angular/build:application` builder. Its output (`apps/web/dist/web/browser`) is served as Workers Static Assets with an SPA fallback.
+Both apps use standalone components, signals, zoneless change detection (the default in v21+) and the `@angular/build:application` builder. Code they share lives in `packages/web-shared` (§1). The power app's output is served at `/` with an SPA fallback; the simple app's under `/learn/` by the Worker (§1, _Build and serve_). Each redirects the other kind of account: a `simple` account in the power app goes to `/learn/`, a `power` account in the simple app to `/`.
+
+The rest of this section describes the power app (`apps/web`).
 
 - **Layout**: a left sidebar holds the tree list and the outline of the selected tree (collapsible, and a drawer on phones). The main pane is the chat. The Context Inspector is a toggleable right panel.
 - **Chat view**: breadcrumbs (trunk › … › branch), the messages of the branch path rendered with `renderMarkdown` and highlight.js, and a composer. Each message has:
@@ -336,6 +497,15 @@ The app uses standalone components, signals, zoneless change detection (the defa
 - **Keyboard**: `Alt+↑` or `[` moves to the parent branch (focusing the branch point), `Alt+←/→` moves to the previous/next sibling, `Alt+↓` or `]` moves to the first child, `j/k` moves between messages, `b` branches from the focused message, `/` focuses the composer and `i` toggles the inspector. The logic lives in `navigate()` in `@tangent/core`, where it is unit-tested.
 - **Branch settings**: title (auto or edited), mode, anchor quote, private toggle, provider/model.
 - **Shares page**: create (scope, mode, include ancestors, title, expiry), copy link, republish, revoke. **Export menu**: Markdown, HTML and JSON backup; Import restores a backup.
+
+**The simple app** (`apps/simple`, `baseHref: '/learn/'`) has its own lean `LessonStore` on `runStream` and the `@tangent/core` tree utilities. Routes:
+
+- `/learn/`: the lesson list and "New lesson";
+- `/learn/t/:treeId[/b/:branchId]`: the chat with streaming, a Smart/Simple toggle, "Ask about this" (a `path` branch from selected text) and a simple branch list;
+- `/learn/billing`: balance, top-ups, monthly plans, "Manage billing" (Customer Portal) and recent usage;
+- `/learn/login`: the shared `LoginPage`.
+
+There is no inspector, reviewer, shares, export, BYOK, context-mode or model picker, or system prompt. A 402 sends the user to the billing page.
 
 ---
 
@@ -370,12 +540,14 @@ Execution: the contracts (§3) were frozen first. Implementation then fanned out
 ## 10. Portability (Node/Docker port)
 
 **Runtime-agnostic (no Workers imports; only `fetch`, `ReadableStream`, `TextEncoder/Decoder`, `AbortSignal`, `crypto.getRandomValues`, `btoa`):**
+
 - `@tangent/shared`: types, zod schemas and the API contract.
 - `@tangent/core`: context assembly, rendering, tree utilities, share projection, `ChatService`, `ShareService` and the repository **interfaces**.
 - `@tangent/providers`: all providers and the registry. Secrets are passed in as a plain map.
 - `@tangent/render`: markdown, the viewer page and Markdown export (no DOM).
 
 **Workers-specific (apps/worker only):**
+
 - Hono wiring. Hono itself runs on Node via `@hono/node-server`, so the routes port nearly unchanged.
 - The D1 repositories (`src/db/*`). Replace them with better-sqlite3 or Postgres implementations of the same interfaces. The SQL, including the recursive CTEs, is plain SQLite and the Drizzle schema can be reused.
 - The `TreeSession` Durable Object. Replace it with an in-process `Map<treeId, TreeSessionState>` that holds the running generation, the event buffer and the subscribers, plus a per-tree async mutex. It calls the same `ChatService.beginSend`/`runGeneration`, and `recoverInterrupted` runs at startup.
@@ -400,6 +572,28 @@ Execution: the contracts (§3) were frozen first. Implementation then fanned out
 All nine milestones are implemented. `pnpm test` runs 461 tests: providers 93, core 208, render 67, web 16 and worker 77. The worker tests run in workerd against real D1 and a real Durable Object. `pnpm typecheck` (including Angular strict templates) and `pnpm lint` are clean.
 
 Known gaps and follow-ups:
+
 - **Not verified against live accounts.** The real Anthropic and OpenAI-compatible providers are tested against recorded-style SSE streams with an injected `fetch`, not live APIs, because this environment has no keys. Likewise, the rate-limit binding and the Cache API have not been exercised against a real Cloudflare account. Sign-in was exercised end to end in `wrangler dev` (magic link, Turnstile test keys, passkeys with a virtual authenticator); Google/GitHub were tested against mocked token endpoints, not live OAuth apps, and Resend against a stubbed `fetch`.
 - **Missing automated tests.** Share-route rate limiting (429) has no automated test; the limiter fails open when unavailable, and that behaviour is tested. The Angular components have no DOM tests; they were checked through Playwright walkthroughs.
 - **Deferred by design:** regenerate, edit-and-resend (as a sibling branch), delete subtree, search, "fork this share into my tree", and share passwords. §5 describes how the last two slot in.
+
+---
+
+## 13. Simple mode and billing
+
+Added after the initial build (migration `0003_billing`). Setup and pricing for operators are in the README ("Simple mode and billing"); the decisions and their reasons are in DECISIONS ("Accounts", "Simple mode and billing"); the research behind them is in RESEARCH ("Simple mode and billing").
+
+- **Who:** anyone not on `ALLOWED_EMAILS`, while `OPEN_SIGNUP=true`, gets a personal `simple` account `u_<userId>`.
+- **What they use:** one server-side provider, `tangent` (OpenRouter, `OPENROUTER_SIMPLE_API_KEY`), with Smart and Simple tiers, a built-in tutor system prompt and capped input/output per call.
+- **How they pay:** prepaid credit (top-ups of $5–$500 through our own Checkout, or monthly plans through the Better Auth Stripe plugin that credit each paid invoice's pre-tax subtotal), each credited net of Stripe's actual fee. Each provider call is charged the true cost (OpenRouter's reported cost × (1 + its 5.5% credit-purchase fee)) + 10%, or + 5% with an active plan. Stripe Tax adds tax at checkout.
+- **Code:** `apps/worker/src/simple-mode.ts` (provider and settings), `src/billing/` (`pricing`, `ledger`, `meter`, `reconcile`, `usage-store`, `service`, `stripe`, `webhook`), `src/routes/billing.ts`, `src/http/learn-app.ts`, `src/auth/account.ts`, `packages/web-shared`, `apps/simple`.
+- **Not verified against live accounts:** Stripe and OpenRouter are exercised against mocks in the Worker tests (signed webhook deliveries through the real plugin endpoint, a mocked generation endpoint). Real Checkout, Stripe Tax and the Customer Portal need the Dashboard setup in the README.
+- **Out of scope (launch blockers first):** terms and privacy pages; account deletion and data export for simple users; auto-recharge; free credit; promotion codes; trials; low-balance emails; multi-currency; metered (postpaid) billing; Managed Payments; an admin UI.
+
+## 14. Landing page and demo
+
+- **Routes:** `GET /welcome` always serves the landing page. `GET /` serves it to anonymous visitors: no `tangent.session_token` / `__Secure-tangent.session_token` cookie and not the dev bypass. Otherwise `/` goes to `ASSETS` (the power app's `index.html`) with the `_headers` `/*` CSP set by the Worker. HEAD is answered like GET; other methods fall through to the 404 handler.
+- **Page:** server-rendered by `apps/worker/src/http/landing.ts`. One HTML document under 25 KB, no JavaScript, one constant inline `<style>` allowed by its SHA-256: `default-src 'none'; style-src 'sha256-…'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`, plus `Referrer-Policy: same-origin` and `nosniff`. `/` is `no-cache` with `Vary: Cookie`; `/welcome` is `public, max-age=300`. Light and dark follow `prefers-color-scheme` with the base.css palette.
+- **Calls to action:** "Try the demo" → `/learn/demo`, "Start learning" → `/learn/login`, "Power users: sign in" → `/login`.
+- **Demo:** `/learn/demo` is a route of the simple app that runs against an in-memory `ChatService`, with replies generated from random English sentences (`txtgen`). No sign-in, no model calls, no cost; state lives only in the browser tab (`sessionStorage`).
+- **Tests:** `apps/worker/test/landing.test.ts` (CSP hash against the inline style, cookie and dev-bypass routing, HEAD, fall-through).

@@ -4,3 +4,4 @@ export * from './provider.js';
 export * from './share.js';
 export * from './api.js';
 export * from './review.js';
+export * from './billing.js';

@@ -1,5 +1,9 @@
 # Workers Static Assets response headers for the Angular app (not /api/* or /s/*,
 # which the Worker answers itself; share pages carry their own hash-based CSP).
+# /learn and /learn/* (the simple app) also run the Worker first, and _headers
+# doesn't apply to Worker responses: their headers come from
+# apps/worker/src/http/learn-app.ts, which must copy the two CSPs below verbatim
+# (apps/worker/test/learn-app.test.ts checks this).
 #
 # The browser never talks to an LLM provider directly (connect-src 'self'), no
 # inline or remote script runs (the build turns off critical-CSS inlining, which

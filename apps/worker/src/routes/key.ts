@@ -23,10 +23,17 @@ import { providerConfigs, providerEnv } from '../services.js';
 /**
  * Bring-your-own-key management, mounted at /api/key. No route ever returns
  * any part of a key; the key is only accepted (POST) and then lives in the
- * sealed HttpOnly cookie.
+ * sealed HttpOnly cookie. Power accounts only: simple accounts always use
+ * the operator's key and are billed for it.
  */
 export function keyRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
+  r.use('*', async (c, next) => {
+    if (c.var.account.mode === 'simple') {
+      throw new DomainError('forbidden', 'Your own API keys are not available in this app');
+    }
+    await next();
+  });
   r.use('*', sameOriginOnly);
   r.use('*', async (c, next) => {
     await next();

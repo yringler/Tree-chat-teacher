@@ -1,13 +1,11 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { ShareMode, ShareScope, ShareSummary } from '@tangent/shared';
-import { ApiClient } from '../core/api-client';
+import { ApiClient, Icon, Modal } from '@tangent/web-shared';
 import { copyText } from '../core/selection';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ExpiryPicker } from '../ui/expiry-picker';
-import { Icon } from '../ui/icon';
-import { Modal } from '../ui/modal';
 import { ScopePicker } from '../ui/scope-picker';
 
 /** Create a public read-only link (snapshot or live) for the tree, a subtree, or a path. */

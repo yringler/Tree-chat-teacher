@@ -9,12 +9,10 @@ import {
 } from '@angular/core';
 import { parseReview } from '@tangent/shared';
 import { copyText } from '../core/selection';
-import { MarkdownService } from '../core/markdown.service';
+import { Icon, MarkdownService, Modal } from '@tangent/web-shared';
 import { ReviewStore } from '../state/review-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '../ui/icon';
-import { Modal } from '../ui/modal';
 import { ModelPicker } from '../ui/model-picker';
 import { ReviewVerdict } from '../ui/review-verdict';
 

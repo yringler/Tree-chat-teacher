@@ -1,10 +1,8 @@
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, type OnInit, signal } from '@angular/core';
-import { AuthService, type PasskeyInfo } from '../core/auth';
+import { AuthService, Icon, Modal, type PasskeyInfo } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '../ui/icon';
-import { Modal } from '../ui/modal';
 
 /** Who is signed in, their passkeys, and sign-out. */
 @Component({

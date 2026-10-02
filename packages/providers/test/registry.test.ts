@@ -136,6 +136,12 @@ describe('provider registry', () => {
       expect(parseProviderConfigs(JSON.stringify([valid]))).toEqual([valid]);
     });
 
+    it('accepts options.extraBody and fake costUsd', () => {
+      const withExtra = { ...valid, options: { extraBody: { reasoning: { effort: 'low' } } } };
+      const fake = { id: 'f', kind: 'fake', label: 'F', models: [{ id: 'f1', label: 'F1' }], defaultModel: 'f1', options: { costUsd: 0.001 } };
+      expect(parseProviderConfigs(JSON.stringify([withExtra, fake]))).toEqual([withExtra, fake]);
+    });
+
     it('defaults defaultModel to the first model', () => {
       const { defaultModel: _d, ...rest } = valid;
       expect(parseProviderConfigs(JSON.stringify([rest]))[0]!.defaultModel).toBe('m1');
@@ -154,6 +160,7 @@ describe('provider registry', () => {
       ['bad header', JSON.stringify([{ ...valid, headers: { a: 1 } }]), /headers\.a must be a non-empty string/],
       ['unknown field', JSON.stringify([{ ...valid, apiKey: 'sk-oops' }]), /PROVIDERS\[0\]\.apiKey is not a known field/],
       ['bad model', JSON.stringify([{ ...valid, models: [{ id: 'm1' }] }]), /models\[0\]\.label must be a non-empty string/],
+      ['bad extraBody', JSON.stringify([{ ...valid, options: { extraBody: [1] } }]), /options\.extraBody must be an object/],
       ['no model at all', JSON.stringify([{ id: 'f', kind: 'fake', label: 'F' }]), /defaultModel is required/],
     ])('rejects %s', (_name, json, message) => {
       expect(() => parseProviderConfigs(json)).toThrow(message);
