@@ -3,7 +3,7 @@ import { Injector, type Provider } from '@angular/core';
 import type { BillingSummary, UsageListResponse } from '@tangent/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiClient, ApiError, isPaymentRequired } from './api-client';
-import { API_FETCH } from './api-fetch';
+import { API_FETCH, API_HEADERS } from './api-fetch';
 
 type FetchArgs = [input: string, init: RequestInit];
 
@@ -153,5 +153,44 @@ describe('ApiClient transport (API_FETCH)', () => {
     vi.stubGlobal('fetch', later);
     await api.listTrees();
     expect(later).toHaveBeenCalledOnce();
+  });
+});
+
+describe('ApiClient headers', () => {
+  it('adds API_HEADERS to every request, read per call', async () => {
+    let payment = 'own-key';
+    const fetchMock = vi.fn<(...args: FetchArgs) => Promise<Response>>(async () =>
+      jsonResponse([]),
+    );
+    const api = createApi([
+      { provide: API_FETCH, useValue: fetchMock },
+      {
+        provide: API_HEADERS,
+        useValue: () => ({ 'x-tangent-mode': 'simple', 'x-tangent-payment': payment }),
+      },
+    ]);
+    await api.listTrees();
+    payment = 'credit';
+    await api.createTree({ title: 'T' });
+    const headers = fetchMock.mock.calls.map(([, init]) => init.headers as Record<string, string>);
+    expect(headers[0]).toMatchObject({
+      'x-tangent-mode': 'simple',
+      'x-tangent-payment': 'own-key',
+    });
+    expect(headers[1]).toMatchObject({
+      'x-tangent-mode': 'simple',
+      'x-tangent-payment': 'credit',
+      'content-type': 'application/json',
+    });
+  });
+
+  it('sends none by default', async () => {
+    const fetchMock = vi.fn<(...args: FetchArgs) => Promise<Response>>(async () =>
+      jsonResponse([]),
+    );
+    await createApi([{ provide: API_FETCH, useValue: fetchMock }]).listTrees();
+    expect(fetchMock.mock.calls[0]![1].headers).toEqual({
+      accept: 'application/json, text/event-stream',
+    });
   });
 });

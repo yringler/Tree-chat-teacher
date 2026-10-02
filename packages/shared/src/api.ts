@@ -26,7 +26,9 @@ import type { AccountMode } from './billing.js';
  *   /api/auth/*                                  Better Auth endpoints (sign-in, callbacks, session, passkeys)
  *   GET    /api/login-options                    -> LoginOptionsResponse (public)
  *
- * Owner API (signed-in session required), all JSON unless noted:
+ * Owner API (signed-in session required), all JSON unless noted. Each request
+ * acts as the caller's account for the app named by the MODE_HEADER (power
+ * when absent); Learn requests also send the PAYMENT_HEADER (billing.ts):
  *
  *   GET    /api/me                               -> MeResponse
  *   GET    /api/providers                        -> ProviderInfo[]
@@ -54,7 +56,7 @@ import type { AccountMode } from './billing.js';
  *   GET    /api/key/status                        -> KeyStatusResponse
  *   POST   /api/key              SaveKeyRequest  -> 204 + Set-Cookie (sealed, HttpOnly)
  *   DELETE /api/key              ForgetKeyRequest -> 204 + Set-Cookie (cleared or re-sealed)
- *                                                (power accounts only; simple accounts get 403)
+ *                                                (simple: only the `openrouter` key, used as Learn's own key)
  *
  * Billing (simple accounts only; power accounts get 403; billing.ts):
  *
@@ -65,7 +67,8 @@ import type { AccountMode } from './billing.js';
  *   POST   /api/auth/stripe/webhook               Stripe webhooks (plugin + our onEvent)
  *
  * Spending routes (messages, review, context?resolve=true) answer 402
- * `payment_required` when a simple account's available credit is too low.
+ * `payment_required` when a simple request on paid credit finds the
+ * available credit too low. Requests on the user's own key never touch credit.
  *
  * Public (no sign-in; rate-limited; read-only):
  *
@@ -97,12 +100,23 @@ export type ApiErrorCode =
 export interface MeResponse {
   /** Signed-in user's email; null only in dev bypass mode. */
   email: string | null;
-  /** Account the caller acts as: `default` for allowlisted users, `u_<userId>` for open sign-ups. */
+  /**
+   * Account the request acts as: the user's `p_<userId>` (power) or
+   * `u_<userId>` (simple); `default` / `default_simple` in dev bypass mode.
+   */
   accountId: string;
-  /** `power` (the full app) or `simple` (the /learn/ app, metered). */
+  /** The app the request came from (the MODE_HEADER): `power` (/) or `simple` (/learn/). */
   mode: AccountMode;
   /** True when running with DEV_ALLOW_NO_AUTH (wrangler dev only). */
   devMode: boolean;
+  /**
+   * Whether this request may spend the operator's server-side keys. Power:
+   * the server's provider keys (only the local dev bypass). Simple:
+   * paid credit was asked for (PAYMENT_HEADER) and is offered.
+   */
+  operatorKeys: boolean;
+  /** True when the server offers paid credit in Learn mode (Stripe and the operator's key set up). */
+  paidCredit: boolean;
 }
 
 /** What the login page offers. Magic links and passkeys are always available once auth is configured. */
@@ -115,8 +129,6 @@ export interface LoginOptionsResponse {
   social: { google: boolean; github: boolean };
   /** Cloudflare Turnstile site key for the magic-link form; null = not configured. */
   turnstileSiteKey: string | null;
-  /** True when anyone may sign up (as a simple account); false = allowlist only. */
-  openSignup: boolean;
 }
 
 export interface TreeSummary {

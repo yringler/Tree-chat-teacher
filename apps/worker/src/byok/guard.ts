@@ -1,7 +1,7 @@
 import { DomainError, KeyRequiredError, ValidationError } from '@tangent/core';
 import type { ProviderRegistry } from '@tangent/shared';
 import { createMiddleware } from 'hono/factory';
-import type { AppBindings, AppContext } from '../env.js';
+import { isMetered, type AppBindings, type AppContext } from '../env.js';
 import { fingerprint } from './seal.js';
 import type { UserKeys } from './keys.js';
 
@@ -30,8 +30,8 @@ export const sameOriginOnly = createMiddleware<AppBindings>(async (c, next) => {
 
 /**
  * The branch's provider must have a key (the user's or the server's) and the
- * model must be one the provider config lists. `userKeys: false` (simple
- * accounts, which never bring a key) reports a missing server key as a
+ * model must be one the provider config lists. `userKeys: false` (paid
+ * credit, which never uses the user's key) reports a missing server key as a
  * configuration problem rather than asking for the user's key.
  */
 export function assertGenerationAllowed(
@@ -56,8 +56,8 @@ export function assertGenerationAllowed(
 /**
  * Rate limit on requests that spend a user's key. `chat`: per key cookie, the
  * bucket being a hash of the sealed value (never of the plaintext key);
- * requests of power accounts on server keys are not limited here. Simple
- * accounts spend the operator's key, so their `chat` bucket is the account
+ * power requests on server keys (dev bypass only) are not limited here.
+ * Paid credit spends the operator's key, so its `chat` bucket is the account
  * (`account:<id>`). `key`: saving a key makes a verification call upstream,
  * limited per account (a fresh cookie per save would otherwise reset the
  * bucket).
@@ -73,7 +73,7 @@ export async function enforceRateLimit(
     RateLimit | undefined;
   if (!limiter || typeof limiter.limit !== 'function') return;
   let who: string;
-  if (scope === 'key' || c.var.account.mode === 'simple') who = `account:${c.var.accountId}`;
+  if (scope === 'key' || isMetered(c.var.account)) who = `account:${c.var.accountId}`;
   else if (keys?.state === 'ok') who = `cookie:${await fingerprint(keys.sealed)}`;
   else return;
   let success = true;

@@ -38,8 +38,8 @@ import { Turnstile } from '../ui/turnstile';
         }
 
         @if (options(); as o) {
-          @if (o.configured && o.openSignup && !sentTo() && openSignupMessage()) {
-            <p class="lead">{{ openSignupMessage() }}</p>
+          @if (o.configured && !sentTo() && lead()) {
+            <p class="lead">{{ lead() }}</p>
           }
           @if (!o.configured) {
             <p class="notice">
@@ -52,7 +52,7 @@ import { Turnstile } from '../ui/turnstile';
             <p class="lead">Check your email</p>
             <p>
               We sent a sign-in link to <strong>{{ email }}</strong
-              >{{ o.openSignup ? '' : allowedNote }}. It works once and expires in 15 minutes.
+              >. It works once and expires in 15 minutes.
             </p>
             <button type="button" class="btn btn-ghost" (click)="sentTo.set(null)">
               Use a different method
@@ -137,14 +137,13 @@ import { Turnstile } from '../ui/turnstile';
   `,
 })
 export class LoginPage implements OnInit {
-  /** Product name in the heading and in "not allowed" errors. */
+  /** Product name in the heading and in sign-in errors. */
   readonly brand = input('Tangent');
-  /** Shown above the sign-in methods when the server allows open sign-up; empty hides it. */
-  readonly openSignupMessage = input('Sign in or create an account');
+  /** Shown above the sign-in methods (anyone may sign up); empty hides it. */
+  readonly lead = input('Sign in or create an account');
 
   private readonly auth = inject(AuthService);
   protected readonly paths = inject(APP_PATHS);
-  protected readonly allowedNote = " (if it's allowed to use this app)";
   private readonly captcha = viewChild<Turnstile>('captcha');
 
   protected readonly options = signal<LoginOptionsResponse | null>(null);

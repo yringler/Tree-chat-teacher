@@ -19,11 +19,11 @@ import { assertGenerationAllowed, enforceRateLimit, sameOriginOnly } from '../by
 import { assertCanSpend } from '../billing/service.js';
 import { readKeys, requireReadableKeys, type UserKeys } from '../byok/keys.js';
 import { accountParams, type SessionSendBody } from '../do/tree-session.js';
-import type { AppBindings, AppContext, AppEnv } from '../env.js';
+import { isMetered, type AppBindings, type AppContext, type AppEnv } from '../env.js';
 import { validateJson, validateQuery } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { purgeShare } from '../share/cache.js';
-import { chatService, registryFor, shareService } from '../services.js';
+import { chatService, paidCreditAvailable, registryFor, shareService } from '../services.js';
 import { simpleSystemPrompt } from '../simple-mode.js';
 import { keyRoutes } from './key.js';
 
@@ -38,8 +38,8 @@ const contextQuerySchema = z.object({
 });
 
 /**
- * The caller's ChatService. `keys` are the user's own provider keys (power
- * accounts only); the usage meter of simple accounts defers its work to the
+ * The caller's ChatService. `keys` are the user's own provider keys (unused
+ * on paid credit); the usage meter of paid credit defers its work to the
  * request's `waitUntil`.
  */
 function chatOf(c: AppContext, keys: Extract<UserKeys, { state: 'ok' }> | null = null): ChatService {
@@ -50,11 +50,11 @@ function chatOf(c: AppContext, keys: Extract<UserKeys, { state: 'ok' }> | null =
 }
 
 /**
- * The user's key cookie for routes that call a provider. Simple accounts
- * never use their own keys, so their cookie (if any) is not even read.
+ * The user's key cookie for routes that call a provider. Paid credit never
+ * uses the user's own keys, so the cookie (if any) is not even read.
  */
 async function keysOf(c: AppContext): Promise<Extract<UserKeys, { state: 'ok' }> | null> {
-  return c.var.account.mode === 'simple' ? null : requireReadableKeys(c);
+  return isMetered(c.var.account) ? null : requireReadableKeys(c);
 }
 
 /**
@@ -62,23 +62,26 @@ async function keysOf(c: AppContext): Promise<Extract<UserKeys, { state: 'ok' }>
  * and the account middleware (auth/account.ts). Every branch or node id is
  * resolved through the caller's account (`getOwnedBranch`/`getOwnedNode`)
  * before anything else happens, so another account's ids are 404. Routes that
- * may spend money check the balance of simple accounts first (402).
+ * may spend money check the balance first when on paid credit (402).
  */
 export function apiRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();
 
   api.get('/me', (c) => {
     const { email, devMode } = c.var.identity;
+    const { account } = c.var;
     return c.json({
       email,
       devMode,
-      accountId: c.var.accountId,
-      mode: c.var.account.mode,
+      accountId: account.id,
+      mode: account.mode,
+      operatorKeys: account.operatorKeys,
+      paidCredit: paidCreditAvailable(c.env),
     } satisfies MeResponse);
   });
 
   api.get('/providers', async (c) => {
-    if (c.var.account.mode === 'simple') return c.json(registryFor(c.env, c.var.account).list());
+    if (isMetered(c.var.account)) return c.json(registryFor(c.env, c.var.account).list());
     // An unreadable key cookie simply counts as no user keys here; /key/status clears it.
     const keys = await readKeys(c);
     return c.json(registryFor(c.env, c.var.account, keys.state === 'ok' ? keys.keys : undefined).list());
@@ -159,7 +162,7 @@ export function apiRoutes(): Hono<AppBindings> {
     const chat = chatOf(c, keys);
     const branch = await chat.getOwnedBranch(c.req.param('branchId'));
     assertGenerationAllowed(chat.deps.providers, branch.providerId, branch.model, {
-      userKeys: account.mode !== 'simple',
+      userKeys: !isMetered(account),
     });
     await assertCanSpend(c.env, account);
     await enforceRateLimit(c, keys, 'chat');
@@ -199,7 +202,7 @@ export function apiRoutes(): Hono<AppBindings> {
     const node = await chat.getOwnedNode(c.req.param('nodeId'));
     // The client picks the reviewer model here, so the allowlist is what bounds it.
     assertGenerationAllowed(chat.deps.providers, req.providerId, req.model, {
-      userKeys: c.var.account.mode !== 'simple',
+      userKeys: !isMetered(c.var.account),
     });
     await assertCanSpend(c.env, c.var.account);
     const prepared = await chat.prepareReview(node.id, req);

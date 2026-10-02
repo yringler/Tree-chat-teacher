@@ -1,7 +1,7 @@
 import { createMiddleware } from 'hono/factory';
 import type { AppBindings } from '../env.js';
 import { apiError } from '../http/errors.js';
-import { authConfigured, getAuth, isEmailAllowed, openSignup, type AuthDeps } from './auth.js';
+import { authConfigured, getAuth, type AuthDeps } from './auth.js';
 
 /**
  * Requires a Better Auth session on owner routes (`/api/*` except the auth
@@ -28,13 +28,12 @@ export function sessionMiddleware(deps: AuthDeps = {}) {
       query: { disableRefresh: true },
     });
     if (!result) return apiError(c, 'unauthorized', 'Sign in required');
-    // Re-checked on every request so removing an email from ALLOWED_EMAILS
-    // (or closing OPEN_SIGNUP) locks that user out at once, whatever sessions
-    // they hold. Open sign-ups need a verified email: it is what makes the
-    // personal account theirs (auth/account.ts).
-    const allowed =
-      isEmailAllowed(c.env, result.user.email) || (openSignup(c.env) && result.user.emailVerified);
-    if (!allowed) return apiError(c, 'forbidden', 'This account is not allowed to use this app');
+    // Anyone may sign up, but only with a verified email: it is what makes the
+    // accounts theirs (auth/account.ts).
+    // Users are only created verified, so this is a backstop.
+    if (!result.user.emailVerified) {
+      return apiError(c, 'forbidden', 'Sign in with a verified email address');
+    }
     c.set('identity', { userId: result.user.id, email: result.user.email, devMode: false });
     return next();
   });

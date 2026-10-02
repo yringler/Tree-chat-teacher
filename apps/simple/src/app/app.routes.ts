@@ -22,7 +22,7 @@ export const routes: Routes = [
     title: `Sign in · ${BRAND}`,
     data: {
       brand: BRAND,
-      openSignupMessage: 'Sign in or create an account to start learning',
+      lead: 'Sign in or create an account to start learning',
     },
   },
   {

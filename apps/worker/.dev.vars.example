@@ -2,12 +2,14 @@
 # Values here override the production vars in wrangler.jsonc.
 
 # --- Option A: no sign-in at all (quickest). Honoured only while BETTER_AUTH_SECRET is unset.
+# Power mode acts as the `default` account and may use the server keys below; Learn mode
+# (/learn/) acts as `default_simple`.
 DEV_ALLOW_NO_AUTH=true
 
 # --- Option B: real sign-in, locally. Comment out DEV_ALLOW_NO_AUTH above and fill these in.
 # PUBLIC_BASE_URL=http://localhost:8787
 # BETTER_AUTH_SECRET=            # openssl rand -base64 32
-# ALLOWED_EMAILS=you@example.com
+# Anyone can sign up. Signed-in users never get the server keys below: power mode is bring-your-own-key.
 # Magic links are printed to the wrangler console instead of emailed (localhost only):
 # EMAIL_PROVIDER=log
 # Cloudflare's Turnstile test keys (always pass):
@@ -20,6 +22,7 @@ DEV_ALLOW_NO_AUTH=true
 # GITHUB_CLIENT_SECRET=
 # To send real email instead: EMAIL_PROVIDER=resend, RESEND_API_KEY=re_..., EMAIL_FROM=...
 
+# Server-side provider keys: used only by the dev bypass (Option A), never for signed-in users.
 # ANTHROPIC_API_KEY=sk-ant-...
 # OPENAI_API_KEY=sk-...
 # OPENROUTER_API_KEY=sk-or-...
@@ -27,24 +30,23 @@ DEV_ALLOW_NO_AUTH=true
 #   openssl rand -base64 32
 # KEY_ENCRYPTION_SECRET=
 
-# --- Simple mode (/learn/) and billing. See README "Simple mode and billing".
-# OpenRouter key that simple accounts spend (give it a small credit limit). No fallback to OPENROUTER_API_KEY:
+# --- Learn mode (/learn/) on paid credit. See README "Learn mode and billing".
+# Without these, Learn mode runs only on each learner's own OpenRouter key (needs KEY_ENCRYPTION_SECRET).
+# OpenRouter key that paid Learn mode spends (give it a small credit limit). No fallback to OPENROUTER_API_KEY:
 # OPENROUTER_SIMPLE_API_KEY=sk-or-...
-# Stripe test mode. Both must be set for billing (and for simple accounts to spend at all).
+# Stripe test mode. Both must be set for billing (and for paid credit to be offered at all).
 # STRIPE_SECRET_KEY=sk_test_...
 # The whsec_... that `stripe listen --forward-to localhost:8787/api/auth/stripe/webhook` prints:
 # STRIPE_WEBHOOK_SECRET=whsec_...
 # STRIPE_CREDITS_PRODUCT_ID=prod_...
 # STRIPE_PLANS='[{"name":"monthly-10","label":"$10 / month","priceId":"price_...","amountCents":1000}]'
 
-# --- Option C: simple mode offline (no OpenRouter, no Stripe).
-# The dev bypass (Option A) always acts as the shared power account, so simple mode needs
-# real sign-in: set up Option B, then sign in with an email that is NOT on ALLOWED_EMAILS.
-# OPEN_SIGNUP=true
+# --- Option C: paid Learn mode offline (no OpenRouter, no Stripe). Works with Option A or B.
 # A fake `tangent` provider that reports a fixed cost per call (the shape the worker tests use):
 # SIMPLE_PROVIDER='{"id":"tangent","kind":"fake","label":"Tangent","defaultModel":"smart","models":[{"id":"smart","label":"Smart"},{"id":"simple","label":"Simple"}],"options":{"chunkSize":4,"costUsd":0.001234}}'
 # Placeholders so sends are allowed (top-ups and plans won't work with them):
 # STRIPE_SECRET_KEY=sk_test_placeholder
 # STRIPE_WEBHOOK_SECRET=whsec_placeholder
 # Then grant yourself credit (5000000 = $5) with the SQL insert into credit_grants from the README
-# ("Manual credit or adjustments", with --local), and chat at http://localhost:8787/learn/.
+# ("Manual credit or adjustments", with --local; the account is `default_simple` under Option A,
+# `u_<your user id>` under Option B), pick "Use paid credit" and chat at http://localhost:8787/learn/.

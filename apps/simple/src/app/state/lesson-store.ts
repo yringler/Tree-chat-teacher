@@ -346,7 +346,9 @@ export class LessonStore {
       this.finish(nodeId, outcome);
       return true;
     } catch (err) {
-      if (isPaymentRequired(err)) this.unsentDraft.set({ branchId, text: content });
+      if (isPaymentRequired(err) || (err instanceof ApiError && err.code === 'key_required')) {
+        this.unsentDraft.set({ branchId, text: content });
+      }
       this.fail(err);
       return false;
     } finally {
@@ -364,8 +366,17 @@ export class LessonStore {
     }
   }
 
-  /** Reports an error. Out of credit (402) goes to the billing page. */
+  /**
+   * Reports an error. Out of credit (402) goes to the billing page; a missing
+   * or unreadable own key (401 key_required) opens the payment dialog.
+   */
   fail(err: unknown): void {
+    if (err instanceof ApiError && err.code === 'key_required') {
+      this.ui.notify(err.message, 'error');
+      void this.account.refreshKey();
+      this.ui.accessOpen.set(true);
+      return;
+    }
     if (isPaymentRequired(err)) {
       this.ui.notify(OUT_OF_CREDIT_MESSAGE, 'error');
       void this.account.refreshBalance();

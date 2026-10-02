@@ -246,6 +246,8 @@ export class DemoBackend {
         accountId: DEMO_ACCOUNT_ID,
         mode: 'simple',
         devMode: false,
+        operatorKeys: true,
+        paidCredit: true,
       } satisfies MeResponse);
     }
     if (method === 'GET' && path === '/api/login-options') {
@@ -254,7 +256,6 @@ export class DemoBackend {
         devMode: false,
         social: { google: false, github: false },
         turnstileSiteKey: null,
-        openSignup: true,
       } satisfies LoginOptionsResponse);
     }
     if (method === 'POST' && path === '/api/auth/sign-out') return json({ success: true });

@@ -28,11 +28,11 @@ import type { AppEnv } from '../env.js';
  * no passwords: the email+password method is never enabled. Passkeys are
  * added from the account dialog once signed in, then work as a sign-in method.
  *
- * Who may sign in is decided by ALLOWED_EMAILS (see isEmailAllowed) and
- * OPEN_SIGNUP (see mayUseApp): with sign-up closed, users outside the list are
- * never created, never sent a magic link, and an existing session stops
- * working as soon as its email is removed from the list. With OPEN_SIGNUP=true
- * anyone may sign up and gets a personal simple account (auth/account.ts).
+ * Anyone may sign up; abuse is bounded by Turnstile and the rate limits on
+ * magic links. A user needs a verified email (OAuth providers report it, a
+ * magic link proves it): unverified users are never created. Each user gets
+ * their own accounts (auth/account.ts). Power mode is bring-your-own-key for
+ * every signed-in user: the server's provider keys serve only the local dev bypass.
  *
  * When Stripe is configured (billing/stripe.ts) the Better Auth Stripe plugin
  * adds the monthly-plan endpoints (`/api/auth/subscription/*`) and the one
@@ -62,49 +62,6 @@ function isSignInCompletion(path: string | undefined): boolean {
     path === '/passkey/verify-authentication' ||
     (path?.startsWith('/callback/') ?? false)
   );
-}
-
-// ---- Allowlist
-
-interface Allowlist {
-  emails: ReadonlySet<string>;
-  /** Lower-cased domains from `@domain` entries. */
-  domains: readonly string[];
-}
-
-export function parseAllowlist(raw: string | undefined): Allowlist {
-  const emails = new Set<string>();
-  const domains: string[] = [];
-  for (const entry of (raw ?? '').split(/[\s,]+/)) {
-    const e = entry.trim().toLowerCase();
-    if (!e) continue;
-    if (e.startsWith('@') && e.length > 1) domains.push(e.slice(1));
-    else if (e.includes('@')) emails.add(e);
-  }
-  return { emails, domains };
-}
-
-/** True when `email` is listed in ALLOWED_EMAILS. An empty list allows nobody. */
-export function isEmailAllowed(env: AppEnv, email: string | null | undefined): boolean {
-  if (!email) return false;
-  const e = email.trim().toLowerCase();
-  const { emails, domains } = parseAllowlist(env.ALLOWED_EMAILS);
-  if (emails.has(e)) return true;
-  const at = e.lastIndexOf('@');
-  return at > 0 && domains.includes(e.slice(at + 1));
-}
-
-/** True when anyone may sign up, as a simple account (OPEN_SIGNUP). */
-export function openSignup(env: AppEnv): boolean {
-  return env.OPEN_SIGNUP?.trim() === 'true';
-}
-
-/**
- * Whether `email` may sign in at all (and be sent a magic link). Creating the
- * user of an open sign-up also needs a verified email (databaseHooks below).
- */
-export function mayUseApp(env: AppEnv, email: string | null | undefined): boolean {
-  return isEmailAllowed(env, email) || (openSignup(env) && !!email);
 }
 
 // ---- Configuration
@@ -214,17 +171,14 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
     databaseHooks: {
       user: {
         create: {
-          // Covers every sign-up path (OAuth callback, magic link). Returning
-          // false (rather than throwing) makes the OAuth callback redirect to
-          // the login page with an error instead of answering with JSON.
-          // Open sign-ups also need a verified email (magic links always are;
+          // Covers every sign-up path (OAuth callback, magic link). Anyone may
+          // sign up, but only with a verified email (magic links always are;
           // OAuth reports it): the session middleware refuses unverified
-          // simple users, so creating one would only leave a user that can
-          // never get in.
-          before: async (user) =>
-            isEmailAllowed(env, user.email) || (mayUseApp(env, user.email) && user.emailVerified)
-              ? { data: user }
-              : false,
+          // users, so creating one would only leave a user that can never get
+          // in. Returning false (rather than throwing) makes the OAuth
+          // callback redirect to the login page with an error instead of
+          // answering with JSON.
+          before: async (user) => (user.emailVerified ? { data: user } : false),
         },
       },
     },
@@ -256,8 +210,6 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
         expiresIn: MAGIC_LINK_MINUTES * 60,
         storeToken: 'hashed',
         sendMagicLink: async ({ email, url }) => {
-          // Same response either way, so the form doesn't reveal who is allowed.
-          if (!mayUseApp(env, email)) return;
           const sender = deps.emailSender ?? createEmailSender(env, base.origin);
           await sender.send(magicLinkEmail(email, url, MAGIC_LINK_MINUTES));
         },

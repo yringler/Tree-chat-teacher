@@ -187,14 +187,14 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. The side question opens its own branch, so detours never clutter the main thread, and every branch stays one click away.</p></article>
 <article class="card">${ICON_QUESTION}<h3>A tutor that asks before it tells</h3><p>Tangent guides you with questions until the idea clicks, then fills in what's missing. Choose <strong>Smart</strong> for hard topics or <strong>Simple</strong> for quick ones, and switch at any time.</p></article>
 <article class="card">${ICON_EYE}<h3>See exactly what the model sees</h3><p>In power mode, decide how much each branch inherits: the full path, a summary, or a clean slate. The inspector shows the exact prompt before anything is sent.</p></article>
-<article class="card">${ICON_COIN}<h3>Pay only for what you use</h3><p>Each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up prepaid credit or choose a monthly plan, and manage billing in Stripe.</p></article>
+<article class="card">${ICON_COIN}<h3>Your key, or pay as you go</h3><p>Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or use prepaid credit: each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up or choose a monthly plan, and manage billing in Stripe.</p></article>
 </div>
 </div>
 </section>
 <section aria-labelledby="modes">
 <div class="wrap">
 <h2 id="modes">Two ways to use it</h2>
-<p class="sub">Same branching conversations, two levels of control.</p>
+<p class="sub">One sign-in, two levels of control. Switch between them at any time.</p>
 <div class="grid two">
 <article class="card mode learn">
 <h3>Learn</h3>
@@ -203,7 +203,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <li>A built-in Socratic tutor, ready the moment you sign in</li>
 <li>Smart and Simple tiers, one toggle</li>
 <li>Side questions with Ask about this</li>
-<li>Pay as you go from prepaid credit or a monthly plan</li>
+<li>Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit or a monthly plan</li>
 </ul>
 <a class="btn primary" href="/learn/login">Start learning</a>
 </article>

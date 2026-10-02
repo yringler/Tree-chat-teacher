@@ -14,9 +14,9 @@
  */
 
 /**
- * The built-in owner account. Tangent is single-user for now: every tree and
- * share belongs to this account. Multi-user later maps verified identities to
- * their own accounts; nothing else in the data model has to change.
+ * The built-in account of the local dev bypass (DEV_ALLOW_NO_AUTH), and the
+ * column default of `account_id`. Signed-in users each get their own accounts
+ * (apps/worker/src/auth/account.ts).
  */
 export const DEFAULT_ACCOUNT_ID = 'default';
 

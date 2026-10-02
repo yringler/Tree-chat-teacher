@@ -12,7 +12,7 @@ import {
   type UsageListResponse,
   type UsagePurpose,
 } from '@tangent/shared';
-import type { AccountContext, AppEnv } from '../env.js';
+import { isMetered, type AccountContext, type AppEnv } from '../env.js';
 import { getBalance } from './ledger.js';
 import { billingConfigured, ensureStripeCustomer, getStripe, stripePlans } from './stripe.js';
 
@@ -64,12 +64,12 @@ function notConfigured(): DomainError {
 }
 
 /**
- * Throws `PaymentRequiredError` (402) when a simple account can't start a
- * metered call: available = balance − pending holds must cover one more hold.
- * Always a no-op for power accounts.
+ * Throws `PaymentRequiredError` (402) when a request on paid credit can't
+ * start a metered call: available = balance − pending holds must cover one
+ * more hold. Always a no-op for power mode and for Learn on the user's own key.
  */
 export async function assertCanSpend(env: AppEnv, account: AccountContext): Promise<void> {
-  if (account.mode === 'power') return;
+  if (!isMetered(account)) return;
   if (!billingConfigured(env)) throw notConfigured();
   const { balanceMicros, heldMicros } = await getBalance(env.DB, account.id);
   if (balanceMicros - heldMicros < usageHoldMicros(env)) throw new PaymentRequiredError();
@@ -251,7 +251,7 @@ export async function createCreditCheckout(
     );
   }
   if (account.mode !== 'simple')
-    throw new DomainError('forbidden', 'Billing is only available for personal accounts');
+    throw new DomainError('forbidden', 'Billing is only available in Learn mode');
   const stripe = getStripe(env);
   const productId = env.STRIPE_CREDITS_PRODUCT_ID?.trim();
   if (!billingConfigured(env) || !stripe || !productId) throw notConfigured();

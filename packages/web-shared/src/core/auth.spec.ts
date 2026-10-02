@@ -35,7 +35,14 @@ function setup(paths: AppPaths, me: () => Promise<MeResponse>) {
   return { auth: injector.get(AuthService), client, api };
 }
 
-const ME: MeResponse = { email: 'a@b.c', accountId: 'u_1', mode: 'simple', devMode: false };
+const ME: MeResponse = {
+  email: 'a@b.c',
+  accountId: 'u_1',
+  mode: 'simple',
+  devMode: false,
+  operatorKeys: true,
+  paidCredit: true,
+};
 
 describe('AuthService with APP_PATHS', () => {
   let location: { replace: ReturnType<typeof vi.fn>; assign: ReturnType<typeof vi.fn> };

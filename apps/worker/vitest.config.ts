@@ -97,9 +97,8 @@ export default defineConfig({
               { id: 'ant', kind: 'anthropic', label: 'Ant', baseUrl: MOCK_UPSTREAM, defaultModel: 'claude-test', models: [{ id: 'claude-test', label: 'Claude Test' }] },
             ]),
             KEY_ENCRYPTION_SECRET: TEST_KEY_SECRET,
-            // Simple mode and billing. OPEN_SIGNUP stays false so the allowlist tests hold;
-            // multi-user tests pass an env override (as auth.test.ts does for BETTER_AUTH_SECRET).
-            OPEN_SIGNUP: 'false',
+            // Learn mode and billing (paid credit offered). Multi-user tests pass an env
+            // override with auth configured (as auth.test.ts does for BETTER_AUTH_SECRET).
             // The simple-mode provider `tangent`: fake, reporting a fixed cost per call.
             SIMPLE_PROVIDER: JSON.stringify({
               id: 'tangent',
