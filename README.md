@@ -133,7 +133,11 @@ Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Googl
    ```bash
    openssl rand -base64 32 | npx wrangler secret put BETTER_AUTH_SECRET
    ```
-2. **Who may sign in.** In `wrangler.jsonc`, set `ALLOWED_EMAILS` to a comma-separated list (`you@example.com, @yourcompany.com` allows a whole domain) and `PUBLIC_BASE_URL` to your origin. Everyone on the list shares the one built-in power account (see _Accounts_ in [DECISIONS.md](docs/DECISIONS.md)). While `OPEN_SIGNUP` is `false` (the default), users not on the list are never created and never sent a magic link, and removing an email locks out its existing sessions on the next request. `OPEN_SIGNUP=true` lets anyone else in with a personal simple account (next section).
+2. **Who may sign in.** Set the `ALLOWED_EMAILS` secret to a comma-separated list (`you@example.com, @yourcompany.com` allows a whole domain). It's a secret rather than a var so the addresses stay out of git. Also set `PUBLIC_BASE_URL` in `wrangler.jsonc` to your origin.
+   ```bash
+   npx wrangler secret put ALLOWED_EMAILS
+   ```
+   Everyone on the list shares the one built-in power account (see _Accounts_ in [DECISIONS.md](docs/DECISIONS.md)). While `OPEN_SIGNUP` is `false` (the default), users not on the list are never created and never sent a magic link, and removing an email locks out its existing sessions on the next request. `OPEN_SIGNUP=true` lets anyone else in with a personal simple account (next section).
 3. **Email (magic links) through [Resend](https://resend.com).** Verify your sending domain in Resend, set `EMAIL_FROM` in `wrangler.jsonc` to an address on it, then:
    ```bash
    npx wrangler secret put RESEND_API_KEY
@@ -258,7 +262,7 @@ These are out of scope for now. The first two are **launch blockers** before ope
 | Name                                                                                   | Kind               | Purpose                                                                                                                                                                                  |
 | -------------------------------------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PUBLIC_BASE_URL`                                                                      | var                | Public origin: share links, sign-in callbacks, magic links, passkey relying party (default: the request's origin; set it in production)                                                  |
-| `ALLOWED_EMAILS`                                                                       | var                | Who gets the shared power account: emails and/or `@domain` entries, comma-separated. Empty = nobody                                                                                      |
+| `ALLOWED_EMAILS`                                                                       | secret             | Who gets the shared power account: emails and/or `@domain` entries, comma-separated. Empty = nobody                                                                                      |
 | `OPEN_SIGNUP`                                                                          | var                | `true` lets anyone else with a verified email sign in, as a personal simple account (default `false`)                                                                                    |
 | `EMAIL_PROVIDER`                                                                       | var                | `resend` (default) or `log` (prints emails to the console; localhost only)                                                                                                               |
 | `EMAIL_FROM`                                                                           | var                | Sender address for magic links (its domain must be verified in Resend)                                                                                                                   |

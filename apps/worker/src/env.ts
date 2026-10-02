@@ -23,6 +23,12 @@ export interface AppEnv extends Env {
    * request unless DEV_ALLOW_NO_AUTH applies. Rotating it signs everyone out.
    */
   BETTER_AUTH_SECRET?: string;
+  /**
+   * Who may sign in: comma-separated emails, or `@example.com` for a whole
+   * domain. Unset or empty = nobody (fails closed). A secret rather than a var
+   * so the addresses stay out of git.
+   */
+  ALLOWED_EMAILS?: string;
   /** OAuth apps. Each provider is offered only when both of its values are set. */
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;

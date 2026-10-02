@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { renderMarkdown } from '../src/markdown.js';
-import { renderViewerPage, VIEWER_SCRIPT, VIEWER_STYLE, viewerCsp } from '../src/viewer.js';
+import {
+  FAVICON_SVG,
+  renderViewerPage,
+  VIEWER_SCRIPT,
+  VIEWER_STYLE,
+  viewerCsp,
+} from '../src/viewer.js';
 import { CONTENT_MARKERS, samplePayload } from './fixture.js';
 
 const FIXED_IDS = [
@@ -81,7 +87,11 @@ describe('renderViewerPage', () => {
   });
 
   it('loads no external resources', () => {
-    expect(html).not.toMatch(/<link\b/i);
+    // The only <link> is the favicon, inlined as a data: URI.
+    const links = [...html.matchAll(/<link\b[^>]*>/gi)].map((m) => m[0]);
+    expect(links).toEqual([
+      `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,${encodeURIComponent(FAVICON_SVG)}">`,
+    ]);
     expect(html).not.toMatch(/\ssrc=/i);
     expect(html).not.toMatch(/@import|url\(/i);
     // The only absolute URLs are og:url and the link inside message content.

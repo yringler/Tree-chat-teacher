@@ -8,7 +8,6 @@ interface __BaseEnv_Env {
 	KEY_RATE_LIMITER: RateLimit;
 	ASSETS: Fetcher;
 	PUBLIC_BASE_URL: string;
-	ALLOWED_EMAILS: string;
 	EMAIL_PROVIDER: string;
 	EMAIL_FROM: string;
 	TURNSTILE_SITE_KEY: string;
@@ -42,7 +41,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "PUBLIC_BASE_URL" | "ALLOWED_EMAILS" | "EMAIL_PROVIDER" | "EMAIL_FROM" | "TURNSTILE_SITE_KEY" | "PROVIDERS" | "SUMMARY_PROVIDER_ID" | "SUMMARY_MODEL" | "AUTO_TITLE" | "OPEN_SIGNUP" | "SIMPLE_SMART_MODEL" | "SIMPLE_FAST_MODEL" | "SIMPLE_PROVIDER" | "SIMPLE_MAX_INPUT_TOKENS" | "SIMPLE_SYSTEM_PROMPT" | "USAGE_HOLD_MICROS" | "OPENROUTER_FEE_BPS" | "MARKUP_PREPAID_BPS" | "MARKUP_MONTHLY_BPS" | "STRIPE_CREDITS_PRODUCT_ID" | "STRIPE_PLANS">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "PUBLIC_BASE_URL" | "EMAIL_PROVIDER" | "EMAIL_FROM" | "TURNSTILE_SITE_KEY" | "PROVIDERS" | "SUMMARY_PROVIDER_ID" | "SUMMARY_MODEL" | "AUTO_TITLE" | "OPEN_SIGNUP" | "SIMPLE_SMART_MODEL" | "SIMPLE_FAST_MODEL" | "SIMPLE_PROVIDER" | "SIMPLE_MAX_INPUT_TOKENS" | "SIMPLE_SYSTEM_PROMPT" | "USAGE_HOLD_MICROS" | "OPENROUTER_FEE_BPS" | "MARKUP_PREPAID_BPS" | "MARKUP_MONTHLY_BPS" | "STRIPE_CREDITS_PRODUCT_ID" | "STRIPE_PLANS">> {}
 }
 
 // Begin runtime types
