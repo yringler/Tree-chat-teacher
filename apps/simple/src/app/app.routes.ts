@@ -1,5 +1,5 @@
 import type { Routes } from '@angular/router';
-import { LoginPage } from '@tangent/web-shared';
+import { BillingPage, LoginPage } from '@tangent/web-shared';
 import { BRAND } from './brand';
 import { ChatPage } from './chat/chat-page';
 import { HomePage } from './home/home-page';
@@ -12,7 +12,8 @@ import { HomePage } from './home/home-page';
  * RouteSync reads the selection from the URL.
  *
  * `login` is only ever reached by a full page load (see AuthService); its
- * copy comes from route data through `withComponentInputBinding()`.
+ * copy comes from route data through `withComponentInputBinding()`, as do
+ * the shared billing page's home link and Stripe return path.
  */
 export const routes: Routes = [
   { path: '', component: HomePage, title: BRAND },
@@ -35,8 +36,9 @@ export const routes: Routes = [
   },
   {
     path: 'billing',
+    component: BillingPage,
     title: `Billing · ${BRAND}`,
-    loadComponent: () => import('./billing/billing-page').then((m) => m.BillingPage),
+    data: { homePath: '/', homeLabel: 'Lessons', billingPath: '/learn/billing' },
   },
   { path: '**', redirectTo: '' },
 ];

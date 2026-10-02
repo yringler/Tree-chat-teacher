@@ -15,6 +15,7 @@ import {
   ApiClient,
   ApiError,
   errorMessage,
+  isMembershipRequired,
   isPaymentRequired,
   runStream,
   type StreamOutcome,
@@ -60,7 +61,8 @@ function upsertById<T extends { id: string }>(list: readonly T[], items: readonl
  * TreeStore: `runStream` reconnects through `GET /api/nodes/:id/stream`, Stop
  * asks the server to cancel (the stream then ends with an `error` event),
  * and replies still running when a lesson is opened are re-attached.
- * A 402 (out of credit) sends the learner to the billing page.
+ * A 402 `payment_required` (out of credit) sends the learner to the billing
+ * page; a 402 `membership_required` shows the membership gate.
  */
 @Injectable({ providedIn: 'root' })
 export class LessonStore {
@@ -376,7 +378,11 @@ export class LessonStore {
       this.finish(nodeId, outcome);
       return true;
     } catch (err) {
-      if (isPaymentRequired(err) || (err instanceof ApiError && err.code === 'key_required')) {
+      if (
+        isPaymentRequired(err) ||
+        isMembershipRequired(err) ||
+        (err instanceof ApiError && err.code === 'key_required')
+      ) {
         this.unsentDraft.set({ branchId, text: content });
       }
       this.fail(err);
@@ -397,10 +403,15 @@ export class LessonStore {
   }
 
   /**
-   * Reports an error. Out of credit (402) goes to the billing page; a missing
+   * Reports an error. No membership (402 membership_required) shows the gate;
+   * out of credit (402 payment_required) goes to the billing page; a missing
    * or unreadable own key (401 key_required) opens the payment dialog.
    */
   fail(err: unknown): void {
+    if (isMembershipRequired(err)) {
+      this.account.membershipRequired();
+      return;
+    }
     if (err instanceof ApiError && err.code === 'key_required') {
       this.ui.notify(err.message, 'error');
       void this.account.refreshKey();

@@ -1,12 +1,12 @@
-import { DestroyRef, inject, Injectable } from '@angular/core';
+import { DestroyRef, inject, Injectable, signal } from '@angular/core';
 import { type ActivatedRouteSnapshot, NavigationEnd, Router } from '@angular/router';
 import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
 
 /**
  * Pushes `/t/:treeId[/b/:branchId]?m=<nodeId>` into the LessonStore after
- * every navigation, and re-reads the balance after leaving the billing page
- * (a top-up or plan change happened there).
+ * every navigation, and re-reads the balance and membership after leaving
+ * the billing page (a top-up, a subscription or a code may have happened there).
  */
 @Injectable({ providedIn: 'root' })
 export class RouteSync {
@@ -14,6 +14,8 @@ export class RouteSync {
   private readonly store = inject(LessonStore);
   private readonly account = inject(AccountStore);
   private lastUrl = '';
+  /** The app URL (`/billing`, `/t/…`) after the latest navigation; '' before the first. */
+  readonly url = signal('');
 
   start(destroyRef: DestroyRef): void {
     const sub = this.router.events.subscribe((e) => {
@@ -21,6 +23,7 @@ export class RouteSync {
       this.sync();
       const wasBilling = this.lastUrl.startsWith('/billing');
       this.lastUrl = e.urlAfterRedirects;
+      this.url.set(this.lastUrl);
       if (wasBilling && !this.lastUrl.startsWith('/billing')) void this.account.refreshBalance();
     });
     destroyRef.onDestroy(() => sub.unsubscribe());

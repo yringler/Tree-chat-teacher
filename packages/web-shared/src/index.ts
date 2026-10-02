@@ -10,6 +10,7 @@ export {
   ApiClient,
   ApiError,
   errorMessage,
+  isMembershipRequired,
   isPaymentRequired,
   type ExportParams,
 } from './core/api-client';
@@ -63,3 +64,19 @@ export { ModeSwitch } from './ui/mode-switch';
 export { Turnstile } from './ui/turnstile';
 export { LoginPage } from './login/login-page';
 export { DeleteAccount } from './account/delete-account';
+
+// Billing: the shared billing page, the membership gate and their helpers
+export { BillingPage } from './billing/billing-page';
+export { BILLING_SUMMARY_LISTENER } from './billing/billing-listener';
+export { MembershipGate } from './billing/membership-gate';
+export { MembershipCodeForm } from './billing/membership-code-form';
+export {
+  creditFeeText,
+  includedCreditText,
+  membershipBlocks,
+  membershipCheckoutPaths,
+  membershipPriceText,
+  membershipStatusText,
+  subscribeToMembership,
+} from './billing/membership';
+export { formatBps, formatCents, formatCharge, formatMicros } from './billing/format';

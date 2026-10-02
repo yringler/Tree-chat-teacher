@@ -1,6 +1,15 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { ApiClient, APP_PATHS, AuthService, DEMO_MODE, Icon } from '@tangent/web-shared';
+import type { MembershipInfo } from '@tangent/shared';
+import {
+  ApiClient,
+  APP_PATHS,
+  AuthService,
+  DEMO_MODE,
+  Icon,
+  MembershipGate,
+} from '@tangent/web-shared';
+import { BRAND } from './brand';
 import { RouteSync } from './core/route-sync';
 import { DEMO_SIGNUP_URL } from './demo/demo-mode';
 import { AppHeader } from './shell/app-header';
@@ -14,13 +23,21 @@ import { UiStore } from './state/ui-store';
 /** Simple-mode shell, served under /learn/. */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, AppHeader, ModelAccessDialog, PasskeysDialog, DeleteAccountDialog, Icon],
+  imports: [
+    RouterOutlet,
+    AppHeader,
+    ModelAccessDialog,
+    PasskeysDialog,
+    DeleteAccountDialog,
+    Icon,
+    MembershipGate,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (loginPage) {
       <router-outlet />
     } @else {
-      <div class="shell">
+      <div class="shell" [attr.inert]="gate() ? '' : null">
         <app-header />
         @if (demo) {
           <p class="demo-banner" role="note">
@@ -45,6 +62,14 @@ import { UiStore } from './state/ui-store';
       @if (ui.accessOpen()) {
         <app-model-access-dialog />
       }
+      @if (gate(); as membership) {
+        <app-membership-gate
+          [membership]="membership"
+          [appName]="brand"
+          billingPath="/learn/billing"
+          (redeemed)="account.setMembership($event)"
+        />
+      }
     }
 
     <div class="toasts" role="status" aria-live="polite">
@@ -63,12 +88,14 @@ import { UiStore } from './state/ui-store';
 export class App {
   protected readonly ui = inject(UiStore);
   private readonly lessons = inject(LessonStore);
-  private readonly account = inject(AccountStore);
+  protected readonly account = inject(AccountStore);
+  private readonly routeSync = inject(RouteSync);
   private readonly auth = inject(AuthService);
   private readonly api = inject(ApiClient);
   /** `/learn/demo/`: an in-browser backend, no sign-in (see @tangent/web-shared/demo). */
   protected readonly demo = inject(DEMO_MODE);
   protected readonly signupUrl = DEMO_SIGNUP_URL;
+  protected readonly brand = BRAND;
   /** The signed-in caller is known. */
   protected readonly ready = this.account.me;
   /**
@@ -78,9 +105,21 @@ export class App {
   protected readonly loginPage =
     !this.demo && location.pathname.replace(/\/+$/, '') === inject(APP_PATHS).login;
 
+  /**
+   * The membership to ask for while generating is blocked; never over the
+   * billing page (where the learner subscribes), the login page or the demo.
+   * Waits for the first navigation so it doesn't flash over `/billing`.
+   */
+  protected readonly gate = computed<MembershipInfo | null>(() => {
+    if (this.demo || this.loginPage) return null;
+    const url = this.routeSync.url();
+    if (!url || url === '/billing' || url.startsWith('/billing?')) return null;
+    return this.account.membershipBlocked() ? this.account.membership() : null;
+  });
+
   constructor() {
     if (this.loginPage) return;
-    inject(RouteSync).start(inject(DestroyRef));
+    this.routeSync.start(inject(DestroyRef));
     void this.boot();
   }
 

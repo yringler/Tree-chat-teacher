@@ -12,6 +12,8 @@ import type {
   DeleteAccountRequest,
   DeleteBranchResponse,
   KeyStatusResponse,
+  MembershipInfo,
+  MembershipWaiverRequest,
   MeResponse,
   ProviderInfo,
   ReviewRequest,
@@ -105,7 +107,7 @@ export class ApiClient {
     return this.json('DELETE', '/key', provider ? { provider } : {});
   }
 
-  // Billing (Learn mode; power gets 403)
+  // Billing (both apps: the membership and the credit are per user)
 
   billing(): Promise<BillingSummary> {
     return this.json('GET', '/billing');
@@ -123,6 +125,17 @@ export class ApiClient {
   /** Starts a one-time credit top-up; resolves with the Stripe Checkout URL to send the browser to. */
   createCheckout(amountCents: number): Promise<CheckoutResponse> {
     return this.json('POST', '/billing/checkout', { amountCents });
+  }
+
+  /**
+   * Redeems the operator's code to waive the membership fee; resolves with the
+   * new membership. A wrong code is 403 `forbidden`, too many tries 429
+   * `rate_limited`, and a server without a code 400 `bad_request`.
+   */
+  redeemMembershipWaiver(code: string): Promise<MembershipInfo> {
+    return this.json('POST', '/billing/membership/waiver', {
+      code,
+    } satisfies MembershipWaiverRequest);
   }
 
   // Account settings (server-side, per account)
@@ -321,7 +334,12 @@ export function errorMessage(err: unknown): string {
   return String(err);
 }
 
-/** True for a 402 `payment_required` ApiError (a simple account is out of credit). */
+/** True for a 402 `payment_required` ApiError (out of credit for the built-in provider). */
 export function isPaymentRequired(err: unknown): boolean {
   return err instanceof ApiError && err.code === 'payment_required';
+}
+
+/** True for a 402 `membership_required` ApiError (generating needs the yearly membership). */
+export function isMembershipRequired(err: unknown): boolean {
+  return err instanceof ApiError && err.code === 'membership_required';
 }

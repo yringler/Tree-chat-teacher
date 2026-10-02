@@ -2,7 +2,7 @@ import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classe
 import { Injector, type Provider } from '@angular/core';
 import type { BillingSummary, UsageListResponse } from '@tangent/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiClient, ApiError, isPaymentRequired } from './api-client';
+import { ApiClient, ApiError, isMembershipRequired, isPaymentRequired } from './api-client';
 import { API_FETCH, API_HEADERS } from './api-fetch';
 
 type FetchArgs = [input: string, init: RequestInit];
@@ -105,6 +105,45 @@ describe('ApiClient billing', () => {
     expect(isPaymentRequired(err)).toBe(true);
     expect(isPaymentRequired(new ApiError(403, 'forbidden', 'x'))).toBe(false);
     expect(isPaymentRequired(new Error('x'))).toBe(false);
+  });
+});
+
+describe('ApiClient membership waiver', () => {
+  let fetchMock: ReturnType<typeof vi.fn<(...args: FetchArgs) => Promise<Response>>>;
+  const api = createApi();
+
+  beforeEach(() => {
+    fetchMock = vi.fn<(...args: FetchArgs) => Promise<Response>>();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('redeemMembershipWaiver() POSTs the code and resolves with the membership', async () => {
+    const waived = { ...SUMMARY.membership, required: true, status: 'waived' as const };
+    fetchMock.mockResolvedValueOnce(jsonResponse(waived));
+    await expect(api.redeemMembershipWaiver('FRIENDS-2026')).resolves.toEqual(waived);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('/api/billing/membership/waiver');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(String(init.body))).toEqual({ code: 'FRIENDS-2026' });
+  });
+
+  it('a wrong code rejects with the 403 forbidden ApiError', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ error: { code: 'forbidden', message: 'That code is not valid' } }, 403),
+    );
+    const err = await api.redeemMembershipWaiver('nope').catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 403, code: 'forbidden' });
+  });
+
+  it('isMembershipRequired() tells the membership 402 from the credit one', () => {
+    expect(isMembershipRequired(new ApiError(402, 'membership_required', 'x'))).toBe(true);
+    expect(isPaymentRequired(new ApiError(402, 'membership_required', 'x'))).toBe(false);
+    expect(isMembershipRequired(new ApiError(402, 'payment_required', 'x'))).toBe(false);
+    expect(isMembershipRequired(new Error('x'))).toBe(false);
   });
 });
 

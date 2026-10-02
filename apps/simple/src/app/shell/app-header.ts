@@ -70,9 +70,9 @@ import { UiStore } from '../state/ui-store';
                 How replies are paid for
               </button>
             }
-            @if (account.payment.builtInCredit()) {
+            @if (account.payment.builtInCredit() || account.membership()?.required) {
               <a routerLink="/billing" class="menu-item" role="menuitem" (click)="close()">
-                Billing and credit
+                {{ account.payment.builtInCredit() ? 'Billing and credit' : 'Billing' }}
               </a>
             }
             @if (!demo) {

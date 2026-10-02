@@ -511,7 +511,7 @@ The rest of this section describes the power app (`apps/web`).
 
 - `/learn/`: the lesson list and "New lesson";
 - `/learn/t/:treeId[/b/:branchId]`: the chat with streaming, a Smart/Simple toggle, "Ask about this" (a `path` branch from selected text), the tangents each reply ends with (buttons parsed from the reply's `<tangents>` block; one tap makes a `path` branch titled after the tangent and sends the title as its first message) and a simple branch list;
-- `/learn/billing`: balance, top-ups, "Manage billing" (Customer Portal) and recent usage (the membership section comes with the shared billing page);
+- `/learn/billing`: the shared billing page (`BillingPage` in `@tangent/web-shared`, also power's `/billing`): the membership (status, Subscribe, "Have a code?", "Manage billing" in the Customer Portal) and, where credit is sold, balance, top-ups and recent usage; while the membership blocks generating, the shared `MembershipGate` panel covers the rest of the app;
 - `/learn/login`: the shared `LoginPage`.
 
 There is no inspector, reviewer, shares, export, BYOK, context-mode or model picker, or system prompt editor (the API's `/api/settings` works for Learn accounts too, but the app has no UI for it). A 402 sends the user to the billing page.
