@@ -57,15 +57,12 @@
     // Public origin: share links, sign-in callbacks, magic links and the passkey relying party.
     // Empty = derive from the request URL (local dev and tests only).
     "PUBLIC_BASE_URL": "https://tangentailearning.com",
-    // Who may sign in: comma-separated emails, or "@example.com" for a whole domain.
-    // Empty = nobody (fails closed). Everyone listed shares the one built-in account.
-    "ALLOWED_EMAILS": "",
     // Email delivery for magic links: "resend" (needs RESEND_API_KEY) or "log" (localhost only).
     "EMAIL_PROVIDER": "resend",
     // Sender for magic links; its domain must be verified in Resend.
     "EMAIL_FROM": "Tangent <login@email.tangentailearning.com>",
     // Cloudflare Turnstile site key (public) for the magic-link form. Its secret is TURNSTILE_SECRET_KEY.
-    "TURNSTILE_SITE_KEY": "",
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFLlFryv5vXul-MG",
     // JSON array of ProviderConfig; empty = built-in defaults (anthropic, openai, openrouter, fake).
     "PROVIDERS": "",
     // Provider/model for summaries; empty = use the branch's provider/model.
@@ -76,6 +73,8 @@
   // Secrets (wrangler secret put): ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_TOKEN,
   //   KEY_ENCRYPTION_SECRET (`openssl rand -base64 32`; enables bring-your-own-key, rotate to revoke all stored keys)
   //   BETTER_AUTH_SECRET (`openssl rand -base64 32`; signs session cookies, rotate to sign everyone out)
+  //   ALLOWED_EMAILS (who may sign in: comma-separated emails, or "@example.com" for a whole domain;
+  //     unset = nobody. A secret so the addresses stay out of git; everyone listed shares one account)
   //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET (each pair optional)
   //   TURNSTILE_SECRET_KEY, RESEND_API_KEY
   // Local only (.dev.vars): DEV_ALLOW_NO_AUTH=true (honoured only while BETTER_AUTH_SECRET is unset)
