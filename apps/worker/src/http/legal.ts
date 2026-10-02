@@ -218,7 +218,7 @@ export function renderTermsPage(info: LegalInfo): string {
 <p>If you believe content shared through Tangent infringes your copyright, send a notice to ${contact} with: your contact details, the work you claim is infringed, the share link, a statement that you believe in good faith the use isn't authorized, and a statement under penalty of perjury that your notice is accurate and that you are the owner or authorized to act for them, with your physical or electronic signature. We remove infringing content and close the accounts of repeat infringers.</p>
 
 <h2>9. Our rights</h2>
-<p>The Tangent software, design, name and logo belong to ${op} and its licensors. "Tangent" and the Tangent logo are our trademarks; these terms don't give you any right to use them.</p>
+<p>Tangent's source code is open source under the MIT License, which governs your use of the code itself. The hosted service, its design, and the name and logo belong to ${op}. "Tangent" and the Tangent logo are our trademarks; neither these terms nor the MIT License give you any right to use them, so a copy you run yourself must use a different name and logo.</p>
 
 <h2>10. Changes and availability</h2>
 <p>We may change, suspend or stop all or part of Tangent. We'll give reasonable notice of significant changes to these terms (in the app or by email); continuing to use Tangent after they take effect means you accept them. If we shut Tangent down we will give you time to export your conversations.</p>

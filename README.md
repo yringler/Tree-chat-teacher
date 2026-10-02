@@ -59,6 +59,10 @@ apps/web            Power app at /: Angular 22 (standalone, signals, zoneless)
 apps/simple         Simple "Learn" app at /learn/: Angular 22
 ```
 
+## License
+
+The code is released under the [MIT License](LICENSE), © 2026 Yehuda Ringler. The license covers the code only: "Tangent" and the Tangent logo are trademarks and aren't licensed, so a deployment you run yourself must use its own name and logo, and its own privacy policy and terms (set the `LEGAL_*` vars; see [docs/LEGAL.md](docs/LEGAL.md)).
+
 ## Requirements
 
 - **Node ≥ 22.22.3**. Node 24 is recommended (`.nvmrc`), and the Angular 22 CLI refuses older versions.

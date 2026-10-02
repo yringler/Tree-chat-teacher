@@ -6,16 +6,16 @@ Status: **done** = handled in code; **you** = an action for the operator (outsid
 
 ## 1. Public privacy policy and terms of service
 
-| Item                                                         | Status  | Where                                                                             |
-| ------------------------------------------------------------ | ------- | --------------------------------------------------------------------------------- |
-| Privacy policy at a public URL (`/privacy`)                  | done    | `apps/worker/src/http/legal.ts`                                                   |
-| Terms of service at a public URL (`/terms`)                  | done    | same                                                                              |
-| Linked from the landing page footer, sign-in page, both apps | done    | `landing.ts`, `login-page.ts`, account dialog / account menu                      |
-| Sign-in shows "you agree to the Terms and Privacy policy"    | done    | `packages/web-shared/src/login/login-page.ts`                                     |
-| Operator name, contact mailbox, governing law                | **you** | `LEGAL_OPERATOR`, `LEGAL_CONTACT_EMAIL`, `LEGAL_JURISDICTION` in `wrangler.jsonc` |
-| A real mailbox at the contact address                        | **you** | Cloudflare Email Routing can forward `privacy@tangentailearning.com` for free     |
+| Item                                                         | Status                     | Where                                                                             |
+| ------------------------------------------------------------ | -------------------------- | --------------------------------------------------------------------------------- |
+| Privacy policy at a public URL (`/privacy`)                  | done                       | `apps/worker/src/http/legal.ts`                                                   |
+| Terms of service at a public URL (`/terms`)                  | done                       | same                                                                              |
+| Linked from the landing page footer, sign-in page, both apps | done                       | `landing.ts`, `login-page.ts`, account dialog / account menu                      |
+| Sign-in shows "you agree to the Terms and Privacy policy"    | done                       | `packages/web-shared/src/login/login-page.ts`                                     |
+| Operator name, contact mailbox, governing law                | done (Yehuda Ringler, USA) | `LEGAL_OPERATOR`, `LEGAL_CONTACT_EMAIL`, `LEGAL_JURISDICTION` in `wrangler.jsonc` |
+| A real mailbox at the contact address                        | **you**                    | Cloudflare Email Routing can forward `privacy@tangentailearning.com` for free     |
 
-Until `LEGAL_OPERATOR` is set, the pages and footers say "the operator of tangentailearning.com", which is not a legal person. Set it to your own name or your company's.
+Set to Yehuda Ringler, governed by the laws of the United States. US contract law is mostly state law, so a lawyer will usually name a state too (e.g. "the State of New York, USA"); change `LEGAL_JURISDICTION` if you form a company or settle on one. If you form an LLC, change `LEGAL_OPERATOR` to it and assign it the trademark.
 
 **Keep the policy true.** It describes what the code does: which tables hold what, which cookies exist, which services receive data. When a change adds a table, a cookie, a log, an analytics script or a new service provider, update `renderPrivacyPage` and bump `LEGAL_UPDATED` in the same change. The policy currently promises:
 
@@ -49,16 +49,16 @@ Copyright and trademark protect different things:
 - **Copyright** covers original creative works: the source code, the page text, the logo artwork. It exists automatically when the work is created; no registration is needed (in the US, registration is needed only to sue and to claim statutory damages). It does **not** protect names, titles or short phrases.
 - **Trademark** protects a name or logo as a brand for particular goods and services. This is what protects "Tangent" and the logo.
 
-| Item                                                                                                                                                                                                                                                                                                                                                                                        | Status         |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| Footer line "© {year} {operator}. Tangent and the Tangent logo are trademarks of {operator}." on the landing and legal pages                                                                                                                                                                                                                                                                | done           |
-| Terms §9 reserves the software, name and logo                                                                                                                                                                                                                                                                                                                                               | done           |
-| **Trademark search** before investing more in the name: "Tangent" is a common English word and likely already registered by other software and education companies (USPTO classes 9 and 42 for software, 41 for education). Search the USPTO trademark database, EUIPO, and app stores. A conflict found now costs a rename; one found later costs a rebrand and possibly damages           | **you**        |
-| Using "™" needs no registration. "®" only after registration. US registration costs roughly $350 per class at the USPTO; consider registering a more distinctive name or the logo                                                                                                                                                                                                           | **you**        |
-| The logo is a simple geometric mark. It may be too simple for copyright, which is another reason trademark is the relevant protection                                                                                                                                                                                                                                                       | note           |
-| **Repository license.** There is no `LICENSE` file, so the code is "all rights reserved" by default, yet the landing page invites power users to "self-host it on your own Cloudflare account". Either add an open-source license (MIT or Apache-2.0 for maximum adoption, AGPL-3.0 to make hosted forks share their changes) or remove the self-hosting claim and add a proprietary notice | **you**        |
-| Dependency licenses: production dependencies are MIT, Apache-2.0, BSD, ISC, PSF-2.0 and MPL-2.0 (`pnpm licenses list --prod`). None is copyleft for a hosted service. If you distribute the code, keep their notices                                                                                                                                                                        | done (checked) |
-| AI output: in most jurisdictions purely AI-generated text has no copyright owner. The terms say we claim no rights in replies, which is the safe position                                                                                                                                                                                                                                   | done           |
+| Item                                                                                                                                                                                                                                                                                                                                                                              | Status         |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| Footer line "© {year} {operator}. Tangent and the Tangent logo are trademarks of {operator}." on the landing and legal pages                                                                                                                                                                                                                                                      | done           |
+| Terms §9 reserves the software, name and logo                                                                                                                                                                                                                                                                                                                                     | done           |
+| **Trademark search** before investing more in the name: "Tangent" is a common English word and likely already registered by other software and education companies (USPTO classes 9 and 42 for software, 41 for education). Search the USPTO trademark database, EUIPO, and app stores. A conflict found now costs a rename; one found later costs a rebrand and possibly damages | **you**        |
+| Using "™" needs no registration. "®" only after registration. US registration costs roughly $350 per class at the USPTO; consider registering a more distinctive name or the logo                                                                                                                                                                                                 | **you**        |
+| The logo is a simple geometric mark. It may be too simple for copyright, which is another reason trademark is the relevant protection                                                                                                                                                                                                                                             | note           |
+| **Repository license**: MIT (`LICENSE`, © 2026 Yehuda Ringler). It covers the code only; the README and terms §9 say the name and logo are not licensed, so self-hosted copies must rebrand                                                                                                                                                                                       | done           |
+| Dependency licenses: production dependencies are MIT, Apache-2.0, BSD, ISC, PSF-2.0 and MPL-2.0 (`pnpm licenses list --prod`). None is copyleft for a hosted service. If you distribute the code, keep their notices                                                                                                                                                              | done (checked) |
+| AI output: in most jurisdictions purely AI-generated text has no copyright owner. The terms say we claim no rights in replies, which is the safe position                                                                                                                                                                                                                         | done           |
 
 ## 4. Payments, credit and tax
 
@@ -136,13 +136,12 @@ The European Accessibility Act (in force June 2025) and the ADA (US) apply to co
 
 ## 11. Before launch, in order
 
-1. Set `LEGAL_OPERATOR`, `LEGAL_JURISDICTION`; create the `privacy@` mailbox.
+1. Create the `privacy@` mailbox (operator and jurisdiction are set).
 2. Trademark search on "Tangent"; decide whether to keep the name.
-3. Decide the repository license; add `LICENSE` or drop the self-hosting claim.
-4. Stripe public details (terms, privacy, refund policy, support email); then enable Checkout terms consent.
-5. Google OAuth consent screen URLs; GitHub app homepage.
-6. Check the DPAs (Resend, OpenRouter; Cloudflare's and Stripe's come with their terms).
-7. OpenRouter data-collection setting.
-8. Register a DMCA agent.
-9. Register for sales tax / VAT as Stripe Tax's thresholds are reached; consider an LLC.
-10. Lawyer review of `/privacy` and `/terms`.
+3. Stripe public details (terms, privacy, refund policy, support email); then enable Checkout terms consent.
+4. Google OAuth consent screen URLs; GitHub app homepage.
+5. Check the DPAs (Resend, OpenRouter; Cloudflare's and Stripe's come with their terms).
+6. OpenRouter data-collection setting.
+7. Register a DMCA agent.
+8. Register for sales tax / VAT as Stripe Tax's thresholds are reached; consider an LLC.
+9. Lawyer review of `/privacy` and `/terms`.
