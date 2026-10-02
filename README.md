@@ -58,6 +58,7 @@ Design docs:
 - [docs/PLAN.md](docs/PLAN.md): architecture, data model, interfaces, the context algorithm and portability.
 - [docs/DECISIONS.md](docs/DECISIONS.md): one-line decision log.
 - [docs/RESEARCH.md](docs/RESEARCH.md): research notes, with sources.
+- [docs/DEFERRED.md](docs/DEFERRED.md): known gaps and follow-ups left out of a change, with what fixing them takes.
 
 ```
 packages/shared     domain types, API + SSE contract (zod), share DTO
