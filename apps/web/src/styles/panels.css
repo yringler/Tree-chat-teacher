@@ -154,8 +154,13 @@
 .seg-sources {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px 4px;
+  gap: 2px 6px;
   align-items: center;
+}
+
+.seg-source {
+  font-family: inherit;
+  font-size: inherit;
 }
 
 .seg-text,

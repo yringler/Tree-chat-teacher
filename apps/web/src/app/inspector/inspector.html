@@ -111,7 +111,13 @@
     @if (tab() === 'segments') {
       <ol class="segments" role="tabpanel">
         @for (s of d.plan.segments; track s.id) {
-          <li><app-segment-card [segment]="s" (focusNode)="focusNode($event)" /></li>
+          <li>
+            <app-segment-card
+              [segment]="s"
+              [labels]="sourceLabels()"
+              (focusNode)="focusNode($event)"
+            />
+          </li>
         } @empty {
           <li class="muted small">Nothing is sent yet.</li>
         }

@@ -7,6 +7,7 @@ import {
   type OnInit,
   signal,
 } from '@angular/core';
+import { plainText } from '@tangent/core';
 import { parseReview } from '@tangent/shared';
 import { copyText } from '../core/selection';
 import { Icon, MarkdownService, Modal } from '@tangent/web-shared';
@@ -173,7 +174,7 @@ export class ReviewDialog implements OnInit {
     this.providerId() ? { providerId: this.providerId(), model: this.modelId() } : null,
   );
   protected readonly excerpt = computed(() => {
-    const text = (this.node()?.content ?? '').replace(/\s+/g, ' ').trim();
+    const text = plainText(this.node()?.content ?? '');
     return text.length > EXCERPT_CHARS ? `${text.slice(0, EXCERPT_CHARS - 1)}…` : text;
   });
   /** The branch already runs on the reviewer's model. */

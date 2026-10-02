@@ -1,5 +1,8 @@
 import {
   DEFAULT_ACCOUNT_ID,
+  DEFAULT_BRANCH_TITLE_PREFIX,
+  DEFAULT_TREE_TITLE,
+  TRUNK_TITLE,
   createBranchRequestSchema,
   createTreeRequestSchema,
   treeBackupSchema,
@@ -35,6 +38,7 @@ import {
   buildSummaryPrompt,
   buildTitlePrompt,
   cleanTitle,
+  plainText,
   renderPlan,
 } from '../context/render.js';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
@@ -64,8 +68,7 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   autoTitle: true,
 };
 
-export const DEFAULT_TREE_TITLE = 'New conversation';
-export const TRUNK_TITLE = 'Main thread';
+export { DEFAULT_TREE_TITLE, TRUNK_TITLE };
 const MAX_RESOLVE_ROUNDS = 4;
 const TITLE_TIMEOUT_MS = 15_000;
 
@@ -920,9 +923,10 @@ function subtreeBranchIds(branches: readonly Branch[], rootId: string): string[]
 }
 
 function defaultBranchTitle(anchorQuote: string | null, node: ChatNode): string {
-  const source = (anchorQuote ?? node.content).replace(/\s+/g, ' ').trim();
+  // A quote is plain text already; a message is Markdown ("**a confident kitten**").
+  const source = anchorQuote ? anchorQuote.replace(/\s+/g, ' ').trim() : plainText(node.content);
   if (!source) return 'New branch';
   const words = source.split(' ').slice(0, 6).join(' ');
   const clipped = words.length > 48 ? `${words.slice(0, 47)}…` : words;
-  return anchorQuote ? clipped : `Branch: ${clipped}`;
+  return anchorQuote ? clipped : `${DEFAULT_BRANCH_TITLE_PREFIX}${clipped}`;
 }

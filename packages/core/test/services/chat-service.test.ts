@@ -48,6 +48,19 @@ describe('ChatService trees and branches', () => {
     expect(branch.title).toContain('bind operator');
   });
 
+  it('titles a branch off a whole message by its first words, without Markdown markup', async () => {
+    const { chat } = setup();
+    const { tree } = await chat.createTree({ title: 'T' });
+    const { begin } = await send(
+      chat,
+      tree.trunkBranchId,
+      '## Heading\n\n**Bold** _idea_ about `code` and more words than fit in a title',
+    );
+    const branch = await chat.createBranch({ fromNodeId: begin.userNode.id });
+    expect(branch.title).toBe('Branch: Heading Bold idea about code and');
+    expect(branch.titleSource).toBe('default');
+  });
+
   it('refuses to set a mode on the trunk', async () => {
     const { chat } = setup();
     const { tree } = await chat.createTree({});
@@ -89,9 +102,24 @@ describe('ChatService.deleteBranch', () => {
 
   it('deletes the branch with its descendants, their messages, summaries and shares', async () => {
     const { chat, repos, shares, tree, m1, a, aMsg, a1, a1Msg, b, bMsg } = await fixture();
-    const doomedShare = await shares.create({ treeId: tree.id, scope: 'path', nodeId: a1Msg.begin.assistantNode.id });
-    const keptShare = await shares.create({ treeId: tree.id, scope: 'path', nodeId: bMsg.begin.assistantNode.id });
-    const summary = { sourceHash: 'h', model: 'm1', providerId: 'scripted', treeId: tree.id, content: 's', createdAt: 'x' };
+    const doomedShare = await shares.create({
+      treeId: tree.id,
+      scope: 'path',
+      nodeId: a1Msg.begin.assistantNode.id,
+    });
+    const keptShare = await shares.create({
+      treeId: tree.id,
+      scope: 'path',
+      nodeId: bMsg.begin.assistantNode.id,
+    });
+    const summary = {
+      sourceHash: 'h',
+      model: 'm1',
+      providerId: 'scripted',
+      treeId: tree.id,
+      content: 's',
+      createdAt: 'x',
+    };
     await repos.summaries.putSummary({ ...summary, anchorNodeId: aMsg.begin.assistantNode.id });
     await repos.summaries.putSummary({ ...summary, anchorNodeId: m1.begin.assistantNode.id });
     const before = (await chat.getTreeDetail(tree.id)).tree.updatedAt;
@@ -101,7 +129,12 @@ describe('ChatService.deleteBranch', () => {
     expect(res.treeId).toBe(tree.id);
     expect(res.branchIds).toEqual([a.id, a1.id]);
     expect(res.nodeIds.sort()).toEqual(
-      [aMsg.begin.userNode.id, aMsg.begin.assistantNode.id, a1Msg.begin.userNode.id, a1Msg.begin.assistantNode.id].sort(),
+      [
+        aMsg.begin.userNode.id,
+        aMsg.begin.assistantNode.id,
+        a1Msg.begin.userNode.id,
+        a1Msg.begin.assistantNode.id,
+      ].sort(),
     );
     const detail = await chat.getTreeDetail(tree.id);
     expect(detail.branches.map((x) => x.id).sort()).toEqual([tree.trunkBranchId, b.id].sort());
@@ -145,8 +178,17 @@ describe('ChatService sending', () => {
     const { chat, repos } = setup({ autoTitle: false });
     const { tree } = await chat.createTree({});
     const { begin, events, last } = await send(chat, tree.trunkBranchId, 'Hello there');
-    expect(begin.userNode).toMatchObject({ seq: 0, parentId: null, role: 'user', status: 'complete' });
-    expect(begin.assistantNode).toMatchObject({ seq: 1, parentId: begin.userNode.id, status: 'streaming' });
+    expect(begin.userNode).toMatchObject({
+      seq: 0,
+      parentId: null,
+      role: 'user',
+      status: 'complete',
+    });
+    expect(begin.assistantNode).toMatchObject({
+      seq: 1,
+      parentId: begin.userNode.id,
+      status: 'streaming',
+    });
     const text = events
       .filter((e) => e.type === 'delta')
       .map((e) => (e.type === 'delta' ? e.text : ''))
@@ -176,14 +218,20 @@ describe('ChatService sending', () => {
     const first = await send(chat, tree.trunkBranchId, 'one');
     const branch = await chat.createBranch({ fromNodeId: first.begin.userNode.id });
     const { begin } = await send(chat, branch.id, 'side question');
-    expect(begin.userNode).toMatchObject({ branchId: branch.id, seq: 0, parentId: first.begin.userNode.id });
+    expect(begin.userNode).toMatchObject({
+      branchId: branch.id,
+      seq: 0,
+      parentId: first.begin.userNode.id,
+    });
   });
 
   it('rejects a second send while the leaf is streaming', async () => {
     const { chat } = setup();
     const { tree } = await chat.createTree({});
     await chat.beginSend(tree.trunkBranchId, 'first');
-    await expect(chat.beginSend(tree.trunkBranchId, 'second')).rejects.toBeInstanceOf(ConflictError);
+    await expect(chat.beginSend(tree.trunkBranchId, 'second')).rejects.toBeInstanceOf(
+      ConflictError,
+    );
   });
 
   it('sends only the path context: siblings never leak', async () => {
@@ -220,7 +268,10 @@ describe('ChatService sending', () => {
     const { chat, provider, repos } = setup({ autoTitle: false });
     const { tree } = await chat.createTree({});
     const root = await send(chat, tree.trunkBranchId, 'long discussion');
-    const b = await chat.createBranch({ fromNodeId: root.begin.assistantNode.id, contextMode: 'summary' });
+    const b = await chat.createBranch({
+      fromNodeId: root.begin.assistantNode.id,
+      contextMode: 'summary',
+    });
     const first = await send(chat, b.id, 'follow up');
     expect(first.events.some((e) => e.type === 'status')).toBe(true);
     expect(provider.summaryCalls()).toHaveLength(1);
@@ -243,7 +294,10 @@ describe('ChatService sending', () => {
     const { chat, provider } = setup({ autoTitle: false });
     const { tree } = await chat.createTree({});
     const root = await send(chat, tree.trunkBranchId, 'x');
-    const b = await chat.createBranch({ fromNodeId: root.begin.assistantNode.id, contextMode: 'summary' });
+    const b = await chat.createBranch({
+      fromNodeId: root.begin.assistantNode.id,
+      contextMode: 'summary',
+    });
     const res = await chat.planContext(b.id, null, { resolveSummaries: false });
     expect(res.plan.complete).toBe(false);
     expect(res.plan.pendingSummaries).toHaveLength(1);
@@ -287,7 +341,10 @@ describe('ChatService sending', () => {
     expect((await repos.trees.getTree(tree.id))?.title).toBe('Scripted Title');
     const b = await chat.createBranch({ fromNodeId: root.begin.assistantNode.id });
     const { last } = await send(chat, b.id, 'side');
-    expect(last).toMatchObject({ type: 'done', branch: { title: 'Scripted Title', titleSource: 'auto' } });
+    expect(last).toMatchObject({
+      type: 'done',
+      branch: { title: 'Scripted Title', titleSource: 'auto' },
+    });
     // Only after the first reply.
     const again = await send(chat, b.id, 'more');
     expect(again.last.type).toBe('done');

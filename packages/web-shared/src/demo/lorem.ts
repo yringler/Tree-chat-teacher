@@ -1,5 +1,7 @@
-import type {
-  GenerateRequest,
+import {
+  REVIEW_ACCURACY_LABEL,
+  REVIEW_RECOMMENDATION_LABEL,
+  type GenerateRequest,
   LlmProvider,
   ModelInfo,
   ProviderCapabilities,
@@ -214,6 +216,71 @@ export function loremTitle(random: Random = Math.random): string {
   });
 }
 
+const TITLE_WORDS = 6;
+const TITLE_CHARS = 48;
+
+/**
+ * The title for a title request: the first words of what the learner asked,
+ * so that a lesson on "Why is the sky blue?" is called that and not
+ * "Cheetahs versus flies". The ChatService's title prompt wraps the first
+ * messages as "User: …" / "Assistant: …" lines (core/context/render.ts);
+ * a side question's quote comes first as "User: Focus: …" and is skipped.
+ * Falls back to a random title when no learner message can be found.
+ */
+export function titleFor(messages: readonly { content: string }[], random: Random): string {
+  for (const m of messages) {
+    for (const match of m.content.matchAll(/^User: (.+)$/gm)) {
+      const line = match[1]?.trim() ?? '';
+      if (!line || line.startsWith('Focus: ')) continue;
+      const words = line.replace(/\s+/g, ' ').split(' ');
+      let title = words.slice(0, TITLE_WORDS).join(' ');
+      if (title.length > TITLE_CHARS) title = `${title.slice(0, TITLE_CHARS - 1).trimEnd()}…`;
+      else if (words.length > TITLE_WORDS) title += '…';
+      return title;
+    }
+  }
+  return loremTitle(random);
+}
+
+const REVIEW_VERDICTS: readonly [accuracy: string, recommendation: string][] = [
+  ['OK', 'STAY'],
+  ['MINOR', 'STAY'],
+  ['MINOR', 'UPGRADE'],
+  ['MAJOR', 'UPGRADE'],
+];
+
+/**
+ * A review-shaped reply for "Review up to here": the Corrections and
+ * Assessment sections the real prompt asks for (core/context/render.ts) and
+ * the two verdict lines its parser reads, so the demo shows the verdict
+ * badges and the follow-up actions a real review would.
+ */
+export function loremReview(random: Random = Math.random): string {
+  return withRandom(random, () => {
+    const [accuracy, recommendation] = pick(random, REVIEW_VERDICTS);
+    const corrections: string[] = [];
+    if (accuracy !== 'OK') {
+      for (let i = between(random, 1, accuracy === 'MAJOR' ? 3 : 2); i > 0; i--) {
+        const w = words(random);
+        corrections.push(
+          `${corrections.length + 1}. The reply calls the ${w.noun} ${w.adjective}; ${sentence()}`,
+        );
+      }
+    }
+    const assessment =
+      recommendation === 'UPGRADE'
+        ? `${capitalize(sentence())} A more capable model would handle the ${words(random).noun} better.`
+        : `${capitalize(sentence())} The current model is handling this well.`;
+    return [
+      '## Corrections',
+      corrections.length ? corrections.join('\n') : 'No errors found.',
+      '## Assessment',
+      assessment,
+      `${REVIEW_ACCURACY_LABEL}: ${accuracy}\n${REVIEW_RECOMMENDATION_LABEL}: ${recommendation}`,
+    ].join('\n\n');
+  });
+}
+
 /** A paragraph standing in for a conversation summary. */
 export function loremSummary(random: Random = Math.random): string {
   return withRandom(random, () => sentences(random, between(random, 3, 5)));
@@ -268,7 +335,8 @@ function fakeCostUsd(model: string, inputTokens: number, outputTokens: number): 
 
 /**
  * An LlmProvider that "generates" lorem replies word by word. Requests for
- * titles and summaries (by `usageTag.purpose`) get a title or a paragraph.
+ * titles, summaries and reviews (by `usageTag.purpose`) get a title, a
+ * paragraph or a review with a verdict.
  * Follows the provider contract: never throws, ends with exactly one
  * `done` or `error` (`aborted` when the signal fires), reports `usage` and a
  * `billing` cost so the demo's balance moves.
@@ -285,9 +353,11 @@ export function createLoremProvider(options: LoremProviderOptions = {}): LlmProv
   const textFor = (request: GenerateRequest): string => {
     switch (request.usageTag?.purpose) {
       case 'title':
-        return loremTitle(random);
+        return titleFor(request.messages, random);
       case 'summary':
         return loremSummary(random);
+      case 'review':
+        return loremReview(random);
       default:
         return loremReply(request.model, random);
     }
@@ -304,7 +374,8 @@ export function createLoremProvider(options: LoremProviderOptions = {}): LlmProv
       for (const m of request.messages) input += m.content;
       const inputTokens = tokens(input);
       // Titles and summaries are not streamed to anyone: no need to dawdle.
-      const streamed = !request.usageTag || request.usageTag.purpose === 'reply';
+      const purpose = request.usageTag?.purpose ?? 'reply';
+      const streamed = purpose === 'reply' || purpose === 'review';
       for (const word of text.match(/\S+\s*/g) ?? []) {
         if (request.signal.aborted) {
           yield aborted();

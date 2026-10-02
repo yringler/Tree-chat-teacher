@@ -53,6 +53,17 @@ export interface Tree {
 
 export type TitleSource = 'default' | 'auto' | 'user';
 
+/** A tree's title until it is auto-titled after the first reply (or the user names it). */
+export const DEFAULT_TREE_TITLE = 'New conversation';
+/** The trunk branch's title (the trunk is never auto-titled). */
+export const TRUNK_TITLE = 'Main thread';
+/**
+ * Prefix of a branch's default title when it was started from a whole
+ * message rather than a quote ("Branch: <first words of the message>").
+ * UIs with their own word for branches strip it (see the Learn app).
+ */
+export const DEFAULT_BRANCH_TITLE_PREFIX = 'Branch: ';
+
 export interface Branch {
   id: string;
   treeId: string;
