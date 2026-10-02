@@ -67,7 +67,7 @@ apps/simple         Simple "Learn" app at /learn/: Angular 22
 pnpm install
 cp apps/worker/.dev.vars.example apps/worker/.dev.vars   # DEV_ALLOW_NO_AUTH=true (no sign-in), optional API keys
 pnpm --filter @tangent/worker db:migrate:local            # create the local D1 database
-pnpm dev                                                  # builds both Angular apps, then `wrangler dev`
+pnpm dev                                                  # `wrangler dev`, which first builds both Angular apps
 ```
 
 Open <http://localhost:8787>. Without any API keys, use the **Fake (offline)** provider, which echoes deterministic replies, so the whole app works offline. To use real providers, add `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY` to `apps/worker/.dev.vars`.
@@ -78,7 +78,7 @@ For UI work with hot reload, run `pnpm --filter @tangent/worker dev` and `pnpm -
 
 The simple app works the same way: `pnpm --filter @tangent/simple start` serves it on <http://localhost:4201/learn/> (`ng serve --serve-path /learn/ --port 4201`, same proxy). The dev bypass acts as the `default` account in power mode and `default_simple` in Learn; to try paid credit offline, see "Option C" in `.dev.vars.example` and [Testing billing locally](#testing-billing-locally). With real sign-in on the dev server, set `PUBLIC_BASE_URL=http://localhost:4201`.
 
-**Build layout.** `pnpm build` builds the power app, then the simple app, then runs `scripts/assemble-assets.mjs`, which copies both into the Worker's static assets directory:
+**Build layout.** `pnpm build` builds the power app, then the simple app, then runs `scripts/assemble-assets.mjs`, which copies both into the Worker's static assets directory. `wrangler.jsonc` sets it as the Worker's `build.command`, so every `wrangler deploy` and `wrangler dev` runs it first (and `wrangler dev` reruns it when the apps' sources change):
 
 ```
 apps/web/dist/web/browser/**        → apps/worker/site/         served at /
@@ -121,7 +121,7 @@ All commands run from `apps/worker` (use `npx wrangler …` or `pnpm exec wrangl
    "routes": [{ "pattern": "tangent.example.com", "custom_domain": true }]
    ```
    The edge cache for share pages only works on a custom domain.
-6. **Deploy.** This builds both Angular apps, assembles them into `apps/worker/site/` and deploys the Worker together with the static assets. Use `pnpm run deploy`: a bare `pnpm deploy` is pnpm's own built-in command, not this script.
+6. **Deploy.** This builds both Angular apps, assembles them into `apps/worker/site/` and deploys the Worker together with the static assets. `pnpm run deploy` and `npx wrangler deploy` are the same thing: the build is the Worker's `build.command`, so a Git-connected Workers Builds deploy builds the apps too. A bare `pnpm deploy` is pnpm's own built-in command, not this script.
    ```bash
    pnpm run deploy
    ```
