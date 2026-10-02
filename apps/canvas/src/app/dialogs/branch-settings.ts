@@ -13,6 +13,7 @@ import { MODE_LABEL } from '../canvas/lane';
 import { laneTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore, type BranchSettingsState } from '../state/ui-store';
+import { ModelField } from './model-field';
 
 const MODE_HELP: Record<ContextMode, string> = {
   path: 'Everything the parent lane had at the fork, then this lane.',
@@ -23,7 +24,7 @@ const MODE_HELP: Record<ContextMode, string> = {
 /** A lane's title, context mode, anchor quote, model and privacy; and deleting it. */
 @Component({
   selector: 'app-branch-settings',
-  imports: [Modal, Icon],
+  imports: [Modal, Icon, ModelField],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="Lane settings" (closed)="close()">
@@ -73,22 +74,16 @@ const MODE_HELP: Record<ContextMode, string> = {
                     [disabled]="!p.available"
                     [selected]="p.id === providerId()"
                   >
-                    {{ p.label }}{{ p.available ? '' : ' — no key' }}
+                    {{ p.label
+                    }}{{ p.available ? '' : p.acceptsUserKey ? ' — no key' : ' — unavailable' }}
                   </option>
                 }
               </select>
             </label>
-            <label class="field">
-              <span class="field-label">Model</span>
-              <select #ms [value]="model()" (change)="model.set(ms.value)">
-                @if (!modelKnown()) {
-                  <option [value]="model()">{{ model() }}</option>
-                }
-                @for (m of models(); track m.id) {
-                  <option [value]="m.id" [selected]="m.id === model()">{{ m.label }}</option>
-                }
-              </select>
-            </label>
+            <app-model-field
+              [provider]="store.providerMap().get(providerId()) ?? null"
+              [(model)]="model"
+            />
           </div>
 
           @if (b.parentBranchId) {
@@ -142,11 +137,6 @@ export class BranchSettings implements OnInit {
   protected readonly isPrivate = signal(false);
   protected readonly saving = signal(false);
 
-  protected readonly models = computed(
-    () => this.store.providerMap().get(this.providerId())?.models ?? [],
-  );
-  protected readonly modelKnown = computed(() => this.models().some((m) => m.id === this.model()));
-
   ngOnInit(): void {
     const b = this.branch();
     if (!b) return;
@@ -180,8 +170,8 @@ export class BranchSettings implements OnInit {
       ...(b.parentBranchId && quote !== (b.anchorQuote ?? '')
         ? { anchorQuote: quote || null }
         : {}),
-      ...(this.providerId() !== b.providerId || this.model() !== b.model
-        ? { providerId: this.providerId(), model: this.model() }
+      ...(this.providerId() !== b.providerId || this.model().trim() !== b.model
+        ? { providerId: this.providerId(), model: this.model().trim() }
         : {}),
       ...(b.parentBranchId && this.isPrivate() !== b.isPrivate
         ? { isPrivate: this.isPrivate() }

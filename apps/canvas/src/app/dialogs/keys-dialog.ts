@@ -8,8 +8,9 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import type { ProviderInfo } from '@tangent/shared';
-import { Icon, Modal } from '@tangent/web-shared';
+import { LEARN_KEY_PROVIDER, type ProviderInfo } from '@tangent/shared';
+import { formatMicros, Icon, Modal } from '@tangent/web-shared';
+import { feeSentence } from '../core/credit';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 
@@ -17,14 +18,16 @@ import { UiStore } from '../state/ui-store';
  * Bring-your-own-key, as in the power app: the key is read from the input
  * only at submit time, posted once, and the field is cleared right away.
  * The server seals it into an HttpOnly cookie this code can't read; the
- * same cookie serves the power app.
+ * same cookie serves the power app. Where the server offers the built-in
+ * provider, a row shows the user's credit and links to the power app's
+ * `/billing` to add more.
  */
 @Component({
   selector: 'app-keys-dialog',
   imports: [Modal, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="API keys" (closed)="close()">
+    <app-modal [heading]="credit() ? 'Keys & credit' : 'API keys'" (closed)="close()">
       @if (store.keyStatus(); as status) {
         @if (!status.enabled) {
           <p class="notice">
@@ -37,7 +40,12 @@ import { UiStore } from '../state/ui-store';
       <ul class="key-list">
         @for (p of keyProviders(); track p.id) {
           <li class="key-row">
-            <span class="key-name">{{ p.label }}</span>
+            <span class="key-name"
+              >{{ p.label }}
+              @if (p.id === learnKey) {
+                <span class="muted small">· also used by Learn</span>
+              }
+            </span>
             @switch (p.keySource) {
               @case ('user') {
                 <span class="badge badge-ok">your key</span>
@@ -59,7 +67,25 @@ import { UiStore } from '../state/ui-store';
             }
           </li>
         }
+        @if (credit()) {
+          <li class="key-row">
+            <span class="key-name">Tangent credit</span>
+            @if (store.billing(); as b) {
+              <span class="badge" [class.badge-ok]="b.availableMicros > 0"
+                >{{ usd(b.availableMicros) }} available</span
+              >
+            } @else {
+              <span class="muted small">Loading…</span>
+            }
+            <a href="/billing" class="btn btn-ghost btn-sm">Add credit</a>
+          </li>
+        }
       </ul>
+      @if (credit() && store.billing(); as b) {
+        <p class="muted small">
+          {{ fees(b) }} No key needed: pick “Tangent credit” as the provider.
+        </p>
+      }
 
       @if (enabled()) {
         <form class="form" (submit)="$event.preventDefault(); save()">
@@ -121,6 +147,12 @@ export class KeysDialog implements OnInit {
   protected readonly provider = signal('');
   protected readonly busy = signal(false);
 
+  protected readonly learnKey = LEARN_KEY_PROVIDER;
+  protected readonly usd = formatMicros;
+  protected readonly fees = feeSentence;
+  /** The server offers the built-in provider on the user's credit. */
+  protected readonly credit = computed(() => this.store.me()?.builtInCredit ?? false);
+
   protected readonly keyProviders = computed<ProviderInfo[]>(() =>
     this.store.providers().filter((p) => p.acceptsUserKey),
   );
@@ -132,6 +164,7 @@ export class KeysDialog implements OnInit {
   );
 
   ngOnInit(): void {
+    if (this.credit()) void this.store.refreshBilling();
     const list = this.keyProviders();
     const wanted = this.store.selectedBranch()?.providerId ?? null;
     const pick =

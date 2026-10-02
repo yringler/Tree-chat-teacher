@@ -94,7 +94,7 @@ export class HomePage {
       await this.store.startConversation(
         content,
         this.providerId() || null,
-        this.modelId() || null,
+        this.modelId().trim() || null,
       );
     } finally {
       this.starting.set(false);

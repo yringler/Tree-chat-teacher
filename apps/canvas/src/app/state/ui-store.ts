@@ -1,9 +1,16 @@
 import { computed, Injectable, signal } from '@angular/core';
 
+/** A link shown in a toast; `href` is a full page load (e.g. the power app's `/billing`). */
+export interface ToastLink {
+  label: string;
+  href: string;
+}
+
 export interface Toast {
   id: number;
   kind: 'info' | 'error';
   text: string;
+  link?: ToastLink;
 }
 
 /** The "Branch from here" dialog: one or many variants off one message. */
@@ -60,9 +67,12 @@ export class UiStore {
       this.deleteAccountOpen(),
   );
 
-  notify(text: string, kind: Toast['kind'] = 'info'): void {
+  notify(text: string, kind: Toast['kind'] = 'info', link?: ToastLink): void {
     const id = ++this.toastSeq;
-    this.toasts.update((list) => [...list.slice(-2), { id, kind, text }]);
+    this.toasts.update((list) => [
+      ...list.slice(-2),
+      { id, kind, text, ...(link ? { link } : {}) },
+    ]);
     setTimeout(() => this.dismiss(id), kind === 'error' ? 8000 : 3500);
   }
 

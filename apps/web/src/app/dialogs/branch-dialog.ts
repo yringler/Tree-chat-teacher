@@ -115,14 +115,15 @@ export class BranchDialog implements OnInit {
     this.saving.set(true);
     const quote = this.quote().trim();
     const title = this.title().trim();
-    const changedModel = !p || p.providerId !== this.providerId() || p.model !== this.modelId();
+    const changedModel =
+      !p || p.providerId !== this.providerId() || p.model !== this.modelId().trim();
     const branch = await this.store.createBranch({
       fromNodeId: this.state().fromNodeId,
       contextMode: this.mode(),
       anchorQuote: quote || null,
       ...(title ? { title } : {}),
       ...(changedModel && this.providerId()
-        ? { providerId: this.providerId(), model: this.modelId() }
+        ? { providerId: this.providerId(), model: this.modelId().trim() }
         : {}),
       isPrivate: this.isPrivate(),
     });

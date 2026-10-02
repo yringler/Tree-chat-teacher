@@ -148,6 +148,10 @@
   background: var(--mode-independent-soft);
 }
 
+.banner-membership {
+  background: var(--danger-soft);
+}
+
 .banner-cta {
   font-weight: 600;
   white-space: nowrap;
@@ -918,6 +922,15 @@
   flex: 1;
 }
 
+/* The model field's label is the flex item of whatever row holds it. */
+.model-field {
+  display: contents;
+}
+
+.field-error {
+  color: var(--danger);
+}
+
 .variant-actions {
   display: flex;
   gap: 6px;
@@ -1144,6 +1157,13 @@
 .toast-error {
   background: var(--danger);
   color: #fff;
+}
+
+.toast-link {
+  margin-left: 6px;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
 }
 
 /* Reduced motion: moves jump instead of sliding, and nothing pulses or blinks. */

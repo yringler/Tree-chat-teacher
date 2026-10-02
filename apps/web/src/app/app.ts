@@ -1,6 +1,16 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
-import { ApiClient, APP_PATHS, AuthService, DEMO_MODE, Icon } from '@tangent/web-shared';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
+import { filter, map } from 'rxjs';
+import type { MembershipInfo } from '@tangent/shared';
+import {
+  ApiClient,
+  APP_PATHS,
+  AuthService,
+  DEMO_MODE,
+  Icon,
+  MembershipGate,
+} from '@tangent/web-shared';
 import { Keyboard } from './core/keyboard';
 import { RouteSync } from './core/route-sync';
 import { DialogHost } from './dialogs/dialog-host';
@@ -10,10 +20,11 @@ import { UiStore } from './state/ui-store';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, Sidebar, DialogHost, Icon],
+  imports: [RouterOutlet, RouterLink, Sidebar, DialogHost, Icon, MembershipGate],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.html',
-  host: { '(document:keydown)': 'loginPage || keyboard.handle($event)' },
+  // No shortcuts while the membership gate covers the app.
+  host: { '(document:keydown)': 'loginPage || gate() || keyboard.handle($event)' },
 })
 export class App {
   protected readonly ui = inject(UiStore);
@@ -31,6 +42,28 @@ export class App {
    * loads no data.
    */
   protected readonly loginPage = !this.demo && location.pathname === inject(APP_PATHS).login;
+
+  private readonly router = inject(Router);
+  /** The current URL; null until the first navigation ends. */
+  private readonly url = toSignal(
+    this.router.events.pipe(
+      filter((e) => e instanceof NavigationEnd),
+      map((e) => e.urlAfterRedirects),
+    ),
+    { initialValue: null },
+  );
+  /**
+   * The membership to ask for while generating is blocked (a panel over the
+   * app); never over `/billing` (where the user subscribes), the login page
+   * or the demo. Waits for the first navigation so it doesn't flash over
+   * `/billing`.
+   */
+  protected readonly gate = computed<MembershipInfo | null>(() => {
+    const url = this.url();
+    if (this.demo || this.loginPage || !url) return null;
+    if (url === '/billing' || url.startsWith('/billing?')) return null;
+    return this.store.membershipBlocked() ? this.store.membership() : null;
+  });
 
   constructor() {
     if (this.loginPage) return;
