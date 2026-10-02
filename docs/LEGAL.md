@@ -6,16 +6,16 @@ Status: **done** = handled in code; **you** = an action for the operator (outsid
 
 ## 1. Public privacy policy and terms of service
 
-| Item                                                         | Status                     | Where                                                                             |
-| ------------------------------------------------------------ | -------------------------- | --------------------------------------------------------------------------------- |
-| Privacy policy at a public URL (`/privacy`)                  | done                       | `apps/worker/src/http/legal.ts`                                                   |
-| Terms of service at a public URL (`/terms`)                  | done                       | same                                                                              |
-| Linked from the landing page footer, sign-in page, both apps | done                       | `landing.ts`, `login-page.ts`, account dialog / account menu                      |
-| Sign-in shows "you agree to the Terms and Privacy policy"    | done                       | `packages/web-shared/src/login/login-page.ts`                                     |
-| Operator name, contact mailbox, governing law                | done (Yehuda Ringler, USA) | `LEGAL_OPERATOR`, `LEGAL_CONTACT_EMAIL`, `LEGAL_JURISDICTION` in `wrangler.jsonc` |
-| A real mailbox at the contact address                        | **you**                    | Cloudflare Email Routing can forward `privacy@tangentailearning.com` for free     |
+| Item                                                         | Status                              | Where                                                                             |
+| ------------------------------------------------------------ | ----------------------------------- | --------------------------------------------------------------------------------- |
+| Privacy policy at a public URL (`/privacy`)                  | done                                | `apps/worker/src/http/legal.ts`                                                   |
+| Terms of service at a public URL (`/terms`)                  | done                                | same                                                                              |
+| Linked from the landing page footer, sign-in page, both apps | done                                | `landing.ts`, `login-page.ts`, account dialog / account menu                      |
+| Sign-in shows "you agree to the Terms and Privacy policy"    | done                                | `packages/web-shared/src/login/login-page.ts`                                     |
+| Operator name, contact mailbox, governing law                | done (Yehuda Ringler, Pennsylvania) | `LEGAL_OPERATOR`, `LEGAL_CONTACT_EMAIL`, `LEGAL_JURISDICTION` in `wrangler.jsonc` |
+| A real mailbox at the contact address                        | **you**                             | Cloudflare Email Routing can forward `privacy@tangentailearning.com` for free     |
 
-Set to Yehuda Ringler, governed by the laws of the United States. US contract law is mostly state law, so a lawyer will usually name a state too (e.g. "the State of New York, USA"); change `LEGAL_JURISDICTION` if you form a company or settle on one. If you form an LLC, change `LEGAL_OPERATOR` to it and assign it the trademark.
+Set to Yehuda Ringler, governed by the laws of the Commonwealth of Pennsylvania, USA. If you form an LLC, change `LEGAL_OPERATOR` to it and assign it the trademark.
 
 **Keep the policy true.** It describes what the code does: which tables hold what, which cookies exist, which services receive data. When a change adds a table, a cookie, a log, an analytics script or a new service provider, update `renderPrivacyPage` and bump `LEGAL_UPDATED` in the same change. The policy currently promises:
 

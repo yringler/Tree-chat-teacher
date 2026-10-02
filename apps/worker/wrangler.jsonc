@@ -85,7 +85,7 @@
     // (Cloudflare Email Routing can forward it for free). Empty = privacy@<PUBLIC_BASE_URL host>.
     "LEGAL_CONTACT_EMAIL": "privacy@tangentailearning.com",
     // Governing law of the terms, e.g. "the State of New York, USA"; empty = where the operator is established.
-    "LEGAL_JURISDICTION": "the United States of America",
+    "LEGAL_JURISDICTION": "the Commonwealth of Pennsylvania, USA",
     // Cloudflare Turnstile site key (public) for the magic-link form. Its secret is TURNSTILE_SECRET_KEY.
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFLlFryv5vXul-MG",
     // JSON array of ProviderConfig; empty = built-in defaults (anthropic, openai, openrouter, fake).
