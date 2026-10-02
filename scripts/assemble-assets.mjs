@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// Assembles the Workers Static Assets directory (apps/worker/site) from the two
+// Assembles the Workers Static Assets directory (apps/worker/site) from the
 // Angular builds (PLAN §2.8):
-//   apps/web/dist/web/browser/**       → apps/worker/site/        (power app, `/`)
-//   apps/simple/dist/simple/browser/** → apps/worker/site/learn/  (simple app, `/learn/`)
-// Run by the root `pnpm build` after both `ng build`s. Pure Node fs, no deps.
+//   apps/web/dist/web/browser/**       → apps/worker/site/         (power app, `/`)
+//   apps/simple/dist/simple/browser/** → apps/worker/site/learn/   (simple app, `/learn/`)
+//   apps/canvas/dist/canvas/browser/** → apps/worker/site/canvas/  (canvas app, `/canvas/`)
+// Run by the root `pnpm build` after the `ng build`s. Pure Node fs, no deps.
 import { cpSync, existsSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +21,11 @@ const sources = [
     from: path.join(root, 'apps/simple/dist/simple/browser'),
     to: path.join(site, 'learn'),
     build: 'pnpm --filter @tangent/simple build',
+  },
+  {
+    from: path.join(root, 'apps/canvas/dist/canvas/browser'),
+    to: path.join(site, 'canvas'),
+    build: 'pnpm --filter @tangent/canvas build',
   },
 ];
 // Kept across runs: git tracks it so the directory exists before any build

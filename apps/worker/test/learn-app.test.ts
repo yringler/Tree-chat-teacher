@@ -5,6 +5,7 @@ import type { AppBindings, AppEnv } from '../src/env.js';
 // @ts-expect-error -- `?raw` is a Vite import; the worker tsconfig has no vite/client types.
 import headersText from '../../web/public/_headers?raw';
 import {
+  canvasAppRoutes,
   LEARN_APP_CSP,
   LEARN_COMMON_HEADERS,
   LEARN_LOGIN_CSP,
@@ -13,6 +14,7 @@ import {
 
 const ORIGIN = 'https://tangent.example.com';
 const SIMPLE_INDEX = '<!doctype html><title>simple</title>';
+const CANVAS_INDEX = '<!doctype html><title>canvas</title>';
 const POWER_INDEX = '<!doctype html><title>power</title>';
 
 /**
@@ -27,6 +29,8 @@ function fakeAssets() {
     '/index.html': [POWER_INDEX, 'text/html; charset=utf-8'],
     '/learn/index.html': [SIMPLE_INDEX, 'text/html; charset=utf-8'],
     '/learn/main-xyz.js': ['console.log(1)', 'text/javascript'],
+    '/canvas/index.html': [CANVAS_INDEX, 'text/html; charset=utf-8'],
+    '/canvas/main-abc.js': ['console.log(2)', 'text/javascript'],
   };
   const seen: string[] = [];
   const fetcher = {
@@ -50,6 +54,7 @@ function setup() {
   const assets = fakeAssets();
   const app = new Hono<AppBindings>();
   app.route('/', learnAppRoutes());
+  app.route('/', canvasAppRoutes());
   app.get('/api/ping', (c) => c.json({ ok: true }));
   app.notFound((c) => c.json({ error: 'not_found' }, 404));
   const e = { ...env, ASSETS: assets.fetcher } as AppEnv;
@@ -127,8 +132,54 @@ describe('learnAppRoutes', () => {
     expect(await api.json()).toEqual({ ok: true });
     expect(api.headers.get('Content-Security-Policy')).toBeNull();
     expect((await request('/learning')).status).toBe(404);
+    expect((await request('/canvassing')).status).toBe(404);
     expect((await request('/learn/t/abc', { method: 'POST' })).status).toBe(404);
     expect(seen).toEqual([]);
+  });
+});
+
+describe('canvasAppRoutes', () => {
+  it('redirects /canvas to /canvas/ permanently', async () => {
+    const { request, seen } = setup();
+    const res = await request('/canvas?x=1');
+    expect(res.status).toBe(301);
+    expect(res.headers.get('Location')).toBe('/canvas/?x=1');
+    expect(seen).toEqual([]);
+  });
+
+  it('serves the canvas index.html with the app CSP for client-side routes', async () => {
+    const { request, seen } = setup();
+    for (const path of ['/canvas/', '/canvas/t/abc/b/def', '/canvas/demo/t/abc']) {
+      const res = await request(path);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe(CANVAS_INDEX);
+      expect(res.headers.get('Content-Security-Policy')).toBe(LEARN_APP_CSP);
+      expectCommonHeaders(res);
+    }
+    expect(seen).toEqual(['GET /canvas/', 'GET /canvas/', 'GET /canvas/']);
+  });
+
+  it('serves its login page with the login CSP', async () => {
+    const { request } = setup();
+    const res = await request('/canvas/login');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(CANVAS_INDEX);
+    expect(res.headers.get('Content-Security-Policy')).toBe(LEARN_LOGIN_CSP);
+  });
+
+  it('passes asset paths through and 404s missing files', async () => {
+    const { request, seen } = setup();
+    const res = await request('/canvas/main-abc.js');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('console.log(2)');
+    expect(seen).toEqual(['GET /canvas/main-abc.js']);
+    expect((await request('/canvas/missing-abc.js')).status).toBe(404);
+  });
+
+  it('keeps the two apps apart', async () => {
+    const { request } = setup();
+    expect(await (await request('/learn/t/abc')).text()).toBe(SIMPLE_INDEX);
+    expect(await (await request('/canvas/t/abc')).text()).toBe(CANVAS_INDEX);
   });
 });
 
