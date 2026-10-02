@@ -1,7 +1,7 @@
 import { createMiddleware } from 'hono/factory';
 import type { AppBindings } from '../env.js';
 import { apiError } from '../http/errors.js';
-import { authConfigured, getAuth, isEmailAllowed, type AuthDeps } from './auth.js';
+import { authConfigured, getAuth, type AuthDeps } from './auth.js';
 
 /**
  * Requires a Better Auth session on owner routes (`/api/*` except the auth
@@ -28,11 +28,6 @@ export function sessionMiddleware(deps: AuthDeps = {}) {
       query: { disableRefresh: true },
     });
     if (!result) return apiError(c, 'unauthorized', 'Sign in required');
-    // Re-checked on every request so removing an email from ALLOWED_EMAILS
-    // locks that user out at once, whatever sessions they hold.
-    if (!isEmailAllowed(c.env, result.user.email)) {
-      return apiError(c, 'forbidden', 'This account is not allowed to use this app');
-    }
     c.set('identity', { userId: result.user.id, email: result.user.email, devMode: false });
     return next();
   });

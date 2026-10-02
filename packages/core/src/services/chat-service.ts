@@ -132,13 +132,28 @@ export class ChatService {
 
   /**
    * Loads a tree owned by this service's account. Another account's tree is
-   * reported as not found. (Branch/node-level routes are not scoped yet; see
-   * docs/DECISIONS.md "Accounts".)
+   * reported as not found.
    */
   private async requireOwnedTree(treeId: string): Promise<Tree> {
     const tree = await this.repo.getTree(treeId);
     if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Tree');
     return tree;
+  }
+
+  /** A branch in a tree this account owns; another account's branch is not found. */
+  async requireOwnedBranch(branchId: string): Promise<Branch> {
+    const branch = await this.repo.getBranch(branchId);
+    const tree = branch && (await this.repo.getTree(branch.treeId));
+    if (!branch || !tree || tree.accountId !== this.accountId) throw new NotFoundError('Branch');
+    return branch;
+  }
+
+  /** A node in a tree this account owns; another account's node is not found. */
+  async requireOwnedNode(nodeId: string): Promise<ChatNode> {
+    const node = await this.repo.getNode(nodeId);
+    const tree = node && (await this.repo.getTree(node.treeId));
+    if (!node || !tree || tree.accountId !== this.accountId) throw new NotFoundError('Node');
+    return node;
   }
 
   /** Creates the tree and an empty trunk (provider/model default from the registry). */
@@ -207,8 +222,7 @@ export class ChatService {
   /** New branch hanging off `fromNodeId`; inherits provider/model from the parent branch. */
   async createBranch(request: CreateBranchRequest): Promise<Branch> {
     const req = createBranchRequestSchema.parse(request);
-    const node = await this.repo.getNode(req.fromNodeId);
-    if (!node) throw new NotFoundError('Node');
+    const node = await this.requireOwnedNode(req.fromNodeId);
     const parent = await this.repo.getBranch(node.branchId);
     if (!parent) throw new NotFoundError('Branch');
 
@@ -240,8 +254,7 @@ export class ChatService {
 
   async updateBranch(branchId: string, request: UpdateBranchRequest): Promise<Branch> {
     const req = updateBranchRequestSchema.parse(request);
-    const branch = await this.repo.getBranch(branchId);
-    if (!branch) throw new NotFoundError('Branch');
+    const branch = await this.requireOwnedBranch(branchId);
     const isTrunk = branch.parentBranchId === null;
     if (isTrunk && (req.contextMode !== undefined || req.anchorQuote !== undefined)) {
       throw new ValidationError('The main thread has no context mode or anchor quote');
@@ -347,8 +360,7 @@ export class ChatService {
   }
 
   private async loadPlanInputs(branchId: string, nodeId: string | null): Promise<PlanInputs> {
-    const branch = await this.repo.getBranch(branchId);
-    if (!branch) throw new NotFoundError('Branch');
+    const branch = await this.requireOwnedBranch(branchId);
     const [tree, chain] = await Promise.all([
       this.repo.getTree(branch.treeId),
       this.repo.getBranchChain(branchId),
@@ -496,8 +508,7 @@ export class ChatService {
    * Rejects with ConflictError if the branch leaf is still streaming.
    */
   async beginSend(branchId: string, content: string): Promise<BeginSendResult> {
-    const branch = await this.repo.getBranch(branchId);
-    if (!branch) throw new NotFoundError('Branch');
+    const branch = await this.requireOwnedBranch(branchId);
     if (!content.trim()) throw new ValidationError('Message is empty');
     this.requireProvider(branch.providerId);
     const own = await this.repo.listBranchNodes(branchId);
@@ -675,8 +686,7 @@ export class ChatService {
    * assistant replies can be reviewed.
    */
   async prepareReview(nodeId: string, request: ReviewRequest): Promise<PreparedReview> {
-    const node = await this.repo.getNode(nodeId);
-    if (!node) throw new NotFoundError('Node');
+    const node = await this.requireOwnedNode(nodeId);
     if (node.role !== 'assistant') throw new ValidationError('Only assistant replies can be reviewed');
     if (node.status !== 'complete') throw new ValidationError('That reply has not finished');
     this.requireProvider(request.providerId);

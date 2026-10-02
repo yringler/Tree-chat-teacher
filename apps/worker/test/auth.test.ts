@@ -2,7 +2,7 @@ import type { LoginOptionsResponse, MeResponse } from '@tangent/shared';
 import { env, exports } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
-import { isEmailAllowed, parseAllowlist, REMEMBER_COOKIE } from '../src/auth/auth.js';
+import { REMEMBER_COOKIE } from '../src/auth/auth.js';
 import type { EmailMessage, EmailSender } from '../src/email/index.js';
 import type { AppEnv } from '../src/env.js';
 
@@ -23,7 +23,6 @@ function authEnv(overrides: Partial<AppEnv> = {}): AppEnv {
   return {
     ...env,
     BETTER_AUTH_SECRET: 'test-secret-test-secret-test-secret-0123',
-    ALLOWED_EMAILS: 'owner@example.com, @team.example',
     TURNSTILE_SECRET_KEY: 'turnstile-secret',
     TURNSTILE_SITE_KEY: 'site-key',
     DEV_ALLOW_NO_AUTH: 'true',
@@ -98,24 +97,6 @@ async function signIn(
     redirect: 'manual',
   });
 }
-
-describe('allowlist', () => {
-  it('parses emails and @domain entries, case-insensitively', () => {
-    const list = parseAllowlist(' A@x.com,b@y.com\n@Team.Example  not-an-email ');
-    expect([...list.emails]).toEqual(['a@x.com', 'b@y.com']);
-    expect(list.domains).toEqual(['team.example']);
-  });
-
-  it('allows listed emails and domains only; empty allows nobody', () => {
-    const e = authEnv();
-    expect(isEmailAllowed(e, 'Owner@Example.com')).toBe(true);
-    expect(isEmailAllowed(e, 'anyone@team.example')).toBe(true);
-    expect(isEmailAllowed(e, 'anyone@evilteam.example')).toBe(false);
-    expect(isEmailAllowed(e, 'stranger@example.com')).toBe(false);
-    expect(isEmailAllowed(authEnv({ ALLOWED_EMAILS: '' }), 'owner@example.com')).toBe(false);
-    expect(isEmailAllowed(e, null)).toBe(false);
-  });
-});
 
 describe('fail closed', () => {
   it('500 on /api/* and /api/auth/* with no BETTER_AUTH_SECRET and no dev bypass', async () => {
@@ -211,7 +192,7 @@ describe('magic link', () => {
     expect(s.mail.sent).toHaveLength(0);
   });
 
-  it('signs in an allowed email: link → session cookie → /api/me', async () => {
+  it('signs in any email: link → session cookie → /api/me, on its own account', async () => {
     const s = setup();
     const res = await signIn(s);
     expect(s.mail.sent).toHaveLength(1);
@@ -225,11 +206,14 @@ describe('magic link', () => {
     expect(res.headers.get('location')).toBe(`${ORIGIN}/`);
     const me = await s.call('/api/me', { headers: { cookie: cookieHeader(res) } });
     expect(me.status).toBe(200);
+    const user = await env.DB.prepare('SELECT id FROM auth_users WHERE email = ?')
+      .bind('owner@example.com')
+      .first<{ id: string }>();
     expect(await me.json()).toEqual({
       email: 'owner@example.com',
       devMode: false,
-      accountId: 'default',
-    });
+      accountId: user!.id,
+    } satisfies MeResponse);
   });
 
   it('a link works once', async () => {
@@ -242,26 +226,31 @@ describe('magic link', () => {
     expect(findSetCookie(again, SESSION_COOKIE)).toBeUndefined();
   });
 
-  it('answers the same for an email that is not allowed, but sends nothing and creates no user', async () => {
-    const s = setup();
-    const res = await requestMagicLink(s.call, 'stranger@example.com');
-    expect(res.status).toBe(200);
-    expect(s.mail.sent).toHaveLength(0);
-    const row = await env.DB.prepare('SELECT id FROM auth_users WHERE email = ?')
-      .bind('stranger@example.com')
-      .first();
-    expect(row).toBeNull();
-  });
+  it("each user gets their own account and can't see another user's trees", async () => {
+    const a = setup();
+    const aCookie = cookieHeader(await signIn(a, 'alice@example.com'));
+    const b = setup();
+    const bCookie = cookieHeader(await signIn(b, 'bob@example.net'));
 
-  it('an email removed from ALLOWED_EMAILS loses access with its existing session', async () => {
-    const s = setup();
-    const cookie = cookieHeader(await signIn(s, 'member@team.example'));
-    expect((await s.call('/api/me', { headers: { cookie } })).status).toBe(200);
+    const created = await a.call('/api/trees', {
+      method: 'POST',
+      headers: { cookie: aCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ title: "Alice's" }),
+    });
+    expect(created.status).toBe(201);
+    const { tree } = (await created.json()) as { tree: { id: string; accountId: string } };
+    const aMe = (await (
+      await a.call('/api/me', { headers: { cookie: aCookie } })
+    ).json()) as MeResponse;
+    expect(tree.accountId).toBe(aMe.accountId);
 
-    const revoked = setup(authEnv({ ALLOWED_EMAILS: 'owner@example.com' }));
-    const res = await revoked.call('/api/me', { headers: { cookie } });
-    expect(res.status).toBe(403);
-    expect(await res.json()).toMatchObject({ error: { code: 'forbidden' } });
+    const bList = (await (await b.call('/api/trees', { headers: { cookie: bCookie } })).json()) as {
+      id: string;
+    }[];
+    expect(bList.some((t) => t.id === tree.id)).toBe(false);
+    expect((await b.call(`/api/trees/${tree.id}`, { headers: { cookie: bCookie } })).status).toBe(
+      404,
+    );
   });
 });
 
@@ -349,7 +338,7 @@ describe('social sign-in', () => {
   }
   const googleEnv = () => authEnv({ GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret' });
 
-  it('the callback signs in an allowed Google account, honouring remember me', async () => {
+  it('the callback signs in a Google account, honouring remember me', async () => {
     const s = setup(googleEnv());
     const res = await googleSignIn(s, 'owner@example.com', false);
     expect(res.status).toBe(302);
@@ -365,15 +354,15 @@ describe('social sign-in', () => {
     expect(findSetCookie(remembered, SESSION_COOKIE)).toMatch(/Max-Age=2592000/);
   });
 
-  it('the callback refuses a Google account that is not allowed, creating no user', async () => {
-    const res = await googleSignIn(setup(googleEnv()), 'outsider@example.com', true);
+  it('the callback creates a user for any Google account', async () => {
+    const res = await googleSignIn(setup(googleEnv()), 'newcomer@example.org', true);
     expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toBe('/login?error=unable_to_create_user');
-    expect(findSetCookie(res, SESSION_COOKIE)).toBeUndefined();
+    expect(res.headers.get('location')).toBe('/');
+    expect(findSetCookie(res, SESSION_COOKIE)).toBeDefined();
     const row = await env.DB.prepare('SELECT id FROM auth_users WHERE email = ?')
-      .bind('outsider@example.com')
+      .bind('newcomer@example.org')
       .first();
-    expect(row).toBeNull();
+    expect(row).not.toBeNull();
   });
 
   it('refuses a provider that is not configured', async () => {

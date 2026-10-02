@@ -7,7 +7,6 @@ DEV_ALLOW_NO_AUTH=true
 # --- Option B: real sign-in, locally. Comment out DEV_ALLOW_NO_AUTH above and fill these in.
 # PUBLIC_BASE_URL=http://localhost:8787
 # BETTER_AUTH_SECRET=            # openssl rand -base64 32
-# ALLOWED_EMAILS=you@example.com
 # Magic links are printed to the wrangler console instead of emailed (localhost only):
 # EMAIL_PROVIDER=log
 # Cloudflare's Turnstile test keys (always pass):

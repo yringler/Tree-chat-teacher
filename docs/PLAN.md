@@ -19,7 +19,7 @@ Browser (Angular 22, zoneless, signals)          Anonymous viewer (phone/desktop
 ┌──────────────────────────── Worker "tangent" (Hono) ────────────────────────────┐
 │ static assets (Angular build; SPA fallback)   run_worker_first: /api/*, /s/*     │
 │ /api/auth/* → Better Auth (Google, GitHub, magic link, passkey; D1 tables)       │
-│ /api/*  → session + ALLOWED_EMAILS check → owner routes                          │
+│ /api/*  → session (account = user id) → owner routes                             │
 │ /s/*    → rate limit (ratelimits binding) → ShareService.checkPublic →           │
 │           edge cache (Cache API, versioned key) → viewer HTML / JSON DTO         │
 │ POST /api/branches/:id/messages ─┐                                               │
@@ -314,7 +314,7 @@ The tests cover:
 ## 6. Access control
 
 - Sign-in is [Better Auth](https://better-auth.com), mounted at `/api/auth/*`, with its tables in D1 (`auth_*`, migration 0002). Methods: Google, GitHub, magic link (email, via the `EmailSender` interface; Resend today) and passkeys. There are no passwords.
-- `ALLOWED_EMAILS` decides who may sign in. Users outside it are never created (a `user.create.before` hook), never sent a magic link, and the session middleware re-checks it on every `/api/*` request, so removing an email locks that user out at once.
+- Sign-up is open to anyone. Each user acts as their own account (the Better Auth user id), and every tree-, branch- and node-level operation checks that the tree belongs to it.
 - Every `/api/*` route except `/api/auth/*` and `/api/login-options` requires a session (`auth/session.ts`). The lookup never refreshes the session; the web app's startup call to `GET /api/auth/get-session` does, because only that path re-issues the cookie.
 - If `BETTER_AUTH_SECRET` is unset, the Worker refuses all `/api/*` requests with 500 "not configured". The exception is `DEV_ALLOW_NO_AUTH=true` (in `.dev.vars` only), which lets local dev run without auth. The Worker fails closed.
 - The magic-link endpoint is protected by Cloudflare Turnstile (Better Auth's captcha plugin) and rate limited (5/min per IP, in D1). Turnstile's script runs only in the `/login` document, which gets its own CSP (`public/_headers`); the app moves to and from it by full page loads.
@@ -361,7 +361,7 @@ Execution: the contracts (§3) were frozen first. Implementation then fanned out
 
 - **Pure unit tests** (Vitest, Node): context assembly (§4.6), rendering, SHA-256 against known vectors, tree utilities and navigation, share projection (scopes, private exclusion, no id leakage), markdown sanitization (XSS corpus: `<script>`, `javascript:` links, raw HTML, `onerror`), the viewer page (CSP hashes match the inline script/style), and Markdown export.
 - **Provider tests** (Vitest, Node, injected `fetch`): the SSE parser (chunk boundaries, CRLF, comments, multi-byte UTF-8), Anthropic event mapping (usage, mid-stream error, HTTP errors → codes, abort), OpenAI/OpenRouter (both usage shapes, `[DONE]`, in-stream error, abort), FakeProvider determinism, and the registry (availability and config parsing).
-- **Worker integration tests** (`@cloudflare/vitest-pool-workers`, real D1 and DO in workerd): repositories (CTE, batch atomicity, snapshot chunking); the API (CRUD, branching, validation, 404s); the send → SSE → persisted flow with FakeProvider; reconnect, cancel and 409 on a concurrent send; the context-plan endpoint; summary mode with cache hits; sign-in (magic link end to end, Google callback against a mocked token endpoint, remember me, allowlist, captcha, passkey gating, fail-closed); and shares (snapshot immutability after new messages, republish, revoke → 410, expiry, private exclusion in the payload, rate limit → 429, view count, cache-version bump).
+- **Worker integration tests** (`@cloudflare/vitest-pool-workers`, real D1 and DO in workerd): repositories (CTE, batch atomicity, snapshot chunking); the API (CRUD, branching, validation, 404s); the send → SSE → persisted flow with FakeProvider; reconnect, cancel and 409 on a concurrent send; the context-plan endpoint; summary mode with cache hits; sign-in (magic link end to end, Google callback against a mocked token endpoint, remember me, per-user accounts, captcha, passkey gating, fail-closed); and shares (snapshot immutability after new messages, republish, revoke → 410, expiry, private exclusion in the payload, rate limit → 429, view count, cache-version bump).
 - **Angular**: pure logic lives in `@tangent/core` and is tested there. A small set of Vitest tests covers the SSE client parser and the store reducers without a DOM. `ng build` runs in CI as a compile check (strict templates).
 - **Manual/E2E**: `scripts/smoke.sh` runs against `wrangler dev` with curl: create, send, branch, plan, share, public view, revoke → 410, export. The UI was also walked through in headless Chromium (Playwright) under `wrangler dev`: chat, branch dialog in all three modes, inspector, outline, breadcrumbs, keyboard navigation, share → logged-out phone view → revoke. The same was done for the viewer/export page (path composition, no CSP violations, mobile drawer).
 

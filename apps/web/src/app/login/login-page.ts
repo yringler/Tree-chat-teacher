@@ -40,8 +40,8 @@ import { Turnstile } from '../ui/turnstile';
           } @else if (sentTo(); as email) {
             <p class="lead">Check your email</p>
             <p>
-              We sent a sign-in link to <strong>{{ email }}</strong> (if it's allowed to use this
-              app). It works once and expires in 15 minutes.
+              We sent a sign-in link to <strong>{{ email }}</strong>. It works once and expires in
+              15 minutes.
             </p>
             <button type="button" class="btn btn-ghost" (click)="sentTo.set(null)">
               Use a different method

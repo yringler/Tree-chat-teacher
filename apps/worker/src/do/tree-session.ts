@@ -29,8 +29,9 @@ interface Run {
  * tree so it keeps running when the browser disconnects, lets clients
  * reconnect with a snapshot, and serializes sends per tree.
  *
- * Internal protocol (called only by the Worker, never exposed):
- *   POST /send?treeId=&branchId=   body SessionSendBody → SSE
+ * Internal protocol (called only by the Worker, never exposed; the Worker
+ * checks the caller owns the branch/node first and passes its accountId):
+ *   POST /send?treeId=&branchId=&accountId= body SessionSendBody → SSE
  *   GET  /stream?treeId=&nodeId=                    → SSE (snapshot, then live)
  *   POST /cancel?treeId=&nodeId=                    → 204
  *   POST /delete-branch?treeId=&branchId=&accountId= → DeleteBranchResponse
@@ -52,7 +53,8 @@ export class TreeSession extends DurableObject<AppEnv> {
         // Keys stay in memory only for this generation (the ChatService closes over them).
         const keys = await openKeys(sealedKeys, this.env);
         if (keys.state === 'invalid') throw new KeyRequiredError('Your stored API key could not be read. Enter it again.');
-        const sendChat = keys.state === 'ok' ? chatService(this.env, undefined, keys.keys) : chat;
+        const accountId = url.searchParams.get('accountId') ?? undefined;
+        const sendChat = chatService(this.env, accountId, keys.state === 'ok' ? keys.keys : undefined);
         return await this.send(sendChat, url.searchParams.get('branchId') ?? '', content);
       }
       if (request.method === 'GET' && url.pathname === '/stream') {

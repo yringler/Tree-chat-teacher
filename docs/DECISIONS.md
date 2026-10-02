@@ -56,15 +56,16 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 - **Viewer tables use `ta-left/center/right` classes instead of inline `style`**, because the share page's strict hash-based CSP blocks inline styles.
 - **A share whose fork node is filtered out** (a system, streaming or error node, or a node before a subtree target) drops that child branch and everything below it.
 
-## Accounts (ownership groundwork, not multi-user)
-- **Trees and shares carry `account_id`.** It references an `accounts` table seeded with a single `default` account in migration 0001. Existing rows backfill via the column default, so there is no data rewrite.
+## Accounts (one per user)
+- **Trees and shares carry `account_id`.** It is the owning Better Auth user id. Migration 0001 seeded a single `default` account, which only the local dev bypass still uses; migration 0003 handed the rows written while the app was single-user to the earliest user (the owner).
 - **Branches, nodes and summaries inherit ownership through `tree_id`.** They have no column of their own, which keeps a future split into per-user data a matter of filtering by tree.
-- **One place decides the acting account:** `resolveAccountId(identity)` in `apps/worker/src/auth/account.ts`. Today it always returns `default`. Multi-user replaces only this function, for example by keying on the Better Auth user id (`identity.userId`, stable) rather than email.
+- **One place decides the acting account:** `resolveAccountId(identity)` in `apps/worker/src/auth/account.ts`. It returns `identity.userId` (stable, unlike the email), or `default` in dev bypass mode.
 - **Services take `accountId` (default `default`).**
   - `listTrees`/`listShares` filter by it.
   - Tree-level operations (detail, update, delete, backup) and share management treat another account's rows as not found.
+  - So do routes addressed only by branch or node id (`/api/branches/:id`, `/api/nodes/:id/*`, creating a branch from a node): `requireOwnedBranch`/`requireOwnedNode` resolve the tree and check its account. The Worker checks before calling the Durable Object and passes the account along, so the DO never acts on a tree the caller doesn't own.
   - Imports are assigned to the importing account.
-- **Not scoped yet (the remaining multi-user step):** routes addressed only by branch or node id (`/api/branches/:id`, `/api/nodes/:id/*`, the Durable Object). They would need a tree-ownership check before multi-user. Provider keys and budgets are also global.
+- **Server-side provider keys are global.** Any signed-in user can generate on them, so a public deployment leaves them unset and relies on bring-your-own-key.
 - **`account_id` has no FK constraint.** SQLite cannot `ALTER TABLE … ADD COLUMN` with `REFERENCES` and a non-null default.
 
 ## Bring-your-own-key
@@ -101,7 +102,7 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 ## Authentication (replaced Cloudflare Access)
 - **Better Auth in the Worker instead of Cloudflare Access in front of it.** Sign-in is part of the app (Google, GitHub, magic link, passkeys), it works on any host, and the Worker stays the only security boundary. Its tables live in D1 as `auth_*` (Drizzle schema, migration 0002), so its `account` model can't be confused with our `accounts`.
 - **No passwords.** Email+password stays disabled; the methods are OAuth, magic link and passkeys. Passkeys are added from the Account dialog once signed in.
-- **`ALLOWED_EMAILS` gates sign-in, and everyone on it shares the default account.** It replaces the Access policy. Users outside it are never created (`user.create.before` returns false, so the OAuth callback redirects to `/login?error=unable_to_create_user` instead of answering JSON), never sent a magic link (same response either way, so the form doesn't reveal who is allowed), and the middleware re-checks it on every request. Multi-user is still the step described under *Accounts*.
+- **Sign-up is open; there is no allowlist.** Generation runs on each user's own key, so an extra user costs little, and each user's data is their own (see *Accounts*). The magic-link captcha and rate limits are what bound abuse of the sign-in endpoints.
 - **The API session check never refreshes the session.** A refresh must re-issue the cookie, which only `GET /api/auth/get-session` does; the web app calls it at startup. Refreshing in the middleware would move the database expiry while the cookie kept its old one.
 - **"Remember me" for every method via an after-hook.** Better Auth only has it for email+password. Sessions start remembered (30 days, extended at most daily); when the login page's one-shot `tangent-remember` cookie isn't `1`, the hook shortens the row to 1 day and re-issues the cookie with no Max-Age plus Better Auth's signed `dont_remember` cookie. It's a cookie because the OAuth callback and magic link are top-level navigations. Missing (e.g. a link opened in another browser) means not remembered.
 - **Captcha only on `/sign-in/magic-link`.** It is the one endpoint that sends email; OAuth providers run their own bot checks and passkeys can't be scripted. Without `TURNSTILE_SECRET_KEY` the plugin refuses the request (fails closed). Hostname pinning is skipped on localhost because Turnstile's test keys report their own hostname.

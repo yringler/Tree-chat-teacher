@@ -86,8 +86,7 @@ export function apiRoutes(): Hono<AppBindings> {
   );
   api.delete('/branches/:branchId', async (c) => {
     // Through the tree's Durable Object: it owns the generations it has to stop first.
-    const branch = await chatService(c.env).deps.repos.trees.getBranch(c.req.param('branchId'));
-    if (!branch) throw new NotFoundError('Branch');
+    const branch = await chatService(c.env, c.var.accountId).requireOwnedBranch(c.req.param('branchId'));
     return session(c.env, branch.treeId).fetch(
       sessionUrl('/delete-branch', { treeId: branch.treeId, branchId: branch.id, accountId: c.var.accountId }),
       { method: 'POST' },
@@ -110,26 +109,25 @@ export function apiRoutes(): Hono<AppBindings> {
     const branchId = c.req.param('branchId');
     const keys = await requireReadableKeys(c);
     const chat = chatService(c.env, c.var.accountId, keys?.keys);
-    const branch = await chat.deps.repos.trees.getBranch(branchId);
-    if (!branch) throw new NotFoundError('Branch');
+    const branch = await chat.requireOwnedBranch(branchId);
     assertGenerationAllowed(chat.deps.providers, branch.providerId, branch.model);
     await enforceRateLimit(c, keys, 'chat');
     // The Durable Object gets the still-sealed cookie value in the body (never
     // a header, which request logs may capture) and opens it itself.
     const body: SessionSendBody = { ...c.req.valid('json'), ...(keys ? { sealedKeys: keys.sealed } : {}) };
     return session(c.env, branch.treeId).fetch(
-      sessionUrl('/send', { treeId: branch.treeId, branchId }),
+      sessionUrl('/send', { treeId: branch.treeId, branchId, accountId: c.var.accountId }),
       { method: 'POST', body: JSON.stringify(body) },
     );
   });
   api.get('/nodes/:nodeId/stream', async (c) => {
-    const node = await nodeOr404(c.env, c.req.param('nodeId'));
+    const node = await chatService(c.env, c.var.accountId).requireOwnedNode(c.req.param('nodeId'));
     return session(c.env, node.treeId).fetch(
       sessionUrl('/stream', { treeId: node.treeId, nodeId: node.id }),
     );
   });
   api.post('/nodes/:nodeId/cancel', async (c) => {
-    const node = await nodeOr404(c.env, c.req.param('nodeId'));
+    const node = await chatService(c.env, c.var.accountId).requireOwnedNode(c.req.param('nodeId'));
     return session(c.env, node.treeId).fetch(
       sessionUrl('/cancel', { treeId: node.treeId, nodeId: node.id }),
       { method: 'POST' },
@@ -233,12 +231,6 @@ function session(env: AppEnv, treeId: string) {
 
 function sessionUrl(path: string, params: Record<string, string>): string {
   return `https://tree-session${path}?${new URLSearchParams(params).toString()}`;
-}
-
-async function nodeOr404(env: AppEnv, nodeId: string) {
-  const node = await chatService(env).deps.repos.trees.getNode(nodeId);
-  if (!node) throw new NotFoundError('Node');
-  return node;
 }
 
 export function slug(title: string): string {

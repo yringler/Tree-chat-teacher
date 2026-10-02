@@ -95,17 +95,13 @@ All commands run from `apps/worker` (use `npx wrangler …` or `pnpm exec wrangl
 
 ### Sign-in (required)
 
-Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Google, GitHub, a magic link by email, or a passkey. The Worker **fails closed**: every `/api/*` request returns 500 until `BETTER_AUTH_SECRET` is set, and nobody can sign in until their email is on `ALLOWED_EMAILS`.
+Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Google, GitHub, a magic link by email, or a passkey. The Worker **fails closed**: every `/api/*` request returns 500 until `BETTER_AUTH_SECRET` is set, Sign-up is open: anyone can sign in, and each user gets their own conversations and shares. Generation runs on each user's own provider key (bring-your-own-key), so leave the server-side provider keys (`ANTHROPIC_API_KEY` etc.) unset on a public deployment, or every user spends yours.
 
 1. **Session secret.** It signs session cookies; rotating it signs everyone out.
    ```bash
    openssl rand -base64 32 | npx wrangler secret put BETTER_AUTH_SECRET
    ```
-2. **Who may sign in.** Set the `ALLOWED_EMAILS` secret to a comma-separated list (`you@example.com, @yourcompany.com` allows a whole domain). It's a secret rather than a var so the addresses stay out of git. Also set `PUBLIC_BASE_URL` in `wrangler.jsonc` to your origin.
-   ```bash
-   npx wrangler secret put ALLOWED_EMAILS
-   ```
-   Everyone on the list shares the one built-in account (Tangent is single-user; see *Accounts* in [DECISIONS.md](docs/DECISIONS.md)). Users not on the list are never created and never sent a magic link, and removing an email locks out its existing sessions on the next request.
+2. **Public origin.** Set `PUBLIC_BASE_URL` in `wrangler.jsonc` to your origin.
 3. **Email (magic links) through [Resend](https://resend.com).** Verify your sending domain in Resend, set `EMAIL_FROM` in `wrangler.jsonc` to an address on it, then:
    ```bash
    npx wrangler secret put RESEND_API_KEY
@@ -136,7 +132,9 @@ Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Googl
    curl -i https://tangent.example.com/s/does-not-exist   # 404 page from the Worker (shares are public)
    ```
 
-**Upgrading from the Cloudflare Access setup:** run `pnpm db:migrate:remote` (migration `0002_auth` adds the sign-in tables), set the secrets and vars above, deploy, then delete both Access applications ("Tangent" and "Tangent shares") in Zero Trust. Until they are deleted, Access still sits in front of the app. Existing conversations belong to the built-in account, so they appear as soon as you sign in.
+**Upgrading from the `ALLOWED_EMAILS` setup:** sign-up is now open and each user has their own data. Run `pnpm db:migrate:remote` (migration `0003_assign_default_account` moves every existing conversation and share to the earliest-created user, i.e. you), then deploy, then `npx wrangler secret delete ALLOWED_EMAILS`. Migrate first: a deploy before it would show you an empty list until it runs.
+
+**Upgrading from the Cloudflare Access setup:** run `pnpm db:migrate:remote` (migration `0002_auth` adds the sign-in tables), set the secrets and vars above, deploy, then delete both Access applications ("Tangent" and "Tangent shares") in Zero Trust. Until they are deleted, Access still sits in front of the app. Existing conversations go to the first user who signed in (see below).
 
 `DEV_ALLOW_NO_AUTH=true` is honoured **only** while `BETTER_AUTH_SECRET` is unset, and it belongs in `.dev.vars` only. Never set it as a deployed variable.
 
@@ -145,7 +143,6 @@ Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Googl
 | Name | Kind | Purpose |
 |---|---|---|
 | `PUBLIC_BASE_URL` | var | Public origin: share links, sign-in callbacks, magic links, passkey relying party (default: the request's origin; set it in production) |
-| `ALLOWED_EMAILS` | secret | Who may sign in: emails and/or `@domain` entries, comma-separated. Empty = nobody |
 | `EMAIL_PROVIDER` | var | `resend` (default) or `log` (prints emails to the console; localhost only) |
 | `EMAIL_FROM` | var | Sender address for magic links (its domain must be verified in Resend) |
 | `TURNSTILE_SITE_KEY` | var | Cloudflare Turnstile site key for the magic-link form |

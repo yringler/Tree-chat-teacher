@@ -173,8 +173,7 @@ export function loginErrorMessage(code: string | null): string | null {
   if (!code) return null;
   switch (code) {
     case 'unable_to_create_user':
-    case 'not_allowed':
-      return "This account isn't allowed to use Tangent.";
+      return "Your account couldn't be created. Please try again.";
     case 'INVALID_TOKEN':
     case 'EXPIRED_TOKEN':
     case 'ATTEMPTS_EXCEEDED':

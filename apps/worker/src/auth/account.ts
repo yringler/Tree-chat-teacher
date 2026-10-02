@@ -5,13 +5,12 @@ import type { AppBindings, Identity } from '../env.js';
 /**
  * Maps the verified caller to the account whose data it may touch.
  *
- * Single-user today: every signed-in user (all of them are on ALLOWED_EMAILS)
- * acts as the built-in default account. Going multi-user means replacing this
- * function (e.g. look up / create an account for `identity.userId`, the
- * Better Auth user id) — routes and services already take the account from here.
+ * One account per user, keyed on the Better Auth user id (stable, unlike the
+ * email). The built-in default account is only used by the local dev bypass,
+ * which has no user; migration 0003 handed its earlier data to the first user.
  */
-export function resolveAccountId(_identity: Identity): string {
-  return DEFAULT_ACCOUNT_ID;
+export function resolveAccountId(identity: Identity): string {
+  return identity.userId ?? DEFAULT_ACCOUNT_ID;
 }
 
 /** Sets `c.var.accountId` for owner routes. Must run after the session middleware. */

@@ -17,9 +17,9 @@ import {
  */
 
 /**
- * Owner of trees and shares. Single-user today: every row belongs to the
- * seeded `default` account (see migration 0001). Multi-user later means
- * mapping verified identities to accounts; the data is already partitioned.
+ * Owner of trees and shares. An account id is the owning Better Auth user id
+ * (see auth/account.ts); only the seeded `default` account (local dev bypass)
+ * has a row here, and `account_id` columns don't reference this table.
  */
 export const accounts = sqliteTable('accounts', {
   id: text('id').primaryKey(),
