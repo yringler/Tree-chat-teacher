@@ -99,11 +99,15 @@ footer a{color:var(--muted)}
 @media (min-width:720px){.wrap{padding:0 32px}.hero{grid-template-columns:1.15fr 1fr;align-items:center;padding-top:56px;padding-bottom:80px}.grid.four{grid-template-columns:1fr 1fr}.grid.two{grid-template-columns:1fr 1fr}section{padding:72px 0}}
 `;
 
+/**
+ * Brand mark: the app icon (apps/web/public/favicon.svg) in one colour. An
+ * orb, a ray touching it at exactly one point, and the point it heads to.
+ */
 export const MARK =
   '<svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">' +
-  '<rect x="1" y="1" width="26" height="26" rx="8" stroke="currentColor" stroke-width="2"/>' +
-  '<path d="M9 21V7M9 14c0-3 2-5 5.5-5H19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>' +
-  '<circle cx="19" cy="9" r="2.4" fill="currentColor"/><circle cx="9" cy="21" r="2.4" fill="currentColor"/></svg>';
+  '<circle cx="14" cy="18" r="5.5" stroke="currentColor" stroke-width="2"/>' +
+  '<path d="M6.1 14.8L19.1 3.9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>' +
+  '<circle cx="19.1" cy="3.9" r="2.4" fill="currentColor"/></svg>';
 
 /** 20×20 stroke icons for the feature cards. */
 function icon(path: string): string {
