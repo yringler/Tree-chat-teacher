@@ -1,5 +1,8 @@
 import {
   DEFAULT_ACCOUNT_ID,
+  DEFAULT_BRANCH_TITLE_PREFIX,
+  DEFAULT_TREE_TITLE,
+  TRUNK_TITLE,
   createBranchRequestSchema,
   createTreeRequestSchema,
   treeBackupSchema,
@@ -64,8 +67,7 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   autoTitle: true,
 };
 
-export const DEFAULT_TREE_TITLE = 'New conversation';
-export const TRUNK_TITLE = 'Main thread';
+export { DEFAULT_TREE_TITLE, TRUNK_TITLE };
 const MAX_RESOLVE_ROUNDS = 4;
 const TITLE_TIMEOUT_MS = 15_000;
 
@@ -924,5 +926,5 @@ function defaultBranchTitle(anchorQuote: string | null, node: ChatNode): string 
   if (!source) return 'New branch';
   const words = source.split(' ').slice(0, 6).join(' ');
   const clipped = words.length > 48 ? `${words.slice(0, 47)}…` : words;
-  return anchorQuote ? clipped : `Branch: ${clipped}`;
+  return anchorQuote ? clipped : `${DEFAULT_BRANCH_TITLE_PREFIX}${clipped}`;
 }

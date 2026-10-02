@@ -340,6 +340,8 @@ const STATUS_LABELS: Record<string, string> = {
       display: inline-flex;
       align-items: center;
       gap: 4px;
+      font-family: inherit;
+      font-size: 0.9rem;
     }
     .billing-title {
       margin: 8px 0 12px;

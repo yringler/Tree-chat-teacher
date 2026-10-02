@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, ElementRef, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AuthService, DEMO_MODE, Icon, ModeSwitch } from '@tangent/web-shared';
-import { BRAND } from '../brand';
+import { BRAND, BRAND_SHORT } from '../brand';
 import { DEMO_EXIT_URL } from '../demo/demo-mode';
 import { AccountStore } from '../state/account-store';
 import { UiStore } from '../state/ui-store';
@@ -16,7 +16,12 @@ import { UiStore } from '../state/ui-store';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="app-head">
-      <a routerLink="/" class="brand"><app-icon name="tree" [size]="20" /> {{ brand }}</a>
+      <a routerLink="/" class="brand" [attr.aria-label]="brand">
+        <app-icon name="tree" [size]="20" />
+        <span aria-hidden="true"
+          >{{ brandShort }}<span class="hide-narrow">{{ brandRest }}</span></span
+        >
+      </a>
       <app-mode-switch current="simple" />
       <span class="spacer"></span>
       @if (account.needsKey()) {
@@ -76,7 +81,7 @@ import { UiStore } from '../state/ui-store';
               </button>
             }
             <button type="button" class="menu-item" role="menuitem" (click)="signOut()">
-              Sign out
+              {{ demo ? 'Leave the demo' : 'Sign out' }}
             </button>
           </div>
         }
@@ -91,6 +96,11 @@ export class AppHeader {
   private readonly auth = inject(AuthService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly brand = BRAND;
+  protected readonly brandShort = BRAND_SHORT;
+  /** The rest of the brand after its first word, e.g. " Learn". */
+  protected readonly brandRest = BRAND.startsWith(BRAND_SHORT)
+    ? BRAND.slice(BRAND_SHORT.length)
+    : '';
   protected readonly demo = inject(DEMO_MODE);
 
   protected onDocumentClick(e: MouseEvent): void {

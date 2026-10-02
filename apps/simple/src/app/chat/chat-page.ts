@@ -20,6 +20,7 @@ import { LessonStore } from '../state/lesson-store';
 import { Composer } from './composer';
 import { MessageItem } from './message-item';
 import { ModelToggle } from './model-toggle';
+import { branchTitle, lessonTitle } from './titles';
 
 interface Entry {
   node: ChatNode;
@@ -56,6 +57,13 @@ export class ChatPage implements OnDestroy {
   /** Text selected inside one message: offers "Ask about this". */
   protected readonly pendingAsk = signal<PendingAsk | null>(null);
   private clearAskTimer: ReturnType<typeof setTimeout> | undefined;
+
+  protected readonly branchTitle = branchTitle;
+  /** The lesson's title in the learner's words ("New lesson" until the first reply names it). */
+  protected readonly lessonTitle = computed(() => {
+    const t = this.store.detail()?.tree.title;
+    return t === undefined ? '' : lessonTitle(t);
+  });
 
   protected readonly chainIds = computed<ReadonlySet<string>>(
     () => new Set(this.store.chain().map((b) => b.id)),
@@ -97,7 +105,7 @@ export class ChatPage implements OnDestroy {
 
   constructor() {
     effect(() => {
-      const t = this.store.detail()?.tree.title;
+      const t = this.lessonTitle();
       this.title.setTitle(t ? `${t} · ${BRAND}` : BRAND);
     });
 
@@ -167,7 +175,8 @@ export class ChatPage implements OnDestroy {
   protected deleteLesson(): void {
     const d = this.store.detail();
     if (!d) return;
-    if (!confirm(`Delete the lesson “${d.tree.title}” with all its side questions?`)) return;
+    if (!confirm(`Delete the lesson “${lessonTitle(d.tree.title)}” with all its side questions?`))
+      return;
     void this.store.deleteLesson(d.tree.id);
   }
 

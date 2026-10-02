@@ -214,6 +214,32 @@ export function loremTitle(random: Random = Math.random): string {
   });
 }
 
+const TITLE_WORDS = 6;
+const TITLE_CHARS = 48;
+
+/**
+ * The title for a title request: the first words of what the learner asked,
+ * so that a lesson on "Why is the sky blue?" is called that and not
+ * "Cheetahs versus flies". The ChatService's title prompt wraps the first
+ * messages as "User: …" / "Assistant: …" lines (core/context/render.ts);
+ * a side question's quote comes first as "User: Focus: …" and is skipped.
+ * Falls back to a random title when no learner message can be found.
+ */
+export function titleFor(messages: readonly { content: string }[], random: Random): string {
+  for (const m of messages) {
+    for (const match of m.content.matchAll(/^User: (.+)$/gm)) {
+      const line = match[1]?.trim() ?? '';
+      if (!line || line.startsWith('Focus: ')) continue;
+      const words = line.replace(/\s+/g, ' ').split(' ');
+      let title = words.slice(0, TITLE_WORDS).join(' ');
+      if (title.length > TITLE_CHARS) title = `${title.slice(0, TITLE_CHARS - 1).trimEnd()}…`;
+      else if (words.length > TITLE_WORDS) title += '…';
+      return title;
+    }
+  }
+  return loremTitle(random);
+}
+
 /** A paragraph standing in for a conversation summary. */
 export function loremSummary(random: Random = Math.random): string {
   return withRandom(random, () => sentences(random, between(random, 3, 5)));
@@ -285,7 +311,7 @@ export function createLoremProvider(options: LoremProviderOptions = {}): LlmProv
   const textFor = (request: GenerateRequest): string => {
     switch (request.usageTag?.purpose) {
       case 'title':
-        return loremTitle(random);
+        return titleFor(request.messages, random);
       case 'summary':
         return loremSummary(random);
       default:

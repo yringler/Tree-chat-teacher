@@ -4,6 +4,7 @@ import { RouterLink } from '@angular/router';
 import type { TreeSummary } from '@tangent/shared';
 import { Icon } from '@tangent/web-shared';
 import { Composer } from '../chat/composer';
+import { lessonTitle } from '../chat/titles';
 import { ModelToggle } from '../chat/model-toggle';
 import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
@@ -69,7 +70,7 @@ import { UiStore } from '../state/ui-store';
           @for (t of store.trees(); track t.id) {
             <li class="lesson-row">
               <a class="card card-link" [routerLink]="['/t', t.id]">
-                <strong>{{ t.title }}</strong>
+                <strong>{{ lessonTitle(t.title) }}</strong>
                 <span class="muted small">
                   {{ t.updatedAt | date: 'mediumDate' }}
                   @if (t.branchCount > 1) {
@@ -81,7 +82,7 @@ import { UiStore } from '../state/ui-store';
               <button
                 type="button"
                 class="icon-btn"
-                [attr.aria-label]="'Delete ' + t.title"
+                [attr.aria-label]="'Delete ' + lessonTitle(t.title)"
                 title="Delete lesson"
                 (click)="remove(t)"
               >
@@ -99,6 +100,7 @@ export class HomePage {
   protected readonly store = inject(LessonStore);
   protected readonly account = inject(AccountStore);
   protected readonly ui = inject(UiStore);
+  protected readonly lessonTitle = lessonTitle;
   protected readonly topic = signal('');
   protected readonly pickedModel = signal<string | null>(null);
   protected readonly starting = signal(false);
@@ -116,7 +118,8 @@ export class HomePage {
   }
 
   protected remove(t: TreeSummary): void {
-    if (!confirm(`Delete the lesson “${t.title}” with all its side questions?`)) return;
+    if (!confirm(`Delete the lesson “${lessonTitle(t.title)}” with all its side questions?`))
+      return;
     void this.store.deleteLesson(t.id);
   }
 }

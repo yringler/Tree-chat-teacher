@@ -8,6 +8,7 @@ import {
   loremReply,
   loremTitle,
   seededRandom as seeded,
+  titleFor,
 } from './lorem';
 
 function request(over: Partial<GenerateRequest> = {}): GenerateRequest {
@@ -56,6 +57,29 @@ describe('lorem text', () => {
       simple += loremReply(DEMO_SIMPLE_MODEL, seeded(seed)).length;
     }
     expect(smart).toBeGreaterThan(simple * 1.3);
+  });
+
+  it("titles a lesson after the learner's first words, else at random", () => {
+    const transcript = (lines: string[]) => [
+      { content: `<conversation>\n${lines.join('\n\n')}\n</conversation>\n\nWrite a title.` },
+    ];
+    expect(
+      titleFor(transcript(['User: Why is the sky blue?', 'Assistant: Good question!']), seeded(1)),
+    ).toBe('Why is the sky blue?');
+    // A side question's quote comes first; the title follows the question itself.
+    expect(
+      titleFor(
+        transcript(['User: Focus: an agreeable owl hums', 'User: Why does the owl hum first?']),
+        seeded(1),
+      ),
+    ).toBe('Why does the owl hum first?');
+    expect(
+      titleFor(
+        transcript(['User: Teach me everything there is to know about photosynthesis']),
+        seeded(1),
+      ),
+    ).toBe('Teach me everything there is to…');
+    expect(titleFor([{ content: 'no transcript here' }], seeded(2))).toBe(loremTitle(seeded(2)));
   });
 
   it('makes short one-line titles', () => {

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input } from '@an
 import type { ChatNode } from '@tangent/shared';
 import { Icon, MarkdownService } from '@tangent/web-shared';
 import { LessonStore } from '../state/lesson-store';
+import { branchTitle } from './titles';
 
 /** One message of the lesson; `data-node-id` lets the chat page map a text selection to it. */
 @Component({
@@ -62,10 +63,10 @@ import { LessonStore } from '../state/lesson-store';
               type="button"
               class="chip"
               [class.is-on]="chainIds().has(b.id)"
-              [title]="b.anchorQuote ?? b.title"
+              [title]="b.anchorQuote ?? branchTitle(b)"
               (click)="store.go(b.id)"
             >
-              {{ b.title }}
+              {{ branchTitle(b) }}
             </button>
           }
         </nav>
@@ -77,6 +78,7 @@ import { LessonStore } from '../state/lesson-store';
 export class MessageItem {
   protected readonly store = inject(LessonStore);
   private readonly md = inject(MarkdownService);
+  protected readonly branchTitle = branchTitle;
 
   readonly node = input.required<ChatNode>();
   readonly ancestor = input(false);
