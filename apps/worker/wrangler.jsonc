@@ -70,7 +70,8 @@
       "simple": { "limit": 120, "period": 60 }
     },
     {
-      // Requests that spend a user-supplied API key, per key cookie (see src/byok/guard.ts).
+      // Requests that spend a user-supplied API key, per key cookie; calls on the built-in provider
+      // (Tangent credit), per user across both apps (see src/byok/guard.ts).
       "name": "CHAT_RATE_LIMITER",
       "namespace_id": "1002",
       "simple": { "limit": 30, "period": 60 }
@@ -100,20 +101,24 @@
     "LEGAL_JURISDICTION": "the Commonwealth of Pennsylvania, USA",
     // Cloudflare Turnstile site key (public) for the magic-link form. Its secret is TURNSTILE_SECRET_KEY.
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFLlFryv5vXul-MG",
-    // JSON array of ProviderConfig; empty = built-in defaults (anthropic, openai, openrouter, fake).
+    // JSON array of ProviderConfig for power mode's own-key providers; empty = built-in defaults
+    // (anthropic, openai, openrouter, fake), where openrouter lists the suggested models below first
+    // and takes any OpenRouter model id. The id "tangent" is reserved for the built-in provider.
     "PROVIDERS": "",
     // Provider/model for summaries; empty = use the branch's provider/model.
     "SUMMARY_PROVIDER_ID": "",
     "SUMMARY_MODEL": "",
     "AUTO_TITLE": "true",
-    // ---- Learn mode (/learn/) and billing. Anyone may sign up and use both apps; Learn runs on the
-    // user's own OpenRouter key, or on paid credit once Stripe and OPENROUTER_SIMPLE_API_KEY are set.
-    // OpenRouter models for the Smart / Simple tiers (key: OPENROUTER_SIMPLE_API_KEY).
+    // ---- The built-in provider and billing. Anyone may sign up and use both apps. Once Stripe and
+    // OPENROUTER_SIMPLE_API_KEY are set, both apps offer the built-in provider `tangent` on prepaid
+    // credit (per user, shared by both apps): Learn as "Use Tangent credit", power as the provider
+    // "Tangent credit" with any OpenRouter model. Otherwise everyone brings their own key.
+    // The suggested OpenRouter models: Learn's Smart / Simple tiers, listed first in power.
     "SIMPLE_SMART_MODEL": "deepseek/deepseek-v4-pro",
     "SIMPLE_FAST_MODEL": "deepseek/deepseek-v4-flash",
-    // Full ProviderConfig JSON for the simple-mode provider `tangent`; empty = OpenRouter with the models above.
+    // Full ProviderConfig JSON (id "tangent") for the built-in provider; empty = OpenRouter with the models above.
     "SIMPLE_PROVIDER": "",
-    // Per-request input-token cap for simple accounts (bounds the cost of one call).
+    // Per-call input-token cap for Learn and for the built-in provider in power (bounds the cost of one call).
     "SIMPLE_MAX_INPUT_TOKENS": "60000",
     // Built-in system prompt of new Learn trees whose account has none saved; empty = DEFAULT_SYSTEM_PROMPT
     // (packages/shared/src/default-prompt.ts), which power mode always uses.
@@ -139,7 +144,7 @@
   //     bring-your-own-key for every signed-in user; these serve only the local dev bypass (.dev.vars)
   //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET (each pair optional)
   //   TURNSTILE_SECRET_KEY, RESEND_API_KEY
-  //   OPENROUTER_SIMPLE_API_KEY (paid Learn mode only; set a credit limit on it in OpenRouter)
+  //   OPENROUTER_SIMPLE_API_KEY (the built-in provider, sold as credit in both apps; set a credit limit on it in OpenRouter)
   //   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET (both set = billing enabled)
   // Local only (.dev.vars): DEV_ALLOW_NO_AUTH=true (honoured only while BETTER_AUTH_SECRET is unset)
 }

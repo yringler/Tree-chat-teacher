@@ -3,7 +3,7 @@
 
 # --- Option A: no sign-in at all (quickest). Honoured only while BETTER_AUTH_SECRET is unset.
 # Power mode acts as the `default` account and may use the server keys below; Learn mode
-# (/learn/) acts as `default_simple`.
+# (/learn/) acts as `default_simple`. Credit (Option C) is on `default_simple` for both.
 DEV_ALLOW_NO_AUTH=true
 
 # --- Option B: real sign-in, locally. Comment out DEV_ALLOW_NO_AUTH above and fill these in.
@@ -30,18 +30,19 @@ DEV_ALLOW_NO_AUTH=true
 #   openssl rand -base64 32
 # KEY_ENCRYPTION_SECRET=
 
-# --- Learn mode (/learn/) on paid credit. See README "Learn mode and billing".
-# Without these, Learn mode runs only on each learner's own OpenRouter key (needs KEY_ENCRYPTION_SECRET).
-# OpenRouter key that paid Learn mode spends (give it a small credit limit). No fallback to OPENROUTER_API_KEY:
+# --- The built-in provider on credit, in both apps. See README "Learn mode and billing".
+# Without these, both apps run only on each user's own keys (needs KEY_ENCRYPTION_SECRET).
+# OpenRouter key that the built-in provider `tangent` spends (Learn's "Use Tangent credit", power's
+# "Tangent credit"; give it a small credit limit). No fallback to OPENROUTER_API_KEY:
 # OPENROUTER_SIMPLE_API_KEY=sk-or-...
-# Stripe test mode. Both must be set for billing (and for paid credit to be offered at all).
+# Stripe test mode. Both must be set for billing (and for the built-in provider to be offered at all).
 # STRIPE_SECRET_KEY=sk_test_...
 # The whsec_... that `stripe listen --forward-to localhost:8787/api/auth/stripe/webhook` prints:
 # STRIPE_WEBHOOK_SECRET=whsec_...
 # STRIPE_CREDITS_PRODUCT_ID=prod_...
 # STRIPE_PLANS='[{"name":"monthly-10","label":"$10 / month","priceId":"price_...","amountCents":1000}]'
 
-# --- Option C: paid Learn mode offline (no OpenRouter, no Stripe). Works with Option A or B.
+# --- Option C: the built-in provider on credit, offline (no OpenRouter, no Stripe). Works with Option A or B.
 # A fake `tangent` provider that reports a fixed cost per call (the shape the worker tests use):
 # SIMPLE_PROVIDER='{"id":"tangent","kind":"fake","label":"Tangent","defaultModel":"smart","models":[{"id":"smart","label":"Smart"},{"id":"simple","label":"Simple"}],"options":{"chunkSize":4,"costUsd":0.001234}}'
 # Placeholders so sends are allowed (top-ups and plans won't work with them):
@@ -49,4 +50,5 @@ DEV_ALLOW_NO_AUTH=true
 # STRIPE_WEBHOOK_SECRET=whsec_placeholder
 # Then grant yourself credit (5000000 = $5) with the SQL insert into credit_grants from the README
 # ("Manual credit or adjustments", with --local; the account is `default_simple` under Option A,
-# `u_<your user id>` under Option B), pick "Use paid credit" and chat at http://localhost:8787/learn/.
+# `u_<your user id>` under Option B, for both apps), then pick "Use paid credit" and chat at
+# http://localhost:8787/learn/, or pick the "Tangent credit" provider in the power app.
