@@ -1,4 +1,10 @@
-import type { ShareBranch, ShareMessage, SharePayload } from '@tangent/shared';
+import {
+  splitTangents,
+  tangentsAsMarkdown,
+  type ShareBranch,
+  type ShareMessage,
+  type SharePayload,
+} from '@tangent/shared';
 
 const EXCERPT_MAX = 80;
 
@@ -21,8 +27,18 @@ function excerpt(markdown: string, max = EXCERPT_MAX): string {
     : text;
 }
 
+/**
+ * A message as shared or exported: an assistant reply's `<tangents>` block
+ * becomes a plain "Where next?" list (there are no buttons to follow it).
+ */
+export function messageMarkdown(m: ShareMessage): string {
+  return m.role === 'assistant' ? tangentsAsMarkdown(m.content) : m.content;
+}
+
 function renderMessages(messages: readonly ShareMessage[]): string[] {
-  return messages.map((m) => `**${m.role === 'user' ? 'User' : 'Assistant'}:**\n\n${m.content}`);
+  return messages.map(
+    (m) => `**${m.role === 'user' ? 'User' : 'Assistant'}:**\n\n${messageMarkdown(m)}`,
+  );
 }
 
 /** Collapse newlines so user-provided titles cannot break the heading. */
@@ -35,7 +51,8 @@ function oneLine(text: string): string {
  * (<details>), then branches depth-first. Each branch gets a heading with its
  * breadcrumb (e.g. "Trunk › Side topic"), a "Forked from: …" line quoting the
  * fork message excerpt, an optional anchor-quote blockquote, then messages as
- * "**User:**" / "**Assistant:**" blocks. Message content is emitted verbatim.
+ * "**User:**" / "**Assistant:**" blocks. Message content is emitted verbatim,
+ * except that a reply's `<tangents>` block becomes a "Where next?" list.
  */
 export function payloadToMarkdown(payload: SharePayload): string {
   const byKey = new Map<string, ShareBranch>(payload.branches.map((b) => [b.key, b]));
@@ -74,7 +91,7 @@ export function payloadToMarkdown(payload: SharePayload): string {
     blocks.push(`## ${breadcrumb(branch)}`);
     const fork = branch.forkMessageKey === null ? undefined : messages.get(branch.forkMessageKey);
     if (fork !== undefined) {
-      blocks.push(`Forked from: “${excerpt(fork.content)}”`);
+      blocks.push(`Forked from: “${excerpt(splitTangents(fork.content).body)}”`);
     }
     if (branch.anchorQuote !== null && branch.anchorQuote.trim() !== '') {
       blocks.push(

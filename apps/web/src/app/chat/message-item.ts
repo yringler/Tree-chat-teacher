@@ -8,7 +8,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { parseReview, type Branch, type ChatNode } from '@tangent/shared';
+import { parseReview, splitTangents, type Branch, type ChatNode } from '@tangent/shared';
 import { Icon, MarkdownService } from '@tangent/web-shared';
 import { copyText, selectionWithin } from '../core/selection';
 import { ReviewStore } from '../state/review-store';
@@ -109,6 +109,33 @@ import { ReviewVerdict } from '../ui/review-verdict';
         </div>
       }
 
+      @if (tangents().length > 0) {
+        <nav class="tangents" aria-label="Tangents worth following">
+          <span class="tangents-label muted small">Where next?</span>
+          @for (t of tangents(); track t.title) {
+            <button
+              type="button"
+              class="tangent"
+              [class.is-followed]="followed().has(t.title)"
+              [class.is-on]="followedOn().has(t.title)"
+              [disabled]="opening() !== null"
+              [title]="
+                followed().has(t.title)
+                  ? 'Open the branch that follows this'
+                  : 'Branch off and ask about this (keeps the conversation so far)'
+              "
+              (click)="follow($event, t.title)"
+            >
+              <app-icon [name]="followed().has(t.title) ? 'chevronRight' : 'branch'" [size]="14" />
+              <span class="tangent-title">{{ t.title }}</span>
+              @if (t.why) {
+                <span class="tangent-why muted">{{ t.why }}</span>
+              }
+            </button>
+          }
+        </nav>
+      }
+
       @if (children().length > 0) {
         <div class="forks">
           <button
@@ -172,10 +199,38 @@ export class MessageItem {
     return l.reconnecting ? 'Reconnecting…' : l.status;
   });
   protected readonly content = computed(() => this.live()?.content ?? this.node().content);
-  protected readonly html = computed(() => this.md.render(this.content(), !this.streaming()));
+  /** The reply split from its `<tangents>` block (never rendered as text, even half-streamed). */
+  private readonly split = computed(() =>
+    this.node().role === 'assistant'
+      ? splitTangents(this.content())
+      : { body: this.content(), tangents: [], partial: false },
+  );
+  protected readonly html = computed(() => this.md.render(this.split().body, !this.streaming()));
   protected readonly reviewable = computed(
     () => this.node().role === 'assistant' && this.node().status === 'complete',
   );
+  /** The assistant's suggested tangents, offered once the reply is complete. */
+  protected readonly tangents = computed(() => (this.reviewable() ? this.split().tangents : []));
+  /** Titles of the tangents already followed (a child branch carries the title). */
+  protected readonly followed = computed<ReadonlySet<string>>(() => {
+    const titles = new Set(this.tangents().map((t) => t.title));
+    return new Set(
+      this.children()
+        .map((b) => b.title)
+        .filter((t) => titles.has(t)),
+    );
+  });
+  /** Followed tangents on the selected branch's chain. */
+  protected readonly followedOn = computed<ReadonlySet<string>>(() => {
+    const on = this.chainIds();
+    return new Set(
+      this.children()
+        .filter((b) => on.has(b.id))
+        .map((b) => b.title),
+    );
+  });
+  /** Title of the tangent whose branch is being created. */
+  protected readonly opening = signal<string | null>(null);
   protected readonly review = computed(() => this.reviews.reviews().get(this.node().id) ?? null);
   protected readonly verdict = computed(() => {
     const r = this.review();
@@ -214,9 +269,20 @@ export class MessageItem {
     this.ui.reviewDialog.set({ nodeId: this.node().id });
   }
 
+  protected async follow(e: Event, title: string): Promise<void> {
+    e.stopPropagation();
+    if (this.opening() !== null) return;
+    this.opening.set(title);
+    try {
+      await this.store.followTangent(this.node().id, title);
+    } finally {
+      this.opening.set(null);
+    }
+  }
+
   protected async copy(e: Event): Promise<void> {
     e.stopPropagation();
-    if (await copyText(this.content())) {
+    if (await copyText(this.split().body)) {
       this.copied.set(true);
       this.ui.notify('Copied to clipboard');
       setTimeout(() => this.copied.set(false), 1500);

@@ -1,6 +1,7 @@
 import { ConflictError } from '@tangent/core';
 import type {
   Repositories,
+  SettingsRepository,
   ShareRepository,
   ShareWithTree,
   SummaryRepository,
@@ -19,7 +20,15 @@ import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
 import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
 import * as schema from './schema.js';
-import { branches, nodes, shareSnapshots, shares, summaries, trees } from './schema.js';
+import {
+  accountSettings,
+  branches,
+  nodes,
+  shareSnapshots,
+  shares,
+  summaries,
+  trees,
+} from './schema.js';
 
 /** Snapshot JSON is stored in chunks of this many UTF-16 code units. */
 export const SNAPSHOT_CHUNK_CHARS = 256_000;
@@ -690,5 +699,26 @@ export function createD1Repositories(d1: D1Database): Repositories {
     },
   };
 
-  return { trees: treeRepo, summaries: summaryRepo, shares: shareRepo };
+  const settingsRepo: SettingsRepository = {
+    async getSettings(accountId) {
+      const row = await db
+        .select({ systemPrompt: accountSettings.systemPrompt })
+        .from(accountSettings)
+        .where(eq(accountSettings.accountId, accountId))
+        .get();
+      return row ? { systemPrompt: row.systemPrompt } : null;
+    },
+
+    async putSettings(accountId, settings, updatedAt) {
+      await db
+        .insert(accountSettings)
+        .values({ accountId, systemPrompt: settings.systemPrompt, updatedAt })
+        .onConflictDoUpdate({
+          target: accountSettings.accountId,
+          set: { systemPrompt: settings.systemPrompt, updatedAt },
+        });
+    },
+  };
+
+  return { trees: treeRepo, summaries: summaryRepo, shares: shareRepo, settings: settingsRepo };
 }

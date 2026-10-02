@@ -1,5 +1,6 @@
 import type { ShareBranch, ShareMessage, SharePayload } from '@tangent/shared';
 import { escapeHtml, renderMarkdown } from './markdown.js';
+import { messageMarkdown } from './markdown-export.js';
 
 export interface ViewerPageOptions {
   /** 'share' = served at /s/:token; 'export' = downloadable single file. */
@@ -386,7 +387,7 @@ function renderMessage(vm: ViewModel, m: ShareMessage): string {
     `<article class="msg ${m.role === 'user' ? 'msg-user' : 'msg-assistant'}" id="${key}" data-key="${key}">` +
     `<div class="msg-head"><span class="msg-role">${role}</span>` +
     `<a class="msg-link" href="#${key}" aria-label="Link to this message">#</a></div>` +
-    `<div class="msg-body">${renderMarkdown(m.content)}</div>${forksHtml}</article>\n`
+    `<div class="msg-body">${renderMarkdown(messageMarkdown(m))}</div>${forksHtml}</article>\n`
   );
 }
 

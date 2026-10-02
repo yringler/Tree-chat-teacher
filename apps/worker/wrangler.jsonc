@@ -94,7 +94,8 @@
     "SIMPLE_PROVIDER": "",
     // Per-request input-token cap for simple accounts (bounds the cost of one call).
     "SIMPLE_MAX_INPUT_TOKENS": "60000",
-    // Default system prompt for new simple-mode trees; empty = the built-in Socratic prompt.
+    // Built-in system prompt of new Learn trees whose account has none saved; empty = DEFAULT_SYSTEM_PROMPT
+    // (packages/shared/src/default-prompt.ts), which power mode always uses.
     "SIMPLE_SYSTEM_PROMPT": "",
     // Held per in-flight call, and the minimum available balance to start one (micro-USD; 20000 = $0.02).
     "USAGE_HOLD_MICROS": "20000",

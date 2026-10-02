@@ -53,6 +53,8 @@ import type { AccountMode } from './billing.js';
  *   GET    /api/export?treeId=&scope=&nodeId=&format=md|html&includeAncestors= -> file download
  *   GET    /api/trees/:treeId/backup              -> TreeBackup (JSON download)
  *   POST   /api/import            TreeBackup      -> TreeDetail (new ids)
+ *   GET    /api/settings                          -> SettingsResponse (the account's own settings)
+ *   PATCH  /api/settings         UpdateSettingsRequest -> SettingsResponse
  *   GET    /api/key/status                        -> KeyStatusResponse
  *   POST   /api/key              SaveKeyRequest  -> 204 + Set-Cookie (sealed, HttpOnly)
  *   DELETE /api/key              ForgetKeyRequest -> 204 + Set-Cookie (cleared or re-sealed)
@@ -149,18 +151,45 @@ export interface TreeDetail {
 
 const id = z.string().min(1).max(64);
 const contextMode = z.enum(['path', 'summary', 'independent']) satisfies z.ZodType<ContextMode>;
+/** Longest system prompt a tree or the account settings may hold. */
+export const MAX_SYSTEM_PROMPT_CHARS = 20_000;
 
+/**
+ * Without a (non-blank) `systemPrompt`, the tree gets the account's saved
+ * default (SettingsResponse.systemPrompt), else the built-in one.
+ */
 export const createTreeRequestSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
-  systemPrompt: z.string().max(20_000).nullable().optional(),
+  systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable().optional(),
   providerId: id.optional(),
   model: z.string().min(1).max(200).optional(),
 });
 export type CreateTreeRequest = z.infer<typeof createTreeRequestSchema>;
 
+/**
+ * Per-account settings, stored server-side (one row per account). Power and
+ * Learn are separate accounts, so each has its own.
+ */
+export interface SettingsResponse {
+  /**
+   * System prompt of new conversations; null = the built-in default
+   * (`defaultSystemPrompt`). A conversation's own prompt (PATCH /api/trees/:id)
+   * overrides it for that conversation.
+   */
+  systemPrompt: string | null;
+  /** The built-in default the server uses for this account's mode, so a client can show and edit it. */
+  defaultSystemPrompt: string;
+}
+
+/** A blank `systemPrompt` is stored as null (the built-in default). */
+export const updateSettingsRequestSchema = z.object({
+  systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable(),
+});
+export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
+
 export const updateTreeRequestSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
-  systemPrompt: z.string().max(20_000).nullable().optional(),
+  systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable().optional(),
 });
 export type UpdateTreeRequest = z.infer<typeof updateTreeRequestSchema>;
 
@@ -334,7 +363,7 @@ export const treeBackupSchema = z.object({
     /** Ignored on import: restored trees belong to the importing account. */
     accountId: id.optional(),
     title: z.string().max(200),
-    systemPrompt: z.string().max(20_000).nullable(),
+    systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable(),
     trunkBranchId: id,
     createdAt: isoDate,
     updatedAt: isoDate,

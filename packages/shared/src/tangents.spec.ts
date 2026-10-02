@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTangents, parseTangentLine, splitTangents } from './tangents.js';
+import { formatTangents, parseTangentLine, splitTangents, tangentsAsMarkdown } from './tangents.js';
 
 const REPLY = `Because water expands when it freezes.
 
@@ -91,5 +91,23 @@ describe('formatTangents', () => {
       tangents,
       partial: false,
     });
+  });
+});
+
+describe('tangentsAsMarkdown', () => {
+  it('rewrites the block as a plain "Where next?" list', () => {
+    const reply = 'Body.\n\n<tangents>\n- Why ice floats — density\n- Heavy water\n</tangents>';
+    expect(tangentsAsMarkdown(reply)).toBe(
+      'Body.\n\n**Where next?**\n\n- **Why ice floats** — density\n- **Heavy water**',
+    );
+  });
+
+  it('leaves replies without a block alone and drops an unfinished or empty one', () => {
+    expect(tangentsAsMarkdown('Just text.\n')).toBe('Just text.\n');
+    expect(tangentsAsMarkdown('Body.\n<tangents>\n- Half')).toBe('Body.');
+    expect(tangentsAsMarkdown('Body.\n<tangents>\n</tangents>')).toBe('Body.');
+    expect(tangentsAsMarkdown('<tangents>\n- Only\n</tangents>')).toBe(
+      '**Where next?**\n\n- **Only**',
+    );
   });
 });

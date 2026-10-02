@@ -126,8 +126,25 @@ export interface ShareRepository {
   incrementViewCount(shareId: string): Promise<void>;
 }
 
+/**
+ * Per-account settings (one row per account, created on the first save). An
+ * account with no row has the defaults: every field null.
+ */
+export interface AccountSettings {
+  /** System prompt of new trees; null = the built-in default. */
+  systemPrompt: string | null;
+}
+
+export interface SettingsRepository {
+  /** The account's settings, or null when it has never saved any. */
+  getSettings(accountId: string): Promise<AccountSettings | null>;
+  /** Creates or replaces the account's settings. */
+  putSettings(accountId: string, settings: AccountSettings, updatedAt: string): Promise<void>;
+}
+
 export interface Repositories {
   trees: TreeRepository;
   summaries: SummaryRepository;
   shares: ShareRepository;
+  settings: SettingsRepository;
 }

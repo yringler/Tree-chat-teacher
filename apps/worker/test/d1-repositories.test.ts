@@ -551,3 +551,20 @@ describe('shares', () => {
     await repos.shares.incrementViewCount('missing'); // no-op
   });
 });
+
+describe('account settings', () => {
+  it('has none until the first save, then upserts per account', async () => {
+    const a = uid('acct');
+    const b = uid('acct');
+    expect(await repos.settings.getSettings(a)).toBeNull();
+    await repos.settings.putSettings(a, { systemPrompt: 'First' }, '2026-01-01T00:00:00.000Z');
+    expect(await repos.settings.getSettings(a)).toEqual({ systemPrompt: 'First' });
+    const long = 'x'.repeat(20_000);
+    await repos.settings.putSettings(a, { systemPrompt: long }, '2026-01-02T00:00:00.000Z');
+    expect(await repos.settings.getSettings(a)).toEqual({ systemPrompt: long });
+    await repos.settings.putSettings(a, { systemPrompt: null }, '2026-01-03T00:00:00.000Z');
+    expect(await repos.settings.getSettings(a)).toEqual({ systemPrompt: null });
+    expect(await count('account_settings', 'account_id', a)).toBe(1);
+    expect(await repos.settings.getSettings(b)).toBeNull();
+  });
+});

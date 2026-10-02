@@ -1,12 +1,24 @@
-import { ChangeDetectionStrategy, Component, inject, type OnInit, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  type OnInit,
+  signal,
+} from '@angular/core';
+import { MAX_SYSTEM_PROMPT_CHARS } from '@tangent/shared';
 import { ReviewStore } from '../state/review-store';
 import { SettingsStore } from '../state/settings-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Modal } from '@tangent/web-shared';
+import { ApiClient, errorMessage, Modal } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
 
-/** App-wide preferences, one section per feature. Saved in this browser. */
+/**
+ * App-wide preferences, one section per feature. The default system prompt
+ * is saved to the account (server-side, `/api/settings`); the reviewer is
+ * saved in this browser.
+ */
 @Component({
   selector: 'app-settings-dialog',
   imports: [Modal, ModelPicker],
@@ -14,6 +26,60 @@ import { ModelPicker } from '../ui/model-picker';
   template: `
     <app-modal heading="Settings" (closed)="close()">
       <form class="form" (submit)="$event.preventDefault(); save()">
+        <fieldset class="settings-section">
+          <legend>Default system prompt</legend>
+          <p class="muted small">
+            New conversations start with this prompt. A conversation's own prompt (Conversation
+            settings) replaces it for that conversation. Saved to your account, on every device.
+          </p>
+          @if (promptError(); as err) {
+            <p class="small" role="alert">Couldn't load it: {{ err }}</p>
+          } @else {
+            <p class="small">
+              @if (!promptLoaded()) {
+                Loading…
+              } @else if (usesBuiltIn()) {
+                Now: the built-in prompt. It answers directly, then suggests tangents to branch
+                into.
+              } @else {
+                Now: your own prompt.
+              }
+            </p>
+            <label class="field">
+              <span class="sr-only">Default system prompt</span>
+              <textarea
+                rows="10"
+                [attr.maxlength]="maxChars"
+                placeholder="Empty: use the built-in prompt"
+                [disabled]="!promptLoaded()"
+                [value]="systemPrompt()"
+                (input)="systemPrompt.set(sp.value)"
+                #sp
+              ></textarea>
+            </label>
+            <div class="settings-buttons">
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                [disabled]="!promptLoaded()"
+                title="Copy the built-in prompt into the box, to edit it"
+                (click)="useDefault()"
+              >
+                Use default
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                [disabled]="!promptLoaded() || systemPrompt() === ''"
+                title="Empty the box: new conversations get the built-in prompt"
+                (click)="systemPrompt.set('')"
+              >
+                Reset to built-in
+              </button>
+            </div>
+          }
+        </fieldset>
+
         <fieldset class="settings-section">
           <legend>Reviewer</legend>
           <p class="muted small">
@@ -37,13 +103,16 @@ import { ModelPicker } from '../ui/model-picker';
 
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save</button>
+          <button type="submit" class="btn btn-primary" [disabled]="saving()">
+            {{ saving() ? 'Saving…' : 'Save' }}
+          </button>
         </div>
       </form>
     </app-modal>
   `,
 })
 export class SettingsDialog implements OnInit {
+  private readonly api = inject(ApiClient);
   private readonly settings = inject(SettingsStore);
   private readonly reviews = inject(ReviewStore);
   private readonly store = inject(TreeStore);
@@ -53,6 +122,23 @@ export class SettingsDialog implements OnInit {
   protected readonly providerId = signal('');
   protected readonly modelId = signal('');
 
+  protected readonly maxChars = MAX_SYSTEM_PROMPT_CHARS;
+  /** The editor's text; empty means the built-in prompt. */
+  protected readonly systemPrompt = signal('');
+  /** What the account has saved (null = the built-in prompt), once loaded. */
+  private readonly savedPrompt = signal<string | null>(null);
+  /** The server's built-in prompt, exactly as it would use it. */
+  private readonly defaultPrompt = signal('');
+  protected readonly promptLoaded = signal(false);
+  protected readonly promptError = signal<string | null>(null);
+  protected readonly saving = signal(false);
+  /** What saving the editor would store: blank, or the built-in text unchanged, is the built-in prompt. */
+  private readonly promptToSave = computed(() => {
+    const text = this.systemPrompt();
+    return text.trim() === '' || text.trim() === this.defaultPrompt().trim() ? null : text;
+  });
+  protected readonly usesBuiltIn = computed(() => this.promptToSave() === null);
+
   ngOnInit(): void {
     const saved = this.settings.settings().reviewer;
     this.custom.set(saved !== null);
@@ -60,6 +146,24 @@ export class SettingsDialog implements OnInit {
       this.providerId.set(saved.providerId);
       this.modelId.set(saved.model);
     }
+    void this.loadPrompt();
+  }
+
+  private async loadPrompt(): Promise<void> {
+    try {
+      const res = await this.api.settings();
+      this.savedPrompt.set(res.systemPrompt);
+      this.defaultPrompt.set(res.defaultSystemPrompt);
+      this.systemPrompt.set(res.systemPrompt ?? '');
+      this.promptLoaded.set(true);
+    } catch (err) {
+      this.promptError.set(errorMessage(err));
+    }
+  }
+
+  /** Copies the built-in prompt into the editor, to start from it. */
+  protected useDefault(): void {
+    this.systemPrompt.set(this.defaultPrompt());
   }
 
   protected customize(): void {
@@ -75,12 +179,25 @@ export class SettingsDialog implements OnInit {
     this.ui.settingsOpen.set(false);
   }
 
-  protected save(): void {
+  protected async save(): Promise<void> {
     const reviewer =
       this.custom() && this.providerId() && this.modelId()
         ? { providerId: this.providerId(), model: this.modelId() }
         : null;
     this.settings.update({ reviewer });
+    const prompt = this.promptToSave();
+    if (this.promptLoaded() && prompt !== this.savedPrompt()) {
+      this.saving.set(true);
+      try {
+        const res = await this.api.updateSettings({ systemPrompt: prompt });
+        this.savedPrompt.set(res.systemPrompt);
+      } catch (err) {
+        this.store.fail(err);
+        return; // keep the dialog (and the edit) open
+      } finally {
+        this.saving.set(false);
+      }
+    }
     this.ui.notify('Settings saved');
     this.close();
   }

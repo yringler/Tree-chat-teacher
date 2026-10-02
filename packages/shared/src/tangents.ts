@@ -1,13 +1,13 @@
 /*
- * Tangents: the "where next?" offers a Learn reply ends with. The tutor
- * prompt (apps/worker/src/simple-mode.ts) asks for them in a fixed block,
+ * Tangents: the "where next?" offers a reply ends with. The default
+ * prompt (DEFAULT_SYSTEM_PROMPT, ./default-prompt.ts) asks for them in a fixed block,
  *
  *   <tangents>
  *   - Title — why it's worth following
  *   </tangents>
  *
- * which the Learn app turns into branch buttons and keeps out of the rendered
- * reply. The block stays in the stored message (and so in later context), so
+ * which both apps turn into branch buttons and keep out of the rendered
+ * reply (shares and exports show it as a plain "Where next?" list). The block stays in the stored message (and so in later context), so
  * the model sees what it already offered.
  */
 
@@ -96,4 +96,18 @@ export function splitTangents(content: string): SplitTangents {
 export function formatTangents(tangents: readonly Tangent[]): string {
   const lines = tangents.map((t) => (t.why ? `- ${t.title} — ${t.why}` : `- ${t.title}`));
   return `${TANGENTS_OPEN}\n${lines.join('\n')}\n${TANGENTS_CLOSE}`;
+}
+
+/**
+ * A reply with its tangents block rewritten as a plain Markdown "Where next?"
+ * list (shares and exports, which have no buttons). A reply without a block
+ * comes back unchanged; a half-written block is dropped.
+ */
+export function tangentsAsMarkdown(content: string): string {
+  if (!OPEN_RE.test(content)) return content;
+  const { body, tangents } = splitTangents(content);
+  if (tangents.length === 0) return body;
+  const items = tangents.map((t) => (t.why ? `- **${t.title}** — ${t.why}` : `- **${t.title}**`));
+  const list = `**Where next?**\n\n${items.join('\n')}`;
+  return body === '' ? list : `${body}\n\n${list}`;
 }

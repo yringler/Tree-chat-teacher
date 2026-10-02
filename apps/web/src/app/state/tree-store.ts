@@ -419,6 +419,36 @@ export class TreeStore {
     }
   }
 
+  /**
+   * Follows a tangent the assistant suggested under `fromNodeId`: a `path`
+   * branch titled after it (a user title, so auto-titling keeps it), on the
+   * message's branch's provider and model like "Branch from here", whose
+   * first message is the title. A tangent already followed from that message
+   * just opens its branch.
+   */
+  async followTangent(fromNodeId: string, title: string): Promise<Branch | null> {
+    const existing = this.childBranchesAt(fromNodeId).find((b) => b.title === title);
+    if (existing) {
+      this.go(existing.id, this.firstNodeOf(existing.id)?.id ?? null);
+      return existing;
+    }
+    try {
+      const branch = await this.api.createBranch({
+        fromNodeId,
+        contextMode: 'path',
+        anchorQuote: null,
+        title,
+      });
+      this.applyBranch(branch);
+      this.go(branch.id);
+      void this.send(branch.id, title);
+      return branch;
+    } catch (err) {
+      this.fail(err);
+      return null;
+    }
+  }
+
   async updateBranch(branchId: string, req: UpdateBranchRequest): Promise<boolean> {
     try {
       this.applyBranch(await this.api.updateBranch(branchId, req));

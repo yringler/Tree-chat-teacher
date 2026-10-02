@@ -1,6 +1,11 @@
 import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classes without the Angular CLI.
 import { Injector } from '@angular/core';
-import { splitTangents, type ReviewEvent, type StreamEvent } from '@tangent/shared';
+import {
+  DEFAULT_SYSTEM_PROMPT,
+  splitTangents,
+  type ReviewEvent,
+  type StreamEvent,
+} from '@tangent/shared';
 import {
   API_FETCH,
   ApiClient,
@@ -92,7 +97,7 @@ describe('demo backend', () => {
     const { api } = setup({ seed: false });
     const detail = await api.createTree({ providerId: 'tangent', model: 'smart' });
     expect(detail.tree.title).toBe('New conversation');
-    expect(detail.tree.systemPrompt).toContain('Demo');
+    expect(detail.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
 
     const res = await api.sendMessage(
       detail.tree.trunkBranchId,
@@ -323,11 +328,11 @@ describe('power demo backend', () => {
     await expect(api.saveKey('openai', 'sk-x')).rejects.toMatchObject({ status: 400 });
   });
 
-  it('keeps an empty system prompt and is never out of credit', async () => {
+  it('starts conversations with the built-in prompt and is never out of credit', async () => {
     const storage = memoryStorage();
     const { api } = setup({ mode: 'power', storage, seed: false });
     const tree = await api.createTree({});
-    expect(tree.tree.systemPrompt).toBeFalsy();
+    expect(tree.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
     const saved = JSON.parse(storage.data.get('tangent.power-demo.v1')!) as object;
     storage.data.set('tangent.power-demo.v1', JSON.stringify({ ...saved, balanceMicros: 0 }));
     const { api: next } = setup({ mode: 'power', storage });
@@ -340,6 +345,31 @@ describe('power demo backend', () => {
     );
     expect(stream.at(-1)?.type).toBe('done');
     expect(storage.data.has('tangent.learn-demo.v1')).toBe(false);
+  });
+
+  it('saves a default system prompt in Settings, keeps it across a reload, and resets it', async () => {
+    const storage = memoryStorage();
+    const { api } = setup({ mode: 'power', storage, seed: false });
+    await expect(api.settings()).resolves.toEqual({
+      systemPrompt: null,
+      defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+    });
+    await expect(api.updateSettings({ systemPrompt: 'Be terse.' })).resolves.toEqual({
+      systemPrompt: 'Be terse.',
+      defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+    });
+    expect((await api.createTree({})).tree.systemPrompt).toBe('Be terse.');
+    expect((await api.createTree({ systemPrompt: 'Mine.' })).tree.systemPrompt).toBe('Mine.');
+
+    const { api: next } = setup({ mode: 'power', storage });
+    await expect(next.settings()).resolves.toMatchObject({ systemPrompt: 'Be terse.' });
+    await expect(next.updateSettings({ systemPrompt: null })).resolves.toMatchObject({
+      systemPrompt: null,
+    });
+    expect((await next.createTree({})).tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    await expect(next.updateSettings({ systemPrompt: 'x'.repeat(20_001) })).rejects.toMatchObject({
+      status: 400,
+    });
   });
 
   it('backs up a conversation and imports it as a copy', async () => {

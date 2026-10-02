@@ -80,3 +80,49 @@ describe('accounts', () => {
     expect(legacy.tree.accountId).toBe(DEFAULT_ACCOUNT_ID);
   });
 });
+
+describe('account settings', () => {
+  function withDefault(accountId: string, base = setup({ autoTitle: false })) {
+    return new ChatService({
+      repos: base.repos,
+      providers: registryOf(base.provider),
+      settings: { ...DEFAULT_CHAT_SETTINGS, autoTitle: false },
+      accountId,
+      defaultSystemPrompt: 'BUILT-IN',
+    });
+  }
+
+  it('gives new trees the saved prompt, else the built-in one, unless the request names one', async () => {
+    const base = setup({ autoTitle: false });
+    const chat = withDefault('a', base);
+    const other = withDefault('b', base);
+    expect(await chat.getSettings()).toEqual({
+      systemPrompt: null,
+      defaultSystemPrompt: 'BUILT-IN',
+    });
+    expect((await chat.createTree({})).tree.systemPrompt).toBe('BUILT-IN');
+    expect((await chat.createTree({ systemPrompt: '  ' })).tree.systemPrompt).toBe('BUILT-IN');
+
+    expect(await chat.updateSettings({ systemPrompt: 'MINE' })).toEqual({
+      systemPrompt: 'MINE',
+      defaultSystemPrompt: 'BUILT-IN',
+    });
+    expect((await chat.createTree({})).tree.systemPrompt).toBe('MINE');
+    expect((await chat.createTree({ systemPrompt: 'THIS ONE' })).tree.systemPrompt).toBe(
+      'THIS ONE',
+    );
+    // Settings are per account.
+    expect((await other.getSettings()).systemPrompt).toBeNull();
+    expect((await other.createTree({})).tree.systemPrompt).toBe('BUILT-IN');
+
+    // A blank prompt goes back to the built-in one.
+    expect((await chat.updateSettings({ systemPrompt: ' \n' })).systemPrompt).toBeNull();
+    expect((await chat.createTree({})).tree.systemPrompt).toBe('BUILT-IN');
+  });
+
+  it('has no default prompt without a built-in one', async () => {
+    const { chat } = setup({ autoTitle: false });
+    expect((await chat.createTree({})).tree.systemPrompt).toBeNull();
+    expect(await chat.getSettings()).toEqual({ systemPrompt: null, defaultSystemPrompt: '' });
+  });
+});

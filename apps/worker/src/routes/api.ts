@@ -9,6 +9,7 @@ import {
   sendMessageRequestSchema,
   treeBackupSchema,
   updateBranchRequestSchema,
+  updateSettingsRequestSchema,
   updateShareRequestSchema,
   updateTreeRequestSchema,
   type MeResponse,
@@ -24,7 +25,6 @@ import { validateJson, validateQuery } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { purgeShare } from '../share/cache.js';
 import { chatService, paidCreditAvailable, registryFor, shareService } from '../services.js';
-import { simpleSystemPrompt } from '../simple-mode.js';
 import { keyRoutes } from './key.js';
 
 const REVIEW_KEEPALIVE_MS = 15_000;
@@ -94,17 +94,19 @@ export function apiRoutes(): Hono<AppBindings> {
 
   api.route('/key', keyRoutes());
 
+  // ---- account settings (per account, so power and Learn each have their own)
+  api.get('/settings', async (c) => c.json(await chatOf(c).getSettings()));
+  api.patch('/settings', validateJson(updateSettingsRequestSchema), async (c) =>
+    c.json(await chatOf(c).updateSettings(c.req.valid('json'))),
+  );
+
   // ---- trees
   api.get('/trees', async (c) => c.json(await chatOf(c).listTrees()));
-  api.post('/trees', validateJson(createTreeRequestSchema), async (c) => {
-    const req = c.req.valid('json');
-    // Simple accounts get the built-in tutor prompt unless they bring their own.
-    const systemPrompt =
-      c.var.account.mode === 'simple' && !req.systemPrompt?.trim()
-        ? simpleSystemPrompt(c.env)
-        : req.systemPrompt;
-    return c.json(await chatOf(c).createTree({ ...req, systemPrompt }), 201);
-  });
+  // Without a system prompt in the request, the tree gets the account's saved
+  // default, else the built-in one (defaultSystemPromptFor in services.ts).
+  api.post('/trees', validateJson(createTreeRequestSchema), async (c) =>
+    c.json(await chatOf(c).createTree(c.req.valid('json')), 201),
+  );
   api.get('/trees/:treeId', async (c) =>
     c.json(await chatOf(c).getTreeDetail(c.req.param('treeId'))),
   );

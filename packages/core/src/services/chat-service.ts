@@ -7,6 +7,7 @@ import {
   createTreeRequestSchema,
   treeBackupSchema,
   updateBranchRequestSchema,
+  updateSettingsRequestSchema,
   updateTreeRequestSchema,
   type Branch,
   type ChatMessage,
@@ -20,6 +21,7 @@ import {
   type ProviderRegistry,
   type ReviewEvent,
   type ReviewRequest,
+  type SettingsResponse,
   type StreamEvent,
   type SummaryRequest,
   type TokenUsage,
@@ -29,6 +31,7 @@ import {
   type TreeDetail,
   type TreeSummary,
   type UpdateBranchRequest,
+  type UpdateSettingsRequest,
   type UsageTag,
   type UpdateTreeRequest,
 } from '@tangent/shared';
@@ -78,6 +81,11 @@ export interface ChatServiceDeps {
   accountId?: string;
   providers: ProviderRegistry;
   settings: ChatSettings;
+  /**
+   * Built-in system prompt of new trees, used when neither the request nor
+   * the account's saved settings name one. Default: none.
+   */
+  defaultSystemPrompt?: string | null;
   clock?: Clock;
   newId?: () => string;
 }
@@ -174,18 +182,23 @@ export class ChatService {
     return node;
   }
 
-  /** Creates the tree and an empty trunk (provider/model default from the registry). */
+  /**
+   * Creates the tree and an empty trunk (provider/model default from the
+   * registry). Without a system prompt in the request, the tree gets the
+   * account's saved default, else the built-in one (`deps.defaultSystemPrompt`).
+   */
   async createTree(request: CreateTreeRequest): Promise<TreeDetail> {
     const req = createTreeRequestSchema.parse(request);
     const providerId = req.providerId ?? this.deps.providers.defaultProviderId();
     const provider = this.requireProvider(providerId);
     const model = req.model ?? provider.defaultModel();
+    const systemPrompt = emptyToNull(req.systemPrompt) ?? (await this.newTreeSystemPrompt());
     const now = this.now();
     const tree: Tree = {
       id: this.newId(),
       accountId: this.accountId,
       title: req.title ?? DEFAULT_TREE_TITLE,
-      systemPrompt: emptyToNull(req.systemPrompt),
+      systemPrompt,
       trunkBranchId: this.newId(),
       createdAt: now,
       updatedAt: now,
@@ -235,6 +248,32 @@ export class ChatService {
     await this.requireOwnedTree(treeId);
     const deleted = await this.repo.deleteTree(treeId);
     if (!deleted) throw new NotFoundError('Tree');
+  }
+
+  // ------------------------------------------------------------- settings
+
+  /** The account's settings, with the built-in default prompt a client can show ("Use default"). */
+  async getSettings(): Promise<SettingsResponse> {
+    const saved = await this.deps.repos.settings.getSettings(this.accountId);
+    return this.settingsResponse(saved?.systemPrompt ?? null);
+  }
+
+  /** Saves the account's default system prompt; a blank one means the built-in default (null). */
+  async updateSettings(request: UpdateSettingsRequest): Promise<SettingsResponse> {
+    const req = updateSettingsRequestSchema.parse(request);
+    const systemPrompt = emptyToNull(req.systemPrompt);
+    await this.deps.repos.settings.putSettings(this.accountId, { systemPrompt }, this.now());
+    return this.settingsResponse(systemPrompt);
+  }
+
+  private settingsResponse(systemPrompt: string | null): SettingsResponse {
+    return { systemPrompt, defaultSystemPrompt: this.deps.defaultSystemPrompt ?? '' };
+  }
+
+  /** The account's saved default prompt, else the built-in one. */
+  private async newTreeSystemPrompt(): Promise<string | null> {
+    const saved = await this.deps.repos.settings.getSettings(this.accountId);
+    return emptyToNull(saved?.systemPrompt) ?? emptyToNull(this.deps.defaultSystemPrompt);
   }
 
   // ------------------------------------------------------------- branches
