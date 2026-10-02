@@ -49,7 +49,7 @@ async function body<T>(res: Response, status: number): Promise<T> {
 
 describe('billing routes', () => {
   it('are forbidden for power accounts', async () => {
-    const call = appAs({ id: 'default', mode: 'power', userId: null });
+    const call = appAs({ id: 'default', mode: 'power', userId: null, operatorKeys: true });
     for (const [path, init] of [
       ['/api/billing', {}],
       ['/api/billing/usage', {}],

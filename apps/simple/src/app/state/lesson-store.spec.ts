@@ -15,6 +15,7 @@ import { ApiClient, ApiError } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
 import { LessonStore, OUT_OF_CREDIT_MESSAGE } from './lesson-store';
+import { PaymentStore } from './payment-store';
 import { UiStore } from './ui-store';
 
 const T = '2026-01-01T00:00:00.000Z';
@@ -150,6 +151,7 @@ function fakeApi() {
     streamNode: vi.fn(async (_id: string, _signal: AbortSignal): Promise<Response> => stream([])),
     cancelNode: vi.fn(async (_id: string) => undefined),
     billing: vi.fn(async () => BILLING),
+    keyStatus: vi.fn(async () => ({ enabled: true, hasKey: false, providers: [] })),
   };
 }
 
@@ -161,6 +163,7 @@ function setup() {
       { provide: LessonStore },
       { provide: UiStore },
       { provide: AccountStore },
+      { provide: PaymentStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: router },
     ],
@@ -359,6 +362,25 @@ describe('LessonStore', () => {
     s.api.sendMessage.mockResolvedValue(stream([]));
     await s.store.send('trunk', 'What is light?');
     expect(s.store.unsentDraft()).toBeNull();
+  });
+
+  it('401 key_required on send: opens the payment dialog and keeps the message', async () => {
+    const s = setup();
+    await open(s, detail());
+    s.api.sendMessage.mockRejectedValue(
+      new ApiError(
+        401,
+        'key_required',
+        'Add your OpenRouter API key to continue this conversation.',
+      ),
+    );
+    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
+
+    expect(s.ui.accessOpen()).toBe(true);
+    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error' });
+    expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
+    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
+    await vi.waitFor(() => expect(s.api.keyStatus).toHaveBeenCalled());
   });
 
   it('402 on the first message of a new lesson goes to billing too', async () => {

@@ -129,7 +129,7 @@ describe('credit checkout', () => {
     }
     const err = await createCreditCheckout(
       env,
-      { id: 'default', mode: 'power', userId: user.id },
+      { id: `p_${user.id}`, mode: 'power', userId: user.id, operatorKeys: false },
       user,
       1000,
       BASE,

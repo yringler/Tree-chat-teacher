@@ -5,10 +5,11 @@ import {
   parseProviderConfigs,
   type ProviderEnv,
 } from '@tangent/providers';
-import type { ProviderConfig, ProviderRegistry } from '@tangent/shared';
+import { LEARN_KEY_PROVIDER, type ProviderConfig, type ProviderRegistry } from '@tangent/shared';
 import { createUsageMeter, meteredRegistry } from './billing/meter.js';
+import { billingConfigured } from './billing/stripe.js';
 import { createD1Repositories } from './db/d1-repositories.js';
-import type { AccountContext, AppEnv } from './env.js';
+import { isMetered, type AccountContext, type AppEnv } from './env.js';
 import { simpleChatSettings, simpleProviderConfig } from './simple-mode.js';
 
 /** Provider id → user-supplied API key (bring-your-own-key, see byok/keys.ts). */
@@ -22,29 +23,76 @@ export function providerConfigs(env: AppEnv): ProviderConfig[] {
   return env.PROVIDERS?.trim() ? parseProviderConfigs(env.PROVIDERS) : DEFAULT_PROVIDER_CONFIGS;
 }
 
-/** Secrets and vars share the env object; providers look up only the names they are configured with. */
-export function providerEnv(env: AppEnv, apiKeys?: UserApiKeys): ProviderEnv {
+/**
+ * Secrets and vars share the env object; providers look up only the names
+ * they are configured with. `withheld` names secrets this request may not
+ * use (the operator's keys, see registryFor): providers that need one then
+ * report unavailable, or take the user's key.
+ */
+export function providerEnv(
+  env: AppEnv,
+  apiKeys?: UserApiKeys,
+  withheld: ReadonlySet<string> = new Set(),
+): ProviderEnv {
   const secrets: Record<string, string | undefined> = {};
   for (const [k, v] of Object.entries(env)) {
     // The cookie-sealing secret is never a provider credential.
-    if (typeof v === 'string' && k !== 'KEY_ENCRYPTION_SECRET') secrets[k] = v;
+    if (typeof v === 'string' && k !== 'KEY_ENCRYPTION_SECRET' && !withheld.has(k)) secrets[k] = v;
   }
   return apiKeys ? { secrets, apiKeys } : { secrets };
 }
 
+/** The secret behind paid Learn mode; never reachable from power mode. */
+const SIMPLE_KEY_SECRET = 'OPENROUTER_SIMPLE_API_KEY';
+
+function apiKeySecrets(configs: readonly ProviderConfig[]): string[] {
+  return configs.flatMap((c) => (c.apiKeySecret ? [c.apiKeySecret] : []));
+}
+
 /**
- * The providers an account may use. Simple accounts get only the server-side
- * `tangent` provider (simple-mode.ts) and never user keys; power accounts get
- * the configured providers, with `apiKeys` overriding server secrets.
+ * True when Learn mode can run on paid credit: billing is configured and the
+ * `tangent` provider is usable with the operator's key. Otherwise Learn mode
+ * is bring-your-own-key only and the paid option is hidden.
+ */
+export function paidCreditAvailable(env: AppEnv): boolean {
+  if (!billingConfigured(env)) return false;
+  const registry = createProviderRegistry([simpleProviderConfig(env)], providerEnv(env));
+  return registry.list()[0]?.available ?? false;
+}
+
+/**
+ * The providers a request may use. Anyone can sign up, so the operator's keys
+ * are withheld unless `account.operatorKeys`:
+ * - simple, paid credit: only the `tangent` provider on the operator's key
+ *   (metered by chatService); user keys are ignored.
+ * - simple, own key: the same provider config, on the user's OpenRouter key
+ *   (key cookie entry LEARN_KEY_PROVIDER) and never the operator's.
+ * - power: the configured providers, user keys overriding server secrets.
+ *   Server secrets only for operatorKeys (SERVER_KEY_EMAILS, dev bypass), and
+ *   never the paid-Learn key.
  */
 export function registryFor(
   env: AppEnv,
   account: AccountContext,
   apiKeys?: UserApiKeys,
 ): ProviderRegistry {
-  if (account.mode === 'simple')
-    return createProviderRegistry([simpleProviderConfig(env)], providerEnv(env));
-  return createProviderRegistry(providerConfigs(env), providerEnv(env, apiKeys));
+  if (account.mode === 'simple') {
+    const config = simpleProviderConfig(env);
+    if (account.operatorKeys) return createProviderRegistry([config], providerEnv(env));
+    const own = apiKeys?.[LEARN_KEY_PROVIDER];
+    return createProviderRegistry(
+      [config],
+      providerEnv(
+        env,
+        own ? { [config.id]: own } : undefined,
+        new Set([SIMPLE_KEY_SECRET, ...apiKeySecrets([config])]),
+      ),
+    );
+  }
+  const configs = providerConfigs(env);
+  const withheld = new Set([SIMPLE_KEY_SECRET]);
+  if (!account.operatorKeys) for (const name of apiKeySecrets(configs)) withheld.add(name);
+  return createProviderRegistry(configs, providerEnv(env, apiKeys, withheld));
 }
 
 export function chatSettingsFor(env: AppEnv, account: AccountContext): ChatSettings {
@@ -58,9 +106,9 @@ export function chatSettingsFor(env: AppEnv, account: AccountContext): ChatSetti
 }
 
 export interface ChatServiceOptions {
-  /** Bring-your-own-key overrides (power accounts only; ignored for simple). */
+  /** Bring-your-own-key overrides (ignored on paid credit, see registryFor). */
   apiKeys?: UserApiKeys;
-  /** Where the usage meter parks its background work (simple accounts). */
+  /** Where the usage meter parks its background work (paid credit). */
   defer?: Defer;
 }
 
@@ -70,7 +118,7 @@ const detach: Defer = (p) => {
 };
 
 /**
- * Every provider call of a simple account is metered: the registry is wrapped
+ * Every provider call on paid credit is metered: the registry is wrapped
  * so each `stream()` records a `usage_events` row (billing/meter.ts). The
  * meter is built on the first `get`, so routes that never generate (listing
  * trees, reading providers) don't pay for it.
@@ -102,10 +150,9 @@ export function chatService(
   return new ChatService({
     repos: createD1Repositories(env.DB),
     accountId: account.id,
-    providers:
-      account.mode === 'simple'
-        ? meteredLazily(registry, env, account, opts.defer ?? detach)
-        : registry,
+    providers: isMetered(account)
+      ? meteredLazily(registry, env, account, opts.defer ?? detach)
+      : registry,
     settings: chatSettingsFor(env, account),
   });
 }

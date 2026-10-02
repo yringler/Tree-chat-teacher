@@ -8,9 +8,6 @@ import { Sidebar } from './sidebar/sidebar';
 import { TreeStore } from './state/tree-store';
 import { UiStore } from './state/ui-store';
 
-/** Where the simple app lives (apps/simple, `baseHref: '/learn/'`). */
-const SIMPLE_APP_HOME = '/learn/';
-
 @Component({
   selector: 'app-root',
   imports: [RouterOutlet, Sidebar, DialogHost, Icon],
@@ -40,11 +37,6 @@ export class App {
     try {
       const me = await this.auth.requireUser();
       if (!me) return;
-      // Simple (metered) accounts use the /learn/ app; this one is power-only.
-      if (me.mode === 'simple') {
-        location.replace(SIMPLE_APP_HOME);
-        return;
-      }
       await this.store.init(me);
     } catch (err) {
       this.store.fail(err);

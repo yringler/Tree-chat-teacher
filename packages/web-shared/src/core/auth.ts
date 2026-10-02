@@ -48,7 +48,7 @@ export class AuthService {
 
   /**
    * The signed-in caller, or null when this sends the browser to the login
-   * page instead (no session, or an account no longer allowed in).
+   * page instead (no session, or a user without a verified email).
    */
   async requireUser(): Promise<MeResponse | null> {
     try {
@@ -173,7 +173,7 @@ export function loginErrorMessage(code: string | null, brand = 'Tangent'): strin
   switch (code) {
     case 'unable_to_create_user':
     case 'not_allowed':
-      return `This account isn't allowed to use ${brand}.`;
+      return `${brand} needs a verified email address. Verify it with your provider, or sign in with an email link.`;
     case 'INVALID_TOKEN':
     case 'EXPIRED_TOKEN':
     case 'ATTEMPTS_EXCEEDED':

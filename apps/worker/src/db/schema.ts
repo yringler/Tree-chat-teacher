@@ -17,9 +17,10 @@ import {
  */
 
 /**
- * Owner of trees and shares. The seeded `default` account (migration 0001) is
- * the shared `power` account of allowlisted users. Open sign-ups get a personal
- * `simple` account `u_<userId>` (migration 0003), created on first request.
+ * Owner of trees and shares. Every user has a `power` account `p_<userId>`
+ * and a `simple` (Learn) account `u_<userId>`, created on first request
+ * (migrations 0003 and 0005). The seeded `default` account (migration 0001)
+ * is the dev bypass's power account.
  */
 export const accounts = sqliteTable(
   'accounts',
@@ -27,13 +28,14 @@ export const accounts = sqliteTable(
     id: text('id').primaryKey(),
     name: text('name').notNull(),
     createdAt: text('created_at').notNull(),
-    /** Better Auth user id of a personal account; null for the shared `default` account. */
+    /** Better Auth user id of the account's owner; null for the dev bypass accounts. */
     userId: text('user_id'),
+    /** Each user has one account per mode: `p_<userId>` (power) and `u_<userId>` (simple). */
     mode: text('mode', { enum: ['power', 'simple'] })
       .notNull()
       .default('power'),
   },
-  (t) => [uniqueIndex('accounts_user_uq').on(t.userId)],
+  (t) => [uniqueIndex('accounts_user_mode_uq').on(t.userId, t.mode)],
 );
 
 export const trees = sqliteTable(

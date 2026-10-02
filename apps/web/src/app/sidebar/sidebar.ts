@@ -2,19 +2,20 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '@tangent/web-shared';
+import { Icon, ModeSwitch } from '@tangent/web-shared';
 import { ImportButton } from '../ui/import-button';
 import { OutlineItem } from './outline-item';
 
 @Component({
   selector: 'app-sidebar',
-  imports: [RouterLink, RouterLinkActive, Icon, ImportButton, OutlineItem],
+  imports: [RouterLink, RouterLinkActive, Icon, ImportButton, ModeSwitch, OutlineItem],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="sidebar-head">
       <a routerLink="/" class="brand" (click)="ui.drawerOpen.set(false)">
         <app-icon name="tree" [size]="18" /> Tangent
       </a>
+      <app-mode-switch current="power" />
       @if (store.me()?.devMode) {
         <span class="badge badge-warn" title="DEV_ALLOW_NO_AUTH is on">dev: auth disabled</span>
       }

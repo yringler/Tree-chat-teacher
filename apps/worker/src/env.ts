@@ -24,11 +24,13 @@ export interface AppEnv extends Env {
    */
   BETTER_AUTH_SECRET?: string;
   /**
-   * Who may sign in: comma-separated emails, or `@example.com` for a whole
-   * domain. Unset or empty = nobody (fails closed). A secret rather than a var
-   * so the addresses stay out of git.
+   * Who may spend the server-side keys of the power-mode providers
+   * (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, or whatever
+   * PROVIDERS names): comma-separated emails, or `@example.com` for a whole
+   * domain. Anyone can sign up, so unset or empty = nobody (fails closed):
+   * everyone else brings their own key. A secret so the addresses stay out of git.
    */
-  ALLOWED_EMAILS?: string;
+  SERVER_KEY_EMAILS?: string;
   /** OAuth apps. Each provider is offered only when both of its values are set. */
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
@@ -53,15 +55,29 @@ export interface AppEnv extends Env {
 }
 
 /**
- * The account a request acts as (see auth/account.ts).
- * - `power`: the shared `default` account of allowlisted users (own keys, unmetered).
- * - `simple`: a personal account `u_<userId>` of an open sign-up (operator key, metered).
+ * The account a request acts as (see auth/account.ts). Every user has one per mode:
+ * - `power`: `p_<userId>`, the full app (own keys, unmetered).
+ * - `simple`: `u_<userId>`, Tangent Learn; it also holds the billing ledger.
  */
 export interface AccountContext {
   id: string;
   mode: AccountMode;
   /** Better Auth user id; null in dev bypass mode. */
   userId: string | null;
+  /**
+   * May this request spend the operator's server-side keys?
+   * - power: the PROVIDERS keys, for SERVER_KEY_EMAILS and the dev bypass;
+   *   everyone else is bring-your-own-key only.
+   * - simple: true = paid credit (the `tangent` provider on
+   *   OPENROUTER_SIMPLE_API_KEY, metered and billed); false = the user's own
+   *   OpenRouter key, unmetered.
+   */
+  operatorKeys: boolean;
+}
+
+/** True when the account's provider calls are metered and charged (simple mode on paid credit). */
+export function isMetered(account: AccountContext): boolean {
+  return account.mode === 'simple' && account.operatorKeys;
 }
 
 /** Caller identity established by the session middleware for `/api/*`. */

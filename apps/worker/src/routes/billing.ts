@@ -28,7 +28,7 @@ export function billingRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
   r.use('*', async (c, next) => {
     if (c.var.account.mode !== 'simple') {
-      throw new DomainError('forbidden', 'Billing is only available for personal accounts');
+      throw new DomainError('forbidden', 'Billing is only available in Learn mode');
     }
     await next();
     c.header('Cache-Control', 'no-store');

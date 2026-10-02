@@ -26,7 +26,7 @@ import type {
   UpdateTreeRequest,
   UsageListResponse,
 } from '@tangent/shared';
-import { API_FETCH, defaultApiFetch } from './api-fetch';
+import { API_FETCH, API_HEADERS, defaultApiFetch } from './api-fetch';
 
 /** Thrown for every non-2xx API response (and for network failures, with status 0). */
 export class ApiError extends Error {
@@ -71,6 +71,7 @@ export class ApiClient {
   private readonly base = '/api';
   /** Optional so a bare `Injector.create` (tests) falls back to the global fetch. */
   private readonly transport = inject(API_FETCH, { optional: true }) ?? defaultApiFetch;
+  private readonly extraHeaders = inject(API_HEADERS, { optional: true }) ?? (() => ({}));
 
   me(): Promise<MeResponse> {
     return this.json('GET', '/me');
@@ -96,7 +97,7 @@ export class ApiClient {
     return this.json('DELETE', '/key', provider ? { provider } : {});
   }
 
-  // Billing (simple accounts; power accounts get 403)
+  // Billing (Learn mode; power gets 403)
 
   billing(): Promise<BillingSummary> {
     return this.json('GET', '/billing');
@@ -237,7 +238,7 @@ export class ApiClient {
     const init: RequestInit = {
       method,
       credentials: 'same-origin',
-      headers: { accept: 'application/json, text/event-stream' },
+      headers: { ...this.extraHeaders(), accept: 'application/json, text/event-stream' },
     };
     if (signal) init.signal = signal;
     if (body !== undefined) {

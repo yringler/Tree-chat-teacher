@@ -6,12 +6,14 @@ export interface Toast {
   text: string;
 }
 
-/** View state that is not part of the URL: toasts, the account menu, composer focus requests. */
+/** View state that is not part of the URL: toasts, the account menu, dialogs, composer focus requests. */
 @Injectable({ providedIn: 'root' })
 export class UiStore {
   readonly toasts = signal<readonly Toast[]>([]);
   readonly menuOpen = signal(false);
   readonly passkeysOpen = signal(false);
+  /** The "How replies are paid for" dialog (own OpenRouter key or credit). */
+  readonly accessOpen = signal(false);
   /** Bumped to ask the composer to take focus. */
   readonly composerFocus = signal(0);
   private toastSeq = 0;
@@ -34,6 +36,10 @@ export class UiStore {
   closeTop(): boolean {
     if (this.passkeysOpen()) {
       this.passkeysOpen.set(false);
+      return true;
+    }
+    if (this.accessOpen()) {
+      this.accessOpen.set(false);
       return true;
     }
     if (this.menuOpen()) {

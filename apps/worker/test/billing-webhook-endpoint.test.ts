@@ -13,7 +13,6 @@ const ORIGIN = 'https://tangent.example.com';
 const env = {
   ...(rawEnv as unknown as AppEnv),
   BETTER_AUTH_SECRET: 'test-secret-test-secret-test-secret-0123',
-  ALLOWED_EMAILS: 'owner@example.com',
 } as AppEnv;
 const app = createApp();
 

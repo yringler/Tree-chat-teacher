@@ -4,18 +4,16 @@ import { ApiClient, APP_PATHS, AuthService, Icon } from '@tangent/web-shared';
 import { RouteSync } from './core/route-sync';
 import { DEMO_MODE, DEMO_SIGNUP_URL } from './demo/demo-mode';
 import { AppHeader } from './shell/app-header';
+import { ModelAccessDialog } from './shell/model-access-dialog';
 import { PasskeysDialog } from './shell/passkeys-dialog';
 import { AccountStore } from './state/account-store';
 import { LessonStore } from './state/lesson-store';
 import { UiStore } from './state/ui-store';
 
-/** Where the power app lives: allowlisted (power) accounts belong there. */
-const POWER_APP_HOME = '/';
-
 /** Simple-mode shell, served under /learn/. */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, AppHeader, PasskeysDialog, Icon],
+  imports: [RouterOutlet, AppHeader, ModelAccessDialog, PasskeysDialog, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (loginPage) {
@@ -39,6 +37,9 @@ const POWER_APP_HOME = '/';
       </div>
       @if (ui.passkeysOpen()) {
         <app-passkeys-dialog />
+      }
+      @if (ui.accessOpen()) {
+        <app-model-access-dialog />
       }
     }
 
@@ -64,7 +65,7 @@ export class App {
   /** `/learn/demo/`: an in-browser backend, no sign-in (see demo/demo-mode.ts). */
   protected readonly demo = inject(DEMO_MODE);
   protected readonly signupUrl = DEMO_SIGNUP_URL;
-  /** The signed-in caller is known and is a simple account. */
+  /** The signed-in caller is known. */
   protected readonly ready = this.account.me;
   /**
    * The login page is always its own document (see AuthService), so this is
@@ -84,13 +85,13 @@ export class App {
       // The demo's caller always exists; nothing to redirect to.
       const me = this.demo ? await this.api.me() : await this.auth.requireUser();
       if (!me) return;
-      // Power (allowlisted) accounts use the full app at the root.
-      if (me.mode === 'power') {
-        location.replace(POWER_APP_HOME);
-        return;
-      }
-      this.account.me.set(me);
-      await Promise.all([this.lessons.init(), this.account.refreshBalance()]);
+      this.account.setMe(me);
+      await Promise.all([
+        this.lessons.init(),
+        this.account.refreshBalance(),
+        // The demo has no key cookie (and always runs on pretend credit).
+        this.demo ? Promise.resolve() : this.account.refreshKey(),
+      ]);
     } catch (err) {
       this.lessons.fail(err);
     }

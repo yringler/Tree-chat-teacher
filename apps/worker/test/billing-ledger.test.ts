@@ -98,14 +98,19 @@ describe('markupFor', () => {
   });
 
   it('uses the prepaid rate for an account without a user (dev mode)', async () => {
-    expect(await markupFor(env, { id: 'default', mode: 'power', userId: null })).toBe(1000);
+    expect(
+      await markupFor(env, { id: 'default', mode: 'power', userId: null, operatorKeys: true }),
+    ).toBe(1000);
   });
 });
 
 describe('assertCanSpend', () => {
-  it('is a no-op for power accounts', async () => {
+  it("is a no-op for power accounts and for Learn on the user's own key", async () => {
     await expect(
-      assertCanSpend(env, { id: 'default', mode: 'power', userId: null }),
+      assertCanSpend(env, { id: 'default', mode: 'power', userId: null, operatorKeys: true }),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertCanSpend(env, { ...simpleAccount(), operatorKeys: false }),
     ).resolves.toBeUndefined();
   });
 

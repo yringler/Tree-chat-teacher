@@ -671,6 +671,53 @@ button.crumb:hover {
   white-space: pre-wrap;
 }
 
+/* How replies are paid for (shell/model-access-dialog.ts) */
+
+.access-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.access-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.access-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.access-option > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.key-pill {
+  padding: 3px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.key-pill:hover {
+  background: var(--bg-hover);
+}
+
 /* Passkeys dialog */
 
 .key-list {

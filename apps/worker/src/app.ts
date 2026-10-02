@@ -1,6 +1,6 @@
 import type { LoginOptionsResponse } from '@tangent/shared';
 import { Hono } from 'hono';
-import { authConfigured, getAuth, openSignup, socialProviderFlags, type AuthDeps } from './auth/auth.js';
+import { authConfigured, getAuth, socialProviderFlags, type AuthDeps } from './auth/auth.js';
 import { accountMiddleware } from './auth/account.js';
 import { sessionMiddleware } from './auth/session.js';
 import type { AppBindings } from './env.js';
@@ -20,8 +20,8 @@ export interface AppOptions {
  * - `/api/auth/*` is Better Auth (sign-in, callbacks, session, passkeys).
  * - `/api/login-options` is public: what the login page should offer.
  * - Every other `/api/*` route requires a session (auth/session.ts) and acts
- *   as the caller's account (auth/account.ts); `/api/billing/*` is the simple
- *   accounts' billing API.
+ *   as the caller's account for the app named by the `x-tangent-mode` header
+ *   (auth/account.ts); `/api/billing/*` is Learn mode's billing API.
  * - `/s/*` is public and read-only.
  * - `/learn`, `/learn/*` serve the simple app (http/learn-app.ts).
  * - `/welcome`, and `/` for anonymous visitors, serve the landing page
@@ -48,7 +48,6 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
       devMode: !configured && c.env.DEV_ALLOW_NO_AUTH === 'true',
       social: configured ? socialProviderFlags(c.env) : { google: false, github: false },
       turnstileSiteKey: c.env.TURNSTILE_SITE_KEY?.trim() || null,
-      openSignup: configured && openSignup(c.env),
     };
     return c.json(body);
   });

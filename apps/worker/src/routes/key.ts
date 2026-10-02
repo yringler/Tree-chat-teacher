@@ -2,8 +2,10 @@ import { DomainError, ValidationError } from '@tangent/core';
 import { acceptsUserKey, verifyApiKey } from '@tangent/providers';
 import {
   forgetKeyRequestSchema,
+  LEARN_KEY_PROVIDER,
   saveKeyRequestSchema,
   type KeyStatusResponse,
+  type ProviderConfig,
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import { enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
@@ -19,21 +21,17 @@ import {
 import type { AppBindings, AppContext } from '../env.js';
 import { validateJson } from '../http/errors.js';
 import { providerConfigs, providerEnv } from '../services.js';
+import { simpleProviderConfig } from '../simple-mode.js';
 
 /**
  * Bring-your-own-key management, mounted at /api/key. No route ever returns
  * any part of a key; the key is only accepted (POST) and then lives in the
- * sealed HttpOnly cookie. Power accounts only: simple accounts always use
- * the operator's key and are billed for it.
+ * sealed HttpOnly cookie. Both apps share the one cookie: Learn mode (simple)
+ * stores and uses only the OpenRouter entry (LEARN_KEY_PROVIDER), checked
+ * against its own provider config, so the same key works in both apps.
  */
 export function keyRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
-  r.use('*', async (c, next) => {
-    if (c.var.account.mode === 'simple') {
-      throw new DomainError('forbidden', 'Your own API keys are not available in this app');
-    }
-    await next();
-  });
   r.use('*', sameOriginOnly);
   r.use('*', async (c, next) => {
     await next();
@@ -55,7 +53,7 @@ export function keyRoutes(): Hono<AppBindings> {
   r.post('/', validateJson(saveKeyRequestSchema), async (c) => {
     requireEnabled(c);
     const { provider, apiKey } = c.req.valid('json');
-    const config = providerConfigs(c.env).find((p) => p.id === provider);
+    const config = keyConfig(c, provider);
     if (!config || !acceptsUserKey(config))
       throw new ValidationError(`Unknown provider "${provider}"`);
     const problem = keyShapeProblem(config, apiKey);
@@ -96,6 +94,14 @@ export function keyRoutes(): Hono<AppBindings> {
   });
 
   return r;
+}
+
+/** The provider config a key for `provider` is checked against, in the request's mode. */
+function keyConfig(c: AppContext, provider: string): ProviderConfig | undefined {
+  if (c.var.account.mode === 'simple') {
+    return provider === LEARN_KEY_PROVIDER ? simpleProviderConfig(c.env) : undefined;
+  }
+  return providerConfigs(c.env).find((p) => p.id === provider);
 }
 
 function requireEnabled(c: AppContext): void {

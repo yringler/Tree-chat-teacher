@@ -1,21 +1,40 @@
 import { ChangeDetectionStrategy, Component, ElementRef, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { AuthService, Icon } from '@tangent/web-shared';
+import { AuthService, Icon, ModeSwitch } from '@tangent/web-shared';
 import { BRAND } from '../brand';
 import { DEMO_EXIT_URL, DEMO_MODE } from '../demo/demo-mode';
 import { AccountStore } from '../state/account-store';
 import { UiStore } from '../state/ui-store';
 
-/** Brand, credit balance (links to billing) and the account menu. */
+/**
+ * Brand, the Power / Learn switch, how replies are paid for (the credit
+ * balance, linking to billing, or "Your key") and the account menu.
+ */
 @Component({
   selector: 'app-header',
-  imports: [RouterLink, Icon],
+  imports: [RouterLink, Icon, ModeSwitch],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="app-head">
       <a routerLink="/" class="brand"><app-icon name="tree" [size]="20" /> {{ brand }}</a>
+      @if (!demo) {
+        <app-mode-switch current="simple" />
+      }
       <span class="spacer"></span>
-      @if (account.balanceLabel(); as balance) {
+      @if (account.needsKey()) {
+        <button type="button" class="key-pill balance-low" (click)="ui.accessOpen.set(true)">
+          Add your key
+        </button>
+      } @else if (account.payment.payment() === 'own-key' && account.keyStatus()) {
+        <button
+          type="button"
+          class="key-pill"
+          title="Replies run on your own OpenRouter key"
+          (click)="ui.accessOpen.set(true)"
+        >
+          Your key
+        </button>
+      } @else if (account.balanceLabel(); as balance) {
         <a
           routerLink="/billing"
           class="balance-pill"
@@ -43,9 +62,16 @@ import { UiStore } from '../state/ui-store';
             @if (account.me()?.email; as email) {
               <p class="menu-label muted small">{{ email }}</p>
             }
-            <a routerLink="/billing" class="menu-item" role="menuitem" (click)="close()">
-              Billing and credit
-            </a>
+            @if (!demo) {
+              <button type="button" class="menu-item" role="menuitem" (click)="openAccess()">
+                How replies are paid for
+              </button>
+            }
+            @if (account.payment.paidCredit()) {
+              <a routerLink="/billing" class="menu-item" role="menuitem" (click)="close()">
+                Billing and credit
+              </a>
+            }
             @if (!demo) {
               <button type="button" class="menu-item" role="menuitem" (click)="openPasskeys()">
                 Manage passkeys
@@ -77,6 +103,11 @@ export class AppHeader {
 
   protected close(): void {
     this.ui.menuOpen.set(false);
+  }
+
+  protected openAccess(): void {
+    this.close();
+    this.ui.accessOpen.set(true);
   }
 
   protected openPasskeys(): void {

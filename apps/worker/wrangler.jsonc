@@ -77,9 +77,8 @@
     "SUMMARY_PROVIDER_ID": "",
     "SUMMARY_MODEL": "",
     "AUTO_TITLE": "true",
-    // ---- Simple mode (/learn/) and billing.
-    // "true" = anyone may sign in; users not on ALLOWED_EMAILS get a personal, metered simple account.
-    "OPEN_SIGNUP": "false",
+    // ---- Learn mode (/learn/) and billing. Anyone may sign up and use both apps; Learn runs on the
+    // user's own OpenRouter key, or on paid credit once Stripe and OPENROUTER_SIMPLE_API_KEY are set.
     // OpenRouter models for the Smart / Simple tiers (key: OPENROUTER_SIMPLE_API_KEY).
     "SIMPLE_SMART_MODEL": "deepseek/deepseek-v4-pro",
     "SIMPLE_FAST_MODEL": "deepseek/deepseek-v4-flash",
@@ -106,11 +105,12 @@
   // Secrets (wrangler secret put): ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, AI_GATEWAY_TOKEN,
   //   KEY_ENCRYPTION_SECRET (`openssl rand -base64 32`; enables bring-your-own-key, rotate to revoke all stored keys)
   //   BETTER_AUTH_SECRET (`openssl rand -base64 32`; signs session cookies, rotate to sign everyone out)
-  //   ALLOWED_EMAILS (who may sign in: comma-separated emails, or "@example.com" for a whole domain;
-  //     unset = nobody. A secret so the addresses stay out of git; everyone listed shares one account)
+  //   SERVER_KEY_EMAILS (who may spend ANTHROPIC/OPENAI/OPENROUTER_API_KEY in power mode: comma-separated
+  //     emails, or "@example.com" for a whole domain; unset = nobody, everyone brings their own key.
+  //     Sign-up is open to anyone, so on a public deployment leave it unset or list only yourself)
   //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET (each pair optional)
   //   TURNSTILE_SECRET_KEY, RESEND_API_KEY
-  //   OPENROUTER_SIMPLE_API_KEY (simple mode only; set a credit limit on it in OpenRouter)
+  //   OPENROUTER_SIMPLE_API_KEY (paid Learn mode only; set a credit limit on it in OpenRouter)
   //   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET (both set = billing enabled)
   // Local only (.dev.vars): DEV_ALLOW_NO_AUTH=true (honoured only while BETTER_AUTH_SECRET is unset)
 }

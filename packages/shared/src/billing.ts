@@ -9,8 +9,30 @@ import type { UsagePurpose } from './provider.js';
  * checkout).
  */
 
-/** `power`: the owner's shared account (own keys, unmetered). `simple`: a personal, metered account. */
+/**
+ * Which app a request comes from. Every user has one account per mode, so the
+ * two apps keep separate conversations.
+ * - `power`: the full app at `/` (bring-your-own-key, unmetered).
+ * - `simple`: Tangent Learn at `/learn/`, on the user's own OpenRouter key or
+ *   on paid credit (`LearnPayment`).
+ */
 export type AccountMode = 'power' | 'simple';
+
+/**
+ * How a Learn (simple) request pays for its model calls:
+ * - `own-key`: the user's own OpenRouter key (the `openrouter` entry of the
+ *   sealed key cookie). Free; nothing is metered.
+ * - `credit`: the operator's key, metered and charged to prepaid credit.
+ *   Only offered when the server has billing and the operator key configured.
+ */
+export type LearnPayment = 'own-key' | 'credit';
+
+/** Request header naming the app (`AccountMode`); absent = `power`. */
+export const MODE_HEADER = 'x-tangent-mode';
+/** Request header with the `LearnPayment` of a `simple` request; absent = `own-key`. */
+export const PAYMENT_HEADER = 'x-tangent-payment';
+/** Key-cookie entry that Learn mode uses as the user's own key (shared with power mode's OpenRouter). */
+export const LEARN_KEY_PROVIDER = 'openrouter';
 
 /** Smallest one-time top-up ($5.00). */
 export const MIN_TOP_UP_CENTS = 500;

@@ -208,6 +208,34 @@ hr {
   font-size: 0.85rem;
 }
 
+/* Power / Learn switch (ui/mode-switch.ts) */
+.mode-switch {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.mode-switch-opt {
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.mode-switch-opt:hover {
+  background: var(--bg-hover);
+}
+
+.mode-switch-opt.is-current {
+  background: var(--bg-elev);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);

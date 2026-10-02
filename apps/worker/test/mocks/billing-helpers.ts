@@ -11,9 +11,9 @@ export function uniq(prefix: string): string {
   return `${prefix}_${seq}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** A simple account `u_<userId>` with a fresh user id. */
+/** A simple (Learn) account `u_<userId>` on paid credit, with a fresh user id. */
 export function simpleAccount(userId = uniq('user')): AccountContext {
-  return { id: `u_${userId}`, mode: 'simple', userId };
+  return { id: `u_${userId}`, mode: 'simple', userId, operatorKeys: true };
 }
 
 export async function insertUser(

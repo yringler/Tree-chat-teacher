@@ -5,7 +5,9 @@ import type { TreeSummary } from '@tangent/shared';
 import { Icon } from '@tangent/web-shared';
 import { Composer } from '../chat/composer';
 import { ModelToggle } from '../chat/model-toggle';
+import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
+import { UiStore } from '../state/ui-store';
 
 /** `/learn/`: start a new lesson and list the existing ones. */
 @Component({
@@ -14,6 +16,14 @@ import { LessonStore } from '../state/lesson-store';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page-body">
+      @if (account.needsKey()) {
+        <p class="notice" role="status">
+          Replies run on your own OpenRouter key, and none is saved in this browser yet.
+          <button type="button" class="link-btn" (click)="ui.accessOpen.set(true)">
+            Add your key{{ account.payment.paidCredit() ? ' or use paid credit' : '' }}
+          </button>
+        </p>
+      }
       <section class="new-lesson card" aria-labelledby="new-lesson-title">
         <h1 id="new-lesson-title">New lesson</h1>
         <p class="muted">
@@ -87,6 +97,8 @@ import { LessonStore } from '../state/lesson-store';
 })
 export class HomePage {
   protected readonly store = inject(LessonStore);
+  protected readonly account = inject(AccountStore);
+  protected readonly ui = inject(UiStore);
   protected readonly topic = signal('');
   protected readonly pickedModel = signal<string | null>(null);
   protected readonly starting = signal(false);

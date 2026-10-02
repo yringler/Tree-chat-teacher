@@ -13,7 +13,7 @@ export {
   isPaymentRequired,
   type ExportParams,
 } from './core/api-client';
-export { API_FETCH, defaultApiFetch } from './core/api-fetch';
+export { API_FETCH, API_HEADERS, defaultApiFetch } from './core/api-fetch';
 export { APP_PATHS, provideAppPaths, type AppPaths } from './core/app-paths';
 export {
   AUTH_CLIENT,
@@ -51,5 +51,6 @@ export {
 // UI
 export { Icon, type IconName } from './ui/icon';
 export { Modal } from './ui/modal';
+export { ModeSwitch } from './ui/mode-switch';
 export { Turnstile } from './ui/turnstile';
 export { LoginPage } from './login/login-page';

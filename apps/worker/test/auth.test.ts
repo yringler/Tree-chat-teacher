@@ -2,7 +2,7 @@ import type { LoginOptionsResponse, MeResponse } from '@tangent/shared';
 import { env, exports } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
-import { isEmailAllowed, parseAllowlist, REMEMBER_COOKIE } from '../src/auth/auth.js';
+import { mayUseServerKeys, parseEmailList, REMEMBER_COOKIE } from '../src/auth/auth.js';
 import type { EmailMessage, EmailSender } from '../src/email/index.js';
 import type { AppEnv } from '../src/env.js';
 
@@ -23,7 +23,7 @@ function authEnv(overrides: Partial<AppEnv> = {}): AppEnv {
   return {
     ...env,
     BETTER_AUTH_SECRET: 'test-secret-test-secret-test-secret-0123',
-    ALLOWED_EMAILS: 'owner@example.com, @team.example',
+    SERVER_KEY_EMAILS: 'owner@example.com, @team.example',
     TURNSTILE_SECRET_KEY: 'turnstile-secret',
     TURNSTILE_SITE_KEY: 'site-key',
     DEV_ALLOW_NO_AUTH: 'true',
@@ -99,21 +99,24 @@ async function signIn(
   });
 }
 
-describe('allowlist', () => {
+describe('SERVER_KEY_EMAILS', () => {
   it('parses emails and @domain entries, case-insensitively', () => {
-    const list = parseAllowlist(' A@x.com,b@y.com\n@Team.Example  not-an-email ');
+    const list = parseEmailList(' A@x.com,b@y.com\n@Team.Example  not-an-email ');
     expect([...list.emails]).toEqual(['a@x.com', 'b@y.com']);
     expect(list.domains).toEqual(['team.example']);
   });
 
-  it('allows listed emails and domains only; empty allows nobody', () => {
+  it('matches listed emails and domains only; empty matches nobody', () => {
     const e = authEnv();
-    expect(isEmailAllowed(e, 'Owner@Example.com')).toBe(true);
-    expect(isEmailAllowed(e, 'anyone@team.example')).toBe(true);
-    expect(isEmailAllowed(e, 'anyone@evilteam.example')).toBe(false);
-    expect(isEmailAllowed(e, 'stranger@example.com')).toBe(false);
-    expect(isEmailAllowed(authEnv({ ALLOWED_EMAILS: '' }), 'owner@example.com')).toBe(false);
-    expect(isEmailAllowed(e, null)).toBe(false);
+    expect(mayUseServerKeys(e, 'Owner@Example.com')).toBe(true);
+    expect(mayUseServerKeys(e, 'anyone@team.example')).toBe(true);
+    expect(mayUseServerKeys(e, 'anyone@evilteam.example')).toBe(false);
+    expect(mayUseServerKeys(e, 'stranger@example.com')).toBe(false);
+    expect(mayUseServerKeys(authEnv({ SERVER_KEY_EMAILS: '' }), 'owner@example.com')).toBe(false);
+    expect(mayUseServerKeys(authEnv({ SERVER_KEY_EMAILS: undefined }), 'owner@example.com')).toBe(
+      false,
+    );
+    expect(mayUseServerKeys(e, null)).toBe(false);
   });
 });
 
@@ -137,6 +140,8 @@ describe('fail closed', () => {
       devMode: true,
       accountId: 'default',
       mode: 'power',
+      operatorKeys: true,
+      paidCredit: true,
     } satisfies MeResponse);
 
     // Secret set: DEV_ALLOW_NO_AUTH=true is ignored and a session is required.
@@ -161,6 +166,8 @@ describe('fail closed', () => {
       devMode: true,
       accountId: 'default',
       mode: 'power',
+      operatorKeys: true,
+      paidCredit: true,
     });
   });
 });
@@ -181,7 +188,6 @@ describe('login options', () => {
       devMode: false,
       social: { google: true, github: false },
       turnstileSiteKey: 'site-key',
-      openSignup: false,
     } satisfies LoginOptionsResponse);
   });
 
@@ -192,7 +198,6 @@ describe('login options', () => {
       devMode: true,
       social: { google: false, github: false },
       turnstileSiteKey: null,
-      openSignup: false,
     } satisfies LoginOptionsResponse);
   });
 });
@@ -219,7 +224,7 @@ describe('magic link', () => {
     expect(s.mail.sent).toHaveLength(0);
   });
 
-  it('signs in an allowed email: link → session cookie → /api/me', async () => {
+  it('signs in any email: link → session cookie → /api/me', async () => {
     const s = setup();
     const res = await signIn(s);
     expect(s.mail.sent).toHaveLength(1);
@@ -233,12 +238,14 @@ describe('magic link', () => {
     expect(res.headers.get('location')).toBe(`${ORIGIN}/`);
     const me = await s.call('/api/me', { headers: { cookie: cookieHeader(res) } });
     expect(me.status).toBe(200);
-    expect(await me.json()).toEqual({
+    const body = (await me.json()) as MeResponse;
+    expect(body).toMatchObject({
       email: 'owner@example.com',
       devMode: false,
-      accountId: 'default',
       mode: 'power',
+      operatorKeys: true,
     });
+    expect(body.accountId).toMatch(/^p_.+/);
   });
 
   it('a link works once', async () => {
@@ -251,24 +258,23 @@ describe('magic link', () => {
     expect(findSetCookie(again, SESSION_COOKIE)).toBeUndefined();
   });
 
-  it('answers the same for an email that is not allowed, but sends nothing and creates no user', async () => {
+  it('signs up a stranger, who gets their own account without server keys', async () => {
     const s = setup();
-    const res = await requestMagicLink(s.call, 'stranger@example.com');
-    expect(res.status).toBe(200);
-    expect(s.mail.sent).toHaveLength(0);
-    const row = await env.DB.prepare('SELECT id FROM auth_users WHERE email = ?')
-      .bind('stranger@example.com')
-      .first();
-    expect(row).toBeNull();
+    const cookie = cookieHeader(await signIn(s, 'stranger@example.com'));
+    expect(s.mail.sent).toHaveLength(1);
+    const me = (await (await s.call('/api/me', { headers: { cookie } })).json()) as MeResponse;
+    expect(me).toMatchObject({ email: 'stranger@example.com', mode: 'power', operatorKeys: false });
+    expect(me.accountId).toMatch(/^p_.+/);
   });
 
-  it('an email removed from ALLOWED_EMAILS loses access with its existing session', async () => {
+  it('a user whose email is no longer verified is refused, whatever sessions they hold', async () => {
     const s = setup();
-    const cookie = cookieHeader(await signIn(s, 'member@team.example'));
+    const cookie = cookieHeader(await signIn(s, 'member@example.org'));
     expect((await s.call('/api/me', { headers: { cookie } })).status).toBe(200);
-
-    const revoked = setup(authEnv({ ALLOWED_EMAILS: 'owner@example.com' }));
-    const res = await revoked.call('/api/me', { headers: { cookie } });
+    await env.DB.prepare('UPDATE auth_users SET email_verified = 0 WHERE email = ?')
+      .bind('member@example.org')
+      .run();
+    const res = await s.call('/api/me', { headers: { cookie } });
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ error: { code: 'forbidden' } });
   });
@@ -358,7 +364,7 @@ describe('social sign-in', () => {
   }
   const googleEnv = () => authEnv({ GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret' });
 
-  it('the callback signs in an allowed Google account, honouring remember me', async () => {
+  it('the callback signs in a Google account, honouring remember me', async () => {
     const s = setup(googleEnv());
     const res = await googleSignIn(s, 'owner@example.com', false);
     expect(res.status).toBe(302);
@@ -374,29 +380,18 @@ describe('social sign-in', () => {
     expect(findSetCookie(remembered, SESSION_COOKIE)).toMatch(/Max-Age=2592000/);
   });
 
-  it('the callback refuses a Google account that is not allowed, creating no user', async () => {
-    const res = await googleSignIn(setup(googleEnv()), 'outsider@example.com', true);
-    expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toBe('/login?error=unable_to_create_user');
-    expect(findSetCookie(res, SESSION_COOKIE)).toBeUndefined();
-    const row = await env.DB.prepare('SELECT id FROM auth_users WHERE email = ?')
-      .bind('outsider@example.com')
-      .first();
-    expect(row).toBeNull();
-  });
-
-  it('with open sign-up, creates a verified Google user but refuses an unverified one', async () => {
-    const open = () =>
-      authEnv({ GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret', OPEN_SIGNUP: 'true' });
-    const s = setup(open());
+  it('creates a verified Google user but refuses an unverified one', async () => {
+    const s = setup(googleEnv());
     const ok = await googleSignIn(s, 'learner@example.org', true);
     expect(ok.status).toBe(302);
     expect(ok.headers.get('location')).toBe('/');
-    const me = await s.call('/api/me', { headers: { cookie: cookieHeader(ok) } });
+    const me = await s.call('/api/me', {
+      headers: { cookie: cookieHeader(ok), 'x-tangent-mode': 'simple' },
+    });
     expect(await me.json()).toMatchObject({ email: 'learner@example.org', mode: 'simple' });
 
-    // An unverified open sign-up would be refused by the session check forever: never created.
-    const res = await googleSignIn(setup(open()), 'unverified-learner@example.org', true);
+    // An unverified user would be refused by the session check forever: never created.
+    const res = await googleSignIn(setup(googleEnv()), 'unverified-learner@example.org', true);
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('/login?error=unable_to_create_user');
     expect(findSetCookie(res, SESSION_COOKIE)).toBeUndefined();
