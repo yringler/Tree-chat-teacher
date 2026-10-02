@@ -14,13 +14,15 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 
 ## Two ways to use Tangent
 
-|          | Power mode                                                                              | Learn mode ("simple")                                                                           |
-| -------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| URL      | `/` (`apps/web`)                                                                        | `/learn/` (`apps/simple`)                                                                       |
-| Who      | Anyone who signs in with a verified email. Account `p_<userId>`                         | The same users. Account `u_<userId>`, with its own conversations                                |
-| Models   | Every configured provider and model, on the user's own keys (bring-your-own-key)        | Two tiers, **Smart** and **Simple**, on OpenRouter                                              |
-| Controls | All of them: context modes, inspector, reviewer, system prompt, shares, export, backups | Nothing to configure: a built-in tutor prompt, "Ask about this" branches, a Smart/Simple toggle |
-| Cost     | Your own provider keys, unmetered                                                       | Your own OpenRouter key, unmetered; or, where the operator sells it, paid credit (see below)    |
+|          | Power mode                                                                              | Learn mode ("simple")                                                                                                        |
+| -------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| URL      | `/` (`apps/web`)                                                                        | `/learn/` (`apps/simple`)                                                                                                    |
+| Who      | Anyone who signs in with a verified email. Account `p_<userId>`                         | The same users. Account `u_<userId>`, with its own conversations                                                             |
+| Models   | Every configured provider and model, on the user's own keys (bring-your-own-key)        | Two tiers, **Smart** and **Simple**, on OpenRouter                                                                           |
+| Controls | All of them: context modes, inspector, reviewer, system prompt, shares, export, backups | Nothing to configure: a built-in tutor prompt, tangents after every answer, "Ask about this" branches, a Smart/Simple toggle |
+| Cost     | Your own provider keys, unmetered                                                       | Your own OpenRouter key, unmetered; or, where the operator sells it, paid credit (see below)                                 |
+
+**How Learn teaches.** The built-in prompt (`DEFAULT_SIMPLE_SYSTEM_PROMPT` in `apps/worker/src/simple-mode.ts`, replaced by `SIMPLE_SYSTEM_PROMPT`) answers the question asked, directly and in depth, and never quizzes the learner: whatever they don't follow, they branch into. Every substantive reply ends with a `<tangents>` block of two to four directions to explore next ("Why ice is less dense than water — …"). The Learn app keeps that block out of the rendered reply and shows it as buttons under the message; tapping one creates a `path` branch titled after the tangent and sends the title as its first message (the parser is `splitTangents` in `packages/shared`). The block stays in the stored message, so the model sees what it already offered.
 
 **Switching modes.** Both apps show a **Power | Learn** switch (the sidebar of the power app, the header of Learn). It is a link to the other app: one sign-in covers both. Each user has one account per mode, so power conversations and Learn lessons are kept apart (a Learn lesson runs on the tutor's provider and prompt, which the power app doesn't have, and the reverse). The app tells the API which mode it is with the `x-tangent-mode` header.
 
@@ -34,7 +36,7 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 Two public pages sit in front of both apps:
 
 - **Landing page.** Anonymous visitors to `/` get a marketing page instead of the power app: what Tangent is, the two modes, and links to the demo, Learn sign-in (`/learn/login`) and power sign-in (`/login`). "Anonymous" means no Better Auth session cookie (`tangent.session_token`, or `__Secure-tangent.session_token` on https) and not the local dev bypass; with a cookie, `/` is the power app as before. `/welcome` always serves the page, signed in or not. The Worker renders it (`apps/worker/src/http/landing.ts`): one HTML document, no JavaScript, one inline stylesheet allowed by a hash-based CSP.
-- **Free demo at `/learn/demo`.** The Learn interface running entirely in the browser: no sign-in, no model calls, and its state lives only in the browser tab. Replies are generated from random English sentences (the `txtgen` package), so they are playful nonsense, but branching, "Ask about this" and the tree all behave as in the real app. The power app has the same demo at `/demo` (without shares, keys or server-made exports), and the Power / Learn switch moves between the two demos. Both run on the in-browser backend in `@tangent/web-shared/demo`.
+- **Free demo at `/learn/demo`.** The Learn interface running entirely in the browser: no sign-in, no model calls, and its state lives only in the browser tab. Replies are generated from random English sentences (the `txtgen` package), so they are playful nonsense, but branching, "Ask about this", the tangents under each reply and the tree all behave as in the real app. The power app has the same demo at `/demo` (without shares, keys or server-made exports), and the Power / Learn switch moves between the two demos. Both run on the in-browser backend in `@tangent/web-shared/demo`.
 
 Design docs:
 

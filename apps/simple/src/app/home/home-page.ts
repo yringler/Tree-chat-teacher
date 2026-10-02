@@ -28,8 +28,8 @@ import { UiStore } from '../state/ui-store';
       <section class="new-lesson card" aria-labelledby="new-lesson-title">
         <h1 id="new-lesson-title">New lesson</h1>
         <p class="muted">
-          Name a topic or ask a first question (optional). Select any part of an answer to ask about
-          it on the side.
+          Name a topic or ask a first question (optional). Every answer ends with tangents you can
+          follow, and you can select any part of an answer to ask about it on the side.
         </p>
         <form class="form" (submit)="$event.preventDefault(); start()">
           <app-composer

@@ -304,6 +304,36 @@ export class LessonStore {
     }
   }
 
+  /**
+   * Follows one of the tutor's suggested tangents: a side question from
+   * `fromNodeId` titled after the tangent, whose first message is the
+   * tangent's title. Clicking the same tangent again goes to its branch.
+   */
+  async followTangent(fromNodeId: string, title: string): Promise<Branch | null> {
+    const existing = this.childBranchesAt(fromNodeId).find((b) => b.title === title);
+    if (existing) {
+      this.go(existing.id);
+      return existing;
+    }
+    const current = this.selectedBranch();
+    try {
+      const branch = await this.api.createBranch({
+        fromNodeId,
+        contextMode: 'path',
+        anchorQuote: null,
+        title,
+        ...(current ? { providerId: current.providerId, model: current.model } : {}),
+      });
+      this.applyBranch(branch);
+      this.go(branch.id);
+      void this.send(branch.id, title);
+      return branch;
+    } catch (err) {
+      this.fail(err);
+      return null;
+    }
+  }
+
   /** The Smart/Simple toggle. */
   async setModel(branchId: string, model: string): Promise<boolean> {
     const before = this.index()?.branches.get(branchId);

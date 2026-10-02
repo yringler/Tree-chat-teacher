@@ -502,7 +502,7 @@ The rest of this section describes the power app (`apps/web`).
 **The simple app** (`apps/simple`, `baseHref: '/learn/'`) has its own lean `LessonStore` on `runStream` and the `@tangent/core` tree utilities. Routes:
 
 - `/learn/`: the lesson list and "New lesson";
-- `/learn/t/:treeId[/b/:branchId]`: the chat with streaming, a Smart/Simple toggle, "Ask about this" (a `path` branch from selected text) and a simple branch list;
+- `/learn/t/:treeId[/b/:branchId]`: the chat with streaming, a Smart/Simple toggle, "Ask about this" (a `path` branch from selected text), the tangents each reply ends with (buttons parsed from the reply's `<tangents>` block; one tap makes a `path` branch titled after the tangent and sends the title as its first message) and a simple branch list;
 - `/learn/billing`: balance, top-ups, monthly plans, "Manage billing" (Customer Portal) and recent usage;
 - `/learn/login`: the shared `LoginPage`.
 
@@ -585,7 +585,7 @@ Known gaps and follow-ups:
 Added after the initial build (migration `0003_billing`). Setup and pricing for operators are in the README ("Simple mode and billing"); the decisions and their reasons are in DECISIONS ("Accounts", "Simple mode and billing"); the research behind them is in RESEARCH ("Simple mode and billing").
 
 - **Who:** every user, through the Power | Learn switch; Learn acts as their `simple` account `u_<userId>`.
-- **What they use:** one provider, `tangent` (OpenRouter), with Smart and Simple tiers, a built-in tutor system prompt and capped input/output per call. It runs on the learner's own OpenRouter key (unmetered) or, on paid credit, on `OPENROUTER_SIMPLE_API_KEY`. Paid credit is offered only when Stripe and that key are configured.
+- **What they use:** one provider, `tangent` (OpenRouter), with Smart and Simple tiers, a built-in tutor system prompt (answer first, then a `<tangents>` block of suggested branches; see DECISIONS "Simple mode and billing") and capped input/output per call. It runs on the learner's own OpenRouter key (unmetered) or, on paid credit, on `OPENROUTER_SIMPLE_API_KEY`. Paid credit is offered only when Stripe and that key are configured.
 - **How they pay (paid credit):** prepaid credit (top-ups of $5–$500 through our own Checkout, or monthly plans through the Better Auth Stripe plugin that credit each paid invoice's pre-tax subtotal), each credited net of Stripe's actual fee. Each provider call is charged the true cost (OpenRouter's reported cost × (1 + its 5.5% credit-purchase fee)) + 10%, or + 5% with an active plan. Stripe Tax adds tax at checkout.
 - **Code:** `apps/worker/src/simple-mode.ts` (provider and settings), `src/billing/` (`pricing`, `ledger`, `meter`, `reconcile`, `usage-store`, `service`, `stripe`, `webhook`), `src/routes/billing.ts`, `src/http/learn-app.ts`, `src/auth/account.ts`, `packages/web-shared`, `apps/simple`.
 - **Not verified against live accounts:** Stripe and OpenRouter are exercised against mocks in the Worker tests (signed webhook deliveries through the real plugin endpoint, a mocked generation endpoint). Real Checkout, Stripe Tax and the Customer Portal need the Dashboard setup in the README.

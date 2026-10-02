@@ -1,4 +1,5 @@
 import {
+  formatTangents,
   REVIEW_ACCURACY_LABEL,
   REVIEW_RECOMMENDATION_LABEL,
   type GenerateRequest,
@@ -6,13 +7,15 @@ import {
   ModelInfo,
   ProviderCapabilities,
   ProviderEvent,
+  type Tangent,
 } from '@tangent/shared';
 import { getAdjectives, getNouns, sentence as txtSentence, setRandom, setTemplates } from 'txtgen';
 
 /*
  * "Fun lorem ipsum" for the demo: English-ish nonsense from txtgen, shaped
- * like a Socratic tutor's reply (short paragraphs, sometimes a list or a
- * bold phrase, always ending with a question). Nothing here calls a model.
+ * like a Learn reply (short paragraphs, sometimes a list or a bold phrase,
+ * ending with a `<tangents>` block of places to go next). Nothing here
+ * calls a model.
  */
 
 // txtgen ships `setRandom` but its typings omit it.
@@ -131,29 +134,53 @@ function words(random: Random): Words {
   return { noun, noun2, adjective: pick(random, getAdjectives()) };
 }
 
-const QUESTIONS: readonly ((w: Words) => string)[] = [
-  (w) =>
-    `What do you think would happen if ${article(w.noun)} met ${article(w.adjective)} ${w.noun2}?`,
-  () => 'Why might that be?',
-  (w) => `Can you give an example of ${article(w.adjective)} ${w.noun}?`,
-  (w) => `How would you explain ${plural(w.noun)} to ${article(w.noun2)}?`,
-  (w) => `What makes ${article(w.noun)} different from ${article(w.noun2)}?`,
-  (w) => `If every ${w.noun} were ${w.adjective}, what would change first?`,
-  (w) => `Where have you seen ${article(w.adjective)} ${w.noun} before?`,
-  () => 'What would you try next, and why?',
+const TANGENTS: readonly ((w: Words) => Tangent)[] = [
+  (w) => ({
+    title: `Why ${plural(w.noun)} are ${w.adjective}`,
+    why: `the mechanism underneath, one layer down`,
+  }),
+  (w) => ({
+    title: `What happens when ${article(w.noun)} meets ${article(w.noun2)}`,
+    why: `the same idea in a different place`,
+  }),
+  (w) => ({
+    title: `The ${w.adjective} ${w.noun} misconception`,
+    why: `where the simple picture breaks`,
+  }),
+  (w) => ({
+    title: `How ${plural(w.noun)} got their name`,
+    why: `the history is better than it sounds`,
+  }),
+  (w) => ({
+    title: `${capitalize(plural(w.noun))} versus ${plural(w.noun2)}`,
+    why: `an edge case that shows what the rule is really about`,
+  }),
+  (w) => ({
+    title: `Is ${article(w.noun)} ever ${w.adjective}?`,
+    why: `a question that is still open`,
+  }),
 ];
 
 const OPENERS: readonly ((w: Words) => string)[] = [
-  () => 'Good question!',
-  (w) => `Let's start with **${article(w.adjective)} ${w.noun}**.`,
-  () => "Here's one way to look at it.",
-  (w) => `Think of it like **${article(w.noun)}**.`,
-  () => 'Interesting! Let me put it simply.',
+  (w) => `Because of **${article(w.adjective)} ${w.noun}**.`,
+  (w) => `It comes down to **${article(w.noun)}**.`,
+  () => 'In short: yes, and the reason is the interesting part.',
+  (w) => `Think of it as **${article(w.noun)}** with a job to do.`,
+  () => 'Mostly, but not always.',
 ];
 
-/** A closing question built from a template and txtgen words. */
-export function loremQuestion(random: Random = Math.random): string {
-  return pick(random, QUESTIONS)(words(random));
+/** Two to four suggested tangents, built from templates and txtgen words (no two alike). */
+export function loremTangents(random: Random = Math.random): Tangent[] {
+  const out: Tangent[] = [];
+  const used = new Set<number>();
+  const count = between(random, 2, 4);
+  while (out.length < count && used.size < TANGENTS.length) {
+    const i = Math.floor(random() * TANGENTS.length) % TANGENTS.length;
+    if (used.has(i)) continue;
+    used.add(i);
+    out.push(TANGENTS[i]!(words(random)));
+  }
+  return out;
 }
 
 function sentences(random: Random, count: number): string {
@@ -174,9 +201,10 @@ function boldSome(random: Random, text: string): string {
 }
 
 /**
- * A tutor-shaped reply in Markdown: 1–3 short paragraphs (the Smart model
+ * A Learn-shaped reply in Markdown: 1–3 short paragraphs (the Smart model
  * writes more), sometimes a bulleted list or a bold phrase, always ending
- * with a question.
+ * with a `<tangents>` block (the prompt's format; the app turns it into
+ * branch buttons).
  */
 export function loremReply(model: string, random: Random = Math.random): string {
   return withRandom(random, () => {
@@ -197,7 +225,7 @@ export function loremReply(model: string, random: Random = Math.random): string 
       }
       paragraphs.splice(Math.min(1, paragraphs.length), 0, items.join('\n'));
     }
-    paragraphs.push(loremQuestion(random));
+    paragraphs.push(formatTangents(loremTangents(random)));
     return paragraphs.join('\n\n');
   });
 }

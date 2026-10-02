@@ -1,6 +1,6 @@
 import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classes without the Angular CLI.
 import { Injector } from '@angular/core';
-import type { ReviewEvent, StreamEvent } from '@tangent/shared';
+import { splitTangents, type ReviewEvent, type StreamEvent } from '@tangent/shared';
 import {
   API_FETCH,
   ApiClient,
@@ -66,19 +66,26 @@ describe('demo backend', () => {
     ]);
   });
 
-  it('starts with the example lesson (main thread and one side question)', async () => {
+  it('starts with the example lesson (main thread, a side question and a followed tangent)', async () => {
     const { api } = setup();
     const trees = await api.listTrees();
     expect(trees).toHaveLength(1);
-    expect(trees[0]).toMatchObject({ branchCount: 2, messageCount: 6 });
+    expect(trees[0]).toMatchObject({ branchCount: 3, messageCount: 8 });
     const detail = await api.getTree(trees[0]!.id);
-    const side = detail.branches.find((b) => b.parentBranchId !== null)!;
-    expect(side.anchorQuote).toBeTruthy();
+    const side = detail.branches.find((b) => b.anchorQuote !== null)!;
+    expect(side.parentBranchId).not.toBeNull();
     const point = detail.nodes.find((n) => n.id === side.branchPointNodeId)!;
     expect(point.content).toContain(side.anchorQuote!);
+    // The followed tangent: titled after one of the first reply's tangents, asked as its first message.
+    const tangent = detail.branches.find((b) => b.titleSource === 'user')!;
+    expect(tangent.branchPointNodeId).toBe(point.id);
+    expect(splitTangents(point.content).tangents.map((t) => t.title)).toContain(tangent.title);
+    expect(detail.nodes.find((n) => n.branchId === tangent.id && n.role === 'user')?.content).toBe(
+      tangent.title,
+    );
     expect(detail.nodes.every((n) => n.status === 'complete')).toBe(true);
     const usage = await api.usage();
-    expect(usage.entries.length).toBe(3);
+    expect(usage.entries.length).toBe(4);
   });
 
   it('creates a lesson, streams a reply over SSE, stores it, titles the lesson and charges for it', async () => {
@@ -114,7 +121,7 @@ describe('demo backend', () => {
       status: 'complete',
       content: text,
     });
-    expect(text.trimEnd()).toMatch(/\?$/);
+    expect(text.trimEnd()).toMatch(/<\/tangents>$/);
 
     const after = await api.getTree(detail.tree.id);
     const stored = after.nodes.find((n) => n.id === start.assistantNode.id)!;
@@ -342,7 +349,7 @@ describe('power demo backend', () => {
     const backup = (await res.json()) as Parameters<ApiClient['importBackup']>[0];
     const copy = await api.importBackup(backup);
     expect(copy.tree.id).not.toBe(lesson!.id);
-    expect(copy.nodes).toHaveLength(6);
+    expect(copy.nodes).toHaveLength(8);
     expect(await api.listTrees()).toHaveLength(2);
   });
 });
