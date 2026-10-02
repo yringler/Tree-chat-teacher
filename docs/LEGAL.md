@@ -6,14 +6,14 @@ Status: **done** = handled in code; **you** = an action for the operator (outsid
 
 ## 1. Public privacy policy and terms of service
 
-| Item                                                              | Status                              | Where                                                                             |
-| ----------------------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------- |
-| Privacy policy at a public URL (`/privacy`)                       | done                                | `apps/worker/src/http/legal.ts`                                                   |
-| Terms of service at a public URL (`/terms`)                       | done                                | same                                                                              |
-| Linked from the landing page footer, sign-in page, all three apps | done                                | `landing.ts`, `login-page.ts`, account dialog / account menu                      |
-| Sign-in shows "you agree to the Terms and Privacy policy"         | done                                | `packages/web-shared/src/login/login-page.ts`                                     |
-| Operator name, contact mailbox, governing law                     | done (Yehuda Ringler, Pennsylvania) | `LEGAL_OPERATOR`, `LEGAL_CONTACT_EMAIL`, `LEGAL_JURISDICTION` in `wrangler.jsonc` |
-| A real mailbox at the contact address                             | **you**                             | Cloudflare Email Routing can forward `privacy@tangentailearning.com` for free     |
+| Item                                                              | Status                              | Where                                                                                                 |
+| ----------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Privacy policy at a public URL (`/privacy`)                       | done                                | `apps/worker/src/http/legal.ts`                                                                       |
+| Terms of service at a public URL (`/terms`)                       | done                                | same                                                                                                  |
+| Linked from the landing page footer, sign-in page, all three apps | done                                | `landing.ts`, `login-page.ts`, account dialog / account menu                                          |
+| Sign-in shows "you agree to the Terms and Privacy policy"         | done                                | `packages/web-shared/src/login/login-page.ts`                                                         |
+| Operator name, contact mailbox, governing law                     | done (Yehuda Ringler, Pennsylvania) | `LEGAL_OPERATOR`, `LEGAL_CONTACT_EMAIL`, `LEGAL_JURISDICTION` in `wrangler.jsonc`                     |
+| A real mailbox at the contact address                             | done (`yrappdev@gmail.com` for now) | later, a `privacy@tangentailearning.com` address via Cloudflare Email Routing looks more professional |
 
 Set to Yehuda Ringler, governed by the laws of the Commonwealth of Pennsylvania, USA. If you form an LLC, change `LEGAL_OPERATOR` to it and assign it the trademark.
 
@@ -136,7 +136,7 @@ The European Accessibility Act (in force June 2025) and the ADA (US) apply to co
 
 ## 11. Before launch, in order
 
-1. Create the `privacy@` mailbox (operator and jurisdiction are set).
+1. Check `yrappdev@gmail.com` regularly: privacy, deletion and copyright requests arrive there and some have legal deadlines (30 days for privacy requests).
 2. Trademark search on "Tangent"; decide whether to keep the name.
 3. Stripe public details (terms, privacy, refund policy, support email); then enable Checkout terms consent.
 4. Google OAuth consent screen URLs; GitHub app homepage.
