@@ -1,4 +1,4 @@
-import type { GenerateRequest, ProviderEvent } from '@tangent/shared';
+import { parseReview, type GenerateRequest, type ProviderEvent } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import {
   createLoremProvider,
@@ -6,6 +6,7 @@ import {
   DEMO_SMART_MODEL,
   loremQuestion,
   loremReply,
+  loremReview,
   loremTitle,
   seededRandom as seeded,
   titleFor,
@@ -80,6 +81,23 @@ describe('lorem text', () => {
       ),
     ).toBe('Teach me everything there is to…');
     expect(titleFor([{ content: 'no transcript here' }], seeded(2))).toBe(loremTitle(seeded(2)));
+  });
+
+  it('writes reviews with the sections and verdict lines the review parser expects', () => {
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 20; seed++) {
+      const review = loremReview(seeded(seed));
+      expect(review).toContain('## Corrections');
+      expect(review).toContain('## Assessment');
+      const parsed = parseReview(review);
+      expect(parsed.accuracy).not.toBeNull();
+      expect(parsed.recommendation).not.toBeNull();
+      expect(parsed.body).not.toContain('ACCURACY');
+      if (parsed.accuracy === 'ok') expect(parsed.body).toContain('No errors found.');
+      else expect(parsed.body).toMatch(/\n1\. /);
+      seen.add(`${parsed.accuracy}/${parsed.recommendation}`);
+    }
+    expect(seen.size).toBeGreaterThan(1);
   });
 
   it('makes short one-line titles', () => {

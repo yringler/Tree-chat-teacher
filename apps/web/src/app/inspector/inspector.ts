@@ -45,6 +45,19 @@ export class Inspector {
     { equal: (a, b) => a.branchId === b.branchId && a.nodeId === b.nodeId && a.tick === b.tick },
   );
 
+  /**
+   * A name for each message of the branch's path ("You 1", "Assistant 2", …),
+   * for the segments' source links: node ids mean nothing to a reader.
+   */
+  protected readonly sourceLabels = computed<ReadonlyMap<string, string>>(() => {
+    const labels = new Map<string, string>();
+    this.store.path().forEach((n, i) => {
+      const who = n.role === 'user' ? 'You' : n.role === 'assistant' ? 'Assistant' : 'System';
+      labels.set(n.id, `${who} ${i + 1}`);
+    });
+    return labels;
+  });
+
   protected readonly budgetPct = computed(() => {
     const b = this.data()?.plan.budget;
     if (!b || b.maxInputTokens <= 0) return 0;

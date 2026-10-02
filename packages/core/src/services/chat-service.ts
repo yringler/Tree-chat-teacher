@@ -38,6 +38,7 @@ import {
   buildSummaryPrompt,
   buildTitlePrompt,
   cleanTitle,
+  plainText,
   renderPlan,
 } from '../context/render.js';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
@@ -922,7 +923,8 @@ function subtreeBranchIds(branches: readonly Branch[], rootId: string): string[]
 }
 
 function defaultBranchTitle(anchorQuote: string | null, node: ChatNode): string {
-  const source = (anchorQuote ?? node.content).replace(/\s+/g, ' ').trim();
+  // A quote is plain text already; a message is Markdown ("**a confident kitten**").
+  const source = anchorQuote ? anchorQuote.replace(/\s+/g, ' ').trim() : plainText(node.content);
   if (!source) return 'New branch';
   const words = source.split(' ').slice(0, 6).join(' ');
   const clipped = words.length > 48 ? `${words.slice(0, 47)}…` : words;

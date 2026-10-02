@@ -58,7 +58,8 @@ import { ModelPicker } from '../ui/model-picker';
               <a class="card card-link" [routerLink]="['/t', t.id]">
                 <strong>{{ t.title }}</strong>
                 <span class="muted small">
-                  {{ t.branchCount }} branches · {{ t.messageCount }} messages ·
+                  {{ t.branchCount }} {{ t.branchCount === 1 ? 'branch' : 'branches' }} ·
+                  {{ t.messageCount }} {{ t.messageCount === 1 ? 'message' : 'messages' }} ·
                   {{ t.updatedAt | date: 'medium' }}
                 </span>
               </a>

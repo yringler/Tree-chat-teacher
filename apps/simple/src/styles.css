@@ -349,8 +349,10 @@ button.crumb:hover {
   overscroll-behavior: contain;
 }
 
-.messages:focus {
+.messages:focus,
+.messages:focus-visible {
   outline: none;
+  box-shadow: none;
 }
 
 .messages-inner {

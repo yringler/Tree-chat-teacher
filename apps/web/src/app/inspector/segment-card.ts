@@ -33,11 +33,11 @@ const REASONS: Record<InclusionReason, string> = {
           @for (id of shownSources(); track id) {
             <button
               type="button"
-              class="link-btn"
+              class="link-btn seg-source"
               (click)="focusNode.emit(id)"
-              [attr.title]="'Go to message ' + id"
+              [attr.title]="'Go to this message'"
             >
-              {{ id.slice(-6) }}
+              {{ labels().get(id) ?? id.slice(-6) }}
             </button>
           }
           @if (s.sourceNodeIds.length > shownSources().length) {
@@ -73,6 +73,8 @@ const REASONS: Record<InclusionReason, string> = {
 })
 export class SegmentCard {
   readonly segment = input.required<ContextSegment>();
+  /** Display names of the source messages by node id (the inspector numbers the path). */
+  readonly labels = input<ReadonlyMap<string, string>>(new Map());
   readonly focusNode = output<string>();
   protected readonly open = signal(false);
   protected readonly allSources = signal(false);

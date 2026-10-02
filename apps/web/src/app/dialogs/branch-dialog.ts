@@ -7,6 +7,7 @@ import {
   type OnInit,
   signal,
 } from '@angular/core';
+import { plainText } from '@tangent/core';
 import type { ContextMode } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore, type BranchDialogState } from '../state/ui-store';
@@ -82,7 +83,7 @@ export class BranchDialog implements OnInit {
     () => this.store.index()?.nodes.get(this.state().fromNodeId) ?? null,
   );
   protected readonly excerpt = computed(() => {
-    const text = this.source()?.content.trim() ?? '';
+    const text = plainText(this.source()?.content ?? '');
     return text.length > 280 ? `${text.slice(0, 280)}…` : text;
   });
   private readonly parent = computed(() => {

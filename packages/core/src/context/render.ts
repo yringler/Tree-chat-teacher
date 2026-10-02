@@ -163,6 +163,24 @@ export function buildTitlePrompt(messages: readonly ChatMessage[]): RenderedProm
   };
 }
 
+/**
+ * The words of a Markdown fragment without its markup, for titles and
+ * excerpts: emphasis and code markers, heading and quote prefixes, list
+ * bullets and link syntax go; whitespace collapses to single spaces.
+ */
+export function plainText(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^[ \t]*(?:#{1,6}[ \t]+|>[ \t]*|[-*+][ \t]+|\d+[.)][ \t]+)/gm, '')
+    .replace(/[*`~]+/g, '')
+    .replace(/(^|\s)_+(?=\S)/g, '$1')
+    .replace(/(?<=\S)_+(?=\s|$)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 const MAX_TITLE_CHARS = 80;
 const QUOTES = /^["'“”‘’«»„]+|["'“”‘’«»„]+$/gu;
 const TRAILING_PUNCTUATION = /[\s.,;:!?…。、，！？-]+$/u;

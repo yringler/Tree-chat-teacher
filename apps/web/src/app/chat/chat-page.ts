@@ -72,7 +72,10 @@ export class ChatPage {
     const b = this.store.selectedBranch();
     if (!b) return 'Message…';
     if (this.store.path().length === 0) return 'Start the conversation…';
-    return b.parentBranchId ? `Reply in “${b.title}”…` : 'Reply…';
+    if (!b.parentBranchId) return 'Reply…';
+    // Default titles run to 50+ characters; a placeholder has one line.
+    const title = b.title.length > 32 ? `${b.title.slice(0, 31).trimEnd()}…` : b.title;
+    return `Reply in “${title}”…`;
   });
 
   constructor() {
