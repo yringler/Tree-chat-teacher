@@ -111,9 +111,13 @@ export default defineConfig({
             STRIPE_SECRET_KEY: 'sk_test_x',
             STRIPE_WEBHOOK_SECRET: 'whsec_test',
             STRIPE_CREDITS_PRODUCT_ID: 'prod_test',
-            STRIPE_PLANS: JSON.stringify([
-              { name: 'monthly-10', label: '$10 / month', priceId: 'price_test_monthly_10', amountCents: 1000 },
-            ]),
+            // No membership by default (tests that need one pass STRIPE_MEMBERSHIP_PRICE_ID in an env
+            // override), so the other suites generate freely. The price and credit are the defaults.
+            STRIPE_MEMBERSHIP_PRICE_ID: '',
+            MEMBERSHIP_PRICE_CENTS: '1000',
+            MEMBERSHIP_CREDIT_CENTS: '200',
+            MEMBERSHIP_WAIVER_CODE: '',
+            MARKUP_BPS: '1000',
           },
           ratelimits: {
             CHAT_RATE_LIMITER: { namespace_id: '1002', simple: { limit: 5, period: 60 } },

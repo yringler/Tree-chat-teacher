@@ -29,23 +29,23 @@ describe('PaymentStore', () => {
     const p = create();
     expect(p.payment()).toBe('own-key');
     expect(p.headers()).toEqual({ 'x-tangent-mode': 'simple', 'x-tangent-payment': 'own-key' });
-    p.paidCredit.set(true);
+    p.builtInCredit.set(true);
     // Credit is the default where it is offered.
     expect(p.headers()).toEqual({ 'x-tangent-mode': 'simple', 'x-tangent-payment': 'credit' });
   });
 
   it('remembers the choice, which applies only while credit is offered', () => {
     const p = create();
-    p.paidCredit.set(true);
+    p.builtInCredit.set(true);
     p.choose('own-key');
     expect(storage.get('tangent.learn.payment')).toBe('own-key');
     expect(p.payment()).toBe('own-key');
 
     const again = create();
-    again.paidCredit.set(true);
+    again.builtInCredit.set(true);
     expect(again.payment()).toBe('own-key');
     again.choose('credit');
-    again.paidCredit.set(false);
+    again.builtInCredit.set(false);
     expect(again.payment()).toBe('own-key');
   });
 

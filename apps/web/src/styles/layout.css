@@ -337,6 +337,13 @@ app-root {
   color: #fff;
 }
 
+.toast-link {
+  margin-left: 6px;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
 @media (max-width: 860px) {
   .app {
     grid-template-columns: minmax(0, 1fr);

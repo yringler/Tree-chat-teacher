@@ -11,6 +11,7 @@ import { plainText } from '@tangent/core';
 import { CONTEXT_MODES, type ContextMode } from '@tangent/shared';
 import { Icon, Modal } from '@tangent/web-shared';
 import { MODE_LABEL } from '../canvas/lane';
+import { ModelField } from './model-field';
 import { CanvasStore, type BranchVariant } from '../state/canvas-store';
 import { UiStore, type BranchDialogState } from '../state/ui-store';
 
@@ -28,7 +29,7 @@ const MAX_VARIANTS = 6;
  */
 @Component({
   selector: 'app-branch-dialog',
-  imports: [Modal, Icon],
+  imports: [Modal, Icon, ModelField],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="Branch from here" [wide]="true" (closed)="close()">
@@ -77,19 +78,19 @@ const MAX_VARIANTS = 6;
                       [disabled]="!p.available"
                       [selected]="p.id === v.providerId"
                     >
-                      {{ p.label }}{{ p.available ? '' : ' — no key' }}
+                      {{ p.label
+                      }}{{ p.available ? '' : p.acceptsUserKey ? ' — no key' : ' — unavailable' }}
                     </option>
                   }
                 </select>
               </label>
-              <label class="field">
-                <span class="sr-only">Model of lane {{ i + 1 }}</span>
-                <select #mm [value]="v.model" (change)="setModel(v.key, mm.value)">
-                  @for (m of modelsOf(v.providerId); track m.id) {
-                    <option [value]="m.id" [selected]="m.id === v.model">{{ m.label }}</option>
-                  }
-                </select>
-              </label>
+              <app-model-field
+                [provider]="store.providerMap().get(v.providerId) ?? null"
+                [label]="'Model of lane ' + (i + 1)"
+                [compact]="true"
+                [model]="v.model"
+                (modelChange)="setModel(v.key, $event)"
+              />
               <button
                 type="button"
                 class="icon-btn"
@@ -213,10 +214,6 @@ export class BranchDialog implements OnInit {
     };
   }
 
-  protected modelsOf(providerId: string) {
-    return this.store.providerMap().get(providerId)?.models ?? [];
-  }
-
   protected add(): void {
     const last = this.variants().at(-1);
     this.variants.update((list) => [...list, { ...(last ?? this.fresh('path')), key: ++this.seq }]);
@@ -267,7 +264,7 @@ export class BranchDialog implements OnInit {
         variants: this.variants().map(({ contextMode, providerId, model }) => ({
           contextMode,
           providerId,
-          model,
+          model: model.trim(),
         })),
         firstMessage: this.firstMessage(),
       });

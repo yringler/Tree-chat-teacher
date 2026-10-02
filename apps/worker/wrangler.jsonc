@@ -70,7 +70,8 @@
       "simple": { "limit": 120, "period": 60 }
     },
     {
-      // Requests that spend a user-supplied API key, per key cookie (see src/byok/guard.ts).
+      // Requests that spend a user-supplied API key, per key cookie; calls on the built-in provider
+      // (Tangent credit), per user across both apps (see src/byok/guard.ts).
       "name": "CHAT_RATE_LIMITER",
       "namespace_id": "1002",
       "simple": { "limit": 30, "period": 60 }
@@ -100,37 +101,53 @@
     "LEGAL_JURISDICTION": "the Commonwealth of Pennsylvania, USA",
     // Cloudflare Turnstile site key (public) for the magic-link form. Its secret is TURNSTILE_SECRET_KEY.
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFLlFryv5vXul-MG",
-    // JSON array of ProviderConfig; empty = built-in defaults (anthropic, openai, openrouter, fake).
+    // JSON array of ProviderConfig for power mode's own-key providers; empty = built-in defaults
+    // (anthropic, openai, openrouter, fake), where openrouter lists the suggested models below first
+    // and takes any OpenRouter model id. The id "tangent" is reserved for the built-in provider.
     "PROVIDERS": "",
     // Provider/model for summaries; empty = use the branch's provider/model.
     "SUMMARY_PROVIDER_ID": "",
     "SUMMARY_MODEL": "",
     "AUTO_TITLE": "true",
-    // ---- Learn mode (/learn/) and billing. Anyone may sign up and use both apps; Learn runs on the
-    // user's own OpenRouter key, or on paid credit once Stripe and OPENROUTER_SIMPLE_API_KEY are set.
-    // OpenRouter models for the Smart / Simple tiers (key: OPENROUTER_SIMPLE_API_KEY).
+    // ---- The built-in provider and billing. Anyone may sign up and use both apps. Once Stripe and
+    // OPENROUTER_SIMPLE_API_KEY are set, both apps offer the built-in provider `tangent` on prepaid
+    // credit (per user, shared by both apps): Learn as "Use Tangent credit", power as the provider
+    // "Tangent credit" with any OpenRouter model. Otherwise everyone brings their own key.
+    // With Stripe and STRIPE_MEMBERSHIP_PRICE_ID set, generating in either app needs the yearly
+    // membership (waivable per user, see MEMBERSHIP_WAIVER_CODE below and the README).
+    // The suggested OpenRouter models: Learn's Smart / Simple tiers, listed first in power.
     "SIMPLE_SMART_MODEL": "deepseek/deepseek-v4-pro",
     "SIMPLE_FAST_MODEL": "deepseek/deepseek-v4-flash",
-    // Full ProviderConfig JSON for the simple-mode provider `tangent`; empty = OpenRouter with the models above.
+    // Full ProviderConfig JSON (id "tangent") for the built-in provider; empty = OpenRouter with the models above.
     "SIMPLE_PROVIDER": "",
-    // Per-request input-token cap for simple accounts (bounds the cost of one call).
+    // Per-call input-token cap for Learn and for the built-in provider in power (bounds the cost of one call).
     "SIMPLE_MAX_INPUT_TOKENS": "60000",
     // Built-in system prompt of new Learn trees whose account has none saved; empty = DEFAULT_SYSTEM_PROMPT
     // (packages/shared/src/default-prompt.ts), which power mode always uses.
     "SIMPLE_SYSTEM_PROMPT": "",
     // Held per in-flight call, and the minimum available balance to start one (micro-USD; 20000 = $0.02).
     "USAGE_HOLD_MICROS": "20000",
+    // Metered calls (Tangent credit) a user may have in flight at once; a send beyond it is 429. With the
+    // flat hold above this bounds an overdraft: at most this many calls, each within the token caps.
+    "USAGE_MAX_PENDING": "3",
     // OpenRouter's fee on credit purchases in basis points (550 = 5.5%), passed through as part of
     // the provider cost: charge = reported cost × (1 + fee) × (1 + markup). Raise it if you top up
     // OpenRouter in amounts under ~$15, where its $0.80 minimum fee is more than 5.5%.
     "OPENROUTER_FEE_BPS": "550",
-    // Margin on the true provider cost in basis points: without / with an active monthly plan.
-    "MARKUP_PREPAID_BPS": "1000",
-    "MARKUP_MONTHLY_BPS": "500",
+    // Margin on the true provider cost in basis points (1000 = +10%). Empty = the deprecated
+    // MARKUP_PREPAID_BPS if set (read for one release), else 1000.
+    "MARKUP_BPS": "1000",
     // Stripe product (with a tax code) for one-time credit top-ups.
     "STRIPE_CREDITS_PRODUCT_ID": "",
-    // JSON [{ "name", "label", "priceId", "amountCents" }]: monthly credit plans (Better Auth Stripe plugin).
-    "STRIPE_PLANS": "[]"
+    // Stripe price id of the membership: a yearly recurring price, tax behaviour exclusive. Empty = no
+    // membership (generating needs none); set = required in both apps (Better Auth Stripe plugin plan
+    // "membership").
+    "STRIPE_MEMBERSHIP_PRICE_ID": "",
+    // The membership's yearly price in US cents, for display only (Stripe charges the price above).
+    "MEMBERSHIP_PRICE_CENTS": "1000",
+    // Credit included with each paid membership year, in US cents (200 = $2.00); granted only while
+    // the built-in provider is offered. 0 = none.
+    "MEMBERSHIP_CREDIT_CENTS": "200"
   }
   // Secrets (wrangler secret put): AI_GATEWAY_TOKEN,
   //   KEY_ENCRYPTION_SECRET (`openssl rand -base64 32`; enables bring-your-own-key, rotate to revoke all stored keys)
@@ -139,7 +156,9 @@
   //     bring-your-own-key for every signed-in user; these serve only the local dev bypass (.dev.vars)
   //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET (each pair optional)
   //   TURNSTILE_SECRET_KEY, RESEND_API_KEY
-  //   OPENROUTER_SIMPLE_API_KEY (paid Learn mode only; set a credit limit on it in OpenRouter)
+  //   OPENROUTER_SIMPLE_API_KEY (the built-in provider, sold as credit in both apps; set a credit limit on it in OpenRouter)
   //   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET (both set = billing enabled)
+  //   MEMBERSHIP_WAIVER_CODE (optional; a code users redeem to waive the membership fee. Change it if it
+  //     leaks; waived users keep their flag until it is cleared in the database, see README)
   // Local only (.dev.vars): DEV_ALLOW_NO_AUTH=true (honoured only while BETTER_AUTH_SECRET is unset)
 }

@@ -98,7 +98,9 @@ export interface LlmProvider {
   capabilities(model: string): ProviderCapabilities;
   stream(request: GenerateRequest): AsyncIterable<ProviderEvent>;
   /** Exact input-token count, when `capabilities(model).supportsTokenCount`. */
-  countTokens?(request: Omit<GenerateRequest, 'signal'> & { signal?: AbortSignal }): Promise<number>;
+  countTokens?(
+    request: Omit<GenerateRequest, 'signal'> & { signal?: AbortSignal },
+  ): Promise<number>;
 }
 
 /**
@@ -120,6 +122,12 @@ export interface ProviderConfig {
   extraHeaderSecrets?: Record<string, string>;
   models: ModelInfo[];
   defaultModel: string;
+  /**
+   * True when `models` are only suggestions: any model id the upstream knows
+   * (matching OPEN_MODEL_ID_PATTERN) may be used, e.g. any OpenRouter model.
+   * An unlisted model gets the provider-level capabilities below.
+   */
+  openModels?: boolean;
   /** Provider-level capability defaults; models may override. */
   maxContextTokens?: number;
   maxOutputTokens?: number;
@@ -135,12 +143,34 @@ export interface ProviderInfo {
   label: string;
   models: ModelInfo[];
   defaultModel: string;
+  /** True when `models` are suggestions and any model id is accepted (ProviderConfig.openModels). */
+  openModels: boolean;
   /** False when neither a user key nor the API key secret is present. */
   available: boolean;
   /** True when the user may supply their own key for this provider (bring-your-own-key). */
   acceptsUserKey: boolean;
   /** Where the key used for this provider comes from; null when it needs none or has none. */
   keySource: 'user' | 'server' | null;
+}
+
+/**
+ * Shape of a model id accepted by an `openModels` provider (e.g.
+ * `deepseek/deepseek-v4-pro`, `openai/gpt-5:online`): it bounds what a client
+ * can put in the upstream request's `model` field.
+ */
+export const OPEN_MODEL_ID_PATTERN = /^[A-Za-z0-9][\w.\-:/]{0,199}$/;
+
+/**
+ * The model allowlist: a provider with no listed models takes any model, an
+ * `openModels` provider any well-formed id, every other one only its listed ids.
+ */
+export function isModelAllowed(
+  info: Pick<ProviderInfo, 'models' | 'openModels'>,
+  model: string,
+): boolean {
+  if (info.models.some((m) => m.id === model)) return true;
+  if (info.openModels) return OPEN_MODEL_ID_PATTERN.test(model);
+  return info.models.length === 0;
 }
 
 /** Looks up configured provider instances. Implemented in @tangent/providers. */

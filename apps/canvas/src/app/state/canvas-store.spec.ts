@@ -2,14 +2,16 @@ import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classe
 import { Injector } from '@angular/core';
 import { Router } from '@angular/router';
 import type {
+  BillingSummary,
   Branch,
   ChatNode,
   ContextPlanResponse,
+  MeResponse,
   StreamEvent,
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
-import { ApiClient } from '@tangent/web-shared';
+import { ApiClient, ApiError } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CanvasStore } from './canvas-store';
 import { UiStore } from './ui-store';
@@ -114,6 +116,7 @@ function fakeApi() {
       async (_id: string, _signal: AbortSignal): Promise<Response> => controlledStream([]).response,
     ),
     cancelNode: vi.fn(async (_id: string) => undefined),
+    billing: vi.fn(async () => ({ availableMicros: 3_000_000 }) as BillingSummary),
   };
 }
 
@@ -130,7 +133,7 @@ function setup() {
   });
   const store = injector.get(CanvasStore);
   store.detail.set(detail());
-  return { store, api, router };
+  return { store, api, router, ui: injector.get(UiStore) };
 }
 
 describe('CanvasStore', () => {
@@ -192,5 +195,35 @@ describe('CanvasStore', () => {
     live.close();
     await expect(sending).resolves.toBe(true);
     expect(s.store.busyBranches().size).toBe(0);
+  });
+
+  it('a 402 membership_required raises the membership notice, payment_required links to /billing', async () => {
+    vi.useFakeTimers();
+    try {
+      const s = setup();
+      await s.store.init({
+        builtInCredit: true,
+        membership: {
+          required: true,
+          status: 'active',
+          stripeStatus: 'active',
+          periodEnd: null,
+          cancelAtPeriodEnd: false,
+          priceCents: 1000,
+          includedCreditCents: 0,
+        },
+      } as MeResponse);
+      expect(s.store.membershipBlocked()).toBe(false);
+
+      s.store.fail(new ApiError(402, 'membership_required', 'Membership required'));
+      expect(s.store.membershipBlocked()).toBe(true);
+      expect(s.ui.toasts()).toEqual([]);
+
+      s.store.fail(new ApiError(402, 'payment_required', 'Not enough credit'));
+      expect(s.ui.toasts()[0]?.link).toEqual({ label: 'Add credit', href: '/billing' });
+      await vi.waitFor(() => expect(s.store.billing()?.availableMicros).toBe(3_000_000));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

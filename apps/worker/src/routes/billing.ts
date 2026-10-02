@@ -1,14 +1,17 @@
 import { DomainError } from '@tangent/core';
 import {
   createCheckoutRequestSchema,
+  membershipWaiverRequestSchema,
   type BillingSummary,
   type CheckoutResponse,
+  type MembershipInfo,
   type UsageListResponse,
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { redeemWaiverCode } from '../billing/membership.js';
 import { createCreditCheckout, getBillingSummary, listUsage } from '../billing/service.js';
-import { sameOriginOnly } from '../byok/guard.js';
+import { enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
 import type { AppBindings } from '../env.js';
 import { validateJson, validateQuery } from '../http/errors.js';
 
@@ -20,16 +23,18 @@ const usageQuerySchema = z.object({
 });
 
 /**
- * Simple-account billing API, mounted at /api/billing by `worker-core`:
+ * Billing API, mounted at /api/billing by `worker-core`, in both modes: the
+ * credit and the membership are the user's (`billingAccountId`, `userId`),
+ * whichever app shows them.
  * `GET /` → BillingSummary, `GET /usage` → UsageListResponse,
- * `POST /checkout` → CheckoutResponse. Power accounts get 403.
+ * `POST /checkout` → CheckoutResponse (returns to the calling app's billing page),
+ * `POST /membership/waiver` → MembershipInfo (redeems MEMBERSHIP_WAIVER_CODE).
+ * Subscribing and managing the membership go through the Better Auth Stripe
+ * plugin (`/api/auth/subscription/*`).
  */
 export function billingRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
   r.use('*', async (c, next) => {
-    if (c.var.account.mode !== 'simple') {
-      throw new DomainError('forbidden', 'Billing is only available in Learn mode');
-    }
     await next();
     c.header('Cache-Control', 'no-store');
   });
@@ -56,6 +61,20 @@ export function billingRoutes(): Hono<AppBindings> {
     const body = await createCreditCheckout(c.env, account, user, amountCents, baseUrl);
     return c.json(body satisfies CheckoutResponse);
   });
+
+  // Rate limited per account before the comparison, so the code can't be brute-forced.
+  r.post(
+    '/membership/waiver',
+    sameOriginOnly,
+    validateJson(membershipWaiverRequestSchema),
+    async (c) => {
+      const account = c.var.account;
+      if (!account.userId) throw new DomainError('unauthorized', 'Sign in to redeem a code');
+      await enforceRateLimit(c, null, 'key');
+      const membership = await redeemWaiverCode(c.env, account, c.req.valid('json').code);
+      return c.json(membership satisfies MembershipInfo);
+    },
+  );
 
   return r;
 }

@@ -9,11 +9,33 @@ import type { AppEnv } from '../src/env.js';
 import { grantsFor, insertUser, stripeFixtures, uniq } from './mocks/billing-helpers.js';
 
 const ORIGIN = 'https://tangent.example.com';
-/** Auth configured (the default test env runs in dev-bypass mode); Stripe as in vitest.config.ts. */
+const MEMBERSHIP_PRICE = 'price_test_membership';
+/**
+ * Auth configured (the default test env runs in dev-bypass mode); Stripe as in
+ * vitest.config.ts, plus the membership (the plugin's one plan).
+ */
 const env = {
   ...(rawEnv as unknown as AppEnv),
   BETTER_AUTH_SECRET: 'test-secret-test-secret-test-secret-0123',
+  STRIPE_MEMBERSHIP_PRICE_ID: MEMBERSHIP_PRICE,
 } as AppEnv;
+
+/** The lines of a membership invoice: one, at the membership price. */
+const membershipLines = {
+  object: 'list',
+  has_more: false,
+  data: [
+    {
+      id: 'il_membership',
+      object: 'line_item',
+      amount: 1000,
+      pricing: {
+        type: 'price_details',
+        price_details: { price: MEMBERSHIP_PRICE, product: 'prod_membership' },
+      },
+    },
+  ],
+};
 const app = createApp();
 
 async function deliver(
@@ -78,7 +100,7 @@ describe('Stripe webhook endpoint', () => {
     expect((await getBalance(env.DB, accountId)).balanceMicros).toBe(18_960_000);
   });
 
-  it('credits a subscription invoice through the endpoint', async () => {
+  it('grants the credit included with a membership invoice through the endpoint, once', async () => {
     const userId = uniq('user');
     const customer = uniq('cus');
     await insertUser(env, { id: userId, stripeCustomerId: customer });
@@ -92,24 +114,14 @@ describe('Stripe webhook endpoint', () => {
       total: 1090,
       amount_paid: 1090,
       parent: { type: 'subscription_details', subscription_details: { subscription: uniq('sub') } },
+      lines: membershipLines,
     };
-    const paymentIntent = uniq('pi_test');
-    await stripeFixtures({
-      paymentIntents: [{ id: paymentIntent, amount: 1090, fee: 67 }],
-      invoicePayments: [
-        {
-          id: uniq('inpay'),
-          object: 'invoice_payment',
-          invoice: invoice.id,
-          status: 'paid',
-          amount_paid: 1090,
-          payment: { type: 'payment_intent', payment_intent: paymentIntent },
-        },
-      ],
-    });
     const res = await deliver(eventOf('invoice.paid', invoice));
     expect(res.status, await res.text()).toBe(200);
-    expect((await getBalance(env.DB, `u_${userId}`)).balanceMicros).toBe(9_330_000);
+    expect((await deliver(eventOf('invoice.paid', invoice))).status).toBe(200);
+    expect(await grantsFor(env, `u_${userId}`)).toEqual([
+      { kind: 'subscription', amount_micros: 2_000_000, stripe_ref: invoice.id },
+    ]);
   });
 
   it('rejects a bad signature without crediting', async () => {
@@ -138,7 +150,10 @@ describe('Stripe webhook endpoint', () => {
         currency: 'usd',
         billing_reason: 'subscription_cycle',
         subtotal: 1000,
+        total: 1090,
+        amount_paid: 1090,
         parent: { type: 'subscription_details' },
+        lines: membershipLines,
       }),
     );
     expect(res.status).toBe(400);

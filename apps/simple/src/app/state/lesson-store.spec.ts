@@ -108,6 +108,7 @@ const PROVIDER: ProviderInfo = {
     { id: 'fast-model', label: 'Simple' },
   ],
   defaultModel: 'smart-model',
+  openModels: false,
   available: true,
   acceptsUserKey: false,
   keySource: 'server',
@@ -115,14 +116,22 @@ const PROVIDER: ProviderInfo = {
 
 const BILLING: BillingSummary = {
   enabled: true,
+  membership: {
+    required: false,
+    status: 'inactive',
+    stripeStatus: null,
+    periodEnd: null,
+    cancelAtPeriodEnd: false,
+    priceCents: 1000,
+    includedCreditCents: 200,
+  },
+  builtInCredit: true,
   currency: 'usd',
   balanceMicros: 0,
   heldMicros: 0,
   availableMicros: 0,
   markupBps: 0,
   openRouterFeeBps: 0,
-  subscription: null,
-  monthlyPlans: [],
   minTopUpCents: 500,
   maxTopUpCents: 50_000,
 };
@@ -170,7 +179,7 @@ function setup() {
   });
   const store = injector.get(LessonStore);
   const ui = injector.get(UiStore);
-  return { store, ui, api, router };
+  return { store, ui, api, router, injector };
 }
 
 /** Opens lesson t1 at `branchId` and waits for it to load. */
@@ -381,6 +390,28 @@ describe('LessonStore', () => {
     expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
     expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
     await vi.waitFor(() => expect(s.api.keyStatus).toHaveBeenCalled());
+  });
+
+  it('402 membership_required on send: blocks with the gate, no toast, keeps the message', async () => {
+    const s = setup();
+    const account = s.injector.get(AccountStore);
+    account.setMembership({ ...BILLING.membership, required: true, status: 'active' });
+    s.api.billing.mockResolvedValue({
+      ...BILLING,
+      membership: { ...BILLING.membership, required: true, status: 'inactive' },
+    });
+    await open(s, detail());
+    s.api.sendMessage.mockRejectedValue(
+      new ApiError(402, 'membership_required', 'A membership is required'),
+    );
+    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
+
+    expect(account.membershipBlocked()).toBe(true);
+    expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
+    expect(s.ui.toasts()).toEqual([]);
+    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
+    await vi.waitFor(() => expect(account.billing()?.membership.status).toBe('inactive'));
+    expect(account.membershipBlocked()).toBe(true);
   });
 
   it('402 on the first message of a new lesson goes to billing too', async () => {

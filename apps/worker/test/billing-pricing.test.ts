@@ -34,7 +34,7 @@ describe('billing pricing', () => {
   it('grosses the reported cost up by the OpenRouter fee before the markup', () => {
     // $0.001 reported: 1_000_000 nano × 1.055 × 1.10 = 1_160_500 nano → 1160.5 micro → 1161.
     expect(chargeMicros(costUsdToNanos(0.001), 1000, 550)).toBe(1161);
-    // Monthly plan: × 1.055 × 1.05 = 1107.75 → 1108.
+    // A 5% markup: × 1.055 × 1.05 = 1107.75 → 1108.
     expect(chargeMicros(1_000_000, 500, 550)).toBe(1108);
     // The fee alone is a pass-through: × 1.055, exact.
     expect(chargeMicros(1_000_000, 0, 550)).toBe(1055);

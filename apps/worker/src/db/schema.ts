@@ -210,6 +210,13 @@ export const authUsers = sqliteTable(
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
     /** Stripe customer (Better Auth Stripe plugin field); set lazily on the first checkout. */
     stripeCustomerId: text('stripe_customer_id'),
+    /**
+     * The operator waived the membership fee (by hand, or the user redeemed
+     * MEMBERSHIP_WAIVER_CODE). Wins over the Stripe subscription; clear it to revoke.
+     */
+    membershipWaived: integer('membership_waived', { mode: 'boolean' }).notNull().default(false),
+    /** ISO timestamp of when the waiver was first granted; null when never waived. */
+    membershipWaivedAt: text('membership_waived_at'),
   },
   (t) => [index('auth_users_stripe_customer_idx').on(t.stripeCustomerId)],
 );
@@ -300,7 +307,7 @@ export const authRateLimits = sqliteTable('auth_rate_limits', {
 });
 
 /**
- * Better Auth Stripe plugin `subscription` model (monthly credit plans).
+ * Better Auth Stripe plugin `subscription` model: the membership (plan `membership`).
  * `referenceId` is the Better Auth user id. Mapped as `subscription` in the
  * drizzleAdapter schema (src/auth/auth.ts).
  */

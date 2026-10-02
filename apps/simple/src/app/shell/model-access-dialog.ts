@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   type ElementRef,
   inject,
   signal,
@@ -8,14 +9,14 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { LearnPayment } from '@tangent/shared';
-import { errorMessage, Icon, Modal } from '@tangent/web-shared';
+import { creditFeeText, errorMessage, Icon, Modal } from '@tangent/web-shared';
 import { AccountStore } from '../state/account-store';
 import { UiStore } from '../state/ui-store';
 
 /**
  * How replies are paid for: the learner's own OpenRouter key (free here; they
- * pay OpenRouter) or prepaid credit, which is only offered when the server
- * sells it. The key is read from the input only at submit time, posted once
+ * pay OpenRouter) or Tangent credit (prepaid, on the built-in provider), which
+ * is only offered when the server sells it. The key is read from the input only at submit time, posted once
  * and the field cleared: the server seals it into an HttpOnly cookie this
  * code can't read (the same cookie as power mode's OpenRouter key).
  */
@@ -25,7 +26,7 @@ import { UiStore } from '../state/ui-store';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="How replies are paid for" (closed)="close()">
-      @if (account.payment.paidCredit()) {
+      @if (account.payment.builtInCredit()) {
         <fieldset class="access-choice">
           <legend class="sr-only">Pay with</legend>
           <label class="access-option">
@@ -50,10 +51,13 @@ import { UiStore } from '../state/ui-store';
               (change)="choose('credit')"
             />
             <span>
-              <strong>Use paid credit</strong>
+              <strong>Use Tangent credit</strong>
               <span class="muted small">
-                Prepaid credit or a monthly plan. Each reply costs the model's price plus a small
-                markup.
+                @if (feeText(); as fee) {
+                  Prepaid credit: each reply costs {{ fee }}.
+                } @else {
+                  Prepaid credit, paid per reply.
+                }
               </span>
             </span>
           </label>
@@ -67,10 +71,10 @@ import { UiStore } from '../state/ui-store';
 
       @if (payment() === 'credit') {
         <p class="small">
-          <a routerLink="/billing" (click)="close()">Billing and credit</a>
           @if (account.balanceLabel(); as balance) {
-            <span class="muted"> · {{ balance }} available</span>
+            <span>{{ balance }} available · </span>
           }
+          <a routerLink="/billing" (click)="close()">Add credit</a>
         </p>
       } @else {
         @if (account.keyStatus(); as status) {
@@ -139,6 +143,11 @@ export class ModelAccessDialog {
   private readonly keyInput = viewChild<ElementRef<HTMLInputElement>>('keyInput');
 
   protected readonly payment = this.account.payment.payment;
+  /** "the model's OpenRouter price + 5.5% OpenRouter fee + 10%", once billing is loaded. */
+  protected readonly feeText = computed(() => {
+    const b = this.account.billing();
+    return b ? creditFeeText(b.markupBps, b.openRouterFeeBps) : null;
+  });
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
 

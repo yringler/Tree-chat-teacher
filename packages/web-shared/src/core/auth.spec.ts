@@ -41,7 +41,16 @@ const ME: MeResponse = {
   mode: 'simple',
   devMode: false,
   operatorKeys: true,
-  paidCredit: true,
+  builtInCredit: true,
+  membership: {
+    required: false,
+    status: 'inactive',
+    stripeStatus: null,
+    periodEnd: null,
+    cancelAtPeriodEnd: false,
+    priceCents: 1000,
+    includedCreditCents: 200,
+  },
 };
 
 describe('AuthService with APP_PATHS', () => {

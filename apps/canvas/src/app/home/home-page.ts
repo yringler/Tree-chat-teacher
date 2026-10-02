@@ -15,11 +15,12 @@ import { Icon } from '@tangent/web-shared';
 import { treeTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
+import { ModelField } from '../dialogs/model-field';
 
 /** `/canvas/`: start a conversation and open the existing ones (the power account's). */
 @Component({
   selector: 'app-home-page',
-  imports: [RouterLink, Icon, DatePipe],
+  imports: [RouterLink, Icon, DatePipe, ModelField],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page-body">
@@ -57,19 +58,17 @@ import { UiStore } from '../state/ui-store';
                       [disabled]="!p.available"
                       [selected]="p.id === providerId()"
                     >
-                      {{ p.label }}{{ p.available ? '' : ' — no key' }}
+                      {{ p.label
+                      }}{{ p.available ? '' : p.acceptsUserKey ? ' — no key' : ' — unavailable' }}
                     </option>
                   }
                 </select>
               </label>
-              <label class="field">
-                <span class="field-label">Model</span>
-                <select #ms [value]="model()" (change)="pickModel(ms.value)">
-                  @for (m of models(); track m.id) {
-                    <option [value]="m.id" [selected]="m.id === model()">{{ m.label }}</option>
-                  }
-                </select>
-              </label>
+              <app-model-field
+                [provider]="provider()"
+                [model]="model()"
+                (modelChange)="pickModel($event)"
+              />
             </div>
             <button
               type="submit"
@@ -141,13 +140,15 @@ export class HomePage {
   protected readonly providerId = computed(
     () => this.pickedProvider() ?? this.store.defaultProvider()?.id ?? '',
   );
-  protected readonly models = computed(
-    () => this.store.providerMap().get(this.providerId())?.models ?? [],
+  protected readonly provider = computed(
+    () => this.store.providerMap().get(this.providerId()) ?? null,
   );
+  /** The picked model while the provider offers it (any typed id on an `openModels` one). */
   protected readonly model = computed(() => {
     const picked = this.pickedModel();
-    if (picked && this.models().some((m) => m.id === picked)) return picked;
-    return this.store.providerMap().get(this.providerId())?.defaultModel ?? '';
+    const p = this.provider();
+    if (picked !== null && (p?.openModels || p?.models.some((m) => m.id === picked))) return picked;
+    return p?.defaultModel ?? '';
   });
 
   constructor() {
@@ -177,7 +178,11 @@ export class HomePage {
     if (!content || this.starting()) return;
     this.starting.set(true);
     try {
-      await this.store.startConversation(content, this.providerId() || null, this.model() || null);
+      await this.store.startConversation(
+        content,
+        this.providerId() || null,
+        this.model().trim() || null,
+      );
     } finally {
       this.starting.set(false);
     }

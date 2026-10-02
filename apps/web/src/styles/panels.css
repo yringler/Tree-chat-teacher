@@ -270,7 +270,7 @@
   }
 }
 
-/* API keys dialog */
+/* Keys & credit dialog */
 
 .key-list {
   list-style: none;
@@ -290,6 +290,16 @@
 
 .key-name {
   flex: 1;
+}
+
+.credit-row {
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+/* Model picker: a typed id that no provider would take. */
+.field-error {
+  color: var(--danger);
 }
 
 /* Review and settings dialogs */

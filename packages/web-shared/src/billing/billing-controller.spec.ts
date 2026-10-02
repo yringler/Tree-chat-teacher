@@ -1,10 +1,7 @@
 import type { BillingSummary, UsageEntry, UsageListResponse } from '@tangent/shared';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  BILLING_PATH,
   BillingController,
-  CHECKOUT_CANCEL_PATH,
-  CHECKOUT_SUCCESS_PATH,
   POLL_ATTEMPTS,
   POLL_INTERVAL_MS,
   USAGE_PAGE_SIZE,
@@ -13,17 +10,22 @@ import {
 function summary(overrides: Partial<BillingSummary> = {}): BillingSummary {
   return {
     enabled: true,
+    membership: {
+      required: true,
+      status: 'inactive',
+      stripeStatus: null,
+      periodEnd: null,
+      cancelAtPeriodEnd: false,
+      priceCents: 1000,
+      includedCreditCents: 200,
+    },
+    builtInCredit: true,
     currency: 'usd',
     balanceMicros: 1_000_000,
     heldMicros: 0,
     availableMicros: 1_000_000,
     markupBps: 1000,
     openRouterFeeBps: 550,
-    subscription: null,
-    monthlyPlans: [
-      { name: 'basic', label: 'Basic', amountCents: 1000 },
-      { name: 'plus', label: 'Plus', amountCents: 2000 },
-    ],
     minTopUpCents: 500,
     maxTopUpCents: 50_000,
     ...overrides,
@@ -45,7 +47,7 @@ function entry(id: string): UsageEntry {
 }
 
 /** A fake world: `billing()` returns `summaries` in order, then repeats the last one. */
-function setup(summaries: BillingSummary[] = [summary()]) {
+function setup(summaries: BillingSummary[] = [summary()], billingPath = '/learn/billing') {
   let calls = 0;
   const api = {
     billing: vi.fn(async () => {
@@ -68,7 +70,14 @@ function setup(summaries: BillingSummary[] = [summary()]) {
   const navigate = vi.fn((_url: string) => undefined);
   const clearCheckoutParam = vi.fn(() => undefined);
   const sleep = vi.fn(async (_ms: number) => undefined);
-  const ctl = new BillingController({ api, billing, navigate, clearCheckoutParam, sleep });
+  const ctl = new BillingController({
+    api,
+    billing,
+    navigate,
+    clearCheckoutParam,
+    sleep,
+    billingPath: () => billingPath,
+  });
   return { ctl, api, billing, navigate, clearCheckoutParam, sleep };
 }
 
@@ -136,15 +145,16 @@ describe('BillingController: ?checkout=success', () => {
     expect(clearCheckoutParam).toHaveBeenCalledTimes(1);
   });
 
-  it('stops when a new plan shows up even if no credit landed yet', async () => {
+  it('stops when the membership becomes active, which wins over the included credit', async () => {
     const before = summary();
     const after = summary({
-      subscription: { plan: 'basic', status: 'active', periodEnd: null, cancelAtPeriodEnd: false },
+      balanceMicros: 3_000_000,
+      membership: { ...before.membership, status: 'active' },
     });
     const { ctl, api } = setup([before, after]);
     await ctl.init('success');
     expect(api.billing).toHaveBeenCalledTimes(2);
-    expect(ctl.notice()).toBe('credited');
+    expect(ctl.notice()).toBe('activated');
   });
 
   it('gives up after 10 polls and says the credit is on its way', async () => {
@@ -273,53 +283,60 @@ describe('BillingController: top-ups', () => {
   });
 });
 
-describe('BillingController: plans and the portal', () => {
-  it('choosing a plan goes through the plugin with the billing return paths', async () => {
+describe('BillingController: the membership', () => {
+  it('Subscribe opens Checkout for the membership plan, back to the billing page', async () => {
     const { ctl, billing } = setup();
     await ctl.load();
-    await ctl.choosePlan(ctl.summary()!.monthlyPlans[1]!);
+    await ctl.subscribe();
     expect(billing.upgrade).toHaveBeenCalledWith(
-      'plus',
-      CHECKOUT_SUCCESS_PATH,
-      CHECKOUT_CANCEL_PATH,
-      BILLING_PATH,
+      'membership',
+      '/learn/billing?checkout=success',
+      '/learn/billing?checkout=cancel',
+      '/learn/billing',
     );
-    expect(CHECKOUT_SUCCESS_PATH).toBe('/learn/billing?checkout=success');
-    expect(CHECKOUT_CANCEL_PATH).toBe('/learn/billing?checkout=cancel');
-    expect(ctl.pending()).toEqual({ kind: 'plan', plan: 'plus' });
+    expect(ctl.pending()).toEqual({ kind: 'subscribe' });
+    // Leaving for Stripe: nothing else can start meanwhile.
+    await ctl.topUp(500);
+    expect(ctl.pending()).toEqual({ kind: 'subscribe' });
   });
 
-  it('knows the current plan, including one that is cancelling', async () => {
-    const sub = {
-      plan: 'basic',
-      status: 'active',
-      periodEnd: '2026-11-01T00:00:00.000Z',
-      cancelAtPeriodEnd: true,
-    };
-    const { ctl } = setup([summary({ subscription: sub, markupBps: 500 })]);
+  it("uses the app's billing path (the power app's is /billing)", async () => {
+    const { ctl, billing } = setup([summary()], '/billing');
+    await ctl.subscribe();
+    expect(billing.upgrade).toHaveBeenCalledWith(
+      'membership',
+      '/billing?checkout=success',
+      '/billing?checkout=cancel',
+      '/billing',
+    );
+  });
+
+  it('a subscribe error shows inline and re-enables the buttons', async () => {
+    const { ctl, billing } = setup();
+    billing.upgrade.mockRejectedValueOnce(new Error('Stripe is down'));
+    await ctl.subscribe();
+    expect(ctl.actionError()).toBe('Stripe is down');
+    expect(ctl.busy()).toBe(false);
+  });
+
+  it('a redeemed code replaces the membership in the summary', async () => {
+    const { ctl } = setup();
     await ctl.load();
-    expect(ctl.currentPlan()).toEqual(sub);
+    const waived = { ...summary().membership, status: 'waived' as const };
+    ctl.setMembership(waived);
+    expect(ctl.summary()?.membership.status).toBe('waived');
+    expect(ctl.summary()?.balanceMicros).toBe(1_000_000);
   });
+});
 
-  it('a cancelled subscription is not a current plan', async () => {
-    const { ctl } = setup([
-      summary({
-        subscription: {
-          plan: 'basic',
-          status: 'canceled',
-          periodEnd: null,
-          cancelAtPeriodEnd: false,
-        },
-      }),
-    ]);
-    await ctl.load();
-    expect(ctl.currentPlan()).toBeNull();
-  });
-
+describe('BillingController: the portal', () => {
   it('"Manage billing" opens the portal and returns to the billing page', async () => {
     const { ctl, billing } = setup();
     await ctl.manage();
     expect(billing.portal).toHaveBeenCalledWith('/learn/billing');
+    const power = setup([summary()], '/billing');
+    await power.ctl.manage();
+    expect(power.billing.portal).toHaveBeenCalledWith('/billing');
     expect(ctl.pending()).toEqual({ kind: 'portal' });
   });
 
@@ -334,23 +351,6 @@ describe('BillingController: plans and the portal', () => {
     );
     await ctl.manage();
     expect(ctl.actionError()).toMatch(/nothing to manage yet/);
-    expect(ctl.busy()).toBe(false);
-  });
-
-  it('other plugin errors are shown as they are', async () => {
-    const { ctl, billing } = setup();
-    billing.upgrade.mockRejectedValueOnce(
-      Object.assign(
-        new Error('Email verification is required before you can subscribe to a plan'),
-        {
-          code: 'EMAIL_VERIFICATION_REQUIRED',
-        },
-      ),
-    );
-    await ctl.choosePlan({ name: 'basic', label: 'Basic', amountCents: 1000 });
-    expect(ctl.actionError()).toBe(
-      'Email verification is required before you can subscribe to a plan',
-    );
     expect(ctl.busy()).toBe(false);
   });
 });

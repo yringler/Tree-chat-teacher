@@ -171,7 +171,7 @@ export class ReviewDialog implements OnInit {
     this.md.render(this.parsed().body, this.review()?.phase !== 'running'),
   );
   protected readonly choice = computed(() =>
-    this.providerId() ? { providerId: this.providerId(), model: this.modelId() } : null,
+    this.providerId() ? { providerId: this.providerId(), model: this.modelId().trim() } : null,
   );
   protected readonly excerpt = computed(() => {
     const text = plainText(this.node()?.content ?? '');

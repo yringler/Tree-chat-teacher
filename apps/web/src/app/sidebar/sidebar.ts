@@ -73,7 +73,7 @@ import { OutlineItem } from './outline-item';
     </nav>
 
     <div class="sidebar-foot">
-      <!-- The demo has no shares, keys or account: nothing is published or signed in. -->
+      <!-- The demo has no shares, keys, billing or account: nothing is published or signed in. -->
       @if (!demo) {
         <a
           routerLink="/shares"
@@ -89,11 +89,19 @@ import { OutlineItem } from './outline-item';
           [attr.title]="keyTitle()"
           (click)="ui.keysDialog.set({ provider: null }); ui.drawerOpen.set(false)"
         >
-          <app-icon name="key" /> Keys
+          <app-icon name="key" /> {{ store.me()?.builtInCredit ? 'Keys & credit' : 'Keys' }}
           @if (store.keyStatus()?.hasKey) {
             <span class="dot-key" aria-label="Your key is stored"></span>
           }
         </button>
+        <a
+          routerLink="/billing"
+          routerLinkActive="is-current"
+          class="btn btn-ghost"
+          (click)="ui.drawerOpen.set(false)"
+        >
+          Billing
+        </a>
       }
       <app-import-button />
       <button

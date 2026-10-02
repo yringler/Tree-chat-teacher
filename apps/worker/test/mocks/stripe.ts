@@ -20,7 +20,8 @@
 //   Fee: the registered `fee`, else 2.9% + 30¢ of the amount plus a 0.5% Stripe Tax fee;
 //   `latestCharge: false` / `balanceTransaction: false` leave them null (not settled yet).
 // - GET  /v1/charges/:id                    → `ch_of_<pi>` of a known PaymentIntent (expand[])
-// - GET  /v1/invoice_payments?invoice=&status= → registered invoice payments for that invoice
+// - GET  /v1/invoice_payments?invoice=&status=&payment[payment_intent]= → registered invoice
+//   payments matching every filter given
 // - anything else                           → 404 resource_missing
 // Every request without `Authorization: Bearer sk_…` gets 401.
 //
@@ -364,9 +365,13 @@ export async function mockStripe(request: Request): Promise<Response> {
   }
   if (method === 'GET' && path === '/v1/invoice_payments') {
     const { invoice, status } = call.query;
+    const intent = call.query['payment[payment_intent]'];
     return list(
       state.invoicePayments.filter(
-        (p) => (!invoice || p['invoice'] === invoice) && (!status || p['status'] === status),
+        (p) =>
+          (!invoice || p['invoice'] === invoice) &&
+          (!status || p['status'] === status) &&
+          (!intent || (p['payment'] as Obj | undefined)?.['payment_intent'] === intent),
       ),
       path,
     );

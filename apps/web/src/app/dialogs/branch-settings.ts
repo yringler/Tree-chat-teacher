@@ -146,9 +146,10 @@ export class BranchSettings implements OnInit {
       if (quote !== b.anchorQuote) req.anchorQuote = quote;
     }
     if (this.isPrivate() !== b.isPrivate) req.isPrivate = this.isPrivate();
-    if (this.providerId() !== b.providerId || this.modelId() !== b.model) {
+    const model = this.modelId().trim();
+    if (this.providerId() !== b.providerId || model !== b.model) {
       req.providerId = this.providerId();
-      req.model = this.modelId();
+      req.model = model;
     }
     if (Object.keys(req).length === 0) {
       this.close();

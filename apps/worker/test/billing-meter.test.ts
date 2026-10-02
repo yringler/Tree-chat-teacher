@@ -15,6 +15,7 @@ import {
   envWithFailingDb,
   generationCalls,
   insertSubscription,
+  powerAccount,
   scriptGeneration,
   simpleAccount,
   uniq,
@@ -65,6 +66,7 @@ function registryOf(provider: LlmProvider): ProviderRegistry {
     label: provider.label,
     models: provider.models(),
     defaultModel: provider.defaultModel(),
+    openModels: false,
     available: true,
     acceptsUserKey: false,
     keySource: 'server',
@@ -75,6 +77,8 @@ function registryOf(provider: LlmProvider): ProviderRegistry {
     defaultProviderId: () => provider.id,
   };
 }
+
+const onlyTangent = (providerId: string) => providerId === 'tangent';
 
 function request(tag?: UsageTag, signal = new AbortController().signal): GenerateRequest {
   return {
@@ -110,7 +114,7 @@ function harness(account: AccountContext = simpleAccount()): Harness {
         (p) => deferred.push(p),
         opts.options ?? FAST,
       );
-      const registry = meteredRegistry(registryOf(scriptedProvider(script)), meter);
+      const registry = meteredRegistry(registryOf(scriptedProvider(script)), meter, onlyTangent);
       const out: ProviderEvent[] = [];
       for await (const event of registry.get('tangent')!.stream(request(opts.tag))) {
         out.push(event);
@@ -118,7 +122,7 @@ function harness(account: AccountContext = simpleAccount()): Harness {
       }
       return out;
     },
-    rows: () => usageRows(env, account.id),
+    rows: () => usageRows(env, account.billingAccountId),
     async settleBackground() {
       // Deferred work may defer more work; drain until stable.
       for (let seen = -1; seen !== deferred.length;) {
@@ -177,15 +181,18 @@ describe('usage meter', () => {
     expect((await h.rows())[0]!.generation_id).toBe(gen);
   });
 
-  it('settles cost × 1.055 × 1.05 with an active subscription', async () => {
+  it('settles at MARKUP_BPS, the same with a membership (no plan discounts)', async () => {
     const account = simpleAccount();
     await insertSubscription(env, account.userId!, 'active');
     const h = harness(account);
-    await h.run([
-      { type: 'delta', text: 'x' },
-      { type: 'billing', generationId: uniq('gen'), costUsd: COST },
-      { type: 'done', stopReason: 'stop' },
-    ]);
+    await h.run(
+      [
+        { type: 'delta', text: 'x' },
+        { type: 'billing', generationId: uniq('gen'), costUsd: COST },
+        { type: 'done', stopReason: 'stop' },
+      ],
+      { env: { ...env, MARKUP_BPS: '500', STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership' } },
+    );
     expect((await h.rows())[0]).toMatchObject({
       status: 'settled',
       markup_bps: 500,
@@ -208,7 +215,7 @@ describe('usage meter', () => {
         if (i === 1) pendingSeen = await h.rows();
       },
     );
-    for await (const _ of meteredRegistry(registryOf(provider), meter)
+    for await (const _ of meteredRegistry(registryOf(provider), meter, onlyTangent)
       .get('tangent')!
       .stream(request()))
       void _;
@@ -351,7 +358,7 @@ describe('usage meter', () => {
     const broken = envWithFailingDb(env, /INSERT INTO usage_events/);
     const meter = createUsageMeter(broken, h.account, (p) => h.deferred.push(p), FAST);
     const events: ProviderEvent[] = [];
-    for await (const e of meteredRegistry(registryOf(provider), meter)
+    for await (const e of meteredRegistry(registryOf(provider), meter, onlyTangent)
       .get('tangent')!
       .stream(request()))
       events.push(e);
@@ -395,6 +402,7 @@ describe('usage meter', () => {
     const registry = meteredRegistry(
       inner,
       createUsageMeter(env, simpleAccount(), () => undefined),
+      onlyTangent,
     );
     expect(registry.list()).toEqual(inner.list());
     expect(registry.defaultProviderId()).toBe('tangent');
@@ -409,5 +417,27 @@ describe('usage meter', () => {
     ]);
     expect(wrapped.capabilities('smart').maxOutputTokens).toBe(100);
     expect(await wrapped.countTokens!(request())).toBe(42);
+  });
+
+  it('wraps only the providers it is told to meter', async () => {
+    const provider = scriptedProvider([{ type: 'done', stopReason: null }]);
+    const registry = meteredRegistry(
+      registryOf(provider),
+      createUsageMeter(env, simpleAccount(), () => undefined),
+      () => false,
+    );
+    expect(registry.get('tangent')).toBe(provider);
+  });
+
+  it("records a power account's calls on the user's ledger (u_<userId>)", async () => {
+    const account = powerAccount();
+    const h = harness(account);
+    await h.run([
+      { type: 'billing', costUsd: COST },
+      { type: 'done', stopReason: 'stop' },
+    ]);
+    expect(account.billingAccountId).toBe(`u_${account.userId}`);
+    expect(await h.rows()).toEqual([expect.objectContaining({ status: 'settled' })]);
+    expect(await usageRows(env, account.id)).toEqual([]);
   });
 });

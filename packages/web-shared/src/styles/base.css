@@ -1,6 +1,7 @@
 /*
  * @tangent/web-shared base styles: theme tokens, typography, buttons, forms,
- * notices, the modal shell (Modal) and the login page (LoginPage, Turnstile).
+ * notices, the modal shell (Modal), the login page (LoginPage, Turnstile),
+ * the billing page (BillingPage) and the membership gate (MembershipGate).
  * Imported first by both apps' styles.css; app-specific CSS comes after it.
  */
 :root {
@@ -762,4 +763,254 @@ textarea:focus-visible {
   border-style: solid;
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* Billing page (BillingPage, both apps) */
+
+.billing-page {
+  display: block;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px 16px 48px;
+}
+
+.billing-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+.billing-title {
+  margin: 8px 0 12px;
+  font-size: 1.5rem;
+}
+
+.billing-h {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.billing-section {
+  margin: 16px 0;
+}
+
+.billing-section p {
+  margin: 4px 0;
+}
+
+.billing-balance {
+  font-size: 2rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.billing-negative,
+.billing-error {
+  color: var(--danger);
+}
+
+.billing-banner {
+  justify-content: space-between;
+  flex-wrap: nowrap;
+}
+
+.billing-banner-ok {
+  background: var(--ok-soft);
+}
+
+.billing-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: billing-spin 0.8s linear infinite;
+}
+
+@keyframes billing-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .billing-spinner {
+    animation: none;
+  }
+}
+
+.billing-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.billing-custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.billing-custom .field {
+  flex: 1 1 180px;
+}
+
+.billing-amount {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.billing-amount input {
+  flex: 1;
+  min-width: 0;
+}
+
+.billing-currency {
+  color: var(--fg-muted);
+}
+
+.billing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.billing-table-wrap {
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.billing-table-wrap:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.billing-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.billing-table th,
+.billing-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.billing-table th {
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+.billing-table .billing-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.billing-nowrap {
+  white-space: nowrap;
+}
+
+.billing-model {
+  word-break: break-all;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+/* "Have a code?" (MembershipCodeForm) */
+
+.membership-code {
+  margin-top: 8px;
+  font-size: 0.9rem;
+}
+
+.membership-code > summary {
+  display: inline-block;
+  cursor: pointer;
+  list-style: none;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.membership-code > summary::-webkit-details-marker {
+  display: none;
+}
+
+.membership-code-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.membership-code-form .field {
+  flex: 1 1 180px;
+}
+
+/* Membership gate (MembershipGate): over the app, below toasts */
+
+.membership-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  overflow-y: auto;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.membership-gate-panel {
+  width: min(440px, 100%);
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+}
+
+.membership-gate-brand {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.membership-gate-title {
+  margin: 4px 0 8px;
+  font-size: 1.4rem;
+}
+
+.membership-gate-desc p {
+  margin: 0 0 8px;
+}
+
+.membership-gate-subscribe {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.membership-gate-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 16px 0 0;
+}
+
+.membership-gate-links .link-btn {
+  font-family: inherit;
+  font-size: inherit;
 }

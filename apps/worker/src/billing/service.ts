@@ -1,5 +1,6 @@
-// Simple-account billing: markup and fee pass-through, spend gate, summary, usage history and
-// credit top-ups (PLAN §2.3–2.6).
+// Billing for the built-in provider: markup and fee pass-through, spend gate, summary, usage
+// history and credit top-ups (PLAN §2.3–2.6, §13). The membership is in membership.ts. Credit is per user: every ledger read and
+// write goes to `AccountContext.billingAccountId`, the same in both modes.
 import { DomainError, PaymentRequiredError, ValidationError } from '@tangent/core';
 import {
   MAX_TOP_UP_CENTS,
@@ -7,32 +8,36 @@ import {
   type BillingSummary,
   type CheckoutResponse,
   type PurchaseInfo,
-  type SubscriptionInfo,
   type UsageEntry,
   type UsageListResponse,
   type UsagePurpose,
 } from '@tangent/shared';
 import { isMetered, type AccountContext, type AppEnv } from '../env.js';
+import { builtInAvailable } from '../services.js';
 import { getBalance } from './ledger.js';
-import { billingConfigured, ensureStripeCustomer, getStripe, stripePlans } from './stripe.js';
+import { membershipFor } from './membership.js';
+import { billingConfigured, ensureStripeCustomer, getStripe } from './stripe.js';
+import { intVar } from './vars.js';
 
 export const DEFAULT_USAGE_HOLD_MICROS = 20_000;
-export const DEFAULT_MARKUP_PREPAID_BPS = 1000;
-export const DEFAULT_MARKUP_MONTHLY_BPS = 500;
+export const DEFAULT_USAGE_MAX_PENDING = 3;
+export const DEFAULT_MARKUP_BPS = 1000;
 /** OpenRouter's fee on credit purchases (5.5%; higher for top-ups under ~$15, see README). */
 export const DEFAULT_OPENROUTER_FEE_BPS = 550;
 export const MAX_USAGE_PAGE = 100;
 
-function intVar(raw: string | undefined, fallback: number): number {
-  const s = raw?.trim();
-  if (!s || !/^\d+$/.test(s)) return fallback;
-  const n = Number(s);
-  return Number.isSafeInteger(n) ? n : fallback;
-}
-
 /** Per-call hold and minimum available balance (`USAGE_HOLD_MICROS`). */
 export function usageHoldMicros(env: AppEnv): number {
   return intVar(env.USAGE_HOLD_MICROS, DEFAULT_USAGE_HOLD_MICROS);
+}
+
+/**
+ * Metered calls a user may have in flight at once (`USAGE_MAX_PENDING`). The
+ * hold doesn't follow the model's price, so this is what bounds an overdraft:
+ * at most this many calls, each within the built-in provider's token caps.
+ */
+export function usageMaxPending(env: AppEnv): number {
+  return intVar(env.USAGE_MAX_PENDING, DEFAULT_USAGE_MAX_PENDING);
 }
 
 /** OpenRouter's credit-purchase fee in bps (`OPENROUTER_FEE_BPS`), part of the provider cost. */
@@ -40,23 +45,13 @@ export function openRouterFeeBps(env: AppEnv): number {
   return intVar(env.OPENROUTER_FEE_BPS, DEFAULT_OPENROUTER_FEE_BPS);
 }
 
-/** True when the user has an `active` monthly plan (plugin `subscription` row). */
-async function hasActiveSubscription(env: AppEnv, userId: string | null): Promise<boolean> {
-  if (!userId) return false;
-  const row = await env.DB.prepare(
-    "SELECT 1 AS one FROM auth_subscriptions WHERE reference_id = ? AND status = 'active' LIMIT 1",
-  )
-    .bind(userId)
-    .first<{ one: number }>();
-  return row !== null;
-}
-
-/** Markup in bps: MARKUP_MONTHLY_BPS with an active subscription, else MARKUP_PREPAID_BPS. */
-export async function markupFor(env: AppEnv, account: AccountContext): Promise<number> {
-  const monthly = await hasActiveSubscription(env, account.userId);
-  return monthly
-    ? intVar(env.MARKUP_MONTHLY_BPS, DEFAULT_MARKUP_MONTHLY_BPS)
-    : intVar(env.MARKUP_PREPAID_BPS, DEFAULT_MARKUP_PREPAID_BPS);
+/**
+ * Markup on the true provider cost, in bps: `MARKUP_BPS`; while that is empty
+ * or malformed, the deprecated `MARKUP_PREPAID_BPS` (read for one release);
+ * else 1000 (+10%). The same for every user: there are no plan discounts.
+ */
+export function markupFor(env: AppEnv): number {
+  return intVar(env.MARKUP_BPS, intVar(env.MARKUP_PREPAID_BPS, DEFAULT_MARKUP_BPS));
 }
 
 function notConfigured(): DomainError {
@@ -64,45 +59,30 @@ function notConfigured(): DomainError {
 }
 
 /**
- * Throws `PaymentRequiredError` (402) when a request on paid credit can't
- * start a metered call: available = balance − pending holds must cover one
- * more hold. Always a no-op for power mode and for Learn on the user's own key.
+ * Throws `PaymentRequiredError` (402) when a call on `providerId` is metered
+ * (the built-in provider, see `isMetered`) and the user's credit can't start
+ * it: available = balance − pending holds must cover one more hold. Then
+ * 429 `rate_limited` when `USAGE_MAX_PENDING` metered calls are already in
+ * flight (pending usage rows), which bounds how far the balance can go
+ * negative. A no-op for every call on the user's own keys, in either mode.
  */
-export async function assertCanSpend(env: AppEnv, account: AccountContext): Promise<void> {
-  if (!isMetered(account)) return;
-  if (!billingConfigured(env)) throw notConfigured();
-  const { balanceMicros, heldMicros } = await getBalance(env.DB, account.id);
-  if (balanceMicros - heldMicros < usageHoldMicros(env)) throw new PaymentRequiredError();
-}
-
-interface SubscriptionRow {
-  plan: string;
-  status: string;
-  period_end: number | null;
-  cancel_at_period_end: number;
-}
-
-/** The most relevant plugin subscription row: active first, then the latest period. */
-async function currentSubscription(
+export async function assertCanSpend(
   env: AppEnv,
-  userId: string | null,
-): Promise<SubscriptionInfo | null> {
-  if (!userId) return null;
-  const row = await env.DB.prepare(
-    `SELECT plan, status, period_end, cancel_at_period_end FROM auth_subscriptions
-     WHERE reference_id = ? AND status NOT IN ('incomplete', 'incomplete_expired')
-     ORDER BY (status = 'active') DESC, COALESCE(period_end, 0) DESC
-     LIMIT 1`,
-  )
-    .bind(userId)
-    .first<SubscriptionRow>();
-  if (!row) return null;
-  return {
-    plan: row.plan,
-    status: row.status,
-    periodEnd: row.period_end === null ? null : new Date(row.period_end).toISOString(),
-    cancelAtPeriodEnd: !!row.cancel_at_period_end,
-  };
+  account: AccountContext,
+  providerId: string,
+): Promise<void> {
+  if (!isMetered(account, providerId)) return;
+  if (!billingConfigured(env)) throw notConfigured();
+  const { balanceMicros, heldMicros, pendingCalls } = await getBalance(
+    env.DB,
+    account.billingAccountId,
+  );
+  if (balanceMicros - heldMicros < usageHoldMicros(env)) throw new PaymentRequiredError();
+  if (pendingCalls >= usageMaxPending(env))
+    throw new DomainError(
+      'rate_limited',
+      'Too many replies are still running on Tangent credit. Wait for one to finish and try again.',
+    );
 }
 
 interface PurchaseRow {
@@ -113,7 +93,11 @@ interface PurchaseRow {
   created_at: string;
 }
 
-/** The latest top-up or plan credit recorded with its gross amount and processing fee. */
+/**
+ * The latest purchase recorded with its gross amount and processing fee: a
+ * top-up, or a monthly-plan invoice on ledgers from before the membership.
+ * Membership credit (gross null) is a gift, not a purchase, and is skipped.
+ */
 async function lastPurchase(env: AppEnv, accountId: string): Promise<PurchaseInfo | null> {
   const row = await env.DB.prepare(
     `SELECT kind, amount_micros, gross_micros, fee_micros, created_at FROM credit_grants
@@ -136,28 +120,23 @@ export async function getBillingSummary(
   env: AppEnv,
   account: AccountContext,
 ): Promise<BillingSummary> {
-  const [{ balanceMicros, heldMicros }, markupBps, subscription, purchase] = await Promise.all([
-    getBalance(env.DB, account.id),
-    markupFor(env, account),
-    currentSubscription(env, account.userId),
-    lastPurchase(env, account.id),
+  const [{ balanceMicros, heldMicros }, membership, purchase] = await Promise.all([
+    getBalance(env.DB, account.billingAccountId),
+    membershipFor(env, account),
+    lastPurchase(env, account.billingAccountId),
   ]);
   return {
     enabled: billingConfigured(env),
+    membership,
+    builtInCredit: builtInAvailable(env),
     topUpsEnabled: billingConfigured(env) && !!env.STRIPE_CREDITS_PRODUCT_ID?.trim(),
     currency: 'usd',
     balanceMicros,
     heldMicros,
     availableMicros: balanceMicros - heldMicros,
-    markupBps,
+    markupBps: markupFor(env),
     openRouterFeeBps: openRouterFeeBps(env),
     lastPurchase: purchase,
-    subscription,
-    monthlyPlans: stripePlans(env).map(({ name, label, amountCents }) => ({
-      name,
-      label,
-      amountCents,
-    })),
     minTopUpCents: MIN_TOP_UP_CENTS,
     maxTopUpCents: MAX_TOP_UP_CENTS,
   };
@@ -209,11 +188,11 @@ export async function listUsage(
         `SELECT ${columns} FROM usage_events
          WHERE account_id = ?1 AND (created_at < ?2 OR (created_at = ?2 AND id < ?3))
          ORDER BY created_at DESC, id DESC LIMIT ?4`,
-      ).bind(account.id, after.createdAt, after.id, size + 1)
+      ).bind(account.billingAccountId, after.createdAt, after.id, size + 1)
     : env.DB.prepare(
         `SELECT ${columns} FROM usage_events WHERE account_id = ?1
          ORDER BY created_at DESC, id DESC LIMIT ?2`,
-      ).bind(account.id, size + 1);
+      ).bind(account.billingAccountId, size + 1);
   const { results } = await stmt.all<UsageRow>();
   const page = results.slice(0, size);
   const last = page.at(-1);
@@ -233,7 +212,21 @@ export async function listUsage(
   };
 }
 
-/** Creates a Stripe Checkout Session (mode `payment`) for a credit top-up. */
+/**
+ * The page Stripe Checkout returns to: the billing page of the app the
+ * checkout started from (`/billing` in power, `/learn/billing` in Learn).
+ */
+export function checkoutReturnUrl(
+  baseUrl: string,
+  account: AccountContext,
+  outcome: 'success' | 'cancel',
+): string {
+  const base = baseUrl.replace(/\/+$/, '');
+  const page = account.mode === 'simple' ? '/learn/billing' : '/billing';
+  return `${base}${page}?checkout=${outcome}`;
+}
+
+/** Creates a Stripe Checkout Session (mode `payment`) for a credit top-up, in either mode. */
 export async function createCreditCheckout(
   env: AppEnv,
   account: AccountContext,
@@ -250,15 +243,14 @@ export async function createCreditCheckout(
       `amountCents must be a whole number from ${MIN_TOP_UP_CENTS} to ${MAX_TOP_UP_CENTS}`,
     );
   }
-  if (account.mode !== 'simple')
-    throw new DomainError('forbidden', 'Billing is only available in Learn mode');
   const stripe = getStripe(env);
   const productId = env.STRIPE_CREDITS_PRODUCT_ID?.trim();
   if (!billingConfigured(env) || !stripe || !productId) throw notConfigured();
 
   const customer = await ensureStripeCustomer(env, user);
-  const base = baseUrl.replace(/\/+$/, '');
-  const metadata = { kind: 'credits', accountId: account.id, amountCents: String(amountCents) };
+  // The user's ledger, whichever app the top-up was bought from.
+  const accountId = account.billingAccountId;
+  const metadata = { kind: 'credits', accountId, amountCents: String(amountCents) };
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
     customer,
@@ -277,12 +269,12 @@ export async function createCreditCheckout(
         },
       },
     ],
-    client_reference_id: account.id,
+    client_reference_id: accountId,
     metadata,
     // Lets refunds (charge.refunded) find the account and the pre-tax share.
     payment_intent_data: { metadata },
-    success_url: `${base}/learn/billing?checkout=success`,
-    cancel_url: `${base}/learn/billing?checkout=cancel`,
+    success_url: checkoutReturnUrl(baseUrl, account, 'success'),
+    cancel_url: checkoutReturnUrl(baseUrl, account, 'cancel'),
   });
   if (!session.url) throw new Error('Stripe returned a Checkout Session without a URL');
   return { url: session.url };

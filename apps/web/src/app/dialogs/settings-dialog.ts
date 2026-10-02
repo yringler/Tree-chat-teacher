@@ -181,8 +181,8 @@ export class SettingsDialog implements OnInit {
 
   protected async save(): Promise<void> {
     const reviewer =
-      this.custom() && this.providerId() && this.modelId()
-        ? { providerId: this.providerId(), model: this.modelId() }
+      this.custom() && this.providerId() && this.modelId().trim()
+        ? { providerId: this.providerId(), model: this.modelId().trim() }
         : null;
     this.settings.update({ reviewer });
     const prompt = this.promptToSave();

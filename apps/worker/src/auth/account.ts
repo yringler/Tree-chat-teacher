@@ -9,14 +9,22 @@ import {
 import { createMiddleware } from 'hono/factory';
 import { accountIdForUser } from '../billing/stripe.js';
 import type { AccountContext, AppBindings, AppEnv, Identity } from '../env.js';
-import { paidCreditAvailable } from '../services.js';
+import { builtInAvailable } from '../services.js';
 
 /** Prefix of power-mode account ids: `p_<Better Auth user id>`. */
 export const POWER_ACCOUNT_PREFIX = 'p_';
-/** Prefix of simple (Learn) account ids: `u_<Better Auth user id>`; it holds the billing ledger. */
+/** Prefix of simple (Learn) account ids: `u_<Better Auth user id>`, also the user's ledger id. */
 export const SIMPLE_ACCOUNT_PREFIX = 'u_';
-/** The dev bypass's Learn account (its power account is DEFAULT_ACCOUNT_ID). */
+/** The dev bypass's Learn account (its power account is DEFAULT_ACCOUNT_ID), and its ledger id. */
 export const DEV_SIMPLE_ACCOUNT_ID = 'default_simple';
+
+/**
+ * The ledger id of a user's credit and usage, the same in both modes:
+ * `u_<userId>`, or `default_simple` for the dev bypass (no user id).
+ */
+export function billingAccountIdFor(userId: string | null): string {
+  return userId ? accountIdForUser(userId) : DEV_SIMPLE_ACCOUNT_ID;
+}
 
 /** What the request asks for: the app it comes from, and how a Learn request pays. */
 export interface AccountRequest {
@@ -40,11 +48,15 @@ export function accountRequest(headers: Headers): AccountRequest {
  * derived, so resolving them needs no lookup and can't race. The dev bypass
  * uses `default` and `default_simple`.
  *
- * `operatorKeys` (see AccountContext) never follows from the request alone:
- * power is bring-your-own-key for every signed-in user (only the local dev
- * bypass may use the server's provider keys), and paid credit needs
- * the server to offer it. Asking for credit where it isn't offered falls back
- * to the user's own key, which never costs the operator anything.
+ * Credit is per user: both accounts spend the ledger at `billingAccountId`
+ * (`u_<userId>`, the Learn account's id, so Learn balances carry over).
+ *
+ * Spending the operator's keys never follows from the request alone (see
+ * AccountContext): `builtIn` needs the server to offer the built-in provider
+ * (`builtInAvailable`), and Learn also has to ask for credit; asking where it
+ * isn't offered falls back to the user's own key, which never costs the
+ * operator anything. `operatorKeys` (the power configs' server secrets) is
+ * the local dev bypass only.
  */
 export function resolveAccount(
   env: AppEnv,
@@ -53,18 +65,23 @@ export function resolveAccount(
 ): AccountContext {
   const userId = identity.userId;
   if (!identity.devMode && !userId) throw new DomainError('unauthorized', 'Sign in required');
+  const billingAccountId = billingAccountIdFor(userId);
   if (request.mode === 'simple') {
     return {
-      id: userId ? accountIdForUser(userId) : DEV_SIMPLE_ACCOUNT_ID,
+      id: billingAccountId,
       mode: 'simple',
       userId,
-      operatorKeys: request.payment === 'credit' && paidCreditAvailable(env),
+      billingAccountId,
+      builtIn: request.payment === 'credit' && builtInAvailable(env),
+      operatorKeys: false,
     };
   }
   return {
     id: userId ? POWER_ACCOUNT_PREFIX + userId : DEFAULT_ACCOUNT_ID,
     mode: 'power',
     userId,
+    billingAccountId,
+    builtIn: builtInAvailable(env),
     operatorKeys: identity.devMode,
   };
 }

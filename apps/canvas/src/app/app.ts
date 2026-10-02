@@ -37,6 +37,15 @@ import { UiStore } from './state/ui-store';
             </button>
           </p>
         }
+        @if (!demo && store.membershipBlocked()) {
+          <p class="banner banner-membership" role="alert">
+            <span>
+              <strong>Membership needed.</strong> Generating needs the yearly membership; your
+              conversations stay readable.
+            </span>
+            <a class="banner-cta" href="/billing">Subscribe or enter a code</a>
+          </p>
+        }
         <main class="shell-main">
           @if (ready()) {
             <router-outlet />
@@ -51,7 +60,12 @@ import { UiStore } from './state/ui-store';
     <div class="toasts" role="status" aria-live="polite">
       @for (t of ui.toasts(); track t.id) {
         <div class="toast" [class.toast-error]="t.kind === 'error'">
-          <span>{{ t.text }}</span>
+          <span
+            >{{ t.text }}
+            @if (t.link; as link) {
+              <a class="toast-link" [href]="link.href">{{ link.label }}</a>
+            }
+          </span>
           <button type="button" class="icon-btn" aria-label="Dismiss" (click)="ui.dismiss(t.id)">
             <app-icon name="x" [size]="14" />
           </button>
@@ -64,7 +78,7 @@ import { UiStore } from './state/ui-store';
 export class App {
   protected readonly ui = inject(UiStore);
   protected readonly keyboard = inject(Keyboard);
-  private readonly store = inject(CanvasStore);
+  protected readonly store = inject(CanvasStore);
   private readonly auth = inject(AuthService);
   private readonly api = inject(ApiClient);
   protected readonly demo = inject(DEMO_MODE);

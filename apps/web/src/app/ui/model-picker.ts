@@ -1,9 +1,34 @@
 import { ChangeDetectionStrategy, Component, computed, inject, model } from '@angular/core';
+import { isModelAllowed, type ProviderInfo } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 
 let uid = 0;
 
-/** Provider + model selects. Providers without an API key are listed but disabled. */
+/**
+ * What is wrong with `model` for `provider`, or null when nothing is. Only an
+ * `openModels` provider takes typed ids (the others offer a select of their
+ * listed models, so their choice is always one the server allows).
+ */
+export function modelHint(provider: ProviderInfo | null, model: string): string | null {
+  if (!provider?.openModels) return null;
+  if (model.trim() === '') return 'Enter a model id, or pick one of the suggestions.';
+  if (!isModelAllowed(provider, model))
+    return 'Not a model id: use letters, digits and . _ - : / (like vendor/model-name).';
+  return null;
+}
+
+/** Why a provider can't be picked, appended to its label; empty when it can. */
+export function unavailableSuffix(p: ProviderInfo): string {
+  if (p.available) return '';
+  return p.acceptsUserKey ? ' — missing API key' : ' — unavailable';
+}
+
+/**
+ * Provider + model. Providers without an API key are listed but disabled.
+ * A provider with `openModels` (OpenRouter, Tangent credit) takes any model
+ * id it serves: a text field whose datalist keeps the suggestions one click
+ * away. Every other provider offers a select of its listed models.
+ */
 @Component({
   selector: 'app-model-picker',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -17,21 +42,48 @@ let uid = 0;
           }
           @for (p of store.providers(); track p.id) {
             <option [value]="p.id" [disabled]="!p.available" [selected]="p.id === providerId()">
-              {{ p.label }}{{ p.available ? '' : ' — missing API key' }}
+              {{ p.label }}{{ suffix(p) }}
             </option>
           }
         </select>
       </label>
       <label class="field">
         <span class="field-label">Model</span>
-        <select #ms [id]="id + '-m'" [value]="modelId()" (change)="modelId.set(ms.value)">
-          @if (!modelKnown()) {
-            <option [value]="modelId()">{{ modelId() || '—' }}</option>
+        @if (open()) {
+          <input
+            #mi
+            type="text"
+            [id]="id + '-m'"
+            [attr.list]="id + '-ml'"
+            [value]="modelId()"
+            (input)="modelId.set(mi.value)"
+            (change)="modelId.set(mi.value.trim())"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            maxlength="200"
+            placeholder="vendor/model-name"
+            [attr.aria-invalid]="hint() ? 'true' : null"
+            [attr.aria-describedby]="hint() ? id + '-h' : null"
+          />
+          <datalist [id]="id + '-ml'">
+            @for (m of models(); track m.id) {
+              <option [value]="m.id">{{ m.label }}</option>
+            }
+          </datalist>
+          @if (hint(); as h) {
+            <span class="field-error small" [id]="id + '-h'">{{ h }}</span>
           }
-          @for (m of models(); track m.id) {
-            <option [value]="m.id" [selected]="m.id === modelId()">{{ m.label }}</option>
-          }
-        </select>
+        } @else {
+          <select #ms [id]="id + '-m'" [value]="modelId()" (change)="modelId.set(ms.value)">
+            @if (!modelKnown()) {
+              <option [value]="modelId()">{{ modelId() || '—' }}</option>
+            }
+            @for (m of models(); track m.id) {
+              <option [value]="m.id" [selected]="m.id === modelId()">{{ m.label }}</option>
+            }
+          </select>
+        }
       </label>
     </div>
   `,
@@ -41,15 +93,18 @@ export class ModelPicker {
   readonly providerId = model.required<string>();
   readonly modelId = model.required<string>();
   protected readonly id = `mp${++uid}`;
+  protected readonly suffix = unavailableSuffix;
 
   private readonly provider = computed(
     () => this.store.providerMap().get(this.providerId()) ?? null,
   );
   protected readonly known = computed(() => this.provider() !== null);
+  protected readonly open = computed(() => this.provider()?.openModels ?? false);
   protected readonly models = computed(() => this.provider()?.models ?? []);
   protected readonly modelKnown = computed(() =>
     this.models().some((m) => m.id === this.modelId()),
   );
+  protected readonly hint = computed(() => modelHint(this.provider(), this.modelId()));
 
   protected pickProvider(id: string): void {
     this.providerId.set(id);

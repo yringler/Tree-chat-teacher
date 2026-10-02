@@ -18,7 +18,7 @@ function stored(): LearnPayment | null {
  * credit. The choice is remembered in this browser and sent with every API
  * call (API_HEADERS, see app.config.ts), together with the mode header that
  * makes the server act as the learner's Learn account. The server only
- * honours `credit` where it offers it (`MeResponse.paidCredit`), so a stale
+ * honours `credit` where it offers it (`MeResponse.builtInCredit`), so a stale
  * choice can never spend anything the learner didn't pick.
  *
  * Kept free of ApiClient: ApiClient reads `headers()`, so injecting it here
@@ -27,7 +27,7 @@ function stored(): LearnPayment | null {
 @Injectable({ providedIn: 'root' })
 export class PaymentStore {
   /** True when this server sells credit (from /api/me). */
-  readonly paidCredit = signal(false);
+  readonly builtInCredit = signal(false);
   private readonly chosen = signal<LearnPayment>(stored() ?? 'credit');
   /** The demo always runs on its pretend credit, whatever this browser chose for real. */
   private readonly demo = inject(DEMO_MODE, { optional: true }) ?? false;
@@ -35,7 +35,7 @@ export class PaymentStore {
   /** What replies actually run on: the choice, or the own key when credit isn't offered. */
   readonly payment = computed<LearnPayment>(() => {
     if (this.demo) return 'credit';
-    return this.paidCredit() ? this.chosen() : 'own-key';
+    return this.builtInCredit() ? this.chosen() : 'own-key';
   });
 
   choose(payment: LearnPayment): void {

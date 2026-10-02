@@ -11,9 +11,35 @@ export function uniq(prefix: string): string {
   return `${prefix}_${seq}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** A simple (Learn) account `u_<userId>` on paid credit, with a fresh user id. */
+/** A simple (Learn) account `u_<userId>` on credit (the built-in provider), with a fresh user id. */
 export function simpleAccount(userId = uniq('user')): AccountContext {
-  return { id: `u_${userId}`, mode: 'simple', userId, operatorKeys: true };
+  const id = `u_${userId}`;
+  return { id, mode: 'simple', userId, billingAccountId: id, builtIn: true, operatorKeys: false };
+}
+
+/** The same user's power account `p_<userId>`, on the same ledger, with the built-in provider. */
+export function powerAccount(userId = uniq('user')): AccountContext {
+  return {
+    id: `p_${userId}`,
+    mode: 'power',
+    userId,
+    billingAccountId: `u_${userId}`,
+    builtIn: true,
+    operatorKeys: false,
+  };
+}
+
+/** The dev bypass's power account (`default`, ledger `default_simple`), server keys allowed. */
+export function devPowerAccount(overrides: Partial<AccountContext> = {}): AccountContext {
+  return {
+    id: 'default',
+    mode: 'power',
+    userId: null,
+    billingAccountId: 'default_simple',
+    builtIn: true,
+    operatorKeys: true,
+    ...overrides,
+  };
 }
 
 export async function insertUser(
@@ -32,25 +58,35 @@ export async function insertUser(
   return { id: user.id, email, name };
 }
 
+/** A Better Auth Stripe plugin subscription row (plan `membership` unless given); returns its id. */
 export async function insertSubscription(
   env: AppEnv,
   userId: string,
   status: string,
-  extra: { plan?: string; periodEnd?: number | null; cancelAtPeriodEnd?: boolean } = {},
-): Promise<void> {
+  extra: {
+    plan?: string;
+    periodEnd?: number | null;
+    cancelAtPeriodEnd?: boolean;
+    stripeSubscriptionId?: string | null;
+  } = {},
+): Promise<string> {
+  const id = uniq('sub');
   await env.DB.prepare(
-    `INSERT INTO auth_subscriptions (id, plan, reference_id, status, period_end, cancel_at_period_end)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO auth_subscriptions
+       (id, plan, reference_id, status, period_end, cancel_at_period_end, stripe_subscription_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
-      uniq('sub'),
-      extra.plan ?? 'monthly-10',
+      id,
+      extra.plan ?? 'membership',
       userId,
       status,
       extra.periodEnd ?? null,
       extra.cancelAtPeriodEnd ? 1 : 0,
+      extra.stripeSubscriptionId ?? null,
     )
     .run();
+  return id;
 }
 
 export interface UsageRowInput {

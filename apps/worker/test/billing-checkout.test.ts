@@ -1,10 +1,16 @@
 import { DomainError, ValidationError } from '@tangent/core';
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-import { createCreditCheckout } from '../src/billing/service.js';
+import { checkoutReturnUrl, createCreditCheckout } from '../src/billing/service.js';
 import { ensureStripeCustomer, STRIPE_API_VERSION } from '../src/billing/stripe.js';
 import type { AppEnv } from '../src/env.js';
-import { insertUser, simpleAccount, stripeCalls, uniq } from './mocks/billing-helpers.js';
+import {
+  insertUser,
+  powerAccount,
+  simpleAccount,
+  stripeCalls,
+  uniq,
+} from './mocks/billing-helpers.js';
 import type { MockStripeCall } from './mocks/stripe.js';
 
 const env = rawEnv as unknown as AppEnv;
@@ -117,7 +123,7 @@ describe('credit checkout', () => {
     expect(session?.body['customer']).toBe('cus_existing_1');
   });
 
-  it('refuses when billing is not configured or for power accounts', async () => {
+  it('refuses when billing is not configured', async () => {
     const { account, user } = await newUser();
     for (const e of [
       { ...env, STRIPE_SECRET_KEY: '' },
@@ -127,13 +133,32 @@ describe('credit checkout', () => {
       expect(err).toBeInstanceOf(DomainError);
       expect((err as DomainError).message).toBe('Billing is not configured');
     }
-    const err = await createCreditCheckout(
-      env,
-      { id: `p_${user.id}`, mode: 'power', userId: user.id, operatorKeys: false },
-      user,
-      1000,
-      BASE,
-    ).catch((x: unknown) => x);
-    expect((err as DomainError).code).toBe('forbidden');
+  });
+
+  it("works from power mode: credits the user's ledger and returns to /billing", async () => {
+    const account = powerAccount();
+    const user = await insertUser(env, {
+      id: account.userId!,
+      email: `${uniq('power-buyer')}@example.com`,
+    });
+    await createCreditCheckout(env, account, user, 1000, BASE);
+    const session = (await stripeCalls('/v1/checkout/sessions')).find(
+      (c) => c.method === 'POST' && metaOf(c)['accountId'] === `u_${user.id}`,
+    );
+    expect(session?.body).toMatchObject({
+      client_reference_id: `u_${user.id}`,
+      metadata: { kind: 'credits', accountId: `u_${user.id}`, amountCents: '1000' },
+      success_url: `${BASE}/billing?checkout=success`,
+      cancel_url: `${BASE}/billing?checkout=cancel`,
+    });
+  });
+
+  it('returns to the billing page of the app the checkout started from', () => {
+    expect(checkoutReturnUrl(`${BASE}/`, simpleAccount(), 'success')).toBe(
+      `${BASE}/learn/billing?checkout=success`,
+    );
+    expect(checkoutReturnUrl(BASE, powerAccount(), 'cancel')).toBe(
+      `${BASE}/billing?checkout=cancel`,
+    );
   });
 });

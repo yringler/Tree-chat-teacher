@@ -14,6 +14,7 @@ import {
   type AccountRequest,
 } from '../src/auth/account.js';
 import type { AppEnv } from '../src/env.js';
+import { providerConfigs, registryFor } from '../src/services.js';
 
 const BASE = 'https://tangent.example.com';
 
@@ -51,46 +52,58 @@ describe('accounts (dev bypass: the default account)', () => {
          VALUES ('foreign-tree', 'someone-else', 'Not yours', 'foreign-trunk', 'x', 'x')`,
       ),
     ]);
-    const list = (await (await exports.default.fetch(`${BASE}/api/trees`)).json()) as { id: string }[];
+    const list = (await (await exports.default.fetch(`${BASE}/api/trees`)).json()) as {
+      id: string;
+    }[];
     expect(list.some((t) => t.id === 'foreign-tree')).toBe(false);
     expect((await exports.default.fetch(`${BASE}/api/trees/foreign-tree`)).status).toBe(404);
   });
 });
 
 describe('resolveAccount', () => {
-  const withEnv = (overrides: Partial<AppEnv> = {}) =>
-    ({ ...env, ...overrides }) as AppEnv;
+  const withEnv = (overrides: Partial<AppEnv> = {}) => ({ ...env, ...overrides }) as AppEnv;
   const user = (email: string) => ({ userId: 'usr1', email, devMode: false });
   const dev = { userId: null, email: null, devMode: true };
   const power: AccountRequest = { mode: 'power', payment: 'own-key' };
-  const learn = (payment: AccountRequest['payment']): AccountRequest => ({ mode: 'simple', payment });
+  const learn = (payment: AccountRequest['payment']): AccountRequest => ({
+    mode: 'simple',
+    payment,
+  });
 
   it('dev bypass: the default account for power, default_simple for Learn', () => {
     expect(resolveAccount(withEnv(), dev, power)).toEqual({
       id: DEFAULT_ACCOUNT_ID,
       mode: 'power',
       userId: null,
+      billingAccountId: DEV_SIMPLE_ACCOUNT_ID,
+      builtIn: true,
       operatorKeys: true,
     });
     expect(resolveAccount(withEnv(), dev, learn('own-key'))).toEqual({
       id: DEV_SIMPLE_ACCOUNT_ID,
       mode: 'simple',
       userId: null,
+      billingAccountId: DEV_SIMPLE_ACCOUNT_ID,
+      builtIn: false,
       operatorKeys: false,
     });
   });
 
-  it('every user gets p_<userId> for power and u_<userId> for Learn', () => {
+  it('every user gets p_<userId> for power and u_<userId> for Learn, one ledger u_<userId>', () => {
     expect(resolveAccount(withEnv(), user('someone@example.org'), power)).toEqual({
       id: 'p_usr1',
       mode: 'power',
       userId: 'usr1',
+      billingAccountId: 'u_usr1',
+      builtIn: true,
       operatorKeys: false,
     });
     expect(resolveAccount(withEnv(), user('someone@example.org'), learn('own-key'))).toEqual({
       id: 'u_usr1',
       mode: 'simple',
       userId: 'usr1',
+      billingAccountId: 'u_usr1',
+      builtIn: false,
       operatorKeys: false,
     });
   });
@@ -98,18 +111,21 @@ describe('resolveAccount', () => {
   it('power mode never gets the server keys for a signed-in user, only the dev bypass', () => {
     expect(resolveAccount(withEnv(), user('owner@example.com'), power).operatorKeys).toBe(false);
     expect(resolveAccount(withEnv(), dev, power).operatorKeys).toBe(true);
+    expect(resolveAccount(withEnv(), user('a@example.org'), learn('credit')).operatorKeys).toBe(
+      false,
+    );
   });
 
-  it('Learn is on paid credit only when asked for and offered', () => {
-    expect(resolveAccount(withEnv(), user('a@example.org'), learn('credit')).operatorKeys).toBe(true);
+  it('Learn is on the built-in provider only when asked for and offered', () => {
+    expect(resolveAccount(withEnv(), user('a@example.org'), learn('credit')).builtIn).toBe(true);
     for (const off of [{ STRIPE_SECRET_KEY: '' }, { STRIPE_WEBHOOK_SECRET: '' }]) {
-      expect(
-        resolveAccount(withEnv(off), user('a@example.org'), learn('credit')).operatorKeys,
-      ).toBe(false);
+      expect(resolveAccount(withEnv(off), user('a@example.org'), learn('credit')).builtIn).toBe(
+        false,
+      );
     }
     // Without the operator's OpenRouter key there is nothing to sell.
     const realProvider = withEnv({ SIMPLE_PROVIDER: '', OPENROUTER_SIMPLE_API_KEY: '' });
-    expect(resolveAccount(realProvider, user('a@example.org'), learn('credit')).operatorKeys).toBe(
+    expect(resolveAccount(realProvider, user('a@example.org'), learn('credit')).builtIn).toBe(
       false,
     );
     expect(
@@ -117,8 +133,19 @@ describe('resolveAccount', () => {
         { ...realProvider, OPENROUTER_SIMPLE_API_KEY: 'sk-or-operator' } as AppEnv,
         user('a@example.org'),
         learn('credit'),
-      ).operatorKeys,
+      ).builtIn,
     ).toBe(true);
+  });
+
+  it('power has the built-in provider whenever it is offered, whatever the payment header', () => {
+    const credit: AccountRequest = { mode: 'power', payment: 'credit' };
+    expect(resolveAccount(withEnv(), user('a@example.org'), power).builtIn).toBe(true);
+    expect(resolveAccount(withEnv(), user('a@example.org'), credit).builtIn).toBe(true);
+    expect(
+      resolveAccount(withEnv({ STRIPE_SECRET_KEY: '' }), user('a@example.org'), power).builtIn,
+    ).toBe(false);
+    const realProvider = withEnv({ SIMPLE_PROVIDER: '', OPENROUTER_SIMPLE_API_KEY: '' });
+    expect(resolveAccount(realProvider, user('a@example.org'), power).builtIn).toBe(false);
   });
 
   it('reads the mode and payment headers, defaulting to power and own-key', () => {
@@ -129,5 +156,46 @@ describe('resolveAccount', () => {
     expect(
       accountRequest(new Headers({ [MODE_HEADER]: 'Simple', [PAYMENT_HEADER]: 'free' })),
     ).toEqual({ mode: 'power', payment: 'own-key' });
+  });
+});
+
+describe('power provider configs', () => {
+  const withEnv = (overrides: Partial<AppEnv> = {}) => ({ ...env, ...overrides }) as AppEnv;
+
+  it('the default OpenRouter config lists the suggested models first and takes any model', () => {
+    const openrouter = providerConfigs(
+      withEnv({ PROVIDERS: '', SIMPLE_SMART_MODEL: 'a/smart', SIMPLE_FAST_MODEL: 'b/fast' }),
+    ).find((c) => c.id === 'openrouter')!;
+    expect(openrouter.openModels).toBe(true);
+    expect(openrouter.defaultModel).toBe('a/smart');
+    expect(openrouter.models.slice(0, 2)).toEqual([
+      { id: 'a/smart', label: 'Smart (suggested)' },
+      { id: 'b/fast', label: 'Simple (suggested)' },
+    ]);
+    // The previous entries are kept after them.
+    expect(openrouter.models.length).toBeGreaterThan(2);
+  });
+
+  it("the operator's PROVIDERS rule, and may not claim the built-in id", () => {
+    expect(providerConfigs(withEnv()).some((c) => c.openModels)).toBe(false);
+    const claim = JSON.stringify([
+      { id: 'tangent', kind: 'fake', label: 'Mine', defaultModel: 'x', models: [] },
+    ]);
+    expect(() => providerConfigs(withEnv({ PROVIDERS: claim }))).toThrow(/reserved id "tangent"/);
+  });
+
+  it('the built-in provider takes the operator key only, never a user key', () => {
+    const account = resolveAccount(
+      withEnv(),
+      { userId: 'usr2', email: 'b@example.org', devMode: false },
+      { mode: 'power', payment: 'own-key' },
+    );
+    const registry = registryFor(withEnv(), account, { tangent: 'sk-user', ant: 'sk-ant-good' });
+    expect(registry.list().find((p) => p.id === 'tangent')).toMatchObject({
+      available: true,
+      acceptsUserKey: false,
+    });
+    expect(registry.list().find((p) => p.id === 'ant')?.keySource).toBe('user');
+    expect(registryFor(withEnv(), { ...account, builtIn: false }).get('tangent')).toBeUndefined();
   });
 });

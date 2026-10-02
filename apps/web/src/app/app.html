@@ -1,7 +1,7 @@
 @if (loginPage) {
   <router-outlet />
 } @else {
-  <div class="app" [class.drawer-open]="ui.drawerOpen()">
+  <div class="app" [class.drawer-open]="ui.drawerOpen()" [attr.inert]="gate() ? '' : null">
     <aside class="sidebar" id="sidebar" aria-label="Conversations">
       <app-sidebar />
     </aside>
@@ -19,13 +19,28 @@
     </main>
   </div>
 
-  <app-dialog-host />
+  <app-dialog-host [attr.inert]="gate() ? '' : null" />
+
+  @if (gate(); as membership) {
+    <app-membership-gate
+      [membership]="membership"
+      billingPath="/billing"
+      (redeemed)="store.membership.set($event)"
+    />
+  }
 }
 
 <div class="toasts" role="status" aria-live="polite">
   @for (t of ui.toasts(); track t.id) {
     <div class="toast" [class.toast-error]="t.kind === 'error'">
-      <span>{{ t.text }}</span>
+      <span
+        >{{ t.text }}
+        @if (t.link; as link) {
+          <a class="toast-link" [routerLink]="link.path" (click)="ui.dismiss(t.id)">{{
+            link.label
+          }}</a>
+        }
+      </span>
       <button type="button" class="icon-btn" aria-label="Dismiss" (click)="ui.dismiss(t.id)">
         <app-icon name="x" [size]="14" />
       </button>

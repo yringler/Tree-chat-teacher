@@ -11,6 +11,7 @@ import {
   type TreeIndex,
 } from '@tangent/core/tree';
 import type {
+  BillingSummary,
   Branch,
   ChatNode,
   ContextMode,
@@ -19,6 +20,7 @@ import type {
   DeleteBranchResponse,
   KeyStatusResponse,
   MeResponse,
+  MembershipInfo,
   ProviderInfo,
   StreamEvent,
   TreeDetail,
@@ -29,6 +31,7 @@ import {
   ApiClient,
   ApiError,
   errorMessage,
+  membershipBlocks,
   runStream,
   type StreamOutcome,
 } from '@tangent/web-shared';
@@ -116,6 +119,10 @@ export class CanvasStore {
   readonly me = signal<MeResponse | null>(null);
   readonly providers = signal<ProviderInfo[]>([]);
   readonly keyStatus = signal<KeyStatusResponse | null>(null);
+  /** From `me`; a 402 `membership_required` marks it inactive. */
+  readonly membership = signal<MembershipInfo | null>(null);
+  /** Credit balance and fees (`/api/billing`), loaded when the keys dialog opens. */
+  readonly billing = signal<BillingSummary | null>(null);
   readonly trees = signal<TreeSummary[]>([]);
   readonly treesLoaded = signal(false);
 
@@ -185,6 +192,9 @@ export class CanvasStore {
     return idx && id ? branchPath(idx, id) : [];
   });
 
+  /** Generating needs the membership the user lacks: the shell shows a notice linking to `/billing`. */
+  readonly membershipBlocked = computed(() => membershipBlocks(this.membership()));
+
   readonly providerMap = computed(() => new Map(this.providers().map((p) => [p.id, p])));
 
   /** First provider with an API key, falling back to the first configured. */
@@ -231,6 +241,7 @@ export class CanvasStore {
 
   async init(me: MeResponse): Promise<void> {
     this.me.set(me);
+    this.membership.set(me.membership);
     await Promise.all([this.refreshKeys(), this.loadTrees()]);
   }
 
@@ -245,6 +256,15 @@ export class CanvasStore {
         (e: unknown) => this.fail(e),
       ),
     ]);
+  }
+
+  /** Credit balance and fees. Quiet on failure: the keys dialog then shows no balance. */
+  async refreshBilling(): Promise<void> {
+    try {
+      this.billing.set(await this.api.billing());
+    } catch (err) {
+      console.warn('billing summary failed', err);
+    }
   }
 
   async saveKey(provider: string, apiKey: string): Promise<boolean> {
@@ -615,6 +635,17 @@ export class CanvasStore {
 
   fail(err: unknown): void {
     console.error(err);
+    if (err instanceof ApiError && err.code === 'membership_required') {
+      // The shell's notice explains it and links to the power app's /billing.
+      this.membership.update((m) => (m ? { ...m, required: true, status: 'inactive' } : m));
+      return;
+    }
+    if (err instanceof ApiError && err.code === 'payment_required') {
+      // Out of Tangent credit (the only metered provider here).
+      this.ui.notify(errorMessage(err), 'error', { label: 'Add credit', href: '/billing' });
+      void this.refreshBilling();
+      return;
+    }
     this.ui.notify(errorMessage(err), 'error');
     if (err instanceof ApiError && err.code === 'key_required') {
       void this.refreshKeys();

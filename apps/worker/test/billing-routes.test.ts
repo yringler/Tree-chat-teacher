@@ -11,7 +11,13 @@ import { grantCredit } from '../src/billing/ledger.js';
 import type { AccountContext, AppBindings, AppEnv } from '../src/env.js';
 import { onError } from '../src/http/errors.js';
 import { billingRoutes } from '../src/routes/billing.js';
-import { insertUsage, insertUser, simpleAccount, uniq } from './mocks/billing-helpers.js';
+import {
+  insertUsage,
+  insertUser,
+  powerAccount,
+  simpleAccount,
+  uniq,
+} from './mocks/billing-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
 const BASE = 'https://tangent.example.com';
@@ -48,16 +54,37 @@ async function body<T>(res: Response, status: number): Promise<T> {
 }
 
 describe('billing routes', () => {
-  it('are forbidden for power accounts', async () => {
-    const call = appAs({ id: 'default', mode: 'power', userId: null, operatorKeys: true });
-    for (const [path, init] of [
-      ['/api/billing', {}],
-      ['/api/billing/usage', {}],
-      ['/api/billing/checkout', { method: 'POST', json: { amountCents: 1000 } }],
-    ] as const) {
-      const err = await body<ApiError>(await call(path, init), 403);
-      expect(err.error.code).toBe('forbidden');
-    }
+  it("answer in power mode too, on the user's shared ledger", async () => {
+    const account = powerAccount();
+    await insertUser(env, { id: account.userId!, email: `${uniq('power')}@example.com` });
+    await grantCredit(env.DB, {
+      accountId: account.billingAccountId,
+      kind: 'purchase',
+      amountMicros: 2_000_000,
+      stripeRef: uniq('cs'),
+    });
+    await insertUsage(env, {
+      accountId: account.billingAccountId,
+      status: 'settled',
+      chargeMicros: 500_000,
+    });
+    const call = appAs(account);
+    expect(await body<BillingSummary>(await call('/api/billing'), 200)).toMatchObject({
+      enabled: true,
+      builtInCredit: true,
+      balanceMicros: 1_500_000,
+    });
+    expect(
+      (await body<UsageListResponse>(await call('/api/billing/usage'), 200)).entries,
+    ).toHaveLength(1);
+    const res = await call('/api/billing/checkout', {
+      method: 'POST',
+      json: { amountCents: 1000 },
+      headers: { 'Sec-Fetch-Site': 'same-origin' },
+    });
+    expect((await body<CheckoutResponse>(res, 200)).url).toMatch(
+      /^https:\/\/checkout\.stripe\.com\//,
+    );
   });
 
   it('GET / returns the summary (no-store)', async () => {
@@ -135,8 +162,8 @@ describe('billing routes', () => {
     );
   });
 
-  it('is mounted at /api/billing and refuses the dev-mode power account', async () => {
+  it('is mounted at /api/billing and answers the dev-mode power account', async () => {
     const res = await exports.default.fetch(new Request(`${BASE}/api/billing`));
-    expect(res.status).toBe(403);
+    expect(await body<BillingSummary>(res, 200)).toMatchObject({ enabled: true });
   });
 });

@@ -44,6 +44,7 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   gone: 410,
   rate_limited: 429,
   payment_required: 402,
+  membership_required: 402,
   key_required: 401,
   provider_error: 502,
   internal: 500,
@@ -56,9 +57,19 @@ export class KeyRequiredError extends DomainError {
   }
 }
 
-/** A simple account lacks the credit (or billing setup) to start a metered generation. */
+/** The user's credit (or the billing setup) can't start a call on the built-in provider. */
 export class PaymentRequiredError extends DomainError {
   constructor(message = 'Add credit to keep learning') {
     super('payment_required', message);
+  }
+}
+
+/**
+ * Generating needs the yearly membership (required once the operator configures
+ * it) and the user neither has one nor had the fee waived.
+ */
+export class MembershipRequiredError extends DomainError {
+  constructor(message = 'A Tangent membership is needed to keep going') {
+    super('membership_required', message);
   }
 }

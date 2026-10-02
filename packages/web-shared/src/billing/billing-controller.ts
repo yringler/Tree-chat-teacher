@@ -2,18 +2,13 @@ import { computed, signal } from '@angular/core';
 import type {
   BillingSummary,
   CheckoutResponse,
-  MonthlyPlanInfo,
-  SubscriptionInfo,
+  MembershipInfo,
   UsageEntry,
   UsageListResponse,
 } from '@tangent/shared';
 import { MAX_TOP_UP_CENTS, MIN_TOP_UP_CENTS } from '@tangent/shared';
 import { parseDollarsToCents, topUpError } from './format';
-
-/** Paths Stripe sends the browser back to (relative to the origin; the base href is `/learn/`). */
-export const BILLING_PATH = '/learn/billing';
-export const CHECKOUT_SUCCESS_PATH = `${BILLING_PATH}?checkout=success`;
-export const CHECKOUT_CANCEL_PATH = `${BILLING_PATH}?checkout=cancel`;
+import { type MembershipUpgrader, subscribeToMembership } from './membership';
 
 /** One-click top-up amounts, in cents. */
 export const TOP_UP_PRESETS_CENTS: readonly number[] = [500, 1000, 2000, 5000];
@@ -27,7 +22,7 @@ export const USAGE_PAGE_SIZE = 25;
 /**
  * What the page needs from the outside world. The component wires these to
  * `ApiClient`, `BillingClient`, `location.assign` and the router; tests pass
- * fakes. (Only types come from `@tangent/web-shared` so specs stay DOM-free.)
+ * fakes, so specs stay DOM-free.
  */
 export interface BillingDeps {
   api: {
@@ -35,15 +30,15 @@ export interface BillingDeps {
     usage(cursor?: string | null, limit?: number): Promise<UsageListResponse>;
     createCheckout(amountCents: number): Promise<CheckoutResponse>;
   };
-  billing: {
-    upgrade(
-      plan: string,
-      successPath: string,
-      cancelPath: string,
-      returnPath?: string,
-    ): Promise<void>;
+  /** The Better Auth Stripe plugin: `upgrade` subscribes to the membership, `portal` manages it. */
+  billing: MembershipUpgrader & {
     portal(returnPath: string): Promise<void>;
   };
+  /**
+   * The app's absolute path of the billing page (`/learn/billing`, `/billing`):
+   * Stripe sends the browser back there. A getter, as it is a component input.
+   */
+  billingPath(): string;
   /** Leaves the app for a Stripe page (`location.assign`). */
   navigate(url: string): void;
   /** Drops `?checkout=...` from the address bar so a reload doesn't poll again. */
@@ -52,17 +47,18 @@ export interface BillingDeps {
 }
 
 /**
- * - `waiting`: back from a paid checkout, polling until the webhook credits the account.
+ * - `waiting`: back from a paid checkout, polling until the webhook updates the account.
+ * - `activated`: the membership status changed (it is active now).
  * - `credited`: the balance changed.
  * - `slow`: polling gave up; the credit is probably still on its way.
  * - `cancelled`: back from an abandoned checkout.
  */
-export type CheckoutNotice = 'waiting' | 'credited' | 'slow' | 'cancelled';
+export type CheckoutNotice = 'waiting' | 'activated' | 'credited' | 'slow' | 'cancelled';
 
 /** Which action is talking to Stripe (every action button is disabled meanwhile). */
 export type PendingAction =
   | { kind: 'top-up'; cents: number; source: 'preset' | 'custom' }
-  | { kind: 'plan'; plan: string }
+  | { kind: 'subscribe' }
   | { kind: 'portal' };
 
 /** State and actions of the billing page, framework-light so it can be unit tested. */
@@ -95,12 +91,6 @@ export class BillingController {
     topUpError(this.customCents(), this.minCents(), this.maxCents()),
   );
   readonly busy = computed(() => this.pending() !== null);
-
-  /** The plan the account is on (still shown while it runs out after cancelling). */
-  readonly currentPlan = computed<SubscriptionInfo | null>(() => {
-    const sub = this.summary()?.subscription ?? null;
-    return sub && isLiveStatus(sub.status) ? sub : null;
-  });
 
   private readonly sleep: (ms: number) => Promise<void>;
   private destroyed = false;
@@ -159,7 +149,7 @@ export class BillingController {
 
   /**
    * Webhooks credit the account asynchronously, so after a successful checkout
-   * poll until the balance (or the plan) differs from `before`.
+   * poll until the balance (or the membership) differs from `before`.
    */
   async waitForCredit(before: BillingSummary): Promise<void> {
     const run = ++this.pollRun;
@@ -175,8 +165,9 @@ export class BillingController {
       }
       if (this.destroyed || run !== this.pollRun) return;
       this.summary.set(next);
-      if (changed(before, next)) {
-        this.finishWaiting('credited');
+      const change = changeOf(before, next);
+      if (change) {
+        this.finishWaiting(change);
         return;
       }
     }
@@ -213,15 +204,11 @@ export class BillingController {
     this.actionError.set(null);
   }
 
-  async choosePlan(plan: MonthlyPlanInfo): Promise<void> {
+  /** Subscribe: Stripe Checkout for the yearly membership, back to this page. */
+  async subscribe(): Promise<void> {
     if (this.busy()) return;
-    await this.leaveFor({ kind: 'plan', plan: plan.name }, () =>
-      this.deps.billing.upgrade(
-        plan.name,
-        CHECKOUT_SUCCESS_PATH,
-        CHECKOUT_CANCEL_PATH,
-        BILLING_PATH,
-      ),
+    await this.leaveFor({ kind: 'subscribe' }, () =>
+      subscribeToMembership(this.deps.billing, this.deps.billingPath()),
     );
   }
 
@@ -229,9 +216,14 @@ export class BillingController {
     if (this.busy()) return;
     await this.leaveFor(
       { kind: 'portal' },
-      () => this.deps.billing.portal(BILLING_PATH),
+      () => this.deps.billing.portal(this.deps.billingPath()),
       portalMessage,
     );
+  }
+
+  /** A redeemed code changed the membership (no reload needed). */
+  setMembership(membership: MembershipInfo): void {
+    this.summary.update((s) => (s ? { ...s, membership } : s));
   }
 
   /** The browser came back to this page from its back/forward cache: buttons work again. */
@@ -262,23 +254,17 @@ export class BillingController {
     }
   }
 
-  private finishWaiting(result: 'credited' | 'slow'): void {
+  private finishWaiting(result: 'activated' | 'credited' | 'slow'): void {
     this.notice.set(result);
     this.deps.clearCheckoutParam();
   }
 }
 
-/** Statuses that still count as "your plan" on the page. */
-function isLiveStatus(status: string): boolean {
-  return status === 'active' || status === 'trialing' || status === 'past_due';
-}
-
-function changed(before: BillingSummary, after: BillingSummary): boolean {
-  return (
-    before.balanceMicros !== after.balanceMicros ||
-    before.subscription?.plan !== after.subscription?.plan ||
-    before.subscription?.status !== after.subscription?.status
-  );
+/** What a webhook changed since `before`; the membership wins (it grants credit too). */
+function changeOf(before: BillingSummary, after: BillingSummary): 'activated' | 'credited' | null {
+  if (before.membership.status !== after.membership.status) return 'activated';
+  if (before.balanceMicros !== after.balanceMicros) return 'credited';
+  return null;
 }
 
 function messageOf(err: unknown): string {

@@ -15,7 +15,14 @@ import { createUsageMeter, meteredRegistry } from './billing/meter.js';
 import { billingConfigured } from './billing/stripe.js';
 import { createD1Repositories } from './db/d1-repositories.js';
 import { isMetered, type AccountContext, type AppEnv } from './env.js';
-import { simpleChatSettings, simpleProviderConfig, simpleSystemPrompt } from './simple-mode.js';
+import {
+  BUILT_IN_PROVIDER_ID,
+  builtInPowerConfig,
+  simpleChatSettings,
+  simpleProviderConfig,
+  simpleSystemPrompt,
+  suggestedModels,
+} from './simple-mode.js';
 
 /** Provider id → user-supplied API key (bring-your-own-key, see byok/keys.ts). */
 export type UserApiKeys = Readonly<Record<string, string>>;
@@ -23,9 +30,40 @@ export type UserApiKeys = Readonly<Record<string, string>>;
 /** Keeps background work alive past the response (`waitUntil` of the Worker or the Durable Object). */
 export type Defer = (p: Promise<unknown>) => void;
 
-/** Power-mode provider configs (the PROVIDERS var, or the built-in defaults). */
+/**
+ * Power-mode provider configs, for the user's own keys: the PROVIDERS var, or
+ * the defaults with OpenRouter opened up (`openrouterWithSuggestions`). The
+ * built-in provider is not one of them (registryFor appends it), so its id is
+ * reserved: metering is keyed on it.
+ */
 export function providerConfigs(env: AppEnv): ProviderConfig[] {
-  return env.PROVIDERS?.trim() ? parseProviderConfigs(env.PROVIDERS) : DEFAULT_PROVIDER_CONFIGS;
+  if (!env.PROVIDERS?.trim()) {
+    return DEFAULT_PROVIDER_CONFIGS.map((c) =>
+      c.id === LEARN_KEY_PROVIDER ? openrouterWithSuggestions(env, c) : c,
+    );
+  }
+  const configs = parseProviderConfigs(env.PROVIDERS);
+  if (configs.some((c) => c.id === BUILT_IN_PROVIDER_ID))
+    throw new Error(
+      `Invalid provider config: PROVIDERS may not use the reserved id "${BUILT_IN_PROVIDER_ID}"`,
+    );
+  return configs;
+}
+
+/**
+ * The default `openrouter` config with the suggested models (Learn's Smart and
+ * Simple) first, the smart one as its default, and any model id allowed: the
+ * easy way to use the suggested defaults on one's own OpenRouter key.
+ */
+function openrouterWithSuggestions(env: AppEnv, config: ProviderConfig): ProviderConfig {
+  const suggested = suggestedModels(env);
+  const ids = new Set(suggested.map((m) => m.id));
+  return {
+    ...config,
+    models: [...suggested, ...config.models.filter((m) => !ids.has(m.id))],
+    defaultModel: suggested[0]!.id,
+    openModels: true,
+  };
 }
 
 /**
@@ -47,7 +85,7 @@ export function providerEnv(
   return apiKeys ? { secrets, apiKeys } : { secrets };
 }
 
-/** The secret behind paid Learn mode; never reachable from power mode. */
+/** The secret behind the built-in provider; only ever used through it. */
 const SIMPLE_KEY_SECRET = 'OPENROUTER_SIMPLE_API_KEY';
 
 function apiKeySecrets(configs: readonly ProviderConfig[]): string[] {
@@ -55,11 +93,11 @@ function apiKeySecrets(configs: readonly ProviderConfig[]): string[] {
 }
 
 /**
- * True when Learn mode can run on paid credit: billing is configured and the
- * `tangent` provider is usable with the operator's key. Otherwise Learn mode
- * is bring-your-own-key only and the paid option is hidden.
+ * True when the built-in provider can be offered on credit: billing is
+ * configured and the `tangent` provider is usable with the operator's key.
+ * Otherwise it is in no power registry, and Learn is bring-your-own-key only.
  */
-export function paidCreditAvailable(env: AppEnv): boolean {
+export function builtInAvailable(env: AppEnv): boolean {
   if (!billingConfigured(env)) return false;
   const registry = createProviderRegistry([simpleProviderConfig(env)], providerEnv(env));
   return registry.list()[0]?.available ?? false;
@@ -67,14 +105,17 @@ export function paidCreditAvailable(env: AppEnv): boolean {
 
 /**
  * The providers a request may use. Anyone can sign up, so the operator's keys
- * are withheld unless `account.operatorKeys`:
- * - simple, paid credit: only the `tangent` provider on the operator's key
- *   (metered by chatService); user keys are ignored.
+ * are withheld except through the built-in provider (`account.builtIn`, metered
+ * by chatService) and, for the power configs, in the dev bypass (`operatorKeys`):
+ * - simple, on credit: only the `tangent` provider on the operator's key;
+ *   user keys are ignored.
  * - simple, own key: the same provider config, on the user's OpenRouter key
  *   (key cookie entry LEARN_KEY_PROVIDER) and never the operator's.
  * - power: the configured providers, user keys overriding server secrets.
- *   Server secrets only for operatorKeys (the local dev bypass), and
- *   never the paid-Learn key.
+ *   Server secrets only for operatorKeys (the local dev bypass), and never
+ *   the built-in key. When `account.builtIn`, the built-in provider follows
+ *   (`builtInPowerConfig`), in a registry of its own on the operator's key,
+ *   so neither a user key nor another config can reach that key.
  */
 export function registryFor(
   env: AppEnv,
@@ -83,7 +124,7 @@ export function registryFor(
 ): ProviderRegistry {
   if (account.mode === 'simple') {
     const config = simpleProviderConfig(env);
-    if (account.operatorKeys) return createProviderRegistry([config], providerEnv(env));
+    if (account.builtIn) return createProviderRegistry([config], providerEnv(env));
     const own = apiKeys?.[LEARN_KEY_PROVIDER];
     return createProviderRegistry(
       [config],
@@ -97,14 +138,38 @@ export function registryFor(
   const configs = providerConfigs(env);
   const withheld = new Set([SIMPLE_KEY_SECRET]);
   if (!account.operatorKeys) for (const name of apiKeySecrets(configs)) withheld.add(name);
-  return createProviderRegistry(configs, providerEnv(env, apiKeys, withheld));
+  const own = createProviderRegistry(configs, providerEnv(env, apiKeys, withheld));
+  if (!account.builtIn) return own;
+  return withBuiltIn(own, createProviderRegistry([builtInPowerConfig(env)], providerEnv(env)));
+}
+
+/**
+ * `own` followed by the built-in provider, which takes no user key in power
+ * (it is paid with credit; /api/key has no entry for it). The default provider
+ * is chosen as one registry would: the first available non-fake provider (so
+ * the built-in one only when none of the user's own is usable), else `own`'s.
+ */
+function withBuiltIn(own: ProviderRegistry, builtIn: ProviderRegistry): ProviderRegistry {
+  const list = () => [
+    ...own.list(),
+    ...builtIn.list().map((p) => ({ ...p, acceptsUserKey: false })),
+  ];
+  return {
+    get: (providerId) =>
+      providerId === BUILT_IN_PROVIDER_ID ? builtIn.get(providerId) : own.get(providerId),
+    list,
+    defaultProviderId: () =>
+      list().find((p) => p.available && p.kind !== 'fake')?.id ?? own.defaultProviderId(),
+  };
 }
 
 export function chatSettingsFor(env: AppEnv, account: AccountContext): ChatSettings {
   if (account.mode === 'simple') return simpleChatSettings(env);
+  const summaryProviderId = env.SUMMARY_PROVIDER_ID?.trim() || null;
   return {
     ...DEFAULT_CHAT_SETTINGS,
-    summaryProviderId: env.SUMMARY_PROVIDER_ID?.trim() || null,
+    // Never the built-in provider: summaries of branches on the user's own keys must not cost credit.
+    summaryProviderId: summaryProviderId === BUILT_IN_PROVIDER_ID ? null : summaryProviderId,
     summaryModel: env.SUMMARY_MODEL?.trim() || null,
     autoTitle: env.AUTO_TITLE !== 'false',
   };
@@ -121,9 +186,9 @@ export function defaultSystemPromptFor(env: AppEnv, account: AccountContext): st
 }
 
 export interface ChatServiceOptions {
-  /** Bring-your-own-key overrides (ignored on paid credit, see registryFor). */
+  /** Bring-your-own-key overrides (ignored by Learn on credit, see registryFor). */
   apiKeys?: UserApiKeys;
-  /** Where the usage meter parks its background work (paid credit). */
+  /** Where the usage meter parks its background work (built-in provider calls). */
   defer?: Defer;
 }
 
@@ -133,10 +198,10 @@ const detach: Defer = (p) => {
 };
 
 /**
- * Every provider call on paid credit is metered: the registry is wrapped
- * so each `stream()` records a `usage_events` row (billing/meter.ts). The
- * meter is built on the first `get`, so routes that never generate (listing
- * trees, reading providers) don't pay for it.
+ * Every call on the built-in provider is metered: its `stream()` records a
+ * `usage_events` row (billing/meter.ts); the account's other providers are
+ * passed through. The meter is built on the first `get`, so routes that never
+ * generate (listing trees, reading providers) don't pay for it.
  */
 function meteredLazily(
   inner: ProviderRegistry,
@@ -147,7 +212,9 @@ function meteredLazily(
   let metered: ProviderRegistry | null = null;
   return {
     get: (providerId) => {
-      metered ??= meteredRegistry(inner, createUsageMeter(env, account, defer));
+      metered ??= meteredRegistry(inner, createUsageMeter(env, account, defer), (id) =>
+        isMetered(account, id),
+      );
       return metered.get(providerId);
     },
     list: () => inner.list(),
@@ -165,7 +232,7 @@ export function chatService(
   return new ChatService({
     repos: createD1Repositories(env.DB),
     accountId: account.id,
-    providers: isMetered(account)
+    providers: account.builtIn
       ? meteredLazily(registry, env, account, opts.defer ?? detach)
       : registry,
     settings: chatSettingsFor(env, account),

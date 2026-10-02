@@ -2,6 +2,26 @@
 
 Known gaps and follow-ups that were consciously left out of a change. Each entry says where the gap is, why it matters, and roughly what fixing it takes. Remove entries as they are done.
 
+## Membership
+
+Left out of the server side of the membership (`apps/worker/src/billing/membership.ts`). None blocks charging for it.
+
+- **No email when a membership lapses or a renewal fails.** Stripe's own customer emails (failed payments, upcoming renewals) cover it if they are turned on in the Dashboard (_Settings → Billing → Subscriptions and emails_); the app only shows the status on the billing page. Sending our own needs `customer.subscription.updated`/`deleted` handling in `billing/webhook.ts` and a template in `src/email/`.
+- **No admin UI for waivers.** Setting, clearing and listing `auth_users.membership_waived` is the SQL in the README ("Waiving the membership"). An admin page needs an operator role first.
+- **One waiver code, not per-person codes.** A leaked code is changed for everyone; whoever redeemed it keeps the flag until it is cleared by hand. Per-person or single-use codes need a codes table.
+- **Monthly-plan subscriptions from before the membership are not migrated.** They no longer grant credit or count as a membership; an operator who sold them cancels them in Stripe (the Customer Portal can't switch them to the membership, which has its own price and interval).
+- **The included credit isn't prorated or clawed back on cancellation.** It is granted per paid invoice and taken back only when that invoice is refunded.
+
+## Power app and Canvas: membership and credit UI
+
+Left out of the front end of the unified billing (`apps/web`, `apps/canvas`). None blocks charging.
+
+- **Canvas has no membership gate.** A blocked user (from `me` or a 402 `membership_required`) gets a banner linking to the power app's `/billing`, not the shared `MembershipGate` panel; Canvas has no billing page of its own. Rendering the gate there needs `/canvas/billing` (or a return path into `/billing` that comes back to Canvas).
+- **A malformed model id is not blocked before sending.** For `openModels` providers the model picker shows an inline hint, but the dialogs still submit; the server answers 400 and the error is a toast. Disabling Save needs the picker to expose its validity to each of the five dialogs that embed it.
+- **The balance in Keys & credit is a snapshot.** It is read when the dialog opens, after a 402 `payment_required` and from the billing page; it does not tick down while replies on Tangent credit stream.
+- **The billing page is not in the lazy chunk.** `/billing` is a lazy route, but `BillingPage` comes through the `@tangent/web-shared` barrel that the shell already imports (for `MembershipGate`), and decorated classes aren't tree-shaken out of it. A secondary entry point (`@tangent/web-shared/billing`) would move it out of the initial bundle.
+- **The sidebar's Billing entry has no icon.** `@tangent/web-shared`'s icon set has nothing for billing; add one (a card or coin) there and use it in `apps/web/src/app/sidebar/sidebar.ts`.
+
 ## Canvas (`apps/canvas`)
 
 Found in an independent review of the first cut of the experimental Canvas app. None of these block using it; together they are a day or two of iteration.

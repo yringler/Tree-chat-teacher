@@ -3,6 +3,7 @@
 //
 //   balance = Σ credit_grants.amount_micros − Σ settled usage_events.charge_micros
 //   held    = Σ pending usage_events.hold_micros
+//   pending = number of pending usage_events (metered calls in flight)
 
 export type CreditGrantKind = 'purchase' | 'subscription' | 'refund' | 'adjustment';
 
@@ -23,17 +24,22 @@ export interface CreditGrantInput {
 const BALANCE_SQL = `SELECT
   (SELECT COALESCE(SUM(amount_micros), 0) FROM credit_grants WHERE account_id = ?1)
   - (SELECT COALESCE(SUM(charge_micros), 0) FROM usage_events WHERE account_id = ?1 AND status = 'settled') AS balance,
-  (SELECT COALESCE(SUM(hold_micros), 0) FROM usage_events WHERE account_id = ?1 AND status = 'pending') AS held`;
+  (SELECT COALESCE(SUM(hold_micros), 0) FROM usage_events WHERE account_id = ?1 AND status = 'pending') AS held,
+  (SELECT COUNT(*) FROM usage_events WHERE account_id = ?1 AND status = 'pending') AS pending`;
 
 export async function getBalance(
   db: D1Database,
   accountId: string,
-): Promise<{ balanceMicros: number; heldMicros: number }> {
+): Promise<{ balanceMicros: number; heldMicros: number; pendingCalls: number }> {
   const row = await db
     .prepare(BALANCE_SQL)
     .bind(accountId)
-    .first<{ balance: number; held: number }>();
-  return { balanceMicros: Number(row?.balance ?? 0), heldMicros: Number(row?.held ?? 0) };
+    .first<{ balance: number; held: number; pending: number }>();
+  return {
+    balanceMicros: Number(row?.balance ?? 0),
+    heldMicros: Number(row?.held ?? 0),
+    pendingCalls: Number(row?.pending ?? 0),
+  };
 }
 
 /** Inserts a grant; resolves false when `stripeRef` was already granted (duplicate delivery). */

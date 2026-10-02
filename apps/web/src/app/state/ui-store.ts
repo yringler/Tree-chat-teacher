@@ -6,10 +6,17 @@ export interface BranchDialogState {
   quote: string | null;
 }
 
+/** An in-app link shown in a toast (e.g. "Add credit" → `/billing`). */
+export interface ToastLink {
+  label: string;
+  path: string;
+}
+
 export interface Toast {
   id: number;
   kind: 'info' | 'error';
   text: string;
+  link?: ToastLink;
 }
 
 const INSPECTOR_KEY = 'tangent.inspectorOpen';
@@ -41,7 +48,7 @@ export class UiStore {
   readonly treeSettingsOpen = signal(false);
   readonly shareDialogOpen = signal(false);
   readonly exportMenuOpen = signal(false);
-  /** API keys dialog; `provider` preselects the provider to enter a key for. */
+  /** Keys & credit dialog; `provider` preselects the provider to enter a key for. */
   readonly keysDialog = signal<{ provider: string | null } | null>(null);
   readonly settingsOpen = signal(false);
   readonly accountOpen = signal(false);
@@ -132,9 +139,12 @@ export class UiStore {
     return false;
   }
 
-  notify(text: string, kind: Toast['kind'] = 'info'): void {
+  notify(text: string, kind: Toast['kind'] = 'info', link?: ToastLink): void {
     const id = ++this.toastSeq;
-    this.toasts.update((list) => [...list.slice(-3), { id, kind, text }]);
+    this.toasts.update((list) => [
+      ...list.slice(-3),
+      { id, kind, text, ...(link ? { link } : {}) },
+    ]);
     setTimeout(() => this.dismiss(id), kind === 'error' ? 8000 : 3500);
   }
 

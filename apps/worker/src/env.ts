@@ -1,5 +1,6 @@
 import type { AccountMode } from '@tangent/shared';
 import type { Context } from 'hono';
+import { BUILT_IN_PROVIDER_ID } from './simple-mode.js';
 
 /**
  * Worker environment: generated bindings/vars (`Env`, from wrangler types)
@@ -34,8 +35,9 @@ export interface AppEnv extends Env {
   /** Local dev only (.dev.vars): skip sign-in. Honoured only while BETTER_AUTH_SECRET is unset. */
   DEV_ALLOW_NO_AUTH?: string;
   /**
-   * OpenRouter key for simple-mode generations (provider `tangent`). Never
-   * falls back to OPENROUTER_API_KEY; set a credit limit on it in OpenRouter.
+   * OpenRouter key of the built-in provider `tangent`, sold as prepaid credit
+   * in both apps (the name predates power mode using it). Never falls back to
+   * OPENROUTER_API_KEY; set a credit limit on it in OpenRouter.
    * Its spend is billed at the reported cost grossed up by the `OPENROUTER_FEE_BPS`
    * var (OpenRouter's credit-purchase fee), then marked up.
    */
@@ -44,32 +46,71 @@ export interface AppEnv extends Env {
   STRIPE_SECRET_KEY?: string;
   /** Signing secret of the webhook endpoint `/api/auth/stripe/webhook`. */
   STRIPE_WEBHOOK_SECRET?: string;
+  /**
+   * A code users redeem (`POST /api/billing/membership/waiver`) to have the
+   * membership fee waived. Empty = no code redemption. If it leaks, change it
+   * and clear `auth_users.membership_waived` for whoever shouldn't have it.
+   */
+  MEMBERSHIP_WAIVER_CODE?: string;
+  /**
+   * Deprecated: the markup before `MARKUP_BPS`, read only while `MARKUP_BPS`
+   * is empty. No longer in wrangler.jsonc; kept for one release.
+   */
+  MARKUP_PREPAID_BPS?: string;
 }
 
 /**
- * The account a request acts as (see auth/account.ts). Every user has one per mode:
- * - `power`: `p_<userId>`, the full app (own keys, unmetered).
- * - `simple`: `u_<userId>`, Tangent Learn; it also holds the billing ledger.
+ * The account a request acts as (see auth/account.ts). Every user has one per mode,
+ * each with its own conversations:
+ * - `power`: `p_<userId>`, the full app (own keys, plus the built-in provider on credit).
+ * - `simple`: `u_<userId>`, Tangent Learn.
+ * Credit is per user: both accounts spend the one ledger at `billingAccountId`.
  */
 export interface AccountContext {
+  /** Owner of trees, shares and settings: `p_<userId>` | `u_<userId>` | `default` | `default_simple`. */
   id: string;
   mode: AccountMode;
   /** Better Auth user id; null in dev bypass mode. */
   userId: string | null;
   /**
-   * May this request spend the operator's server-side keys?
-   * - power: the PROVIDERS keys, for the local dev bypass only; every
-   *   signed-in user is bring-your-own-key only.
-   * - simple: true = paid credit (the `tangent` provider on
-   *   OPENROUTER_SIMPLE_API_KEY, metered and billed); false = the user's own
-   *   OpenRouter key, unmetered.
+   * Ledger id for credit and usage (`credit_grants`, `usage_events`), the
+   * same in both modes: `u_<userId>`, or `default_simple` in the dev bypass.
+   * It is the Learn account's id, so Learn balances from before credit was
+   * shared carry over without a migration.
+   */
+  billingAccountId: string;
+  /**
+   * The built-in provider (`tangent`, on OPENROUTER_SIMPLE_API_KEY) is in this
+   * account's registry, on the operator's key and metered per call:
+   * - power: whenever the server offers it (`builtInAvailable`), next to the
+   *   user's own providers;
+   * - simple: when the request asks to pay with credit and it is offered;
+   *   Learn then ignores the user's keys.
+   */
+  builtIn: boolean;
+  /**
+   * Dev bypass only: the power configs' server secrets (ANTHROPIC_API_KEY &
+   * co.) may be used. Every signed-in user is bring-your-own-key for those.
    */
   operatorKeys: boolean;
 }
 
-/** True when the account's provider calls are metered and charged (simple mode on paid credit). */
-export function isMetered(account: AccountContext): boolean {
-  return account.mode === 'simple' && account.operatorKeys;
+/**
+ * True when a call on `providerId` is metered and charged to the account's
+ * credit: only the built-in provider, and only where the account has it on
+ * the operator's key. Metering is per provider call, not per account.
+ */
+export function isMetered(account: AccountContext, providerId: string): boolean {
+  return account.builtIn && providerId === BUILT_IN_PROVIDER_ID;
+}
+
+/**
+ * Whether the request uses the user's key cookie. Learn on credit runs on the
+ * operator's key alone and never reads it; power always does, since its other
+ * providers need it even when the built-in one is present.
+ */
+export function usesUserKeys(account: AccountContext): boolean {
+  return !(account.mode === 'simple' && account.builtIn);
 }
 
 /** Caller identity established by the session middleware for `/api/*`. */

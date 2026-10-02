@@ -13,12 +13,14 @@ import {
   type TreeIndex,
 } from '@tangent/core';
 import type {
+  BillingSummary,
   Branch,
   ChatNode,
   CreateBranchRequest,
   DeleteBranchResponse,
   KeyStatusResponse,
   MeResponse,
+  MembershipInfo,
   ProviderInfo,
   ShareScope,
   StreamEvent,
@@ -32,6 +34,7 @@ import {
   ApiClient,
   ApiError,
   errorMessage,
+  membershipBlocks,
   runStream,
   type StreamOutcome,
 } from '@tangent/web-shared';
@@ -70,6 +73,13 @@ export class TreeStore {
   readonly providers = signal<ProviderInfo[]>([]);
   /** Which providers have a user-supplied key stored (never the key itself). */
   readonly keyStatus = signal<KeyStatusResponse | null>(null);
+  /**
+   * The yearly membership, from `me`; a 402 `membership_required` marks it
+   * inactive (the server knows better than the copy fetched at startup).
+   */
+  readonly membership = signal<MembershipInfo | null>(null);
+  /** Credit balance and fees (`/api/billing`), loaded when the keys dialog opens. */
+  readonly billing = signal<BillingSummary | null>(null);
   readonly trees = signal<TreeSummary[]>([]);
   readonly treesLoaded = signal(false);
 
@@ -171,6 +181,9 @@ export class TreeStore {
     );
   });
 
+  /** Generating needs a membership the user doesn't have: the shell shows the gate. */
+  readonly membershipBlocked = computed(() => membershipBlocks(this.membership()));
+
   readonly providerMap = computed(() => new Map(this.providers().map((p) => [p.id, p])));
 
   /** First provider with an API key, falling back to the first configured. */
@@ -183,6 +196,7 @@ export class TreeStore {
   /** `me`: the signed-in caller, already fetched by the sign-in check (AuthService.requireUser). */
   async init(me: MeResponse): Promise<void> {
     this.me.set(me);
+    this.membership.set(me.membership);
     await Promise.all([this.refreshKeys(), this.loadTrees()]);
   }
 
@@ -226,6 +240,21 @@ export class TreeStore {
     } finally {
       await this.refreshKeys();
     }
+  }
+
+  /** Credit balance and fees. Quiet on failure: the keys dialog then shows no balance. */
+  async refreshBilling(): Promise<void> {
+    try {
+      this.billing.set(await this.api.billing());
+    } catch (err) {
+      console.warn('billing summary failed', err);
+    }
+  }
+
+  /** A billing summary read elsewhere (the billing page): its balance and membership are current. */
+  applyBilling(summary: BillingSummary): void {
+    this.billing.set(summary);
+    this.membership.set(summary.membership);
   }
 
   async loadTrees(): Promise<void> {
@@ -716,6 +745,17 @@ export class TreeStore {
 
   fail(err: unknown): void {
     console.error(err);
+    if (err instanceof ApiError && err.code === 'membership_required') {
+      // The gate explains it and offers the way out; no toast on top.
+      this.membership.update((m) => (m ? { ...m, required: true, status: 'inactive' } : m));
+      return;
+    }
+    if (err instanceof ApiError && err.code === 'payment_required') {
+      // Power's only metered provider is Tangent credit: this means the credit ran out.
+      this.ui.notify(errorMessage(err), 'error', { label: 'Add credit', path: '/billing' });
+      void this.refreshBilling();
+      return;
+    }
     this.ui.notify(errorMessage(err), 'error');
     if (err instanceof ApiError && err.code === 'key_required') {
       // Missing, expired or reset key: ask for it for the provider in use.

@@ -1,11 +1,12 @@
-import type {
-  LlmProvider,
-  ModelInfo,
-  ProviderConfig,
-  ProviderError,
-  ProviderInfo,
-  ProviderKind,
-  ProviderRegistry,
+import {
+  OPEN_MODEL_ID_PATTERN,
+  type LlmProvider,
+  type ModelInfo,
+  type ProviderConfig,
+  type ProviderError,
+  type ProviderInfo,
+  type ProviderKind,
+  type ProviderRegistry,
 } from '@tangent/shared';
 import { createAnthropicProvider } from './anthropic.js';
 import { createFakeProvider } from './fake.js';
@@ -52,12 +53,18 @@ const CONFIG_KEYS: ReadonlySet<string> = new Set([
   'extraHeaderSecrets',
   'models',
   'defaultModel',
+  'openModels',
   'maxContextTokens',
   'maxOutputTokens',
   'supportsSystemPrompt',
   'options',
 ]);
-const MODEL_KEYS: ReadonlySet<string> = new Set(['id', 'label', 'maxContextTokens', 'maxOutputTokens']);
+const MODEL_KEYS: ReadonlySet<string> = new Set([
+  'id',
+  'label',
+  'maxContextTokens',
+  'maxOutputTokens',
+]);
 
 class ConfigError extends Error {
   constructor(path: string, problem: string) {
@@ -68,18 +75,24 @@ class ConfigError extends Error {
 
 function reqString(obj: Record<string, unknown>, key: string, path: string): string {
   const v = obj[key];
-  if (typeof v !== 'string' || v.trim() === '') throw new ConfigError(`${path}.${key}`, 'must be a non-empty string');
+  if (typeof v !== 'string' || v.trim() === '')
+    throw new ConfigError(`${path}.${key}`, 'must be a non-empty string');
   return v;
 }
 
 function optString(obj: Record<string, unknown>, key: string, path: string): string | undefined {
   const v = obj[key];
   if (v === undefined) return undefined;
-  if (typeof v !== 'string' || v.trim() === '') throw new ConfigError(`${path}.${key}`, 'must be a non-empty string');
+  if (typeof v !== 'string' || v.trim() === '')
+    throw new ConfigError(`${path}.${key}`, 'must be a non-empty string');
   return v;
 }
 
-function optPositiveInt(obj: Record<string, unknown>, key: string, path: string): number | undefined {
+function optPositiveInt(
+  obj: Record<string, unknown>,
+  key: string,
+  path: string,
+): number | undefined {
   const v = obj[key];
   if (v === undefined) return undefined;
   if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) {
@@ -88,19 +101,28 @@ function optPositiveInt(obj: Record<string, unknown>, key: string, path: string)
   return v;
 }
 
-function optStringRecord(obj: Record<string, unknown>, key: string, path: string): Record<string, string> | undefined {
+function optStringRecord(
+  obj: Record<string, unknown>,
+  key: string,
+  path: string,
+): Record<string, string> | undefined {
   const v = obj[key];
   if (v === undefined) return undefined;
   if (!isRecord(v)) throw new ConfigError(`${path}.${key}`, 'must be an object of strings');
   const out: Record<string, string> = {};
   for (const [k, val] of Object.entries(v)) {
-    if (typeof val !== 'string' || val === '') throw new ConfigError(`${path}.${key}.${k}`, 'must be a non-empty string');
+    if (typeof val !== 'string' || val === '')
+      throw new ConfigError(`${path}.${key}.${k}`, 'must be a non-empty string');
     out[k] = val;
   }
   return out;
 }
 
-function rejectUnknownKeys(obj: Record<string, unknown>, allowed: ReadonlySet<string>, path: string): void {
+function rejectUnknownKeys(
+  obj: Record<string, unknown>,
+  allowed: ReadonlySet<string>,
+  path: string,
+): void {
   for (const k of Object.keys(obj)) {
     if (!allowed.has(k)) throw new ConfigError(`${path}.${k}`, 'is not a known field');
   }
@@ -123,7 +145,10 @@ function parseConfig(v: unknown, path: string): ProviderConfig {
   const id = reqString(v, 'id', path);
   const kind = v['kind'];
   if (typeof kind !== 'string' || !(KINDS as string[]).includes(kind)) {
-    throw new ConfigError(`${path}.kind`, `must be one of ${KINDS.map((k) => `"${k}"`).join(', ')}`);
+    throw new ConfigError(
+      `${path}.kind`,
+      `must be one of ${KINDS.map((k) => `"${k}"`).join(', ')}`,
+    );
   }
   const label = reqString(v, 'label', path);
 
@@ -132,7 +157,8 @@ function parseConfig(v: unknown, path: string): ProviderConfig {
   const models = modelsRaw.map((m, i) => parseModel(m, `${path}.models[${i}]`));
   const modelIds = new Set<string>();
   for (const m of models) {
-    if (modelIds.has(m.id)) throw new ConfigError(`${path}.models`, `has duplicate model id "${m.id}"`);
+    if (modelIds.has(m.id))
+      throw new ConfigError(`${path}.models`, `has duplicate model id "${m.id}"`);
     modelIds.add(m.id);
   }
 
@@ -142,11 +168,21 @@ function parseConfig(v: unknown, path: string): ProviderConfig {
     if (!first) throw new ConfigError(`${path}.defaultModel`, 'is required when models is empty');
     defaultModel = first.id;
   }
-  if (models.length > 0 && !modelIds.has(defaultModel)) {
+  const openModels = v['openModels'];
+  if (openModels !== undefined && typeof openModels !== 'boolean') {
+    throw new ConfigError(`${path}.openModels`, 'must be a boolean');
+  }
+  if (openModels === true) {
+    // The models are suggestions; the default only has to be a well-formed id.
+    if (!OPEN_MODEL_ID_PATTERN.test(defaultModel)) {
+      throw new ConfigError(`${path}.defaultModel`, `"${defaultModel}" is not a valid model id`);
+    }
+  } else if (models.length > 0 && !modelIds.has(defaultModel)) {
     throw new ConfigError(`${path}.defaultModel`, `"${defaultModel}" is not one of its models`);
   }
 
   const config: ProviderConfig = { id, kind: kind as ProviderKind, label, models, defaultModel };
+  if (openModels !== undefined) config.openModels = openModels;
 
   const baseUrl = optString(v, 'baseUrl', path);
   if (baseUrl !== undefined) {
@@ -173,7 +209,8 @@ function parseConfig(v: unknown, path: string): ProviderConfig {
   if (out !== undefined) config.maxOutputTokens = out;
   const sys = v['supportsSystemPrompt'];
   if (sys !== undefined) {
-    if (typeof sys !== 'boolean') throw new ConfigError(`${path}.supportsSystemPrompt`, 'must be a boolean');
+    if (typeof sys !== 'boolean')
+      throw new ConfigError(`${path}.supportsSystemPrompt`, 'must be a boolean');
     config.supportsSystemPrompt = sys;
   }
   const options = v['options'];
@@ -194,16 +231,20 @@ export function parseProviderConfigs(json: string): ProviderConfig[] {
   try {
     raw = JSON.parse(json);
   } catch (e) {
-    throw new Error(`Invalid provider config: not valid JSON (${e instanceof Error ? e.message : String(e)})`, {
-      cause: e,
-    });
+    throw new Error(
+      `Invalid provider config: not valid JSON (${e instanceof Error ? e.message : String(e)})`,
+      {
+        cause: e,
+      },
+    );
   }
   if (!Array.isArray(raw)) throw new ConfigError('PROVIDERS', 'must be a JSON array');
   if (raw.length === 0) throw new ConfigError('PROVIDERS', 'must contain at least one provider');
   const configs = raw.map((c, i) => parseConfig(c, `PROVIDERS[${i}]`));
   const ids = new Set<string>();
   configs.forEach((c, i) => {
-    if (ids.has(c.id)) throw new ConfigError(`PROVIDERS[${i}].id`, `duplicates provider id "${c.id}"`);
+    if (ids.has(c.id))
+      throw new ConfigError(`PROVIDERS[${i}].id`, `duplicates provider id "${c.id}"`);
     ids.add(c.id);
   });
   return configs;
@@ -266,7 +307,8 @@ function unavailableReason(config: ProviderConfig, env: ProviderEnv): ProviderEr
   }
   if (config.kind === 'fake') return undefined;
   if (resolveApiKey(config, env)) return undefined;
-  if (config.apiKeySecret) return env.secrets[config.apiKeySecret] ? undefined : missingSecretError(config.apiKeySecret);
+  if (config.apiKeySecret)
+    return env.secrets[config.apiKeySecret] ? undefined : missingSecretError(config.apiKeySecret);
   // No key configured: only a keyless local/self-hosted OpenAI-compatible server is usable.
   if (config.kind === 'openai-compatible' && config.baseUrl) return undefined;
   return providerError('config', `Provider "${config.id}" has no apiKeySecret configured`);
@@ -285,7 +327,9 @@ function unavailableProvider(inner: LlmProvider, error: ProviderError): LlmProvi
       guardStream(request.signal, [], async function* () {
         yield { type: 'error', error: { ...error } };
       }),
-    ...(inner.countTokens ? { countTokens: () => Promise.reject(new ProviderFailure({ ...error })) } : {}),
+    ...(inner.countTokens
+      ? { countTokens: () => Promise.reject(new ProviderFailure({ ...error })) }
+      : {}),
   };
 }
 
@@ -308,14 +352,23 @@ function keySourceOf(config: ProviderConfig, env: ProviderEnv): ProviderInfo['ke
  * still listed (so the UI can explain), but `get` returns an instance whose
  * stream yields error{code:'config'}.
  */
-export function createProviderRegistry(configs: readonly ProviderConfig[], env: ProviderEnv): ProviderRegistry {
+export function createProviderRegistry(
+  configs: readonly ProviderConfig[],
+  env: ProviderEnv,
+): ProviderRegistry {
   if (configs.length === 0) throw new Error('Invalid provider config: no providers configured');
   const entries = new Map<
     string,
-    { config: ProviderConfig; provider: LlmProvider; available: boolean; keySource: ProviderInfo['keySource'] }
+    {
+      config: ProviderConfig;
+      provider: LlmProvider;
+      available: boolean;
+      keySource: ProviderInfo['keySource'];
+    }
   >();
   for (const config of configs) {
-    if (entries.has(config.id)) throw new Error(`Invalid provider config: duplicate provider id "${config.id}"`);
+    if (entries.has(config.id))
+      throw new Error(`Invalid provider config: duplicate provider id "${config.id}"`);
     const factory = PROVIDER_FACTORIES[config.kind];
     const real = factory(config, env);
     const reason = unavailableReason(config, env);
@@ -341,6 +394,7 @@ export function createProviderRegistry(configs: readonly ProviderConfig[], env: 
         label: provider.label,
         models: provider.models(),
         defaultModel: provider.defaultModel(),
+        openModels: config.openModels === true,
         available,
         acceptsUserKey: acceptsUserKey(config),
         keySource,
@@ -348,4 +402,3 @@ export function createProviderRegistry(configs: readonly ProviderConfig[], env: 
     defaultProviderId: () => defaultId,
   };
 }
-
