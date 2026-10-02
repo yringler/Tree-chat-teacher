@@ -18,7 +18,11 @@ const env = rawEnv as unknown as AppEnv;
 
 describe('ledger', () => {
   it('starts at zero', async () => {
-    expect(await getBalance(env.DB, uniq('acct'))).toEqual({ balanceMicros: 0, heldMicros: 0 });
+    expect(await getBalance(env.DB, uniq('acct'))).toEqual({
+      balanceMicros: 0,
+      heldMicros: 0,
+      pendingCalls: 0,
+    });
   });
 
   it('grants are idempotent on the Stripe ref', async () => {
@@ -71,6 +75,7 @@ describe('ledger', () => {
     expect(await getBalance(env.DB, accountId)).toEqual({
       balanceMicros: 7_998_000,
       heldMicros: 25_000,
+      pendingCalls: 2,
     });
   });
 

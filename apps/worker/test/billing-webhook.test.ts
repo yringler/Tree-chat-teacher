@@ -434,6 +434,12 @@ describe('Stripe webhook fulfilment', () => {
     // A second partial refund (Stripe lists the newest first) and a redelivery add nothing.
     await handleStripeEvent(memberEnv, event('charge.refunded', charge([rest, partial])));
     await handleStripeEvent(memberEnv, event('charge.refunded', charge([rest, partial])));
+    // The first refund failing later, and the operator refunding again, still adds nothing.
+    const retry = refund(1085, 1_800_000_200);
+    await handleStripeEvent(
+      memberEnv,
+      event('charge.refunded', charge([retry, rest, { ...partial, status: 'failed' }])),
+    );
     expect(await grantsFor(env, accountId)).toEqual([
       { kind: 'subscription', amount_micros: 2_000_000, stripe_ref: inv.id },
       { kind: 'refund', amount_micros: -2_000_000, stripe_ref: partial.id },

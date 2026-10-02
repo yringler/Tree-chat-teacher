@@ -255,6 +255,11 @@ export function apiRoutes(): Hono<AppBindings> {
         userKeys: !isMetered(c.var.account, req.providerId),
       });
       await assertCanSpend(c.env, c.var.account, req.providerId);
+      // The context is resolved like a send on the node's branch, so missing summaries are
+      // generated on that branch's provider: its credit is checked too.
+      const { providerId: branchProviderId } = await chat.getOwnedBranch(node.branchId);
+      if (branchProviderId !== req.providerId)
+        await assertCanSpend(c.env, c.var.account, branchProviderId);
       const prepared = await chat.prepareReview(node.id, req);
       await enforceRateLimit(c, keys, 'chat', req.providerId);
 

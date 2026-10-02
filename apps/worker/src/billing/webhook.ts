@@ -267,9 +267,10 @@ async function debitRefunds(env: AppEnv, charge: Stripe.Charge): Promise<void> {
       if (!grant) return;
       if (grant.included) {
         // The membership's included credit is taken back once, whatever the refunded amount
-        // (a fixed gift, not a share of the price). Keyed on the first refund, so a later
-        // partial refund of the same charge, or a redelivery, adds nothing.
-        const first = [...live].sort(
+        // (a fixed gift, not a share of the price). Keyed on the charge's first refund, failed
+        // ones included so the key never moves, so a later partial refund of the same charge,
+        // a retry after a failed refund, or a redelivery adds nothing.
+        const first = [...refunds].sort(
           (a, b) => a.created - b.created || a.id.localeCompare(b.id),
         )[0]!;
         if (grant.amountMicros <= 0) return;

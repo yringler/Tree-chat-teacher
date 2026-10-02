@@ -55,5 +55,5 @@ DEV_ALLOW_NO_AUTH=true
 # STRIPE_WEBHOOK_SECRET=whsec_placeholder
 # Then grant yourself credit (5000000 = $5) with the SQL insert into credit_grants from the README
 # ("Manual credit or adjustments", with --local; the account is `default_simple` under Option A,
-# `u_<your user id>` under Option B, for both apps), then pick "Use paid credit" and chat at
+# `u_<your user id>` under Option B, for both apps), then pick "Use Tangent credit" and chat at
 # http://localhost:8787/learn/, or pick the "Tangent credit" provider in the power app.

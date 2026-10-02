@@ -127,6 +127,9 @@
     "SIMPLE_SYSTEM_PROMPT": "",
     // Held per in-flight call, and the minimum available balance to start one (micro-USD; 20000 = $0.02).
     "USAGE_HOLD_MICROS": "20000",
+    // Metered calls (Tangent credit) a user may have in flight at once; a send beyond it is 429. With the
+    // flat hold above this bounds an overdraft: at most this many calls, each within the token caps.
+    "USAGE_MAX_PENDING": "3",
     // OpenRouter's fee on credit purchases in basis points (550 = 5.5%), passed through as part of
     // the provider cost: charge = reported cost × (1 + fee) × (1 + markup). Raise it if you top up
     // OpenRouter in amounts under ~$15, where its $0.80 minimum fee is more than 5.5%.

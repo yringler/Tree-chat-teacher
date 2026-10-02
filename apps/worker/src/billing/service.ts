@@ -20,6 +20,7 @@ import { billingConfigured, ensureStripeCustomer, getStripe } from './stripe.js'
 import { intVar } from './vars.js';
 
 export const DEFAULT_USAGE_HOLD_MICROS = 20_000;
+export const DEFAULT_USAGE_MAX_PENDING = 3;
 export const DEFAULT_MARKUP_BPS = 1000;
 /** OpenRouter's fee on credit purchases (5.5%; higher for top-ups under ~$15, see README). */
 export const DEFAULT_OPENROUTER_FEE_BPS = 550;
@@ -28,6 +29,15 @@ export const MAX_USAGE_PAGE = 100;
 /** Per-call hold and minimum available balance (`USAGE_HOLD_MICROS`). */
 export function usageHoldMicros(env: AppEnv): number {
   return intVar(env.USAGE_HOLD_MICROS, DEFAULT_USAGE_HOLD_MICROS);
+}
+
+/**
+ * Metered calls a user may have in flight at once (`USAGE_MAX_PENDING`). The
+ * hold doesn't follow the model's price, so this is what bounds an overdraft:
+ * at most this many calls, each within the built-in provider's token caps.
+ */
+export function usageMaxPending(env: AppEnv): number {
+  return intVar(env.USAGE_MAX_PENDING, DEFAULT_USAGE_MAX_PENDING);
 }
 
 /** OpenRouter's credit-purchase fee in bps (`OPENROUTER_FEE_BPS`), part of the provider cost. */
@@ -51,8 +61,10 @@ function notConfigured(): DomainError {
 /**
  * Throws `PaymentRequiredError` (402) when a call on `providerId` is metered
  * (the built-in provider, see `isMetered`) and the user's credit can't start
- * it: available = balance − pending holds must cover one more hold. A no-op
- * for every call on the user's own keys, in either mode.
+ * it: available = balance − pending holds must cover one more hold. Then
+ * 429 `rate_limited` when `USAGE_MAX_PENDING` metered calls are already in
+ * flight (pending usage rows), which bounds how far the balance can go
+ * negative. A no-op for every call on the user's own keys, in either mode.
  */
 export async function assertCanSpend(
   env: AppEnv,
@@ -61,8 +73,16 @@ export async function assertCanSpend(
 ): Promise<void> {
   if (!isMetered(account, providerId)) return;
   if (!billingConfigured(env)) throw notConfigured();
-  const { balanceMicros, heldMicros } = await getBalance(env.DB, account.billingAccountId);
+  const { balanceMicros, heldMicros, pendingCalls } = await getBalance(
+    env.DB,
+    account.billingAccountId,
+  );
   if (balanceMicros - heldMicros < usageHoldMicros(env)) throw new PaymentRequiredError();
+  if (pendingCalls >= usageMaxPending(env))
+    throw new DomainError(
+      'rate_limited',
+      'Too many replies are still running on Tangent credit. Wait for one to finish and try again.',
+    );
 }
 
 interface PurchaseRow {

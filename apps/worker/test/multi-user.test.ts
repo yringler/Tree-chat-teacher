@@ -26,7 +26,7 @@ import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { EmailMessage, EmailSender } from '../src/email/index.js';
 import type { AppEnv } from '../src/env.js';
 import { makeNode } from './fixtures.js';
-import { insertSubscription } from './mocks/billing-helpers.js';
+import { insertSubscription, insertUsage } from './mocks/billing-helpers.js';
 
 const ORIGIN = 'https://tangent.example.com';
 /** The Anthropic-style mock upstream of vitest.config.ts: `sk-ant-good…` keys work, replies echo `key=<rest>`. */
@@ -612,6 +612,56 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
     });
     expect((await review('tangent', 'smart')).status).toBe(200);
     expect(await usageRows(`u_${userId}`)).toBe(1);
+  });
+
+  it('caps metered calls in flight per user (USAGE_MAX_PENDING, 3): 429, no new row; BYOK is not capped', async () => {
+    const u = await newUser();
+    const ledger = u.learn.accountId;
+    await grantCredit(env.DB, {
+      accountId: ledger,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      stripeRef: null,
+    });
+    const onTangent = await powerTree(u, 'tangent', 'smart');
+    const own = await powerTree(u, 'fake', 'fake-1');
+    const send = (branchId: string) =>
+      u.call(`/api/branches/${branchId}/messages`, {
+        method: 'POST',
+        json: { content: 'Explain primes' },
+      });
+    // Two calls still in flight (e.g. in the other app): one more may start.
+    const inFlight = [
+      await insertUsage(env, { accountId: ledger }),
+      await insertUsage(env, { accountId: ledger }),
+    ];
+    const ok = await send(onTangent.trunk.id);
+    expect(ok.status).toBe(200);
+    expect(parseSse(await ok.text()).at(-1)?.type).toBe('done');
+
+    inFlight.push(await insertUsage(env, { accountId: ledger }));
+    const rows = await usageRows(ledger);
+    const capped = await send(onTangent.trunk.id);
+    expect(capped.status).toBe(429);
+    expect(await errorCode(capped)).toBe('rate_limited');
+    expect(await usageRows(ledger)).toBe(rows);
+
+    // A send on the user's own provider doesn't touch credit, so it isn't capped.
+    const free = await send(own.trunk.id);
+    expect(free.status).toBe(200);
+    expect(parseSse(await free.text()).at(-1)?.type).toBe('done');
+    expect(await usageRows(ledger)).toBe(rows);
+  });
+
+  it("a review of a reply on `tangent` needs credit whoever reviews: its summaries run on the branch's provider", async () => {
+    const u = await newUser();
+    const { assistant } = await powerTree(u, 'tangent', 'smart');
+    const res = await u.call(`/api/nodes/${assistant.id}/review`, {
+      method: 'POST',
+      json: { providerId: 'fake', model: 'fake-1' },
+    });
+    expect(res.status).toBe(402);
+    expect(await errorCode(res)).toBe('payment_required');
   });
 
   it('rate limits built-in calls per user, across both apps (5/min in tests)', async () => {
