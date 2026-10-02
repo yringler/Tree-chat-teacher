@@ -1,8 +1,8 @@
 import { ChangeDetectionStrategy, Component, ElementRef, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { AuthService, Icon, ModeSwitch } from '@tangent/web-shared';
+import { AuthService, DEMO_MODE, Icon, ModeSwitch } from '@tangent/web-shared';
 import { BRAND } from '../brand';
-import { DEMO_EXIT_URL, DEMO_MODE } from '../demo/demo-mode';
+import { DEMO_EXIT_URL } from '../demo/demo-mode';
 import { AccountStore } from '../state/account-store';
 import { UiStore } from '../state/ui-store';
 
@@ -17,9 +17,7 @@ import { UiStore } from '../state/ui-store';
   template: `
     <header class="app-head">
       <a routerLink="/" class="brand"><app-icon name="tree" [size]="20" /> {{ brand }}</a>
-      @if (!demo) {
-        <app-mode-switch current="simple" />
-      }
+      <app-mode-switch current="simple" />
       <span class="spacer"></span>
       @if (account.needsKey()) {
         <button type="button" class="key-pill balance-low" (click)="ui.accessOpen.set(true)">

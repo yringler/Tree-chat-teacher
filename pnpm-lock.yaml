@@ -77,9 +77,6 @@ importers:
       tslib:
         specifier: ^2.3.0
         version: 2.8.1
-      txtgen:
-        specifier: ^3.0.7
-        version: 3.0.7
     devDependencies:
       '@angular/build':
         specifier: ^22.2.0
@@ -300,6 +297,9 @@ importers:
       better-auth:
         specifier: 1.7.7
         version: 1.7.7(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(kysely@0.29.6))(vitest@4.1.11(vite@8.3.0(esbuild@0.28.2)(sass-embedded@1.104.1)(sass@1.104.1)(tsx@4.23.15)))
+      txtgen:
+        specifier: ^3.0.7
+        version: 3.0.7
     devDependencies:
       '@angular/common':
         specifier: ^22.2.0

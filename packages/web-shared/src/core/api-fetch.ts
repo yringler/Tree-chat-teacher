@@ -12,9 +12,9 @@ export const defaultApiFetch: typeof fetch = (input, init) => globalThis.fetch(i
  * (`/api/...`) and a RequestInit (method, headers, JSON body, optional
  * AbortSignal) and resolves with a Response, JSON or `text/event-stream`.
  *
- * The default is the browser's fetch. The Tangent Learn demo
- * (`/learn/demo`) provides an in-browser backend here, so the real UI runs
- * without any network calls.
+ * The default is the browser's fetch. The demos (`/demo`, `/learn/demo`)
+ * provide an in-browser backend here, so the real UI runs without any
+ * network calls.
  */
 export const API_FETCH = new InjectionToken<typeof fetch>('API_FETCH', {
   providedIn: 'root',

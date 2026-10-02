@@ -1,6 +1,6 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { MODE_HEADER, PAYMENT_HEADER, type LearnPayment } from '@tangent/shared';
-import { DEMO_MODE } from '../demo/demo-mode';
+import { DEMO_MODE } from '@tangent/web-shared';
 
 const STORAGE_KEY = 'tangent.learn.payment';
 

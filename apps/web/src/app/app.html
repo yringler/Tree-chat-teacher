@@ -9,6 +9,12 @@
       <div class="scrim" (click)="ui.drawerOpen.set(false)"></div>
     }
     <main class="main">
+      @if (demo) {
+        <p class="demo-banner" role="note">
+          <span><strong>Demo:</strong> replies are generated nonsense and nothing is saved.</span>
+          <a class="demo-banner-cta" [href]="signupUrl">Sign in for real</a>
+        </p>
+      }
       <router-outlet />
     </main>
   </div>

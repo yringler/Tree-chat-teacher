@@ -19,32 +19,39 @@ import {
   updateBranchRequestSchema,
   updateTreeRequestSchema,
   type ApiError,
+  type AccountMode,
   type ApiErrorCode,
   type BillingSummary,
   type Branch,
   type ChatNode,
   type GenerateRequest,
+  type KeyStatusResponse,
   type LlmProvider,
   type LoginOptionsResponse,
   type MeResponse,
   type ProviderEvent,
   type ProviderInfo,
   type ProviderRegistry,
+  type ReviewEvent,
+  reviewRequestSchema,
   type StreamEvent,
   type SummaryRecord,
   type Tree,
+  treeBackupSchema,
   type UsageEntry,
   type UsageListResponse,
 } from '@tangent/shared';
-import { seedDemoLesson } from './demo-seed';
+import { seedDemoLesson } from './seed';
 import { createLoremProvider } from './lorem';
 
 /*
- * The Tangent Learn demo's backend, in the browser: a `fetch` replacement
- * that answers the subset of `/api/*` the simple app uses, on top of the
- * real ChatService with in-memory repositories and the lorem provider.
- * Branching, context assembly, titles and summaries behave as in
- * production; replies are nonsense and nothing leaves the tab.
+ * The demos' backend, in the browser: a `fetch` replacement that answers
+ * the `/api/*` routes the apps use, on top of the real ChatService with
+ * in-memory repositories and the lorem provider. Branching, context
+ * assembly, titles, summaries and reviews behave as in production; replies
+ * are nonsense and nothing leaves the tab. One backend per app: the Learn
+ * demo (`/learn/demo/`) acts as a simple account with pretend credit, the
+ * Power demo (`/demo/`) as a power account; shares and keys aren't offered.
  *
  * Streaming mirrors the Worker's TreeSession Durable Object: a generation
  * runs detached from the request, `GET /api/nodes/:id/stream` re-attaches
@@ -61,7 +68,12 @@ const MARKUP_BPS = 1000;
 const OPENROUTER_FEE_BPS = 550;
 /** Held per in-flight provider call, like the real meter's reservation. */
 const HOLD_MICROS = 20_000;
-const STORAGE_KEY = 'tangent.learn-demo.v1';
+/** Per mode, so the two demos keep separate conversations (like the two real accounts). */
+const STORAGE_KEYS: Readonly<Record<AccountMode, string>> = {
+  simple: 'tangent.learn-demo.v1',
+  power: 'tangent.power-demo.v1',
+};
+/** Learn's new lessons get the tutor prompt; power keeps whatever the user wrote. */
 const DEMO_SYSTEM_PROMPT =
   'You are Tangent, a patient tutor. (Demo: replies are generated nonsense; no model is called.)';
 
@@ -72,6 +84,8 @@ export interface DemoStorage {
 }
 
 export interface DemoBackendOptions {
+  /** The account the demo acts as (default `simple`, the Learn demo). */
+  mode?: AccountMode;
   /** Default: the lorem provider with 20–40 ms between words. */
   provider?: LlmProvider;
   clock?: Clock;
@@ -105,7 +119,7 @@ interface Saved {
 const encoder = new TextEncoder();
 
 /** One SSE frame, exactly as the Worker writes it (apps/worker/src/http/sse.ts). */
-export function sseFrame(event: StreamEvent): string {
+export function sseFrame(event: StreamEvent | ReviewEvent): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
@@ -166,6 +180,8 @@ export class DemoBackend {
   private readonly provider: LlmProvider;
   private readonly clock: Clock;
   private readonly storage: DemoStorage | null;
+  private readonly mode: AccountMode;
+  private readonly storageKey: string;
   private readonly runs = new Map<string, Run>();
   private balanceMicros = DEMO_START_BALANCE_MICROS;
   private heldMicros = 0;
@@ -176,6 +192,8 @@ export class DemoBackend {
 
   constructor(options: DemoBackendOptions = {}) {
     this.clock = options.clock ?? systemClock;
+    this.mode = options.mode ?? 'simple';
+    this.storageKey = STORAGE_KEYS[this.mode];
     this.storage = options.storage === undefined ? defaultStorage() : options.storage;
     const inner = options.provider ?? createLoremProvider();
     this.provider = { ...inner, stream: (request) => this.meter(inner, request) };
@@ -244,10 +262,10 @@ export class DemoBackend {
       return json({
         email: DEMO_EMAIL,
         accountId: DEMO_ACCOUNT_ID,
-        mode: 'simple',
+        mode: this.mode,
         devMode: false,
         operatorKeys: true,
-        paidCredit: true,
+        paidCredit: this.mode === 'simple',
       } satisfies MeResponse);
     }
     if (method === 'GET' && path === '/api/login-options') {
@@ -261,6 +279,15 @@ export class DemoBackend {
     if (method === 'POST' && path === '/api/auth/sign-out') return json({ success: true });
     if (method === 'GET' && path === '/api/providers') return json([providerInfo(this.provider)]);
 
+    // Keys and shares (power): nothing stored, nothing published
+    if (method === 'GET' && path === '/api/key/status') {
+      return json({ enabled: false, hasKey: false, providers: [] } satisfies KeyStatusResponse);
+    }
+    if (method === 'GET' && path === '/api/shares') return json([]);
+    if (path === '/api/key' || path.startsWith('/api/shares')) {
+      return apiError('bad_request', "That isn't available in the demo.");
+    }
+
     // Billing (pretend credit; nothing can be bought)
     if (method === 'GET' && path === '/api/billing') return json(this.billingSummary());
     if (method === 'GET' && path === '/api/billing/usage') return json(this.usagePage(url));
@@ -273,7 +300,8 @@ export class DemoBackend {
       if (method === 'GET') return json(await this.chat.listTrees());
       if (method === 'POST') {
         const req = createTreeRequestSchema.parse(body ?? {});
-        const systemPrompt = req.systemPrompt?.trim() ? req.systemPrompt : DEMO_SYSTEM_PROMPT;
+        const systemPrompt =
+          req.systemPrompt?.trim() || this.mode === 'power' ? req.systemPrompt : DEMO_SYSTEM_PROMPT;
         return this.saved(json(await this.chat.createTree({ ...req, systemPrompt }), 201));
       }
     }
@@ -289,6 +317,14 @@ export class DemoBackend {
         await this.chat.deleteTree(id);
         return this.saved(noContent());
       }
+    }
+
+    if (method === 'GET' && (id = seg(/^\/api\/trees\/([^/]+)\/backup$/))) {
+      return json(await this.chat.exportBackup(id));
+    }
+    if (method === 'POST' && path === '/api/import') {
+      const backup = treeBackupSchema.parse(body ?? {});
+      return this.saved(json(await this.chat.importBackup(backup), 201));
     }
 
     // Branches
@@ -317,6 +353,9 @@ export class DemoBackend {
     if (method === 'GET' && (id = seg(/^\/api\/nodes\/([^/]+)\/stream$/))) {
       return this.reconnect(id, signal);
     }
+    if (method === 'POST' && (id = seg(/^\/api\/nodes\/([^/]+)\/review$/))) {
+      return this.review(id, body, signal);
+    }
     if (method === 'POST' && (id = seg(/^\/api\/nodes\/([^/]+)\/cancel$/))) {
       const node = await this.chat.getOwnedNode(id);
       const run = this.runs.get(node.id);
@@ -337,9 +376,7 @@ export class DemoBackend {
   ): Promise<Response> {
     const { content } = sendMessageRequestSchema.parse(body ?? {});
     await this.chat.getOwnedBranch(branchId);
-    if (this.balanceMicros - this.heldMicros <= 0) {
-      return apiError('payment_required', 'Add credit to keep learning');
-    }
+    if (this.outOfCredit()) return apiError('payment_required', 'Add credit to keep learning');
     const begin = this.lock.then(() => this.chat.beginSend(branchId, content));
     this.lock = begin.catch(() => undefined);
     const started: BeginSendResult = await begin;
@@ -367,6 +404,33 @@ export class DemoBackend {
     run.finished = this.pump(run, started);
     this.save();
     return response;
+  }
+
+  /** A review streams straight back and stores nothing, as in the Worker. */
+  private async review(
+    nodeId: string,
+    body: unknown,
+    signal: AbortSignal | null,
+  ): Promise<Response> {
+    const req = reviewRequestSchema.parse(body ?? {});
+    if (this.outOfCredit()) return apiError('payment_required', 'Add credit to keep learning');
+    const prepared = await this.chat.prepareReview(nodeId, req);
+    const controller = new AbortController();
+    signal?.addEventListener('abort', () => controller.abort(), { once: true });
+    const chat = this.chat;
+    const events = chat.runReview(prepared, controller.signal)[Symbol.asyncIterator]();
+    return sseResponse(
+      new ReadableStream<Uint8Array>({
+        async pull(c) {
+          const next = await events.next();
+          if (next.done) c.close();
+          else c.enqueue(encoder.encode(sseFrame(next.value)));
+        },
+        cancel() {
+          controller.abort();
+        },
+      }),
+    );
   }
 
   private async pump(run: Run, begin: BeginSendResult): Promise<void> {
@@ -476,6 +540,11 @@ export class DemoBackend {
 
   // ------------------------------------------------------------- billing
 
+  /** Only Learn spends credit; power accounts use their own keys and are never metered. */
+  private outOfCredit(): boolean {
+    return this.mode === 'simple' && this.balanceMicros - this.heldMicros <= 0;
+  }
+
   /** Meters every provider call like the Worker's usage meter: hold, then settle at cost × fee × markup. */
   private async *meter(
     inner: LlmProvider,
@@ -573,7 +642,7 @@ export class DemoBackend {
       usage: this.usage,
     };
     try {
-      this.storage.setItem(STORAGE_KEY, JSON.stringify(saved));
+      this.storage.setItem(this.storageKey, JSON.stringify(saved));
     } catch {
       // Quota or privacy settings: the session stays in memory only.
     }
@@ -583,7 +652,7 @@ export class DemoBackend {
   private restore(): boolean {
     let saved: Saved;
     try {
-      const raw = this.storage?.getItem(STORAGE_KEY);
+      const raw = this.storage?.getItem(this.storageKey);
       if (!raw) return false;
       saved = JSON.parse(raw) as Saved;
       if (saved?.version !== 1 || !Array.isArray(saved.trees)) return false;
@@ -624,7 +693,7 @@ function providerInfo(provider: LlmProvider): ProviderInfo {
   };
 }
 
-/** A `fetch` that serves the simple app's `/api/*` routes from an in-browser demo backend. */
+/** A `fetch` that serves `/api/*` from an in-browser demo backend. */
 export function createDemoFetch(options: DemoBackendOptions = {}): typeof fetch {
   return new DemoBackend(options).fetch;
 }

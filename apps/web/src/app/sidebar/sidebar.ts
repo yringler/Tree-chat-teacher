@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon, ModeSwitch } from '@tangent/web-shared';
+import { DEMO_MODE, Icon, ModeSwitch } from '@tangent/web-shared';
 import { ImportButton } from '../ui/import-button';
 import { OutlineItem } from './outline-item';
 
@@ -73,25 +73,28 @@ import { OutlineItem } from './outline-item';
     </nav>
 
     <div class="sidebar-foot">
-      <a
-        routerLink="/shares"
-        routerLinkActive="is-current"
-        class="btn btn-ghost"
-        (click)="ui.drawerOpen.set(false)"
-      >
-        <app-icon name="share" /> Shares
-      </a>
-      <button
-        type="button"
-        class="btn btn-ghost"
-        [attr.title]="keyTitle()"
-        (click)="ui.keysDialog.set({ provider: null }); ui.drawerOpen.set(false)"
-      >
-        <app-icon name="key" /> Keys
-        @if (store.keyStatus()?.hasKey) {
-          <span class="dot-key" aria-label="Your key is stored"></span>
-        }
-      </button>
+      <!-- The demo has no shares, keys or account: nothing is published or signed in. -->
+      @if (!demo) {
+        <a
+          routerLink="/shares"
+          routerLinkActive="is-current"
+          class="btn btn-ghost"
+          (click)="ui.drawerOpen.set(false)"
+        >
+          <app-icon name="share" /> Shares
+        </a>
+        <button
+          type="button"
+          class="btn btn-ghost"
+          [attr.title]="keyTitle()"
+          (click)="ui.keysDialog.set({ provider: null }); ui.drawerOpen.set(false)"
+        >
+          <app-icon name="key" /> Keys
+          @if (store.keyStatus()?.hasKey) {
+            <span class="dot-key" aria-label="Your key is stored"></span>
+          }
+        </button>
+      }
       <app-import-button />
       <button
         type="button"
@@ -100,14 +103,18 @@ import { OutlineItem } from './outline-item';
       >
         <app-icon name="gear" /> Settings
       </button>
-      <button
-        type="button"
-        class="btn btn-ghost"
-        [attr.title]="store.me()?.email ?? 'Account'"
-        (click)="ui.accountOpen.set(true); ui.drawerOpen.set(false)"
-      >
-        <app-icon name="user" /> Account
-      </button>
+      @if (demo) {
+        <a class="btn btn-ghost" [href]="exitUrl"><app-icon name="user" /> Leave the demo</a>
+      } @else {
+        <button
+          type="button"
+          class="btn btn-ghost"
+          [attr.title]="store.me()?.email ?? 'Account'"
+          (click)="ui.accountOpen.set(true); ui.drawerOpen.set(false)"
+        >
+          <app-icon name="user" /> Account
+        </button>
+      }
     </div>
   `,
   host: { class: 'sidebar-inner' },
@@ -115,6 +122,9 @@ import { OutlineItem } from './outline-item';
 export class Sidebar {
   protected readonly store = inject(TreeStore);
   protected readonly ui = inject(UiStore);
+  protected readonly demo = inject(DEMO_MODE);
+  /** The public landing page. */
+  protected readonly exitUrl = '/welcome';
   protected readonly keyTitle = computed(() => {
     const ids = this.store.keyStatus()?.providers ?? [];
     if (ids.length === 0) return 'API keys: none of your own stored';

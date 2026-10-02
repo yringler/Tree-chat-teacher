@@ -1,7 +1,7 @@
 import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classes without the Angular CLI.
 import { Injector } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEMO_MODE } from '../demo/demo-mode';
+import { DEMO_MODE } from '@tangent/web-shared';
 import { PaymentStore } from './payment-store';
 
 function create(demo = false): PaymentStore {

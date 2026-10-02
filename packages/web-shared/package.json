@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./demo": "./src/demo/index.ts",
     "./styles/base.css": "./src/styles/base.css"
   },
   "scripts": {
@@ -17,7 +18,8 @@
     "@tangent/core": "workspace:*",
     "@tangent/render": "workspace:*",
     "@tangent/shared": "workspace:*",
-    "better-auth": "1.7.7"
+    "better-auth": "1.7.7",
+    "txtgen": "^3.0.7"
   },
   "peerDependencies": {
     "@angular/common": "^22.2.0",
