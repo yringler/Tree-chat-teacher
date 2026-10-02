@@ -121,7 +121,10 @@ describe('renderViewerPage', () => {
       `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,${encodeURIComponent(FAVICON_SVG)}">`,
     ]);
     expect(html).not.toMatch(/\ssrc=/i);
-    expect(html).not.toMatch(/@import|url\(/i);
+    // The favicon's gradients are url(#fragment) references into itself, so
+    // check the rest of the page without it.
+    expect(html.replace(links[0]!, '')).not.toMatch(/@import|url\(/i);
+    for (const ref of FAVICON_SVG.matchAll(/url\(([^)]*)\)/g)) expect(ref[1]).toMatch(/^#/);
     // The only absolute URLs are og:url and the link inside message content.
     const urls = [...html.matchAll(/https?:\/\/[^"'\s<]+/g)].map((m) => m[0]);
     for (const u of urls)
