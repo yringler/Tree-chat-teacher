@@ -1,0 +1,11 @@
+{
+  "singleQuote": true,
+  "printWidth": 100,
+  "overrides": [
+    {
+      "files": "src/**/*.html",
+      "excludeFiles": "src/index.html",
+      "options": { "parser": "angular" }
+    }
+  ]
+}

@@ -1,0 +1,120 @@
+@if (store.detailError(); as err) {
+  <div class="empty-state">
+    <h1>Can’t open this conversation</h1>
+    <p class="muted">{{ err }}</p>
+    <a routerLink="/" class="btn btn-primary">Back to your conversations</a>
+  </div>
+} @else if (!store.index()) {
+  <div class="empty-state" aria-busy="true">
+    <p class="muted">
+      {{ store.detail() ? 'This conversation could not be opened.' : 'Loading…' }}
+    </p>
+  </div>
+} @else {
+  <div class="canvas-bar">
+    <a routerLink="/" class="icon-btn" aria-label="All conversations" title="All conversations">
+      <app-icon name="back" />
+    </a>
+    <h1 class="canvas-title" [attr.title]="treeTitle()">{{ treeTitle() }}</h1>
+    <span class="canvas-stats muted small">
+      {{ laneCount() }} {{ laneCount() === 1 ? 'lane' : 'lanes' }}
+      @if (liveCount() > 0) {
+        · <span class="live-count">{{ liveCount() }} writing</span>
+      }
+    </span>
+    <span class="spacer"></span>
+    <button
+      type="button"
+      class="btn btn-ghost btn-sm"
+      [class.is-on]="ui.lineage()"
+      [attr.aria-pressed]="ui.lineage()"
+      title="Lineage: light up what the model sees for the selected lane, dim the rest (L)"
+      (click)="ui.lineage.set(!ui.lineage())"
+    >
+      <app-icon name="review" [size]="15" />
+      <span class="hide-narrow">Lineage</span>
+    </button>
+    <div class="zoom-group" role="group" aria-label="Zoom">
+      <button
+        type="button"
+        class="icon-btn"
+        aria-label="Zoom out"
+        title="Zoom out (−)"
+        [disabled]="!canZoomOut()"
+        (click)="geo.zoomStep(-1)"
+      >
+        <span aria-hidden="true">−</span>
+      </button>
+      <button
+        type="button"
+        class="zoom-value"
+        title="Fit the whole tree (F)"
+        (click)="geo.fitAll()"
+      >
+        {{ zoomPct() }}%
+      </button>
+      <button
+        type="button"
+        class="icon-btn"
+        aria-label="Zoom in"
+        title="Zoom in (+)"
+        [disabled]="!canZoomIn()"
+        (click)="geo.zoomStep(1)"
+      >
+        <span aria-hidden="true">+</span>
+      </button>
+    </div>
+    <button
+      type="button"
+      class="icon-btn"
+      aria-label="Keyboard shortcuts and legend"
+      title="Shortcuts and legend (?)"
+      (click)="ui.helpOpen.set(true)"
+    >
+      <app-icon name="help" />
+    </button>
+    <button
+      type="button"
+      class="icon-btn"
+      aria-label="Delete this conversation"
+      title="Delete this conversation"
+      (click)="deleteTree()"
+    >
+      <app-icon name="trash" />
+    </button>
+  </div>
+
+  <div
+    #viewport
+    class="viewport"
+    [class.is-dragging]="geo.dragging()"
+    (wheel)="onWheel($event)"
+    (pointerdown)="onPointerDown($event)"
+    (pointermove)="onPointerMove($event)"
+    (pointerup)="onPointerUp($event)"
+    (pointercancel)="onPointerUp($event)"
+    (dblclick)="onDoubleClick($event)"
+  >
+    <div class="world" [style.transform]="geo.transform()" [class.is-smooth]="!geo.dragging()">
+      <app-connectors [layout]="geo.layout()" />
+      @for (l of geo.layout().lanes; track l.branch.id) {
+        <app-lane [place]="l" [lineage]="lineage()" [lineageOn]="ui.lineage()" />
+      }
+    </div>
+  </div>
+
+  @if (pendingBranch(); as p) {
+    <div class="float-bar">
+      <button
+        type="button"
+        class="btn btn-primary float-btn"
+        (mousedown)="$event.preventDefault()"
+        (click)="branchFromSelection(p)"
+      >
+        <app-icon name="branch" /> Branch from this selection
+      </button>
+    </div>
+  }
+
+  <app-minimap />
+}

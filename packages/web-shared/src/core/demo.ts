@@ -8,15 +8,35 @@ import type { AccountMode } from '@tangent/shared';
  * separate chunk each app loads only on its demo URL (its main.ts).
  */
 
+/**
+ * The three Angular apps. `power` and `simple` are also account modes; the
+ * experimental `canvas` app is another view of the power account, so it has
+ * no mode of its own (see `accountModeOf`).
+ */
+export type AppId = AccountMode | 'canvas';
+
+/** The account an app's requests act as. */
+export function accountModeOf(app: AppId): AccountMode {
+  return app === 'simple' ? 'simple' : 'power';
+}
+
+/** Each app's home (its base href). */
+export const APP_BASES: Readonly<Record<AppId, string>> = {
+  power: '/',
+  simple: '/learn/',
+  canvas: '/canvas/',
+};
+
 /** Each app's demo, as its router base. The documents' `<base href>` stays the app's own (assets). */
-export const DEMO_BASES: Readonly<Record<AccountMode, string>> = {
+export const DEMO_BASES: Readonly<Record<AppId, string>> = {
   power: '/demo/',
   simple: '/learn/demo/',
+  canvas: '/canvas/demo/',
 };
 
 /** True for `base` itself and everything under it, with or without the trailing slash. */
-export function isDemoPath(pathname: string, mode: AccountMode): boolean {
-  const base = DEMO_BASES[mode];
+export function isDemoPath(pathname: string, app: AppId): boolean {
+  const base = DEMO_BASES[app];
   return pathname === base.slice(0, -1) || pathname.startsWith(base);
 }
 

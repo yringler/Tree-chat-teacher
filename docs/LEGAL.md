@@ -6,14 +6,14 @@ Status: **done** = handled in code; **you** = an action for the operator (outsid
 
 ## 1. Public privacy policy and terms of service
 
-| Item                                                         | Status                              | Where                                                                             |
-| ------------------------------------------------------------ | ----------------------------------- | --------------------------------------------------------------------------------- |
-| Privacy policy at a public URL (`/privacy`)                  | done                                | `apps/worker/src/http/legal.ts`                                                   |
-| Terms of service at a public URL (`/terms`)                  | done                                | same                                                                              |
-| Linked from the landing page footer, sign-in page, both apps | done                                | `landing.ts`, `login-page.ts`, account dialog / account menu                      |
-| Sign-in shows "you agree to the Terms and Privacy policy"    | done                                | `packages/web-shared/src/login/login-page.ts`                                     |
-| Operator name, contact mailbox, governing law                | done (Yehuda Ringler, Pennsylvania) | `LEGAL_OPERATOR`, `LEGAL_CONTACT_EMAIL`, `LEGAL_JURISDICTION` in `wrangler.jsonc` |
-| A real mailbox at the contact address                        | **you**                             | Cloudflare Email Routing can forward `privacy@tangentailearning.com` for free     |
+| Item                                                              | Status                              | Where                                                                             |
+| ----------------------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------- |
+| Privacy policy at a public URL (`/privacy`)                       | done                                | `apps/worker/src/http/legal.ts`                                                   |
+| Terms of service at a public URL (`/terms`)                       | done                                | same                                                                              |
+| Linked from the landing page footer, sign-in page, all three apps | done                                | `landing.ts`, `login-page.ts`, account dialog / account menu                      |
+| Sign-in shows "you agree to the Terms and Privacy policy"         | done                                | `packages/web-shared/src/login/login-page.ts`                                     |
+| Operator name, contact mailbox, governing law                     | done (Yehuda Ringler, Pennsylvania) | `LEGAL_OPERATOR`, `LEGAL_CONTACT_EMAIL`, `LEGAL_JURISDICTION` in `wrangler.jsonc` |
+| A real mailbox at the contact address                             | **you**                             | Cloudflare Email Routing can forward `privacy@tangentailearning.com` for free     |
 
 Set to Yehuda Ringler, governed by the laws of the Commonwealth of Pennsylvania, USA. If you form an LLC, change `LEGAL_OPERATOR` to it and assign it the trademark.
 
@@ -26,15 +26,15 @@ Set to Yehuda Ringler, governed by the laws of the Commonwealth of Pennsylvania,
 
 ## 2. Account deletion
 
-| Item                                                                          | Status          | Where                                               |
-| ----------------------------------------------------------------------------- | --------------- | --------------------------------------------------- |
-| In-app "Delete account" (power: Account dialog; Learn: account menu)          | done            | `packages/web-shared/src/account/delete-account.ts` |
-| `DELETE /api/account`, confirmed by retyping the email, same-origin only      | done            | `apps/worker/src/auth/delete-account.ts`            |
-| Deletes both accounts' trees, branches, messages, summaries, shares, settings | done            | one D1 batch; `ON DELETE CASCADE` does the children |
-| Deletes the user, sessions, OAuth links, passkeys, plan rows                  | done            | same                                                |
-| Deletes the Stripe customer (Stripe cancels its subscriptions)                | done            | same; a Stripe failure aborts the deletion          |
-| Clears session and API-key cookies                                            | done            | same                                                |
-| Keeps the billing ledger (`credit_grants`, `usage_events`)                    | done, by design | tax and accounting records; no content, no email    |
+| Item                                                                            | Status          | Where                                               |
+| ------------------------------------------------------------------------------- | --------------- | --------------------------------------------------- |
+| In-app "Delete account" (Power: Account dialog; Learn and Canvas: account menu) | done            | `packages/web-shared/src/account/delete-account.ts` |
+| `DELETE /api/account`, confirmed by retyping the email, same-origin only        | done            | `apps/worker/src/auth/delete-account.ts`            |
+| Deletes both accounts' trees, branches, messages, summaries, shares, settings   | done            | one D1 batch; `ON DELETE CASCADE` does the children |
+| Deletes the user, sessions, OAuth links, passkeys, plan rows                    | done            | same                                                |
+| Deletes the Stripe customer (Stripe cancels its subscriptions)                  | done            | same; a Stripe failure aborts the deletion          |
+| Clears session and API-key cookies                                              | done            | same                                                |
+| Keeps the billing ledger (`credit_grants`, `usage_events`)                      | done, by design | tax and accounting records; no content, no email    |
 
 Residual copies, disclosed in the policy: D1 Time Travel keeps point-in-time recovery for 30 days (7 on the free plan; the policy says "up to 30 days"), shared pages may stay in other colos' edge cache for up to 24 hours (`SNAPSHOT_TTL_SECONDS`), and expired sign-in-link rows in `auth_verifications` (they hold the email for 15 minutes).
 

@@ -145,7 +145,7 @@ These providers handle your messages under their own terms and privacy policies,
 <ul>
 <li><strong>Access and export:</strong> every conversation can be downloaded as a JSON backup, Markdown or HTML from the app. For anything else we hold about you, email ${contact}.</li>
 <li><strong>Correction:</strong> rename or delete anything in the app; your email comes from how you sign in.</li>
-<li><strong>Deletion:</strong> delete single conversations at any time, or your whole account from the account menu in either app ("Delete account"). That deletes both your Power and Learn accounts with every conversation, share link and setting, your sign-in methods and sessions, and your Stripe customer record, which also cancels any monthly plan. Unused credit is forfeited. Payment records are kept as described above.</li>
+<li><strong>Deletion:</strong> delete single conversations at any time, or your whole account from the account menu in any of the apps ("Delete account"). That deletes both your Power and Learn accounts (Canvas uses the Power account) with every conversation, share link and setting, your sign-in methods and sessions, and your Stripe customer record, which also cancels any monthly plan. Unused credit is forfeited. Payment records are kept as described above.</li>
 <li>Depending on where you live (for example the EEA, UK or California) you may also have the right to object to or restrict processing, to data portability, and to complain to your data protection authority. Email ${contact}; we answer within 30 days.</li>
 </ul>
 <p>We don't sell or share personal information as the California Consumer Privacy Act defines those terms, and we don't use it for profiling or automated decisions with legal effects.</p>
