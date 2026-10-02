@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "pnpm --filter @tangent/web build && pnpm --filter @tangent/simple build && node scripts/assemble-assets.mjs",
-    "dev": "pnpm build && pnpm --filter @tangent/worker dev",
+    "dev": "pnpm --filter @tangent/worker dev",
     "test": "pnpm -r --workspace-concurrency=1 test",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
