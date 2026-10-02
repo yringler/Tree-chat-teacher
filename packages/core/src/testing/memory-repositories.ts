@@ -137,9 +137,7 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
         return path;
       },
       async appendNodes(nodes, treeUpdatedAt) {
-        const taken = new Set(
-          [...state.nodes.values()].map((n) => `${n.branchId}:${n.seq}`),
-        );
+        const taken = new Set([...state.nodes.values()].map((n) => `${n.branchId}:${n.seq}`));
         for (const n of nodes) {
           const k = `${n.branchId}:${n.seq}`;
           if (taken.has(k)) throw new ConflictError('Branch was modified concurrently');

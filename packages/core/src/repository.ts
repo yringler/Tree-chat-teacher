@@ -21,7 +21,10 @@ export interface TreeRepository {
   getTree(treeId: string): Promise<Tree | null>;
   /** Atomically inserts the tree and its trunk branch. */
   createTree(tree: Tree, trunk: Branch): Promise<void>;
-  updateTree(treeId: string, patch: Partial<Pick<Tree, 'title' | 'systemPrompt' | 'updatedAt'>>): Promise<Tree | null>;
+  updateTree(
+    treeId: string,
+    patch: Partial<Pick<Tree, 'title' | 'systemPrompt' | 'updatedAt'>>,
+  ): Promise<Tree | null>;
   /** Deletes the tree with all branches, nodes, summaries and shares. */
   deleteTree(treeId: string): Promise<boolean>;
 
@@ -52,7 +55,11 @@ export interface TreeRepository {
    * target is one of those nodes; then bumps the tree's updatedAt. The caller
    * passes a whole subtree (see ChatService.deleteBranch).
    */
-  deleteBranches(treeId: string, branchIds: readonly string[], treeUpdatedAt: string): Promise<void>;
+  deleteBranches(
+    treeId: string,
+    branchIds: readonly string[],
+    treeUpdatedAt: string,
+  ): Promise<void>;
 
   getNode(nodeId: string): Promise<ChatNode | null>;
   listNodes(treeId: string): Promise<ChatNode[]>;
@@ -67,7 +74,12 @@ export interface TreeRepository {
   appendNodes(nodes: ChatNode[], treeUpdatedAt: string): Promise<void>;
   updateNode(
     nodeId: string,
-    patch: Partial<{ content: string; status: ChatNode['status']; error: string | null; usage: TokenUsage | null }>,
+    patch: Partial<{
+      content: string;
+      status: ChatNode['status'];
+      error: string | null;
+      usage: TokenUsage | null;
+    }>,
   ): Promise<void>;
   /** Nodes left in `streaming` state (e.g. after a crash). */
   listStreamingNodes(treeId: string): Promise<ChatNode[]>;
@@ -80,7 +92,11 @@ export interface TreeRepository {
 }
 
 export interface SummaryRepository {
-  getSummary(anchorNodeId: string, sourceHash: string, model: string): Promise<SummaryRecord | null>;
+  getSummary(
+    anchorNodeId: string,
+    sourceHash: string,
+    model: string,
+  ): Promise<SummaryRecord | null>;
   putSummary(record: SummaryRecord): Promise<void>;
 }
 

@@ -184,7 +184,14 @@ describe('branches', () => {
 
   it('deleteBranches removes the branches with their nodes, summaries and targeted shares', async () => {
     const { tree, trunk, b1, b2, t, a, c } = await seedMultiBranch();
-    const summary = { sourceHash: 'h', providerId: 'fake', model: 'm', content: 's', treeId: tree.id, createdAt: 'x' };
+    const summary = {
+      sourceHash: 'h',
+      providerId: 'fake',
+      model: 'm',
+      content: 's',
+      treeId: tree.id,
+      createdAt: 'x',
+    };
     await repos.summaries.putSummary({ ...summary, anchorNodeId: a[1]!.id });
     await repos.summaries.putSummary({ ...summary, anchorNodeId: t[1]!.id });
     const doomed = makeShare(tree, { scope: 'path', targetNodeId: c[1]!.id });
@@ -197,7 +204,9 @@ describe('branches', () => {
     await repos.trees.deleteBranches(tree.id, [b1.id, b2.id], '2026-04-01T00:00:00.000Z');
 
     expect(await repos.trees.listBranches(tree.id)).toEqual([trunk]);
-    expect((await repos.trees.listNodes(tree.id)).map((n) => n.id).sort()).toEqual(t.map((n) => n.id).sort());
+    expect((await repos.trees.listNodes(tree.id)).map((n) => n.id).sort()).toEqual(
+      t.map((n) => n.id).sort(),
+    );
     expect(await repos.summaries.getSummary(a[1]!.id, 'h', 'm')).toBeNull();
     expect(await repos.summaries.getSummary(t[1]!.id, 'h', 'm')).not.toBeNull();
     expect(await repos.shares.getShare(doomed.id)).toBeNull();
@@ -448,7 +457,9 @@ describe('shares', () => {
     expect(await repos.shares.getShare(share.id)).toEqual(expected);
     expect(await repos.shares.getShareByToken(share.token)).toEqual(expected);
     expect(await repos.shares.getSnapshot(share.id)).toBeNull();
-    expect((await repos.shares.listShares(DEFAULT_ACCOUNT_ID)).find((s) => s.id === share.id)).toEqual(expected);
+    expect(
+      (await repos.shares.listShares(DEFAULT_ACCOUNT_ID)).find((s) => s.id === share.id),
+    ).toEqual(expected);
     expect(await repos.shares.getShare('missing')).toBeNull();
     expect(await repos.shares.getShareByToken('missing')).toBeNull();
   });

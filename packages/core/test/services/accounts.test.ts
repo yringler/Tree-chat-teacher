@@ -14,7 +14,11 @@ function twoAccounts() {
     settings: { ...DEFAULT_CHAT_SETTINGS, autoTitle: false },
     accountId: 'other',
   });
-  const otherShares = new ShareService({ repos: base.repos, publicBaseUrl: 'https://t.test', accountId: 'other' });
+  const otherShares = new ShareService({
+    repos: base.repos,
+    publicBaseUrl: 'https://t.test',
+    accountId: 'other',
+  });
   return { ...base, otherChat, otherShares };
 }
 
@@ -36,17 +40,25 @@ describe('accounts', () => {
 
     expect(await otherChat.listTrees()).toEqual([]);
     await expect(otherChat.getTreeDetail(tree.id)).rejects.toBeInstanceOf(NotFoundError);
-    await expect(otherChat.updateTree(tree.id, { title: 'x' })).rejects.toBeInstanceOf(NotFoundError);
+    await expect(otherChat.updateTree(tree.id, { title: 'x' })).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
     await expect(otherChat.deleteTree(tree.id)).rejects.toBeInstanceOf(NotFoundError);
-    const branch = await chat.createBranch({ fromNodeId: (await chat.getTreeDetail(tree.id)).nodes[0]!.id });
+    const branch = await chat.createBranch({
+      fromNodeId: (await chat.getTreeDetail(tree.id)).nodes[0]!.id,
+    });
     await expect(otherChat.deleteBranch(branch.id)).rejects.toBeInstanceOf(NotFoundError);
     await expect(otherChat.exportBackup(tree.id)).rejects.toBeInstanceOf(NotFoundError);
 
     expect(await otherShares.list()).toEqual([]);
-    await expect(otherShares.create({ treeId: tree.id, scope: 'tree' })).rejects.toBeInstanceOf(NotFoundError);
+    await expect(otherShares.create({ treeId: tree.id, scope: 'tree' })).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
     await expect(otherShares.revoke(share.id)).rejects.toBeInstanceOf(NotFoundError);
     await expect(otherShares.republish(share.id)).rejects.toBeInstanceOf(NotFoundError);
-    await expect(otherShares.update(share.id, { title: 'x' })).rejects.toBeInstanceOf(NotFoundError);
+    await expect(otherShares.update(share.id, { title: 'x' })).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
 
     // The owner still sees everything; public links are account-independent.
     expect(await chat.listTrees()).toHaveLength(1);
