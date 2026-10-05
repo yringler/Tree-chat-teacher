@@ -22,7 +22,8 @@ Set to Yehuda Ringler, governed by the laws of the Commonwealth of Pennsylvania,
 - no analytics, advertising or tracking cookies (adding any means a cookie-consent banner for EU visitors);
 - API keys never stored server-side and never logged (see the BYOK section of the README);
 - no sale of personal data, no training of models by us;
-- message content never in logs.
+- message content never in logs;
+- the community pool's topic tags hold no message text and no account id, sensitive topics are stored only as `sensitive`, and a tag is deleted 14 days after its branch's last pool use or with the account; notice acknowledgments are kept until the account is deleted (`pool/tagging.ts`, `pool/consent.ts`; a test scans the tables and logs for the message).
 
 ## 2. Account deletion
 
@@ -107,6 +108,7 @@ Learn mode is pitched at "students and the curious", which draws children-privac
 | Breach notification: notify the authority within 72 hours and affected users without undue delay                                                                                                                                                                                       | **you** (know the duty) |
 | Keep a short record of processing (the policy's tables are most of it)                                                                                                                                                                                                                 | **you**                 |
 | No cookie banner needed: only strictly necessary cookies. Adding analytics changes that                                                                                                                                                                                                | done                    |
+| Community pool: the notice is acknowledged (version and time recorded) before the first pool request and after each text change. Pool use requires it, so it is transparency, not GDPR consent; the tags rest on legitimate interests (no text, no account id, sensitive ones unnamed) | done (policy)           |
 
 US state privacy laws (California CCPA/CPRA and similar) apply only above revenue or user thresholds (CCPA: $26.6M revenue or 100,000 consumers). The policy already says no sale or sharing.
 

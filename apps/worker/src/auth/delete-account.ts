@@ -36,8 +36,10 @@ export interface DeletedUser {
  * 2. In one D1 batch (a transaction): both accounts' trees (branches, nodes,
  *    summaries and shares with their snapshots go by ON DELETE CASCADE),
  *    any share or setting left over, their subscription rows, the account
- *    rows, and the auth user (sessions, linked OAuth identities and passkeys
- *    cascade).
+ *    rows, the community pool notice acknowledgments (`pool_consents`) and
+ *    the topic tags of branches the user's pool calls served
+ *    (`pool_topic_tags`, found through their `usage_events`), and the auth
+ *    user (sessions, linked OAuth identities and passkeys cascade).
  * 3. Best-effort purge of their share links from this colo's edge cache.
  *    Other colos hold a copy for at most the share cache TTL; the D1 rows
  *    are gone, so nothing new is ever served.
@@ -95,6 +97,11 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
     env.DB.prepare('DELETE FROM shares WHERE account_id IN (?1, ?2)').bind(p, u),
     env.DB.prepare('DELETE FROM account_settings WHERE account_id IN (?1, ?2)').bind(p, u),
     env.DB.prepare('DELETE FROM auth_subscriptions WHERE reference_id = ?1').bind(userId),
+    env.DB.prepare(
+      `DELETE FROM pool_topic_tags WHERE branch_id IN
+         (SELECT branch_id FROM usage_events WHERE user_id = ?1 AND branch_id IS NOT NULL)`,
+    ).bind(userId),
+    env.DB.prepare('DELETE FROM pool_consents WHERE user_id = ?1').bind(userId),
     env.DB.prepare('DELETE FROM accounts WHERE user_id = ?1 OR id IN (?2, ?3)').bind(userId, p, u),
     env.DB.prepare('DELETE FROM auth_users WHERE id = ?1').bind(userId),
   ]);

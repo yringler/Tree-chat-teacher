@@ -1,5 +1,5 @@
 import '@angular/compiler'; // JIT: the component metadata below.
-import { FORBIDDEN_POOL_COPY, type PoolBlockDetails } from '@tangent/shared';
+import { FORBIDDEN_POOL_COPY, POOL_NOTICE_TEXT, type PoolBlockDetails } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { BillingPage } from '../billing/billing-page';
 import { PoolBlockNotice } from './pool-block-notice';
@@ -30,7 +30,11 @@ describe('pool copy rule', () => {
   });
 
   it('never says it in generated text either', () => {
-    const texts = [poolFundingNote(800), sessionsLabel({ sessionsRemaining: 3 })];
+    const texts = [
+      poolFundingNote(800),
+      sessionsLabel({ sessionsRemaining: 3 }),
+      POOL_NOTICE_TEXT,
+    ];
     for (const reason of REASONS) {
       const t = poolBlockText({
         kind: reason === 'empty' || reason === 'unpriced' ? 'empty' : 'cap',

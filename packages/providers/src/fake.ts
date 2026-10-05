@@ -26,6 +26,7 @@ const ERROR_CODES: ReadonlySet<string> = new Set<ProviderErrorCode>([
 
 interface FakeOptions {
   responses: [string, string][];
+  anyMessageResponses: [string, string][];
   chunkSize: number;
   delayMs: number;
   failWith: ProviderErrorCode | null;
@@ -33,20 +34,24 @@ interface FakeOptions {
   echoRequest: boolean | string;
 }
 
+function readResponses(r: unknown): [string, string][] {
+  const out: [string, string][] = [];
+  if (isRecord(r)) {
+    for (const [k, v] of Object.entries(r)) if (typeof v === 'string') out.push([k, v]);
+  }
+  return out;
+}
+
 function readOptions(options: Record<string, unknown> | undefined): FakeOptions {
   const o = options ?? {};
-  const responses: [string, string][] = [];
-  const r = o['responses'];
-  if (isRecord(r)) {
-    for (const [k, v] of Object.entries(r)) if (typeof v === 'string') responses.push([k, v]);
-  }
   const cs = o['chunkSize'];
   const dm = o['delayMs'];
   const fw = o['failWith'];
   const cost = o['costUsd'];
   const echo = o['echoRequest'];
   return {
-    responses,
+    responses: readResponses(o['responses']),
+    anyMessageResponses: readResponses(o['anyMessageResponses']),
     chunkSize: typeof cs === 'number' && Number.isInteger(cs) && cs > 0 ? cs : 8,
     delayMs: typeof dm === 'number' && dm > 0 ? dm : 0,
     failWith: typeof fw === 'string' && ERROR_CODES.has(fw) ? (fw as ProviderErrorCode) : null,
@@ -73,6 +78,9 @@ function inputTokens(request: Input): number {
  * options (all optional):
  * - responses: Record<string, string> — if the last user message contains a
  *   key, reply with its value (first match in insertion order);
+ * - anyMessageResponses: Record<string, string> (tests only) — the same, but a
+ *   key found in ANY message of the request (any role) matches, and these are
+ *   checked before `responses`: lets a test see whether earlier history was sent;
  * - chunkSize: number (default 8) — characters per `delta`;
  * - delayMs: number (default 0) — await between deltas (to test abort);
  * - failWith: ProviderErrorCode — emit this error after the first delta;
@@ -108,6 +116,8 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
     if (echo === true || (typeof echo === 'string' && lastUser.includes(echo))) {
       return `ECHO model=${request.model} maxOutputTokens=${request.maxOutputTokens ?? 'none'} system=${JSON.stringify(request.system)}`;
     }
+    for (const [key, value] of opts.anyMessageResponses)
+      if (request.messages.some((m) => m.content.includes(key))) return value;
     for (const [key, value] of opts.responses) if (lastUser.includes(key)) return value;
     return `Fake reply (${request.model}) to ${request.messages.length} message(s): "${lastUser.slice(0, 80)}"`;
   };

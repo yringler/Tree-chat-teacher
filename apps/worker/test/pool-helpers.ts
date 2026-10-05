@@ -1,10 +1,11 @@
 // Shared set-up of the community pool's HTTP tests (docs/pool/PLAN.md §6):
 // a signed-in Learn user whose requests go to a pool of their own, so no two
 // tests share a pool balance or its caps.
-import type { MeResponse } from '@tangent/shared';
+import { POOL_NOTICE_VERSION, type MeResponse } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
-import { expect } from 'vitest';
+import { expect, vi } from 'vitest';
 import type { AppEnv } from '../src/env.js';
+import { recordConsent } from '../src/pool/consent.js';
 import { markPoolVerified } from '../src/pool/identity.js';
 import { uniq } from './mocks/billing-helpers.js';
 import { authEnv, client } from './session-client.js';
@@ -55,6 +56,8 @@ export async function poolAccess(userId: string) {
  * are verified for the pool (`pool_verified_at`, `pool_identity`; set here if
  * the env had the pool off) unless `verified: false` clears it again (an
  * account from before the check).
+ * They have acknowledged the current pool notice (`pool_consents`) unless
+ * `consent: false` (a user who never saw it).
  * `ip` puts several users on one network; `email` picks the address.
  */
 export async function poolReadyUser(
@@ -65,6 +68,7 @@ export async function poolReadyUser(
     ip?: string;
     email?: string;
     verified?: boolean;
+    consent?: boolean;
   } = {},
 ) {
   const poolId = opts.poolId ?? uniq('pool');
@@ -86,7 +90,28 @@ export async function poolReadyUser(
     // Signed in while the pool was off (a test env), so the sign-in recorded nothing.
     await markPoolVerified(env.DB, userId, email);
   }
+  if (opts.consent !== false) await recordConsent(env.DB, userId, POOL_NOTICE_VERSION);
   const funds = opts.funds ?? POOL_FUNDS_MICROS;
   if (funds > 0) await fundPool(poolId, funds);
   return { client: c, poolId, userId };
+}
+
+/**
+ * Waits until `poolId` has `count` topic-tagging rows, all settled: a pool
+ * reply that completes is tagged in the background (pool/tagging.ts), after
+ * its stream has ended.
+ */
+export async function taggingSettled(poolId: string, count: number): Promise<void> {
+  await vi.waitFor(
+    async () => {
+      const row = await env.DB.prepare(
+        `SELECT COUNT(*) AS n, COUNT(CASE WHEN status = 'pending' THEN 1 END) AS pending
+           FROM usage_events WHERE account_id = ? AND purpose = 'tagging'`,
+      )
+        .bind(poolId)
+        .first<{ n: number; pending: number }>();
+      expect(row).toEqual({ n: count, pending: 0 });
+    },
+    { timeout: 5_000, interval: 20 },
+  );
 }

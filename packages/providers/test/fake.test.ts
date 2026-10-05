@@ -62,6 +62,19 @@ describe('fake provider', () => {
     ]);
   });
 
+  it('matches anyMessageResponses against every message, before responses', async () => {
+    const p = createFakeProvider(
+      {
+        ...BASE,
+        options: { anyMessageResponses: { first: 'from history' }, responses: { tangent: 'last only' } },
+      },
+      { secrets: {} },
+    );
+    expect(text(await collect(p.stream(req())))).toBe('from history');
+    const lastOnly = req({ messages: [{ role: 'user', content: 'What is a tangent?' }] });
+    expect(text(await collect(p.stream(lastOnly)))).toBe('last only');
+  });
+
   it('fails with the configured error after the first delta', async () => {
     const p = createFakeProvider({ ...BASE, options: { failWith: 'overloaded' } }, { secrets: {} });
     const events = await collect(p.stream(req()));

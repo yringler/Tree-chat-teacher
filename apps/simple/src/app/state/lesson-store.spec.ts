@@ -13,6 +13,7 @@ import type {
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
+import { POOL_NOTICE_VERSION } from '@tangent/shared';
 import { ApiClient, ApiError } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
@@ -167,6 +168,10 @@ function fakeApi() {
     poolMe: vi.fn(async () => {
       throw new Error('not needed');
     }),
+    poolConsent: vi.fn(async (version: number) => ({
+      version,
+      acknowledgedAt: T,
+    })),
   };
 }
 
@@ -504,6 +509,59 @@ describe('LessonStore', () => {
     expect(s.ui.toasts()).toEqual([]);
     expect(s.store.poolBlock()).toBeNull();
     expect(s.store.unsentDraft()?.text).toBe('What is light?');
+  });
+
+  it('403 pool_consent_required on send: opens the notice, then acknowledging records it and resends', async () => {
+    const s = setup();
+    await open(s, detail());
+    s.api.sendMessage.mockRejectedValueOnce(
+      new ApiError(403, 'pool_consent_required', 'Read the notice', null, {
+        currentVersion: POOL_NOTICE_VERSION,
+      }),
+    );
+    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
+    expect(s.ui.poolConsentVersion()).toBe(POOL_NOTICE_VERSION);
+    expect(s.ui.poolVerifyOpen()).toBe(false);
+    expect(s.ui.toasts()).toEqual([]);
+    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
+
+    s.api.sendMessage.mockResolvedValueOnce(stream([]));
+    await expect(s.store.acknowledgePoolNotice()).resolves.toBe(true);
+    expect(s.api.poolConsent).toHaveBeenCalledWith(POOL_NOTICE_VERSION);
+    expect(s.ui.poolConsentVersion()).toBeNull();
+    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(2));
+    expect(s.api.sendMessage.mock.calls[1]!.slice(0, 2)).toEqual([
+      'trunk',
+      { content: 'What is light?' },
+    ]);
+  });
+
+  it('a notice that changed meanwhile (409) keeps the dialog open and says to reload', async () => {
+    const s = setup();
+    await open(s, detail());
+    s.ui.poolConsentVersion.set(POOL_NOTICE_VERSION);
+    s.api.poolConsent.mockRejectedValueOnce(new ApiError(409, 'conflict', 'Changed'));
+    await expect(s.store.acknowledgePoolNotice()).resolves.toBe(false);
+    expect(s.ui.poolConsentVersion()).toBe(POOL_NOTICE_VERSION);
+    expect(s.ui.toasts().at(-1)?.text).toMatch(/Reload the page/);
+    expect(s.api.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('never acknowledges a newer notice version than the text this build shows', async () => {
+    const s = setup();
+    await open(s, detail());
+    const newer = POOL_NOTICE_VERSION + 1;
+    s.api.sendMessage.mockRejectedValueOnce(
+      new ApiError(403, 'pool_consent_required', 'Read the notice', null, { currentVersion: newer }),
+    );
+    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
+    expect(s.ui.poolConsentVersion()).toBe(newer);
+
+    await expect(s.store.acknowledgePoolNotice()).resolves.toBe(false);
+    expect(s.api.poolConsent).not.toHaveBeenCalled();
+    expect(s.ui.poolConsentVersion()).toBe(newer);
+    expect(s.ui.toasts().at(-1)?.text).toMatch(/Reload the page/);
+    expect(s.api.sendMessage).toHaveBeenCalledTimes(1);
   });
 
   it('other pool_unavailable reasons are reported as a toast', async () => {

@@ -1,7 +1,12 @@
 // The community pool's public surfaces (docs/pool/PLAN.md §S6): the meter
 // (`GET /api/pool/status`, also on the landing page), the caller's standing
 // (`GET /api/pool/me`), the transparency page `/pool`, and the copy rule.
-import { FORBIDDEN_POOL_COPY, type PoolMeResponse, type PoolStatusResponse } from '@tangent/shared';
+import {
+  FORBIDDEN_POOL_COPY,
+  POOL_NOTICE_VERSION,
+  type PoolMeResponse,
+  type PoolStatusResponse,
+} from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
@@ -160,6 +165,9 @@ describe('GET /api/pool/me', () => {
         resetAt: expect.stringMatching(/T00:00:00\.000Z$/),
       },
       personalAvailableMicros: 0,
+      // poolReadyUser acknowledged the current notice.
+      consentVersion: POOL_NOTICE_VERSION,
+      currentNoticeVersion: POOL_NOTICE_VERSION,
     });
   });
 

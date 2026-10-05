@@ -1,6 +1,8 @@
-import { DomainError, ValidationError } from '@tangent/core';
+import { ConflictError, DomainError, ValidationError } from '@tangent/core';
 import {
+  poolConsentRequestSchema,
   poolVerifyRequestSchema,
+  type PoolConsentResponse,
   type PoolMeResponse,
   type PoolStatusResponse,
   type PoolVerifyResponse,
@@ -10,8 +12,10 @@ import { clientIp } from '../auth/account.js';
 import { turnstileHostname } from '../auth/auth.js';
 import { poolAccessError } from '../billing/gate.js';
 import { sameOriginOnly } from '../byok/guard.js';
+import { appConfig } from '../config.js';
 import type { AppBindings } from '../env.js';
 import { validateJson } from '../http/errors.js';
+import { recordConsent } from '../pool/consent.js';
 import { markPoolVerified } from '../pool/identity.js';
 import { cachedPoolStatus, poolMe } from '../pool/status.js';
 import { TURNSTILE_ACTION, verifyTurnstile } from '../pool/turnstile.js';
@@ -28,6 +32,11 @@ import { TURNSTILE_ACTION, verifyTurnstile } from '../pool/turnstile.js';
  * pass on record (signed up before the check at sign-in). Records
  * `pool_verified_at` once and claims the account's pool identity; a mailbox
  * another account already uses is refused (`duplicate_identity`).
+ *
+ * `POST /consent`: the acknowledgment of the pool notice (`POOL_NOTICE_TEXT`)
+ * at the version the client showed. Only the current version is accepted
+ * (409 `conflict` otherwise: the client showed an outdated text); a repeat
+ * keeps the first acknowledgment.
  */
 export function poolRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
@@ -52,6 +61,16 @@ export function poolRoutes(): Hono<AppBindings> {
     if ((await markPoolVerified(c.env.DB, userId, email)) === 'duplicate')
       throw poolAccessError('duplicate_identity');
     return c.json({ verified: true } satisfies PoolVerifyResponse);
+  });
+
+  r.post('/consent', sameOriginOnly, validateJson(poolConsentRequestSchema), async (c) => {
+    const { userId } = c.var.identity;
+    if (!userId)
+      throw new DomainError('pool_unavailable', 'The community pool needs a signed-in account');
+    const current = appConfig(c.env).pool.noticeVersion;
+    if (c.req.valid('json').version !== current)
+      throw new ConflictError('The community pool notice has changed; read the current one');
+    return c.json((await recordConsent(c.env.DB, userId, current)) satisfies PoolConsentResponse);
   });
 
   return r;

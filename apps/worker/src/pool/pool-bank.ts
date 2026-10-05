@@ -320,7 +320,8 @@ export class PoolBank extends DurableObject<AppEnv> {
       db
         .prepare(
           `SELECT COALESCE(SUM(CASE WHEN status = 'pending' THEN hold_micros ELSE COALESCE(charge_micros, 0) END), 0) AS spend
-           FROM usage_events WHERE account_id = ?1 AND tier = 'free' AND created_at >= ?2`,
+           FROM usage_events
+           WHERE account_id = ?1 AND tier = 'free' AND purpose <> 'tagging' AND created_at >= ?2`,
         )
         .bind(req.poolId, day),
       supporterStatement(db, req.userId),

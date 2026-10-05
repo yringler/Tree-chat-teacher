@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  inject,
+  signal,
+} from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import type { MembershipInfo } from '@tangent/shared';
 import {
@@ -66,6 +73,13 @@ import { UiStore } from './state/ui-store';
       }
       @if (ui.poolVerifyOpen()) {
         <app-pool-first-use-dialog (closed)="ui.poolVerifyOpen.set(false)" />
+      } @else if (ui.poolConsentVersion(); as version) {
+        <app-pool-first-use-dialog
+          [consentVersion]="version"
+          [busy]="acknowledging()"
+          (closed)="ui.poolConsentVersion.set(null)"
+          (acknowledged)="acknowledgePoolNotice()"
+        />
       }
       @if (gate(); as membership) {
         <app-membership-gate
@@ -122,10 +136,22 @@ export class App {
     return this.account.membershipBlocked() ? this.account.membership() : null;
   });
 
+  /** The pool notice's acknowledgment is being recorded. */
+  protected readonly acknowledging = signal(false);
+
   constructor() {
     if (this.loginPage) return;
     this.routeSync.start(inject(DestroyRef));
     void this.boot();
+  }
+
+  protected async acknowledgePoolNotice(): Promise<void> {
+    this.acknowledging.set(true);
+    try {
+      await this.lessons.acknowledgePoolNotice();
+    } finally {
+      this.acknowledging.set(false);
+    }
   }
 
   private async boot(): Promise<void> {

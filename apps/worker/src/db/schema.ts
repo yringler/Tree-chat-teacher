@@ -502,3 +502,39 @@ export const poolIdentityHolders = sqliteTable(
   },
   (t) => [index('pool_identity_holders_identity_idx').on(t.identity)],
 );
+
+// ---- Community pool consent and topic tags (src/pool/consent.ts, src/pool/tagging.ts)
+
+/**
+ * Who acknowledged which version of the pool notice (packages/shared/src/pool.ts
+ * `POOL_NOTICE_TEXT`), and when. A pool request needs a row at the current
+ * version (`pool_consent_required`). Kept until the account is deleted.
+ */
+export const poolConsents = sqliteTable(
+  'pool_consents',
+  {
+    userId: text('user_id').notNull(),
+    noticeVersion: integer('notice_version').notNull(),
+    acknowledgedAt: text('acknowledged_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.noticeVersion] })],
+);
+
+/**
+ * One topic per pool-funded branch, from the classifier's reading of the pool
+ * exchange that first completed there (src/pool/taxonomy.ts leaf ids, or the
+ * sentinel `sensitive`). No user id, no tree id and no text: per-topic
+ * learners come from `usage_events`, joined on `branch_id`. Deleted 14 days
+ * after the branch's last pool use, or with the account.
+ */
+export const poolTopicTags = sqliteTable(
+  'pool_topic_tags',
+  {
+    branchId: text('branch_id').primaryKey(),
+    topicId: text('topic_id').notNull(),
+    /** The branch's depth in its tree when tagged: 0 = the trunk. */
+    branchDepth: integer('branch_depth').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [index('pool_topic_tags_topic_idx').on(t.topicId, t.createdAt)],
+);

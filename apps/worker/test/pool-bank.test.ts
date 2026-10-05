@@ -397,7 +397,7 @@ describe('PoolBank: caps inside reserve', () => {
     });
   });
 
-  it("caps the free tier's spend at a share of the 00:00 UTC balance; supporters are not counted", async () => {
+  it("caps the free tier's spend at a share of the 00:00 UTC balance; supporters and tagging are not counted", async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
@@ -406,6 +406,9 @@ describe('PoolBank: caps inside reserve', () => {
       ...OPEN_CAPS,
       globalFree: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 1_000 },
     };
+    // Free-tier tagging holds count toward no one's caps, the global ceiling included.
+    await reserved(poolId, { caps, purpose: 'tagging' });
+    await reserved(poolId, { caps, purpose: 'tagging' });
     for (let i = 0; i < 3; i++) await reserved(poolId, { caps }); // 9_000 of a 10_000 ceiling
     expect(await reserve(poolId, { caps })).toMatchObject({
       ok: false,

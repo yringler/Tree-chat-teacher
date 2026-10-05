@@ -1,4 +1,10 @@
-import { DomainError, HTTP_STATUS, PoolBlockedError, ValidationError } from '@tangent/core';
+import {
+  DomainError,
+  HTTP_STATUS,
+  PoolBlockedError,
+  PoolConsentRequiredError,
+  ValidationError,
+} from '@tangent/core';
 import type { ApiError, ApiErrorCode } from '@tangent/shared';
 import type { Context, ErrorHandler, NotFoundHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
@@ -16,13 +22,20 @@ export function apiError(
   return c.json(body, HTTP_STATUS[code] as ContentfulStatusCode);
 }
 
-/** The `ApiError` body of a domain error; a pool refusal carries what it hit (`error.pool`). */
+/**
+ * The `ApiError` body of a domain error; a pool refusal carries what it hit
+ * (`error.pool`), a missing pool consent the notice version to acknowledge
+ * (`error.consent`).
+ */
 export function apiErrorBody(err: DomainError): ApiError {
   return {
     error: {
       code: err.code,
       message: err.message,
       ...(err instanceof PoolBlockedError ? { pool: err.details } : {}),
+      ...(err instanceof PoolConsentRequiredError
+        ? { consent: { currentVersion: err.currentVersion } }
+        : {}),
     },
   };
 }
@@ -60,8 +73,8 @@ function codeForStatus(status: number): ApiErrorCode {
 
 export const onError: ErrorHandler = (err, c) => {
   if (err instanceof DomainError) {
-    const { error } = apiErrorBody(err);
-    return apiError(c, error.code, error.message, error.pool ? { pool: error.pool } : {});
+    const { code, message, ...extra } = apiErrorBody(err).error;
+    return apiError(c, code, message, extra);
   }
   if (err instanceof ZodError) return apiError(c, 'bad_request', formatZodError(err));
   if (err instanceof HTTPException) {

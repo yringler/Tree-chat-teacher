@@ -103,3 +103,17 @@ export class PoolBlockedError extends DomainError {
 export function poolBlock(reason: PoolBlockDetails['reason']): PoolBlockDetails {
   return { reason, limit: null, resetAt: null, supporter: false, supporterLimit: null };
 }
+
+/**
+ * 403 `pool_consent_required`: the user has not acknowledged the current pool
+ * notice (`POOL_NOTICE_TEXT`). The HTTP layer sends the version to
+ * acknowledge as `ApiError.error.consent`.
+ */
+export class PoolConsentRequiredError extends DomainError {
+  constructor(readonly currentVersion: number) {
+    super(
+      'pool_consent_required',
+      'Read and acknowledge the community pool notice before using the pool',
+    );
+  }
+}

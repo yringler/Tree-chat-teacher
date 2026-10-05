@@ -74,6 +74,8 @@ export interface AppEnv extends Env {
   MARGIN_PERCENT?: string;
   /** Tests only ("true"): enables test-only RPC methods such as `PoolBank.expire(now)`. */
   TEST_SEAMS?: string;
+  /** Tests only (with `TEST_SEAMS`): a pool notice version above the code's, as after a text change. */
+  POOL_NOTICE_VERSION?: string;
 }
 
 /**

@@ -110,7 +110,22 @@ export default defineConfig({
               models: [{ id: 'smart', label: 'Smart' }, { id: 'simple', label: 'Simple' }],
               // `[echo-request]` in a message makes the reply echo the request's model, output cap
               // and system prompt (the pool tests check what was really sent upstream).
-              options: { chunkSize: 4, costUsd: 0.001234, echoRequest: '[echo-request]' },
+              // `[topic:<id>]` makes it answer `<id>`, which the pool's topic classifier reads as its
+              // answer (pool-impact-tagging.test.ts); any other message gets the default fake reply,
+              // which is no topic id, so other tests' pool replies are classified but never tagged.
+              // `[any-topic:<id>]` answers `<id>` when it is in ANY message sent, so a test can tell
+              // whether the classifier was sent a branch's earlier history (it must not be).
+              options: {
+                chunkSize: 4,
+                costUsd: 0.001234,
+                echoRequest: '[echo-request]',
+                responses: {
+                  '[topic:math.algebra]': 'math.algebra',
+                  '[topic:history.ancient-rome]': 'history.ancient-rome',
+                  '[topic:health.conditions]': 'health.conditions',
+                },
+                anyMessageResponses: { '[any-topic:math.algebra]': 'math.algebra' },
+              },
             }),
             STRIPE_SECRET_KEY: 'sk_test_x',
             STRIPE_WEBHOOK_SECRET: 'whsec_test',

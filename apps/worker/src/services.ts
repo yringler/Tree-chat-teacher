@@ -18,6 +18,7 @@ import { billingConfigured } from './billing/stripe.js';
 import { appConfig } from './config.js';
 import { createD1Repositories } from './db/d1-repositories.js';
 import { isMetered, isPoolFunded, type AccountContext, type AppEnv } from './env.js';
+import type { PoolParams } from './pool/params.js';
 import {
   BUILT_IN_PROVIDER_ID,
   builtInPowerConfig,
@@ -362,6 +363,22 @@ export function pinnedModelRegistry(inner: ProviderRegistry, model: string): Pro
 }
 
 /**
+ * The providers of a generating pool-funded request (the chat service's, and
+ * the pool's topic classifier, pool/tagging.ts): the pool's config of the
+ * built-in provider, every call reserved and settled on the pool, and pinned
+ * to the pool model. `inner` is the unmetered registry (tests pass a
+ * recording one).
+ */
+export function poolGeneratingRegistry(
+  env: AppEnv,
+  account: AccountContext & { pool: PoolParams },
+  defer: Defer,
+  inner: ProviderRegistry = registryFor(env, account, undefined, { generating: true }),
+): ProviderRegistry {
+  return pinnedModelRegistry(meteredLazily(inner, env, account, defer), account.pool.model);
+}
+
+/**
  * The only place Worker env is translated into a ChatService for an account.
  * A `generating` service of a pool-funded account runs under the pool's
  * restrictions: its model, locked system prompt, input and output caps.
@@ -374,13 +391,14 @@ export function chatService(
   const scope: ServiceScope = { generating: opts.generating === true };
   const pool = poolScope(account, scope);
   const registry = registryFor(env, account, opts.apiKeys, scope);
-  const providers = account.builtIn
-    ? meteredLazily(registry, env, account, opts.defer ?? detach)
-    : registry;
+  const defer = opts.defer ?? detach;
+  let providers = registry;
+  if (pool) providers = poolGeneratingRegistry(env, { ...account, pool }, defer, registry);
+  else if (account.builtIn) providers = meteredLazily(registry, env, account, defer);
   return new ChatService({
     repos: createD1Repositories(env.DB),
     accountId: account.id,
-    providers: pool ? pinnedModelRegistry(providers, pool.model) : providers,
+    providers,
     settings: chatSettingsFor(env, account, scope),
     defaultSystemPrompt: defaultSystemPromptFor(env, account, scope),
     ...(pool ? { pinnedModel: pool.model, systemPromptOverride: pool.systemPrompt } : {}),

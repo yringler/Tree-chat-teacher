@@ -8,9 +8,20 @@
 // registry (the pool's default model, whether the built-in provider is
 // offered) is resolved by its caller, so this module imports nothing from
 // services.ts or simple-mode.ts.
-import { DEFAULT_SYSTEM_PROMPT } from '@tangent/shared';
+import { DEFAULT_SYSTEM_PROMPT, POOL_NOTICE_VERSION } from '@tangent/shared';
 import { z } from 'zod';
 import type { AppEnv } from './env.js';
+
+// The topic taxonomy is code, not env: it lives in its own module.
+export {
+  isSensitive,
+  isValidLeafTopicId,
+  LEAF_TOPIC_IDS,
+  SENSITIVE_TOPIC_ID,
+  topicById,
+  TOPICS,
+  type Topic,
+} from './pool/taxonomy.js';
 
 // ---- Defaults (re-exported from the modules that used to own them)
 
@@ -114,6 +125,13 @@ export interface PoolConfig {
   limits: PoolRateLimits;
   minAccountAgeMs: number;
   overage: PoolOverage;
+  /**
+   * The pool notice version a pool request needs acknowledged: the code
+   * constant `POOL_NOTICE_VERSION` (packages/shared/src/pool.ts, next to the
+   * text it versions). Not an env var; only tests (`TEST_SEAMS`) may raise it,
+   * with `POOL_NOTICE_VERSION`, to check that a bump asks again.
+   */
+  noticeVersion: number;
 }
 
 export interface AppConfig {
@@ -336,6 +354,10 @@ function parse(env: AppEnv): AppConfig {
         windowMs: positiveInt(env.POOL_OVERAGE_WINDOW_MS, 24 * 60 * 60_000),
         maxMicros: intVar(env.POOL_OVERAGE_MAX_MICROS, 200_000),
       },
+      noticeVersion:
+        env.TEST_SEAMS === 'true'
+          ? Math.max(POOL_NOTICE_VERSION, intVar(env.POOL_NOTICE_VERSION, POOL_NOTICE_VERSION))
+          : POOL_NOTICE_VERSION,
     },
     impact: {
       minDistinctUsers: clamped(

@@ -9,6 +9,7 @@ import type { AccountContext, AppEnv } from '../env.js';
 import { poolAvailable } from '../services.js';
 import { getCached, putCached } from '../share/cache.js';
 import { simpleProviderConfig } from '../simple-mode.js';
+import { consentVersion } from './consent.js';
 import { poolModel } from './params.js';
 import { dayResetAt, dayStart, userDayUsageStatement, type DayRow } from './pool-bank.js';
 import { isSupporter } from './supporter.js';
@@ -110,7 +111,7 @@ export async function poolMe(
   const pool = appConfig(env).pool;
   const userId = account.userId;
   const day = dayStart(now).toISOString();
-  const [personal, row, usage, supporter] = await Promise.all([
+  const [personal, row, usage, supporter, consent] = await Promise.all([
     getBalance(env.DB, account.billingAccountId),
     userId
       ? env.DB.prepare(
@@ -123,6 +124,7 @@ export async function poolMe(
       : null,
     userId ? userDayUsageStatement(env.DB, pool.accountId, userId, day).first<DayRow>() : null,
     userId ? isSupporter(env.DB, userId, now, pool.caps.supporter.windowMonths) : false,
+    userId ? consentVersion(env.DB, userId) : null,
   ]);
   const caps = supporter ? pool.caps.supporter : pool.caps.free;
   return {
@@ -138,5 +140,7 @@ export async function poolMe(
       resetAt: dayResetAt(now),
     },
     personalAvailableMicros: personal.balanceMicros - personal.heldMicros,
+    consentVersion: consent,
+    currentNoticeVersion: pool.noticeVersion,
   };
 }

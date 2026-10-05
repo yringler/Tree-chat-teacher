@@ -2,14 +2,15 @@ import { computed, inject, Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
 // The tree helpers only: the rest of @tangent/core (the ChatService) is for the lazy demo chunk.
 import { branchChain, branchPath, indexTree, type TreeIndex } from '@tangent/core/tree';
-import type {
-  Branch,
-  ChatNode,
-  ModelInfo,
-  ProviderInfo,
-  StreamEvent,
-  TreeDetail,
-  TreeSummary,
+import {
+  POOL_NOTICE_VERSION,
+  type Branch,
+  type ChatNode,
+  type ModelInfo,
+  type ProviderInfo,
+  type StreamEvent,
+  type TreeDetail,
+  type TreeSummary,
 } from '@tangent/shared';
 import {
   ApiClient,
@@ -17,6 +18,7 @@ import {
   errorMessage,
   isMembershipRequired,
   isPaymentRequired,
+  isPoolConsentRequired,
   isPoolUnavailable,
   poolBlockOf,
   runStream,
@@ -55,6 +57,9 @@ export interface LessonPoolBlock extends PoolBlock {
 const LEARN_PROVIDER_ID = 'tangent';
 
 export const OUT_OF_CREDIT_MESSAGE = 'Add credit to keep learning';
+/** The pool notice changed since this page loaded: its copy of the text is stale. */
+export const STALE_POOL_NOTICE_MESSAGE =
+  'The community pool notice has changed. Reload the page to read the new one.';
 
 function upsertById<T extends { id: string }>(list: readonly T[], items: readonly T[]): T[] {
   const out = [...list];
@@ -407,6 +412,7 @@ export class LessonStore {
         isPaymentRequired(err) ||
         isMembershipRequired(err) ||
         isPoolUnavailable(err) ||
+        isPoolConsentRequired(err) ||
         (err instanceof ApiError && err.code === 'key_required')
       ) {
         this.unsentDraft.set({ branchId, text: content });
@@ -423,6 +429,38 @@ export class LessonStore {
     this.poolBlock.set(null);
   }
 
+  /**
+   * The pool notice was acknowledged (PoolFirstUseDialog): records it at the
+   * version of the text this build shows (`POOL_NOTICE_VERSION`, never the
+   * version the server asked for), then sends the message the pool refused for
+   * want of it, if any. False when it couldn't be recorded (the dialog stays
+   * open). When the server asked for another version, or answers 409, the
+   * notice changed since this page loaded, so this copy of its text is stale.
+   */
+  async acknowledgePoolNotice(): Promise<boolean> {
+    const asked = this.ui.poolConsentVersion();
+    if (asked !== null && asked !== POOL_NOTICE_VERSION) {
+      this.ui.notify(STALE_POOL_NOTICE_MESSAGE, 'error');
+      return false;
+    }
+    try {
+      await this.api.poolConsent(POOL_NOTICE_VERSION);
+    } catch (err) {
+      this.ui.notify(
+        err instanceof ApiError && err.code === 'conflict'
+          ? STALE_POOL_NOTICE_MESSAGE
+          : errorMessage(err),
+        'error',
+      );
+      return false;
+    }
+    this.ui.poolConsentVersion.set(null);
+    void this.account.refreshPool();
+    const draft = this.unsentDraft();
+    if (draft) void this.send(draft.branchId, draft.text);
+    return true;
+  }
+
   /** Stop: the server cancels the generation and the stream ends with an `error` event. */
   async cancel(nodeId: string): Promise<void> {
     try {
@@ -437,7 +475,8 @@ export class LessonStore {
    * out of credit (402 payment_required) goes to the billing page; a missing
    * or unreadable own key (401 key_required) opens the payment dialog; a pool
    * account without a human check on record (403 pool_unavailable, `verify`)
-   * opens the check.
+   * opens the check; one that hasn't acknowledged the current pool notice
+   * (403 pool_consent_required) opens the notice.
    */
   fail(err: unknown): void {
     if (isMembershipRequired(err)) {
@@ -446,6 +485,10 @@ export class LessonStore {
     }
     if (isPoolUnavailable(err) && err.pool?.reason === 'verify') {
       this.ui.poolVerifyOpen.set(true);
+      return;
+    }
+    if (isPoolConsentRequired(err)) {
+      this.ui.poolConsentVersion.set(err.consent?.currentVersion ?? POOL_NOTICE_VERSION);
       return;
     }
     if (err instanceof ApiError && err.code === 'key_required') {

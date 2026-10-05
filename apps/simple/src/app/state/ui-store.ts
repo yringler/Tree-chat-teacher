@@ -17,6 +17,8 @@ export class UiStore {
   readonly accessOpen = signal(false);
   /** The human check before a first pool message (PoolFirstUseDialog). */
   readonly poolVerifyOpen = signal(false);
+  /** The pool notice version to acknowledge before a pool message (PoolFirstUseDialog); null = closed. */
+  readonly poolConsentVersion = signal<number | null>(null);
   /** Bumped to ask the composer to take focus. */
   readonly composerFocus = signal(0);
   private toastSeq = 0;
@@ -47,6 +49,10 @@ export class UiStore {
     }
     if (this.poolVerifyOpen()) {
       this.poolVerifyOpen.set(false);
+      return true;
+    }
+    if (this.poolConsentVersion() !== null) {
+      this.poolConsentVersion.set(null);
       return true;
     }
     if (this.accessOpen()) {

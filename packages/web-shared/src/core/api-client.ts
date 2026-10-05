@@ -21,6 +21,9 @@ import type {
   MembershipWaiverRequest,
   MeResponse,
   PoolBlockDetails,
+  PoolConsentDetails,
+  PoolConsentRequest,
+  PoolConsentResponse,
   PoolMeResponse,
   PoolStatusResponse,
   ProviderInfo,
@@ -45,7 +48,8 @@ import { API_FETCH, API_HEADERS, defaultApiFetch } from './api-fetch';
 
 /**
  * Thrown for every non-2xx API response (and for network failures, with
- * status 0). `pool` carries what a community pool refusal hit (`pool_*` codes).
+ * status 0). `pool` carries what a community pool refusal hit (`pool_*` codes);
+ * `consent` the pool notice version to acknowledge (`pool_consent_required`).
  */
 export class ApiError extends Error {
   constructor(
@@ -53,6 +57,7 @@ export class ApiError extends Error {
     readonly code: ApiErrorCode | 'network',
     message: string,
     readonly pool: PoolBlockDetails | null = null,
+    readonly consent: PoolConsentDetails | null = null,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -161,6 +166,14 @@ export class ApiClient {
   /** The caller's caps and use of the pool today. */
   poolMe(): Promise<PoolMeResponse> {
     return this.json('GET', '/pool/me');
+  }
+
+  /**
+   * Acknowledges the pool notice at `version` (the one shown); a version that
+   * is no longer current is 409 `conflict`.
+   */
+  poolConsent(version: number): Promise<PoolConsentResponse> {
+    return this.json('POST', '/pool/consent', { version } satisfies PoolConsentRequest);
   }
 
   /**
@@ -398,6 +411,7 @@ export class ApiClient {
         parsed.error.code,
         parsed.error.message,
         parsed.error.pool ?? null,
+        parsed.error.consent ?? null,
       );
     return new ApiError(res.status, fallbackCode(res.status), `${res.status} ${res.statusText}`);
   }

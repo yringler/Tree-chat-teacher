@@ -9,6 +9,7 @@ import {
   isPaymentRequired,
   isPoolCapReached,
   isPoolEmpty,
+  isPoolConsentRequired,
   isPoolUnavailable,
 } from './api-client';
 import { API_FETCH, API_HEADERS } from './api-fetch';
@@ -146,6 +147,39 @@ describe('ApiClient community pool', () => {
       amountCents: 2000,
       target: 'pool',
     });
+  });
+
+  it('poolConsent(version) POSTs the version shown to /api/pool/consent', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ version: 1, acknowledgedAt: '2026-10-05T12:00:00.000Z' }),
+    );
+    await expect(api.poolConsent(1)).resolves.toEqual({
+      version: 1,
+      acknowledgedAt: '2026-10-05T12:00:00.000Z',
+    });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect([init.method, url]).toEqual(['POST', '/api/pool/consent']);
+    expect(JSON.parse(String(init.body))).toEqual({ version: 1 });
+  });
+
+  it('keeps the notice version a pool_consent_required asks for', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          error: {
+            code: 'pool_consent_required',
+            message: 'Read the notice',
+            consent: { currentVersion: 2 },
+          },
+        },
+        403,
+      ),
+    );
+    const err = await api.poolMe().catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 403, consent: { currentVersion: 2 }, pool: null });
+    expect(isPoolConsentRequired(err)).toBe(true);
+    expect(isPoolUnavailable(err)).toBe(false);
+    expect(new ApiError(403, 'pool_unavailable', 'x').consent).toBeNull();
   });
 
   it('keeps what a pool refusal hit on the ApiError', async () => {

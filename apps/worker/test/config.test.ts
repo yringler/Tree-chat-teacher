@@ -1,4 +1,4 @@
-import { DEFAULT_SYSTEM_PROMPT } from '@tangent/shared';
+import { DEFAULT_SYSTEM_PROMPT, POOL_NOTICE_VERSION } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { membershipCreditCents } from '../src/billing/membership.js';
@@ -199,6 +199,23 @@ describe('appConfig', () => {
     expect(
       membershipCreditCents({ ...env, STRIPE_SECRET_KEY: '', MEMBERSHIP_CREDIT_CENTS: '300' }),
     ).toBe(0);
+  });
+});
+
+describe('the pool notice version', () => {
+  it('is the code constant; only a test env (TEST_SEAMS) may raise it, never lower it', () => {
+    expect(appConfig({ ...env, POOL_NOTICE_VERSION: '' } as AppEnv).pool.noticeVersion).toBe(
+      POOL_NOTICE_VERSION,
+    );
+    const raised = { ...env, POOL_NOTICE_VERSION: String(POOL_NOTICE_VERSION + 1) } as AppEnv;
+    expect(appConfig(raised).pool.noticeVersion).toBe(POOL_NOTICE_VERSION + 1);
+    expect(resolvePoolParams(raised, null).noticeVersion).toBe(POOL_NOTICE_VERSION + 1);
+    expect(appConfig({ ...raised, TEST_SEAMS: '' } as AppEnv).pool.noticeVersion).toBe(
+      POOL_NOTICE_VERSION,
+    );
+    expect(appConfig({ ...env, POOL_NOTICE_VERSION: '0' } as AppEnv).pool.noticeVersion).toBe(
+      POOL_NOTICE_VERSION,
+    );
   });
 });
 

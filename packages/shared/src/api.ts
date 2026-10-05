@@ -17,7 +17,7 @@ import type {
 } from './domain.js';
 import type { ProviderInfo } from './provider.js';
 import type { AccountMode, MembershipInfo } from './billing.js';
-import type { PoolBlockDetails } from './pool.js';
+import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
 
 /**
  * HTTP API contract between the Angular app and the Worker.
@@ -114,14 +114,19 @@ import type { PoolBlockDetails } from './pool.js';
  *                                                `duplicate_identity` when another account uses the
  *                                                same mailbox)
  *   GET  /api/pool/me                         -> PoolMeResponse (today's caps and use, verified,
- *                                                supporter, the caller's own credit)
+ *                                                supporter, the caller's own credit, the notice
+ *                                                version acknowledged and the current one)
+ *   POST /api/pool/consent PoolConsentRequest -> PoolConsentResponse (same-origin only; records the
+ *                                                acknowledgment of POOL_NOTICE_TEXT; 409 `conflict`
+ *                                                for any version but the current one)
  *
  * A pool send or resolve is refused (403 `pool_unavailable`, before anything
  * is written) for an account that is `suspended` by an admin, has no
  * Turnstile pass on record (`verify`), shares its mailbox with another pool
  * account (`duplicate_identity`) or is newer than POOL_MIN_ACCOUNT_AGE_MS
- * (`too_new`); and with 429 `pool_cap_reached` past a daily cap or a
- * per-minute limit (`rate`). There is no OpenAI-compatible endpoint: the
+ * (`too_new`); with 403 `pool_consent_required` (`error.consent`) until the
+ * current pool notice is acknowledged (again after every version bump); and
+ * with 429 `pool_cap_reached` past a daily cap or a per-minute limit (`rate`). There is no OpenAI-compatible endpoint: the
  * pool is only reachable through the routes above.
  *
  * Public (no sign-in; rate-limited; read-only):
@@ -139,6 +144,8 @@ export interface ApiError {
     message: string;
     /** Pool refusals (`pool_*` codes): what was hit, for the empty and cap-reached states. */
     pool?: PoolBlockDetails;
+    /** 403 `pool_consent_required`: the notice version to acknowledge (`POST /api/pool/consent`). */
+    consent?: PoolConsentDetails;
   };
 }
 

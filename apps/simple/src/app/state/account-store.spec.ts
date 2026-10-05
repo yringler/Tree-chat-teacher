@@ -80,6 +80,8 @@ const POOL_ME: PoolMeResponse = {
     resetAt: '2026-10-06T00:00:00.000Z',
   },
   personalAvailableMicros: 1_000_000,
+  consentVersion: 1,
+  currentNoticeVersion: 1,
 };
 
 function setup(billing: () => Promise<BillingSummary>, pool: PoolStatusResponse = POOL) {
