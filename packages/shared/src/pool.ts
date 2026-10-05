@@ -189,11 +189,11 @@ export function poolSessionsHeadline(sessions: number): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** `12 learners helped this week · 340 exchanges funded this week`: aggregate counts only. */
+/** `12 learners on the pool this week · 340 exchanges funded this week`: aggregate counts only. */
 export function poolWeekText(week: { learners: number; exchanges: number }): string {
   const { learners, exchanges } = week;
   return (
-    `${learners.toLocaleString('en-US')} ${learners === 1 ? 'learner' : 'learners'} helped this week · ` +
+    `${learners.toLocaleString('en-US')} ${learners === 1 ? 'learner' : 'learners'} on the pool this week · ` +
     `${exchanges.toLocaleString('en-US')} ${exchanges === 1 ? 'exchange' : 'exchanges'} funded this week`
   );
 }
