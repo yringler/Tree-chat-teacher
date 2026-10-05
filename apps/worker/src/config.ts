@@ -37,11 +37,11 @@ export const DEFAULT_SIMPLE_MAX_INPUT_TOKENS = 60_000;
 /** The community pool's ledger account id (`POOL_ACCOUNT_ID`). */
 export const DEFAULT_POOL_ACCOUNT_ID = 'pool';
 /**
- * Markup on each pool call's true cost, in bps (5%): what the operator earns
- * on the pool. Purchases add what was paid minus the processing fee, as
- * personal top-ups do (docs/polar-migration/04-verification.md, D4).
+ * The share of Tangent's revenue that goes to the community pool, in bps
+ * (20%): of each membership payment net of tax and the processing fee, and of
+ * the markup on personal credit as it is spent (pool/revenue-share.ts).
  */
-export const DEFAULT_POOL_MARKUP_BPS = 500;
+export const DEFAULT_POOL_REVENUE_SHARE_BPS = 2000;
 /** A smaller impact threshold would make single learners identifiable. */
 export const MIN_IMPACT_DISTINCT_USERS = 3;
 /** The expiry alarm needs this much slack between a call's timeout and its reservation's TTL. */
@@ -126,9 +126,12 @@ export interface PoolConfig {
   /** `POOL_MODEL`; null = the simple provider's fast model, resolved by the caller. */
   model: string | null;
   systemPrompt: string;
-  /** `POOL_MARKUP_BPS`: the markup on each pool call's cost, applied to holds and charges. */
-  markupBps: number;
-  minPurchaseCents: number;
+  /**
+   * `POOL_REVENUE_SHARE_BPS` (at most 10,000): the share of each membership
+   * payment (after the processing fee) and of the markup on personal credit
+   * as it is used that Tangent adds to the pool (pool/revenue-share.ts); 0 = none.
+   */
+  revenueShareBps: number;
   maxInputTokens: number;
   maxOutputTokens: number;
   maxMessageChars: number;
@@ -153,14 +156,6 @@ export interface PoolConfig {
 export interface AppConfig {
   flags: {
     poolEnabled: boolean;
-    /**
-     * Credit for the community pool may be bought (`POOL_PURCHASES_ENABLED`,
-     * default off; decision D1 in docs/polar-migration/02-stripe-to-polar-mapping.md):
-     * off, `target: 'pool'` checkouts are refused and the pool's copy says
-     * Tangent adds its credit; admins can still fund it. Turn on only once the payment
-     * provider has agreed in writing that pool purchases are within its terms.
-     */
-    poolPurchasesEnabled: boolean;
     /**
      * The yearly membership fee is charged and required to generate
      * (`ANNUAL_FEE_ENABLED`, default off). Off, the membership code paths stay
@@ -307,7 +302,6 @@ function parse(env: AppEnv): AppConfig {
   return {
     flags: {
       poolEnabled: boolVar(env.POOL_ENABLED, false),
-      poolPurchasesEnabled: boolVar(env.POOL_PURCHASES_ENABLED, false),
       annualFeeEnabled: boolVar(env.ANNUAL_FEE_ENABLED, false),
       personalCreditEnabled: boolVar(env.PERSONAL_CREDIT_ENABLED, false),
       devPurchasesEnabled: boolVar(env.DEV_PURCHASES_ENABLED, false),
@@ -333,8 +327,10 @@ function parse(env: AppEnv): AppConfig {
       model: env.POOL_MODEL?.trim() || null,
       systemPrompt:
         env.POOL_SYSTEM_PROMPT?.trim() || env.SIMPLE_SYSTEM_PROMPT?.trim() || DEFAULT_SYSTEM_PROMPT,
-      markupBps: intVar(env.POOL_MARKUP_BPS, DEFAULT_POOL_MARKUP_BPS),
-      minPurchaseCents: intVar(env.POOL_MIN_PURCHASE_CENTS, 1000),
+      revenueShareBps: Math.min(
+        intVar(env.POOL_REVENUE_SHARE_BPS, DEFAULT_POOL_REVENUE_SHARE_BPS),
+        10_000,
+      ),
       maxInputTokens: positiveInt(env.POOL_MAX_INPUT_TOKENS, 16_000),
       maxOutputTokens: positiveInt(env.POOL_MAX_OUTPUT_TOKENS, 1024),
       maxMessageChars: positiveInt(env.POOL_MAX_MESSAGE_CHARS, 4000),

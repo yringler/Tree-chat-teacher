@@ -10,8 +10,9 @@
 // - a dispute's `amount` includes its `tax_amount`, which is taken off;
 // - a subscription's `modified_at` orders its snapshots.
 import type { models } from '@polar-sh/sdk/2026-10';
-import { PURCHASE_TARGETS, type PurchaseTarget, type SubscriptionStatus } from '@tangent/shared';
+import type { SubscriptionStatus } from '@tangent/shared';
 import type {
+  CreditsTarget,
   DisputeEvent,
   MembershipChanged,
   PaymentFacts,
@@ -86,13 +87,10 @@ function purposeOf(order: models.Order, config: PolarConfig): PaymentPurpose {
     return { kind: 'other' };
   }
   if (order.billing_reason === 'purchase' && text(metadata, 'kind') === CREDITS_KIND) {
+    // Credit is sold only for the buyer's own ledger; anything else (a legacy
+    // `pool` purchase) is not credited automatically.
     const raw = text(metadata, 'target');
-    const target: PurchaseTarget | 'unknown' =
-      raw === null
-        ? 'personal'
-        : (PURCHASE_TARGETS as readonly string[]).includes(raw)
-          ? (raw as PurchaseTarget)
-          : 'unknown';
+    const target: CreditsTarget = raw === null || raw === 'personal' ? 'personal' : 'unknown';
     return { kind: 'credits', target, accountId: text(metadata, 'accountId') };
   }
   return { kind: 'other' };

@@ -376,16 +376,11 @@ export function createPoolUsageMeter(
         );
         throw new PoolRequestTooLargeError(bound);
       }
-      const holdMicros = worstCaseHoldMicros(
-        price,
-        request,
-        maxOutput,
-        price.feeBps,
-        pool.markupBps,
-      );
+      const holdMicros = worstCaseHoldMicros(price, request, maxOutput, price.feeBps);
       let usageId: string;
       let feeBps = price.feeBps;
-      let markupBps = pool.markupBps;
+      // The pool pays the true cost (no markup); a row reserved before that keeps its own.
+      let markupBps = 0;
       if (tag?.reservationId) {
         // The reply was reserved at its ceiling before the prompt existed: shrink, never re-reserve.
         const shrunk = await shrinkHold(env.DB, tag.reservationId, pool.accountId, holdMicros);
@@ -403,7 +398,6 @@ export function createPoolUsageMeter(
             providerId,
             holdMicros,
             feeBps,
-            markupBps,
           }),
         );
         if (!result.ok) throw new PoolRefusedError(result);

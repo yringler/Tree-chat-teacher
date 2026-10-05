@@ -148,7 +148,7 @@ export function createPolarProvider(config: PolarConfig): PaymentProvider {
           // Copied onto the order: what the webhook credits, and to whom.
           metadata: {
             kind: CREDITS_KIND,
-            target: input.target,
+            target: 'personal',
             accountId: input.accountId,
             userId: input.buyer.userId,
             v: METADATA_VERSION,

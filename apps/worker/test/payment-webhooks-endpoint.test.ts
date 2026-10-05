@@ -178,6 +178,7 @@ describe('the dispute cron job', () => {
       poolExpiry: vi.fn(() => Promise.resolve()),
       poolImpact: vi.fn(() => Promise.resolve()),
       paymentDisputes: vi.fn(() => Promise.reject(new Error('Polar is down'))),
+      poolRevenueShare: vi.fn(() => Promise.resolve()),
     } satisfies CronJobs;
     await expect(
       Promise.all(cronTasks(CRON_FREQUENT, base, new Date(), jobs)),

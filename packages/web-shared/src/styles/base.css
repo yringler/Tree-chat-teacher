@@ -1063,7 +1063,7 @@ textarea:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-.pool-fund {
+.pool-section {
   border-color: var(--accent);
 }
 

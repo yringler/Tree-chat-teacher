@@ -252,12 +252,12 @@ describe('demo backend', () => {
 
   it('answers the pool routes with the pool off, so no pool UI shows and nothing is funded', async () => {
     const { api } = setup();
-    await expect(api.poolStatus()).resolves.toMatchObject({ enabled: false, fundingOpen: false });
+    await expect(api.poolStatus()).resolves.toMatchObject({ enabled: false });
     await expect(api.poolMe()).resolves.toMatchObject({
       available: false,
       personalAvailableMicros: DEMO_START_BALANCE_MICROS,
     });
-    await expect(api.createCheckout(1000, 'pool')).rejects.toBeInstanceOf(ApiError);
+    await expect(api.createCheckout(1000)).rejects.toBeInstanceOf(ApiError);
     // No impact snapshots either.
     await expect(api.poolImpact()).rejects.toMatchObject({ status: 404, code: 'not_found' });
     await expect(api.poolImpactWeeks()).resolves.toEqual({ weeks: [] });

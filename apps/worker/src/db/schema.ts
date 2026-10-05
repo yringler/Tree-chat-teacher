@@ -348,7 +348,10 @@ export const creditGrants = sqliteTable(
   {
     id: text('id').primaryKey(),
     accountId: text('account_id').notNull(),
-    kind: text('kind', { enum: ['purchase', 'subscription', 'refund', 'adjustment'] }).notNull(),
+    /** `contribution`: the pool's share of Tangent's revenue (pool/revenue-share.ts) or its reversal. */
+    kind: text('kind', {
+      enum: ['purchase', 'subscription', 'refund', 'adjustment', 'contribution'],
+    }).notNull(),
     /** Signed: refunds are negative. For purchases, the credit net of the processing fee (older pool purchases: of the margin). */
     amountMicros: integer('amount_micros').notNull(),
     /**
@@ -497,6 +500,10 @@ export const usageEvents = sqliteTable(
     index('usage_events_pool_tier_idx').on(t.accountId, t.tier, t.createdAt),
     // The weekly impact job's tag retention: a branch's latest pool reply.
     index('usage_events_branch_idx').on(t.branchId, t.createdAt),
+    // The pool's daily revenue share: personal charges settled in a UTC day (pool/revenue-share.ts).
+    index('usage_events_personal_settled_idx')
+      .on(t.settledAt)
+      .where(sql`funding = 'personal' AND status = 'settled'`),
   ],
 );
 

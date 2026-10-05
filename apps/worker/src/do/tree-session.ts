@@ -219,14 +219,8 @@ export class TreeSession extends DurableObject<AppEnv> {
         branchId: target.branchId,
         nodeId: null,
         providerId: BUILT_IN_PROVIDER_ID,
-        holdMicros: ceilingHoldMicros(
-          pool.price,
-          pool.maxOutputTokens,
-          pool.price.feeBps,
-          pool.markupBps,
-        ),
+        holdMicros: ceilingHoldMicros(pool.price, pool.maxOutputTokens, pool.price.feeBps),
         feeBps: pool.price.feeBps,
-        markupBps: pool.markupBps,
       }),
     );
     if (!result.ok) throw new PoolBlockedError(poolBlockDetails(result));

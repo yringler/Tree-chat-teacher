@@ -51,26 +51,17 @@ export const MAX_TOP_UP_CENTS = 50_000;
 export const MICROS_PER_USD = 1_000_000;
 
 /**
- * What a credit purchase buys:
- * - `personal`: credit on the buyer's own ledger;
- * - `pool`: credit in the community pool (pool.ts), at least the pool minimum
- *   (`POOL_MIN_PURCHASE_CENTS`, default $10).
- * Either way the purchase adds what was paid (pre-tax) minus the processing
- * fee; the operator earns a markup on usage instead (`MARKUP_BPS` for
- * personal credit, `POOL_MARKUP_BPS` for the pool).
+ * `POST /api/billing/checkout`: credit for the buyer's own account. The
+ * purchase adds what was paid (pre-tax) minus the processing fee; the
+ * operator earns a markup on usage instead (`MARKUP_BPS`). Nobody buys credit
+ * for the community pool: Tangent funds it from its own revenue (pool.ts).
  */
-export const PURCHASE_TARGETS = ['personal', 'pool'] as const;
-export type PurchaseTarget = (typeof PURCHASE_TARGETS)[number];
-
-/** The amounts the billing page offers for funding the community pool. */
-export const POOL_FUND_PRESETS_CENTS: readonly number[] = [1000, 2000, 5000];
-
-/** `POST /api/billing/checkout`; `target` defaults to `personal` (older clients send none). */
 export const createCheckoutRequestSchema = z.object({
   amountCents: z.number().int().min(MIN_TOP_UP_CENTS).max(MAX_TOP_UP_CENTS),
-  target: z.enum(PURCHASE_TARGETS).default('personal'),
+  /** Deprecated: older clients send `personal`; anything else (`pool`) is refused with 400. */
+  target: z.literal('personal').optional(),
 });
-/** What a client sends (`target` optional). */
+/** What a client sends. */
 export type CreateCheckoutRequest = z.input<typeof createCheckoutRequestSchema>;
 
 /** The payment provider's hosted page (checkout or billing portal) to send the browser to. */

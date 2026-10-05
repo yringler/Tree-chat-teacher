@@ -254,7 +254,6 @@ export function adminRoutes(): Hono<AppBindings> {
       accountId: poolId,
       ...balance,
       availableMicros: Math.max(0, balance.balanceMicros - balance.heldMicros),
-      devPurchasesEnabled: config.flags.devPurchasesEnabled,
       breaker: {
         overageMicros,
         maxMicros: overage.maxMicros,
@@ -381,7 +380,6 @@ export function adminRoutes(): Hono<AppBindings> {
     if (req.mode === 'simulated_purchase') {
       ref = `dev:${req.idempotencyKey}`;
       credited = await fulfilPurchase(c.env, {
-        target: req.target,
         userId: req.userId,
         accountId,
         grossCents: req.amountCents,

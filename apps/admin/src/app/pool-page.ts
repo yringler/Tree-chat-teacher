@@ -15,10 +15,9 @@ import {
 
 /** What the pool credit form holds. */
 export interface PoolCreditForm {
-  /** Dollars as typed; a leading `-` debits (adjustments only). */
+  /** Dollars as typed; a leading `-` debits. */
   amount: string;
-  mode: AdminCreditRequest['mode'];
-  /** The buyer a simulated purchase credits as supporter, or blank. */
+  /** The user the adjustment is recorded for (e.g. a shared-access arrangement), or blank. */
   userId: string;
   note: string;
 }
@@ -38,15 +37,13 @@ export function poolCreditRequest(
   if (cents === null || cents === 0) return 'Enter an amount in dollars, like 25 or -5.50.';
   if (cents > ADMIN_CREDIT_MAX_CENTS)
     return `At most ${formatCents(ADMIN_CREDIT_MAX_CENTS)} at a time.`;
-  if (negative && form.mode === 'simulated_purchase')
-    return 'A simulated purchase must be positive.';
   const userId = form.userId.trim();
   const note = form.note.trim();
   return {
     target: 'pool',
     userId: userId === '' ? null : userId,
     amountCents: negative ? -cents : cents,
-    mode: form.mode,
+    mode: 'adjustment',
     idempotencyKey,
     ...(note ? { note } : {}),
   };
@@ -60,10 +57,10 @@ function newKey(): string {
  * The community pool's ledger (`GET /api/admin/pool`): balance, what pending
  * reservations hold, and the overage breaker (while tripped, the pool refuses
  * every request until the window's overage falls back under the limit or the
- * price table is fixed). Below it, a top-up or correction of the pool without a
- * payment (`POST /api/admin/credit`): an adjustment (a negative one is clamped
- * to what is available), or a simulated purchase where DEV_PURCHASES_ENABLED
- * allows it.
+ * price table is fixed). Below it, a top-up or correction of the pool
+ * (`POST /api/admin/credit`, an adjustment; a negative one is clamped to what
+ * is available): how the operator adds credit beyond the automatic revenue
+ * share. Nobody buys pool credit, so there is no simulated pool purchase.
  */
 @Component({
   selector: 'app-pool-page',
@@ -111,7 +108,7 @@ function newKey(): string {
           <code class="admin-id">{{ p.accountId }}</code>
         </dd>
       </dl>
-      <form class="admin-search" (submit)="$event.preventDefault(); credit(p)">
+      <form class="admin-search" (submit)="$event.preventDefault(); credit()">
         <label class="field">
           <span class="field-label">Amount ($, negative to debit)</span>
           <input
@@ -122,16 +119,7 @@ function newKey(): string {
           />
         </label>
         <label class="field">
-          <span class="field-label">Kind</span>
-          <select [value]="form().mode" (change)="patch({ mode: $any($event.target).value })">
-            <option value="adjustment">Adjustment</option>
-            @if (p.devPurchasesEnabled) {
-              <option value="simulated_purchase">Simulated purchase</option>
-            }
-          </select>
-        </label>
-        <label class="field">
-          <span class="field-label">Buyer user id (optional)</span>
+          <span class="field-label">For user id (optional)</span>
           <input
             type="text"
             [value]="form().userId"
@@ -173,7 +161,6 @@ export class PoolPage {
   protected readonly pool = signal<AdminPoolResponse | null>(null);
   protected readonly form = signal<PoolCreditForm>({
     amount: '',
-    mode: 'adjustment',
     userId: '',
     note: '',
   });
@@ -205,12 +192,9 @@ export class PoolPage {
     }
   }
 
-  protected async credit(pool: AdminPoolResponse): Promise<void> {
+  protected async credit(): Promise<void> {
     const form = this.form();
-    const req = poolCreditRequest(
-      pool.devPurchasesEnabled ? form : { ...form, mode: 'adjustment' },
-      this.key,
-    );
+    const req = poolCreditRequest(form, this.key);
     if (typeof req === 'string') {
       this.error.set(req);
       return;
@@ -221,7 +205,7 @@ export class PoolPage {
     try {
       this.result.set(await this.api.adminCredit(req));
       this.key = newKey();
-      this.form.set({ amount: '', mode: form.mode, userId: '', note: '' });
+      this.form.set({ amount: '', userId: '', note: '' });
       await this.load();
     } catch (err) {
       this.error.set(errorMessage(err));

@@ -7,14 +7,26 @@
 //
 // The community pool is one more account in the same tables (pool/pool-bank.ts).
 
-export type CreditGrantKind = 'purchase' | 'subscription' | 'refund' | 'adjustment';
+/**
+ * - `purchase`: credit bought (net of the processing fee); `subscription`:
+ *   credit included with a membership payment; `refund`: a refund or dispute
+ *   taking credit back; `adjustment`: an admin's (or a marker row);
+ * - `contribution`: the pool's share of Tangent's revenue
+ *   (pool/revenue-share.ts), or, negative, a refund taking it back.
+ */
+export type CreditGrantKind =
+  'purchase' | 'subscription' | 'refund' | 'adjustment' | 'contribution';
 
 export interface CreditGrantInput {
   accountId: string;
   kind: CreditGrantKind;
   /** Signed micro-USD (refunds are negative); for purchases, net of the processing fee (pool purchases before 2026-10: of the pool margin). */
   amountMicros: number;
-  /** Purchases: the pre-tax amount paid, before the processing fee. Refunds: minus the refunded pre-tax amount. */
+  /**
+   * Purchases: the pre-tax amount paid, before the processing fee. Refunds: minus the refunded
+   * pre-tax amount. Contributions: the revenue they are a share of (a membership payment's
+   * pre-tax amount, or a day's markup); their reversals: minus the refunded pre-tax amount.
+   */
   grossMicros?: number | null;
   /** Purchases: the payment provider's actual processing fee (`grossMicros - amountMicros` for personal credit). */
   feeMicros?: number;

@@ -136,8 +136,6 @@ export default defineConfig({
             // override is then "no payments configured".
             POLAR_ACCESS_TOKEN: '',
             POLAR_WEBHOOK_SECRET: '',
-            // Pool purchases open (wrangler.jsonc ships them off, D1).
-            POOL_PURCHASES_ENABLED: 'true',
             // No membership required by default (tests that need one pass ANNUAL_FEE_ENABLED: 'true' in
             // an env override), so the other suites generate freely. The fee is off as deployed; the
             // price and credit are the defaults.
@@ -157,6 +155,9 @@ export default defineConfig({
             // As deployed: tests that simulate purchases turn it on in an env override.
             DEV_PURCHASES_ENABLED: 'false',
             POOL_ACCOUNT_ID: 'pool',
+            // No revenue share by default: the suites that test it (pool-revenue-share.test.ts) set it on
+            // a pool of their own, so membership payments elsewhere never touch the shared `pool`.
+            POOL_REVENUE_SHARE_BPS: '0',
             POOL_MODEL: 'simple',
             MODEL_PRICES: JSON.stringify({ simple: { in: 1_000_000, out: 1_000_000, context: 8_192 } }),
             POOL_MAX_OUTPUT_TOKENS: '2048',

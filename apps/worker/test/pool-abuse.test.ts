@@ -29,7 +29,7 @@ const ECHO = '[echo-request]';
 const PARAMS = resolvePoolParams(env, null);
 const PRICE = PARAMS.price!;
 /** The reply's ceiling hold on a test pool (POOL_MAX_OUTPUT_TOKENS 2048 in vitest.config.ts). */
-const CEILING = ceilingHoldMicros(PRICE, 2048, PRICE.feeBps, PARAMS.markupBps);
+const CEILING = ceilingHoldMicros(PRICE, 2048, PRICE.feeBps);
 /** POOL_FREE_REQUESTS_PER_DAY and POOL_SUPPORTER_REQUESTS_PER_DAY in vitest.config.ts. */
 const FREE_REPLIES = 3;
 const SUPPORTER_REPLIES = 6;

@@ -1,7 +1,6 @@
 import {
   formatMicros,
-  poolEmptyText,
-  poolPricingText,
+  POOL_EMPTY_TEXT,
   poolSessionsHeadline,
   poolWeekText,
   type PoolBlockDetails,
@@ -10,13 +9,11 @@ import {
 import { ApiError, isPoolCapReached, isPoolEmpty } from '../core/api-client';
 
 /*
- * The community pool as both apps word it: the meter, the pricing disclosure
- * and the inline empty and cap-reached states. Plain functions, so the specs
- * check the exact copy. Copy rules (docs/pool/PLAN.md §8): "fund the pool",
- * a credit purchase; never a donation.
+ * The community pool as both apps word it: the meter and the inline empty and
+ * cap-reached states. Plain functions, so the specs check the exact copy.
+ * The pool is free credit Tangent provides (`poolFundingText`); nothing here
+ * offers it for sale, and nothing calls it a donation.
  */
-
-export { poolEmptyText, poolPricingText };
 
 /** `About 120 learning sessions`, the meter's headline. */
 export function sessionsLabel(status: Pick<PoolStatusResponse, 'sessionsRemaining'>): string {
@@ -81,17 +78,13 @@ function limitText(reason: PoolBlockDetails['reason'], limit: number): string {
 
 /**
  * What the chat says when the pool refused a message (spec §8):
- * - empty: `poolEmptyText` (who refills it depends on `fundingOpen`);
+ * - empty: `POOL_EMPTY_TEXT` (Tangent refills it);
  * - a daily cap: the cap, when it resets, and that supporters get more;
  * - the network's or everyone's daily ceiling: "busy today" (and, for the
  *   free tier's ceiling, that supporters have their own);
  * - per-minute: try again in a minute.
  */
-export function poolBlockText(
-  block: PoolBlock,
-  now: Date = new Date(),
-  fundingOpen = false,
-): PoolBlockText {
+export function poolBlockText(block: PoolBlock, now: Date = new Date()): PoolBlockText {
   const d = block.details;
   if (block.kind === 'empty') {
     return d.reason === 'unpriced'
@@ -100,7 +93,7 @@ export function poolBlockText(
           detail: 'Try again later.',
           supporters: null,
         }
-      : { title: poolEmptyText(fundingOpen), detail: null, supporters: null };
+      : { title: POOL_EMPTY_TEXT, detail: null, supporters: null };
   }
   const reset = d.resetAt ? `00:00 UTC (in ${untilText(d.resetAt, now)})` : '00:00 UTC';
   switch (d.reason) {
@@ -133,9 +126,4 @@ export function poolBlockText(
       return { title, detail: `The limit resets at ${reset}.`, supporters: more };
     }
   }
-}
-
-/** The disclosure under every way to fund the pool. */
-export function poolFundingNote(markupBps: number): string {
-  return `Funding the pool is a credit purchase. ${poolPricingText(markupBps)}`;
 }

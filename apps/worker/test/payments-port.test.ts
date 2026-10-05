@@ -53,8 +53,7 @@ describe('payment refs', () => {
 describe('fake payment provider', () => {
   const input: TopUpCheckoutInput = {
     buyer: { userId: 'u1', email: 'ada@example.com', name: 'Ada Ünïcode', customerRef: null },
-    target: 'pool',
-    accountId: 'pool',
+    accountId: 'u_u1',
     amountCents: 1234,
     successUrl: 'https://app.example/billing?checkout=success',
     cancelUrl: 'https://app.example/billing?checkout=cancel',

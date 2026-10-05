@@ -1,16 +1,14 @@
 import type { PoolStatusResponse } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
-import { poolDollarsLabel, poolFundingNote, poolWeekLabel, sessionsLabel } from './pool-format';
+import { poolDollarsLabel, poolWeekLabel, sessionsLabel } from './pool-format';
 
 const STATUS: PoolStatusResponse = {
   enabled: true,
-  fundingOpen: true,
   availableMicros: 2_468_000,
   sessionsRemaining: 123,
   model: { id: 'm', label: 'Simple' },
   week: { start: '2026-10-05T00:00:00.000Z', exchanges: 1240, learners: 87 },
-  markupBps: 500,
-  minPurchaseCents: 1000,
+  revenueShareBps: 2000,
 };
 
 describe('the pool meter', () => {
@@ -26,12 +24,6 @@ describe('the pool meter', () => {
     );
     expect(poolWeekLabel({ week: { ...STATUS.week, learners: 1, exchanges: 1 } })).toBe(
       '1 learner helped this week · 1 exchange funded this week',
-    );
-  });
-
-  it('discloses the fee pass-through and the markup as a credit purchase', () => {
-    expect(poolFundingNote(500)).toBe(
-      "Funding the pool is a credit purchase. A pool purchase adds what you paid minus the card processing fee. Each reply from the pool costs the AI provider's price plus a 5% markup.",
     );
   });
 });

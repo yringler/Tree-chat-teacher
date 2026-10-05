@@ -62,12 +62,19 @@ describe('Polar webhooks: orders', () => {
     ]);
   });
 
-  it('reads the pool target and account from the metadata; an unknown target stays unknown', async () => {
+  it('reads the personal target and account from the metadata; any other target is unknown', async () => {
+    const personal = order({
+      metadata: { kind: 'credits', target: 'personal', accountId: 'u_user_1', userId: 'user_1' },
+    });
+    expect((await eventsOf(envelope('order.paid', personal)))[0]).toMatchObject({
+      purpose: { kind: 'credits', target: 'personal', accountId: 'u_user_1' },
+    });
+    // A legacy pool purchase is never credited automatically.
     const pool = order({
       metadata: { kind: 'credits', target: 'pool', accountId: 'pool', userId: 'user_1', v: 1 },
     });
     expect((await eventsOf(envelope('order.paid', pool)))[0]).toMatchObject({
-      purpose: { kind: 'credits', target: 'pool', accountId: 'pool' },
+      purpose: { kind: 'credits', target: 'unknown', accountId: 'pool' },
     });
     const odd = order({ metadata: { kind: 'credits', target: 'charity' } });
     expect((await eventsOf(envelope('order.paid', odd)))[0]).toMatchObject({

@@ -37,7 +37,6 @@ import type {
   PortalResponse,
   ProviderInfo,
   PoolTopicReviewStatus,
-  PurchaseTarget,
   ReviewRequest,
   SendMessageRequest,
   SettingsResponse,
@@ -152,17 +151,12 @@ export class ApiClient {
   }
 
   /**
-   * Starts a one-time credit purchase, for the caller (`personal`, a top-up)
-   * or for the community pool; resolves with the payment provider's checkout
-   * URL to send the browser to.
+   * Starts a one-time top-up of the caller's own credit; resolves with the
+   * payment provider's checkout URL to send the browser to.
    */
-  createCheckout(
-    amountCents: number,
-    target: PurchaseTarget = 'personal',
-  ): Promise<CheckoutResponse> {
+  createCheckout(amountCents: number): Promise<CheckoutResponse> {
     return this.json('POST', '/billing/checkout', {
       amountCents,
-      ...(target === 'pool' ? { target } : {}),
     } satisfies CreateCheckoutRequest);
   }
 

@@ -27,22 +27,14 @@ describe('Learn copy rule (community pool)', () => {
     expect(templateOf(HomePage)).toContain('<app-pool-meter [status]="status" />');
   });
 
-  it('says who adds the pool’s credit, and offers funding only while it is open', () => {
-    const card = templateOf(HomePage).split('@if (status.fundingOpen) {')[1] ?? '';
-    const [open = '', rest = ''] = card.split('} @else {');
-    const closed = rest.slice(0, rest.indexOf('</p>'));
-    expect(open).toContain('Credit anyone can add');
-    expect(open).toContain('Fund the pool');
-    expect(closed).toContain('Credit Tangent adds and any signed-in learner can use');
-    expect(closed).not.toContain('Fund the pool');
-    expect(closed).not.toContain('anyone can add');
-
+  it('says Tangent provides the pool’s credit from its revenue, and never sells it', () => {
+    const home = templateOf(HomePage);
+    expect(home).toContain('{{ funding(status) }} Any signed-in learner can use it');
     const dialog = templateOf(ModelAccessDialog);
-    expect(dialog).toMatch(
-      /@if \(account\.poolStatus\(\)\?\.fundingOpen\) \{\s*Funded by people who add credit to it\.\s*\} @else if \(account\.poolStatus\(\)\) \{\s*Tangent adds its credit\.\s*\}/,
-    );
-    expect(dialog).toMatch(
-      /@if \(account\.poolStatus\(\)\?\.fundingOpen\) \{\s*· <a routerLink="\/billing" fragment="fund-pool" \(click\)="close\(\)">Fund the pool<\/a>\s*\}/,
-    );
+    expect(dialog).toMatch(/Free credit\s+Tangent provides from its revenue\./);
+    for (const t of [home, dialog]) {
+      expect(t).not.toContain('fund-pool');
+      expect(t).not.toMatch(/fund the pool|funded by people|anyone can add/i);
+    }
   });
 });

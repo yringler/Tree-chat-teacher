@@ -32,7 +32,7 @@ const POOL_MAX_OUTPUT = 2048;
 const PARAMS = resolvePoolParams(env, null);
 const PRICE = PARAMS.price!;
 /** The reply's ceiling hold on a test pool. */
-const CEILING = ceilingHoldMicros(PRICE, POOL_MAX_OUTPUT, PRICE.feeBps, PARAMS.markupBps);
+const CEILING = ceilingHoldMicros(PRICE, POOL_MAX_OUTPUT, PRICE.feeBps);
 
 type User = Awaited<ReturnType<typeof poolReadyUser>>;
 
@@ -110,6 +110,7 @@ interface UsageRow {
   model: string;
   status: string;
   hold_micros: number;
+  markup_bps: number;
   charge_micros: number | null;
   settle_reason: string | null;
 }
@@ -199,8 +200,9 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
       status: 'settled',
       settle_reason: 'cost',
     });
-    // At least the output cap at 1 µ$ per token plus the fee and markup; less than the full context window.
-    expect(row!.hold_micros).toBeGreaterThanOrEqual(Math.ceil(POOL_MAX_OUTPUT * 1.055 * 1.05));
+    // At least the output cap at 1 µ$ per token plus the fee (no pool markup); less than the full context window.
+    expect(row!.hold_micros).toBeGreaterThanOrEqual(Math.ceil(POOL_MAX_OUTPUT * 1.055));
+    expect(row!.markup_bps).toBe(0);
     expect(row!.hold_micros).toBeLessThan(CEILING);
     expect(row!.charge_micros).toBeLessThanOrEqual(row!.hold_micros);
     expect(await rows(`u_${u.userId}`)).toEqual([]);
@@ -425,7 +427,6 @@ describe('pool refusals', () => {
         providerId: 'tangent',
         holdMicros: CEILING,
         feeBps: PRICE.feeBps,
-        markupBps: PARAMS.markupBps,
       }),
     );
     expect(taken.ok).toBe(true);

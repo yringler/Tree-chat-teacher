@@ -9,7 +9,6 @@ import {
   type BillingSummary,
   type CheckoutResponse,
   type PurchaseInfo,
-  type PurchaseTarget,
   type UsageEntry,
   type UsageListResponse,
   type UsagePurpose,
@@ -20,7 +19,6 @@ import { getBalance } from './ledger.js';
 import { membershipFor } from './membership.js';
 import { buyerFor, rememberCustomer } from './payments/customers.js';
 import { paymentProvider, paymentsConfigured } from './payments/index.js';
-import { assertPurchasable } from './purchases.js';
 import { appConfig } from '../config.js';
 
 export {
@@ -121,7 +119,7 @@ async function lastPurchase(env: AppEnv, accountId: string): Promise<PurchaseInf
   };
 }
 
-/** One-time credit purchases (top-ups, and funding the pool) can be sold: the payment provider sells credit. */
+/** One-time credit purchases (top-ups) can be sold: the payment provider sells credit. */
 export function topUpsEnabled(env: AppEnv): boolean {
   return paymentProvider(env)?.capabilities.topUps ?? false;
 }
@@ -225,16 +223,14 @@ export async function listUsage(
 /**
  * The page the payment provider's checkout returns to: the billing page of
  * the app the checkout started from (`/billing` in power, `/learn/billing` in
- * Learn). A pool purchase adds `target=pool`, so the page waits for the
- * pool's balance instead of the buyer's.
+ * Learn).
  */
 export function checkoutReturnUrl(
   baseUrl: string,
   account: AccountContext,
   outcome: 'success' | 'cancel',
-  target: PurchaseTarget = 'personal',
 ): string {
-  return `${billingPageUrl(baseUrl, account)}?checkout=${outcome}${target === 'pool' ? '&target=pool' : ''}`;
+  return `${billingPageUrl(baseUrl, account)}?checkout=${outcome}`;
 }
 
 /** The billing page of the app `account` is in, where the billing portal returns to. */
@@ -244,10 +240,9 @@ export function billingPageUrl(baseUrl: string, account: AccountContext): string
 }
 
 /**
- * Opens the payment provider's hosted checkout for a credit purchase, in
- * either mode: a top-up of the user's own credit, or (`target` `pool`) credit
- * for the community pool. The provider carries the target, the ledger to
- * credit and the buyer to its webhook (billing/payments/apply.ts).
+ * Opens the payment provider's hosted checkout for a top-up of the user's
+ * own credit, in either mode. The provider carries the ledger to credit and
+ * the buyer to its webhook (billing/payments/apply.ts).
  */
 export async function startTopUpCheckout(
   env: AppEnv,
@@ -255,10 +250,7 @@ export async function startTopUpCheckout(
   userId: string,
   amountCents: number,
   baseUrl: string,
-  target: PurchaseTarget = 'personal',
 ): Promise<CheckoutResponse> {
-  // The pool's own checks (on, purchases open, its minimum) first, then the personal bounds.
-  assertPurchasable(env, target, amountCents);
   if (
     !Number.isInteger(amountCents) ||
     amountCents < MIN_TOP_UP_CENTS ||
@@ -272,15 +264,13 @@ export async function startTopUpCheckout(
   if (!provider?.capabilities.topUps) throw notConfigured();
   const buyer = await buyerFor(env.DB, provider.id, userId);
   if (!buyer) throw new DomainError('unauthorized', 'Sign in to add credit');
-  // The user's ledger, whichever app the top-up was bought from; or the pool's.
-  const accountId = target === 'pool' ? appConfig(env).pool.accountId : account.billingAccountId;
+  // The user's ledger, whichever app the top-up was bought from.
   const session = await provider.createTopUpCheckout({
     buyer,
-    target,
-    accountId,
+    accountId: account.billingAccountId,
     amountCents,
-    successUrl: checkoutReturnUrl(baseUrl, account, 'success', target),
-    cancelUrl: checkoutReturnUrl(baseUrl, account, 'cancel', target),
+    successUrl: checkoutReturnUrl(baseUrl, account, 'success'),
+    cancelUrl: checkoutReturnUrl(baseUrl, account, 'cancel'),
   });
   if (session.customerRef) await rememberCustomer(env.DB, provider.id, userId, session.customerRef);
   return { url: session.url };

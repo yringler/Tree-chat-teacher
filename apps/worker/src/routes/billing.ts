@@ -33,8 +33,8 @@ const usageQuerySchema = z.object({
  * credit and the membership are the user's (`billingAccountId`, `userId`),
  * whichever app shows them.
  * `GET /` → BillingSummary, `GET /usage` → UsageListResponse,
- * `POST /checkout` → CheckoutResponse (credit for the user or, `target: 'pool'`,
- * for the community pool; returns to the calling app's billing page),
+ * `POST /checkout` → CheckoutResponse (credit for the user; returns to the
+ * calling app's billing page),
  * `POST /membership/waiver` → MembershipInfo (redeems MEMBERSHIP_WAIVER_CODE),
  * `POST /membership/checkout` → CheckoutResponse (the yearly membership),
  * `POST /portal` → PortalResponse (the payment provider's billing portal; 404
@@ -78,12 +78,12 @@ export function billingRoutes(): Hono<AppBindings> {
   });
 
   r.post('/checkout', sameOriginOnly, validateJson(createCheckoutRequestSchema), async (c) => {
-    const { amountCents, target } = c.req.valid('json');
+    const { amountCents } = c.req.valid('json');
     const account = c.var.account;
     const userId = account.userId;
     if (!userId) throw new DomainError('unauthorized', 'Sign in to add credit');
     const body = await viaProvider(() =>
-      startTopUpCheckout(c.env, account, userId, amountCents, baseUrlOf(c), target),
+      startTopUpCheckout(c.env, account, userId, amountCents, baseUrlOf(c)),
     );
     return c.json(body satisfies CheckoutResponse);
   });

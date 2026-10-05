@@ -86,23 +86,16 @@ export {
   parseDollarsToCents,
 } from './billing/format';
 
-// The community pool: the meter, the fund section, the inline empty/cap states and the first-use check
+// The community pool: the meter, the billing page's section, the inline empty/cap states and the first-use check
 export { PoolMeter } from './pool/pool-meter';
-export { PoolFundSection } from './pool/pool-fund-section';
+export { PoolSection } from './pool/pool-section';
 export { ImpactFeed, loadLatestImpact } from './pool/impact-feed';
-export {
-  PoolFundController,
-  type PoolFundDeps,
-  type PoolFundNotice,
-} from './pool/pool-fund-controller';
 export { PoolBlockNotice } from './pool/pool-block-notice';
 export { PoolFirstUseDialog, poolVerifyHref } from './pool/pool-first-use-dialog';
 export {
   poolBlockOf,
   poolBlockText,
   poolDollarsLabel,
-  poolFundingNote,
-  poolPricingText,
   poolWeekLabel,
   sessionsLabel,
   untilText,

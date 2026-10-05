@@ -1,6 +1,7 @@
 // Refunds of payments (billing/payments/apply.ts) on neutral events: personal
-// purchases, pool purchases (clamped by PoolBank), the membership's included
-// credit, and refunds that arrive before (or without) their payment.
+// purchases, legacy pool purchases (clamped by PoolBank), the membership's
+// included credit, and refunds that arrive before (or without) their payment.
+// The pool's revenue share of a refunded membership: pool-revenue-share.test.ts.
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { applyPaymentEvent, RetryLaterError } from '../src/billing/payments/apply.js';
@@ -9,7 +10,14 @@ import { createFakeProvider } from '../src/billing/providers/fake.js';
 import type { AppEnv } from '../src/env.js';
 import { isSupporter } from '../src/pool/supporter.js';
 import { grantDetailsFor, insertUsage, insertUser, uniq } from './mocks/billing-helpers.js';
-import { factsOf, fakeRef, membershipPaid, paid, refunded } from './mocks/payment-events.js';
+import {
+  factsOf,
+  fakeRef,
+  legacyPoolPurchase,
+  membershipPaid,
+  paid,
+  refunded,
+} from './mocks/payment-events.js';
 import { fundPool } from './pool-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
@@ -53,18 +61,11 @@ describe('refund.succeeded: personal purchases', () => {
   });
 });
 
-describe('refund.succeeded: pool purchases', () => {
+describe('refund.succeeded: legacy pool purchases', () => {
   it('takes back the share of what the purchase credited, clamped to what the pool has', async () => {
     const userId = await newUser();
     const poolId = uniq('pool');
-    const payment = paid({
-      userId,
-      target: 'pool',
-      accountId: poolId,
-      netCents: 1000,
-      feeCents: 80,
-    });
-    await apply(payment);
+    const payment = await legacyPoolPurchase(env, { poolId, userId, netCents: 1000, feeCents: 80 });
     // Half refunded: half of the 9.20 it added.
     expect(await apply(refunded(payment.paymentRef, 500))).toBe('applied');
     expect(await balance(poolId)).toBe(4_600_000);

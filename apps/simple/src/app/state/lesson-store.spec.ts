@@ -177,13 +177,11 @@ function fakeApi() {
 
 const POOL_STATUS: PoolStatusResponse = {
   enabled: true,
-  fundingOpen: true,
   availableMicros: 0,
   sessionsRemaining: 0,
   model: { id: 'fast-model', label: 'Simple' },
   week: { start: T, exchanges: 0, learners: 0 },
-  markupBps: 500,
-  minPurchaseCents: 1000,
+  revenueShareBps: 2000,
 };
 
 function setup() {
@@ -552,7 +550,9 @@ describe('LessonStore', () => {
     await open(s, detail());
     const newer = POOL_NOTICE_VERSION + 1;
     s.api.sendMessage.mockRejectedValueOnce(
-      new ApiError(403, 'pool_consent_required', 'Read the notice', null, { currentVersion: newer }),
+      new ApiError(403, 'pool_consent_required', 'Read the notice', null, {
+        currentVersion: newer,
+      }),
     );
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
     expect(s.ui.poolConsentVersion()).toBe(newer);

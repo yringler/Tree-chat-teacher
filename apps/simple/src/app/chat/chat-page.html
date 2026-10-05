@@ -113,7 +113,6 @@
     @if (poolBlock(); as block) {
       <app-pool-block-notice
         [block]="block"
-        [fundingOpen]="account.poolStatus()?.fundingOpen ?? false"
         [creditOpen]="account.creditOnSale()"
         billingPath="/billing"
         (dismissed)="store.dismissPoolBlock()"

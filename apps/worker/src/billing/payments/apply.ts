@@ -6,15 +6,21 @@
 // (`billing_subscriptions`), so redeliveries, duplicates and any order of
 // events are safe:
 //
-// - payment.succeeded, credits → `fulfilPurchase` (personal or pool, net of
-//   the processing fee), once per payment ref. Non-USD and unknown targets
+// - payment.succeeded, credits → `fulfilPurchase` (the buyer's own credit,
+//   net of the processing fee), once per payment ref. Non-USD payments,
+//   unknown targets (a legacy pool purchase) and any ledger but a personal one
 //   are logged and never credited; an unknown fee throws RetryLaterError.
 // - payment.succeeded, membership (first year or renewal) → the included
-//   credit (MEMBERSHIP_CREDIT_CENTS), a fixed gift with no gross or fee.
+//   credit (MEMBERSHIP_CREDIT_CENTS), a fixed gift with no gross or fee, and
+//   the community pool's revenue share of the payment after its fee
+//   (pool/revenue-share.ts), each once per payment; an unknown fee throws
+//   RetryLaterError once the included credit is in.
 // - refund.succeeded → a personal purchase: − the refunded pre-tax amount in
-//   full (the processor keeps its fee, so the refund passes it on); a pool
-//   purchase: − the share of what it credited, clamped by PoolBank.debit; a
-//   membership payment: its included credit, once per payment.
+//   full (the processor keeps its fee, so the refund passes it on); a legacy
+//   pool purchase (from before the pool became revenue-funded): − the share
+//   of what it credited, clamped by PoolBank.debit; a membership payment: its
+//   included credit, once per payment, and the refunded proportion of the
+//   pool's revenue share of it, clamped, once per refund.
 // - dispute.opened / dispute.lost → debited like a refund of the disputed
 //   amount (membership disputes are left to the operator); lost also
 //   suspends the buyer's pool access, once. dispute.won → what the dispute
@@ -24,11 +30,15 @@
 // Any event that names both our user and the provider's customer records
 // them in `billing_customers`.
 import { billingAccountIdFor, DEV_SIMPLE_ACCOUNT_ID, userIdOfAccount } from '../../auth/account.js';
-import { appConfig } from '../../config.js';
 import type { AppEnv } from '../../env.js';
 import { identitySuspensionStatement } from '../../pool/identity.js';
 import { poolBank } from '../../pool/ids.js';
 import { creditEquivalentMicros } from '../../pool/pricing.js';
+import {
+  grantMembershipShare,
+  reverseMembershipShare,
+  revenueShareBps,
+} from '../../pool/revenue-share.js';
 import { grantByRef, grantCredit, hasGrant, type GrantRow } from '../ledger.js';
 import { membershipCreditCents } from '../membership.js';
 import { centsToMicros } from '../pricing.js';
@@ -44,7 +54,7 @@ import type {
   ProviderRef,
   RefundSucceeded,
 } from './port.js';
-import { membershipRefundRef, reinstatedRef } from './refs.js';
+import { membershipPoolShareRef, membershipRefundRef, reinstatedRef } from './refs.js';
 
 /** The note on the credit a membership payment includes (and that a refund of it takes back). */
 export const MEMBERSHIP_CREDIT_NOTE = 'Included with membership';
@@ -79,7 +89,7 @@ function written(changed: boolean): ApplyResult {
 /**
  * True when `accountId` is a user's own ledger (`u_<userId>`, or the dev
  * bypass's `default_simple`); anything else that received a purchase is a
- * community pool account.
+ * community pool account (a legacy pool purchase).
  */
 function isPersonalLedger(accountId: string): boolean {
   return accountId === DEV_SIMPLE_ACCOUNT_ID || userIdOfAccount(accountId) !== null;
@@ -131,14 +141,8 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
   if (!(e.netCents > 0)) return 'skipped';
   if (await hasGrant(env.DB, e.paymentRef)) return 'duplicate';
   if (!e.fee) throw new RetryLaterError(`The fee of ${e.paymentRef} is not known yet`);
-  const accountId =
-    purpose.accountId ||
-    (purpose.target === 'pool'
-      ? appConfig(env).pool.accountId
-      : e.userId
-        ? billingAccountIdFor(e.userId)
-        : null);
-  if (!accountId) {
+  const accountId = purpose.accountId || (e.userId ? billingAccountIdFor(e.userId) : null);
+  if (!accountId || !isPersonalLedger(accountId)) {
     log('payment_not_credited', { reason: 'no_account', paymentRef: e.paymentRef });
     return 'skipped';
   }
@@ -146,7 +150,6 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
     log('fee_estimated', { paymentRef: e.paymentRef, feeCents: e.fee.cents, netCents: e.netCents });
   return written(
     await fulfilPurchase(env, {
-      target: purpose.target,
       userId: e.userId ?? userIdOfAccount(accountId),
       accountId,
       grossCents: e.netCents,
@@ -160,27 +163,41 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
  * A paid membership year (the first or a renewal) includes
  * MEMBERSHIP_CREDIT_CENTS of credit: a fixed gift, not a purchase, so no
  * gross amount or fee. Nothing when the built-in provider isn't offered (the
- * amount is then 0) or nothing was paid (a trial or a 100% discount).
+ * amount is then 0) or nothing was paid (a trial or a 100% discount). Then
+ * the community pool's share of the payment (USD only), which needs the fee.
  */
 async function membershipPayment(env: AppEnv, e: PaymentSucceeded): Promise<ApplyResult> {
+  if (!(e.netCents > 0)) return 'skipped';
   const cents = membershipCreditCents(env);
-  if (cents <= 0 || !(e.netCents > 0)) return 'skipped';
-  if (!e.userId) {
-    log('payment_not_credited', { reason: 'no_user', paymentRef: e.paymentRef });
-    return 'skipped';
+  let credited: ApplyResult = 'skipped';
+  if (cents > 0) {
+    if (e.userId) {
+      credited = written(
+        await grantCredit(env.DB, {
+          accountId: billingAccountIdFor(e.userId),
+          kind: 'subscription',
+          amountMicros: centsToMicros(cents),
+          grossMicros: null,
+          feeMicros: 0,
+          userId: e.userId,
+          providerRef: e.paymentRef,
+          note: MEMBERSHIP_CREDIT_NOTE,
+        }),
+      );
+    } else {
+      log('payment_not_credited', { reason: 'no_user', paymentRef: e.paymentRef });
+    }
   }
-  return written(
-    await grantCredit(env.DB, {
-      accountId: billingAccountIdFor(e.userId),
-      kind: 'subscription',
-      amountMicros: centsToMicros(cents),
-      grossMicros: null,
-      feeMicros: 0,
-      userId: e.userId,
-      providerRef: e.paymentRef,
-      note: MEMBERSHIP_CREDIT_NOTE,
-    }),
-  );
+  if (revenueShareBps(env) <= 0 || e.currency !== 'usd') return credited;
+  if (!e.fee) throw new RetryLaterError(`The fee of ${e.paymentRef} is not known yet`);
+  const shared = await grantMembershipShare(env, {
+    paymentRef: e.paymentRef,
+    netCents: e.netCents,
+    feeCents: e.fee.cents,
+  });
+  if (shared) return 'applied';
+  if (credited !== 'skipped') return credited;
+  return (await hasGrant(env.DB, membershipPoolShareRef(e.paymentRef))) ? 'duplicate' : 'skipped';
 }
 
 /**
@@ -216,6 +233,17 @@ async function refundSucceeded(
     log('refund_not_debited', { reason: 'currency', refundRef: e.refundRef, currency: e.currency });
     return 'skipped';
   }
+  // A membership payment's pool share (none for any other payment) is taken back per refund.
+  const unshared = await reverseMembershipShare(env, {
+    paymentRef: e.paymentRef,
+    refundRef: e.refundRef,
+    netCents: e.netCents,
+  });
+  const result = await refundGrant(env, e, deps);
+  return unshared ? 'applied' : result;
+}
+
+async function refundGrant(env: AppEnv, e: RefundSucceeded, deps: ApplyDeps): Promise<ApplyResult> {
   const grant = await paidGrant(env, e.paymentRef, deps);
   if (!grant) return 'skipped';
   if (grant.kind === 'subscription') {
@@ -244,7 +272,7 @@ async function refundSucceeded(
 /**
  * Debits a purchase being refunded or disputed: a personal purchase by the
  * refunded pre-tax amount in full (it may go negative; the processor keeps
- * its fee, so the refund passes it on), a pool purchase through
+ * its fee, so the refund passes it on), a legacy pool purchase through
  * `debitPoolPurchase` (clamped). Keyed on `ref`.
  */
 async function debitPurchase(
@@ -279,8 +307,8 @@ async function debitPurchase(
 }
 
 /**
- * Debits the pool for `refundedGrossMicros` (pre-tax) of a pool purchase
- * being refunded or disputed: the share of what the purchase actually
+ * Debits the pool for `refundedGrossMicros` (pre-tax) of a legacy pool
+ * purchase being refunded or disputed: the share of what the purchase actually
  * credited (`creditEquivalentMicros`, net of its fee), or, for a purchase
  * that was never credited, at most the refunded amount; clamped to what the
  * pool has available. The row is always written (PoolBank.debit), so a

@@ -1,9 +1,9 @@
-// Buying credit for the community pool (docs/pool/PLAN.md §S5): checkout
-// targets, the payment webhook's pool fulfilment (net of the processing fee),
-// refunds and disputes through PoolBank.debit (more in payments-*.test.ts),
-// the admin's credit route and pool panel.
+// How credit reaches the community pool now that nobody buys it
+// (docs/polar-migration/05-pool-framing.md, D1): a pool-target payment is
+// never credited, legacy pool purchase grants are still debited (clamped) by
+// their refunds and disputes, checkouts are personal only, and the admin's
+// credit route and pool panel. The revenue share is in pool-revenue-share.test.ts.
 import {
-  POOL_FUND_PRESETS_CENTS,
   type AdminCreditResponse,
   type AdminPoolResponse,
   type ApiError,
@@ -14,7 +14,7 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 // @ts-expect-error -- `?raw` is a Vite import; the worker tsconfig has no vite/client types.
 import wranglerText from '../wrangler.jsonc?raw';
-import { getBalance } from '../src/billing/ledger.js';
+import { getBalance, grantCredit } from '../src/billing/ledger.js';
 import { decodeFakeUrl } from '../src/billing/providers/fake.js';
 import { fulfilPurchase } from '../src/billing/purchases.js';
 import { applyPaymentEvent } from '../src/billing/payments/apply.js';
@@ -23,7 +23,7 @@ import type { AppEnv } from '../src/env.js';
 import { poolBank } from '../src/pool/ids.js';
 import { isSupporter } from '../src/pool/supporter.js';
 import { insertUser, uniq } from './mocks/billing-helpers.js';
-import { disputed, paid, refunded } from './mocks/payment-events.js';
+import { disputed, legacyPoolPurchase, paid, refunded } from './mocks/payment-events.js';
 import { fundPool, poolAccess, poolReadyUser } from './pool-helpers.js';
 import { authEnv } from './session-client.js';
 
@@ -60,46 +60,61 @@ async function json<T>(res: Response, status = 200): Promise<T> {
   return (text ? JSON.parse(text) : null) as T;
 }
 
-describe('pool purchases through the payment webhook', () => {
-  it('credits a pool purchase once, net of the fee, and makes the buyer a supporter', async () => {
-    const poolId = uniq('pool');
-    const buyer = uniq('user');
-    await insertUser(env, { id: buyer });
-    const payment = paid({ userId: buyer, target: 'pool', accountId: poolId, feeCents: 80 });
-    expect(await applyPaymentEvent(env, payment, { provider: null })).toBe('applied');
-    expect(await applyPaymentEvent(env, payment, { provider: null })).toBe('duplicate');
-    expect(await grants(poolId)).toEqual([
-      {
-        account_id: poolId,
-        kind: 'purchase',
-        amount_micros: 9_200_000,
-        gross_micros: 10_000_000,
-        fee_micros: 800_000,
-        margin_bps: 0,
-        user_id: buyer,
-        provider_ref: payment.paymentRef,
-        note: 'Community pool purchase',
-      },
-    ]);
-    // The buyer's personal ledger is untouched, and they are now a supporter.
-    expect(await balance(`u_${buyer}`)).toBe(0);
-    expect(await isSupporter(env.DB, buyer, new Date(), null)).toBe(true);
-    // Refunded in full: no longer a supporter, and the pool gives back what it was credited.
-    await applyPaymentEvent(env, refunded(payment.paymentRef, 1000), { provider: null });
-    expect(await balance(poolId)).toBe(0);
-    expect(await isSupporter(env.DB, buyer, new Date(), null)).toBe(false);
-  });
-
-  it('a lost dispute of a pool purchase suspends its buyer’s pool access', async () => {
+describe('no pool purchases through the payment webhook', () => {
+  it('never credits a pool-target payment, or one naming any ledger but a personal one', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const poolId = uniq('pool');
     const buyer = uniq('user');
     await insertUser(env, { id: buyer });
-    const payment = paid({ userId: buyer, target: 'pool', accountId: poolId });
-    await applyPaymentEvent(env, payment, { provider: null });
-    await applyPaymentEvent(env, disputed('dispute.lost', payment.paymentRef, 1000), {
-      provider: null,
+    // A legacy `target: 'pool'` order maps to `unknown` (polar/map.ts).
+    const legacy = paid({ userId: buyer, target: 'unknown', accountId: poolId });
+    expect(await applyPaymentEvent(env, legacy, { provider: null })).toBe('skipped');
+    const forged = paid({ userId: buyer, accountId: poolId });
+    expect(await applyPaymentEvent(env, forged, { provider: null })).toBe('skipped');
+    expect(await grants(poolId)).toEqual([]);
+    expect(await balance(`u_${buyer}`)).toBe(0);
+    expect(await isSupporter(env.DB, buyer, new Date(), null)).toBe(false);
+    // Their refunds take nothing back (the provider reports nothing that was credited).
+    expect(
+      await applyPaymentEvent(env, refunded(legacy.paymentRef, 1000), { provider: null }),
+    ).toBe('skipped');
+    warn.mockRestore();
+  });
+
+  it('a refund of a legacy pool purchase still debits the pool, clamped, once', async () => {
+    const poolId = uniq('pool');
+    const buyer = uniq('user');
+    await insertUser(env, { id: buyer });
+    const { paymentRef } = await legacyPoolPurchase(env, { poolId, userId: buyer });
+    expect(await isSupporter(env.DB, buyer, new Date(), null)).toBe(true);
+    // Half refunded: half of what it credited comes back out.
+    const half = refunded(paymentRef, 500);
+    expect(await applyPaymentEvent(env, half, { provider: null })).toBe('applied');
+    expect(await applyPaymentEvent(env, half, { provider: null })).toBe('duplicate');
+    expect(await balance(poolId)).toBe(4_600_000);
+    // The pool spent some meanwhile: the rest is clamped to what it has.
+    await grantCredit(env.DB, {
+      accountId: poolId,
+      kind: 'adjustment',
+      amountMicros: -4_000_000,
+      providerRef: `admin:${uniq('spent')}`,
     });
+    await applyPaymentEvent(env, refunded(paymentRef, 500), { provider: null });
+    expect(await balance(poolId)).toBe(0);
+    const rows = await grants(poolId);
+    expect(rows.at(-1)).toMatchObject({ kind: 'refund', amount_micros: -600_000, user_id: buyer });
+    expect(rows.at(-1)!.note).toContain('requested=4600000;shortfall=4000000');
+    expect(await isSupporter(env.DB, buyer, new Date(), null)).toBe(false);
+  });
+
+  it('a lost dispute of a legacy pool purchase debits the pool and suspends its buyer', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const poolId = uniq('pool');
+    const buyer = uniq('user');
+    await insertUser(env, { id: buyer });
+    const { paymentRef } = await legacyPoolPurchase(env, { poolId, userId: buyer });
+    await applyPaymentEvent(env, disputed('dispute.lost', paymentRef, 1000), { provider: null });
+    expect(await balance(poolId)).toBe(0);
     expect((await poolAccess(buyer))?.pool_suspended).toBe(1);
     warn.mockRestore();
   });
@@ -131,101 +146,48 @@ describe('pool purchases through the payment webhook', () => {
   });
 });
 
-describe('pool pricing', () => {
-  it('offers presets from the minimum, and credits gross minus the fee (credit = gross − fee)', async () => {
-    const { minPurchaseCents } = appConfig(env).pool;
-    for (const cents of POOL_FUND_PRESETS_CENTS)
-      expect(cents).toBeGreaterThanOrEqual(minPurchaseCents);
-    const poolId = uniq('pool');
-    await fulfilPurchase(env, {
-      target: 'pool',
-      userId: null,
-      accountId: poolId,
-      grossCents: 1000,
-      processorFeeCents: 59,
-      ref: `dev:${uniq('key')}`,
-    });
-    expect(await grants(poolId)).toMatchObject([
-      { amount_micros: 9_410_000, gross_micros: 10_000_000, fee_micros: 590_000, margin_bps: 0 },
-    ]);
-  });
-
-  it('fulfilPurchase is idempotent on its ref', async () => {
-    const poolId = uniq('pool');
-    const p = {
-      target: 'pool' as const,
-      userId: null,
-      accountId: poolId,
-      grossCents: 1000,
-      processorFeeCents: 0,
-      ref: `dev:${uniq('key')}`,
-    };
+describe('fulfilPurchase', () => {
+  it('credits the buyer’s own ledger gross minus the fee, once per ref', async () => {
+    const buyer = uniq('user');
+    const p = { userId: buyer, grossCents: 1000, processorFeeCents: 59, ref: `dev:${uniq('key')}` };
     expect(await fulfilPurchase(env, p)).toBe(true);
     expect(await fulfilPurchase(env, p)).toBe(false);
-    expect(await balance(poolId)).toBe(10_000_000);
+    expect(await grants(`u_${buyer}`)).toMatchObject([
+      {
+        kind: 'purchase',
+        amount_micros: 9_410_000,
+        gross_micros: 10_000_000,
+        fee_micros: 590_000,
+        user_id: buyer,
+        note: 'Credit top-up',
+      },
+    ]);
   });
 });
 
-describe('POST /api/billing/checkout for the pool', () => {
-  it('opens a pool checkout from the pool minimum, naming the target, the pool and the buyer', async () => {
-    const { client, poolId, userId } = await poolReadyUser({ funds: 0 });
+describe('POST /api/billing/checkout', () => {
+  it('opens personal top-ups only: `target: "pool"` is refused', async () => {
+    const { client, userId } = await poolReadyUser({ funds: 0 });
     const checkout = (amountCents: number, target?: string) =>
       client.call('/api/billing/checkout', {
         method: 'POST',
         json: { amountCents, ...(target ? { target } : {}) },
         learn: 'pool',
       });
-    expect((await json<ApiError>(await checkout(500, 'pool'), 400)).error.message).toMatch(
-      /from 1000 to 50000 for the community pool/,
-    );
-    const pool = decodeFakeUrl((await json<CheckoutResponse>(await checkout(1000, 'pool'))).url);
-    expect(pool.input).toMatchObject({
-      buyer: { userId },
-      target: 'pool',
-      accountId: poolId,
-      amountCents: 1000,
-      // The billing page then waits for the pool's balance, not the buyer's.
-      successUrl: `${ORIGIN}/learn/billing?checkout=success&target=pool`,
-      cancelUrl: `${ORIGIN}/learn/billing?checkout=cancel&target=pool`,
-    });
-    // No target: a personal top-up, as before ($5 is enough there).
-    const personal = decodeFakeUrl((await json<CheckoutResponse>(await checkout(500))).url);
-    expect(personal.input).toMatchObject({
-      target: 'personal',
-      accountId: `u_${userId}`,
-      amountCents: 500,
-      successUrl: `${ORIGIN}/learn/billing?checkout=success`,
-    });
+    await json<ApiError>(await checkout(1000, 'pool'), 400);
     await json<ApiError>(await checkout(1000, 'charity'), 400);
-  });
-
-  it('refuses pool checkouts until POOL_PURCHASES_ENABLED (personal top-ups stay open)', async () => {
-    const { client } = await poolReadyUser({ funds: 0 });
-    const closed = authEnv({ POOL_PURCHASES_ENABLED: 'false' });
-    const checkout = (target: string) =>
-      client.call(
-        '/api/billing/checkout',
-        { method: 'POST', json: { amountCents: 1000, target }, learn: 'pool' },
-        closed,
+    for (const target of [undefined, 'personal']) {
+      const personal = decodeFakeUrl(
+        (await json<CheckoutResponse>(await checkout(500, target))).url,
       );
-    expect((await json<ApiError>(await checkout('pool'), 400)).error.message).toBe(
-      'Funding the community pool is not open yet',
-    );
-    await json<CheckoutResponse>(await checkout('personal'));
-    // As deployed (wrangler.jsonc): closed.
-    expect(/"POOL_PURCHASES_ENABLED"\s*:\s*"([^"]*)"/.exec(wranglerText as string)?.[1]).toBe(
-      'false',
-    );
-  });
-
-  it('refuses a pool checkout while the pool is off', async () => {
-    const { client } = await poolReadyUser({ funds: 0 });
-    const res = await client.call(
-      '/api/billing/checkout',
-      { method: 'POST', json: { amountCents: 1000, target: 'pool' } },
-      authEnv({ POOL_ENABLED: 'false' }),
-    );
-    expect(res.status).toBe(400);
+      expect(personal.input).toMatchObject({
+        accountId: `u_${userId}`,
+        amountCents: 500,
+        successUrl: `${ORIGIN}/learn/billing?checkout=success`,
+        cancelUrl: `${ORIGIN}/learn/billing?checkout=cancel`,
+      });
+      expect(personal.input).not.toHaveProperty('target');
+    }
   });
 });
 
@@ -321,6 +283,8 @@ describe('POST /api/admin/credit', () => {
         amountCents: -100,
         idempotencyKey: key(),
       },
+      // Nobody buys pool credit, not even a simulated purchase.
+      { ...base, target: 'pool', mode: 'simulated_purchase', idempotencyKey: key() },
     ])
       await json<ApiError>(await credit(body), 400);
     await json<ApiError>(await credit({ ...base, userId: 'nobody', idempotencyKey: key() }), 404);
@@ -345,49 +309,41 @@ describe('POST /api/admin/credit', () => {
     expect(await balance(`u_${user.userId}`)).toBe(0);
   });
 
-  it('simulates purchases only with DEV_PURCHASES_ENABLED: personal and pool', async () => {
-    const off = await setup();
-    const purchase = (userId: string, target: string) => ({
-      target,
+  it('simulates personal purchases only with DEV_PURCHASES_ENABLED', async () => {
+    const purchase = (userId: string) => ({
+      target: 'personal',
       userId,
       amountCents: 1000,
       mode: 'simulated_purchase',
       idempotencyKey: key(),
     });
+    const off = await setup();
     expect(
-      (await json<ApiError>(await off.credit(purchase(off.user.userId, 'pool')), 404)).error.code,
+      (await json<ApiError>(await off.credit(purchase(off.user.userId)), 404)).error.code,
     ).toBe('not_found');
-    expect(await balance(off.poolId)).toBe(0);
+    expect(await balance(`u_${off.user.userId}`)).toBe(0);
 
     const on = await setup({ devPurchases: true });
-    const pool = purchase(on.user.userId, 'pool');
-    expect(await json<AdminCreditResponse>(await on.credit(pool))).toEqual({
-      credited: true,
-      amountMicros: 10_000_000,
-      balanceMicros: 10_000_000,
-    });
-    expect(await json<AdminCreditResponse>(await on.credit(pool))).toMatchObject({
-      credited: false,
-    });
-    expect(await grants(on.poolId)).toMatchObject([
-      {
-        kind: 'purchase',
-        amount_micros: 10_000_000,
-        gross_micros: 10_000_000,
-        margin_bps: 0,
-        user_id: on.user.userId,
-        provider_ref: `dev:${pool.idempotencyKey}`,
-      },
-    ]);
-    // A simulated purchase counts like a real one.
-    expect(await isSupporter(env.DB, on.user.userId, new Date(), null)).toBe(true);
-
-    const personal = purchase(on.user.userId, 'personal');
+    const personal = purchase(on.user.userId);
     expect(await json<AdminCreditResponse>(await on.credit(personal))).toEqual({
       credited: true,
       amountMicros: 10_000_000,
       balanceMicros: 10_000_000,
     });
+    expect(await json<AdminCreditResponse>(await on.credit(personal))).toMatchObject({
+      credited: false,
+    });
+    expect(await grants(`u_${on.user.userId}`)).toMatchObject([
+      {
+        kind: 'purchase',
+        amount_micros: 10_000_000,
+        gross_micros: 10_000_000,
+        user_id: on.user.userId,
+        provider_ref: `dev:${personal.idempotencyKey}`,
+      },
+    ]);
+    // A simulated purchase counts like a real one.
+    expect(await isSupporter(env.DB, on.user.userId, new Date(), null)).toBe(true);
   });
 
   it('the production config keeps simulated purchases off', async () => {
@@ -484,7 +440,6 @@ describe('GET /api/admin/pool', () => {
       heldMicros: 3_000,
       pendingCalls: 1,
       availableMicros: 5_000_000 - 9_000,
-      devPurchasesEnabled: false,
       breaker: { overageMicros: 600, maxMicros: 1_000, windowMs: 24 * 60 * 60_000, tripped: false },
     });
 

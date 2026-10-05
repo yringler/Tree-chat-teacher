@@ -1,19 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
   FORBIDDEN_POOL_COPY,
+  POOL_AT_COST_TEXT,
   POOL_BLOCK_REASONS,
+  POOL_EMPTY_TEXT,
   POOL_NOTICE_TEXT,
   POOL_NOTICE_VERSION,
   poolBlockDetailsSchema,
   poolConsentRequestSchema,
-  poolEmptyText,
   poolErrorCode,
+  poolFundingText,
   poolImpactDepthText,
   poolImpactHeadline,
   poolImpactQuerySchema,
   poolImpactTopicText,
   poolImpactWeekText,
-  poolPricingText,
   poolSessionsText,
 } from './pool.js';
 
@@ -58,25 +59,31 @@ describe('pool copy', () => {
     expect(poolSessionsText(2.9)).toBe('about 2 learning sessions');
   });
 
-  it('discloses the fee pass-through and the per-reply markup', () => {
-    expect(poolPricingText(500)).toBe(
-      "A pool purchase adds what you paid minus the card processing fee. Each reply from the pool costs the AI provider's price plus a 5% markup.",
+  it("states Tangent's revenue share from the configured rate", () => {
+    expect(poolFundingText(2000)).toBe(
+      "The community pool is free credit Tangent provides. Tangent puts 20% of what it earns into it: 20% of each membership payment after payment fees, and 20% of the markup on credit as it's used.",
     );
-    expect(poolPricingText(750)).toMatch(/plus a 7\.5% markup\.$/);
+    expect(poolFundingText(1250)).toContain('12.5% of each membership payment');
+    expect(poolFundingText(0)).toBe('The community pool is free credit Tangent provides.');
   });
 
-  it('says who refills an empty pool: buyers while purchases are open, else Tangent', () => {
-    expect(poolEmptyText(true)).toBe('The community pool is empty. It refills as people fund it.');
-    expect(poolEmptyText(false)).toBe(
-      'The community pool is empty until Tangent adds more credit.',
-    );
-  });
-
-  it('never calls funding a donation', () => {
+  it('never offers pool credit for sale', () => {
     for (const text of [
-      poolEmptyText(true),
-      poolEmptyText(false),
-      poolPricingText(500),
+      poolFundingText(2000),
+      poolFundingText(0),
+      POOL_EMPTY_TEXT,
+      POOL_AT_COST_TEXT,
+    ])
+      expect(text).not.toMatch(/buy|purchase|fund the pool|people fund/i);
+    expect(POOL_EMPTY_TEXT).toBe('The community pool is empty until Tangent adds more credit.');
+    expect(POOL_AT_COST_TEXT).toContain('with no markup');
+  });
+
+  it('never calls the pool a donation', () => {
+    for (const text of [
+      POOL_EMPTY_TEXT,
+      POOL_AT_COST_TEXT,
+      poolFundingText(2000),
       poolSessionsText(10),
     ])
       expect(text).not.toMatch(FORBIDDEN_POOL_COPY);

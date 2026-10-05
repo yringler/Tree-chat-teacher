@@ -1,8 +1,9 @@
 import { escapeHtml } from '@tangent/render';
 import {
   formatMicros,
-  poolEmptyText,
-  poolPricingText,
+  POOL_AT_COST_TEXT,
+  POOL_EMPTY_TEXT,
+  poolFundingText,
   poolSessionsHeadline,
   poolWeekText,
   type PoolImpactResponse,
@@ -172,31 +173,23 @@ const LANDING_IMPACT_TOPICS = 12;
 
 /**
  * The community pool section: the meter, this week's counts, the latest
- * weekly impact snapshot when there is one, and how to fund it. While pool
- * purchases are closed (`fundingOpen` false) only Tangent adds credit, so the
- * section says that and offers nothing to buy.
+ * weekly impact snapshot when there is one, and where the pool's credit comes
+ * from (Tangent's revenue share, `poolFundingText`). Nothing here is for sale.
  */
 function poolSection(pool: PoolStatusResponse, impact?: PoolImpactResponse): string {
   const meter =
     pool.sessionsRemaining > 0
       ? `<p class="meter">${escapeHtml(poolSessionsHeadline(pool.sessionsRemaining))} left<small>${escapeHtml(formatMicros(pool.availableMicros))} in the pool</small></p>`
-      : `<p class="meter">${escapeHtml(poolEmptyText(pool.fundingOpen))}<small>${escapeHtml(formatMicros(pool.availableMicros))} in the pool</small></p>`;
-  const fund = pool.fundingOpen
-    ? '<a class="btn primary" href="/learn/billing#fund-pool">Fund the pool</a>'
-    : '';
-  const who = pool.fundingOpen ? 'Credit anyone can add' : 'Credit Tangent adds';
-  const fee = pool.fundingOpen
-    ? `Funding the pool is a credit purchase. ${escapeHtml(poolPricingText(pool.markupBps))}`
-    : "Buying credit for the pool isn't available yet.";
+      : `<p class="meter">${escapeHtml(POOL_EMPTY_TEXT)}<small>${escapeHtml(formatMicros(pool.availableMicros))} in the pool</small></p>`;
   return `<section aria-labelledby="pool">
 <div class="wrap">
 <h2 id="pool">The community pool</h2>
-<p class="sub">${who} and any signed-in learner can use in Learn, on ${escapeHtml(pool.model.label)}, within daily limits. When your own credit runs out, the pool keeps you learning.</p>
+<p class="sub">${escapeHtml(poolFundingText(pool.revenueShareBps))} Any signed-in learner can use it in Learn, on ${escapeHtml(pool.model.label)}, within daily limits. When your own credit runs out, the pool keeps you learning.</p>
 <div class="pool">
 ${meter}
 <p class="week">${escapeHtml(poolWeekText(pool.week))}</p>
-${impact ? `${renderImpactBlock(impact, LANDING_IMPACT_TOPICS)}\n` : ''}<div class="ctas">${fund}<a class="btn" href="/pool">How the pool works</a></div>
-<p class="fee">${fee}</p>
+${impact ? `${renderImpactBlock(impact, LANDING_IMPACT_TOPICS)}\n` : ''}<div class="ctas"><a class="btn" href="/pool">How the pool works</a></div>
+<p class="fee">${escapeHtml(POOL_AT_COST_TEXT)}</p>
 </div>
 </div>
 </section>
@@ -289,7 +282,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <li>Tangents after every answer, each one a tap away</li>
 <li>Side questions with Ask about this</li>
 <li>Smart and Simple tiers, one toggle</li>
-<li>Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit</li>${opts.pool ? `\n<li>Or learn on the community pool, ${opts.pool.fundingOpen ? 'funded by people who add credit to it' : 'free within daily limits, on credit Tangent adds'}</li>` : ''}
+<li>Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit</li>${opts.pool ? '\n<li>Or learn free on the community pool, within daily limits, on credit Tangent provides from its revenue</li>' : ''}
 </ul>
 <a class="btn primary" href="/learn/login">Start learning</a>
 </article>

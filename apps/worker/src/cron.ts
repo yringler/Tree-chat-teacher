@@ -4,11 +4,13 @@ import { pollDisputes } from './billing/payments/disputes.js';
 import { reconcilePendingUsage, reconcilePoolUsage } from './billing/reconcile.js';
 import type { AppEnv } from './env.js';
 import { aggregatePoolImpact } from './pool/impact.js';
+import { accruePoolUsageShare } from './pool/revenue-share.js';
 
 /**
  * Every 10 minutes: usage reconciliation, pool reservation expiry and the
- * balance checkpoint, and the payment provider's disputes where it has to be
- * polled (billing/payments/disputes.ts).
+ * balance checkpoint, the payment provider's disputes where it has to be
+ * polled (billing/payments/disputes.ts), and the pool's revenue share of each
+ * completed UTC day's markup (pool/revenue-share.ts; a no-op once a day is done).
  */
 export const CRON_FREQUENT = '*/10 * * * *';
 /** Mondays 04:17 UTC: the pool's impact snapshot of the ISO week just ended, and tag retention. */
@@ -20,6 +22,7 @@ export interface CronJobs {
   poolExpiry(env: AppEnv, now: Date): Promise<unknown>;
   poolImpact(env: AppEnv, now: Date): Promise<unknown>;
   paymentDisputes(env: AppEnv, now: Date): Promise<unknown>;
+  poolRevenueShare(env: AppEnv, now: Date): Promise<unknown>;
 }
 
 export const CRON_JOBS: CronJobs = {
@@ -27,6 +30,7 @@ export const CRON_JOBS: CronJobs = {
   poolExpiry: (env, now) => reconcilePoolUsage(env, now),
   poolImpact: (env, now) => aggregatePoolImpact(env, now),
   paymentDisputes: (env, now) => pollDisputes(env, now),
+  poolRevenueShare: (env, now) => accruePoolUsageShare(env, now),
 };
 
 /**
@@ -47,6 +51,10 @@ export function cronTasks(
         // A provider outage must never block reconciliation.
         jobs.paymentDisputes(env, now).catch((e: unknown) => {
           console.error('Payment dispute poll failed', e);
+        }),
+        // A failure is retried on the next run: missed days are caught up.
+        jobs.poolRevenueShare(env, now).catch((e: unknown) => {
+          console.error('Pool revenue share failed', e);
         }),
       ];
     case CRON_WEEKLY:

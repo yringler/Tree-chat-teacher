@@ -54,27 +54,17 @@ describe('payment.succeeded: credit purchases', () => {
     expect(await isSupporter(env.DB, userId, new Date(), null)).toBe(true);
   });
 
-  it('credits a pool purchase net of the fee, to the account the checkout named', async () => {
+  it('credits the ledger the checkout named only when it is a personal one', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const userId = await newUser();
+    const named = paid({ userId, accountId: `u_${userId}`, netCents: 2000, feeCents: 150 });
+    expect(await apply(named)).toBe('applied');
+    expect(await balance(`u_${userId}`)).toBe(18_500_000);
+    // Nobody buys pool credit: a payment naming the pool's ledger credits nothing.
     const poolId = uniq('pool');
-    const e = paid({ userId, target: 'pool', accountId: poolId, netCents: 2000, feeCents: 150 });
-    expect(await apply(e)).toBe('applied');
-    expect(await grantDetailsFor(env, poolId)).toMatchObject([
-      {
-        kind: 'purchase',
-        amount_micros: 18_500_000,
-        gross_micros: 20_000_000,
-        fee_micros: 1_500_000,
-      },
-    ]);
-    expect(await balance(`u_${userId}`)).toBe(0);
-    // A pool purchase without an account goes to the configured pool.
-    const configured = uniq('pool');
-    await apply(paid({ userId, target: 'pool', netCents: 1000, feeCents: 0 }), {
-      ...env,
-      POOL_ACCOUNT_ID: configured,
-    } as AppEnv);
-    expect(await balance(configured)).toBe(10_000_000);
+    expect(await apply(paid({ userId, accountId: poolId }))).toBe('skipped');
+    expect(await grantDetailsFor(env, poolId)).toEqual([]);
+    warn.mockRestore();
   });
 
   it('asks for a retry while the fee is unknown, and logs an estimated fee', async () => {

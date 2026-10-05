@@ -12,7 +12,6 @@ function templateOf(type: object): string {
 
 const form = (change: Partial<PoolCreditForm> = {}): PoolCreditForm => ({
   amount: '25',
-  mode: 'adjustment',
   userId: '',
   note: '',
   ...change,
@@ -34,8 +33,9 @@ describe('PoolPage (balance, overage breaker, top-up)', () => {
     expect(t).toContain('POOL_OVERAGE_MAX_MICROS');
   });
 
-  it('offers simulated purchases only where the server allows them', () => {
-    expect(t).toMatch(/@if \(p\.devPurchasesEnabled\) \{\s*<option value="simulated_purchase">/);
+  it('only adjusts the pool: nobody buys pool credit', () => {
+    expect(t).not.toContain('simulated_purchase');
+    expect(t).not.toMatch(/buyer/i);
   });
 
   it('builds a pool credit request from the form', () => {
@@ -58,9 +58,6 @@ describe('PoolPage (balance, overage breaker, top-up)', () => {
     for (const amount of ['', '0', 'ten', '1.234', '--5'])
       expect(typeof poolCreditRequest(form({ amount }), 'k')).toBe('string');
     expect(poolCreditRequest(form({ amount: '500.01' }), 'k')).toBe('At most $500 at a time.');
-    expect(poolCreditRequest(form({ amount: '-5', mode: 'simulated_purchase' }), 'k')).toBe(
-      'A simulated purchase must be positive.',
-    );
   });
 
   it('never says donate or tax-deductible', () => {

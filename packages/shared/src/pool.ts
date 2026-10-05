@@ -2,8 +2,9 @@ import { z } from 'zod';
 import { formatBps } from './money.js';
 
 /**
- * The community credit pool (docs/pool/SPEC.md): credit anyone may add, spent
- * by signed-in Learn users on one economical model within daily caps.
+ * The community credit pool (docs/pool/SPEC.md): free credit Tangent provides
+ * from its own revenue (`poolFundingText`; nobody buys pool credit), spent at
+ * cost by signed-in Learn users on one economical model within daily caps.
  *
  * Who pays for a request's model calls. The server decides it per request
  * from the payment header and the user's credit (never the client alone):
@@ -94,16 +95,11 @@ export interface PoolVerifyResponse {
 
 /**
  * `GET /api/pool/status` (public, cached for a minute): the pool meter of the
- * landing page, the apps and the fund section. Aggregates only; no user data.
+ * landing page and the apps. Aggregates only; no user data.
  */
 export interface PoolStatusResponse {
   /** The pool is on (`POOL_ENABLED` and a usable built-in provider). */
   enabled: boolean;
-  /**
-   * People can fund it now: the payment provider sells credit and pool
-   * purchases are open (`POOL_PURCHASES_ENABLED`).
-   */
-  fundingOpen: boolean;
   /** Credit the pool can still spend (held reservations excluded), micro-USD. */
   availableMicros: number;
   /** About how many learning sessions that covers (`POOL_SESSION_ESTIMATE_MICROS` each). */
@@ -112,10 +108,11 @@ export interface PoolStatusResponse {
   model: { id: string; label: string };
   /** Since Monday 00:00 UTC: pool replies that cost something, and the learners they went to. */
   week: { start: string; exchanges: number; learners: number };
-  /** The markup on each pool reply's cost, bps (`poolPricingText`). */
-  markupBps: number;
-  /** The smallest pool purchase, cents. */
-  minPurchaseCents: number;
+  /**
+   * The share of Tangent's revenue that goes to the pool, bps
+   * (`POOL_REVENUE_SHARE_BPS`, `poolFundingText`); 0 = none.
+   */
+  revenueShareBps: number;
 }
 
 /**
@@ -174,15 +171,10 @@ export interface PoolConsentResponse {
 }
 
 /**
- * The empty state, wherever it shows (spec §8). While pool purchases are
- * closed (`PoolStatusResponse.fundingOpen` false) only Tangent adds credit to
- * the pool, so the copy can't say people refill it.
+ * The empty state, wherever it shows (spec §8). Only Tangent adds credit to
+ * the pool (`poolFundingText`), so the copy never says people refill it.
  */
-export function poolEmptyText(fundingOpen: boolean): string {
-  return fundingOpen
-    ? 'The community pool is empty. It refills as people fund it.'
-    : 'The community pool is empty until Tangent adds more credit.';
-}
+export const POOL_EMPTY_TEXT = 'The community pool is empty until Tangent adds more credit.';
 
 /** `about 1,240 learning sessions`; `1` is singular and 0 reads "no learning sessions". */
 export function poolSessionsText(sessions: number): string {
@@ -207,18 +199,25 @@ export function poolWeekText(week: { learners: number; exchanges: number }): str
 }
 
 /**
- * The one-line pricing disclosure next to every way to fund the pool
- * (docs/pool/PLAN.md §8): purchases pass the processing fee through, and the
- * operator earns a markup on each reply.
+ * Where the pool's credit comes from, as every public page states it
+ * (docs/DECISIONS.md): Tangent's commitment, read from
+ * `POOL_REVENUE_SHARE_BPS`, exactly as pool/revenue-share.ts in the Worker
+ * implements it. Nobody can buy credit for the pool.
  */
-export function poolPricingText(markupBps: number): string {
-  return `A pool purchase adds what you paid minus the card processing fee. Each reply from the pool costs the AI provider's price plus a ${formatBps(markupBps)} markup.`;
+export function poolFundingText(revenueShareBps: number): string {
+  if (revenueShareBps <= 0) return 'The community pool is free credit Tangent provides.';
+  const share = formatBps(revenueShareBps);
+  return `The community pool is free credit Tangent provides. Tangent puts ${share} of what it earns into it: ${share} of each membership payment after payment fees, and ${share} of the markup on credit as it's used.`;
 }
 
+/** What a pool reply costs the pool: its true cost, with no markup (Tangent funds the pool). */
+export const POOL_AT_COST_TEXT =
+  "Each reply is paid from the pool at the AI provider's price, with no markup, and costs the learner nothing.";
+
 /**
- * Words pool copy must never use: funding the pool is a credit purchase, not
- * a donation (spec reasoning 3). Tests run every pool page and template
- * through it.
+ * Words pool copy must never use: the pool is free credit Tangent provides,
+ * not a donation or anything people pay into (spec reasoning 3). Tests run
+ * every pool page and template through it.
  */
 export const FORBIDDEN_POOL_COPY = /donat|donor|tax[- ]?deductible|charit/i;
 

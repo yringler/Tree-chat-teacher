@@ -1,6 +1,8 @@
 import { DEFAULT_SYSTEM_PROMPT, POOL_NOTICE_VERSION } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+// @ts-expect-error -- `?raw` is a Vite import; the worker tsconfig has no vite/client types.
+import wranglerText from '../wrangler.jsonc?raw';
 import { membershipCreditCents } from '../src/billing/membership.js';
 import { appConfig, boolVar, DEFAULT_MODEL_PRICES, intVar, positiveInt } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
@@ -48,11 +50,10 @@ describe('config parsers', () => {
 describe('appConfig', () => {
   it('has the documented defaults', () => {
     const c = appConfig(
-      blank({ POOL_ENABLED: '', ANNUAL_FEE_ENABLED: '', POOL_PURCHASES_ENABLED: '' }),
+      blank({ POOL_ENABLED: '', ANNUAL_FEE_ENABLED: '', POOL_REVENUE_SHARE_BPS: '' }),
     );
     expect(c.flags).toEqual({
       poolEnabled: false,
-      poolPurchasesEnabled: false,
       annualFeeEnabled: false,
       personalCreditEnabled: false,
       devPurchasesEnabled: false,
@@ -62,8 +63,7 @@ describe('appConfig', () => {
     expect(c.pool).toMatchObject({
       accountId: 'pool',
       model: null,
-      markupBps: 500,
-      minPurchaseCents: 1000,
+      revenueShareBps: 2000,
       maxInputTokens: 16_000,
       maxOutputTokens: 1024,
       maxMessageChars: 4000,
@@ -103,7 +103,6 @@ describe('appConfig', () => {
   it('applies overrides, and is parsed once per env object and frozen', () => {
     const custom = blank({
       POOL_ENABLED: 'true',
-      POOL_PURCHASES_ENABLED: 'true',
       ANNUAL_FEE_ENABLED: 'true',
       PERSONAL_CREDIT_ENABLED: 'TRUE',
       DEV_PURCHASES_ENABLED: 'true',
@@ -118,7 +117,6 @@ describe('appConfig', () => {
     expect(appConfig(custom)).toBe(c);
     expect(c.flags).toEqual({
       poolEnabled: true,
-      poolPurchasesEnabled: true,
       annualFeeEnabled: true,
       personalCreditEnabled: true,
       devPurchasesEnabled: true,
@@ -170,10 +168,19 @@ describe('appConfig', () => {
     expect(error).toHaveBeenCalled();
   });
 
-  it('reads the pool markup from POOL_MARKUP_BPS (default 5%)', () => {
-    expect(appConfig(blank({ POOL_MARKUP_BPS: '750' })).pool.markupBps).toBe(750);
-    expect(appConfig(blank({ POOL_MARKUP_BPS: '0' })).pool.markupBps).toBe(0);
-    expect(appConfig(blank({ POOL_MARKUP_BPS: 'five' })).pool.markupBps).toBe(500);
+  it('reads the pool revenue share from POOL_REVENUE_SHARE_BPS (default 20%, at most 100%)', () => {
+    expect(appConfig(blank({ POOL_REVENUE_SHARE_BPS: '1500' })).pool.revenueShareBps).toBe(1500);
+    expect(appConfig(blank({ POOL_REVENUE_SHARE_BPS: '0' })).pool.revenueShareBps).toBe(0);
+    expect(appConfig(blank({ POOL_REVENUE_SHARE_BPS: 'a fifth' })).pool.revenueShareBps).toBe(2000);
+    expect(appConfig(blank({ POOL_REVENUE_SHARE_BPS: '12000' })).pool.revenueShareBps).toBe(10_000);
+  });
+
+  it('ships the share wrangler.jsonc documents, and no pool purchase or pool markup vars', () => {
+    expect(/"POOL_REVENUE_SHARE_BPS"\s*:\s*"([^"]*)"/.exec(wranglerText as string)?.[1]).toBe(
+      '2000',
+    );
+    for (const gone of ['POOL_PURCHASES_ENABLED', 'POOL_MIN_PURCHASE_CENTS', 'POOL_MARKUP_BPS'])
+      expect(wranglerText as string).not.toContain(gone);
   });
 
   it('clamps unsafe combinations, logging each', () => {

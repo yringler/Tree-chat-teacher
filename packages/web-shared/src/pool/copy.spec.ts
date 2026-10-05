@@ -2,6 +2,7 @@ import '@angular/compiler'; // JIT: the component metadata below.
 import {
   FORBIDDEN_POOL_COPY,
   POOL_NOTICE_TEXT,
+  poolFundingText,
   poolImpactDepthText,
   poolImpactHeadline,
   poolImpactTopicText,
@@ -12,9 +13,9 @@ import { BillingPage } from '../billing/billing-page';
 import { ImpactFeed } from './impact-feed';
 import { PoolBlockNotice } from './pool-block-notice';
 import { PoolFirstUseDialog } from './pool-first-use-dialog';
-import { PoolFundSection } from './pool-fund-section';
-import { poolBlockText, poolFundingNote, sessionsLabel } from './pool-format';
+import { poolBlockText, sessionsLabel } from './pool-format';
 import { PoolMeter } from './pool-meter';
+import { PoolSection } from './pool-section';
 
 function templateOf(type: object): string {
   const annotations = (type as { __annotations__?: { template?: string }[] }).__annotations__;
@@ -34,7 +35,7 @@ const REASONS: PoolBlockDetails['reason'][] = [
 describe('pool copy rule', () => {
   it('never says donate, donation or tax-deductible (templates)', () => {
     for (const type of [
-      PoolFundSection,
+      PoolSection,
       PoolMeter,
       ImpactFeed,
       PoolBlockNotice,
@@ -46,7 +47,7 @@ describe('pool copy rule', () => {
 
   it('never says it in generated text either', () => {
     const texts = [
-      poolFundingNote(500),
+      poolFundingText(2000),
       sessionsLabel({ sessionsRemaining: 3 }),
       POOL_NOTICE_TEXT,
       poolImpactHeadline({ weekStart: '2026-09-28', exchanges: 2, learners: 1, topics: 1 }),

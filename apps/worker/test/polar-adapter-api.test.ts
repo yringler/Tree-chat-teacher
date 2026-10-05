@@ -44,11 +44,10 @@ describe('Polar checkouts', () => {
     const b = buyer();
     const session = await polar.createTopUpCheckout({
       buyer: b,
-      target: 'pool',
-      accountId: 'pool',
+      accountId: `u_${b.userId}`,
       amountCents: 2500,
-      successUrl: 'https://app.example/learn/billing?checkout=success&target=pool',
-      cancelUrl: 'https://app.example/learn/billing?checkout=cancel&target=pool',
+      successUrl: 'https://app.example/learn/billing?checkout=success',
+      cancelUrl: 'https://app.example/learn/billing?checkout=cancel',
     });
     expect(session.url).toMatch(/^https:\/\/sandbox\.polar\.sh\/checkout\/polar_c_\d+$/);
     const [call] = (await calls('/v1/checkouts/')).filter(
@@ -71,9 +70,15 @@ describe('Polar checkouts', () => {
       external_customer_id: b.userId,
       customer_email: b.email,
       customer_name: 'Ada',
-      metadata: { kind: 'credits', target: 'pool', accountId: 'pool', userId: b.userId, v: 1 },
-      success_url: 'https://app.example/learn/billing?checkout=success&target=pool',
-      return_url: 'https://app.example/learn/billing?checkout=cancel&target=pool',
+      metadata: {
+        kind: 'credits',
+        target: 'personal',
+        accountId: `u_${b.userId}`,
+        userId: b.userId,
+        v: 1,
+      },
+      success_url: 'https://app.example/learn/billing?checkout=success',
+      return_url: 'https://app.example/learn/billing?checkout=cancel',
     });
   });
 

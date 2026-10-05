@@ -44,7 +44,6 @@ describe('credit checkout', () => {
       page: 'checkout',
       input: {
         buyer: { userId: user.id, email: user.email, name: 'Ada', customerRef: null },
-        target: 'personal',
         accountId: account.id,
         amountCents: 500,
         successUrl: `${BASE}/learn/billing?checkout=success`,

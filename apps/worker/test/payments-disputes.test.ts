@@ -8,7 +8,14 @@ import { getBalance } from '../src/billing/ledger.js';
 import { createFakeProvider } from '../src/billing/providers/fake.js';
 import type { AppEnv } from '../src/env.js';
 import { grantDetailsFor, insertUsage, insertUser, uniq } from './mocks/billing-helpers.js';
-import { disputed, fakeRef, factsOf, membershipPaid, paid } from './mocks/payment-events.js';
+import {
+  disputed,
+  fakeRef,
+  factsOf,
+  legacyPoolPurchase,
+  membershipPaid,
+  paid,
+} from './mocks/payment-events.js';
 import { poolAccess } from './pool-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
@@ -43,14 +50,7 @@ describe('disputes', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const userId = await newUser();
     const poolId = uniq('pool');
-    const payment = paid({
-      userId,
-      target: 'pool',
-      accountId: poolId,
-      netCents: 1000,
-      feeCents: 80,
-    });
-    await apply(payment);
+    const payment = await legacyPoolPurchase(env, { poolId, userId, netCents: 1000, feeCents: 80 });
     await insertUsage(env, { accountId: poolId, status: 'settled', chargeMicros: 9_000_000 });
     const lost = disputed('dispute.lost', payment.paymentRef, 1000);
     expect(await apply(lost)).toBe('applied');

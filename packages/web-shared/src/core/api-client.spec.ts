@@ -203,13 +203,10 @@ describe('ApiClient community pool', () => {
     expect(JSON.parse(String(fetchMock.mock.calls[2]![1].body))).toEqual({ decision: 'approved' });
   });
 
-  it('createCheckout(cents, "pool") names the pool as the target', async () => {
+  it("createCheckout(cents) asks for a top-up of the caller's own credit only", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ url: 'https://pay.example/checkout/p' }));
-    await api.createCheckout(2000, 'pool');
-    expect(JSON.parse(String(fetchMock.mock.calls[0]![1].body))).toEqual({
-      amountCents: 2000,
-      target: 'pool',
-    });
+    await api.createCheckout(2000);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1].body))).toEqual({ amountCents: 2000 });
   });
 
   it('poolConsent(version) POSTs the version shown to /api/pool/consent', async () => {

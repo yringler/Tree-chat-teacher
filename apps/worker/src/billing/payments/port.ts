@@ -9,7 +9,7 @@
 // split into pre-tax `netCents` and `taxCents`. Idempotency keys are minted
 // by the adapter (namespaced, refs.ts) and enforced by the ledger's unique
 // `credit_grants.provider_ref`.
-import type { PurchaseTarget, SubscriptionStatus } from '@tangent/shared';
+import type { SubscriptionStatus } from '@tangent/shared';
 
 /** Adapters that exist. A new provider = a literal here + its module + a case in index.ts. */
 export type ProviderId = 'polar' | 'fake';
@@ -32,8 +32,7 @@ export interface Buyer {
 
 export interface TopUpCheckoutInput {
   buyer: Buyer;
-  target: PurchaseTarget;
-  /** The ledger to credit (`u_<userId>` or the pool's id). It must come back in `PaymentSucceeded.purpose`. */
+  /** The ledger to credit (the buyer's own, `u_<userId>`). It must come back in `PaymentSucceeded.purpose`. */
   accountId: string;
   /** Pre-tax, whole USD cents. The domain has already validated the bounds. */
   amountCents: number;
@@ -137,9 +136,16 @@ interface EventBase {
   occurredAt: string;
 }
 
+/**
+ * Who a credits payment is for: the buyer's own ledger (`personal`), or
+ * `unknown` (any other target, such as a `pool` purchase from before the
+ * pool became revenue-funded): logged, never credited.
+ */
+export type CreditsTarget = 'personal' | 'unknown';
+
 /** What a payment was for, as the checkout metadata (or the product) says. */
 export type PaymentPurpose =
-  | { kind: 'credits'; target: PurchaseTarget | 'unknown'; accountId: string | null }
+  | { kind: 'credits'; target: CreditsTarget; accountId: string | null }
   | { kind: 'membership'; cycle: 'initial' | 'renewal'; subscriptionRef: ProviderRef }
   /** Anything else on the provider account: logged, never credited. */
   | { kind: 'other' };
@@ -163,7 +169,7 @@ export interface PaymentFacts {
   fee: { cents: number; estimated: boolean } | null;
 }
 
-/** Money arrived (a top-up, a pool purchase, the membership's first year or a renewal). */
+/** Money arrived (a top-up, the membership's first year or a renewal). */
 export interface PaymentSucceeded extends EventBase, PaymentFacts {
   type: 'payment.succeeded';
 }
