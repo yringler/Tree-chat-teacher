@@ -115,6 +115,26 @@ function socialProviders(env: AppEnv): BetterAuthOptions['socialProviders'] {
   };
 }
 
+/**
+ * Google and GitHub are used only to sign in: once Better Auth has read the
+ * profile, nothing calls them on the user's behalf. So the tokens they issue
+ * are never stored (a database copy would otherwise carry live credentials).
+ * Better Auth has no option for this; `account` hooks null them on every
+ * write: sign-up, linking (create) and the refresh on each later sign-in
+ * (update). `encryptOAuthTokens` wouldn't do: it leaves the id_token in the
+ * clear. If a feature ever needs the provider's API, drop this and enable
+ * `account.encryptOAuthTokens`; tokens arrive at each user's next sign-in.
+ * Better Auth's /get-access-token, /refresh-token and /account-info need the
+ * stored tokens and so fail; the app doesn't use them.
+ */
+const NO_OAUTH_TOKENS = {
+  accessToken: null,
+  refreshToken: null,
+  idToken: null,
+  accessTokenExpiresAt: null,
+  refreshTokenExpiresAt: null,
+};
+
 /** Drops pending `Set-Cookie` entries for `name` so a re-issued cookie is the only one on the wire. */
 function dropSetCookie(headers: Headers | undefined, name: string): void {
   if (!headers) return;
@@ -181,6 +201,10 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
           // answering with JSON.
           before: async (user) => (user.emailVerified ? { data: user } : false),
         },
+      },
+      account: {
+        create: { before: async (account) => ({ data: { ...account, ...NO_OAUTH_TOKENS } }) },
+        update: { before: async (account) => ({ data: { ...account, ...NO_OAUTH_TOKENS } }) },
       },
     },
     hooks: {

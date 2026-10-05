@@ -41,7 +41,7 @@ async function mockUpstream(request: Request): Promise<Response> {
     const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
     const verified = !code.startsWith('unverified');
     const claims = { sub: `google-${code}`, email: code, email_verified: verified, name: 'Test User', iss: 'https://accounts.google.com' };
-    return Response.json({ access_token: 'at', token_type: 'Bearer', expires_in: 3600, id_token: `${b64({ alg: 'none' })}.${b64(claims)}.` });
+    return Response.json({ access_token: 'at', refresh_token: 'rt', token_type: 'Bearer', expires_in: 3600, id_token: `${b64({ alg: 'none' })}.${b64(claims)}.` });
   }
   if (url.origin !== MOCK_UPSTREAM) return new Response('blocked in tests', { status: 599 });
   const key = request.headers.get('x-api-key') ?? '';

@@ -17,7 +17,7 @@ import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
  */
 
 /** Bump when either document changes in substance. */
-export const LEGAL_UPDATED = '2 October 2026';
+export const LEGAL_UPDATED = '5 October 2026';
 
 /** Extra rules for long-form text, on top of the landing page's stylesheet. Hashed for the CSP. */
 export const LEGAL_STYLE =
@@ -94,7 +94,7 @@ export function renderPrivacyPage(info: LegalInfo): string {
 <table>
 <thead><tr><th>Data</th><th>What it is</th><th>Why</th></tr></thead>
 <tbody>
-<tr><td>Account</td><td>Your email address. If you sign in with Google or GitHub: the name and profile picture URL they share, your account id there, and the sign-in tokens they issue. Passkeys: the public key and device type (never your fingerprint or face, which stay on your device).</td><td>To sign you in and tell your accounts apart.</td></tr>
+<tr><td>Account</td><td>Your email address. If you sign in with Google or GitHub: the name and profile picture URL they share, and your account id there. We don't keep the access tokens they issue. Passkeys: the public key and device type (never your fingerprint or face, which stay on your device).</td><td>To sign you in and tell your accounts apart.</td></tr>
 <tr><td>Sessions</td><td>For each signed-in browser: the IP address and browser user agent at sign-in, and when the session expires.</td><td>Security: to keep you signed in and to spot misuse.</td></tr>
 <tr><td>Your content</td><td>Conversations (messages, replies, branch titles, summaries), system prompts, settings, and share links you create.</td><td>This is the service. Stored in our database until you delete it.</td></tr>
 <tr><td>AI provider API keys</td><td>If you add your own key, it is encrypted into a cookie that only your browser holds. We never store it on our servers; it is decrypted in memory for each request and never logged.</td><td>To call the provider on your behalf.</td></tr>
