@@ -133,6 +133,8 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 
 ## Simple mode and billing
 
+> **Payments moved to Polar (2026-10).** The bullets here that name Stripe, Stripe Tax, the Better Auth Stripe plugin, `auth_subscriptions` or `stripe_ref` record the earlier design and are superseded by [Payments behind a port (Polar)](#payments-behind-a-port-polar) below. The rest still holds.
+
 - **A separate simple app (`apps/simple`) rather than a mode of the power app.** The owner asked for one, and a lean `LessonStore` doesn't drag the inspector, reviewer, shares and BYOK along.
 - **Shared Angular code lives in `packages/web-shared`, exported as TS source.** The same convention as the other packages: both apps' Angular builders compile it AOT through the pnpm symlinks, so there is no library build. `TreeStore` and the power dialogs stay in `apps/web`.
 - **The simple app is served at `/learn/` on the same origin and Worker.** Better Auth cookies, passkeys (rpID = host), OAuth callbacks, Turnstile's hostname, `PUBLIC_BASE_URL` and the CSP all stay single-origin; a second hostname would duplicate every one of them.
@@ -214,6 +216,8 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 
 ## Unified billing and model access
 
+> **Payments moved to Polar (2026-10).** The bullets here that name Stripe, Stripe Tax, the Better Auth Stripe plugin, `auth_subscriptions` or `stripe_ref` record the earlier design and are superseded by [Payments behind a port (Polar)](#payments-behind-a-port-polar) below. The rest still holds.
+
 - **Both apps offer the built-in provider (`tangent`, the operator's `OPENROUTER_SIMPLE_API_KEY`) on prepaid credit.** The owner wants one way to pay in both modes: power users without their own key can buy credit and use any OpenRouter model. The secret keeps its name, since renaming it would break deployments.
 - **Credit is per user, shared by both modes, on the ledger id `u_<userId>` (`AccountContext.billingAccountId`; `default_simple` in the dev bypass).** It is the Learn account's id, so existing Learn balances carry over with no data migration; trees stay per mode account. Every balance, hold, usage row, grant, checkout `metadata.accountId` and webhook lookup uses it.
 - **`AccountContext.builtIn` says the built-in provider is in the registry, on the operator's key; `operatorKeys` keeps only its dev-bypass meaning.** Learn: `builtIn` = payment `credit` and `builtInAvailable(env)` (which replaces `paidCreditAvailable`); power: `builtInAvailable(env)`. One flag per key source keeps the dev bypass's server keys apart from credit.
@@ -239,6 +243,8 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 - **The annual fee is behind `ANNUAL_FEE_ENABLED`, default off (pool spec §7).** `membershipRequired` = the flag AND billing configured AND a membership price id; nothing else changed. With it off, `MembershipInfo.required` is false, which hides every gate in the apps (`MembershipGate`, the billing page's Membership section, Canvas's banner), so any signed-in user may learn from the pool within its caps and buy personal credit. No code path was deleted: `assertMember`, the waiver, the plugin plan and `creditMembershipInvoice` stay, and a membership invoice paid while the flag is off (an existing subscriber's renewal) still grants its included credit, since the subscriber paid for it.
 
 ## Community credit pool
+
+> **Payments moved to Polar (2026-10).** The bullets here that name Stripe, Stripe Tax, the Better Auth Stripe plugin, `auth_subscriptions` or `stripe_ref` record the earlier design and are superseded by [Payments behind a port (Polar)](#payments-behind-a-port-polar) below. The rest still holds.
 
 The pool is specified in `docs/pool/SPEC.md` and planned in `docs/pool/PLAN.md`; these are the decisions of its ledger, bank and settlement.
 
@@ -298,3 +304,19 @@ The pool is specified in `docs/pool/SPEC.md` and planned in `docs/pool/PLAN.md`;
 - **The feed is public and aggregate.** `GET /api/pool/impact?week=YYYY-MM-DD` (latest when omitted; 404 when there is none) and `GET /api/pool/impact/weeks` (newest first, at most 52) are registered before the session middleware and carry no user, branch, tree or pool ids (`Cache-Control: public, max-age=300`). The landing page shows the latest snapshot next to the meter (up to 12 topics), `/pool` shows it in full with a server-rendered list of past weeks (`/pool?week=…`; an unknown week reads "No snapshot for that week"), and the fund section shows it under the meter (`ImpactFeed`); each page renders without it when there is none or it can't be read.
 - **Tag retention runs with the weekly job.** It deletes `pool_topic_tags` rows created more than `IMPACT_TAG_RETENTION_DAYS` (14) ago whose branch has had no pool reply since then (`usage_events_branch_idx`, migration 0013, keeps the lookup indexed). A branch used again is re-tagged at its next pool exchange.
 - **Featured conversations are a stub, off.** `FEATURED_CONVERSATIONS_ENABLED` is in the config (default and deployed `false`); `featuredEnabled(env)` would also require `DMCA_AGENT_REGISTERED`, because featuring a conversation is publishing user content. `/api/featured` and everything under it answers 404 `not_found` to every method, flag on or off, signed in or not; `MeResponse.featuredConversations` is typed `false`; there are no tables, columns or UI, so nothing is collected. Share links already provide explicit, per-conversation, revocable opt-in; a future wall would flag `shares` rows (DEFERRED).
+
+## Payments behind a port (Polar)
+
+Supersedes the Stripe-specific bullets above (docs/polar-migration/: 01 research, 02 mapping and decisions D0–D15, 03 architecture, 04 implementation notes and sandbox checks).
+
+- **Polar is the merchant of record.** It sells credit and the membership to the user, computes, collects and remits sales tax and VAT, issues invoices and receipts, and handles disputes. Stripe Tax, tax-id collection and our own tax registrations fall away; only income tax remains. Pre-launch, so a hard cutover with no Stripe legacy path (D0).
+- **One port, normalised events, stateless adapters.** `billing/payments/port.ts` (`PaymentProvider`) is the only interface between billing and a provider. Adapters (`billing/providers/polar/`, `billing/providers/fake.ts`) translate provider objects into `PaymentEvent`s (`payment.succeeded`, `refund.succeeded`, `dispute.*`, `membership.changed`) and requests into provider calls; they never touch D1, the ledger or business settings. The domain (`billing/payments/apply.ts`) decides. ESLint keeps `@polar-sh/sdk` inside the Polar adapter and adapters out of the ledger; `scripts/check-provider-neutral.mjs` (run by `pnpm lint`) keeps provider names out of the shared packages and the apps.
+- **Amounts cross the port as USD cents, pre-tax and tax split by the adapter.** Polar: `net_amount` (never `total_amount`); the fee is `platform_fee_amount`, or a configured estimate (`POLAR_FEE_BPS` + `POLAR_FEE_FIXED_CENTS`, logged `fee_estimated`) rather than throw-and-retry, because Polar disables a webhook endpoint after 10 consecutive failures (D3).
+- **Idempotency stays on the provider's object, through `credit_grants.provider_ref`** (renamed from `stripe_ref`): adapters mint `<provider>:<object>:<id>` refs, the domain derives secondary ones (`…:membership-refund`, `…:reinstated`, `…:lost`).
+- **Own routes, no Better Auth payments plugin (D2).** `POST /api/billing/checkout` (ad-hoc USD price on a one-time product, `external_customer_id` = our user id, metadata `{kind, target, accountId, userId, v}`), `POST /api/billing/membership/checkout` (a paying member gets the portal), `POST /api/billing/portal` (404 `no_customer`), and the public `POST /api/webhooks/:provider` (403 bad signature, 202 nothing to do, 500 retry).
+- **Membership state is ours (D7).** `billing_subscriptions` holds the provider's snapshot (normalised `SubscriptionStatus`, raw `provider_status`, `version` = Polar's `modified_at`), upserted with a version guard so order and duplicates don't matter. `membershipFor` stays one D1 query; no provider call per request. `MembershipInfo.subscriptionStatus` replaces `stripeStatus`.
+- **Customers are addressed by our user id;** `billing_customers(provider, user_id, customer_ref)` records the provider's id when an event names it (D6). Account deletion always asks the provider to revoke subscriptions and anonymise the customer, and aborts on failure.
+- **Refunds debit only when settled (D10);** disputes are polled from the 10-minute cron because Polar has no dispute webhooks (D5). A lost dispute suspends pool access once (a marker row), so a poll can't undo an admin's lift.
+- **Pool purchases are gated by `POOL_PURCHASES_ENABLED` (off) until Polar confirms in writing that they are within its acceptable-use policy (D1).**
+- **Pool pricing is aligned with personal credit (owner decision D4):** purchases credited net of the actual fee, a 5% per-call `POOL_MARKUP_BPS`, $10 pool minimum.
+- **What the next switch costs:** a `providers/<x>/` adapter with its fixtures and tests, a literal in `ProviderId`, a case in `payments/index.ts`, its env vars, the legal text and the README. Post-launch, a webhook-only legacy slot for the old provider's refund window.
