@@ -1,7 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import type { TreeSummary } from '@tangent/shared';
+import { poolFundingText, type PoolStatusResponse, type TreeSummary } from '@tangent/shared';
 import { Icon, PoolMeter } from '@tangent/web-shared';
 import { Composer } from '../chat/composer';
 import { lessonTitle } from '../chat/titles';
@@ -65,9 +65,8 @@ import { UiStore } from '../state/ui-store';
           <h2 id="pool-title">Community pool</h2>
           <app-pool-meter [status]="status" />
           <p class="muted small">
-            Credit anyone can add and any signed-in learner can use, on {{ status.model.label }},
-            within daily limits. <a href="/pool" target="_blank" rel="noopener">How it works</a> ·
-            <a routerLink="/billing" fragment="fund-pool">Fund the pool</a>
+            {{ funding(status) }} Any signed-in learner can use it, on {{ status.model.label }},
+            within daily limits. <a href="/pool" target="_blank" rel="noopener">How it works</a>
           </p>
         </section>
       }
@@ -124,6 +123,11 @@ export class HomePage {
     const status = this.account.poolStatus();
     return status?.enabled ? status : null;
   });
+
+  /** Where the pool's credit comes from: Tangent's revenue share (`POOL_REVENUE_SHARE_BPS`). */
+  protected funding(status: PoolStatusResponse): string {
+    return poolFundingText(status.revenueShareBps);
+  }
 
   protected async start(): Promise<void> {
     if (this.starting()) return;

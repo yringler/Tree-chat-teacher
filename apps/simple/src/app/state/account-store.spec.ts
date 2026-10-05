@@ -17,7 +17,7 @@ function membership(overrides: Partial<MembershipInfo> = {}): MembershipInfo {
   return {
     required: true,
     status: 'inactive',
-    stripeStatus: null,
+    subscriptionStatus: null,
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
@@ -60,13 +60,11 @@ function me(m: MembershipInfo): MeResponse {
 
 const POOL: PoolStatusResponse = {
   enabled: true,
-  fundingOpen: true,
   availableMicros: 2_400_000,
   sessionsRemaining: 120,
   model: { id: 'fast', label: 'Simple' },
   week: { start: '2026-10-05T00:00:00.000Z', exchanges: 3, learners: 2 },
-  marginBps: 800,
-  minPurchaseCents: 1000,
+  revenueShareBps: 2000,
 };
 
 const POOL_ME: PoolMeResponse = {

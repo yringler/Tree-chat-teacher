@@ -725,6 +725,8 @@ describe('cron dispatch', () => {
       reconcile: vi.fn(() => Promise.resolve()),
       poolExpiry: vi.fn(() => Promise.resolve()),
       poolImpact: vi.fn(() => Promise.resolve()),
+      paymentDisputes: vi.fn(() => Promise.resolve()),
+      poolRevenueShare: vi.fn(() => Promise.resolve()),
       priceSync: vi.fn(() => Promise.resolve()),
     } satisfies CronJobs;
     return jobs;
@@ -736,6 +738,8 @@ describe('cron dispatch', () => {
     await Promise.all(cronTasks(CRON_FREQUENT, env, now, frequent));
     expect(frequent.reconcile).toHaveBeenCalledOnce();
     expect(frequent.poolExpiry).toHaveBeenCalledWith(env, now);
+    expect(frequent.paymentDisputes).toHaveBeenCalledWith(env, now);
+    expect(frequent.poolRevenueShare).toHaveBeenCalledWith(env, now);
     expect(frequent.poolImpact).not.toHaveBeenCalled();
 
     const weekly = spies();
@@ -743,6 +747,8 @@ describe('cron dispatch', () => {
     expect(weekly.poolImpact).toHaveBeenCalledWith(env, now);
     expect(weekly.reconcile).not.toHaveBeenCalled();
     expect(weekly.poolExpiry).not.toHaveBeenCalled();
+    expect(weekly.paymentDisputes).not.toHaveBeenCalled();
+    expect(weekly.poolRevenueShare).not.toHaveBeenCalled();
     expect(weekly.priceSync).not.toHaveBeenCalled();
     expect(frequent.priceSync).not.toHaveBeenCalled();
 

@@ -15,7 +15,7 @@ import { MembershipGate } from './membership-gate';
 const WAIVED: MembershipInfo = {
   required: true,
   status: 'waived',
-  stripeStatus: null,
+  subscriptionStatus: null,
   periodEnd: null,
   cancelAtPeriodEnd: false,
   priceCents: 1000,

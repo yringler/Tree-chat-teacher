@@ -9,15 +9,20 @@
 // pre-tax share is rounded on its own, so a purchase refunded in full, in
 // parts, can leave a few micro-USD of rounding behind.
 //
-// Admin adjustments and membership credit never count. Grants from before
+// Admin adjustments and membership credit never count, and neither does a
+// membership refund taking the included credit back (`<paymentRef>:membership-refund`,
+// a `refund` row with no gross). A personal purchase's refunds, disputes and
+// reinstatements since migration 0018 (`payment_ref` set) count by amount,
+// what they actually took back (capped together at the purchase, so a refund
+// and a dispute of it count once), which there is the pre-tax amount. Grants from before
 // migration 0010 have no `user_id`; personal ones count through their ledger
 // account `u_<userId>`, and their refunds (which recorded no gross) through
 // their amount, which was the refunded pre-tax share. With
 // `SUPPORTER_WINDOW_MONTHS` set, the latest purchase must also be that recent.
-import { accountIdForUser } from '../billing/stripe.js';
+import { accountIdForUser } from '../auth/account.js';
 
 /** Net purchases at or below this (one cent) are rounding residue, not a purchase. */
-export const SUPPORTER_ROUNDING_MICROS = 10_000;
+const SUPPORTER_ROUNDING_MICROS = 10_000;
 
 interface SupporterRow {
   net: number | null;
@@ -30,6 +35,8 @@ export function supporterStatement(db: D1Database, userId: string): D1PreparedSt
     .prepare(
       `SELECT
          SUM(CASE WHEN kind = 'purchase' THEN COALESCE(gross_micros, 0)
+                  WHEN provider_ref LIKE '%:membership-refund' THEN 0
+                  WHEN payment_ref IS NOT NULL AND account_id = ?2 THEN amount_micros
                   ELSE COALESCE(gross_micros, amount_micros) END) AS net,
          MAX(CASE WHEN kind = 'purchase' THEN created_at END) AS last_purchase
        FROM credit_grants

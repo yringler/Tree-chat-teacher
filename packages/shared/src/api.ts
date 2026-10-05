@@ -67,12 +67,17 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *   GET    /api/billing                          -> BillingSummary
  *   GET    /api/billing/usage?cursor=&limit=     -> UsageListResponse (newest first, limit <= 100, default 50)
  *   POST   /api/billing/checkout CreateCheckoutRequest -> CheckoutResponse (same-origin only;
- *                                                target `personal` or `pool`; 400 below the pool minimum)
+ *                                                personal credit only; `target` other than `personal` is 400)
  *   POST   /api/billing/membership/waiver MembershipWaiverRequest -> MembershipInfo (same-origin only;
  *                                                400 no code configured, 403 wrong code, 429 rate limited)
- *   POST   /api/auth/subscription/{upgrade,billing-portal,list,cancel,restore}  Better Auth Stripe plugin
- *                                                (one plan, MEMBERSHIP_PLAN: the yearly membership)
- *   POST   /api/auth/stripe/webhook               Stripe webhooks (plugin + our onEvent)
+ *   POST   /api/billing/membership/checkout       -> CheckoutResponse (same-origin only; the yearly
+ *                                                membership's hosted checkout, or the billing portal
+ *                                                when the user already has a paid membership)
+ *   POST   /api/billing/portal                    -> PortalResponse (same-origin only; the payment
+ *                                                provider's billing portal; 404 `no_customer` when the
+ *                                                provider has no customer for the user yet)
+ *   POST   /api/webhooks/:provider                Payment provider webhooks (public, signed by the
+ *                                                active provider; see the README)
  *
  * Admin (admins only: ADMIN_USER_IDS, or the local dev bypass; 404 `not_found`
  * to anyone else; admin.ts):
@@ -177,7 +182,9 @@ export type ApiErrorCode =
   /** 403: the current pool notice must be acknowledged first. */
   | 'pool_consent_required'
   /** 403: the pool can't be used for this request or by this account. */
-  | 'pool_unavailable';
+  | 'pool_unavailable'
+  /** 404: the payment provider has no customer for the user yet (`POST /api/billing/portal`). */
+  | 'no_customer';
 
 export interface MeResponse {
   /** Signed-in user's email; null only in dev bypass mode. */
@@ -204,7 +211,7 @@ export interface MeResponse {
   operatorKeys: boolean;
   /**
    * True when the server offers the built-in provider (`tangent`, the
-   * operator's OpenRouter key) on prepaid credit: Stripe and the operator's
+   * operator's OpenRouter key) on prepaid credit: payments and the operator's
    * key are set up. Power lists it among its providers; Learn offers it as
    * "Use Tangent credit". The credit is per user, shared by both apps.
    */
@@ -302,8 +309,8 @@ export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
 /**
  * Permanently deletes the signed-in user: both of their accounts (power and
  * Learn) with every conversation, share link and setting, their sign-in
- * methods and sessions, and their Stripe customer (which cancels their
- * membership). `confirmEmail` must be the user's email, so a stray request can't do it.
+ * methods and sessions, and their customer record with the payment provider
+ * (which cancels their membership). `confirmEmail` must be the user's email, so a stray request can't do it.
  */
 export const deleteAccountRequestSchema = z.object({
   confirmEmail: z.string().trim().min(1).max(320),

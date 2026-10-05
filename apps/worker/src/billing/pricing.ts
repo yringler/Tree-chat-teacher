@@ -2,7 +2,8 @@
 // micro-USD, charges rounded up, never down.
 
 const NANOS_PER_USD = 1e9;
-const BPS_SCALE = 10_000n;
+/** 100% in basis points. */
+export const BPS_SCALE = 10_000n;
 /** 1 micro-USD = 1000 nano-USD; × 10_000² for the two bps factors. */
 const CHARGE_DIVISOR = 100_000_000_000n;
 
@@ -12,7 +13,8 @@ export function costUsdToNanos(costUsd: number): number {
   return Math.round(costUsd * NANOS_PER_USD);
 }
 
-function bpsOf(bps: number): bigint {
+/** A bps rate as a BigInt factor; negative or non-finite rates count as 0. */
+export function bpsOf(bps: number): bigint {
   return BigInt(Math.max(0, Math.round(Number.isFinite(bps) ? bps : 0)));
 }
 

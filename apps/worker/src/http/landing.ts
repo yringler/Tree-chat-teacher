@@ -1,8 +1,9 @@
 import { escapeHtml } from '@tangent/render';
 import {
   formatMicros,
+  POOL_AT_COST_TEXT,
   POOL_EMPTY_TEXT,
-  poolMarginText,
+  poolFundingText,
   poolSessionsHeadline,
   poolWeekText,
   type PoolImpactResponse,
@@ -172,25 +173,23 @@ const LANDING_IMPACT_TOPICS = 12;
 
 /**
  * The community pool section: the meter, this week's counts, the latest
- * weekly impact snapshot when there is one, and how to fund it.
+ * weekly impact snapshot when there is one, and where the pool's credit comes
+ * from (Tangent's revenue share, `poolFundingText`). Nothing here is for sale.
  */
 function poolSection(pool: PoolStatusResponse, impact?: PoolImpactResponse): string {
   const meter =
     pool.sessionsRemaining > 0
       ? `<p class="meter">${escapeHtml(poolSessionsHeadline(pool.sessionsRemaining))} left<small>${escapeHtml(formatMicros(pool.availableMicros))} in the pool</small></p>`
       : `<p class="meter">${escapeHtml(POOL_EMPTY_TEXT)}<small>${escapeHtml(formatMicros(pool.availableMicros))} in the pool</small></p>`;
-  const fund = pool.fundingOpen
-    ? '<a class="btn primary" href="/learn/billing#fund-pool">Fund the pool</a>'
-    : '<span class="btn" aria-disabled="true">Funding opens soon</span>';
   return `<section aria-labelledby="pool">
 <div class="wrap">
 <h2 id="pool">The community pool</h2>
-<p class="sub">Credit anyone can add and any signed-in learner can use in Learn, on ${escapeHtml(pool.model.label)}, within daily limits. When your own credit runs out, the pool keeps you learning.</p>
+<p class="sub">${escapeHtml(poolFundingText(pool.revenueShareBps))} Any signed-in learner can use it in Learn, on ${escapeHtml(pool.model.label)}, within daily limits. When your own credit runs out, the pool keeps you learning.</p>
 <div class="pool">
 ${meter}
 <p class="week">${escapeHtml(poolWeekText(pool.week))}</p>
-${impact ? `${renderImpactBlock(impact, LANDING_IMPACT_TOPICS)}\n` : ''}<div class="ctas">${fund}<a class="btn" href="/pool">How the pool works</a></div>
-<p class="fee">Funding the pool is a credit purchase. ${escapeHtml(poolMarginText(pool.marginBps))}</p>
+${impact ? `${renderImpactBlock(impact, LANDING_IMPACT_TOPICS)}\n` : ''}<div class="ctas"><a class="btn" href="/pool">How the pool works</a></div>
+<p class="fee">${escapeHtml(POOL_AT_COST_TEXT)}</p>
 </div>
 </div>
 </section>
@@ -266,7 +265,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <article class="card">${ICON_COMPASS}<h3>Answers first, tangents next</h3><p>Ask a question and get the answer, straight away and in real depth: the mechanism, not just the fact, and no quiz in between. Every answer ends with a few tangents worth following. One tap opens any of them as a branch of its own.</p></article>
 <article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. The side question opens its own branch, so detours never clutter the main thread, and every branch stays one click away. Choose <strong>Smart</strong> for hard topics or <strong>Simple</strong> for quick ones.</p></article>
 <article class="card">${ICON_EYE}<h3>See exactly what the model sees</h3><p>In power mode, decide how much each branch inherits: the full path, a summary, or a clean slate. The inspector shows the exact prompt before anything is sent.</p></article>
-<article class="card">${ICON_COIN}<h3>Your key, or pay as you go</h3><p>Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or use prepaid credit: each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up when you need to, and manage billing in Stripe.</p></article>
+<article class="card">${ICON_COIN}<h3>Your key, or pay as you go</h3><p>Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or use prepaid credit: each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up when you need to, and manage billing in the secure billing portal.</p></article>
 </div>
 </div>
 </section>
@@ -283,7 +282,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <li>Tangents after every answer, each one a tap away</li>
 <li>Side questions with Ask about this</li>
 <li>Smart and Simple tiers, one toggle</li>
-<li>Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit</li>${opts.pool ? '\n<li>Or learn on the community pool, funded by people who add credit to it</li>' : ''}
+<li>Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit</li>${opts.pool ? '\n<li>Or learn free on the community pool, within daily limits, on credit Tangent provides from its revenue</li>' : ''}
 </ul>
 <a class="btn primary" href="/learn/login">Start learning</a>
 </article>

@@ -3,7 +3,7 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { getBalance, grantCredit, hasGrant } from '../src/billing/ledger.js';
 import { assertCanSpend, getBillingSummary, listUsage, markupFor } from '../src/billing/service.js';
-import { billingConfigured } from '../src/billing/stripe.js';
+import { paymentsConfigured } from '../src/billing/payments/index.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import {
   devPowerAccount,
@@ -25,10 +25,10 @@ describe('ledger', () => {
     });
   });
 
-  it('grants are idempotent on the Stripe ref', async () => {
+  it('grants are idempotent on the provider ref', async () => {
     const accountId = uniq('acct');
     const ref = uniq('cs');
-    const g = { accountId, kind: 'purchase' as const, amountMicros: 5_000_000, stripeRef: ref };
+    const g = { accountId, kind: 'purchase' as const, amountMicros: 5_000_000, providerRef: ref };
     expect(await hasGrant(env.DB, ref)).toBe(false);
     expect(await grantCredit(env.DB, g)).toBe(true);
     expect(await hasGrant(env.DB, ref)).toBe(true);
@@ -43,7 +43,7 @@ describe('ledger', () => {
       accountId,
       kind: 'adjustment' as const,
       amountMicros: 1_000,
-      stripeRef: null,
+      providerRef: null,
       note: 'goodwill',
     };
     expect(await grantCredit(env.DB, g)).toBe(true);
@@ -57,13 +57,13 @@ describe('ledger', () => {
       accountId,
       kind: 'purchase',
       amountMicros: 10_000_000,
-      stripeRef: uniq('cs'),
+      providerRef: uniq('cs'),
     });
     await grantCredit(env.DB, {
       accountId,
       kind: 'refund',
       amountMicros: -2_000_000,
-      stripeRef: uniq('re'),
+      providerRef: uniq('re'),
     });
     await insertUsage(env, { accountId, status: 'settled', chargeMicros: 1358 });
     await insertUsage(env, { accountId, status: 'settled', chargeMicros: 642 });
@@ -85,7 +85,7 @@ describe('ledger', () => {
         accountId: uniq('acct'),
         kind: 'adjustment',
         amountMicros: 1.5,
-        stripeRef: null,
+        providerRef: null,
       }),
     ).rejects.toThrow(/integer/);
   });
@@ -131,7 +131,7 @@ describe('assertCanSpend', () => {
       accountId: account.billingAccountId,
       kind: 'purchase',
       amountMicros: 5_000_000,
-      stripeRef: uniq('cs'),
+      providerRef: uniq('cs'),
     });
     await expect(assertCanSpend(env, account, 'tangent')).resolves.toBeUndefined();
   });
@@ -145,7 +145,7 @@ describe('assertCanSpend', () => {
       accountId: account.id,
       kind: 'purchase',
       amountMicros: 5_000_000,
-      stripeRef: uniq('cs'),
+      providerRef: uniq('cs'),
     });
     await expect(assertCanSpend(env, account, 'tangent')).resolves.toBeUndefined();
   });
@@ -156,7 +156,7 @@ describe('assertCanSpend', () => {
       accountId: account.id,
       kind: 'adjustment',
       amountMicros: 39_999,
-      stripeRef: null,
+      providerRef: null,
     });
     await expect(assertCanSpend(env, account, 'tangent')).resolves.toBeUndefined();
     await insertUsage(env, { accountId: account.id, status: 'pending', holdMicros: 20_000 });
@@ -171,10 +171,10 @@ describe('assertCanSpend', () => {
       accountId: account.id,
       kind: 'adjustment',
       amountMicros: 5_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     const err = await assertCanSpend(
-      { ...env, STRIPE_WEBHOOK_SECRET: '' },
+      { ...env, PAYMENT_PROVIDER: 'polar' },
       account,
       'tangent',
     ).catch((e: unknown) => e);
@@ -194,14 +194,14 @@ describe('billing summary', () => {
       amountMicros: 10_000_000,
       grossMicros: 10_670_000,
       feeMicros: 670_000,
-      stripeRef: uniq('cs'),
+      providerRef: uniq('cs'),
     });
     // Without a gross amount (an adjustment), a grant is not a purchase to show.
     await grantCredit(env.DB, {
       accountId: account.id,
       kind: 'adjustment',
       amountMicros: 0,
-      stripeRef: null,
+      providerRef: null,
     });
     await insertUsage(env, { accountId: account.id, status: 'settled', chargeMicros: 1_000_000 });
     await insertUsage(env, { accountId: account.id, status: 'pending', holdMicros: 20_000 });
@@ -213,7 +213,7 @@ describe('billing summary', () => {
       kind: 'subscription',
       amountMicros: 2_000_000,
       grossMicros: null,
-      stripeRef: uniq('in'),
+      providerRef: uniq('in'),
     });
 
     expect(await getBillingSummary(env, account)).toEqual({
@@ -221,7 +221,7 @@ describe('billing summary', () => {
       membership: {
         required: false,
         status: 'inactive',
-        stripeStatus: null,
+        subscriptionStatus: null,
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
@@ -248,7 +248,7 @@ describe('billing summary', () => {
   });
 
   it('works for a brand-new account and with billing disabled', async () => {
-    const summary = await getBillingSummary({ ...env, STRIPE_SECRET_KEY: '' }, simpleAccount());
+    const summary = await getBillingSummary({ ...env, PAYMENT_PROVIDER: 'polar' }, simpleAccount());
     expect(summary).toMatchObject({
       enabled: false,
       builtInCredit: false,
@@ -268,7 +268,7 @@ describe('billing summary', () => {
 
   it('reports top-ups as unavailable without a credits product, though billing is enabled', async () => {
     const summary = await getBillingSummary(
-      { ...env, STRIPE_CREDITS_PRODUCT_ID: '' },
+      { ...env, FAKE_PAYMENTS: '{"topUps":false}' },
       simpleAccount(),
     );
     expect(summary).toMatchObject({ enabled: true, topUpsEnabled: false });
@@ -282,7 +282,7 @@ describe('billing summary in power mode', () => {
       accountId: power.billingAccountId,
       kind: 'adjustment',
       amountMicros: 3_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     await insertUsage(env, {
       accountId: power.billingAccountId,
@@ -294,7 +294,7 @@ describe('billing summary in power mode', () => {
       accountId: power.id,
       kind: 'adjustment',
       amountMicros: 7_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     expect(await getBillingSummary(env, power)).toMatchObject({
       builtInCredit: true,
@@ -304,11 +304,27 @@ describe('billing summary in power mode', () => {
   });
 });
 
-describe('stripe config', () => {
-  it('billing needs both secrets', () => {
-    expect(billingConfigured(env)).toBe(true);
-    expect(billingConfigured({ ...env, STRIPE_SECRET_KEY: ' ' })).toBe(false);
-    expect(billingConfigured({ ...env, STRIPE_WEBHOOK_SECRET: '' })).toBe(false);
+describe('payments config', () => {
+  it('billing needs a configured payment provider', () => {
+    expect(paymentsConfigured(env)).toBe(true);
+    // Polar without its secrets (vitest.config.ts pins them empty) is not configured.
+    expect(paymentsConfigured({ ...env, PAYMENT_PROVIDER: 'polar' })).toBe(false);
+    expect(
+      paymentsConfigured({
+        ...env,
+        PAYMENT_PROVIDER: 'polar',
+        POLAR_ACCESS_TOKEN: 'polar_oat_x',
+        POLAR_WEBHOOK_SECRET: ' ',
+      }),
+    ).toBe(false);
+    expect(
+      paymentsConfigured({
+        ...env,
+        PAYMENT_PROVIDER: 'polar',
+        POLAR_ACCESS_TOKEN: 'polar_oat_x',
+        POLAR_WEBHOOK_SECRET: 'whsec_x',
+      }),
+    ).toBe(true);
   });
 });
 

@@ -1,5 +1,7 @@
 # Feature: Community Credit Pool for Tangent
 
+> **Current framing (2026-10-05): the pool is revenue-funded.** Nobody can buy credit for the pool. It is free credit Tangent provides, an operator expense like a free tier: Tangent puts `POOL_REVENUE_SHARE_BPS` (default 20%) of what it earns into it, 20% of each membership payment after payment fees and 20% of the markup on personal credit as it is used, and the operator may add more. Pool replies are charged at their true cost, with no markup. The spec below is the original design and is kept as history: wherever it describes funding or buying credit for the pool, a pool purchase target, a margin or markup on pool use, or "visibility drives funding", read the decision in docs/DECISIONS.md ("Revenue-funded community pool") and docs/polar-migration/05-pool-framing.md instead. The ledger, bank, caps, abuse defences, meter and impact feed still hold.
+
 ## Context
 
 Tangent (tangentailearning.com) is a branching LLM learning chat on Cloudflare Workers. Auth is magic link, passkeys, and social login. Billing is planned with Stripe, but the Stripe account is not live yet.
@@ -16,7 +18,7 @@ This feature adds a **public, community-funded credit pool**. Anyone can put mon
 
 1. **The pool can never go negative.** Pool spend is strictly limited by pool funds, so the owner's worst case is fixed infrastructure cost (~$5/month Workers plan). Every design decision must preserve this.
 2. **The pool is a commons, and commons fail from a few heavy users or scripts draining them.** The main threat is someone using the Tangent endpoint as a free general-purpose LLM proxy. The defense is to make pool usage good for learning but poor for general use: caps, default model only, a locked system prompt, and limited output and context.
-3. **This is not a nonprofit or a donation.** The business is an LLC, and pool funding is a *credit purchase* where the buyer chooses the destination (personal or pool). A disclosed margin is applied. UI copy must say "fund the pool" or "add credits to the community pool," never "donate" or "tax-deductible." Keeping it a normal product sale also avoids Stripe donation and crowdfunding review.
+3. **This is not a nonprofit or a donation.** The business is an LLC, and pool funding is a *credit purchase* where the buyer chooses the destination (personal or pool). A disclosed markup applies (originally a margin at purchase; see §3). UI copy must say "fund the pool" or "add credits to the community pool," never "donate" or "tax-deductible." (Superseded 2026-10-05: nobody buys pool credit; the pool is funded from Tangent's revenue. See docs/polar-migration D1 and 05.)
 4. **An empty pool is the normal state, not an error.** Design the empty state as a first-class UX with a clear call to action.
 5. **Visibility drives funding.** A public pool meter and impact stats are the main reasons people contribute.
 
@@ -39,9 +41,7 @@ This feature adds a **public, community-funded credit pool**. Anyone can put mon
 
 ### 3. Pricing config
 - A per-model price table (input and output price per million tokens) in config, not hardcoded in handlers.
-- A configurable `MARGIN_PERCENT` (start around 8%).
-  - Margin is applied **at purchase time**: a $10 purchase yields $10 / (1 + margin) of usable credit.
-  - Usage is then charged at raw cost. This keeps the per-request math simple and makes the disclosure clear.
+- ~~A configurable `MARGIN_PERCENT` (start around 8%), applied at purchase time ($10 yields $10 / (1 + margin)), with usage charged at raw cost.~~ **Changed (owner decision, 2026-10):** a pool purchase adds what was paid minus the card processing fee, like a personal top-up, and each pool reply costs the AI provider's price plus a per-call markup (`POOL_MARKUP_BPS`, default 5%). See docs/DECISIONS.md, "Pool pricing aligned with personal credit".
 - The provider is still undecided (OpenRouter vs. Cloudflare Workers AI). Keep the model and price table provider-agnostic.
 
 ### 4. Funding source selection

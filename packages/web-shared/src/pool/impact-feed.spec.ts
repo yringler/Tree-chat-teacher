@@ -4,7 +4,7 @@ import type { PoolImpactResponse } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../core/api-client';
 import { ImpactFeed, loadLatestImpact } from './impact-feed';
-import { PoolFundSection } from './pool-fund-section';
+import { PoolSection } from './pool-section';
 
 function templateOf(type: object): string {
   const annotations = (type as { __annotations__?: { template?: string }[] }).__annotations__;
@@ -33,9 +33,9 @@ const IMPACT: PoolImpactResponse = {
 describe('ImpactFeed', () => {
   const t = templateOf(ImpactFeed);
 
-  it('is <app-impact-feed>, under the meter in the fund section', () => {
+  it("is <app-impact-feed>, under the meter in the billing page's pool section", () => {
     expect(reflectComponentType(ImpactFeed)?.selector).toBe('app-impact-feed');
-    const section = templateOf(PoolFundSection);
+    const section = templateOf(PoolSection);
     expect(section).toContain('<app-impact-feed />');
     expect(section.indexOf('<app-pool-meter')).toBeLessThan(section.indexOf('<app-impact-feed'));
   });

@@ -15,8 +15,10 @@ import {
   type TreeSummary,
 } from '@tangent/shared';
 import { env } from 'cloudflare:workers';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { deleteUser } from '../src/auth/delete-account.js';
 import { grantCredit } from '../src/billing/ledger.js';
+import { rememberCustomer } from '../src/billing/payments/customers.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
 import { makeNode } from './fixtures.js';
@@ -371,7 +373,7 @@ describe('Learn mode on paid credit', () => {
       accountId: u.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
       note: 'test',
     });
     const res = await u.call(`/api/branches/${trunk.id}/messages`, {
@@ -405,7 +407,7 @@ describe('Learn mode on paid credit', () => {
   });
 
   it('is hidden without billing: credit falls back to the own-key mode', async () => {
-    const e = authEnv({ STRIPE_SECRET_KEY: '' });
+    const e = authEnv({ PAYMENT_PROVIDER: 'polar' });
     const u = await newUser(e);
     expect(u.learn).toMatchObject({ mode: 'simple', operatorKeys: false, builtInCredit: false });
     const res = await u.call('/api/billing', { learn: 'credit' });
@@ -418,7 +420,7 @@ describe('Learn mode on paid credit', () => {
       accountId: u.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_500_000,
-      stripeRef: null,
+      providerRef: null,
     });
     for (const learn of [undefined, 'credit', 'own-key'] as const) {
       const summary = await json<BillingSummary>(
@@ -453,7 +455,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
 
     // Not offered without billing, or without the operator's key.
     for (const e of [
-      authEnv({ STRIPE_SECRET_KEY: '' }),
+      authEnv({ PAYMENT_PROVIDER: 'polar' }),
       authEnv({ SIMPLE_PROVIDER: '', OPENROUTER_SIMPLE_API_KEY: '' }),
     ]) {
       const v = await newUser(e);
@@ -482,7 +484,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       accountId: `u_${userId}`,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     const res = await send(onTangent.trunk.id);
     expect(res.status).toBe(200);
@@ -519,7 +521,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       accountId: `u_${userId}`,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     expect((await review('tangent', 'smart')).status).toBe(200);
     expect(await usageRows(`u_${userId}`)).toBe(1);
@@ -532,7 +534,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       accountId: ledger,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     const onTangent = await powerTree(u, 'tangent', 'smart');
     const own = await powerTree(u, 'fake', 'fake-1');
@@ -581,7 +583,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       accountId: u.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     const power = await powerTree(u, 'tangent', 'smart');
     const learn = await treeWithNodes(u, 'credit');
@@ -604,7 +606,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       accountId: u.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     const open = await powerTree(u, 'tangent', 'vendor/any-model:free');
     const ok = await u.call(`/api/branches/${open.trunk.id}/messages`, {
@@ -639,7 +641,6 @@ describe('membership', () => {
   const memberEnv = (overrides: Partial<AppEnv> = {}) =>
     authEnv({
       ANNUAL_FEE_ENABLED: 'true',
-      STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership',
       MEMBERSHIP_WAIVER_CODE: WAIVER,
       ...overrides,
     });
@@ -668,7 +669,7 @@ describe('membership', () => {
       expect(me.membership).toEqual({
         required: false,
         status: 'inactive',
-        stripeStatus: null,
+        subscriptionStatus: null,
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
@@ -720,7 +721,7 @@ describe('membership', () => {
     await insertSubscription(env, u.power.accountId.slice(2), 'past_due');
     expect(
       (await json<MeResponse>(await u.call('/api/me', { learn: 'credit' }))).membership,
-    ).toMatchObject({ required: true, status: 'active', stripeStatus: 'past_due' });
+    ).toMatchObject({ required: true, status: 'active', subscriptionStatus: 'past_due' });
     const { requests } = await generating(u);
     const res = await u.call(...requests[0]!);
     expect(res.status).toBe(200);
@@ -966,21 +967,7 @@ describe('account deletion', () => {
     return row?.n ?? 0;
   }
 
-  /** A real customer in the Stripe mock, linked to the user as the first checkout would. */
-  async function linkStripeCustomer(userId: string): Promise<string> {
-    const res = await fetch('https://api.stripe.com/v1/customers', {
-      method: 'POST',
-      headers: { authorization: 'Bearer sk_test_x' },
-      body: new URLSearchParams({ email: `${userId}@example.org` }),
-    });
-    const { id } = (await res.json()) as { id: string };
-    await env.DB.prepare('UPDATE auth_users SET stripe_customer_id = ?1 WHERE id = ?2')
-      .bind(id, userId)
-      .run();
-    return id;
-  }
-
-  it('deletes both accounts, their data, sign-in and Stripe customer; keeps the ledger and other users', async () => {
+  it('deletes both accounts, their data, sign-in and billing customer; keeps the ledger and other users', async () => {
     const a = await newUser();
     const other = await newUser();
     const userId = a.power.accountId.slice(2);
@@ -999,10 +986,10 @@ describe('account deletion', () => {
       accountId: a.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
       note: 'test',
     });
-    const customerId = await linkStripeCustomer(userId);
+    await rememberCustomer(env.DB, 'fake', userId, 'cust_gone');
 
     // The confirmation must be the user's own email.
     const wrong = await a.call('/api/account', {
@@ -1063,10 +1050,9 @@ describe('account deletion', () => {
       ),
     ).toBe(1);
 
-    const calls = (await (
-      await fetch(`https://api.stripe.com/__mock/calls?path=/v1/customers/${customerId}`)
-    ).json()) as { method: string }[];
-    expect(calls.some((c) => c.method === 'DELETE')).toBe(true);
+    expect(
+      await count('SELECT COUNT(*) AS n FROM billing_customers WHERE user_id = ?1', userId),
+    ).toBe(0);
 
     // The share link is gone and the old session no longer signs anyone in.
     expect((await a.call(`/s/${share.token}`)).status).toBe(404);
@@ -1074,6 +1060,36 @@ describe('account deletion', () => {
 
     // Someone else's data is untouched.
     expect((await other.call(`/api/trees/${otherTree.tree.id}`)).status).toBe(200);
+  });
+
+  it('ends the subscription at the payment provider and forgets the billing rows', async () => {
+    const a = await newUser();
+    const userId = a.power.accountId.slice(2);
+    await insertSubscription(env, userId, 'active');
+    await rememberCustomer(env.DB, 'fake', userId, 'cust_del');
+    const deleted = await deleteUser(
+      { ...env, FAKE_PAYMENTS: JSON.stringify({ deleteResult: 'deleted' }) } as AppEnv,
+      userId,
+    );
+    expect(deleted.billingCustomerDeleted).toBe(true);
+    for (const table of ['billing_subscriptions', 'billing_customers'])
+      expect(
+        await count(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id = ?1`, userId),
+        table,
+      ).toBe(0);
+  });
+
+  it('keeps everything when the payment provider can’t end the subscription', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const a = await newUser();
+    const userId = a.power.accountId.slice(2);
+    const failing = { ...env, FAKE_PAYMENTS: JSON.stringify({ deleteResult: 'error' }) } as AppEnv;
+    await expect(deleteUser(failing, userId)).rejects.toMatchObject({
+      code: 'internal',
+      message: expect.stringContaining('payment provider'),
+    });
+    expect(await count('SELECT COUNT(*) AS n FROM auth_users WHERE id = ?1', userId)).toBe(1);
+    error.mockRestore();
   });
 
   it('signing up again with the same email starts from nothing', async () => {

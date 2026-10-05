@@ -5,16 +5,21 @@ import {
   type BillingSummary,
   type CheckoutResponse,
   type MembershipInfo,
+  type PortalResponse,
   type UsageListResponse,
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { redeemWaiverCode } from '../billing/membership.js';
-import { stripePurchases } from '../billing/purchases.js';
-import { getBillingSummary, listUsage } from '../billing/service.js';
+import {
+  openBillingPortal,
+  redeemWaiverCode,
+  startMembershipCheckout,
+} from '../billing/membership.js';
+import { PaymentProviderError } from '../billing/payments/index.js';
+import { getBillingSummary, listUsage, startTopUpCheckout } from '../billing/service.js';
 import { enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
-import type { AppBindings } from '../env.js';
-import { validateJson, validateQuery } from '../http/errors.js';
+import type { AppBindings, AppContext } from '../env.js';
+import { apiError, validateJson, validateQuery } from '../http/errors.js';
 
 const DEFAULT_USAGE_PAGE = 50;
 
@@ -23,16 +28,37 @@ const usageQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
+/** The base of the URLs the payment provider sends the browser back to. */
+function baseUrlOf(c: AppContext): string {
+  return c.env.PUBLIC_BASE_URL?.trim() || new URL(c.req.url).origin;
+}
+
+/** A payment provider failure as 502 `provider_error`, so the UI can say "try again". */
+async function viaProvider<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if (!(err instanceof PaymentProviderError)) throw err;
+    console.error(JSON.stringify({ event: 'payment_provider_error', error: err.message }));
+    throw new DomainError(
+      'provider_error',
+      "Couldn't reach the payment provider. Please try again in a moment.",
+    );
+  }
+}
+
 /**
- * Billing API, mounted at /api/billing by `worker-core`, in both modes: the
+ * Billing API, mounted at /api/billing by `app.ts`, in both modes: the
  * credit and the membership are the user's (`billingAccountId`, `userId`),
  * whichever app shows them.
  * `GET /` → BillingSummary, `GET /usage` → UsageListResponse,
- * `POST /checkout` → CheckoutResponse (credit for the user or, `target: 'pool'`,
- * for the community pool; returns to the calling app's billing page),
- * `POST /membership/waiver` → MembershipInfo (redeems MEMBERSHIP_WAIVER_CODE).
- * Subscribing and managing the membership go through the Better Auth Stripe
- * plugin (`/api/auth/subscription/*`).
+ * `POST /checkout` → CheckoutResponse (credit for the user; returns to the
+ * calling app's billing page),
+ * `POST /membership/waiver` → MembershipInfo (redeems MEMBERSHIP_WAIVER_CODE),
+ * `POST /membership/checkout` → CheckoutResponse (the yearly membership),
+ * `POST /portal` → PortalResponse (the payment provider's billing portal; 404
+ * `no_customer` while it has no customer for the user). Every hosted page
+ * returns to the calling app's billing page.
  */
 export function billingRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
@@ -52,22 +78,28 @@ export function billingRoutes(): Hono<AppBindings> {
   });
 
   r.post('/checkout', sameOriginOnly, validateJson(createCheckoutRequestSchema), async (c) => {
-    const { amountCents, target } = c.req.valid('json');
+    const { amountCents } = c.req.valid('json');
     const account = c.var.account;
-    if (!account.userId) throw new DomainError('unauthorized', 'Sign in to add credit');
-    const user = await c.env.DB.prepare('SELECT id, email, name FROM auth_users WHERE id = ?')
-      .bind(account.userId)
-      .first<{ id: string; email: string; name: string }>();
-    if (!user) throw new DomainError('unauthorized', 'Sign in to add credit');
-    const baseUrl = c.env.PUBLIC_BASE_URL?.trim() || new URL(c.req.url).origin;
-    const body = await stripePurchases(c.env).createCheckout({
-      target,
-      amountCents,
-      user,
-      account,
-      baseUrl,
-    });
+    const userId = account.userId;
+    if (!userId) throw new DomainError('unauthorized', 'Sign in to add credit');
+    const body = await viaProvider(() =>
+      startTopUpCheckout(c.env, account, userId, amountCents, baseUrlOf(c)),
+    );
     return c.json(body satisfies CheckoutResponse);
+  });
+
+  r.post('/membership/checkout', sameOriginOnly, async (c) => {
+    const body = await viaProvider(() =>
+      startMembershipCheckout(c.env, c.var.account, baseUrlOf(c)),
+    );
+    return c.json(body satisfies CheckoutResponse);
+  });
+
+  r.post('/portal', sameOriginOnly, async (c) => {
+    const body = await viaProvider(() => openBillingPortal(c.env, c.var.account, baseUrlOf(c)));
+    if (!body)
+      return apiError(c, 'no_customer', 'There is nothing to manage yet: no payment was made.');
+    return c.json(body satisfies PortalResponse);
   });
 
   // Rate limited per account before the comparison, so the code can't be brute-forced.

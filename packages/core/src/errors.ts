@@ -52,6 +52,7 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   pool_cap_reached: 429,
   pool_consent_required: 403,
   pool_unavailable: 403,
+  no_customer: 404,
 };
 
 /** No usable API key for the provider (missing, or an unreadable key cookie). */

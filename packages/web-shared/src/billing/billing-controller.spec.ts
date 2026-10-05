@@ -13,7 +13,7 @@ function summary(overrides: Partial<BillingSummary> = {}): BillingSummary {
     membership: {
       required: true,
       status: 'inactive',
-      stripeStatus: null,
+      subscriptionStatus: null,
       periodEnd: null,
       cancelAtPeriodEnd: false,
       priceCents: 1000,
@@ -47,7 +47,7 @@ function entry(id: string): UsageEntry {
 }
 
 /** A fake world: `billing()` returns `summaries` in order, then repeats the last one. */
-function setup(summaries: BillingSummary[] = [summary()], billingPath = '/learn/billing') {
+function setup(summaries: BillingSummary[] = [summary()]) {
   let calls = 0;
   const api = {
     billing: vi.fn(async () => {
@@ -60,12 +60,12 @@ function setup(summaries: BillingSummary[] = [summary()], billingPath = '/learn/
       nextCursor: null,
     })),
     createCheckout: vi.fn(async (amountCents: number) => ({
-      url: `https://checkout.stripe.com/c/${amountCents}`,
+      url: `https://pay.example/checkout/${amountCents}`,
     })),
   };
   const billing = {
-    upgrade: vi.fn(async (..._args: unknown[]) => undefined),
-    portal: vi.fn(async (_returnPath: string) => undefined),
+    upgrade: vi.fn(async () => undefined),
+    portal: vi.fn(async () => undefined),
   };
   const navigate = vi.fn((_url: string) => undefined);
   const clearCheckoutParam = vi.fn(() => undefined);
@@ -76,7 +76,6 @@ function setup(summaries: BillingSummary[] = [summary()], billingPath = '/learn/
     navigate,
     clearCheckoutParam,
     sleep,
-    billingPath: () => billingPath,
   });
   return { ctl, api, billing, navigate, clearCheckoutParam, sleep };
 }
@@ -222,7 +221,7 @@ describe('BillingController: top-ups', () => {
     expect(ctl.presets()).toEqual([500, 1000, 2000, 5000]);
     await ctl.topUp(2000);
     expect(api.createCheckout).toHaveBeenCalledWith(2000);
-    expect(navigate).toHaveBeenCalledWith('https://checkout.stripe.com/c/2000');
+    expect(navigate).toHaveBeenCalledWith('https://pay.example/checkout/2000');
     // The page is leaving: everything stays disabled.
     expect(ctl.busy()).toBe(true);
     await ctl.topUp(500);
@@ -260,7 +259,7 @@ describe('BillingController: top-ups', () => {
     expect(ctl.customError()).toBeNull();
     await ctl.topUpCustom();
     expect(api.createCheckout).toHaveBeenCalledWith(1234);
-    expect(navigate).toHaveBeenCalledWith('https://checkout.stripe.com/c/1234');
+    expect(navigate).toHaveBeenCalledWith('https://pay.example/checkout/1234');
     expect(ctl.pending()).toEqual({ kind: 'top-up', cents: 1234, source: 'custom' });
   });
 
@@ -284,38 +283,22 @@ describe('BillingController: top-ups', () => {
 });
 
 describe('BillingController: the membership', () => {
-  it('Subscribe opens Checkout for the membership plan, back to the billing page', async () => {
+  it('Subscribe opens the membership checkout (the server picks the return page)', async () => {
     const { ctl, billing } = setup();
     await ctl.load();
     await ctl.subscribe();
-    expect(billing.upgrade).toHaveBeenCalledWith(
-      'membership',
-      '/learn/billing?checkout=success',
-      '/learn/billing?checkout=cancel',
-      '/learn/billing',
-    );
+    expect(billing.upgrade).toHaveBeenCalledOnce();
     expect(ctl.pending()).toEqual({ kind: 'subscribe' });
-    // Leaving for Stripe: nothing else can start meanwhile.
+    // Leaving for the checkout: nothing else can start meanwhile.
     await ctl.topUp(500);
     expect(ctl.pending()).toEqual({ kind: 'subscribe' });
   });
 
-  it("uses the app's billing path (the power app's is /billing)", async () => {
-    const { ctl, billing } = setup([summary()], '/billing');
-    await ctl.subscribe();
-    expect(billing.upgrade).toHaveBeenCalledWith(
-      'membership',
-      '/billing?checkout=success',
-      '/billing?checkout=cancel',
-      '/billing',
-    );
-  });
-
   it('a subscribe error shows inline and re-enables the buttons', async () => {
     const { ctl, billing } = setup();
-    billing.upgrade.mockRejectedValueOnce(new Error('Stripe is down'));
+    billing.upgrade.mockRejectedValueOnce(new Error('Payments are down'));
     await ctl.subscribe();
-    expect(ctl.actionError()).toBe('Stripe is down');
+    expect(ctl.actionError()).toBe('Payments are down');
     expect(ctl.busy()).toBe(false);
   });
 
@@ -330,23 +313,20 @@ describe('BillingController: the membership', () => {
 });
 
 describe('BillingController: the portal', () => {
-  it('"Manage billing" opens the portal and returns to the billing page', async () => {
+  it('"Manage billing" opens the portal', async () => {
     const { ctl, billing } = setup();
     await ctl.manage();
-    expect(billing.portal).toHaveBeenCalledWith('/learn/billing');
-    const power = setup([summary()], '/billing');
-    await power.ctl.manage();
-    expect(power.billing.portal).toHaveBeenCalledWith('/billing');
+    expect(billing.portal).toHaveBeenCalledOnce();
     expect(ctl.pending()).toEqual({ kind: 'portal' });
   });
 
-  it('a portal error without a Stripe customer reads kindly', async () => {
+  it('a portal error without a customer yet reads kindly', async () => {
     const { ctl, billing } = setup();
     billing.portal.mockRejectedValueOnce(
-      Object.assign(new Error('Stripe customer not found for this user'), {
+      Object.assign(new Error('No customer'), {
         name: 'BillingError',
         status: 404,
-        code: 'CUSTOMER_NOT_FOUND',
+        code: 'no_customer',
       }),
     );
     await ctl.manage();

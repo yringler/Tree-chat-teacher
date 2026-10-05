@@ -3,7 +3,6 @@
 // the balance, the sessions it covers and this week's counts, never a user.
 import type { PoolMeResponse, PoolStatusResponse } from '@tangent/shared';
 import { balanceStatement, getBalance, readBalance, type BalanceRow } from '../billing/ledger.js';
-import { topUpsEnabled } from '../billing/service.js';
 import { appConfig } from '../config.js';
 import type { AccountContext, AppEnv } from '../env.js';
 import { poolAvailable } from '../services.js';
@@ -42,13 +41,11 @@ export async function poolStatus(env: AppEnv, now = new Date()): Promise<PoolSta
   const week = weekStart(now).toISOString();
   const base: PoolStatusResponse = {
     enabled: poolAvailable(env),
-    fundingOpen: topUpsEnabled(env),
     availableMicros: 0,
     sessionsRemaining: 0,
     model: poolModelInfo(env),
     week: { start: week, exchanges: 0, learners: 0 },
-    marginBps: pool.marginBps,
-    minPurchaseCents: pool.minPurchaseCents,
+    revenueShareBps: pool.revenueShareBps,
   };
   if (!base.enabled) return base;
   const [balanceRes, countsRes] = await env.DB.batch<Record<string, unknown>>([

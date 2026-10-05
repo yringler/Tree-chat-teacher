@@ -7,7 +7,6 @@ import {
   type LearnPayment,
 } from '@tangent/shared';
 import { createMiddleware } from 'hono/factory';
-import { accountIdForUser } from '../billing/stripe.js';
 import type { AccountContext, AppBindings, AppEnv, Identity } from '../env.js';
 import { ipKey, utcDay } from '../pool/ids.js';
 import { resolvePoolParams } from '../pool/params.js';
@@ -19,6 +18,14 @@ export const POWER_ACCOUNT_PREFIX = 'p_';
 export const SIMPLE_ACCOUNT_PREFIX = 'u_';
 /** The dev bypass's Learn account (its power account is DEFAULT_ACCOUNT_ID), and its ledger id. */
 export const DEV_SIMPLE_ACCOUNT_ID = 'default_simple';
+
+/**
+ * A Better Auth user's Learn account id, `u_<userId>`, which is also the
+ * ledger id of their credit in both modes (`AccountContext.billingAccountId`).
+ */
+export function accountIdForUser(userId: string): string {
+  return `${SIMPLE_ACCOUNT_PREFIX}${userId}`;
+}
 
 /**
  * The ledger id of a user's credit and usage, the same in both modes:

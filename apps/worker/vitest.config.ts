@@ -2,7 +2,7 @@ import path from 'node:path';
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
 import { defineConfig } from 'vitest/config';
 import { mockOpenRouter, OPENROUTER_ORIGIN } from './test/mocks/openrouter.js';
-import { mockStripe, STRIPE_ORIGIN } from './test/mocks/stripe.js';
+import { mockPolar, POLAR_ORIGIN } from './test/mocks/polar.js';
 
 const MOCK_UPSTREAM = 'https://llm.test';
 /** Test-only 32-byte secret (base64). */
@@ -13,8 +13,8 @@ const TEST_KEY_SECRET = Buffer.alloc(32, 7).toString('base64');
  * the reply echoes the rest of the key so tests can tell which key was used.
  * `…-slow` keys stream slowly (abort tests).
  *
- * Stripe (api.stripe.com) and OpenRouter (openrouter.ai) are delegated to
- * test/mocks/stripe.ts and test/mocks/openrouter.ts. Mechanism: miniflare's
+ * Polar's sandbox (sandbox-api.polar.sh) and OpenRouter (openrouter.ai) are
+ * delegated to test/mocks/polar.ts and test/mocks/openrouter.ts. Mechanism: miniflare's
  * `outboundService` (this function) receives every global `fetch()` made by the
  * Worker, its Durable Objects and the test files themselves, and runs in the
  * Node host process. The mocks are therefore plain Node modules imported here;
@@ -25,7 +25,7 @@ const TEST_KEY_SECRET = Buffer.alloc(32, 7).toString('base64');
  */
 async function mockUpstream(request: Request): Promise<Response> {
   const url = new URL(request.url);
-  if (url.origin === STRIPE_ORIGIN) return mockStripe(request);
+  if (url.origin === POLAR_ORIGIN) return mockPolar(request);
   if (url.origin === OPENROUTER_ORIGIN) return mockOpenRouter(request);
   // Cloudflare Turnstile siteverify: the token `pass` is valid.
   if (url.origin === 'https://challenges.cloudflare.com' && url.pathname === '/turnstile/v0/siteverify') {
@@ -127,14 +127,19 @@ export default defineConfig({
                 anyMessageResponses: { '[any-topic:math.algebra]': 'math.algebra' },
               },
             }),
-            STRIPE_SECRET_KEY: 'sk_test_x',
-            STRIPE_WEBHOOK_SECRET: 'whsec_test',
-            STRIPE_CREDITS_PRODUCT_ID: 'prod_test',
-            // No membership by default (tests that need one pass ANNUAL_FEE_ENABLED: 'true' and
-            // STRIPE_MEMBERSHIP_PRICE_ID in an env override), so the other suites generate freely. The
-            // fee is off as deployed; the price and credit are the defaults.
+            // Payments through the fake provider (billing/providers/fake.ts): it sells top-ups and the
+            // membership; tests change what it does with FAKE_PAYMENTS (JSON) in an env override. The
+            // Polar suites build the real adapter themselves, against test/mocks/polar.ts.
+            PAYMENT_PROVIDER: 'fake',
+            FAKE_PAYMENTS: '',
+            // Pinned empty, whatever a local .dev.vars says: `PAYMENT_PROVIDER: 'polar'` in an env
+            // override is then "no payments configured".
+            POLAR_ACCESS_TOKEN: '',
+            POLAR_WEBHOOK_SECRET: '',
+            // No membership required by default (tests that need one pass ANNUAL_FEE_ENABLED: 'true' in
+            // an env override), so the other suites generate freely. The fee is off as deployed; the
+            // price and credit are the defaults.
             ANNUAL_FEE_ENABLED: 'false',
-            STRIPE_MEMBERSHIP_PRICE_ID: '',
             MEMBERSHIP_PRICE_CENTS: '1000',
             MEMBERSHIP_CREDIT_CENTS: '200',
             MEMBERSHIP_WAIVER_CODE: '',
@@ -150,6 +155,9 @@ export default defineConfig({
             // As deployed: tests that simulate purchases turn it on in an env override.
             DEV_PURCHASES_ENABLED: 'false',
             POOL_ACCOUNT_ID: 'pool',
+            // No revenue share by default: the suites that test it (pool-revenue-share.test.ts) set it on
+            // a pool of their own, so membership payments elsewhere never touch the shared `pool`.
+            POOL_REVENUE_SHARE_BPS: '0',
             POOL_MODEL: 'simple',
             MODEL_PRICES: JSON.stringify({ simple: { in: 1_000_000, out: 1_000_000, context: 8_192 } }),
             POOL_MAX_OUTPUT_TOKENS: '2048',

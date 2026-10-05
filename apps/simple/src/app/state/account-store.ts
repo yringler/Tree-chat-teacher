@@ -96,6 +96,11 @@ export class AccountStore {
     return own > 0;
   });
 
+  /** Personal credit can be bought now: credit is offered and the provider sells top-ups. */
+  readonly creditOnSale = computed(
+    () => !this.demo && this.payment.builtInCredit() && this.billing()?.topUpsEnabled !== false,
+  );
+
   /** True when the available credit is used up (the pill turns into a warning). */
   readonly lowBalance = computed(() => {
     const b = this.billing();

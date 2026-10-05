@@ -6,12 +6,13 @@ import { poolBlockText, type PoolBlock } from './pool-format';
 /**
  * The inline state of a message the community pool refused (spec §8), shown
  * in the chat above the composer, never as a generic error toast:
- * - empty: "The community pool is empty. It refills as people fund it." with
- *   **Fund the pool** and **Buy personal credits**;
- * - a cap: the cap, when it resets, and that supporters get more.
- * The message itself is kept in the composer. While funding isn't open yet
- * (no Stripe), nothing can be bought: the empty state says funding opens
- * soon and links to `/pool`, which explains the pool.
+ * - empty: "The community pool is empty until Tangent adds more credit." with
+ *   **Buy personal credits** when personal credit is on sale (`creditOpen`),
+ *   and **How the pool works** (`/pool`);
+ * - a cap: the cap, when it resets, and that supporters get more (with
+ *   **Buy credits** when credit is on sale).
+ * The message itself is kept in the composer. Only Tangent adds credit to the
+ * pool, so nothing here offers pool credit.
  */
 @Component({
   selector: 'app-pool-block-notice',
@@ -29,17 +30,12 @@ import { poolBlockText, type PoolBlock } from './pool-format';
         }
         @if (block().kind === 'empty' && block().details.reason === 'empty') {
           <div class="pool-block-actions">
-            @if (fundingOpen()) {
-              <a class="btn btn-primary btn-sm" [routerLink]="billingPath()" fragment="fund-pool"
-                >Fund the pool</a
-              >
+            @if (creditOpen()) {
               <a class="btn btn-sm" [routerLink]="billingPath()">Buy personal credits</a>
-            } @else {
-              <span class="muted small">Funding opens soon.</span>
-              <a class="btn btn-sm" href="/pool">How the pool works</a>
             }
+            <a class="btn btn-sm" href="/pool">How the pool works</a>
           </div>
-        } @else if (text().supporters && fundingOpen()) {
+        } @else if (text().supporters && creditOpen()) {
           <div class="pool-block-actions">
             <a class="btn btn-sm" [routerLink]="billingPath()">Buy credits</a>
           </div>
@@ -53,11 +49,11 @@ import { poolBlockText, type PoolBlock } from './pool-format';
 })
 export class PoolBlockNotice {
   readonly block = input.required<PoolBlock>();
-  /** Stripe is set up, so the pool and personal credit can be bought now. */
-  readonly fundingOpen = input(false);
+  /** Personal credit can be bought now. */
+  readonly creditOpen = input(false);
   /** Router link of the app's billing page (`/billing`). */
   readonly billingPath = input('/billing');
   readonly dismissed = output();
 
-  protected readonly text = computed(() => poolBlockText(this.block()));
+  protected readonly text = computed(() => poolBlockText(this.block(), new Date()));
 }

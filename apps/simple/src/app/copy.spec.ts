@@ -26,4 +26,15 @@ describe('Learn copy rule (community pool)', () => {
     expect(t).toContain(`(change)="choose('pool')"`);
     expect(templateOf(HomePage)).toContain('<app-pool-meter [status]="status" />');
   });
+
+  it('says Tangent provides the pool’s credit from its revenue, and never sells it', () => {
+    const home = templateOf(HomePage);
+    expect(home).toContain('{{ funding(status) }} Any signed-in learner can use it');
+    const dialog = templateOf(ModelAccessDialog);
+    expect(dialog).toMatch(/Free credit\s+Tangent provides from its revenue\./);
+    for (const t of [home, dialog]) {
+      expect(t).not.toContain('fund-pool');
+      expect(t).not.toMatch(/fund the pool|funded by people|anyone can add/i);
+    }
+  });
 });

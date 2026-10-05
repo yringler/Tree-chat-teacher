@@ -29,7 +29,8 @@ const ECHO = '[echo-request]';
 /** POOL_MAX_OUTPUT_TOKENS in vitest.config.ts. */
 const POOL_MAX_OUTPUT = 2048;
 /** The pool's price entry for `simple`, as the tests' Worker env resolves it. */
-const PRICE = (await resolvePoolParams(env, null)).price!;
+const PARAMS = await resolvePoolParams(env, null);
+const PRICE = PARAMS.price!;
 /** The reply's ceiling hold on a test pool. */
 const CEILING = ceilingHoldMicros(PRICE, POOL_MAX_OUTPUT, PRICE.feeBps);
 
@@ -109,6 +110,7 @@ interface UsageRow {
   model: string;
   status: string;
   hold_micros: number;
+  markup_bps: number;
   charge_micros: number | null;
   settle_reason: string | null;
 }
@@ -139,7 +141,7 @@ async function giveCredit(userId: string, micros = 1_000_000): Promise<void> {
     accountId: `u_${userId}`,
     kind: 'adjustment',
     amountMicros: micros,
-    stripeRef: null,
+    providerRef: null,
   });
 }
 
@@ -198,8 +200,9 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
       status: 'settled',
       settle_reason: 'cost',
     });
-    // At least the output cap at 1 µ$ per token plus the fee; less than the full context window.
+    // At least the output cap at 1 µ$ per token plus the fee (no pool markup); less than the full context window.
     expect(row!.hold_micros).toBeGreaterThanOrEqual(Math.ceil(POOL_MAX_OUTPUT * 1.055));
+    expect(row!.markup_bps).toBe(0);
     expect(row!.hold_micros).toBeLessThan(CEILING);
     expect(row!.charge_micros).toBeLessThanOrEqual(row!.hold_micros);
     expect(await rows(`u_${u.userId}`)).toEqual([]);
@@ -512,9 +515,10 @@ describe("the pool's context limit bounds every call", () => {
       ['reply', 'settled'],
       ['summary', 'settled'],
     ]);
-    // At 1 µ$ per token in and out plus the fee, a hold is (input bound + output cap) × 1.055:
+    // At 1 µ$ per token in and out plus the fee and the pool markup, a hold is
+    // (input bound + output cap) × 1.055 × 1.05:
     // the input bound of each call stayed within the limit's bytes plus framing.
-    const maxHold = Math.ceil((14_000 + 64 + POOL_MAX_OUTPUT) * 1.055);
+    const maxHold = Math.ceil((14_000 + 64 + POOL_MAX_OUTPUT) * 1.055 * 1.05);
     for (const r of calls) expect(r.hold_micros).toBeLessThanOrEqual(maxHold);
   });
 

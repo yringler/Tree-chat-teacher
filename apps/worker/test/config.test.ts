@@ -1,6 +1,8 @@
 import { DEFAULT_SYSTEM_PROMPT, POOL_NOTICE_VERSION } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+// @ts-expect-error -- `?raw` is a Vite import; the worker tsconfig has no vite/client types.
+import wranglerText from '../wrangler.jsonc?raw';
 import { membershipCreditCents } from '../src/billing/membership.js';
 import { appConfig, boolVar, DEFAULT_MODEL_PRICES, intVar, positiveInt } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
@@ -47,7 +49,9 @@ describe('config parsers', () => {
 
 describe('appConfig', () => {
   it('has the documented defaults', () => {
-    const c = appConfig(blank({ POOL_ENABLED: '', ANNUAL_FEE_ENABLED: '' }));
+    const c = appConfig(
+      blank({ POOL_ENABLED: '', ANNUAL_FEE_ENABLED: '', POOL_REVENUE_SHARE_BPS: '' }),
+    );
     expect(c.flags).toEqual({
       poolEnabled: false,
       annualFeeEnabled: false,
@@ -59,8 +63,7 @@ describe('appConfig', () => {
     expect(c.pool).toMatchObject({
       accountId: 'pool',
       model: null,
-      marginBps: 800,
-      minPurchaseCents: 1000,
+      revenueShareBps: 2000,
       maxInputTokens: 16_000,
       maxOutputTokens: 1024,
       maxMessageChars: 4000,
@@ -165,14 +168,19 @@ describe('appConfig', () => {
     expect(error).toHaveBeenCalled();
   });
 
-  it('accepts MARGIN_PERCENT as an alias of POOL_MARGIN_BPS', () => {
-    expect(appConfig(blank({ MARGIN_PERCENT: '8' })).pool.marginBps).toBe(800);
-    expect(appConfig(blank({ MARGIN_PERCENT: '7.5' })).pool.marginBps).toBe(750);
-    expect(appConfig(blank({ MARGIN_PERCENT: '7.5', POOL_MARGIN_BPS: '900' })).pool.marginBps).toBe(
-      900,
+  it('reads the pool revenue share from POOL_REVENUE_SHARE_BPS (default 20%, at most 100%)', () => {
+    expect(appConfig(blank({ POOL_REVENUE_SHARE_BPS: '1500' })).pool.revenueShareBps).toBe(1500);
+    expect(appConfig(blank({ POOL_REVENUE_SHARE_BPS: '0' })).pool.revenueShareBps).toBe(0);
+    expect(appConfig(blank({ POOL_REVENUE_SHARE_BPS: 'a fifth' })).pool.revenueShareBps).toBe(2000);
+    expect(appConfig(blank({ POOL_REVENUE_SHARE_BPS: '12000' })).pool.revenueShareBps).toBe(10_000);
+  });
+
+  it('ships the share wrangler.jsonc documents, and no pool purchase or pool markup vars', () => {
+    expect(/"POOL_REVENUE_SHARE_BPS"\s*:\s*"([^"]*)"/.exec(wranglerText as string)?.[1]).toBe(
+      '2000',
     );
-    expect(appConfig(blank({ MARGIN_PERCENT: 'eight' })).pool.marginBps).toBe(800);
-    expect(appConfig(blank({ POOL_MARGIN_BPS: '0' })).pool.marginBps).toBe(0);
+    for (const gone of ['POOL_PURCHASES_ENABLED', 'POOL_MIN_PURCHASE_CENTS', 'POOL_MARKUP_BPS'])
+      expect(wranglerText as string).not.toContain(gone);
   });
 
   it('clamps unsafe combinations, logging each', () => {
@@ -201,7 +209,7 @@ describe('appConfig', () => {
     expect(simpleMaxInputTokens({ ...env, SIMPLE_MAX_INPUT_TOKENS: '1234' })).toBe(1234);
     expect(membershipCreditCents({ ...env, MEMBERSHIP_CREDIT_CENTS: '300' })).toBe(300);
     expect(
-      membershipCreditCents({ ...env, STRIPE_SECRET_KEY: '', MEMBERSHIP_CREDIT_CENTS: '300' }),
+      membershipCreditCents({ ...env, PAYMENT_PROVIDER: 'polar', MEMBERSHIP_CREDIT_CENTS: '300' }),
     ).toBe(0);
   });
 });

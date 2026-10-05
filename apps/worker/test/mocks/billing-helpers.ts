@@ -2,7 +2,6 @@
 // in workerd; not by vitest.config.ts). Ids are unique per call, so files and
 // tests sharing a D1 database or the Node-side mocks never collide.
 import type { AppEnv, AccountContext } from '../../src/env.js';
-import type { MockPaymentIntent, MockStripeCall } from './stripe.js';
 import type { ScriptedGeneration } from './openrouter.js';
 
 let seq = 0;
@@ -54,49 +53,52 @@ export function devPowerAccount(overrides: Partial<AccountContext> = {}): Accoun
 
 export async function insertUser(
   env: AppEnv,
-  user: { id: string; email?: string; name?: string; stripeCustomerId?: string | null },
+  user: { id: string; email?: string; name?: string },
 ): Promise<{ id: string; email: string; name: string }> {
   const email = user.email ?? `${user.id}@example.com`;
   const name = user.name ?? 'Test User';
   const now = Date.now();
   await env.DB.prepare(
-    `INSERT INTO auth_users (id, name, email, email_verified, created_at, updated_at, stripe_customer_id)
-     VALUES (?, ?, ?, 1, ?, ?, ?)`,
+    `INSERT INTO auth_users (id, name, email, email_verified, created_at, updated_at)
+     VALUES (?, ?, ?, 1, ?, ?)`,
   )
-    .bind(user.id, name, email, now, now, user.stripeCustomerId ?? null)
+    .bind(user.id, name, email, now, now)
     .run();
   return { id: user.id, email, name };
 }
 
-/** A Better Auth Stripe plugin subscription row (plan `membership` unless given); returns its id. */
+/**
+ * A membership subscription snapshot (`billing_subscriptions`, kind
+ * `membership` unless given), as the payment webhook stores it; returns its ref.
+ * `periodEnd` is epoch ms.
+ */
 export async function insertSubscription(
   env: AppEnv,
   userId: string,
   status: string,
-  extra: {
-    plan?: string;
-    periodEnd?: number | null;
-    cancelAtPeriodEnd?: boolean;
-    stripeSubscriptionId?: string | null;
-  } = {},
+  extra: { kind?: string; periodEnd?: number | null; cancelAtPeriodEnd?: boolean } = {},
 ): Promise<string> {
-  const id = uniq('sub');
+  const ref = `fake:subscription:${uniq('sub')}`;
+  const now = new Date().toISOString();
   await env.DB.prepare(
-    `INSERT INTO auth_subscriptions
-       (id, plan, reference_id, status, period_end, cancel_at_period_end, stripe_subscription_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO billing_subscriptions
+       (ref, provider, user_id, kind, status, provider_status, current_period_end,
+        cancel_at_period_end, ended_at, version, updated_at)
+     VALUES (?, 'fake', ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
   )
     .bind(
-      id,
-      extra.plan ?? 'membership',
+      ref,
       userId,
+      extra.kind ?? 'membership',
       status,
-      extra.periodEnd ?? null,
+      status,
+      extra.periodEnd == null ? null : new Date(extra.periodEnd).toISOString(),
       extra.cancelAtPeriodEnd ? 1 : 0,
-      extra.stripeSubscriptionId ?? null,
+      now,
+      now,
     )
     .run();
-  return id;
+  return ref;
 }
 
 export interface UsageRowInput {
@@ -184,18 +186,6 @@ export async function usageRow(env: AppEnv, id: string): Promise<UsageRow> {
   return row;
 }
 
-export async function grantsFor(
-  env: AppEnv,
-  accountId: string,
-): Promise<{ kind: string; amount_micros: number; stripe_ref: string | null }[]> {
-  const { results } = await env.DB.prepare(
-    'SELECT kind, amount_micros, stripe_ref FROM credit_grants WHERE account_id = ? ORDER BY created_at, id',
-  )
-    .bind(accountId)
-    .all<{ kind: string; amount_micros: number; stripe_ref: string | null }>();
-  return results;
-}
-
 /** Grants with their gross amount and processing fee. */
 export async function grantDetailsFor(
   env: AppEnv,
@@ -206,11 +196,11 @@ export async function grantDetailsFor(
     amount_micros: number;
     gross_micros: number | null;
     fee_micros: number;
-    stripe_ref: string | null;
+    provider_ref: string | null;
   }[]
 > {
   const { results } = await env.DB.prepare(
-    `SELECT kind, amount_micros, gross_micros, fee_micros, stripe_ref FROM credit_grants
+    `SELECT kind, amount_micros, gross_micros, fee_micros, provider_ref FROM credit_grants
      WHERE account_id = ? ORDER BY created_at, id`,
   )
     .bind(accountId)
@@ -219,7 +209,7 @@ export async function grantDetailsFor(
       amount_micros: number;
       gross_micros: number | null;
       fee_micros: number;
-      stripe_ref: string | null;
+      provider_ref: string | null;
     }>();
   return results;
 }
@@ -248,27 +238,6 @@ export function envWithFailingDb(env: AppEnv, failing: RegExp): AppEnv {
 }
 
 // ---- Node-side mocks, driven over fetch (vitest.config.ts outboundService)
-
-export async function stripeCalls(path?: string): Promise<MockStripeCall[]> {
-  const res = await fetch(
-    `https://api.stripe.com/__mock/calls${path ? `?path=${encodeURIComponent(path)}` : ''}`,
-  );
-  return (await res.json()) as MockStripeCall[];
-}
-
-export async function stripeFixtures(objects: {
-  checkoutSessions?: Record<string, unknown>[];
-  refunds?: Record<string, unknown>[];
-  paymentIntents?: MockPaymentIntent[];
-  invoicePayments?: Record<string, unknown>[];
-}): Promise<void> {
-  const res = await fetch('https://api.stripe.com/__mock/objects', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(objects),
-  });
-  if (!res.ok) throw new Error(`stripe mock: ${res.status}`);
-}
 
 export async function scriptGeneration(id: string, responses: ScriptedGeneration[]): Promise<void> {
   const res = await fetch('https://openrouter.ai/__mock/generation', {

@@ -1,4 +1,4 @@
-// The one config module (docs/pool/PLAN.md §4): every cap, price, margin,
+// The one config module (docs/pool/PLAN.md §4): every cap, price, markup,
 // limit and flag the billing code and the community pool read. Values come
 // from wrangler.jsonc `vars` (strings), parsed once per env object and frozen;
 // empty or malformed values fall back to the defaults below, and the safety
@@ -23,7 +23,7 @@ export {
   type Topic,
 } from './pool/taxonomy.js';
 
-// ---- Defaults (re-exported from the modules that used to own them)
+// ---- Defaults
 
 export const DEFAULT_USAGE_HOLD_MICROS = 20_000;
 export const DEFAULT_USAGE_MAX_PENDING = 3;
@@ -36,12 +36,16 @@ export const DEFAULT_SIMPLE_MAX_INPUT_TOKENS = 60_000;
 
 /** The community pool's ledger account id (`POOL_ACCOUNT_ID`). */
 export const DEFAULT_POOL_ACCOUNT_ID = 'pool';
-/** Margin on pool purchases in bps (8%): `credit = gross / (1 + margin)`. */
-export const DEFAULT_POOL_MARGIN_BPS = 800;
+/**
+ * The share of Tangent's revenue that goes to the community pool, in bps
+ * (20%): of each membership payment net of tax and the processing fee, and of
+ * the markup on personal credit as it is spent (pool/revenue-share.ts).
+ */
+const DEFAULT_POOL_REVENUE_SHARE_BPS = 2000;
 /** A smaller impact threshold would make single learners identifiable. */
 export const MIN_IMPACT_DISTINCT_USERS = 3;
 /** The expiry alarm needs this much slack between a call's timeout and its reservation's TTL. */
-export const POOL_TTL_SLACK_MS = 60_000;
+const POOL_TTL_SLACK_MS = 60_000;
 
 /**
  * Price of one model in micro-USD per million tokens. `contextTokens` is the
@@ -123,8 +127,12 @@ export interface PoolConfig {
   /** `POOL_MODEL`; null = the simple provider's fast model, resolved by the caller. */
   model: string | null;
   systemPrompt: string;
-  marginBps: number;
-  minPurchaseCents: number;
+  /**
+   * `POOL_REVENUE_SHARE_BPS` (at most 10,000): the share of each membership
+   * payment (after the processing fee) and of the markup on personal credit
+   * as it is used that Tangent adds to the pool (pool/revenue-share.ts); 0 = none.
+   */
+  revenueShareBps: number;
   maxInputTokens: number;
   maxOutputTokens: number;
   maxMessageChars: number;
@@ -152,17 +160,17 @@ export interface AppConfig {
     /**
      * The yearly membership fee is charged and required to generate
      * (`ANNUAL_FEE_ENABLED`, default off). Off, the membership code paths stay
-     * but nothing requires a membership, whatever STRIPE_MEMBERSHIP_PRICE_ID says.
+     * but nothing requires a membership, whatever the payment provider offers.
      */
     annualFeeEnabled: boolean;
     /**
-     * Personal credit may be spent before Stripe is configured (admin-granted
-     * credit, `PERSONAL_CREDIT_ENABLED`); billing being configured enables it anyway.
+     * Personal credit may be spent before payments are configured (admin-granted
+     * credit, `PERSONAL_CREDIT_ENABLED`); a configured payment provider enables it anyway.
      */
     personalCreditEnabled: boolean;
     /**
      * Admins may simulate purchases (`POST /api/admin/credit`, mode
-     * `simulated_purchase`) to test funding without Stripe (`DEV_PURCHASES_ENABLED`).
+     * `simulated_purchase`) to test funding without a payment (`DEV_PURCHASES_ENABLED`).
      * Never on in production: a simulated purchase makes its buyer a supporter.
      */
     devPurchasesEnabled: boolean;
@@ -275,15 +283,6 @@ function parsePrices(raw: string | undefined): {
   return { prices, overrides: Object.keys(overrides) };
 }
 
-/** `POOL_MARGIN_BPS`, else `MARGIN_PERCENT` × 100 (up to two decimals), else 800. */
-function parseMarginBps(env: AppEnv): number {
-  const bps = intVar(env.POOL_MARGIN_BPS, -1);
-  if (bps >= 0) return bps;
-  const percent = env.MARGIN_PERCENT?.trim();
-  if (percent && /^\d+(\.\d{1,2})?$/.test(percent)) return Math.round(Number(percent) * 100);
-  return DEFAULT_POOL_MARGIN_BPS;
-}
-
 /** A positive number of months, or null (empty or anything else: for life). */
 function optionalMonths(raw: string | undefined): number | null {
   const n = positiveInt(raw, 0);
@@ -337,8 +336,10 @@ function parse(env: AppEnv): AppConfig {
       model: env.POOL_MODEL?.trim() || null,
       systemPrompt:
         env.POOL_SYSTEM_PROMPT?.trim() || env.SIMPLE_SYSTEM_PROMPT?.trim() || DEFAULT_SYSTEM_PROMPT,
-      marginBps: parseMarginBps(env),
-      minPurchaseCents: intVar(env.POOL_MIN_PURCHASE_CENTS, 1000),
+      revenueShareBps: Math.min(
+        intVar(env.POOL_REVENUE_SHARE_BPS, DEFAULT_POOL_REVENUE_SHARE_BPS),
+        10_000,
+      ),
       maxInputTokens: positiveInt(env.POOL_MAX_INPUT_TOKENS, 16_000),
       maxOutputTokens: positiveInt(env.POOL_MAX_OUTPUT_TOKENS, 1024),
       maxMessageChars: positiveInt(env.POOL_MAX_MESSAGE_CHARS, 4000),

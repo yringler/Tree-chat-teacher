@@ -7,7 +7,6 @@ import {
   formatDay,
   includedCreditText,
   membershipBlocks,
-  membershipCheckoutPaths,
   membershipPriceText,
   membershipStatusText,
   MembershipSubscribe,
@@ -19,7 +18,7 @@ function membership(overrides: Partial<MembershipInfo> = {}): MembershipInfo {
   return {
     required: true,
     status: 'inactive',
-    stripeStatus: null,
+    subscriptionStatus: null,
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
@@ -63,7 +62,7 @@ describe('membership copy', () => {
       ),
     ).toBe("Active until Oct 2, 2027. It won't renew.");
     expect(
-      membershipStatusText(membership({ status: 'active', stripeStatus: 'past_due' })),
+      membershipStatusText(membership({ status: 'active', subscriptionStatus: 'past_due' })),
     ).toMatch(/last payment failed/);
     expect(membershipStatusText(membership({ status: 'waived' }))).toMatch(/^Waived/);
     expect(membershipStatusText(membership())).toMatch(/^Not active/);
@@ -74,16 +73,6 @@ describe('membership copy', () => {
       "the model's OpenRouter price + 5.5% OpenRouter fee + 10%",
     );
     expect(creditFeeText(0, 0)).toBe("the model's OpenRouter price");
-  });
-});
-
-describe('membershipCheckoutPaths', () => {
-  it("returns to the app's billing page", () => {
-    expect(membershipCheckoutPaths('/learn/billing')).toEqual({
-      success: '/learn/billing?checkout=success',
-      cancel: '/learn/billing?checkout=cancel',
-      returnTo: '/learn/billing',
-    });
   });
 });
 
@@ -129,16 +118,11 @@ describe('WaiverForm', () => {
 });
 
 describe('MembershipSubscribe', () => {
-  it('opens Checkout for the membership and stays pending while the page leaves', async () => {
-    const billing = { upgrade: vi.fn(async (..._args: unknown[]) => undefined) };
-    const sub = new MembershipSubscribe(billing, () => '/billing');
+  it('opens the membership checkout and stays pending while the page leaves', async () => {
+    const billing = { upgrade: vi.fn(async () => undefined) };
+    const sub = new MembershipSubscribe(billing);
     await sub.subscribe();
-    expect(billing.upgrade).toHaveBeenCalledWith(
-      'membership',
-      '/billing?checkout=success',
-      '/billing?checkout=cancel',
-      '/billing',
-    );
+    expect(billing.upgrade).toHaveBeenCalledOnce();
     expect(sub.pending()).toBe(true);
     await sub.subscribe();
     expect(billing.upgrade).toHaveBeenCalledTimes(1);
@@ -147,10 +131,10 @@ describe('MembershipSubscribe', () => {
   });
 
   it('shows an error and lets the user try again', async () => {
-    const billing = { upgrade: vi.fn(async () => Promise.reject(new Error('Stripe is down'))) };
-    const sub = new MembershipSubscribe(billing, () => '/learn/billing');
+    const billing = { upgrade: vi.fn(async () => Promise.reject(new Error('Payments are down'))) };
+    const sub = new MembershipSubscribe(billing);
     await sub.subscribe();
-    expect(sub.error()).toBe('Stripe is down');
+    expect(sub.error()).toBe('Payments are down');
     expect(sub.pending()).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   FORBIDDEN_POOL_COPY,
+  POOL_AT_COST_TEXT,
   POOL_BLOCK_REASONS,
   POOL_EMPTY_TEXT,
   POOL_NOTICE_TEXT,
@@ -8,12 +9,12 @@ import {
   poolBlockDetailsSchema,
   poolConsentRequestSchema,
   poolErrorCode,
+  poolFundingText,
   poolImpactDepthText,
   poolImpactHeadline,
   poolImpactQuerySchema,
   poolImpactTopicText,
   poolImpactWeekText,
-  poolMarginText,
   poolSessionsText,
 } from './pool.js';
 
@@ -58,15 +59,33 @@ describe('pool copy', () => {
     expect(poolSessionsText(2.9)).toBe('about 2 learning sessions');
   });
 
-  it('discloses the margin in one line', () => {
-    expect(poolMarginText(800)).toBe(
-      '8% covers card processing, hosting and keeps Tangent running.',
+  it("states Tangent's revenue share from the configured rate", () => {
+    expect(poolFundingText(2000)).toBe(
+      "The community pool is free credit Tangent provides. Tangent puts 20% of what it earns into it: 20% of each membership payment after payment fees, and 20% of the markup on credit as it's used.",
     );
-    expect(poolMarginText(750)).toMatch(/^7\.5% covers/);
+    expect(poolFundingText(1250)).toContain('12.5% of each membership payment');
+    expect(poolFundingText(0)).toBe('The community pool is free credit Tangent provides.');
   });
 
-  it('never calls funding a donation', () => {
-    for (const text of [POOL_EMPTY_TEXT, poolMarginText(800), poolSessionsText(10)])
+  it('never offers pool credit for sale', () => {
+    for (const text of [
+      poolFundingText(2000),
+      poolFundingText(0),
+      POOL_EMPTY_TEXT,
+      POOL_AT_COST_TEXT,
+    ])
+      expect(text).not.toMatch(/buy|purchase|fund the pool|people fund/i);
+    expect(POOL_EMPTY_TEXT).toBe('The community pool is empty until Tangent adds more credit.');
+    expect(POOL_AT_COST_TEXT).toContain('with no markup');
+  });
+
+  it('never calls the pool a donation', () => {
+    for (const text of [
+      POOL_EMPTY_TEXT,
+      POOL_AT_COST_TEXT,
+      poolFundingText(2000),
+      poolSessionsText(10),
+    ])
       expect(text).not.toMatch(FORBIDDEN_POOL_COPY);
     for (const bad of [
       'Donate',

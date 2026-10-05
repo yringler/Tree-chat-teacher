@@ -140,12 +140,12 @@
     "SUMMARY_PROVIDER_ID": "",
     "SUMMARY_MODEL": "",
     "AUTO_TITLE": "true",
-    // ---- The built-in provider and billing. Anyone may sign up and use both apps. Once Stripe and
-    // OPENROUTER_SIMPLE_API_KEY are set, both apps offer the built-in provider `tangent` on prepaid
-    // credit (per user, shared by both apps): Learn as "Use Tangent credit", power as the provider
-    // "Tangent credit" with any OpenRouter model. Otherwise everyone brings their own key.
-    // With ANNUAL_FEE_ENABLED "true" and Stripe and STRIPE_MEMBERSHIP_PRICE_ID set, generating in either
-    // app needs the yearly membership (waivable per user, see MEMBERSHIP_WAIVER_CODE below and the README).
+    // ---- The built-in provider and billing. Anyone may sign up and use both apps. Once payments (Polar,
+    // below) and OPENROUTER_SIMPLE_API_KEY are set, both apps offer the built-in provider `tangent` on
+    // prepaid credit (per user, shared by both apps): Learn as "Use Tangent credit", power as the
+    // provider "Tangent credit" with any OpenRouter model. Otherwise everyone brings their own key.
+    // With ANNUAL_FEE_ENABLED "true" and POLAR_MEMBERSHIP_PRODUCT_ID set, generating in either app needs
+    // the yearly membership (waivable per user, see MEMBERSHIP_WAIVER_CODE below and the README).
     // The suggested OpenRouter models: Learn's Smart / Simple tiers, listed first in power.
     "SIMPLE_SMART_MODEL": "deepseek/deepseek-v4-pro",
     "SIMPLE_FAST_MODEL": "deepseek/deepseek-v4-flash",
@@ -168,30 +168,42 @@
     // Margin on the true provider cost in basis points (1000 = +10%). Empty = the deprecated
     // MARKUP_PREPAID_BPS if set (read for one release), else 1000.
     "MARKUP_BPS": "1000",
-    // Stripe product (with a tax code) for one-time credit top-ups.
-    "STRIPE_CREDITS_PRODUCT_ID": "",
-    // "true" charges the yearly membership fee: with the price id below set, generating in either app
-    // needs a membership. "false" (default) = nobody needs one, whatever the price id says; any
+    // ---- Payments (src/billing/payments; README "Membership, credit and billing"). The provider:
+    // "polar" (https://polar.sh, merchant of record). Its secrets are POLAR_ACCESS_TOKEN and
+    // POLAR_WEBHOOK_SECRET (both set = payments on); its webhook endpoint is /api/webhooks/polar.
+    "PAYMENT_PROVIDER": "polar",
+    // "production" or "sandbox"; anything else (or empty) is the sandbox, so a missing value can't
+    // charge real cards. Tokens, products and webhook secrets differ between the two.
+    "POLAR_SERVER": "production",
+    // The Polar one-time product personal credit top-ups are sold as (each checkout sets an ad-hoc
+    // USD price, tax exclusive). Empty = no top-ups.
+    "POLAR_CREDITS_PRODUCT_ID": "",
+    // The Polar yearly product of the membership ($10, tax exclusive). Empty = no membership is sold
+    // (generating needs none); set = required in both apps while ANNUAL_FEE_ENABLED is "true".
+    "POLAR_MEMBERSHIP_PRODUCT_ID": "",
+    // Polar's fee as an estimate, used only when an order reports no usable fee (then logged as
+    // `fee_estimated`): bps of the total charged plus fixed cents. Defaults: Starter, 5% + 50¢.
+    "POLAR_FEE_BPS": "500",
+    "POLAR_FEE_FIXED_CENTS": "50",
+    // "true" charges the yearly membership fee: with the membership product above set, generating in
+    // either app needs a membership. "false" (default) = nobody needs one, whatever is sold; any
     // signed-in user may use the community pool (within its caps) and buy personal credit.
     "ANNUAL_FEE_ENABLED": "false",
-    // Stripe price id of the membership: a yearly recurring price, tax behaviour exclusive. Empty = no
-    // membership (generating needs none); set = required in both apps while ANNUAL_FEE_ENABLED is
-    // "true" (Better Auth Stripe plugin plan "membership").
-    "STRIPE_MEMBERSHIP_PRICE_ID": "",
-    // The membership's yearly price in US cents, for display only (Stripe charges the price above).
+    // The membership's yearly price in US cents, for display only (Polar charges its product's price).
     "MEMBERSHIP_PRICE_CENTS": "1000",
     // Credit included with each paid membership year, in US cents (200 = $2.00); granted only while
     // the built-in provider is offered. 0 = none.
     "MEMBERSHIP_CREDIT_CENTS": "200",
-    // ---- The community credit pool (docs/pool/SPEC.md, src/config.ts). Anyone may fund it; any
-    // signed-in Learn user may learn from it on one economical model, within daily caps. Every value
+    // ---- The community credit pool (docs/pool/SPEC.md, src/config.ts). Tangent funds it from its own
+    // revenue (POOL_REVENUE_SHARE_BPS) and admin adjustments; nobody buys credit for it. Any signed-in
+    // Learn user may learn from it on one economical model, at cost, within daily caps. Every value
     // below is read through src/config.ts; empty or malformed = the default named in the comment.
     // "true" turns the pool on. Off, nothing spends from it.
     "POOL_ENABLED": "false",
-    // "true": personal credit (e.g. admin-granted) may be spent before Stripe is configured. With Stripe
-    // configured it always may; empty or "false" = only then.
+    // "true": personal credit (e.g. admin-granted) may be spent before payments are configured. With
+    // payments configured it always may; empty or "false" = only then.
     "PERSONAL_CREDIT_ENABLED": "false",
-    // "true" lets admins simulate purchases without Stripe (POST /api/admin/credit, mode
+    // "true" lets admins simulate purchases without a payment (POST /api/admin/credit, mode
     // simulated_purchase), for local testing. Keep it "false" in production.
     "DEV_PURCHASES_ENABLED": "false",
     // Ledger account id of the pool in credit_grants / usage_events (default "pool").
@@ -200,11 +212,11 @@
     "POOL_MODEL": "",
     // The locked system prompt of pool replies; empty = SIMPLE_SYSTEM_PROMPT, else the built-in prompt.
     "POOL_SYSTEM_PROMPT": "",
-    // Margin taken when the pool is funded, in bps (800 = 8%): $10 buys $10 / 1.08 of pool credit.
-    // MARGIN_PERCENT (e.g. "8") is accepted instead while this is empty.
-    "POOL_MARGIN_BPS": "800",
-    // Smallest pool purchase in US cents (1000 = $10), so the margin covers card processing.
-    "POOL_MIN_PURCHASE_CENTS": "1000",
+    // The share of Tangent's revenue added to the pool, in bps (2000 = 20%; at most 10000; "0" = none):
+    // of each membership payment after tax and the payment fee, at payment time, and of the markup on
+    // personal credit as it is used, once per UTC day (src/pool/revenue-share.ts). The public pages
+    // quote this value. Pool replies are charged at their true cost, with no markup.
+    "POOL_REVENUE_SHARE_BPS": "2000",
     // Per-call input and output token caps of pool calls, and the longest message a pool send accepts.
     "POOL_MAX_INPUT_TOKENS": "16000",
     "POOL_MAX_OUTPUT_TOKENS": "1024",
@@ -273,7 +285,8 @@
   //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET (each pair optional)
   //   TURNSTILE_SECRET_KEY, RESEND_API_KEY
   //   OPENROUTER_SIMPLE_API_KEY (the built-in provider, sold as credit in both apps; set a credit limit on it in OpenRouter)
-  //   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET (both set = billing enabled)
+  //   POLAR_ACCESS_TOKEN (an organization access token, polar_oat_…), POLAR_WEBHOOK_SECRET (whsec_…, of
+  //     the endpoint /api/webhooks/polar); both set = payments enabled
   //   MEMBERSHIP_WAIVER_CODE (optional; a code users redeem to waive the membership fee. Change it if it
   //     leaks; waived users keep their flag until it is cleared in the database, see README)
   //   ADMIN_USER_IDS (comma-separated Better Auth user ids: the operator's own accounts, which may

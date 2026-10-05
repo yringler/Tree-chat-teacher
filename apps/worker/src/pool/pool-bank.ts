@@ -146,16 +146,22 @@ export interface PoolRefusal {
 /** `debit`: take up to `requestedMicros` from the pool, keyed on `refId`. */
 export interface PoolDebitRequest {
   poolId: string;
-  /** Idempotency key: the Stripe refund or dispute id, or `admin:<key>`. */
+  /** Idempotency key: the payment provider's refund or dispute ref, or `admin:<key>`. */
   refId: string;
   /** Positive micro-USD to take; the debit is clamped to what is available. */
   requestedMicros: number;
-  /** `refund` for refunds and disputes, `adjustment` for an admin's. */
-  kind: 'refund' | 'adjustment';
+  /** `refund` for refunds and disputes, `adjustment` for an admin's, `contribution` for a revenue share taken back. */
+  kind: 'refund' | 'adjustment' | 'contribution';
   /** The buyer whose purchase is refunded, or the admin adjustment's user. */
   userId: string | null;
   /** Refunds and disputes: minus the refunded pre-tax amount (unclamped); else null. */
   grossMicros: number | null;
+  /**
+   * A refund or dispute of a payment: the payment, and the most all of its
+   * rows on this pool may take back together (what it added). The debit is
+   * capped at what is left of that first, then clamped to what is available.
+   */
+  cap?: { paymentRef: string; maxMicros: number };
   note: string;
 }
 
@@ -432,6 +438,7 @@ export class PoolBank extends DurableObject<AppEnv> {
       providerId: req.providerId,
       model: req.model,
       holdMicros: hold,
+      // The pool pays the call's true cost: Tangent charges its own pool no markup.
       markupBps: 0,
       feeBps: req.feeBps,
       createdAt: now.toISOString(),
@@ -441,7 +448,8 @@ export class PoolBank extends DurableObject<AppEnv> {
   }
 
   /**
-   * Debits the pool (a refund or dispute of a pool purchase, or a negative
+   * Debits the pool (a refund or dispute of a legacy pool purchase, a refund
+   * taking back a membership payment's revenue share, or a negative
    * admin adjustment; docs/pool/PLAN.md §1.3), under the reservation lock: a
    * debit lowers `available` like a reservation does. The amount is clamped
    * to what is available, so the pool never goes negative, and the row is
@@ -463,18 +471,22 @@ export class PoolBank extends DurableObject<AppEnv> {
     const existing = await grantByRef(db, req.refId);
     if (existing)
       return { debited: false, amountMicros: -existing.amount_micros, shortfallMicros: 0 };
+    const requested = req.cap
+      ? Math.min(req.requestedMicros, await this.leftToTake(req.poolId, req.cap))
+      : req.requestedMicros;
     const balance = await getBalance(db, req.poolId, await this.checkpointOf(req.poolId));
     const available = balance.balanceMicros - balance.heldMicros;
-    const amount = Math.min(req.requestedMicros, Math.max(available, 0));
-    const shortfall = req.requestedMicros - amount;
+    const amount = Math.min(requested, Math.max(available, 0));
+    const shortfall = requested - amount;
     const debited = await grantCredit(db, {
       accountId: req.poolId,
       kind: req.kind,
       amountMicros: -amount,
       grossMicros: req.grossMicros,
       userId: req.userId,
-      stripeRef: req.refId,
-      note: `${req.note} (requested=${req.requestedMicros};shortfall=${shortfall})`,
+      providerRef: req.refId,
+      paymentRef: req.cap?.paymentRef ?? null,
+      note: `${req.note} (requested=${requested};shortfall=${shortfall})`,
     });
     if (debited && shortfall > 0) {
       console.warn(
@@ -482,7 +494,7 @@ export class PoolBank extends DurableObject<AppEnv> {
           event: 'pool_debit_shortfall',
           poolId: req.poolId,
           refId: req.refId,
-          requestedMicros: req.requestedMicros,
+          requestedMicros: requested,
           debitedMicros: amount,
           shortfallMicros: shortfall,
         }),
@@ -494,6 +506,20 @@ export class PoolBank extends DurableObject<AppEnv> {
       return { debited: false, amountMicros: -(row?.amount_micros ?? 0), shortfallMicros: 0 };
     }
     return { debited: true, amountMicros: amount, shortfallMicros: shortfall };
+  }
+
+  /** What `cap` leaves to take: its maximum less what the payment's rows on the pool took (net). */
+  private async leftToTake(
+    poolId: string,
+    cap: { paymentRef: string; maxMicros: number },
+  ): Promise<number> {
+    const row = await this.env.DB.prepare(
+      `SELECT COALESCE(SUM(amount_micros), 0) AS net FROM credit_grants
+       WHERE account_id = ? AND payment_ref = ?`,
+    )
+      .bind(poolId, cap.paymentRef)
+      .first<{ net: number }>();
+    return Math.max(0, cap.maxMicros + Number(row?.net ?? 0));
   }
 
   /**

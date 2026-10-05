@@ -12,7 +12,7 @@
     "dev": "pnpm --filter @tangent/worker dev",
     "test": "pnpm -r --workspace-concurrency=1 test",
     "typecheck": "pnpm -r typecheck",
-    "lint": "eslint .",
+    "lint": "eslint . && node scripts/check-provider-neutral.mjs",
     "format": "prettier --write ."
   },
   "devDependencies": {

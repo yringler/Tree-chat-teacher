@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { PURCHASE_TARGETS } from './billing.js';
 
 /**
  * Admin contract (`/api/admin/*`, the admin app at `/admin/`). Only the
@@ -127,8 +126,6 @@ export interface AdminPoolResponse {
   pendingCalls: number;
   /** `balanceMicros − heldMicros`, floored at 0: what requests can still reserve. */
   availableMicros: number;
-  /** Simulated purchases are allowed (DEV_PURCHASES_ENABLED). */
-  devPurchasesEnabled: boolean;
   /**
    * The overage breaker (PoolBank): settled overage (charges above their
    * holds) summed over the last `windowMs`; while it exceeds `maxMicros` the
@@ -143,26 +140,32 @@ export interface AdminPoolResponse {
   };
 }
 
+/** The ledgers an admin can credit: a user's own, or the community pool. */
+export const ADMIN_CREDIT_TARGETS = ['personal', 'pool'] as const;
+
 /** Largest admin credit, either way, in US cents ($500). */
 export const ADMIN_CREDIT_MAX_CENTS = 50_000;
 
 /**
  * `POST /api/admin/credit`: credit (or debit) a user's personal ledger or the
- * community pool without Stripe.
- * - `adjustment`: a signed ledger adjustment (goodwill credit, a correction).
- *   A negative pool adjustment is clamped to what the pool has available.
- * - `simulated_purchase`: fulfils a purchase as the Stripe webhook would (pool:
- *   net of the margin, and the buyer becomes a supporter), with no processing
- *   fee. Only where the server allows it (`DEV_PURCHASES_ENABLED`, never in
- *   production); otherwise 404.
+ * community pool without a payment.
+ * - `adjustment`: a signed ledger adjustment (goodwill credit, a correction, or
+ *   the operator adding credit to the pool). A negative pool adjustment is
+ *   clamped to what the pool has available.
+ * - `simulated_purchase`: fulfils a personal purchase as the payment webhook
+ *   would (the buyer becomes a supporter), with no processing fee, so the full
+ *   amount is credited. Personal only: nobody buys credit for the pool. Only
+ *   where the server allows it (`DEV_PURCHASES_ENABLED`, never in production);
+ *   otherwise 404.
  * `idempotencyKey` makes a retry a no-op (`credited: false`).
  */
 export const adminCreditRequestSchema = z
   .object({
-    target: z.enum(PURCHASE_TARGETS),
+    target: z.enum(ADMIN_CREDIT_TARGETS),
     /**
-     * The beneficiary (personal: required) or, for the pool, the buyer credited
-     * as supporter; omitted or null for an anonymous pool top-up.
+     * The beneficiary (personal: required) or, for the pool, the user the
+     * adjustment is recorded for (it never makes them a supporter); omitted
+     * or null for an operator top-up of the pool.
      */
     userId: z.string().min(1).nullable().default(null),
     amountCents: z
@@ -178,6 +181,10 @@ export const adminCreditRequestSchema = z
   .refine((r) => r.target !== 'personal' || r.userId !== null, {
     message: 'userId is required for personal credit',
     path: ['userId'],
+  })
+  .refine((r) => r.mode !== 'simulated_purchase' || r.target === 'personal', {
+    message: 'Only personal credit can be bought',
+    path: ['target'],
   })
   .refine((r) => r.mode !== 'simulated_purchase' || r.amountCents > 0, {
     message: 'A simulated purchase must be positive',

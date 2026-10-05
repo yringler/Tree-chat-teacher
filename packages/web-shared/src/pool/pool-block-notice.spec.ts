@@ -55,8 +55,10 @@ describe('poolBlockOf', () => {
 
 describe('poolBlockText', () => {
   it('empty: says so, as the normal state, not an error', () => {
-    expect(poolBlockText({ kind: 'empty', details: details({ reason: 'empty' }) }, NOW)).toEqual({
-      title: 'The community pool is empty. It refills as people fund it.',
+    const empty: PoolBlock = { kind: 'empty', details: details({ reason: 'empty' }) };
+    // Only Tangent adds credit to the pool.
+    expect(poolBlockText(empty, NOW)).toEqual({
+      title: 'The community pool is empty until Tangent adds more credit.',
       detail: null,
       supporters: null,
     });
@@ -120,24 +122,19 @@ describe('PoolBlockNotice', () => {
     expect(reflectComponentType(PoolBlockNotice)?.selector).toBe('app-pool-block-notice');
   });
 
-  it('shows the state inline with Fund the pool and Buy personal credits', () => {
+  it('shows the state inline with Buy personal credits (when on sale) and How the pool works', () => {
     const t = templateOf(PoolBlockNotice);
     expect(t).toContain('role="status"');
     expect(t).toContain('{{ text().title }}');
     expect(t).toContain('{{ supporters }}');
     expect(t).toContain(
-      '<a class="btn btn-primary btn-sm" [routerLink]="billingPath()" fragment="fund-pool"\n                >Fund the pool</a\n              >',
+      '@if (creditOpen()) {\n              <a class="btn btn-sm" [routerLink]="billingPath()">Buy personal credits</a>',
     );
-    expect(t).toContain(
-      '<a class="btn btn-sm" [routerLink]="billingPath()">Buy personal credits</a>',
-    );
-    // Before funding opens nothing can be bought: no dead-end purchase links, just the page
-    // that explains the pool.
-    const closed = t.slice(t.indexOf('} @else {'), t.indexOf('} @else if'));
-    expect(closed).toContain('Funding opens soon.');
-    expect(closed).toContain('<a class="btn btn-sm" href="/pool">How the pool works</a>');
-    expect(closed).not.toContain('Buy');
-    expect(closed).not.toContain('Fund the pool');
+    expect(t).toContain('<a class="btn btn-sm" href="/pool">How the pool works</a>');
+    // Nobody buys credit for the pool: no pool purchase link, no promise of one.
+    expect(t).not.toContain('fund-pool');
+    expect(t).not.toMatch(/fund the pool|credit for the pool|opens soon/i);
+    expect(t).toContain('} @else if (text().supporters && creditOpen()) {');
     expect(t).toContain('aria-label="Dismiss"');
   });
 });

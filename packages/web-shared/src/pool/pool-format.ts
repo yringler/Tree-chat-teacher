@@ -1,7 +1,6 @@
 import {
   formatMicros,
   POOL_EMPTY_TEXT,
-  poolMarginText,
   poolSessionsHeadline,
   poolWeekText,
   type PoolBlockDetails,
@@ -10,13 +9,11 @@ import {
 import { ApiError, isPoolCapReached, isPoolEmpty } from '../core/api-client';
 
 /*
- * The community pool as both apps word it: the meter, the margin disclosure
- * and the inline empty and cap-reached states. Plain functions, so the specs
- * check the exact copy. Copy rules (docs/pool/PLAN.md §8): "fund the pool",
- * a credit purchase; never a donation.
+ * The community pool as both apps word it: the meter and the inline empty and
+ * cap-reached states. Plain functions, so the specs check the exact copy.
+ * The pool is free credit Tangent provides (`poolFundingText`); nothing here
+ * offers it for sale, and nothing calls it a donation.
  */
-
-export { poolMarginText, POOL_EMPTY_TEXT };
 
 /** `About 120 learning sessions`, the meter's headline. */
 export function sessionsLabel(status: Pick<PoolStatusResponse, 'sessionsRemaining'>): string {
@@ -81,7 +78,7 @@ function limitText(reason: PoolBlockDetails['reason'], limit: number): string {
 
 /**
  * What the chat says when the pool refused a message (spec §8):
- * - empty: "The community pool is empty. It refills as people fund it.";
+ * - empty: `POOL_EMPTY_TEXT` (Tangent refills it);
  * - a daily cap: the cap, when it resets, and that supporters get more;
  * - the network's or everyone's daily ceiling: "busy today" (and, for the
  *   free tier's ceiling, that supporters have their own);
@@ -129,9 +126,4 @@ export function poolBlockText(block: PoolBlock, now: Date = new Date()): PoolBlo
       return { title, detail: `The limit resets at ${reset}.`, supporters: more };
     }
   }
-}
-
-/** The disclosure under every way to fund the pool. */
-export function poolFundingNote(marginBps: number): string {
-  return `Funding the pool is a credit purchase. ${poolMarginText(marginBps)}`;
 }

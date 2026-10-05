@@ -34,9 +34,9 @@ import type {
   PoolImpactWeeksResponse,
   PoolMeResponse,
   PoolStatusResponse,
+  PortalResponse,
   ProviderInfo,
   PoolTopicReviewStatus,
-  PurchaseTarget,
   ReviewRequest,
   SendMessageRequest,
   SettingsResponse,
@@ -151,18 +151,31 @@ export class ApiClient {
   }
 
   /**
-   * Starts a one-time credit purchase, for the caller (`personal`, a top-up)
-   * or for the community pool; resolves with the Stripe Checkout URL to send
-   * the browser to.
+   * Starts a one-time top-up of the caller's own credit; resolves with the
+   * payment provider's checkout URL to send the browser to.
    */
-  createCheckout(
-    amountCents: number,
-    target: PurchaseTarget = 'personal',
-  ): Promise<CheckoutResponse> {
+  createCheckout(amountCents: number): Promise<CheckoutResponse> {
     return this.json('POST', '/billing/checkout', {
       amountCents,
-      ...(target === 'pool' ? { target } : {}),
     } satisfies CreateCheckoutRequest);
+  }
+
+  /**
+   * Starts the yearly membership: resolves with the hosted checkout URL (or,
+   * for a user who already pays, the billing portal's). Both return to the
+   * calling app's billing page.
+   */
+  membershipCheckout(): Promise<CheckoutResponse> {
+    return this.json('POST', '/billing/membership/checkout');
+  }
+
+  /**
+   * The payment provider's billing portal (invoices, payment method, cancel),
+   * returning to the calling app's billing page. 404 `no_customer` while the
+   * provider has no customer for the user (nothing was ever paid).
+   */
+  billingPortal(): Promise<PortalResponse> {
+    return this.json('POST', '/billing/portal');
   }
 
   // The community pool
@@ -339,7 +352,7 @@ export class ApiClient {
   }
 
   /**
-   * Credits (or debits) a user's personal ledger or the pool without Stripe:
+   * Credits (or debits) a user's personal ledger or the pool without a payment:
    * an adjustment, or a simulated purchase where DEV_PURCHASES_ENABLED allows
    * it. Idempotent on `idempotencyKey`.
    */

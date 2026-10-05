@@ -77,8 +77,8 @@ import { UiStore } from '../state/ui-store';
                 <strong>Use the community pool</strong>
                 <span class="muted small">
                   Free to you, within daily limits, on
-                  {{ account.poolStatus()?.model?.label ?? 'one economical model' }}. Funded by
-                  people who add credit to it.
+                  {{ account.poolStatus()?.model?.label ?? 'one economical model' }}. Free credit
+                  Tangent provides from its revenue.
                 </span>
               </span>
             </label>
@@ -99,8 +99,7 @@ import { UiStore } from '../state/ui-store';
           @if (poolUse(); as use) {
             <span>{{ use }} · </span>
           }
-          <a href="/pool" target="_blank" rel="noopener">How the pool works</a> ·
-          <a routerLink="/billing" fragment="fund-pool" (click)="close()">Fund the pool</a>
+          <a href="/pool" target="_blank" rel="noopener">How the pool works</a>
         </p>
       } @else if (payment() === 'credit') {
         <p class="small">

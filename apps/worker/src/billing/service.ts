@@ -1,5 +1,6 @@
 // Billing for the built-in provider: markup and fee pass-through, spend gate, summary, usage
-// history and credit top-ups (PLAN §2.3–2.6, §13). The membership is in membership.ts. Credit is per user: every ledger read and
+// history and credit top-ups (PLAN §2.3–2.6, §13), sold through the payment provider's port
+// (billing/payments). The membership is in membership.ts. Credit is per user: every ledger read and
 // write goes to `AccountContext.billingAccountId`, the same in both modes.
 import { DomainError, PaymentRequiredError, ValidationError } from '@tangent/core';
 import {
@@ -8,7 +9,6 @@ import {
   type BillingSummary,
   type CheckoutResponse,
   type PurchaseInfo,
-  type PurchaseTarget,
   type UsageEntry,
   type UsageListResponse,
   type UsagePurpose,
@@ -17,16 +17,11 @@ import { isMetered, type AccountContext, type AppEnv } from '../env.js';
 import { builtInAvailable, personalCreditReady } from '../services.js';
 import { getBalance } from './ledger.js';
 import { membershipFor } from './membership.js';
-import { billingConfigured, ensureStripeCustomer, getStripe } from './stripe.js';
+import { buyerFor, rememberCustomer } from './payments/customers.js';
+import { paymentProvider, paymentsConfigured } from './payments/index.js';
 import { appConfig } from '../config.js';
 
-export {
-  DEFAULT_MARKUP_BPS,
-  DEFAULT_OPENROUTER_FEE_BPS,
-  DEFAULT_USAGE_HOLD_MICROS,
-  DEFAULT_USAGE_MAX_PENDING,
-} from '../config.js';
-export const MAX_USAGE_PAGE = 100;
+const MAX_USAGE_PAGE = 100;
 
 /** Per-call hold and minimum available balance (`USAGE_HOLD_MICROS`). */
 export function usageHoldMicros(env: AppEnv): number {
@@ -38,7 +33,7 @@ export function usageHoldMicros(env: AppEnv): number {
  * hold doesn't follow the model's price, so this is what bounds an overdraft:
  * at most this many calls, each within the built-in provider's token caps.
  */
-export function usageMaxPending(env: AppEnv): number {
+function usageMaxPending(env: AppEnv): number {
   return appConfig(env).billing.usageMaxPending;
 }
 
@@ -97,7 +92,8 @@ interface PurchaseRow {
 
 /**
  * The latest purchase recorded with its gross amount and processing fee: a
- * top-up, or a monthly-plan invoice on ledgers from before the membership.
+ * top-up, or a Stripe-era monthly-plan payment on ledgers from before the
+ * membership.
  * Membership credit (gross null) is a gift, not a purchase, and is skipped.
  */
 async function lastPurchase(env: AppEnv, accountId: string): Promise<PurchaseInfo | null> {
@@ -118,9 +114,9 @@ async function lastPurchase(env: AppEnv, accountId: string): Promise<PurchaseInf
   };
 }
 
-/** One-time credit purchases (top-ups, and funding the pool) can be sold: Stripe and its credits product are set up. */
-export function topUpsEnabled(env: AppEnv): boolean {
-  return billingConfigured(env) && !!env.STRIPE_CREDITS_PRODUCT_ID?.trim();
+/** One-time credit purchases (top-ups) can be sold: the payment provider sells credit. */
+function topUpsEnabled(env: AppEnv): boolean {
+  return paymentProvider(env)?.capabilities.topUps ?? false;
 }
 
 export async function getBillingSummary(
@@ -133,7 +129,7 @@ export async function getBillingSummary(
     lastPurchase(env, account.billingAccountId),
   ]);
   return {
-    enabled: billingConfigured(env),
+    enabled: paymentsConfigured(env),
     membership,
     builtInCredit: builtInAvailable(env),
     topUpsEnabled: topUpsEnabled(env),
@@ -220,35 +216,35 @@ export async function listUsage(
 }
 
 /**
- * The page Stripe Checkout returns to: the billing page of the app the
- * checkout started from (`/billing` in power, `/learn/billing` in Learn).
- * A pool purchase adds `target=pool`, so the page waits for the pool's
- * balance instead of the buyer's.
+ * The page the payment provider's checkout returns to: the billing page of
+ * the app the checkout started from (`/billing` in power, `/learn/billing` in
+ * Learn).
  */
 export function checkoutReturnUrl(
   baseUrl: string,
   account: AccountContext,
   outcome: 'success' | 'cancel',
-  target: PurchaseTarget = 'personal',
 ): string {
+  return `${billingPageUrl(baseUrl, account)}?checkout=${outcome}`;
+}
+
+/** The billing page of the app `account` is in, where the billing portal returns to. */
+export function billingPageUrl(baseUrl: string, account: AccountContext): string {
   const base = baseUrl.replace(/\/+$/, '');
-  const page = account.mode === 'simple' ? '/learn/billing' : '/billing';
-  return `${base}${page}?checkout=${outcome}${target === 'pool' ? '&target=pool' : ''}`;
+  return `${base}${account.mode === 'simple' ? '/learn/billing' : '/billing'}`;
 }
 
 /**
- * Creates a Stripe Checkout Session (mode `payment`) for a credit purchase, in
- * either mode: a top-up of the user's own credit, or (`target` `pool`, checked
- * by billing/purchases.ts) credit for the community pool. The metadata names
- * the target, the ledger credited and the buyer, for the webhook.
+ * Opens the payment provider's hosted checkout for a top-up of the user's
+ * own credit, in either mode. The provider carries the ledger to credit and
+ * the buyer to its webhook (billing/payments/apply.ts).
  */
-export async function createCreditCheckout(
+export async function startTopUpCheckout(
   env: AppEnv,
   account: AccountContext,
-  user: { id: string; email: string; name: string },
+  userId: string,
   amountCents: number,
   baseUrl: string,
-  target: PurchaseTarget = 'personal',
 ): Promise<CheckoutResponse> {
   if (
     !Number.isInteger(amountCents) ||
@@ -259,45 +255,18 @@ export async function createCreditCheckout(
       `amountCents must be a whole number from ${MIN_TOP_UP_CENTS} to ${MAX_TOP_UP_CENTS}`,
     );
   }
-  const stripe = getStripe(env);
-  const productId = env.STRIPE_CREDITS_PRODUCT_ID?.trim();
-  if (!billingConfigured(env) || !stripe || !productId) throw notConfigured();
-
-  const customer = await ensureStripeCustomer(env, user);
-  // The user's ledger, whichever app the top-up was bought from; or the pool's.
-  const accountId = target === 'pool' ? appConfig(env).pool.accountId : account.billingAccountId;
-  const metadata = {
-    kind: 'credits',
-    target,
-    accountId,
-    userId: user.id,
-    amountCents: String(amountCents),
-  };
-  const session = await stripe.checkout.sessions.create({
-    mode: 'payment',
-    customer,
-    customer_update: { address: 'auto', name: 'auto' },
-    billing_address_collection: 'required',
-    automatic_tax: { enabled: true },
-    invoice_creation: { enabled: true },
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: 'usd',
-          product: productId,
-          unit_amount: amountCents,
-          tax_behavior: 'exclusive',
-        },
-      },
-    ],
-    client_reference_id: accountId,
-    metadata,
-    // Lets refunds and disputes find the account, the buyer and the pre-tax share.
-    payment_intent_data: { metadata },
-    success_url: checkoutReturnUrl(baseUrl, account, 'success', target),
-    cancel_url: checkoutReturnUrl(baseUrl, account, 'cancel', target),
+  const provider = paymentProvider(env);
+  if (!provider?.capabilities.topUps) throw notConfigured();
+  const buyer = await buyerFor(env.DB, provider.id, userId);
+  if (!buyer) throw new DomainError('unauthorized', 'Sign in to add credit');
+  // The user's ledger, whichever app the top-up was bought from.
+  const session = await provider.createTopUpCheckout({
+    buyer,
+    accountId: account.billingAccountId,
+    amountCents,
+    successUrl: checkoutReturnUrl(baseUrl, account, 'success'),
+    cancelUrl: checkoutReturnUrl(baseUrl, account, 'cancel'),
   });
-  if (!session.url) throw new Error('Stripe returned a Checkout Session without a URL');
+  if (session.customerRef) await rememberCustomer(env.DB, provider.id, userId, session.customerRef);
   return { url: session.url };
 }

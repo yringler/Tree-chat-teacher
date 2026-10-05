@@ -1,5 +1,7 @@
 # Community credit pool: implementation plan
 
+> **Note (2026-10):** pool pricing changed after this plan: the margin at purchase (`POOL_MARGIN_BPS`, `poolCreditMicros`) was replaced by fee pass-through at purchase and a per-call `POOL_MARKUP_BPS`, and payments moved from Stripe to a provider port (Polar); and on 2026-10-05 the pool became revenue-funded: no customer pool purchases (docs/DECISIONS.md, Revenue-funded community pool). This document is kept as the historical plan; see docs/DECISIONS.md and docs/polar-migration/.
+
 This plan implements [SPEC.md](SPEC.md). It was written after reading the billing, metering, routing, auth, admin, frontend and data-layer code. File and line references are to the tree at commit `0462820` (2026-10-05). Baseline: `pnpm -r typecheck` passes and `apps/worker pnpm test` passes 280/280.
 
 The stages below are S2 to S8b. The spec's step 1 is this document. Each stage typechecks, passes the tests, and is committed on its own. Every new behaviour ships behind `POOL_ENABLED`, which is off in `wrangler.jsonc` and on in `vitest.config.ts`, so `master` stays deployable between stages. Revision 2 of this plan answers a round of review; §11 lists the review points that were not adopted as proposed and why.

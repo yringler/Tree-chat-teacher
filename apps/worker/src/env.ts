@@ -43,10 +43,14 @@ export interface AppEnv extends Env {
    * var (OpenRouter's credit-purchase fee), then marked up.
    */
   OPENROUTER_SIMPLE_API_KEY?: string;
-  /** Stripe API key. Billing is enabled only when this and STRIPE_WEBHOOK_SECRET are set. */
-  STRIPE_SECRET_KEY?: string;
-  /** Signing secret of the webhook endpoint `/api/auth/stripe/webhook`. */
-  STRIPE_WEBHOOK_SECRET?: string;
+  /**
+   * Polar organization access token (`polar_oat_…`), for the `polar` payment
+   * provider (billing/providers/polar). Payments are on only when this and
+   * POLAR_WEBHOOK_SECRET are set. Sandbox and production tokens differ.
+   */
+  POLAR_ACCESS_TOKEN?: string;
+  /** Signing secret (`whsec_…`) of the Polar webhook endpoint `/api/webhooks/polar`. */
+  POLAR_WEBHOOK_SECRET?: string;
   /**
    * A code users redeem (`POST /api/billing/membership/waiver`) to have the
    * membership fee waived. Empty = no code redemption. If it leaks, change it
@@ -67,13 +71,10 @@ export interface AppEnv extends Env {
    * is empty. No longer in wrangler.jsonc; kept for one release.
    */
   MARKUP_PREPAID_BPS?: string;
-  /**
-   * The pool margin as a percentage (e.g. "8"), the spec's name for
-   * `POOL_MARGIN_BPS`; read only while that var is empty (src/config.ts).
-   */
-  MARGIN_PERCENT?: string;
   /** Tests only ("true"): enables test-only RPC methods such as `PoolBank.expire(now)`. */
   TEST_SEAMS?: string;
+  /** Tests only (with `PAYMENT_PROVIDER=fake`): the fake provider's options, JSON (billing/providers/fake.ts). */
+  FAKE_PAYMENTS?: string;
   /** Tests only (with `TEST_SEAMS`): a pool notice version above the code's, as after a text change. */
   POOL_NOTICE_VERSION?: string;
 }

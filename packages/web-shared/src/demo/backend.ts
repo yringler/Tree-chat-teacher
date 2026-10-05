@@ -77,7 +77,7 @@ const MARKUP_BPS = 1000;
 const DEMO_MEMBERSHIP: MembershipInfo = {
   required: false,
   status: 'inactive',
-  stripeStatus: null,
+  subscriptionStatus: null,
   periodEnd: null,
   cancelAtPeriodEnd: false,
   priceCents: 1000,
@@ -86,13 +86,11 @@ const DEMO_MEMBERSHIP: MembershipInfo = {
 /** The demos' pool: off, so no pool UI shows and nothing pretends to be funded. */
 export const DEMO_POOL_STATUS: PoolStatusResponse = {
   enabled: false,
-  fundingOpen: false,
   availableMicros: 0,
   sessionsRemaining: 0,
   model: { id: 'lorem', label: 'Simple' },
   week: { start: '1970-01-05T00:00:00.000Z', exchanges: 0, learners: 0 },
-  marginBps: 800,
-  minPurchaseCents: 1000,
+  revenueShareBps: 0,
 };
 const DEMO_POOL_ME: Omit<PoolMeResponse, 'personalAvailableMicros'> = {
   available: false,

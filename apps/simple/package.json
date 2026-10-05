@@ -19,7 +19,6 @@
     "@angular/platform-browser": "^22.2.0",
     "@angular/router": "^22.2.0",
     "@better-auth/passkey": "1.7.7",
-    "@better-auth/stripe": "1.7.7",
     "@tangent/core": "workspace:*",
     "@tangent/render": "workspace:*",
     "@tangent/shared": "workspace:*",

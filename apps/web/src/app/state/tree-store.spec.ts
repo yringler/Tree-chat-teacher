@@ -11,7 +11,7 @@ function membership(over: Partial<MembershipInfo> = {}): MembershipInfo {
   return {
     required: true,
     status: 'active',
-    stripeStatus: 'active',
+    subscriptionStatus: 'active',
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,

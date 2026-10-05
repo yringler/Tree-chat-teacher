@@ -18,7 +18,7 @@ interface GrantRow {
 
 async function grant(row: GrantRow): Promise<void> {
   await env.DB.prepare(
-    `INSERT INTO credit_grants (id, account_id, kind, amount_micros, gross_micros, user_id, stripe_ref, created_at)
+    `INSERT INTO credit_grants (id, account_id, kind, amount_micros, gross_micros, user_id, provider_ref, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(

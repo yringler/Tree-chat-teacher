@@ -41,6 +41,7 @@ interface ExpiredRow {
   generation_id: string | null;
   dispatched_at: string | null;
   fee_bps: number;
+  markup_bps: number;
   created_at: string;
   lookup_only: number;
 }
@@ -101,7 +102,7 @@ export async function expirePoolReservations(
   const giveUpCut = new Date(nowMs - options.giveUpMs).toISOString();
   const batch = Math.max(1, Math.floor(options.batch));
   const { results } = await env.DB.prepare(
-    `SELECT id, generation_id, dispatched_at, fee_bps, created_at,
+    `SELECT id, generation_id, dispatched_at, fee_bps, markup_bps, created_at,
             (generation_id IS NOT NULL AND dispatched_at IS NOT NULL AND created_at >= ?3) AS lookup_only
      FROM usage_events
      WHERE account_id = ?1 AND status = 'pending' AND funding = 'pool' AND created_at < ?2
@@ -134,7 +135,7 @@ export async function expirePoolReservations(
         });
         const { changed } = await settleUsage(env.DB, row.id, {
           costNanos: settlement.costNanos ?? 0,
-          markupBps: 0,
+          markupBps: row.markup_bps,
           feeBps: row.fee_bps,
           reason: settlement.reason,
           chargeHold: settlement.reason === 'hold',
