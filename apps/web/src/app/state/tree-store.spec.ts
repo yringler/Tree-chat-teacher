@@ -81,16 +81,20 @@ describe('TreeStore membership and credit', () => {
     vi.restoreAllMocks();
   });
 
-  it('keeps the membership and what needs it from me; loads the balance only without a membership', async () => {
+  it('keeps the membership and what needs it from me; loads the balance wherever credit is offered', async () => {
     const s = setup();
-    await s.store.init(me());
+    await s.store.init(me({ builtInCredit: false }));
     expect(s.store.membership()?.status).toBe('active');
     expect(s.store.membershipNeededFor()).toEqual(['own-key']);
     expect([...s.store.lockedFundings()]).toEqual([]);
     expect(s.api.billing).not.toHaveBeenCalled();
 
+    // A member too: the default route of a new conversation needs the balance.
+    await s.store.init(me());
+    expect(s.api.billing).toHaveBeenCalledTimes(1);
+
     await s.store.init(me({ membership: membership({ status: 'inactive' }) }));
-    expect(s.api.billing).toHaveBeenCalled();
+    expect(s.api.billing).toHaveBeenCalledTimes(2);
     expect(s.store.creditCarriesOn()).toBe(true);
     expect([...s.store.lockedFundings()]).toEqual(['own-key']);
   });
@@ -401,10 +405,10 @@ describe('TreeStore read-only power without a membership', () => {
   });
 });
 
-describe('TreeStore a new user with no keys and no credit', () => {
+describe('TreeStore the default route of a new conversation (no keys)', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  /** The default power providers (PROVIDERS unset), none with a key; no Tangent credit offered. */
+  /** The default power providers (PROVIDERS unset), none with a key. */
   const defaults: ProviderInfo[] = [
     ['anthropic', 'Anthropic', 'claude-opus-5-5'],
     ['openai', 'OpenAI', 'gpt-5'],
@@ -421,8 +425,19 @@ describe('TreeStore a new user with no keys and no credit', () => {
     keySource: null,
     funding: 'own-key',
   }));
+  /** Tangent credit, as listed where it is offered. */
+  const credit: ProviderInfo = {
+    ...defaults[2]!,
+    label: 'Tangent credit',
+    defaultModel: 'smart/model',
+    available: true,
+    acceptsUserKey: false,
+    keySource: 'server',
+    funding: 'credit',
+  };
+  const routeOf = (p: ProviderInfo | null) => p && providerRouteKey(p);
 
-  it('starts on the first configured provider, and the first send asks for its key (not a sign-in)', async () => {
+  it('no credit offered: the user’s own OpenRouter, and the first send asks for its key (not a sign-in)', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const s = setup();
     s.api.providers.mockResolvedValue(defaults);
@@ -431,7 +446,8 @@ describe('TreeStore a new user with no keys and no credit', () => {
     // Nothing to generate on yet, but a missing key never hides anything.
     expect(s.store.canGenerate()).toBe(true);
     const first = s.store.defaultProvider();
-    expect(first?.id).toBe('anthropic');
+    expect(first).toBe(defaults[2]);
+    expect(first?.defaultModel).toBe('deepseek/deepseek-v4-pro');
 
     const at = '2026-10-01T00:00:00.000Z';
     const created: TreeDetail = {
@@ -455,8 +471,8 @@ describe('TreeStore a new user with no keys and no credit', () => {
           title: 'Main thread',
           titleSource: 'default',
           isPrivate: false,
-          providerId: 'anthropic',
-          model: 'claude-opus-5-5',
+          providerId: 'openrouter',
+          model: 'deepseek/deepseek-v4-pro',
           funding: 'own-key',
           createdAt: at,
           updatedAt: at,
@@ -465,18 +481,94 @@ describe('TreeStore a new user with no keys and no credit', () => {
       nodes: [],
     };
     const createTree = vi.fn(async () => created);
-    const message = 'Add your Anthropic API key to continue this conversation.';
+    const message = 'Add your OpenRouter API key to continue this conversation.';
     const sendMessage = vi.fn(async () => {
       throw new ApiError(401, 'key_required', message);
     });
     Object.assign(s.api, { createTree, sendMessage });
-    // The home page passes the default provider's route key.
-    await s.store.startConversation('Hello', providerRouteKey(first!), null);
-    expect(createTree).toHaveBeenCalledWith({ providerId: 'anthropic', funding: 'own-key' });
+    // The home page passes the default provider's route key and model.
+    await s.store.startConversation('Hello', providerRouteKey(first!), first!.defaultModel);
+    expect(createTree).toHaveBeenCalledWith({
+      providerId: 'openrouter',
+      funding: 'own-key',
+      model: 'deepseek/deepseek-v4-pro',
+    });
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalled());
-    await vi.waitFor(() => expect(s.ui.keysDialog()).not.toBeNull());
+    // The keys dialog opens on the OpenRouter key.
+    await vi.waitFor(() => expect(s.ui.keysDialog()).toEqual({ provider: 'openrouter' }));
     expect(s.ui.toasts()).toEqual([expect.objectContaining({ kind: 'error', text: message })]);
     expect(s.ui.toasts()[0]?.text).not.toMatch(/session|sign in/i);
+  });
+
+  it('credit offered: Tangent credit only while the balance read is above zero', async () => {
+    const zero = setup();
+    zero.api.providers.mockResolvedValue([...defaults, credit]);
+    zero.api.billing.mockResolvedValue({ availableMicros: 0 } as BillingSummary);
+    await zero.store.init(me());
+    // A member could buy more, but an empty balance would answer the first send with a 402.
+    expect(zero.store.openRoutes()).toEqual([credit]);
+    expect(routeOf(zero.store.defaultProvider())).toBe('openrouter');
+
+    const some = setup();
+    some.api.providers.mockResolvedValue([...defaults, credit]);
+    await some.store.init(me());
+    expect(some.store.defaultProvider()).toBe(credit);
+
+    // A balance that couldn't be read counts as none.
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const unread = setup();
+    unread.api.providers.mockResolvedValue([...defaults, credit]);
+    unread.api.billing.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
+    await unread.store.init(me());
+    expect(routeOf(unread.store.defaultProvider())).toBe('openrouter');
+  });
+
+  it('decides nothing before the providers and the balance are read', async () => {
+    const s = setup();
+    let answer!: (b: BillingSummary) => void;
+    s.api.billing.mockReturnValue(new Promise<BillingSummary>((r) => (answer = r)));
+    s.api.providers.mockResolvedValue([...defaults, credit]);
+    expect(s.store.defaultProvider()).toBeNull();
+    const started = s.store.init(me());
+    await vi.waitFor(() => expect(s.store.providersLoaded()).toBe(true));
+    expect(s.store.defaultProvider()).toBeNull();
+    answer(summary);
+    await started;
+    expect(s.store.defaultProvider()).toBe(credit);
+  });
+
+  it('a provider with a key comes first; own keys locked by the membership hand it to credit that can pay', async () => {
+    const keyed = { ...defaults[1]!, available: true, keySource: 'user' as const };
+    const list = [defaults[0]!, keyed, defaults[2]!, credit];
+    const member = setup();
+    member.api.providers.mockResolvedValue(list);
+    await member.store.init(me());
+    expect(member.store.defaultProvider()).toBe(keyed);
+
+    const lapsed = setup();
+    lapsed.api.providers.mockResolvedValue(list);
+    await lapsed.store.init(me({ membership: membership({ status: 'inactive' }) }));
+    expect(lapsed.store.defaultProvider()).toBe(credit);
+
+    // Nothing can generate: the home page shows the notice; the default stays off credit.
+    const stuck = setup();
+    stuck.api.providers.mockResolvedValue(list);
+    stuck.api.billing.mockResolvedValue({ availableMicros: 0 } as BillingSummary);
+    await stuck.store.init(me({ membership: membership({ status: 'inactive' }) }));
+    expect(stuck.store.canGenerate()).toBe(false);
+    expect(stuck.store.defaultProvider()).toBe(keyed);
+  });
+
+  it('never a test provider over a usable route', async () => {
+    const fake: ProviderInfo = { ...defaults[0]!, id: 'fake', kind: 'fake', available: true };
+    const s = setup();
+    s.api.providers.mockResolvedValue([fake, ...defaults, credit]);
+    await s.store.init(me());
+    expect(s.store.defaultProvider()).toBe(credit);
+    const t = setup();
+    t.api.providers.mockResolvedValue([fake, ...defaults]);
+    await t.store.init(me({ builtInCredit: false }));
+    expect(t.store.defaultProvider()).toBe(fake);
   });
 });
 

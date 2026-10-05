@@ -15,6 +15,7 @@ import {
 import {
   isModelAllowed,
   parseRouteKey,
+  pickDefaultRoute,
   providerRouteKey,
   routeKey,
   type BranchFunding,
@@ -40,6 +41,7 @@ import type {
 import {
   ApiClient,
   ApiError,
+  creditCanPay,
   creditCarriesOn,
   errorMessage,
   lockedFundings,
@@ -91,8 +93,14 @@ export class TreeStore {
    * inactive (the server knows better than the copy fetched at startup).
    */
   readonly membership = signal<MembershipInfo | null>(null);
-  /** Credit balance and fees (`/api/billing`), loaded when the keys dialog opens. */
+  /**
+   * Credit balance and fees (`/api/billing`): read on startup wherever credit
+   * is offered (the default route needs the balance), again when the keys
+   * dialog opens and after a 402.
+   */
   readonly billing = signal<BillingSummary | null>(null);
+  /** The balance has been asked for once (read, or failed: then it counts as none). */
+  private readonly billingRead = signal(false);
   readonly trees = signal<TreeSummary[]>([]);
   readonly treesLoaded = signal(false);
 
@@ -275,25 +283,32 @@ export class TreeStore {
   }
 
   /**
-   * First provider the user can generate on (`openRoutes`), else the first
-   * with an API key, falling back to the first configured.
+   * The route a new conversation starts on, and the fallback of a new branch
+   * off a locked one: `pickDefaultRoute`, the server's rule for a new tree
+   * (docs/DECISIONS.md "Default route of a new tree"). A provider with a key
+   * first; else Tangent credit while the balance can pay; else the user's own
+   * OpenRouter (the first send asks for its key); credit first while own keys
+   * need a membership the user lacks. Null until the provider list and, where
+   * credit is offered, the balance have been read, so it never starts on a guess.
    */
-  readonly defaultProvider = computed<ProviderInfo | null>(
-    () =>
-      this.openRoutes()[0] ??
-      this.providers().find((p) => p.available) ??
-      this.providers()[0] ??
-      null,
-  );
+  readonly defaultProvider = computed<ProviderInfo | null>(() => {
+    if (!this.providersLoaded()) return null;
+    const builtInCredit = this.me()?.builtInCredit ?? false;
+    if (builtInCredit && !this.billingRead()) return null;
+    return pickDefaultRoute(this.providers(), {
+      creditCanPay: creditCanPay(builtInCredit, this.billing()),
+      ownKeyLocked: this.lockedFundings().has('own-key'),
+    });
+  });
 
   // Bootstrapping
 
   /** `me`: the signed-in caller, already fetched by the sign-in check (AuthService.requireUser). */
   async init(me: MeResponse): Promise<void> {
     this.applyMe(me);
-    // Without a membership, the balance decides whether Tangent credit can carry on.
-    const balance =
-      membershipBlocks(me.membership) && me.builtInCredit ? this.refreshBilling() : null;
+    // Where credit is offered, the balance decides whether a new conversation may start on
+    // it, and without a membership whether Tangent credit can carry on.
+    const balance = me.builtInCredit ? this.refreshBilling() : null;
     await Promise.all([this.refreshKeys(), this.loadTrees(), balance]);
   }
 
@@ -363,12 +378,15 @@ export class TreeStore {
       this.billing.set(await this.api.billing());
     } catch (err) {
       console.warn('billing summary failed', err);
+    } finally {
+      this.billingRead.set(true);
     }
   }
 
   /** A billing summary read elsewhere (the billing page): its balance and membership are current. */
   applyBilling(summary: BillingSummary): void {
     this.billing.set(summary);
+    this.billingRead.set(true);
     this.membership.set(summary.membership);
   }
 

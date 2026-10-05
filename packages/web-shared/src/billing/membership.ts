@@ -33,6 +33,20 @@ export function creditCarriesOn(
 }
 
 /**
+ * Tangent credit can pay for a reply as far as the client knows: offered,
+ * and a balance read and above zero. Unlike `creditCarriesOn`, a balance not
+ * read yet doesn't count: the default route of a new tree
+ * (`pickDefaultRoute`) never starts on credit on a guess, since an empty
+ * balance would answer its first send with a 402.
+ */
+export function creditCanPay(
+  builtInCredit: boolean,
+  billing: Pick<BillingSummary, 'availableMicros'> | null,
+): boolean {
+  return builtInCredit && billing !== null && billing.availableMicros > 0;
+}
+
+/**
  * The part of `BillingClient` that subscribes. The server picks the pages the
  * payment provider returns to: the billing page of the calling app.
  */

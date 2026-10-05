@@ -374,6 +374,90 @@ describe('CanvasStore read-only lanes without a membership', () => {
   });
 });
 
+describe('CanvasStore the default route of a new conversation', () => {
+  const member = {
+    required: true,
+    status: 'active',
+    subscriptionStatus: 'active',
+    periodEnd: null,
+    cancelAtPeriodEnd: false,
+    priceCents: 1000,
+    includedCreditCents: 0,
+  } as const;
+  const own = (id: string, available = false): ProviderInfo => ({
+    id,
+    kind: id === 'anthropic' ? 'anthropic' : 'openai-compatible',
+    label: id,
+    models: [{ id: `${id}-model`, label: id }],
+    defaultModel: `${id}-model`,
+    openModels: id === 'openrouter',
+    available,
+    acceptsUserKey: true,
+    keySource: available ? 'user' : null,
+    funding: 'own-key',
+  });
+  const credit: ProviderInfo = {
+    ...own('openrouter', true),
+    label: 'Tangent credit',
+    acceptsUserKey: false,
+    keySource: 'server',
+    funding: 'credit',
+  };
+  const list = [own('anthropic'), own('openai'), own('openrouter'), credit];
+  const key = (p: ProviderInfo | null) => p && `${p.id}@${p.funding}`;
+
+  async function start(
+    providers: ProviderInfo[],
+    me: Partial<MeResponse>,
+    billing: BillingSummary | Error = { availableMicros: 3_000_000 } as BillingSummary,
+  ) {
+    const s = setup();
+    s.api.providers.mockResolvedValue(providers);
+    if (billing instanceof Error) s.api.billing.mockRejectedValue(billing);
+    else s.api.billing.mockResolvedValue(billing);
+    await s.store.init({ builtInCredit: true, membership: member, ...me } as MeResponse);
+    return s;
+  }
+
+  beforeEach(() => vi.spyOn(console, 'warn').mockImplementation(() => undefined));
+  afterEach(() => vi.restoreAllMocks());
+
+  it('no keys: Tangent credit while the balance can pay, else the user’s own OpenRouter', async () => {
+    expect(key((await start(list, {})).store.defaultProvider())).toBe('openrouter@credit');
+    const zero = await start(list, {}, { availableMicros: 0 } as BillingSummary);
+    expect(key(zero.store.defaultProvider())).toBe('openrouter@own-key');
+    expect(zero.api.billing).toHaveBeenCalled();
+    const unread = await start(list, {}, new Error('boom'));
+    expect(key(unread.store.defaultProvider())).toBe('openrouter@own-key');
+    const unsold = await start(list.slice(0, 3), { builtInCredit: false });
+    expect(key(unsold.store.defaultProvider())).toBe('openrouter@own-key');
+    expect(unsold.api.billing).not.toHaveBeenCalled();
+  });
+
+  it('a provider with a key first; own keys locked by the membership hand it to credit that can pay', async () => {
+    const keyed = [own('anthropic'), own('openai', true), own('openrouter'), credit];
+    expect(key((await start(keyed, {})).store.defaultProvider())).toBe('openai@own-key');
+    const lapsed = await start(keyed, {
+      membership: { ...member, status: 'inactive' },
+      membershipNeededFor: ['own-key'],
+    });
+    expect(key(lapsed.store.defaultProvider())).toBe('openrouter@credit');
+  });
+
+  it('decides nothing before the balance is read', async () => {
+    const s = setup();
+    s.api.providers.mockResolvedValue(list);
+    let answer!: (b: BillingSummary) => void;
+    s.api.billing.mockReturnValue(new Promise<BillingSummary>((r) => (answer = r)));
+    const started = s.store.init({ builtInCredit: true, membership: member } as MeResponse);
+    await vi.waitFor(() => expect(s.store.providers()).toEqual(list));
+    expect(s.store.defaultProvider()).toBeNull();
+    answer({ availableMicros: 0 } as BillingSummary);
+    await started;
+    expect(key(s.store.defaultProvider())).toBe('openrouter@own-key');
+  });
+});
+
 describe('modelLabel', () => {
   const entry = (funding: 'own-key' | 'credit', label: string): ProviderInfo => ({
     id: 'openrouter',
