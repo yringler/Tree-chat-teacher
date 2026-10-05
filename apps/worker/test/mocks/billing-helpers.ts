@@ -186,18 +186,6 @@ export async function usageRow(env: AppEnv, id: string): Promise<UsageRow> {
   return row;
 }
 
-export async function grantsFor(
-  env: AppEnv,
-  accountId: string,
-): Promise<{ kind: string; amount_micros: number; provider_ref: string | null }[]> {
-  const { results } = await env.DB.prepare(
-    'SELECT kind, amount_micros, provider_ref FROM credit_grants WHERE account_id = ? ORDER BY created_at, id',
-  )
-    .bind(accountId)
-    .all<{ kind: string; amount_micros: number; provider_ref: string | null }>();
-  return results;
-}
-
 /** Grants with their gross amount and processing fee. */
 export async function grantDetailsFor(
   env: AppEnv,

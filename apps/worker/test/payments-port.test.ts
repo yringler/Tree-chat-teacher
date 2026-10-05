@@ -11,13 +11,7 @@ import {
   type ProviderRef,
   type TopUpCheckoutInput,
 } from '../src/billing/payments/index.js';
-import {
-  isReservedRef,
-  membershipRefundRef,
-  providerOfRef,
-  providerRef,
-  reinstatedRef,
-} from '../src/billing/payments/refs.js';
+import { membershipRefundRef, providerRef, reinstatedRef } from '../src/billing/payments/refs.js';
 import {
   createFakeProvider,
   decodeFakeUrl,
@@ -31,7 +25,6 @@ describe('payment refs', () => {
   it('namespaces provider object ids and derives the secondary keys', () => {
     const order = providerRef('polar', 'order', '6c1e');
     expect(order).toBe('polar:order:6c1e');
-    expect(providerOfRef(order)).toBe('polar');
     expect(membershipRefundRef(order)).toBe('polar:order:6c1e:membership-refund');
     const dispute = providerRef('fake', 'dispute', 'd1');
     expect(reinstatedRef(dispute)).toBe('fake:dispute:d1:reinstated');
@@ -41,12 +34,6 @@ describe('payment refs', () => {
     expect(() => providerRef('polar', '', 'x')).toThrow();
     expect(() => providerRef('polar', 'a:b', 'x')).toThrow();
     expect(() => providerRef('polar', 'order', '')).toThrow();
-  });
-
-  it('knows the reserved non-payment prefixes', () => {
-    expect(isReservedRef('admin:k1')).toBe(true);
-    expect(isReservedRef('dev:k1')).toBe(true);
-    expect(isReservedRef('polar:order:1')).toBe(false);
   });
 });
 

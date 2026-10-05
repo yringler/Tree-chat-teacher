@@ -21,12 +21,6 @@ import { buyerFor, rememberCustomer } from './payments/customers.js';
 import { paymentProvider, paymentsConfigured } from './payments/index.js';
 import { appConfig } from '../config.js';
 
-export {
-  DEFAULT_MARKUP_BPS,
-  DEFAULT_OPENROUTER_FEE_BPS,
-  DEFAULT_USAGE_HOLD_MICROS,
-  DEFAULT_USAGE_MAX_PENDING,
-} from '../config.js';
 export const MAX_USAGE_PAGE = 100;
 
 /** Per-call hold and minimum available balance (`USAGE_HOLD_MICROS`). */

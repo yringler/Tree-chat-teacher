@@ -23,7 +23,7 @@ export {
   type Topic,
 } from './pool/taxonomy.js';
 
-// ---- Defaults (re-exported from the modules that used to own them)
+// ---- Defaults
 
 export const DEFAULT_USAGE_HOLD_MICROS = 20_000;
 export const DEFAULT_USAGE_MAX_PENDING = 3;

@@ -16,8 +16,6 @@ import { buyerFor, rememberCustomer } from './payments/customers.js';
 import { paymentProvider, type PaymentProvider } from './payments/index.js';
 import { billingPageUrl, checkoutReturnUrl } from './service.js';
 
-export { DEFAULT_MEMBERSHIP_CREDIT_CENTS, DEFAULT_MEMBERSHIP_PRICE_CENTS } from '../config.js';
-
 /**
  * Subscription statuses that count as a paid membership. `past_due` does:
  * the provider keeps retrying a failed renewal for days, and the member

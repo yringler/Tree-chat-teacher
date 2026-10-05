@@ -37,7 +37,7 @@ import { creditEquivalentMicros } from './pricing.js';
 
 const BPS_SCALE = 10_000n;
 const DAY_MS = 24 * 60 * 60_000;
-/** The ref prefix of the daily usage share (reserved: billing/payments/refs.ts). */
+/** The ref prefix of the daily usage share (never a provider ref, see billing/payments/refs.ts). */
 export const USAGE_SHARE_REF_PREFIX = 'pool-share:usage:';
 /** How far back the cron catches up on days it missed. */
 export const USAGE_SHARE_CATCH_UP_DAYS = 31;
