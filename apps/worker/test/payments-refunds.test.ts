@@ -101,6 +101,22 @@ describe('refund.succeeded: the membership', () => {
   });
 });
 
+describe('refund.succeeded: supporter net purchases', () => {
+  it('a membership refund leaves the buyer’s net purchases alone', async () => {
+    const userId = await newUser();
+    // $5 bought, $4 of it refunded: $1 net, a supporter.
+    const topUp = paid({ userId, netCents: 500 });
+    await apply(topUp);
+    await apply(refunded(topUp.paymentRef, 400));
+    expect(await isSupporter(env.DB, userId, new Date(), null)).toBe(true);
+    // The membership never counted, so its refund takes nothing off.
+    const member = membershipPaid(userId);
+    await apply(member);
+    expect(await apply(refunded(member.paymentRef, 1000))).toBe('applied');
+    expect(await isSupporter(env.DB, userId, new Date(), null)).toBe(true);
+  });
+});
+
 describe('refund.succeeded before (or without) its payment', () => {
   it('retries while the payment is a credits purchase not credited yet', async () => {
     const userId = await newUser();

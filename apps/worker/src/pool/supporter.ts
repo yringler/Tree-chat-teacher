@@ -9,7 +9,9 @@
 // pre-tax share is rounded on its own, so a purchase refunded in full, in
 // parts, can leave a few micro-USD of rounding behind.
 //
-// Admin adjustments and membership credit never count. Grants from before
+// Admin adjustments and membership credit never count, and neither does a
+// membership refund taking the included credit back (`<paymentRef>:membership-refund`,
+// a `refund` row with no gross). Grants from before
 // migration 0010 have no `user_id`; personal ones count through their ledger
 // account `u_<userId>`, and their refunds (which recorded no gross) through
 // their amount, which was the refunded pre-tax share. With
@@ -30,6 +32,7 @@ export function supporterStatement(db: D1Database, userId: string): D1PreparedSt
     .prepare(
       `SELECT
          SUM(CASE WHEN kind = 'purchase' THEN COALESCE(gross_micros, 0)
+                  WHEN provider_ref LIKE '%:membership-refund' THEN 0
                   ELSE COALESCE(gross_micros, amount_micros) END) AS net,
          MAX(CASE WHEN kind = 'purchase' THEN created_at END) AS last_purchase
        FROM credit_grants
