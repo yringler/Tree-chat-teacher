@@ -1,5 +1,6 @@
 import { authBaseUrl } from '../auth/auth.js';
 import type { AppEnv } from '../env.js';
+import { sharingEnabled } from '../services.js';
 
 /**
  * Who runs this deployment and how to reach them, from the LEGAL_* vars in
@@ -17,6 +18,11 @@ export interface LegalInfo {
   jurisdiction: string;
   /** Public origin, e.g. https://tangentailearning.com. */
   origin: string;
+  /**
+   * Share links are offered to everyone (`sharingEnabled`). False: the pages
+   * say links exist only where the operator enables them, and point to export.
+   */
+  sharing: boolean;
 }
 
 export function legalInfo(env: AppEnv, request: Request): LegalInfo {
@@ -26,6 +32,7 @@ export function legalInfo(env: AppEnv, request: Request): LegalInfo {
     contactEmail: env.LEGAL_CONTACT_EMAIL?.trim() || `privacy@${new URL(origin).hostname}`,
     jurisdiction: env.LEGAL_JURISDICTION?.trim() ?? '',
     origin,
+    sharing: sharingEnabled(env),
   };
 }
 
