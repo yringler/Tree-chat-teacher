@@ -283,3 +283,162 @@ describe('POST /api/trees/:id/copy-to-learn', () => {
     expect((await json<ApiError>(crossSite, 403)).error.code).toBe('forbidden');
   });
 });
+
+describe('a lapsed member on Tangent credit with nothing left', () => {
+  it('a send on a credit branch is 402 payment_required, not membership_required; own keys stay locked', async () => {
+    const u = await newUser();
+    await insertSubscription(env, u.userId, 'canceled');
+    const tree = await powerTree(u);
+    const side = tree.branches.find((b) => b.funding === 'credit')!;
+    expect(await getBalance(env.DB, `u_${u.userId}`)).toMatchObject({
+      balanceMicros: 0,
+      heldMicros: 0,
+    });
+
+    const me = await json<MeResponse>(await u.call('/api/me'));
+    expect(me.membership.status).toBe('inactive');
+    // Credit never needs the membership, so the branch isn't read-only.
+    expect(me.membershipNeededFor).toEqual(['own-key']);
+
+    const send = await u.call(`/api/branches/${side.id}/messages`, {
+      method: 'POST',
+      json: { content: 'More?' },
+    });
+    expect((await json<ApiError>(send, 402)).error.code).toBe('payment_required');
+    // Nothing was appended, nothing held.
+    const after = await json<TreeDetail>(await u.call(`/api/trees/${tree.tree.id}`));
+    expect(after.nodes.filter((n) => n.branchId === side.id)).toEqual([]);
+    expect(await usageCount(`u_${u.userId}`)).toBe(0);
+    // The own-key trunk still answers with the membership.
+    const own = await u.call(`/api/branches/${tree.tree.trunkBranchId}/messages`, {
+      method: 'POST',
+      json: { content: 'And here?' },
+    });
+    expect((await json<ApiError>(own, 402)).error.code).toBe('membership_required');
+  });
+});
+
+describe('copying the same power tree to Learn twice', () => {
+  it('makes two separate lessons, and leaves the power tree as it was', async () => {
+    const u = await newUser();
+    await insertSubscription(env, u.userId, 'canceled');
+    const tree = await powerTree(u);
+    const before = await snapshot(u, tree.tree.id);
+
+    const first = await json<CopyToLearnResponse>(await copy(u, tree.tree.id), 201);
+    const second = await json<CopyToLearnResponse>(await copy(u, tree.tree.id), 201);
+    expect(second.treeId).not.toBe(first.treeId);
+    expect([first.title, second.title]).toEqual(['Primes', 'Primes']);
+
+    const lessons = await json<TreeSummary[]>(await u.call('/api/trees', { learn: 'own-key' }));
+    expect(lessons.map((t) => t.id).sort()).toEqual([first.treeId, second.treeId].sort());
+    const lesson = async (id: string) =>
+      json<TreeDetail>(await u.call(`/api/trees/${id}`, { learn: 'own-key' }));
+    const a = await lesson(first.treeId);
+    const b = await lesson(second.treeId);
+    // Separate rows: no branch or node id is shared.
+    const ids = (d: TreeDetail) => [...d.branches.map((x) => x.id), ...d.nodes.map((x) => x.id)];
+    expect(ids(a).filter((id) => ids(b).includes(id))).toEqual([]);
+    expect(ids(a).filter((id) => ids(before.detail).includes(id))).toEqual([]);
+    // The same lesson twice.
+    const shape = (d: TreeDetail) => ({
+      prompt: d.tree.systemPrompt,
+      branches: d.branches.map((x) => [x.title, x.providerId, x.model, x.contextMode, x.funding]),
+      nodes: d.nodes.map((x) => [x.role, x.content]),
+    });
+    expect(shape(b)).toEqual(shape(a));
+
+    // Changing one lesson leaves the other (and the power tree) alone.
+    await json(
+      await u.call(`/api/trees/${first.treeId}`, {
+        method: 'PATCH',
+        json: { title: 'Renamed copy' },
+        learn: 'own-key',
+      }),
+    );
+    expect(
+      (await json<TreeDetail>(await u.call(`/api/trees/${second.treeId}`, { learn: 'own-key' })))
+        .tree.title,
+    ).toBe('Primes');
+    expect(await snapshot(u, tree.tree.id)).toEqual(before);
+    expect((await json<TreeSummary[]>(await u.call('/api/trees'))).map((t) => t.id)).toEqual([
+      tree.tree.id,
+    ]);
+  });
+});
+
+describe('a new power user with no keys and no credit', () => {
+  /** The default providers (PROVIDERS unset: `fake` isn't among them), the fee off. */
+  const DEFAULTS: Partial<AppEnv> = {
+    PROVIDERS: '',
+    ANNUAL_FEE_ENABLED: 'false',
+    POOL_ENABLED: 'false',
+  };
+
+  it('a new tree starts on the first configured provider (Anthropic); the first send is 401 key_required', async () => {
+    // No credit offered (payments not configured), so nothing can pay but the user's own key.
+    const u = await newUser({ ...DEFAULTS, PAYMENT_PROVIDER: 'polar' });
+    expect(u.me.builtInCredit).toBe(false);
+    const providers = await json<{ id: string; available: boolean; funding?: string }[]>(
+      await u.call('/api/providers'),
+    );
+    expect(providers.map((p) => [p.id, p.available, p.funding])).toEqual([
+      ['anthropic', false, 'own-key'],
+      ['openai', false, 'own-key'],
+      ['openrouter', false, 'own-key'],
+    ]);
+
+    const tree = await json<TreeDetail>(
+      await u.call('/api/trees', { method: 'POST', json: {} }),
+      201,
+    );
+    expect(tree.branches[0]).toMatchObject({
+      providerId: 'anthropic',
+      model: 'claude-opus-5-5',
+      funding: 'own-key',
+    });
+    const send = await u.call(`/api/branches/${tree.tree.trunkBranchId}/messages`, {
+      method: 'POST',
+      json: { content: 'Hello' },
+    });
+    expect((await json<ApiError>(send, 401)).error).toEqual({
+      code: 'key_required',
+      message: 'Add your Anthropic API key to continue this conversation.',
+    });
+    // Not a lost session: the user is still signed in.
+    expect((await u.call('/api/me')).status).toBe(200);
+  });
+
+  it('where Tangent credit is offered, a new tree starts on it instead, and an empty balance is 402', async () => {
+    // The built-in endpoint as deployed: not a test fake (the default route skips fakes), on
+    // the mock upstream of vitest.config.ts. The send is refused before any call reaches it.
+    const u = await newUser({
+      ...DEFAULTS,
+      SIMPLE_PROVIDER: JSON.stringify({
+        id: 'openrouter',
+        kind: 'anthropic',
+        label: 'Tangent',
+        baseUrl: 'https://llm.test',
+        apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
+        defaultModel: 'smart',
+        models: [
+          { id: 'smart', label: 'Smart' },
+          { id: 'simple', label: 'Simple' },
+        ],
+      }),
+      OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR',
+    });
+    expect(u.me.builtInCredit).toBe(true);
+    const tree = await json<TreeDetail>(
+      await u.call('/api/trees', { method: 'POST', json: {} }),
+      201,
+    );
+    // "The first usable non-fake own provider, then Tangent credit": no key, so credit.
+    expect(tree.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'credit' });
+    const send = await u.call(`/api/branches/${tree.tree.trunkBranchId}/messages`, {
+      method: 'POST',
+      json: { content: 'Hello' },
+    });
+    expect((await json<ApiError>(send, 402)).error.code).toBe('payment_required');
+  });
+});

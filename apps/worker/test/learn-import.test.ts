@@ -251,3 +251,159 @@ describe('importing into Learn', () => {
     }
   });
 });
+
+/**
+ * A backup made before the fake reply provider was retired and before funding
+ * was split from the provider: no `funding` fields, a trunk on `fake` and a side
+ * branch on the legacy built-in id `tangent`.
+ */
+function oldBackup(): TreeBackup {
+  const at = '2026-09-15T10:00:00.000Z';
+  const branch = (over: Partial<TreeBackup['branches'][number]>) => ({
+    id: 'old_trunk',
+    treeId: 'old_tree',
+    parentBranchId: null,
+    branchPointNodeId: null,
+    contextMode: 'path' as const,
+    anchorQuote: null,
+    title: 'Main thread',
+    titleSource: 'default' as const,
+    isPrivate: false,
+    providerId: 'fake',
+    model: 'fake-1',
+    createdAt: at,
+    updatedAt: at,
+    ...over,
+  });
+  const node = (over: Partial<TreeBackup['nodes'][number]>) => ({
+    id: 'old_n1',
+    treeId: 'old_tree',
+    branchId: 'old_trunk',
+    parentId: null,
+    seq: 0,
+    role: 'user' as const,
+    content: 'Hello?',
+    status: 'complete' as const,
+    error: null,
+    providerId: null,
+    model: null,
+    usage: null,
+    createdAt: at,
+    ...over,
+  });
+  return {
+    format: 'tangent-tree-backup',
+    version: 1,
+    exportedAt: at,
+    tree: {
+      id: 'old_tree',
+      title: 'From the fake days',
+      systemPrompt: 'Be brief.',
+      trunkBranchId: 'old_trunk',
+      createdAt: at,
+      updatedAt: at,
+    },
+    branches: [
+      branch({}),
+      branch({
+        id: 'old_side',
+        parentBranchId: 'old_trunk',
+        branchPointNodeId: 'old_n2',
+        title: 'On the built-in provider',
+        providerId: 'tangent',
+        model: 'smart',
+        contextMode: 'summary',
+      }),
+    ],
+    nodes: [
+      node({}),
+      node({
+        id: 'old_n2',
+        parentId: 'old_n1',
+        seq: 1,
+        role: 'assistant',
+        content: 'Fake reply (fake-1) to 1 message(s)',
+        providerId: 'fake',
+        model: 'fake-1',
+      }),
+    ],
+  } as TreeBackup;
+}
+
+describe('an old backup that names the retired `fake` provider', () => {
+  /** A deployment with the default power providers: `fake` isn't one (vitest.config.ts adds it). */
+  const defaults = authEnv({ POOL_ENABLED: 'false', PROVIDERS: '' });
+
+  it('imports into power as it is, and a send on the fake branch is "Unknown provider"', async () => {
+    const u = await newUser(defaults);
+    const copy = await json<TreeDetail>(
+      await u.call('/api/import', { method: 'POST', json: oldBackup() }),
+      201,
+    );
+    expect(copy.tree.accountId).toBe(u.power.accountId);
+    expect(copy.tree.systemPrompt).toBe('Be brief.');
+    // `fake` is kept, like any provider the server doesn't offer; `tangent` is the
+    // endpoint `openrouter`, and a missing funding is the user's own key.
+    expect(routes(copy)).toEqual([
+      ['Main thread', 'fake', 'fake-1', 'path', 'own-key'],
+      ['On the built-in provider', 'openrouter', 'smart', 'summary', 'own-key'],
+    ]);
+    expect(copy.nodes.map((n) => n.providerId)).toEqual([null, 'fake']);
+    const providers = await json<{ id: string }[]>(await u.call('/api/providers'));
+    expect(providers.map((p) => p.id)).not.toContain('fake');
+
+    const res = await u.call(`/api/branches/${copy.tree.trunkBranchId}/messages`, {
+      method: 'POST',
+      json: { content: 'Still there?' },
+    });
+    const body = await json<{ error: { code: string; message: string } }>(res, 400);
+    expect(body.error).toEqual({ code: 'bad_request', message: 'Unknown provider "fake"' });
+    // Nothing was appended.
+    const after = await json<TreeDetail>(await u.call(`/api/trees/${copy.tree.id}`));
+    expect(after.nodes).toHaveLength(2);
+
+    // Branch settings fix it: picking a provider the server offers.
+    const moved = await json<Branch>(
+      await u.call(`/api/branches/${copy.tree.trunkBranchId}`, {
+        method: 'PATCH',
+        json: { providerId: 'anthropic' },
+      }),
+    );
+    expect(moved).toMatchObject({ providerId: 'anthropic', funding: 'own-key' });
+  });
+
+  it("imported into Learn, it is adapted onto Learn's provider like any other backup", async () => {
+    const u = await newUser(defaults);
+    const lesson = await json<TreeDetail>(
+      await u.call('/api/import', { method: 'POST', json: oldBackup(), learn: 'own-key' }),
+      201,
+    );
+    expect(lesson.tree.accountId).toBe(u.learn.accountId);
+    expect(lesson.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(routes(lesson)).toEqual([
+      ['Main thread', 'openrouter', 'smart', 'path', 'own-key'],
+      ['On the built-in provider', 'openrouter', 'smart', 'path', 'own-key'],
+    ]);
+    // The reply keeps the provider it ran on: history.
+    expect(lesson.nodes.map((n) => n.providerId)).toEqual([null, 'fake']);
+
+    // And it continues there (here on credit, the fake built-in provider of the tests).
+    await grantCredit(env.DB, {
+      accountId: u.learn.accountId,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      providerRef: null,
+      note: 'test',
+    });
+    const res = await u.call(`/api/branches/${lesson.tree.trunkBranchId}/messages`, {
+      method: 'POST',
+      json: { content: 'Still there?' },
+      learn: 'credit',
+    });
+    expect(res.status).toBe(200);
+    expect(parseSse(await res.text()).at(-1)).toMatchObject({
+      type: 'done',
+      node: { providerId: 'openrouter', model: 'smart' },
+    });
+  });
+});

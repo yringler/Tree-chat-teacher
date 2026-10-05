@@ -3,6 +3,7 @@ import { Injector } from '@angular/core';
 import type { MeResponse } from '@tangent/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiClient, ApiError } from './api-client';
+import { API_FETCH } from './api-fetch';
 import { APP_PATHS, type AppPaths } from './app-paths';
 import { AUTH_CLIENT, type TangentAuthClient } from './auth-client';
 import { AuthService } from './auth';
@@ -86,6 +87,72 @@ describe('AuthService with APP_PATHS', () => {
     await expect(auth.requireUser()).resolves.toBeNull();
     expect(client.signOut).toHaveBeenCalled();
     expect(location.replace).toHaveBeenCalledWith('/learn/login?error=not_allowed');
+  });
+
+  it('a 401 key_required is not a lost session: no login page, no sign-out, the error goes on', async () => {
+    const err = new ApiError(401, 'key_required', 'Add your OpenRouter API key to continue.');
+    const { auth, client } = setup(SIMPLE_PATHS, async () => {
+      throw err;
+    });
+    await expect(auth.requireUser()).rejects.toBe(err);
+    expect(location.replace).not.toHaveBeenCalled();
+    expect(location.assign).not.toHaveBeenCalled();
+    expect(client.signOut).not.toHaveBeenCalled();
+  });
+
+  it('nor is any other 401 with its own code', async () => {
+    const err = new ApiError(401, 'rate_limited', 'Slow down');
+    const { auth, client } = setup({ home: '/', login: '/login' }, async () => {
+      throw err;
+    });
+    await expect(auth.requireUser()).rejects.toBe(err);
+    expect(location.replace).not.toHaveBeenCalled();
+    expect(client.signOut).not.toHaveBeenCalled();
+  });
+
+  describe('through the real ApiClient', () => {
+    function withResponse(res: () => Response) {
+      const client = fakeAuthClient();
+      const injector = Injector.create({
+        providers: [
+          { provide: AuthService },
+          { provide: ApiClient },
+          { provide: API_FETCH, useValue: async () => res() },
+          { provide: AUTH_CLIENT, useValue: client as unknown as TangentAuthClient },
+          { provide: APP_PATHS, useValue: { home: '/', login: '/login' } },
+        ],
+      });
+      return { auth: injector.get(AuthService), client };
+    }
+    const json = (body: unknown, status: number) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      });
+
+    it('a 401 key_required body keeps the user on the page, with the server message', async () => {
+      const message = 'Add your Anthropic API key to continue this conversation.';
+      const { auth, client } = withResponse(() =>
+        json({ error: { code: 'key_required', message } }, 401),
+      );
+      await expect(auth.requireUser()).rejects.toMatchObject({ code: 'key_required', message });
+      expect(location.replace).not.toHaveBeenCalled();
+      expect(client.signOut).not.toHaveBeenCalled();
+    });
+
+    it('a 401 unauthorized body sends the browser to sign in', async () => {
+      const { auth } = withResponse(() =>
+        json({ error: { code: 'unauthorized', message: 'Sign in required' } }, 401),
+      );
+      await expect(auth.requireUser()).resolves.toBeNull();
+      expect(location.replace).toHaveBeenCalledWith('/login');
+    });
+
+    it('a 401 without our error body (a proxy) counts as a lost session', async () => {
+      const { auth } = withResponse(() => new Response('Unauthorized', { status: 401 }));
+      await expect(auth.requireUser()).resolves.toBeNull();
+      expect(location.replace).toHaveBeenCalledWith('/login');
+    });
   });
 
   it('returns the caller when signed in', async () => {

@@ -11,6 +11,7 @@ import type {
   TreeDetail,
   UpdateBranchRequest,
 } from '@tangent/shared';
+import { providerRouteKey } from '@tangent/shared';
 import { ApiClient, ApiError } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeStore } from './tree-store';
@@ -366,11 +367,116 @@ describe('TreeStore read-only power without a membership', () => {
     expect(s.ui.toasts()[0]?.text).toBe('“Main thread” now uses Tangent credit (a/b)');
   });
 
+  it('a lapsed member out of credit on a credit branch: a 402 payment_required toasts to /billing, nothing turns read-only', async () => {
+    const s = setup();
+    s.api.billing.mockResolvedValue({ availableMicros: 0 } as BillingSummary);
+    await open(s, inactive());
+    s.store.setRoute('t1', 'side', null);
+    expect(s.store.readOnly()).toBe(false);
+    const callsBefore = s.api.billing.mock.calls.length;
+    s.store.fail(new ApiError(402, 'payment_required', 'Not enough Tangent credit.'));
+    expect(s.ui.toasts()).toEqual([
+      expect.objectContaining({
+        kind: 'error',
+        text: 'Not enough Tangent credit.',
+        link: { label: 'Add credit', path: '/billing' },
+      }),
+    ]);
+    // Not the membership: the credit branch keeps its composer, own keys stay as they were.
+    expect(s.store.readOnly()).toBe(false);
+    expect(s.store.selectedBranch()?.funding).toBe('credit');
+    expect([...s.store.lockedFundings()]).toEqual(['own-key']);
+    expect(s.store.membership()?.status).toBe('inactive');
+    expect(s.ui.keysDialog()).toBeNull();
+    expect(s.api.me).toHaveBeenCalledTimes(0);
+    // The balance is read again.
+    await vi.waitFor(() => expect(s.api.billing.mock.calls.length).toBeGreaterThan(callsBefore));
+  });
+
   it('offers no switch to credit without credit left', async () => {
     const s = setup();
     s.api.billing.mockResolvedValue({ availableMicros: 0 } as BillingSummary);
     await open(s, inactive());
     await expect(s.store.switchToCredit('trunk')).resolves.toBe(false);
+  });
+});
+
+describe('TreeStore a new user with no keys and no credit', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** The default power providers (PROVIDERS unset), none with a key; no Tangent credit offered. */
+  const defaults: ProviderInfo[] = [
+    ['anthropic', 'Anthropic', 'claude-opus-5-5'],
+    ['openai', 'OpenAI', 'gpt-5'],
+    ['openrouter', 'OpenRouter', 'deepseek/deepseek-v4-pro'],
+  ].map(([id, label, model]) => ({
+    id: id!,
+    kind: id === 'anthropic' ? 'anthropic' : 'openai-compatible',
+    label: label!,
+    models: [{ id: model!, label: model! }],
+    defaultModel: model!,
+    openModels: id === 'openrouter',
+    available: false,
+    acceptsUserKey: true,
+    keySource: null,
+    funding: 'own-key',
+  }));
+
+  it('starts on the first configured provider, and the first send asks for its key (not a sign-in)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const s = setup();
+    s.api.providers.mockResolvedValue(defaults);
+    await s.store.init(me({ builtInCredit: false, membershipNeededFor: [] }));
+    expect(s.store.openRoutes()).toEqual([]);
+    // Nothing to generate on yet, but a missing key never hides anything.
+    expect(s.store.canGenerate()).toBe(true);
+    const first = s.store.defaultProvider();
+    expect(first?.id).toBe('anthropic');
+
+    const at = '2026-10-01T00:00:00.000Z';
+    const created: TreeDetail = {
+      tree: {
+        id: 't9',
+        accountId: 'p_1',
+        title: 'New conversation',
+        systemPrompt: null,
+        trunkBranchId: 'b9',
+        createdAt: at,
+        updatedAt: at,
+      },
+      branches: [
+        {
+          id: 'b9',
+          treeId: 't9',
+          parentBranchId: null,
+          branchPointNodeId: null,
+          contextMode: 'path',
+          anchorQuote: null,
+          title: 'Main thread',
+          titleSource: 'default',
+          isPrivate: false,
+          providerId: 'anthropic',
+          model: 'claude-opus-5-5',
+          funding: 'own-key',
+          createdAt: at,
+          updatedAt: at,
+        },
+      ],
+      nodes: [],
+    };
+    const createTree = vi.fn(async () => created);
+    const message = 'Add your Anthropic API key to continue this conversation.';
+    const sendMessage = vi.fn(async () => {
+      throw new ApiError(401, 'key_required', message);
+    });
+    Object.assign(s.api, { createTree, sendMessage });
+    // The home page passes the default provider's route key.
+    await s.store.startConversation('Hello', providerRouteKey(first!), null);
+    expect(createTree).toHaveBeenCalledWith({ providerId: 'anthropic', funding: 'own-key' });
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    await vi.waitFor(() => expect(s.ui.keysDialog()).not.toBeNull());
+    expect(s.ui.toasts()).toEqual([expect.objectContaining({ kind: 'error', text: message })]);
+    expect(s.ui.toasts()[0]?.text).not.toMatch(/session|sign in/i);
   });
 });
 
