@@ -35,7 +35,7 @@ export interface CreditGrantInput {
   /**
    * Idempotency key: a payment, refund or dispute ref such as
    * `polar:order:<id>`, or a ref the domain derives from one (`…:membership-refund`,
-   * `…:pool-share`, `…:reinstated`, `…:lost`); `admin:<key>` for an admin's
+   * `…:pool-share`, `…:reinstated`, `…:lost`, `…:ignored`); `admin:<key>` for an admin's
    * adjustment, `dev:<key>` for a simulated purchase, `pool-share:usage:<day>`
    * for the pool's daily usage share (provider refs never start with those);
    * null for SQL adjustments.

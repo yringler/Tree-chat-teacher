@@ -28,7 +28,9 @@
 // - dispute.opened / dispute.lost → debited like a refund of the disputed
 //   amount (membership disputes are left to the operator); lost also
 //   suspends the buyer's pool access, once. dispute.won → what the dispute
-//   took is credited back, once.
+//   took is credited back, once. A dispute that will never be debited (not
+//   a purchase) gets a zero-amount `<disputeRef>:ignored` marker, so the
+//   poller neither asks the provider about it nor logs it again.
 // - membership.changed → the `billing_subscriptions` snapshot, newest wins.
 //
 // Any event that names both our user and the provider's customer records
@@ -373,14 +375,29 @@ async function debitPoolPurchase(
   return { debited: result.debited };
 }
 
+/** The ledger of zero-amount markers that belong to no account (a dispute of a payment that granted nothing). */
+const NO_ACCOUNT_MARKERS = 'payment-markers';
+
 async function disputeDebited(env: AppEnv, e: DisputeEvent, deps: ApplyDeps): Promise<ApplyResult> {
   if (e.currency !== 'usd') {
     log('dispute_not_debited', { reason: 'currency', disputeRef: e.disputeRef });
     return 'skipped';
   }
+  const ignoredRef = `${e.disputeRef}:ignored`;
+  if (await hasGrant(env.DB, ignoredRef)) return 'duplicate';
   const grant = await paidGrant(env, e.paymentRef, deps, { membership: false });
   if (!grant || grant.kind !== 'purchase') {
-    // A membership payment (or one that granted nothing): left to the operator.
+    // A membership payment (or one that granted nothing): left to the operator. Final
+    // (`paidGrant` retries a payment that will grant), so recorded once, logged once.
+    const first = await grantCredit(env.DB, {
+      accountId: grant?.account_id ?? NO_ACCOUNT_MARKERS,
+      kind: 'adjustment',
+      amountMicros: 0,
+      userId: grant?.user_id ?? null,
+      providerRef: ignoredRef,
+      note: `Dispute ${e.disputeRef} of ${e.paymentRef} not debited: not a purchase`,
+    });
+    if (!first) return 'duplicate';
     log('dispute_not_debited', { reason: 'not_a_purchase', disputeRef: e.disputeRef });
     return 'skipped';
   }

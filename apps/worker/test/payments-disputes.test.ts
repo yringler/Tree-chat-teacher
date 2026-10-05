@@ -124,6 +124,36 @@ describe('pollDisputes', () => {
     error.mockRestore();
   });
 
+  it('looks up and logs a dispute that will never be debited once, not on every poll', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const userId = await newUser();
+    // A membership payment (credit granted, left to the operator) and an order that granted nothing.
+    const member = membershipPaid(userId);
+    await apply(member);
+    const other = { ...paid({ userId: null }), purpose: { kind: 'other' as const } };
+    const provider = createFakeProvider({
+      payments: [factsOf(other)],
+      disputes: [
+        disputed('dispute.opened', member.paymentRef, 1000),
+        disputed('dispute.lost', other.paymentRef, 1000),
+      ],
+    });
+    const getPayment = vi.spyOn(provider, 'getPayment');
+    expect(await pollDisputes(env, new Date(), provider)).toMatchObject({ applied: 0, failed: 0 });
+    expect(getPayment).toHaveBeenCalledTimes(1);
+    const logged = warn.mock.calls.length;
+    expect(logged).toBe(2);
+    for (let i = 0; i < 3; i++)
+      expect(await pollDisputes(env, new Date(), provider)).toMatchObject({
+        applied: 0,
+        failed: 0,
+      });
+    expect(getPayment).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls.length).toBe(logged);
+    warn.mockRestore();
+    expect(await balance(`u_${userId}`)).toBe(2_000_000);
+  });
+
   it('does nothing without a polled dispute source', async () => {
     expect(await pollDisputes(env, new Date(), createFakeProvider())).toEqual({
       polled: false,
