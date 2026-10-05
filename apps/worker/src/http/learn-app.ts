@@ -78,7 +78,7 @@ export interface SpaAppOptions {
  * - A path whose last segment contains a `.` is a file: passed to ASSETS as is.
  * - Every other path is a client-side route: the app's index.html, with the
  *   login CSP on `<base>login` (apps with a login page) and the app CSP elsewhere.
- * `options.allow` limits the redirect and the documents to some callers.
+ * `options.allow` limits the redirect and the documents (`.html` files included) to some callers.
  * Every response carries the headers `_headers` would have given it.
  */
 export function spaAppRoutes(base: string, options: SpaAppOptions = {}): Hono<AppBindings> {
@@ -96,6 +96,8 @@ export function spaAppRoutes(base: string, options: SpaAppOptions = {}): Hono<Ap
     const req = c.req.raw;
     const url = new URL(req.url);
     if (isAssetPath(url.pathname)) {
+      // A document asked for by its file name (`index.html`) is still a document.
+      if (allow && url.pathname.endsWith('.html') && !(await allow(c))) return notFoundPage();
       const res = await c.env.ASSETS.fetch(req);
       // A missing file falls through to the SPA fallback (the power app's
       // index.html, 200). Don't serve a document where a file was asked for.

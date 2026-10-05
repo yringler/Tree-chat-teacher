@@ -118,7 +118,7 @@ describe('admin identity', () => {
     }
     expect(await shareAllowedInDb(user.id)).toBe(0);
 
-    for (const path of ['/admin', '/admin/', '/admin/users']) {
+    for (const path of ['/admin', '/admin/', '/admin/users', '/admin/index.html']) {
       const res = await asUser(path);
       expect(res.status, path).toBe(404);
       expect(await res.text()).not.toContain(ADMIN_INDEX);
