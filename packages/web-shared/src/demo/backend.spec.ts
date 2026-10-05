@@ -377,7 +377,15 @@ describe('power demo backend', () => {
       sharing: false,
       isAdmin: false,
       membership: { required: false },
+      // Nothing needs a membership, so no power branch is ever read-only here.
+      membershipNeededFor: [],
       featuredConversations: false,
+    });
+    // So "Create a copy in Learn" is never offered: the two demos stay apart.
+    const [tree] = await api.listTrees();
+    await expect(api.copyToLearn(tree!.id)).rejects.toMatchObject({
+      status: 400,
+      message: "Copying to Learn isn't available in the demo.",
     });
     await expect(api.keyStatus()).resolves.toEqual({
       enabled: false,

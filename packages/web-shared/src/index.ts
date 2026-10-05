@@ -28,6 +28,7 @@ export {
   type SaveFile,
 } from './core/backup-file';
 export { APP_PATHS, provideAppPaths, type AppPaths } from './core/app-paths';
+export { LEAVE_PAGE, type LeavePage } from './core/leave-page';
 export {
   AUTH_CLIENT,
   authErrorMessage,
@@ -79,6 +80,16 @@ export { BillingPage } from './billing/billing-page';
 export { BILLING_SUMMARY_LISTENER } from './billing/billing-listener';
 export { MembershipGate } from './billing/membership-gate';
 export { MembershipCodeForm } from './billing/membership-code-form';
+export { ReadOnlyComposer } from './billing/read-only-composer';
+export {
+  LearnCopy,
+  learnLessonHref,
+  lockedFundings,
+  readOnlyText,
+  routeLocked,
+  routeOpen,
+  type ReadOnlyText,
+} from './billing/read-only';
 export {
   creditCarriesOn,
   creditFeeText,

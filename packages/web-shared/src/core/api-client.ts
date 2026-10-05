@@ -15,6 +15,7 @@ import type {
   BillingSummary,
   Branch,
   CheckoutResponse,
+  CopyToLearnResponse,
   CreateCheckoutRequest,
   ContextPlanResponse,
   CreateBranchRequest,
@@ -421,6 +422,15 @@ export class ApiClient {
 
   importBackup(backup: TreeBackupInput): Promise<TreeDetail> {
     return this.json('POST', '/import', backup);
+  }
+
+  /**
+   * Copies one of the caller's power trees into their Learn account as a new
+   * lesson (adapted like any import into Learn); resolves with its id. Sent
+   * from the power apps (power mode); needs no membership and spends nothing.
+   */
+  copyToLearn(treeId: string): Promise<CopyToLearnResponse> {
+    return this.json('POST', `/trees/${enc(treeId)}/copy-to-learn`);
   }
 
   // Plumbing

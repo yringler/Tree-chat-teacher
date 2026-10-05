@@ -406,6 +406,11 @@ export class DemoBackend {
     if (method === 'GET' && (id = seg(/^\/api\/trees\/([^/]+)\/backup$/))) {
       return json(await this.chat.exportBackup(id));
     }
+    // "Create a copy in Learn" is offered only on a read-only power branch, which the
+    // demos never have (they require no membership): the two demos stay apart.
+    if (method === 'POST' && seg(/^\/api\/trees\/([^/]+)\/copy-to-learn$/)) {
+      return apiError('bad_request', "Copying to Learn isn't available in the demo.");
+    }
     if (method === 'POST' && path === '/api/import') {
       const backup = treeBackupSchema.parse(body ?? {});
       return this.saved(json(await this.chat.importBackup(backup), 201));
