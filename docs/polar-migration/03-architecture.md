@@ -469,7 +469,7 @@ A future adapter adds `providers/<x>/` with its own fixture and outbound tests. 
 | 13 | One migration 0014 | 0014 (additive + rename), 0015 (drop the Stripe tables and column) | Each commit stays green while Stripe code still exists. |
 | 14 | D3 fallback estimate decided in the handler | The adapter fills `fee: { cents, estimated: true }` | The fee formula is provider knowledge. |
 
-Unchanged from stage 2: D0 (hard cutover, §6.0 guard checks), D1 (`POOL_PURCHASES_ENABLED`), D2, D3 (fee source), D4 (minimums), D5 (polling), D7 (a local table, not per-request state), D8 (`POLAR_SERVER` default sandbox), D9, D10, D12–D15. Also unchanged: the env vars of §4.2, the dependency changes of §4.3, the docs list of §3.5, and the cutover plan of §6.
+Unchanged from stage 2: D0 (hard cutover, §6.0 guard checks), D1 (`POOL_PURCHASES_ENABLED`; since resolved: the pool is revenue-funded and pool purchases are removed, docs/DECISIONS.md), D2, D3 (fee source), D4 (minimums), D5 (polling), D7 (a local table, not per-request state), D8 (`POLAR_SERVER` default sandbox), D9, D10, D12–D15. Also unchanged: the env vars of §4.2, the dependency changes of §4.3, the docs list of §3.5, and the cutover plan of §6.
 
 ---
 

@@ -8,6 +8,7 @@ Date: 2026-10-05. Inputs: [01-polar-research.md](01-polar-research.md), [02-stri
 
 ### Decisions taken during implementation
 
+- **Superseded 2026-10-05 (D1 resolved: revenue-funded pool, docs/DECISIONS.md):** nobody buys pool credit, `POOL_PURCHASES_ENABLED`, `POOL_MIN_PURCHASE_CENTS` and `POOL_MARKUP_BPS` are gone, pool replies are charged at cost, and Tangent adds `POOL_REVENUE_SHARE_BPS` (20%) of membership payments after fees and of the markup on personal credit (`pool/revenue-share.ts`). The bullets below record the earlier state; refunds and disputes of legacy pool purchase rows still work as described.
 - **D4 (user): pool aligned with personal — fee passed through, 5% per-call markup, $10 min.** This supersedes stage 2's D4 recommendation and the earlier "keep the pool margin as-is" instruction.
   - A pool purchase is credited `gross − actual processor fee`, through the same `netOfFee` as a personal top-up (`billing/purchases.ts`). The flat margin is gone: `POOL_MARGIN_BPS`, `MARGIN_PERCENT`, `DEFAULT_POOL_MARGIN_BPS`, `poolCreditMicros` and `PoolConfig.marginBps` were removed. New `credit_grants` rows carry `margin_bps = 0`; the column stays for older rows.
   - The operator earns a per-call markup on the pool instead: `POOL_MARKUP_BPS` (default `500`, +5%). Pool reservations store it on the usage row (`usage_events.markup_bps`), and every settle path (the meter and `PoolBank` expiry) charges `chargeMicros(cost, markup, fee)` = cost × (1 + fee) × (1 + markup). Holds (`worstCaseHoldMicros`, `ceilingHoldMicros`) price the same factors, so a hold always covers its charge. `releaseUndispatched` still settles at 0.
@@ -25,14 +26,14 @@ Date: 2026-10-05. Inputs: [01-polar-research.md](01-polar-research.md), [02-stri
 - **Lost disputes suspend once.** Polar disputes are polled, so the same `lost` dispute is seen on every run. `apply.ts` writes a zero-amount `adjustment` row keyed `<disputeRef>:lost` the first time and suspends only then, so an admin lifting the suspension is not undone by the next poll.
 - **Dispute polling window.** The poller reads the newest 300 disputes (3 pages of 100, statuses `needs_response`, `under_review`, `lost`, `won`) every 10 minutes. Older disputes are assumed settled.
 - **`MEMBERSHIP_PLAN` stays in `@tangent/shared` until Stripe is removed** (step 8 rather than step 6): the Better Auth Stripe plugin and the old browser client still read it in between.
-- **`POOL_PURCHASES_ENABLED` (D1) landed with the domain switch** (step 6): `assertPurchasable` refuses `target: 'pool'` while it is off, and `PoolStatusResponse.fundingOpen` is `topUps && poolPurchasesEnabled`. `wrangler.jsonc` ships it `"false"`; the tests turn it on.
+- **`POOL_PURCHASES_ENABLED` (D1) landed with the domain switch** (step 6; removed 2026-10-05 with pool purchases): `assertPurchasable` refuses `target: 'pool'` while it is off, and `PoolStatusResponse.fundingOpen` is `topUps && poolPurchasesEnabled`. `wrangler.jsonc` ships it `"false"`; the tests turn it on.
 - **Provider failures on the checkout and portal routes answer 502 `provider_error`** with a "try again" message, instead of a generic 500.
 - **Account deletion always asks the provider** (not only when `billing_customers` has a row): a checkout can create the Polar customer before any webhook tells us about it. `'absent'` is fine; any other failure aborts the deletion.
 
 ### Configuration left to the operator
 
-- **Minimums (D4, deferred to the owner).** `MIN_TOP_UP_CENTS` (500, `packages/shared/src/billing.ts`) and `POOL_MIN_PURCHASE_CENTS` (1000, `wrangler.jsonc`) are unchanged. On Polar's Starter plan (5% + 50¢, +1.5% on international cards) a $5 top-up loses about 15% to fees and a $10 one about 10%. Both are configuration; revisit them once real fees are seen in the sandbox (check 1 below).
-- **Pool markup.** `POOL_MARKUP_BPS` defaults to 500 (+5%), per the owner's D4 decision.
+- **Minimums (D4, deferred to the owner).** `MIN_TOP_UP_CENTS` (500, `packages/shared/src/billing.ts`) is unchanged (the pool minimum is gone with pool purchases). On Polar's Starter plan (5% + 50¢, +1.5% on international cards) a $5 top-up loses about 15% to fees and a $10 one about 10%. Both are configuration; revisit them once real fees are seen in the sandbox (check 1 below).
+- **Pool revenue share.** `POOL_REVENUE_SHARE_BPS` defaults to 2000 (20%); the public pages quote it, so change it only together with what Tangent has publicly committed. Pool replies carry no markup.
 - **Fee estimate.** `POLAR_FEE_BPS` / `POLAR_FEE_FIXED_CENTS` (500 / 50) are only used when an order reports no usable fee. Move them to the plan you are on (Pro: 380 / 40).
 
 ---
@@ -62,14 +63,14 @@ After the checks, replace the synthetic fixtures with the recorded ones (the tes
 
 ## 3. Operator setup (production)
 
-1. **Polar organization** (production), after the sandbox checks: complete Polar's account review (an AI tutoring product is in a restricted category; describe it as prepaid usage credit plus a yearly membership).
-2. **Products:** a one-time **credits** product in USD (its price is replaced per checkout) and a **yearly membership** product of $10.00, tax exclusive.
+1. **Polar organization** (production), after the sandbox checks: complete Polar's account review (an AI tutoring product is in a restricted category; describe it as prepaid usage credit plus a yearly membership, with a free tier, the community pool, that Tangent funds from its own revenue; nobody can buy pool credit).
+2. **Products:** a one-time **credits** product in USD for personal top-ups (its price is replaced per checkout) and a **yearly membership** product of $10.00, tax exclusive. No pool product.
 3. **Customer portal:** invoices on, cancellation at period end, plan switching off.
 4. **Webhook endpoint:** `https://<your host>/api/webhooks/polar`, format Raw, events `order.paid`, `refund.created`, `refund.updated`, `subscription.created`, `subscription.updated`, `subscription.active`, `subscription.canceled`, `subscription.uncanceled`, `subscription.revoked`, `subscription.past_due`.
 5. **Access token** with `checkouts:write`, `customer_sessions:write`, `customers:read`, `customers:write`, `orders:read`, `subscriptions:read`, `subscriptions:write`, `disputes:read`.
 6. **Secrets:** `wrangler secret put POLAR_ACCESS_TOKEN` and `wrangler secret put POLAR_WEBHOOK_SECRET`.
-7. **Vars** in `wrangler.jsonc`: `POLAR_CREDITS_PRODUCT_ID`, `POLAR_MEMBERSHIP_PRODUCT_ID` (`PAYMENT_PROVIDER` is `polar` and `POLAR_SERVER` `production` already). Leave `POOL_PURCHASES_ENABLED` `"false"` until Polar answers D1 in writing; turn on `ANNUAL_FEE_ENABLED` and `POOL_ENABLED` on their own schedules.
-8. **Migrate and deploy:** `pnpm db:migrate:remote` (applies 0014 and 0015), then deploy. Before 0015, confirm there is no live Stripe data (02 §6 step 0).
+7. **Vars** in `wrangler.jsonc`: `POLAR_CREDITS_PRODUCT_ID`, `POLAR_MEMBERSHIP_PRODUCT_ID` (`PAYMENT_PROVIDER` is `polar` and `POLAR_SERVER` `production` already). Confirm `POOL_REVENUE_SHARE_BPS` (`2000`, the 20% the public pages promise) and `LEGAL_OPERATOR` / `LEGAL_CONTACT_EMAIL` (`/pool` gives them for questions or arrangements); turn on `ANNUAL_FEE_ENABLED` and `POOL_ENABLED` on their own schedules (the revenue share accrues only while the pool is on).
+8. **Migrate and deploy:** `pnpm db:migrate:remote` (applies 0014, 0015 and 0016), then deploy. Before 0015, confirm there is no live Stripe data (02 §6 step 0).
 9. **Clean up Stripe:** `wrangler secret delete STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` if they were set, and delete the Stripe webhook endpoint.
-10. **Alerts:** on the log lines `payment_webhook_failed` (Polar disables an endpoint after 10 consecutive failures), `fee_estimated`, `pool_debit_shortfall`, `dispute_poll_apply_failed` and `payment_provider_error`, and on Polar's "endpoint disabled" email.
+10. **Alerts:** on the log lines `payment_webhook_failed` (Polar disables an endpoint after 10 consecutive failures), `fee_estimated`, `payment_not_credited` (e.g. a legacy pool-target order), `pool_debit_shortfall`, `dispute_poll_apply_failed` and `payment_provider_error`, and on Polar's "endpoint disabled" email. `pool_usage_share` logs each day the revenue share added; a "Pool revenue share failed" error is retried on the next run.
 11. **Legal:** confirm Polar's legal entity name, buyer terms and support contact named in `/terms` and `/privacy` (`apps/worker/src/http/legal.ts`), and have them reviewed (D14).
