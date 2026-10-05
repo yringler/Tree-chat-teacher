@@ -347,7 +347,7 @@ After deploying, run `wrangler secret delete STRIPE_SECRET_KEY STRIPE_WEBHOOK_SE
 | D12 | Embedded vs hosted checkout | **Hosted** (a redirect, as today). The return/poll UX is unchanged. Embedded needs `@polar-sh/checkout` (React) and CSP changes, which don't fit the Angular apps. |
 | D13 | Mirror usage into Polar events/meters | **No.** The internal micro-USD ledger stays authoritative (stage 1 §3). |
 | D14 | Legal wording | Name Polar as MoR/reseller in `/terms` and `/privacy`, and in `docs/LEGAL.md`. Have the operator, or counsel, review before production. Bump `LEGAL_UPDATED`. |
-| D15 | Polar account review ("AI content generation" is restricted) | Start Polar's account review **before** stage 4 code lands in production. Describe the product as a tutoring chat sold as prepaid usage credit plus a yearly membership. Don't mention the pool until D1 is answered. |
+| D15 | Polar account review ("AI content generation" is restricted) | Start Polar's account review **before** stage 4 code lands in production. Describe the product as a tutoring chat sold as prepaid usage credit plus a yearly membership, with a free tier, the community pool, that is currently funded by the operator (`POOL_PURCHASES_ENABLED` off; the public copy says Tangent adds the pool's credit). Mention the pending question about letting customers buy credit for the pool (D1), consistently with the support message in [05 §6](05-pool-framing.md#6-draft-message-to-polar-support): reviewers will see the pool on the landing page and at `/pool`. |
 
 ---
 

@@ -9,9 +9,10 @@ import { poolBlockText, type PoolBlock } from './pool-format';
  * - empty: "The community pool is empty. It refills as people fund it." with
  *   **Fund the pool** and **Buy personal credits**;
  * - a cap: the cap, when it resets, and that supporters get more.
- * The message itself is kept in the composer. While funding isn't open yet
- * (no payment provider, or pool purchases still closed), nothing can be bought: the empty state says funding opens
- * soon and links to `/pool`, which explains the pool.
+ * The message itself is kept in the composer. While funding isn't open (no
+ * payment provider, or pool purchases closed), only Tangent adds credit to the
+ * pool: the empty state says so, says pool credit can't be bought, and links
+ * to `/pool`, which explains the pool.
  */
 @Component({
   selector: 'app-pool-block-notice',
@@ -35,7 +36,7 @@ import { poolBlockText, type PoolBlock } from './pool-format';
               >
               <a class="btn btn-sm" [routerLink]="billingPath()">Buy personal credits</a>
             } @else {
-              <span class="muted small">Funding opens soon.</span>
+              <span class="muted small">Buying credit for the pool isn't available yet.</span>
               <a class="btn btn-sm" href="/pool">How the pool works</a>
             }
           </div>
@@ -59,5 +60,7 @@ export class PoolBlockNotice {
   readonly billingPath = input('/billing');
   readonly dismissed = output();
 
-  protected readonly text = computed(() => poolBlockText(this.block()));
+  protected readonly text = computed(() =>
+    poolBlockText(this.block(), new Date(), this.fundingOpen()),
+  );
 }

@@ -1,6 +1,6 @@
 import {
   formatMicros,
-  POOL_EMPTY_TEXT,
+  poolEmptyText,
   poolPricingText,
   poolSessionsHeadline,
   poolWeekText,
@@ -16,7 +16,7 @@ import { ApiError, isPoolCapReached, isPoolEmpty } from '../core/api-client';
  * a credit purchase; never a donation.
  */
 
-export { poolPricingText, POOL_EMPTY_TEXT };
+export { poolEmptyText, poolPricingText };
 
 /** `About 120 learning sessions`, the meter's headline. */
 export function sessionsLabel(status: Pick<PoolStatusResponse, 'sessionsRemaining'>): string {
@@ -81,13 +81,17 @@ function limitText(reason: PoolBlockDetails['reason'], limit: number): string {
 
 /**
  * What the chat says when the pool refused a message (spec §8):
- * - empty: "The community pool is empty. It refills as people fund it.";
+ * - empty: `poolEmptyText` (who refills it depends on `fundingOpen`);
  * - a daily cap: the cap, when it resets, and that supporters get more;
  * - the network's or everyone's daily ceiling: "busy today" (and, for the
  *   free tier's ceiling, that supporters have their own);
  * - per-minute: try again in a minute.
  */
-export function poolBlockText(block: PoolBlock, now: Date = new Date()): PoolBlockText {
+export function poolBlockText(
+  block: PoolBlock,
+  now: Date = new Date(),
+  fundingOpen = false,
+): PoolBlockText {
   const d = block.details;
   if (block.kind === 'empty') {
     return d.reason === 'unpriced'
@@ -96,7 +100,7 @@ export function poolBlockText(block: PoolBlock, now: Date = new Date()): PoolBlo
           detail: 'Try again later.',
           supporters: null,
         }
-      : { title: POOL_EMPTY_TEXT, detail: null, supporters: null };
+      : { title: poolEmptyText(fundingOpen), detail: null, supporters: null };
   }
   const reset = d.resetAt ? `00:00 UTC (in ${untilText(d.resetAt, now)})` : '00:00 UTC';
   switch (d.reason) {

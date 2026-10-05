@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import type { PoolStatusResponse } from '@tangent/shared';
-import { POOL_EMPTY_TEXT, poolDollarsLabel, poolWeekLabel, sessionsLabel } from './pool-format';
+import { poolDollarsLabel, poolEmptyText, poolWeekLabel, sessionsLabel } from './pool-format';
 
 /**
  * The community pool meter (spec §8): about how many learning sessions the
@@ -26,7 +26,9 @@ export class PoolMeter {
   readonly compact = input(false);
 
   protected readonly headline = computed(() =>
-    this.status().sessionsRemaining > 0 ? `${sessionsLabel(this.status())} left` : POOL_EMPTY_TEXT,
+    this.status().sessionsRemaining > 0
+      ? `${sessionsLabel(this.status())} left`
+      : poolEmptyText(this.status().fundingOpen),
   );
   protected readonly dollars = computed(() => poolDollarsLabel(this.status()));
   protected readonly week = computed(() => poolWeekLabel(this.status()));

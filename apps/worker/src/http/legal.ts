@@ -86,7 +86,7 @@ export function renderPrivacyPage(info: LegalInfo): string {
     : "other users can't see them unless you publish a share link, which only accounts we have enabled it for can do.";
   const shareIntro = info.sharing
     ? ''
-    : '<p>Share links are not generally available: only accounts we have enabled them for can create them, and links from other accounts don\'t open. To show someone a conversation, export it as Markdown or HTML and send or host the file yourself; we don\'t host or see those copies.</p>\n';
+    : "<p>Share links are not generally available: only accounts we have enabled them for can create them, and links from other accounts don't open. To show someone a conversation, export it as Markdown or HTML and send or host the file yourself; we don't host or see those copies.</p>\n";
   return page(
     info,
     '/privacy',
@@ -228,7 +228,7 @@ export function renderTermsPage(info: LegalInfo): string {
 <li>Credit is prepaid, is used up as you send messages, has no cash value and can't be transferred. It doesn't expire while your account exists. Deleting your account forfeits any credit left.</li>
 <li>Where the service requires a membership to generate replies, it renews automatically each year until you cancel it under "Manage billing". Cancelling stops future renewals; the membership runs to the end of the paid year, and credit already granted stays usable.</li>
 <li>Purchases are not refundable except where the law requires, or where we or Polar decide otherwise (Polar may refund a purchase to prevent a chargeback). Refunded credit is removed from your balance. If you're a consumer in the EU or UK, you agree that credit is delivered right away and acknowledge that, once you start using it, you lose the 14-day right of withdrawal for the part used.</li>
-<li>You can also buy credit for the <a href="/pool">community pool</a> instead of your own account. A pool purchase adds the amount paid, less the payment processing fee, to the pool, which any signed-in learner may use within its limits; each reply from the pool costs the AI provider's cost plus a markup shown on the pool page. It is a purchase like any other: the credit belongs to the pool, not to you, and it can't be moved back to your account. The pool's model, limits and availability may change, and it may be empty.</li>
+<li>The <a href="/pool">community pool</a> is credit that any signed-in learner may use within its limits. We add credit to it at our discretion. When pool credit purchases are offered, you can also buy credit for the pool instead of your own account: a pool purchase adds the amount paid, less the payment processing fee, to the pool, and each reply from the pool costs the AI provider's cost plus a markup shown on the pool page. The credit then belongs to the pool, not to you: you can't spend it on your own account or move it there. The pool's model, limits and availability may change, and it may be empty.</li>
 <li>We may change prices; changes apply to credit bought or membership periods starting after the change.</li>
 </ul>
 

@@ -195,6 +195,9 @@ describe('the landing page’s pool meter', () => {
     expect(html).toContain('A pool purchase adds what you paid minus the card processing fee.');
     expect(html).toMatch(/plus a 5% markup/);
     expect(html).not.toContain('÷');
+    // Pool purchases are open (the fake provider, POOL_PURCHASES_ENABLED on): buyers fund it.
+    expect(html).toContain('Credit anyone can add and any signed-in learner can use in Learn');
+    expect(html).toContain('Or learn on the community pool, funded by people who add credit to it');
     // Still one hashed stylesheet and no script.
     expect([...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1])).toEqual([
       LANDING_STYLE,
@@ -202,15 +205,28 @@ describe('the landing page’s pool meter', () => {
     expect(html).not.toContain('<script');
   });
 
-  it('shows the empty state, and "Funding opens soon" before payments are set up', async () => {
-    const poolId = uniq('pool');
-    const html = await (
-      await visitor(poolEnv(poolId, { PAYMENT_PROVIDER: 'polar' }))('/welcome')
-    ).text();
+  it('shows the empty state; while purchases are open, people refill it', async () => {
+    const html = await (await visitor(poolEnv(uniq('pool')))('/welcome')).text();
     expect(html).toContain('The community pool is empty. It refills as people fund it.');
-    expect(html).toContain('Funding opens soon');
-    expect(html).not.toContain('Fund the pool</a>');
   });
+
+  for (const [why, overrides] of [
+    ['before payments are set up', { PAYMENT_PROVIDER: 'polar' }],
+    ['while pool purchases are off', { POOL_PURCHASES_ENABLED: 'false' }],
+  ] as const)
+    it(`says Tangent adds the credit and offers nothing to buy ${why}`, async () => {
+      const html = await (await visitor(poolEnv(uniq('pool'), overrides))('/welcome')).text();
+      expect(html).toContain('The community pool is empty until Tangent adds more credit.');
+      expect(html).toContain('Credit Tangent adds and any signed-in learner can use in Learn');
+      expect(html).toContain(
+        'Or learn on the community pool, free within daily limits, on credit Tangent adds',
+      );
+      expect(html).toContain("Buying credit for the pool isn't available yet.");
+      expect(html).not.toContain('Fund the pool');
+      expect(html).not.toContain('opens soon');
+      expect(html).not.toMatch(/anyone can add|funded by people|people fund it|Funding the pool/i);
+      expect(html).toContain('<a class="btn" href="/pool">How the pool works</a>');
+    });
 
   it('is left out while the pool is off, or when it can’t be read', async () => {
     const off = await (
@@ -251,11 +267,64 @@ describe('/pool', () => {
     expect(html).toContain('The smallest pool purchase is $10');
     expect(html).toContain('<td>Replies per learner per day</td><td>30 (supporters: 6)</td>');
     expect(html).toContain('add up to more than $0, after refunds, is a supporter.');
+    expect(html).toContain(
+      'Credit bought for your own account counts the same as credit bought for the pool.',
+    );
+    expect(html).not.toMatch(/thank-you|funding Tangent|keeping Tangent running/);
+    expect(html).toContain('before later learners that day get to use it');
+    expect(html).not.toContain('the people who funded it');
     expect(html).toContain("can't start a new reply");
     const windowed = await (
       await visitor(poolEnv(uniq('pool'), { SUPPORTER_WINDOW_MONTHS: '12' }))('/pool')
     ).text();
     expect(windowed).toContain('is a supporter for 12 months after their latest purchase');
+  });
+
+  it('while purchases are open: the buyer adds credit, provider-neutral, priced net of the fee', async () => {
+    const e = poolEnv(uniq('pool'));
+    const html = await (await visitor(e)('/pool')).text();
+    expect(html).toContain(
+      'The community pool is credit that anyone can add to and any signed-in learner can use in Tangent Learn, on one economical model, within daily limits. Adding to it is a credit purchase: you choose the pool instead of your own account.',
+    );
+    // The seller is whoever the terms name (a merchant of record), not the operator.
+    expect(html).not.toContain(`credit purchase from`);
+    expect(html).toContain('<li>Anyone can fund the pool from the billing page in Tangent.');
+    expect(html).toContain('The community pool is empty. It refills as people fund it.');
+    expect(html).toContain(
+      'you can fund the pool, buy credit for yourself, or use your own OpenRouter key.',
+    );
+    expect(html).toContain('<h2>What a purchase adds, and what a reply costs</h2>');
+    expect(html).toContain("plus a 5% markup, which is Tangent's margin.");
+    expect(html).toContain('Pool purchases follow the <a href="/terms">terms of service</a>');
+  });
+
+  it('while purchases are closed: Tangent adds the credit, and nothing is for sale', async () => {
+    const e = poolEnv(uniq('pool'), { POOL_PURCHASES_ENABLED: 'false' });
+    const html = await (await visitor(e)('/pool')).text();
+    expect(html).toContain(
+      "<strong>The short version.</strong> The community pool is credit Tangent adds so that any signed-in learner can use Tangent Learn, on one economical model, within daily limits. Buying credit for the pool isn't available yet.</p>",
+    );
+    expect(html).toContain(
+      "<li>Tangent adds the pool's credit. Buying credit for the pool isn't available yet.</li>",
+    );
+    expect(html).toContain('The community pool is empty until Tangent adds more credit.');
+    expect(html).toContain('you can buy credit for yourself or use your own OpenRouter key.');
+    expect(html).toContain('<h2>What a reply costs</h2>');
+    expect(html).toContain('It costs the learner nothing.');
+    expect(html).toContain('Buying credit for your own account is enough.');
+    expect(html).toContain('The pool is covered by the <a href="/terms">terms of service</a>');
+    expect(html).not.toMatch(
+      /anyone can add|fund the pool|Funding is a purchase|people fund it|A pool purchase adds|smallest pool purchase|for the pool\.|opens soon/i,
+    );
+  });
+
+  it('the terms describe pool purchases only as something that may be offered', async () => {
+    const html = await (await visitor(poolEnv(uniq('pool')))('/terms')).text();
+    expect(html).toContain('We add credit to it at our discretion.');
+    expect(html).toContain(
+      'When pool credit purchases are offered, you can also buy credit for the pool instead of your own account',
+    );
+    expect(html).not.toContain('a purchase like any other');
   });
 
   it('is linked from the landing page and the legal pages', async () => {

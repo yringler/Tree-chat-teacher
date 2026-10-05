@@ -173,8 +173,16 @@ export interface PoolConsentResponse {
   acknowledgedAt: string;
 }
 
-/** The empty state, wherever it shows (spec §8). */
-export const POOL_EMPTY_TEXT = 'The community pool is empty. It refills as people fund it.';
+/**
+ * The empty state, wherever it shows (spec §8). While pool purchases are
+ * closed (`PoolStatusResponse.fundingOpen` false) only Tangent adds credit to
+ * the pool, so the copy can't say people refill it.
+ */
+export function poolEmptyText(fundingOpen: boolean): string {
+  return fundingOpen
+    ? 'The community pool is empty. It refills as people fund it.'
+    : 'The community pool is empty until Tangent adds more credit.';
+}
 
 /** `about 1,240 learning sessions`; `1` is singular and 0 reads "no learning sessions". */
 export function poolSessionsText(sessions: number): string {

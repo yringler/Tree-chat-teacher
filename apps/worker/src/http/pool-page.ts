@@ -3,8 +3,8 @@ import {
   formatBps,
   formatCents,
   formatMicros,
-  POOL_EMPTY_TEXT,
   POOL_IMPACT_WEEK_PATTERN,
+  poolEmptyText,
   poolImpactWeekText,
   poolPricingText,
   type PoolImpactResponse,
@@ -15,6 +15,7 @@ import type { AppBindings, AppEnv } from '../env.js';
 import { poolImpactWeeks, readPoolImpact } from '../pool/impact.js';
 import { poolModel } from '../pool/params.js';
 import { ceilingHoldMicros } from '../pool/pricing.js';
+import { poolFundingOpen } from '../pool/status.js';
 import { simpleProviderConfig } from '../simple-mode.js';
 import { renderImpactBlock } from './impact-block.js';
 import { legalInfo, type LegalInfo } from './legal-info.js';
@@ -25,12 +26,16 @@ import { legalResponse, page } from './legal.js';
  * static, script-free page like the legal pages, whose numbers (markup,
  * minimum, model, caps) come from the config module, so it always describes
  * what this deployment does. Copy rules (docs/pool/PLAN.md §8): funding the
- * pool is a credit purchase; never a donation.
+ * pool is a credit purchase; never a donation. While pool purchases are
+ * closed (`fundingOpen` false) only Tangent adds credit to the pool, and the
+ * page says so instead of describing a purchase no one can make.
  */
 
 /** Everything the page states, resolved from the config (one place, for the tests too). */
 export interface PoolPageFacts {
   enabled: boolean;
+  /** Pool credit can be bought now (`PoolStatusResponse.fundingOpen`); else only Tangent adds it. */
+  fundingOpen: boolean;
   model: { id: string; label: string };
   markupBps: number;
   minPurchaseCents: number;
@@ -68,6 +73,7 @@ export function poolPageFacts(env: AppEnv): PoolPageFacts {
   const price = config.prices[id];
   return {
     enabled: config.flags.poolEnabled,
+    fundingOpen: poolFundingOpen(env),
     model: { id, label: simpleProviderConfig(env).models.find((m) => m.id === id)?.label ?? id },
     markupBps: pool.markupBps,
     minPurchaseCents: pool.minPurchaseCents,
@@ -128,10 +134,22 @@ function smallMoney(micros: number): string {
   return `${Number((micros / 10_000).toFixed(1))}¢`;
 }
 
+/**
+ * Who is a supporter (pool/supporter.ts): any credit purchase counts, for the
+ * buyer's own account or for the pool, net of refunds; admin credit and the
+ * membership don't.
+ */
 function supporterTerm(months: number | null): string {
   if (months === null)
     return 'Anyone whose credit purchases (to their own account or to the pool) add up to more than $0, after refunds, is a supporter.';
   return `Anyone whose credit purchases (to their own account or to the pool) add up to more than $0, after refunds, is a supporter for ${months} ${months === 1 ? 'month' : 'months'} after their latest purchase.`;
+}
+
+/** What makes someone a supporter, said plainly: buying credit, not funding the pool or Tangent. */
+function supporterWhy(fundingOpen: boolean): string {
+  return fundingOpen
+    ? 'Supporters get the higher limits above. Credit bought for your own account counts the same as credit bought for the pool. Paid accounts are much harder to farm than free ones, so they get more room.'
+    : 'Supporters get the higher limits above. Buying credit for your own account is enough. Paid accounts are much harder to farm than free ones, so they get more room.';
 }
 
 export function renderPoolPage(
@@ -145,26 +163,40 @@ export function renderPoolPage(
     f.ceilingHoldMicros === null
       ? ''
       : `<p>Before a reply starts, the pool sets aside what the longest possible reply could cost (about ${escapeHtml(smallMoney(f.ceilingHoldMicros))}) and settles the real cost when it ends. So the last ${escapeHtml(smallMoney(f.ceilingHoldMicros))} or so of a daily spending limit can't start a new reply.</p>\n`;
+  const empty = escapeHtml(poolEmptyText(f.fundingOpen));
+  const summary = f.fundingOpen
+    ? `The community pool is credit that anyone can add to and any signed-in learner can use in Tangent Learn, on one economical model, within daily limits. Adding to it is a credit purchase: you choose the pool instead of your own account. ${escapeHtml(poolPricingText(f.markupBps))}`
+    : "The community pool is credit Tangent adds so that any signed-in learner can use Tangent Learn, on one economical model, within daily limits. Buying credit for the pool isn't available yet.";
+  const howFunded = f.fundingOpen
+    ? 'Anyone can fund the pool from the billing page in Tangent. Funding is a purchase of credit, the same as buying credit for yourself, except that the credit goes to the pool.'
+    : "Tangent adds the pool's credit. Buying credit for the pool isn't available yet.";
+  const whenEmpty = f.fundingOpen
+    ? 'you can fund the pool, buy credit for yourself, or use your own OpenRouter key'
+    : 'you can buy credit for yourself or use your own OpenRouter key';
+  const pricing = f.fundingOpen
+    ? `<h2>What a purchase adds, and what a reply costs</h2>
+<p>A pool purchase adds what you paid minus the card processing fee, the same as buying credit for yourself: a $10 purchase adds $10 less that fee. Each reply from the pool then costs the AI provider's price (including the provider's credit-purchase fee) plus a ${markup} markup, which is Tangent's margin. The smallest pool purchase is ${escapeHtml(formatCents(f.minPurchaseCents))}. Prices are before tax; tax is added at checkout.</p>`
+    : `<h2>What a reply costs</h2>
+<p>Each reply from the pool is paid from the pool's credit: the AI provider's price (including the provider's credit-purchase fee) plus a ${markup} markup. It costs the learner nothing.</p>`;
   return page(
     info,
     '/pool',
     'The community pool',
     `<h1>The community pool</h1>
 <div class="summary">
-<p><strong>The short version.</strong> The community pool is credit that anyone can add to and any signed-in learner can use in Tangent Learn, on one economical model, within daily limits. Adding to it is a credit purchase from ${escapeHtml(info.operator)}: you choose the pool instead of your own account. ${escapeHtml(poolPricingText(f.markupBps))}</p>
+<p><strong>The short version.</strong> ${summary}</p>
 </div>
 ${f.enabled ? '' : '<p class="updated">The community pool is not open on this server yet.</p>\n'}
 <h2>How it works</h2>
 <ul>
-<li>Anyone can fund the pool from the billing page in Tangent. Funding is a purchase of credit, the same as buying credit for yourself, except that the credit goes to the pool.</li>
+<li>${howFunded}</li>
 <li>Any signed-in learner can use the pool in Tangent Learn. When your own credit runs out, Learn uses the pool, and when you have both you choose with the switch above the message box.</li>
 <li>The pool can never go below zero. Every reply sets aside its worst-case cost first, and is refused if the pool can't cover it.</li>
-<li>When it runs out, Learn says so: "${escapeHtml(POOL_EMPTY_TEXT)}" Your message is kept, and you can fund the pool, buy credit for yourself, or use your own OpenRouter key.</li>
+<li>When it runs out, Learn says so: "${empty}" Your message is kept, and ${whenEmpty}.</li>
 <li>The meter shows about how many learning sessions the pool still covers, counting ${escapeHtml(formatMicros(f.sessionEstimateMicros))} per session, next to the amount in dollars and how many learners and exchanges it funded this week. Those are totals only; no one's name or questions are shown.</li>
 </ul>
 
-<h2>What a purchase adds, and what a reply costs</h2>
-<p>A pool purchase adds what you paid minus the card processing fee, the same as buying credit for yourself: a $10 purchase adds $10 less that fee. Each reply from the pool then costs the AI provider's price (including the provider's credit-purchase fee) plus a ${markup} markup, which pays for hosting and keeping Tangent running. The smallest pool purchase is ${escapeHtml(formatCents(f.minPurchaseCents))}. Prices are before tax; tax is added at checkout.</p>
+${pricing}
 
 <h2>Which model pool learners get</h2>
 <p>Every reply on the pool uses ${model}, with a fixed teaching prompt, replies of at most ${f.maxOutputTokens.toLocaleString('en-US')} tokens and a capped amount of earlier conversation. Choosing another model or prompt isn't possible on the pool; that keeps it a learning tool and stretches every dollar. Reviews aren't available on the pool.</p>
@@ -182,10 +214,10 @@ ${f.enabled ? '' : '<p class="updated">The community pool is not open on this se
 <tr><td>All supporters together, per day</td><td>${globalCapText(f.globalSupporter)}</td></tr>
 </tbody>
 </table>
-<p>Daily limits reset at 00:00 UTC. The last two keep a busy day from emptying the pool before the people who funded it get to use it; money added during the day counts toward them straight away. Using the pool needs a signed-in account that passed a quick human check, and one account per email address.</p>
+<p>Daily limits reset at 00:00 UTC. The last two keep a busy day from emptying the pool before later learners that day get to use it; money added during the day counts toward them straight away. Using the pool needs a signed-in account that passed a quick human check, and one account per email address.</p>
 ${ceiling}
 <h2>Supporters</h2>
-<p>${escapeHtml(supporterTerm(f.supporter.windowMonths))} Supporters get the higher limits above. It's a thank-you for funding Tangent, and it makes farming free accounts pointless.</p>
+<p>${escapeHtml(supporterTerm(f.supporter.windowMonths))} ${escapeHtml(supporterWhy(f.fundingOpen))}</p>
 
 <h2 id="impact">What the pool is funding</h2>
 <p>Every Monday, Tangent publishes what the pool funded the week before (Monday to Sunday, UTC): how many exchanges and learners, how many topics, and how deep learners went down their branches. These are totals only. No one's questions or name are ever shown, and a topic is named only when all of these hold:</p>
@@ -197,7 +229,7 @@ ${ceiling}
 <p>Topics come from a fixed list. After a pool reply, the pool's model sorts that one message into a topic; the message itself isn't stored, and the topic is kept without your name, then deleted ${f.tagRetentionDays.toLocaleString('en-US')} days after the conversation's last use of the pool. Pool learners acknowledge this before their first pool request. Conversations on your own credit or your own key are never sorted.</p>
 ${feedSection(feed)}
 <h2>More</h2>
-<p>Pool purchases follow the <a href="/terms">terms of service</a> (section 7), and the <a href="/privacy">privacy policy</a> describes what is stored about pool use.</p>`,
+<p>${f.fundingOpen ? 'Pool purchases follow' : 'The pool is covered by'} the <a href="/terms">terms of service</a> (section 7), and the <a href="/privacy">privacy policy</a> describes what is stored about pool use.</p>`,
   );
 }
 

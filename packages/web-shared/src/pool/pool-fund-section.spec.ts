@@ -22,7 +22,7 @@ describe('PoolFundSection', () => {
   it('renders only while the pool is on, at #fund-pool, with the meter', () => {
     expect(t).toContain('@if (s.enabled) {');
     expect(t).toContain('id="fund-pool"');
-    expect(t).toContain('Fund the community pool');
+    expect(t).toContain("{{ s.fundingOpen ? 'Fund the community pool' : 'The community pool' }}");
     expect(t).toContain('<app-pool-meter [status]="s" />');
   });
 
@@ -33,11 +33,15 @@ describe('PoolFundSection', () => {
     expect(t).toContain('<a href="/pool" target="_blank" rel="noopener">');
   });
 
-  it('funding closed: a disabled "Funding opens soon"; the meter and the link still show', () => {
+  it('funding closed: says Tangent adds the credit and that it isn’t for sale; no promise, no pricing', () => {
+    expect(t).toMatch(/@if \(!s\.fundingOpen\) \{\s*Tangent adds the pool's credit\.\s*\}/);
     expect(t).toMatch(
-      /\} @else \{\s*<div class="billing-actions">\s*<button type="button" class="btn" disabled>Funding opens soon<\/button>/,
+      /\} @else \{\s*<p class="muted small">Buying credit for the pool isn't available yet\.<\/p>/,
     );
-    const closed = t.slice(t.indexOf('Funding opens soon'));
+    expect(t).not.toContain('opens soon');
+    // The purchase disclosure shows only while a purchase can be made.
+    expect(t).toMatch(/@if \(s\.fundingOpen\) \{\s*<p class="muted small pool-fee">/);
+    const closed = t.slice(t.indexOf("isn't available yet"));
     expect(closed).toContain('href="/pool"');
     expect(t.indexOf('<app-pool-meter')).toBeLessThan(t.indexOf('@if (demo)'));
   });

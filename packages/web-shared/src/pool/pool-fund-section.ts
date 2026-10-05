@@ -20,9 +20,11 @@ import { PoolMeter } from './pool-meter';
  * "Fund the community pool" on the billing page of both apps (`#fund-pool`):
  * the meter, preset amounts at or above the pool minimum, the one-line
  * pricing disclosure and a link to `/pool`, with last week's impact feed under
- * the meter once a snapshot exists. Until funding opens (a payment provider
- * and `POOL_PURCHASES_ENABLED`), the section still shows the meter and the link, with a disabled "Funding opens
- * soon". Nothing renders while the pool is off.
+ * the meter once a snapshot exists. While funding is closed (no payment
+ * provider, or `POOL_PURCHASES_ENABLED` off) only Tangent adds credit to the
+ * pool: the section is titled "The community pool", says so, and keeps the
+ * meter and the link, with no presets or pricing note. Nothing renders while
+ * the pool is off.
  */
 @Component({
   selector: 'app-pool-fund-section',
@@ -37,7 +39,9 @@ import { PoolMeter } from './pool-meter';
           class="card billing-section pool-fund"
           aria-labelledby="pool-fund-h"
         >
-          <h2 id="pool-fund-h" class="billing-h">Fund the community pool</h2>
+          <h2 id="pool-fund-h" class="billing-h">
+            {{ s.fundingOpen ? 'Fund the community pool' : 'The community pool' }}
+          </h2>
           @switch (ctl.notice()) {
             @case ('waiting') {
               <p class="notice billing-banner" role="status" aria-live="polite">
@@ -80,6 +84,9 @@ import { PoolMeter } from './pool-meter';
           <p class="muted small">
             Credit in the pool lets any signed-in learner keep learning on {{ s.model.label }},
             within daily limits.
+            @if (!s.fundingOpen) {
+              Tangent adds the pool's credit.
+            }
           </p>
           @if (demo) {
             <p class="muted small">Funding the pool is not available in the demo.</p>
@@ -98,13 +105,13 @@ import { PoolMeter } from './pool-meter';
               }
             </div>
           } @else {
-            <div class="billing-actions">
-              <button type="button" class="btn" disabled>Funding opens soon</button>
-            </div>
+            <p class="muted small">Buying credit for the pool isn't available yet.</p>
           }
-          <p class="muted small pool-fee">
-            {{ note(s) }} Prices exclude tax; tax is calculated at checkout.
-          </p>
+          @if (s.fundingOpen) {
+            <p class="muted small pool-fee">
+              {{ note(s) }} Prices exclude tax; tax is calculated at checkout.
+            </p>
+          }
           @if (ctl.actionError(); as e) {
             <p class="notice notice-error" role="alert">{{ e }}</p>
           }

@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   FORBIDDEN_POOL_COPY,
   POOL_BLOCK_REASONS,
-  POOL_EMPTY_TEXT,
   POOL_NOTICE_TEXT,
   POOL_NOTICE_VERSION,
   poolBlockDetailsSchema,
   poolConsentRequestSchema,
+  poolEmptyText,
   poolErrorCode,
   poolImpactDepthText,
   poolImpactHeadline,
@@ -65,8 +65,20 @@ describe('pool copy', () => {
     expect(poolPricingText(750)).toMatch(/plus a 7\.5% markup\.$/);
   });
 
+  it('says who refills an empty pool: buyers while purchases are open, else Tangent', () => {
+    expect(poolEmptyText(true)).toBe('The community pool is empty. It refills as people fund it.');
+    expect(poolEmptyText(false)).toBe(
+      'The community pool is empty until Tangent adds more credit.',
+    );
+  });
+
   it('never calls funding a donation', () => {
-    for (const text of [POOL_EMPTY_TEXT, poolPricingText(500), poolSessionsText(10)])
+    for (const text of [
+      poolEmptyText(true),
+      poolEmptyText(false),
+      poolPricingText(500),
+      poolSessionsText(10),
+    ])
       expect(text).not.toMatch(FORBIDDEN_POOL_COPY);
     for (const bad of [
       'Donate',

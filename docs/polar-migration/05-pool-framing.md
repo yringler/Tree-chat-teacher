@@ -2,6 +2,8 @@
 
 Stage: decision support for D1 (`02-stripe-to-polar-mapping.md`). Nothing here changes code or copy; every change below is a proposal.
 
+**Status (2026-10-05):** the accuracy fixes are applied. Pool copy that said people fund the pool is now conditional on `fundingOpen`: while pool purchases are closed it says Tangent adds the pool's credit, offers nothing to buy and says "Buying credit for the pool isn't available yet" instead of "Funding opens soon" (landing, `/pool`, billing section, empty-pool notice, Learn home card and payment dialog, `poolEmptyText`). `/pool` no longer says a pool purchase is "from {operator}", the markup is described as Tangent's margin, the supporter paragraph states the real rule (any credit purchase) instead of "a thank-you for funding Tangent", Terms §7 describes pool purchases as "when pool credit purchases are offered", SPEC.md:19 and D15 are revised. The AUP-motivated renames ("community pool" → "shared pool", "supporters" → "credit buyers", dropping "fund"/"helped", the `#fund-pool` anchor and JSON fields) are deliberately deferred: the owner is researching a second payment provider that permits crowdfunding to process pool purchases, so the buyer-funded framing stays for the open state.
+
 Written 2026-10-05 against branch `claude/elegant-hawking-xq7iuy` at `8cd27e2` (pool pricing as of `2f99962`: purchase credited net of the card fee, +5 % per-call markup `POOL_MARKUP_BPS`; `POOL_PURCHASES_ENABLED="false"`).
 
 ## 0. Summary

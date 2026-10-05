@@ -55,11 +55,17 @@ describe('poolBlockOf', () => {
 
 describe('poolBlockText', () => {
   it('empty: says so, as the normal state, not an error', () => {
-    expect(poolBlockText({ kind: 'empty', details: details({ reason: 'empty' }) }, NOW)).toEqual({
+    const empty: PoolBlock = { kind: 'empty', details: details({ reason: 'empty' }) };
+    expect(poolBlockText(empty, NOW, true)).toEqual({
       title: 'The community pool is empty. It refills as people fund it.',
       detail: null,
       supporters: null,
     });
+    // While pool purchases are closed only Tangent adds credit to the pool.
+    expect(poolBlockText(empty, NOW, false).title).toBe(
+      'The community pool is empty until Tangent adds more credit.',
+    );
+    expect(poolBlockText(empty, NOW).title).toBe(poolBlockText(empty, NOW, false).title);
   });
 
   it('a daily reply cap: the cap, when it resets, and that supporters get more', () => {
@@ -131,13 +137,14 @@ describe('PoolBlockNotice', () => {
     expect(t).toContain(
       '<a class="btn btn-sm" [routerLink]="billingPath()">Buy personal credits</a>',
     );
-    // Before funding opens nothing can be bought: no dead-end purchase links, just the page
-    // that explains the pool.
+    // While funding is closed nothing can be bought: no dead-end purchase links, no promise
+    // that funding opens, just the page that explains the pool.
     const closed = t.slice(t.indexOf('} @else {'), t.indexOf('} @else if'));
-    expect(closed).toContain('Funding opens soon.');
+    expect(closed).toContain("Buying credit for the pool isn't available yet.");
     expect(closed).toContain('<a class="btn btn-sm" href="/pool">How the pool works</a>');
-    expect(closed).not.toContain('Buy');
+    expect(closed).not.toContain('routerLink');
     expect(closed).not.toContain('Fund the pool');
+    expect(t).not.toContain('opens soon');
     expect(t).toContain('aria-label="Dismiss"');
   });
 });

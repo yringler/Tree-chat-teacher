@@ -32,6 +32,15 @@ function poolModelInfo(env: AppEnv): { id: string; label: string } {
 }
 
 /**
+ * Whether anyone can buy credit for the pool now (`PoolStatusResponse.fundingOpen`):
+ * a payment provider sells credit and `POOL_PURCHASES_ENABLED` is on. While it
+ * is off only the operator adds credit to the pool, and the public copy says so.
+ */
+export function poolFundingOpen(env: AppEnv): boolean {
+  return topUpsEnabled(env) && appConfig(env).flags.poolPurchasesEnabled;
+}
+
+/**
  * The pool meter, read from D1. "Exchanges funded" are pool replies settled
  * at a charge above 0 since Monday 00:00 UTC (released and free ones never
  * reached the model, or cost nothing); "learners" the distinct users of those.
@@ -42,7 +51,7 @@ export async function poolStatus(env: AppEnv, now = new Date()): Promise<PoolSta
   const week = weekStart(now).toISOString();
   const base: PoolStatusResponse = {
     enabled: poolAvailable(env),
-    fundingOpen: topUpsEnabled(env) && config.flags.poolPurchasesEnabled,
+    fundingOpen: poolFundingOpen(env),
     availableMicros: 0,
     sessionsRemaining: 0,
     model: poolModelInfo(env),

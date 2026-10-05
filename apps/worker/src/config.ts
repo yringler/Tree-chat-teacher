@@ -156,8 +156,8 @@ export interface AppConfig {
     /**
      * Credit for the community pool may be bought (`POOL_PURCHASES_ENABLED`,
      * default off; decision D1 in docs/polar-migration/02-stripe-to-polar-mapping.md):
-     * off, `target: 'pool'` checkouts are refused and the pool shows "funding
-     * opens soon"; admins can still fund it. Turn on only once the payment
+     * off, `target: 'pool'` checkouts are refused and the pool's copy says
+     * Tangent adds its credit; admins can still fund it. Turn on only once the payment
      * provider has agreed in writing that pool purchases are within its terms.
      */
     poolPurchasesEnabled: boolean;

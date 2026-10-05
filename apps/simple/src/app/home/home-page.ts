@@ -65,9 +65,15 @@ import { UiStore } from '../state/ui-store';
           <h2 id="pool-title">Community pool</h2>
           <app-pool-meter [status]="status" />
           <p class="muted small">
-            Credit anyone can add and any signed-in learner can use, on {{ status.model.label }},
-            within daily limits. <a href="/pool" target="_blank" rel="noopener">How it works</a> ·
-            <a routerLink="/billing" fragment="fund-pool">Fund the pool</a>
+            @if (status.fundingOpen) {
+              Credit anyone can add and any signed-in learner can use, on {{ status.model.label }},
+              within daily limits. <a href="/pool" target="_blank" rel="noopener">How it works</a> ·
+              <a routerLink="/billing" fragment="fund-pool">Fund the pool</a>
+            } @else {
+              Credit Tangent adds and any signed-in learner can use, on {{ status.model.label }},
+              within daily limits.
+              <a href="/pool" target="_blank" rel="noopener">How it works</a>
+            }
           </p>
         </section>
       }
