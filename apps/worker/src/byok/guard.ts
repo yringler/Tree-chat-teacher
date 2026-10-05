@@ -36,19 +36,23 @@ export const sameOriginOnly = createMiddleware<AppBindings>(async (c, next) => {
  * route on Tangent credit where the server doesn't offer it. `userKeys: false`
  * (a metered route, which never uses the user's key) reports a missing server
  * key as a configuration problem rather than asking for the user's key.
+ * `keyLabel` names the key to ask for when it isn't the provider's label
+ * (Learn's provider is labelled Tangent but runs on the user's OpenRouter key).
  */
 export function assertGenerationAllowed(
   registry: ProviderRegistry | null,
   providerId: string,
   model: string,
-  opts: { userKeys?: boolean } = {},
+  opts: { userKeys?: boolean; keyLabel?: string | undefined } = {},
 ): void {
   if (!registry) throw new ValidationError('Tangent credit is not offered on this server');
   const info = registry.list().find((p) => p.id === providerId);
   if (!info) throw new ValidationError(`Unknown provider "${providerId}"`);
   if (!info.available) {
     if ((opts.userKeys ?? true) && info.acceptsUserKey && info.keySource !== 'user') {
-      throw new KeyRequiredError(`Add your ${info.label} API key to continue this conversation.`);
+      throw new KeyRequiredError(
+        `Add your ${opts.keyLabel ?? info.label} API key to continue this conversation.`,
+      );
     }
     throw new ValidationError(`${info.label} is not configured on this server`);
   }

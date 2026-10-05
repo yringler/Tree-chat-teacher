@@ -26,6 +26,7 @@ import { claimPoolIdentity, identitySuspended, poolIdentity } from '../pool/iden
 import { poolBank } from '../pool/ids.js';
 import { poolAdmitRequest, poolBlockDetails } from '../pool/params.js';
 import { poolAvailable, registryFor, routeRegistryFor } from '../services.js';
+import { LEARN_KEY_LABEL } from '../simple-mode.js';
 import { getBalance } from './ledger.js';
 import { assertMember } from './membership.js';
 import { assertCanSpend, usageHoldMicros } from './service.js';
@@ -211,7 +212,10 @@ export async function assertCanGenerate(
       routeRegistryFor(c.env, account, check.funding, keys),
       check.providerId,
       check.model,
-      { userKeys: !isMetered(account, check.funding) },
+      {
+        userKeys: !isMetered(account, check.funding),
+        keyLabel: account.mode === 'simple' ? LEARN_KEY_LABEL : undefined,
+      },
     );
   }
   await assertCanSpend(c.env, account, check.funding);

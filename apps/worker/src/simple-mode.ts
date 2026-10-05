@@ -32,6 +32,8 @@ export { BUILT_IN_PROVIDER_ID };
 export const SIMPLE_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
 export const DEFAULT_SIMPLE_SMART_MODEL = 'deepseek/deepseek-v4-pro';
 export const DEFAULT_SIMPLE_FAST_MODEL = 'deepseek/deepseek-v4-flash';
+/** What Learn's own key is: the user's OpenRouter key (cookie entry LEARN_KEY_PROVIDER). */
+export const LEARN_KEY_LABEL = 'OpenRouter';
 /** Output cap per call; with the input cap it bounds the cost of any one request. */
 export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
 

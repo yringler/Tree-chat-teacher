@@ -822,6 +822,22 @@ describe("Learn mode on the user's own OpenRouter key", () => {
     expect(await usageRows(u.learn.accountId)).toBe(0);
   });
 
+  it('asks for the OpenRouter key by name when a send has none (401 key_required)', async () => {
+    const u = await newUser(ownKeyEnv());
+    const { trunk } = await treeWithNodes(u, 'own-key');
+    const res = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+      learn: 'own-key',
+    });
+    expect(res.status).toBe(401);
+    // Not the provider's label ("Tangent"): Learn runs on the user's OpenRouter key.
+    expect(((await res.json()) as ApiError).error).toEqual({
+      code: 'key_required',
+      message: 'Add your OpenRouter API key to continue this conversation.',
+    });
+  });
+
   // Reviews stream from the Worker itself, so they run with this test's env
   // (the Durable Object always has the vitest.config.ts bindings). Sends use
   // the same registryFor.
