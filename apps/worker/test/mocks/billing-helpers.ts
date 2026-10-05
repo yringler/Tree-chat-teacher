@@ -68,35 +68,38 @@ export async function insertUser(
   return { id: user.id, email, name };
 }
 
-/** A Better Auth Stripe plugin subscription row (plan `membership` unless given); returns its id. */
+/**
+ * A membership subscription snapshot (`billing_subscriptions`, kind
+ * `membership` unless given), as the payment webhook stores it; returns its ref.
+ * `periodEnd` is epoch ms.
+ */
 export async function insertSubscription(
   env: AppEnv,
   userId: string,
   status: string,
-  extra: {
-    plan?: string;
-    periodEnd?: number | null;
-    cancelAtPeriodEnd?: boolean;
-    stripeSubscriptionId?: string | null;
-  } = {},
+  extra: { kind?: string; periodEnd?: number | null; cancelAtPeriodEnd?: boolean } = {},
 ): Promise<string> {
-  const id = uniq('sub');
+  const ref = `fake:subscription:${uniq('sub')}`;
+  const now = new Date().toISOString();
   await env.DB.prepare(
-    `INSERT INTO auth_subscriptions
-       (id, plan, reference_id, status, period_end, cancel_at_period_end, stripe_subscription_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO billing_subscriptions
+       (ref, provider, user_id, kind, status, provider_status, current_period_end,
+        cancel_at_period_end, ended_at, version, updated_at)
+     VALUES (?, 'fake', ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
   )
     .bind(
-      id,
-      extra.plan ?? 'membership',
+      ref,
       userId,
+      extra.kind ?? 'membership',
       status,
-      extra.periodEnd ?? null,
+      status,
+      extra.periodEnd == null ? null : new Date(extra.periodEnd).toISOString(),
       extra.cancelAtPeriodEnd ? 1 : 0,
-      extra.stripeSubscriptionId ?? null,
+      now,
+      now,
     )
     .run();
-  return id;
+  return ref;
 }
 
 export interface UsageRowInput {

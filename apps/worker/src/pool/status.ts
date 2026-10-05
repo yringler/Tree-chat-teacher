@@ -42,7 +42,7 @@ export async function poolStatus(env: AppEnv, now = new Date()): Promise<PoolSta
   const week = weekStart(now).toISOString();
   const base: PoolStatusResponse = {
     enabled: poolAvailable(env),
-    fundingOpen: topUpsEnabled(env),
+    fundingOpen: topUpsEnabled(env) && config.flags.poolPurchasesEnabled,
     availableMicros: 0,
     sessionsRemaining: 0,
     model: poolModelInfo(env),

@@ -1,27 +1,24 @@
+// Starting a purchase through the payment provider's port (billing/service.ts,
+// billing/membership.ts), on the fake provider: its URLs encode what the
+// domain asked for (billing/providers/fake.ts `decodeFakeUrl`).
 import { DomainError, ValidationError } from '@tangent/core';
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-import { checkoutReturnUrl, createCreditCheckout } from '../src/billing/service.js';
-import { ensureStripeCustomer, STRIPE_API_VERSION } from '../src/billing/stripe.js';
+import { openBillingPortal, startMembershipCheckout } from '../src/billing/membership.js';
+import { customerRefFor } from '../src/billing/payments/customers.js';
+import { decodeFakeUrl, type FakeProviderOptions } from '../src/billing/providers/fake.js';
+import { checkoutReturnUrl, startTopUpCheckout } from '../src/billing/service.js';
 import type { AppEnv } from '../src/env.js';
-import {
-  insertUser,
-  powerAccount,
-  simpleAccount,
-  stripeCalls,
-  uniq,
-} from './mocks/billing-helpers.js';
-import type { MockStripeCall } from './mocks/stripe.js';
+import { insertUser, powerAccount, simpleAccount, uniq } from './mocks/billing-helpers.js';
+import { membership } from './mocks/payment-events.js';
+import { applyPaymentEvent } from '../src/billing/payments/apply.js';
 
 const env = rawEnv as unknown as AppEnv;
 const BASE = 'https://tangent.example.com';
+const withFake = (o: FakeProviderOptions, e: AppEnv = env) =>
+  ({ ...e, FAKE_PAYMENTS: JSON.stringify(o) }) as AppEnv;
 
-function metaOf(call: MockStripeCall): Record<string, string> {
-  return (call.body['metadata'] ?? {}) as Record<string, string>;
-}
-
-async function newUser() {
-  const account = simpleAccount();
+async function newUser(account = simpleAccount()) {
   const user = await insertUser(env, {
     id: account.userId!,
     email: `${uniq('buyer')}@example.com`,
@@ -30,145 +27,63 @@ async function newUser() {
   return { account, user };
 }
 
-async function storedCustomer(userId: string): Promise<string | null> {
-  const row = await env.DB.prepare('SELECT stripe_customer_id AS cid FROM auth_users WHERE id = ?')
-    .bind(userId)
-    .first<{ cid: string | null }>();
-  return row?.cid ?? null;
-}
-
 describe('credit checkout', () => {
-  it('rejects amounts outside $5..$500 and non-integers before calling Stripe', async () => {
+  it('rejects amounts outside $5..$500 and non-integers before calling the provider', async () => {
     const { account, user } = await newUser();
     for (const cents of [499, 50_001, 0, -500, 1000.5]) {
-      await expect(createCreditCheckout(env, account, user, cents, BASE)).rejects.toBeInstanceOf(
+      await expect(startTopUpCheckout(env, account, user.id, cents, BASE)).rejects.toBeInstanceOf(
         ValidationError,
       );
     }
-    expect(
-      (await stripeCalls('/v1/customers')).filter((c) => c.body['email'] === user.email),
-    ).toEqual([]);
   });
 
-  it('creates the customer once and a tax-exclusive payment Checkout Session', async () => {
+  it('asks the provider for a top-up of the buyer’s ledger, returning to Learn’s billing page', async () => {
     const { account, user } = await newUser();
-    const first = await createCreditCheckout(env, account, user, 500, `${BASE}/`);
-    const second = await createCreditCheckout(env, account, user, 50_000, BASE);
-    expect(first.url).toMatch(/^https:\/\/checkout\.stripe\.com\/c\/pay\/cs_mock_\d+$/);
-    expect(second.url).not.toBe(first.url);
-
-    const customers = (await stripeCalls('/v1/customers')).filter(
-      (c) => c.body['email'] === user.email,
-    );
-    expect(customers).toHaveLength(1);
-    expect(customers[0]).toMatchObject({
-      method: 'POST',
-      idempotencyKey: `customer-${user.id}`,
-      stripeVersion: STRIPE_API_VERSION,
-      authorized: true,
-      body: { email: user.email, name: 'Ada', metadata: { userId: user.id, customerType: 'user' } },
-    });
-    const customerId = await storedCustomer(user.id);
-    expect(customerId).toMatch(/^cus_mock_/);
-
-    const sessions = (await stripeCalls('/v1/checkout/sessions')).filter(
-      (c) => c.method === 'POST' && metaOf(c)['accountId'] === account.id,
-    );
-    expect(sessions).toHaveLength(2);
-    expect(sessions[0]!.stripeVersion).toBe('2026-08-26.dahlia');
-    expect(sessions[0]!.body).toEqual({
-      mode: 'payment',
-      customer: customerId,
-      customer_update: { address: 'auto', name: 'auto' },
-      billing_address_collection: 'required',
-      automatic_tax: { enabled: 'true' },
-      invoice_creation: { enabled: 'true' },
-      line_items: {
-        0: {
-          quantity: '1',
-          price_data: {
-            currency: 'usd',
-            product: 'prod_test',
-            unit_amount: '500',
-            tax_behavior: 'exclusive',
-          },
-        },
-      },
-      client_reference_id: account.id,
-      metadata: {
-        kind: 'credits',
+    const { url } = await startTopUpCheckout(env, account, user.id, 500, `${BASE}/`);
+    expect(decodeFakeUrl(url)).toEqual({
+      page: 'checkout',
+      input: {
+        buyer: { userId: user.id, email: user.email, name: 'Ada', customerRef: null },
         target: 'personal',
         accountId: account.id,
-        userId: user.id,
-        amountCents: '500',
+        amountCents: 500,
+        successUrl: `${BASE}/learn/billing?checkout=success`,
+        cancelUrl: `${BASE}/learn/billing?checkout=cancel`,
       },
-      payment_intent_data: {
-        metadata: {
-          kind: 'credits',
-          target: 'personal',
-          accountId: account.id,
-          userId: user.id,
-          amountCents: '500',
-        },
-      },
-      success_url: `${BASE}/learn/billing?checkout=success`,
-      cancel_url: `${BASE}/learn/billing?checkout=cancel`,
     });
-    expect(
-      (sessions[1]!.body['line_items'] as Record<string, Record<string, Record<string, string>>>)[
-        '0'
-      ]!['price_data']!['unit_amount'],
-    ).toBe('50000');
-  });
-
-  it('reuses a customer id the plugin already stored', async () => {
-    const account = simpleAccount();
-    const user = await insertUser(env, { id: account.userId!, stripeCustomerId: 'cus_existing_1' });
-    expect(await ensureStripeCustomer(env, user)).toBe('cus_existing_1');
-    await createCreditCheckout(env, account, user, 1000, BASE);
-    expect(
-      (await stripeCalls('/v1/customers')).filter((c) => c.body['email'] === user.email),
-    ).toEqual([]);
-    const session = (await stripeCalls('/v1/checkout/sessions')).find(
-      (c) => metaOf(c)['accountId'] === account.id,
-    );
-    expect(session?.body['customer']).toBe('cus_existing_1');
-  });
-
-  it('refuses when billing is not configured', async () => {
-    const { account, user } = await newUser();
-    for (const e of [
-      { ...env, STRIPE_SECRET_KEY: '' },
-      { ...env, STRIPE_CREDITS_PRODUCT_ID: '' },
-    ]) {
-      const err = await createCreditCheckout(e, account, user, 1000, BASE).catch((x: unknown) => x);
-      expect(err).toBeInstanceOf(DomainError);
-      expect((err as DomainError).message).toBe('Billing is not configured');
-    }
   });
 
   it("works from power mode: credits the user's ledger and returns to /billing", async () => {
-    const account = powerAccount();
-    const user = await insertUser(env, {
-      id: account.userId!,
-      email: `${uniq('power-buyer')}@example.com`,
+    const { user } = await newUser(powerAccount());
+    const { url } = await startTopUpCheckout(env, powerAccount(user.id), user.id, 1000, BASE);
+    expect(decodeFakeUrl(url).input).toMatchObject({
+      accountId: `u_${user.id}`,
+      successUrl: `${BASE}/billing?checkout=success`,
+      cancelUrl: `${BASE}/billing?checkout=cancel`,
     });
-    await createCreditCheckout(env, account, user, 1000, BASE);
-    const session = (await stripeCalls('/v1/checkout/sessions')).find(
-      (c) => c.method === 'POST' && metaOf(c)['accountId'] === `u_${user.id}`,
-    );
-    expect(session?.body).toMatchObject({
-      client_reference_id: `u_${user.id}`,
-      metadata: {
-        kind: 'credits',
-        target: 'personal',
-        accountId: `u_${user.id}`,
-        userId: user.id,
-        amountCents: '1000',
-      },
-      success_url: `${BASE}/billing?checkout=success`,
-      cancel_url: `${BASE}/billing?checkout=cancel`,
-    });
+  });
+
+  it('remembers a customer the provider reports, and passes it on next time', async () => {
+    const { account, user } = await newUser();
+    const e = withFake({ customerRef: 'cust_42' });
+    await startTopUpCheckout(e, account, user.id, 1000, BASE);
+    expect(await customerRefFor(env.DB, 'fake', user.id)).toBe('cust_42');
+    const { url } = await startTopUpCheckout(e, account, user.id, 1000, BASE);
+    expect(decodeFakeUrl(url).input).toMatchObject({ buyer: { customerRef: 'cust_42' } });
+  });
+
+  it('refuses when no provider sells credit', async () => {
+    const { account, user } = await newUser();
+    for (const e of [
+      { ...env, PAYMENT_PROVIDER: 'polar', POLAR_ACCESS_TOKEN: '' } as AppEnv,
+      withFake({ topUps: false }),
+    ]) {
+      const err = await startTopUpCheckout(e, account, user.id, 1000, BASE).catch(
+        (x: unknown) => x,
+      );
+      expect(err).toBeInstanceOf(DomainError);
+      expect((err as DomainError).message).toBe('Billing is not configured');
+    }
   });
 
   it('returns to the billing page of the app the checkout started from', () => {
@@ -178,5 +93,50 @@ describe('credit checkout', () => {
     expect(checkoutReturnUrl(BASE, powerAccount(), 'cancel')).toBe(
       `${BASE}/billing?checkout=cancel`,
     );
+  });
+});
+
+describe('membership checkout and the billing portal', () => {
+  const feeOn = (o: FakeProviderOptions = {}) =>
+    withFake(o, { ...env, ANNUAL_FEE_ENABLED: 'true' } as AppEnv);
+
+  it('opens the membership checkout, returning to the caller’s billing page', async () => {
+    const { account, user } = await newUser();
+    const { url } = await startMembershipCheckout(feeOn(), account, BASE);
+    expect(decodeFakeUrl(url)).toEqual({
+      page: 'membership',
+      input: {
+        buyer: { userId: user.id, email: user.email, name: 'Ada', customerRef: null },
+        successUrl: `${BASE}/learn/billing?checkout=success`,
+        cancelUrl: `${BASE}/learn/billing?checkout=cancel`,
+      },
+    });
+  });
+
+  it('sends a paying member to the portal instead', async () => {
+    const { account, user } = await newUser(powerAccount());
+    await applyPaymentEvent(env, membership(user.id, 'active'), { provider: null });
+    const { url } = await startMembershipCheckout(feeOn(), account, BASE);
+    expect(decodeFakeUrl(url)).toMatchObject({
+      page: 'portal',
+      input: { returnUrl: `${BASE}/billing` },
+    });
+  });
+
+  it('refuses the membership where the provider doesn’t sell it', async () => {
+    const { account } = await newUser();
+    await expect(
+      startMembershipCheckout(feeOn({ membership: false }), account, BASE),
+    ).rejects.toMatchObject({ code: 'bad_request' });
+  });
+
+  it('opens the portal, or reports that there is no customer yet', async () => {
+    const { account, user } = await newUser();
+    const portal = await openBillingPortal(env, account, BASE);
+    expect(decodeFakeUrl(portal!.url)).toMatchObject({
+      page: 'portal',
+      input: { buyer: { userId: user.id }, returnUrl: `${BASE}/learn/billing` },
+    });
+    expect(await openBillingPortal(withFake({ portalCustomer: false }), account, BASE)).toBeNull();
   });
 });

@@ -122,7 +122,7 @@ const BILLING: BillingSummary = {
   membership: {
     required: false,
     status: 'inactive',
-    stripeStatus: null,
+    subscriptionStatus: null,
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,

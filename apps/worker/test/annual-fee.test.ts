@@ -1,7 +1,7 @@
 // ANNUAL_FEE_ENABLED (docs/pool/PLAN.md §S7): the yearly membership is
 // required to generate only while the flag is on. Off (the default), the
-// membership code paths stay but require nothing, whatever
-// STRIPE_MEMBERSHIP_PRICE_ID says: any signed-in user may learn from the pool
+// membership code paths stay but require nothing, whatever the payment
+// provider sells: any signed-in user may learn from the pool
 // (within its caps) and buy personal credit. On, every generating route,
 // pool sends included, answers 402 `membership_required` until it is paid.
 import type {
@@ -22,10 +22,9 @@ import { makeNode } from './fixtures.js';
 import { poolReadyUser } from './pool-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
-/** Billing and the membership price configured; only the flag differs. */
+/** Billing and the membership sold (the fake provider sells it); only the flag differs. */
 const feeEnv = (on: boolean): Partial<AppEnv> => ({
   ANNUAL_FEE_ENABLED: on ? 'true' : 'false',
-  STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership',
 });
 
 type User = Awaited<ReturnType<typeof poolReadyUser>>;
@@ -67,9 +66,15 @@ describe('ANNUAL_FEE_ENABLED', () => {
     expect(appConfig({ ...env, ...feeEnv(true) }).flags.annualFeeEnabled).toBe(true);
     expect(membershipRequired({ ...env, ...feeEnv(false) })).toBe(false);
     expect(membershipRequired({ ...env, ...feeEnv(true) })).toBe(true);
-    // On, it still needs billing and the price id.
-    expect(membershipRequired({ ...env, ANNUAL_FEE_ENABLED: 'true' })).toBe(false);
-    expect(membershipRequired({ ...env, ...feeEnv(true), STRIPE_SECRET_KEY: '' })).toBe(false);
+    // On, it still needs billing and a provider that sells it.
+    expect(
+      membershipRequired({
+        ...env,
+        ANNUAL_FEE_ENABLED: 'true',
+        FAKE_PAYMENTS: JSON.stringify({ membership: false }),
+      }),
+    ).toBe(false);
+    expect(membershipRequired({ ...env, ...feeEnv(true), PAYMENT_PROVIDER: 'polar' })).toBe(false);
   });
 
   describe('off, with the membership price set', () => {
@@ -124,7 +129,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
           ...(learn ? { learn } : {}),
         });
         expect((await json<CheckoutResponse>(res)).url).toMatch(
-          /^https:\/\/checkout\.stripe\.com\//,
+          /^https:\/\/fake-pay\.invalid\/checkout#/,
         );
       }
     });
@@ -162,7 +167,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
           ...(learn ? { learn } : {}),
         });
         expect((await json<CheckoutResponse>(res)).url).toMatch(
-          /^https:\/\/checkout\.stripe\.com\//,
+          /^https:\/\/fake-pay\.invalid\/checkout#/,
         );
       }
     });

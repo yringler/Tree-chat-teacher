@@ -122,7 +122,7 @@ describe('resolveAccount', () => {
 
   it('Learn is on the built-in provider only when asked for and offered', () => {
     expect(resolveAccount(withEnv(), user('a@example.org'), learn('credit')).builtIn).toBe(true);
-    for (const off of [{ STRIPE_SECRET_KEY: '' }, { STRIPE_WEBHOOK_SECRET: '' }]) {
+    for (const off of [{ PAYMENT_PROVIDER: 'polar' }]) {
       expect(resolveAccount(withEnv(off), user('a@example.org'), learn('credit')).builtIn).toBe(
         false,
       );
@@ -159,13 +159,13 @@ describe('resolveAccount', () => {
       'personal',
     );
     expect(
-      resolveAccount(withEnv({ STRIPE_SECRET_KEY: '' }), user('a@example.org'), learn('credit'))
+      resolveAccount(withEnv({ PAYMENT_PROVIDER: 'polar' }), user('a@example.org'), learn('credit'))
         .funding,
     ).toBe('own-key');
     // PERSONAL_CREDIT_ENABLED offers credit before Stripe is configured.
     expect(
       resolveAccount(
-        withEnv({ STRIPE_SECRET_KEY: '', PERSONAL_CREDIT_ENABLED: 'true' }),
+        withEnv({ PAYMENT_PROVIDER: 'polar', PERSONAL_CREDIT_ENABLED: 'true' }),
         user('a@example.org'),
         learn('credit'),
       ),
@@ -185,7 +185,7 @@ describe('resolveAccount', () => {
     expect(resolveAccount(withEnv(), user('a@example.org'), power).builtIn).toBe(true);
     expect(resolveAccount(withEnv(), user('a@example.org'), credit).builtIn).toBe(true);
     expect(
-      resolveAccount(withEnv({ STRIPE_SECRET_KEY: '' }), user('a@example.org'), power).builtIn,
+      resolveAccount(withEnv({ PAYMENT_PROVIDER: 'polar' }), user('a@example.org'), power).builtIn,
     ).toBe(false);
     const realProvider = withEnv({ SIMPLE_PROVIDER: '', OPENROUTER_SIMPLE_API_KEY: '' });
     expect(resolveAccount(realProvider, user('a@example.org'), power).builtIn).toBe(false);

@@ -201,7 +201,6 @@ describe('usage meter', () => {
           ...env,
           MARKUP_BPS: '500',
           ANNUAL_FEE_ENABLED: 'true',
-          STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership',
         },
       },
     );

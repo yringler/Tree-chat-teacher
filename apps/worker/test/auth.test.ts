@@ -126,7 +126,7 @@ describe('fail closed', () => {
       membership: {
         required: false,
         status: 'inactive',
-        stripeStatus: null,
+        subscriptionStatus: null,
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
@@ -165,7 +165,7 @@ describe('fail closed', () => {
       membership: {
         required: false,
         status: 'inactive',
-        stripeStatus: null,
+        subscriptionStatus: null,
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,

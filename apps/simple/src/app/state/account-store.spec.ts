@@ -17,7 +17,7 @@ function membership(overrides: Partial<MembershipInfo> = {}): MembershipInfo {
   return {
     required: true,
     status: 'inactive',
-    stripeStatus: null,
+    subscriptionStatus: null,
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,

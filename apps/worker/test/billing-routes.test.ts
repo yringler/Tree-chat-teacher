@@ -6,8 +6,9 @@ import type {
 } from '@tangent/shared';
 import { env as rawEnv, exports } from 'cloudflare:workers';
 import { Hono } from 'hono';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { grantCredit } from '../src/billing/ledger.js';
+import { decodeFakeUrl } from '../src/billing/providers/fake.js';
 import type { AccountContext, AppBindings, AppEnv } from '../src/env.js';
 import { onError } from '../src/http/errors.js';
 import { billingRoutes } from '../src/routes/billing.js';
@@ -26,7 +27,7 @@ const BASE = 'https://tangent.example.com';
  * billingRoutes() behind a stand-in for the session/account middleware, so
  * these tests don't depend on how accounts are resolved.
  */
-function appAs(account: AccountContext) {
+function appAs(account: AccountContext, e: AppEnv = env) {
   const app = new Hono<AppBindings>();
   app.onError(onError);
   app.use('*', async (c, next) => {
@@ -42,7 +43,7 @@ function appAs(account: AccountContext) {
     return app.request(
       `${BASE}${path}`,
       { ...rest, headers, ...(json !== undefined ? { body: JSON.stringify(json) } : {}) },
-      env,
+      e,
     );
   };
 }
@@ -83,7 +84,7 @@ describe('billing routes', () => {
       headers: { 'Sec-Fetch-Site': 'same-origin' },
     });
     expect((await body<CheckoutResponse>(res, 200)).url).toMatch(
-      /^https:\/\/checkout\.stripe\.com\//,
+      /^https:\/\/fake-pay\.invalid\/checkout#/,
     );
   });
 
@@ -150,8 +151,49 @@ describe('billing routes', () => {
       headers: { 'Sec-Fetch-Site': 'same-origin' },
     });
     expect((await body<CheckoutResponse>(res, 200)).url).toMatch(
-      /^https:\/\/checkout\.stripe\.com\//,
+      /^https:\/\/fake-pay\.invalid\/checkout#/,
     );
+  });
+
+  it('POST /membership/checkout and /portal open the provider’s pages, same-origin only', async () => {
+    const account = simpleAccount();
+    await insertUser(env, { id: account.userId!, email: `${uniq('route')}@example.com` });
+    const call = appAs(account);
+    const same = { method: 'POST', headers: { 'Sec-Fetch-Site': 'same-origin' } };
+    const membership = await body<CheckoutResponse>(
+      await call('/api/billing/membership/checkout', same),
+      200,
+    );
+    expect(decodeFakeUrl(membership.url)).toMatchObject({
+      page: 'membership',
+      input: { successUrl: `${BASE}/learn/billing?checkout=success` },
+    });
+    const portal = await body<CheckoutResponse>(await call('/api/billing/portal', same), 200);
+    expect(decodeFakeUrl(portal.url)).toMatchObject({
+      page: 'portal',
+      input: { returnUrl: `${BASE}/learn/billing` },
+    });
+    for (const path of ['/api/billing/membership/checkout', '/api/billing/portal'])
+      await body<ApiError>(
+        await call(path, { method: 'POST', headers: { 'Sec-Fetch-Site': 'cross-site' } }),
+        403,
+      );
+  });
+
+  it('POST /portal is 404 `no_customer` while the provider has none, 502 when it is down', async () => {
+    const account = simpleAccount();
+    await insertUser(env, { id: account.userId!, email: `${uniq('route')}@example.com` });
+    const same = { method: 'POST', headers: { 'Sec-Fetch-Site': 'same-origin' } };
+    const none = appAs(account, { ...env, FAKE_PAYMENTS: '{"portalCustomer":false}' } as AppEnv);
+    expect((await body<ApiError>(await none('/api/billing/portal', same), 404)).error.code).toBe(
+      'no_customer',
+    );
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const down = appAs(account, { ...env, FAKE_PAYMENTS: '{"failCheckout":true}' } as AppEnv);
+    expect(
+      (await body<ApiError>(await down('/api/billing/membership/checkout', same), 502)).error.code,
+    ).toBe('provider_error');
+    error.mockRestore();
   });
 
   it('POST /checkout needs a known user', async () => {

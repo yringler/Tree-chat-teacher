@@ -47,9 +47,12 @@ describe('config parsers', () => {
 
 describe('appConfig', () => {
   it('has the documented defaults', () => {
-    const c = appConfig(blank({ POOL_ENABLED: '', ANNUAL_FEE_ENABLED: '' }));
+    const c = appConfig(
+      blank({ POOL_ENABLED: '', ANNUAL_FEE_ENABLED: '', POOL_PURCHASES_ENABLED: '' }),
+    );
     expect(c.flags).toEqual({
       poolEnabled: false,
+      poolPurchasesEnabled: false,
       annualFeeEnabled: false,
       personalCreditEnabled: false,
       devPurchasesEnabled: false,
@@ -100,6 +103,7 @@ describe('appConfig', () => {
   it('applies overrides, and is parsed once per env object and frozen', () => {
     const custom = blank({
       POOL_ENABLED: 'true',
+      POOL_PURCHASES_ENABLED: 'true',
       ANNUAL_FEE_ENABLED: 'true',
       PERSONAL_CREDIT_ENABLED: 'TRUE',
       DEV_PURCHASES_ENABLED: 'true',
@@ -114,6 +118,7 @@ describe('appConfig', () => {
     expect(appConfig(custom)).toBe(c);
     expect(c.flags).toEqual({
       poolEnabled: true,
+      poolPurchasesEnabled: true,
       annualFeeEnabled: true,
       personalCreditEnabled: true,
       devPurchasesEnabled: true,
@@ -197,7 +202,7 @@ describe('appConfig', () => {
     expect(simpleMaxInputTokens({ ...env, SIMPLE_MAX_INPUT_TOKENS: '1234' })).toBe(1234);
     expect(membershipCreditCents({ ...env, MEMBERSHIP_CREDIT_CENTS: '300' })).toBe(300);
     expect(
-      membershipCreditCents({ ...env, STRIPE_SECRET_KEY: '', MEMBERSHIP_CREDIT_CENTS: '300' }),
+      membershipCreditCents({ ...env, PAYMENT_PROVIDER: 'polar', MEMBERSHIP_CREDIT_CENTS: '300' }),
     ).toBe(0);
   });
 });

@@ -77,7 +77,7 @@ const MARKUP_BPS = 1000;
 const DEMO_MEMBERSHIP: MembershipInfo = {
   required: false,
   status: 'inactive',
-  stripeStatus: null,
+  subscriptionStatus: null,
   periodEnd: null,
   cancelAtPeriodEnd: false,
   priceCents: 1000,

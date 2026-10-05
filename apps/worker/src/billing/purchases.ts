@@ -10,35 +10,21 @@
 // provider's actual processing fee (`netOfFee`). The operator earns on usage,
 // never on the purchase (docs/polar-migration/04-verification.md, D4).
 //
-// Stripe is the one `PurchaseProvider` (checkout); its webhook
-// (billing/webhook.ts), the admin's simulated purchases and nothing else call
-// `fulfilPurchase`, the only place purchase credit is computed. Every grant
-// is idempotent on its `ref` (a Stripe Checkout Session id, or `dev:<key>`).
+// Checkouts go through the payment provider's port (billing/service.ts
+// `startTopUpCheckout`). The payment webhook (billing/payments/apply.ts), the
+// admin's simulated purchases and nothing else call `fulfilPurchase`, the
+// only place purchase credit is computed. Every grant is idempotent on its
+// `ref` (a provider's payment ref such as `polar:order:<id>`, or `dev:<key>`).
 import { DomainError, ValidationError } from '@tangent/core';
-import { MAX_TOP_UP_CENTS, type CheckoutResponse, type PurchaseTarget } from '@tangent/shared';
+import { MAX_TOP_UP_CENTS, type PurchaseTarget } from '@tangent/shared';
 import { billingAccountIdFor } from '../auth/account.js';
 import { appConfig } from '../config.js';
-import type { AccountContext, AppEnv } from '../env.js';
+import type { AppEnv } from '../env.js';
 import { poolAvailable } from '../services.js';
 import { grantCredit } from './ledger.js';
 import { centsToMicros } from './pricing.js';
-import { createCreditCheckout } from './service.js';
 
 export type { PurchaseTarget };
-
-export interface CheckoutRequestInput {
-  target: PurchaseTarget;
-  amountCents: number;
-  user: { id: string; email: string; name: string };
-  /** The buyer's account (the app the checkout returns to, and their personal ledger). */
-  account: AccountContext;
-  baseUrl: string;
-}
-
-/** Sells credit: opens a hosted checkout for one purchase. */
-export interface PurchaseProvider {
-  createCheckout(input: CheckoutRequestInput): Promise<CheckoutResponse>;
-}
 
 /** A purchase the processor reports as paid. */
 export interface PaidPurchase {
@@ -54,7 +40,7 @@ export interface PaidPurchase {
   grossCents: number;
   /** The processor's fee on the payment, in cents. */
   processorFeeCents: number;
-  /** Idempotency key: the Checkout Session id, or `dev:<key>` for a simulated purchase. */
+  /** Idempotency key: the provider's payment ref (`polar:order:<id>`), or `dev:<key>` for a simulated purchase. */
   ref: string;
   note?: string;
 }
@@ -106,33 +92,18 @@ export async function fulfilPurchase(env: AppEnv, p: PaidPurchase): Promise<bool
 
 /**
  * Throws unless `target` may be bought for `amountCents`: the pool must be on,
- * and a pool purchase at least POOL_MIN_PURCHASE_CENTS. Personal bounds are
- * checked by the checkout itself.
+ * pool purchases open (`POOL_PURCHASES_ENABLED`, D1), and a pool purchase at
+ * least POOL_MIN_PURCHASE_CENTS. Personal bounds are checked by the checkout itself.
  */
 export function assertPurchasable(env: AppEnv, target: PurchaseTarget, amountCents: number): void {
   if (target !== 'pool') return;
   if (!poolAvailable(env))
     throw new DomainError('bad_request', 'The community pool is not available');
+  if (!appConfig(env).flags.poolPurchasesEnabled)
+    throw new DomainError('bad_request', 'Funding the community pool is not open yet');
   const min = appConfig(env).pool.minPurchaseCents;
   if (!Number.isInteger(amountCents) || amountCents < min || amountCents > MAX_TOP_UP_CENTS)
     throw new ValidationError(
       `amountCents must be a whole number from ${min} to ${MAX_TOP_UP_CENTS} for the community pool`,
     );
-}
-
-/** Stripe Checkout as the `PurchaseProvider` (billing/service.ts `createCreditCheckout`). */
-export function stripePurchases(env: AppEnv): PurchaseProvider {
-  return {
-    async createCheckout(input) {
-      assertPurchasable(env, input.target, input.amountCents);
-      return createCreditCheckout(
-        env,
-        input.account,
-        input.user,
-        input.amountCents,
-        input.baseUrl,
-        input.target,
-      );
-    },
-  };
 }

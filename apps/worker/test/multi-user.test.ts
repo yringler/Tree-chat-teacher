@@ -15,8 +15,10 @@ import {
   type TreeSummary,
 } from '@tangent/shared';
 import { env } from 'cloudflare:workers';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { deleteUser } from '../src/auth/delete-account.js';
 import { grantCredit } from '../src/billing/ledger.js';
+import { rememberCustomer } from '../src/billing/payments/customers.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
 import { makeNode } from './fixtures.js';
@@ -405,7 +407,7 @@ describe('Learn mode on paid credit', () => {
   });
 
   it('is hidden without billing: credit falls back to the own-key mode', async () => {
-    const e = authEnv({ STRIPE_SECRET_KEY: '' });
+    const e = authEnv({ PAYMENT_PROVIDER: 'polar' });
     const u = await newUser(e);
     expect(u.learn).toMatchObject({ mode: 'simple', operatorKeys: false, builtInCredit: false });
     const res = await u.call('/api/billing', { learn: 'credit' });
@@ -453,7 +455,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
 
     // Not offered without billing, or without the operator's key.
     for (const e of [
-      authEnv({ STRIPE_SECRET_KEY: '' }),
+      authEnv({ PAYMENT_PROVIDER: 'polar' }),
       authEnv({ SIMPLE_PROVIDER: '', OPENROUTER_SIMPLE_API_KEY: '' }),
     ]) {
       const v = await newUser(e);
@@ -639,7 +641,6 @@ describe('membership', () => {
   const memberEnv = (overrides: Partial<AppEnv> = {}) =>
     authEnv({
       ANNUAL_FEE_ENABLED: 'true',
-      STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership',
       MEMBERSHIP_WAIVER_CODE: WAIVER,
       ...overrides,
     });
@@ -668,7 +669,7 @@ describe('membership', () => {
       expect(me.membership).toEqual({
         required: false,
         status: 'inactive',
-        stripeStatus: null,
+        subscriptionStatus: null,
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
@@ -720,7 +721,7 @@ describe('membership', () => {
     await insertSubscription(env, u.power.accountId.slice(2), 'past_due');
     expect(
       (await json<MeResponse>(await u.call('/api/me', { learn: 'credit' }))).membership,
-    ).toMatchObject({ required: true, status: 'active', stripeStatus: 'past_due' });
+    ).toMatchObject({ required: true, status: 'active', subscriptionStatus: 'past_due' });
     const { requests } = await generating(u);
     const res = await u.call(...requests[0]!);
     expect(res.status).toBe(200);
@@ -1074,6 +1075,36 @@ describe('account deletion', () => {
 
     // Someone else's data is untouched.
     expect((await other.call(`/api/trees/${otherTree.tree.id}`)).status).toBe(200);
+  });
+
+  it('ends the subscription at the payment provider and forgets the billing rows', async () => {
+    const a = await newUser();
+    const userId = a.power.accountId.slice(2);
+    await insertSubscription(env, userId, 'active');
+    await rememberCustomer(env.DB, 'fake', userId, 'cust_del');
+    const deleted = await deleteUser(
+      { ...env, FAKE_PAYMENTS: JSON.stringify({ deleteResult: 'deleted' }) } as AppEnv,
+      userId,
+    );
+    expect(deleted.billingCustomerDeleted).toBe(true);
+    for (const table of ['billing_subscriptions', 'billing_customers'])
+      expect(
+        await count(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id = ?1`, userId),
+        table,
+      ).toBe(0);
+  });
+
+  it('keeps everything when the payment provider can’t end the subscription', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const a = await newUser();
+    const userId = a.power.accountId.slice(2);
+    const failing = { ...env, FAKE_PAYMENTS: JSON.stringify({ deleteResult: 'error' }) } as AppEnv;
+    await expect(deleteUser(failing, userId)).rejects.toMatchObject({
+      code: 'internal',
+      message: expect.stringContaining('payment provider'),
+    });
+    expect(await count('SELECT COUNT(*) AS n FROM auth_users WHERE id = ?1', userId)).toBe(1);
+    error.mockRestore();
   });
 
   it('signing up again with the same email starts from nothing', async () => {

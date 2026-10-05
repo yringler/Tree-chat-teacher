@@ -99,7 +99,10 @@ export interface PoolVerifyResponse {
 export interface PoolStatusResponse {
   /** The pool is on (`POOL_ENABLED` and a usable built-in provider). */
   enabled: boolean;
-  /** People can fund it now (Stripe and its credits product are set up). */
+  /**
+   * People can fund it now: the payment provider sells credit and pool
+   * purchases are open (`POOL_PURCHASES_ENABLED`).
+   */
   fundingOpen: boolean;
   /** Credit the pool can still spend (held reservations excluded), micro-USD. */
   availableMicros: number;

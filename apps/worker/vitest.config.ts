@@ -130,6 +130,17 @@ export default defineConfig({
                 anyMessageResponses: { '[any-topic:math.algebra]': 'math.algebra' },
               },
             }),
+            // Payments through the fake provider (billing/providers/fake.ts): it sells top-ups and the
+            // membership; tests change what it does with FAKE_PAYMENTS (JSON) in an env override. The
+            // Polar suites build the real adapter themselves, against test/mocks/polar.ts.
+            PAYMENT_PROVIDER: 'fake',
+            FAKE_PAYMENTS: '',
+            // Pinned empty, whatever a local .dev.vars says: `PAYMENT_PROVIDER: 'polar'` in an env
+            // override is then "no payments configured".
+            POLAR_ACCESS_TOKEN: '',
+            POLAR_WEBHOOK_SECRET: '',
+            // Pool purchases open (wrangler.jsonc ships them off, D1).
+            POOL_PURCHASES_ENABLED: 'true',
             STRIPE_SECRET_KEY: 'sk_test_x',
             STRIPE_WEBHOOK_SECRET: 'whsec_test',
             STRIPE_CREDITS_PRODUCT_ID: 'prod_test',

@@ -3,7 +3,7 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { getBalance, grantCredit, hasGrant } from '../src/billing/ledger.js';
 import { assertCanSpend, getBillingSummary, listUsage, markupFor } from '../src/billing/service.js';
-import { billingConfigured } from '../src/billing/stripe.js';
+import { paymentsConfigured } from '../src/billing/payments/index.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import {
   devPowerAccount,
@@ -25,7 +25,7 @@ describe('ledger', () => {
     });
   });
 
-  it('grants are idempotent on the Stripe ref', async () => {
+  it('grants are idempotent on the provider ref', async () => {
     const accountId = uniq('acct');
     const ref = uniq('cs');
     const g = { accountId, kind: 'purchase' as const, amountMicros: 5_000_000, providerRef: ref };
@@ -174,7 +174,7 @@ describe('assertCanSpend', () => {
       providerRef: null,
     });
     const err = await assertCanSpend(
-      { ...env, STRIPE_WEBHOOK_SECRET: '' },
+      { ...env, PAYMENT_PROVIDER: 'polar' },
       account,
       'tangent',
     ).catch((e: unknown) => e);
@@ -221,7 +221,7 @@ describe('billing summary', () => {
       membership: {
         required: false,
         status: 'inactive',
-        stripeStatus: null,
+        subscriptionStatus: null,
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
@@ -248,7 +248,7 @@ describe('billing summary', () => {
   });
 
   it('works for a brand-new account and with billing disabled', async () => {
-    const summary = await getBillingSummary({ ...env, STRIPE_SECRET_KEY: '' }, simpleAccount());
+    const summary = await getBillingSummary({ ...env, PAYMENT_PROVIDER: 'polar' }, simpleAccount());
     expect(summary).toMatchObject({
       enabled: false,
       builtInCredit: false,
@@ -268,7 +268,7 @@ describe('billing summary', () => {
 
   it('reports top-ups as unavailable without a credits product, though billing is enabled', async () => {
     const summary = await getBillingSummary(
-      { ...env, STRIPE_CREDITS_PRODUCT_ID: '' },
+      { ...env, FAKE_PAYMENTS: '{"topUps":false}' },
       simpleAccount(),
     );
     expect(summary).toMatchObject({ enabled: true, topUpsEnabled: false });
@@ -304,11 +304,27 @@ describe('billing summary in power mode', () => {
   });
 });
 
-describe('stripe config', () => {
-  it('billing needs both secrets', () => {
-    expect(billingConfigured(env)).toBe(true);
-    expect(billingConfigured({ ...env, STRIPE_SECRET_KEY: ' ' })).toBe(false);
-    expect(billingConfigured({ ...env, STRIPE_WEBHOOK_SECRET: '' })).toBe(false);
+describe('payments config', () => {
+  it('billing needs a configured payment provider', () => {
+    expect(paymentsConfigured(env)).toBe(true);
+    // Polar without its secrets (vitest.config.ts pins them empty) is not configured.
+    expect(paymentsConfigured({ ...env, PAYMENT_PROVIDER: 'polar' })).toBe(false);
+    expect(
+      paymentsConfigured({
+        ...env,
+        PAYMENT_PROVIDER: 'polar',
+        POLAR_ACCESS_TOKEN: 'polar_oat_x',
+        POLAR_WEBHOOK_SECRET: ' ',
+      }),
+    ).toBe(false);
+    expect(
+      paymentsConfigured({
+        ...env,
+        PAYMENT_PROVIDER: 'polar',
+        POLAR_ACCESS_TOKEN: 'polar_oat_x',
+        POLAR_WEBHOOK_SECRET: 'whsec_x',
+      }),
+    ).toBe(true);
   });
 });
 

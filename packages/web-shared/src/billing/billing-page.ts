@@ -113,7 +113,7 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
                 · {{ included }}
               }
             </p>
-            @if (s.membership.status === 'inactive' || s.membership.stripeStatus) {
+            @if (s.membership.status === 'inactive' || s.membership.subscriptionStatus) {
               <div class="billing-actions">
                 @if (s.membership.status === 'inactive') {
                   <button
@@ -125,7 +125,7 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
                     {{ ctl.pending()?.kind === 'subscribe' ? 'Opening…' : 'Subscribe' }}
                   </button>
                 }
-                @if (s.membership.stripeStatus) {
+                @if (s.membership.subscriptionStatus) {
                   <button
                     type="button"
                     class="btn"
@@ -224,7 +224,7 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
             }
           </section>
 
-          @if (!(s.membership.required && s.membership.stripeStatus)) {
+          @if (!(s.membership.required && s.membership.subscriptionStatus)) {
             <section class="billing-section billing-actions" aria-labelledby="billing-manage-h">
               <h2 id="billing-manage-h" class="sr-only">Manage billing</h2>
               <button

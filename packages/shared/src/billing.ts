@@ -73,10 +73,13 @@ export const createCheckoutRequestSchema = z.object({
 /** What a client sends (`target` optional). */
 export type CreateCheckoutRequest = z.input<typeof createCheckoutRequestSchema>;
 
-/** Stripe Checkout URL to send the browser to. */
+/** The payment provider's hosted page (checkout or billing portal) to send the browser to. */
 export interface CheckoutResponse {
   url: string;
 }
+
+/** `POST /api/billing/portal`: the billing portal to send the browser to. */
+export type PortalResponse = CheckoutResponse;
 
 export const membershipWaiverRequestSchema = z.object({
   code: z.string().trim().min(1).max(200),
@@ -108,8 +111,8 @@ export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 /**
  * Where the user stands with the yearly membership:
  * - `active`: the membership subscription is `active`, `trialing` or
- *   `past_due` (Stripe is still retrying a failed renewal);
- * - `waived`: the operator waived the fee for this user (it wins over Stripe);
+ *   `past_due` (the payment provider is still retrying a failed renewal);
+ * - `waived`: the operator waived the fee for this user (it wins over the subscription);
  * - `inactive`: neither; generating answers 402 `membership_required` while
  *   `required` is true. Reading, exporting and deleting stay open.
  */
@@ -123,11 +126,14 @@ export interface MembershipInfo {
    */
   required: boolean;
   status: MembershipStatus;
-  /** Status of the membership subscription in Stripe (`active`, `past_due`, `canceled`, ...); null when none. */
-  stripeStatus: string | null;
+  /**
+   * The membership subscription's status, normalised from the payment
+   * provider's (`active`, `past_due`, `canceled`, ...); null when there is none.
+   */
+  subscriptionStatus: SubscriptionStatus | null;
   /** ISO timestamp of the current period's end; null when unknown. */
   periodEnd: string | null;
-  /** The subscription ends at `periodEnd` (cancelled in the Customer Portal). */
+  /** The subscription ends at `periodEnd` (cancelled in the billing portal). */
   cancelAtPeriodEnd: boolean;
   /** Display price per year, pre-tax (Stripe Tax adds tax at checkout). */
   priceCents: number;

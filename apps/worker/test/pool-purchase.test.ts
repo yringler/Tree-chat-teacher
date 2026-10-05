@@ -16,20 +16,15 @@ import { describe, expect, it } from 'vitest';
 import wranglerText from '../wrangler.jsonc?raw';
 import { createApp } from '../src/app.js';
 import { getBalance } from '../src/billing/ledger.js';
+import { decodeFakeUrl } from '../src/billing/providers/fake.js';
 import { fulfilPurchase } from '../src/billing/purchases.js';
 import { handleStripeEvent } from '../src/billing/webhook.js';
 import { appConfig } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { poolBank } from '../src/pool/ids.js';
 import { isSupporter } from '../src/pool/supporter.js';
-import {
-  insertUsage,
-  insertUser,
-  stripeCalls,
-  stripeFixtures,
-  uniq,
-} from './mocks/billing-helpers.js';
-import { defaultFeeDetails, type MockStripeCall } from './mocks/stripe.js';
+import { insertUsage, insertUser, stripeFixtures, uniq } from './mocks/billing-helpers.js';
+import { defaultFeeDetails } from './mocks/stripe.js';
 import { fundPool, poolAccess, poolReadyUser } from './pool-helpers.js';
 import { authEnv } from './session-client.js';
 
@@ -499,13 +494,6 @@ describe('pool pricing', () => {
 });
 
 describe('POST /api/billing/checkout for the pool', () => {
-  const sessionsOf = async (userId: string): Promise<MockStripeCall[]> =>
-    (await stripeCalls('/v1/checkout/sessions')).filter(
-      (c) =>
-        c.method === 'POST' &&
-        (c.body['metadata'] as Record<string, string> | undefined)?.['userId'] === userId,
-    );
-
   it('opens a pool checkout from the pool minimum, naming the target, the pool and the buyer', async () => {
     const { client, poolId, userId } = await poolReadyUser({ funds: 0 });
     const checkout = (amountCents: number, target?: string) =>
@@ -517,38 +505,44 @@ describe('POST /api/billing/checkout for the pool', () => {
     expect((await json<ApiError>(await checkout(500, 'pool'), 400)).error.message).toMatch(
       /from 1000 to 50000 for the community pool/,
     );
-    expect(await sessionsOf(userId)).toEqual([]);
-    expect((await json<CheckoutResponse>(await checkout(1000, 'pool'))).url).toMatch(
-      /^https:\/\/checkout\.stripe\.com\//,
-    );
-    // No target: a personal top-up, as before ($5 is enough there).
-    await json<CheckoutResponse>(await checkout(500));
-    await json<ApiError>(await checkout(1000, 'charity'), 400);
-
-    const [pool, personal] = await sessionsOf(userId);
-    const poolMeta = {
-      kind: 'credits',
+    const pool = decodeFakeUrl((await json<CheckoutResponse>(await checkout(1000, 'pool'))).url);
+    expect(pool.input).toMatchObject({
+      buyer: { userId },
       target: 'pool',
       accountId: poolId,
-      userId,
-      amountCents: '1000',
-    };
-    expect(pool!.body).toMatchObject({
-      mode: 'payment',
-      metadata: poolMeta,
-      payment_intent_data: { metadata: poolMeta },
+      amountCents: 1000,
       // The billing page then waits for the pool's balance, not the buyer's.
-      success_url: `${ORIGIN}/learn/billing?checkout=success&target=pool`,
-      cancel_url: `${ORIGIN}/learn/billing?checkout=cancel&target=pool`,
+      successUrl: `${ORIGIN}/learn/billing?checkout=success&target=pool`,
+      cancelUrl: `${ORIGIN}/learn/billing?checkout=cancel&target=pool`,
     });
-    expect(personal!.body['success_url']).toBe(`${ORIGIN}/learn/billing?checkout=success`);
-    expect(personal!.body['metadata']).toEqual({
-      kind: 'credits',
+    // No target: a personal top-up, as before ($5 is enough there).
+    const personal = decodeFakeUrl((await json<CheckoutResponse>(await checkout(500))).url);
+    expect(personal.input).toMatchObject({
       target: 'personal',
       accountId: `u_${userId}`,
-      userId,
-      amountCents: '500',
+      amountCents: 500,
+      successUrl: `${ORIGIN}/learn/billing?checkout=success`,
     });
+    await json<ApiError>(await checkout(1000, 'charity'), 400);
+  });
+
+  it('refuses pool checkouts until POOL_PURCHASES_ENABLED (personal top-ups stay open)', async () => {
+    const { client } = await poolReadyUser({ funds: 0 });
+    const closed = authEnv({ POOL_PURCHASES_ENABLED: 'false' });
+    const checkout = (target: string) =>
+      client.call(
+        '/api/billing/checkout',
+        { method: 'POST', json: { amountCents: 1000, target }, learn: 'pool' },
+        closed,
+      );
+    expect((await json<ApiError>(await checkout('pool'), 400)).error.message).toBe(
+      'Funding the community pool is not open yet',
+    );
+    await json<CheckoutResponse>(await checkout('personal'));
+    // As deployed (wrangler.jsonc): closed.
+    expect(/"POOL_PURCHASES_ENABLED"\s*:\s*"([^"]*)"/.exec(wranglerText as string)?.[1]).toBe(
+      'false',
+    );
   });
 
   it('refuses a pool checkout while the pool is off', async () => {
@@ -734,13 +728,13 @@ describe('POST /api/admin/credit', () => {
     expect(appConfig(unset as AppEnv).flags.devPurchasesEnabled).toBe(false);
   });
 
-  it('admin-granted personal credit is spendable with PERSONAL_CREDIT_ENABLED and no Stripe', async () => {
-    const noStripe = {
-      STRIPE_SECRET_KEY: '',
-      STRIPE_WEBHOOK_SECRET: '',
+  it('admin-granted personal credit is spendable with PERSONAL_CREDIT_ENABLED and no payments', async () => {
+    const noPayments = {
+      // Polar without its secrets: no payment provider is configured.
+      PAYMENT_PROVIDER: 'polar',
       PERSONAL_CREDIT_ENABLED: 'true',
     };
-    const { user, credit, e } = await setup({ env: noStripe });
+    const { user, credit, e } = await setup({ env: noPayments });
     await json<AdminCreditResponse>(
       await credit({
         target: 'personal',

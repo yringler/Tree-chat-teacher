@@ -8,7 +8,6 @@ import {
   envWithFailingDb,
   grantDetailsFor,
   grantsFor,
-  insertSubscription,
   insertUser,
   stripeCalls,
   stripeFixtures,
@@ -163,6 +162,23 @@ const balance = async (accountId: string) => (await getBalance(env.DB, accountId
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+/** A Better Auth Stripe plugin subscription row (plan `membership` unless given); returns its id. */
+async function insertPluginSubscription(
+  e: AppEnv,
+  userId: string,
+  status: string,
+  extra: { plan?: string; stripeSubscriptionId?: string | null } = {},
+): Promise<string> {
+  const id = uniq('sub');
+  await e.DB.prepare(
+    `INSERT INTO auth_subscriptions (id, plan, reference_id, status, stripe_subscription_id)
+     VALUES (?, ?, ?, ?, ?)`,
+  )
+    .bind(id, extra.plan ?? 'membership', userId, status, extra.stripeSubscriptionId ?? null)
+    .run();
+  return id;
+}
 
 describe('Stripe webhook fulfilment', () => {
   it("credits a $5 top-up its pre-tax subtotal minus Stripe's actual fee", async () => {
@@ -332,7 +348,7 @@ describe('Stripe webhook fulfilment', () => {
 
   it('recognises a renewal on an older price by the plugin subscription row', async () => {
     const { userId, customer, accountId } = await userWithCustomer();
-    const pluginId = await insertSubscription(env, userId, 'active', {
+    const pluginId = await insertPluginSubscription(env, userId, 'active', {
       stripeSubscriptionId: uniq('sub_old'),
     });
     const byMetadata = await invoice(
@@ -349,7 +365,7 @@ describe('Stripe webhook fulfilment', () => {
       'price_old_membership',
     );
     const stripeSub = uniq('sub_stripe');
-    await insertSubscription(env, userId, 'active', { stripeSubscriptionId: stripeSub });
+    await insertPluginSubscription(env, userId, 'active', { stripeSubscriptionId: stripeSub });
     const bySubscription = await invoice(
       customer,
       {
@@ -372,7 +388,7 @@ describe('Stripe webhook fulfilment', () => {
     const { userId, customer, accountId } = await userWithCustomer();
     // Another plan's subscription (e.g. a monthly plan from before the membership).
     const otherSub = uniq('sub_other');
-    await insertSubscription(env, userId, 'active', {
+    await insertPluginSubscription(env, userId, 'active', {
       plan: 'monthly-10',
       stripeSubscriptionId: otherSub,
     });

@@ -13,7 +13,7 @@ function summary(overrides: Partial<BillingSummary> = {}): BillingSummary {
     membership: {
       required: true,
       status: 'inactive',
-      stripeStatus: null,
+      subscriptionStatus: null,
       periodEnd: null,
       cancelAtPeriodEnd: false,
       priceCents: 1000,

@@ -3,7 +3,7 @@
 // account deletion whether a provider holds a customer, and by adapters that
 // need a stored customer id. Polar addresses customers by our user id
 // (external_id), so for it this is informational (02 §5, D6).
-import type { ProviderId } from './port.js';
+import type { Buyer, ProviderId } from './port.js';
 
 /**
  * Records `customerRef` as `userId`'s customer at `provider` (the latest one
@@ -54,4 +54,22 @@ export async function customerProvidersOf(db: D1Database, userId: string): Promi
 /** Deletes every customer row of `userId` (for the account-deletion batch). */
 export function forgetCustomersStatement(db: D1Database, userId: string): D1PreparedStatement {
   return db.prepare('DELETE FROM billing_customers WHERE user_id = ?').bind(userId);
+}
+
+/** The signed-in user as a buyer at `provider` (null when the user no longer exists). */
+export async function buyerFor(
+  db: D1Database,
+  provider: ProviderId,
+  userId: string,
+): Promise<Buyer | null> {
+  const row = await db
+    .prepare(
+      `SELECT u.email, u.name, c.customer_ref FROM auth_users u
+       LEFT JOIN billing_customers c ON c.user_id = u.id AND c.provider = ?2
+       WHERE u.id = ?1`,
+    )
+    .bind(userId, provider)
+    .first<{ email: string; name: string | null; customer_ref: string | null }>();
+  if (!row) return null;
+  return { userId, email: row.email, name: row.name || null, customerRef: row.customer_ref };
 }

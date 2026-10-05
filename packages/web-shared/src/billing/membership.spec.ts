@@ -19,7 +19,7 @@ function membership(overrides: Partial<MembershipInfo> = {}): MembershipInfo {
   return {
     required: true,
     status: 'inactive',
-    stripeStatus: null,
+    subscriptionStatus: null,
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
@@ -63,7 +63,7 @@ describe('membership copy', () => {
       ),
     ).toBe("Active until Oct 2, 2027. It won't renew.");
     expect(
-      membershipStatusText(membership({ status: 'active', stripeStatus: 'past_due' })),
+      membershipStatusText(membership({ status: 'active', subscriptionStatus: 'past_due' })),
     ).toMatch(/last payment failed/);
     expect(membershipStatusText(membership({ status: 'waived' }))).toMatch(/^Waived/);
     expect(membershipStatusText(membership())).toMatch(/^Not active/);

@@ -74,7 +74,7 @@ export function membershipStatusText(m: MembershipInfo): string {
   const until = formatDay(m.periodEnd);
   if (m.cancelAtPeriodEnd)
     return until ? `Active until ${until}. It won't renew.` : "Active. It won't renew.";
-  if (m.stripeStatus === 'past_due')
+  if (m.subscriptionStatus === 'past_due')
     return 'Active, but the last payment failed. Update your card in Manage billing.';
   return until ? `Active until ${until}, then renews each year.` : 'Active.';
 }

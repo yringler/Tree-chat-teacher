@@ -202,6 +202,10 @@
     // Markup on each pool reply's true cost, in bps (500 = +5%): charge = price × (1 + fee) × (1 + markup).
     // A pool purchase adds what was paid minus the card processing fee, like a personal top-up.
     "POOL_MARKUP_BPS": "500",
+    // Pool purchases may be sold (decision D1, docs/polar-migration/02-stripe-to-polar-mapping.md): keep
+    // "false" until the payment provider has confirmed in writing that buying credit for the community
+    // pool is within its terms. Off, the pool shows "funding opens soon"; admins can still fund it.
+    "POOL_PURCHASES_ENABLED": "false",
     // Smallest pool purchase in US cents (1000 = $10).
     "POOL_MIN_PURCHASE_CENTS": "1000",
     // Per-call input and output token caps of pool calls, and the longest message a pool send accepts.

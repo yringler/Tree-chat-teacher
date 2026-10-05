@@ -70,6 +70,14 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *                                                target `personal` or `pool`; 400 below the pool minimum)
  *   POST   /api/billing/membership/waiver MembershipWaiverRequest -> MembershipInfo (same-origin only;
  *                                                400 no code configured, 403 wrong code, 429 rate limited)
+ *   POST   /api/billing/membership/checkout       -> CheckoutResponse (same-origin only; the yearly
+ *                                                membership's hosted checkout, or the billing portal
+ *                                                when the user already has a paid membership)
+ *   POST   /api/billing/portal                    -> PortalResponse (same-origin only; the payment
+ *                                                provider's billing portal; 404 `no_customer` when the
+ *                                                provider has no customer for the user yet)
+ *   POST   /api/webhooks/:provider                Payment provider webhooks (public, signed;
+ *                                                `/api/webhooks/polar`)
  *   POST   /api/auth/subscription/{upgrade,billing-portal,list,cancel,restore}  Better Auth Stripe plugin
  *                                                (one plan, MEMBERSHIP_PLAN: the yearly membership)
  *   POST   /api/auth/stripe/webhook               Stripe webhooks (plugin + our onEvent)
@@ -177,7 +185,9 @@ export type ApiErrorCode =
   /** 403: the current pool notice must be acknowledged first. */
   | 'pool_consent_required'
   /** 403: the pool can't be used for this request or by this account. */
-  | 'pool_unavailable';
+  | 'pool_unavailable'
+  /** 404: the payment provider has no customer for the user yet (`POST /api/billing/portal`). */
+  | 'no_customer';
 
 export interface MeResponse {
   /** Signed-in user's email; null only in dev bypass mode. */

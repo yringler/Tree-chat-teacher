@@ -134,9 +134,7 @@ describe('GET /api/pool/status', () => {
   });
 
   it('says funding is not open yet without Stripe', async () => {
-    const status = await poolStatus(
-      poolEnv(uniq('pool'), { STRIPE_SECRET_KEY: '', STRIPE_WEBHOOK_SECRET: '' }),
-    );
+    const status = await poolStatus(poolEnv(uniq('pool'), { PAYMENT_PROVIDER: 'polar' }));
     expect(status).toMatchObject({ enabled: true, fundingOpen: false });
   });
 });
@@ -207,7 +205,7 @@ describe('the landing page’s pool meter', () => {
   it('shows the empty state, and "Funding opens soon" before Stripe is set up', async () => {
     const poolId = uniq('pool');
     const html = await (
-      await visitor(poolEnv(poolId, { STRIPE_SECRET_KEY: '' }))('/welcome')
+      await visitor(poolEnv(poolId, { PAYMENT_PROVIDER: 'polar' }))('/welcome')
     ).text();
     expect(html).toContain('The community pool is empty. It refills as people fund it.');
     expect(html).toContain('Funding opens soon');

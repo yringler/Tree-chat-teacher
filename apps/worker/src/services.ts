@@ -20,7 +20,7 @@ import {
 } from '@tangent/shared';
 import { isAdminUserId } from './auth/admin.js';
 import { createPoolUsageMeter, createUsageMeter, meteredRegistry } from './billing/meter.js';
-import { billingConfigured } from './billing/stripe.js';
+import { paymentsConfigured } from './billing/payments/index.js';
 import { appConfig } from './config.js';
 import { createD1Repositories } from './db/d1-repositories.js';
 import { isMetered, isPoolFunded, type AccountContext, type AppEnv } from './env.js';
@@ -143,11 +143,11 @@ export function builtInProviderUsable(env: AppEnv): boolean {
 }
 
 /**
- * Personal credit may be spent: billing is configured, or the operator lets
- * granted credit be spent without it (`PERSONAL_CREDIT_ENABLED`).
+ * Personal credit may be spent: a payment provider is configured, or the
+ * operator lets granted credit be spent without one (`PERSONAL_CREDIT_ENABLED`).
  */
 export function personalCreditReady(env: AppEnv): boolean {
-  return billingConfigured(env) || appConfig(env).flags.personalCreditEnabled;
+  return paymentsConfigured(env) || appConfig(env).flags.personalCreditEnabled;
 }
 
 /**
