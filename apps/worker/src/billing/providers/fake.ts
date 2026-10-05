@@ -24,7 +24,7 @@ import type {
 } from '../payments/port.js';
 import { PaymentProviderError, WebhookSignatureError } from '../payments/port.js';
 
-export const FAKE_PAY_ORIGIN = 'https://fake-pay.invalid';
+const FAKE_PAY_ORIGIN = 'https://fake-pay.invalid';
 export const FAKE_SIGNATURE_HEADER = 'fake-signature';
 export const FAKE_SIGNATURE = 'valid';
 

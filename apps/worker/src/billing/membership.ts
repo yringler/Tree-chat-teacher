@@ -37,7 +37,7 @@ export function membershipRequired(env: AppEnv): boolean {
 }
 
 /** The yearly price shown to users (`MEMBERSHIP_PRICE_CENTS`; the provider charges its product's price). */
-export function membershipPriceCents(env: AppEnv): number {
+function membershipPriceCents(env: AppEnv): number {
   return appConfig(env).billing.membershipPriceCents;
 }
 

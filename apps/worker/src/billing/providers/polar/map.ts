@@ -41,11 +41,11 @@ function iso(value: string | null | undefined): string | null {
   return Number.isNaN(ms) ? null : new Date(ms).toISOString();
 }
 
-export function orderRef(orderId: string): ProviderRef {
+function orderRef(orderId: string): ProviderRef {
   return providerRef('polar', 'order', orderId);
 }
 
-export function subscriptionRef(subscriptionId: string): ProviderRef {
+function subscriptionRef(subscriptionId: string): ProviderRef {
   return providerRef('polar', 'subscription', subscriptionId);
 }
 

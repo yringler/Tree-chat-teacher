@@ -17,7 +17,7 @@
 import { accountIdForUser } from '../auth/account.js';
 
 /** Net purchases at or below this (one cent) are rounding residue, not a purchase. */
-export const SUPPORTER_ROUNDING_MICROS = 10_000;
+const SUPPORTER_ROUNDING_MICROS = 10_000;
 
 interface SupporterRow {
   net: number | null;

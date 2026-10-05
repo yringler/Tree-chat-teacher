@@ -22,8 +22,8 @@ export interface PolarConfig {
   feeEstimate: { bps: number; fixedCents: number };
 }
 
-export const DEFAULT_POLAR_FEE_BPS = 500;
-export const DEFAULT_POLAR_FEE_FIXED_CENTS = 50;
+const DEFAULT_POLAR_FEE_BPS = 500;
+const DEFAULT_POLAR_FEE_FIXED_CENTS = 50;
 
 /**
  * The adapter's config, or null when Polar isn't configured (the access token

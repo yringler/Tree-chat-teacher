@@ -37,11 +37,11 @@ import { creditEquivalentMicros } from './pricing.js';
 
 const DAY_MS = 24 * 60 * 60_000;
 /** The ref prefix of the daily usage share (never a provider ref, see billing/payments/refs.ts). */
-export const USAGE_SHARE_REF_PREFIX = 'pool-share:usage:';
+const USAGE_SHARE_REF_PREFIX = 'pool-share:usage:';
 /** How far back the cron catches up on days it missed. */
 export const USAGE_SHARE_CATCH_UP_DAYS = 31;
 /** A day is shared this long after it ends, so settles already under way have landed. */
-export const USAGE_SHARE_GRACE_MS = 15 * 60_000;
+const USAGE_SHARE_GRACE_MS = 15 * 60_000;
 
 /** The share of the revenue, bps, while the pool is on; 0 = nothing accrues. */
 export function revenueShareBps(env: AppEnv): number {
@@ -116,7 +116,7 @@ export async function reverseMembershipShare(
 }
 
 /** The ref of `day`'s usage share (`YYYY-MM-DD`). */
-export function usageShareRef(day: string): string {
+function usageShareRef(day: string): string {
   return `${USAGE_SHARE_REF_PREFIX}${day}`;
 }
 

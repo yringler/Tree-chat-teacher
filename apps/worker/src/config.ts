@@ -41,11 +41,11 @@ export const DEFAULT_POOL_ACCOUNT_ID = 'pool';
  * (20%): of each membership payment net of tax and the processing fee, and of
  * the markup on personal credit as it is spent (pool/revenue-share.ts).
  */
-export const DEFAULT_POOL_REVENUE_SHARE_BPS = 2000;
+const DEFAULT_POOL_REVENUE_SHARE_BPS = 2000;
 /** A smaller impact threshold would make single learners identifiable. */
 export const MIN_IMPACT_DISTINCT_USERS = 3;
 /** The expiry alarm needs this much slack between a call's timeout and its reservation's TTL. */
-export const POOL_TTL_SLACK_MS = 60_000;
+const POOL_TTL_SLACK_MS = 60_000;
 
 /**
  * Price of one model in micro-USD per million tokens. `contextTokens` is the

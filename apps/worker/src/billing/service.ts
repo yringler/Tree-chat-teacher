@@ -21,7 +21,7 @@ import { buyerFor, rememberCustomer } from './payments/customers.js';
 import { paymentProvider, paymentsConfigured } from './payments/index.js';
 import { appConfig } from '../config.js';
 
-export const MAX_USAGE_PAGE = 100;
+const MAX_USAGE_PAGE = 100;
 
 /** Per-call hold and minimum available balance (`USAGE_HOLD_MICROS`). */
 export function usageHoldMicros(env: AppEnv): number {
@@ -33,7 +33,7 @@ export function usageHoldMicros(env: AppEnv): number {
  * hold doesn't follow the model's price, so this is what bounds an overdraft:
  * at most this many calls, each within the built-in provider's token caps.
  */
-export function usageMaxPending(env: AppEnv): number {
+function usageMaxPending(env: AppEnv): number {
   return appConfig(env).billing.usageMaxPending;
 }
 
@@ -115,7 +115,7 @@ async function lastPurchase(env: AppEnv, accountId: string): Promise<PurchaseInf
 }
 
 /** One-time credit purchases (top-ups) can be sold: the payment provider sells credit. */
-export function topUpsEnabled(env: AppEnv): boolean {
+function topUpsEnabled(env: AppEnv): boolean {
   return paymentProvider(env)?.capabilities.topUps ?? false;
 }
 

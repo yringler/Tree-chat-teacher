@@ -4,7 +4,7 @@ import { createPolar, type Polar } from '@polar-sh/sdk/2026-10';
 import type { PolarConfig } from './config.js';
 
 /** Seconds per API call; the SDK's default of 5 is too short for checkout creation. */
-export const POLAR_TIMEOUT_SECONDS = 15;
+const POLAR_TIMEOUT_SECONDS = 15;
 
 // One client per token and server per isolate (the client holds no request state).
 const clients = new Map<string, Polar>();

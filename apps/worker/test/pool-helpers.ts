@@ -15,7 +15,7 @@ const env = rawEnv as unknown as AppEnv;
 /** Before any test's real-clock rows: a grant made then is in the pool's 00:00 UTC balance. */
 export const LONG_AGO = '2020-01-01T00:00:00.000Z';
 /** The default funding of a test pool: far above any test's holds and caps. */
-export const POOL_FUNDS_MICROS = 10_000_000;
+const POOL_FUNDS_MICROS = 10_000_000;
 
 /** A grant to `poolId` (an admin adjustment), made long ago by default. */
 export async function fundPool(
