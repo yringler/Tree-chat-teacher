@@ -10,7 +10,8 @@ import {
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { redeemWaiverCode } from '../billing/membership.js';
-import { createCreditCheckout, getBillingSummary, listUsage } from '../billing/service.js';
+import { stripePurchases } from '../billing/purchases.js';
+import { getBillingSummary, listUsage } from '../billing/service.js';
 import { enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
 import type { AppBindings } from '../env.js';
 import { validateJson, validateQuery } from '../http/errors.js';
@@ -27,7 +28,8 @@ const usageQuerySchema = z.object({
  * credit and the membership are the user's (`billingAccountId`, `userId`),
  * whichever app shows them.
  * `GET /` → BillingSummary, `GET /usage` → UsageListResponse,
- * `POST /checkout` → CheckoutResponse (returns to the calling app's billing page),
+ * `POST /checkout` → CheckoutResponse (credit for the user or, `target: 'pool'`,
+ * for the community pool; returns to the calling app's billing page),
  * `POST /membership/waiver` → MembershipInfo (redeems MEMBERSHIP_WAIVER_CODE).
  * Subscribing and managing the membership go through the Better Auth Stripe
  * plugin (`/api/auth/subscription/*`).
@@ -50,7 +52,7 @@ export function billingRoutes(): Hono<AppBindings> {
   });
 
   r.post('/checkout', sameOriginOnly, validateJson(createCheckoutRequestSchema), async (c) => {
-    const { amountCents } = c.req.valid('json');
+    const { amountCents, target } = c.req.valid('json');
     const account = c.var.account;
     if (!account.userId) throw new DomainError('unauthorized', 'Sign in to add credit');
     const user = await c.env.DB.prepare('SELECT id, email, name FROM auth_users WHERE id = ?')
@@ -58,7 +60,13 @@ export function billingRoutes(): Hono<AppBindings> {
       .first<{ id: string; email: string; name: string }>();
     if (!user) throw new DomainError('unauthorized', 'Sign in to add credit');
     const baseUrl = c.env.PUBLIC_BASE_URL?.trim() || new URL(c.req.url).origin;
-    const body = await createCreditCheckout(c.env, account, user, amountCents, baseUrl);
+    const body = await stripePurchases(c.env).createCheckout({
+      target,
+      amountCents,
+      user,
+      account,
+      baseUrl,
+    });
     return c.json(body satisfies CheckoutResponse);
   });
 

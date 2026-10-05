@@ -1,7 +1,9 @@
 import { NotFoundError, ValidationError } from '@tangent/core';
 import {
   ADMIN_USERS_PAGE,
+  adminCreditRequestSchema,
   adminPoolUsageQuerySchema,
+  type AdminCreditResponse,
   adminUsersQuerySchema,
   updateAdminUserRequestSchema,
   type AdminPoolIpKeyRow,
@@ -13,14 +15,22 @@ import {
   type ShareSummary,
 } from '@tangent/shared';
 import { Hono } from 'hono';
-import { POWER_ACCOUNT_PREFIX, SIMPLE_ACCOUNT_PREFIX } from '../auth/account.js';
+import {
+  billingAccountIdFor,
+  POWER_ACCOUNT_PREFIX,
+  SIMPLE_ACCOUNT_PREFIX,
+} from '../auth/account.js';
 import { adminOnly, adminUserIds } from '../auth/admin.js';
+import { getBalance, grantByRef, grantCredit } from '../billing/ledger.js';
+import { centsToMicros } from '../billing/pricing.js';
+import { fulfilPurchase } from '../billing/purchases.js';
 import { sameOriginOnly } from '../byok/guard.js';
 import { appConfig } from '../config.js';
 import { createD1Repositories } from '../db/d1-repositories.js';
 import type { AppBindings, AppEnv } from '../env.js';
-import { validateJson, validateQuery } from '../http/errors.js';
+import { apiError, validateJson, validateQuery } from '../http/errors.js';
 import { identitySuspensionStatement } from '../pool/identity.js';
+import { poolBank } from '../pool/ids.js';
 import { purgeShare } from '../share/cache.js';
 import { shareService, sharingEnabled } from '../services.js';
 
@@ -118,8 +128,10 @@ async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
  * (`auth_users.share_allowed`, see `canShare`), takes any share down
  * without its owner (a DMCA notice, docs/LEGAL.md §8), suspends a user's
  * community pool access (`auth_users.pool_suspended` and the user's pool
- * identity, checked by the pool gate on every pool request) and reports who
- * consumes the pool.
+ * identity, checked by the pool gate on every pool request), reports who
+ * consumes the pool, and credits a user's ledger or the pool without Stripe
+ * (`POST /credit`: adjustments, and simulated purchases where
+ * DEV_PURCHASES_ENABLED allows them).
  */
 export function adminRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
@@ -239,6 +251,87 @@ export function adminRoutes(): Hono<AppBindings> {
         spendMicros: Number(r.spend),
       })),
     } satisfies AdminPoolUsageResponse);
+  });
+
+  // Credit without Stripe: a signed adjustment of a user's ledger or the pool (a negative pool
+  // adjustment is clamped to what the pool has available, under PoolBank's lock), or a simulated
+  // purchase, fulfilled exactly as the webhook would. Idempotent on the key.
+  r.post('/credit', sameOriginOnly, validateJson(adminCreditRequestSchema), async (c) => {
+    const req = c.req.valid('json');
+    const config = appConfig(c.env);
+    // Like an unknown route: a production deployment doesn't advertise the dev tool.
+    if (req.mode === 'simulated_purchase' && !config.flags.devPurchasesEnabled)
+      return apiError(c, 'not_found', 'Route not found');
+    const db = c.env.DB;
+    if (req.userId !== null) {
+      const user = await db
+        .prepare('SELECT id FROM auth_users WHERE id = ?')
+        .bind(req.userId)
+        .first<{ id: string }>();
+      if (!user) throw new NotFoundError('User');
+    }
+    const accountId =
+      req.target === 'pool' ? config.pool.accountId : billingAccountIdFor(req.userId);
+    const amountMicros = centsToMicros(req.amountCents);
+    let ref: string;
+    let credited: boolean;
+    if (req.mode === 'simulated_purchase') {
+      ref = `dev:${req.idempotencyKey}`;
+      credited = await fulfilPurchase(c.env, {
+        target: req.target,
+        userId: req.userId,
+        accountId,
+        grossCents: req.amountCents,
+        processorFeeCents: 0,
+        ref,
+        note: req.note ?? 'Simulated purchase',
+      });
+    } else {
+      ref = `admin:${req.idempotencyKey}`;
+      const note = req.note ?? 'Admin adjustment';
+      if (req.target === 'pool' && amountMicros < 0) {
+        const debit = await poolBank(c.env, accountId).debit({
+          poolId: accountId,
+          refId: ref,
+          requestedMicros: -amountMicros,
+          kind: 'adjustment',
+          userId: req.userId,
+          grossMicros: null,
+          note,
+        });
+        credited = debit.debited;
+      } else {
+        credited = await grantCredit(db, {
+          accountId,
+          kind: 'adjustment',
+          amountMicros,
+          grossMicros: null,
+          userId: req.userId,
+          stripeRef: ref,
+          note,
+        });
+      }
+    }
+    // The row as written (now, or by the first request with this key).
+    const row = await grantByRef(db, ref);
+    const { balanceMicros } = await getBalance(db, row?.account_id ?? accountId);
+    console.log(
+      JSON.stringify({
+        event: 'admin_credit',
+        adminId: c.var.identity.userId,
+        target: req.target,
+        userId: req.userId,
+        mode: req.mode,
+        ref,
+        credited,
+        amountMicros: row?.amount_micros ?? 0,
+      }),
+    );
+    return c.json({
+      credited,
+      amountMicros: row?.amount_micros ?? 0,
+      balanceMicros,
+    } satisfies AdminCreditResponse);
   });
 
   r.get('/users/:userId/shares', async (c) => {

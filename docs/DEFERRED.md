@@ -12,6 +12,14 @@ Left out of the server side of the membership (`apps/worker/src/billing/membersh
 - **Monthly-plan subscriptions from before the membership are not migrated.** They no longer grant credit or count as a membership; an operator who sold them cancels them in Stripe (the Customer Portal can't switch them to the membership, which has its own price and interval).
 - **The included credit isn't prorated or clawed back on cancellation.** It is granted per paid invoice and taken back only when that invoice is refunded.
 
+## Community credit pool
+
+Left out of the pool (`docs/pool/PLAN.md`). None blocks launching it.
+
+- **No guest pool checkout.** Funding the pool needs a signed-in account (the checkout records the buyer, and the supporter tier reads it). A guest checkout would need Checkout with `customer_creation` and a way to attach the purchase to an account later.
+- **Personal credit still prices at usage (`MARKUP_BPS`), the pool at purchase (deviation D3).** Unifying personal pricing to margin-at-purchase needs a reprice rule for existing balances, a Terms §7 update, and `MARKUP_BPS` moved to 0 behind a flag.
+- **Disputes of membership invoices are handled by hand.** Only credit purchases (personal and pool) are debited automatically.
+
 ## Power app and Canvas: membership and credit UI
 
 Left out of the front end of the unified billing (`apps/web`, `apps/canvas`). None blocks charging.

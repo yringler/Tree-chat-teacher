@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PURCHASE_TARGETS } from './billing.js';
 
 /**
  * Admin contract (`/api/admin/*`, the admin app at `/admin/`). Only the
@@ -106,4 +107,53 @@ export interface AdminPoolUsageResponse {
   rows: AdminPoolUsageRow[];
   /** Today (UTC) only, most users first. */
   ipKeys: AdminPoolIpKeyRow[];
+}
+
+/** Largest admin credit, either way, in US cents ($500). */
+export const ADMIN_CREDIT_MAX_CENTS = 50_000;
+
+/**
+ * `POST /api/admin/credit`: credit (or debit) a user's personal ledger or the
+ * community pool without Stripe.
+ * - `adjustment`: a signed ledger adjustment (goodwill credit, a correction).
+ *   A negative pool adjustment is clamped to what the pool has available.
+ * - `simulated_purchase`: fulfils a purchase as the Stripe webhook would (pool:
+ *   net of the margin, and the buyer becomes a supporter), with no processing
+ *   fee. Only where the server allows it (`DEV_PURCHASES_ENABLED`, never in
+ *   production); otherwise 404.
+ * `idempotencyKey` makes a retry a no-op (`credited: false`).
+ */
+export const adminCreditRequestSchema = z
+  .object({
+    target: z.enum(PURCHASE_TARGETS),
+    /** The beneficiary (personal: required) or, for the pool, the buyer credited as supporter. */
+    userId: z.string().min(1).nullable(),
+    amountCents: z
+      .number()
+      .int()
+      .min(-ADMIN_CREDIT_MAX_CENTS)
+      .max(ADMIN_CREDIT_MAX_CENTS)
+      .refine((n) => n !== 0, { message: 'amountCents must not be 0' }),
+    mode: z.enum(['adjustment', 'simulated_purchase']),
+    idempotencyKey: z.string().min(8).max(64),
+    note: z.string().max(200).optional(),
+  })
+  .refine((r) => r.target !== 'personal' || r.userId !== null, {
+    message: 'userId is required for personal credit',
+    path: ['userId'],
+  })
+  .refine((r) => r.mode !== 'simulated_purchase' || r.amountCents > 0, {
+    message: 'A simulated purchase must be positive',
+    path: ['amountCents'],
+  });
+export type AdminCreditRequest = z.infer<typeof adminCreditRequestSchema>;
+
+/** `POST /api/admin/credit`. */
+export interface AdminCreditResponse {
+  /** False when `idempotencyKey` was already used: nothing changed. */
+  credited: boolean;
+  /** The amount the ledger row moved (signed micro-USD; a clamped pool debit moves less than asked). */
+  amountMicros: number;
+  /** The target ledger's balance afterwards (settled; pending holds not deducted). */
+  balanceMicros: number;
 }

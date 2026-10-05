@@ -48,7 +48,11 @@ describe('config parsers', () => {
 describe('appConfig', () => {
   it('has the documented defaults', () => {
     const c = appConfig(blank({ POOL_ENABLED: '' }));
-    expect(c.flags).toEqual({ poolEnabled: false, personalCreditEnabled: false });
+    expect(c.flags).toEqual({
+      poolEnabled: false,
+      personalCreditEnabled: false,
+      devPurchasesEnabled: false,
+    });
     expect(c.prices).toEqual(DEFAULT_MODEL_PRICES);
     expect(c.pool).toMatchObject({
       accountId: 'pool',
@@ -94,6 +98,7 @@ describe('appConfig', () => {
     const custom = blank({
       POOL_ENABLED: 'true',
       PERSONAL_CREDIT_ENABLED: 'TRUE',
+      DEV_PURCHASES_ENABLED: 'true',
       POOL_ACCOUNT_ID: 'pool-x',
       POOL_FREE_REQUESTS_PER_DAY: '9',
       SUPPORTER_WINDOW_MONTHS: '12',
@@ -102,7 +107,11 @@ describe('appConfig', () => {
     });
     const c = appConfig(custom);
     expect(appConfig(custom)).toBe(c);
-    expect(c.flags).toEqual({ poolEnabled: true, personalCreditEnabled: true });
+    expect(c.flags).toEqual({
+      poolEnabled: true,
+      personalCreditEnabled: true,
+      devPurchasesEnabled: true,
+    });
     expect(c.pool.accountId).toBe('pool-x');
     expect(c.pool.caps.free.requestsPerDay).toBe(9);
     expect(c.pool.caps.supporter.windowMonths).toBe(12);

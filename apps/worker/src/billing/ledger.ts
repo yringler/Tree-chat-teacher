@@ -22,7 +22,11 @@ export interface CreditGrantInput {
   marginBps?: number;
   /** The buyer or beneficiary. */
   userId?: string | null;
-  /** Stripe object id for idempotency; null for manual adjustments. */
+  /**
+   * Idempotency key: the Stripe object id (session, invoice, refund, dispute),
+   * `admin:<key>` for an admin's adjustment or `dev:<key>` for a simulated
+   * purchase (Stripe ids never start with those); null for SQL adjustments.
+   */
   stripeRef: string | null;
   note?: string;
 }
@@ -131,4 +135,26 @@ export async function hasGrant(db: D1Database, stripeRef: string): Promise<boole
     .bind(stripeRef)
     .first<{ one: number }>();
   return row !== null;
+}
+
+/** A grant as `grantByRef` reads it. */
+export interface GrantRow {
+  account_id: string;
+  kind: CreditGrantKind;
+  amount_micros: number;
+  gross_micros: number | null;
+  fee_micros: number;
+  margin_bps: number;
+  user_id: string | null;
+}
+
+/** The grant written for `stripeRef` (a Stripe object id, or `admin:` / `dev:` key), if any. */
+export async function grantByRef(db: D1Database, stripeRef: string): Promise<GrantRow | null> {
+  return db
+    .prepare(
+      `SELECT account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id
+       FROM credit_grants WHERE stripe_ref = ? LIMIT 1`,
+    )
+    .bind(stripeRef)
+    .first<GrantRow>();
 }

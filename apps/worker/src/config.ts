@@ -124,6 +124,12 @@ export interface AppConfig {
      * credit, `PERSONAL_CREDIT_ENABLED`); billing being configured enables it anyway.
      */
     personalCreditEnabled: boolean;
+    /**
+     * Admins may simulate purchases (`POST /api/admin/credit`, mode
+     * `simulated_purchase`) to test funding without Stripe (`DEV_PURCHASES_ENABLED`).
+     * Never on in production: a simulated purchase makes its buyer a supporter.
+     */
+    devPurchasesEnabled: boolean;
   };
   prices: Readonly<Record<string, ModelPrice>>;
   billing: {
@@ -257,6 +263,7 @@ function parse(env: AppEnv): AppConfig {
     flags: {
       poolEnabled: boolVar(env.POOL_ENABLED, false),
       personalCreditEnabled: boolVar(env.PERSONAL_CREDIT_ENABLED, false),
+      devPurchasesEnabled: boolVar(env.DEV_PURCHASES_ENABLED, false),
     },
     prices: parsePrices(env.MODEL_PRICES),
     billing: {

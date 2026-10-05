@@ -50,10 +50,26 @@ export const MAX_TOP_UP_CENTS = 50_000;
 /** Ledger units per US dollar. */
 export const MICROS_PER_USD = 1_000_000;
 
+/**
+ * What a credit purchase buys:
+ * - `personal`: credit on the buyer's own ledger (net of Stripe's fee);
+ * - `pool`: credit in the community pool (pool.ts), net of the pool margin.
+ *   At least the pool minimum (`POOL_MIN_PURCHASE_CENTS`, default $10), so
+ *   the margin covers card processing.
+ */
+export const PURCHASE_TARGETS = ['personal', 'pool'] as const;
+export type PurchaseTarget = (typeof PURCHASE_TARGETS)[number];
+
+/** The amounts the billing page offers for funding the community pool. */
+export const POOL_FUND_PRESETS_CENTS: readonly number[] = [1000, 2000, 5000];
+
+/** `POST /api/billing/checkout`; `target` defaults to `personal` (older clients send none). */
 export const createCheckoutRequestSchema = z.object({
   amountCents: z.number().int().min(MIN_TOP_UP_CENTS).max(MAX_TOP_UP_CENTS),
+  target: z.enum(PURCHASE_TARGETS).default('personal'),
 });
-export type CreateCheckoutRequest = z.infer<typeof createCheckoutRequestSchema>;
+/** What a client sends (`target` optional). */
+export type CreateCheckoutRequest = z.input<typeof createCheckoutRequestSchema>;
 
 /** Stripe Checkout URL to send the browser to. */
 export interface CheckoutResponse {

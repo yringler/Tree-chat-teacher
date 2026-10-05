@@ -182,6 +182,9 @@
     // "true": personal credit (e.g. admin-granted) may be spent before Stripe is configured. With Stripe
     // configured it always may; empty or "false" = only then.
     "PERSONAL_CREDIT_ENABLED": "false",
+    // "true" lets admins simulate purchases without Stripe (POST /api/admin/credit, mode
+    // simulated_purchase), for local testing. Keep it "false" in production.
+    "DEV_PURCHASES_ENABLED": "false",
     // Ledger account id of the pool in credit_grants / usage_events (default "pool").
     "POOL_ACCOUNT_ID": "pool",
     // The one model pool replies use; empty = SIMPLE_FAST_MODEL. It must have an entry in the price table.

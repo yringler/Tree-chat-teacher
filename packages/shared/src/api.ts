@@ -66,7 +66,8 @@ import type { PoolBlockDetails } from './pool.js';
  *
  *   GET    /api/billing                          -> BillingSummary
  *   GET    /api/billing/usage?cursor=&limit=     -> UsageListResponse (newest first, limit <= 100, default 50)
- *   POST   /api/billing/checkout CreateCheckoutRequest -> CheckoutResponse (same-origin only)
+ *   POST   /api/billing/checkout CreateCheckoutRequest -> CheckoutResponse (same-origin only;
+ *                                                target `personal` or `pool`; 400 below the pool minimum)
  *   POST   /api/billing/membership/waiver MembershipWaiverRequest -> MembershipInfo (same-origin only;
  *                                                400 no code configured, 403 wrong code, 429 rate limited)
  *   POST   /api/auth/subscription/{upgrade,billing-portal,list,cancel,restore}  Better Auth Stripe plugin
@@ -85,6 +86,9 @@ import type { PoolBlockDetails } from './pool.js';
  *                                                most spend first; today's busiest network keys)
  *   GET    /api/admin/users/:userId/shares       -> ShareSummary[] (both of the user's accounts, newest first)
  *   POST   /api/admin/shares/:shareId/revoke     -> ShareSummary (any owner's share; same-origin only)
+ *   POST   /api/admin/credit AdminCreditRequest -> AdminCreditResponse (same-origin only; personal
+ *                                                or pool, idempotent; simulated purchases 404 unless
+ *                                                DEV_PURCHASES_ENABLED)
  *
  * Generating routes (messages, review, context?resolve=true) answer 402
  * `membership_required` when the membership is required and the user has

@@ -130,6 +130,8 @@ export default defineConfig({
             // limits sit above them, so a cap test sees the cap.
             POOL_ENABLED: 'true',
             PERSONAL_CREDIT_ENABLED: 'false',
+            // As deployed: tests that simulate purchases turn it on in an env override.
+            DEV_PURCHASES_ENABLED: 'false',
             POOL_ACCOUNT_ID: 'pool',
             POOL_MODEL: 'simple',
             MODEL_PRICES: JSON.stringify({ simple: { in: 1_000_000, out: 1_000_000, context: 8_192 } }),

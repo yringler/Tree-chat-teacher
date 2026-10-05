@@ -22,6 +22,9 @@ import type { PoolBlockReason, UsagePurpose } from '@tangent/shared';
 import { DurableObject } from 'cloudflare:workers';
 import {
   balanceStatement,
+  getBalance,
+  grantByRef,
+  grantCredit,
   readBalance,
   type BalanceCheckpoint,
   type BalanceRow,
@@ -116,6 +119,33 @@ export interface PoolRefusal {
   supporter: boolean;
   /** The same cap for supporters (`cap_requests`, `cap_spend` only), for "supporters get more". */
   supporterLimit: number | null;
+}
+
+/** `debit`: take up to `requestedMicros` from the pool, keyed on `refId`. */
+export interface PoolDebitRequest {
+  poolId: string;
+  /** Idempotency key: the Stripe refund or dispute id, or `admin:<key>`. */
+  refId: string;
+  /** Positive micro-USD to take; the debit is clamped to what is available. */
+  requestedMicros: number;
+  /** `refund` for refunds and disputes, `adjustment` for an admin's. */
+  kind: 'refund' | 'adjustment';
+  /** The buyer whose purchase is refunded, or the admin adjustment's user. */
+  userId: string | null;
+  /** Refunds and disputes: minus the refunded pre-tax amount (unclamped); else null. */
+  grossMicros: number | null;
+  note: string;
+}
+
+/**
+ * `debited`: false when `refId` was already written (nothing changed).
+ * `amountMicros`: what the row took from the pool (positive; the existing
+ * row's on a replay). `shortfallMicros`: requested minus taken.
+ */
+export interface PoolDebitResult {
+  debited: boolean;
+  amountMicros: number;
+  shortfallMicros: number;
 }
 
 export type PoolReserveResult = { ok: true; usageId: string; tier: PoolTier } | PoolRefusal;
@@ -352,11 +382,59 @@ export class PoolBank extends DurableObject<AppEnv> {
   }
 
   /**
-   * Debits the pool for a refund or dispute of a pool purchase, clamped to the
-   * available balance and always written (docs/pool/PLAN.md §1.3). Filled in S5.
+   * Debits the pool (a refund or dispute of a pool purchase, or a negative
+   * admin adjustment; docs/pool/PLAN.md §1.3), under the reservation lock: a
+   * debit lowers `available` like a reservation does. The amount is clamped
+   * to what is available, so the pool never goes negative, and the row is
+   * written even when the clamp leaves 0: keyed on `refId`, it makes every
+   * redelivery (or a later event listing the same refund again) a no-op. The
+   * requested amount and the shortfall go in the note; the shortfall is the
+   * operator's to absorb and is logged.
    */
-  async debit(_req: unknown): Promise<never> {
-    throw new Error('Not implemented (S5)');
+  async debit(req: PoolDebitRequest): Promise<PoolDebitResult> {
+    if (!Number.isSafeInteger(req.requestedMicros) || req.requestedMicros < 0)
+      throw new Error('PoolBank.debit: requestedMicros must be a non-negative integer');
+    const run = this.lock.then(() => this.debitLocked(req));
+    this.lock = run.catch(() => undefined);
+    return run;
+  }
+
+  private async debitLocked(req: PoolDebitRequest): Promise<PoolDebitResult> {
+    const db = this.env.DB;
+    const existing = await grantByRef(db, req.refId);
+    if (existing)
+      return { debited: false, amountMicros: -existing.amount_micros, shortfallMicros: 0 };
+    const balance = await getBalance(db, req.poolId, await this.checkpointOf(req.poolId));
+    const available = balance.balanceMicros - balance.heldMicros;
+    const amount = Math.min(req.requestedMicros, Math.max(available, 0));
+    const shortfall = req.requestedMicros - amount;
+    const debited = await grantCredit(db, {
+      accountId: req.poolId,
+      kind: req.kind,
+      amountMicros: -amount,
+      grossMicros: req.grossMicros,
+      userId: req.userId,
+      stripeRef: req.refId,
+      note: `${req.note} (requested=${req.requestedMicros};shortfall=${shortfall})`,
+    });
+    if (debited && shortfall > 0) {
+      console.warn(
+        JSON.stringify({
+          event: 'pool_debit_shortfall',
+          poolId: req.poolId,
+          refId: req.refId,
+          requestedMicros: req.requestedMicros,
+          debitedMicros: amount,
+          shortfallMicros: shortfall,
+        }),
+      );
+    }
+    if (!debited) {
+      // Lost a race with another writer of the same ref (not through this lock): report its row.
+      const row = await grantByRef(db, req.refId);
+      return { debited: false, amountMicros: -(row?.amount_micros ?? 0), shortfallMicros: 0 };
+    }
+    return { debited: true, amountMicros: amount, shortfallMicros: shortfall };
   }
 
   /**

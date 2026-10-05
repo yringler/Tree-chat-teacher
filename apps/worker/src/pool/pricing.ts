@@ -125,3 +125,19 @@ export function poolCreditMicros(grossMicros: number, marginBps: number): number
   const gross = BigInt(Math.floor(grossMicros));
   return Number((gross * BPS_SCALE) / (BPS_SCALE + bpsOf(marginBps)));
 }
+
+/**
+ * The pool credit a refund of `refundGrossMicros` (pre-tax) of a pool
+ * purchase takes back: the same share of the credit the purchase granted,
+ * `round(refund × credit / gross)`, so refunding $10 bought at 8% takes
+ * $9.259259 of pool credit, not $10.
+ */
+export function creditEquivalentMicros(
+  refundGrossMicros: number,
+  grant: { amountMicros: number; grossMicros: number },
+): number {
+  if (refundGrossMicros <= 0 || grant.grossMicros <= 0 || grant.amountMicros <= 0) return 0;
+  const num = BigInt(Math.round(refundGrossMicros)) * BigInt(Math.round(grant.amountMicros));
+  const den = BigInt(Math.round(grant.grossMicros));
+  return Number((2n * num + den) / (2n * den));
+}

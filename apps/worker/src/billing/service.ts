@@ -8,6 +8,7 @@ import {
   type BillingSummary,
   type CheckoutResponse,
   type PurchaseInfo,
+  type PurchaseTarget,
   type UsageEntry,
   type UsageListResponse,
   type UsagePurpose,
@@ -227,13 +228,19 @@ export function checkoutReturnUrl(
   return `${base}${page}?checkout=${outcome}`;
 }
 
-/** Creates a Stripe Checkout Session (mode `payment`) for a credit top-up, in either mode. */
+/**
+ * Creates a Stripe Checkout Session (mode `payment`) for a credit purchase, in
+ * either mode: a top-up of the user's own credit, or (`target` `pool`, checked
+ * by billing/purchases.ts) credit for the community pool. The metadata names
+ * the target, the ledger credited and the buyer, for the webhook.
+ */
 export async function createCreditCheckout(
   env: AppEnv,
   account: AccountContext,
   user: { id: string; email: string; name: string },
   amountCents: number,
   baseUrl: string,
+  target: PurchaseTarget = 'personal',
 ): Promise<CheckoutResponse> {
   if (
     !Number.isInteger(amountCents) ||
@@ -249,9 +256,15 @@ export async function createCreditCheckout(
   if (!billingConfigured(env) || !stripe || !productId) throw notConfigured();
 
   const customer = await ensureStripeCustomer(env, user);
-  // The user's ledger, whichever app the top-up was bought from.
-  const accountId = account.billingAccountId;
-  const metadata = { kind: 'credits', accountId, amountCents: String(amountCents) };
+  // The user's ledger, whichever app the top-up was bought from; or the pool's.
+  const accountId = target === 'pool' ? appConfig(env).pool.accountId : account.billingAccountId;
+  const metadata = {
+    kind: 'credits',
+    target,
+    accountId,
+    userId: user.id,
+    amountCents: String(amountCents),
+  };
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
     customer,
@@ -272,7 +285,7 @@ export async function createCreditCheckout(
     ],
     client_reference_id: accountId,
     metadata,
-    // Lets refunds (charge.refunded) find the account and the pre-tax share.
+    // Lets refunds and disputes find the account, the buyer and the pre-tax share.
     payment_intent_data: { metadata },
     success_url: checkoutReturnUrl(baseUrl, account, 'success'),
     cancel_url: checkoutReturnUrl(baseUrl, account, 'cancel'),

@@ -95,9 +95,21 @@ describe('credit checkout', () => {
         },
       },
       client_reference_id: account.id,
-      metadata: { kind: 'credits', accountId: account.id, amountCents: '500' },
+      metadata: {
+        kind: 'credits',
+        target: 'personal',
+        accountId: account.id,
+        userId: user.id,
+        amountCents: '500',
+      },
       payment_intent_data: {
-        metadata: { kind: 'credits', accountId: account.id, amountCents: '500' },
+        metadata: {
+          kind: 'credits',
+          target: 'personal',
+          accountId: account.id,
+          userId: user.id,
+          amountCents: '500',
+        },
       },
       success_url: `${BASE}/learn/billing?checkout=success`,
       cancel_url: `${BASE}/learn/billing?checkout=cancel`,
@@ -147,7 +159,13 @@ describe('credit checkout', () => {
     );
     expect(session?.body).toMatchObject({
       client_reference_id: `u_${user.id}`,
-      metadata: { kind: 'credits', accountId: `u_${user.id}`, amountCents: '1000' },
+      metadata: {
+        kind: 'credits',
+        target: 'personal',
+        accountId: `u_${user.id}`,
+        userId: user.id,
+        amountCents: '1000',
+      },
       success_url: `${BASE}/billing?checkout=success`,
       cancel_url: `${BASE}/billing?checkout=cancel`,
     });
