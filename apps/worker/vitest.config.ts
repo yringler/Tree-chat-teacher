@@ -120,6 +120,29 @@ export default defineConfig({
             MEMBERSHIP_CREDIT_CENTS: '200',
             MEMBERSHIP_WAIVER_CODE: '',
             MARKUP_BPS: '1000',
+            // The community pool, on (wrangler.jsonc ships it off). Pool tests isolate themselves with a
+            // unique POOL_ACCOUNT_ID per test. The pool model is the fake `tangent` provider's `simple`,
+            // priced at 1 µ$ per token each way, so every reply hold (up to 2,048 tokens out) is above
+            // the fake's reported cost (0.001234 USD ≈ 1,302 µ$ with the fee) and only the test that
+            // targets the clamp hits it. Caps are small so cap tests stay short; the per-minute
+            // limits sit above them, so a cap test sees the cap.
+            POOL_ENABLED: 'true',
+            POOL_ACCOUNT_ID: 'pool',
+            POOL_MODEL: 'simple',
+            MODEL_PRICES: JSON.stringify({ simple: { in: 1_000_000, out: 1_000_000, context: 8_192 } }),
+            POOL_MAX_OUTPUT_TOKENS: '2048',
+            POOL_FREE_REQUESTS_PER_DAY: '3',
+            POOL_FREE_SPEND_MICROS_PER_DAY: '1000000',
+            POOL_SUPPORTER_REQUESTS_PER_DAY: '6',
+            POOL_SUPPORTER_SPEND_MICROS_PER_DAY: '5000000',
+            SUPPORTER_WINDOW_MONTHS: '',
+            POOL_USER_PER_MINUTE: '100',
+            POOL_IP_PER_MINUTE: '100',
+            // Generation lookups made inside Durable Objects (PoolBank's expiry) reach the
+            // OpenRouter mock with this key; tests that need no key override it with ''.
+            OPENROUTER_SIMPLE_API_KEY: 'sk-or-test',
+            // Test-only RPC methods (PoolBank.expire, PoolBank.status).
+            TEST_SEAMS: 'true',
           },
           ratelimits: {
             CHAT_RATE_LIMITER: { namespace_id: '1002', simple: { limit: 5, period: 60 } },

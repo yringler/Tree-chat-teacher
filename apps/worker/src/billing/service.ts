@@ -17,18 +17,19 @@ import { builtInAvailable } from '../services.js';
 import { getBalance } from './ledger.js';
 import { membershipFor } from './membership.js';
 import { billingConfigured, ensureStripeCustomer, getStripe } from './stripe.js';
-import { intVar } from './vars.js';
+import { appConfig } from '../config.js';
 
-export const DEFAULT_USAGE_HOLD_MICROS = 20_000;
-export const DEFAULT_USAGE_MAX_PENDING = 3;
-export const DEFAULT_MARKUP_BPS = 1000;
-/** OpenRouter's fee on credit purchases (5.5%; higher for top-ups under ~$15, see README). */
-export const DEFAULT_OPENROUTER_FEE_BPS = 550;
+export {
+  DEFAULT_MARKUP_BPS,
+  DEFAULT_OPENROUTER_FEE_BPS,
+  DEFAULT_USAGE_HOLD_MICROS,
+  DEFAULT_USAGE_MAX_PENDING,
+} from '../config.js';
 export const MAX_USAGE_PAGE = 100;
 
 /** Per-call hold and minimum available balance (`USAGE_HOLD_MICROS`). */
 export function usageHoldMicros(env: AppEnv): number {
-  return intVar(env.USAGE_HOLD_MICROS, DEFAULT_USAGE_HOLD_MICROS);
+  return appConfig(env).billing.usageHoldMicros;
 }
 
 /**
@@ -37,12 +38,12 @@ export function usageHoldMicros(env: AppEnv): number {
  * at most this many calls, each within the built-in provider's token caps.
  */
 export function usageMaxPending(env: AppEnv): number {
-  return intVar(env.USAGE_MAX_PENDING, DEFAULT_USAGE_MAX_PENDING);
+  return appConfig(env).billing.usageMaxPending;
 }
 
 /** OpenRouter's credit-purchase fee in bps (`OPENROUTER_FEE_BPS`), part of the provider cost. */
 export function openRouterFeeBps(env: AppEnv): number {
-  return intVar(env.OPENROUTER_FEE_BPS, DEFAULT_OPENROUTER_FEE_BPS);
+  return appConfig(env).billing.openRouterFeeBps;
 }
 
 /**
@@ -51,7 +52,7 @@ export function openRouterFeeBps(env: AppEnv): number {
  * else 1000 (+10%). The same for every user: there are no plan discounts.
  */
 export function markupFor(env: AppEnv): number {
-  return intVar(env.MARKUP_BPS, intVar(env.MARKUP_PREPAID_BPS, DEFAULT_MARKUP_BPS));
+  return appConfig(env).billing.markupBps;
 }
 
 function notConfigured(): DomainError {

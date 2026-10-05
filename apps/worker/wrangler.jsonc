@@ -62,16 +62,27 @@
     {
       "binding": "DB",
       "database_name": "tangent",
-      // D1 database "tangent" on the owner's account (migrations 0000-0001 applied).
+      // D1 database "tangent" on the owner's account. Apply new migrations (./migrations) with
+      // `pnpm db:migrate:remote` before deploying code that needs them.
       "database_id": "6f9486ed-e5fd-4dfa-b434-10274a650297",
       "migrations_dir": "migrations"
     }
   ],
   "durable_objects": {
-    "bindings": [{ "name": "TREE_SESSION", "class_name": "TreeSession" }]
+    "bindings": [
+      { "name": "TREE_SESSION", "class_name": "TreeSession" },
+      // The community credit pool's bank: serialises every reservation against the pool's
+      // balance, one instance per pool account id (src/pool/pool-bank.ts).
+      { "name": "POOL_BANK", "class_name": "PoolBank" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TreeSession"] }],
-  // Usage reconciliation backstop for simple-mode billing (src/billing/reconcile.ts).
+  // Durable Object class migrations: append a new tag, never edit an applied one.
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["TreeSession"] },
+    { "tag": "v2", "new_sqlite_classes": ["PoolBank"] }
+  ],
+  // Every 10 minutes: settles usage the stream couldn't (src/billing/reconcile.ts), expires stale
+  // community pool reservations and maintains the pool's balance checkpoint.
   "triggers": { "crons": ["*/10 * * * *"] },
   "ratelimits": [
     {
@@ -161,7 +172,71 @@
     "MEMBERSHIP_PRICE_CENTS": "1000",
     // Credit included with each paid membership year, in US cents (200 = $2.00); granted only while
     // the built-in provider is offered. 0 = none.
-    "MEMBERSHIP_CREDIT_CENTS": "200"
+    "MEMBERSHIP_CREDIT_CENTS": "200",
+    // ---- The community credit pool (docs/pool/SPEC.md, src/config.ts). Anyone may fund it; any
+    // signed-in Learn user may learn from it on one economical model, within daily caps. Every value
+    // below is read through src/config.ts; empty or malformed = the default named in the comment.
+    // "true" turns the pool on. Off, nothing spends from it.
+    "POOL_ENABLED": "false",
+    // Ledger account id of the pool in credit_grants / usage_events (default "pool").
+    "POOL_ACCOUNT_ID": "pool",
+    // The one model pool replies use; empty = SIMPLE_FAST_MODEL. It must have an entry in the price table.
+    "POOL_MODEL": "",
+    // The locked system prompt of pool replies; empty = SIMPLE_SYSTEM_PROMPT, else the built-in prompt.
+    "POOL_SYSTEM_PROMPT": "",
+    // Margin taken when the pool is funded, in bps (800 = 8%): $10 buys $10 / 1.08 of pool credit.
+    // MARGIN_PERCENT (e.g. "8") is accepted instead while this is empty.
+    "POOL_MARGIN_BPS": "800",
+    // Smallest pool purchase in US cents (1000 = $10), so the margin covers card processing.
+    "POOL_MIN_PURCHASE_CENTS": "1000",
+    // Per-call input and output token caps of pool calls, and the longest message a pool send accepts.
+    "POOL_MAX_INPUT_TOKENS": "16000",
+    "POOL_MAX_OUTPUT_TOKENS": "1024",
+    "POOL_MAX_MESSAGE_CHARS": "4000",
+    // A reservation still pending after this long is expired by the PoolBank alarm (10 min).
+    "POOL_RESERVATION_TTL_MS": "600000",
+    // A dispatched call whose cost is still unknown after this long is charged its full hold (1 h).
+    "POOL_GIVE_UP_MS": "3600000",
+    // Pool calls are aborted after this long (120 s; at most the TTL minus a minute).
+    "POOL_CALL_TIMEOUT_MS": "120000",
+    // Reservations one expiry pass settles before it re-arms.
+    "POOL_EXPIRE_BATCH": "20",
+    // Micro-USD one "learning session" is shown as on the pool meter (20000 = $0.02).
+    "POOL_SESSION_ESTIMATE_MICROS": "20000",
+    // Daily caps per user (UTC day): replies and spend in micro-USD, for the free and supporter tiers.
+    "POOL_FREE_REQUESTS_PER_DAY": "30",
+    "POOL_FREE_SPEND_MICROS_PER_DAY": "100000",
+    "POOL_SUPPORTER_REQUESTS_PER_DAY": "150",
+    "POOL_SUPPORTER_SPEND_MICROS_PER_DAY": "500000",
+    // A supporter has net purchases above $0. Empty = for life; a number of months = only while
+    // their latest purchase is that recent.
+    "SUPPORTER_WINDOW_MONTHS": "",
+    // What the free tier may spend from the pool per UTC day, all users together: the lower of
+    // this many micro-USD and this share (bps) of the pool's balance at 00:00 UTC.
+    "POOL_FREE_DAILY_GLOBAL_MICROS": "5000000",
+    "POOL_FREE_DAILY_GLOBAL_BPS": "2000",
+    // Daily caps per network (IPv4 address or IPv6 /64), all users together.
+    "POOL_IP_REQUESTS_PER_DAY": "60",
+    "POOL_IP_SPEND_MICROS_PER_DAY": "300000",
+    // Per-minute rate limits of pool replies, per user and per network.
+    "POOL_USER_PER_MINUTE": "6",
+    "POOL_IP_PER_MINUTE": "20",
+    // Minimum account age before first pool use, in ms (0 = none).
+    "POOL_MIN_ACCOUNT_AGE_MS": "0",
+    // Overage breaker: when settled charges exceeded their holds by more than this many micro-USD
+    // within the window, the pool refuses every reservation until the window clears (a price drifted).
+    "POOL_OVERAGE_WINDOW_MS": "86400000",
+    "POOL_OVERAGE_MAX_MICROS": "200000",
+    // JSON merged over the built-in price table (src/config.ts), micro-USD per million tokens:
+    // {"<model id>": {"in": 100000, "out": 400000, "context": 131072, "feeBps": 550}}. feeBps is
+    // optional (default OPENROUTER_FEE_BPS). A model without a price can't be used by the pool.
+    "MODEL_PRICES": "",
+    // Impact feed: a topic is named publicly only when at least this many distinct learners touched
+    // it in the week (default 5, never below 3); comma-separated topic ids never published; and how
+    // many days topic tags outlive their branch's last pool use.
+    "IMPACT_MIN_DISTINCT_USERS": "5",
+    "POOL_TOPIC_BLOCKLIST": "",
+    "IMPACT_TAG_RETENTION_DAYS": "14"
   }
   // Secrets (wrangler secret put): AI_GATEWAY_TOKEN,
   //   KEY_ENCRYPTION_SECRET (`openssl rand -base64 32`; enables bring-your-own-key, rotate to revoke all stored keys)

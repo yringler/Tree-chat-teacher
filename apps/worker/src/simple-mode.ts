@@ -1,7 +1,10 @@
 import { DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
 import { parseProviderConfigs } from '@tangent/providers';
 import { DEFAULT_SYSTEM_PROMPT, type ModelInfo, type ProviderConfig } from '@tangent/shared';
+import { appConfig } from './config.js';
 import type { AppEnv } from './env.js';
+
+export { DEFAULT_SIMPLE_MAX_INPUT_TOKENS } from './config.js';
 
 /**
  * The built-in provider, `tangent`: the operator's OpenRouter key, metered
@@ -18,7 +21,6 @@ export const SIMPLE_PROVIDER_ID = 'tangent';
 export const BUILT_IN_PROVIDER_ID = SIMPLE_PROVIDER_ID;
 export const DEFAULT_SIMPLE_SMART_MODEL = 'deepseek/deepseek-v4-pro';
 export const DEFAULT_SIMPLE_FAST_MODEL = 'deepseek/deepseek-v4-flash';
-export const DEFAULT_SIMPLE_MAX_INPUT_TOKENS = 60_000;
 /** Output cap per call; with the input cap it bounds the cost of any one request. */
 export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
 
@@ -81,7 +83,7 @@ export function suggestedModels(env: AppEnv): ModelInfo[] {
 
 /** Learn's per-call input cap (`SIMPLE_MAX_INPUT_TOKENS`). */
 export function simpleMaxInputTokens(env: AppEnv): number {
-  return positiveInt(env.SIMPLE_MAX_INPUT_TOKENS, DEFAULT_SIMPLE_MAX_INPUT_TOKENS);
+  return appConfig(env).simple.maxInputTokens;
 }
 
 /**
@@ -119,11 +121,6 @@ export function simpleFastModel(
   const wanted = fastModel(env);
   const models = config.models;
   return models.find((m) => m.id === wanted)?.id ?? models[1]?.id ?? config.defaultModel;
-}
-
-function positiveInt(raw: string | undefined, fallback: number): number {
-  const n = Number(raw?.trim());
-  return Number.isSafeInteger(n) && n > 0 ? n : fallback;
 }
 
 /** Chat settings for simple accounts: capped input, fixed output reserve, cheap summaries. */

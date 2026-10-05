@@ -536,7 +536,7 @@ export class ChatService {
           summaryProvider,
           summaryModel,
           request,
-          inputs.tree.id,
+          { treeId: inputs.tree.id, branchId: inputs.branch.id },
           signal,
         );
         if (text === null) {
@@ -564,7 +564,7 @@ export class ChatService {
     provider: LlmProvider,
     model: string,
     request: SummaryRequest,
-    treeId: string,
+    target: { treeId: string; branchId: string },
     signal?: AbortSignal,
   ): Promise<string | null> {
     const prompt = buildSummaryPrompt(request);
@@ -573,7 +573,7 @@ export class ChatService {
       model,
       prompt,
       signal ?? new AbortController().signal,
-      { purpose: 'summary', treeId, nodeId: null },
+      { purpose: 'summary', ...target, nodeId: null },
     );
     return text?.trim() ? text.trim() : null;
   }
@@ -681,7 +681,12 @@ export class ChatService {
         messages: rendered.messages,
         maxOutputTokens: maxOutput,
         signal,
-        usageTag: { purpose: 'reply', treeId: inputs.tree.id, nodeId: assistantNode.id },
+        usageTag: {
+          purpose: 'reply',
+          treeId: inputs.tree.id,
+          branchId: branch.id,
+          nodeId: assistantNode.id,
+        },
       })) {
         if (event.type === 'delta') {
           content += event.text;
@@ -750,7 +755,7 @@ export class ChatService {
         model,
         buildTitlePrompt(messages),
         AbortSignal.timeout(TITLE_TIMEOUT_MS),
-        { purpose: 'title', treeId: tree.id, nodeId: null },
+        { purpose: 'title', treeId: tree.id, branchId: branch.id, nodeId: null },
       );
       const title = raw ? cleanTitle(raw) : null;
       if (!title) return null;
@@ -817,7 +822,12 @@ export class ChatService {
         messages: rendered.messages,
         maxOutputTokens: maxOutput,
         signal,
-        usageTag: { purpose: 'review', treeId: review.node.treeId, nodeId: review.node.id },
+        usageTag: {
+          purpose: 'review',
+          treeId: review.node.treeId,
+          branchId: review.node.branchId,
+          nodeId: review.node.id,
+        },
       })) {
         if (event.type === 'delta') yield { type: 'delta', text: event.text };
         else if (event.type === 'usage') Object.assign(usage, stripUndefined(event.usage));

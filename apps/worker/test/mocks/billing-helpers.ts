@@ -147,6 +147,14 @@ export interface UsageRow {
   output_tokens: number | null;
   created_at: string;
   settled_at: string | null;
+  branch_id: string | null;
+  user_id: string | null;
+  funding: 'personal' | 'pool';
+  ip_key: string | null;
+  tier: 'free' | 'supporter' | null;
+  overage_micros: number;
+  settle_reason: string | null;
+  dispatched_at: string | null;
 }
 
 export async function usageRows(env: AppEnv, accountId: string): Promise<UsageRow[]> {

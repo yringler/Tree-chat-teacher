@@ -30,6 +30,7 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
   summary: 'Summary',
   title: 'Title',
   review: 'Review',
+  tagging: 'Topic tag',
   other: 'Other',
 };
 

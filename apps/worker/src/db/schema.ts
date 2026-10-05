@@ -347,11 +347,13 @@ export const authSubscriptions = sqliteTable(
   ],
 );
 
-// ---- Billing (simple accounts; see src/billing/)
+// ---- Billing (see src/billing/ and, for the community pool, src/pool/)
 //
 // Ledger in integer micro-USD. Balance = Σ credit_grants.amount_micros
 // − Σ settled usage_events.charge_micros; pending usage holds `hold_micros`.
-// No cached balance column: every write is one idempotent statement.
+// No cached balance column: every write is one idempotent statement. Each
+// user's credit is the account `u_<userId>`; the community pool is one more
+// account (`POOL_ACCOUNT_ID`, default `pool`) in the same two tables.
 
 /** Credits (purchases, subscription invoices) and debits (refunds, manual adjustments). */
 export const creditGrants = sqliteTable(
@@ -360,21 +362,38 @@ export const creditGrants = sqliteTable(
     id: text('id').primaryKey(),
     accountId: text('account_id').notNull(),
     kind: text('kind', { enum: ['purchase', 'subscription', 'refund', 'adjustment'] }).notNull(),
-    /** Signed: refunds are negative. For purchases, the credit net of Stripe's fee. */
+    /** Signed: refunds are negative. For purchases, the credit net of Stripe's fee (personal) or of the margin (pool). */
     amountMicros: integer('amount_micros').notNull(),
-    /** Purchases: the pre-tax amount paid (`amount + fee`); null for refunds and adjustments. */
+    /**
+     * Purchases: the pre-tax amount paid (`amount + fee` for personal credit); refunds and
+     * disputes (since migration 0010): minus the refunded pre-tax amount, unclamped. Null for
+     * adjustments and older refunds.
+     */
     grossMicros: integer('gross_micros'),
-    /** Purchases: Stripe's actual processing fee, deducted from the credit. */
+    /** Purchases: Stripe's actual processing fee (deducted from personal credit; recorded only for the pool). */
     feeMicros: integer('fee_micros').notNull().default(0),
-    /** Stripe object id (checkout session, invoice, refund); unique for idempotency. */
+    /** Pool purchases: the margin taken, in bps (`amount = gross / (1 + margin)`); 0 otherwise. */
+    marginBps: integer('margin_bps').notNull().default(0),
+    /** The buyer or beneficiary (Better Auth user id); null on rows before migration 0010 and pool adjustments. */
+    userId: text('user_id'),
+    /** Stripe object id (checkout session, invoice, refund), or `admin:<key>`; unique for idempotency. */
     stripeRef: text('stripe_ref').unique(),
     note: text('note'),
     createdAt: text('created_at').notNull(),
   },
-  (t) => [index('credit_grants_account_idx').on(t.accountId)],
+  (t) => [
+    index('credit_grants_account_idx').on(t.accountId),
+    index('credit_grants_user_idx').on(t.userId, t.kind),
+    index('credit_grants_account_created_idx').on(t.accountId, t.createdAt),
+  ],
 );
 
-/** One metered provider call. No FK to trees: billing history outlives deleted trees. */
+/**
+ * One metered provider call. No FK to trees: billing history outlives deleted
+ * trees. A row never changes once it leaves `pending`; for the pool, inserting
+ * the pending row is the reservation and settling it is the settlement (or,
+ * with `settle_reason = 'released'`, the refund of the reservation).
+ */
 export const usageEvents = sqliteTable(
   'usage_events',
   {
@@ -382,7 +401,21 @@ export const usageEvents = sqliteTable(
     accountId: text('account_id').notNull(),
     treeId: text('tree_id'),
     nodeId: text('node_id'),
-    purpose: text('purpose', { enum: ['reply', 'summary', 'title', 'review', 'other'] }).notNull(),
+    /** The branch the call served (rows since migration 0010). */
+    branchId: text('branch_id'),
+    /** Who made the call (rows since migration 0010). */
+    userId: text('user_id'),
+    /** `personal` (the user's credit) or `pool` (the community pool, `account_id` = the pool). */
+    funding: text('funding', { enum: ['personal', 'pool'] })
+      .notNull()
+      .default('personal'),
+    /** Pool rows: a daily-rotating keyed hash of the caller's network (pool/ids.ts `ipKey`). */
+    ipKey: text('ip_key'),
+    /** Pool rows: the caller's cap tier when the call was reserved. */
+    tier: text('tier', { enum: ['free', 'supporter'] }),
+    purpose: text('purpose', {
+      enum: ['reply', 'summary', 'title', 'review', 'tagging', 'other'],
+    }).notNull(),
     providerId: text('provider_id').notNull(),
     model: text('model').notNull(),
     /** Upstream (OpenRouter) generation id, once known. */
@@ -393,10 +426,19 @@ export const usageEvents = sqliteTable(
     /** OpenRouter's credit-purchase fee in force at the call (rows before 0004: 0). */
     feeBps: integer('fee_bps').notNull().default(0),
     costNanos: integer('cost_nanos'),
+    /** Pool rows: never more than `hold_micros` (the excess is `overage_micros`). */
     chargeMicros: integer('charge_micros'),
+    /** Pool rows: what the call cost beyond its hold, absorbed by the operator (feeds the breaker). */
+    overageMicros: integer('overage_micros').notNull().default(0),
+    /** How the row settled: `cost|generation|tokens|hold|released|unresolved` (rows since 0010). */
+    settleReason: text('settle_reason', {
+      enum: ['cost', 'generation', 'tokens', 'hold', 'released', 'unresolved'],
+    }),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
     createdAt: text('created_at').notNull(),
+    /** Pool rows: when the request was handed to the provider (null = never sent: released at 0). */
+    dispatchedAt: text('dispatched_at'),
     settledAt: text('settled_at'),
   },
   (t) => [
@@ -404,5 +446,9 @@ export const usageEvents = sqliteTable(
     index('usage_events_pending_idx')
       .on(t.createdAt)
       .where(sql`status = 'pending'`),
+    index('usage_events_account_status_idx').on(t.accountId, t.status, t.createdAt),
+    index('usage_events_pool_user_idx').on(t.accountId, t.userId, t.createdAt),
+    index('usage_events_pool_ip_idx').on(t.accountId, t.ipKey, t.createdAt),
+    index('usage_events_pool_tier_idx').on(t.accountId, t.tier, t.createdAt),
   ],
 );

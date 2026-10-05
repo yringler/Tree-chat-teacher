@@ -1,15 +1,35 @@
-// `usage_events` writes shared by the meter and reconciliation. Each one is a
-// single conditional statement (`WHERE status = 'pending'`), so a row settles
-// at most once whoever gets there first (inline settle, deferred reconcile,
-// cron), and a replay can never double-charge.
+// `usage_events` writes shared by the meter, reconciliation and the community
+// pool. Each one is a single conditional statement (`WHERE status = 'pending'`),
+// so a row settles at most once whoever gets there first (inline settle,
+// deferred reconcile, cron, the pool's expiry alarm), and a replay can never
+// double-charge.
 import type { UsagePurpose } from '@tangent/shared';
 import { chargeMicros } from './pricing.js';
+
+export type UsageFunding = 'personal' | 'pool';
+export type PoolTier = 'free' | 'supporter';
+
+/**
+ * How a row settled. `cost`: the cost the stream reported; `generation`: from
+ * OpenRouter's generation lookup; `tokens`: tokens × the price table (pool);
+ * `hold`: the full hold (pool, nothing observed); `released`: charged 0
+ * because nothing was billed upstream (the pool's refund of a reservation);
+ * `unresolved`: given up at 0 (personal).
+ */
+export type SettleReason = 'cost' | 'generation' | 'tokens' | 'hold' | 'released' | 'unresolved';
 
 export interface PendingUsageRow {
   id: string;
   accountId: string;
   treeId: string | null;
   nodeId: string | null;
+  branchId?: string | null;
+  userId?: string | null;
+  /** Default `personal`. */
+  funding?: UsageFunding;
+  /** Pool rows only. */
+  ipKey?: string | null;
+  tier?: PoolTier | null;
   purpose: UsagePurpose;
   providerId: string;
   model: string;
@@ -20,18 +40,27 @@ export interface PendingUsageRow {
   createdAt: string;
 }
 
-export async function insertPendingUsage(db: D1Database, row: PendingUsageRow): Promise<void> {
-  await db
+export function insertPendingUsageStatement(
+  db: D1Database,
+  row: PendingUsageRow,
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO usage_events
-         (id, account_id, tree_id, node_id, purpose, provider_id, model, status, hold_micros, markup_bps, fee_bps, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+         (id, account_id, tree_id, node_id, branch_id, user_id, funding, ip_key, tier, purpose,
+          provider_id, model, status, hold_micros, markup_bps, fee_bps, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
     )
     .bind(
       row.id,
       row.accountId,
       row.treeId,
       row.nodeId,
+      row.branchId ?? null,
+      row.userId ?? null,
+      row.funding ?? 'personal',
+      row.ipKey ?? null,
+      row.tier ?? null,
       row.purpose,
       row.providerId,
       row.model,
@@ -39,8 +68,11 @@ export async function insertPendingUsage(db: D1Database, row: PendingUsageRow): 
       row.markupBps,
       row.feeBps,
       row.createdAt,
-    )
-    .run();
+    );
+}
+
+export async function insertPendingUsage(db: D1Database, row: PendingUsageRow): Promise<void> {
+  await insertPendingUsageStatement(db, row).run();
 }
 
 /**
@@ -61,41 +93,120 @@ export async function setGenerationId(
     .run();
 }
 
+/**
+ * Pool: stamps `dispatched_at` right before the request goes to the provider.
+ * Resolves false when the row is no longer pending (expired meanwhile), or was
+ * created before `createdNotBefore` (too close to its TTL for the call to end
+ * before the expiry alarm may release it): the call must then not be made.
+ */
+export async function markDispatched(
+  db: D1Database,
+  usageId: string,
+  now = new Date(),
+  createdNotBefore: Date | null = null,
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE usage_events SET dispatched_at = ?1
+       WHERE id = ?2 AND status = 'pending' AND dispatched_at IS NULL
+         AND (?3 IS NULL OR created_at >= ?3)`,
+    )
+    .bind(now.toISOString(), usageId, createdNotBefore?.toISOString() ?? null)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+/**
+ * Pool: lowers a pending reservation's hold to `holdMicros` (never raises it),
+ * once the exact worst case of the call is known. Only raises the pool's
+ * available balance, so it needs no lock. Resolves the row's resulting hold
+ * and fee, or null when it is no longer an undispatched pending row of
+ * `accountId` (another call already claimed it).
+ */
+export async function shrinkHold(
+  db: D1Database,
+  usageId: string,
+  accountId: string,
+  holdMicros: number,
+): Promise<{ holdMicros: number; feeBps: number } | null> {
+  const row = await db
+    .prepare(
+      `UPDATE usage_events SET hold_micros = MIN(hold_micros, ?)
+       WHERE id = ? AND account_id = ? AND funding = 'pool' AND status = 'pending'
+         AND dispatched_at IS NULL
+       RETURNING hold_micros, fee_bps`,
+    )
+    .bind(holdMicros, usageId, accountId)
+    .first<{ hold_micros: number; fee_bps: number }>();
+  return row ? { holdMicros: row.hold_micros, feeBps: row.fee_bps } : null;
+}
+
 export interface Settlement {
   /** Provider cost in nano-USD (0 when nothing was billed upstream). */
   costNanos: number;
   markupBps: number;
   /** The row's stored `fee_bps`, so a later config change never reprices it. */
   feeBps: number;
+  /** Default `cost`. */
+  reason?: SettleReason;
+  /** Pool `hold` settlements: charge the row's full hold instead of the cost. */
+  chargeHold?: boolean;
+  /**
+   * Settle only while `dispatched_at` is still NULL (expiry's `released`), so
+   * a call stamped after the row was read is never released at 0.
+   */
+  requireUndispatched?: boolean;
   inputTokens?: number | null;
   outputTokens?: number | null;
   now?: Date;
 }
 
-/** Settles a pending row; resolves false when it was no longer pending. */
+export interface SettleResult {
+  /** False when the row was no longer pending (settled elsewhere first). */
+  changed: boolean;
+  /** Pool rows: the cost exceeded the hold, so the charge was clamped to it. */
+  clamped: boolean;
+}
+
+/**
+ * Settles a pending row. Pool rows are charged at most their hold: the excess
+ * is recorded in `overage_micros` (absorbed by the operator, and bounded by
+ * the pool's overage breaker), so a settle can never lower the pool's
+ * available balance.
+ */
 export async function settleUsage(
   db: D1Database,
   usageId: string,
   s: Settlement,
-): Promise<boolean> {
-  const result = await db
+): Promise<SettleResult> {
+  // NULL actual = the row's own hold.
+  const actual = s.chargeHold ? null : chargeMicros(s.costNanos, s.markupBps, s.feeBps);
+  const row = await db
     .prepare(
       `UPDATE usage_events
-       SET status = 'settled', cost_nanos = ?, charge_micros = ?,
-           input_tokens = COALESCE(?, input_tokens), output_tokens = COALESCE(?, output_tokens),
-           settled_at = ?
-       WHERE id = ? AND status = 'pending'`,
+       SET status = 'settled', cost_nanos = ?1,
+           charge_micros = CASE WHEN funding = 'pool' THEN MIN(COALESCE(?2, hold_micros), hold_micros)
+                                ELSE COALESCE(?2, hold_micros) END,
+           overage_micros = CASE WHEN funding = 'pool' THEN MAX(0, COALESCE(?2, hold_micros) - hold_micros)
+                                 ELSE 0 END,
+           settle_reason = ?3,
+           input_tokens = COALESCE(?4, input_tokens), output_tokens = COALESCE(?5, output_tokens),
+           settled_at = ?6
+       WHERE id = ?7 AND status = 'pending' AND (?8 = 0 OR dispatched_at IS NULL)
+       RETURNING overage_micros`,
     )
     .bind(
-      s.costNanos,
-      chargeMicros(s.costNanos, s.markupBps, s.feeBps),
+      s.chargeHold ? null : s.costNanos,
+      actual,
+      s.reason ?? 'cost',
       s.inputTokens ?? null,
       s.outputTokens ?? null,
       (s.now ?? new Date()).toISOString(),
       usageId,
+      s.requireUndispatched ? 1 : 0,
     )
-    .run();
-  return (result.meta.changes ?? 0) > 0;
+    .first<{ overage_micros: number }>();
+  return { changed: row !== null, clamped: (row?.overage_micros ?? 0) > 0 };
 }
 
 /** Gives up on a row: `unresolved`, charged 0, for manual review. */
@@ -106,7 +217,7 @@ export async function markUnresolved(
 ): Promise<boolean> {
   const result = await db
     .prepare(
-      `UPDATE usage_events SET status = 'unresolved', charge_micros = 0, settled_at = ?
+      `UPDATE usage_events SET status = 'unresolved', charge_micros = 0, settle_reason = 'unresolved', settled_at = ?
        WHERE id = ? AND status = 'pending'`,
     )
     .bind(now.toISOString(), usageId)

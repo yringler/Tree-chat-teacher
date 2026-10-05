@@ -7,11 +7,10 @@ import { DomainError, MembershipRequiredError } from '@tangent/core';
 import { MEMBERSHIP_PLAN, type MembershipInfo } from '@tangent/shared';
 import type { AccountContext, AppEnv } from '../env.js';
 import { builtInAvailable } from '../services.js';
-import { intVar } from './vars.js';
+import { appConfig } from '../config.js';
 import { billingConfigured, membershipPriceId } from './stripe.js';
 
-export const DEFAULT_MEMBERSHIP_PRICE_CENTS = 1000;
-export const DEFAULT_MEMBERSHIP_CREDIT_CENTS = 200;
+export { DEFAULT_MEMBERSHIP_CREDIT_CENTS, DEFAULT_MEMBERSHIP_PRICE_CENTS } from '../config.js';
 
 /**
  * Subscription statuses that count as a paid membership. `past_due` does:
@@ -27,7 +26,7 @@ export function membershipRequired(env: AppEnv): boolean {
 
 /** The yearly price shown to users (`MEMBERSHIP_PRICE_CENTS`; Stripe charges the configured price). */
 export function membershipPriceCents(env: AppEnv): number {
-  return intVar(env.MEMBERSHIP_PRICE_CENTS, DEFAULT_MEMBERSHIP_PRICE_CENTS);
+  return appConfig(env).billing.membershipPriceCents;
 }
 
 /**
@@ -37,7 +36,7 @@ export function membershipPriceCents(env: AppEnv): number {
  */
 export function membershipCreditCents(env: AppEnv): number {
   if (!builtInAvailable(env)) return 0;
-  return intVar(env.MEMBERSHIP_CREDIT_CENTS, DEFAULT_MEMBERSHIP_CREDIT_CENTS);
+  return appConfig(env).billing.membershipCreditCentsRaw;
 }
 
 interface MembershipRow {

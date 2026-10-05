@@ -66,6 +66,13 @@ export interface AppEnv extends Env {
    * is empty. No longer in wrangler.jsonc; kept for one release.
    */
   MARKUP_PREPAID_BPS?: string;
+  /**
+   * The pool margin as a percentage (e.g. "8"), the spec's name for
+   * `POOL_MARGIN_BPS`; read only while that var is empty (src/config.ts).
+   */
+  MARGIN_PERCENT?: string;
+  /** Tests only ("true"): enables test-only RPC methods such as `PoolBank.expire(now)`. */
+  TEST_SEAMS?: string;
 }
 
 /**

@@ -60,3 +60,10 @@ DEV_ALLOW_NO_AUTH=true
 # ("Manual credit or adjustments", with --local; the account is `default_simple` under Option A,
 # `u_<your user id>` under Option B, for both apps), then pick "Use Tangent credit" and chat at
 # http://localhost:8787/learn/, or pick the "Tangent credit" provider in the power app.
+
+# --- The community credit pool (docs/pool/SPEC.md); off in wrangler.jsonc. Its caps, price table,
+# margin and TTLs are the POOL_* vars there (parsed in src/config.ts). With Option C's fake provider,
+# price its "simple" model so the pool can reserve for it:
+# POOL_ENABLED=true
+# POOL_MODEL=simple
+# MODEL_PRICES='{"simple":{"in":100000,"out":400000,"context":131072}}'
