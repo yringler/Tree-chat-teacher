@@ -252,7 +252,8 @@ export function parseProviderConfigs(json: string): ProviderConfig[] {
 
 /**
  * Built-in defaults when no PROVIDERS var is set: anthropic (ANTHROPIC_API_KEY),
- * openai (OPENAI_API_KEY), openrouter (OPENROUTER_API_KEY), fake.
+ * openai (OPENAI_API_KEY), openrouter (OPENROUTER_API_KEY). The `fake` kind is
+ * never among them: it is a test seam, configured only explicitly.
  */
 export const DEFAULT_PROVIDER_CONFIGS: ProviderConfig[] = [
   {
@@ -290,13 +291,6 @@ export const DEFAULT_PROVIDER_CONFIGS: ProviderConfig[] = [
       { id: 'anthropic/claude-sonnet-5.5', label: 'Claude Sonnet 5.5 (OpenRouter)' },
       { id: 'openai/gpt-5', label: 'GPT-5 (OpenRouter)' },
     ],
-  },
-  {
-    id: 'fake',
-    kind: 'fake',
-    label: 'Fake (offline)',
-    defaultModel: 'fake-1',
-    models: [{ id: 'fake-1', label: 'Fake 1' }],
   },
 ];
 

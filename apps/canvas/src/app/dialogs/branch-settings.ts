@@ -7,7 +7,13 @@ import {
   type OnInit,
   signal,
 } from '@angular/core';
-import { CONTEXT_MODES, type ContextMode } from '@tangent/shared';
+import {
+  CONTEXT_MODES,
+  parseRouteKey,
+  providerRouteKey,
+  routeKey,
+  type ContextMode,
+} from '@tangent/shared';
 import { Icon, Modal } from '@tangent/web-shared';
 import { MODE_LABEL } from '../canvas/lane';
 import { laneTitle } from '../canvas/titles';
@@ -64,15 +70,15 @@ const MODE_HELP: Record<ContextMode, string> = {
           <div class="field-row">
             <label class="field">
               <span class="field-label">Provider</span>
-              <select #ps [value]="providerId()" (change)="pickProvider(ps.value)">
-                @if (!store.providerMap().has(providerId())) {
-                  <option [value]="providerId()">{{ providerId() }} (not configured)</option>
+              <select #ps [value]="route()" (change)="pickProvider(ps.value)">
+                @if (!store.providerMap().has(route())) {
+                  <option [value]="route()">{{ route() }} (not configured)</option>
                 }
-                @for (p of store.providers(); track p.id) {
+                @for (p of store.providers(); track key(p)) {
                   <option
-                    [value]="p.id"
+                    [value]="key(p)"
                     [disabled]="!p.available"
-                    [selected]="p.id === providerId()"
+                    [selected]="key(p) === route()"
                   >
                     {{ p.label
                     }}{{ p.available ? '' : p.acceptsUserKey ? ' — no key' : ' — unavailable' }}
@@ -81,7 +87,7 @@ const MODE_HELP: Record<ContextMode, string> = {
               </select>
             </label>
             <app-model-field
-              [provider]="store.providerMap().get(providerId()) ?? null"
+              [provider]="store.providerMap().get(route()) ?? null"
               [(model)]="model"
             />
           </div>
@@ -132,7 +138,9 @@ export class BranchSettings implements OnInit {
   protected readonly title = signal('');
   protected readonly mode = signal<ContextMode>('path');
   protected readonly quote = signal('');
-  protected readonly providerId = signal('');
+  protected readonly key = providerRouteKey;
+  /** Provider and funding, as a `routeKey`. */
+  protected readonly route = signal('');
   protected readonly model = signal('');
   protected readonly isPrivate = signal(false);
   protected readonly saving = signal(false);
@@ -143,14 +151,14 @@ export class BranchSettings implements OnInit {
     this.title.set(laneTitle(b));
     this.mode.set(b.contextMode);
     this.quote.set(b.anchorQuote ?? '');
-    this.providerId.set(b.providerId);
+    this.route.set(routeKey(b));
     this.model.set(b.model);
     this.isPrivate.set(b.isPrivate);
   }
 
-  protected pickProvider(id: string): void {
-    this.providerId.set(id);
-    const p = this.store.providerMap().get(id);
+  protected pickProvider(route: string): void {
+    this.route.set(route);
+    const p = this.store.providerMap().get(route);
     if (p) this.model.set(p.defaultModel);
   }
 
@@ -170,8 +178,8 @@ export class BranchSettings implements OnInit {
       ...(b.parentBranchId && quote !== (b.anchorQuote ?? '')
         ? { anchorQuote: quote || null }
         : {}),
-      ...(this.providerId() !== b.providerId || this.model().trim() !== b.model
-        ? { providerId: this.providerId(), model: this.model().trim() }
+      ...(this.route() !== routeKey(b) || this.model().trim() !== b.model
+        ? { ...parseRouteKey(this.route()), model: this.model().trim() }
         : {}),
       ...(b.parentBranchId && this.isPrivate() !== b.isPrivate
         ? { isPrivate: this.isPrivate() }

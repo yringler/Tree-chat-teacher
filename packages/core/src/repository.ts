@@ -45,6 +45,7 @@ export interface TreeRepository {
         | 'isPrivate'
         | 'providerId'
         | 'model'
+        | 'funding'
         | 'updatedAt'
       >
     >,

@@ -3,28 +3,35 @@ import { Router } from '@angular/router';
 // The tree helpers only: the rest of @tangent/core (the ChatService) is for the lazy demo chunk.
 import { branchChain, branchPath, indexTree, type TreeIndex } from '@tangent/core/tree';
 import {
+  BUILT_IN_PROVIDER_ID,
   POOL_NOTICE_VERSION,
   type Branch,
   type ChatNode,
   type ModelInfo,
   type ProviderInfo,
   type StreamEvent,
+  type TreeBackupInput,
   type TreeDetail,
   type TreeSummary,
 } from '@tangent/shared';
 import {
   ApiClient,
   ApiError,
+  backupFile,
   errorMessage,
   isMembershipRequired,
   isPaymentRequired,
   isPoolConsentRequired,
   isPoolUnavailable,
   poolBlockOf,
+  readBackupFile,
   runStream,
+  SAVE_FILE,
+  type BackupFile,
   type PoolBlock,
   type StreamOutcome,
 } from '@tangent/web-shared';
+import { lessonTitle } from '../chat/titles';
 import { AccountStore } from './account-store';
 import { UiStore } from './ui-store';
 
@@ -53,8 +60,12 @@ export interface LessonPoolBlock extends PoolBlock {
   branchId: string;
 }
 
-/** The server-side provider of simple accounts (PLAN §2.2); the first provider otherwise. */
-const LEARN_PROVIDER_ID = 'tangent';
+/**
+ * Learn's endpoint, the built-in provider (`openrouter`; PLAN §2.2); the first
+ * provider otherwise. Learn pays per request (its payment header), never per
+ * branch, so it names no funding.
+ */
+const LEARN_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
 
 export const OUT_OF_CREDIT_MESSAGE = 'Add credit to keep learning';
 /** The pool notice changed since this page loaded: its copy of the text is stale. */
@@ -90,6 +101,7 @@ export class LessonStore {
   private readonly router = inject(Router);
   private readonly ui = inject(UiStore);
   private readonly account = inject(AccountStore);
+  private readonly saveFile = inject(SAVE_FILE);
 
   // Providers (simple accounts: one provider with "Smart" and "Simple" models)
   readonly providers = signal<ProviderInfo[]>([]);
@@ -102,6 +114,9 @@ export class LessonStore {
   // Lessons
   readonly trees = signal<TreeSummary[]>([]);
   readonly treesLoaded = signal(false);
+  /** The lesson whose backup is being downloaded (Export). */
+  readonly exportingId = signal<string | null>(null);
+  readonly importing = signal(false);
 
   // The open lesson
   readonly selectedTreeId = signal<string | null>(null);
@@ -299,6 +314,56 @@ export class LessonStore {
     } catch (err) {
       this.fail(err);
       return false;
+    }
+  }
+
+  /**
+   * Export: downloads the lesson's JSON backup, the same file as power
+   * mode's, so it can be imported into either app. Fetched with Learn's
+   * headers (a plain link would ask the power account) and saved from memory.
+   */
+  async exportLesson(treeId: string): Promise<boolean> {
+    if (this.exportingId()) return false;
+    this.exportingId.set(treeId);
+    try {
+      const { name, blob } = backupFile(await this.api.backup(treeId));
+      this.saveFile(name, blob);
+      return true;
+    } catch (err) {
+      this.fail(err);
+      return false;
+    } finally {
+      this.exportingId.set(null);
+    }
+  }
+
+  /**
+   * Import: reads a JSON backup (from either app), imports it into this Learn
+   * account and opens it. The server adapts a power conversation to Learn
+   * (its provider and models, the tutor prompt, side questions in context).
+   * A file that isn't a usable backup is refused before anything is sent.
+   */
+  async importLesson(file: BackupFile): Promise<boolean> {
+    if (this.importing()) return false;
+    this.importing.set(true);
+    try {
+      let backup: TreeBackupInput;
+      try {
+        backup = await readBackupFile(file);
+      } catch (err) {
+        this.ui.notify(errorMessage(err), 'error');
+        return false;
+      }
+      const detail = await this.api.importBackup(backup);
+      this.trees.update((list) => [summaryOf(detail), ...list]);
+      this.ui.notify(`Imported “${lessonTitle(detail.tree.title)}”`);
+      await this.router.navigate(['/t', detail.tree.id]);
+      return true;
+    } catch (err) {
+      this.fail(err);
+      return false;
+    } finally {
+      this.importing.set(false);
     }
   }
 

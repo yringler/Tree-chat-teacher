@@ -1045,6 +1045,46 @@ textarea:focus-visible {
   font-size: inherit;
 }
 
+/* Read-only power branch: where the composer would be (billing/read-only-composer.ts) */
+
+.read-only-composer {
+  display: block;
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.read-only-panel {
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+}
+
+.read-only-text {
+  margin: 0 0 8px;
+}
+
+.read-only-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.read-only-panel .notice {
+  margin-bottom: 0;
+}
+
+.read-only-composer.is-compact .read-only-panel {
+  padding: 8px;
+  font-size: 0.85rem;
+}
+
+.read-only-composer.is-compact .btn {
+  min-height: 28px;
+  padding: 3px 9px;
+  font-size: 0.85rem;
+}
+
 /* Pool (the community pool: PoolMeter, PoolFundSection, ImpactFeed, PoolBlockNotice) */
 
 .pool-meter {

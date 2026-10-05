@@ -17,4 +17,21 @@ describe('parseSettings', () => {
     expect(parseSettings('{"reviewer":{"providerId":"anthropic"}}').reviewer).toBeNull();
     expect(parseSettings('{"reviewer":"opus"}').reviewer).toBeNull();
   });
+
+  it('keeps a reviewer on Tangent credit, and reads the legacy `tangent` as one', () => {
+    expect(
+      parseSettings('{"reviewer":{"providerId":"openrouter","funding":"credit","model":"a/b"}}')
+        .reviewer,
+    ).toEqual({ providerId: 'openrouter', funding: 'credit', model: 'a/b' });
+    expect(parseSettings('{"reviewer":{"providerId":"tangent","model":"a/b"}}').reviewer).toEqual({
+      providerId: 'openrouter',
+      funding: 'credit',
+      model: 'a/b',
+    });
+    // An unknown funding is dropped: the user's own key.
+    expect(
+      parseSettings('{"reviewer":{"providerId":"openrouter","funding":"free","model":"a/b"}}')
+        .reviewer,
+    ).toEqual({ providerId: 'openrouter', model: 'a/b' });
+  });
 });

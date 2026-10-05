@@ -132,6 +132,8 @@ describe('fail closed', () => {
         priceCents: 1000,
         includedCreditCents: 200,
       },
+      // The dev bypass requires no membership: nothing is ever read-only.
+      membershipNeededFor: [],
       featuredConversations: false,
     } satisfies MeResponse);
 
@@ -171,8 +173,9 @@ describe('fail closed', () => {
         priceCents: 1000,
         includedCreditCents: 200,
       },
+      membershipNeededFor: [],
       featuredConversations: false,
-    });
+    } satisfies MeResponse);
   });
 });
 

@@ -54,6 +54,7 @@ const ME: MeResponse = {
     priceCents: 1000,
     includedCreditCents: 200,
   },
+  membershipNeededFor: [],
   featuredConversations: false,
 };
 

@@ -83,7 +83,8 @@ export class Keyboard {
         break;
       case 'b': {
         const node = this.store.focusedInPath() ?? this.store.leaf();
-        if (!node) return;
+        // Nothing to branch onto without a route to generate on (power is read-only).
+        if (!node || !this.store.canGenerate()) return;
         const body = document.getElementById(`msg-${node.id}`)?.querySelector('.msg-body') ?? null;
         this.ui.branchDialog.set({ fromNodeId: node.id, quote: selectionWithin(body) });
         break;
@@ -95,6 +96,7 @@ export class Keyboard {
         const upTo = focused ? path.slice(0, path.indexOf(focused) + 1) : path;
         const node = upTo.findLast((n) => n.role === 'assistant');
         if (!node || node.status !== 'complete') return;
+        if (!this.store.canReview(this.store.index()?.branches.get(node.branchId) ?? null)) return;
         this.ui.reviewDialog.set({ nodeId: node.id });
         break;
       }

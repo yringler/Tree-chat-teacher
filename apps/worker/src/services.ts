@@ -14,8 +14,11 @@ import {
 import {
   DEFAULT_SYSTEM_PROMPT,
   LEARN_KEY_PROVIDER,
+  LEGACY_BUILT_IN_PROVIDER_ID,
+  type BranchFunding,
   type LlmProvider,
   type ProviderConfig,
+  type ProviderInfo,
   type ProviderRegistry,
 } from '@tangent/shared';
 import { isAdminUserId } from './auth/admin.js';
@@ -23,10 +26,9 @@ import { createPoolUsageMeter, createUsageMeter, meteredRegistry } from './billi
 import { paymentsConfigured } from './billing/payments/index.js';
 import { appConfig } from './config.js';
 import { createD1Repositories } from './db/d1-repositories.js';
-import { isMetered, isPoolFunded, type AccountContext, type AppEnv } from './env.js';
+import { isPoolFunded, type AccountContext, type AppEnv } from './env.js';
 import type { PoolParams } from './pool/params.js';
 import {
-  BUILT_IN_PROVIDER_ID,
   builtInPowerConfig,
   poolChatSettings,
   poolProviderConfig,
@@ -45,8 +47,10 @@ export type Defer = (p: Promise<unknown>) => void;
 /**
  * Power-mode provider configs, for the user's own keys: the PROVIDERS var, or
  * the defaults with OpenRouter opened up (`openrouterWithSuggestions`). The
- * built-in provider is not one of them (registryFor appends it), so its id is
- * reserved: metering is keyed on it.
+ * built-in provider is not one of them: Tangent credit is a registry of its
+ * own (`creditRegistryFor`), even where both name the endpoint `openrouter`.
+ * The legacy id `tangent` is reserved, since requests from older clients
+ * still name it for the built-in endpoint on credit (`fromLegacyRoute`).
  */
 export function providerConfigs(env: AppEnv): ProviderConfig[] {
   if (!env.PROVIDERS?.trim()) {
@@ -55,9 +59,9 @@ export function providerConfigs(env: AppEnv): ProviderConfig[] {
     );
   }
   const configs = parseProviderConfigs(env.PROVIDERS);
-  if (configs.some((c) => c.id === BUILT_IN_PROVIDER_ID))
+  if (configs.some((c) => c.id === LEGACY_BUILT_IN_PROVIDER_ID))
     throw new Error(
-      `Invalid provider config: PROVIDERS may not use the reserved id "${BUILT_IN_PROVIDER_ID}"`,
+      `Invalid provider config: PROVIDERS may not use the reserved id "${LEGACY_BUILT_IN_PROVIDER_ID}"`,
     );
   return configs;
 }
@@ -185,19 +189,21 @@ function poolScope(account: AccountContext, scope: ServiceScope) {
 }
 
 /**
- * The providers a request may use. Anyone can sign up, so the operator's keys
- * are withheld except through the built-in provider (`account.builtIn`, metered
- * by chatService) and, for the power configs, in the dev bypass (`operatorKeys`):
- * - simple, on credit or the pool: only the `tangent` provider on the
+ * The providers of a request's own-key routes. Anyone can sign up, so the
+ * operator's keys are withheld except through the built-in provider on a
+ * funding that pays for it (`account.builtIn`, metered by chatService) and,
+ * for the power configs, in the dev bypass (`operatorKeys`):
+ * - simple, on credit or the pool: only the built-in config on the
  *   operator's key; user keys are ignored. A generating pool request gets the
- *   pool's config of it (`poolProviderConfig`).
+ *   pool's config of it (`poolProviderConfig`). Learn pays per request, so
+ *   this is its one registry, whatever a branch's funding says.
  * - simple, own key: the same provider config, on the user's OpenRouter key
  *   (key cookie entry LEARN_KEY_PROVIDER) and never the operator's.
  * - power: the configured providers, user keys overriding server secrets.
  *   Server secrets only for operatorKeys (the local dev bypass), and never
- *   the built-in key. When `account.builtIn`, the built-in provider follows
- *   (`builtInPowerConfig`), in a registry of its own on the operator's key,
- *   so neither a user key nor another config can reach that key.
+ *   the built-in key. Tangent credit is not in it: a branch on `credit`
+ *   resolves in `creditRegistryFor`, so neither a user key nor another config
+ *   can reach the operator's key, and no own-key call can be metered.
  */
 export function registryFor(
   env: AppEnv,
@@ -228,29 +234,57 @@ export function registryFor(
   const configs = providerConfigs(env);
   const withheld = new Set([SIMPLE_KEY_SECRET]);
   if (!account.operatorKeys) for (const name of apiKeySecrets(configs)) withheld.add(name);
-  const own = createProviderRegistry(configs, providerEnv(env, apiKeys, withheld));
-  if (!account.builtIn) return own;
-  return withBuiltIn(own, createProviderRegistry([builtInPowerConfig(env)], providerEnv(env)));
+  return createProviderRegistry(configs, providerEnv(env, apiKeys, withheld));
 }
 
 /**
- * `own` followed by the built-in provider, which takes no user key in power
- * (it is paid with credit; /api/key has no entry for it). The default provider
- * is chosen as one registry would: the first available non-fake provider (so
- * the built-in one only when none of the user's own is usable), else `own`'s.
+ * Power's Tangent credit: the built-in endpoint (`builtInPowerConfig`) on
+ * the operator's key, for branches and reviewers whose funding is `credit`.
+ * Built without the user's keys, so a credit call can never use them. Null
+ * where the server doesn't offer credit (`account.builtIn` false), and for
+ * Learn, whose one registry (`registryFor`) serves every funding.
  */
-function withBuiltIn(own: ProviderRegistry, builtIn: ProviderRegistry): ProviderRegistry {
-  const list = () => [
-    ...own.list(),
-    ...builtIn.list().map((p) => ({ ...p, acceptsUserKey: false })),
+export function creditRegistryFor(env: AppEnv, account: AccountContext): ProviderRegistry | null {
+  if (account.mode === 'simple' || !account.builtIn) return null;
+  return createProviderRegistry([builtInPowerConfig(env)], providerEnv(env));
+}
+
+/**
+ * The registry a route of `funding` resolves in: Learn's one registry
+ * whatever the funding; in power, the own-key registry or Tangent credit
+ * (null where credit isn't offered).
+ */
+export function routeRegistryFor(
+  env: AppEnv,
+  account: AccountContext,
+  funding: BranchFunding,
+  apiKeys?: UserApiKeys,
+  scope: ServiceScope = {},
+): ProviderRegistry | null {
+  if (account.mode === 'simple' || funding === 'own-key')
+    return registryFor(env, account, apiKeys, scope);
+  return creditRegistryFor(env, account);
+}
+
+/**
+ * What `GET /api/providers` lists: the own-key registry (Learn: its one
+ * entry, without a funding, since Learn pays per request), then, in power
+ * where it is offered, the built-in endpoint again as Tangent credit
+ * (`funding: 'credit'`, taking no user key). A client picks an entry by its
+ * id and funding.
+ */
+export function providersFor(
+  env: AppEnv,
+  account: AccountContext,
+  apiKeys?: UserApiKeys,
+): ProviderInfo[] {
+  const own = registryFor(env, account, apiKeys).list();
+  if (account.mode === 'simple') return own;
+  const credit = creditRegistryFor(env, account)?.list() ?? [];
+  return [
+    ...own.map((p) => ({ ...p, funding: 'own-key' as const })),
+    ...credit.map((p) => ({ ...p, acceptsUserKey: false, funding: 'credit' as const })),
   ];
-  return {
-    get: (providerId) =>
-      providerId === BUILT_IN_PROVIDER_ID ? builtIn.get(providerId) : own.get(providerId),
-    list,
-    defaultProviderId: () =>
-      list().find((p) => p.available && p.kind !== 'fake')?.id ?? own.defaultProviderId(),
-  };
 }
 
 export function chatSettingsFor(
@@ -264,8 +298,10 @@ export function chatSettingsFor(
   const summaryProviderId = env.SUMMARY_PROVIDER_ID?.trim() || null;
   return {
     ...DEFAULT_CHAT_SETTINGS,
-    // Never the built-in provider: summaries of branches on the user's own keys must not cost credit.
-    summaryProviderId: summaryProviderId === BUILT_IN_PROVIDER_ID ? null : summaryProviderId,
+    // A summary provider is looked up among the own-key routes only (ChatService), so
+    // summaries of branches on the user's own keys never cost credit. The legacy
+    // `tangent` id named Tangent credit: it means "no summary provider".
+    summaryProviderId: summaryProviderId === LEGACY_BUILT_IN_PROVIDER_ID ? null : summaryProviderId,
     summaryModel: env.SUMMARY_MODEL?.trim() || null,
     autoTitle: env.AUTO_TITLE !== 'false',
   };
@@ -301,11 +337,14 @@ const detach: Defer = (p) => {
 };
 
 /**
- * Every call on the built-in provider is metered: its `stream()` records a
+ * Every call through `inner` is metered: its `stream()` records a
  * `usage_events` row (billing/meter.ts) on the user's ledger, or reserves it
- * on the community pool when the account is pool-funded; the account's other
- * providers are passed through. The meter is built on the first `get`, so
- * routes that never generate (listing trees, reading providers) don't pay for it.
+ * on the community pool when the account is pool-funded. `inner` is a
+ * registry whose every route is paid on the operator's key: Learn's on credit
+ * or the pool, or power's Tangent credit (`creditRegistryFor`); a registry of
+ * the user's own keys is never wrapped. The meter is built on the first
+ * `get`, so routes that never generate (listing trees, reading providers)
+ * don't pay for it.
  */
 function meteredLazily(
   inner: ProviderRegistry,
@@ -321,7 +360,7 @@ function meteredLazily(
   };
   return {
     get: (providerId) => {
-      metered ??= meteredRegistry(inner, meter(), (id) => isMetered(account, id));
+      metered ??= meteredRegistry(inner, meter(), () => true);
       return metered.get(providerId);
     },
     list: () => inner.list(),
@@ -399,12 +438,26 @@ export function chatService(
   const registry = registryFor(env, account, opts.apiKeys, scope);
   const defer = opts.defer ?? detach;
   let providers = registry;
-  if (pool) providers = poolGeneratingRegistry(env, { ...account, pool }, defer, registry);
-  else if (account.builtIn) providers = meteredLazily(registry, env, account, defer);
+  let creditProviders: ProviderRegistry | null = null;
+  if (account.mode === 'simple') {
+    // Learn's one registry is on the operator's key exactly when the request pays with credit or the pool.
+    if (pool) providers = poolGeneratingRegistry(env, { ...account, pool }, defer, registry);
+    else if (account.builtIn) providers = meteredLazily(registry, env, account, defer);
+  } else {
+    // Power: own keys unmetered; Tangent credit, every call metered.
+    const credit = creditRegistryFor(env, account);
+    if (credit) creditProviders = meteredLazily(credit, env, account, defer);
+  }
   return new ChatService({
     repos: createD1Repositories(env.DB),
     accountId: account.id,
     providers,
+    ...(creditProviders ? { creditProviders } : {}),
+    // Learn pays per request: branch funding is ignored and written as `own-key`.
+    // Imports into Learn are adapted to its provider, models, context and prompt.
+    ...(account.mode === 'simple'
+      ? { fixedFunding: 'own-key' as const, adaptImportsForLearn: true }
+      : {}),
     settings: chatSettingsFor(env, account, scope),
     defaultSystemPrompt: defaultSystemPromptFor(env, account, scope),
     ...(pool

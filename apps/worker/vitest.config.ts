@@ -101,9 +101,9 @@ export default defineConfig({
             KEY_ENCRYPTION_SECRET: TEST_KEY_SECRET,
             // Learn mode and billing (paid credit offered). Multi-user tests pass an env
             // override with auth configured (as auth.test.ts does for BETTER_AUTH_SECRET).
-            // The simple-mode provider `tangent`: fake, reporting a fixed cost per call.
+            // The built-in provider (the endpoint `openrouter`): fake, reporting a fixed cost per call.
             SIMPLE_PROVIDER: JSON.stringify({
-              id: 'tangent',
+              id: 'openrouter',
               kind: 'fake',
               label: 'Tangent',
               defaultModel: 'smart',
@@ -145,7 +145,7 @@ export default defineConfig({
             MEMBERSHIP_WAIVER_CODE: '',
             MARKUP_BPS: '1000',
             // The community pool, on (wrangler.jsonc ships it off). Pool tests isolate themselves with a
-            // unique POOL_ACCOUNT_ID per test. The pool model is the fake `tangent` provider's `simple`,
+            // unique POOL_ACCOUNT_ID per test. The pool model is the fake built-in provider's `simple`,
             // priced at 1 µ$ per token each way, so every reply hold (up to 2,048 tokens out) is above
             // the fake's reported cost (0.001234 USD ≈ 1,302 µ$ with the fee) and only the test that
             // targets the clamp hits it. Caps are small so cap tests stay short; the per-minute

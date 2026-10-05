@@ -61,23 +61,35 @@ app-root {
   padding: 0;
 }
 
+/* A conversation: its link, then Delete (shown on hover or keyboard focus, see .row-actions) */
+
+.tree-list .tree-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.tree-list .tree-row:hover,
+.tree-list .tree-row.is-current {
+  background: var(--bg-hover);
+}
+
 .tree-link {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: 1;
+  min-width: 0;
   padding: 6px 10px;
   border-radius: var(--radius-sm);
   color: var(--fg);
   text-decoration: none;
 }
 
-.tree-link:hover {
-  background: var(--bg-hover);
-}
-
 .tree-link.is-current {
   font-weight: 600;
-  background: var(--bg-hover);
 }
 
 .tree-title,
@@ -277,6 +289,19 @@ app-root {
   margin-bottom: 8px;
 }
 
+/* The home page's conversation cards, each with Delete beside it (as in Learn's lesson list) */
+
+.home-list .tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.home-list .tree-row .card {
+  flex: 1;
+  min-width: 0;
+}
+
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -391,26 +416,31 @@ app-root {
   }
 }
 
-/* Outline row actions (rename/delete): shown on hover or keyboard focus */
+/* Outline and sidebar row actions (rename/delete): shown on hover or keyboard focus */
 
-.outline-actions {
+.outline-actions,
+.row-actions {
   display: inline-flex;
   flex: none;
   opacity: 0;
 }
 
 .outline-row:hover .outline-actions,
-.outline-actions:focus-within {
+.outline-actions:focus-within,
+.tree-row:hover .row-actions,
+.row-actions:focus-within {
   opacity: 1;
 }
 
 @media (hover: none) {
-  .outline-actions {
+  .outline-actions,
+  .row-actions {
     opacity: 1;
   }
 }
 
-.outline-actions .icon-btn {
+.outline-actions .icon-btn,
+.row-actions .icon-btn {
   width: 22px;
   height: 22px;
 }

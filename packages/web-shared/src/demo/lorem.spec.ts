@@ -191,7 +191,7 @@ describe('createLoremProvider', () => {
 
   it('describes itself as the tangent provider with Smart and Simple', () => {
     const p = createLoremProvider();
-    expect(p.id).toBe('tangent');
+    expect(p.id).toBe('openrouter');
     expect(p.models().map((m) => m.label)).toEqual(['Smart', 'Simple']);
     expect(p.defaultModel()).toBe(DEMO_SMART_MODEL);
     expect(p.kind).not.toBe('fake'); // the ChatService only auto-titles with real kinds

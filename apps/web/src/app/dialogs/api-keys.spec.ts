@@ -44,7 +44,12 @@ function open(builtInCredit: boolean) {
   store.me.set({ builtInCredit } as MeResponse);
   store.providers.set([
     provider('openrouter'),
-    provider('tangent', { label: 'Tangent credit', acceptsUserKey: false, available: true }),
+    provider('openrouter', {
+      label: 'Tangent credit',
+      funding: 'credit',
+      acceptsUserKey: false,
+      available: true,
+    }),
   ]);
   const dialog = runInInjectionContext(injector, () => new ApiKeys());
   dialog.ngOnInit();

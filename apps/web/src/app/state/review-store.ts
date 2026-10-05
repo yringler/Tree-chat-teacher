@@ -1,5 +1,10 @@
 import { inject, Injectable, signal } from '@angular/core';
-import { isModelAllowed, type ProviderInfo, type TokenUsage } from '@tangent/shared';
+import {
+  isModelAllowed,
+  type BranchFunding,
+  type ProviderInfo,
+  type TokenUsage,
+} from '@tangent/shared';
 import {
   ApiClient,
   ApiError,
@@ -15,6 +20,8 @@ export interface ReviewState {
   /** The reviewed assistant message. */
   nodeId: string;
   providerId: string;
+  /** Who pays for the reviewer (absent = the user's own key). */
+  funding?: BranchFunding;
   model: string;
   phase: 'running' | 'done' | 'error';
   /** Raw review text so far (trailer included; see parseReview). */
@@ -46,15 +53,27 @@ export class ReviewStore {
 
   /**
    * Reviewer to preselect: the saved setting while it is still usable, else
-   * the default model of `branchProviderId`, else of any provider with a key.
+   * the default model of the branch's route (`branch`: its provider and
+   * funding), else of any provider with a key; never a route whose funding
+   * needs the membership the user lacks.
    */
-  defaultReviewer(branchProviderId: string | null): ModelChoice | null {
-    const providers = this.tree.providerMap();
+  defaultReviewer(
+    branch: { providerId: string; funding?: BranchFunding } | null,
+  ): ModelChoice | null {
+    // Routes whose funding needs the membership the user lacks are skipped.
+    const open = (p: ProviderInfo | undefined): p is ProviderInfo =>
+      !!p && p.available && !this.tree.routeLocked(p);
     const saved = this.settings.settings().reviewer;
-    if (saved && offers(providers.get(saved.providerId), saved.model)) return saved;
-    const own = branchProviderId ? providers.get(branchProviderId) : undefined;
-    const fallback = own?.available ? own : this.tree.providers().find((p) => p.available);
-    return fallback ? { providerId: fallback.id, model: fallback.defaultModel } : null;
+    const savedProvider = saved ? this.tree.providerOf(saved) : undefined;
+    if (saved && offers(savedProvider, saved.model) && open(savedProvider)) return saved;
+    const own = branch ? this.tree.providerOf(branch) : undefined;
+    const fallback = open(own) ? own : this.tree.providers().find(open);
+    if (!fallback) return null;
+    return {
+      providerId: fallback.id,
+      ...(fallback.funding === 'credit' ? { funding: 'credit' as const } : {}),
+      model: fallback.defaultModel,
+    };
   }
 
   async start(nodeId: string, choice: ModelChoice): Promise<void> {

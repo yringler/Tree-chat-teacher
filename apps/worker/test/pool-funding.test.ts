@@ -408,7 +408,7 @@ describe('GET /api/admin/pool', () => {
       env.DB.prepare(
         `INSERT INTO usage_events (id, account_id, funding, purpose, provider_id, model, status,
            hold_micros, markup_bps, fee_bps, charge_micros, overage_micros, created_at)
-         VALUES (?, ?, 'pool', 'reply', 'tangent', 'simple', ?, 3000, 0, 0, ?, ?, ?)`,
+         VALUES (?, ?, 'pool', 'reply', 'openrouter', 'simple', ?, 3000, 0, 0, ?, ?, ?)`,
       ).bind(
         uniq('use'),
         poolId,

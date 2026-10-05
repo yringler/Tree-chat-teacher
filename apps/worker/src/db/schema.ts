@@ -83,8 +83,17 @@ export const branches = sqliteTable(
     title: text('title').notNull(),
     titleSource: text('title_source', { enum: ['default', 'auto', 'user'] }).notNull(),
     isPrivate: integer('is_private', { mode: 'boolean' }).notNull().default(false),
+    /** The endpoint (`openrouter`, `anthropic`, …); the same in both modes. */
     providerId: text('provider_id').notNull(),
     model: text('model').notNull(),
+    /**
+     * Who pays for the branch's calls in power mode: `own-key` or `credit`
+     * (Tangent credit). Learn pays per request and writes `own-key`. Migration
+     * 0020 split it from `provider_id` (the legacy `tangent`).
+     */
+    funding: text('funding', { enum: ['own-key', 'credit'] })
+      .notNull()
+      .default('own-key'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },

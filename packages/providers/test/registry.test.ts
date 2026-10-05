@@ -10,6 +10,15 @@ import { collect } from './helpers.js';
 
 const signal = () => new AbortController().signal;
 
+/** The test provider: a test seam, configured explicitly, never a default. */
+const FAKE: ProviderConfig = {
+  id: 'fake',
+  kind: 'fake',
+  label: 'Fake',
+  defaultModel: 'fake-1',
+  models: [{ id: 'fake-1', label: 'Fake 1' }],
+};
+
 describe('provider registry', () => {
   it('registers all kinds', () => {
     expect(Object.keys(PROVIDER_FACTORIES).sort()).toEqual([
@@ -26,22 +35,20 @@ describe('provider registry', () => {
       ['anthropic', 'anthropic', 'ANTHROPIC_API_KEY', 'claude-opus-5-5'],
       ['openai', 'openai-compatible', 'OPENAI_API_KEY', 'gpt-5'],
       ['openrouter', 'openai-compatible', 'OPENROUTER_API_KEY', 'anthropic/claude-sonnet-5.5'],
-      ['fake', 'fake', undefined, 'fake-1'],
     ]);
     expect(parseProviderConfigs(JSON.stringify(DEFAULT_PROVIDER_CONFIGS))).toEqual(
       DEFAULT_PROVIDER_CONFIGS,
     );
   });
 
-  it('with no secrets: only fake is available and it is the default', async () => {
+  it('with no secrets: none of the defaults is available; the first is the default', async () => {
     const reg = createProviderRegistry(DEFAULT_PROVIDER_CONFIGS, { secrets: {} });
     expect(reg.list().map((p) => [p.id, p.available])).toEqual([
       ['anthropic', false],
       ['openai', false],
       ['openrouter', false],
-      ['fake', true],
     ]);
-    expect(reg.defaultProviderId()).toBe('fake');
+    expect(reg.defaultProviderId()).toBe('anthropic');
     const anthropic = reg.get('anthropic')!;
     expect(anthropic.models().length).toBe(4);
     expect(
@@ -66,12 +73,18 @@ describe('provider registry', () => {
   });
 
   it('defaults to the first available non-fake provider', () => {
-    const reg = createProviderRegistry(DEFAULT_PROVIDER_CONFIGS, {
+    const reg = createProviderRegistry([FAKE, ...DEFAULT_PROVIDER_CONFIGS], {
       secrets: { OPENROUTER_API_KEY: 'k', ANTHROPIC_API_KEY: '' },
     });
     expect(reg.list().find((p) => p.id === 'openrouter')?.available).toBe(true);
     expect(reg.list().find((p) => p.id === 'anthropic')?.available).toBe(false);
     expect(reg.defaultProviderId()).toBe('openrouter');
+    // With nothing else available, a configured test provider is the default.
+    expect(
+      createProviderRegistry([...DEFAULT_PROVIDER_CONFIGS, FAKE], {
+        secrets: {},
+      }).defaultProviderId(),
+    ).toBe('fake');
   });
 
   it('falls back to the first configured provider when nothing is available', () => {
@@ -145,16 +158,14 @@ describe('provider registry', () => {
   });
 
   it('streams through an available fake provider', async () => {
-    const reg = createProviderRegistry(DEFAULT_PROVIDER_CONFIGS, { secrets: {} });
+    const reg = createProviderRegistry([FAKE], { secrets: {} });
     const events = await collect(
-      reg
-        .get('fake')!
-        .stream({
-          model: 'fake-1',
-          system: null,
-          messages: [{ role: 'user', content: 'hi' }],
-          signal: signal(),
-        }),
+      reg.get('fake')!.stream({
+        model: 'fake-1',
+        system: null,
+        messages: [{ role: 'user', content: 'hi' }],
+        signal: signal(),
+      }),
     );
     expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'end_turn' });
   });

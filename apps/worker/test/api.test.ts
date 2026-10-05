@@ -66,8 +66,14 @@ function textOf(events: StreamEvent[]): string {
 describe('owner API', () => {
   it('lists providers without secrets', async () => {
     const providers = await ok<ProviderInfo[]>(call('/api/providers'));
-    // The dev bypass has the built-in provider too (billing is configured in tests).
-    expect(providers.map((p) => p.id)).toEqual(['fake', 'slow', 'ant', 'tangent']);
+    // The dev bypass has Tangent credit too (billing is configured in tests): the built-in
+    // endpoint, listed after the own providers with its funding.
+    expect(providers.map((p) => [p.id, p.funding])).toEqual([
+      ['fake', 'own-key'],
+      ['slow', 'own-key'],
+      ['ant', 'own-key'],
+      ['openrouter', 'credit'],
+    ]);
     expect(JSON.stringify(providers)).not.toMatch(/apiKey|baseUrl/);
   });
 

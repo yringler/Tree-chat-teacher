@@ -8,7 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { plainText } from '@tangent/core';
-import type { ContextMode } from '@tangent/shared';
+import { parseRouteKey, providerRouteKey, routeKey, type ContextMode } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore, type BranchDialogState } from '../state/ui-store';
 import { Modal } from '@tangent/web-shared';
@@ -55,8 +55,8 @@ import { ModePicker } from '../ui/mode-picker';
           <input type="text" maxlength="200" [value]="title()" (input)="title.set(t.value)" #t />
         </label>
 
-        @if (providerId()) {
-          <app-model-picker [(providerId)]="providerId" [(modelId)]="modelId" />
+        @if (route()) {
+          <app-model-picker [(route)]="route" [(modelId)]="modelId" />
         }
 
         <label class="check">
@@ -94,16 +94,21 @@ export class BranchDialog implements OnInit {
   protected readonly quote = signal('');
   protected readonly mode = signal<ContextMode>('path');
   protected readonly title = signal('');
-  protected readonly providerId = signal('');
+  /** Provider and funding, as a `routeKey`. */
+  protected readonly route = signal('');
   protected readonly modelId = signal('');
   protected readonly isPrivate = signal(false);
   protected readonly saving = signal(false);
 
   ngOnInit(): void {
     this.quote.set(this.state().quote ?? '');
-    const p = this.parent();
-    this.providerId.set(p?.providerId ?? this.store.defaultProvider()?.id ?? '');
-    this.modelId.set(p?.model ?? this.store.defaultProvider()?.defaultModel ?? '');
+    // The parent's route, unless its funding needs the membership the user lacks:
+    // then the first route they can generate on (Tangent credit they hold).
+    const parent = this.parent();
+    const p = parent && !this.store.routeLocked(parent) ? parent : null;
+    const fallback = this.store.defaultProvider();
+    this.route.set(p ? routeKey(p) : fallback ? providerRouteKey(fallback) : '');
+    this.modelId.set(p?.model ?? fallback?.defaultModel ?? '');
   }
 
   protected close(): void {
@@ -115,15 +120,14 @@ export class BranchDialog implements OnInit {
     this.saving.set(true);
     const quote = this.quote().trim();
     const title = this.title().trim();
-    const changedModel =
-      !p || p.providerId !== this.providerId() || p.model !== this.modelId().trim();
+    const changedModel = !p || routeKey(p) !== this.route() || p.model !== this.modelId().trim();
     const branch = await this.store.createBranch({
       fromNodeId: this.state().fromNodeId,
       contextMode: this.mode(),
       anchorQuote: quote || null,
       ...(title ? { title } : {}),
-      ...(changedModel && this.providerId()
-        ? { providerId: this.providerId(), model: this.modelId().trim() }
+      ...(changedModel && this.route()
+        ? { ...parseRouteKey(this.route()), model: this.modelId().trim() }
         : {}),
       isPrivate: this.isPrivate(),
     });

@@ -10,7 +10,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import type { TreeSummary } from '@tangent/shared';
+import { providerRouteKey, type TreeSummary } from '@tangent/shared';
 import { Icon } from '@tangent/web-shared';
 import { treeTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
@@ -51,12 +51,12 @@ import { ModelField } from '../dialogs/model-field';
             <div class="field-row">
               <label class="field">
                 <span class="field-label">Provider</span>
-                <select #ps [value]="providerId()" (change)="pickProvider(ps.value)">
-                  @for (p of store.providers(); track p.id) {
+                <select #ps [value]="route()" (change)="pickProvider(ps.value)">
+                  @for (p of store.providers(); track key(p)) {
                     <option
-                      [value]="p.id"
+                      [value]="key(p)"
                       [disabled]="!p.available"
-                      [selected]="p.id === providerId()"
+                      [selected]="key(p) === route()"
                     >
                       {{ p.label
                       }}{{ p.available ? '' : p.acceptsUserKey ? ' — no key' : ' — unavailable' }}
@@ -73,7 +73,7 @@ import { ModelField } from '../dialogs/model-field';
             <button
               type="submit"
               class="btn btn-primary"
-              [disabled]="starting() || !text().trim() || !providerId()"
+              [disabled]="starting() || !text().trim() || !route()"
             >
               <app-icon name="plus" /> Open on the canvas
             </button>
@@ -134,15 +134,16 @@ export class HomePage {
   private readonly box = viewChild<ElementRef<HTMLTextAreaElement>>('box');
   protected readonly text = signal('');
   protected readonly starting = signal(false);
-  private readonly pickedProvider = signal<string | null>(null);
+  protected readonly key = providerRouteKey;
+  /** The picked provider and funding, as a `routeKey`. */
+  private readonly pickedRoute = signal<string | null>(null);
   private readonly pickedModel = signal<string | null>(null);
 
-  protected readonly providerId = computed(
-    () => this.pickedProvider() ?? this.store.defaultProvider()?.id ?? '',
-  );
-  protected readonly provider = computed(
-    () => this.store.providerMap().get(this.providerId()) ?? null,
-  );
+  protected readonly route = computed(() => {
+    const fallback = this.store.defaultProvider();
+    return this.pickedRoute() ?? (fallback ? providerRouteKey(fallback) : '');
+  });
+  protected readonly provider = computed(() => this.store.providerMap().get(this.route()) ?? null);
   /** The picked model while the provider offers it (any typed id on an `openModels` one). */
   protected readonly model = computed(() => {
     const picked = this.pickedModel();
@@ -157,8 +158,8 @@ export class HomePage {
     });
   }
 
-  protected pickProvider(id: string): void {
-    this.pickedProvider.set(id);
+  protected pickProvider(route: string): void {
+    this.pickedRoute.set(route);
     this.pickedModel.set(null);
   }
 
@@ -180,7 +181,7 @@ export class HomePage {
     try {
       await this.store.startConversation(
         content,
-        this.providerId() || null,
+        this.route() || null,
         this.model().trim() || null,
       );
     } finally {

@@ -11,6 +11,16 @@ import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { Icon, Modal } from '@tangent/web-shared';
 
+/**
+ * Asks before a whole conversation is deleted. Shared by the settings dialog
+ * and the conversation lists (home page, sidebar). True if the user agreed.
+ */
+export function confirmDeleteTree(title: string): boolean {
+  return confirm(
+    `Delete “${title}” with all its branches and messages? Its shares stop working. This cannot be undone.`,
+  );
+}
+
 /** Rename the tree, edit its system prompt, delete it. */
 @Component({
   selector: 'app-tree-settings',
@@ -92,12 +102,7 @@ export class TreeSettings implements OnInit {
 
   protected async remove(): Promise<void> {
     const t = this.tree();
-    if (
-      !confirm(
-        `Delete “${t.title}” with all its branches and messages? Its shares stop working. This cannot be undone.`,
-      )
-    )
-      return;
+    if (!confirmDeleteTree(t.title)) return;
     this.close();
     await this.store.deleteTree(t.id);
   }

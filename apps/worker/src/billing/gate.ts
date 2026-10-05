@@ -9,7 +9,13 @@ import {
   poolBlock,
   ValidationError,
 } from '@tangent/core';
-import type { PoolBlockDetails } from '@tangent/shared';
+import {
+  BRANCH_FUNDINGS,
+  type BranchFunding,
+  type MembershipInfo,
+  type PoolBlockDetails,
+  type ProviderRoute,
+} from '@tangent/shared';
 import { clientIp, withPoolParams } from '../auth/account.js';
 import { assertGenerationAllowed, enforceRateLimit } from '../byok/guard.js';
 import type { UserKeys } from '../byok/keys.js';
@@ -25,7 +31,8 @@ import { hasCurrentConsent } from '../pool/consent.js';
 import { claimPoolIdentity, identitySuspended, poolIdentity } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
 import { poolAdmitRequest, poolBlockDetails } from '../pool/params.js';
-import { poolAvailable, registryFor } from '../services.js';
+import { poolAvailable, registryFor, routeRegistryFor } from '../services.js';
+import { LEARN_KEY_LABEL } from '../simple-mode.js';
 import { getBalance } from './ledger.js';
 import { assertMember } from './membership.js';
 import { assertCanSpend, usageHoldMicros } from './service.js';
@@ -34,12 +41,14 @@ import { assertCanSpend, usageHoldMicros } from './service.js';
 export interface GenerateCheck {
   /** `send` and `resolve` may fall back to the pool; `review` never does. */
   purpose: 'send' | 'resolve' | 'review';
-  /** The provider the request calls. */
+  /** The provider the request calls (the endpoint). */
   providerId: string;
+  /** How that call is paid in power (the branch's or reviewer's funding); Learn pays per request. */
+  funding: BranchFunding;
   /** Checked against the provider's allowlist; null = not checked (a context resolve). */
   model: string | null;
-  /** Another provider the request may also spend on (a review's branch, for its summaries). */
-  alsoSpendsOn?: string;
+  /** Another route the request may also spend on (a review's branch, for its summaries). */
+  alsoSpendsOn?: ProviderRoute;
   /** The user's key cookie (power, and Learn on its own key). */
   keys: UserKeys | null;
   /** A send's message: the pool accepts at most `POOL_MAX_MESSAGE_CHARS`. */
@@ -133,10 +142,10 @@ export async function assertPoolAccess(
 
 /**
  * True when this request needs the membership (once the fee is on): power
- * mode on any call that isn't metered, that is on the user's own keys. A
- * review counts both its reviewer (`providerId`) and its branch's summaries
- * (`alsoSpendsOn`), so any own-key call in it needs the membership; a context
- * resolve checks the branch's provider. Learn never needs it (its own key and
+ * mode on any call that isn't metered, that is on the user's own keys (by
+ * funding, never by provider id). A review counts both its reviewer
+ * (`funding`) and its branch's summaries (`alsoSpendsOn`), so any own-key call
+ * in it needs the membership; a context resolve checks the branch's funding. Learn never needs it (its own key and
  * the pool are free), and spending Tangent credit never does in either app:
  * credit already paid for stays spendable after a membership lapses. Buying
  * credit is the other members-only thing (`startTopUpCheckout`).
@@ -144,13 +153,31 @@ export async function assertPoolAccess(
  */
 export function needsMembership(
   account: AccountContext,
-  check: Pick<GenerateCheck, 'providerId' | 'alsoSpendsOn'>,
+  check: Pick<GenerateCheck, 'funding' | 'alsoSpendsOn'>,
 ): boolean {
   if (account.mode === 'simple') return false;
-  const providers = [check.providerId, check.alsoSpendsOn].filter(
-    (id): id is string => id !== undefined,
+  const fundings = [check.funding, check.alsoSpendsOn?.funding].filter(
+    (f): f is BranchFunding => f !== undefined,
   );
-  return providers.some((id) => !isMetered(account, id));
+  return fundings.some((f) => !isMetered(account, f));
+}
+
+/**
+ * The fundings on which generating in `account` needs the membership,
+ * whatever the user holds: `needsMembership` asked of each funding, and
+ * nothing at all where no membership is required (`membership.required`
+ * false: the fee off, a server without billing, the dev bypass). Power gets
+ * `['own-key']` (plus `credit` where credit isn't offered, which the gate also
+ * asks the membership for first); Learn gets none. `/api/me` sends it as
+ * `MeResponse.membershipNeededFor`, so the apps show a branch read-only by
+ * the server's rule rather than a copy of it.
+ */
+export function membershipNeededFor(
+  account: AccountContext,
+  membership: Pick<MembershipInfo, 'required'>,
+): BranchFunding[] {
+  if (!membership.required) return [];
+  return BRANCH_FUNDINGS.filter((funding) => needsMembership(account, { funding }));
 }
 
 /**
@@ -205,13 +232,19 @@ export async function assertCanGenerate(
   if (needsMembership(account, check)) await assertMember(c.env, account);
   if (check.model !== null) {
     const keys = check.keys?.state === 'ok' ? check.keys.keys : undefined;
-    assertGenerationAllowed(registryFor(c.env, account, keys), check.providerId, check.model, {
-      userKeys: !isMetered(account, check.providerId),
-    });
+    assertGenerationAllowed(
+      routeRegistryFor(c.env, account, check.funding, keys),
+      check.providerId,
+      check.model,
+      {
+        userKeys: !isMetered(account, check.funding),
+        keyLabel: account.mode === 'simple' ? LEARN_KEY_LABEL : undefined,
+      },
+    );
   }
-  await assertCanSpend(c.env, account, check.providerId);
-  if (check.alsoSpendsOn !== undefined && check.alsoSpendsOn !== check.providerId)
-    await assertCanSpend(c.env, account, check.alsoSpendsOn);
-  await enforceRateLimit(c, check.keys, 'chat', check.providerId);
+  await assertCanSpend(c.env, account, check.funding);
+  if (check.alsoSpendsOn !== undefined && check.alsoSpendsOn.funding !== check.funding)
+    await assertCanSpend(c.env, account, check.alsoSpendsOn.funding);
+  await enforceRateLimit(c, check.keys, 'chat', check.funding);
   return account;
 }

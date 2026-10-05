@@ -11,6 +11,8 @@ import {
   isPoolEmpty,
   isPoolConsentRequired,
   isPoolUnavailable,
+  isSessionExpired,
+  SESSION_EXPIRED_MESSAGE,
 } from './api-client';
 import { API_FETCH, API_HEADERS } from './api-fetch';
 
@@ -359,6 +361,47 @@ describe('ApiClient transport (API_FETCH)', () => {
   });
 });
 
+describe('ApiClient 401s', () => {
+  const respondWith = (res: () => Response) =>
+    createApi([{ provide: API_FETCH, useValue: async () => res() }]);
+  const send = (api: ApiClient) =>
+    api.sendMessage('b1', { content: 'hi' }, new AbortController().signal);
+
+  it('keeps key_required and the server message (not "session expired")', async () => {
+    const message = 'Add your OpenRouter API key to continue this conversation.';
+    const api = respondWith(() => jsonResponse({ error: { code: 'key_required', message } }, 401));
+    const err = await send(api).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 401, code: 'key_required', message });
+    expect(isSessionExpired(err)).toBe(false);
+    // The same through the JSON routes.
+    await expect(api.listTrees()).rejects.toMatchObject({ code: 'key_required', message });
+  });
+
+  it('reports a missing or expired session (401 unauthorized) as expired', async () => {
+    const api = respondWith(() =>
+      jsonResponse({ error: { code: 'unauthorized', message: 'Sign in required' } }, 401),
+    );
+    const err = await send(api).catch((e: unknown) => e);
+    expect(err).toMatchObject({
+      status: 401,
+      code: 'unauthorized',
+      message: SESSION_EXPIRED_MESSAGE,
+    });
+    expect(isSessionExpired(err)).toBe(true);
+    await expect(api.listTrees()).rejects.toMatchObject({ message: SESSION_EXPIRED_MESSAGE });
+  });
+
+  it('treats a 401 without our error body (e.g. from a proxy) as an expired session', async () => {
+    const api = respondWith(() => new Response('Unauthorized', { status: 401 }));
+    await expect(api.listTrees()).rejects.toMatchObject({
+      status: 401,
+      code: 'unauthorized',
+      message: SESSION_EXPIRED_MESSAGE,
+    });
+  });
+});
+
 describe('ApiClient headers', () => {
   it('adds API_HEADERS to every request, read per call', async () => {
     let payment = 'own-key';
@@ -385,6 +428,21 @@ describe('ApiClient headers', () => {
       'x-tangent-payment': 'credit',
       'content-type': 'application/json',
     });
+  });
+
+  it("backup(treeId) GETs the tree's backup with the app's headers (Learn's mode reaches its account)", async () => {
+    const fetchMock = vi.fn<(...args: FetchArgs) => Promise<Response>>(async () =>
+      jsonResponse({ format: 'tangent-tree-backup' }),
+    );
+    const api = createApi([
+      { provide: API_FETCH, useValue: fetchMock },
+      { provide: API_HEADERS, useValue: () => ({ 'x-tangent-mode': 'simple' }) },
+    ]);
+    await expect(api.backup('t/1')).resolves.toEqual({ format: 'tangent-tree-backup' });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('/api/trees/t%2F1/backup');
+    expect(init.method).toBe('GET');
+    expect(init.headers).toMatchObject({ 'x-tangent-mode': 'simple' });
   });
 
   it('sends none by default', async () => {

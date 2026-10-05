@@ -37,7 +37,7 @@
   <div class="inspector-body" [class.is-stale]="loading()" [attr.aria-busy]="loading()">
     <dl class="kv">
       <dt>Model</dt>
-      <dd>{{ store.providerMap().get(d.providerId)?.label ?? d.providerId }} · {{ d.model }}</dd>
+      <dd>{{ store.providerOf(d)?.label ?? d.providerId }} · {{ d.model }}</dd>
       <dt>Segments</dt>
       <dd>{{ d.plan.segments.length }}</dd>
       @if (d.exactInputTokens !== null) {
@@ -81,11 +81,13 @@
       <div class="notice">
         <span
           >{{ pendingCount() || d.plan.pendingSummaries.length }} summary(ies) not generated yet.
-          They are generated on send, or now:</span
+          They are generated on send{{ store.readOnly() ? '.' : ', or now:' }}</span
         >
-        <button type="button" class="btn btn-sm" [disabled]="loading()" (click)="resolve()">
-          {{ loading() && resolved() ? 'Resolving…' : 'Resolve summaries' }}
-        </button>
+        @if (!store.readOnly()) {
+          <button type="button" class="btn btn-sm" [disabled]="loading()" (click)="resolve()">
+            {{ loading() && resolved() ? 'Resolving…' : 'Resolve summaries' }}
+          </button>
+        }
       </div>
     }
 

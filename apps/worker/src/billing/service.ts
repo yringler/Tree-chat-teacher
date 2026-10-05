@@ -7,6 +7,7 @@ import {
   MAX_TOP_UP_CENTS,
   MIN_TOP_UP_CENTS,
   type BillingSummary,
+  type BranchFunding,
   type CheckoutResponse,
   type PurchaseInfo,
   type UsageEntry,
@@ -56,8 +57,8 @@ function notConfigured(): DomainError {
 }
 
 /**
- * Throws `PaymentRequiredError` (402) when a call on `providerId` is metered
- * (the built-in provider, see `isMetered`) and the user's credit can't start
+ * Throws `PaymentRequiredError` (402) when a call on a route of `funding` is
+ * metered (Tangent credit, see `isMetered`) and the user's credit can't start
  * it: available = balance − pending holds must cover one more hold. Then
  * 429 `rate_limited` when `USAGE_MAX_PENDING` metered calls are already in
  * flight (pending usage rows), which bounds how far the balance can go
@@ -66,9 +67,9 @@ function notConfigured(): DomainError {
 export async function assertCanSpend(
   env: AppEnv,
   account: AccountContext,
-  providerId: string,
+  funding: BranchFunding,
 ): Promise<void> {
-  if (!isMetered(account, providerId)) return;
+  if (!isMetered(account, funding)) return;
   if (!personalCreditReady(env)) throw notConfigured();
   const { balanceMicros, heldMicros, pendingCalls } = await getBalance(
     env.DB,

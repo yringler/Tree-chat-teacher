@@ -1,7 +1,7 @@
 import '@angular/compiler'; // JIT: the component module below is decorated.
 import type { ProviderInfo } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
-import { modelHint, unavailableSuffix } from './model-picker';
+import { modelHint, routeSuffix, unavailableSuffix } from './model-picker';
 
 function provider(over: Partial<ProviderInfo> = {}): ProviderInfo {
   return {
@@ -32,7 +32,12 @@ describe('modelHint', () => {
   });
 
   it('flags an empty or malformed id on an open provider', () => {
-    const open = provider({ id: 'tangent', openModels: true, acceptsUserKey: false });
+    const open = provider({
+      id: 'openrouter',
+      funding: 'credit',
+      openModels: true,
+      acceptsUserKey: false,
+    });
     expect(modelHint(open, '  ')).toMatch(/Enter a model id/);
     expect(modelHint(open, 'two words')).toMatch(/Not a model id/);
     expect(modelHint(open, '/leading-slash')).toMatch(/Not a model id/);
@@ -46,5 +51,14 @@ describe('unavailableSuffix', () => {
     expect(unavailableSuffix(provider({ available: false, acceptsUserKey: false }))).toBe(
       ' — unavailable',
     );
+  });
+});
+
+describe('routeSuffix', () => {
+  it('says a route needs a membership when its funding is locked, else why it is unavailable', () => {
+    expect(routeSuffix(provider(), false)).toBe('');
+    expect(routeSuffix(provider(), true)).toBe(' — needs a membership');
+    // No key at all: adding one comes first.
+    expect(routeSuffix(provider({ available: false }), true)).toBe(' — missing API key');
   });
 });

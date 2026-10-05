@@ -27,6 +27,16 @@
       <button
         type="button"
         class="icon-btn"
+        aria-label="Export this lesson"
+        title="Export (download a backup)"
+        [disabled]="store.exportingId() !== null"
+        (click)="exportLesson()"
+      >
+        <app-icon name="download" />
+      </button>
+      <button
+        type="button"
+        class="icon-btn"
         aria-label="Delete this lesson"
         title="Delete this lesson"
         (click)="deleteLesson()"

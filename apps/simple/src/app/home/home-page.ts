@@ -7,13 +7,14 @@ import { Composer } from '../chat/composer';
 import { lessonTitle } from '../chat/titles';
 import { ModelToggle } from '../chat/model-toggle';
 import { AccountStore } from '../state/account-store';
+import { ImportLessonButton } from './import-lesson-button';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
 
-/** `/learn/`: start a new lesson and list the existing ones. */
+/** `/learn/`: start a new lesson, list the existing ones (Export, Delete) and import one. */
 @Component({
   selector: 'app-home-page',
-  imports: [Composer, ModelToggle, PoolMeter, RouterLink, Icon, DatePipe],
+  imports: [Composer, ModelToggle, PoolMeter, RouterLink, Icon, ImportLessonButton, DatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page-body">
@@ -76,11 +77,14 @@ import { UiStore } from '../state/ui-store';
       }
 
       <section class="lessons" aria-labelledby="lessons-title">
-        <h2 id="lessons-title">Your lessons</h2>
+        <div class="lessons-head">
+          <h2 id="lessons-title">Your lessons</h2>
+          <app-import-lesson-button />
+        </div>
         @if (!store.treesLoaded()) {
           <p class="muted">Loading…</p>
         } @else if (store.trees().length === 0) {
-          <p class="muted">No lessons yet. Start one above.</p>
+          <p class="muted">No lessons yet. Start one above, or import a backup.</p>
         }
         <ul class="card-list">
           @for (t of store.trees(); track t.id) {
@@ -95,6 +99,16 @@ import { UiStore } from '../state/ui-store';
                   }
                 </span>
               </a>
+              <button
+                type="button"
+                class="icon-btn"
+                [attr.aria-label]="'Export ' + lessonTitle(t.title)"
+                title="Export (download a backup)"
+                [disabled]="store.exportingId() !== null"
+                (click)="store.exportLesson(t.id)"
+              >
+                <app-icon name="download" />
+              </button>
               <button
                 type="button"
                 class="icon-btn"

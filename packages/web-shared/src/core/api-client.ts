@@ -15,6 +15,7 @@ import type {
   BillingSummary,
   Branch,
   CheckoutResponse,
+  CopyToLearnResponse,
   CreateCheckoutRequest,
   ContextPlanResponse,
   CreateBranchRequest,
@@ -43,6 +44,7 @@ import type {
   ShareScope,
   ShareSummary,
   Tree,
+  TreeBackup,
   TreeBackupInput,
   TreeDetail,
   TreeSummary,
@@ -91,6 +93,10 @@ function isErrorBody(value: unknown): value is ApiErrorBody {
 }
 
 const enc = encodeURIComponent;
+
+/** What a 401 `unauthorized` (no session, or an expired one) says, whatever the server's text. */
+export const SESSION_EXPIRED_MESSAGE =
+  'Your session has expired. Reload the page to sign in again.';
 
 /** Error code for a non-2xx response without our JSON error body (e.g. a proxy page). */
 function fallbackCode(status: number): ApiErrorCode {
@@ -405,8 +411,26 @@ export class ApiClient {
     return `${this.base}/trees/${enc(treeId)}/backup`;
   }
 
+  /**
+   * The JSON backup of one tree, fetched with this app's headers. Learn saves
+   * it from here: a plain link sends no mode header, so the server would look
+   * for the tree in the power account.
+   */
+  backup(treeId: string): Promise<TreeBackup> {
+    return this.json('GET', `/trees/${enc(treeId)}/backup`);
+  }
+
   importBackup(backup: TreeBackupInput): Promise<TreeDetail> {
     return this.json('POST', '/import', backup);
+  }
+
+  /**
+   * Copies one of the caller's power trees into their Learn account as a new
+   * lesson (adapted like any import into Learn); resolves with its id. Sent
+   * from the power apps (power mode); needs no membership and spends nothing.
+   */
+  copyToLearn(treeId: string): Promise<CopyToLearnResponse> {
+    return this.json('POST', `/trees/${enc(treeId)}/copy-to-learn`);
   }
 
   // Plumbing
@@ -435,13 +459,6 @@ export class ApiClient {
     } catch (err) {
       if (signal?.aborted) throw err;
       throw new ApiError(0, 'network', err instanceof Error ? err.message : 'Network error');
-    }
-    if (res.status === 401) {
-      throw new ApiError(
-        401,
-        'unauthorized',
-        'Your session has expired. Reload the page to sign in again.',
-      );
     }
     if (!res.ok) throw await this.toError(res);
     return res;
@@ -472,6 +489,10 @@ export class ApiClient {
     } catch {
       // Not JSON (e.g. a proxy error page).
     }
+    // Only a missing or expired session is "sign in again". Other 401s (no
+    // usable API key: `key_required`) keep their code and the server's message.
+    if (res.status === 401 && (!isErrorBody(parsed) || parsed.error.code === 'unauthorized'))
+      return new ApiError(401, 'unauthorized', SESSION_EXPIRED_MESSAGE);
     if (isErrorBody(parsed))
       return new ApiError(
         res.status,
@@ -487,6 +508,11 @@ export class ApiClient {
 export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+/** True for a 401 `unauthorized` ApiError: no session, or an expired one (not `key_required`). */
+export function isSessionExpired(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.code === 'unauthorized';
 }
 
 /** True for a 402 `payment_required` ApiError (out of credit for the built-in provider). */

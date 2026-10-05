@@ -66,13 +66,23 @@
       </div>
 
       <div class="composer-dock">
-        <app-composer
-          [placeholder]="placeholder()"
-          [disabled]="store.busy()"
-          [busy]="store.streamingNode() !== null"
-          (send)="send($event)"
-          (stop)="stop()"
-        />
+        @if (readOnly(); as ro) {
+          <!-- This branch's funding needs the membership the user lacks: read it, renew, or copy it. -->
+          <app-read-only-composer
+            [membership]="ro.membership"
+            [treeId]="ro.treeId"
+            [credit]="store.creditRoute() !== null"
+            (useCredit)="useCredit()"
+          />
+        } @else {
+          <app-composer
+            [placeholder]="placeholder()"
+            [disabled]="store.busy()"
+            [busy]="store.streamingNode() !== null"
+            (send)="send($event)"
+            (stop)="stop()"
+          />
+        }
       </div>
     </section>
 

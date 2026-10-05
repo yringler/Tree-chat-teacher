@@ -10,11 +10,13 @@ import type {
   CreateBranchRequest,
   ProviderInfo,
   StreamEvent,
+  TreeBackup,
+  TreeBackupInput,
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
 import { POOL_NOTICE_VERSION } from '@tangent/shared';
-import { ApiClient, ApiError } from '@tangent/web-shared';
+import { ApiClient, ApiError, SAVE_FILE } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
 import { LessonStore, OUT_OF_CREDIT_MESSAGE } from './lesson-store';
@@ -34,8 +36,9 @@ function branch(id: string, over: Partial<Branch> = {}): Branch {
     title: id,
     titleSource: 'default',
     isPrivate: false,
-    providerId: 'tangent',
+    providerId: 'openrouter',
     model: 'smart-model',
+    funding: 'own-key',
     createdAt: T,
     updatedAt: T,
     ...over,
@@ -103,7 +106,7 @@ function controlledStream(first: StreamEvent[]) {
 }
 
 const PROVIDER: ProviderInfo = {
-  id: 'tangent',
+  id: 'openrouter',
   kind: 'openai-compatible',
   label: 'Tangent',
   models: [
@@ -172,6 +175,19 @@ function fakeApi() {
       version,
       acknowledgedAt: T,
     })),
+    backup: vi.fn(async (_id: string): Promise<TreeBackup> => backupOf(detail())),
+    importBackup: vi.fn(async (_backup: TreeBackupInput) => detail()),
+  };
+}
+
+function backupOf(d: TreeDetail): TreeBackup {
+  return {
+    format: 'tangent-tree-backup',
+    version: 1,
+    exportedAt: T,
+    tree: d.tree,
+    branches: d.branches,
+    nodes: d.nodes,
   };
 }
 
@@ -187,6 +203,7 @@ const POOL_STATUS: PoolStatusResponse = {
 function setup() {
   const api = fakeApi();
   const router = { navigate: vi.fn(async (_commands: unknown[], _extras?: unknown) => true) };
+  const saveFile = vi.fn((_name: string, _blob: Blob) => undefined);
   const injector = Injector.create({
     providers: [
       { provide: LessonStore },
@@ -195,11 +212,12 @@ function setup() {
       { provide: PaymentStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: router },
+      { provide: SAVE_FILE, useValue: saveFile },
     ],
   });
   const store = injector.get(LessonStore);
   const ui = injector.get(UiStore);
-  return { store, ui, api, router, injector };
+  return { store, ui, api, router, injector, saveFile };
 }
 
 /** Opens lesson t1 at `branchId` and waits for it to load. */
@@ -584,7 +602,10 @@ describe('LessonStore', () => {
     s.api.sendMessage.mockRejectedValue(new ApiError(402, 'payment_required', 'Too low'));
     await expect(s.store.startLesson('fast-model', '  Teach me fractions ')).resolves.toBe(true);
 
-    expect(s.api.createTree).toHaveBeenCalledWith({ providerId: 'tangent', model: 'fast-model' });
+    expect(s.api.createTree).toHaveBeenCalledWith({
+      providerId: 'openrouter',
+      model: 'fast-model',
+    });
     expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't1']);
     await vi.waitFor(() => expect(s.router.navigate).toHaveBeenLastCalledWith(['/billing']));
     expect(s.api.sendMessage).toHaveBeenCalledWith(
@@ -615,7 +636,7 @@ describe('LessonStore', () => {
       fromNodeId: 'a1',
       contextMode: 'path',
       anchorQuote: 'a wave',
-      providerId: 'tangent',
+      providerId: 'openrouter',
       model: 'fast-model',
     });
     expect(created?.id).toBe('side');
@@ -660,5 +681,78 @@ describe('LessonStore', () => {
     expect(s.api.deleteTree).toHaveBeenCalledWith('t1');
     expect(s.store.trees()).toEqual([]);
     expect(s.router.navigate).toHaveBeenCalledWith(['/']);
+  });
+  it('Export downloads the lesson as the same JSON backup as power mode, named after it', async () => {
+    const s = setup();
+    const d = detail([
+      userNode,
+      node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' }),
+    ]);
+    s.api.backup.mockResolvedValue(backupOf(d));
+    const pending = s.store.exportLesson('t1');
+    expect(s.store.exportingId()).toBe('t1');
+    // One export at a time.
+    await expect(s.store.exportLesson('t2')).resolves.toBe(false);
+    await expect(pending).resolves.toBe(true);
+    expect(s.store.exportingId()).toBeNull();
+    expect(s.api.backup).toHaveBeenCalledTimes(1);
+    expect(s.api.backup).toHaveBeenCalledWith('t1');
+    const [name, blob] = s.saveFile.mock.calls[0]!;
+    expect(name).toBe('photosynthesis.tangent.json');
+    expect(JSON.parse(await blob.text())).toEqual(backupOf(d));
+  });
+
+  it('a failed Export is a toast and saves nothing', async () => {
+    const s = setup();
+    s.api.backup.mockRejectedValue(new ApiError(404, 'not_found', 'Tree not found'));
+    await expect(s.store.exportLesson('t1')).resolves.toBe(false);
+    expect(s.saveFile).not.toHaveBeenCalled();
+    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Tree not found' });
+    expect(s.store.exportingId()).toBeNull();
+  });
+
+  it('Import sends the backup, lists the new lesson first and opens it', async () => {
+    const s = setup();
+    const imported = { ...detail(), tree: { ...detail().tree, id: 't9', title: 'Imported' } };
+    s.api.importBackup.mockResolvedValue(imported);
+    const file = new File([JSON.stringify(backupOf(detail()))], 'photosynthesis.tangent.json');
+    await expect(s.store.importLesson(file)).resolves.toBe(true);
+    expect(s.api.importBackup).toHaveBeenCalledWith(backupOf(detail()));
+    expect(s.store.trees().map((t) => t.id)).toEqual(['t9']);
+    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Imported “Imported”' });
+    expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't9']);
+    expect(s.store.importing()).toBe(false);
+  });
+
+  it('Import refuses a file that is not a usable backup before sending anything', async () => {
+    const s = setup();
+    for (const [file, text] of [
+      [new File(['# Notes'], 'notes.md'), /^notes\.md is not a JSON file\./],
+      [new File(['{"title":"x"}'], 'other.json'), /^other\.json is not a Tangent backup\.$/],
+      [new File([''], 'empty.json'), /^empty\.json is empty\.$/],
+    ] as const) {
+      await expect(s.store.importLesson(file)).resolves.toBe(false);
+      expect(s.ui.toasts().at(-1)).toMatchObject({
+        kind: 'error',
+        text: expect.stringMatching(text),
+      });
+    }
+    expect(s.api.importBackup).not.toHaveBeenCalled();
+    expect(s.router.navigate).not.toHaveBeenCalled();
+    expect(s.store.importing()).toBe(false);
+  });
+
+  it("the server's refusal of an import is a toast", async () => {
+    const s = setup();
+    s.api.importBackup.mockRejectedValue(
+      new ApiError(400, 'bad_request', 'Backup must contain exactly one trunk branch'),
+    );
+    const file = new File([JSON.stringify(backupOf(detail()))], 'lesson.json');
+    await expect(s.store.importLesson(file)).resolves.toBe(false);
+    expect(s.ui.toasts().at(-1)).toMatchObject({
+      kind: 'error',
+      text: 'Backup must contain exactly one trunk branch',
+    });
+    expect(s.store.trees()).toEqual([]);
   });
 });

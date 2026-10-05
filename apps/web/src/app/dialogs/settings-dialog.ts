@@ -6,7 +6,12 @@ import {
   type OnInit,
   signal,
 } from '@angular/core';
-import { MAX_SYSTEM_PROMPT_CHARS } from '@tangent/shared';
+import {
+  MAX_SYSTEM_PROMPT_CHARS,
+  parseRouteKey,
+  providerRouteKey,
+  routeKey,
+} from '@tangent/shared';
 import { ReviewStore } from '../state/review-store';
 import { SettingsStore } from '../state/settings-store';
 import { TreeStore } from '../state/tree-store';
@@ -89,7 +94,7 @@ import { ModelPicker } from '../ui/model-picker';
             each review.
           </p>
           @if (custom()) {
-            <app-model-picker [(providerId)]="providerId" [(modelId)]="modelId" />
+            <app-model-picker [(route)]="route" [(modelId)]="modelId" />
             <button type="button" class="btn btn-ghost btn-sm" (click)="custom.set(false)">
               Use the branch's provider default instead
             </button>
@@ -119,7 +124,8 @@ export class SettingsDialog implements OnInit {
   private readonly ui = inject(UiStore);
 
   protected readonly custom = signal(false);
-  protected readonly providerId = signal('');
+  /** The reviewer's provider and funding, as a `routeKey`. */
+  protected readonly route = signal('');
   protected readonly modelId = signal('');
 
   protected readonly maxChars = MAX_SYSTEM_PROMPT_CHARS;
@@ -143,7 +149,7 @@ export class SettingsDialog implements OnInit {
     const saved = this.settings.settings().reviewer;
     this.custom.set(saved !== null);
     if (saved) {
-      this.providerId.set(saved.providerId);
+      this.route.set(routeKey(saved));
       this.modelId.set(saved.model);
     }
     void this.loadPrompt();
@@ -167,10 +173,11 @@ export class SettingsDialog implements OnInit {
   }
 
   protected customize(): void {
-    if (!this.providerId()) {
-      const start = this.reviews.defaultReviewer(this.store.selectedBranch()?.providerId ?? null);
-      this.providerId.set(start?.providerId ?? this.store.defaultProvider()?.id ?? '');
-      this.modelId.set(start?.model ?? this.store.defaultProvider()?.defaultModel ?? '');
+    if (!this.route()) {
+      const start = this.reviews.defaultReviewer(this.store.selectedBranch());
+      const fallback = this.store.defaultProvider();
+      this.route.set(start ? routeKey(start) : fallback ? providerRouteKey(fallback) : '');
+      this.modelId.set(start?.model ?? fallback?.defaultModel ?? '');
     }
     this.custom.set(true);
   }
@@ -181,8 +188,8 @@ export class SettingsDialog implements OnInit {
 
   protected async save(): Promise<void> {
     const reviewer =
-      this.custom() && this.providerId() && this.modelId().trim()
-        ? { providerId: this.providerId(), model: this.modelId().trim() }
+      this.custom() && this.route() && this.modelId().trim()
+        ? { ...parseRouteKey(this.route()), model: this.modelId().trim() }
         : null;
     this.settings.update({ reviewer });
     const prompt = this.promptToSave();

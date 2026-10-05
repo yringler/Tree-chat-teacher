@@ -14,7 +14,7 @@ import {
   type AccountRequest,
 } from '../src/auth/account.js';
 import type { AppEnv } from '../src/env.js';
-import { providerConfigs, registryFor } from '../src/services.js';
+import { creditRegistryFor, providerConfigs, providersFor, registryFor } from '../src/services.js';
 
 const BASE = 'https://tangent.example.com';
 
@@ -222,7 +222,7 @@ describe('power provider configs', () => {
     expect(openrouter.models.length).toBeGreaterThan(2);
   });
 
-  it("the operator's PROVIDERS rule, and may not claim the built-in id", () => {
+  it("the operator's PROVIDERS rule, and may not claim the legacy built-in id", () => {
     expect(providerConfigs(withEnv()).some((c) => c.openModels)).toBe(false);
     const claim = JSON.stringify([
       { id: 'tangent', kind: 'fake', label: 'Mine', defaultModel: 'x', models: [] },
@@ -230,18 +230,28 @@ describe('power provider configs', () => {
     expect(() => providerConfigs(withEnv({ PROVIDERS: claim }))).toThrow(/reserved id "tangent"/);
   });
 
-  it('the built-in provider takes the operator key only, never a user key', () => {
+  it('Tangent credit takes the operator key only, never a user key, in a registry of its own', () => {
     const account = resolveAccount(
       withEnv(),
       { userId: 'usr2', email: 'b@example.org', devMode: false },
       { mode: 'power', payment: 'own-key' },
     );
-    const registry = registryFor(withEnv(), account, { tangent: 'sk-user', ant: 'sk-ant-good' });
-    expect(registry.list().find((p) => p.id === 'tangent')).toMatchObject({
-      available: true,
+    const keys = { openrouter: 'sk-user', tangent: 'sk-user', ant: 'sk-ant-good' };
+    const credit = creditRegistryFor(withEnv(), account)!;
+    expect(credit.list()).toEqual([
+      expect.objectContaining({ id: 'openrouter', available: true, acceptsUserKey: false }),
+    ]);
+    // The own-key registry never holds the operator's endpoint: only the configured providers.
+    const own = registryFor(withEnv(), account, keys);
+    expect(own.list().map((p) => p.id)).toEqual(['fake', 'slow', 'ant']);
+    expect(own.list().find((p) => p.id === 'ant')?.keySource).toBe('user');
+    expect(providersFor(withEnv(), account, keys).at(-1)).toMatchObject({
+      id: 'openrouter',
+      funding: 'credit',
       acceptsUserKey: false,
     });
-    expect(registry.list().find((p) => p.id === 'ant')?.keySource).toBe('user');
-    expect(registryFor(withEnv(), { ...account, builtIn: false }).get('tangent')).toBeUndefined();
+    expect(creditRegistryFor(withEnv(), { ...account, builtIn: false })).toBeNull();
+    // Learn has one registry for every funding; it never has a credit registry.
+    expect(creditRegistryFor(withEnv(), { ...account, mode: 'simple' })).toBeNull();
   });
 });

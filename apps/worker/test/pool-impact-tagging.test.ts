@@ -180,7 +180,7 @@ function poolAccount(poolId: string, userId = uniq('user')): AccountContext {
 }
 
 /**
- * The pool's `tangent` config, as a fake answering `output` to anything, with
+ * The pool's built-in provider config, as a fake answering `output` to anything, with
  * every request it receives recorded.
  */
 function recordingProviders(output: string): {

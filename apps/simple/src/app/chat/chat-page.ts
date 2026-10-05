@@ -201,6 +201,11 @@ export class ChatPage implements OnDestroy {
     else void this.account.refreshBalance();
   }
 
+  protected exportLesson(): void {
+    const d = this.store.detail();
+    if (d) void this.store.exportLesson(d.tree.id);
+  }
+
   protected deleteLesson(): void {
     const d = this.store.detail();
     if (!d) return;

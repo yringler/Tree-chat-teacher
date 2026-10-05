@@ -7,13 +7,14 @@ import type {
   ChatNode,
   ContextPlanResponse,
   MeResponse,
+  ProviderInfo,
   StreamEvent,
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
 import { ApiClient, ApiError } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CanvasStore } from './canvas-store';
+import { CanvasStore, modelLabel } from './canvas-store';
 import { UiStore } from './ui-store';
 
 const T = '2026-01-01T00:00:00.000Z';
@@ -29,8 +30,9 @@ function branch(id: string, over: Partial<Branch> = {}): Branch {
     title: id,
     titleSource: 'default',
     isPrivate: false,
-    providerId: 'tangent',
+    providerId: 'openrouter',
     model: 'smart-model',
+    funding: 'credit',
     createdAt: T,
     updatedAt: T,
     ...over,
@@ -100,7 +102,24 @@ function controlledStream(first: StreamEvent[]) {
 
 function fakeApi() {
   return {
-    providers: vi.fn(async () => []),
+    // What a power user without a membership reads after a 402 `membership_required`.
+    me: vi.fn(
+      async () =>
+        ({
+          builtInCredit: true,
+          membership: {
+            required: true,
+            status: 'inactive',
+            subscriptionStatus: null,
+            periodEnd: null,
+            cancelAtPeriodEnd: false,
+            priceCents: 1000,
+            includedCreditCents: 0,
+          },
+          membershipNeededFor: ['own-key'],
+        }) as MeResponse,
+    ),
+    providers: vi.fn(async (): Promise<ProviderInfo[]> => []),
     listTrees: vi.fn(async (): Promise<TreeSummary[]> => []),
     keyStatus: vi.fn(async () => ({ enabled: true, hasKey: false, providers: [] })),
     getTree: vi.fn(async (_id: string) => detail()),
@@ -254,5 +273,131 @@ describe('CanvasStore', () => {
     const unsold = setup();
     await unsold.store.init({ builtInCredit: false, membership: inactive } as MeResponse);
     expect(unsold.store.membershipBlocked()).toBe(true);
+  });
+});
+
+describe('CanvasStore read-only lanes without a membership', () => {
+  const inactive = {
+    required: true,
+    status: 'inactive',
+    subscriptionStatus: 'canceled',
+    periodEnd: null,
+    cancelAtPeriodEnd: false,
+    priceCents: 1000,
+    includedCreditCents: 0,
+  } as const;
+  const credit: ProviderInfo = {
+    id: 'openrouter',
+    kind: 'openai-compatible',
+    label: 'Tangent credit',
+    models: [{ id: 'smart-model', label: 'Smart' }],
+    defaultModel: 'smart-model',
+    openModels: true,
+    available: true,
+    acceptsUserKey: false,
+    keySource: 'server',
+    funding: 'credit',
+  };
+
+  /** The trunk on the user's own key, lane `b` on Tangent credit. */
+  function ownKeyTrunk(): TreeDetail {
+    const d = detail();
+    return {
+      ...d,
+      branches: d.branches.map((b) => (b.id === 'trunk' ? { ...b, funding: 'own-key' } : b)),
+    };
+  }
+
+  it('locks the own-key lanes the server names while the user has no membership; credit lanes keep going', async () => {
+    const s = setup();
+    s.api.providers.mockResolvedValue([credit]);
+    await s.store.init({
+      builtInCredit: true,
+      membership: inactive,
+      membershipNeededFor: ['own-key'],
+    } as MeResponse);
+    s.store.detail.set(ownKeyTrunk());
+    const [trunk, lane] = s.store.detail()!.branches;
+    expect(s.store.routeLocked(trunk!)).toBe(true);
+    expect(s.store.routeLocked(lane!)).toBe(false);
+    expect(s.store.creditRoute()).toBe(credit);
+
+    // A member, or no membership required: nothing is locked.
+    s.store.membership.set({ ...inactive, status: 'active' });
+    expect(s.store.routeLocked(trunk!)).toBe(false);
+    s.store.membership.set({ ...inactive, required: false });
+    expect(s.store.routeLocked(trunk!)).toBe(false);
+  });
+
+  it('a 402 membership_required locks own-key lanes and re-reads me', async () => {
+    const s = setup();
+    await s.store.init({
+      builtInCredit: true,
+      membership: { ...inactive, required: false },
+      membershipNeededFor: [],
+    } as unknown as MeResponse);
+    s.store.detail.set(ownKeyTrunk());
+    const trunk = s.store.detail()!.branches[0]!;
+    expect(s.store.routeLocked(trunk)).toBe(false);
+    s.api.me.mockResolvedValue({
+      builtInCredit: true,
+      membership: inactive,
+      membershipNeededFor: ['own-key'],
+    } as MeResponse);
+    s.store.fail(new ApiError(402, 'membership_required', 'Membership required'));
+    expect(s.store.routeLocked(trunk)).toBe(true);
+    await vi.waitFor(() => expect(s.api.me).toHaveBeenCalled());
+    await vi.waitFor(() => expect(s.store.membershipNeededFor()).toEqual(['own-key']));
+  });
+
+  it('"Continue with Tangent credit" moves a locked lane onto credit', async () => {
+    const s = setup();
+    s.api.providers.mockResolvedValue([credit]);
+    await s.store.init({
+      builtInCredit: true,
+      membership: inactive,
+      membershipNeededFor: ['own-key'],
+    } as MeResponse);
+    s.store.detail.set(ownKeyTrunk());
+    const updateBranch = vi.fn(async (id: string, req: object) => ({
+      ...ownKeyTrunk().branches.find((b) => b.id === id)!,
+      ...req,
+    }));
+    (s.api as unknown as { updateBranch: typeof updateBranch }).updateBranch = updateBranch;
+    await expect(s.store.switchToCredit('trunk')).resolves.toBe(true);
+    expect(updateBranch).toHaveBeenCalledWith('trunk', {
+      providerId: 'openrouter',
+      funding: 'credit',
+      model: 'smart-model',
+    });
+    expect(s.store.routeLocked(s.store.detail()!.branches[0]!)).toBe(false);
+  });
+});
+
+describe('modelLabel', () => {
+  const entry = (funding: 'own-key' | 'credit', label: string): ProviderInfo => ({
+    id: 'openrouter',
+    kind: 'openai-compatible',
+    label: funding,
+    models: [{ id: 'a/smart', label }],
+    defaultModel: 'a/smart',
+    openModels: true,
+    available: true,
+    acceptsUserKey: funding === 'own-key',
+    keySource: null,
+    funding,
+  });
+  const providers = [entry('own-key', 'Smart'), entry('credit', 'Smart (suggested)')];
+
+  it('labels by route: the same endpoint on the user key or on Tangent credit', () => {
+    expect(modelLabel(providers, { providerId: 'openrouter' }, 'a/smart')).toBe('Smart');
+    expect(modelLabel(providers, { providerId: 'openrouter', funding: 'credit' }, 'a/smart')).toBe(
+      'Smart (suggested)',
+    );
+    // A reply records no funding; an unlisted model is shortened.
+    expect(modelLabel(providers.slice(1), { providerId: 'openrouter' }, 'a/smart')).toBe(
+      'Smart (suggested)',
+    );
+    expect(modelLabel(providers, { providerId: 'openrouter' }, 'vendor/other')).toBe('other');
   });
 });
