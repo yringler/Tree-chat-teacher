@@ -6,8 +6,9 @@ import { sessionMiddleware } from './auth/session.js';
 import type { AppBindings } from './env.js';
 import { apiError, notFound, onError } from './http/errors.js';
 import { landingRoutes } from './http/landing.js';
-import { canvasAppRoutes, learnAppRoutes } from './http/learn-app.js';
+import { adminAppRoutes, canvasAppRoutes, learnAppRoutes } from './http/learn-app.js';
 import { legalRoutes } from './http/legal.js';
+import { adminRoutes } from './routes/admin.js';
 import { apiRoutes } from './routes/api.js';
 import { billingRoutes } from './routes/billing.js';
 import { shareRoutes } from './routes/share.js';
@@ -22,10 +23,12 @@ export interface AppOptions {
  * - `/api/login-options` is public: what the login page should offer.
  * - Every other `/api/*` route requires a session (auth/session.ts) and acts
  *   as the caller's account for the app named by the `x-tangent-mode` header
- *   (auth/account.ts); `/api/billing/*` is Learn mode's billing API.
+ *   (auth/account.ts); `/api/billing/*` is the billing API, and `/api/admin/*`
+ *   the admin API (admins only, routes/admin.ts).
  * - `/s/*` is public and read-only.
- * - `/learn`, `/learn/*` serve the simple app and `/canvas`, `/canvas/*` the
- *   canvas app (http/learn-app.ts).
+ * - `/learn`, `/learn/*` serve the simple app, `/canvas`, `/canvas/*` the
+ *   canvas app and `/admin`, `/admin/*` the admin app, to admins only
+ *   (http/learn-app.ts).
  * - `/privacy` and `/terms` are the public legal pages (http/legal.ts).
  * - `/welcome`, and `/` for anonymous visitors, serve the landing page
  *   (http/landing.ts); `/` with a session cookie is the power app's index.
@@ -58,10 +61,12 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   app.use('/api/*', sessionMiddleware(options.auth));
   app.use('/api/*', accountMiddleware);
   app.route('/api/billing', billingRoutes());
+  app.route('/api/admin', adminRoutes());
   app.route('/api', apiRoutes());
   app.route('/s', shareRoutes());
   app.route('/', learnAppRoutes());
   app.route('/', canvasAppRoutes());
+  app.route('/', adminAppRoutes(options.auth));
   app.route('/', legalRoutes());
   app.route('/', landingRoutes());
   return app;

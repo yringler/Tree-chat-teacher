@@ -63,6 +63,7 @@ export { Modal } from './ui/modal';
 export { ModeSwitch } from './ui/mode-switch';
 export { Turnstile } from './ui/turnstile';
 export { LoginPage } from './login/login-page';
+export { AccountId } from './account/account-id';
 export { DeleteAccount } from './account/delete-account';
 
 // Billing: the shared billing page, the membership gate and their helpers

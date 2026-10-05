@@ -16,23 +16,31 @@
   "observability": { "enabled": true },
   // Builds the Angular apps into ./site (root `pnpm build`) before every `wrangler deploy` and
   // `wrangler dev`, so a bare `wrangler deploy` can't ship the empty assets directory: that serves
-  // the Worker alone, and /learn/*, /canvas/*, /login and every asset 404. Under `wrangler dev` it reruns when
+  // the Worker alone, and /learn/*, /canvas/*, /admin/*, /login and every asset 404. Under `wrangler dev` it reruns when
   // the apps' sources change. Workers Builds ignores this key: see "Deploying from Git" in the README.
   "build": {
     "command": "pnpm -w build",
-    "watch_dir": ["../web/src", "../simple/src", "../canvas/src", "../../packages/web-shared/src"]
+    "watch_dir": [
+      "../web/src",
+      "../simple/src",
+      "../canvas/src",
+      "../admin/src",
+      "../../packages/web-shared/src"
+    ]
   },
   "assets": {
     // Assembled by scripts/assemble-assets.mjs (root `pnpm build`): the power app at the
-    // root, the simple app under learn/, the canvas app under canvas/. Holds only .gitkeep
+    // root, the simple app under learn/, the canvas app under canvas/, the admin app under
+    // admin/. Holds only .gitkeep
     // until something is built.
     "directory": "./site",
     "binding": "ASSETS",
     // The power app's deep links. SPA fallback always serves the root index.html, so
-    // the other apps can't use it: /learn* and /canvas* go to the Worker (src/http/learn-app.ts).
+    // the other apps can't use it: /learn*, /canvas* and /admin* go to the Worker (src/http/learn-app.ts).
     "not_found_handling": "single-page-application",
     // API and public share routes must reach the Worker even for browser navigations;
-    // /learn* and /canvas* do too, for those apps' index.html and CSP. "/welcome" is the
+    // /learn*, /canvas* and /admin* do too, for those apps' index.html and CSP (the admin app's
+    // only for admins, see ADMIN_USER_IDS). "/welcome" is the
     // landing page, and "/" (exact path) is too for anonymous visitors (src/http/landing.ts).
     // "/privacy" and "/terms" are the public legal pages (src/http/legal.ts).
     "run_worker_first": [
@@ -42,6 +50,8 @@
       "/learn/*",
       "/canvas",
       "/canvas/*",
+      "/admin",
+      "/admin/*",
       "/",
       "/welcome",
       "/privacy",
@@ -99,6 +109,10 @@
     "LEGAL_CONTACT_EMAIL": "privacy@tangentailearning.com",
     // Governing law of the terms, e.g. "the State of New York, USA"; empty = where the operator is established.
     "LEGAL_JURISDICTION": "the Commonwealth of Pennsylvania, USA",
+    // "true" once a DMCA designated agent is registered with the US Copyright Office (docs/LEGAL.md §8).
+    // Anything else = public share links are off: no new links, existing /s/* links don't open, and
+    // users can only download a conversation (Markdown / HTML export) to host it themselves.
+    "DMCA_AGENT_REGISTERED": "false",
     // Cloudflare Turnstile site key (public) for the magic-link form. Its secret is TURNSTILE_SECRET_KEY.
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFLlFryv5vXul-MG",
     // JSON array of ProviderConfig for power mode's own-key providers; empty = built-in defaults
@@ -160,5 +174,7 @@
   //   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET (both set = billing enabled)
   //   MEMBERSHIP_WAIVER_CODE (optional; a code users redeem to waive the membership fee. Change it if it
   //     leaks; waived users keep their flag until it is cleared in the database, see README)
+  //   ADMIN_USER_IDS (comma-separated Better Auth user ids: the operator's own accounts, which may
+  //     open /admin/ and /api/admin/*. Each user's id is under Account ID in their account menu)
   // Local only (.dev.vars): DEV_ALLOW_NO_AUTH=true (honoured only while BETTER_AUTH_SECRET is unset)
 }

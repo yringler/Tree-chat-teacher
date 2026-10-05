@@ -135,6 +135,8 @@ export interface LandingPageOptions {
   canonicalUrl: string;
   /** Who runs the service, for the footer's copyright line (http/legal.ts). */
   operator: string;
+  /** Share links are offered to everyone (DMCA_AGENT_REGISTERED); otherwise only export is advertised. */
+  sharing: boolean;
 }
 
 const TITLE = 'Tangent: learn by following your curiosity, one branch at a time';
@@ -233,7 +235,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <ul>
 <li>Bring your own API keys for any configured provider</li>
 <li>Every control: context modes, inspector, reviewer, system prompts</li>
-<li>Read-only share links and Markdown or HTML export</li>
+<li>${opts.sharing ? 'Read-only share links and Markdown or HTML export' : 'Markdown or HTML export'}</li>
 <li>Self-host it on your own Cloudflare account</li>
 </ul>
 <a class="btn" href="/login">Power sign in</a>
@@ -295,8 +297,8 @@ async function landingResponse(
   headers: Record<string, string>,
 ): Promise<Response> {
   const canonicalUrl = new URL('/', authBaseUrl(c.env, c.req.raw)).toString();
-  const { operator } = legalInfo(c.env, c.req.raw);
-  return new Response(renderLandingPage({ canonicalUrl, operator }), {
+  const { operator, sharing } = legalInfo(c.env, c.req.raw);
+  return new Response(renderLandingPage({ canonicalUrl, operator, sharing }), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Security-Policy': await landingCsp(),

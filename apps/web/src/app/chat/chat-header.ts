@@ -42,15 +42,18 @@ interface Crumb {
           >
             <app-icon name="settings" /> <span class="hide-narrow">Branch</span>
           </button>
-          <!-- Shares and exports are made by the server; the demo has none. -->
+          <!-- Shares and exports are made by the server; the demo has none. Public links
+               only while this user may publish them (MeResponse.sharing); export always. -->
           @if (!demo) {
-            <button
-              type="button"
-              class="btn btn-ghost btn-sm"
-              (click)="ui.shareDialogOpen.set(true)"
-            >
-              <app-icon name="share" /> <span class="hide-narrow">Share…</span>
-            </button>
+            @if (store.me()?.sharing) {
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                (click)="ui.shareDialogOpen.set(true)"
+              >
+                <app-icon name="share" /> <span class="hide-narrow">Share…</span>
+              </button>
+            }
             <app-export-menu />
           }
           <button

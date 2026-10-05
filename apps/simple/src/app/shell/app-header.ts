@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, ElementRef, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { AuthService, DEMO_MODE, Icon, ModeSwitch } from '@tangent/web-shared';
+import { AccountId, AuthService, DEMO_MODE, Icon, ModeSwitch } from '@tangent/web-shared';
 import { BRAND, BRAND_SHORT } from '../brand';
 import { DEMO_EXIT_URL } from '../demo/demo-mode';
 import { AccountStore } from '../state/account-store';
@@ -12,7 +12,7 @@ import { UiStore } from '../state/ui-store';
  */
 @Component({
   selector: 'app-header',
-  imports: [RouterLink, Icon, ModeSwitch],
+  imports: [RouterLink, Icon, ModeSwitch, AccountId],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="app-head">
@@ -64,6 +64,9 @@ import { UiStore } from '../state/ui-store';
           <div class="menu" id="account-menu" role="menu">
             @if (account.me()?.email; as email) {
               <p class="menu-label muted small">{{ email }}</p>
+            }
+            @if (!demo && account.me()?.userId; as id) {
+              <app-account-id class="menu-label" [userId]="id" [menu]="true" />
             }
             @if (!demo) {
               <button type="button" class="menu-item" role="menuitem" (click)="openAccess()">

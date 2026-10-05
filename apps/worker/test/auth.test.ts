@@ -115,11 +115,14 @@ describe('fail closed', () => {
     const dev = setup(authEnv({ BETTER_AUTH_SECRET: '' }));
     expect(await (await dev.call('/api/me')).json()).toEqual({
       email: null,
+      userId: null,
       devMode: true,
       accountId: 'default',
       mode: 'power',
       operatorKeys: true,
       builtInCredit: true,
+      sharing: true,
+      isAdmin: true,
       membership: {
         required: false,
         status: 'inactive',
@@ -150,11 +153,14 @@ describe('fail closed', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       email: null,
+      userId: null,
       devMode: true,
       accountId: 'default',
       mode: 'power',
       operatorKeys: true,
       builtInCredit: true,
+      sharing: true,
+      isAdmin: true,
       membership: {
         required: false,
         status: 'inactive',
@@ -240,8 +246,10 @@ describe('magic link', () => {
       devMode: false,
       mode: 'power',
       operatorKeys: false,
+      isAdmin: false,
     });
     expect(body.accountId).toMatch(/^p_.+/);
+    expect(body.userId).toBe(body.accountId.slice('p_'.length));
   });
 
   it('a link works once', async () => {

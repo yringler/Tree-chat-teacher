@@ -22,9 +22,16 @@
 </header>
 
 <div class="shares">
-  <p class="muted small">
-    Create a link from a conversation’s header (Share…). Private branches are never shared.
-  </p>
+  @if (sharingOff()) {
+    <p class="notice" role="status">
+      Public links aren’t enabled for your account, so the links below don’t open. To share a
+      conversation, download it from its header (Export) and host the file yourself.
+    </p>
+  } @else {
+    <p class="muted small">
+      Create a link from a conversation’s header (Share…). Private branches are never shared.
+    </p>
+  }
 
   @if (error(); as err) {
     <p class="notice notice-error" role="alert">{{ err }}</p>

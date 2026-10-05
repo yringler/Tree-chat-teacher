@@ -73,6 +73,7 @@ apps/worker         Hono API, D1 repositories, TreeSession Durable Object, Bette
 apps/web            Power app at /: Angular 22 (standalone, signals, zoneless)
 apps/simple         Simple "Learn" app at /learn/: Angular 22
 apps/canvas         Experimental Canvas app at /canvas/ (a map of the power account's trees): Angular 22
+apps/admin          Admin app at /admin/ (operator only: who may share, takedowns): Angular 22
 ```
 
 ## License
@@ -106,15 +107,18 @@ The simple app works the same way: `pnpm --filter @tangent/simple start` serves 
 
 The canvas app too: `pnpm --filter @tangent/canvas start` serves it on <http://localhost:4202/canvas/> (`ng serve --serve-path /canvas/ --port 4202`, same proxy), acting as the `default` power account.
 
-**Build layout.** `pnpm build` builds the power app, the simple app and the canvas app, then runs `scripts/assemble-assets.mjs`, which copies them into the Worker's static assets directory. `wrangler.jsonc` sets it as the Worker's `build.command`, so every `wrangler deploy` and `wrangler dev` runs it first (and `wrangler dev` reruns it when the apps' sources change):
+And the admin app: `pnpm --filter @tangent/admin start` serves it on <http://localhost:4203/admin/>. The dev bypass is always an admin; with real sign-in, put your own user id in `ADMIN_USER_IDS` in `.dev.vars` (see [Admin](#admin)).
+
+**Build layout.** `pnpm build` builds the power app, the simple app, the canvas app and the admin app, then runs `scripts/assemble-assets.mjs`, which copies them into the Worker's static assets directory. `wrangler.jsonc` sets it as the Worker's `build.command`, so every `wrangler deploy` and `wrangler dev` runs it first (and `wrangler dev` reruns it when the apps' sources change):
 
 ```
 apps/web/dist/web/browser/**        → apps/worker/site/         served at /
 apps/simple/dist/simple/browser/**  → apps/worker/site/learn/   served at /learn/
 apps/canvas/dist/canvas/browser/**  → apps/worker/site/canvas/  served at /canvas/
+apps/admin/dist/admin/browser/**    → apps/worker/site/admin/   served at /admin/ (to admins only)
 ```
 
-`apps/worker/site/` is git-ignored except for a `.gitkeep`, so `wrangler dev` and the tests start before anything is built. The power app's deep links come straight from Workers Static Assets (SPA fallback). `/` (exact path) and `/welcome` run the Worker first: `apps/worker/src/http/landing.ts` serves the landing page there, and passes `/` to the power app's `index.html` when the request carries a session cookie or the dev bypass is on. `/learn` and `/learn/*` run the Worker first (`run_worker_first`): `apps/worker/src/http/learn-app.ts` serves files as they are and every other path as the simple app's `index.html`, because the SPA fallback only ever serves the root `index.html`.
+`apps/worker/site/` is git-ignored except for a `.gitkeep`, so `wrangler dev` and the tests start before anything is built. The power app's deep links come straight from Workers Static Assets (SPA fallback). `/` (exact path) and `/welcome` run the Worker first: `apps/worker/src/http/landing.ts` serves the landing page there, and passes `/` to the power app's `index.html` when the request carries a session cookie or the dev bypass is on. `/learn` and `/learn/*` run the Worker first (`run_worker_first`): `apps/worker/src/http/learn-app.ts` serves files as they are and every other path as the simple app's `index.html`, because the SPA fallback only ever serves the root `index.html`. `/canvas*` and `/admin*` work the same way; the admin app's `index.html` goes only to admins, and everyone else gets a 404.
 
 Checks:
 
@@ -320,8 +324,28 @@ These are out of scope for now. Sign-up is open to anyone, so the first two are 
 
 - **Terms of service and privacy policy pages.**
 - **Account deletion and data export** for users (power conversations have per-tree JSON backups).
-- Auto-recharge, free sign-up credit, promotion codes, trials, low-balance or membership-lapse emails, multi-currency (USD only), and an admin UI (adjustments and waivers are the SQL above).
+- Auto-recharge, free sign-up credit, promotion codes, trials, low-balance or membership-lapse emails, multi-currency (USD only), and admin UI for credit (adjustments and waivers are the SQL above; the [admin page](#admin) only manages sharing).
 - Metered (postpaid) Stripe billing. [Stripe Managed Payments](https://docs.stripe.com/payments/managed-payments) (Stripe as merchant of record) would take tax liability off the operator, but isn't wired up.
+
+### Admin
+
+The admin page at `/admin/` (`apps/admin`) is for you, the operator. It lists users (newest first, searchable by email) and lets you:
+
+- allow particular users to publish share links while `DMCA_AGENT_REGISTERED` is off (**May share**, stored in `auth_users.share_allowed`). The check runs on every view of a link, before the edge cache, so turning a user off takes their links down at once. Once `DMCA_AGENT_REGISTERED` is `"true"` everyone may share and the list has no effect; the page says which applies;
+- see a user's shares and **Revoke** any of them, which is how to act on a takedown notice without the owner.
+
+Admins are the users listed in the `ADMIN_USER_IDS` secret. To add yourself:
+
+1. Sign in to the app, open the account dialog (**Account** in the power app's sidebar, or the account menu in Learn and Canvas) and copy your **Account ID**.
+2. Store it (several ids are comma-separated):
+   ```bash
+   npx wrangler secret put ADMIN_USER_IDS
+   ```
+3. The power app's sidebar now shows **Admin**. Admins may also always share.
+
+A user id isn't a credential: being an admin still takes being signed in as that user. It is a secret only to keep it out of `wrangler.jsonc`. To everyone else, `/admin*` and `/api/admin/*` answer 404 (signed out included), and the admin API's mutating routes refuse cross-origin requests.
+
+**Optional extra layer: Cloudflare Access.** The server-side check is the real gate, but you can also put a [Cloudflare Zero Trust Access](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/self-hosted-public-app/) self-hosted application in front of the admin paths, with a policy that allows only your email. Scope it by path on the same hostname: `tangentailearning.com/admin` and `tangentailearning.com/api/admin` (each also covers the paths below it; check that `/admin/` and `/api/admin/users` both prompt). Don't move the admin app to a subdomain: Better Auth's session cookie belongs to the main origin, so `admin.<domain>` would have no session.
 
 ## Configuration
 
@@ -331,12 +355,14 @@ These are out of scope for now. Sign-up is open to anyone, so the first two are 
 | `EMAIL_PROVIDER`                                                                       | var                | `resend` (default) or `log` (prints emails to the console; localhost only)                                                                                                                                                                                    |
 | `EMAIL_FROM`                                                                           | var                | Sender address for magic links (its domain must be verified in Resend)                                                                                                                                                                                        |
 | `LEGAL_OPERATOR`, `LEGAL_CONTACT_EMAIL`, `LEGAL_JURISDICTION`                          | var                | Who runs the deployment, where privacy and legal requests go, and the governing law, for `/privacy`, `/terms` and page footers (see [docs/LEGAL.md](docs/LEGAL.md))                                                                                           |
+| `DMCA_AGENT_REGISTERED`                                                                | var                | `"true"` once a DMCA designated agent is registered. Otherwise (default `"false"`) share links are off except for admins and users allowed on the [admin page](#admin) (see [docs/LEGAL.md](docs/LEGAL.md) §8)                                                |
 | `TURNSTILE_SITE_KEY`                                                                   | var                | Cloudflare Turnstile site key for the magic-link form                                                                                                                                                                                                         |
 | `PROVIDERS`                                                                            | var                | JSON array of power mode's own-key provider configs (default: anthropic, openai, openrouter, fake; the default openrouter lists the `SIMPLE_*_MODEL`s first and takes any model id). The id `tangent` is reserved for the built-in provider                   |
 | `SUMMARY_PROVIDER_ID`, `SUMMARY_MODEL`                                                 | var                | Cheaper model for summaries and titles, e.g. `anthropic` + `claude-haiku-4-5`. Empty = the branch's own model                                                                                                                                                 |
 | `AUTO_TITLE`                                                                           | var                | `false` disables automatic branch/tree titles                                                                                                                                                                                                                 |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`                            | secret             | Provider keys, referenced by name from provider configs. Used only by the local dev bypass; leave unset in production                                                                                                                                         |
 | `AI_GATEWAY_TOKEN`                                                                     | secret             | Optional, for an authenticated AI Gateway                                                                                                                                                                                                                     |
+| `ADMIN_USER_IDS`                                                                       | secret             | Comma-separated Better Auth user ids of your own accounts: they open `/admin/` and `/api/admin/*` and may always share. Empty = no admins. See [Admin](#admin)                                                                                                |
 | `BETTER_AUTH_SECRET`                                                                   | secret             | Signs session cookies (`openssl rand -base64 32`). Required; rotating it signs everyone out                                                                                                                                                                   |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | secret             | OAuth apps; each provider is offered only when both of its values are set                                                                                                                                                                                     |
 | `TURNSTILE_SECRET_KEY`                                                                 | secret             | Turnstile secret; without it magic-link sign-in is refused                                                                                                                                                                                                    |
@@ -362,7 +388,7 @@ These are out of scope for now. Sign-up is open to anyone, so the first two are 
 | `triggers.crons`                                                                       | cron trigger       | `*/10 * * * *`: settles usage whose cost the stream didn't report (`apps/worker/src/billing/reconcile.ts`)                                                                                                                                                    |
 | `DEV_ALLOW_NO_AUTH`                                                                    | `.dev.vars` only   | Skip sign-in locally (only while `BETTER_AUTH_SECRET` is unset)                                                                                                                                                                                               |
 
-**Routing.** `assets.run_worker_first` in `wrangler.jsonc` lists the paths the Worker sees before Workers Static Assets: `/api/*`, `/s/*`, `/learn`, `/learn/*`, `/` and `/welcome`. Keep `/` an exact path (not `/*`), or every asset request would run the Worker. In local dev with `DEV_ALLOW_NO_AUTH=true`, `/` is the app; open `/welcome` to see the landing page.
+**Routing.** `assets.run_worker_first` in `wrangler.jsonc` lists the paths the Worker sees before Workers Static Assets: `/api/*`, `/s/*`, `/learn`, `/learn/*`, `/canvas`, `/canvas/*`, `/admin`, `/admin/*`, `/`, `/welcome`, `/privacy` and `/terms`. Keep `/` an exact path (not `/*`), or every asset request would run the Worker. In local dev with `DEV_ALLOW_NO_AUTH=true`, `/` is the app; open `/welcome` to see the landing page.
 
 **Providers.** Each provider instance in `PROVIDERS` has `id`, `kind` (`anthropic` | `openai-compatible` | `fake`), `label`, `models`, `defaultModel` and `apiKeySecret`. It can also take `baseUrl`, `headers`, `extraHeaderSecrets`, `maxContextTokens`, `maxOutputTokens`, `supportsSystemPrompt`, `options` and `openModels`. With `"openModels": true`, `models` are only suggestions and any model id the upstream knows (letters, digits and `_ . - : /`, up to 200 characters) may be used, e.g. any OpenRouter model; an unlisted model gets the provider-level limits. Any OpenAI-compatible endpoint is config only:
 
@@ -439,5 +465,6 @@ This section describes the power app. The simple app at `/learn/` keeps only the
 - **Sharing:**
   - Use **Share…** in the chat header to pick a scope (tree / subtree / path) and a mode (snapshot / live), plus an optional title and expiry.
   - The **Shares** page lists every link. From there you can republish a snapshot in place (same URL) or revoke a link, which takes effect immediately.
+  - While `DMCA_AGENT_REGISTERED` is off, **Share…** appears only for accounts the operator allowed (and admins); everyone else exports instead.
 - **Export:** Markdown, or a single offline HTML file that uses the same viewer as share links.
 - **Backup:** the JSON backup includes everything, private branches too. **Import** restores a backup as a new tree.

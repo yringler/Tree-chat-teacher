@@ -1,4 +1,10 @@
-import { NotFoundError, projectShare, ValidationError, type ChatService } from '@tangent/core';
+import {
+  DomainError,
+  NotFoundError,
+  projectShare,
+  ValidationError,
+  type ChatService,
+} from '@tangent/core';
 import { payloadToMarkdown, renderViewerPage, viewerCsp } from '@tangent/render';
 import {
   createBranchRequestSchema,
@@ -15,7 +21,9 @@ import {
   type MeResponse,
 } from '@tangent/shared';
 import { Hono } from 'hono';
+import { createMiddleware } from 'hono/factory';
 import { z } from 'zod';
+import { isAdmin } from '../auth/admin.js';
 import { accountDeletionRoutes } from '../auth/delete-account.js';
 import { assertGenerationAllowed, enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
 import { assertMember, membershipFor } from '../billing/membership.js';
@@ -26,7 +34,7 @@ import { isMetered, usesUserKeys, type AppBindings, type AppContext, type AppEnv
 import { validateJson, validateQuery } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { purgeShare } from '../share/cache.js';
-import { builtInAvailable, chatService, registryFor, shareService } from '../services.js';
+import { builtInAvailable, canShare, chatService, registryFor, shareService } from '../services.js';
 import { keyRoutes } from './key.js';
 
 const REVIEW_KEEPALIVE_MS = 15_000;
@@ -76,18 +84,25 @@ export function apiRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();
 
   // The membership rides along so the apps can gate at startup without a second
-  // request (one query, none when no membership is required).
+  // request (one query, none when no membership is required); so does whether
+  // the user may share (one query while sharing is off, see canShare).
   api.get('/me', async (c) => {
-    const { email, devMode } = c.var.identity;
-    const { account } = c.var;
+    const { identity, account } = c.var;
+    const [sharing, membership] = await Promise.all([
+      canShare(c.env, identity.userId),
+      membershipFor(c.env, account),
+    ]);
     return c.json({
-      email,
-      devMode,
+      email: identity.email,
+      userId: identity.userId,
+      devMode: identity.devMode,
       accountId: account.id,
       mode: account.mode,
       operatorKeys: account.operatorKeys,
       builtInCredit: builtInAvailable(c.env),
-      membership: await membershipFor(c.env, account),
+      sharing,
+      isAdmin: isAdmin(c.env, identity),
+      membership,
     } satisfies MeResponse);
   });
 
@@ -283,13 +298,25 @@ export function apiRoutes(): Hono<AppBindings> {
   );
 
   // ---- shares
+  // With sharing off (no DMCA agent registered) only admins and the users the operator
+  // allowed publish (canShare): for anyone else create, edit and republish are 403.
+  // Listing and revoking stay open so owners can take old links down.
+  const sharingOn = createMiddleware<AppBindings>(async (c, next) => {
+    if (!(await canShare(c.env, c.var.identity.userId))) {
+      throw new DomainError(
+        'forbidden',
+        "Public share links aren't enabled for your account. Download the conversation instead.",
+      );
+    }
+    await next();
+  });
   api.get('/shares', async (c) =>
     c.json(await shareService(c.env, c.req.url, c.var.accountId).list()),
   );
-  api.post('/shares', validateJson(createShareRequestSchema), async (c) =>
+  api.post('/shares', sharingOn, validateJson(createShareRequestSchema), async (c) =>
     c.json(await shareService(c.env, c.req.url, c.var.accountId).create(c.req.valid('json')), 201),
   );
-  api.patch('/shares/:shareId', validateJson(updateShareRequestSchema), async (c) =>
+  api.patch('/shares/:shareId', sharingOn, validateJson(updateShareRequestSchema), async (c) =>
     c.json(
       await shareService(c.env, c.req.url, c.var.accountId).update(
         c.req.param('shareId'),
@@ -297,7 +324,7 @@ export function apiRoutes(): Hono<AppBindings> {
       ),
     ),
   );
-  api.post('/shares/:shareId/republish', async (c) => {
+  api.post('/shares/:shareId/republish', sharingOn, async (c) => {
     const s = await shareService(c.env, c.req.url, c.var.accountId).republish(
       c.req.param('shareId'),
     );

@@ -1,0 +1,117 @@
+/*
+ * Tangent Admin (/admin/): global styles. Shared tokens, buttons, forms,
+ * notices and badges come from @tangent/web-shared; this file adds the
+ * header, the users table and its expandable share lists. Components use
+ * these classes; component-scoped CSS is avoided.
+ */
+@import '@tangent/web-shared/styles/base.css';
+
+:root {
+  --gutter: 16px;
+}
+
+.admin-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px var(--gutter);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.admin-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px var(--gutter) 48px;
+}
+
+.admin-main h1 {
+  margin-bottom: 8px;
+}
+
+.notice-ok {
+  background: var(--ok-soft);
+}
+
+.admin-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 16px 0 8px;
+}
+
+.admin-search .field {
+  flex: 0 1 360px;
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+  margin: 8px 0 16px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.admin-table th {
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+.admin-nowrap {
+  white-space: nowrap;
+}
+
+.admin-id {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.admin-shares {
+  background: var(--bg-sunken);
+}
+
+.admin-share-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-share {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-share-title {
+  font-weight: 600;
+}

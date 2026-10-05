@@ -10,6 +10,9 @@ DEV_ALLOW_NO_AUTH=true
 # PUBLIC_BASE_URL=http://localhost:8787
 # BETTER_AUTH_SECRET=            # openssl rand -base64 32
 # Anyone can sign up. Signed-in users never get the server keys below: power mode is bring-your-own-key.
+# Your own user id (the Account ID in the account menu once signed in) opens the admin app at /admin/.
+# Comma-separated for several. Under Option A the dev bypass is always admin.
+# ADMIN_USER_IDS=
 # Magic links are printed to the wrangler console instead of emailed (localhost only):
 # EMAIL_PROVIDER=log
 # Cloudflare's Turnstile test keys (always pass):

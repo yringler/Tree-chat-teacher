@@ -64,6 +64,13 @@
       "when": 1791161247790,
       "tag": "0008_drop_oauth_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1791163276539,
+      "tag": "0009_share_allowed",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { ShareSummary } from '@tangent/shared';
 import { ApiClient, Icon } from '@tangent/web-shared';
@@ -35,6 +35,8 @@ export class SharesPage {
   protected readonly editTitle = signal('');
   protected readonly editExpires = signal<string | null>(null);
   protected readonly scopeLabel = SCOPE_LABEL;
+  /** Reachable only by URL then (the sidebar hides it); kept so old links can still be revoked. */
+  protected readonly sharingOff = computed(() => this.store.me()?.sharing === false);
 
   constructor() {
     void this.load();

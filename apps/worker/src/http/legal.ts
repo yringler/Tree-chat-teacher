@@ -77,6 +77,13 @@ function mailto(email: string): string {
 export function renderPrivacyPage(info: LegalInfo): string {
   const op = escapeHtml(info.operator);
   const contact = mailto(info.contactEmail);
+  // Wording follows DMCA_AGENT_REGISTERED (LegalInfo.sharing): links for everyone, or only where enabled.
+  const visibility = info.sharing
+    ? "other users can't see them unless you publish a share link."
+    : "other users can't see them unless you publish a share link, which only accounts we have enabled it for can do.";
+  const shareIntro = info.sharing
+    ? ''
+    : '<p>Share links are not generally available: only accounts we have enabled them for can create them, and links from other accounts don\'t open. To show someone a conversation, export it as Markdown or HTML and send or host the file yourself; we don\'t host or see those copies.</p>\n';
   return page(
     info,
     '/privacy',
@@ -84,7 +91,7 @@ export function renderPrivacyPage(info: LegalInfo): string {
     `<h1>Privacy policy</h1>
 <p class="updated">Last updated ${LEGAL_UPDATED}</p>
 <div class="summary">
-<p><strong>The short version.</strong> We keep what you need to use Tangent: your email address, your conversations and your settings. Your conversations are private to your account: other users can't see them unless you publish a share link. They are not end-to-end encrypted, so they are readable by the service itself (which is how it sends them to the AI model) and by the operator with database access, who looks at them only to keep the service running, investigate abuse, or when the law requires it. We don't sell your data, show ads, use tracking cookies, or train models on your conversations. Messages you send go to the AI provider that writes the reply. You can export any conversation and delete your account, with everything in it, at any time.</p>
+<p><strong>The short version.</strong> We keep what you need to use Tangent: your email address, your conversations and your settings. Your conversations are private to your account: ${visibility} They are not end-to-end encrypted, so they are readable by the service itself (which is how it sends them to the AI model) and by the operator with database access, who looks at them only to keep the service running, investigate abuse, or when the law requires it. We don't sell your data, show ads, use tracking cookies, or train models on your conversations. Messages you send go to the AI provider that writes the reply. You can export any conversation and delete your account, with everything in it, at any time.</p>
 </div>
 
 <h2>Who we are</h2>
@@ -122,7 +129,7 @@ These providers handle your messages under their own terms and privacy policies,
 <p>Because these providers are in the USA and elsewhere, your data may be processed outside your country. Where the law requires it, transfers rely on the providers' standard contractual clauses or equivalent safeguards.</p>
 
 <h2>Share links</h2>
-<p>When you create a share link, anyone who has the link can read what it covers, without signing in. Private branches are always left out. Revoking the link or deleting the conversation stops it at once in our database; copies already cached at the network edge expire within 24 hours, and we can't recall copies people already saved.</p>
+${shareIntro}<p>When you create a share link, anyone who has the link can read what it covers, without signing in. Private branches are always left out. Revoking the link or deleting the conversation stops it at once in our database; copies already cached at the network edge expire within 24 hours, and we can't recall copies people already saved.</p>
 
 <h2>Cookies and browser storage</h2>
 <p>We use only cookies needed for the service to work, so we don't ask for cookie consent:</p>
@@ -170,6 +177,9 @@ export function renderTermsPage(info: LegalInfo): string {
   const law = info.jurisdiction
     ? `the laws of ${escapeHtml(info.jurisdiction)}, and its courts have jurisdiction`
     : 'the laws of the place where the operator is established, and its courts have jurisdiction';
+  const shareTerms = info.sharing
+    ? ''
+    : ' Share links are available only to accounts we enable them for. Anyone can export a conversation and share the file; where you put it is up to you, and so is the responsibility for it.';
   return page(
     info,
     '/terms',
@@ -189,7 +199,7 @@ export function renderTermsPage(info: LegalInfo): string {
 
 <h2>4. Your content</h2>
 <p>You keep all rights to what you write, and, as far as we're concerned, to the replies generated for you. You give us the permission we need to run the service: to store your content, send it to the AI provider that writes the reply, and show it to the people you share it with. That permission ends when you delete the content, except for copies already shared or cached as the privacy policy describes.</p>
-<p>You are responsible for your content and for any share link you publish. Only share what you have the right to share.</p>
+<p>You are responsible for your content and for any share link you publish. Only share what you have the right to share.${shareTerms}</p>
 
 <h2>5. Acceptable use</h2>
 <p>Don't use Tangent to:</p>

@@ -26,6 +26,18 @@ export function billingAccountIdFor(userId: string | null): string {
   return userId ? accountIdForUser(userId) : DEV_SIMPLE_ACCOUNT_ID;
 }
 
+/**
+ * The Better Auth user id behind an account id (`p_<userId>` / `u_<userId>`);
+ * null for the dev bypass's `default` and `default_simple`.
+ */
+export function userIdOfAccount(accountId: string): string | null {
+  for (const prefix of [POWER_ACCOUNT_PREFIX, SIMPLE_ACCOUNT_PREFIX]) {
+    if (accountId.startsWith(prefix) && accountId.length > prefix.length)
+      return accountId.slice(prefix.length);
+  }
+  return null;
+}
+
 /** What the request asks for: the app it comes from, and how a Learn request pays. */
 export interface AccountRequest {
   mode: AccountMode;

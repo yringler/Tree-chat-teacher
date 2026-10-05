@@ -72,4 +72,25 @@ describe('legal pages', () => {
       /© \d{4} Ada LLC\. Tangent and the Tangent logo are trademarks of Ada LLC\./,
     );
   });
+
+  it('words share links by DMCA_AGENT_REGISTERED', async () => {
+    const on = setup({ DMCA_AGENT_REGISTERED: 'true' });
+    const off = setup({ DMCA_AGENT_REGISTERED: 'false' });
+    const offNote = 'Share links are available only to accounts we enable them for.';
+
+    const privacyOn = await (await on('/privacy')).text();
+    expect(privacyOn).toContain("can't see them unless you publish a share link.");
+    expect(privacyOn).not.toContain('Share links are not generally available');
+    const privacyOff = await (await off('/privacy')).text();
+    expect(privacyOff).toContain('which only accounts we have enabled it for can do');
+    expect(privacyOff).toContain('Share links are not generally available');
+
+    expect(await (await on('/terms')).text()).not.toContain(offNote);
+    expect(await (await off('/terms')).text()).toContain(offNote);
+
+    expect(await (await on('/welcome')).text()).toContain('Read-only share links and Markdown');
+    const landingOff = await (await off('/welcome')).text();
+    expect(landingOff).not.toContain('share links');
+    expect(landingOff).toContain('<li>Markdown or HTML export</li>');
+  });
 });

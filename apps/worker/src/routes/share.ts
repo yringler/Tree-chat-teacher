@@ -4,15 +4,19 @@ import { Hono, type Context } from 'hono';
 import type { AppBindings } from '../env.js';
 import { getCached, putCached, shareCacheKey, type ShareCacheVariant } from '../share/cache.js';
 import { checkShareRateLimit } from '../share/rate-limit.js';
-import { shareService } from '../services.js';
+import { userIdOfAccount } from '../auth/account.js';
+import { canShare, shareService } from '../services.js';
 
 const SNAPSHOT_TTL_SECONDS = 86_400;
 
 /**
  * Public, read-only share routes. They never look at the session and serve
- * no identity, only allow-listed DTOs. Validity (revoked/expired) is
- * checked against D1 on every request; only snapshot rendering is
- * edge-cached, under a key that includes the share version.
+ * no identity, only allow-listed DTOs. While sharing is off (`sharingEnabled`)
+ * a link opens only if its owner may share (`canShare`: an admin or a user the
+ * operator allowed); every other one is 404. Validity (revoked/expired) and
+ * that permission are checked against D1 on every request, before the edge
+ * cache, so revoking either takes the link down at once; only snapshot
+ * rendering is edge-cached, under a key that includes the share version.
  */
 export function shareRoutes(): Hono<AppBindings> {
   const s = new Hono<AppBindings>();
@@ -39,6 +43,12 @@ async function serve(
       : statusPage(variant, 404, 'Not found', 'There is no shared conversation at this address.');
   }
   const { share } = check;
+  // Sharing off (no DMCA agent registered): only the links of owners who may share open,
+  // old ones included (no query while sharing is on). Checked before the cache: a cached
+  // snapshot outlives the permission.
+  if (!(await canShare(c.env, userIdOfAccount(share.accountId)))) {
+    return statusPage(variant, 404, 'Not found', 'Shared conversations are not available on this site.');
+  }
   if (variant === 'html') {
     c.executionCtx.waitUntil(shares.recordView(share.id).catch(() => undefined));
   }

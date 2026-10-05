@@ -23,11 +23,14 @@ function membership(over: Partial<MembershipInfo> = {}): MembershipInfo {
 function me(over: Partial<MeResponse> = {}): MeResponse {
   return {
     email: 'a@example.com',
+    userId: '1',
     accountId: 'p_1',
     mode: 'power',
     devMode: false,
     operatorKeys: false,
     builtInCredit: true,
+    sharing: true,
+    isAdmin: false,
     membership: membership(),
     ...over,
   };

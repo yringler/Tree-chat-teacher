@@ -523,6 +523,28 @@ textarea:focus-visible {
   gap: 8px;
 }
 
+/* Account ID (account/account-id.ts) */
+
+.account-id {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.account-id-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-id-value {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 /* Cards */
 
 .card-list {
