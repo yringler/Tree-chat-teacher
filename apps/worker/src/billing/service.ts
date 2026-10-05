@@ -92,7 +92,8 @@ interface PurchaseRow {
 
 /**
  * The latest purchase recorded with its gross amount and processing fee: a
- * top-up, or a monthly-plan invoice on ledgers from before the membership.
+ * top-up, or a Stripe-era monthly-plan payment on ledgers from before the
+ * membership.
  * Membership credit (gross null) is a gift, not a purchase, and is skipped.
  */
 async function lastPurchase(env: AppEnv, accountId: string): Promise<PurchaseInfo | null> {

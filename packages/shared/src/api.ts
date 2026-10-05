@@ -67,7 +67,7 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *   GET    /api/billing                          -> BillingSummary
  *   GET    /api/billing/usage?cursor=&limit=     -> UsageListResponse (newest first, limit <= 100, default 50)
  *   POST   /api/billing/checkout CreateCheckoutRequest -> CheckoutResponse (same-origin only;
- *                                                target `personal` or `pool`; 400 below the pool minimum)
+ *                                                personal credit only; `target` other than `personal` is 400)
  *   POST   /api/billing/membership/waiver MembershipWaiverRequest -> MembershipInfo (same-origin only;
  *                                                400 no code configured, 403 wrong code, 429 rate limited)
  *   POST   /api/billing/membership/checkout       -> CheckoutResponse (same-origin only; the yearly

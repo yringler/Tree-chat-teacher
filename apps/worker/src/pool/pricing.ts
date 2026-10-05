@@ -132,7 +132,8 @@ export function chargeFromTokensMicros(
  * purchase takes back: the same share of the credit the purchase granted,
  * `round(refund × credit / gross)`, so refunding all of a $10 purchase that
  * added $9.20 (net of the processing fee) takes $9.20 of pool credit, and
- * refunding half of it $4.60.
+ * refunding half of it $4.60. Also the proportion of a membership payment's
+ * pool share a refund takes back (`reverseMembershipShare`).
  */
 export function creditEquivalentMicros(
   refundGrossMicros: number,

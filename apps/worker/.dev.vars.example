@@ -72,8 +72,8 @@ DEV_ALLOW_NO_AUTH=true
 # `u_<your user id>` under Option B, for both apps), then pick "Use Tangent credit" and chat at
 # http://localhost:8787/learn/, or pick the "Tangent credit" provider in the power app.
 
-# --- The community credit pool (docs/pool/SPEC.md); off in wrangler.jsonc. Its caps, price table,
-# markup and TTLs are the POOL_* vars there (parsed in src/config.ts). With Option C's fake provider,
+# --- The community credit pool (docs/pool/SPEC.md); off in wrangler.jsonc. Its caps, price table
+# and TTLs are the POOL_* vars there (parsed in src/config.ts). With Option C's fake provider,
 # price its "simple" model so the pool can reserve for it:
 # POOL_ENABLED=true
 # POOL_MODEL=simple
@@ -81,8 +81,9 @@ DEV_ALLOW_NO_AUTH=true
 # Learn then spends from the pool when it picks the pool, or when its credit runs out (sends only).
 # Admin-granted personal credit without payments:
 # PERSONAL_CREDIT_ENABLED=true
-# Fund the pool (or yourself) as a purchase would, without a payment: POST /api/admin/credit with
-# "mode": "simulated_purchase" (see the README's "Manual credit or adjustments"). Never in production.
+# Credit yourself as a purchase would, without a payment: POST /api/admin/credit with
+# "mode": "simulated_purchase" (personal only; fund the pool with "target": "pool", "mode":
+# "adjustment"; see the README's "Manual credit or adjustments"). Never in production.
 # DEV_PURCHASES_ENABLED=true
 # The weekly impact snapshot runs on the Monday cron; to run it locally, start `wrangler dev
 # --test-scheduled` and open

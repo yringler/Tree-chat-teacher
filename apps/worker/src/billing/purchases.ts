@@ -20,7 +20,7 @@ import { centsToMicros } from './pricing.js';
 
 /** A purchase the processor reports as paid. */
 export interface PaidPurchase {
-  /** The buyer; null only for purchases from before checkouts recorded it. */
+  /** The buyer; null only for the dev bypass ledger (`default_simple`). */
   userId: string | null;
   /** The ledger credited, as the checkout recorded it. Default: the buyer's own ledger. */
   accountId?: string | null;

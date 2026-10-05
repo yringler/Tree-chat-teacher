@@ -108,8 +108,8 @@ export type MembershipStatus = 'active' | 'waived' | 'inactive';
 
 export interface MembershipInfo {
   /**
-   * True when generating needs a membership: billing and the membership price
-   * are configured on the server. False in the local dev bypass and on
+   * True when generating needs a membership: the annual fee is on
+   * (`ANNUAL_FEE_ENABLED`) and the payment provider sells the membership. False in the local dev bypass and on
    * servers without billing; the other fields then carry no meaning.
    */
   required: boolean;

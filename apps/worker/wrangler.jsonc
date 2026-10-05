@@ -174,8 +174,8 @@
     // "production" or "sandbox"; anything else (or empty) is the sandbox, so a missing value can't
     // charge real cards. Tokens, products and webhook secrets differ between the two.
     "POLAR_SERVER": "production",
-    // The Polar one-time product credit top-ups and pool purchases are sold as (each checkout sets an
-    // ad-hoc USD price, tax exclusive). Empty = no top-ups.
+    // The Polar one-time product personal credit top-ups are sold as (each checkout sets an ad-hoc
+    // USD price, tax exclusive). Empty = no top-ups.
     "POLAR_CREDITS_PRODUCT_ID": "",
     // The Polar yearly product of the membership ($10, tax exclusive). Empty = no membership is sold
     // (generating needs none); set = required in both apps while ANNUAL_FEE_ENABLED is "true".

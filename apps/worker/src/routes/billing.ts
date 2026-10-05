@@ -28,19 +28,6 @@ const usageQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
-/**
- * Billing API, mounted at /api/billing by `worker-core`, in both modes: the
- * credit and the membership are the user's (`billingAccountId`, `userId`),
- * whichever app shows them.
- * `GET /` → BillingSummary, `GET /usage` → UsageListResponse,
- * `POST /checkout` → CheckoutResponse (credit for the user; returns to the
- * calling app's billing page),
- * `POST /membership/waiver` → MembershipInfo (redeems MEMBERSHIP_WAIVER_CODE),
- * `POST /membership/checkout` → CheckoutResponse (the yearly membership),
- * `POST /portal` → PortalResponse (the payment provider's billing portal; 404
- * `no_customer` while it has no customer for the user). Every hosted page
- * returns to the calling app's billing page.
- */
 /** The base of the URLs the payment provider sends the browser back to. */
 function baseUrlOf(c: AppContext): string {
   return c.env.PUBLIC_BASE_URL?.trim() || new URL(c.req.url).origin;
@@ -60,6 +47,19 @@ async function viaProvider<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Billing API, mounted at /api/billing by `app.ts`, in both modes: the
+ * credit and the membership are the user's (`billingAccountId`, `userId`),
+ * whichever app shows them.
+ * `GET /` → BillingSummary, `GET /usage` → UsageListResponse,
+ * `POST /checkout` → CheckoutResponse (credit for the user; returns to the
+ * calling app's billing page),
+ * `POST /membership/waiver` → MembershipInfo (redeems MEMBERSHIP_WAIVER_CODE),
+ * `POST /membership/checkout` → CheckoutResponse (the yearly membership),
+ * `POST /portal` → PortalResponse (the payment provider's billing portal; 404
+ * `no_customer` while it has no customer for the user). Every hosted page
+ * returns to the calling app's billing page.
+ */
 export function billingRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
   r.use('*', async (c, next) => {

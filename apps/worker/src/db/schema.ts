@@ -342,7 +342,7 @@ export const authRateLimits = sqliteTable('auth_rate_limits', {
 // user's credit is the account `u_<userId>`; the community pool is one more
 // account (`POOL_ACCOUNT_ID`, default `pool`) in the same two tables.
 
-/** Credits (purchases, subscription invoices) and debits (refunds, manual adjustments). */
+/** Credits (purchases, membership credit, pool contributions) and debits (refunds, manual adjustments). */
 export const creditGrants = sqliteTable(
   'credit_grants',
   {

@@ -42,7 +42,7 @@ export function membershipPriceCents(env: AppEnv): number {
 }
 
 /**
- * Credit included with each paid membership invoice, in cents: `MEMBERSHIP_CREDIT_CENTS`,
+ * Credit included with each paid membership year (first payment or renewal), in cents: `MEMBERSHIP_CREDIT_CENTS`,
  * or 0 when the server doesn't offer the built-in provider (nothing to spend it on,
  * so nothing is promised or granted).
  */
