@@ -163,9 +163,8 @@ export default defineConfig({
             POOL_MAX_OUTPUT_TOKENS: '2048',
             POOL_FREE_REQUESTS_PER_DAY: '3',
             POOL_FREE_SPEND_MICROS_PER_DAY: '1000000',
-            POOL_SUPPORTER_REQUESTS_PER_DAY: '6',
-            POOL_SUPPORTER_SPEND_MICROS_PER_DAY: '5000000',
-            SUPPORTER_WINDOW_MONTHS: '',
+            POOL_MEMBER_REQUESTS_PER_DAY: '6',
+            POOL_MEMBER_SPEND_MICROS_PER_DAY: '5000000',
             POOL_USER_PER_MINUTE: '100',
             POOL_IP_PER_MINUTE: '100',
             // Generation lookups made inside Durable Objects (PoolBank's expiry) reach the

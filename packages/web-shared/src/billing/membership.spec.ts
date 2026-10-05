@@ -3,6 +3,7 @@ import type { MembershipInfo } from '@tangent/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../core/api-client';
 import {
+  creditCarriesOn,
   creditFeeText,
   formatDay,
   includedCreditText,
@@ -38,6 +39,16 @@ describe('membershipBlocks', () => {
   });
 });
 
+describe('creditCarriesOn', () => {
+  it('is true while credit is sold and the balance is not known to be used up', () => {
+    expect(creditCarriesOn(true, { availableMicros: 1 })).toBe(true);
+    expect(creditCarriesOn(true, null)).toBe(true);
+    expect(creditCarriesOn(true, { availableMicros: 0 })).toBe(false);
+    expect(creditCarriesOn(true, { availableMicros: -5 })).toBe(false);
+    expect(creditCarriesOn(false, { availableMicros: 1_000_000 })).toBe(false);
+  });
+});
+
 describe('membership copy', () => {
   it('prices the year before tax', () => {
     expect(membershipPriceText(membership())).toBe('$10 / year plus tax');
@@ -66,6 +77,10 @@ describe('membership copy', () => {
     ).toMatch(/last payment failed/);
     expect(membershipStatusText(membership({ status: 'waived' }))).toMatch(/^Waived/);
     expect(membershipStatusText(membership())).toMatch(/^Not active/);
+    expect(membershipStatusText(membership())).toMatch(
+      /power mode on your own keys, buying credit/,
+    );
+    expect(membershipStatusText(membership())).toMatch(/credit you already have stay usable/);
   });
 
   it('spells out the price of a call on credit', () => {

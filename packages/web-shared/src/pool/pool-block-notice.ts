@@ -9,8 +9,8 @@ import { poolBlockText, type PoolBlock } from './pool-format';
  * - empty: "The community pool is empty until Tangent adds more credit." with
  *   **Buy personal credits** when personal credit is on sale (`creditOpen`),
  *   and **How the pool works** (`/pool`);
- * - a cap: the cap, when it resets, and that supporters get more (with
- *   **Buy credits** when credit is on sale).
+ * - a cap: the cap, when it resets, and that members get more (with
+ *   **Become a member** when the membership is sold, `membershipOpen`).
  * The message itself is kept in the composer. Only Tangent adds credit to the
  * pool, so nothing here offers pool credit.
  */
@@ -25,8 +25,8 @@ import { poolBlockText, type PoolBlock } from './pool-format';
         @if (text().detail; as detail) {
           <p class="muted small">{{ detail }}</p>
         }
-        @if (text().supporters; as supporters) {
-          <p class="muted small">{{ supporters }}</p>
+        @if (text().members; as members) {
+          <p class="muted small">{{ members }}</p>
         }
         @if (block().kind === 'empty' && block().details.reason === 'empty') {
           <div class="pool-block-actions">
@@ -35,9 +35,9 @@ import { poolBlockText, type PoolBlock } from './pool-format';
             }
             <a class="btn btn-sm" href="/pool">How the pool works</a>
           </div>
-        } @else if (text().supporters && creditOpen()) {
+        } @else if (text().members && membershipOpen()) {
           <div class="pool-block-actions">
-            <a class="btn btn-sm" [routerLink]="billingPath()">Buy credits</a>
+            <a class="btn btn-sm" [routerLink]="billingPath()">Become a member</a>
           </div>
         }
       </div>
@@ -51,6 +51,8 @@ export class PoolBlockNotice {
   readonly block = input.required<PoolBlock>();
   /** Personal credit can be bought now. */
   readonly creditOpen = input(false);
+  /** The membership is sold (and the learner has none): members get higher pool limits. */
+  readonly membershipOpen = input(false);
   /** Router link of the app's billing page (`/billing`). */
   readonly billingPath = input('/billing');
   readonly dismissed = output();

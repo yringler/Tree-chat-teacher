@@ -20,8 +20,8 @@ function details(over: Partial<PoolBlockDetails> = {}): PoolBlockDetails {
     reason: 'cap_requests',
     limit: 30,
     resetAt: RESET,
-    supporter: false,
-    supporterLimit: 150,
+    member: false,
+    memberLimit: 150,
     ...over,
   };
 }
@@ -33,7 +33,7 @@ const cap = (over: Partial<PoolBlockDetails> = {}): PoolBlock => ({
 
 describe('poolBlockOf', () => {
   it('turns 402 pool_empty and 429 pool_cap_reached into the inline states', () => {
-    const empty = details({ reason: 'empty', limit: null, resetAt: null, supporterLimit: null });
+    const empty = details({ reason: 'empty', limit: null, resetAt: null, memberLimit: null });
     expect(poolBlockOf(new ApiError(402, 'pool_empty', 'Empty', empty))).toEqual({
       kind: 'empty',
       details: empty,
@@ -60,46 +60,44 @@ describe('poolBlockText', () => {
     expect(poolBlockText(empty, NOW)).toEqual({
       title: 'The community pool is empty until Tangent adds more credit.',
       detail: null,
-      supporters: null,
+      members: null,
     });
   });
 
-  it('a daily reply cap: the cap, when it resets, and that supporters get more', () => {
+  it('a daily reply cap: the cap, when it resets, and that members get more', () => {
     expect(poolBlockText(cap(), NOW)).toEqual({
       title: "You've used today's 30 community-pool replies.",
       detail: 'The limit resets at 00:00 UTC (in 5 h).',
-      supporters: 'Supporters get 150 a day.',
+      members: 'Members get 150 a day.',
     });
   });
 
   it('a daily spend cap is stated in dollars', () => {
     expect(
-      poolBlockText(cap({ reason: 'cap_spend', limit: 100_000, supporterLimit: 500_000 }), NOW),
+      poolBlockText(cap({ reason: 'cap_spend', limit: 100_000, memberLimit: 500_000 }), NOW),
     ).toEqual({
       title: "You've used today's $0.10 of community-pool use.",
       detail: 'The limit resets at 00:00 UTC (in 5 h).',
-      supporters: 'Supporters get $0.50 a day.',
+      members: 'Members get $0.50 a day.',
     });
   });
 
-  it('a supporter is not told about supporters', () => {
-    expect(poolBlockText(cap({ supporter: true, limit: 150 }), NOW).supporters).toBeNull();
+  it('a member is not told about members', () => {
+    expect(poolBlockText(cap({ member: true, limit: 150 }), NOW).members).toBeNull();
   });
 
   it('the network and everyone-together ceilings read "busy today"', () => {
     for (const reason of ['cap_ip', 'cap_global'] as const)
-      expect(poolBlockText(cap({ reason, supporterLimit: null, supporter: true }), NOW)).toEqual({
+      expect(poolBlockText(cap({ reason, memberLimit: null, member: true }), NOW)).toEqual({
         title: 'The community pool is busy today.',
         detail: 'It resets at 00:00 UTC (in 5 h).',
-        supporters: null,
+        members: null,
       });
-    // The everyone-together ceiling is per tier: a non-supporter hears that supporters have their own.
-    expect(poolBlockText(cap({ reason: 'cap_global', supporterLimit: null }), NOW).supporters).toBe(
-      'Supporters have a separate daily allowance.',
+    // The everyone-together ceiling is per tier: a non-member hears that members have their own.
+    expect(poolBlockText(cap({ reason: 'cap_global', memberLimit: null }), NOW).members).toBe(
+      'Members have a separate daily allowance.',
     );
-    expect(
-      poolBlockText(cap({ reason: 'cap_ip', supporterLimit: null }), NOW).supporters,
-    ).toBeNull();
+    expect(poolBlockText(cap({ reason: 'cap_ip', memberLimit: null }), NOW).members).toBeNull();
   });
 
   it('the per-minute limit: try again shortly', () => {
@@ -126,7 +124,7 @@ describe('PoolBlockNotice', () => {
     const t = templateOf(PoolBlockNotice);
     expect(t).toContain('role="status"');
     expect(t).toContain('{{ text().title }}');
-    expect(t).toContain('{{ supporters }}');
+    expect(t).toContain('{{ members }}');
     expect(t).toContain(
       '@if (creditOpen()) {\n              <a class="btn btn-sm" [routerLink]="billingPath()">Buy personal credits</a>',
     );
@@ -134,7 +132,8 @@ describe('PoolBlockNotice', () => {
     // Nobody buys credit for the pool: no pool purchase link, no promise of one.
     expect(t).not.toContain('fund-pool');
     expect(t).not.toMatch(/fund the pool|credit for the pool|opens soon/i);
-    expect(t).toContain('} @else if (text().supporters && creditOpen()) {');
+    expect(t).toContain('} @else if (text().members && membershipOpen()) {');
+    expect(t).toContain('Become a member');
     expect(t).toContain('aria-label="Dismiss"');
   });
 });

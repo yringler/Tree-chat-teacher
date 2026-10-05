@@ -63,7 +63,7 @@ This feature adds a **public, community-funded credit pool**. Anyone can put mon
 
 - Per-user daily pool caps on requests and spend. Values go in config.
 - Per-IP rate limiting with Cloudflare rate limiting or a Durable Object counter.
-- **Supporter tier:** any user with a lifetime purchase above $0 gets higher pool caps. This brings back the anti-farming effect of a paid gate without a paywall.
+- **Member tier:** a user with a paid or waived membership gets higher pool caps; everyone else is on the free tier (docs/DECISIONS.md, "Two tiers: free and member"). This brings back the anti-farming effect of a paid gate without a paywall.
 - Cloudflare **Turnstile** on signup and first login.
 - Pool usage requires an authenticated session. No anonymous pool access.
 - Do not expose an OpenAI-compatible endpoint shape. Pool calls must only work through the app's own request format.
@@ -92,7 +92,7 @@ This feature adds a **public, community-funded credit pool**. Anyone can put mon
   - "Learners on the pool this week" and "exchanges funded this week." These are aggregate counts only, with no user data.
 - **Fund the pool:** a flow with preset amounts and a one-line fee disclosure, for example: "8% covers hosting and keeps Tangent running."
 - **Empty-pool state:** "The community pool is empty. It refills as people fund it." Include two actions: **Fund the pool** and **Buy personal credits**. Show this state inline in the chat, not as a generic error.
-- **Cap-reached state:** state the cap and when it resets, and mention that supporters get higher limits.
+- **Cap-reached state:** state the cap and when it resets, and mention that members get higher limits.
 - **Funding toggle:** in the chat composer, let users choose personal credits or the pool when both are available.
 - **Transparency page:** explain how the pool works, what the margin covers, which model pool users get, why caps exist, and how pool topics are aggregated for the impact feed (section 9).
 
@@ -159,7 +159,7 @@ This feature adds a **public, community-funded credit pool**. Anyone can put mon
 - Webhook idempotency: replaying the same Stripe event credits only once.
 - Reservation expiry releases funds.
 - Pool requests ignore client-supplied model and system-prompt overrides.
-- Caps, rate limits, and supporter-tier cap escalation.
+- Caps, rate limits, and member-tier cap escalation.
 - Empty-pool and cap-reached responses render the correct UI states.
 - Impact feed:
   - Topics below the distinct-user threshold are never named.

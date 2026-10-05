@@ -25,7 +25,10 @@
     <app-membership-gate
       [membership]="membership"
       billingPath="/billing"
+      [learnHref]="learnHref"
+      [freeTier]="store.membershipDismissible() ? 'Continue with my Tangent credit' : null"
       (redeemed)="store.membership.set($event)"
+      (freeTierChosen)="store.dismissMembershipGate()"
     />
   }
 }

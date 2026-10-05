@@ -80,11 +80,12 @@ async function keysOf(c: AppContext): Promise<Extract<UserKeys, { state: 'ok' }>
  * and the account middleware (auth/account.ts). Every branch or node id is
  * resolved through the caller's account (`getOwnedBranch`/`getOwnedNode`)
  * before anything else happens, so another account's ids are 404. Routes that
- * generate pass `assertCanGenerate` (billing/gate.ts): the membership (402
- * `membership_required`, when one is required), who pays (a Learn send on
- * spent credit moves to the community pool), then the credit (402
- * `payment_required`) or the pool's rules. Every other route stays open
- * without a membership.
+ * generate pass `assertCanGenerate` (billing/gate.ts): who pays (a Learn send on
+ * spent credit moves to the community pool), the membership for power mode on
+ * the user's own keys (402 `membership_required`, when one is required; Learn
+ * and Tangent credit need none), then the
+ * credit (402 `payment_required`) or the pool's rules. Every other route stays
+ * open without a membership.
  */
 export function apiRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();

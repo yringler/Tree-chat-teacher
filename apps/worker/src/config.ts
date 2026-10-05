@@ -93,19 +93,16 @@ export interface PoolGlobalCap {
 
 export interface PoolCaps {
   free: PoolTierCaps;
-  /** Supporters: net purchases above $0 (pool/supporter.ts). */
-  supporter: PoolTierCaps & {
-    /** Months a purchase keeps its buyer a supporter; null = for life. */
-    windowMonths: number | null;
-  };
+  /** Members: a paid or waived membership (billing/membership.ts `isMember`). */
+  member: PoolTierCaps;
   /**
    * The free tier's spend per UTC day, all users together: the lower of the
    * two. The share is of the day's base, the pool's balance at 00:00 UTC
    * plus what was added to it since.
    */
   globalFree: PoolGlobalCap;
-  /** The supporter tier's own ceiling, all supporters together (same form as `globalFree`). */
-  globalSupporter: PoolGlobalCap;
+  /** The member tier's own ceiling, all members together (same form as `globalFree`). */
+  globalMember: PoolGlobalCap;
   /** Per network (IPv4 address or IPv6 /64), all users together. */
   ip: PoolTierCaps;
 }
@@ -158,8 +155,9 @@ export interface AppConfig {
   flags: {
     poolEnabled: boolean;
     /**
-     * The yearly membership fee is charged and required to generate
-     * (`ANNUAL_FEE_ENABLED`, default off). Off, the membership code paths stay
+     * The yearly membership fee is charged and required for power mode on
+     * the user's own keys and for buying credit (`ANNUAL_FEE_ENABLED`, default
+     * off; Learn and spending credit already held never need it). Off, the membership code paths stay
      * but nothing requires a membership, whatever the payment provider offers.
      */
     annualFeeEnabled: boolean;
@@ -171,7 +169,7 @@ export interface AppConfig {
     /**
      * Admins may simulate purchases (`POST /api/admin/credit`, mode
      * `simulated_purchase`) to test funding without a payment (`DEV_PURCHASES_ENABLED`).
-     * Never on in production: a simulated purchase makes its buyer a supporter.
+     * Never on in production: a simulated purchase is spendable credit nobody paid for.
      */
     devPurchasesEnabled: boolean;
     /**
@@ -283,12 +281,6 @@ function parsePrices(raw: string | undefined): {
   return { prices, overrides: Object.keys(overrides) };
 }
 
-/** A positive number of months, or null (empty or anything else: for life). */
-function optionalMonths(raw: string | undefined): number | null {
-  const n = positiveInt(raw, 0);
-  return n > 0 ? n : null;
-}
-
 function list(raw: string | undefined): string[] {
   return (raw ?? '')
     .split(',')
@@ -359,18 +351,17 @@ function parse(env: AppEnv): AppConfig {
           requestsPerDay: intVar(env.POOL_FREE_REQUESTS_PER_DAY, 30),
           spendMicrosPerDay: intVar(env.POOL_FREE_SPEND_MICROS_PER_DAY, 100_000),
         },
-        supporter: {
-          requestsPerDay: intVar(env.POOL_SUPPORTER_REQUESTS_PER_DAY, 150),
-          spendMicrosPerDay: intVar(env.POOL_SUPPORTER_SPEND_MICROS_PER_DAY, 500_000),
-          windowMonths: optionalMonths(env.SUPPORTER_WINDOW_MONTHS),
+        member: {
+          requestsPerDay: intVar(env.POOL_MEMBER_REQUESTS_PER_DAY, 150),
+          spendMicrosPerDay: intVar(env.POOL_MEMBER_SPEND_MICROS_PER_DAY, 500_000),
         },
         globalFree: {
           spendMicrosPerDay: intVar(env.POOL_FREE_DAILY_GLOBAL_MICROS, 5_000_000),
           bpsOfMorningBalance: intVar(env.POOL_FREE_DAILY_GLOBAL_BPS, 2_000),
         },
-        globalSupporter: {
-          spendMicrosPerDay: intVar(env.POOL_SUPPORTER_DAILY_GLOBAL_MICROS, 10_000_000),
-          bpsOfMorningBalance: intVar(env.POOL_SUPPORTER_DAILY_GLOBAL_BPS, 4_000),
+        globalMember: {
+          spendMicrosPerDay: intVar(env.POOL_MEMBER_DAILY_GLOBAL_MICROS, 10_000_000),
+          bpsOfMorningBalance: intVar(env.POOL_MEMBER_DAILY_GLOBAL_BPS, 4_000),
         },
         ip: {
           requestsPerDay: intVar(env.POOL_IP_REQUESTS_PER_DAY, 60),

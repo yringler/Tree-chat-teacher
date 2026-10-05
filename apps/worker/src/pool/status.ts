@@ -3,6 +3,7 @@
 // the balance, the sessions it covers and this week's counts, never a user.
 import type { PoolMeResponse, PoolStatusResponse } from '@tangent/shared';
 import { balanceStatement, getBalance, readBalance, type BalanceRow } from '../billing/ledger.js';
+import { isMember } from '../billing/membership.js';
 import { appConfig } from '../config.js';
 import type { AccountContext, AppEnv } from '../env.js';
 import { poolAvailable } from '../services.js';
@@ -11,7 +12,6 @@ import { simpleProviderConfig } from '../simple-mode.js';
 import { consentVersion } from './consent.js';
 import { poolModel } from './params.js';
 import { dayResetAt, dayStart, userDayUsageStatement, type DayRow } from './pool-bank.js';
-import { isSupporter } from './supporter.js';
 
 /** How long the meter is cached at the edge (`caches.default`) and by browsers. */
 export const POOL_STATUS_MAX_AGE_S = 60;
@@ -108,7 +108,7 @@ export async function poolMe(
   const pool = appConfig(env).pool;
   const userId = account.userId;
   const day = dayStart(now).toISOString();
-  const [personal, row, usage, supporter, consent] = await Promise.all([
+  const [personal, row, usage, member, consent] = await Promise.all([
     getBalance(env.DB, account.billingAccountId),
     userId
       ? env.DB.prepare(
@@ -120,14 +120,14 @@ export async function poolMe(
           .first<PoolAccountRow>()
       : null,
     userId ? userDayUsageStatement(env.DB, pool.accountId, userId, day).first<DayRow>() : null,
-    userId ? isSupporter(env.DB, userId, now, pool.caps.supporter.windowMonths) : false,
+    isMember(env, account),
     userId ? consentVersion(env.DB, userId) : null,
   ]);
-  const caps = supporter ? pool.caps.supporter : pool.caps.free;
+  const caps = member ? pool.caps.member : pool.caps.free;
   return {
     available: poolAvailable(env) && userId !== null,
     verified: !!row?.pool_verified_at,
-    supporter,
+    member,
     suspended: !!row?.pool_suspended || !!row?.identity_suspended,
     caps: {
       requestsPerDay: caps.requestsPerDay,

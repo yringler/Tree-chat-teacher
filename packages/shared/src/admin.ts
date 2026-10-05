@@ -153,7 +153,7 @@ export const ADMIN_CREDIT_MAX_CENTS = 50_000;
  *   the operator adding credit to the pool). A negative pool adjustment is
  *   clamped to what the pool has available.
  * - `simulated_purchase`: fulfils a personal purchase as the payment webhook
- *   would (the buyer becomes a supporter), with no processing fee, so the full
+ *   would, with no processing fee, so the full
  *   amount is credited. Personal only: nobody buys credit for the pool. Only
  *   where the server allows it (`DEV_PURCHASES_ENABLED`, never in production);
  *   otherwise 404.
@@ -164,7 +164,7 @@ export const adminCreditRequestSchema = z
     target: z.enum(ADMIN_CREDIT_TARGETS),
     /**
      * The beneficiary (personal: required) or, for the pool, the user the
-     * adjustment is recorded for (it never makes them a supporter); omitted
+     * adjustment is recorded for; omitted
      * or null for an operator top-up of the pool.
      */
     userId: z.string().min(1).nullable().default(null),

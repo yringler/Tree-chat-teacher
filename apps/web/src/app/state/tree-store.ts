@@ -33,6 +33,7 @@ import type {
 import {
   ApiClient,
   ApiError,
+  creditCarriesOn,
   errorMessage,
   membershipBlocks,
   runStream,
@@ -181,8 +182,33 @@ export class TreeStore {
     );
   });
 
-  /** Generating needs a membership the user doesn't have: the shell shows the gate. */
-  readonly membershipBlocked = computed(() => membershipBlocks(this.membership()));
+  /** The server refused an own-key call for want of a membership (402 `membership_required`). */
+  private readonly gateForced = signal(false);
+
+  /**
+   * Without a membership, power mode can still run on Tangent credit the user
+   * holds (`creditCarriesOn`: offered, and the balance not known to be used up).
+   */
+  readonly creditCarriesOn = computed(() =>
+    creditCarriesOn(this.me()?.builtInCredit ?? false, this.billing()),
+  );
+
+  /**
+   * The shell shows the membership gate: the membership is required and the
+   * user has none, and either no credit can carry on (on load) or the server
+   * just refused an own-key call (402 `membership_required`).
+   */
+  readonly membershipBlocked = computed(
+    () => membershipBlocks(this.membership()) && (this.gateForced() || !this.creditCarriesOn()),
+  );
+
+  /** The gate may be dismissed back to the app: credit the user holds can still pay. */
+  readonly membershipDismissible = computed(() => this.creditCarriesOn());
+
+  /** The gate's "continue with Tangent credit": back to the app (own-key calls stay refused). */
+  dismissMembershipGate(): void {
+    this.gateForced.set(false);
+  }
 
   readonly providerMap = computed(() => new Map(this.providers().map((p) => [p.id, p])));
 
@@ -197,7 +223,10 @@ export class TreeStore {
   async init(me: MeResponse): Promise<void> {
     this.me.set(me);
     this.membership.set(me.membership);
-    await Promise.all([this.refreshKeys(), this.loadTrees()]);
+    // Without a membership, the balance decides whether the gate shows on load.
+    const balance =
+      membershipBlocks(me.membership) && me.builtInCredit ? this.refreshBilling() : null;
+    await Promise.all([this.refreshKeys(), this.loadTrees(), balance]);
   }
 
   // API keys (bring-your-own-key)
@@ -748,6 +777,8 @@ export class TreeStore {
     if (err instanceof ApiError && err.code === 'membership_required') {
       // The gate explains it and offers the way out; no toast on top.
       this.membership.update((m) => (m ? { ...m, required: true, status: 'inactive' } : m));
+      this.gateForced.set(true);
+      void this.refreshBilling();
       return;
     }
     if (err instanceof ApiError && err.code === 'payment_required') {

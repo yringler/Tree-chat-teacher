@@ -70,8 +70,9 @@ export class PaymentRequiredError extends DomainError {
 }
 
 /**
- * Generating needs the yearly membership (required once the operator configures
- * it) and the user neither has one nor had the fee waived.
+ * The request needs the yearly membership (required once the operator
+ * configures it: power mode on the user's own keys, and buying credit) and the user
+ * neither has one nor had the fee waived.
  */
 export class MembershipRequiredError extends DomainError {
   constructor(message = 'A Tangent membership is needed to keep going') {
@@ -102,7 +103,7 @@ export class PoolBlockedError extends DomainError {
 
 /** A refusal with no cap involved (`empty`, `unpriced`, or an account that may not use the pool). */
 export function poolBlock(reason: PoolBlockDetails['reason']): PoolBlockDetails {
-  return { reason, limit: null, resetAt: null, supporter: false, supporterLimit: null };
+  return { reason, limit: null, resetAt: null, member: false, memberLimit: null };
 }
 
 /**

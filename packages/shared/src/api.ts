@@ -101,8 +101,9 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *                                                DEV_PURCHASES_ENABLED)
  *
  * Generating routes (messages, review, context?resolve=true) answer 402
- * `membership_required` when the membership is required and the user has
- * none (`MembershipInfo`), then 402 `payment_required` when a call on the
+ * `membership_required` when the membership is required, the user has none
+ * (`MembershipInfo`) and the request is power mode on the user's own keys
+ * (Learn, and Tangent credit in either app, need no membership), then 402 `payment_required` when a call on the
  * built-in provider (`tangent`, on credit) finds the available credit too
  * low. Calls on the user's own keys never touch credit. Every other route
  * stays open without a membership: nobody is locked out of their data.
@@ -124,7 +125,7 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *                                                `duplicate_identity` when another account uses the
  *                                                same mailbox)
  *   GET  /api/pool/me                         -> PoolMeResponse (today's caps and use, verified,
- *                                                supporter, the caller's own credit, the notice
+ *                                                member, the caller's own credit, the notice
  *                                                version acknowledged and the current one)
  *   POST /api/pool/consent PoolConsentRequest -> PoolConsentResponse (same-origin only; records the
  *                                                acknowledgment of POOL_NOTICE_TEXT; 409 `conflict`
@@ -169,7 +170,7 @@ export type ApiErrorCode =
   | 'rate_limited'
   /** 402: a call on the built-in provider needs more credit (or billing isn't configured). */
   | 'payment_required'
-  /** 402: generating needs the yearly membership (`MembershipInfo.required`), and the user has none. */
+  /** 402: power mode on own keys (or buying credit) needs the yearly membership (`MembershipInfo.required`), and the user has none. */
   | 'membership_required'
   /** 401: no usable API key for the provider (missing, tampered, expired or rotated key cookie). */
   | 'key_required'
@@ -228,8 +229,9 @@ export interface MeResponse {
   isAdmin: boolean;
   /**
    * The user's membership, so the apps can gate generating at startup:
-   * `required && status === 'inactive'` means every generating request
-   * answers 402 `membership_required`.
+   * `required && status === 'inactive'` means power mode on the user's own
+   * keys and buying credit answer 402 `membership_required` (Learn, and
+   * spending credit already held, don't).
    */
   membership: MembershipInfo;
   /**

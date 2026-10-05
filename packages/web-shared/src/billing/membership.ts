@@ -1,5 +1,5 @@
 import { signal } from '@angular/core';
-import type { MembershipInfo } from '@tangent/shared';
+import type { BillingSummary, MembershipInfo } from '@tangent/shared';
 import { ApiError } from '../core/api-client';
 import { formatBps, formatCents } from './format';
 
@@ -9,9 +9,27 @@ import { formatBps, formatCents } from './format';
  * the specs run without a DOM.
  */
 
-/** True when generating is blocked until the user subscribes or redeems a code. */
+/**
+ * True when the membership is required and the user has none: power mode on
+ * their own keys and buying credit are blocked until they subscribe or redeem
+ * a code (spending credit they already hold is not).
+ */
 export function membershipBlocks(m: MembershipInfo | null | undefined): boolean {
   return !!m && m.required && m.status === 'inactive';
+}
+
+/**
+ * Power mode without a membership can still run on Tangent credit the user
+ * already holds: true while credit is offered (`builtInCredit`) and the
+ * balance isn't known to be used up (`billing` null = not loaded yet, so the
+ * panel never flashes while it loads). The power apps show their membership
+ * panel on load only when this is false.
+ */
+export function creditCarriesOn(
+  builtInCredit: boolean,
+  billing: Pick<BillingSummary, 'availableMicros'> | null,
+): boolean {
+  return builtInCredit && (billing === null || billing.availableMicros > 0);
 }
 
 /**
@@ -51,7 +69,7 @@ export function formatDay(iso: string | null): string | null {
 export function membershipStatusText(m: MembershipInfo): string {
   if (m.status === 'waived') return 'Waived: the membership is free for you.';
   if (m.status === 'inactive')
-    return 'Not active. Subscribe to get new replies; your conversations stay readable either way.';
+    return 'Not active. A membership unlocks power mode on your own keys, buying credit and higher community pool limits. Learn on your own key and credit you already have stay usable, and your conversations stay readable either way.';
   const until = formatDay(m.periodEnd);
   if (m.cancelAtPeriodEnd)
     return until ? `Active until ${until}. It won't renew.` : "Active. It won't renew.";

@@ -38,7 +38,6 @@ import {
   nextExpiryAt,
   type ExpiryResult,
 } from './expiry.js';
-import { supporterFrom, supporterStatement } from './supporter.js';
 
 const DAY_MS = 24 * 60 * 60_000;
 /** The rate limits' fixed window. */
@@ -97,6 +96,8 @@ export interface PoolReserveRequest {
   userId: string;
   /** The caller's network key (pool/ids.ts `ipKey`); null = no per-network caps. */
   ipKey: string | null;
+  /** The caller holds a membership, resolved Worker-side (`PoolParams.member`): the member tier. */
+  member: boolean;
   purpose: UsagePurpose;
   treeId: string | null;
   branchId: string | null;
@@ -138,9 +139,9 @@ export interface PoolRefusal {
   resetAt: string | null;
   /** The cap that was hit (replies or requests a minute, or micro-USD); null for `empty` and `unpriced`. */
   limit: number | null;
-  supporter: boolean;
-  /** The same cap for supporters (`cap_requests`, `cap_spend` only), for "supporters get more". */
-  supporterLimit: number | null;
+  member: boolean;
+  /** The same cap for members (`cap_requests`, `cap_spend` only), for "members get more". */
+  memberLimit: number | null;
 }
 
 /** `debit`: take up to `requestedMicros` from the pool, keyed on `refId`. */
@@ -252,8 +253,8 @@ function refusal(
   fields: {
     resetAt?: string | null;
     limit?: number | null;
-    supporter?: boolean;
-    supporterLimit?: number | null;
+    member?: boolean;
+    memberLimit?: number | null;
   } = {},
 ): PoolRefusal {
   const refused: PoolRefusal = {
@@ -261,8 +262,8 @@ function refusal(
     reason,
     resetAt: fields.resetAt ?? null,
     limit: fields.limit ?? null,
-    supporter: fields.supporter ?? false,
-    supporterLimit: fields.supporterLimit ?? null,
+    member: fields.member ?? false,
+    memberLimit: fields.memberLimit ?? null,
   };
   console.log(
     JSON.stringify({
@@ -307,15 +308,15 @@ export class PoolBank extends DurableObject<AppEnv> {
 
     const refuse = (
       reason: PoolRefusalReason,
-      supporter: boolean,
+      member: boolean,
       limit: number | null = null,
-      supporterLimit: number | null = null,
+      memberLimit: number | null = null,
     ): PoolRefusal =>
       refusal(req, reason, {
         resetAt: reason !== 'empty' && reason !== 'unpriced' ? resetAt : null,
         limit,
-        supporter,
-        supporterLimit,
+        member,
+        memberLimit,
       });
 
     if (await this.breakerTripped(req.poolId, req.overage, now)) return refuse('unpriced', false);
@@ -359,15 +360,14 @@ export class PoolBank extends DurableObject<AppEnv> {
         .prepare(
           `SELECT
              COALESCE(SUM(CASE WHEN tier = 'free' THEN ${SPEND_EXPR} END), 0) AS free,
-             COALESCE(SUM(CASE WHEN tier = 'supporter' THEN ${SPEND_EXPR} END), 0) AS supporter
+             COALESCE(SUM(CASE WHEN tier = 'member' THEN ${SPEND_EXPR} END), 0) AS member
            FROM usage_events
-           WHERE account_id = ?1 AND tier IN ('free', 'supporter') AND purpose <> 'tagging'
+           WHERE account_id = ?1 AND tier IN ('free', 'member') AND purpose <> 'tagging'
              AND created_at >= ?2`,
         )
         .bind(req.poolId, day),
-      supporterStatement(db, req.userId),
     ];
-    const [balanceRes, morningRes, addedRes, userRes, ipRes, globalRes, supporterRes] =
+    const [balanceRes, morningRes, addedRes, userRes, ipRes, globalRes] =
       await db.batch<Record<string, unknown>>(statements);
     const balance = readBalance(balanceRes!.results[0] as BalanceRow | undefined);
     const available = balance.balanceMicros - balance.heldMicros;
@@ -375,52 +375,43 @@ export class PoolBank extends DurableObject<AppEnv> {
     const added = Number((addedRes!.results[0] as { added?: number })?.added ?? 0);
     const user = userRes!.results[0] as DayRow | undefined;
     const ip = ipRes!.results[0] as DayRow | undefined;
-    const tierSpend = globalRes!.results[0] as { free?: number; supporter?: number } | undefined;
-    const supporter = supporterFrom(
-      supporterRes!.results[0] as { net: number | null; last_purchase: string | null } | undefined,
-      now,
-      req.caps.supporter.windowMonths,
-    );
-    const tier: PoolTier = supporter ? 'supporter' : 'free';
-    const caps = supporter ? req.caps.supporter : req.caps.free;
+    const tierSpend = globalRes!.results[0] as { free?: number; member?: number } | undefined;
+    const member = req.member;
+    const tier: PoolTier = member ? 'member' : 'free';
+    const caps = member ? req.caps.member : req.caps.free;
     const hold = req.holdMicros;
 
     // Topic tagging is charged to the pool but counts toward no one's caps.
     if (req.purpose !== 'tagging') {
       const reply = req.purpose === 'reply';
       if (reply && Number(user?.requests ?? 0) >= caps.requestsPerDay)
-        return refuse(
-          'cap_requests',
-          supporter,
-          caps.requestsPerDay,
-          req.caps.supporter.requestsPerDay,
-        );
+        return refuse('cap_requests', member, caps.requestsPerDay, req.caps.member.requestsPerDay);
       if (Number(user?.spend ?? 0) + hold > caps.spendMicrosPerDay)
         return refuse(
           'cap_spend',
-          supporter,
+          member,
           caps.spendMicrosPerDay,
-          req.caps.supporter.spendMicrosPerDay,
+          req.caps.member.spendMicrosPerDay,
         );
       if (req.ipKey !== null) {
         const ipCaps = req.caps.ip;
         if (reply && Number(ip?.requests ?? 0) >= ipCaps.requestsPerDay)
-          return refuse('cap_ip', supporter, ipCaps.requestsPerDay);
+          return refuse('cap_ip', member, ipCaps.requestsPerDay);
         if (Number(ip?.spend ?? 0) + hold > ipCaps.spendMicrosPerDay)
-          return refuse('cap_ip', supporter, ipCaps.spendMicrosPerDay);
+          return refuse('cap_ip', member, ipCaps.spendMicrosPerDay);
       }
     }
     // An empty pool says so (the first-class empty state), rather than "busy today".
-    if (available < hold) return refuse('empty', supporter);
+    if (available < hold) return refuse('empty', member);
     if (req.purpose !== 'tagging') {
       // Each tier has its own ceiling for all its users together, a share of the day's base:
       // the balance at 00:00 UTC plus what was added since (so funding helps the same day).
-      const g = supporter ? req.caps.globalSupporter : req.caps.globalFree;
+      const g = member ? req.caps.globalMember : req.caps.globalFree;
       const base = Math.max(0, morning) + Math.max(0, added);
       const share = Math.floor((base * g.bpsOfMorningBalance) / 10_000);
       const ceiling = Math.min(g.spendMicrosPerDay, share);
-      const spent = Number((supporter ? tierSpend?.supporter : tierSpend?.free) ?? 0);
-      if (spent + hold > ceiling) return refuse('cap_global', supporter, ceiling);
+      const spent = Number((member ? tierSpend?.member : tierSpend?.free) ?? 0);
+      if (spent + hold > ceiling) return refuse('cap_global', member, ceiling);
     }
 
     const usageId = crypto.randomUUID();

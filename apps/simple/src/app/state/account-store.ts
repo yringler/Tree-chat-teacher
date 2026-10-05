@@ -35,8 +35,32 @@ export class AccountStore {
   readonly poolMe = signal<PoolMeResponse | null>(null);
   private readonly demo = inject(DEMO_MODE, { optional: true }) ?? false;
 
-  /** Generating needs a membership the learner doesn't have: the shell shows the gate. */
-  readonly membershipBlocked = computed(() => membershipBlocks(this.membership()));
+  /** The server refused a reply for want of a membership (402 `membership_required`). */
+  private readonly gateForced = signal(false);
+
+  /**
+   * The shell shows the membership gate. No Learn reply needs a membership
+   * (the learner's own key, the pool and credit they hold are all open to
+   * non-members; only buying credit and power mode on own keys need one), so
+   * this is a safeguard: it shows only if the server ever refuses a reply
+   * with 402 `membership_required` while the learner has none, and its way
+   * out moves replies off credit.
+   */
+  readonly membershipBlocked = computed(
+    () => this.gateForced() && membershipBlocks(this.membership()),
+  );
+
+  /**
+   * The gate's way out, continuing on the free tier without a membership:
+   * the community pool while it is on, else the learner's own key.
+   */
+  readonly freeTierOffered = computed(() =>
+    this.demo
+      ? null
+      : this.payment.poolAvailable()
+        ? 'Continue free on the community pool'
+        : 'Continue with my own OpenRouter key',
+  );
 
   /** True when the learner's own OpenRouter key is stored in this browser. */
   readonly hasOwnKey = computed(
@@ -48,11 +72,16 @@ export class AccountStore {
     () => this.payment.payment() === 'own-key' && this.keyStatus() !== null && !this.hasOwnKey(),
   );
 
-  /** The header's balance pill: only while replies run on credit. */
-  readonly balanceLabel = computed(() => {
+  /** The available credit as money ("$1.20"); null until the billing summary is loaded. */
+  readonly balanceText = computed(() => {
     const b = this.billing();
-    return b && this.payment.payment() === 'credit' ? formatMicros(b.availableMicros) : null;
+    return b ? formatMicros(b.availableMicros) : null;
   });
+
+  /** The header's balance pill: only while replies run on credit. */
+  readonly balanceLabel = computed(() =>
+    this.payment.payment() === 'credit' ? this.balanceText() : null,
+  );
 
   /** The header's pool pill while replies run on the pool: the dollars in it. */
   readonly poolLabel = computed(() => {
@@ -91,15 +120,28 @@ export class AccountStore {
    */
   readonly fundingChoice = computed(() => {
     if (this.demo || !this.payment.builtInCredit() || !this.payment.poolAvailable()) return false;
+    // Credit a non-member still holds can pay; with none left, only a member's can.
+    if (!this.payment.creditUsable()) return false;
     if (this.payment.payment() === 'own-key') return false;
     const own = this.poolMe()?.personalAvailableMicros ?? this.billing()?.availableMicros ?? 0;
     return own > 0;
   });
 
-  /** Personal credit can be bought now: credit is offered and the provider sells top-ups. */
+  /**
+   * Personal credit can be bought now: credit is offered, the provider sells
+   * top-ups and the learner may buy (a member, or no membership required;
+   * spending what they hold needs neither).
+   */
   readonly creditOnSale = computed(
-    () => !this.demo && this.payment.builtInCredit() && this.billing()?.topUpsEnabled !== false,
+    () =>
+      !this.demo &&
+      this.payment.builtInCredit() &&
+      this.payment.member() &&
+      this.billing()?.topUpsEnabled !== false,
   );
+
+  /** The membership is sold here and the learner has none: the pool notice offers it. */
+  readonly membershipOnSale = computed(() => !this.demo && membershipBlocks(this.membership()));
 
   /** True when the available credit is used up (the pill turns into a warning). */
   readonly lowBalance = computed(() => {
@@ -110,19 +152,20 @@ export class AccountStore {
   /** Records the caller, their membership and whether this server sells credit. */
   setMe(me: MeResponse): void {
     this.me.set(me);
-    this.membership.set(me.membership);
+    this.useMembership(me.membership);
     this.payment.builtInCredit.set(me.builtInCredit);
   }
 
   /** A fresh billing summary (also from the billing page): balance and membership. */
   applyBilling(summary: BillingSummary): void {
     this.billing.set(summary);
-    this.membership.set(summary.membership);
+    this.payment.creditAvailableMicros.set(summary.availableMicros);
+    this.useMembership(summary.membership);
   }
 
   /** A redeemed code (the gate's `redeemed`) or any other new membership state. */
   setMembership(membership: MembershipInfo): void {
-    this.membership.set(membership);
+    this.useMembership(membership);
     this.billing.update((b) => (b ? { ...b, membership } : b));
   }
 
@@ -132,8 +175,29 @@ export class AccountStore {
    */
   membershipRequired(): void {
     const current = this.membership();
-    if (current) this.membership.set({ ...current, required: true, status: 'inactive' });
+    if (current) this.useMembership({ ...current, required: true, status: 'inactive' });
+    this.gateForced.set(true);
     void this.refreshBalance();
+  }
+
+  /**
+   * The gate's way out (`freeTierOffered`): closes the gate and moves replies
+   * off credit, to the community pool while it is on, else to the learner's
+   * own key (the composer then asks for one if none is saved).
+   */
+  useFreeTier(): void {
+    this.gateForced.set(false);
+    if (this.payment.poolAvailable()) {
+      this.payment.choose('pool');
+      void this.switchToPool();
+    } else {
+      this.payment.choose('own-key');
+    }
+  }
+
+  private useMembership(membership: MembershipInfo): void {
+    this.membership.set(membership);
+    this.payment.member.set(!membershipBlocks(membership));
   }
 
   /** Re-reads the balance and membership; failures keep the last known value. */

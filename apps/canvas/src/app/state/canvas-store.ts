@@ -30,6 +30,7 @@ import type {
 import {
   ApiClient,
   ApiError,
+  creditCarriesOn,
   errorMessage,
   membershipBlocks,
   runStream,
@@ -192,8 +193,32 @@ export class CanvasStore {
     return idx && id ? branchPath(idx, id) : [];
   });
 
-  /** Generating needs the membership the user lacks: the shell shows a notice linking to `/billing`. */
-  readonly membershipBlocked = computed(() => membershipBlocks(this.membership()));
+  /** The server refused an own-key call for want of a membership (402 `membership_required`). */
+  private readonly noticeForced = signal(false);
+
+  /**
+   * Without a membership, Canvas (power mode) can still run on Tangent credit
+   * the user holds (`creditCarriesOn`: offered, and the balance not known to be used up).
+   */
+  readonly creditCarriesOn = computed(() =>
+    creditCarriesOn(this.me()?.builtInCredit ?? false, this.billing()),
+  );
+
+  /**
+   * The shell shows a notice linking to `/billing`: the membership is
+   * required and the user has none, and either no credit can carry on or the
+   * server just refused an own-key call.
+   */
+  readonly membershipBlocked = computed(
+    () => membershipBlocks(this.membership()) && (this.noticeForced() || !this.creditCarriesOn()),
+  );
+
+  /** The notice may be dismissed: credit the user holds can still pay. */
+  readonly membershipDismissible = computed(() => this.creditCarriesOn());
+
+  dismissMembershipNotice(): void {
+    this.noticeForced.set(false);
+  }
 
   readonly providerMap = computed(() => new Map(this.providers().map((p) => [p.id, p])));
 
@@ -242,7 +267,10 @@ export class CanvasStore {
   async init(me: MeResponse): Promise<void> {
     this.me.set(me);
     this.membership.set(me.membership);
-    await Promise.all([this.refreshKeys(), this.loadTrees()]);
+    // Without a membership, the balance decides whether the notice shows on load.
+    const balance =
+      membershipBlocks(me.membership) && me.builtInCredit ? this.refreshBilling() : null;
+    await Promise.all([this.refreshKeys(), this.loadTrees(), balance]);
   }
 
   async refreshKeys(): Promise<void> {
@@ -638,6 +666,8 @@ export class CanvasStore {
     if (err instanceof ApiError && err.code === 'membership_required') {
       // The shell's notice explains it and links to the power app's /billing.
       this.membership.update((m) => (m ? { ...m, required: true, status: 'inactive' } : m));
+      this.noticeForced.set(true);
+      void this.refreshBilling();
       return;
     }
     if (err instanceof ApiError && err.code === 'payment_required') {

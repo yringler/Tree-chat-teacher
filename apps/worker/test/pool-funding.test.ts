@@ -21,7 +21,6 @@ import { applyPaymentEvent } from '../src/billing/payments/apply.js';
 import { appConfig } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { poolBank } from '../src/pool/ids.js';
-import { isSupporter } from '../src/pool/supporter.js';
 import { insertUser, uniq } from './mocks/billing-helpers.js';
 import { disputed, legacyPoolPurchase, paid, refunded } from './mocks/payment-events.js';
 import { fundPool, poolAccess, poolReadyUser } from './pool-helpers.js';
@@ -73,7 +72,6 @@ describe('no pool purchases through the payment webhook', () => {
     expect(await applyPaymentEvent(env, forged, { provider: null })).toBe('skipped');
     expect(await grants(poolId)).toEqual([]);
     expect(await balance(`u_${buyer}`)).toBe(0);
-    expect(await isSupporter(env.DB, buyer, new Date(), null)).toBe(false);
     // Their refunds take nothing back (the provider reports nothing that was credited).
     expect(
       await applyPaymentEvent(env, refunded(legacy.paymentRef, 1000), { provider: null }),
@@ -86,7 +84,6 @@ describe('no pool purchases through the payment webhook', () => {
     const buyer = uniq('user');
     await insertUser(env, { id: buyer });
     const { paymentRef } = await legacyPoolPurchase(env, { poolId, userId: buyer });
-    expect(await isSupporter(env.DB, buyer, new Date(), null)).toBe(true);
     // Half refunded: half of what it credited comes back out.
     const half = refunded(paymentRef, 500);
     expect(await applyPaymentEvent(env, half, { provider: null })).toBe('applied');
@@ -104,7 +101,6 @@ describe('no pool purchases through the payment webhook', () => {
     const rows = await grants(poolId);
     expect(rows.at(-1)).toMatchObject({ kind: 'refund', amount_micros: -600_000, user_id: buyer });
     expect(rows.at(-1)!.note).toContain('requested=4600000;shortfall=4000000');
-    expect(await isSupporter(env.DB, buyer, new Date(), null)).toBe(false);
   });
 
   it('a lost dispute of a legacy pool purchase debits the pool and suspends its buyer', async () => {
@@ -238,8 +234,6 @@ describe('POST /api/admin/credit', () => {
         note: 'Goodwill',
       },
     ]);
-    // Adjustments never make anyone a supporter.
-    expect(await isSupporter(env.DB, user.userId, new Date(), null)).toBe(false);
   });
 
   it('adjusts the pool, clamping a debit to what it has', async () => {
@@ -342,8 +336,6 @@ describe('POST /api/admin/credit', () => {
         provider_ref: `dev:${personal.idempotencyKey}`,
       },
     ]);
-    // A simulated purchase counts like a real one.
-    expect(await isSupporter(env.DB, on.user.userId, new Date(), null)).toBe(true);
   });
 
   it('the production config keeps simulated purchases off', async () => {

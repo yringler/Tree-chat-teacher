@@ -728,6 +728,10 @@ button.crumb:hover {
   background: var(--accent-soft);
 }
 
+.access-option:has(input:disabled) {
+  cursor: default;
+}
+
 .access-option > span {
   display: flex;
   flex-direction: column;

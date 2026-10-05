@@ -2,8 +2,11 @@ import { z } from 'zod';
 import type { UsagePurpose } from './provider.js';
 
 /**
- * Billing contract: the yearly membership (required to generate in either app
- * once the operator sets it up) and prepaid credit for the built-in provider.
+ * Billing contract: the yearly membership (once the operator sets it up,
+ * required for power mode on the user's own keys, for buying prepaid credit
+ * and for the community pool's member caps; Learn on the user's own key or
+ * the pool's free caps, and spending credit already held, never need it) and
+ * prepaid credit for the built-in provider.
  * Credit and membership are per user and shared by both apps.
  *
  * Units: the ledger is integer micro-USD (`MICROS_PER_USD`); top-ups are whole
@@ -101,14 +104,15 @@ export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
  * - `active`: the membership subscription is `active`, `trialing` or
  *   `past_due` (the payment provider is still retrying a failed renewal);
  * - `waived`: the operator waived the fee for this user (it wins over the subscription);
- * - `inactive`: neither; generating answers 402 `membership_required` while
- *   `required` is true. Reading, exporting and deleting stay open.
+ * - `inactive`: neither; while `required` is true, power mode on the user's
+ *   own keys and buying credit answer 402 `membership_required`. Learn,
+ *   spending credit already held, reading, exporting and deleting stay open.
  */
 export type MembershipStatus = 'active' | 'waived' | 'inactive';
 
 export interface MembershipInfo {
   /**
-   * True when generating needs a membership: the annual fee is on
+   * True when the membership is required (power mode on own keys, buying credit): the annual fee is on
    * (`ANNUAL_FEE_ENABLED`) and the payment provider sells the membership. False in the local dev bypass and on
    * servers without billing; the other fields then carry no meaning.
    */

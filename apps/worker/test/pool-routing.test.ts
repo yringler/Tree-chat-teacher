@@ -436,14 +436,14 @@ describe('pool refusals', () => {
     expect(((await res.json()) as ApiError).error).toEqual({
       code: 'pool_empty',
       message: expect.any(String) as unknown,
-      pool: { reason: 'empty', limit: null, resetAt: null, supporter: false, supporterLimit: null },
+      pool: { reason: 'empty', limit: null, resetAt: null, member: false, memberLimit: null },
     });
     expect(await nodeCount(u, detail.tree.id)).toBe(0);
     // Only the other reservation exists.
     expect((await rows(u.poolId)).map((r) => r.status)).toEqual(['pending']);
   });
 
-  it("a user's daily cap: 429 `pool_cap_reached` with the limit, the reset and the supporter cap", async () => {
+  it("a user's daily cap: 429 `pool_cap_reached` with the limit, the reset and the member cap", async () => {
     const u = await poolReadyUser({ env: { POOL_FREE_REQUESTS_PER_DAY: '1' } });
     const { detail, trunk } = await createTree(u, 'pool');
     const first = await send(u, trunk.id, 'Hi', { learn: 'pool' });
@@ -456,8 +456,8 @@ describe('pool refusals', () => {
     expect(error.pool).toMatchObject({
       reason: 'cap_requests',
       limit: 1,
-      supporter: false,
-      supporterLimit: 6,
+      member: false,
+      memberLimit: 6,
     });
     expect(Date.parse(error.pool!.resetAt!)).toBeGreaterThan(Date.now());
     expect(await nodeCount(u, detail.tree.id)).toBe(2);

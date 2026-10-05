@@ -163,7 +163,7 @@ export interface UsageRow {
   user_id: string | null;
   funding: 'personal' | 'pool';
   ip_key: string | null;
-  tier: 'free' | 'supporter' | null;
+  tier: 'free' | 'member' | null;
   overage_micros: number;
   settle_reason: string | null;
   dispatched_at: string | null;

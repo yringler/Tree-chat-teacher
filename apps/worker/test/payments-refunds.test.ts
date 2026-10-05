@@ -8,7 +8,6 @@ import { applyPaymentEvent, RetryLaterError } from '../src/billing/payments/appl
 import { getBalance } from '../src/billing/ledger.js';
 import { createFakeProvider } from '../src/billing/providers/fake.js';
 import type { AppEnv } from '../src/env.js';
-import { isSupporter } from '../src/pool/supporter.js';
 import { grantDetailsFor, insertUsage, insertUser, uniq } from './mocks/billing-helpers.js';
 import {
   factsOf,
@@ -46,8 +45,6 @@ describe('refund.succeeded: personal purchases', () => {
       { kind: 'refund', amount_micros: -4_000_000, gross_micros: -4_000_000 },
       { kind: 'refund', amount_micros: -6_000_000, gross_micros: -6_000_000 },
     ]);
-    // Refunded in full: no longer a supporter.
-    expect(await isSupporter(env.DB, userId, new Date(), null)).toBe(false);
   });
 
   it('ignores refunds in another currency', async () => {
@@ -98,22 +95,6 @@ describe('refund.succeeded: the membership', () => {
       amount_micros: -2_000_000,
       provider_ref: `${payment.paymentRef}:membership-refund`,
     });
-  });
-});
-
-describe('refund.succeeded: supporter net purchases', () => {
-  it('a membership refund leaves the buyer’s net purchases alone', async () => {
-    const userId = await newUser();
-    // $5 bought, $4 of it refunded: $1 net, a supporter.
-    const topUp = paid({ userId, netCents: 500 });
-    await apply(topUp);
-    await apply(refunded(topUp.paymentRef, 400));
-    expect(await isSupporter(env.DB, userId, new Date(), null)).toBe(true);
-    // The membership never counted, so its refund takes nothing off.
-    const member = membershipPaid(userId);
-    await apply(member);
-    expect(await apply(refunded(member.paymentRef, 1000))).toBe('applied');
-    expect(await isSupporter(env.DB, userId, new Date(), null)).toBe(true);
   });
 });
 

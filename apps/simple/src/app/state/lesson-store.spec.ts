@@ -441,8 +441,8 @@ describe('LessonStore', () => {
       reason: 'empty',
       limit: null,
       resetAt: null,
-      supporter: false,
-      supporterLimit: null,
+      member: false,
+      memberLimit: null,
     };
     s.api.sendMessage.mockRejectedValue(
       new ApiError(402, 'pool_empty', 'The community pool is empty', empty),
@@ -467,8 +467,8 @@ describe('LessonStore', () => {
       reason: 'cap_requests',
       limit: 30,
       resetAt: '2026-01-02T00:00:00.000Z',
-      supporter: false,
-      supporterLimit: 150,
+      member: false,
+      memberLimit: 150,
     };
     s.api.sendMessage.mockRejectedValue(
       new ApiError(429, 'pool_cap_reached', "You've reached today's pool limit", cap),
@@ -498,8 +498,8 @@ describe('LessonStore', () => {
         reason: 'verify',
         limit: null,
         resetAt: null,
-        supporter: false,
-        supporterLimit: null,
+        member: false,
+        memberLimit: null,
       }),
     );
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);

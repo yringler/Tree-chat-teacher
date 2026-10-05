@@ -50,6 +50,21 @@ describe('MembershipGate', () => {
     expect(t).toContain('Sign out');
     expect(t).not.toContain('aria-label="Close"');
   });
+
+  it('says what needs the membership (power mode by default) and labels the way out', () => {
+    const t = templateOf(MembershipGate);
+    expect(t).toContain('{{ needs() }}');
+    expect(t).not.toContain('New replies need one');
+    expect(t).toContain('@if (freeTier(); as label)');
+    expect(t).toContain('(click)="freeTierChosen.emit()"');
+  });
+
+  it('offers Learn as a way out when given its address', () => {
+    const t = templateOf(MembershipGate);
+    expect(t).toContain('@if (learnHref(); as href)');
+    expect(t).toContain('[href]="href"');
+    expect(t).toContain('Use Learn instead (free with your own key)');
+  });
 });
 
 describe('MembershipCodeForm', () => {

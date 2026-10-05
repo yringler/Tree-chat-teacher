@@ -11,6 +11,7 @@ import {
 } from '@tangent/shared';
 import { Hono, type Context } from 'hono';
 import { authBaseUrl, authConfigured } from '../auth/auth.js';
+import { membershipRequired } from '../billing/membership.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { latestImpactForPage, renderImpactBlock } from './impact-block.js';
 import { copyrightNotice, legalInfo } from './legal-info.js';
@@ -170,6 +171,8 @@ export interface LandingPageOptions {
   pool?: PoolStatusResponse;
   /** The pool's latest weekly impact snapshot; absent when there is none (or the pool is off). */
   impact?: PoolImpactResponse;
+  /** The yearly membership is required for power mode on own keys and for buying credit (`membershipRequired`); own keys in Learn stay free. */
+  membership?: boolean;
 }
 
 /** Topics the landing page names at most; `/pool` lists them all. */
@@ -299,7 +302,7 @@ ${freeNote}<p class="note">The demo is free and runs in your browser. Nothing is
 <article class="card">${ICON_COMPASS}<h3>Answers first, tangents next</h3><p>Ask a question and get the answer, straight away and in real depth: the mechanism, not just the fact, and no quiz in between. Every answer ends with a few tangents worth following. One tap opens any of them as a branch of its own.</p></article>
 <article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. The side question opens its own branch, so detours never clutter the main thread, and every branch stays one click away. Choose <strong>Smart</strong> for hard topics or <strong>Simple</strong> for quick ones.</p></article>
 <article class="card">${ICON_EYE}<h3>See exactly what the model sees</h3><p>In power mode, decide how much each branch inherits: the full path, a summary, or a clean slate. The inspector shows the exact prompt before anything is sent.</p></article>
-<article class="card">${ICON_COIN}<h3>${opts.pool ? 'Free, your key, or pay as you go' : 'Your key, or pay as you go'}</h3><p>${opts.pool ? 'Learn free on the community pool, within daily limits, while it has credit. ' : ''}Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or use prepaid credit: each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up when you need to, and manage billing in the secure billing portal.</p></article>
+<article class="card">${ICON_COIN}<h3>${opts.pool ? 'Free, your key, or pay as you go' : 'Your key, or pay as you go'}</h3><p>${opts.pool ? 'Learn free on the community pool, within daily limits, while it has credit. ' : ''}${opts.membership ? 'Paste your own OpenRouter key and Tangent charges nothing, with no membership needed: you pay OpenRouter directly. Or use prepaid credit (buying it needs a yearly membership; spending what you have needs none):' : 'Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or use prepaid credit:'} each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up when you need to, and manage billing in the secure billing portal.</p></article>
 </div>
 </div>
 </section>
@@ -316,13 +319,13 @@ ${opts.pool ? poolSection(opts.pool, opts.impact) : ''}<section aria-labelledby=
 <li>Tangents after every answer, each one a tap away</li>
 <li>Side questions with Ask about this</li>
 <li>Smart and Simple tiers, one toggle</li>
-<li>Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit</li>${opts.pool ? `\n<li>Or learn free on the community pool, within daily limits, on credit Tangent provides${opts.pool.revenueShareBps > 0 ? ' from its revenue' : ''}</li>` : ''}
+<li>${opts.membership ? 'Your own OpenRouter key at no charge from Tangent, no membership needed, or pay as you go from prepaid credit (buying it needs a membership)' : 'Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit'}</li>${opts.pool ? `\n<li>Or learn free on the community pool, within daily limits, on credit Tangent provides${opts.pool.revenueShareBps > 0 ? ' from its revenue' : ''}</li>` : ''}
 </ul>
 <a class="btn primary" href="/learn/login">${free ? 'Start learning free' : 'Start learning'}</a>
 </article>
 <article class="card mode">
 <h3>Power</h3>
-<p class="for">For tinkerers and the people who run Tangent.</p>
+<p class="for">For tinkerers and the people who run Tangent.${opts.membership ? ' Your own keys here need a yearly membership; prepaid credit you have works without one.' : ''}</p>
 <ul>
 <li>Bring your own API keys for any configured provider</li>
 <li>Every control: context modes, inspector, reviewer, system prompts</li>
@@ -403,7 +406,9 @@ async function landingResponse(
   const { operator, sharing } = legalInfo(c.env, c.req.raw);
   const pool = await landingPool(c);
   const impact = pool ? await latestImpactForPage(c.env) : undefined;
-  return new Response(renderLandingPage({ canonicalUrl, operator, sharing, pool, impact }), {
+  const membership = membershipRequired(c.env);
+  const page = renderLandingPage({ canonicalUrl, operator, sharing, pool, impact, membership });
+  return new Response(page, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Security-Policy': await landingCsp(),

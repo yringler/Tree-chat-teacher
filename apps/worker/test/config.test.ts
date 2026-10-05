@@ -13,11 +13,7 @@ const env = rawEnv as unknown as AppEnv;
 
 /** The deployed defaults: every pool var empty (wrangler.jsonc ships most of them set to these). */
 const POOL_VARS = Object.keys(env).filter(
-  (k) =>
-    k.startsWith('POOL_') ||
-    k.startsWith('IMPACT_') ||
-    k === 'MODEL_PRICES' ||
-    k === 'SUPPORTER_WINDOW_MONTHS',
+  (k) => k.startsWith('POOL_') || k.startsWith('IMPACT_') || k === 'MODEL_PRICES',
 );
 const blank = (overrides: Record<string, string> = {}): AppEnv =>
   ({ ...env, ...Object.fromEntries(POOL_VARS.map((k) => [k, ''])), ...overrides }) as AppEnv;
@@ -74,9 +70,9 @@ describe('appConfig', () => {
       sessionEstimateMicros: 20_000,
       caps: {
         free: { requestsPerDay: 30, spendMicrosPerDay: 100_000 },
-        supporter: { requestsPerDay: 150, spendMicrosPerDay: 500_000, windowMonths: null },
+        member: { requestsPerDay: 150, spendMicrosPerDay: 500_000 },
         globalFree: { spendMicrosPerDay: 5_000_000, bpsOfMorningBalance: 2_000 },
-        globalSupporter: { spendMicrosPerDay: 10_000_000, bpsOfMorningBalance: 4_000 },
+        globalMember: { spendMicrosPerDay: 10_000_000, bpsOfMorningBalance: 4_000 },
         ip: { requestsPerDay: 60, spendMicrosPerDay: 300_000 },
       },
       limits: { userPerMinute: 6, ipPerMinute: 20 },
@@ -109,7 +105,7 @@ describe('appConfig', () => {
       FEATURED_CONVERSATIONS_ENABLED: 'true',
       POOL_ACCOUNT_ID: 'pool-x',
       POOL_FREE_REQUESTS_PER_DAY: '9',
-      SUPPORTER_WINDOW_MONTHS: '12',
+      POOL_MEMBER_REQUESTS_PER_DAY: '12',
       POOL_TOPIC_BLOCKLIST: ' a.b , ,c ',
       POOL_SYSTEM_PROMPT: 'Teach.',
     });
@@ -124,7 +120,7 @@ describe('appConfig', () => {
     });
     expect(c.pool.accountId).toBe('pool-x');
     expect(c.pool.caps.free.requestsPerDay).toBe(9);
-    expect(c.pool.caps.supporter.windowMonths).toBe(12);
+    expect(c.pool.caps.member.requestsPerDay).toBe(12);
     expect(c.impact.topicBlocklist).toEqual(['a.b', 'c']);
     expect(c.pool.systemPrompt).toBe('Teach.');
     expect(Object.isFrozen(c.pool.caps.free)).toBe(true);

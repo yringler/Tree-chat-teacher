@@ -16,8 +16,9 @@ import { UiStore } from '../state/ui-store';
 /**
  * How replies are paid for: the learner's own OpenRouter key (free here; they
  * pay OpenRouter), Tangent credit (prepaid, on the built-in provider), which
- * is only offered when the server sells it, or the community pool, while it
- * is on. The key is read from the input only at submit time, posted once
+ * is only offered when the server sells it (while the membership is
+ * required, a non-member may spend credit they hold but not buy more; with
+ * none left they see it disabled, with a link to the billing page), or the community pool, while it is on. The key is read from the input only at submit time, posted once
  * and the field cleared: the server seals it into an HttpOnly cookie this
  * code can't read (the same cookie as power mode's OpenRouter key).
  */
@@ -50,12 +51,19 @@ import { UiStore } from '../state/ui-store';
                 name="payment"
                 value="credit"
                 [checked]="payment() === 'credit'"
+                [disabled]="!account.payment.creditUsable()"
                 (change)="choose('credit')"
               />
               <span>
                 <strong>Use Tangent credit</strong>
                 <span class="muted small">
-                  @if (feeText(); as fee) {
+                  @if (!account.payment.creditUsable()) {
+                    Members only.
+                    <a routerLink="/billing" (click)="close()">Become a member</a> to buy prepaid
+                    credit.
+                  } @else if (!account.payment.member()) {
+                    {{ account.balanceText() }} left. Buying more credit needs a membership.
+                  } @else if (feeText(); as fee) {
                     Prepaid credit: each reply costs {{ fee }}.
                   } @else {
                     Prepaid credit, paid per reply.
@@ -106,7 +114,11 @@ import { UiStore } from '../state/ui-store';
           @if (account.balanceLabel(); as balance) {
             <span>{{ balance }} available · </span>
           }
-          <a routerLink="/billing" (click)="close()">Add credit</a>
+          @if (account.payment.member()) {
+            <a routerLink="/billing" (click)="close()">Add credit</a>
+          } @else {
+            <a routerLink="/billing" (click)="close()">Become a member</a> to add more
+          }
         </p>
       } @else {
         @if (account.keyStatus(); as status) {
