@@ -74,6 +74,7 @@ apps/web            Power app at /: Angular 22 (standalone, signals, zoneless)
 apps/simple         Simple "Learn" app at /learn/: Angular 22
 apps/canvas         Experimental Canvas app at /canvas/ (a map of the power account's trees): Angular 22
 apps/admin          Admin app at /admin/ (operator only: who may share, takedowns): Angular 22
+apps/e2e            Playwright end-to-end tests, against wrangler dev (pnpm e2e)
 ```
 
 ## License
@@ -127,9 +128,18 @@ pnpm test        # Vitest in every package; the worker suite runs inside workerd
 pnpm typecheck   # tsc everywhere (+ Angular strict templates)
 pnpm lint        # ESLint (typescript-eslint strict)
 pnpm coverage    # the same tests with coverage, then a lines/branches table per package
+pnpm e2e         # Playwright end-to-end tests against wrangler dev (see below)
 ```
 
 **Coverage** (`pnpm coverage`) runs `vitest run --coverage` in every package, one at a time, then `scripts/coverage-summary.mjs` prints each package's totals. It only reports; nothing fails on low numbers. The settings are shared (`vitest.coverage.ts`): each package measures its own `src/` (files no test loads count as uncovered, so the Angular apps, whose components have few unit tests, show low numbers), with V8 in the Node packages and Istanbul in the worker, since `@cloudflare/vitest-pool-workers` runs the tests inside workerd, where V8 coverage isn't available. Each package writes an HTML report to its git-ignored `coverage/` (open `apps/worker/coverage/index.html`). `node scripts/coverage-summary.mjs <file>…` also prints single files, e.g. `apps/worker/src/billing/gate.ts`. A worker run with coverage takes a few minutes; `pnpm --filter @tangent/core coverage` covers one package.
+
+**End-to-end tests** (`pnpm e2e`, in `apps/e2e`) drive Chromium through the built apps with [Playwright](https://playwright.dev), against `wrangler dev` on port 8790 (`E2E_PORT`). They are separate from `pnpm test`. `apps/e2e/serve.mjs` (Playwright's `webServer`) generates the Worker's config into the git-ignored `apps/e2e/.state/` (passed with `--env-file`, so your `apps/worker/.dev.vars` and local database are never read), migrates a fresh local database there, and starts `wrangler dev`, which builds every app first (about a minute). No model is called: power runs on the offline test provider, and the built-in provider is configured but never sent to. The suites:
+
+- `demo.spec.ts`: the power demo's Delete in the conversation list (Cancel keeps the conversation, OK removes it), and the Learn demo's Export, then Import of a power-style backup (another provider and model, a custom prompt, a summary branch on credit), which comes back adapted to Learn; a file that isn't a backup is refused.
+- `read-only-power.spec.ts`: with the membership required and cancelled, the own-key branch shows the read-only notice, the credit branch keeps its message box, **Renew membership** goes to `/billing`, **Create a copy in Learn** opens the copy at `/learn/t/<id>` and leaves the power conversation unchanged, and **Continue with Tangent credit** moves the branch onto credit.
+- `learn-key.spec.ts`: Learn on the learner's own key without one says which key is missing and opens **How replies are paid for**; the learner stays signed in.
+
+Sign-in is the real magic-link flow: `EMAIL_PROVIDER=log` prints the link to the server log, which the tests read, and Cloudflare's always-pass Turnstile test keys stand in for the captcha (their check still calls `challenges.cloudflare.com`, so the run needs network access). Memberships and credit come from the fake payment provider's signed webhook (`PAYMENT_PROVIDER=fake`, which the Worker allows only with `TEST_SEAMS`, as in the worker tests). `@playwright/test` is pinned to the release whose Chromium is installed; on a new machine run `pnpm --filter @tangent/e2e exec playwright install chromium` once, or point `PLAYWRIGHT_CHROMIUM_PATH` at a Chromium binary. While writing tests, `node apps/e2e/serve.mjs` in one terminal and `E2E_REUSE_SERVER=1 pnpm e2e` in another skips the rebuild. There is no CI workflow in this repository yet; a job would run `pnpm install`, `pnpm --filter @tangent/e2e exec playwright install --with-deps chromium` and `pnpm e2e`.
 
 ## Deploying
 
