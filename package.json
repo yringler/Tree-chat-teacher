@@ -8,7 +8,7 @@
     "node": ">=22.22.3"
   },
   "scripts": {
-    "build": "pnpm --filter @tangent/web build && pnpm --filter @tangent/simple build && pnpm --filter @tangent/canvas build && node scripts/assemble-assets.mjs",
+    "build": "pnpm --filter @tangent/web build && pnpm --filter @tangent/simple build && pnpm --filter @tangent/canvas build && pnpm --filter @tangent/admin build && node scripts/assemble-assets.mjs",
     "dev": "pnpm --filter @tangent/worker dev",
     "test": "pnpm -r --workspace-concurrency=1 test",
     "typecheck": "pnpm -r typecheck",

@@ -1,5 +1,8 @@
 import { inject, Injectable } from '@angular/core';
 import type {
+  AdminStatusResponse,
+  AdminUser,
+  AdminUsersResponse,
   ApiError as ApiErrorBody,
   ApiErrorCode,
   BillingSummary,
@@ -25,6 +28,7 @@ import type {
   TreeBackupInput,
   TreeDetail,
   TreeSummary,
+  UpdateAdminUserRequest,
   UpdateBranchRequest,
   UpdateSettingsRequest,
   UpdateShareRequest,
@@ -238,6 +242,34 @@ export class ApiClient {
 
   revokeShare(shareId: string): Promise<ShareSummary> {
     return this.json('POST', `/shares/${enc(shareId)}/revoke`);
+  }
+
+  // Admin (the admin app; 404 for anyone but an admin)
+
+  adminStatus(): Promise<AdminStatusResponse> {
+    return this.json('GET', '/admin/status');
+  }
+
+  /** One page of users, newest first; `q` filters by email substring. */
+  adminUsers(q?: string, cursor?: string | null): Promise<AdminUsersResponse> {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (cursor) params.set('cursor', cursor);
+    const qs = params.toString();
+    return this.json('GET', qs ? `/admin/users?${qs}` : '/admin/users');
+  }
+
+  updateAdminUser(userId: string, req: UpdateAdminUserRequest): Promise<AdminUser> {
+    return this.json('PATCH', `/admin/users/${enc(userId)}`, req);
+  }
+
+  adminUserShares(userId: string): Promise<ShareSummary[]> {
+    return this.json('GET', `/admin/users/${enc(userId)}/shares`);
+  }
+
+  /** Revokes any user's share (a takedown). */
+  adminRevokeShare(shareId: string): Promise<ShareSummary> {
+    return this.json('POST', `/admin/shares/${enc(shareId)}/revoke`);
   }
 
   // Export / backup / import

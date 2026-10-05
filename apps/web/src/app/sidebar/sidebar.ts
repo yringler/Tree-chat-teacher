@@ -104,6 +104,10 @@ import { OutlineItem } from './outline-item';
         >
           Billing
         </a>
+        <!-- The operator's accounts only (ADMIN_USER_IDS); a separate app, so a full page load. -->
+        @if (store.me()?.isAdmin) {
+          <a href="/admin/" class="btn btn-ghost"><app-icon name="lock" /> Admin</a>
+        }
       }
       <app-import-button />
       <button

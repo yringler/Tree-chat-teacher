@@ -4,6 +4,7 @@
 //   apps/web/dist/web/browser/**       → apps/worker/site/         (power app, `/`)
 //   apps/simple/dist/simple/browser/** → apps/worker/site/learn/   (simple app, `/learn/`)
 //   apps/canvas/dist/canvas/browser/** → apps/worker/site/canvas/  (canvas app, `/canvas/`)
+//   apps/admin/dist/admin/browser/**   → apps/worker/site/admin/   (admin app, `/admin/`)
 // Run by the root `pnpm build` after the `ng build`s. Pure Node fs, no deps.
 import { cpSync, existsSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -26,6 +27,11 @@ const sources = [
     from: path.join(root, 'apps/canvas/dist/canvas/browser'),
     to: path.join(site, 'canvas'),
     build: 'pnpm --filter @tangent/canvas build',
+  },
+  {
+    from: path.join(root, 'apps/admin/dist/admin/browser'),
+    to: path.join(site, 'admin'),
+    build: 'pnpm --filter @tangent/admin build',
   },
 ];
 // Kept across runs: git tracks it so the directory exists before any build

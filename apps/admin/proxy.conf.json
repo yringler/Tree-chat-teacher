@@ -1,0 +1,4 @@
+{
+  "/api": { "target": "http://localhost:8787", "secure": false, "changeOrigin": true },
+  "/s": { "target": "http://localhost:8787", "secure": false, "changeOrigin": true }
+}
