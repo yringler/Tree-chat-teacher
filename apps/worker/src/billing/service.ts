@@ -118,6 +118,11 @@ async function lastPurchase(env: AppEnv, accountId: string): Promise<PurchaseInf
   };
 }
 
+/** One-time credit purchases (top-ups, and funding the pool) can be sold: Stripe and its credits product are set up. */
+export function topUpsEnabled(env: AppEnv): boolean {
+  return billingConfigured(env) && !!env.STRIPE_CREDITS_PRODUCT_ID?.trim();
+}
+
 export async function getBillingSummary(
   env: AppEnv,
   account: AccountContext,
@@ -131,7 +136,7 @@ export async function getBillingSummary(
     enabled: billingConfigured(env),
     membership,
     builtInCredit: builtInAvailable(env),
-    topUpsEnabled: billingConfigured(env) && !!env.STRIPE_CREDITS_PRODUCT_ID?.trim(),
+    topUpsEnabled: topUpsEnabled(env),
     currency: 'usd',
     balanceMicros,
     heldMicros,
@@ -217,15 +222,18 @@ export async function listUsage(
 /**
  * The page Stripe Checkout returns to: the billing page of the app the
  * checkout started from (`/billing` in power, `/learn/billing` in Learn).
+ * A pool purchase adds `target=pool`, so the page waits for the pool's
+ * balance instead of the buyer's.
  */
 export function checkoutReturnUrl(
   baseUrl: string,
   account: AccountContext,
   outcome: 'success' | 'cancel',
+  target: PurchaseTarget = 'personal',
 ): string {
   const base = baseUrl.replace(/\/+$/, '');
   const page = account.mode === 'simple' ? '/learn/billing' : '/billing';
-  return `${base}${page}?checkout=${outcome}`;
+  return `${base}${page}?checkout=${outcome}${target === 'pool' ? '&target=pool' : ''}`;
 }
 
 /**
@@ -287,8 +295,8 @@ export async function createCreditCheckout(
     metadata,
     // Lets refunds and disputes find the account, the buyer and the pre-tax share.
     payment_intent_data: { metadata },
-    success_url: checkoutReturnUrl(baseUrl, account, 'success'),
-    cancel_url: checkoutReturnUrl(baseUrl, account, 'cancel'),
+    success_url: checkoutReturnUrl(baseUrl, account, 'success', target),
+    cancel_url: checkoutReturnUrl(baseUrl, account, 'cancel', target),
   });
   if (!session.url) throw new Error('Stripe returned a Checkout Session without a URL');
   return { url: session.url };

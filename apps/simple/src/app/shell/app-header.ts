@@ -8,7 +8,8 @@ import { UiStore } from '../state/ui-store';
 
 /**
  * Brand, the Power / Learn switch, how replies are paid for (the credit
- * balance, linking to billing, or "Your key") and the account menu.
+ * balance or the community pool, linking to billing, or "Your key") and the
+ * account menu.
  */
 @Component({
   selector: 'app-header',
@@ -37,6 +38,16 @@ import { UiStore } from '../state/ui-store';
         >
           Your key
         </button>
+      } @else if (account.poolLabel(); as pool) {
+        <a
+          routerLink="/billing"
+          class="balance-pill"
+          [class.balance-low]="account.poolLow()"
+          [attr.aria-label]="'Replies run on the community pool: ' + pool + '. Open billing'"
+          title="Community pool · Billing"
+        >
+          {{ pool }}
+        </a>
       } @else if (account.balanceLabel(); as balance) {
         <a
           routerLink="/billing"
@@ -73,7 +84,11 @@ import { UiStore } from '../state/ui-store';
                 How replies are paid for
               </button>
             }
-            @if (account.payment.builtInCredit() || account.membership()?.required) {
+            @if (
+              account.payment.builtInCredit() ||
+              account.membership()?.required ||
+              account.payment.poolAvailable()
+            ) {
               <a routerLink="/billing" class="menu-item" role="menuitem" (click)="close()">
                 {{ account.payment.builtInCredit() ? 'Billing and credit' : 'Billing' }}
               </a>

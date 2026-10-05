@@ -19,6 +19,10 @@ Left out of the pool (`docs/pool/PLAN.md`). None blocks launching it.
 - **No guest pool checkout.** Funding the pool needs a signed-in account (the checkout records the buyer, and the supporter tier reads it). A guest checkout would need Checkout with `customer_creation` and a way to attach the purchase to an account later.
 - **Personal credit still prices at usage (`MARKUP_BPS`), the pool at purchase (deviation D3).** Unifying personal pricing to margin-at-purchase needs a reprice rule for existing balances, a Terms §7 update, and `MARKUP_BPS` moved to 0 behind a flag.
 - **Disputes of membership invoices are handled by hand.** Only credit purchases (personal and pool) are debited automatically.
+- **Spending from the pool is Learn-only.** The power app and Canvas never use it (power mode ignores the `pool` payment header); the power app only shows the fund section on its billing page. Offering it there would need the pool's model pin and locked prompt to coexist with power mode's per-tree prompts and model pickers.
+- **No custom amount for funding the pool.** The fund section offers the presets (`POOL_FUND_PRESETS_CENTS`, $10/$20/$50); the API accepts any amount from the minimum to $500. A custom field would reuse the billing page's top-up form.
+- **The first-use human check leaves the app.** The apps' CSP doesn't load Turnstile, so `PoolFirstUseDialog` sends the learner to the Worker's `/verify` page and back; the unsent message isn't kept across that page load. Allowing `challenges.cloudflare.com` in the Learn app's CSP would let `<app-turnstile>` and `POST /api/pool/verify` run in place.
+- **No admin UI for crediting.** `POST /api/admin/credit` (adjustments and simulated purchases) has no form on the admin page yet; use the API.
 
 ## Power app and Canvas: membership and credit UI
 

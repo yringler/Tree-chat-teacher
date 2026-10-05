@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { POOL_BLOCK_REASONS, poolBlockDetailsSchema, poolErrorCode } from './pool.js';
+import {
+  FORBIDDEN_POOL_COPY,
+  POOL_BLOCK_REASONS,
+  POOL_EMPTY_TEXT,
+  poolBlockDetailsSchema,
+  poolErrorCode,
+  poolMarginText,
+  poolSessionsText,
+} from './pool.js';
 
 describe('poolErrorCode', () => {
   it('maps every refusal to empty (402), cap reached (429) or unavailable (403)', () => {
@@ -30,5 +38,36 @@ describe('poolBlockDetailsSchema', () => {
     };
     expect(poolBlockDetailsSchema.parse(details)).toEqual(details);
     expect(poolBlockDetailsSchema.safeParse({ ...details, reason: 'nope' }).success).toBe(false);
+  });
+});
+
+describe('pool copy', () => {
+  it('counts learning sessions, approximately', () => {
+    expect(poolSessionsText(1240)).toBe('about 1,240 learning sessions');
+    expect(poolSessionsText(1)).toBe('about 1 learning session');
+    expect(poolSessionsText(0)).toBe('no learning sessions');
+    expect(poolSessionsText(-3)).toBe('no learning sessions');
+    expect(poolSessionsText(2.9)).toBe('about 2 learning sessions');
+  });
+
+  it('discloses the margin in one line', () => {
+    expect(poolMarginText(800)).toBe(
+      '8% covers card processing, hosting and keeps Tangent running.',
+    );
+    expect(poolMarginText(750)).toMatch(/^7\.5% covers/);
+  });
+
+  it('never calls funding a donation', () => {
+    for (const text of [POOL_EMPTY_TEXT, poolMarginText(800), poolSessionsText(10)])
+      expect(text).not.toMatch(FORBIDDEN_POOL_COPY);
+    for (const bad of [
+      'Donate',
+      'a donation',
+      'donors',
+      'tax-deductible',
+      'Tax deductible',
+      'charity',
+    ])
+      expect(bad).toMatch(FORBIDDEN_POOL_COPY);
   });
 });

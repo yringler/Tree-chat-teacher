@@ -13,8 +13,10 @@ export class UiStore {
   readonly menuOpen = signal(false);
   readonly passkeysOpen = signal(false);
   readonly deleteAccountOpen = signal(false);
-  /** The "How replies are paid for" dialog (own OpenRouter key or credit). */
+  /** The "How replies are paid for" dialog (own OpenRouter key, credit or the pool). */
   readonly accessOpen = signal(false);
+  /** The human check before a first pool message (PoolFirstUseDialog). */
+  readonly poolVerifyOpen = signal(false);
   /** Bumped to ask the composer to take focus. */
   readonly composerFocus = signal(0);
   private toastSeq = 0;
@@ -41,6 +43,10 @@ export class UiStore {
     }
     if (this.passkeysOpen()) {
       this.passkeysOpen.set(false);
+      return true;
+    }
+    if (this.poolVerifyOpen()) {
+      this.poolVerifyOpen.set(false);
       return true;
     }
     if (this.accessOpen()) {

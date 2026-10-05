@@ -8,6 +8,7 @@ import {
   DEMO_MODE,
   Icon,
   MembershipGate,
+  PoolFirstUseDialog,
 } from '@tangent/web-shared';
 import { BRAND } from './brand';
 import { RouteSync } from './core/route-sync';
@@ -31,6 +32,7 @@ import { UiStore } from './state/ui-store';
     DeleteAccountDialog,
     Icon,
     MembershipGate,
+    PoolFirstUseDialog,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -61,6 +63,9 @@ import { UiStore } from './state/ui-store';
       }
       @if (ui.accessOpen()) {
         <app-model-access-dialog />
+      }
+      @if (ui.poolVerifyOpen()) {
+        <app-pool-first-use-dialog (closed)="ui.poolVerifyOpen.set(false)" />
       }
       @if (gate(); as membership) {
         <app-membership-gate
@@ -132,6 +137,7 @@ export class App {
       await Promise.all([
         this.lessons.init(),
         this.account.refreshBalance(),
+        this.account.refreshPool(),
         // The demo has no key cookie (and always runs on pretend credit).
         this.demo ? Promise.resolve() : this.account.refreshKey(),
       ]);

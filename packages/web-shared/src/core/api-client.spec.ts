@@ -2,7 +2,15 @@ import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classe
 import { Injector, type Provider } from '@angular/core';
 import type { BillingSummary, UsageListResponse } from '@tangent/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiClient, ApiError, isMembershipRequired, isPaymentRequired } from './api-client';
+import {
+  ApiClient,
+  ApiError,
+  isMembershipRequired,
+  isPaymentRequired,
+  isPoolCapReached,
+  isPoolEmpty,
+  isPoolUnavailable,
+} from './api-client';
 import { API_FETCH, API_HEADERS } from './api-fetch';
 
 type FetchArgs = [input: string, init: RequestInit];
@@ -105,6 +113,60 @@ describe('ApiClient billing', () => {
     expect(isPaymentRequired(err)).toBe(true);
     expect(isPaymentRequired(new ApiError(403, 'forbidden', 'x'))).toBe(false);
     expect(isPaymentRequired(new Error('x'))).toBe(false);
+  });
+});
+
+describe('ApiClient community pool', () => {
+  let fetchMock: ReturnType<typeof vi.fn<(...args: FetchArgs) => Promise<Response>>>;
+  const api = createApi();
+
+  beforeEach(() => {
+    fetchMock = vi.fn<(...args: FetchArgs) => Promise<Response>>();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('poolStatus() and poolMe() GET /api/pool/status and /api/pool/me', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({}));
+    await api.poolStatus();
+    await api.poolMe();
+    expect(fetchMock.mock.calls.map(([url, init]) => [init.method, url])).toEqual([
+      ['GET', '/api/pool/status'],
+      ['GET', '/api/pool/me'],
+    ]);
+  });
+
+  it('createCheckout(cents, "pool") names the pool as the target', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ url: 'https://checkout.stripe.com/c/p' }));
+    await api.createCheckout(2000, 'pool');
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1].body))).toEqual({
+      amountCents: 2000,
+      target: 'pool',
+    });
+  });
+
+  it('keeps what a pool refusal hit on the ApiError', async () => {
+    const pool = {
+      reason: 'cap_requests',
+      limit: 30,
+      resetAt: '2026-10-06T00:00:00.000Z',
+      supporter: false,
+      supporterLimit: 150,
+    };
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ error: { code: 'pool_cap_reached', message: 'Cap', pool } }, 429),
+    );
+    const err = await api.poolMe().catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 429, code: 'pool_cap_reached', pool });
+    expect(isPoolCapReached(err)).toBe(true);
+    expect(isPoolEmpty(err)).toBe(false);
+    expect(isPoolEmpty(new ApiError(402, 'pool_empty', 'Empty'))).toBe(true);
+    expect(isPoolUnavailable(new ApiError(403, 'pool_unavailable', 'No'))).toBe(true);
+    // Any other error has no pool details.
+    expect(new ApiError(402, 'payment_required', 'x').pool).toBeNull();
   });
 });
 

@@ -1,6 +1,12 @@
 import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classes without the Angular CLI.
 import { Injector } from '@angular/core';
-import type { BillingSummary, MembershipInfo, MeResponse } from '@tangent/shared';
+import type {
+  BillingSummary,
+  MembershipInfo,
+  MeResponse,
+  PoolMeResponse,
+  PoolStatusResponse,
+} from '@tangent/shared';
 import { ApiClient, DEMO_MODE } from '@tangent/web-shared';
 import { describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
@@ -50,8 +56,39 @@ function me(m: MembershipInfo): MeResponse {
   };
 }
 
-function setup(billing: () => Promise<BillingSummary>) {
-  const api = { billing: vi.fn(billing) };
+const POOL: PoolStatusResponse = {
+  enabled: true,
+  fundingOpen: true,
+  availableMicros: 2_400_000,
+  sessionsRemaining: 120,
+  model: { id: 'fast', label: 'Simple' },
+  week: { start: '2026-10-05T00:00:00.000Z', exchanges: 3, learners: 2 },
+  marginBps: 800,
+  minPurchaseCents: 1000,
+};
+
+const POOL_ME: PoolMeResponse = {
+  available: true,
+  verified: true,
+  supporter: false,
+  suspended: false,
+  caps: {
+    requestsPerDay: 30,
+    spendMicrosPerDay: 100_000,
+    usedRequests: 3,
+    usedSpendMicros: 4_000,
+    resetAt: '2026-10-06T00:00:00.000Z',
+  },
+  personalAvailableMicros: 1_000_000,
+};
+
+function setup(billing: () => Promise<BillingSummary>, pool: PoolStatusResponse = POOL) {
+  const api = {
+    billing: vi.fn(billing),
+    poolStatus: vi.fn(async () => pool),
+    poolMe: vi.fn(async () => POOL_ME),
+    keyStatus: vi.fn(async () => ({ enabled: true, hasKey: true, providers: ['openrouter'] })),
+  };
   const injector = Injector.create({
     providers: [
       { provide: AccountStore },
@@ -113,5 +150,77 @@ describe('AccountStore membership', () => {
     await account.refreshBalance();
     expect(account.membership()?.status).toBe('waived');
     vi.restoreAllMocks();
+  });
+});
+
+describe('AccountStore community pool', () => {
+  it('offers the pool while it is on, and shows its pill while replies run on it', async () => {
+    const { account, api } = setup(async () => summary(membership()));
+    account.setMe(me(membership({ required: false })));
+    await account.refreshPool();
+    expect(account.payment.poolAvailable()).toBe(true);
+    expect(api.poolMe).toHaveBeenCalled();
+    // Credit is chosen (the default) and offered: no pool pill, no model lock.
+    expect(account.poolLabel()).toBeNull();
+    expect(account.poolModelHint()).toBeNull();
+    account.payment.choose('pool');
+    expect(account.poolLabel()).toBe('Pool · $2.40');
+    expect(account.poolLow()).toBe(false);
+    expect(account.poolModel()).toEqual({ id: 'fast', label: 'Simple' });
+    expect(account.poolModelHint()).toBe('The community pool uses Simple.');
+  });
+
+  it('offers the funding toggle only while both own credit and the pool can pay', async () => {
+    const { account } = setup(async () => summary(membership()));
+    account.setMe(me(membership({ required: false })));
+    expect(account.fundingChoice()).toBe(false);
+    await account.refreshPool();
+    expect(account.fundingChoice()).toBe(true);
+    account.poolMe.set({ ...POOL_ME, personalAvailableMicros: 0 });
+    expect(account.fundingChoice()).toBe(false);
+  });
+
+  it('hides the funding toggle while replies run on the own key', async () => {
+    const { account } = setup(async () => summary(membership()));
+    account.setMe(me(membership({ required: false })));
+    await account.refreshPool();
+    expect(account.fundingChoice()).toBe(true);
+    account.payment.choose('own-key');
+    expect(account.fundingChoice()).toBe(false);
+  });
+
+  it('a saved key with no choice made keeps replies on the key where credit is not sold', async () => {
+    const { account } = setup(async () => summary(membership()));
+    account.setMe({ ...me(membership({ required: false })), builtInCredit: false });
+    await account.refreshPool();
+    // Nothing chosen and the key status not known yet: still the key, never the pool.
+    expect(account.payment.payment()).toBe('own-key');
+    await account.refreshKey();
+    expect(account.hasOwnKey()).toBe(true);
+    expect(account.payment.payment()).toBe('own-key');
+    expect(account.poolLabel()).toBeNull();
+    expect(account.poolModel()).toBeNull();
+    expect(account.fundingChoice()).toBe(false);
+  });
+
+  it("an empty pool, or today's replies used up, turns the pill into a warning", async () => {
+    const { account } = setup(async () => summary(membership()), {
+      ...POOL,
+      availableMicros: 0,
+      sessionsRemaining: 0,
+    });
+    await account.refreshPool();
+    expect(account.poolLow()).toBe(true);
+    account.poolStatus.set(POOL);
+    account.poolMe.set({ ...POOL_ME, caps: { ...POOL_ME.caps, usedRequests: 30 } });
+    expect(account.poolLow()).toBe(true);
+  });
+
+  it('while the pool is off it is not offered and its caps are not read', async () => {
+    const { account, api } = setup(async () => summary(membership()), { ...POOL, enabled: false });
+    await account.refreshPool();
+    expect(account.payment.poolAvailable()).toBe(false);
+    expect(api.poolMe).not.toHaveBeenCalled();
+    expect(account.poolMe()).toBeNull();
   });
 });

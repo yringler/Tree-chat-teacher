@@ -8,7 +8,8 @@ type SharesState = ShareSummary[] | null;
 
 /**
  * Users, newest first, searchable by email: the per-user "May share"
- * permission and, expanded, the user's shares with Revoke (a takedown).
+ * permission, the community pool suspension and, expanded, the user's shares
+ * with Revoke (a takedown).
  */
 @Component({
   selector: 'app-users-page',
@@ -36,6 +37,7 @@ type SharesState = ShareSummary[] | null;
             <th scope="col">Signed up</th>
             <th scope="col">Active shares</th>
             <th scope="col">May share</th>
+            <th scope="col">Pool suspended</th>
             <th scope="col"><span class="sr-only">Shares</span></th>
           </tr>
         </thead>
@@ -70,6 +72,17 @@ type SharesState = ShareSummary[] | null;
                 </label>
               </td>
               <td>
+                <label class="check">
+                  <input
+                    type="checkbox"
+                    [checked]="u.poolSuspended"
+                    [disabled]="busy().has(u.id)"
+                    (change)="setPoolSuspended(u, $any($event.target))"
+                  />
+                  <span class="sr-only">{{ u.email }}'s community pool access is suspended</span>
+                </label>
+              </td>
+              <td>
                 <button
                   type="button"
                   class="btn btn-ghost btn-sm"
@@ -87,7 +100,7 @@ type SharesState = ShareSummary[] | null;
             </tr>
             @if (shares().has(u.id)) {
               <tr [id]="'shares-' + u.id">
-                <td colspan="6" class="admin-shares">
+                <td colspan="7" class="admin-shares">
                   @if (shares().get(u.id); as list) {
                     @if (list.length === 0) {
                       <p class="muted small">No shares.</p>
@@ -127,7 +140,7 @@ type SharesState = ShareSummary[] | null;
           } @empty {
             @if (!loading()) {
               <tr>
-                <td colspan="6" class="muted">No users found.</td>
+                <td colspan="7" class="muted">No users found.</td>
               </tr>
             }
           }
@@ -187,6 +200,19 @@ export class UsersPage {
         this.replaceUser(await this.api.updateAdminUser(user.id, { shareAllowed: allowed }));
       } catch (err) {
         box.checked = user.shareAllowed;
+        throw err;
+      }
+    });
+  }
+
+  /** Suspends (or restores) the user's community pool access; their next pool request is refused. */
+  protected async setPoolSuspended(user: AdminUser, box: HTMLInputElement): Promise<void> {
+    const suspended = box.checked;
+    await this.run(user.id, async () => {
+      try {
+        this.replaceUser(await this.api.updateAdminUser(user.id, { poolSuspended: suspended }));
+      } catch (err) {
+        box.checked = user.poolSuspended;
         throw err;
       }
     });

@@ -4,6 +4,8 @@ import { Router } from '@angular/router';
 import type {
   BillingSummary,
   Branch,
+  PoolBlockDetails,
+  PoolStatusResponse,
   ChatNode,
   CreateBranchRequest,
   ProviderInfo,
@@ -161,8 +163,23 @@ function fakeApi() {
     cancelNode: vi.fn(async (_id: string) => undefined),
     billing: vi.fn(async () => BILLING),
     keyStatus: vi.fn(async () => ({ enabled: true, hasKey: false, providers: [] })),
+    poolStatus: vi.fn(async () => POOL_STATUS),
+    poolMe: vi.fn(async () => {
+      throw new Error('not needed');
+    }),
   };
 }
+
+const POOL_STATUS: PoolStatusResponse = {
+  enabled: true,
+  fundingOpen: true,
+  availableMicros: 0,
+  sessionsRemaining: 0,
+  model: { id: 'fast-model', label: 'Simple' },
+  week: { start: T, exchanges: 0, learners: 0 },
+  marginBps: 800,
+  minPurchaseCents: 1000,
+};
 
 function setup() {
   const api = fakeApi();
@@ -412,6 +429,95 @@ describe('LessonStore', () => {
     expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
     await vi.waitFor(() => expect(account.billing()?.membership.status).toBe('inactive'));
     expect(account.membershipBlocked()).toBe(true);
+  });
+
+  it('402 pool_empty on send: the inline empty state, no toast, no navigation, message kept', async () => {
+    const s = setup();
+    await open(s, detail());
+    const empty: PoolBlockDetails = {
+      reason: 'empty',
+      limit: null,
+      resetAt: null,
+      supporter: false,
+      supporterLimit: null,
+    };
+    s.api.sendMessage.mockRejectedValue(
+      new ApiError(402, 'pool_empty', 'The community pool is empty', empty),
+    );
+    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
+
+    expect(s.store.poolBlock()).toEqual({ kind: 'empty', details: empty, branchId: 'trunk' });
+    expect(s.ui.toasts()).toEqual([]);
+    expect(s.router.navigate).not.toHaveBeenCalled();
+    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
+    // Refused before anything was written: no message in the lesson.
+    expect(s.store.path()).toEqual([]);
+    expect(s.store.busy()).toBe(false);
+    // The meter is re-read, so the header shows the empty pool too.
+    await vi.waitFor(() => expect(s.api.poolStatus).toHaveBeenCalled());
+  });
+
+  it('429 pool_cap_reached on send: the inline cap state with its limit and reset', async () => {
+    const s = setup();
+    await open(s, detail());
+    const cap: PoolBlockDetails = {
+      reason: 'cap_requests',
+      limit: 30,
+      resetAt: '2026-01-02T00:00:00.000Z',
+      supporter: false,
+      supporterLimit: 150,
+    };
+    s.api.sendMessage.mockRejectedValue(
+      new ApiError(429, 'pool_cap_reached', "You've reached today's pool limit", cap),
+    );
+    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
+
+    expect(s.store.poolBlock()).toEqual({ kind: 'cap', details: cap, branchId: 'trunk' });
+    expect(s.store.poolBlock()?.details).toMatchObject({ limit: 30, resetAt: cap.resetAt });
+    expect(s.ui.toasts()).toEqual([]);
+    expect(s.router.navigate).not.toHaveBeenCalled();
+    expect(s.store.unsentDraft()?.text).toBe('What is light?');
+
+    // Sending again clears the state; dismissing does too.
+    s.api.sendMessage.mockResolvedValue(stream([]));
+    await s.store.send('trunk', 'What is light?');
+    expect(s.store.poolBlock()).toBeNull();
+    s.store.poolBlock.set({ kind: 'cap', details: cap, branchId: 'trunk' });
+    s.store.dismissPoolBlock();
+    expect(s.store.poolBlock()).toBeNull();
+  });
+
+  it('403 pool_unavailable (verify) on send: opens the human check and keeps the message', async () => {
+    const s = setup();
+    await open(s, detail());
+    s.api.sendMessage.mockRejectedValue(
+      new ApiError(403, 'pool_unavailable', 'Complete the quick human check', {
+        reason: 'verify',
+        limit: null,
+        resetAt: null,
+        supporter: false,
+        supporterLimit: null,
+      }),
+    );
+    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
+    expect(s.ui.poolVerifyOpen()).toBe(true);
+    expect(s.ui.toasts()).toEqual([]);
+    expect(s.store.poolBlock()).toBeNull();
+    expect(s.store.unsentDraft()?.text).toBe('What is light?');
+  });
+
+  it('other pool_unavailable reasons are reported as a toast', async () => {
+    const s = setup();
+    await open(s, detail());
+    s.api.sendMessage.mockRejectedValue(
+      new ApiError(403, 'pool_unavailable', 'Community pool access is suspended for this account'),
+    );
+    await s.store.send('trunk', 'What is light?');
+    expect(s.ui.poolVerifyOpen()).toBe(false);
+    expect(s.ui.toasts().at(-1)).toMatchObject({
+      kind: 'error',
+      text: 'Community pool access is suspended for this account',
+    });
   });
 
   it('402 on the first message of a new lesson goes to billing too', async () => {

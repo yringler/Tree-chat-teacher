@@ -14,10 +14,12 @@ import {
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import type { Branch, ChatNode } from '@tangent/shared';
-import { Icon } from '@tangent/web-shared';
+import { Icon, PoolBlockNotice } from '@tangent/web-shared';
 import { BRAND } from '../brand';
+import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
 import { Composer } from './composer';
+import { FundingToggle, type FundingOption } from './funding-toggle';
 import { MessageItem } from './message-item';
 import { ModelToggle } from './model-toggle';
 import { branchTitle, lessonTitle } from './titles';
@@ -39,7 +41,16 @@ const MAX_QUOTE = 10_000;
 /** `/t/:treeId[/b/:branchId]`: the lesson, one branch at a time. */
 @Component({
   selector: 'app-chat-page',
-  imports: [Composer, MessageItem, ModelToggle, Icon, RouterLink, NgTemplateOutlet],
+  imports: [
+    Composer,
+    FundingToggle,
+    MessageItem,
+    ModelToggle,
+    Icon,
+    PoolBlockNotice,
+    RouterLink,
+    NgTemplateOutlet,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './chat-page.html',
   host: {
@@ -49,6 +60,7 @@ const MAX_QUOTE = 10_000;
 })
 export class ChatPage implements OnDestroy {
   protected readonly store = inject(LessonStore);
+  protected readonly account = inject(AccountStore);
   private readonly title = inject(Title);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   /** True while the view is scrolled to (near) the bottom: new text keeps it pinned. */
@@ -96,6 +108,16 @@ export class ChatPage implements OnDestroy {
     if (b.parentBranchId && this.emptyBranch()) return 'Ask your side question…';
     return 'Reply…';
   });
+
+  /** The pool's refusal of a message in this branch (empty or a cap), shown above the composer. */
+  protected readonly poolBlock = computed(() => {
+    const block = this.store.poolBlock();
+    return block && block.branchId === this.store.selectedBranchId() ? block : null;
+  });
+
+  protected readonly funding = computed<FundingOption>(() =>
+    this.account.payment.payment() === 'pool' ? 'pool' : 'credit',
+  );
 
   /** A message refused for lack of credit, offered back after a top-up. */
   protected readonly initialDraft = computed(() => {
@@ -170,6 +192,13 @@ export class ChatPage implements OnDestroy {
     } finally {
       this.switching.set(false);
     }
+  }
+
+  protected chooseFunding(option: FundingOption): void {
+    this.account.payment.choose(option);
+    this.store.dismissPoolBlock();
+    if (option === 'pool') void this.account.refreshPool();
+    else void this.account.refreshBalance();
   }
 
   protected deleteLesson(): void {

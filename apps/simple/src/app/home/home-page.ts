@@ -2,7 +2,7 @@ import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { TreeSummary } from '@tangent/shared';
-import { Icon } from '@tangent/web-shared';
+import { Icon, PoolMeter } from '@tangent/web-shared';
 import { Composer } from '../chat/composer';
 import { lessonTitle } from '../chat/titles';
 import { ModelToggle } from '../chat/model-toggle';
@@ -13,7 +13,7 @@ import { UiStore } from '../state/ui-store';
 /** `/learn/`: start a new lesson and list the existing ones. */
 @Component({
   selector: 'app-home-page',
-  imports: [Composer, ModelToggle, RouterLink, Icon, DatePipe],
+  imports: [Composer, ModelToggle, PoolMeter, RouterLink, Icon, DatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page-body">
@@ -47,8 +47,9 @@ import { UiStore } from '../state/ui-store';
             @if (store.models().length > 1) {
               <app-model-toggle
                 [models]="store.models()"
-                [value]="model()"
+                [value]="account.poolModel()?.id ?? model()"
                 [disabled]="starting()"
+                [lockedHint]="account.poolModelHint()"
                 (changed)="pickedModel.set($event)"
               />
             }
@@ -58,6 +59,18 @@ import { UiStore } from '../state/ui-store';
           </div>
         </form>
       </section>
+
+      @if (pool(); as status) {
+        <section class="card pool-card" aria-labelledby="pool-title">
+          <h2 id="pool-title">Community pool</h2>
+          <app-pool-meter [status]="status" />
+          <p class="muted small">
+            Credit anyone can add and any signed-in learner can use, on {{ status.model.label }},
+            within daily limits. <a href="/pool" target="_blank" rel="noopener">How it works</a> ·
+            <a routerLink="/billing" fragment="fund-pool">Fund the pool</a>
+          </p>
+        </section>
+      }
 
       <section class="lessons" aria-labelledby="lessons-title">
         <h2 id="lessons-title">Your lessons</h2>
@@ -106,6 +119,11 @@ export class HomePage {
   protected readonly starting = signal(false);
   /** The learner's pick, else the provider's default ("Smart"). */
   protected readonly model = computed(() => this.pickedModel() ?? this.store.defaultModel());
+  /** The community pool's meter while the pool is on (never in the demo, where it is off). */
+  protected readonly pool = computed(() => {
+    const status = this.account.poolStatus();
+    return status?.enabled ? status : null;
+  });
 
   protected async start(): Promise<void> {
     if (this.starting()) return;

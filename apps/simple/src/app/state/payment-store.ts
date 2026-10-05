@@ -14,12 +14,15 @@ function stored(): LearnPayment | null {
 }
 
 /**
- * How Learn pays for replies: the learner's own OpenRouter key, or prepaid
- * credit. The choice is remembered in this browser and sent with every API
- * call (API_HEADERS, see app.config.ts), together with the mode header that
- * makes the server act as the learner's Learn account. The server only
- * honours `credit` where it offers it (`MeResponse.builtInCredit`), so a stale
- * choice can never spend anything the learner didn't pick.
+ * How Learn pays for replies: the learner's own OpenRouter key, prepaid
+ * credit, or the community pool. The choice is remembered in this browser
+ * and sent with every API call (API_HEADERS, see app.config.ts), together
+ * with the mode header that makes the server act as the learner's Learn
+ * account. A choice the server doesn't offer falls back: credit, then the
+ * own key if one is saved, then the pool (only an explicit pool choice
+ * outranks a saved key), then the own key. The server only honours `credit` and `pool` where
+ * it offers them (`MeResponse.builtInCredit`, `PoolStatusResponse.enabled`),
+ * so a stale choice can never spend anything the learner didn't pick.
  *
  * Kept free of ApiClient: ApiClient reads `headers()`, so injecting it here
  * would be circular.
@@ -28,14 +31,35 @@ function stored(): LearnPayment | null {
 export class PaymentStore {
   /** True when this server sells credit (from /api/me). */
   readonly builtInCredit = signal(false);
-  private readonly chosen = signal<LearnPayment>(stored() ?? 'credit');
+  /** True when the community pool is on (from /api/pool/status). */
+  readonly poolAvailable = signal(false);
+  /**
+   * Whether the learner's own OpenRouter key is saved (from /api/keys, via
+   * AccountStore); null until that call succeeds, so a key status that is
+   * still loading, or failed, never moves a key user onto the pool.
+   */
+  readonly hasOwnKey = signal<boolean | null>(null);
+  /** The learner's explicit choice; null until they pick one (credit is the default where sold). */
+  private readonly chosen = signal<LearnPayment | null>(stored());
   /** The demo always runs on its pretend credit, whatever this browser chose for real. */
   private readonly demo = inject(DEMO_MODE, { optional: true }) ?? false;
 
-  /** What replies actually run on: the choice, or the own key when credit isn't offered. */
+  /**
+   * What replies actually run on: the own key when chosen; the pool when
+   * chosen and on; otherwise credit if sold, else a saved (or not yet
+   * known) own key (so a key user who never picked never lands on the pool),
+   * else the pool, else the own key.
+   */
   readonly payment = computed<LearnPayment>(() => {
     if (this.demo) return 'credit';
-    return this.builtInCredit() ? this.chosen() : 'own-key';
+    const chosen = this.chosen();
+    const credit = this.builtInCredit();
+    const pool = this.poolAvailable();
+    if (chosen === 'own-key') return 'own-key';
+    if (chosen === 'pool' && pool) return 'pool';
+    if (credit) return 'credit';
+    if (this.hasOwnKey() !== false) return 'own-key';
+    return pool ? 'pool' : 'own-key';
   });
 
   choose(payment: LearnPayment): void {

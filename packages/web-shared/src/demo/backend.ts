@@ -32,6 +32,8 @@ import {
   type LoginOptionsResponse,
   type MeResponse,
   type MembershipInfo,
+  type PoolMeResponse,
+  type PoolStatusResponse,
   type ProviderEvent,
   type ProviderInfo,
   type ProviderRegistry,
@@ -78,6 +80,30 @@ const DEMO_MEMBERSHIP: MembershipInfo = {
   cancelAtPeriodEnd: false,
   priceCents: 1000,
   includedCreditCents: 0,
+};
+/** The demos' pool: off, so no pool UI shows and nothing pretends to be funded. */
+export const DEMO_POOL_STATUS: PoolStatusResponse = {
+  enabled: false,
+  fundingOpen: false,
+  availableMicros: 0,
+  sessionsRemaining: 0,
+  model: { id: 'lorem', label: 'Simple' },
+  week: { start: '1970-01-05T00:00:00.000Z', exchanges: 0, learners: 0 },
+  marginBps: 800,
+  minPurchaseCents: 1000,
+};
+const DEMO_POOL_ME: Omit<PoolMeResponse, 'personalAvailableMicros'> = {
+  available: false,
+  verified: true,
+  supporter: false,
+  suspended: false,
+  caps: {
+    requestsPerDay: 0,
+    spendMicrosPerDay: 0,
+    usedRequests: 0,
+    usedSpendMicros: 0,
+    resetAt: '1970-01-02T00:00:00.000Z',
+  },
 };
 /** OpenRouter's credit-purchase fee, part of the cost the markup applies to (as in the Worker). */
 const OPENROUTER_FEE_BPS = 550;
@@ -314,6 +340,15 @@ export class DemoBackend {
     if (method === 'GET' && path === '/api/billing/usage') return json(this.usagePage(url));
     if (method === 'POST' && path === '/api/billing/checkout') {
       return apiError('bad_request', "Adding credit isn't available in the demo.");
+    }
+
+    // The community pool: off in the demos (it runs on pretend credit and funds nothing)
+    if (method === 'GET' && path === '/api/pool/status') return json(DEMO_POOL_STATUS);
+    if (method === 'GET' && path === '/api/pool/me') {
+      return json({
+        ...DEMO_POOL_ME,
+        personalAvailableMicros: this.balanceMicros - this.heldMicros,
+      } satisfies PoolMeResponse);
     }
 
     // Account settings (the default system prompt), kept with the session

@@ -42,7 +42,8 @@
     // /learn*, /canvas* and /admin* do too, for those apps' index.html and CSP (the admin app's
     // only for admins, see ADMIN_USER_IDS). "/welcome" is the
     // landing page, and "/" (exact path) is too for anonymous visitors (src/http/landing.ts).
-    // "/privacy" and "/terms" are the public legal pages (src/http/legal.ts).
+    // "/privacy" and "/terms" are the public legal pages (src/http/legal.ts), "/pool" the
+    // community pool's transparency page (src/http/pool-page.ts).
     "run_worker_first": [
       "/api/*",
       "/s/*",
@@ -56,6 +57,7 @@
       "/welcome",
       "/privacy",
       "/terms",
+      "/pool",
       "/verify"
     ]
   },

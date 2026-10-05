@@ -113,6 +113,8 @@ import type { PoolBlockDetails } from './pool.js';
  *                                                token fails, 403 `pool_unavailable` reason
  *                                                `duplicate_identity` when another account uses the
  *                                                same mailbox)
+ *   GET  /api/pool/me                         -> PoolMeResponse (today's caps and use, verified,
+ *                                                supporter, the caller's own credit)
  *
  * A pool send or resolve is refused (403 `pool_unavailable`, before anything
  * is written) for an account that is `suspended` by an admin, has no
@@ -124,6 +126,7 @@ import type { PoolBlockDetails } from './pool.js';
  *
  * Public (no sign-in; rate-limited; read-only):
  *
+ *   GET /api/pool/status     -> PoolStatusResponse (the pool meter; aggregates only, cached 60 s)
  *   GET /s/:token            -> text/html viewer page (Open Graph tags, self-contained)
  *   GET /s/:token/data.json  -> SharePayload
  *

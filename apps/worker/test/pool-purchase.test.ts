@@ -527,8 +527,11 @@ describe('POST /api/billing/checkout for the pool', () => {
       mode: 'payment',
       metadata: poolMeta,
       payment_intent_data: { metadata: poolMeta },
-      success_url: `${ORIGIN}/learn/billing?checkout=success`,
+      // The billing page then waits for the pool's balance, not the buyer's.
+      success_url: `${ORIGIN}/learn/billing?checkout=success&target=pool`,
+      cancel_url: `${ORIGIN}/learn/billing?checkout=cancel&target=pool`,
     });
+    expect(personal!.body['success_url']).toBe(`${ORIGIN}/learn/billing?checkout=success`);
     expect(personal!.body['metadata']).toEqual({
       kind: 'credits',
       target: 'personal',

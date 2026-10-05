@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { formatBps } from './money.js';
 
 /**
  * The community credit pool (docs/pool/SPEC.md): credit anyone may add, spent
@@ -90,3 +91,87 @@ export type PoolVerifyRequest = z.infer<typeof poolVerifyRequestSchema>;
 export interface PoolVerifyResponse {
   verified: true;
 }
+
+/**
+ * `GET /api/pool/status` (public, cached for a minute): the pool meter of the
+ * landing page, the apps and the fund section. Aggregates only; no user data.
+ */
+export interface PoolStatusResponse {
+  /** The pool is on (`POOL_ENABLED` and a usable built-in provider). */
+  enabled: boolean;
+  /** People can fund it now (Stripe and its credits product are set up). */
+  fundingOpen: boolean;
+  /** Credit the pool can still spend (held reservations excluded), micro-USD. */
+  availableMicros: number;
+  /** About how many learning sessions that covers (`POOL_SESSION_ESTIMATE_MICROS` each). */
+  sessionsRemaining: number;
+  /** The one model pool replies use. */
+  model: { id: string; label: string };
+  /** Since Monday 00:00 UTC: pool replies that cost something, and the learners they went to. */
+  week: { start: string; exchanges: number; learners: number };
+  /** The margin on pool purchases, bps (`poolMarginText`). */
+  marginBps: number;
+  /** The smallest pool purchase, cents. */
+  minPurchaseCents: number;
+}
+
+/**
+ * `GET /api/pool/me`: where the caller stands with the pool today. Spend
+ * counts replies, summaries and titles (settled charges plus pending holds).
+ */
+export interface PoolMeResponse {
+  /** The caller may be offered the pool (it is on and they are signed in). */
+  available: boolean;
+  /** A Turnstile pass is on record (otherwise the first pool use asks for one). */
+  verified: boolean;
+  /** Net purchases above $0: the higher caps. */
+  supporter: boolean;
+  suspended: boolean;
+  caps: {
+    requestsPerDay: number;
+    spendMicrosPerDay: number;
+    usedRequests: number;
+    usedSpendMicros: number;
+    /** The next 00:00 UTC, ISO. */
+    resetAt: string;
+  };
+  /** The caller's own credit, spendable now (the funding toggle offers it when > 0). */
+  personalAvailableMicros: number;
+}
+
+/** The empty state, wherever it shows (spec §8). */
+export const POOL_EMPTY_TEXT = 'The community pool is empty. It refills as people fund it.';
+
+/** `about 1,240 learning sessions`; `1` is singular and 0 reads "no learning sessions". */
+export function poolSessionsText(sessions: number): string {
+  const n = Math.max(0, Math.floor(sessions));
+  if (n === 0) return 'no learning sessions';
+  return `about ${n.toLocaleString('en-US')} learning ${n === 1 ? 'session' : 'sessions'}`;
+}
+
+/** The meter's headline: `About 1,240 learning sessions` (or `No learning sessions`). */
+export function poolSessionsHeadline(sessions: number): string {
+  const text = poolSessionsText(sessions);
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** `12 learners helped this week · 340 exchanges funded this week`: aggregate counts only. */
+export function poolWeekText(week: { learners: number; exchanges: number }): string {
+  const { learners, exchanges } = week;
+  return (
+    `${learners.toLocaleString('en-US')} ${learners === 1 ? 'learner' : 'learners'} helped this week · ` +
+    `${exchanges.toLocaleString('en-US')} ${exchanges === 1 ? 'exchange' : 'exchanges'} funded this week`
+  );
+}
+
+/** The one-line margin disclosure next to every way to fund the pool (docs/pool/PLAN.md §8). */
+export function poolMarginText(marginBps: number): string {
+  return `${formatBps(marginBps)} covers card processing, hosting and keeps Tangent running.`;
+}
+
+/**
+ * Words pool copy must never use: funding the pool is a credit purchase, not
+ * a donation (spec reasoning 3). Tests run every pool page and template
+ * through it.
+ */
+export const FORBIDDEN_POOL_COPY = /donat|donor|tax[- ]?deductible|charit/i;

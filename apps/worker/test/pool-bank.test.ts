@@ -876,12 +876,13 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
     const stub = poolBank(env, poolId);
-    const expiry = { ttlMs: 200, giveUpMs: GIVE_UP, batch: 2 };
+    // The first pass runs at a clock past the TTL, well before the alarm
+    // (due at the TTL) could race it; the alarm then runs at the real clock.
+    const expiry = { ttlMs: 2_000, giveUpMs: GIVE_UP, batch: 2 };
     for (let i = 0; i < 5; i++) await reserved(poolId, { expiry });
     expect((await stub.status()).alarm).not.toBeNull();
-    await sleep(300);
     // One pass settles a batch and asks to come back right away.
-    const first = await stub.expire(Date.now());
+    const first = await stub.expire(Date.now() + 5_000);
     expect(first).toMatchObject({ released: 2, more: true });
     const alarm = (await stub.status()).alarm;
     expect(alarm).not.toBeNull();

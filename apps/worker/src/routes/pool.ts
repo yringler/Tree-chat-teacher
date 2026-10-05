@@ -1,6 +1,11 @@
 import { DomainError, ValidationError } from '@tangent/core';
-import { poolVerifyRequestSchema, type PoolVerifyResponse } from '@tangent/shared';
-import { Hono } from 'hono';
+import {
+  poolVerifyRequestSchema,
+  type PoolMeResponse,
+  type PoolStatusResponse,
+  type PoolVerifyResponse,
+} from '@tangent/shared';
+import { Hono, type Context } from 'hono';
 import { clientIp } from '../auth/account.js';
 import { turnstileHostname } from '../auth/auth.js';
 import { poolAccessError } from '../billing/gate.js';
@@ -8,12 +13,16 @@ import { sameOriginOnly } from '../byok/guard.js';
 import type { AppBindings } from '../env.js';
 import { validateJson } from '../http/errors.js';
 import { markPoolVerified } from '../pool/identity.js';
+import { cachedPoolStatus, poolMe } from '../pool/status.js';
 import { TURNSTILE_ACTION, verifyTurnstile } from '../pool/turnstile.js';
 
 /**
  * Community pool API, mounted at /api/pool behind the session and account
  * middleware (docs/pool/PLAN.md §S4). The contract is in
  * packages/shared/src/pool.ts and the route list in api.ts.
+ *
+ * `GET /me`: the caller's caps and use today, their verification, supporter
+ * tier and own credit (the Learn app's pool pill and funding toggle).
  *
  * `POST /verify`: the first-pool-use Turnstile check, for accounts with no
  * pass on record (signed up before the check at sign-in). Records
@@ -26,6 +35,8 @@ export function poolRoutes(): Hono<AppBindings> {
     await next();
     c.header('Cache-Control', 'no-store');
   });
+
+  r.get('/me', async (c) => c.json((await poolMe(c.env, c.var.account)) satisfies PoolMeResponse));
 
   r.post('/verify', sameOriginOnly, validateJson(poolVerifyRequestSchema), async (c) => {
     const { userId, email } = c.var.identity;
@@ -44,4 +55,26 @@ export function poolRoutes(): Hono<AppBindings> {
   });
 
   return r;
+}
+
+/** The request's ExecutionContext; none when a test calls the app without one. */
+export function waitUntilOf(c: Context<AppBindings>): { waitUntil(p: Promise<unknown>): void } {
+  try {
+    return c.executionCtx;
+  } catch {
+    return { waitUntil: () => undefined };
+  }
+}
+
+/**
+ * `GET /api/pool/status`, public (registered before the session middleware
+ * by `createApp`): the pool meter, aggregates only, edge-cached for
+ * `POOL_STATUS_MAX_AGE_S`. Browsers revalidate every read, so a meter read
+ * after a purchase or a refusal is at most one edge lifetime stale.
+ */
+export async function poolStatusRoute(c: Context<AppBindings>): Promise<Response> {
+  const status = await cachedPoolStatus(c.env, waitUntilOf(c));
+  return c.json(status satisfies PoolStatusResponse, 200, {
+    'Cache-Control': 'no-cache',
+  });
 }

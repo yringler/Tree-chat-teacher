@@ -173,7 +173,7 @@ interface StoredCheckpoint extends BalanceCheckpoint {
   verifiedAt: string | null;
 }
 
-interface DayRow {
+export interface DayRow {
   requests: number;
   spend: number;
 }
@@ -184,8 +184,35 @@ const DAY_USAGE_COLUMNS = `
   COALESCE(SUM(CASE WHEN purpose <> 'tagging'
     THEN (CASE WHEN status = 'pending' THEN hold_micros ELSE COALESCE(charge_micros, 0) END) END), 0) AS spend`;
 
-function dayStart(now: Date): Date {
+/** 00:00 UTC of `now`'s day: the daily caps' window starts here. */
+export function dayStart(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+/** The next 00:00 UTC after `now`: when the daily caps reset. */
+export function dayResetAt(now: Date): string {
+  return new Date(dayStart(now).getTime() + DAY_MS).toISOString();
+}
+
+/**
+ * `userId`'s pool usage since `day` (`requests`, `spend`), together with every
+ * account that held their pool identity: deleting the account and signing up
+ * again doesn't reset the day. Shared by `reserve` and `GET /api/pool/me`.
+ */
+export function userDayUsageStatement(
+  db: D1Database,
+  poolId: string,
+  userId: string,
+  day: string,
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `SELECT ${DAY_USAGE_COLUMNS} FROM usage_events
+       WHERE account_id = ?1 AND created_at >= ?3 AND user_id IN (
+         SELECT ?2 UNION SELECT h.user_id FROM pool_identity_holders h
+           JOIN pool_identity_holders me ON me.identity = h.identity WHERE me.user_id = ?2)`,
+    )
+    .bind(poolId, userId, day);
 }
 
 /** The refusal of `req`, logged as one JSON line (the operator's view of who hits which limit). */
@@ -246,7 +273,7 @@ export class PoolBank extends DurableObject<AppEnv> {
     await this.rememberExpiry(req.poolId, req.expiry);
     const db = this.env.DB;
     const day = dayStart(now).toISOString();
-    const resetAt = new Date(dayStart(now).getTime() + DAY_MS).toISOString();
+    const resetAt = dayResetAt(now);
 
     const refuse = (
       reason: PoolRefusalReason,
@@ -283,16 +310,7 @@ export class PoolBank extends DurableObject<AppEnv> {
                 FROM usage_events WHERE account_id = ?1 AND created_at >= ?3 AND created_at < ?4) AS available`,
         )
         .bind(req.poolId, checkpoint?.balanceMicros ?? 0, from, day),
-      // The caller's usage, and that of every account that held their pool identity
-      // (deleting the account and signing up again doesn't reset the day).
-      db
-        .prepare(
-          `SELECT ${DAY_USAGE_COLUMNS} FROM usage_events
-           WHERE account_id = ?1 AND created_at >= ?3 AND user_id IN (
-             SELECT ?2 UNION SELECT h.user_id FROM pool_identity_holders h
-               JOIN pool_identity_holders me ON me.identity = h.identity WHERE me.user_id = ?2)`,
-        )
-        .bind(req.poolId, req.userId, day),
+      userDayUsageStatement(db, req.poolId, req.userId, day),
       db
         .prepare(
           `SELECT ${DAY_USAGE_COLUMNS} FROM usage_events

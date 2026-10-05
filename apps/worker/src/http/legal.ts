@@ -38,7 +38,8 @@ export const LEGAL_STYLE =
 @media (max-width:479px){.top nav a+a{display:inline}}
 `;
 
-function page(info: LegalInfo, path: string, title: string, body: string): string {
+/** A long-form public page (the legal pages, `/pool`) in the landing page's look. */
+export function page(info: LegalInfo, path: string, title: string, body: string): string {
   const canonical = escapeHtml(new URL(path, info.origin).toString());
   return `<!doctype html>
 <html lang="en">
@@ -61,7 +62,7 @@ ${body}
 <footer>
 <div class="wrap">
 <span>${escapeHtml(copyrightNotice(info.operator))}</span>
-<nav aria-label="Footer"><a href="/welcome">About Tangent</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+<nav aria-label="Footer"><a href="/welcome">About Tangent</a><a href="/pool">Community pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
 </div>
 </footer>
 </body>
@@ -221,6 +222,7 @@ export function renderTermsPage(info: LegalInfo): string {
 <li>Credit is prepaid, is used up as you send messages, has no cash value and can't be transferred. It doesn't expire while your account exists. Deleting your account forfeits any credit left.</li>
 <li>Where the service requires a membership to generate replies, it renews automatically each year until you cancel it under "Manage billing". Cancelling stops future renewals; the membership runs to the end of the paid year, and credit already granted stays usable.</li>
 <li>Purchases are not refundable except where the law requires, or where we decide otherwise. If you're a consumer in the EU or UK, you agree that credit is delivered right away and acknowledge that, once you start using it, you lose the 14-day right of withdrawal for the part used.</li>
+<li>You can also buy credit for the <a href="/pool">community pool</a> instead of your own account. A pool purchase adds the amount paid, less a margin shown before you pay, to the pool, which any signed-in learner may use within its limits. It is a purchase like any other: the credit belongs to the pool, not to you, and it can't be moved back to your account. The pool's model, limits and availability may change, and it may be empty.</li>
 <li>We may change prices; changes apply to credit bought or membership periods starting after the change.</li>
 </ul>
 
@@ -253,7 +255,8 @@ export function renderTermsPage(info: LegalInfo): string {
   );
 }
 
-async function legalResponse(c: Context<AppBindings>, html: string): Promise<Response> {
+/** A public page styled by LEGAL_STYLE, cacheable for five minutes. */
+export async function legalResponse(c: Context<AppBindings>, html: string): Promise<Response> {
   return new Response(html, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
