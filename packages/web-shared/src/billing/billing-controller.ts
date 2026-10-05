@@ -30,16 +30,11 @@ export interface BillingDeps {
     usage(cursor?: string | null, limit?: number): Promise<UsageListResponse>;
     createCheckout(amountCents: number): Promise<CheckoutResponse>;
   };
-  /** The Better Auth Stripe plugin: `upgrade` subscribes to the membership, `portal` manages it. */
+  /** `BillingClient`: `upgrade` subscribes to the membership, `portal` manages it. */
   billing: MembershipUpgrader & {
-    portal(returnPath: string): Promise<void>;
+    portal(): Promise<void>;
   };
-  /**
-   * The app's absolute path of the billing page (`/learn/billing`, `/billing`):
-   * Stripe sends the browser back there. A getter, as it is a component input.
-   */
-  billingPath(): string;
-  /** Leaves the app for a Stripe page (`location.assign`). */
+  /** Leaves the app for the payment provider's checkout (`location.assign`). */
   navigate(url: string): void;
   /** Drops `?checkout=...` from the address bar so a reload doesn't poll again. */
   clearCheckoutParam(): void;
@@ -55,7 +50,7 @@ export interface BillingDeps {
  */
 export type CheckoutNotice = 'waiting' | 'activated' | 'credited' | 'slow' | 'cancelled';
 
-/** Which action is talking to Stripe (every action button is disabled meanwhile). */
+/** Which action is talking to the payment provider (every action button is disabled meanwhile). */
 export type PendingAction =
   | { kind: 'top-up'; cents: number; source: 'preset' | 'custom' }
   | { kind: 'subscribe' }
@@ -204,21 +199,16 @@ export class BillingController {
     this.actionError.set(null);
   }
 
-  /** Subscribe: Stripe Checkout for the yearly membership, back to this page. */
+  /** Subscribe: the secure checkout for the yearly membership, back to this page. */
   async subscribe(): Promise<void> {
     if (this.busy()) return;
-    await this.leaveFor({ kind: 'subscribe' }, () =>
-      subscribeToMembership(this.deps.billing, this.deps.billingPath()),
-    );
+    await this.leaveFor({ kind: 'subscribe' }, () => subscribeToMembership(this.deps.billing));
   }
 
+  /** Manage billing: the billing portal, back to this page. */
   async manage(): Promise<void> {
     if (this.busy()) return;
-    await this.leaveFor(
-      { kind: 'portal' },
-      () => this.deps.billing.portal(this.deps.billingPath()),
-      portalMessage,
-    );
+    await this.leaveFor({ kind: 'portal' }, () => this.deps.billing.portal(), portalMessage);
   }
 
   /** A redeemed code changed the membership (no reload needed). */
@@ -236,7 +226,7 @@ export class BillingController {
   }
 
   /**
-   * Runs a step that ends in a navigation to Stripe. On success the page is
+   * Runs a step that ends in a navigation to the payment provider. On success the page is
    * unloading, so `pending` stays set (no double clicks while it goes).
    */
   private async leaveFor(
@@ -271,10 +261,10 @@ function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** A `BillingError` from the portal; no Stripe customer yet is the common, harmless case. */
+/** A `BillingError` from the portal; no customer yet (`no_customer`) is the common, harmless case. */
 function portalMessage(err: unknown): string {
   const code = typeof err === 'object' && err !== null && 'code' in err ? err.code : null;
-  if (code === 'CUSTOMER_NOT_FOUND' || code === 'SUBSCRIPTION_NOT_FOUND')
+  if (code === 'no_customer')
     return 'There is nothing to manage yet: payment methods and invoices appear here after your first purchase.';
   return messageOf(err);
 }

@@ -27,12 +27,7 @@ export {
   type TangentAuthClient,
 } from './core/auth-client';
 export { AuthService, loginErrorMessage, type PasskeyInfo, type SocialProvider } from './core/auth';
-export {
-  absoluteUrl,
-  BillingClient,
-  BillingError,
-  type BillingSubscription,
-} from './core/billing-client';
+export { BillingClient, BillingError } from './core/billing-client';
 export {
   accountModeOf,
   APP_BASES,
@@ -79,7 +74,6 @@ export {
   creditFeeText,
   includedCreditText,
   membershipBlocks,
-  membershipCheckoutPaths,
   membershipPriceText,
   membershipStatusText,
   subscribeToMembership,

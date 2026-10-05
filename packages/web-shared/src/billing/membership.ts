@@ -1,5 +1,5 @@
 import { signal } from '@angular/core';
-import { MEMBERSHIP_PLAN, type MembershipInfo } from '@tangent/shared';
+import type { MembershipInfo } from '@tangent/shared';
 import { ApiError } from '../core/api-client';
 import { formatBps, formatCents } from './format';
 
@@ -14,39 +14,20 @@ export function membershipBlocks(m: MembershipInfo | null | undefined): boolean 
   return !!m && m.required && m.status === 'inactive';
 }
 
-/** Where Stripe Checkout and the portal send the browser back (`billingPath` is absolute, e.g. `/learn/billing`). */
-export function membershipCheckoutPaths(billingPath: string): {
-  success: string;
-  cancel: string;
-  returnTo: string;
-} {
-  return {
-    success: `${billingPath}?checkout=success`,
-    cancel: `${billingPath}?checkout=cancel`,
-    returnTo: billingPath,
-  };
-}
-
-/** The part of `BillingClient` that subscribes (the Better Auth Stripe plugin). */
+/**
+ * The part of `BillingClient` that subscribes. The server picks the pages the
+ * payment provider returns to: the billing page of the calling app.
+ */
 export interface MembershipUpgrader {
-  upgrade(
-    plan: string,
-    successPath: string,
-    cancelPath: string,
-    returnPath?: string,
-  ): Promise<void>;
+  upgrade(): Promise<void>;
 }
 
-/** Opens Stripe Checkout for the membership; resolves only if the browser is not leaving. */
-export function subscribeToMembership(
-  billing: MembershipUpgrader,
-  billingPath: string,
-): Promise<void> {
-  const p = membershipCheckoutPaths(billingPath);
-  return billing.upgrade(MEMBERSHIP_PLAN, p.success, p.cancel, p.returnTo);
+/** Opens the membership's secure checkout; resolves only if the browser is not leaving. */
+export function subscribeToMembership(billing: MembershipUpgrader): Promise<void> {
+  return billing.upgrade();
 }
 
-/** `$10 / year plus tax` (prices are pre-tax; Stripe Tax adds it at checkout). */
+/** `$10 / year plus tax` (prices are pre-tax; tax is added at checkout). */
 export function membershipPriceText(m: Pick<MembershipInfo, 'priceCents'>): string {
   return `${formatCents(m.priceCents)} / year plus tax`;
 }
@@ -138,30 +119,27 @@ export class WaiverForm {
   }
 }
 
-/** The gate's Subscribe button: opens Stripe Checkout, or says why it couldn't. */
+/** The gate's Subscribe button: opens the secure checkout, or says why it couldn't. */
 export class MembershipSubscribe {
-  /** Stays true on success: the page is leaving for Stripe (no double clicks meanwhile). */
+  /** Stays true on success: the page is leaving for the checkout (no double clicks meanwhile). */
   readonly pending = signal(false);
   readonly error = signal<string | null>(null);
 
-  constructor(
-    private readonly billing: MembershipUpgrader,
-    private readonly billingPath: () => string,
-  ) {}
+  constructor(private readonly billing: MembershipUpgrader) {}
 
   async subscribe(): Promise<void> {
     if (this.pending()) return;
     this.pending.set(true);
     this.error.set(null);
     try {
-      await subscribeToMembership(this.billing, this.billingPath());
+      await subscribeToMembership(this.billing);
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : String(err));
       this.pending.set(false);
     }
   }
 
-  /** Back from Stripe through the back/forward cache: the button works again. */
+  /** Back from the checkout through the back/forward cache: the button works again. */
   reset(): void {
     this.pending.set(false);
   }

@@ -16,7 +16,7 @@ export interface PoolFundDeps {
     poolStatus(): Promise<PoolStatusResponse>;
     createCheckout(amountCents: number, target: PurchaseTarget): Promise<CheckoutResponse>;
   };
-  /** Leaves the app for Stripe Checkout (`location.assign`). */
+  /** Leaves the app for the payment provider's checkout (`location.assign`). */
   navigate(url: string): void;
   sleep?(ms: number): Promise<void>;
 }
@@ -105,7 +105,7 @@ export class PoolFundController {
     this.notice.set('slow');
   }
 
-  /** Opens Stripe Checkout for `cents` of pool credit. */
+  /** Opens the secure checkout for `cents` of pool credit. */
   async fund(cents: number): Promise<void> {
     const status = this.status();
     if (this.busy() || !status?.enabled || !status.fundingOpen) return;
@@ -130,7 +130,7 @@ export class PoolFundController {
     this.notice.set(null);
   }
 
-  /** Back from Stripe through the back/forward cache: the buttons work again. */
+  /** Back from the checkout through the back/forward cache: the buttons work again. */
   resetPending(): void {
     this.pending.set(null);
   }

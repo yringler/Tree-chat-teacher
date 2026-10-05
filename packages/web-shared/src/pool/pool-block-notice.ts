@@ -10,7 +10,7 @@ import { poolBlockText, type PoolBlock } from './pool-format';
  *   **Fund the pool** and **Buy personal credits**;
  * - a cap: the cap, when it resets, and that supporters get more.
  * The message itself is kept in the composer. While funding isn't open yet
- * (no Stripe), nothing can be bought: the empty state says funding opens
+ * (no payment provider, or pool purchases still closed), nothing can be bought: the empty state says funding opens
  * soon and links to `/pool`, which explains the pool.
  */
 @Component({
@@ -53,7 +53,7 @@ import { poolBlockText, type PoolBlock } from './pool-format';
 })
 export class PoolBlockNotice {
   readonly block = input.required<PoolBlock>();
-  /** Stripe is set up, so the pool and personal credit can be bought now. */
+  /** Pool purchases are open (`PoolStatusResponse.fundingOpen`), so the pool and personal credit can be bought now. */
   readonly fundingOpen = input(false);
   /** Router link of the app's billing page (`/billing`). */
   readonly billingPath = input('/billing');

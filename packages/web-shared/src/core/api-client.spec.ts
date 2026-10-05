@@ -86,15 +86,35 @@ describe('ApiClient billing', () => {
   });
 
   it('createCheckout() POSTs the amount as JSON', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ url: 'https://checkout.stripe.com/c/x' }));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ url: 'https://pay.example/checkout/x' }));
     await expect(api.createCheckout(2500)).resolves.toEqual({
-      url: 'https://checkout.stripe.com/c/x',
+      url: 'https://pay.example/checkout/x',
     });
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe('/api/billing/checkout');
     expect(init.method).toBe('POST');
     expect(JSON.parse(String(init.body))).toEqual({ amountCents: 2500 });
     expect(init.headers).toMatchObject({ 'content-type': 'application/json' });
+  });
+
+  it('membershipCheckout() and billingPortal() POST to the billing routes', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ url: 'https://pay.example/checkout/m' }));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ url: 'https://pay.example/portal/p' }));
+    await expect(api.membershipCheckout()).resolves.toEqual({
+      url: 'https://pay.example/checkout/m',
+    });
+    await expect(api.billingPortal()).resolves.toEqual({ url: 'https://pay.example/portal/p' });
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init.method])).toEqual([
+      ['/api/billing/membership/checkout', 'POST'],
+      ['/api/billing/portal', 'POST'],
+    ]);
+  });
+
+  it('turns a 404 no_customer body into an ApiError with that code', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ error: { code: 'no_customer', message: 'Nothing to manage' } }, 404),
+    );
+    await expect(api.billingPortal()).rejects.toMatchObject({ status: 404, code: 'no_customer' });
   });
 
   it('turns a 402 body into a payment_required ApiError', async () => {
@@ -184,7 +204,7 @@ describe('ApiClient community pool', () => {
   });
 
   it('createCheckout(cents, "pool") names the pool as the target', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ url: 'https://checkout.stripe.com/c/p' }));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ url: 'https://pay.example/checkout/p' }));
     await api.createCheckout(2000, 'pool');
     expect(JSON.parse(String(fetchMock.mock.calls[0]![1].body))).toEqual({
       amountCents: 2000,

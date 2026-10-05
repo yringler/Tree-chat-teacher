@@ -1,33 +1,18 @@
 import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classes without the Angular CLI.
 import { Injector } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AUTH_CLIENT, type TangentAuthClient } from './auth-client';
-import { absoluteUrl, BillingClient, BillingError } from './billing-client';
-
-type Result = { data: unknown; error: { message?: string; status?: number; code?: string } | null };
+import { ApiClient, ApiError } from './api-client';
+import { BillingClient, BillingError } from './billing-client';
 
 function setup() {
-  const subscription = {
-    upgrade: vi.fn(async (_body: unknown): Promise<Result> => ({
-      data: { url: 'https://checkout.stripe.com/c/sub', redirect: false },
-      error: null,
-    })),
-    billingPortal: vi.fn(async (_body: unknown): Promise<Result> => ({
-      data: { url: 'https://billing.stripe.com/p/1', redirect: false },
-      error: null,
-    })),
-    list: vi.fn(async (): Promise<Result> => ({
-      data: [{ id: 's1', plan: 'basic', referenceId: 'u1', status: 'active' }],
-      error: null,
-    })),
+  const api = {
+    membershipCheckout: vi.fn(async () => ({ url: 'https://pay.example/checkout/c1' })),
+    billingPortal: vi.fn(async () => ({ url: 'https://pay.example/portal/p1' })),
   };
   const injector = Injector.create({
-    providers: [
-      { provide: BillingClient },
-      { provide: AUTH_CLIENT, useValue: { subscription } as unknown as TangentAuthClient },
-    ],
+    providers: [{ provide: BillingClient }, { provide: ApiClient, useValue: api }],
   });
-  return { billing: injector.get(BillingClient), subscription };
+  return { billing: injector.get(BillingClient), api };
 }
 
 describe('BillingClient', () => {
@@ -42,52 +27,35 @@ describe('BillingClient', () => {
     vi.unstubAllGlobals();
   });
 
-  it('makes paths absolute from the origin', () => {
-    expect(absoluteUrl('/learn/billing?checkout=success')).toBe(
-      'https://tangent.test/learn/billing?checkout=success',
+  it('upgrade() asks the server for the membership checkout, then navigates to it', async () => {
+    const { billing, api } = setup();
+    await billing.upgrade();
+    expect(api.membershipCheckout).toHaveBeenCalledOnce();
+    expect(assign).toHaveBeenCalledWith('https://pay.example/checkout/c1');
+  });
+
+  it('portal() opens the billing portal', async () => {
+    const { billing, api } = setup();
+    await billing.portal();
+    expect(api.billingPortal).toHaveBeenCalledOnce();
+    expect(assign).toHaveBeenCalledWith('https://pay.example/portal/p1');
+  });
+
+  it('rejects with a BillingError and stays on the page when the server refuses', async () => {
+    const { billing, api } = setup();
+    api.billingPortal.mockRejectedValueOnce(
+      new ApiError(404, 'no_customer', 'There is nothing to manage yet'),
     );
-    expect(absoluteUrl('https://elsewhere.test/x')).toBe('https://elsewhere.test/x');
-  });
-
-  it('upgrade() asks for a checkout without redirect, then navigates to it', async () => {
-    const { billing, subscription } = setup();
-    await billing.upgrade('basic', '/learn/billing?checkout=success', '/learn/billing');
-    expect(subscription.upgrade).toHaveBeenCalledWith({
-      plan: 'basic',
-      successUrl: 'https://tangent.test/learn/billing?checkout=success',
-      cancelUrl: 'https://tangent.test/learn/billing',
-      returnUrl: 'https://tangent.test/learn/billing?checkout=success',
-      disableRedirect: true,
-    });
-    expect(assign).toHaveBeenCalledWith('https://checkout.stripe.com/c/sub');
-  });
-
-  it('portal() opens the returned portal URL', async () => {
-    const { billing, subscription } = setup();
-    await billing.portal('/learn/billing');
-    expect(subscription.billingPortal).toHaveBeenCalledWith({
-      returnUrl: 'https://tangent.test/learn/billing',
-      disableRedirect: true,
-    });
-    expect(assign).toHaveBeenCalledWith('https://billing.stripe.com/p/1');
-  });
-
-  it('rejects with a BillingError and stays on the page when the plugin fails', async () => {
-    const { billing, subscription } = setup();
-    subscription.upgrade.mockResolvedValueOnce({
-      data: null,
-      error: { message: 'Already subscribed', status: 400, code: 'ALREADY_SUBSCRIBED_PLAN' },
-    });
-    const err = await billing.upgrade('basic', '/a', '/b').catch((e: unknown) => e);
+    const err = await billing.portal().catch((e: unknown) => e);
     expect(err).toBeInstanceOf(BillingError);
-    expect(err).toMatchObject({ message: 'Already subscribed', code: 'ALREADY_SUBSCRIBED_PLAN' });
+    expect(err).toMatchObject({ status: 404, code: 'no_customer' });
     expect(assign).not.toHaveBeenCalled();
   });
 
-  it('list() returns the subscriptions', async () => {
-    const { billing } = setup();
-    await expect(billing.list()).resolves.toEqual([
-      { id: 's1', plan: 'basic', referenceId: 'u1', status: 'active' },
-    ]);
+  it('refuses an empty URL', async () => {
+    const { billing, api } = setup();
+    api.membershipCheckout.mockResolvedValueOnce({ url: '' });
+    await expect(billing.upgrade()).rejects.toBeInstanceOf(BillingError);
+    expect(assign).not.toHaveBeenCalled();
   });
 });

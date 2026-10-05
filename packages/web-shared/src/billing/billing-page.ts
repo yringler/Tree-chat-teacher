@@ -38,9 +38,9 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
 /**
  * The billing page of both apps (`/learn/billing`, `/billing`): the yearly
  * membership, credit for the built-in provider (balance, top-ups, recent
- * usage), the Stripe customer portal, and funding the community pool
- * (PoolFundSection); each section only where it applies. Stripe sends the
- * browser back with `?checkout=success|cancel`, plus `&target=pool` after a
+ * usage), the payment provider's billing portal, and funding the community
+ * pool (PoolFundSection); each section only where it applies. The checkout
+ * sends the browser back with `?checkout=success|cancel`, plus `&target=pool` after a
  * pool purchase (bound as the `checkout` and `target` inputs when the router
  * has component input binding, otherwise read from the route). Styles: `.billing-*` in base.css.
  */
@@ -341,8 +341,9 @@ export class BillingPage implements OnInit, OnDestroy {
   /** Label of the back link, e.g. "Lessons" or "Conversations". */
   readonly homeLabel = input('Home');
   /**
-   * The app's absolute path of this page (`/learn/billing`, `/billing`):
-   * Stripe Checkout and the portal send the browser back there.
+   * The app's absolute path of this page (`/learn/billing`, `/billing`). The
+   * server sends the payment provider's pages back here (it knows the app
+   * from the request), so this only documents where the page lives.
    */
   readonly billingPath = input('/billing');
   /** `?checkout=success|cancel` when the router binds query params to inputs. */
@@ -360,7 +361,6 @@ export class BillingPage implements OnInit, OnDestroy {
     billing: inject(BillingClient),
     navigate: (url) => location.assign(url),
     clearCheckoutParam: () => this.clearCheckoutParam(),
-    billingPath: () => this.billingPath(),
   });
 
   constructor() {
@@ -391,7 +391,7 @@ export class BillingPage implements OnInit, OnDestroy {
   }
 
   protected onPageShow(event: Event): void {
-    // Back from Stripe through the back/forward cache: the page never reloaded.
+    // Back from the checkout through the back/forward cache: the page never reloaded.
     if ((event as PageTransitionEvent).persisted) this.ctl.resetPending();
   }
 

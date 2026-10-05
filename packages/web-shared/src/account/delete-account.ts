@@ -17,9 +17,9 @@ const AFTER_DELETE_URL = '/welcome';
   template: `
     <p class="small">
       Permanently deletes your account in both Power and Learn: every conversation, share link and
-      setting, your passkeys and sign-in, and your customer record with Stripe, which cancels your
-      membership. Unused credit is lost. This can't be undone, so download backups of anything you
-      want to keep first.
+      setting, your passkeys and sign-in, and your customer record with our payment provider (named
+      in the Privacy Policy), which cancels your membership. Unused credit is lost. This can't be
+      undone, so download backups of anything you want to keep first.
     </p>
     <p class="muted small">
       Payment records are kept as tax law requires; see the

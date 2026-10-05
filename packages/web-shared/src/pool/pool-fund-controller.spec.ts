@@ -18,7 +18,7 @@ function setup(status: PoolStatusResponse = STATUS) {
     poolStatus: vi.fn(async () => status),
     createCheckout: vi.fn(
       async (_cents: number, _target: PurchaseTarget): Promise<CheckoutResponse> => ({
-        url: 'https://checkout.stripe.com/c/pool',
+        url: 'https://pay.example/checkout/pool',
       }),
     ),
   };
@@ -38,12 +38,12 @@ describe('PoolFundController', () => {
     expect(higher.ctl.presets()).toEqual([2000, 5000]);
   });
 
-  it('funds the pool: a checkout whose target is the pool, then off to Stripe', async () => {
+  it('funds the pool: a checkout whose target is the pool, then off to the checkout', async () => {
     const { ctl, api, navigate } = setup();
     await ctl.init(false);
     await ctl.fund(2000);
     expect(api.createCheckout).toHaveBeenCalledWith(2000, 'pool');
-    expect(navigate).toHaveBeenCalledWith('https://checkout.stripe.com/c/pool');
+    expect(navigate).toHaveBeenCalledWith('https://pay.example/checkout/pool');
     // Leaving: still pending, so nothing is clicked twice.
     expect(ctl.busy()).toBe(true);
     await ctl.fund(1000);
@@ -64,10 +64,10 @@ describe('PoolFundController', () => {
 
   it('shows a checkout error and lets the buttons work again', async () => {
     const { ctl, api } = setup();
-    api.createCheckout.mockRejectedValueOnce(new Error('Stripe is down'));
+    api.createCheckout.mockRejectedValueOnce(new Error('Payments are down'));
     await ctl.init(false);
     await ctl.fund(1000);
-    expect(ctl.actionError()).toBe('Stripe is down');
+    expect(ctl.actionError()).toBe('Payments are down');
     expect(ctl.busy()).toBe(false);
   });
 

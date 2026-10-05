@@ -1,20 +1,18 @@
 import { InjectionToken } from '@angular/core';
 import { passkeyClient } from '@better-auth/passkey/client';
-import { stripeClient } from '@better-auth/stripe/client';
 import { createAuthClient } from 'better-auth/client';
 import { magicLinkClient } from 'better-auth/client/plugins';
 
 /**
  * Better Auth's browser client for `/api/auth/*`, with the plugins the
- * Worker registers: magic links, passkeys and the Stripe subscription
- * endpoints (used by BillingClient; the Worker only mounts those when
- * billing is configured).
+ * Worker registers: magic links and passkeys. Payments don't go through
+ * Better Auth (BillingClient calls `/api/billing/*`).
  */
 export function createTangentAuthClient(baseURL: string = location.origin) {
   return createAuthClient({
     baseURL,
     basePath: '/api/auth',
-    plugins: [magicLinkClient(), passkeyClient(), stripeClient({ subscription: true })],
+    plugins: [magicLinkClient(), passkeyClient()],
   });
 }
 

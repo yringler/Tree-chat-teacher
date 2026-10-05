@@ -20,8 +20,8 @@ import { PoolMeter } from './pool-meter';
  * "Fund the community pool" on the billing page of both apps (`#fund-pool`):
  * the meter, preset amounts at or above the pool minimum, the one-line
  * pricing disclosure and a link to `/pool`, with last week's impact feed under
- * the meter once a snapshot exists. Before Stripe is set up the
- * section still shows the meter and the link, with a disabled "Funding opens
+ * the meter once a snapshot exists. Until funding opens (a payment provider
+ * and `POOL_PURCHASES_ENABLED`), the section still shows the meter and the link, with a disabled "Funding opens
  * soon". Nothing renders while the pool is off.
  */
 @Component({

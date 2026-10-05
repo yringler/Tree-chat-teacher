@@ -73,7 +73,7 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), summa
 })
 export class MembershipGate {
   readonly membership = input.required<MembershipInfo>();
-  /** The app's absolute billing path (`/learn/billing`, `/billing`): Stripe comes back there. */
+  /** The app's absolute billing path (`/learn/billing`, `/billing`), for the "See billing" link. */
   readonly billingPath = input.required<string>();
   /** Shown above the heading, e.g. "Tangent Learn". */
   readonly appName = input('Tangent');
@@ -84,7 +84,7 @@ export class MembershipGate {
   protected readonly descId = `membership-gate-desc-${uid}`;
   protected readonly price = computed(() => formatCents(this.membership().priceCents));
   protected readonly included = computed(() => includedCreditText(this.membership()));
-  protected readonly sub = new MembershipSubscribe(inject(BillingClient), () => this.billingPath());
+  protected readonly sub = new MembershipSubscribe(inject(BillingClient));
 
   private readonly auth = inject(AuthService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -100,7 +100,7 @@ export class MembershipGate {
   }
 
   protected onPageShow(event: Event): void {
-    // Back from Stripe through the back/forward cache: the page never reloaded.
+    // Back from the checkout through the back/forward cache: the page never reloaded.
     if ((event as PageTransitionEvent).persisted) this.sub.reset();
   }
 

@@ -60,8 +60,8 @@ function newKey(): string {
  * The community pool's ledger (`GET /api/admin/pool`): balance, what pending
  * reservations hold, and the overage breaker (while tripped, the pool refuses
  * every request until the window's overage falls back under the limit or the
- * price table is fixed). Below it, a top-up or correction of the pool without
- * Stripe (`POST /api/admin/credit`): an adjustment (a negative one is clamped
+ * price table is fixed). Below it, a top-up or correction of the pool without a
+ * payment (`POST /api/admin/credit`): an adjustment (a negative one is clamped
  * to what is available), or a simulated purchase where DEV_PURCHASES_ENABLED
  * allows it.
  */
