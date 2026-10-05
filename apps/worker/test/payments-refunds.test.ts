@@ -115,9 +115,51 @@ describe('refund.succeeded before (or without) its payment', () => {
     expect(await balance(`u_${userId}`)).toBe(-800_000);
   });
 
-  it('does nothing for a payment that granted nothing, or one the provider doesn’t know', async () => {
+  it('acknowledges a refund of a credits payment that was never credited, and never will be', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const userId = await newUser();
-    const free = membershipPaid(userId);
+    // Each is skipped when paid (no account, a non-personal ledger, a legacy pool
+    // target, another currency, nothing paid), so its refund must not wait for it.
+    const skipped = [
+      paid({ userId: null, accountId: null }),
+      paid({ userId: null, accountId: uniq('pool') }),
+      paid({ userId, accountId: uniq('pool') }),
+      paid({ userId, target: 'unknown' }),
+      paid({ userId, currency: 'eur' }),
+      paid({ userId, netCents: 0 }),
+    ];
+    const provider = createFakeProvider({ payments: skipped.map(factsOf) });
+    for (const payment of skipped) {
+      expect(await applyPaymentEvent(env, payment, { provider })).toBe('skipped');
+      const refund = refunded(payment.paymentRef, 1000);
+      expect(await applyPaymentEvent(env, refund, { provider })).toBe('skipped');
+    }
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('refund_not_debited'));
+    warn.mockRestore();
+    expect(await balance(`u_${userId}`)).toBe(0);
+  });
+
+  it('retries a membership refund until its payment is applied, then takes back its credit and share', async () => {
+    const poolId = uniq('pool');
+    const shareEnv = { ...env, POOL_ACCOUNT_ID: poolId, POOL_REVENUE_SHARE_BPS: '2000' } as AppEnv;
+    const userId = await newUser();
+    const payment = membershipPaid(userId, { netCents: 1000 });
+    const provider = createFakeProvider({ payments: [factsOf(payment)] });
+    const refund = refunded(payment.paymentRef, 1000);
+    await expect(applyPaymentEvent(shareEnv, refund, { provider })).rejects.toBeInstanceOf(
+      RetryLaterError,
+    );
+    await applyPaymentEvent(shareEnv, payment, { provider });
+    expect(await applyPaymentEvent(shareEnv, refund, { provider })).toBe('applied');
+    expect(await balance(`u_${userId}`)).toBe(0);
+    expect(await balance(poolId)).toBe(0);
+  });
+
+  it('does nothing for a payment that granted nothing, or one the provider doesn’t know', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const userId = await newUser();
+    // A membership payment naming no user: no included credit to wait for.
+    const free = membershipPaid(null);
     const provider = createFakeProvider({ payments: [factsOf(free)] });
     expect(await applyPaymentEvent(env, refunded(free.paymentRef, 1000), { provider })).toBe(
       'skipped',
@@ -126,6 +168,7 @@ describe('refund.succeeded before (or without) its payment', () => {
       'skipped',
     );
     expect(await apply(refunded(fakeRef('order'), 1000))).toBe('skipped');
+    warn.mockRestore();
     expect(await balance(`u_${userId}`)).toBe(0);
   });
 });

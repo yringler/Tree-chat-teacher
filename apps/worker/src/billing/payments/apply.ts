@@ -20,7 +20,11 @@
 //   pool purchase (from before the pool became revenue-funded): − the share
 //   of what it credited, clamped by PoolBank.debit; a membership payment: its
 //   included credit, once per payment, and the refunded proportion of the
-//   pool's revenue share of it, clamped, once per refund.
+//   pool's revenue share of it, clamped, once per refund. A refund (or
+//   dispute) of a payment not applied yet throws RetryLaterError only while
+//   that payment will grant something once applied (`grantsOnPayment`); a
+//   refund of one that never grants is logged (`refund_not_debited`) and
+//   acknowledged, so it can't fail every delivery.
 // - dispute.opened / dispute.lost → debited like a refund of the disputed
 //   amount (membership disputes are left to the operator); lost also
 //   suspends the buyer's pool access, once. dispute.won → what the dispute
@@ -49,6 +53,7 @@ import type {
   DisputeEvent,
   MembershipChanged,
   PaymentEvent,
+  PaymentFacts,
   PaymentProvider,
   PaymentSucceeded,
   ProviderRef,
@@ -93,6 +98,15 @@ function written(changed: boolean): ApplyResult {
  */
 function isPersonalLedger(accountId: string): boolean {
   return accountId === DEV_SIMPLE_ACCOUNT_ID || userIdOfAccount(accountId) !== null;
+}
+
+/** The personal ledger a credits payment is credited to; null = never credited (`no_account`). */
+function creditsAccountOf(
+  purpose: { accountId: string | null },
+  userId: string | null,
+): string | null {
+  const accountId = purpose.accountId || (userId ? billingAccountIdFor(userId) : null);
+  return accountId && isPersonalLedger(accountId) ? accountId : null;
 }
 
 /** Applies one normalised payment event. Throws RetryLaterError (or a D1 error) to be retried. */
@@ -141,8 +155,8 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
   if (!(e.netCents > 0)) return 'skipped';
   if (await hasGrant(env.DB, e.paymentRef)) return 'duplicate';
   if (!e.fee) throw new RetryLaterError(`The fee of ${e.paymentRef} is not known yet`);
-  const accountId = purpose.accountId || (e.userId ? billingAccountIdFor(e.userId) : null);
-  if (!accountId || !isPersonalLedger(accountId)) {
+  const accountId = creditsAccountOf(purpose, e.userId);
+  if (!accountId) {
     log('payment_not_credited', { reason: 'no_account', paymentRef: e.paymentRef });
     return 'skipped';
   }
@@ -201,8 +215,27 @@ async function membershipPayment(env: AppEnv, e: PaymentSucceeded): Promise<Appl
 }
 
 /**
+ * True when applying this payment writes a grant on its own ref (what
+ * `paidGrant` reads): a credits payment `paymentSucceeded` credits (every
+ * skip there, `currency`, `unknown_target`, nothing paid and `no_account`,
+ * is final), or, with `membership`, a membership payment whose included
+ * credit `membershipPayment` grants (as configured now). A payment that
+ * grants nothing is never waited for, so its refund can't be retried forever.
+ */
+function grantsOnPayment(env: AppEnv, facts: PaymentFacts, membership: boolean): boolean {
+  if (!(facts.netCents > 0)) return false;
+  const purpose = facts.purpose;
+  if (purpose.kind === 'membership')
+    return membership && !!facts.userId && membershipCreditCents(env) > 0;
+  if (purpose.kind !== 'credits' || purpose.target === 'unknown' || facts.currency !== 'usd')
+    return false;
+  return creditsAccountOf(purpose, facts.userId) !== null;
+}
+
+/**
  * The grant a refund or dispute names. With none, asks the provider: a
- * credits payment not credited yet means the event came first, so retry; a
+ * payment that will grant once applied (`grantsOnPayment`; membership
+ * payments only for a refund) means the event came first, so retry; a
  * payment that never grants anything (or one the provider doesn't know)
  * means there is nothing to take back.
  */
@@ -210,17 +243,13 @@ async function paidGrant(
   env: AppEnv,
   paymentRef: ProviderRef,
   deps: ApplyDeps,
+  o: { membership: boolean },
 ): Promise<GrantRow | null> {
   const grant = await grantByRef(env.DB, paymentRef);
   if (grant) return grant;
   const facts = deps.provider ? await deps.provider.getPayment(paymentRef) : null;
-  if (
-    facts?.purpose.kind === 'credits' &&
-    facts.purpose.target !== 'unknown' &&
-    facts.currency === 'usd' &&
-    facts.netCents > 0
-  )
-    throw new RetryLaterError(`${paymentRef} is not credited yet`);
+  if (facts && grantsOnPayment(env, facts, o.membership))
+    throw new RetryLaterError(`${paymentRef} is not applied yet`);
   return null;
 }
 
@@ -240,11 +269,18 @@ async function refundSucceeded(
     netCents: e.netCents,
   });
   const result = await refundGrant(env, e, deps);
-  return unshared ? 'applied' : result;
+  if (unshared) return 'applied';
+  if (result === 'skipped')
+    log('refund_not_debited', {
+      reason: 'nothing_granted',
+      refundRef: e.refundRef,
+      paymentRef: e.paymentRef,
+    });
+  return result;
 }
 
 async function refundGrant(env: AppEnv, e: RefundSucceeded, deps: ApplyDeps): Promise<ApplyResult> {
-  const grant = await paidGrant(env, e.paymentRef, deps);
+  const grant = await paidGrant(env, e.paymentRef, deps, { membership: true });
   if (!grant) return 'skipped';
   if (grant.kind === 'subscription') {
     // The membership's included credit is taken back once, whatever the refunded amount
@@ -342,7 +378,7 @@ async function disputeDebited(env: AppEnv, e: DisputeEvent, deps: ApplyDeps): Pr
     log('dispute_not_debited', { reason: 'currency', disputeRef: e.disputeRef });
     return 'skipped';
   }
-  const grant = await paidGrant(env, e.paymentRef, deps);
+  const grant = await paidGrant(env, e.paymentRef, deps, { membership: false });
   if (!grant || grant.kind !== 'purchase') {
     // A membership payment (or one that granted nothing): left to the operator.
     log('dispute_not_debited', { reason: 'not_a_purchase', disputeRef: e.disputeRef });
