@@ -1,13 +1,20 @@
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, type OnInit, signal } from '@angular/core';
-import { AuthService, DeleteAccount, Icon, Modal, type PasskeyInfo } from '@tangent/web-shared';
+import {
+  AccountId,
+  AuthService,
+  DeleteAccount,
+  Icon,
+  Modal,
+  type PasskeyInfo,
+} from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 
-/** Who is signed in, their passkeys, sign-out, the legal pages and account deletion. */
+/** Who is signed in (with their account ID), passkeys, sign-out, legal pages, account deletion. */
 @Component({
   selector: 'app-account-dialog',
-  imports: [Modal, Icon, DatePipe, DeleteAccount],
+  imports: [Modal, Icon, DatePipe, DeleteAccount, AccountId],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="Account" (closed)="close()">
@@ -18,6 +25,9 @@ import { UiStore } from '../state/ui-store';
           <p>
             Signed in as <strong>{{ me.email }}</strong>
           </p>
+          @if (me.userId; as id) {
+            <app-account-id [userId]="id" />
+          }
 
           <fieldset class="settings-section">
             <legend>Passkeys</legend>

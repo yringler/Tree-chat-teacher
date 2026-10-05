@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, ElementRef, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { AuthService, DEMO_MODE, Icon, ModeSwitch } from '@tangent/web-shared';
+import { AccountId, AuthService, DEMO_MODE, Icon, ModeSwitch } from '@tangent/web-shared';
 import { BRAND, BRAND_SHORT, DEMO_EXIT_URL } from '../brand';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
@@ -8,7 +8,7 @@ import { UiStore } from '../state/ui-store';
 /** Brand, the Power / Learn / Canvas switch, the experimental mark, keys and the account menu. */
 @Component({
   selector: 'app-header',
-  imports: [RouterLink, Icon, ModeSwitch],
+  imports: [RouterLink, Icon, ModeSwitch, AccountId],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="app-head">
@@ -58,6 +58,9 @@ import { UiStore } from '../state/ui-store';
           <div class="menu" id="account-menu" role="menu">
             @if (store.me()?.email; as email) {
               <p class="menu-label muted small">{{ email }}</p>
+            }
+            @if (!demo && store.me()?.userId; as id) {
+              <app-account-id class="menu-label" [userId]="id" [menu]="true" />
             }
             <a class="menu-item" role="menuitem" [href]="demo ? '/demo/' : '/'">
               Open in Power mode
