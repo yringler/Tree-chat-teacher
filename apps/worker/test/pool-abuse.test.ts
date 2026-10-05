@@ -26,7 +26,7 @@ import { authEnv, client, type CallInit } from './session-client.js';
 
 const env = rawEnv as unknown as AppEnv;
 const ECHO = '[echo-request]';
-const PRICE = resolvePoolParams(env, null).price!;
+const PRICE = (await resolvePoolParams(env, null)).price!;
 /** The reply's ceiling hold on a test pool (POOL_MAX_OUTPUT_TOKENS 2048 in vitest.config.ts). */
 const CEILING = ceilingHoldMicros(PRICE, 2048, PRICE.feeBps);
 /** POOL_FREE_REQUESTS_PER_DAY and POOL_SUPPORTER_REQUESTS_PER_DAY in vitest.config.ts. */

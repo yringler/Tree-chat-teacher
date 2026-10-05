@@ -86,9 +86,10 @@
   ],
   // Every 10 minutes: settles usage the stream couldn't (src/billing/reconcile.ts), expires stale
   // community pool reservations and maintains the pool's balance checkpoint.
+  // Daily 03:23 UTC: OpenRouter's list prices of the priced models (src/pool/model-prices.ts).
   // Mondays 04:17 UTC: the community pool's weekly impact snapshot of the ISO week just ended, and
   // its topic-tag retention (src/pool/impact.ts). src/index.ts dispatches on the cron string.
-  "triggers": { "crons": ["*/10 * * * *", "17 4 * * 1"] },
+  "triggers": { "crons": ["*/10 * * * *", "23 3 * * *", "17 4 * * 1"] },
   "ratelimits": [
     {
       "name": "SHARE_RATE_LIMITER",
@@ -250,6 +251,8 @@
     // JSON merged over the built-in price table (src/config.ts), micro-USD per million tokens:
     // {"<model id>": {"in": 100000, "out": 400000, "context": 131072, "feeBps": 550}}. feeBps is
     // optional (default OPENROUTER_FEE_BPS). A model without a price can't be used by the pool.
+    // A daily cron syncs OpenRouter's list prices of the table's models into D1, replacing the
+    // built-in placeholders; an entry here wins over the synced price (src/pool/model-prices.ts).
     "MODEL_PRICES": "",
     // Impact feed: a topic is named publicly only when at least this many distinct learners touched
     // it in the week (default 5, never below 3); comma-separated topic ids never published; and how

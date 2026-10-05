@@ -12,6 +12,7 @@ import {
 } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
+import { modelPrice } from './model-prices.js';
 import type { PoolAdmitRequest, PoolRefusal, PoolReserveRequest } from './pool-bank.js';
 
 export interface PoolParams {
@@ -44,12 +45,12 @@ export function poolModel(env: AppEnv): string {
   return appConfig(env).pool.model ?? simpleFastModel(env, simpleProviderConfig(env));
 }
 
-/** Resolves the pool parameters of a request from `env`. */
-export function resolvePoolParams(env: AppEnv, ipKey: string | null): PoolParams {
+/** Resolves the pool parameters of a request from `env` (the price: `modelPrice`). */
+export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Promise<PoolParams> {
   const config = appConfig(env);
   const pool = config.pool;
   const model = poolModel(env);
-  const entry = config.prices[model];
+  const entry = await modelPrice(env, model);
   return {
     accountId: pool.accountId,
     model,
