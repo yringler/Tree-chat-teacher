@@ -725,6 +725,7 @@ describe('cron dispatch', () => {
       reconcile: vi.fn(() => Promise.resolve()),
       poolExpiry: vi.fn(() => Promise.resolve()),
       poolImpact: vi.fn(() => Promise.resolve()),
+      paymentDisputes: vi.fn(() => Promise.resolve()),
     } satisfies CronJobs;
     return jobs;
   }
@@ -735,6 +736,7 @@ describe('cron dispatch', () => {
     await Promise.all(cronTasks(CRON_FREQUENT, env, now, frequent));
     expect(frequent.reconcile).toHaveBeenCalledOnce();
     expect(frequent.poolExpiry).toHaveBeenCalledWith(env, now);
+    expect(frequent.paymentDisputes).toHaveBeenCalledWith(env, now);
     expect(frequent.poolImpact).not.toHaveBeenCalled();
 
     const weekly = spies();
@@ -742,6 +744,7 @@ describe('cron dispatch', () => {
     expect(weekly.poolImpact).toHaveBeenCalledWith(env, now);
     expect(weekly.reconcile).not.toHaveBeenCalled();
     expect(weekly.poolExpiry).not.toHaveBeenCalled();
+    expect(weekly.paymentDisputes).not.toHaveBeenCalled();
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const unknown = spies();

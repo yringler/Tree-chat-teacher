@@ -14,6 +14,7 @@ import { adminRoutes } from './routes/admin.js';
 import { apiRoutes } from './routes/api.js';
 import { billingRoutes } from './routes/billing.js';
 import { featuredRoute } from './routes/featured.js';
+import { paymentWebhookRoute } from './routes/payment-webhooks.js';
 import { poolImpactRoutes, poolRoutes, poolStatusRoute } from './routes/pool.js';
 import { shareRoutes } from './routes/share.js';
 
@@ -27,6 +28,8 @@ export interface AppOptions {
  * - `/api/login-options` is public: what the login page should offer,
  *   `/api/pool/status` the community pool's meter and `/api/pool/impact*`
  *   its weekly impact snapshots (routes/pool.ts).
+ * - `POST /api/webhooks/:provider` is public too: payment provider webhooks,
+ *   verified by their signature (routes/payment-webhooks.ts).
  * - `/api/featured*` is always 404: the featured-conversations wall is a stub
  *   (routes/featured.ts).
  * - Every other `/api/*` route requires a session (auth/session.ts) and acts
@@ -71,6 +74,7 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   });
 
   app.get('/api/pool/status', poolStatusRoute);
+  app.post('/api/webhooks/:provider', paymentWebhookRoute);
   app.route('/api/pool/impact', poolImpactRoutes());
   app.all('/api/featured', featuredRoute);
   app.all('/api/featured/*', featuredRoute);
