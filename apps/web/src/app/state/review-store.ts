@@ -54,15 +54,20 @@ export class ReviewStore {
   /**
    * Reviewer to preselect: the saved setting while it is still usable, else
    * the default model of the branch's route (`branch`: its provider and
-   * funding), else of any provider with a key.
+   * funding), else of any provider with a key; never a route whose funding
+   * needs the membership the user lacks.
    */
   defaultReviewer(
     branch: { providerId: string; funding?: BranchFunding } | null,
   ): ModelChoice | null {
+    // Routes whose funding needs the membership the user lacks are skipped.
+    const open = (p: ProviderInfo | undefined): p is ProviderInfo =>
+      !!p && p.available && !this.tree.routeLocked(p);
     const saved = this.settings.settings().reviewer;
-    if (saved && offers(this.tree.providerOf(saved), saved.model)) return saved;
+    const savedProvider = saved ? this.tree.providerOf(saved) : undefined;
+    if (saved && offers(savedProvider, saved.model) && open(savedProvider)) return saved;
     const own = branch ? this.tree.providerOf(branch) : undefined;
-    const fallback = own?.available ? own : this.tree.providers().find((p) => p.available);
+    const fallback = open(own) ? own : this.tree.providers().find(open);
     if (!fallback) return null;
     return {
       providerId: fallback.id,

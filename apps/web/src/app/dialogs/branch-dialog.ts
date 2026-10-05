@@ -102,7 +102,10 @@ export class BranchDialog implements OnInit {
 
   ngOnInit(): void {
     this.quote.set(this.state().quote ?? '');
-    const p = this.parent();
+    // The parent's route, unless its funding needs the membership the user lacks:
+    // then the first route they can generate on (Tangent credit they hold).
+    const parent = this.parent();
+    const p = parent && !this.store.routeLocked(parent) ? parent : null;
     const fallback = this.store.defaultProvider();
     this.route.set(p ? routeKey(p) : fallback ? providerRouteKey(fallback) : '');
     this.modelId.set(p?.model ?? fallback?.defaultModel ?? '');

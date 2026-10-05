@@ -11,7 +11,8 @@ import {
 } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
-import type { Branch, ChatNode } from '@tangent/shared';
+import type { Branch, ChatNode, MembershipInfo } from '@tangent/shared';
+import { ReadOnlyComposer } from '@tangent/web-shared';
 import { Inspector } from '../inspector/inspector';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
@@ -30,7 +31,7 @@ interface Entry {
 /** `/t/:treeId[/b/:branchId]`: linear view of the selected branch path. */
 @Component({
   selector: 'app-chat-page',
-  imports: [ChatHeader, Composer, MessageItem, ModeBadge, Inspector, RouterLink],
+  imports: [ChatHeader, Composer, MessageItem, ModeBadge, Inspector, ReadOnlyComposer, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './chat-page.html',
   host: { class: 'page chat-page' },
@@ -78,6 +79,18 @@ export class ChatPage {
     return `Reply in “${title}”…`;
   });
 
+  /**
+   * The selected branch is read-only (its funding needs the membership the
+   * user lacks): what the notice standing in for the composer needs.
+   */
+  protected readonly readOnly = computed<{ membership: MembershipInfo; treeId: string } | null>(
+    () => {
+      const membership = this.store.membership();
+      const treeId = this.store.detail()?.tree.id;
+      return this.store.readOnly() && membership && treeId ? { membership, treeId } : null;
+    },
+  );
+
   constructor() {
     effect(() => {
       const t = this.store.detail()?.tree.title;
@@ -121,6 +134,12 @@ export class ChatPage {
     this.pinned.set(true);
     if (this.store.focusedNodeId()) this.store.focus(null);
     void this.store.send(id, content);
+  }
+
+  /** "Continue with Tangent credit": the selected branch moves onto credit and its composer returns. */
+  protected useCredit(): void {
+    const id = this.store.selectedBranchId();
+    if (id) void this.store.switchToCredit(id);
   }
 
   protected stop(): void {

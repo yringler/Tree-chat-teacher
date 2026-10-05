@@ -29,7 +29,16 @@ export function unavailableSuffix(p: ProviderInfo): string {
 }
 
 /**
- * Provider + model. Providers without an API key are listed but disabled.
+ * `unavailableSuffix`, or for a route whose funding needs the membership the
+ * user lacks (`locked`, see TreeStore `routeLocked`), that.
+ */
+export function routeSuffix(p: ProviderInfo, locked: boolean): string {
+  return locked && p.available ? ' — needs a membership' : unavailableSuffix(p);
+}
+
+/**
+ * Provider + model. Providers without an API key, and routes whose funding
+ * needs the membership the user lacks, are listed but disabled.
  * The provider select picks a route (`route`, a `routeKey`): a provider and
  * who pays for it, so the built-in endpoint shows twice in power, as the
  * user's OpenRouter and as Tangent credit.
@@ -49,8 +58,13 @@ export function unavailableSuffix(p: ProviderInfo): string {
             <option [value]="route()">{{ unknownLabel() }} (not configured)</option>
           }
           @for (p of store.providers(); track key(p)) {
-            <option [value]="key(p)" [disabled]="!p.available" [selected]="key(p) === route()">
-              {{ p.label }}{{ suffix(p) }}
+            @let locked = store.routeLocked(p);
+            <option
+              [value]="key(p)"
+              [disabled]="!p.available || locked"
+              [selected]="key(p) === route()"
+            >
+              {{ p.label }}{{ suffix(p, locked) }}
             </option>
           }
         </select>
@@ -102,7 +116,7 @@ export class ModelPicker {
   readonly route = model.required<string>();
   readonly modelId = model.required<string>();
   protected readonly id = `mp${++uid}`;
-  protected readonly suffix = unavailableSuffix;
+  protected readonly suffix = routeSuffix;
   protected readonly key = providerRouteKey;
 
   private readonly provider = computed(() => this.store.providerMap().get(this.route()) ?? null);

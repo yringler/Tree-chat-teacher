@@ -12,7 +12,13 @@ import {
   type OutlineItem,
   type TreeIndex,
 } from '@tangent/core';
-import { parseRouteKey, providerRouteKey, routeKey, type BranchFunding } from '@tangent/shared';
+import {
+  isModelAllowed,
+  parseRouteKey,
+  providerRouteKey,
+  routeKey,
+  type BranchFunding,
+} from '@tangent/shared';
 import type {
   BillingSummary,
   Branch,
@@ -36,7 +42,10 @@ import {
   ApiError,
   creditCarriesOn,
   errorMessage,
+  lockedFundings,
   membershipBlocks,
+  routeLocked,
+  routeOpen,
   runStream,
   type StreamOutcome,
 } from '@tangent/web-shared';
@@ -73,6 +82,8 @@ export class TreeStore {
   // Global data
   readonly me = signal<MeResponse | null>(null);
   readonly providers = signal<ProviderInfo[]>([]);
+  /** The provider list has been read once (until then nothing is known to be unable to generate). */
+  readonly providersLoaded = signal(false);
   /** Which providers have a user-supplied key stored (never the key itself). */
   readonly keyStatus = signal<KeyStatusResponse | null>(null);
   /**
@@ -183,8 +194,17 @@ export class TreeStore {
     );
   });
 
-  /** The server refused an own-key call for want of a membership (402 `membership_required`). */
-  private readonly gateForced = signal(false);
+  /**
+   * The fundings that need the membership in this account, from `me` (the
+   * server's rule: `['own-key']` where a membership is required). With
+   * `membership`, they decide which branches are read-only.
+   */
+  readonly membershipNeededFor = signal<readonly BranchFunding[]>([]);
+
+  /** The fundings the user can't generate on right now (docs/DECISIONS.md "Read-only power"). */
+  readonly lockedFundings = computed(() =>
+    lockedFundings(this.membershipNeededFor(), this.membership()),
+  );
 
   /**
    * Without a membership, power mode can still run on Tangent credit the user
@@ -194,21 +214,50 @@ export class TreeStore {
     creditCarriesOn(this.me()?.builtInCredit ?? false, this.billing()),
   );
 
-  /**
-   * The shell shows the membership gate: the membership is required and the
-   * user has none, and either no credit can carry on (on load) or the server
-   * just refused an own-key call (402 `membership_required`).
-   */
-  readonly membershipBlocked = computed(
-    () => membershipBlocks(this.membership()) && (this.gateForced() || !this.creditCarriesOn()),
+  /** Tangent credit can pay for replies: a member may buy more; anyone else spends what is left. */
+  private readonly creditUsable = computed(
+    () => !membershipBlocks(this.membership()) || this.creditCarriesOn(),
   );
 
-  /** The gate may be dismissed back to the app: credit the user holds can still pay. */
-  readonly membershipDismissible = computed(() => this.creditCarriesOn());
+  /** A route (branch, reviewer, provider entry) whose funding needs the membership the user lacks. */
+  routeLocked(route: { funding?: BranchFunding }): boolean {
+    return routeLocked(this.lockedFundings(), route);
+  }
 
-  /** The gate's "continue with Tangent credit": back to the app (own-key calls stay refused). */
-  dismissMembershipGate(): void {
-    this.gateForced.set(false);
+  /** Provider entries the user can generate on now (see `routeOpen`). */
+  readonly openRoutes = computed(() =>
+    this.providers().filter((p) => routeOpen(p, this.lockedFundings(), this.creditUsable())),
+  );
+
+  /**
+   * Something can still generate: new conversations, new branches and reviews
+   * are offered. False only when the membership locks something and no other
+   * route is open (a non-member with their own keys and no credit left):
+   * power is then read-only throughout. A missing key alone never hides
+   * anything (sending asks for it), nor does a provider list not read yet.
+   */
+  readonly canGenerate = computed(
+    () =>
+      this.lockedFundings().size === 0 || !this.providersLoaded() || this.openRoutes().length > 0,
+  );
+
+  /**
+   * The selected branch is read-only: its funding needs the membership the
+   * user lacks. Its composer becomes the notice (renew, copy to Learn).
+   */
+  readonly readOnly = computed(() => {
+    const b = this.selectedBranch();
+    return !!b && this.routeLocked(b);
+  });
+
+  /** Tangent credit, when a read-only branch could carry on with it. */
+  readonly creditRoute = computed<ProviderInfo | null>(
+    () => this.openRoutes().find((p) => p.funding === 'credit') ?? null,
+  );
+
+  /** A review of a reply in `branch`: the branch's summaries and the reviewer both need an open route. */
+  canReview(branch: { funding?: BranchFunding } | null): boolean {
+    return !!branch && !this.routeLocked(branch) && this.canGenerate();
   }
 
   /**
@@ -225,21 +274,42 @@ export class TreeStore {
     return this.providerMap().get(routeKey(route));
   }
 
-  /** First provider with an API key, falling back to the first configured. */
+  /**
+   * First provider the user can generate on (`openRoutes`), else the first
+   * with an API key, falling back to the first configured.
+   */
   readonly defaultProvider = computed<ProviderInfo | null>(
-    () => this.providers().find((p) => p.available) ?? this.providers()[0] ?? null,
+    () =>
+      this.openRoutes()[0] ??
+      this.providers().find((p) => p.available) ??
+      this.providers()[0] ??
+      null,
   );
 
   // Bootstrapping
 
   /** `me`: the signed-in caller, already fetched by the sign-in check (AuthService.requireUser). */
   async init(me: MeResponse): Promise<void> {
-    this.me.set(me);
-    this.membership.set(me.membership);
-    // Without a membership, the balance decides whether the gate shows on load.
+    this.applyMe(me);
+    // Without a membership, the balance decides whether Tangent credit can carry on.
     const balance =
       membershipBlocks(me.membership) && me.builtInCredit ? this.refreshBilling() : null;
     await Promise.all([this.refreshKeys(), this.loadTrees(), balance]);
+  }
+
+  private applyMe(me: MeResponse): void {
+    this.me.set(me);
+    this.membership.set(me.membership);
+    this.membershipNeededFor.set(me.membershipNeededFor ?? []);
+  }
+
+  /** Re-reads `me`: the membership and the fundings that need it, as the server sees them now. */
+  async refreshMe(): Promise<void> {
+    try {
+      this.applyMe(await this.api.me());
+    } catch (err) {
+      console.warn('me failed', err);
+    }
   }
 
   // API keys (bring-your-own-key)
@@ -251,10 +321,13 @@ export class TreeStore {
         (s) => this.keyStatus.set(s),
         (e: unknown) => this.fail(e),
       ),
-      this.api.providers().then(
-        (p) => this.providers.set(p),
-        (e: unknown) => this.fail(e),
-      ),
+      this.api
+        .providers()
+        .then(
+          (p) => this.providers.set(p),
+          (e: unknown) => this.fail(e),
+        )
+        .finally(() => this.providersLoaded.set(true)),
     ]);
   }
 
@@ -534,6 +607,32 @@ export class TreeStore {
   }
 
   /**
+   * "Continue with Tangent credit" on a read-only branch: moves it onto
+   * credit, keeping its model where credit offers it (the built-in endpoint
+   * on the user's own key), else on credit's default model.
+   */
+  async switchToCredit(branchId: string): Promise<boolean> {
+    const credit = this.creditRoute();
+    const branch = this.index()?.branches.get(branchId);
+    if (!credit || !branch) return false;
+    const model =
+      branch.providerId === credit.id && isModelAllowed(credit, branch.model)
+        ? branch.model
+        : credit.defaultModel;
+    const ok = await this.updateBranch(branch.id, {
+      providerId: credit.id,
+      funding: 'credit',
+      model,
+    });
+    if (ok) {
+      const label = credit.models.find((m) => m.id === model)?.label ?? model;
+      this.ui.notify(`“${branch.title}” now uses Tangent credit (${label})`);
+      this.ui.focusComposer();
+    }
+    return ok;
+  }
+
+  /**
    * Deletes a branch with everything below it. If the selection is inside it,
    * moves to the message it branched from. The caller confirms first.
    */
@@ -791,10 +890,16 @@ export class TreeStore {
   fail(err: unknown): void {
     console.error(err);
     if (err instanceof ApiError && err.code === 'membership_required') {
-      // The gate explains it and offers the way out; no toast on top.
+      // The server knows better than the copy read at startup: own keys are
+      // locked now (the only funding it asks the membership for), and `me`
+      // brings the rest. A read-only branch's notice explains it; anything
+      // else (a review, say) gets a toast linking to the billing page.
       this.membership.update((m) => (m ? { ...m, required: true, status: 'inactive' } : m));
-      this.gateForced.set(true);
+      this.membershipNeededFor.update((f) => (f.includes('own-key') ? f : [...f, 'own-key']));
+      void this.refreshMe();
       void this.refreshBilling();
+      if (!this.readOnly())
+        this.ui.notify(errorMessage(err), 'error', { label: 'Membership', path: '/billing' });
       return;
     }
     if (err instanceof ApiError && err.code === 'payment_required') {

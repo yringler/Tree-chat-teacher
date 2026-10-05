@@ -1,10 +1,17 @@
 import { DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Composer } from '../chat/composer';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon } from '@tangent/web-shared';
+import { APP_BASES, Icon, readOnlyText } from '@tangent/web-shared';
 import { providerRouteKey } from '@tangent/shared';
 import { ImportButton } from '../ui/import-button';
 import { ModelPicker } from '../ui/model-picker';
@@ -34,15 +41,30 @@ import { ModelPicker } from '../ui/model-picker';
           Ask anything. Later, branch from any message to explore a tangent — with the full path, a
           summary, or a clean slate as context.
         </p>
-        @if (route() !== '') {
-          <app-model-picker [(route)]="route" [(modelId)]="modelId" />
+        @if (readOnly(); as text) {
+          <!-- Nothing to generate on: own keys need the membership the user lacks, and no credit is left. -->
+          <div class="read-only-panel home-read-only" role="region" aria-labelledby="home-ro-lead">
+            <p class="read-only-text">
+              <strong id="home-ro-lead">{{ text.lead }}</strong>
+              {{ text.act }} to start new conversations here, or use Learn, free on your own key.
+              Your conversations below stay readable.
+            </p>
+            <div class="read-only-actions">
+              <a class="btn btn-primary" routerLink="/billing">{{ text.renew }}</a>
+              <a class="btn" [href]="learnHref">Open Learn</a>
+            </div>
+          </div>
+        } @else {
+          @if (route() !== '') {
+            <app-model-picker [(route)]="route" [(modelId)]="modelId" />
+          }
+          <app-composer
+            placeholder="Start a conversation…"
+            [autofocus]="true"
+            [disabled]="starting()"
+            (send)="start($event)"
+          />
         }
-        <app-composer
-          placeholder="Start a conversation…"
-          [autofocus]="true"
-          [disabled]="starting()"
-          (send)="start($event)"
-        />
       </section>
 
       <section class="home-list">
@@ -79,6 +101,19 @@ export class HomePage {
   protected readonly route = signal('');
   protected readonly modelId = signal('');
   protected readonly starting = signal(false);
+  protected readonly learnHref = APP_BASES.simple;
+
+  /**
+   * Power is read-only throughout: every route's funding needs the
+   * membership the user lacks (and no Tangent credit is left), so a new
+   * conversation could never get a reply. The notice's words, or null.
+   */
+  protected readonly readOnly = computed(() => {
+    const m = this.store.membership();
+    if (!m || !this.store.providersLoaded() || this.store.lockedFundings().size === 0) return null;
+    if (this.store.canGenerate()) return null;
+    return readOnlyText(m);
+  });
 
   constructor() {
     effect(() => {

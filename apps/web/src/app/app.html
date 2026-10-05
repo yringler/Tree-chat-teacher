@@ -1,7 +1,7 @@
 @if (loginPage) {
   <router-outlet />
 } @else {
-  <div class="app" [class.drawer-open]="ui.drawerOpen()" [attr.inert]="gate() ? '' : null">
+  <div class="app" [class.drawer-open]="ui.drawerOpen()">
     <aside class="sidebar" id="sidebar" aria-label="Conversations">
       <app-sidebar />
     </aside>
@@ -19,18 +19,7 @@
     </main>
   </div>
 
-  <app-dialog-host [attr.inert]="gate() ? '' : null" />
-
-  @if (gate(); as membership) {
-    <app-membership-gate
-      [membership]="membership"
-      billingPath="/billing"
-      [learnHref]="learnHref"
-      [freeTier]="store.membershipDismissible() ? 'Continue with my Tangent credit' : null"
-      (redeemed)="store.membership.set($event)"
-      (freeTierChosen)="store.dismissMembershipGate()"
-    />
-  }
+  <app-dialog-host />
 }
 
 <div class="toasts" role="status" aria-live="polite">
