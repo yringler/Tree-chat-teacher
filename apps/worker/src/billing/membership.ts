@@ -110,6 +110,16 @@ export async function assertMember(env: AppEnv, account: AccountContext): Promis
   if (membership.required && membership.status === 'inactive') throw new MembershipRequiredError();
 }
 
+/**
+ * True when the user holds a membership that counts: required (the fee is on)
+ * and paid or waived. Off, nobody is a member, so the pool's member tier
+ * (higher caps) is unused and everyone gets the free tier.
+ */
+export async function isMember(env: AppEnv, account: AccountContext): Promise<boolean> {
+  const membership = await membershipFor(env, account);
+  return membership.required && membership.status !== 'inactive';
+}
+
 function membershipProvider(env: AppEnv): PaymentProvider {
   const provider = paymentProvider(env);
   if (!provider?.capabilities.membership)

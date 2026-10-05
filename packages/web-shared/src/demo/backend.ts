@@ -95,7 +95,7 @@ export const DEMO_POOL_STATUS: PoolStatusResponse = {
 const DEMO_POOL_ME: Omit<PoolMeResponse, 'personalAvailableMicros'> = {
   available: false,
   verified: true,
-  supporter: false,
+  member: false,
   suspended: false,
   caps: {
     requestsPerDay: 0,

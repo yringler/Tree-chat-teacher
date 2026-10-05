@@ -1,5 +1,5 @@
 // Abuse controls of the community pool (docs/pool/PLAN.md §S4): daily caps,
-// the supporter tier, per-minute rate limits per user and per network, the
+// the member tier, per-minute rate limits per user and per network, the
 // per-network and global daily ceilings, the account gates (suspension,
 // Turnstile, one identity per mailbox, account age), the consumption report,
 // and the absence of an OpenAI-compatible endpoint. HTTP end to end, each
@@ -20,8 +20,8 @@ import { normaliseEmail, poolIdentity } from '../src/pool/identity.js';
 import { poolBank } from '../src/pool/ids.js';
 import { resolvePoolParams } from '../src/pool/params.js';
 import { ceilingHoldMicros } from '../src/pool/pricing.js';
-import { uniq } from './mocks/billing-helpers.js';
-import { LONG_AGO, poolAccess, poolReadyUser, taggingSettled } from './pool-helpers.js';
+import { insertSubscription, uniq } from './mocks/billing-helpers.js';
+import { poolAccess, poolReadyUser, taggingSettled } from './pool-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
 
 const env = rawEnv as unknown as AppEnv;
@@ -30,9 +30,9 @@ const PARAMS = await resolvePoolParams(env, null);
 const PRICE = PARAMS.price!;
 /** The reply's ceiling hold on a test pool (POOL_MAX_OUTPUT_TOKENS 2048 in vitest.config.ts). */
 const CEILING = ceilingHoldMicros(PRICE, 2048, PRICE.feeBps);
-/** POOL_FREE_REQUESTS_PER_DAY and POOL_SUPPORTER_REQUESTS_PER_DAY in vitest.config.ts. */
+/** POOL_FREE_REQUESTS_PER_DAY and POOL_MEMBER_REQUESTS_PER_DAY in vitest.config.ts. */
 const FREE_REPLIES = 3;
-const SUPPORTER_REPLIES = 6;
+const MEMBER_REPLIES = 6;
 
 type User = Awaited<ReturnType<typeof poolReadyUser>>;
 
@@ -135,24 +135,6 @@ async function purchase(
     .run();
 }
 
-/** A refund of a pool purchase whose debit was clamped to 0 (the pool was drained first). */
-async function clampedPoolRefund(userId: string, poolId: string, grossMicros: number) {
-  await env.DB.prepare(
-    `INSERT INTO credit_grants (id, account_id, kind, amount_micros, gross_micros, user_id, provider_ref, note, created_at)
-     VALUES (?, ?, 'refund', 0, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      uniq('grant'),
-      poolId,
-      -grossMicros,
-      userId,
-      uniq('re'),
-      `requested=${grossMicros};shortfall=${grossMicros}`,
-      new Date().toISOString(),
-    )
-    .run();
-}
-
 describe('daily caps', () => {
   it('the free tier stops at POOL_FREE_REQUESTS_PER_DAY: 429 `pool_cap_reached`, reset at 00:00 UTC', async () => {
     const u = await poolReadyUser();
@@ -163,8 +145,8 @@ describe('daily caps', () => {
       reason: 'cap_requests',
       limit: FREE_REPLIES,
       resetAt: nextUtcMidnight(),
-      supporter: false,
-      supporterLimit: SUPPORTER_REPLIES,
+      member: false,
+      memberLimit: MEMBER_REPLIES,
     });
     expect(await nodeCount(u, treeId)).toBe(2 * FREE_REPLIES);
   });
@@ -181,68 +163,56 @@ describe('daily caps', () => {
       reason: 'cap_spend',
       limit: CEILING + 1_000,
       resetAt: nextUtcMidnight(),
-      supporter: false,
+      member: false,
     });
   });
 });
 
-describe('supporter escalation', () => {
-  it('a personal purchase lifts the caps; a full refund drops them again', async () => {
-    const u = await poolReadyUser();
+describe('member escalation', () => {
+  const FEE = { ANNUAL_FEE_ENABLED: 'true' };
+
+  it('a membership lifts the caps; a lapsed one drops them again', async () => {
+    const u = await poolReadyUser({ env: FEE });
     const { branchId } = await newTree(u);
     for (let i = 0; i < FREE_REPLIES; i++) await sendOk(u, branchId, `Q${i}`);
-    expect((await refused(await send(u, branchId), 429, 'pool_cap_reached')).supporter).toBe(false);
+    expect((await refused(await send(u, branchId), 429, 'pool_cap_reached')).member).toBe(false);
 
-    await purchase(u.userId, { grossMicros: 5_000_000 });
-    for (let i = FREE_REPLIES; i < SUPPORTER_REPLIES; i++) await sendOk(u, branchId, `Q${i}`);
+    const ref = await insertSubscription(env, u.userId, 'active');
+    for (let i = FREE_REPLIES; i < MEMBER_REPLIES; i++) await sendOk(u, branchId, `Q${i}`);
     expect(await refused(await send(u, branchId), 429, 'pool_cap_reached')).toMatchObject({
       reason: 'cap_requests',
-      limit: SUPPORTER_REPLIES,
-      supporter: true,
+      limit: MEMBER_REPLIES,
+      member: true,
     });
 
-    // Refunded in full: net purchases are 0, so the free caps apply again (already used up).
-    await env.DB.prepare(
-      `INSERT INTO credit_grants (id, account_id, kind, amount_micros, gross_micros, user_id, provider_ref, created_at)
-       VALUES (?, ?, 'refund', -5000000, -5000000, ?, ?, ?)`,
-    )
-      .bind(uniq('grant'), `u_${u.userId}`, u.userId, uniq('re'), new Date().toISOString())
+    // Canceled: the free caps apply again (already used up).
+    await env.DB.prepare(`UPDATE billing_subscriptions SET status = 'canceled' WHERE ref = ?`)
+      .bind(ref)
       .run();
     expect(await refused(await send(u, branchId), 429, 'pool_cap_reached')).toMatchObject({
       limit: FREE_REPLIES,
-      supporter: false,
+      member: false,
     });
   });
 
-  it('a pool purchase counts too, and its refund drops the tier even when the debit was clamped to 0', async () => {
-    const u = await poolReadyUser();
+  it('buying credit is not a membership: a credit buyer keeps the free caps', async () => {
+    const u = await poolReadyUser({ env: FEE });
     const { branchId } = await newTree(u);
     for (let i = 0; i < FREE_REPLIES; i++) await sendOk(u, branchId, `Q${i}`);
     await purchase(u.userId, { grossMicros: 10_000_000, accountId: u.poolId });
-    await sendOk(u, branchId, 'As a supporter');
-
-    await clampedPoolRefund(u.userId, u.poolId, 10_000_000);
     expect(await refused(await send(u, branchId), 429, 'pool_cap_reached')).toMatchObject({
       reason: 'cap_requests',
-      supporter: false,
+      member: false,
     });
   });
 
-  it('counts a purchase for life by default; SUPPORTER_WINDOW_MONTHS limits it', async () => {
-    const lifetime = await poolReadyUser({ env: { POOL_FREE_REQUESTS_PER_DAY: '0' } });
-    await purchase(lifetime.userId, { createdAt: LONG_AGO });
-    await sendOk(lifetime, (await newTree(lifetime)).branchId);
-
-    const windowed = await poolReadyUser({
-      env: { POOL_FREE_REQUESTS_PER_DAY: '0', SUPPORTER_WINDOW_MONTHS: '12' },
+  it('with the fee off nobody is a member, whatever they hold', async () => {
+    const u = await poolReadyUser({ env: { POOL_FREE_REQUESTS_PER_DAY: '0' } });
+    await insertSubscription(env, u.userId, 'active');
+    const { branchId } = await newTree(u);
+    expect(await refused(await send(u, branchId), 429, 'pool_cap_reached')).toMatchObject({
+      member: false,
     });
-    await purchase(windowed.userId, { createdAt: LONG_AGO });
-    const { branchId } = await newTree(windowed);
-    expect(await refused(await send(windowed, branchId), 429, 'pool_cap_reached')).toMatchObject({
-      supporter: false,
-    });
-    await purchase(windowed.userId, { grossMicros: 1 });
-    await sendOk(windowed, branchId);
   });
 });
 
@@ -254,7 +224,7 @@ describe('rate limits', { timeout: 40_000 }, () => {
     await sendOk(u, branchId, 'One');
     await sendOk(u, branchId, 'Two');
     const pool = await refused(await send(u, branchId, 'Three'), 429, 'pool_cap_reached');
-    expect(pool).toMatchObject({ reason: 'rate', limit: 2, supporter: false });
+    expect(pool).toMatchObject({ reason: 'rate', limit: 2, member: false });
     const reset = Date.parse(pool.resetAt!);
     expect(reset % 60_000).toBe(0);
     expect(reset - Date.now()).toBeLessThanOrEqual(60_000);
@@ -338,16 +308,19 @@ describe('daily ceilings beyond the user', () => {
     ).toMatchObject({ reason: 'cap_ip', limit: 2, resetAt: nextUtcMidnight() });
   });
 
-  it("the free tier's global ceiling refuses with `cap_global`; supporters aren't counted against it", async () => {
-    const caps = { POOL_FREE_DAILY_GLOBAL_MICROS: String(CEILING + 100) };
+  it("the free tier's global ceiling refuses with `cap_global`; members aren't counted against it", async () => {
+    const caps = {
+      POOL_FREE_DAILY_GLOBAL_MICROS: String(CEILING + 100),
+      ANNUAL_FEE_ENABLED: 'true',
+    };
     const a = await poolReadyUser({ env: caps });
     const b = await poolReadyUser({ env: caps, poolId: a.poolId });
     const s = await poolReadyUser({ env: caps, poolId: a.poolId });
-    await purchase(s.userId);
+    await insertSubscription(env, s.userId, 'active');
     await sendOk(a, (await newTree(a)).branchId);
     expect(
       await refused(await send(b, (await newTree(b)).branchId), 429, 'pool_cap_reached'),
-    ).toMatchObject({ reason: 'cap_global', limit: CEILING + 100, supporter: false });
+    ).toMatchObject({ reason: 'cap_global', limit: CEILING + 100, member: false });
     await sendOk(s, (await newTree(s)).branchId);
   });
 });
@@ -375,8 +348,8 @@ describe('account gates', () => {
       reason: 'suspended',
       limit: null,
       resetAt: null,
-      supporter: false,
-      supporterLimit: null,
+      member: false,
+      memberLimit: null,
     });
     expect(await nodeCount(u, treeId)).toBe(0);
     // Only the pool is off: the same user still has their trees and other funding.

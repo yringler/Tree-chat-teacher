@@ -7,7 +7,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getBalance, grantCredit } from '../src/billing/ledger.js';
 import { applyPaymentEvent, RetryLaterError } from '../src/billing/payments/apply.js';
 import type { AppEnv } from '../src/env.js';
-import { isSupporter } from '../src/pool/supporter.js';
 import {
   accruePoolUsageShare,
   membershipShareMicros,
@@ -73,9 +72,8 @@ describe('membership payments', () => {
         provider_ref: `${renewal.paymentRef}:pool-share`,
       },
     ]);
-    // The member's included credit, as before; the share makes no one a supporter.
+    // The member's included credit, as before.
     expect(await balance(`u_${userId}`)).toBe(4_000_000);
-    expect(await isSupporter(env.DB, userId, new Date(), null)).toBe(false);
   });
 
   it('wait for the fee (after the included credit), and add nothing while off or at 0%', async () => {

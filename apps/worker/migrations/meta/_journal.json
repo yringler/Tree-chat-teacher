@@ -134,6 +134,13 @@
       "when": 1791218991677,
       "tag": "0018_payment_ref",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1791221803429,
+      "tag": "0019_member_tier",
+      "breakpoints": true
     }
   ]
 }

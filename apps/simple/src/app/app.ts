@@ -86,7 +86,9 @@ import { UiStore } from './state/ui-store';
           [membership]="membership"
           [appName]="brand"
           billingPath="/learn/billing"
+          [freeTier]="account.freeTierOffered()"
           (redeemed)="account.setMembership($event)"
+          (freeTierChosen)="account.useFreeTier()"
         />
       }
     }

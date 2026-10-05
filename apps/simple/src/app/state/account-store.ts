@@ -35,8 +35,21 @@ export class AccountStore {
   readonly poolMe = signal<PoolMeResponse | null>(null);
   private readonly demo = inject(DEMO_MODE, { optional: true }) ?? false;
 
-  /** Generating needs a membership the learner doesn't have: the shell shows the gate. */
-  readonly membershipBlocked = computed(() => membershipBlocks(this.membership()));
+  /** The server refused a reply for want of a membership (402), so the gate shows even beside the pool. */
+  private readonly gateForced = signal(false);
+
+  /**
+   * Generating needs a membership the learner doesn't have: the shell shows
+   * the gate. With the pool on, a non-member is on the free tier instead, and
+   * sees the gate only after a members-only reply (own key) was refused.
+   */
+  readonly membershipBlocked = computed(
+    () =>
+      membershipBlocks(this.membership()) && (this.gateForced() || !this.payment.poolAvailable()),
+  );
+
+  /** The gate may offer the free tier instead of subscribing: the pool is on. */
+  readonly freeTierOffered = computed(() => !this.demo && this.payment.poolAvailable());
 
   /** True when the learner's own OpenRouter key is stored in this browser. */
   readonly hasOwnKey = computed(
@@ -101,6 +114,9 @@ export class AccountStore {
     () => !this.demo && this.payment.builtInCredit() && this.billing()?.topUpsEnabled !== false,
   );
 
+  /** The membership is sold here and the learner has none: the pool notice offers it. */
+  readonly membershipOnSale = computed(() => !this.demo && membershipBlocks(this.membership()));
+
   /** True when the available credit is used up (the pill turns into a warning). */
   readonly lowBalance = computed(() => {
     const b = this.billing();
@@ -110,19 +126,19 @@ export class AccountStore {
   /** Records the caller, their membership and whether this server sells credit. */
   setMe(me: MeResponse): void {
     this.me.set(me);
-    this.membership.set(me.membership);
+    this.useMembership(me.membership);
     this.payment.builtInCredit.set(me.builtInCredit);
   }
 
   /** A fresh billing summary (also from the billing page): balance and membership. */
   applyBilling(summary: BillingSummary): void {
     this.billing.set(summary);
-    this.membership.set(summary.membership);
+    this.useMembership(summary.membership);
   }
 
   /** A redeemed code (the gate's `redeemed`) or any other new membership state. */
   setMembership(membership: MembershipInfo): void {
-    this.membership.set(membership);
+    this.useMembership(membership);
     this.billing.update((b) => (b ? { ...b, membership } : b));
   }
 
@@ -132,8 +148,21 @@ export class AccountStore {
    */
   membershipRequired(): void {
     const current = this.membership();
-    if (current) this.membership.set({ ...current, required: true, status: 'inactive' });
+    if (current) this.useMembership({ ...current, required: true, status: 'inactive' });
+    this.gateForced.set(true);
     void this.refreshBalance();
+  }
+
+  /** The gate's "use the community pool": replies move to the pool's free tier. */
+  useFreeTier(): void {
+    this.gateForced.set(false);
+    this.payment.choose('pool');
+    void this.switchToPool();
+  }
+
+  private useMembership(membership: MembershipInfo): void {
+    this.membership.set(membership);
+    this.payment.member.set(!membershipBlocks(membership));
   }
 
   /** Re-reads the balance and membership; failures keep the last known value. */

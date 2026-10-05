@@ -114,6 +114,7 @@
       <app-pool-block-notice
         [block]="block"
         [creditOpen]="account.creditOnSale()"
+        [membershipOpen]="account.membershipOnSale()"
         billingPath="/billing"
         (dismissed)="store.dismissPoolBlock()"
       />

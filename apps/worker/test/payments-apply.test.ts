@@ -10,7 +10,6 @@ import {
 import { customerRefFor } from '../src/billing/payments/customers.js';
 import { getBalance } from '../src/billing/ledger.js';
 import type { AppEnv } from '../src/env.js';
-import { isSupporter } from '../src/pool/supporter.js';
 import { grantDetailsFor, insertUser, uniq } from './mocks/billing-helpers.js';
 import { membership, membershipPaid, paid } from './mocks/payment-events.js';
 
@@ -51,7 +50,6 @@ describe('payment.succeeded: credit purchases', () => {
         provider_ref: e.paymentRef,
       },
     ]);
-    expect(await isSupporter(env.DB, userId, new Date(), null)).toBe(true);
   });
 
   it('credits the ledger the checkout named only when it is a personal one', async () => {

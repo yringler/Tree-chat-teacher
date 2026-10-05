@@ -7,7 +7,7 @@ import type { UsagePurpose } from '@tangent/shared';
 import { chargeMicros } from './pricing.js';
 
 export type UsageFunding = 'personal' | 'pool';
-export type PoolTier = 'free' | 'supporter';
+export type PoolTier = 'free' | 'member';
 
 /**
  * How a row settled. `cost`: the cost the stream reported; `generation`: from

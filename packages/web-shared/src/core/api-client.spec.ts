@@ -247,8 +247,8 @@ describe('ApiClient community pool', () => {
       reason: 'cap_requests',
       limit: 30,
       resetAt: '2026-10-06T00:00:00.000Z',
-      supporter: false,
-      supporterLimit: 150,
+      member: false,
+      memberLimit: 150,
     };
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ error: { code: 'pool_cap_reached', message: 'Cap', pool } }, 429),

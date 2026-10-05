@@ -27,7 +27,7 @@ import { poolBank } from '../pool/ids.js';
 import { poolAdmitRequest, poolBlockDetails } from '../pool/params.js';
 import { poolAvailable, registryFor } from '../services.js';
 import { getBalance } from './ledger.js';
-import { assertMember } from './membership.js';
+import { assertMember, membershipFor } from './membership.js';
 import { assertCanSpend, usageHoldMicros } from './service.js';
 
 /** What a generating request is about to do. */
@@ -48,9 +48,11 @@ export interface GenerateCheck {
 
 /**
  * Who pays for a generating request, decided by the server. A Learn send or
- * context resolve on personal credit that can't cover one more call
- * (`available < USAGE_HOLD_MICROS`) moves to the community pool when the pool
- * is on; a review never does, and keeps its 402 `payment_required`.
+ * context resolve on personal credit moves to the community pool when the pool
+ * is on and the caller either can't cover one more call
+ * (`available < USAGE_HOLD_MICROS`) or may not spend credit (no membership
+ * while the fee is on: the free tier). A review never moves, and keeps its
+ * 402 `payment_required` or `membership_required`.
  */
 export async function resolveFunding(
   c: AppContext,
@@ -60,8 +62,12 @@ export async function resolveFunding(
   if (purpose === 'review' || account.mode !== 'simple' || account.funding !== 'personal')
     return account;
   if (!account.userId || !poolAvailable(c.env)) return account;
-  const { balanceMicros, heldMicros } = await getBalance(c.env.DB, account.billingAccountId);
-  if (balanceMicros - heldMicros >= usageHoldMicros(c.env)) return account;
+  const [{ balanceMicros, heldMicros }, member] = await Promise.all([
+    getBalance(c.env.DB, account.billingAccountId),
+    membershipFor(c.env, account),
+  ]);
+  const mayUseCredit = !member.required || member.status !== 'inactive';
+  if (mayUseCredit && balanceMicros - heldMicros >= usageHoldMicros(c.env)) return account;
   return withPoolParams(c.env, account, clientIp(c.req.raw.headers), true);
 }
 
@@ -129,20 +135,20 @@ export async function assertPoolAccess(
 }
 
 /**
- * Checks that the caller may generate, in order: the membership; who pays
- * (`resolveFunding`); then either the pool's own rules (no reviews, the
+ * Checks that the caller may generate, in order: who pays (`resolveFunding`);
+ * then either the pool's own rules, which need no membership (the free tier: no reviews, the
  * message length, the account gates of `assertPoolAccess`, the acknowledgment
  * of the current pool notice (403 `pool_consent_required`, gate step 5), and
  * for a context resolve PoolBank's rate check; a reply itself is reserved, or refused with
  * 402/429, by the tree's Durable Object before any node is written) or the
- * existing checks: allowed model, credit, rate limit. Sets `c.var.account` to
+ * existing checks: the membership (own key and personal credit are members-only once
+ * the fee is on), allowed model, credit, rate limit. Sets `c.var.account` to
  * the account that will pay, so the caller must build its ChatService after this.
  */
 export async function assertCanGenerate(
   c: AppContext,
   check: GenerateCheck,
 ): Promise<AccountContext> {
-  await assertMember(c.env, c.var.account);
   const account = await resolveFunding(c, c.var.account, check.purpose);
   c.set('account', account);
 
@@ -176,6 +182,7 @@ export async function assertCanGenerate(
     return account;
   }
 
+  await assertMember(c.env, account);
   if (check.model !== null) {
     const keys = check.keys?.state === 'ok' ? check.keys.keys : undefined;
     assertGenerationAllowed(registryFor(c.env, account, keys), check.providerId, check.model, {

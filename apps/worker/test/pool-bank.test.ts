@@ -43,9 +43,9 @@ const FAST: UsageMeterOptions = { retryDelaysMs: [5, 5], settleRetryDelaysMs: [5
 /** Caps that never bind, unless a test lowers one. */
 const OPEN_CAPS: PoolCaps = {
   free: { requestsPerDay: 1_000_000, spendMicrosPerDay: 1e12 },
-  supporter: { requestsPerDay: 1_000_000, spendMicrosPerDay: 1e12, windowMonths: null },
+  member: { requestsPerDay: 1_000_000, spendMicrosPerDay: 1e12 },
   globalFree: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 1e9 },
-  globalSupporter: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 1e9 },
+  globalMember: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 1e9 },
   ip: { requestsPerDay: 1_000_000, spendMicrosPerDay: 1e12 },
 };
 const NO_BREAKER = { windowMs: DAY, maxMicros: 1e12 };
@@ -74,7 +74,7 @@ async function fund(poolId: string, micros: number, createdAt = LONG_AGO): Promi
     .run();
 }
 
-/** A pool purchase by `userId` (makes them a supporter). */
+/** A pool purchase by `userId` (makes them a member). */
 async function purchase(userId: string, grossMicros = 5_000_000): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO credit_grants (id, account_id, kind, amount_micros, gross_micros, user_id, provider_ref, created_at)
@@ -103,6 +103,7 @@ function request(poolId: string, overrides: Partial<PoolReserveRequest> = {}): P
     poolId,
     userId: uniq('user'),
     ipKey: null,
+    member: false,
     purpose: 'reply',
     treeId: 'tree_1',
     branchId: 'branch_1',
@@ -322,7 +323,7 @@ describe('PoolBank: the never-negative invariant (spec test)', () => {
 });
 
 describe('PoolBank: caps inside reserve', () => {
-  it('refuses a free user past their daily replies, with the reset and the supporter cap', async () => {
+  it('refuses a free user past their daily replies, with the reset and the member cap', async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 1_000_000);
@@ -341,8 +342,8 @@ describe('PoolBank: caps inside reserve', () => {
       reason: 'cap_requests',
       resetAt: tomorrow.toISOString(),
       limit: 2,
-      supporter: false,
-      supporterLimit: 1_000_000,
+      member: false,
+      memberLimit: 1_000_000,
     });
     // A released reply (nothing was sent) gives the request back.
     const reply = (await poolRows(poolId)).find((r) => r.purpose === 'reply')!;
@@ -403,7 +404,7 @@ describe('PoolBank: caps inside reserve', () => {
     });
   });
 
-  it("caps the free tier's spend at a share of the day's base; supporters and tagging are not counted", async () => {
+  it("caps the free tier's spend at a share of the day's base; members and tagging are not counted", async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
@@ -421,11 +422,9 @@ describe('PoolBank: caps inside reserve', () => {
       reason: 'cap_global',
       limit: 10_000,
     });
-    const supporter = uniq('user');
-    await purchase(supporter);
-    expect(await reserve(poolId, { caps, userId: supporter })).toMatchObject({
+    expect(await reserve(poolId, { caps, member: true })).toMatchObject({
       ok: true,
-      tier: 'supporter',
+      tier: 'member',
     });
     // The fixed ceiling binds when it is lower.
     const low: PoolCaps = {
@@ -456,29 +455,28 @@ describe('PoolBank: caps inside reserve', () => {
     });
   });
 
-  it('caps all supporters together at their own share of the day; the free tier is apart', async () => {
+  it('caps all members together at their own share of the day; the free tier is apart', async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 1_000_000);
     const caps: PoolCaps = {
       ...OPEN_CAPS,
       globalFree: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 }, // 10_000
-      globalSupporter: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 }, // 10_000
+      globalMember: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 }, // 10_000
     };
     const farm = [uniq('user'), uniq('user'), uniq('user'), uniq('user')];
-    for (const userId of farm) await purchase(userId);
-    for (const userId of farm.slice(0, 3)) await reserved(poolId, { caps, userId }); // 9_000
-    expect(await reserve(poolId, { caps, userId: farm[3]! })).toMatchObject({
+    for (const userId of farm.slice(0, 3)) await reserved(poolId, { caps, userId, member: true }); // 9_000
+    expect(await reserve(poolId, { caps, userId: farm[3]!, member: true })).toMatchObject({
       ok: false,
       reason: 'cap_global',
-      supporter: true,
+      member: true,
       limit: 10_000,
     });
-    // Supporters' spend leaves the free tier's ceiling alone.
+    // Members' spend leaves the free tier's ceiling alone.
     expect(await reserve(poolId, { caps })).toMatchObject({ ok: true, tier: 'free' });
   });
 
-  it('computes the supporter tier from D1: a purchase switches tiers with the same arguments', async () => {
+  it('takes the tier from the request: a membership switches tiers, a purchase does not', async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 1_000_000);
@@ -486,20 +484,25 @@ describe('PoolBank: caps inside reserve', () => {
     const caps: PoolCaps = {
       ...OPEN_CAPS,
       free: { requestsPerDay: 1, spendMicrosPerDay: 1e12 },
-      supporter: { requestsPerDay: 3, spendMicrosPerDay: 1e12, windowMonths: null },
+      member: { requestsPerDay: 3, spendMicrosPerDay: 1e12 },
     };
     expect(await reserve(poolId, { userId, caps })).toMatchObject({ ok: true, tier: 'free' });
     expect(await reserve(poolId, { userId, caps })).toMatchObject({
       ok: false,
       reason: 'cap_requests',
-      supporter: false,
+      member: false,
       limit: 1,
-      supporterLimit: 3,
+      memberLimit: 3,
     });
+    // Buying credit is not a membership.
     await purchase(userId);
-    expect(await reserve(poolId, { userId, caps })).toMatchObject({ ok: true, tier: 'supporter' });
+    expect(await reserve(poolId, { userId, caps })).toMatchObject({ ok: false, member: false });
+    expect(await reserve(poolId, { userId, caps, member: true })).toMatchObject({
+      ok: true,
+      tier: 'member',
+    });
     const rows = await poolRows(poolId);
-    expect(rows.map((r) => r.tier)).toEqual(['free', 'supporter']);
+    expect(rows.map((r) => r.tier)).toEqual(['free', 'member']);
   });
 
   it('refuses what the pool cannot cover as empty, and records the reservation row', async () => {
@@ -510,8 +513,8 @@ describe('PoolBank: caps inside reserve', () => {
       reason: 'empty',
       resetAt: null,
       limit: null,
-      supporter: false,
-      supporterLimit: null,
+      member: false,
+      memberLimit: null,
     });
     await fund(poolId, 3_000);
     const userId = uniq('user');
@@ -1169,15 +1172,14 @@ describe('PoolBank: balance checkpoint', () => {
       await getBalance(env.DB, poolId),
     );
 
-    // Reservations read the checkpoint plus newer rows: 48_000 available (a supporter, so the
+    // Reservations read the checkpoint plus newer rows: 48_000 available (a member, so the
     // free tier's share of the morning balance doesn't bind first).
     const userId = uniq('user');
-    await purchase(userId);
-    expect(await reserve(poolId, { userId, holdMicros: 48_001 })).toMatchObject({
+    expect(await reserve(poolId, { userId, member: true, holdMicros: 48_001 })).toMatchObject({
       ok: false,
       reason: 'empty',
     });
-    expect((await reserve(poolId, { userId, holdMicros: 48_000 })).ok).toBe(true);
+    expect((await reserve(poolId, { userId, member: true, holdMicros: 48_000 })).ok).toBe(true);
     // Verified once a day: a second run neither advances nor re-verifies.
     expect(await stub.maintain({ poolId, giveUpMs: GIVE_UP, now })).toMatchObject({
       advanced: false,

@@ -17,7 +17,6 @@ import {
   paid,
   refunded,
 } from './mocks/payment-events.js';
-import { isSupporter } from '../src/pool/supporter.js';
 import { fundPool, poolAccess } from './pool-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
@@ -93,14 +92,11 @@ describe('refunds and disputes of the same purchase', () => {
     const lateDispute = disputed('dispute.opened', a.paymentRef, 1000);
     expect(await apply(lateDispute)).toBe('applied');
     expect(await balance(`u_${userId}`)).toBe(-800_000);
-    // Net purchases count what was taken back, not what was asked: $5 more makes a supporter.
     await apply(paid({ userId, netCents: 500, feeCents: 0 }));
-    expect(await isSupporter(env.DB, userId, new Date(), null)).toBe(true);
     // Won: it took nothing, so it gives nothing back.
     const lateWon = disputed('dispute.won', a.paymentRef, 1000, lateDispute.disputeRef);
     expect(await apply(lateWon)).toBe('applied');
     expect(await balance(`u_${userId}`)).toBe(4_200_000);
-    expect(await isSupporter(env.DB, userId, new Date(), null)).toBe(true);
 
     // Disputed, then 40% refunded (nothing more to take), then the dispute is won:
     // the refund's $4 stays taken.
@@ -117,7 +113,6 @@ describe('refunds and disputes of the same purchase', () => {
     await apply(disputed('dispute.won', b.paymentRef, 1000, ref));
     await apply(disputed('dispute.opened', b.paymentRef, 1000, ref));
     expect(await balance(`u_${other}`)).toBe(5_200_000);
-    expect(await isSupporter(env.DB, other, new Date(), null)).toBe(true);
   });
 
   it('take back at most what a legacy pool purchase credited', async () => {

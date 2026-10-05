@@ -467,7 +467,7 @@ export const usageEvents = sqliteTable(
     /** Pool rows: a daily-rotating keyed hash of the caller's network (pool/ids.ts `ipKey`). */
     ipKey: text('ip_key'),
     /** Pool rows: the caller's cap tier when the call was reserved. */
-    tier: text('tier', { enum: ['free', 'supporter'] }),
+    tier: text('tier', { enum: ['free', 'member'] }),
     purpose: text('purpose', {
       enum: ['reply', 'summary', 'title', 'review', 'tagging', 'other'],
     }).notNull(),

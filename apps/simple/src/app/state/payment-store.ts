@@ -39,6 +39,12 @@ export class PaymentStore {
    * still loading, or failed, never moves a key user onto the pool.
    */
   readonly hasOwnKey = signal<boolean | null>(null);
+  /**
+   * False when the membership is required and the learner has none (from
+   * AccountStore): own keys and credit are members-only then, so replies run
+   * on the pool (the free tier) unless the learner explicitly picked their key.
+   */
+  readonly member = signal(true);
   /** The learner's explicit choice; null until they pick one (credit is the default where sold). */
   private readonly chosen = signal<LearnPayment | null>(stored());
   /** The demo always runs on its pretend credit, whatever this browser chose for real. */
@@ -46,7 +52,7 @@ export class PaymentStore {
 
   /**
    * What replies actually run on: the own key when chosen; the pool when
-   * chosen and on; otherwise credit if sold, else a saved (or not yet
+   * chosen and on, or for a non-member while it is on; otherwise credit if sold, else a saved (or not yet
    * known) own key (so a key user who never picked never lands on the pool),
    * else the pool, else the own key.
    */
@@ -57,6 +63,7 @@ export class PaymentStore {
     const pool = this.poolAvailable();
     if (chosen === 'own-key') return 'own-key';
     if (chosen === 'pool' && pool) return 'pool';
+    if (!this.member() && pool) return 'pool';
     if (credit) return 'credit';
     if (this.hasOwnKey() !== false) return 'own-key';
     return pool ? 'pool' : 'own-key';

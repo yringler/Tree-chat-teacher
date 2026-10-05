@@ -70,7 +70,7 @@ const POOL: PoolStatusResponse = {
 const POOL_ME: PoolMeResponse = {
   available: true,
   verified: true,
-  supporter: false,
+  member: false,
   suspended: false,
   caps: {
     requestsPerDay: 30,
@@ -148,6 +148,28 @@ describe('AccountStore membership', () => {
     await vi.waitFor(() => expect(api.billing).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(account.billing()).not.toBeNull());
     expect(account.membershipBlocked()).toBe(true);
+  });
+
+  it('with the pool on, a non-member is on the free tier: no gate, replies on the pool', async () => {
+    const { account } = setup(async () => summary(membership()));
+    account.setMe(me(membership()));
+    await account.refreshPool();
+    expect(account.membershipBlocked()).toBe(false);
+    expect(account.freeTierOffered()).toBe(true);
+    expect(account.membershipOnSale()).toBe(true);
+    expect(account.payment.payment()).toBe('pool');
+    // A members-only reply (own key) was refused: the gate shows, offering the pool.
+    account.payment.choose('own-key');
+    account.membershipRequired();
+    expect(account.membershipBlocked()).toBe(true);
+    account.useFreeTier();
+    expect(account.membershipBlocked()).toBe(false);
+    expect(account.payment.payment()).toBe('pool');
+    // Members choose freely again.
+    account.setMembership(membership({ status: 'active' }));
+    expect(account.membershipOnSale()).toBe(false);
+    account.payment.choose('credit');
+    expect(account.payment.payment()).toBe('credit');
   });
 
   it('keeps the last known state when billing cannot be read', async () => {

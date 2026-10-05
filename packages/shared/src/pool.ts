@@ -47,10 +47,10 @@ export const poolBlockDetailsSchema = z.object({
   limit: z.number().int().nullable(),
   /** When the cap resets (the next 00:00 UTC, ISO); null when no cap applies. */
   resetAt: z.string().nullable(),
-  /** Whether the user has the supporter caps. */
-  supporter: z.boolean(),
-  /** The same cap for supporters, for "supporters get more"; null when it doesn't differ. */
-  supporterLimit: z.number().int().nullable(),
+  /** Whether the user has the member caps. */
+  member: z.boolean(),
+  /** The same cap for members, for "members get more"; null when it doesn't differ. */
+  memberLimit: z.number().int().nullable(),
 });
 export type PoolBlockDetails = z.infer<typeof poolBlockDetailsSchema>;
 
@@ -125,7 +125,7 @@ export interface PoolMeResponse {
   /** A Turnstile pass is on record (otherwise the first pool use asks for one). */
   verified: boolean;
   /** Net purchases above $0: the higher caps. */
-  supporter: boolean;
+  member: boolean;
   suspended: boolean;
   caps: {
     requestsPerDay: number;

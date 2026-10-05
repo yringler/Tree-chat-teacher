@@ -124,7 +124,7 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *                                                `duplicate_identity` when another account uses the
  *                                                same mailbox)
  *   GET  /api/pool/me                         -> PoolMeResponse (today's caps and use, verified,
- *                                                supporter, the caller's own credit, the notice
+ *                                                member, the caller's own credit, the notice
  *                                                version acknowledged and the current one)
  *   POST /api/pool/consent PoolConsentRequest -> PoolConsentResponse (same-origin only; records the
  *                                                acknowledgment of POOL_NOTICE_TEXT; 409 `conflict`

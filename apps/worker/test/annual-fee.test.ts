@@ -2,8 +2,9 @@
 // required to generate only while the flag is on. Off (the default), the
 // membership code paths stay but require nothing, whatever the payment
 // provider sells: any signed-in user may learn from the pool
-// (within its caps) and buy personal credit. On, every generating route,
-// pool sends included, answers 402 `membership_required` until it is paid.
+// (within its caps) and buy personal credit. On, the pool stays open as the
+// free tier, while own keys, personal credit and buying credit answer 402
+// `membership_required` until it is paid; members get the pool's member caps.
 import type {
   ApiError,
   CheckoutResponse,
@@ -19,6 +20,7 @@ import { appConfig } from '../src/config.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
 import { makeNode } from './fixtures.js';
+import { insertSubscription } from './mocks/billing-helpers.js';
 import { poolReadyUser } from './pool-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
@@ -136,40 +138,96 @@ describe('ANNUAL_FEE_ENABLED', () => {
   });
 
   describe('on, with the membership price set', () => {
-    it('402 membership_required on send, review and context?resolve, pool sends included', async () => {
+    /** A Learn send on `learn`: its status, the stream read through. */
+    async function sendStatus(u: User, learn: LearnPayment, content = 'Hi'): Promise<number> {
+      const { trunk } = await treeWithNodes(u, learn);
+      const res = await u.client.call(`/api/branches/${trunk.id}/messages`, {
+        method: 'POST',
+        json: { content },
+        learn,
+      });
+      await res.text();
+      return res.status;
+    }
+
+    it('a non-member learns from the pool on the free tier; credit sends move to the pool', async () => {
       const u = await poolReadyUser({ env: feeEnv(true) });
       expect(
         (await json<MeResponse>(await u.client.call('/api/me', { learn: 'pool' }))).membership,
       ).toMatchObject({ required: true, status: 'inactive' });
-      for (const learn of ['pool', 'credit', 'own-key'] as const) {
-        const { trunk, assistant } = await treeWithNodes(u, learn);
-        for (const [path, init] of [
-          [`/api/branches/${trunk.id}/messages`, { method: 'POST', json: { content: 'Hi' } }],
-          [
-            `/api/nodes/${assistant.id}/review`,
-            { method: 'POST', json: { providerId: 'tangent', model: 'smart' } },
-          ],
-          [`/api/branches/${trunk.id}/context?resolve=true`, {}],
-        ] as const) {
-          const res = await u.client.call(path, { ...init, learn });
-          expect(res.status, `${learn} ${path}`).toBe(402);
-          expect((await json<ApiError>(res, 402)).error.code).toBe('membership_required');
-        }
+      for (const learn of ['pool', 'credit'] as const) {
+        const { trunk } = await treeWithNodes(u, learn);
+        const res = await u.client.call(`/api/branches/${trunk.id}/messages`, {
+          method: 'POST',
+          json: { content: 'Explain primes' },
+          learn,
+        });
+        expect(res.status, learn).toBe(200);
+        expect(lastEvent(await res.text())?.type).toBe('done');
+        const resolve = await u.client.call(`/api/branches/${trunk.id}/context?resolve=true`, {
+          learn,
+        });
+        expect(resolve.status, learn).toBe(200);
       }
+      const me = await json<{ member: boolean; caps: { requestsPerDay: number } }>(
+        await u.client.call('/api/pool/me', { learn: 'pool' }),
+      );
+      expect(me).toMatchObject({ member: false, caps: { requestsPerDay: 3 } });
     });
 
-    it('a signed-in user still buys personal credit: checkout is never membership-gated', async () => {
+    it('402 membership_required for own keys and credit reviews: members only', async () => {
       const u = await poolReadyUser({ env: feeEnv(true) });
-      for (const learn of [undefined, 'pool'] as const) {
-        const res = await u.client.call('/api/billing/checkout', {
-          method: 'POST',
-          json: { amountCents: 500 },
-          ...(learn ? { learn } : {}),
-        });
-        expect((await json<CheckoutResponse>(res)).url).toMatch(
-          /^https:\/\/fake-pay\.invalid\/checkout#/,
-        );
+      const own = await treeWithNodes(u, 'own-key');
+      for (const [path, init] of [
+        [`/api/branches/${own.trunk.id}/messages`, { method: 'POST', json: { content: 'Hi' } }],
+        [
+          `/api/nodes/${own.assistant.id}/review`,
+          { method: 'POST', json: { providerId: 'tangent', model: 'smart' } },
+        ],
+        [`/api/branches/${own.trunk.id}/context?resolve=true`, {}],
+      ] as const) {
+        const res = await u.client.call(path, { ...init, learn: 'own-key' });
+        expect((await json<ApiError>(res, 402)).error.code, path).toBe('membership_required');
       }
+      const credit = await treeWithNodes(u, 'credit');
+      const review = await u.client.call(`/api/nodes/${credit.assistant.id}/review`, {
+        method: 'POST',
+        json: { providerId: 'tangent', model: 'smart' },
+        learn: 'credit',
+      });
+      expect((await json<ApiError>(review, 402)).error.code).toBe('membership_required');
+    });
+
+    it('a member gets the member caps (6 replies a day in the tests)', async () => {
+      const u = await poolReadyUser({ env: feeEnv(true) });
+      await insertSubscription(env, u.userId, 'active');
+      const statuses: number[] = [];
+      for (let i = 0; i < 4; i++) statuses.push(await sendStatus(u, 'pool', `Q${i}`));
+      expect(statuses).toEqual([200, 200, 200, 200]);
+      expect(
+        await json<{ member: boolean }>(await u.client.call('/api/pool/me', { learn: 'pool' })),
+      ).toMatchObject({ member: true, caps: { requestsPerDay: 6 } });
+    });
+
+    it('a waived user is a member too', async () => {
+      const u = await poolReadyUser({ env: feeEnv(true) });
+      await env.DB.prepare('UPDATE auth_users SET membership_waived = 1 WHERE id = ?')
+        .bind(u.userId)
+        .run();
+      expect(
+        await json<{ member: boolean }>(await u.client.call('/api/pool/me', { learn: 'pool' })),
+      ).toMatchObject({ member: true });
+    });
+
+    it('buying credit needs a membership: 402 until it is paid', async () => {
+      const u = await poolReadyUser({ env: feeEnv(true) });
+      const checkout = () =>
+        u.client.call('/api/billing/checkout', { method: 'POST', json: { amountCents: 500 } });
+      expect((await json<ApiError>(await checkout(), 402)).error.code).toBe('membership_required');
+      await insertSubscription(env, u.userId, 'active');
+      expect((await json<CheckoutResponse>(await checkout())).url).toMatch(
+        /^https:\/\/fake-pay\.invalid\/checkout#/,
+      );
     });
   });
 });

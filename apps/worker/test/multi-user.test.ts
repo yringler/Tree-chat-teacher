@@ -682,7 +682,9 @@ describe('membership', () => {
   });
 
   it('402 membership_required on the three generating routes, in both apps, before the credit check', async () => {
-    const u = await newUser(memberEnv());
+    // With the pool off: with it on, a non-member's Learn send on credit moves to the pool's
+    // free tier instead (annual-fee.test.ts).
+    const u = await newUser(memberEnv({ POOL_ENABLED: 'false' }));
     for (const learn of [undefined, 'credit', 'own-key'] as const) {
       const { trunk, requests } = await generating(u, learn);
       for (const [path, init] of requests) {

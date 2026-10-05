@@ -9,6 +9,7 @@ import {
   type PoolImpactResponse,
 } from '@tangent/shared';
 import { Hono } from 'hono';
+import { membershipRequired } from '../billing/membership.js';
 import { appConfig, type PoolGlobalCap } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { poolImpactWeeks, readPoolImpact } from '../pool/impact.js';
@@ -41,9 +42,11 @@ export interface PoolPageFacts {
   sessionEstimateMicros: number;
   maxOutputTokens: number;
   free: { requestsPerDay: number; spendMicrosPerDay: number };
-  supporter: { requestsPerDay: number; spendMicrosPerDay: number; windowMonths: number | null };
+  member: { requestsPerDay: number; spendMicrosPerDay: number };
+  /** The yearly membership is sold and required here (`membershipRequired`): members exist. */
+  membershipOffered: boolean;
   globalFree: PoolGlobalCap;
-  globalSupporter: PoolGlobalCap;
+  globalMember: PoolGlobalCap;
   ip: { requestsPerDay: number; spendMicrosPerDay: number };
   perMinute: number;
   /** The reply's ceiling hold: the part of a daily spend cap that can't start one more reply. */
@@ -77,9 +80,10 @@ export async function poolPageFacts(env: AppEnv): Promise<PoolPageFacts> {
     sessionEstimateMicros: pool.sessionEstimateMicros,
     maxOutputTokens: pool.maxOutputTokens,
     free: pool.caps.free,
-    supporter: pool.caps.supporter,
+    member: pool.caps.member,
+    membershipOffered: membershipRequired(env),
     globalFree: pool.caps.globalFree,
-    globalSupporter: pool.caps.globalSupporter,
+    globalMember: pool.caps.globalMember,
     ip: pool.caps.ip,
     perMinute: pool.limits.userPerMinute,
     ceilingHoldMicros: price
@@ -126,14 +130,11 @@ function smallMoney(micros: number): string {
   return `${Number((micros / 10_000).toFixed(1))}¢`;
 }
 
-/**
- * Who is a supporter (pool/supporter.ts): any credit purchase for the buyer's
- * own account counts, net of refunds; admin credit and the membership don't.
- */
-function supporterTerm(months: number | null): string {
-  if (months === null)
-    return 'Anyone whose credit purchases add up to more than $0, after refunds, is a supporter.';
-  return `Anyone whose credit purchases add up to more than $0, after refunds, is a supporter for ${months} ${months === 1 ? 'month' : 'months'} after their latest purchase.`;
+/** Who is a member (billing/membership.ts `isMember`): a paid or waived yearly membership. */
+function membersText(offered: boolean): string {
+  if (!offered)
+    return 'There is no membership here right now, so every learner gets the free limits.';
+  return 'Anyone with a Tangent membership (yearly) is a member, and gets the higher limits above. Part of every membership payment goes into the pool. Paid accounts are much harder to farm than free ones, so they get more room.';
 }
 
 /** Where the pool's credit comes from, in detail (the summary states the commitment). */
@@ -196,18 +197,18 @@ ${added}
 <table>
 <thead><tr><th>Limit</th><th>Value</th></tr></thead>
 <tbody>
-<tr><td>Replies per learner per day</td><td>${f.free.requestsPerDay.toLocaleString('en-US')} (supporters: ${f.supporter.requestsPerDay.toLocaleString('en-US')})</td></tr>
-<tr><td>Spending per learner per day</td><td>${escapeHtml(formatMicros(f.free.spendMicrosPerDay))} (supporters: ${escapeHtml(formatMicros(f.supporter.spendMicrosPerDay))})</td></tr>
+<tr><td>Replies per learner per day</td><td>${f.free.requestsPerDay.toLocaleString('en-US')} (members: ${f.member.requestsPerDay.toLocaleString('en-US')})</td></tr>
+<tr><td>Spending per learner per day</td><td>${escapeHtml(formatMicros(f.free.spendMicrosPerDay))} (members: ${escapeHtml(formatMicros(f.member.spendMicrosPerDay))})</td></tr>
 <tr><td>Replies per minute</td><td>${f.perMinute.toLocaleString('en-US')}</td></tr>
 <tr><td>Per network per day</td><td>${f.ip.requestsPerDay.toLocaleString('en-US')} replies, ${escapeHtml(formatMicros(f.ip.spendMicrosPerDay))}</td></tr>
-<tr><td>All non-supporters together, per day</td><td>${globalCapText(f.globalFree)}</td></tr>
-<tr><td>All supporters together, per day</td><td>${globalCapText(f.globalSupporter)}</td></tr>
+<tr><td>All non-members together, per day</td><td>${globalCapText(f.globalFree)}</td></tr>
+<tr><td>All members together, per day</td><td>${globalCapText(f.globalMember)}</td></tr>
 </tbody>
 </table>
 <p>Daily limits reset at 00:00 UTC. The last two keep a busy day from emptying the pool before later learners that day get to use it; credit added during the day counts toward them straight away. Using the pool needs a signed-in account that passed a quick human check, and one account per email address.</p>
 ${ceiling}
-<h2>Supporters</h2>
-<p>${escapeHtml(supporterTerm(f.supporter.windowMonths))} Supporters get the higher limits above. Buying credit for your own account is enough. Paid accounts are much harder to farm than free ones, so they get more room.</p>
+<h2>Members</h2>
+<p>${escapeHtml(membersText(f.membershipOffered))}</p>
 
 <h2 id="impact">What the pool is funding</h2>
 <p>Every Monday, Tangent publishes what the pool funded the week before (Monday to Sunday, UTC): how many exchanges and learners, how many topics, and how deep learners went down their branches. These are totals only. No one's questions or name are ever shown, and a topic is named only when all of these hold:</p>

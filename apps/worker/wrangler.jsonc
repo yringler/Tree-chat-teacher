@@ -231,23 +231,21 @@
     "POOL_EXPIRE_BATCH": "20",
     // Micro-USD one "learning session" is shown as on the pool meter (20000 = $0.02).
     "POOL_SESSION_ESTIMATE_MICROS": "20000",
-    // Daily caps per user (UTC day): replies and spend in micro-USD, for the free and supporter tiers.
+    // Daily caps per user (UTC day): replies and spend in micro-USD, for the free and member tiers.
     "POOL_FREE_REQUESTS_PER_DAY": "30",
     "POOL_FREE_SPEND_MICROS_PER_DAY": "100000",
-    "POOL_SUPPORTER_REQUESTS_PER_DAY": "150",
-    "POOL_SUPPORTER_SPEND_MICROS_PER_DAY": "500000",
-    // A supporter has net purchases above $0. Empty = for life; a number of months = only while
-    // their latest purchase is that recent.
-    "SUPPORTER_WINDOW_MONTHS": "",
+    "POOL_MEMBER_REQUESTS_PER_DAY": "150",
+    "POOL_MEMBER_SPEND_MICROS_PER_DAY": "500000",
+    // A member has a paid or waived yearly membership; with ANNUAL_FEE_ENABLED off, everyone is free tier.
     // What the free tier may spend from the pool per UTC day, all users together: the lower of
     // this many micro-USD and this share (bps) of the pool's balance at 00:00 UTC plus what was
     // added to it since.
     "POOL_FREE_DAILY_GLOBAL_MICROS": "5000000",
     "POOL_FREE_DAILY_GLOBAL_BPS": "2000",
-    // The same ceiling for all supporters together, so one small purchase per account cannot
+    // The same ceiling for all members together, so paid accounts cannot
     // turn a farm of accounts into an unbounded drain.
-    "POOL_SUPPORTER_DAILY_GLOBAL_MICROS": "10000000",
-    "POOL_SUPPORTER_DAILY_GLOBAL_BPS": "4000",
+    "POOL_MEMBER_DAILY_GLOBAL_MICROS": "10000000",
+    "POOL_MEMBER_DAILY_GLOBAL_BPS": "4000",
     // Daily caps per network (IPv4 address or IPv6 /64), all users together.
     "POOL_IP_REQUESTS_PER_DAY": "60",
     "POOL_IP_SPEND_MICROS_PER_DAY": "300000",

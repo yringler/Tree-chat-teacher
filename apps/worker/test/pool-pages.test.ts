@@ -155,7 +155,7 @@ describe('GET /api/pool/me', () => {
     expect(me).toEqual({
       available: true,
       verified: true,
-      supporter: false,
+      member: false,
       suspended: false,
       caps: {
         requestsPerDay: caps.requestsPerDay,
@@ -260,7 +260,7 @@ describe('/pool', () => {
     expect(html).not.toContain('<script');
   });
 
-  it('states this deployment’s model, revenue share, at-cost replies, caps and supporter rule', async () => {
+  it('states this deployment’s model, revenue share, at-cost replies, caps and member rule', async () => {
     const e = poolEnv(uniq('pool'), { POOL_FREE_REQUESTS_PER_DAY: '30' });
     const html = await (await visitor(e)('/pool')).text();
     expect(html).toContain('<code>simple</code>');
@@ -278,9 +278,8 @@ describe('/pool', () => {
       'with no markup, and costs the learner nothing. Tangent earns nothing on the pool.',
     );
     expect(html).not.toContain('÷');
-    expect(html).toContain('<td>Replies per learner per day</td><td>30 (supporters: 6)</td>');
-    expect(html).toContain('add up to more than $0, after refunds, is a supporter.');
-    expect(html).toContain('Buying credit for your own account is enough.');
+    expect(html).toContain('<td>Replies per learner per day</td><td>30 (members: 6)</td>');
+    expect(html).toContain('every learner gets the free limits.');
     expect(html).not.toMatch(/thank-you|funding Tangent|keeping Tangent running/);
     expect(html).toContain('before later learners that day get to use it');
     expect(html).not.toContain('the people who funded it');
@@ -291,10 +290,11 @@ describe('/pool', () => {
     expect(html).not.toMatch(
       /anyone can add|fund the pool|Funding is a purchase|people fund it|A pool purchase|smallest pool purchase|credit for the pool instead|opens soon|% markup/i,
     );
-    const windowed = await (
-      await visitor(poolEnv(uniq('pool'), { SUPPORTER_WINDOW_MONTHS: '12' }))('/pool')
+    const sold = await (
+      await visitor(poolEnv(uniq('pool'), { ANNUAL_FEE_ENABLED: 'true' }))('/pool')
     ).text();
-    expect(windowed).toContain('is a supporter for 12 months after their latest purchase');
+    expect(sold).toContain('Anyone with a Tangent membership (yearly) is a member');
+    expect(sold).toContain('Part of every membership payment goes into the pool.');
   });
 
   it('names the operator’s contact for questions or arrangements, and sells nothing', async () => {
