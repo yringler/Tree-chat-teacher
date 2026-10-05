@@ -6,6 +6,8 @@ Known gaps and follow-ups that were consciously left out of a change. Each entry
 
 Left out of the server side of the membership (`apps/worker/src/billing/membership.ts`). None blocks charging for it.
 
+- **Turning the annual fee off doesn't touch existing subscriptions.** With `ANNUAL_FEE_ENABLED` off nothing requires the membership and the billing page hides it, but Stripe keeps renewing subscriptions bought while it was on (each renewal still grants its included credit), and their holders can only cancel through the Customer Portal (Stripe's own emails link to it). Cancelling them in bulk, or keeping a "Manage billing" link for subscribers while the fee is off, is not done.
+
 - **No email when a membership lapses or a renewal fails.** Stripe's own customer emails (failed payments, upcoming renewals) cover it if they are turned on in the Dashboard (_Settings → Billing → Subscriptions and emails_); the app only shows the status on the billing page. Sending our own needs `customer.subscription.updated`/`deleted` handling in `billing/webhook.ts` and a template in `src/email/`.
 - **No admin UI for waivers.** Setting, clearing and listing `auth_users.membership_waived` is the SQL in the README ("Waiving the membership"). The admin page (`/admin/`, ADMIN_USER_IDS) manages only the share allowlist and takedowns so far; waivers could join it.
 - **One waiver code, not per-person codes.** A leaked code is changed for everyone; whoever redeemed it keeps the flag until it is cleared by hand. Per-person or single-use codes need a codes table.

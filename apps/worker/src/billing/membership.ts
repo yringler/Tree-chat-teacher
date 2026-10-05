@@ -1,5 +1,7 @@
 // The yearly membership (PLAN §2.3, §13): required to generate in either app
-// once billing and STRIPE_MEMBERSHIP_PRICE_ID are configured. It is the one
+// once ANNUAL_FEE_ENABLED is "true" and billing and STRIPE_MEMBERSHIP_PRICE_ID
+// are configured (docs/pool/PLAN.md S7; the flag ships off, gating, not
+// deleting, everything below). It is the one
 // plan of the Better Auth Stripe plugin (auth/auth.ts), whose `auth_subscriptions`
 // row tells whether it is paid; `auth_users.membership_waived` lets the
 // operator waive the fee per user, and wins over Stripe.
@@ -19,9 +21,17 @@ export { DEFAULT_MEMBERSHIP_CREDIT_CENTS, DEFAULT_MEMBERSHIP_PRICE_CENTS } from 
  */
 const ACTIVE_STATUSES = ['active', 'trialing', 'past_due'];
 
-/** True when generating needs a membership: billing and the membership price are configured. */
+/**
+ * True when generating needs a membership: the annual fee is on
+ * (`ANNUAL_FEE_ENABLED`) and billing and the membership price are configured.
+ * Off, `MembershipInfo.required` is false, which hides every gate in the apps.
+ */
 export function membershipRequired(env: AppEnv): boolean {
-  return billingConfigured(env) && membershipPriceId(env) !== null;
+  return (
+    appConfig(env).flags.annualFeeEnabled &&
+    billingConfigured(env) &&
+    membershipPriceId(env) !== null
+  );
 }
 
 /** The yearly price shown to users (`MEMBERSHIP_PRICE_CENTS`; Stripe charges the configured price). */

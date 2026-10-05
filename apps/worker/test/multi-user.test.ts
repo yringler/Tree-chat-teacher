@@ -638,6 +638,7 @@ describe('membership', () => {
   /** The membership sold and required, with a waiver code. */
   const memberEnv = (overrides: Partial<AppEnv> = {}) =>
     authEnv({
+      ANNUAL_FEE_ENABLED: 'true',
       STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership',
       MEMBERSHIP_WAIVER_CODE: WAIVER,
       ...overrides,

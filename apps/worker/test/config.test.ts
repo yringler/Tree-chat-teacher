@@ -47,9 +47,10 @@ describe('config parsers', () => {
 
 describe('appConfig', () => {
   it('has the documented defaults', () => {
-    const c = appConfig(blank({ POOL_ENABLED: '' }));
+    const c = appConfig(blank({ POOL_ENABLED: '', ANNUAL_FEE_ENABLED: '' }));
     expect(c.flags).toEqual({
       poolEnabled: false,
+      annualFeeEnabled: false,
       personalCreditEnabled: false,
       devPurchasesEnabled: false,
     });
@@ -97,6 +98,7 @@ describe('appConfig', () => {
   it('applies overrides, and is parsed once per env object and frozen', () => {
     const custom = blank({
       POOL_ENABLED: 'true',
+      ANNUAL_FEE_ENABLED: 'true',
       PERSONAL_CREDIT_ENABLED: 'TRUE',
       DEV_PURCHASES_ENABLED: 'true',
       POOL_ACCOUNT_ID: 'pool-x',
@@ -109,6 +111,7 @@ describe('appConfig', () => {
     expect(appConfig(custom)).toBe(c);
     expect(c.flags).toEqual({
       poolEnabled: true,
+      annualFeeEnabled: true,
       personalCreditEnabled: true,
       devPurchasesEnabled: true,
     });

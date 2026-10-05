@@ -43,8 +43,10 @@ DEV_ALLOW_NO_AUTH=true
 # The whsec_... that `stripe listen --forward-to localhost:8787/api/auth/stripe/webhook` prints:
 # STRIPE_WEBHOOK_SECRET=whsec_...
 # STRIPE_CREDITS_PRODUCT_ID=prod_...
-# The membership's yearly test price (empty = no membership needed to generate):
+# The membership's yearly test price (empty = no membership needed to generate), and the flag that
+# charges it (off in wrangler.jsonc: without it nobody needs a membership, whatever the price id says):
 # STRIPE_MEMBERSHIP_PRICE_ID=price_...
+# ANNUAL_FEE_ENABLED=true
 # A code that waives the membership fee for whoever enters it (empty = no code redemption):
 # MEMBERSHIP_WAIVER_CODE=
 # The markup is MARKUP_BPS (wrangler.jsonc); MARKUP_PREPAID_BPS is still read while it is empty (deprecated).

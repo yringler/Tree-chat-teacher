@@ -115,8 +115,10 @@ export default defineConfig({
             STRIPE_SECRET_KEY: 'sk_test_x',
             STRIPE_WEBHOOK_SECRET: 'whsec_test',
             STRIPE_CREDITS_PRODUCT_ID: 'prod_test',
-            // No membership by default (tests that need one pass STRIPE_MEMBERSHIP_PRICE_ID in an env
-            // override), so the other suites generate freely. The price and credit are the defaults.
+            // No membership by default (tests that need one pass ANNUAL_FEE_ENABLED: 'true' and
+            // STRIPE_MEMBERSHIP_PRICE_ID in an env override), so the other suites generate freely. The
+            // fee is off as deployed; the price and credit are the defaults.
+            ANNUAL_FEE_ENABLED: 'false',
             STRIPE_MEMBERSHIP_PRICE_ID: '',
             MEMBERSHIP_PRICE_CENTS: '1000',
             MEMBERSHIP_CREDIT_CENTS: '200',

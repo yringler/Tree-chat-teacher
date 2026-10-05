@@ -120,6 +120,12 @@ export interface AppConfig {
   flags: {
     poolEnabled: boolean;
     /**
+     * The yearly membership fee is charged and required to generate
+     * (`ANNUAL_FEE_ENABLED`, default off). Off, the membership code paths stay
+     * but nothing requires a membership, whatever STRIPE_MEMBERSHIP_PRICE_ID says.
+     */
+    annualFeeEnabled: boolean;
+    /**
      * Personal credit may be spent before Stripe is configured (admin-granted
      * credit, `PERSONAL_CREDIT_ENABLED`); billing being configured enables it anyway.
      */
@@ -262,6 +268,7 @@ function parse(env: AppEnv): AppConfig {
   return {
     flags: {
       poolEnabled: boolVar(env.POOL_ENABLED, false),
+      annualFeeEnabled: boolVar(env.ANNUAL_FEE_ENABLED, false),
       personalCreditEnabled: boolVar(env.PERSONAL_CREDIT_ENABLED, false),
       devPurchasesEnabled: boolVar(env.DEV_PURCHASES_ENABLED, false),
     },

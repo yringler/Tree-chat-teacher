@@ -141,8 +141,8 @@
     // OPENROUTER_SIMPLE_API_KEY are set, both apps offer the built-in provider `tangent` on prepaid
     // credit (per user, shared by both apps): Learn as "Use Tangent credit", power as the provider
     // "Tangent credit" with any OpenRouter model. Otherwise everyone brings their own key.
-    // With Stripe and STRIPE_MEMBERSHIP_PRICE_ID set, generating in either app needs the yearly
-    // membership (waivable per user, see MEMBERSHIP_WAIVER_CODE below and the README).
+    // With ANNUAL_FEE_ENABLED "true" and Stripe and STRIPE_MEMBERSHIP_PRICE_ID set, generating in either
+    // app needs the yearly membership (waivable per user, see MEMBERSHIP_WAIVER_CODE below and the README).
     // The suggested OpenRouter models: Learn's Smart / Simple tiers, listed first in power.
     "SIMPLE_SMART_MODEL": "deepseek/deepseek-v4-pro",
     "SIMPLE_FAST_MODEL": "deepseek/deepseek-v4-flash",
@@ -167,9 +167,13 @@
     "MARKUP_BPS": "1000",
     // Stripe product (with a tax code) for one-time credit top-ups.
     "STRIPE_CREDITS_PRODUCT_ID": "",
+    // "true" charges the yearly membership fee: with the price id below set, generating in either app
+    // needs a membership. "false" (default) = nobody needs one, whatever the price id says; any
+    // signed-in user may use the community pool (within its caps) and buy personal credit.
+    "ANNUAL_FEE_ENABLED": "false",
     // Stripe price id of the membership: a yearly recurring price, tax behaviour exclusive. Empty = no
-    // membership (generating needs none); set = required in both apps (Better Auth Stripe plugin plan
-    // "membership").
+    // membership (generating needs none); set = required in both apps while ANNUAL_FEE_ENABLED is
+    // "true" (Better Auth Stripe plugin plan "membership").
     "STRIPE_MEMBERSHIP_PRICE_ID": "",
     // The membership's yearly price in US cents, for display only (Stripe charges the price above).
     "MEMBERSHIP_PRICE_CENTS": "1000",

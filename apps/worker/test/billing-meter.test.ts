@@ -196,7 +196,14 @@ describe('usage meter', () => {
         { type: 'billing', generationId: uniq('gen'), costUsd: COST },
         { type: 'done', stopReason: 'stop' },
       ],
-      { env: { ...env, MARKUP_BPS: '500', STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership' } },
+      {
+        env: {
+          ...env,
+          MARKUP_BPS: '500',
+          ANNUAL_FEE_ENABLED: 'true',
+          STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership',
+        },
+      },
     );
     expect((await h.rows())[0]).toMatchObject({
       status: 'settled',
