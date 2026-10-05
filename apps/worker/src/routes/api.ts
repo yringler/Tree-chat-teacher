@@ -20,15 +20,17 @@ import {
   updateSettingsRequestSchema,
   updateShareRequestSchema,
   updateTreeRequestSchema,
+  type CopyToLearnResponse,
   type MeResponse,
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { z } from 'zod';
+import { ensureAccountRow, resolveAccount } from '../auth/account.js';
 import { isAdmin } from '../auth/admin.js';
 import { accountDeletionRoutes } from '../auth/delete-account.js';
 import { sameOriginOnly } from '../byok/guard.js';
-import { assertCanGenerate } from '../billing/gate.js';
+import { assertCanGenerate, membershipNeededFor } from '../billing/gate.js';
 import { membershipFor } from '../billing/membership.js';
 import { readKeys, requireReadableKeys, type UserKeys } from '../byok/keys.js';
 import { accountParams, type SessionSendBody } from '../do/tree-session.js';
@@ -118,6 +120,7 @@ export function apiRoutes(): Hono<AppBindings> {
       sharing,
       isAdmin: isAdmin(c.env, identity),
       membership,
+      membershipNeededFor: membershipNeededFor(account, membership),
       // The featured wall is a stub (routes/featured.ts): never offered.
       featuredConversations: false,
     } satisfies MeResponse);
@@ -166,6 +169,28 @@ export function apiRoutes(): Hono<AppBindings> {
   api.post('/import', validateJson(treeBackupSchema), async (c) =>
     c.json(await chatOf(c).importBackup(c.req.valid('json')), 201),
   );
+  // "Create a copy in Learn" (docs/DECISIONS.md "Read-only power without a
+  // membership"): the caller's power tree, exported by the power service (404
+  // for anyone else's), imported by the service of the same user's Learn
+  // account, so it is adapted like any import into Learn. Neither generates,
+  // so there is no gate: no membership, no credit, no model call. The power
+  // tree is only read.
+  api.post('/trees/:treeId/copy-to-learn', sameOriginOnly, async (c) => {
+    const { account, identity } = c.var;
+    if (account.mode !== 'power')
+      throw new DomainError('bad_request', 'Only a power conversation can be copied into Learn');
+    const backup = await chatOf(c).exportBackup(c.req.param('treeId'));
+    // Learn's account as Learn's own requests on the user's key resolve it: never on credit.
+    const learn = resolveAccount(c.env, identity, { mode: 'simple', payment: 'own-key' });
+    await ensureAccountRow(c.env.DB, learn);
+    const lesson = await chatService(c.env, learn, {
+      defer: (p) => c.executionCtx.waitUntil(p),
+    }).importBackup(backup);
+    return c.json(
+      { treeId: lesson.tree.id, title: lesson.tree.title } satisfies CopyToLearnResponse,
+      201,
+    );
+  });
 
   // ---- branches
   api.post('/branches', validateJson(createBranchRequestSchema), async (c) => {

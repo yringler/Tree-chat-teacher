@@ -324,6 +324,8 @@ export class DemoBackend {
         sharing: false,
         isAdmin: false,
         membership: { ...DEMO_MEMBERSHIP },
+        // Nothing needs a membership here, so nothing is ever read-only.
+        membershipNeededFor: [],
         featuredConversations: false,
       } satisfies MeResponse);
     }

@@ -57,6 +57,7 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *   GET    /api/export?treeId=&scope=&nodeId=&format=md|html&includeAncestors= -> file download
  *   GET    /api/trees/:treeId/backup              -> TreeBackup (JSON download)
  *   POST   /api/import            TreeBackup      -> TreeDetail (new ids)
+ *   POST   /api/trees/:treeId/copy-to-learn       -> CopyToLearnResponse (power only, same-origin only)
  *   GET    /api/settings                          -> SettingsResponse (the account's own settings)
  *   PATCH  /api/settings         UpdateSettingsRequest -> SettingsResponse
  *   GET    /api/key/status                        -> KeyStatusResponse
@@ -237,6 +238,18 @@ export interface MeResponse {
    */
   membership: MembershipInfo;
   /**
+   * The fundings on which generating in this account needs the membership,
+   * whether or not the user has one: the Worker's own rule
+   * (`needsMembership` in billing/gate.ts) asked of each funding.
+   * `['own-key']` in power mode where the membership is required (the user's
+   * own keys; Tangent credit already held stays spendable); empty in Learn
+   * and wherever no membership is required (the fee off, a server without
+   * billing, the dev bypass). A power branch on one of these fundings is
+   * read-only while `membership.status` is `inactive` (docs/DECISIONS.md
+   * "Read-only power without a membership").
+   */
+  membershipNeededFor: BranchFunding[];
+  /**
    * The "featured learning" wall of conversations users publish. Always false:
    * only a stub exists (FEATURED_CONVERSATIONS_ENABLED, docs/DEFERRED.md), so
    * no app renders an entry point.
@@ -266,6 +279,16 @@ export interface TreeSummary {
 }
 
 /** Whole tree in one response; the client builds the outline with @tangent/core. */
+/**
+ * `POST /api/trees/:treeId/copy-to-learn`: the power tree was copied into the
+ * caller's Learn account as a new lesson (adapted as any import into Learn).
+ */
+export interface CopyToLearnResponse {
+  /** The new lesson's id in the Learn account (`/learn/t/<treeId>`). */
+  treeId: string;
+  title: string;
+}
+
 export interface TreeDetail {
   tree: Tree;
   branches: Branch[];

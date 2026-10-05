@@ -9,7 +9,13 @@ import {
   poolBlock,
   ValidationError,
 } from '@tangent/core';
-import type { BranchFunding, PoolBlockDetails, ProviderRoute } from '@tangent/shared';
+import {
+  BRANCH_FUNDINGS,
+  type BranchFunding,
+  type MembershipInfo,
+  type PoolBlockDetails,
+  type ProviderRoute,
+} from '@tangent/shared';
 import { clientIp, withPoolParams } from '../auth/account.js';
 import { assertGenerationAllowed, enforceRateLimit } from '../byok/guard.js';
 import type { UserKeys } from '../byok/keys.js';
@@ -154,6 +160,24 @@ export function needsMembership(
     (f): f is BranchFunding => f !== undefined,
   );
   return fundings.some((f) => !isMetered(account, f));
+}
+
+/**
+ * The fundings on which generating in `account` needs the membership,
+ * whatever the user holds: `needsMembership` asked of each funding, and
+ * nothing at all where no membership is required (`membership.required`
+ * false: the fee off, a server without billing, the dev bypass). Power gets
+ * `['own-key']` (plus `credit` where credit isn't offered, which the gate also
+ * asks the membership for first); Learn gets none. `/api/me` sends it as
+ * `MeResponse.membershipNeededFor`, so the apps show a branch read-only by
+ * the server's rule rather than a copy of it.
+ */
+export function membershipNeededFor(
+  account: AccountContext,
+  membership: Pick<MembershipInfo, 'required'>,
+): BranchFunding[] {
+  if (!membership.required) return [];
+  return BRANCH_FUNDINGS.filter((funding) => needsMembership(account, { funding }));
 }
 
 /**

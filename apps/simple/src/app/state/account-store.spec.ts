@@ -54,6 +54,8 @@ function me(m: MembershipInfo): MeResponse {
     sharing: false,
     isAdmin: false,
     membership: m,
+    // Learn never needs the membership to generate.
+    membershipNeededFor: [],
     featuredConversations: false,
   };
 }
