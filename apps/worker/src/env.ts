@@ -74,6 +74,13 @@ export interface AppEnv extends Env {
   MARGIN_PERCENT?: string;
   /** Tests only ("true"): enables test-only RPC methods such as `PoolBank.expire(now)`. */
   TEST_SEAMS?: string;
+  /**
+   * The payment provider (billing/payments/index.ts): `polar` (the default
+   * when empty), or `fake` in tests (only with TEST_SEAMS).
+   */
+  PAYMENT_PROVIDER?: string;
+  /** Tests only (with `PAYMENT_PROVIDER=fake`): the fake provider's options, JSON (billing/providers/fake.ts). */
+  FAKE_PAYMENTS?: string;
   /** Tests only (with `TEST_SEAMS`): a pool notice version above the code's, as after a text change. */
   POOL_NOTICE_VERSION?: string;
 }

@@ -86,6 +86,24 @@ export type MembershipWaiverRequest = z.infer<typeof membershipWaiverRequestSche
 export const MEMBERSHIP_PLAN = 'membership';
 
 /**
+ * A subscription's status, normalised from the payment provider's own
+ * vocabulary (the server maps each provider's statuses onto these):
+ * - `trialing`, `active`: paid up (or in a trial);
+ * - `past_due`: a renewal failed and the provider is still retrying;
+ * - `unpaid`, `paused`, `incomplete`: not paid; `canceled`: ended.
+ */
+export const SUBSCRIPTION_STATUSES = [
+  'trialing',
+  'active',
+  'past_due',
+  'unpaid',
+  'paused',
+  'incomplete',
+  'canceled',
+] as const;
+export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
+
+/**
  * Where the user stands with the yearly membership:
  * - `active`: the membership subscription is `active`, `trialing` or
  *   `past_due` (Stripe is still retrying a failed renewal);
