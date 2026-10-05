@@ -38,12 +38,14 @@ function summary(m: MembershipInfo, availableMicros = 2_000_000): BillingSummary
 function me(m: MembershipInfo): MeResponse {
   return {
     email: 'learner@example.com',
+    userId: 'u1',
     accountId: 'u_u1',
     mode: 'simple',
     devMode: false,
     operatorKeys: false,
     builtInCredit: true,
     sharing: false,
+    isAdmin: false,
     membership: m,
   };
 }

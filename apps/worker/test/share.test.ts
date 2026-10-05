@@ -155,7 +155,9 @@ describe('public shares', () => {
 });
 
 describe('sharing off (no DMCA agent registered)', () => {
-  // Same database as the suite above; only DMCA_AGENT_REGISTERED differs.
+  // Same database as the suite above; only DMCA_AGENT_REGISTERED differs. The dev bypass
+  // follows the flag alone (it is never on the allowlist); test/admin.test.ts covers the
+  // admins and the users the operator allows.
   const off = { ...env, DMCA_AGENT_REGISTERED: 'false' } as AppEnv;
   const app = createApp();
   async function callOff(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {

@@ -1,7 +1,5 @@
 import {
   DEFAULT_SYSTEM_PROMPT,
-  MODE_HEADER,
-  PAYMENT_HEADER,
   type ApiError,
   type BillingSummary,
   type Branch,
@@ -16,106 +14,17 @@ import {
   type TreeDetail,
   type TreeSummary,
 } from '@tangent/shared';
-import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-import { createApp } from '../src/app.js';
-import { REMEMBER_COOKIE } from '../src/auth/auth.js';
 import { grantCredit } from '../src/billing/ledger.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
-import type { EmailMessage, EmailSender } from '../src/email/index.js';
 import type { AppEnv } from '../src/env.js';
 import { makeNode } from './fixtures.js';
 import { insertSubscription, insertUsage } from './mocks/billing-helpers.js';
+import { authEnv, client, type CallInit } from './session-client.js';
 
-const ORIGIN = 'https://tangent.example.com';
 /** The Anthropic-style mock upstream of vitest.config.ts: `sk-ant-good…` keys work, replies echo `key=<rest>`. */
 const MOCK_UPSTREAM = 'https://llm.test';
-
-class CapturingSender implements EmailSender {
-  readonly sent: EmailMessage[] = [];
-  send(message: EmailMessage): Promise<void> {
-    this.sent.push(message);
-    return Promise.resolve();
-  }
-}
-
-/** Auth configured as in production: open sign-up, Stripe and the fake `tangent` provider from vitest.config.ts. */
-function authEnv(overrides: Partial<AppEnv> = {}): AppEnv {
-  return {
-    ...env,
-    BETTER_AUTH_SECRET: 'test-secret-test-secret-test-secret-0123',
-    TURNSTILE_SECRET_KEY: 'turnstile-secret',
-    TURNSTILE_SITE_KEY: 'site-key',
-    ...overrides,
-  } as AppEnv;
-}
-
-type CallInit = RequestInit & { json?: unknown; learn?: LearnPayment };
-
-let ipSeq = 0;
-
-/**
- * A browser: its own IP (Better Auth rate limits are per IP) and cookie jar.
- * `learn` sends the request as Tangent Learn does (mode and payment headers);
- * without it the request is the power app's.
- */
-function client(e: AppEnv = authEnv()) {
-  const mail = new CapturingSender();
-  const app = createApp({ auth: { emailSender: mail } });
-  const ip = `198.51.100.${++ipSeq}`;
-  const jar = new Map<string, string>();
-  const keep = (res: Response) => {
-    for (const c of res.headers.getSetCookie()) {
-      const pair = c.split(';')[0]!;
-      const eq = pair.indexOf('=');
-      const name = pair.slice(0, eq);
-      if (eq === pair.length - 1 || /Max-Age=0/i.test(c)) jar.delete(name);
-      else jar.set(name, pair.slice(eq + 1));
-    }
-  };
-  const call = async (path: string, init: CallInit = {}, as: AppEnv = e) => {
-    const { json, learn, ...rest } = init;
-    const headers = new Headers(rest.headers);
-    headers.set('cf-connecting-ip', ip);
-    if (jar.size > 0 && !headers.has('cookie')) {
-      headers.set('cookie', [...jar].map(([k, v]) => `${k}=${v}`).join('; '));
-    }
-    if (json !== undefined) headers.set('content-type', 'application/json');
-    if (learn) {
-      headers.set(MODE_HEADER, 'simple');
-      headers.set(PAYMENT_HEADER, learn);
-    }
-    const ctx = createExecutionContext();
-    const res = await app.request(
-      `${ORIGIN}${path}`,
-      { ...rest, headers, ...(json !== undefined ? { body: JSON.stringify(json) } : {}) },
-      as,
-      ctx,
-    );
-    // Read the body before waiting: a streamed response only finishes once consumed.
-    const text = await res.text();
-    await waitOnExecutionContext(ctx);
-    keep(res);
-    const nullBody = [101, 204, 205, 304].includes(res.status);
-    return new Response(nullBody ? null : text, { status: res.status, headers: res.headers });
-  };
-  const signIn = async (email: string) => {
-    const res = await call('/api/auth/sign-in/magic-link', {
-      method: 'POST',
-      headers: { origin: ORIGIN, 'x-captcha-response': 'pass' },
-      json: { email, callbackURL: '/', errorCallbackURL: '/login' },
-    });
-    expect(res.status).toBe(200);
-    const message = mail.sent.at(-1)!;
-    const link = new URL(/https?:\/\/\S+/.exec(message.text)![0]);
-    await call(link.pathname + link.search, {
-      headers: { cookie: `${REMEMBER_COOKIE}=1` },
-      redirect: 'manual',
-    });
-  };
-  return { call, signIn, mail, env: e };
-}
 
 async function json<T>(res: Response, status = 200): Promise<T> {
   const text = await res.text();

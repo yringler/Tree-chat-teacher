@@ -43,7 +43,7 @@ interface Crumb {
             <app-icon name="settings" /> <span class="hide-narrow">Branch</span>
           </button>
           <!-- Shares and exports are made by the server; the demo has none. Public links
-               only while the server offers them (MeResponse.sharing); export always. -->
+               only while this user may publish them (MeResponse.sharing); export always. -->
           @if (!demo) {
             @if (store.me()?.sharing) {
               <button

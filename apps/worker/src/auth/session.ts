@@ -1,5 +1,5 @@
 import { createMiddleware } from 'hono/factory';
-import type { AppBindings } from '../env.js';
+import type { AppBindings, AppEnv, Identity } from '../env.js';
 import { apiError } from '../http/errors.js';
 import { authConfigured, getAuth, type AuthDeps } from './auth.js';
 
@@ -37,4 +37,26 @@ export function sessionMiddleware(deps: AuthDeps = {}) {
     c.set('identity', { userId: result.user.id, email: result.user.email, devMode: false });
     return next();
   });
+}
+
+/**
+ * The caller's identity outside `/api/*` (the admin app's documents), by the
+ * same rules as `sessionMiddleware`: the dev bypass when it applies, else a
+ * verified Better Auth session. Null for anyone signed out, unverified, or
+ * when authentication isn't configured. Never refreshes the session.
+ */
+export async function optionalIdentity(
+  env: AppEnv,
+  request: Request,
+  deps: AuthDeps = {},
+): Promise<Identity | null> {
+  if (!authConfigured(env)) {
+    return env.DEV_ALLOW_NO_AUTH === 'true' ? { userId: null, email: null, devMode: true } : null;
+  }
+  const result = await getAuth(env, request, deps).api.getSession({
+    headers: request.headers,
+    query: { disableRefresh: true },
+  });
+  if (!result?.user.emailVerified) return null;
+  return { userId: result.user.id, email: result.user.email, devMode: false };
 }

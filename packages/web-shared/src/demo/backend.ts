@@ -63,6 +63,8 @@ import { createLoremProvider } from './lorem';
 
 export const DEMO_ACCOUNT_ID = 'demo';
 export const DEMO_EMAIL = 'demo@example.com';
+/** The demo's user id (shown as its Account ID). */
+export const DEMO_USER_ID = 'demo-user';
 /** Pretend credit the demo starts with ($4.20). */
 export const DEMO_START_BALANCE_MICROS = 4_200_000;
 /** +10%, the pay-as-you-go rate. */
@@ -275,6 +277,7 @@ export class DemoBackend {
     if (method === 'GET' && path === '/api/me') {
       return json({
         email: DEMO_EMAIL,
+        userId: DEMO_USER_ID,
         accountId: DEMO_ACCOUNT_ID,
         mode: this.mode,
         devMode: false,
@@ -282,6 +285,7 @@ export class DemoBackend {
         builtInCredit: this.mode === 'simple',
         // The demo publishes nothing (its apps hide Share regardless).
         sharing: false,
+        isAdmin: false,
         membership: { ...DEMO_MEMBERSHIP },
       } satisfies MeResponse);
     }

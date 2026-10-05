@@ -11,6 +11,7 @@ import {
   type ProviderConfig,
   type ProviderRegistry,
 } from '@tangent/shared';
+import { isAdminUserId } from './auth/admin.js';
 import { createUsageMeter, meteredRegistry } from './billing/meter.js';
 import { billingConfigured } from './billing/stripe.js';
 import { createD1Repositories } from './db/d1-repositories.js';
@@ -100,6 +101,25 @@ function apiKeySecrets(configs: readonly ProviderConfig[]): string[] {
  */
 export function sharingEnabled(env: AppEnv): boolean {
   return env.DMCA_AGENT_REGISTERED?.trim().toLowerCase() === 'true';
+}
+
+/**
+ * Whether the user may publish share links, and whether their links open:
+ * everyone while sharing is on (`sharingEnabled`); otherwise only admins
+ * (ADMIN_USER_IDS) and the users the operator allowed on the admin page
+ * (`auth_users.share_allowed`). `userId` null is the dev bypass, which follows
+ * the global flag only (so the off path can be tried locally), like its
+ * `default` / `default_simple` accounts' links. One query, none while sharing
+ * is on.
+ */
+export async function canShare(env: AppEnv, userId: string | null): Promise<boolean> {
+  if (sharingEnabled(env)) return true;
+  if (!userId) return false;
+  if (isAdminUserId(env, userId)) return true;
+  const row = await env.DB.prepare('SELECT share_allowed AS allowed FROM auth_users WHERE id = ?')
+    .bind(userId)
+    .first<{ allowed: number }>();
+  return row?.allowed === 1;
 }
 
 /**

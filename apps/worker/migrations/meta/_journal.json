@@ -57,6 +57,13 @@
       "when": 1790971694021,
       "tag": "0007_membership",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791161553786,
+      "tag": "0008_share_allowed",
+      "breakpoints": true
     }
   ]
 }

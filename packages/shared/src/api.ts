@@ -72,6 +72,16 @@ import type { AccountMode, MembershipInfo } from './billing.js';
  *                                                (one plan, MEMBERSHIP_PLAN: the yearly membership)
  *   POST   /api/auth/stripe/webhook               Stripe webhooks (plugin + our onEvent)
  *
+ * Admin (admins only: ADMIN_USER_IDS, or the local dev bypass; 404 `not_found`
+ * to anyone else; admin.ts):
+ *
+ *   GET    /api/admin/status                     -> AdminStatusResponse
+ *   GET    /api/admin/users?q=&cursor=           -> AdminUsersResponse (newest first, ADMIN_USERS_PAGE per page,
+ *                                                q = email substring)
+ *   PATCH  /api/admin/users/:userId UpdateAdminUserRequest -> AdminUser (same-origin only)
+ *   GET    /api/admin/users/:userId/shares       -> ShareSummary[] (both of the user's accounts, newest first)
+ *   POST   /api/admin/shares/:shareId/revoke     -> ShareSummary (any owner's share; same-origin only)
+ *
  * Generating routes (messages, review, context?resolve=true) answer 402
  * `membership_required` when the membership is required and the user has
  * none (`MembershipInfo`), then 402 `payment_required` when a call on the
@@ -112,6 +122,11 @@ export interface MeResponse {
   /** Signed-in user's email; null only in dev bypass mode. */
   email: string | null;
   /**
+   * Signed-in user's Better Auth id, shown as "Account ID" so they can give it
+   * to the operator (e.g. to be allowed to share); null only in dev bypass mode.
+   */
+  userId: string | null;
+  /**
    * Account the request acts as: the user's `p_<userId>` (power) or
    * `u_<userId>` (simple); `default` / `default_simple` in dev bypass mode.
    */
@@ -134,11 +149,15 @@ export interface MeResponse {
    */
   builtInCredit: boolean;
   /**
-   * True when public share links are offered (the operator set
-   * DMCA_AGENT_REGISTERED). False: creating, editing and republishing a share
-   * are 403 and `/s/*` links don't open; exporting still works.
+   * True when this user may publish share links: everyone once the operator
+   * set DMCA_AGENT_REGISTERED; until then only admins and the users the
+   * operator allowed on the admin page. False: creating, editing and
+   * republishing a share are 403 and the user's `/s/*` links don't open;
+   * exporting still works.
    */
   sharing: boolean;
+  /** True for the operator's own accounts (ADMIN_USER_IDS): the power app links to `/admin/`. */
+  isAdmin: boolean;
   /**
    * The user's membership, so the apps can gate generating at startup:
    * `required && status === 'inactive'` means every generating request

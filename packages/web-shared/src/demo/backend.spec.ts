@@ -323,6 +323,7 @@ describe('power demo backend', () => {
       mode: 'power',
       builtInCredit: false,
       sharing: false,
+      isAdmin: false,
       membership: { required: false },
     });
     await expect(api.keyStatus()).resolves.toEqual({

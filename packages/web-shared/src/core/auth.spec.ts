@@ -37,12 +37,14 @@ function setup(paths: AppPaths, me: () => Promise<MeResponse>) {
 
 const ME: MeResponse = {
   email: 'a@b.c',
+  userId: '1',
   accountId: 'u_1',
   mode: 'simple',
   devMode: false,
   operatorKeys: true,
   builtInCredit: true,
   sharing: false,
+  isAdmin: false,
   membership: {
     required: false,
     status: 'inactive',

@@ -53,6 +53,15 @@ export interface AppEnv extends Env {
    */
   MEMBERSHIP_WAIVER_CODE?: string;
   /**
+   * Comma-separated Better Auth user ids of the operator's own accounts: they
+   * may open the admin app (`/admin/`) and `/api/admin/*`, and may always
+   * publish share links. A user id is an identifier, not a credential (being
+   * admin still takes being signed in as that user), so it is stored as is; it
+   * is a secret only to keep it out of wrangler.jsonc. Empty = no admins
+   * (the local dev bypass is always admin, see auth/admin.ts).
+   */
+  ADMIN_USER_IDS?: string;
+  /**
    * Deprecated: the markup before `MARKUP_BPS`, read only while `MARKUP_BPS`
    * is empty. No longer in wrangler.jsonc; kept for one release.
    */
