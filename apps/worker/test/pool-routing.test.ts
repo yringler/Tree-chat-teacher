@@ -29,7 +29,7 @@ const ECHO = '[echo-request]';
 /** POOL_MAX_OUTPUT_TOKENS in vitest.config.ts. */
 const POOL_MAX_OUTPUT = 2048;
 /** The pool's price entry for `simple`, as the tests' Worker env resolves it. */
-const PRICE = resolvePoolParams(env, null).price!;
+const PRICE = (await resolvePoolParams(env, null)).price!;
 /** The reply's ceiling hold on a test pool. */
 const CEILING = ceilingHoldMicros(PRICE, POOL_MAX_OUTPUT, PRICE.feeBps);
 
@@ -386,8 +386,8 @@ describe('funding resolution', () => {
     expect(await nodeCount(u, detail.tree.id)).toBe(0);
   });
 
-  it('funding and the pool parameters survive the trip to the Durable Object', () => {
-    const pool = resolvePoolParams(env, 'abcd');
+  it('funding and the pool parameters survive the trip to the Durable Object', async () => {
+    const pool = await resolvePoolParams(env, 'abcd');
     const account: AccountContext = {
       id: 'u_x',
       mode: 'simple',
@@ -410,7 +410,7 @@ describe('pool refusals', () => {
     const u = await poolReadyUser({ funds: CEILING });
     const { detail, trunk } = await createTree(u, 'pool');
     // Someone else reserves the whole pool first (the free tier's ceiling lifted).
-    const params = resolvePoolParams(env, null);
+    const params = await resolvePoolParams(env, null);
     const caps = {
       ...params.caps,
       globalFree: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 1e9 },
@@ -574,9 +574,9 @@ describe('poolProviderConfig', () => {
   const poolPrompt = PRICE.inMicrosPerMTok / 1_000_000;
   const poolCompletion = PRICE.outMicrosPerMTok / 1_000_000;
 
-  it("adds the pool's max_price to the operator's routing (e.g. data_collection: 'deny')", () => {
+  it("adds the pool's max_price to the operator's routing (e.g. data_collection: 'deny')", async () => {
     const e = openRouter({ data_collection: 'deny', order: ['a', 'b'] });
-    const config = poolProviderConfig(e, resolvePoolParams(e, null));
+    const config = poolProviderConfig(e, await resolvePoolParams(e, null));
     expect(config.options?.['extraBody']).toEqual({
       transforms: [],
       provider: {
@@ -587,18 +587,18 @@ describe('poolProviderConfig', () => {
     });
   });
 
-  it("keeps a stricter max_price the operator set; a looser one is lowered to the pool's", () => {
+  it("keeps a stricter max_price the operator set; a looser one is lowered to the pool's", async () => {
     const e = openRouter({ max_price: { prompt: poolPrompt / 2, completion: poolCompletion * 2 } });
-    const config = poolProviderConfig(e, resolvePoolParams(e, null));
+    const config = poolProviderConfig(e, await resolvePoolParams(e, null));
     expect(config.options?.['extraBody']).toMatchObject({
       provider: { max_price: { prompt: poolPrompt / 2, completion: poolCompletion } },
     });
   });
 
-  it('adds no max_price on an openai-compatible endpoint that is not OpenRouter', () => {
+  it('adds no max_price on an openai-compatible endpoint that is not OpenRouter', async () => {
     for (const baseUrl of ['https://api.openai.com/v1', 'http://localhost:8080/v1']) {
       const e = openRouter({ data_collection: 'deny' }, baseUrl);
-      const config = poolProviderConfig(e, resolvePoolParams(e, null));
+      const config = poolProviderConfig(e, await resolvePoolParams(e, null));
       expect(config.options?.['extraBody']).toEqual({
         transforms: [],
         provider: { data_collection: 'deny' },
@@ -606,7 +606,7 @@ describe('poolProviderConfig', () => {
     }
     const gateway = openRouter({}, 'https://gateway.ai.cloudflare.com/v1/acct/gw/openrouter');
     expect(
-      poolProviderConfig(gateway, resolvePoolParams(gateway, null)).options?.['extraBody'],
+      poolProviderConfig(gateway, await resolvePoolParams(gateway, null)).options?.['extraBody'],
     ).toMatchObject({ provider: { max_price: { prompt: poolPrompt } } });
   });
 });
