@@ -51,7 +51,7 @@ export function formatDay(iso: string | null): string | null {
 export function membershipStatusText(m: MembershipInfo): string {
   if (m.status === 'waived') return 'Waived: the membership is free for you.';
   if (m.status === 'inactive')
-    return 'Not active. Subscribe to get new replies; your conversations stay readable either way.';
+    return 'Not active. A membership unlocks power mode and prepaid credit; Learn on your own key stays free, and your conversations stay readable either way.';
   const until = formatDay(m.periodEnd);
   if (m.cancelAtPeriodEnd)
     return until ? `Active until ${until}. It won't renew.` : "Active. It won't renew.";

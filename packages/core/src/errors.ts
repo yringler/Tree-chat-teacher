@@ -70,8 +70,9 @@ export class PaymentRequiredError extends DomainError {
 }
 
 /**
- * Generating needs the yearly membership (required once the operator configures
- * it) and the user neither has one nor had the fee waived.
+ * The request needs the yearly membership (required once the operator
+ * configures it: power mode, and buying or spending credit) and the user
+ * neither has one nor had the fee waived.
  */
 export class MembershipRequiredError extends DomainError {
   constructor(message = 'A Tangent membership is needed to keep going') {

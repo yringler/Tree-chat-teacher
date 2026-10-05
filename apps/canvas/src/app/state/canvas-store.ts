@@ -192,7 +192,7 @@ export class CanvasStore {
     return idx && id ? branchPath(idx, id) : [];
   });
 
-  /** Generating needs the membership the user lacks: the shell shows a notice linking to `/billing`. */
+  /** Generating (power mode) needs the membership the user lacks: the shell shows a notice linking to `/billing`. */
   readonly membershipBlocked = computed(() => membershipBlocks(this.membership()));
 
   readonly providerMap = computed(() => new Map(this.providers().map((p) => [p.id, p])));

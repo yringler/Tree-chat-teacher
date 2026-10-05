@@ -40,8 +40,8 @@ import { UiStore } from './state/ui-store';
         @if (!demo && store.membershipBlocked()) {
           <p class="banner banner-membership" role="alert">
             <span>
-              <strong>Membership needed.</strong> Generating needs the yearly membership; your
-              conversations stay readable.
+              <strong>Membership needed.</strong> Canvas runs in power mode, which needs the yearly
+              membership; your conversations stay readable. Learn on your own key stays free.
             </span>
             <a class="banner-cta" href="/billing">Subscribe or enter a code</a>
           </p>

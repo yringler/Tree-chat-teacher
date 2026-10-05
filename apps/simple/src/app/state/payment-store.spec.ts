@@ -106,6 +106,35 @@ describe('PaymentStore', () => {
     expect(q.payment()).toBe('credit');
   });
 
+  it('a non-member never lands on credit: a saved key first, else the pool', () => {
+    const p = create();
+    p.builtInCredit.set(true);
+    p.poolAvailable.set(true);
+    p.member.set(false);
+    // The key status not known yet: the own key.
+    expect(p.payment()).toBe('own-key');
+    p.hasOwnKey.set(true);
+    expect(p.payment()).toBe('own-key');
+    p.hasOwnKey.set(false);
+    expect(p.payment()).toBe('pool');
+    // Even a stored credit choice falls back.
+    p.choose('credit');
+    expect(p.payment()).toBe('pool');
+    p.poolAvailable.set(false);
+    expect(p.payment()).toBe('own-key');
+    // An explicit own key or pool choice applies as for anyone.
+    p.poolAvailable.set(true);
+    p.hasOwnKey.set(true);
+    p.choose('pool');
+    expect(p.payment()).toBe('pool');
+    p.choose('own-key');
+    expect(p.payment()).toBe('own-key');
+    // A member is back on credit when it is chosen.
+    p.member.set(true);
+    p.choose('credit');
+    expect(p.payment()).toBe('credit');
+  });
+
   it('round-trips each stored choice', () => {
     for (const choice of ['own-key', 'credit', 'pool'] as const) {
       create().choose(choice);

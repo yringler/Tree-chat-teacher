@@ -16,8 +16,9 @@ import { UiStore } from '../state/ui-store';
 /**
  * How replies are paid for: the learner's own OpenRouter key (free here; they
  * pay OpenRouter), Tangent credit (prepaid, on the built-in provider), which
- * is only offered when the server sells it, or the community pool, while it
- * is on. The key is read from the input only at submit time, posted once
+ * is only offered when the server sells it (and, while the membership is
+ * required, only to members: a non-member sees it disabled, with a link to
+ * the billing page), or the community pool, while it is on. The key is read from the input only at submit time, posted once
  * and the field cleared: the server seals it into an HttpOnly cookie this
  * code can't read (the same cookie as power mode's OpenRouter key).
  */
@@ -50,12 +51,17 @@ import { UiStore } from '../state/ui-store';
                 name="payment"
                 value="credit"
                 [checked]="payment() === 'credit'"
+                [disabled]="!account.payment.member()"
                 (change)="choose('credit')"
               />
               <span>
                 <strong>Use Tangent credit</strong>
                 <span class="muted small">
-                  @if (feeText(); as fee) {
+                  @if (!account.payment.member()) {
+                    Members only.
+                    <a routerLink="/billing" (click)="close()">Become a member</a> to buy and spend
+                    prepaid credit.
+                  } @else if (feeText(); as fee) {
                     Prepaid credit: each reply costs {{ fee }}.
                   } @else {
                     Prepaid credit, paid per reply.

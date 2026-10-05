@@ -66,6 +66,8 @@ describe('membership copy', () => {
     ).toMatch(/last payment failed/);
     expect(membershipStatusText(membership({ status: 'waived' }))).toMatch(/^Waived/);
     expect(membershipStatusText(membership())).toMatch(/^Not active/);
+    expect(membershipStatusText(membership())).toMatch(/power mode and prepaid credit/);
+    expect(membershipStatusText(membership())).toMatch(/own key stays free/);
   });
 
   it('spells out the price of a call on credit', () => {

@@ -681,11 +681,18 @@ describe('membership', () => {
       expect(me.membership).toMatchObject({ required: true, status: 'inactive' });
   });
 
-  it('402 membership_required on the three generating routes, in both apps, before the credit check', async () => {
+  it('402 membership_required on the three generating routes in power mode and on Learn credit, before the credit check', async () => {
     // With the pool off: with it on, a non-member's Learn send on credit moves to the pool's
     // free tier instead (annual-fee.test.ts).
     const u = await newUser(memberEnv({ POOL_ENABLED: 'false' }));
-    for (const learn of [undefined, 'credit', 'own-key'] as const) {
+    // Learn on the user's own key needs no membership (BYOK is free).
+    const own = await generating(u, 'own-key');
+    for (const [path, init] of own.requests) {
+      const res = await u.call(path, { ...init, learn: 'own-key' });
+      const text = await res.text();
+      expect(text, `own-key ${path}`).not.toContain('membership_required');
+    }
+    for (const learn of [undefined, 'credit'] as const) {
       const { trunk, requests } = await generating(u, learn);
       for (const [path, init] of requests) {
         const res = await u.call(path, { ...init, ...(learn ? { learn } : {}) });

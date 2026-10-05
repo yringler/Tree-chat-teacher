@@ -108,10 +108,13 @@ function setup(
 }
 
 describe('AccountStore membership', () => {
-  it('blocks from /api/me until the membership is active or waived', () => {
+  it('/api/me alone never blocks Learn: the gate waits for a 402 membership_required', () => {
     const { account } = setup(async () => summary(membership()));
     expect(account.membershipBlocked()).toBe(false);
     account.setMe(me(membership()));
+    expect(account.membershipBlocked()).toBe(false);
+    expect(account.membershipOnSale()).toBe(true);
+    account.membershipRequired();
     expect(account.membershipBlocked()).toBe(true);
     account.setMe(me(membership({ status: 'active' })));
     expect(account.membershipBlocked()).toBe(false);
@@ -122,7 +125,9 @@ describe('AccountStore membership', () => {
   it('a redeemed code unblocks and updates the billing summary too', async () => {
     const { account } = setup(async () => summary(membership()));
     account.setMe(me(membership()));
+    account.membershipRequired();
     await account.refreshBalance();
+    expect(account.membershipBlocked()).toBe(true);
     account.setMembership(membership({ status: 'waived' }));
     expect(account.membershipBlocked()).toBe(false);
     expect(account.billing()?.membership.status).toBe('waived');
@@ -132,44 +137,81 @@ describe('AccountStore membership', () => {
     const { account } = setup(async () => summary(membership({ status: 'active' }), 3_000_000));
     account.setMe(me(membership()));
     await account.refreshBalance();
-    expect(account.membershipBlocked()).toBe(false);
+    expect(account.payment.payment()).toBe('credit');
     expect(account.balanceLabel()).toBe('$3.00');
+    expect(account.creditOnSale()).toBe(true);
 
+    // The membership lapsed: credit is members only, so replies leave it (no gate yet).
     account.applyBilling(summary(membership(), 1_000_000));
-    expect(account.membershipBlocked()).toBe(true);
-    expect(account.balanceLabel()).toBe('$1.00');
+    expect(account.membershipBlocked()).toBe(false);
+    expect(account.payment.payment()).toBe('own-key');
+    expect(account.balanceLabel()).toBeNull();
+    expect(account.creditOnSale()).toBe(false);
   });
 
   it('a 402 membership_required blocks at once, then re-reads the real state', async () => {
     const { account, api } = setup(async () => summary(membership({ status: 'inactive' })));
     account.setMe(me(membership({ status: 'active' })));
+    expect(account.payment.payment()).toBe('credit');
     account.membershipRequired();
     expect(account.membershipBlocked()).toBe(true);
+    expect(account.payment.payment()).not.toBe('credit');
     await vi.waitFor(() => expect(api.billing).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(account.billing()).not.toBeNull());
     expect(account.membershipBlocked()).toBe(true);
   });
 
-  it('with the pool on, a non-member is on the free tier: no gate, replies on the pool', async () => {
+  it('a non-member defaults to a saved key, else the pool, and never to credit', async () => {
     const { account } = setup(async () => summary(membership()));
     account.setMe(me(membership()));
     await account.refreshPool();
+    // The key status is not known yet: the own key, never credit.
+    expect(account.payment.payment()).toBe('own-key');
+    await account.refreshKey();
+    expect(account.hasOwnKey()).toBe(true);
+    expect(account.payment.payment()).toBe('own-key');
     expect(account.membershipBlocked()).toBe(false);
-    expect(account.freeTierOffered()).toBe(true);
-    expect(account.membershipOnSale()).toBe(true);
+    // Without a saved key: the pool.
+    account.payment.hasOwnKey.set(false);
     expect(account.payment.payment()).toBe('pool');
-    // A members-only reply (own key) was refused: the gate shows, offering the pool.
-    account.payment.choose('own-key');
+    // A stale credit choice still never lands on credit, and the funding toggle stays hidden.
+    account.payment.choose('credit');
+    expect(account.payment.payment()).toBe('pool');
+    expect(account.fundingChoice()).toBe(false);
+    expect(account.creditOnSale()).toBe(false);
+    expect(account.membershipOnSale()).toBe(true);
+  });
+
+  it("the gate's way out moves replies off credit: to the pool while it is on", async () => {
+    const { account } = setup(async () => summary(membership()));
+    account.setMe(me(membership({ status: 'active' })));
+    await account.refreshPool();
+    account.payment.choose('credit');
+    expect(account.payment.payment()).toBe('credit');
     account.membershipRequired();
     expect(account.membershipBlocked()).toBe(true);
+    expect(account.freeTierOffered()).toBe('Continue free on the community pool');
     account.useFreeTier();
     expect(account.membershipBlocked()).toBe(false);
     expect(account.payment.payment()).toBe('pool');
-    // Members choose freely again.
+    // Members choose credit freely again.
     account.setMembership(membership({ status: 'active' }));
     expect(account.membershipOnSale()).toBe(false);
     account.payment.choose('credit');
     expect(account.payment.payment()).toBe('credit');
+  });
+
+  it("the gate's way out moves replies off credit: to the own key while the pool is off", async () => {
+    const { account } = setup(async () => summary(membership()), { ...POOL, enabled: false });
+    account.setMe(me(membership({ status: 'active' })));
+    await account.refreshPool();
+    account.payment.choose('credit');
+    account.membershipRequired();
+    expect(account.membershipBlocked()).toBe(true);
+    expect(account.freeTierOffered()).toBe('Continue with my own OpenRouter key');
+    account.useFreeTier();
+    expect(account.membershipBlocked()).toBe(false);
+    expect(account.payment.payment()).toBe('own-key');
   });
 
   it('keeps the last known state when billing cannot be read', async () => {

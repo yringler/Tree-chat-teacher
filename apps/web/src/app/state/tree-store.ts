@@ -181,7 +181,7 @@ export class TreeStore {
     );
   });
 
-  /** Generating needs a membership the user doesn't have: the shell shows the gate. */
+  /** Generating in power mode needs a membership the user doesn't have: the shell shows the gate. */
   readonly membershipBlocked = computed(() => membershipBlocks(this.membership()));
 
   readonly providerMap = computed(() => new Map(this.providers().map((p) => [p.id, p])));

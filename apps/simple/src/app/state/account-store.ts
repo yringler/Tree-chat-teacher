@@ -35,21 +35,31 @@ export class AccountStore {
   readonly poolMe = signal<PoolMeResponse | null>(null);
   private readonly demo = inject(DEMO_MODE, { optional: true }) ?? false;
 
-  /** The server refused a reply for want of a membership (402), so the gate shows even beside the pool. */
+  /** The server refused a reply for want of a membership (402 `membership_required`). */
   private readonly gateForced = signal(false);
 
   /**
-   * Generating needs a membership the learner doesn't have: the shell shows
-   * the gate. With the pool on, a non-member is on the free tier instead, and
-   * sees the gate only after a members-only reply (own key) was refused.
+   * The shell shows the membership gate. Learn never needs a membership for
+   * the learner's own key or the community pool, only for credit (which a
+   * non-member's replies never default to), so the gate shows only after the
+   * server refused a reply with 402 `membership_required` (a membership that
+   * lapsed while replies ran on credit) and the learner still has none.
    */
   readonly membershipBlocked = computed(
-    () =>
-      membershipBlocks(this.membership()) && (this.gateForced() || !this.payment.poolAvailable()),
+    () => this.gateForced() && membershipBlocks(this.membership()),
   );
 
-  /** The gate may offer the free tier instead of subscribing: the pool is on. */
-  readonly freeTierOffered = computed(() => !this.demo && this.payment.poolAvailable());
+  /**
+   * The gate's way out, continuing on the free tier without a membership:
+   * the community pool while it is on, else the learner's own key.
+   */
+  readonly freeTierOffered = computed(() =>
+    this.demo
+      ? null
+      : this.payment.poolAvailable()
+        ? 'Continue free on the community pool'
+        : 'Continue with my own OpenRouter key',
+  );
 
   /** True when the learner's own OpenRouter key is stored in this browser. */
   readonly hasOwnKey = computed(
@@ -104,14 +114,23 @@ export class AccountStore {
    */
   readonly fundingChoice = computed(() => {
     if (this.demo || !this.payment.builtInCredit() || !this.payment.poolAvailable()) return false;
+    // Credit is members-only while the membership is required.
+    if (!this.payment.member()) return false;
     if (this.payment.payment() === 'own-key') return false;
     const own = this.poolMe()?.personalAvailableMicros ?? this.billing()?.availableMicros ?? 0;
     return own > 0;
   });
 
-  /** Personal credit can be bought now: credit is offered and the provider sells top-ups. */
+  /**
+   * Personal credit can be bought now: credit is offered, the provider sells
+   * top-ups and the learner may buy (a member, or no membership required).
+   */
   readonly creditOnSale = computed(
-    () => !this.demo && this.payment.builtInCredit() && this.billing()?.topUpsEnabled !== false,
+    () =>
+      !this.demo &&
+      this.payment.builtInCredit() &&
+      this.payment.member() &&
+      this.billing()?.topUpsEnabled !== false,
   );
 
   /** The membership is sold here and the learner has none: the pool notice offers it. */
@@ -153,11 +172,19 @@ export class AccountStore {
     void this.refreshBalance();
   }
 
-  /** The gate's "use the community pool": replies move to the pool's free tier. */
+  /**
+   * The gate's way out (`freeTierOffered`): closes the gate and moves replies
+   * off credit, to the community pool while it is on, else to the learner's
+   * own key (the composer then asks for one if none is saved).
+   */
   useFreeTier(): void {
     this.gateForced.set(false);
-    this.payment.choose('pool');
-    void this.switchToPool();
+    if (this.payment.poolAvailable()) {
+      this.payment.choose('pool');
+      void this.switchToPool();
+    } else {
+      this.payment.choose('own-key');
+    }
   }
 
   private useMembership(membership: MembershipInfo): void {

@@ -20,12 +20,14 @@ let uid = 0;
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), summary';
 
 /**
- * Blocks the app while generating needs a membership the user doesn't have
- * (`membershipBlocks`, or a 402 `membership_required`): Subscribe, a code,
- * the billing page or sign out. There is no close button on purpose; the app
- * behind it should be `inert` meanwhile. Where a free tier exists (Learn on
- * the community pool), `freeTier` offers it instead. Not shown on the billing page, the
- * login page or in the demos (the app decides).
+ * Blocks the app while what the user is doing needs a membership they don't
+ * have (`membershipBlocks`, or a 402 `membership_required`): Subscribe, a
+ * code, the billing page or sign out. `needs` says what needs it (power mode
+ * in the power app; prepaid credit in Learn). There is no close button on
+ * purpose; the app behind it should be `inert` meanwhile. Where a free tier
+ * exists (Learn on the user's own key or the community pool), `freeTier`
+ * labels the button that continues on it instead. Not shown on the billing
+ * page, the login page or in the demos (the app decides).
  */
 @Component({
   selector: 'app-membership-gate',
@@ -45,8 +47,8 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), summa
       <h2 [id]="titleId" class="membership-gate-title">Tangent is {{ price() }} a year</h2>
       <div [id]="descId" class="membership-gate-desc">
         <p>
-          A yearly membership keeps Tangent running. New replies need one; your conversations stay
-          readable without it.
+          A yearly membership keeps Tangent running. {{ needs() }}; your conversations stay readable
+          without it.
         </p>
         @if (included(); as text) {
           <p>{{ text }}</p>
@@ -64,9 +66,9 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), summa
       @if (sub.error(); as e) {
         <p class="notice notice-error" role="alert">{{ e }}</p>
       }
-      @if (freeTier()) {
+      @if (freeTier(); as label) {
         <button type="button" class="btn membership-gate-free" (click)="freeTierChosen.emit()">
-          Use the free community pool instead
+          {{ label }}
         </button>
       }
       <app-membership-code-form (redeemed)="redeemed.emit($event)" />
@@ -83,8 +85,14 @@ export class MembershipGate {
   readonly billingPath = input.required<string>();
   /** Shown above the heading, e.g. "Tangent Learn". */
   readonly appName = input('Tangent');
-  /** Offer the free tier (the community pool) instead of subscribing. */
-  readonly freeTier = input(false);
+  /** What needs the membership, as a sentence without its full stop. */
+  readonly needs = input('Power mode needs one');
+  /**
+   * The label of a button that continues on the free tier instead of
+   * subscribing (Learn on the community pool or the user's own key); null
+   * offers none.
+   */
+  readonly freeTier = input<string | null>(null);
   /** A code waived the fee: the new membership (status `waived`). */
   readonly redeemed = output<MembershipInfo>();
   /** The user chose the free tier (`freeTier`). */

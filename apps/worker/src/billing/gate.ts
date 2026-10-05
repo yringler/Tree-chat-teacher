@@ -52,7 +52,8 @@ export interface GenerateCheck {
  * is on and the caller either can't cover one more call
  * (`available < USAGE_HOLD_MICROS`) or may not spend credit (no membership
  * while the fee is on: the free tier). A review never moves, and keeps its
- * 402 `payment_required` or `membership_required`.
+ * 402 `payment_required` or `membership_required`; nor does a send while the
+ * pool is off (`assertCanGenerate` then answers 402 for a non-member).
  */
 export async function resolveFunding(
   c: AppContext,
@@ -135,15 +136,27 @@ export async function assertPoolAccess(
 }
 
 /**
+ * True when this request needs the membership (once the fee is on): power
+ * mode, whatever pays (own keys or Tangent credit), and Learn on personal
+ * credit. Learn on its own key and on the community pool stay free: BYOK is
+ * free for everyone, and the fee pays for power mode, credit and the pool's
+ * higher member caps (docs/DECISIONS.md "Two tiers").
+ */
+export function needsMembership(account: AccountContext): boolean {
+  return account.mode !== 'simple' || account.funding === 'personal';
+}
+
+/**
  * Checks that the caller may generate, in order: who pays (`resolveFunding`);
  * then either the pool's own rules, which need no membership (the free tier: no reviews, the
  * message length, the account gates of `assertPoolAccess`, the acknowledgment
  * of the current pool notice (403 `pool_consent_required`, gate step 5), and
  * for a context resolve PoolBank's rate check; a reply itself is reserved, or refused with
  * 402/429, by the tree's Durable Object before any node is written) or the
- * existing checks: the membership (own key and personal credit are members-only once
- * the fee is on), allowed model, credit, rate limit. Sets `c.var.account` to
- * the account that will pay, so the caller must build its ChatService after this.
+ * existing checks: the membership where `needsMembership` says so (power mode,
+ * and Learn on personal credit; Learn on its own key needs none), allowed
+ * model, credit, rate limit. Sets `c.var.account` to the account that will
+ * pay, so the caller must build its ChatService after this.
  */
 export async function assertCanGenerate(
   c: AppContext,
@@ -182,7 +195,7 @@ export async function assertCanGenerate(
     return account;
   }
 
-  await assertMember(c.env, account);
+  if (needsMembership(account)) await assertMember(c.env, account);
   if (check.model !== null) {
     const keys = check.keys?.state === 'ok' ? check.keys.keys : undefined;
     assertGenerationAllowed(registryFor(c.env, account, keys), check.providerId, check.model, {

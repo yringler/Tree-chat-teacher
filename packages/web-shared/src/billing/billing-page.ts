@@ -20,6 +20,7 @@ import { formatCents, formatCharge, formatMicros } from './format';
 import {
   creditFeeText,
   includedCreditText,
+  membershipBlocks,
   membershipPriceText,
   membershipStatusText,
 } from './membership';
@@ -172,6 +173,10 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
               <p class="muted small">Adding credit is not available in the demo.</p>
             } @else if (s.topUpsEnabled === false) {
               <p class="muted small">One-time top-ups aren't available on this server right now.</p>
+            } @else if (membersOnly(s)) {
+              <p class="muted small billing-members-only">
+                Credit is for members: subscribe above to buy and spend it.
+              </p>
             } @else {
               <div class="billing-presets" role="group" aria-label="Top-up amounts">
                 @for (cents of ctl.presets(); track cents) {
@@ -395,6 +400,11 @@ export class BillingPage implements OnInit, OnDestroy {
 
   protected priceText(m: MembershipInfo): string {
     return membershipPriceText(m);
+  }
+
+  /** Buying and spending credit need the membership the user lacks (the server answers 402). */
+  protected membersOnly(s: BillingSummary): boolean {
+    return membershipBlocks(s.membership);
   }
 
   /** The yearly credit is only promised where credit can be spent. */

@@ -155,8 +155,9 @@ export interface AppConfig {
   flags: {
     poolEnabled: boolean;
     /**
-     * The yearly membership fee is charged and required to generate
-     * (`ANNUAL_FEE_ENABLED`, default off). Off, the membership code paths stay
+     * The yearly membership fee is charged and required for power mode and
+     * prepaid credit (`ANNUAL_FEE_ENABLED`, default off; Learn on the user's
+     * own key or the pool's free caps never needs it). Off, the membership code paths stay
      * but nothing requires a membership, whatever the payment provider offers.
      */
     annualFeeEnabled: boolean;
