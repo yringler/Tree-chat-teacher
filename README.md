@@ -126,7 +126,10 @@ Checks:
 pnpm test        # Vitest in every package; the worker suite runs inside workerd with real D1 + Durable Objects
 pnpm typecheck   # tsc everywhere (+ Angular strict templates)
 pnpm lint        # ESLint (typescript-eslint strict)
+pnpm coverage    # the same tests with coverage, then a lines/branches table per package
 ```
+
+**Coverage** (`pnpm coverage`) runs `vitest run --coverage` in every package, one at a time, then `scripts/coverage-summary.mjs` prints each package's totals. It only reports; nothing fails on low numbers. The settings are shared (`vitest.coverage.ts`): each package measures its own `src/` (files no test loads count as uncovered, so the Angular apps, whose components have few unit tests, show low numbers), with V8 in the Node packages and Istanbul in the worker, since `@cloudflare/vitest-pool-workers` runs the tests inside workerd, where V8 coverage isn't available. Each package writes an HTML report to its git-ignored `coverage/` (open `apps/worker/coverage/index.html`). `node scripts/coverage-summary.mjs <file>…` also prints single files, e.g. `apps/worker/src/billing/gate.ts`. A worker run with coverage takes a few minutes; `pnpm --filter @tangent/core coverage` covers one package.
 
 ## Deploying
 

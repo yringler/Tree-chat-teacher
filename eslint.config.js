@@ -13,6 +13,8 @@ export default tseslint.config(
       'apps/worker/migrations/**',
       '.claude/**',
       'apps/worker/site/**',
+      // Generated: coverage reports (pnpm coverage).
+      '**/coverage/**',
     ],
   },
   js.configs.recommended,

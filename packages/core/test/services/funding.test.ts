@@ -123,6 +123,46 @@ describe('ChatService routes (provider + funding)', () => {
     });
   });
 
+  it('with nothing usable on either registry, a new tree starts on the own default, on the own key', async () => {
+    const unavailable = (r: ReturnType<typeof registryOf>) => ({
+      ...r,
+      list: () => r.list().map((p) => ({ ...p, available: false })),
+    });
+    const chat = new ChatService({
+      repos: createMemoryRepositories(),
+      providers: unavailable(registryOf(new ScriptedProvider('ant'), new ScriptedProvider('oai'))),
+      creditProviders: unavailable(registryOf(new ScriptedProvider('openrouter'))),
+      settings: DEFAULT_CHAT_SETTINGS,
+    });
+    // Sending then asks for the key (the Worker's gate); credit is never picked implicitly.
+    expect((await chat.createTree({})).branches[0]).toMatchObject({
+      providerId: 'ant',
+      funding: 'own-key',
+    });
+    // Naming only the own key: its registry's default, whatever is usable.
+    expect((await chat.createTree({ funding: 'own-key' })).branches[0]).toMatchObject({
+      providerId: 'ant',
+      funding: 'own-key',
+    });
+  });
+
+  it('moving a branch to another provider takes that provider’s default model unless one is named', async () => {
+    const ant = new ScriptedProvider('ant');
+    ant.defaultModel = () => 'ant-default';
+    ant.models = () => [{ id: 'ant-default', label: 'A' }];
+    const chat = new ChatService({
+      repos: createMemoryRepositories(),
+      providers: registryOf(new ScriptedProvider('openrouter'), ant),
+      settings: DEFAULT_CHAT_SETTINGS,
+    });
+    const { tree } = await chat.createTree({ providerId: 'openrouter' });
+    expect(await chat.updateBranch(tree.trunkBranchId, { providerId: 'ant' })).toMatchObject({
+      providerId: 'ant',
+      model: 'ant-default',
+      funding: 'own-key',
+    });
+  });
+
   it('a review on credit runs on the credit registry and says so', async () => {
     const { chat, credit, own } = setup();
     const { tree } = await chat.createTree({ providerId: 'openrouter' });

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
 import { defineConfig } from 'vitest/config';
+import { coverage } from '../../vitest.coverage.js';
 import { mockOpenRouter, OPENROUTER_ORIGIN } from './test/mocks/openrouter.js';
 import { mockPolar, POLAR_ORIGIN } from './test/mocks/polar.js';
 
@@ -189,5 +190,7 @@ export default defineConfig({
   ],
   test: {
     setupFiles: ['./test/apply-migrations.ts'],
+    // workerd has no V8 coverage: Istanbul instruments the code instead.
+    coverage: coverage('istanbul'),
   },
 });
