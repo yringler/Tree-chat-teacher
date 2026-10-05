@@ -852,7 +852,7 @@ export class ChatService {
     if (!titleBranch && !titleTree) return null;
     try {
       const { provider, model } = this.summaryTarget(branch);
-      // The offline fake would just echo the prompt; keep the readable default title instead.
+      // The test provider (kind `fake`) would just echo the prompt; keep the readable default title.
       if (provider.kind === 'fake') return null;
       const messages: ChatMessage[] = [];
       if (branch.anchorQuote)
@@ -1081,7 +1081,7 @@ export class ChatService {
 
   /**
    * The route of a new tree that names no provider: the first usable
-   * provider that isn't the offline fake, the user's own before Tangent
+   * provider that isn't a test fake, the user's own before Tangent
    * credit, else the own registry's default. Naming only a funding picks that
    * registry's default provider.
    */

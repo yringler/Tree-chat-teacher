@@ -48,10 +48,13 @@ describe('bring-your-own-key', () => {
       available: true,
       keySource: 'server',
     });
-    const user = createProviderRegistry(DEFAULT_PROVIDER_CONFIGS, {
-      secrets: { ANTHROPIC_API_KEY: SERVER_KEY },
-      apiKeys: { anthropic: USER_KEY },
-    });
+    const user = createProviderRegistry(
+      [
+        ...DEFAULT_PROVIDER_CONFIGS,
+        { id: 'fake', kind: 'fake', label: 'Fake', defaultModel: 'fake-1', models: [] },
+      ],
+      { secrets: { ANTHROPIC_API_KEY: SERVER_KEY }, apiKeys: { anthropic: USER_KEY } },
+    );
     expect(user.list().find((p) => p.id === 'anthropic')).toMatchObject({
       available: true,
       keySource: 'user',

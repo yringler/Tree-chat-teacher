@@ -66,7 +66,7 @@ Design docs:
 ```
 packages/shared     domain types, API + SSE contract (zod), share DTO
 packages/core       context assembly (pure), tree utils, share projection, services, repository ports
-packages/providers  Anthropic, OpenAI-compatible (OpenAI/OpenRouter/…), Fake — raw fetch + SSE
+packages/providers  Anthropic, OpenAI-compatible (OpenAI/OpenRouter/…), a fake for tests — raw fetch + SSE
 packages/render     markdown → safe HTML, self-contained viewer page, Markdown export
 packages/web-shared Angular code shared by the apps: API client, auth, billing client, SSE, markdown, login page, base styles
 apps/worker         Hono API, D1 repositories, TreeSession Durable Object, Better Auth, email, share routes, billing
@@ -97,7 +97,7 @@ pnpm --filter @tangent/worker db:migrate:local            # create the local D1 
 pnpm dev                                                  # `wrangler dev`, which first builds both Angular apps
 ```
 
-Open <http://localhost:8787>. Without any API keys, use the **Fake (offline)** provider, which echoes deterministic replies, so the whole app works offline. To use real providers, add `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY` to `apps/worker/.dev.vars`.
+Open <http://localhost:8787>. To chat, add `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY` to `apps/worker/.dev.vars` (the dev bypass may use them). Without any API keys, the demos at <http://localhost:8787/demo> and <http://localhost:8787/learn/demo> run the whole interface in the browser, and "Option C" in `.dev.vars.example` runs the built-in provider offline.
 
 To try real sign-in locally, follow "Option B" in `.dev.vars.example`: it sets a `BETTER_AUTH_SECRET`, prints magic links to the `wrangler dev` console instead of emailing them (`EMAIL_PROVIDER=log`, allowed on localhost only), and uses Cloudflare's always-pass Turnstile test keys. Passkeys work on `localhost` too. `pnpm dev` runs `wrangler dev --local-upstream localhost:8787`: without that flag, wrangler rewrites requests to the production hostname from `routes`, and Better Auth rejects the mismatched origin.
 
@@ -384,7 +384,7 @@ A user id isn't a credential: being an admin still takes being signed in as that
 | `LEGAL_OPERATOR`, `LEGAL_CONTACT_EMAIL`, `LEGAL_JURISDICTION`                          | var                | Who runs the deployment, where privacy and legal requests go, and the governing law, for `/privacy`, `/terms` and page footers (see [docs/LEGAL.md](docs/LEGAL.md))                                                                                           |
 | `DMCA_AGENT_REGISTERED`                                                                | var                | `"true"` once a DMCA designated agent is registered. Otherwise (default `"false"`) share links are off except for admins and users allowed on the [admin page](#admin) (see [docs/LEGAL.md](docs/LEGAL.md) §8)                                                |
 | `TURNSTILE_SITE_KEY`                                                                   | var                | Cloudflare Turnstile site key for the magic-link form                                                                                                                                                                                                         |
-| `PROVIDERS`                                                                            | var                | JSON array of power mode's own-key provider configs (default: anthropic, openai, openrouter, fake; the default openrouter lists the `SIMPLE_*_MODEL`s first and takes any model id). The legacy id `tangent` is reserved: older clients still name it for Tangent credit                   |
+| `PROVIDERS`                                                                            | var                | JSON array of power mode's own-key provider configs (default: anthropic, openai, openrouter; the default openrouter lists the `SIMPLE_*_MODEL`s first and takes any model id). The legacy id `tangent` is reserved: older clients still name it for Tangent credit                   |
 | `SUMMARY_PROVIDER_ID`, `SUMMARY_MODEL`                                                 | var                | Cheaper model for summaries and titles, e.g. `anthropic` + `claude-haiku-4-5`. Empty = the branch's own model                                                                                                                                                 |
 | `AUTO_TITLE`                                                                           | var                | `false` disables automatic branch/tree titles                                                                                                                                                                                                                 |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`                            | secret             | Provider keys, referenced by name from provider configs. Used only by the local dev bypass; leave unset in production                                                                                                                                         |
@@ -427,7 +427,7 @@ A user id isn't a credential: being an admin still takes being signed in as that
 
 **Routing.** `assets.run_worker_first` in `wrangler.jsonc` lists the paths the Worker sees before Workers Static Assets: `/api/*`, `/s/*`, `/learn`, `/learn/*`, `/canvas`, `/canvas/*`, `/admin`, `/admin/*`, `/`, `/welcome`, `/privacy` and `/terms`. Keep `/` an exact path (not `/*`), or every asset request would run the Worker. In local dev with `DEV_ALLOW_NO_AUTH=true`, `/` is the app; open `/welcome` to see the landing page.
 
-**Providers.** Each provider instance in `PROVIDERS` has `id`, `kind` (`anthropic` | `openai-compatible` | `fake`), `label`, `models`, `defaultModel` and `apiKeySecret`. It can also take `baseUrl`, `headers`, `extraHeaderSecrets`, `maxContextTokens`, `maxOutputTokens`, `supportsSystemPrompt`, `options` and `openModels`. With `"openModels": true`, `models` are only suggestions and any model id the upstream knows (letters, digits and `_ . - : /`, up to 200 characters) may be used, e.g. any OpenRouter model; an unlisted model gets the provider-level limits. Any OpenAI-compatible endpoint is config only:
+**Providers.** Each provider instance in `PROVIDERS` has `id`, `kind` (`anthropic` | `openai-compatible`; `fake`, a scripted provider, is for tests and offline development only), `label`, `models`, `defaultModel` and `apiKeySecret`. It can also take `baseUrl`, `headers`, `extraHeaderSecrets`, `maxContextTokens`, `maxOutputTokens`, `supportsSystemPrompt`, `options` and `openModels`. With `"openModels": true`, `models` are only suggestions and any model id the upstream knows (letters, digits and `_ . - : /`, up to 200 characters) may be used, e.g. any OpenRouter model; an unlisted model gets the provider-level limits. Any OpenAI-compatible endpoint is config only:
 
 ```json
 [

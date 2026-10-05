@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Smoke test against a running `wrangler dev` (DEV_ALLOW_NO_AUTH=true, fake provider).
+# Smoke test against a running `wrangler dev` (DEV_ALLOW_NO_AUTH=true) with the test provider
+# (kind `fake`, deterministic replies, no network), which is never a default. Put it in
+# apps/worker/.dev.vars for the run:
+#   PROVIDERS='[{"id":"fake","kind":"fake","label":"Fake","defaultModel":"fake-1","models":[{"id":"fake-1","label":"Fake 1"}]}]'
 # Usage: scripts/smoke.sh [base-url]
 set -euo pipefail
 BASE="${1:-http://localhost:8787}"

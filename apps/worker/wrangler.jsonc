@@ -133,7 +133,7 @@
     // Cloudflare Turnstile site key (public) for the magic-link form. Its secret is TURNSTILE_SECRET_KEY.
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFLlFryv5vXul-MG",
     // JSON array of ProviderConfig for power mode's own-key providers; empty = built-in defaults
-    // (anthropic, openai, openrouter, fake), where openrouter lists the suggested models below first
+    // (anthropic, openai, openrouter), where openrouter lists the suggested models below first
     // and takes any OpenRouter model id. The id "tangent" is reserved for the built-in provider.
     "PROVIDERS": "",
     // Provider/model for summaries; empty = use the branch's provider/model.
