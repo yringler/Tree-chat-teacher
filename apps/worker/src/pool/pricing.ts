@@ -7,10 +7,9 @@
 // the same way, so a hold always covers its charge. Exact integer (BigInt)
 // math, rounded in the pool's favour.
 import type { ChatMessage } from '@tangent/shared';
-import { chargeMicros } from '../billing/pricing.js';
+import { BPS_SCALE, bpsOf, chargeMicros } from '../billing/pricing.js';
 import type { ModelPrice } from '../config.js';
 
-const BPS_SCALE = 10_000n;
 const TOKENS_PER_PRICE_UNIT = 1_000_000n;
 /** Per-message framing tokens and a constant for the request envelope (generous). */
 const TOKENS_PER_MESSAGE = 4;
@@ -21,10 +20,6 @@ const encoder = new TextEncoder();
 /** UTF-8 length of `text`. */
 export function utf8Bytes(text: string): number {
   return encoder.encode(text).length;
-}
-
-function bpsOf(bps: number): bigint {
-  return BigInt(Math.max(0, Math.round(Number.isFinite(bps) ? bps : 0)));
 }
 
 function tokensOf(n: number | null | undefined): bigint {

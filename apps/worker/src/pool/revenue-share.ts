@@ -29,13 +29,12 @@
 import type { ProviderRef } from '../billing/payments/port.js';
 import { membershipPoolShareRef, poolShareReversalRef } from '../billing/payments/refs.js';
 import { grantByRef, grantCredit } from '../billing/ledger.js';
-import { centsToMicros } from '../billing/pricing.js';
+import { BPS_SCALE, centsToMicros } from '../billing/pricing.js';
 import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { poolBank, utcDay } from './ids.js';
 import { creditEquivalentMicros } from './pricing.js';
 
-const BPS_SCALE = 10_000n;
 const DAY_MS = 24 * 60 * 60_000;
 /** The ref prefix of the daily usage share (never a provider ref, see billing/payments/refs.ts). */
 export const USAGE_SHARE_REF_PREFIX = 'pool-share:usage:';
