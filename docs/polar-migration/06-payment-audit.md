@@ -121,3 +121,25 @@ Checked and found sound: webhook status contract (404/403/202/500/200, `routes/p
 - `test/fixtures/polar.ts` `SYNTHETIC`: a marker by design (04 §1).
 - `scripts/check-provider-neutral.mjs`, `wrangler.jsonc` `POLAR_*`/`PAYMENT_PROVIDER` vars and `worker-configuration.d.ts`: consistent with `env.ts` and `config.ts`; no unused var found in `Env` (every billing/pool var in `worker-configuration.d.ts:13-73` has a reader in `config.ts` or `providers/polar/config.ts`).
 - The apps' billing and pool UI: no pool-purchase remnants (`grep -rn -i "purchase\|fund-pool\|donat" apps/*/src` finds only a comment confirming none).
+
+---
+
+## Execution log
+
+Executed 2026-10-05 from `49944db`. Every item was re-verified (`grep -rnw`, call sites read) before editing. Each batch passed root `pnpm typecheck`, `pnpm lint`, `pnpm test` (worker 530/530, all other packages green) and `npx prettier --check` on the changed files (README, `docs/PLAN.md`, `docs/pool/PLAN.md` and `wrangler.jsonc` were already unformatted; the number of lines prettier would change is the same before and after). No NEEDS-DECISION or RISK item was touched; no migration, schema DDL or API shape changed.
+
+| item | status | commit | notes |
+|---|---|---|---|
+| S1 | done | `e56b03c` | `billing/vars.ts` deleted; no importer. |
+| S2 | done | `e56b03c` | Both re-export statements removed; `config.ts` heading is `// ---- Defaults`. |
+| S3 | done | `e56b03c` | `grantsFor` removed. |
+| S4 | done | `e56b03c` | `RESERVED_PREFIXES`, `providerOfRef`, `isReservedRef` and their test lines removed; the reserved prefixes are a sentence in the `refs.ts` header; `revenue-share.ts` comment updated. |
+| S5 | done | `ead1f2f` | `marginBps` gone from `CreditGrantInput`; the INSERT writes a literal `0` for `margin_bps`; `GrantRow` and `grantByRef`'s SELECT drop `fee_micros`, `margin_bps` (no reader; `lastPurchase` reads `fee_micros` through its own SQL and `PurchaseRow`). |
+| S6 | done | `ead1f2f` | `debitPoolPurchase(env, grant, { refId, refundedGrossMicros, note })`, file-local; `suspendPoolAccess` file-local. The gross null/0 fallback is kept; its doc comment now says "an old row without its gross amount". |
+| S7 | done | `76b6e2d` | `BPS_SCALE` and `bpsOf` exported from `billing/pricing.ts`; copies in `pool/pricing.ts` and `pool/revenue-share.ts` removed. `membershipShareMicros`' inline bps rounding left alone (N9). |
+| S8 | done | `183bf75` | All rows of §1.1 except `markupFor` (kept by design until N1). `routes/billing.ts` JSDoc moved onto `billingRoutes()` and names `app.ts`. |
+| S9 | done | `183bf75` | `wrangler.jsonc` POLAR_CREDITS_PRODUCT_ID comment; `.dev.vars.example` drops "markup" and the simulated purchase line is personal only. |
+| S10 | done | `183bf75` | `shared/src/api.ts`, `docs/PLAN.md` (top-up, webhook bullets, the pool "Purchases" bullet now "Funding"), `docs/DEFERRED.md` (3 bullets removed, 2 reworded), `docs/pool/PLAN.md` note, README Refunds and "Not included yet". Verification grep is empty. Not in the list and left as is: `docs/PLAN.md` "Weekly impact feed" still says "the fund section (`ImpactFeed`)". |
+| S11 | done | `194e20e` | `export` dropped from 17 symbols (the commit message says 18; the list in §1 is the 17 done). Each re-grepped: used only in its own file; same-named object fields (`subscriptionRef`, `topUpsEnabled`, `usageMaxPending`, `membershipPriceCents`) are not imports. |
+
+Net change from `49944db` to `194e20e`: 29 files, +89 / −164 (code and tests: +80 / −150).
