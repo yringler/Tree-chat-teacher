@@ -11,8 +11,9 @@ import { poolBlockText, type PoolBlock } from './pool-format';
  * - a cap: the cap, when it resets, and that supporters get more.
  * The message itself is kept in the composer. While funding isn't open (no
  * payment provider, or pool purchases closed), only Tangent adds credit to the
- * pool: the empty state says so, says pool credit can't be bought, and links
- * to `/pool`, which explains the pool.
+ * pool: the empty state says so, says pool credit can't be bought, offers
+ * personal credit when that is on sale (`creditOpen`), and links to `/pool`,
+ * which explains the pool.
  */
 @Component({
   selector: 'app-pool-block-notice',
@@ -37,10 +38,13 @@ import { poolBlockText, type PoolBlock } from './pool-format';
               <a class="btn btn-sm" [routerLink]="billingPath()">Buy personal credits</a>
             } @else {
               <span class="muted small">Buying credit for the pool isn't available yet.</span>
+              @if (creditOpen()) {
+                <a class="btn btn-sm" [routerLink]="billingPath()">Buy personal credits</a>
+              }
               <a class="btn btn-sm" href="/pool">How the pool works</a>
             }
           </div>
-        } @else if (text().supporters && fundingOpen()) {
+        } @else if (text().supporters && (fundingOpen() || creditOpen())) {
           <div class="pool-block-actions">
             <a class="btn btn-sm" [routerLink]="billingPath()">Buy credits</a>
           </div>
@@ -56,6 +60,8 @@ export class PoolBlockNotice {
   readonly block = input.required<PoolBlock>();
   /** Pool purchases are open (`PoolStatusResponse.fundingOpen`), so the pool and personal credit can be bought now. */
   readonly fundingOpen = input(false);
+  /** Personal credit can be bought even while pool purchases are closed. */
+  readonly creditOpen = input(false);
   /** Router link of the app's billing page (`/billing`). */
   readonly billingPath = input('/billing');
   readonly dismissed = output();
