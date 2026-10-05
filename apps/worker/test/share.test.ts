@@ -1,6 +1,9 @@
 import type { Branch, SharePayload, ShareSummary, StreamEvent, TreeDetail } from '@tangent/shared';
-import { exports } from 'cloudflare:workers';
+import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
+import { env, exports } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
+import { createApp } from '../src/app.js';
+import type { AppEnv } from '../src/env.js';
 
 const BASE = 'https://tangent.example.com';
 
@@ -148,6 +151,58 @@ describe('public shares', () => {
     const r = await exports.default.fetch(`${BASE}/s/whatever/data.json`);
     expect(r.status).toBe(404);
     expect(((await r.json()) as { error: { code: string } }).error.code).toBe('not_found');
+  });
+});
+
+describe('sharing off (no DMCA agent registered)', () => {
+  // Same database as the suite above; only DMCA_AGENT_REGISTERED differs.
+  const off = { ...env, DMCA_AGENT_REGISTERED: 'false' } as AppEnv;
+  const app = createApp();
+  async function callOff(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
+    const { json, ...rest } = init;
+    const headers = new Headers(rest.headers);
+    if (json !== undefined) headers.set('Content-Type', 'application/json');
+    const ctx = createExecutionContext();
+    const res = await app.request(
+      BASE + path,
+      { ...rest, headers, ...(json !== undefined ? { body: JSON.stringify(json) } : {}) },
+      off,
+      ctx,
+    );
+    const out = new Response(await res.text(), res);
+    await waitOnExecutionContext(ctx);
+    return out;
+  }
+
+  it('creates and serves nothing, but lets owners list, revoke and export', async () => {
+    const { detail } = await seed();
+    // A link made while sharing was on.
+    const share = await ok<ShareSummary>(
+      call('/api/shares', { method: 'POST', json: { treeId: detail.tree.id, scope: 'tree' } }),
+      201,
+    );
+
+    expect(((await (await callOff('/api/me')).json()) as { sharing: boolean }).sharing).toBe(false);
+
+    const create = await callOff('/api/shares', { method: 'POST', json: { treeId: detail.tree.id, scope: 'tree' } });
+    expect(create.status).toBe(403);
+    expect(((await create.json()) as { error: { code: string } }).error.code).toBe('forbidden');
+    expect((await callOff(`/api/shares/${share.id}`, { method: 'PATCH', json: { title: 'x' } })).status).toBe(403);
+    expect((await callOff(`/api/shares/${share.id}/republish`, { method: 'POST' })).status).toBe(403);
+
+    // The old link no longer opens, as a page or as data.
+    const page = await callOff(`/s/${share.token}`);
+    expect(page.status).toBe(404);
+    expect(await page.text()).not.toContain('PUBLIC-ROOT');
+    expect((await callOff(`/s/${share.token}/data.json`)).status).toBe(404);
+
+    // Owners can still see and revoke it, and download the conversation.
+    const listed = (await (await callOff('/api/shares')).json()) as ShareSummary[];
+    expect(listed.map((s) => s.id)).toContain(share.id);
+    expect((await callOff(`/api/shares/${share.id}/revoke`, { method: 'POST' })).status).toBe(200);
+    const md = await callOff(`/api/export?treeId=${detail.tree.id}&format=md`);
+    expect(md.status).toBe(200);
+    expect(await md.text()).toContain('PUBLIC-ROOT');
   });
 });
 

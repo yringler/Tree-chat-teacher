@@ -42,6 +42,7 @@ const ME: MeResponse = {
   devMode: false,
   operatorKeys: true,
   builtInCredit: true,
+  sharing: false,
   membership: {
     required: false,
     status: 'inactive',

@@ -113,14 +113,14 @@ US state privacy laws (California CCPA/CPRA and similar) apply only above revenu
 
 Share links publish user content to the internet, which makes Tangent a host of third-party content.
 
-| Item                                                                                                                                                                                   | Status                  |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| Terms §5 acceptable use (illegal content, CSAM, harassment, malware, abuse) and the right to remove and suspend                                                                        | done                    |
-| Terms §8: copyright notice procedure and repeat-infringer policy                                                                                                                       | done                    |
-| **DMCA designated agent**: register with the US Copyright Office (dmca.copyright.gov, $6, renew every 3 years). Without it you lose the safe harbor for infringing content users share | **you**                 |
-| A way to take a share down without the owner: today the operator must revoke it in D1 (`UPDATE shares SET revoked_at = …`). Fine at small scale; an admin action would help later      | later                   |
-| EU Digital Services Act: hosting services need a contact point and a notice-and-action mechanism; the contact email covers a small service                                             | done (contact)          |
-| If you learn of CSAM: US providers must report it to NCMEC's CyberTipline                                                                                                              | **you** (know the duty) |
+| Item                                                                                                                                                                                                                                                                                                                                                                                     | Status                  |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| Terms §5 acceptable use (illegal content, CSAM, harassment, malware, abuse) and the right to remove and suspend                                                                                                                                                                                                                                                                          | done                    |
+| Terms §8: copyright notice procedure and repeat-infringer policy                                                                                                                                                                                                                                                                                                                         | done                    |
+| **DMCA designated agent**: register with the US Copyright Office (dmca.copyright.gov, $6, renew every 3 years). Without it you lose the safe harbor for infringing content users share. Until then `DMCA_AGENT_REGISTERED` stays `"false"` in `wrangler.jsonc`, which keeps share links off (nothing is published or served; users can still export). Set it to `"true"` once registered | **you**                 |
+| A way to take a share down without the owner: today the operator must revoke it in D1 (`UPDATE shares SET revoked_at = …`). Fine at small scale; an admin action would help later                                                                                                                                                                                                        | later                   |
+| EU Digital Services Act: hosting services need a contact point and a notice-and-action mechanism; the contact email covers a small service                                                                                                                                                                                                                                               | done (contact)          |
+| If you learn of CSAM: US providers must report it to NCMEC's CyberTipline                                                                                                                                                                                                                                                                                                                | **you** (know the duty) |
 
 ## 9. Sign-in providers and email
 
@@ -142,6 +142,6 @@ The European Accessibility Act (in force June 2025) and the ADA (US) apply to co
 4. Google OAuth consent screen URLs; GitHub app homepage.
 5. Check the DPAs (Resend, OpenRouter; Cloudflare's and Stripe's come with their terms).
 6. OpenRouter data-collection setting.
-7. Register a DMCA agent.
+7. Register a DMCA agent, then set `DMCA_AGENT_REGISTERED` to `"true"` to turn share links on.
 8. Register for sales tax / VAT as Stripe Tax's thresholds are reached; consider an LLC.
 9. Lawyer review of `/privacy` and `/terms`.

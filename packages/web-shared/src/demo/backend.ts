@@ -280,6 +280,8 @@ export class DemoBackend {
         devMode: false,
         operatorKeys: true,
         builtInCredit: this.mode === 'simple',
+        // The demo publishes nothing (its apps hide Share regardless).
+        sharing: false,
         membership: { ...DEMO_MEMBERSHIP },
       } satisfies MeResponse);
     }

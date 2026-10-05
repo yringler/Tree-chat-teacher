@@ -99,6 +99,10 @@
     "LEGAL_CONTACT_EMAIL": "privacy@tangentailearning.com",
     // Governing law of the terms, e.g. "the State of New York, USA"; empty = where the operator is established.
     "LEGAL_JURISDICTION": "the Commonwealth of Pennsylvania, USA",
+    // "true" once a DMCA designated agent is registered with the US Copyright Office (docs/LEGAL.md §8).
+    // Anything else = public share links are off: no new links, existing /s/* links don't open, and
+    // users can only download a conversation (Markdown / HTML export) to host it themselves.
+    "DMCA_AGENT_REGISTERED": "false",
     // Cloudflare Turnstile site key (public) for the magic-link form. Its secret is TURNSTILE_SECRET_KEY.
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFLlFryv5vXul-MG",
     // JSON array of ProviderConfig for power mode's own-key providers; empty = built-in defaults

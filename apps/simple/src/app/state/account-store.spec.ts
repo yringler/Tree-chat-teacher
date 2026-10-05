@@ -43,6 +43,7 @@ function me(m: MembershipInfo): MeResponse {
     devMode: false,
     operatorKeys: false,
     builtInCredit: true,
+    sharing: false,
     membership: m,
   };
 }

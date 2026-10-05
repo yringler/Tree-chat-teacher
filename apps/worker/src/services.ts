@@ -93,6 +93,16 @@ function apiKeySecrets(configs: readonly ProviderConfig[]): string[] {
 }
 
 /**
+ * Public share links are offered only once the operator has registered a DMCA
+ * designated agent (`DMCA_AGENT_REGISTERED` = "true"): without it, hosting
+ * what users publish carries no safe harbor. Off = no links are created or
+ * served; exporting a conversation as a file still works.
+ */
+export function sharingEnabled(env: AppEnv): boolean {
+  return env.DMCA_AGENT_REGISTERED?.trim().toLowerCase() === 'true';
+}
+
+/**
  * True when the built-in provider can be offered on credit: billing is
  * configured and the `tangent` provider is usable with the operator's key.
  * Otherwise it is in no power registry, and Learn is bring-your-own-key only.

@@ -134,6 +134,12 @@ export interface MeResponse {
    */
   builtInCredit: boolean;
   /**
+   * True when public share links are offered (the operator set
+   * DMCA_AGENT_REGISTERED). False: creating, editing and republishing a share
+   * are 403 and `/s/*` links don't open; exporting still works.
+   */
+  sharing: boolean;
+  /**
    * The user's membership, so the apps can gate generating at startup:
    * `required && status === 'inactive'` means every generating request
    * answers 402 `membership_required`.

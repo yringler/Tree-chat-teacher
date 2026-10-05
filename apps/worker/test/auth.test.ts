@@ -120,6 +120,7 @@ describe('fail closed', () => {
       mode: 'power',
       operatorKeys: true,
       builtInCredit: true,
+      sharing: true,
       membership: {
         required: false,
         status: 'inactive',
@@ -155,6 +156,7 @@ describe('fail closed', () => {
       mode: 'power',
       operatorKeys: true,
       builtInCredit: true,
+      sharing: true,
       membership: {
         required: false,
         status: 'inactive',

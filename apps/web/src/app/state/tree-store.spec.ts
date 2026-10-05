@@ -28,6 +28,7 @@ function me(over: Partial<MeResponse> = {}): MeResponse {
     devMode: false,
     operatorKeys: false,
     builtInCredit: true,
+    sharing: true,
     membership: membership(),
     ...over,
   };

@@ -90,6 +90,8 @@ export default defineConfig({
             PUBLIC_BASE_URL: '',
             DEV_ALLOW_NO_AUTH: 'true',
             AUTO_TITLE: 'false',
+            // Sharing on, so the share suites run; test/share.test.ts covers it off.
+            DMCA_AGENT_REGISTERED: 'true',
             PROVIDERS: JSON.stringify([
               { id: 'fake', kind: 'fake', label: 'Fake', defaultModel: 'fake-1', models: [{ id: 'fake-1', label: 'Fake 1' }], options: { chunkSize: 4 } },
               { id: 'slow', kind: 'fake', label: 'Slow', defaultModel: 'fake-1', models: [{ id: 'fake-1', label: 'Fake 1' }], options: { chunkSize: 2, delayMs: 30 } },

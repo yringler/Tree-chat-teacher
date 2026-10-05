@@ -4,13 +4,14 @@ import { Hono, type Context } from 'hono';
 import type { AppBindings } from '../env.js';
 import { getCached, putCached, shareCacheKey, type ShareCacheVariant } from '../share/cache.js';
 import { checkShareRateLimit } from '../share/rate-limit.js';
-import { shareService } from '../services.js';
+import { shareService, sharingEnabled } from '../services.js';
 
 const SNAPSHOT_TTL_SECONDS = 86_400;
 
 /**
  * Public, read-only share routes. They never look at the session and serve
- * no identity, only allow-listed DTOs. Validity (revoked/expired) is
+ * no identity, only allow-listed DTOs. All 404 while sharing is off
+ * (`sharingEnabled`). Validity (revoked/expired) is
  * checked against D1 on every request; only snapshot rendering is
  * edge-cached, under a key that includes the share version.
  */
@@ -26,6 +27,10 @@ async function serve(
   token: string,
   variant: ShareCacheVariant,
 ): Promise<Response> {
+  // Sharing off (no DMCA agent registered): no link opens, old ones included.
+  if (!sharingEnabled(c.env)) {
+    return statusPage(variant, 404, 'Not found', 'Shared conversations are not available on this site.');
+  }
   if (!(await checkShareRateLimit(c.env, c.req.raw))) {
     return statusPage(variant, 429, 'Too many requests', 'Please try again in a minute.', {
       'Retry-After': '60',

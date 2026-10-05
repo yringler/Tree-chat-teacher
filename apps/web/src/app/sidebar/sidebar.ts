@@ -75,14 +75,16 @@ import { OutlineItem } from './outline-item';
     <div class="sidebar-foot">
       <!-- The demo has no shares, keys, billing or account: nothing is published or signed in. -->
       @if (!demo) {
-        <a
-          routerLink="/shares"
-          routerLinkActive="is-current"
-          class="btn btn-ghost"
-          (click)="ui.drawerOpen.set(false)"
-        >
-          <app-icon name="share" /> Shares
-        </a>
+        @if (store.me()?.sharing) {
+          <a
+            routerLink="/shares"
+            routerLinkActive="is-current"
+            class="btn btn-ghost"
+            (click)="ui.drawerOpen.set(false)"
+          >
+            <app-icon name="share" /> Shares
+          </a>
+        }
         <button
           type="button"
           class="btn btn-ghost"

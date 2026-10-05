@@ -322,6 +322,7 @@ describe('power demo backend', () => {
     await expect(api.me()).resolves.toMatchObject({
       mode: 'power',
       builtInCredit: false,
+      sharing: false,
       membership: { required: false },
     });
     await expect(api.keyStatus()).resolves.toEqual({
