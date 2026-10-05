@@ -1,5 +1,5 @@
 import type { ChatMessage } from './context-plan.js';
-import type { TokenUsage } from './domain.js';
+import type { BranchFunding, TokenUsage } from './domain.js';
 
 /**
  * Provider abstraction. Implementations live in @tangent/providers and depend
@@ -172,6 +172,14 @@ export interface ProviderInfo {
   acceptsUserKey: boolean;
   /** Where the key used for this provider comes from; null when it needs none or has none. */
   keySource: 'user' | 'server' | null;
+  /**
+   * Who pays for calls through this entry. Power lists the built-in endpoint
+   * (`openrouter`) a second time with `credit` (Tangent credit, on the
+   * operator's key) after the user's own providers; a branch picks an entry by
+   * its provider id and funding. Absent = `own-key`; Learn's one entry has
+   * none, since Learn pays per request.
+   */
+  funding?: BranchFunding;
 }
 
 /**

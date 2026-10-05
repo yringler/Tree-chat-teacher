@@ -75,7 +75,7 @@ function replyStatement(
   return env.DB.prepare(
     `INSERT INTO usage_events (id, account_id, funding, user_id, branch_id, purpose, provider_id,
        model, status, hold_micros, markup_bps, fee_bps, charge_micros, settle_reason, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'tangent', 'simple', ?, 5000, 0, 0, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, 'openrouter', 'simple', ?, 5000, 0, 0, ?, ?, ?)`,
   ).bind(
     uniq('use'),
     opts.accountId ?? poolId,

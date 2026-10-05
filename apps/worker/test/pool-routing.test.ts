@@ -24,7 +24,7 @@ import { poolReadyUser } from './pool-helpers.js';
 import type { CallInit } from './session-client.js';
 
 const env = rawEnv as unknown as AppEnv;
-/** The fake `tangent` provider echoes the request when a message contains this (vitest.config.ts). */
+/** The fake built-in provider echoes the request when a message contains this (vitest.config.ts). */
 const ECHO = '[echo-request]';
 /** POOL_MAX_OUTPUT_TOKENS in vitest.config.ts. */
 const POOL_MAX_OUTPUT = 2048;
@@ -347,7 +347,7 @@ describe('funding resolution', () => {
     const review = (learn: LearnPayment) =>
       u.client.call(`/api/nodes/${assistant.id}/review`, {
         method: 'POST',
-        json: { providerId: 'tangent', model: 'smart' },
+        json: { providerId: 'openrouter', model: 'smart' },
         learn,
       });
     const credit = await review('credit');
@@ -364,7 +364,8 @@ describe('funding resolution', () => {
     const detail = await json<TreeDetail>(
       await u.client.call('/api/trees', {
         method: 'POST',
-        json: { providerId: 'tangent', model: 'smart' },
+        // Power on Tangent credit: the pool header doesn't move it to the pool.
+        json: { providerId: 'openrouter', funding: 'credit', model: 'smart' },
         headers: { [PAYMENT_HEADER]: 'pool' },
       }),
       201,
@@ -424,7 +425,7 @@ describe('pool refusals', () => {
         treeId: null,
         branchId: null,
         nodeId: null,
-        providerId: 'tangent',
+        providerId: 'openrouter',
         holdMicros: CEILING,
         feeBps: PRICE.feeBps,
       }),
@@ -551,7 +552,7 @@ describe('routes that never generate, on a pool header', () => {
       await u.client.call('/api/providers', { learn: 'pool' }),
     );
     expect(providers.map((p) => [p.id, p.defaultModel, p.models.map((m) => m.id)])).toEqual([
-      ['tangent', 'smart', ['smart', 'simple']],
+      ['openrouter', 'smart', ['smart', 'simple']],
     ]);
     const { trunk } = await createTree(u, 'pool');
     expect(trunk.model).toBe('smart');
@@ -565,7 +566,7 @@ describe('poolProviderConfig', () => {
   ): AppEnv => ({
     ...env,
     SIMPLE_PROVIDER: JSON.stringify({
-      id: 'tangent',
+      id: 'openrouter',
       kind: 'openai-compatible',
       label: 'Tangent',
       baseUrl,

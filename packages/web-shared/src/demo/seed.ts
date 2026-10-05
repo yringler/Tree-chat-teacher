@@ -98,6 +98,7 @@ export function seedDemoLesson(
     isPrivate: false,
     providerId: DEMO_PROVIDER_ID,
     model: DEMO_SMART_MODEL,
+    funding: 'own-key' as const,
     createdAt: created,
     updatedAt: created,
   };

@@ -34,8 +34,9 @@ function branch(id: string, over: Partial<Branch> = {}): Branch {
     title: id,
     titleSource: 'default',
     isPrivate: false,
-    providerId: 'tangent',
+    providerId: 'openrouter',
     model: 'smart-model',
+    funding: 'own-key',
     createdAt: T,
     updatedAt: T,
     ...over,
@@ -103,7 +104,7 @@ function controlledStream(first: StreamEvent[]) {
 }
 
 const PROVIDER: ProviderInfo = {
-  id: 'tangent',
+  id: 'openrouter',
   kind: 'openai-compatible',
   label: 'Tangent',
   models: [
@@ -584,7 +585,10 @@ describe('LessonStore', () => {
     s.api.sendMessage.mockRejectedValue(new ApiError(402, 'payment_required', 'Too low'));
     await expect(s.store.startLesson('fast-model', '  Teach me fractions ')).resolves.toBe(true);
 
-    expect(s.api.createTree).toHaveBeenCalledWith({ providerId: 'tangent', model: 'fast-model' });
+    expect(s.api.createTree).toHaveBeenCalledWith({
+      providerId: 'openrouter',
+      model: 'fast-model',
+    });
     expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't1']);
     await vi.waitFor(() => expect(s.router.navigate).toHaveBeenLastCalledWith(['/billing']));
     expect(s.api.sendMessage).toHaveBeenCalledWith(
@@ -615,7 +619,7 @@ describe('LessonStore', () => {
       fromNodeId: 'a1',
       contextMode: 'path',
       anchorQuote: 'a wave',
-      providerId: 'tangent',
+      providerId: 'openrouter',
       model: 'fast-model',
     });
     expect(created?.id).toBe('side');

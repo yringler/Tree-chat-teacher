@@ -141,6 +141,13 @@
       "when": 1791221803429,
       "tag": "0019_member_tier",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1791230536332,
+      "tag": "0020_branch_funding",
+      "breakpoints": true
     }
   ]
 }

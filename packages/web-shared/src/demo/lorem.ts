@@ -1,4 +1,5 @@
 import {
+  BUILT_IN_PROVIDER_ID,
   formatTangents,
   REVIEW_ACCURACY_LABEL,
   REVIEW_RECOMMENDATION_LABEL,
@@ -66,8 +67,8 @@ function sentence(): string {
     .replace(/;$/, '.');
 }
 
-/** The demo provider's id and models, mirroring the real `tangent` provider. */
-export const DEMO_PROVIDER_ID = 'tangent';
+/** The demo provider's id and models, mirroring the real built-in provider (`openrouter`). */
+export const DEMO_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
 export const DEMO_SMART_MODEL = 'smart';
 export const DEMO_SIMPLE_MODEL = 'simple';
 export const DEMO_MODELS: readonly ModelInfo[] = [

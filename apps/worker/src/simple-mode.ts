@@ -1,6 +1,12 @@
 import { DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
 import { parseProviderConfigs } from '@tangent/providers';
-import { DEFAULT_SYSTEM_PROMPT, type ModelInfo, type ProviderConfig } from '@tangent/shared';
+import {
+  BUILT_IN_PROVIDER_ID,
+  DEFAULT_SYSTEM_PROMPT,
+  LEGACY_BUILT_IN_PROVIDER_ID,
+  type ModelInfo,
+  type ProviderConfig,
+} from '@tangent/shared';
 import { appConfig } from './config.js';
 import type { AppEnv } from './env.js';
 import type { PoolParams } from './pool/params.js';
@@ -8,18 +14,22 @@ import type { PoolParams } from './pool/params.js';
 export { DEFAULT_SIMPLE_MAX_INPUT_TOKENS } from './config.js';
 
 /**
- * The built-in provider, `tangent`: the operator's OpenRouter key, metered
- * per call and paid from the user's prepaid credit (PLAN §13). It is the only
- * provider in a Learn account's registry, so the generic provider checks
- * (`assertGenerationAllowed`, `/api/providers`, tree and branch validation)
- * apply unchanged; power lists it after the user's own providers, with any
- * OpenRouter model allowed (`builtInPowerConfig`). Learn also runs it on the
- * user's own OpenRouter key, unmetered (services.ts `registryFor`).
+ * The built-in provider: the endpoint `openrouter` (BUILT_IN_PROVIDER_ID in
+ * @tangent/shared) on the operator's OpenRouter key, metered per call and
+ * paid from the user's prepaid credit or the community pool (PLAN §13). Its
+ * provider id names only the endpoint; who pays is the funding (the request's
+ * payment in Learn, the branch's funding in power), never the id. It is the
+ * only provider config in a Learn account's registry, so the generic provider
+ * checks (`assertGenerationAllowed`, `/api/providers`, tree and branch
+ * validation) apply unchanged; power lists it after the user's own providers
+ * as "Tangent credit", with any OpenRouter model allowed
+ * (`builtInPowerConfig`), in a registry of its own. Learn also runs this
+ * config on the user's own OpenRouter key, unmetered (services.ts `registryFor`).
  */
 
-export const SIMPLE_PROVIDER_ID = 'tangent';
-/** The built-in provider's id in both modes (an alias that reads better outside Learn). */
-export const BUILT_IN_PROVIDER_ID = SIMPLE_PROVIDER_ID;
+export { BUILT_IN_PROVIDER_ID };
+/** Learn's provider id: the built-in endpoint (`openrouter`). */
+export const SIMPLE_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
 export const DEFAULT_SIMPLE_SMART_MODEL = 'deepseek/deepseek-v4-pro';
 export const DEFAULT_SIMPLE_FAST_MODEL = 'deepseek/deepseek-v4-flash';
 /** Output cap per call; with the input cap it bounds the cost of any one request. */
@@ -34,11 +44,13 @@ function fastModel(env: AppEnv): string {
 }
 
 /**
- * The `tangent` provider as Learn uses it. `SIMPLE_PROVIDER` (one
- * ProviderConfig as JSON, id `tangent`) replaces it wholesale, e.g. a fake
- * provider in tests or the AI Gateway. The id is fixed because metering is
- * keyed on it. There is deliberately no fallback to OPENROUTER_API_KEY:
- * customer spend stays on its own key, which can carry a hard credit limit.
+ * The built-in provider's config, as Learn uses it. `SIMPLE_PROVIDER` (one
+ * ProviderConfig as JSON, id `openrouter`, or the legacy `tangent`, read as
+ * `openrouter`) replaces it wholesale, e.g. a fake provider in tests or the
+ * AI Gateway. The id is fixed so that a branch's provider id means the same
+ * endpoint in both apps. There is deliberately no fallback to
+ * OPENROUTER_API_KEY: customer spend stays on its own key, which can carry a
+ * hard credit limit.
  */
 export function simpleProviderConfig(env: AppEnv): ProviderConfig {
   const override = env.SIMPLE_PROVIDER?.trim();
@@ -46,9 +58,11 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
     const configs = parseProviderConfigs(override.startsWith('[') ? override : `[${override}]`);
     if (configs.length !== 1)
       throw new Error('Invalid SIMPLE_PROVIDER: expected exactly one provider config');
-    if (configs[0]!.id !== SIMPLE_PROVIDER_ID)
+    const config = configs[0]!;
+    if (config.id === LEGACY_BUILT_IN_PROVIDER_ID) return { ...config, id: SIMPLE_PROVIDER_ID };
+    if (config.id !== SIMPLE_PROVIDER_ID)
       throw new Error(`Invalid SIMPLE_PROVIDER: id must be "${SIMPLE_PROVIDER_ID}"`);
-    return configs[0]!;
+    return config;
   }
   const smart = smartModel(env);
   const fast = fastModel(env);
@@ -147,7 +161,7 @@ export function simpleSystemPrompt(env: AppEnv): string {
 }
 
 /**
- * The `tangent` provider as the community pool uses it: the simple config
+ * The built-in provider as the community pool uses it: the simple config
  * (same key, same SIMPLE_PROVIDER override) with the pool model as its only
  * model, and one call's cost bounded by the pool's caps: the context window
  * is the pool's input cap plus its output cap. On OpenRouter, routing is

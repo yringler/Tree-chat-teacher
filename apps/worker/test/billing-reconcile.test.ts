@@ -129,7 +129,7 @@ describe('usage reconciliation cron', () => {
     expect(simpleApiKey({ ...env, OPENROUTER_SIMPLE_API_KEY: '' } as AppEnv)).toBeNull();
     const named = {
       ...env,
-      SIMPLE_PROVIDER: JSON.stringify({ id: 'tangent', apiKeySecret: 'OTHER_KEY' }),
+      SIMPLE_PROVIDER: JSON.stringify({ id: 'openrouter', apiKeySecret: 'OTHER_KEY' }),
       OTHER_KEY: ' sk-other ',
     } as AppEnv;
     expect(simpleApiKey(named)).toBe('sk-other');

@@ -14,6 +14,7 @@ const branch: Branch = {
   isPrivate: false,
   providerId: 'fake',
   model: 'fake-1',
+  funding: 'own-key',
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 };

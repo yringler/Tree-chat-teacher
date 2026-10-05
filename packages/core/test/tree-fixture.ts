@@ -79,6 +79,7 @@ export class TreeBuilder {
       isPrivate: opts.isPrivate ?? false,
       providerId: PROVIDER_MARK,
       model: MODEL_MARK,
+      funding: 'own-key',
       createdAt: opts.createdAt ?? '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
     };

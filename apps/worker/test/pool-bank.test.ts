@@ -108,7 +108,7 @@ function request(poolId: string, overrides: Partial<PoolReserveRequest> = {}): P
     treeId: 'tree_1',
     branchId: 'branch_1',
     nodeId: null,
-    providerId: 'tangent',
+    providerId: 'openrouter',
     model: 'simple',
     holdMicros: 3_000,
     feeBps: 0,
@@ -146,7 +146,7 @@ async function insertPoolRow(
   await env.DB.prepare(
     `INSERT INTO usage_events (id, account_id, funding, purpose, provider_id, model, status, hold_micros,
        markup_bps, fee_bps, charge_micros, created_at)
-     VALUES (?, ?, 'pool', 'reply', 'tangent', 'simple', ?, ?, 0, 0, ?, ?)`,
+     VALUES (?, ?, 'pool', 'reply', 'openrouter', 'simple', ?, ?, 0, 0, ?, ?)`,
   )
     .bind(
       id,
@@ -191,10 +191,10 @@ function registryOf(provider: LlmProvider): ProviderRegistry {
   };
 }
 
-/** A `tangent` provider whose stream is the given generator. */
+/** A built-in provider (`openrouter`) whose stream is the given generator. */
 function providerOf(stream: (req: GenerateRequest) => AsyncIterable<ProviderEvent>): LlmProvider {
   return {
-    id: 'tangent',
+    id: 'openrouter',
     kind: 'fake',
     label: 'Tangent',
     models: () => [{ id: 'simple', label: 'Simple' }],
@@ -300,12 +300,14 @@ describe('PoolBank: the never-negative invariant (spec test)', () => {
       (p) => deferred.push(p),
       FAST,
     );
-    // The fake `tangent` provider of vitest.config.ts (reports 0.001234 USD per call), charged
+    // The fake built-in provider of vitest.config.ts (reports 0.001234 USD per call), charged
     // with the fee and no pool markup: ceil(1234 × 1.055) = 1302 µ$.
     const inner = createProviderRegistry([simpleProviderConfig(env)], { secrets: {} });
-    const registry = meteredRegistry(inner, meter, (id) => id === 'tangent');
+    const registry = meteredRegistry(inner, meter, (id) => id === 'openrouter');
     const runs = await Promise.all(
-      Array.from({ length: 20 }, () => drain(registry.get('tangent')!.stream(genRequest(tag())))),
+      Array.from({ length: 20 }, () =>
+        drain(registry.get('openrouter')!.stream(genRequest(tag()))),
+      ),
     );
     await settleAll(deferred);
     const done = runs.filter((events) => events.at(-1)?.type === 'done');
@@ -659,7 +661,7 @@ describe('PoolBank: settlement clamp and the overage breaker', () => {
     );
     const registry = meteredRegistry(registryOf(pricey), meter, () => true);
     for (let i = 0; i < 2; i++) {
-      const events = await drain(registry.get('tangent')!.stream(genRequest(tag())));
+      const events = await drain(registry.get('openrouter')!.stream(genRequest(tag())));
       expect(events.at(-1)?.type).toBe('done');
     }
     await settleAll(deferred);
@@ -696,7 +698,7 @@ describe('Pool meter', () => {
     const registry = meteredRegistry(inner, meter, () => true);
     let pending: UsageRow | null = null;
     const events: ProviderEvent[] = [];
-    for await (const e of registry.get('tangent')!.stream(genRequest(tag({ reservationId })))) {
+    for await (const e of registry.get('openrouter')!.stream(genRequest(tag({ reservationId })))) {
       events.push(e);
       if (e.type === 'delta' && !pending) pending = await usageRow(env, reservationId);
     }
@@ -741,7 +743,7 @@ describe('Pool meter', () => {
     const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
     const events = await drain(
       meteredRegistry(registryOf(provider), meter, () => true)
-        .get('tangent')!
+        .get('openrouter')!
         .stream(genRequest(tag({ reservationId }))),
     );
     await settleAll(deferred);
@@ -764,11 +766,11 @@ describe('Pool meter', () => {
     const meter = createPoolUsageMeter(env, params(poolId), uniq('user'), () => undefined, FAST);
     const registry = meteredRegistry(registryOf(provider), meter, () => true);
     const events = await drain(
-      registry.get('tangent')!.stream(genRequest(tag({ reservationId: 'nope' }))),
+      registry.get('openrouter')!.stream(genRequest(tag({ reservationId: 'nope' }))),
     );
     expect(events).toMatchObject([{ type: 'error', error: { upstream: 'not_sent' } }]);
     // A refused reservation fails the same way.
-    const refused = await drain(registry.get('tangent')!.stream(genRequest(tag())));
+    const refused = await drain(registry.get('openrouter')!.stream(genRequest(tag())));
     expect(refused).toMatchObject([
       { type: 'error', error: { code: 'server', retryable: false, upstream: 'not_sent' } },
     ]);
@@ -796,7 +798,7 @@ describe('Pool meter', () => {
     );
     const registry = meteredRegistry(registryOf(waits), meter, () => true);
     const ac = new AbortController();
-    const run = drain(registry.get('tangent')!.stream(genRequest(tag(), ac.signal)));
+    const run = drain(registry.get('openrouter')!.stream(genRequest(tag(), ac.signal)));
     await vi.waitFor(async () => {
       const [row] = await poolRows(poolId);
       expect(row?.dispatched_at).toBeTruthy();
@@ -836,7 +838,7 @@ describe('Pool meter', () => {
       const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
       await drain(
         meteredRegistry(registryOf(provider), meter, () => true)
-          .get('tangent')!
+          .get('openrouter')!
           .stream(genRequest(tag())),
       );
     }
@@ -1095,7 +1097,7 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
     const events = await drain(
       meteredRegistry(registryOf(provider), meter, () => true)
-        .get('tangent')!
+        .get('openrouter')!
         .stream(genRequest(tag({ reservationId: id }))),
     );
     await settleAll(deferred);
@@ -1213,7 +1215,7 @@ describe('Personal reconciliation beside the pool', () => {
       env.DB.prepare(
         `INSERT INTO usage_events (id, account_id, funding, purpose, provider_id, model, status, hold_micros,
            markup_bps, fee_bps, created_at)
-         VALUES (?, ?, 'pool', 'reply', 'tangent', 'simple', 'pending', 3000, 0, 0, ?)`,
+         VALUES (?, ?, 'pool', 'reply', 'openrouter', 'simple', 'pending', 3000, 0, 0, ?)`,
       ).bind(uniq('use'), poolId, new Date(NOW.getTime() - 30 * MIN + i).toISOString()),
     );
     await env.DB.batch(statements);
@@ -1221,7 +1223,7 @@ describe('Personal reconciliation beside the pool', () => {
     await env.DB.prepare(
       `INSERT INTO usage_events (id, account_id, purpose, provider_id, model, status, hold_micros,
          markup_bps, fee_bps, created_at)
-       VALUES (?, ?, 'reply', 'tangent', 'smart', 'pending', 20000, 1000, 550, ?)`,
+       VALUES (?, ?, 'reply', 'openrouter', 'smart', 'pending', 20000, 1000, 550, ?)`,
     )
       .bind(personal, `u_${uniq('user')}`, new Date(NOW.getTime() - 15 * MIN).toISOString())
       .run();

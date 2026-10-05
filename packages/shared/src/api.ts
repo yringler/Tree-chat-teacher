@@ -7,6 +7,7 @@ z.config({ jitless: true });
 import type { ContextPlan } from './context-plan.js';
 import type {
   Branch,
+  BranchFunding,
   ChatNode,
   ContextMode,
   Share,
@@ -16,6 +17,7 @@ import type {
   Tree,
 } from './domain.js';
 import type { ProviderInfo } from './provider.js';
+import { fromLegacyRoute } from './route.js';
 import type { AccountMode, MembershipInfo } from './billing.js';
 import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
 
@@ -272,6 +274,8 @@ export interface TreeDetail {
 
 const id = z.string().min(1).max(64);
 const contextMode = z.enum(['path', 'summary', 'independent']) satisfies z.ZodType<ContextMode>;
+/** Who pays for a branch's calls in power mode (`Branch.funding`); Learn ignores it. */
+export const branchFundingSchema = z.enum(['own-key', 'credit']) satisfies z.ZodType<BranchFunding>;
 /** Longest system prompt a tree or the account settings may hold. */
 export const MAX_SYSTEM_PROMPT_CHARS = 20_000;
 
@@ -279,12 +283,16 @@ export const MAX_SYSTEM_PROMPT_CHARS = 20_000;
  * Without a (non-blank) `systemPrompt`, the tree gets the account's saved
  * default (SettingsResponse.systemPrompt), else the built-in one.
  */
-export const createTreeRequestSchema = z.object({
-  title: z.string().trim().min(1).max(200).optional(),
-  systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable().optional(),
-  providerId: id.optional(),
-  model: z.string().min(1).max(200).optional(),
-});
+export const createTreeRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200).optional(),
+    systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable().optional(),
+    /** The trunk's endpoint and how power pays for it; both default to the account's default route. */
+    providerId: id.optional(),
+    funding: branchFundingSchema.optional(),
+    model: z.string().min(1).max(200).optional(),
+  })
+  .transform(fromLegacyRoute);
 export type CreateTreeRequest = z.infer<typeof createTreeRequestSchema>;
 
 /**
@@ -325,27 +333,38 @@ export const updateTreeRequestSchema = z.object({
 });
 export type UpdateTreeRequest = z.infer<typeof updateTreeRequestSchema>;
 
-export const createBranchRequestSchema = z.object({
-  /** The branch point: any node of the tree. */
-  fromNodeId: id,
-  contextMode: contextMode.default('path'),
-  anchorQuote: z.string().max(10_000).nullable().optional(),
-  title: z.string().trim().min(1).max(200).optional(),
-  /** Defaults to the parent branch's provider/model. */
-  providerId: id.optional(),
-  model: z.string().min(1).max(200).optional(),
-  isPrivate: z.boolean().optional(),
-});
+export const createBranchRequestSchema = z
+  .object({
+    /** The branch point: any node of the tree. */
+    fromNodeId: id,
+    contextMode: contextMode.default('path'),
+    anchorQuote: z.string().max(10_000).nullable().optional(),
+    title: z.string().trim().min(1).max(200).optional(),
+    /**
+     * Defaults to the parent branch's provider, funding and model. A provider
+     * without a funding is on the user's own key (`own-key`); a funding
+     * without a provider keeps the parent's provider.
+     */
+    providerId: id.optional(),
+    funding: branchFundingSchema.optional(),
+    model: z.string().min(1).max(200).optional(),
+    isPrivate: z.boolean().optional(),
+  })
+  .transform(fromLegacyRoute);
 export type CreateBranchRequest = z.input<typeof createBranchRequestSchema>;
 
-export const updateBranchRequestSchema = z.object({
-  title: z.string().trim().min(1).max(200).optional(),
-  contextMode: contextMode.optional(),
-  anchorQuote: z.string().max(10_000).nullable().optional(),
-  isPrivate: z.boolean().optional(),
-  providerId: id.optional(),
-  model: z.string().min(1).max(200).optional(),
-});
+export const updateBranchRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200).optional(),
+    contextMode: contextMode.optional(),
+    anchorQuote: z.string().max(10_000).nullable().optional(),
+    isPrivate: z.boolean().optional(),
+    /** As in createBranchRequestSchema: a provider without a funding is `own-key`. */
+    providerId: id.optional(),
+    funding: branchFundingSchema.optional(),
+    model: z.string().min(1).max(200).optional(),
+  })
+  .transform(fromLegacyRoute);
 export type UpdateBranchRequest = z.infer<typeof updateBranchRequestSchema>;
 
 /**
@@ -409,6 +428,7 @@ export interface ContextPlanResponse {
   /** Exactly what would be sent to the provider. */
   rendered: { system: string | null; messages: { role: 'user' | 'assistant'; content: string }[] };
   providerId: string;
+  funding: BranchFunding;
   model: string;
   /** Exact provider count when supported; otherwise null (plan has estimates). */
   exactInputTokens: number | null;
@@ -513,6 +533,11 @@ export const treeBackupSchema = z.object({
       isPrivate: z.boolean(),
       providerId: z.string().max(64),
       model: z.string().max(200),
+      /**
+       * Absent in backups made before funding was split from the provider;
+       * import reads a missing one as `own-key` (ChatService.importBackup).
+       */
+      funding: branchFundingSchema.optional(),
       createdAt: isoDate,
       updatedAt: isoDate,
     }),

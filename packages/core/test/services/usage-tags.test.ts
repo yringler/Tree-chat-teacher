@@ -167,6 +167,7 @@ describe('ChatService with billing events', () => {
     expect(events.at(-1)).toEqual({
       type: 'done',
       providerId: 'reviewer',
+      funding: 'own-key',
       model: 'm1',
       usage: { inputTokens: 10, outputTokens: 3 },
     });

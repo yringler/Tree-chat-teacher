@@ -34,7 +34,13 @@ import { usesUserKeys, type AppBindings, type AppContext, type AppEnv } from '..
 import { validateJson, validateQuery } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { purgeShare } from '../share/cache.js';
-import { builtInAvailable, canShare, chatService, registryFor, shareService } from '../services.js';
+import {
+  builtInAvailable,
+  canShare,
+  chatService,
+  providersFor,
+  shareService,
+} from '../services.js';
 import { keyRoutes } from './key.js';
 
 const REVIEW_KEEPALIVE_MS = 15_000;
@@ -115,13 +121,12 @@ export function apiRoutes(): Hono<AppBindings> {
     } satisfies MeResponse);
   });
 
+  // Power lists the built-in endpoint twice: on the user's key and as Tangent credit (`funding`).
   api.get('/providers', async (c) => {
-    if (!usesUserKeys(c.var.account)) return c.json(registryFor(c.env, c.var.account).list());
+    if (!usesUserKeys(c.var.account)) return c.json(providersFor(c.env, c.var.account));
     // An unreadable key cookie simply counts as no user keys here; /key/status clears it.
     const keys = await readKeys(c);
-    return c.json(
-      registryFor(c.env, c.var.account, keys.state === 'ok' ? keys.keys : undefined).list(),
-    );
+    return c.json(providersFor(c.env, c.var.account, keys.state === 'ok' ? keys.keys : undefined));
   });
 
   api.route('/key', keyRoutes());
@@ -199,6 +204,7 @@ export function apiRoutes(): Hono<AppBindings> {
         await assertCanGenerate(c, {
           purpose: 'resolve',
           providerId: branch.providerId,
+          funding: branch.funding,
           model: null,
           keys,
         });
@@ -226,6 +232,7 @@ export function apiRoutes(): Hono<AppBindings> {
       const account = await assertCanGenerate(c, {
         purpose: 'send',
         providerId: branch.providerId,
+        funding: branch.funding,
         model: branch.model,
         keys,
         content: req.content,
@@ -277,16 +284,17 @@ export function apiRoutes(): Hono<AppBindings> {
       const keys = await keysOf(c);
       let chat = chatOf(c, keys);
       const node = await chat.getOwnedNode(c.req.param('nodeId'));
-      const { providerId: branchProviderId } = await chat.getOwnedBranch(node.branchId);
+      const branch = await chat.getOwnedBranch(node.branchId);
       // The client picks the reviewer model here, so the allowlist is what bounds it.
-      // The review is metered iff the reviewer is the built-in provider. The context is
-      // resolved like a send on the node's branch, so missing summaries are generated on
-      // that branch's provider: its credit is checked too. Never on the pool (403).
+      // The review is metered iff the reviewer is on Tangent credit (its funding). The
+      // context is resolved like a send on the node's branch, so missing summaries are
+      // generated on that branch's route: its credit is checked too. Never on the pool (403).
       await assertCanGenerate(c, {
         purpose: 'review',
         providerId: req.providerId,
+        funding: req.funding ?? 'own-key',
         model: req.model,
-        alsoSpendsOn: branchProviderId,
+        alsoSpendsOn: { providerId: branch.providerId, funding: branch.funding },
         keys,
       });
       chat = chatOf(c, keys, true);

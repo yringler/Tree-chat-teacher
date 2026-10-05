@@ -64,7 +64,7 @@ describe('demo backend', () => {
     await expect(api.me()).resolves.toMatchObject({ mode: 'simple', devMode: false });
     const [provider, ...others] = await api.providers();
     expect(others).toEqual([]);
-    expect(provider).toMatchObject({ id: 'tangent', defaultModel: 'smart', available: true });
+    expect(provider).toMatchObject({ id: 'openrouter', defaultModel: 'smart', available: true });
     expect(provider!.models).toEqual([
       { id: 'smart', label: 'Smart' },
       { id: 'simple', label: 'Simple' },
@@ -95,7 +95,7 @@ describe('demo backend', () => {
 
   it('creates a lesson, streams a reply over SSE, stores it, titles the lesson and charges for it', async () => {
     const { api } = setup({ seed: false });
-    const detail = await api.createTree({ providerId: 'tangent', model: 'smart' });
+    const detail = await api.createTree({ providerId: 'openrouter', model: 'smart' });
     expect(detail.tree.title).toBe('New conversation');
     expect(detail.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
 
@@ -305,6 +305,45 @@ describe('demo backend', () => {
     expect((await reloaded.billing()).balanceMicros).toBeLessThan(DEMO_START_BALANCE_MICROS);
   });
 
+  it('restores a session saved before funding was split from the provider', async () => {
+    const storage = memoryStorage();
+    const { api } = setup({ storage, seed: false });
+    const tree = await api.createTree({});
+    await events(
+      await api.sendMessage(
+        tree.tree.trunkBranchId,
+        { content: 'Hi' },
+        new AbortController().signal,
+      ),
+    );
+    await until(() => storage.data.has('tangent.learn-demo.v1'));
+    // Rewrite the saved session as an older build stored it: the legacy id, no funding.
+    const saved = JSON.parse(storage.data.get('tangent.learn-demo.v1')!) as {
+      branches: Record<string, unknown>[];
+      nodes: Record<string, unknown>[];
+    };
+    const legacy = {
+      ...saved,
+      branches: saved.branches.map(({ funding: _f, ...b }) => ({ ...b, providerId: 'tangent' })),
+      nodes: saved.nodes.map((n) => (n['providerId'] ? { ...n, providerId: 'tangent' } : n)),
+    };
+    storage.data.set('tangent.learn-demo.v1', JSON.stringify(legacy));
+
+    const { api: reloaded } = setup({ storage });
+    const detail = await reloaded.getTree(tree.tree.id);
+    expect(detail.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
+    expect(detail.nodes.find((n) => n.role === 'assistant')?.providerId).toBe('openrouter');
+    // And it still sends.
+    const more = await events(
+      await reloaded.sendMessage(
+        tree.tree.trunkBranchId,
+        { content: 'Again' },
+        new AbortController().signal,
+      ),
+    );
+    expect(more.at(-1)?.type).toBe('done');
+  });
+
   it('reviews a reply over SSE without storing anything', async () => {
     const { api } = setup();
     const [lesson] = await api.listTrees();
@@ -312,13 +351,13 @@ describe('demo backend', () => {
     const reply = before.nodes.find((n) => n.role === 'assistant')!;
     const res = await api.reviewNode(
       reply.id,
-      { providerId: 'tangent', model: 'smart' },
+      { providerId: 'openrouter', model: 'smart' },
       new AbortController().signal,
     );
     const seen: ReviewEvent[] = [];
     for await (const e of readSseEvents(res.body!, parseReviewEvent)) seen.push(e);
     expect(seen.some((e) => e.type === 'delta')).toBe(true);
-    expect(seen.at(-1)).toMatchObject({ type: 'done', providerId: 'tangent', model: 'smart' });
+    expect(seen.at(-1)).toMatchObject({ type: 'done', providerId: 'openrouter', model: 'smart' });
     expect((await api.getTree(lesson!.id)).nodes).toEqual(before.nodes);
   });
 

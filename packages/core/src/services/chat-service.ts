@@ -2,6 +2,8 @@ import {
   DEFAULT_ACCOUNT_ID,
   DEFAULT_BRANCH_TITLE_PREFIX,
   DEFAULT_TREE_TITLE,
+  LEGACY_BUILT_IN_PROVIDER_ID,
+  BUILT_IN_PROVIDER_ID,
   TRUNK_TITLE,
   createBranchRequestSchema,
   createTreeRequestSchema,
@@ -10,6 +12,7 @@ import {
   updateSettingsRequestSchema,
   updateTreeRequestSchema,
   type Branch,
+  type BranchFunding,
   type ChatMessage,
   type ChatNode,
   type ContextPlan,
@@ -19,6 +22,7 @@ import {
   type DeleteBranchResponse,
   type LlmProvider,
   type ProviderRegistry,
+  type ProviderRoute,
   type ReviewEvent,
   type ReviewRequest,
   type SettingsResponse,
@@ -81,7 +85,23 @@ export interface ChatServiceDeps {
   repos: Repositories;
   /** Account acting through this service instance. Default DEFAULT_ACCOUNT_ID. */
   accountId?: string;
+  /**
+   * The providers of `own-key` routes: the user's own keys (power), or, with
+   * `fixedFunding`, every route of the request whoever pays (Learn).
+   */
   providers: ProviderRegistry;
+  /**
+   * The providers of `credit` routes (power: the built-in endpoint on the
+   * operator's key, metered). Absent where Tangent credit isn't offered: a
+   * branch on credit then has no provider. Unused with `fixedFunding`.
+   */
+  creditProviders?: ProviderRegistry;
+  /**
+   * Learn: how a request pays is decided per request, outside the branch, so
+   * every route comes from `providers` whatever a branch's funding says, and
+   * every branch this instance writes gets this funding (`own-key`).
+   */
+  fixedFunding?: BranchFunding;
   settings: ChatSettings;
   /**
    * Built-in system prompt of new trees, used when neither the request nor
@@ -142,6 +162,7 @@ export interface RunGenerationOptions {
 export interface PreparedReview {
   node: ChatNode;
   providerId: string;
+  funding: BranchFunding;
   model: string;
 }
 
@@ -231,8 +252,8 @@ export class ChatService {
    */
   async createTree(request: CreateTreeRequest): Promise<TreeDetail> {
     const req = createTreeRequestSchema.parse(request);
-    const providerId = req.providerId ?? this.deps.providers.defaultProviderId();
-    const provider = this.requireProvider(providerId);
+    const route = this.requestedRoute(req, null);
+    const provider = this.requireProvider(route);
     const model = req.model ?? provider.defaultModel();
     const systemPrompt = emptyToNull(req.systemPrompt) ?? (await this.newTreeSystemPrompt());
     const now = this.now();
@@ -255,8 +276,9 @@ export class ChatService {
       title: TRUNK_TITLE,
       titleSource: 'default',
       isPrivate: false,
-      providerId,
+      providerId: route.providerId,
       model,
+      funding: route.funding,
       createdAt: now,
       updatedAt: now,
     };
@@ -327,10 +349,11 @@ export class ChatService {
     const parent = await this.repo.getBranch(node.branchId);
     if (!parent) throw new NotFoundError('Branch');
 
-    const providerId = req.providerId ?? parent.providerId;
-    const provider = this.requireProvider(providerId);
+    const route = this.requestedRoute(req, parent);
+    const provider = this.requireProvider(route);
     const model =
-      req.model ?? (providerId === parent.providerId ? parent.model : provider.defaultModel());
+      req.model ??
+      (route.providerId === parent.providerId ? parent.model : provider.defaultModel());
     const anchorQuote = emptyToNull(req.anchorQuote?.trim());
     const now = this.now();
     const branch: Branch = {
@@ -343,8 +366,9 @@ export class ChatService {
       title: req.title ?? defaultBranchTitle(anchorQuote, node),
       titleSource: req.title ? 'user' : 'default',
       isPrivate: req.isPrivate ?? false,
-      providerId,
+      providerId: route.providerId,
       model,
+      funding: route.funding,
       createdAt: now,
       updatedAt: now,
     };
@@ -368,12 +392,14 @@ export class ChatService {
     if (req.contextMode !== undefined) patch.contextMode = req.contextMode;
     if (req.anchorQuote !== undefined) patch.anchorQuote = emptyToNull(req.anchorQuote?.trim());
     if (req.isPrivate !== undefined) patch.isPrivate = req.isPrivate;
-    if (req.providerId !== undefined || req.model !== undefined) {
-      const providerId = req.providerId ?? branch.providerId;
-      const provider = this.requireProvider(providerId);
-      patch.providerId = providerId;
+    if (req.providerId !== undefined || req.funding !== undefined || req.model !== undefined) {
+      const route = this.requestedRoute(req, branch);
+      const provider = this.requireProvider(route);
+      patch.providerId = route.providerId;
+      patch.funding = route.funding;
       patch.model =
-        req.model ?? (providerId === branch.providerId ? branch.model : provider.defaultModel());
+        req.model ??
+        (route.providerId === branch.providerId ? branch.model : provider.defaultModel());
     }
     const updated = await this.repo.updateBranch(branchId, patch);
     if (!updated) throw new NotFoundError('Branch');
@@ -456,6 +482,7 @@ export class ChatService {
       plan,
       rendered,
       providerId: inputs.branch.providerId,
+      funding: this.fundingOf(inputs.branch),
       model,
       exactInputTokens,
     };
@@ -491,7 +518,7 @@ export class ChatService {
     if (override !== undefined) {
       path = path.map((n) => (n.role === 'system' ? { ...n, role: 'user' } : n));
     }
-    const provider = this.requireProvider(branch.providerId);
+    const provider = this.requireProvider(branch);
     return { tree, chain, path, branch, targetNodeId: nodeId, provider };
   }
 
@@ -524,11 +551,12 @@ export class ChatService {
   private summaryTarget(branch: Branch): { provider: LlmProvider; model: string } {
     const { summaryProviderId, summaryModel } = this.deps.settings;
     if (summaryProviderId) {
+      // A configured summary provider is an own-key route (never credit, in power).
       const provider = this.deps.providers.get(summaryProviderId);
       if (provider) return { provider, model: summaryModel ?? provider.defaultModel() };
     }
-    // No (usable) summary provider configured: summarize with the branch's own model.
-    return { provider: this.requireProvider(branch.providerId), model: this.modelOf(branch) };
+    // No (usable) summary provider configured: summarize on the branch's own route and model.
+    return { provider: this.requireProvider(branch), model: this.modelOf(branch) };
   }
 
   /**
@@ -663,7 +691,7 @@ export class ChatService {
   async beginSend(branchId: string, content: string): Promise<BeginSendResult> {
     const branch = await this.getOwnedBranch(branchId);
     if (!content.trim()) throw new ValidationError('Message is empty');
-    this.requireProvider(branch.providerId);
+    this.requireProvider(branch);
     const own = await this.repo.listBranchNodes(branchId);
     const leaf = own.at(-1);
     if (leaf?.status === 'streaming') {
@@ -867,8 +895,9 @@ export class ChatService {
     if (node.role !== 'assistant')
       throw new ValidationError('Only assistant replies can be reviewed');
     if (node.status !== 'complete') throw new ValidationError('That reply has not finished');
-    this.requireProvider(request.providerId);
-    return { node, providerId: request.providerId, model: request.model };
+    const route = this.requestedRoute(request, null);
+    this.requireProvider(route);
+    return { node, ...route, model: request.model };
   }
 
   /**
@@ -888,7 +917,7 @@ export class ChatService {
       }
       const caps = inputs.provider.capabilities(this.modelOf(inputs.branch));
       const context = renderPlan(step.value, this.renderOptions(caps.supportsSystemPrompt));
-      const reviewer = this.requireProvider(review.providerId);
+      const reviewer = this.requireProvider(review);
       const prompt = buildReviewPrompt(context, review.node.model);
       const rendered = reviewer.capabilities(review.model).supportsSystemPrompt
         ? prompt
@@ -921,6 +950,7 @@ export class ChatService {
           yield {
             type: 'done',
             providerId: review.providerId,
+            funding: review.funding,
             model: review.model,
             usage: finalUsage,
           };
@@ -1000,9 +1030,12 @@ export class ChatService {
       treeId,
       parentBranchId: b.parentBranchId === null ? null : mapBranch(b.parentBranchId),
       branchPointNodeId: b.branchPointNodeId === null ? null : mapNode(b.branchPointNodeId),
+      ...importedRoute(b, this.deps.fixedFunding),
     }));
     const nodes: ChatNode[] = data.nodes.map((n) => ({
       ...n,
+      providerId:
+        n.providerId === LEGACY_BUILT_IN_PROVIDER_ID ? BUILT_IN_PROVIDER_ID : n.providerId,
       id: mapNode(n.id),
       treeId,
       branchId: mapBranch(n.branchId),
@@ -1016,11 +1049,91 @@ export class ChatService {
 
   // -------------------------------------------------------------- helpers
 
-  private requireProvider(providerId: string): LlmProvider {
-    const provider = this.deps.providers.get(providerId);
-    if (!provider) throw new ValidationError(`Unknown provider "${providerId}"`);
+  /** How calls on `branch` are paid as far as this instance knows: Learn's fixed funding, else the branch's. */
+  private fundingOf(branch: Pick<Branch, 'funding'>): BranchFunding {
+    return this.deps.fixedFunding ?? branch.funding;
+  }
+
+  /**
+   * The route a request names, completed from `base` (the parent branch, or
+   * the branch being changed): nothing named keeps `base`'s route; a provider
+   * without a funding is on the user's own key, so naming a provider never
+   * spends credit implicitly; a funding without a provider
+   * keeps `base`'s provider. Without a `base` (a new tree, a reviewer) and
+   * nothing named, the default route (`defaultRoute`). Learn's fixed funding
+   * always wins.
+   */
+  private requestedRoute(
+    req: { providerId?: string | undefined; funding?: BranchFunding | undefined },
+    base: Pick<Branch, 'providerId' | 'funding'> | null,
+  ): ProviderRoute {
+    let route: ProviderRoute;
+    if (req.providerId !== undefined) {
+      route = { providerId: req.providerId, funding: req.funding ?? 'own-key' };
+    } else if (base) {
+      route = { providerId: base.providerId, funding: req.funding ?? base.funding };
+    } else {
+      route = this.defaultRoute(req.funding);
+    }
+    const fixed = this.deps.fixedFunding;
+    return fixed === undefined ? route : { ...route, funding: fixed };
+  }
+
+  /**
+   * The route of a new tree that names no provider: the first usable
+   * provider that isn't the offline fake, the user's own before Tangent
+   * credit, else the own registry's default. Naming only a funding picks that
+   * registry's default provider.
+   */
+  private defaultRoute(funding: BranchFunding | undefined): ProviderRoute {
+    const own = this.deps.providers;
+    const credit = this.deps.fixedFunding === undefined ? this.deps.creditProviders : undefined;
+    // Credit asked for where it isn't offered: `requireProvider` refuses the route.
+    if (funding === 'credit') return { providerId: (credit ?? own).defaultProviderId(), funding };
+    if (funding === 'own-key' || !credit)
+      return { providerId: own.defaultProviderId(), funding: 'own-key' };
+    const usable = (r: ProviderRegistry) => r.list().find((p) => p.available && p.kind !== 'fake');
+    const mine = usable(own);
+    if (mine) return { providerId: mine.id, funding: 'own-key' };
+    const bought = usable(credit);
+    if (bought) return { providerId: bought.id, funding: 'credit' };
+    return { providerId: own.defaultProviderId(), funding: 'own-key' };
+  }
+
+  /** The provider of a route (a branch, or a requested route); Learn's routes all come from `providers`. */
+  private requireProvider(route: Pick<Branch, 'providerId' | 'funding'>): LlmProvider {
+    const funding = this.fundingOf(route);
+    const registry =
+      this.deps.fixedFunding !== undefined || funding === 'own-key'
+        ? this.deps.providers
+        : this.deps.creditProviders;
+    const provider = registry?.get(route.providerId);
+    if (!provider) {
+      throw new ValidationError(
+        funding === 'credit' && this.deps.fixedFunding === undefined
+          ? `Unknown provider "${route.providerId}" on Tangent credit`
+          : `Unknown provider "${route.providerId}"`,
+      );
+    }
     return provider;
   }
+}
+
+/**
+ * A backed-up branch's route as import stores it. Backups name the endpoint
+ * and, since funding was split from the provider, the funding. An older
+ * backup names neither the funding nor what its legacy `tangent` id was paid
+ * with (credit in power, per request in Learn), so a missing funding is
+ * `own-key`: an imported conversation never spends credit until its owner
+ * picks Tangent credit for it. Learn's fixed funding wins, as for any write.
+ */
+function importedRoute(
+  b: { providerId: string; funding?: BranchFunding | undefined },
+  fixedFunding: BranchFunding | undefined,
+): ProviderRoute {
+  const providerId =
+    b.providerId === LEGACY_BUILT_IN_PROVIDER_ID ? BUILT_IN_PROVIDER_ID : b.providerId;
+  return { providerId, funding: fixedFunding ?? b.funding ?? 'own-key' };
 }
 
 /** Streams a prompt to completion; returns null on provider error. */

@@ -36,7 +36,7 @@ export const SNAPSHOT_CHUNK_CHARS = 256_000;
 /** D1 rejects statements with more than 100 bound parameters. */
 const MAX_BOUND_PARAMS = 100;
 const NODE_COLUMNS = 14;
-const BRANCH_COLUMNS = 13;
+const BRANCH_COLUMNS = 14;
 const NODE_ROWS_PER_INSERT = Math.floor(MAX_BOUND_PARAMS / NODE_COLUMNS); // 7
 const BRANCH_ROWS_PER_INSERT = Math.floor(MAX_BOUND_PARAMS / BRANCH_COLUMNS); // 7
 
@@ -83,6 +83,7 @@ function toBranch(r: BranchRow): Branch {
     isPrivate: r.isPrivate,
     providerId: r.providerId,
     model: r.model,
+    funding: r.funding,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -181,6 +182,7 @@ function branchInsert(b: Branch): BranchInsert {
     isPrivate: b.isPrivate,
     providerId: b.providerId,
     model: b.model,
+    funding: b.funding,
     createdAt: b.createdAt,
     updatedAt: b.updatedAt,
   };
@@ -199,6 +201,7 @@ interface RawBranchRow {
   is_private: number;
   provider_id: string;
   model: string;
+  funding: Branch['funding'];
   created_at: string;
   updated_at: string;
 }
@@ -233,6 +236,7 @@ function rawToBranch(r: RawBranchRow): Branch {
     isPrivate: r.is_private !== 0,
     providerId: r.provider_id,
     model: r.model,
+    funding: r.funding,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -437,6 +441,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
         isPrivate: patch.isPrivate,
         providerId: patch.providerId,
         model: patch.model,
+        funding: patch.funding,
         updatedAt: patch.updatedAt,
       });
       if (Object.keys(set).length === 0) return treeRepo.getBranch(branchId);

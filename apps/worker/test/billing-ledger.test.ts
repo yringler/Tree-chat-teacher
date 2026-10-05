@@ -110,20 +110,23 @@ describe('markupFor', () => {
 
 describe('assertCanSpend', () => {
   it("is a no-op for calls on the user's own keys, in either mode", async () => {
-    // Power on a BYOK provider, even with the built-in provider in its registry.
-    await expect(assertCanSpend(env, powerAccount(), 'ant')).resolves.toBeUndefined();
+    // Power on its own keys, even where Tangent credit is offered.
+    await expect(assertCanSpend(env, powerAccount(), 'own-key')).resolves.toBeUndefined();
+    // A power branch on credit where the server doesn't offer it never reaches the ledger.
     await expect(
-      assertCanSpend(env, devPowerAccount({ builtIn: false }), 'tangent'),
+      assertCanSpend(env, devPowerAccount({ builtIn: false }), 'credit'),
     ).resolves.toBeUndefined();
-    // Learn on the user's own key.
-    await expect(
-      assertCanSpend(env, { ...simpleAccount(), builtIn: false }, 'tangent'),
-    ).resolves.toBeUndefined();
+    // Learn on the user's own key, whatever a branch's funding says (Learn pays per request).
+    for (const funding of ['own-key', 'credit'] as const) {
+      await expect(
+        assertCanSpend(env, { ...simpleAccount(), builtIn: false }, funding),
+      ).resolves.toBeUndefined();
+    }
   });
 
-  it("checks the user's shared ledger for power calls on the built-in provider", async () => {
+  it("checks the user's shared ledger for power calls on Tangent credit", async () => {
     const account = powerAccount();
-    await expect(assertCanSpend(env, account, 'tangent')).rejects.toBeInstanceOf(
+    await expect(assertCanSpend(env, account, 'credit')).rejects.toBeInstanceOf(
       PaymentRequiredError,
     );
     // Credit bought in Learn (on u_<userId>) pays for power calls too.
@@ -133,12 +136,12 @@ describe('assertCanSpend', () => {
       amountMicros: 5_000_000,
       providerRef: uniq('cs'),
     });
-    await expect(assertCanSpend(env, account, 'tangent')).resolves.toBeUndefined();
+    await expect(assertCanSpend(env, account, 'credit')).resolves.toBeUndefined();
   });
 
   it('gives 402 at a zero balance and passes after a grant', async () => {
     const account = simpleAccount();
-    const err = await assertCanSpend(env, account, 'tangent').catch((e: unknown) => e);
+    const err = await assertCanSpend(env, account, 'credit').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(PaymentRequiredError);
     expect((err as PaymentRequiredError).code).toBe('payment_required');
     await grantCredit(env.DB, {
@@ -147,7 +150,7 @@ describe('assertCanSpend', () => {
       amountMicros: 5_000_000,
       providerRef: uniq('cs'),
     });
-    await expect(assertCanSpend(env, account, 'tangent')).resolves.toBeUndefined();
+    await expect(assertCanSpend(env, account, 'credit')).resolves.toBeUndefined();
   });
 
   it('counts pending holds against the available balance', async () => {
@@ -158,9 +161,9 @@ describe('assertCanSpend', () => {
       amountMicros: 39_999,
       providerRef: null,
     });
-    await expect(assertCanSpend(env, account, 'tangent')).resolves.toBeUndefined();
+    await expect(assertCanSpend(env, account, 'credit')).resolves.toBeUndefined();
     await insertUsage(env, { accountId: account.id, status: 'pending', holdMicros: 20_000 });
-    await expect(assertCanSpend(env, account, 'tangent')).rejects.toBeInstanceOf(
+    await expect(assertCanSpend(env, account, 'credit')).rejects.toBeInstanceOf(
       PaymentRequiredError,
     );
   });
@@ -176,7 +179,7 @@ describe('assertCanSpend', () => {
     const err = await assertCanSpend(
       { ...env, PAYMENT_PROVIDER: 'polar' },
       account,
-      'tangent',
+      'credit',
     ).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(DomainError);
     expect(err).not.toBeInstanceOf(PaymentRequiredError);

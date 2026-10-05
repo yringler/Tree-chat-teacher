@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 // The tree helpers only: the rest of @tangent/core (the ChatService) is for the lazy demo chunk.
 import { branchChain, branchPath, indexTree, type TreeIndex } from '@tangent/core/tree';
 import {
+  BUILT_IN_PROVIDER_ID,
   POOL_NOTICE_VERSION,
   type Branch,
   type ChatNode,
@@ -53,8 +54,12 @@ export interface LessonPoolBlock extends PoolBlock {
   branchId: string;
 }
 
-/** The server-side provider of simple accounts (PLAN §2.2); the first provider otherwise. */
-const LEARN_PROVIDER_ID = 'tangent';
+/**
+ * Learn's endpoint, the built-in provider (`openrouter`; PLAN §2.2); the first
+ * provider otherwise. Learn pays per request (its payment header), never per
+ * branch, so it names no funding.
+ */
+const LEARN_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
 
 export const OUT_OF_CREDIT_MESSAGE = 'Add credit to keep learning';
 /** The pool notice changed since this page loaded: its copy of the text is stale. */

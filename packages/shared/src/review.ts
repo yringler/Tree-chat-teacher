@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { TokenUsage } from './domain.js';
+import type { BranchFunding, TokenUsage } from './domain.js';
+import { fromLegacyRoute } from './route.js';
 
 /**
  * Reviewer ("fact check up to here"). A second, usually stronger, model reads
@@ -13,10 +14,16 @@ import type { TokenUsage } from './domain.js';
  * they never enter the context of later replies unless the user sends them.
  */
 
-export const reviewRequestSchema = z.object({
-  providerId: z.string().min(1).max(64),
-  model: z.string().min(1).max(200),
-});
+export const reviewRequestSchema = z
+  .object({
+    providerId: z.string().min(1).max(64),
+    /** How power pays for the reviewer (default `own-key`); Learn pays per request. */
+    funding: z.enum(['own-key', 'credit']).optional() satisfies z.ZodType<
+      BranchFunding | undefined
+    >,
+    model: z.string().min(1).max(200),
+  })
+  .transform(fromLegacyRoute);
 export type ReviewRequest = z.infer<typeof reviewRequestSchema>;
 
 /**
@@ -26,7 +33,13 @@ export type ReviewRequest = z.infer<typeof reviewRequestSchema>;
 export type ReviewEvent =
   | { type: 'status'; message: string }
   | { type: 'delta'; text: string }
-  | { type: 'done'; providerId: string; model: string; usage: TokenUsage | null }
+  | {
+      type: 'done';
+      providerId: string;
+      funding: BranchFunding;
+      model: string;
+      usage: TokenUsage | null;
+    }
   | { type: 'error'; message: string };
 
 export const REVIEW_EVENT_TYPES: ReadonlySet<string> = new Set<ReviewEvent['type']>([

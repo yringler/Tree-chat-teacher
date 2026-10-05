@@ -120,7 +120,7 @@ export async function insertUsage(env: AppEnv, row: UsageRowInput): Promise<stri
   await env.DB.prepare(
     `INSERT INTO usage_events (id, account_id, tree_id, purpose, provider_id, model, generation_id, status,
        hold_micros, markup_bps, fee_bps, charge_micros, created_at)
-     VALUES (?, ?, ?, ?, 'tangent', ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, 'openrouter', ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id,

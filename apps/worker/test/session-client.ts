@@ -22,7 +22,7 @@ export class CapturingSender implements EmailSender {
   }
 }
 
-/** Auth configured as in production: open sign-up, the fake payment provider and the fake `tangent` provider from vitest.config.ts. */
+/** Auth configured as in production: open sign-up, the fake payment provider and the fake built-in provider from vitest.config.ts. */
 export function authEnv(overrides: Partial<AppEnv> = {}): AppEnv {
   return {
     ...env,

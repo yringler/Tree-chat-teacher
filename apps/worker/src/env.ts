@@ -1,7 +1,6 @@
-import type { AccountMode, FundingSource } from '@tangent/shared';
+import type { AccountMode, BranchFunding, FundingSource } from '@tangent/shared';
 import type { Context } from 'hono';
 import type { PoolParams } from './pool/params.js';
-import { BUILT_IN_PROVIDER_ID } from './simple-mode.js';
 
 /**
  * Worker environment: generated bindings/vars (`Env`, from wrangler types)
@@ -136,12 +135,19 @@ export function isPoolFunded(
 }
 
 /**
- * True when a call on `providerId` is metered and charged to the account's
- * credit: only the built-in provider, and only where the account has it on
- * the operator's key. Metering is per provider call, not per account.
+ * True when a call is metered: paid on the operator's key from the user's
+ * credit or the community pool, never on the user's own key. Decided by
+ * funding, never by the provider id (which names only the endpoint):
+ * - Learn: by the request's payment (`account.builtIn`: credit or the pool),
+ *   whatever the branch says; Learn ignores a branch's funding.
+ * - power: by the funding of the route the call is on (the branch's, or a
+ *   reviewer's), `credit`, and only where the server offers Tangent credit
+ *   (`account.builtIn`). Metering is per call, not per account: a power
+ *   account mixes its own keys with credit.
  */
-export function isMetered(account: AccountContext, providerId: string): boolean {
-  return account.builtIn && providerId === BUILT_IN_PROVIDER_ID;
+export function isMetered(account: AccountContext, funding: BranchFunding): boolean {
+  if (account.mode === 'simple') return account.builtIn;
+  return account.builtIn && funding === 'credit';
 }
 
 /**

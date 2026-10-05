@@ -529,7 +529,8 @@ function meteredProvider(provider: LlmProvider, meter: UsageMeter): LlmProvider 
 
 /**
  * Wraps `get(id).stream(req)` with the meter for the providers `metered`
- * accepts (the built-in one, see `isMetered`); the others pass through.
+ * accepts; the others pass through. The Worker (services.ts) wraps only
+ * registries whose every route is paid on the operator's key, so it accepts all.
  */
 export function meteredRegistry(
   inner: ProviderRegistry,

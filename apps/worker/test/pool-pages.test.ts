@@ -46,7 +46,7 @@ async function settledReply(
   await env.DB.prepare(
     `INSERT INTO usage_events (id, account_id, funding, user_id, purpose, provider_id, model, status,
        hold_micros, markup_bps, fee_bps, charge_micros, settle_reason, created_at)
-     VALUES (?, ?, 'pool', ?, ?, 'tangent', 'simple', 'settled', 5000, 0, 0, ?, ?, ?)`,
+     VALUES (?, ?, 'pool', ?, ?, 'openrouter', 'simple', 'settled', 5000, 0, 0, ?, ?, ?)`,
   )
     .bind(
       uniq('use'),

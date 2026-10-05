@@ -183,7 +183,7 @@ async function usage(o: {
   await env.DB.prepare(
     `INSERT INTO usage_events (id, account_id, funding, purpose, provider_id, model, status,
        hold_micros, markup_bps, fee_bps, charge_micros, created_at, settled_at)
-     VALUES (?, ?, ?, 'reply', 'tangent', 'simple', ?, 20000, ?, 550, ?, ?, ?)`,
+     VALUES (?, ?, ?, 'reply', 'openrouter', 'simple', ?, 20000, ?, 550, ?, ?, ?)`,
   )
     .bind(
       uniq('use'),
