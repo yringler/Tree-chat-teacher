@@ -262,7 +262,7 @@ Users pay the operator's true cost plus the markup: the model price OpenRouter r
    ```bash
    npx wrangler secret put MEMBERSHIP_WAIVER_CODE
    ```
-5. **Migrate and deploy.** Migration `0003_billing` adds the billing tables, `0004_fees` the fee columns, `0007_membership` the waiver flag and `0010_pool_ledger` the community pool's ledger columns. The cron trigger (`*/10 * * * *` in `wrangler.jsonc`) deploys with the Worker.
+5. **Migrate and deploy.** Migration `0003_billing` adds the billing tables, `0004_fees` the fee columns, `0007_membership` the waiver flag, `0010_pool_ledger` the community pool's ledger columns and `0011_pool_access` its per-user access columns (suspension, Turnstile pass, pool identity) and the pool identity tables that survive account deletion. The cron trigger (`*/10 * * * *` in `wrangler.jsonc`) deploys with the Worker.
    ```bash
    pnpm db:migrate:remote
    pnpm run deploy
@@ -333,6 +333,11 @@ The admin page at `/admin/` (`apps/admin`) is for you, the operator. It lists us
 
 - allow particular users to publish share links while `DMCA_AGENT_REGISTERED` is off (**May share**, stored in `auth_users.share_allowed`). The check runs on every view of a link, before the edge cache, so turning a user off takes their links down at once. Once `DMCA_AGENT_REGISTERED` is `"true"` everyone may share and the list has no effect; the page says which applies;
 - see a user's shares and **Revoke** any of them, which is how to act on a takedown notice without the owner.
+
+For the community pool, the admin API (the page's controls come with the pool UI) also:
+
+- suspends or restores a user's pool access: `PATCH /api/admin/users/<id>` with `{"poolSuspended": true}` (or `false`), stored in `auth_users.pool_suspended` and on the user's pool identity, and checked on every pool request. It stays with the mailbox if the user deletes their account and signs up again. Nothing else about the account changes;
+- reports pool consumption: `GET /api/admin/pool/usage?days=7&limit=50` lists the pool's users by spend (replies, spend, tagging, last call), and today's network keys by the number of users on each. A key is a daily-rotating hash of an IPv4 address or IPv6 /64, never the address; many accounts on one key is what a farm looks like. Every refused pool request is also logged as one `pool_refused` JSON line.
 
 Admins are the users listed in the `ADMIN_USER_IDS` secret. To add yourself:
 

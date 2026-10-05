@@ -12,7 +12,7 @@ import {
 } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
-import type { PoolRefusal, PoolReserveRequest } from './pool-bank.js';
+import type { PoolAdmitRequest, PoolRefusal, PoolReserveRequest } from './pool-bank.js';
 
 export interface PoolParams {
   /** The pool's ledger account id (`POOL_ACCOUNT_ID`). */
@@ -92,8 +92,20 @@ export function poolReserveRequest(
     model: pool.model,
     ...call,
     caps: pool.caps,
+    limits: pool.limits,
     overage: pool.overage,
     expiry: { ttlMs: pool.ttlMs, giveUpMs: pool.giveUpMs, batch: pool.expireBatch },
+  };
+}
+
+/** The `PoolBank.admit` request of `userId` (a context resolve), with the pool's limits. */
+export function poolAdmitRequest(pool: PoolParams, userId: string): PoolAdmitRequest {
+  return {
+    poolId: pool.accountId,
+    userId,
+    ipKey: pool.ipKey,
+    limits: pool.limits,
+    overage: pool.overage,
   };
 }
 

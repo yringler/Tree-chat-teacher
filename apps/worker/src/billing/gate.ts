@@ -2,11 +2,22 @@
 // sends, reviews and `context?resolve=true`. It decides who pays (personal
 // credit, the community pool or the user's own key) and checks that they can,
 // before anything is written or sent upstream.
-import { DomainError, ValidationError } from '@tangent/core';
+import { DomainError, PoolBlockedError, poolBlock, ValidationError } from '@tangent/core';
+import type { PoolBlockDetails } from '@tangent/shared';
 import { clientIp, withPoolParams } from '../auth/account.js';
 import { assertGenerationAllowed, enforceRateLimit } from '../byok/guard.js';
 import type { UserKeys } from '../byok/keys.js';
-import { isMetered, isPoolFunded, type AccountContext, type AppContext } from '../env.js';
+import { appConfig } from '../config.js';
+import {
+  isMetered,
+  isPoolFunded,
+  type AccountContext,
+  type AppContext,
+  type AppEnv,
+} from '../env.js';
+import { claimPoolIdentity, identitySuspended, poolIdentity } from '../pool/identity.js';
+import { poolBank } from '../pool/ids.js';
+import { poolAdmitRequest, poolBlockDetails } from '../pool/params.js';
 import { poolAvailable, registryFor } from '../services.js';
 import { getBalance } from './ledger.js';
 import { assertMember } from './membership.js';
@@ -47,13 +58,77 @@ export async function resolveFunding(
   return withPoolParams(c.env, account, clientIp(c.req.raw.headers), true);
 }
 
+interface PoolAccessRow {
+  email: string;
+  created_at: number;
+  pool_suspended: number;
+  pool_verified_at: string | null;
+  pool_identity: string | null;
+  /** `pool_identities.suspended` of the user's identity (a deleted holder's suspension). */
+  identity_suspended: number | null;
+}
+
+const POOL_ACCESS_MESSAGES: Partial<Record<PoolBlockDetails['reason'], string>> = {
+  suspended: 'Community pool access is suspended for this account',
+  verify: 'Complete the quick human check to use the community pool',
+  duplicate_identity: 'Another account with this email address already uses the community pool',
+  too_new: 'This account is too new to use the community pool yet',
+};
+
+/** The 403 `pool_unavailable` of an account the pool refuses, with its reason. */
+export function poolAccessError(reason: PoolBlockDetails['reason']): PoolBlockedError {
+  return new PoolBlockedError(poolBlock(reason), POOL_ACCESS_MESSAGES[reason]);
+}
+
+function refuseAccess(reason: PoolBlockDetails['reason']): never {
+  throw poolAccessError(reason);
+}
+
+/**
+ * The pool's account gates (docs/pool/PLAN.md §S4), in order, each a 403
+ * `pool_unavailable` with its reason: a real signed-in user (the dev bypass
+ * has none to cap); not `suspended` by an admin (the account, or its pool
+ * identity, when a suspended account was deleted); a Turnstile pass on record
+ * (`verify`; set at sign-in, or by `POST /api/pool/verify` for older
+ * accounts); the user's pool identity, claimed here if a sign-in couldn't
+ * (`duplicate_identity` when another account holds that mailbox); older than
+ * `POOL_MIN_ACCOUNT_AGE_MS` (`too_new`).
+ */
+export async function assertPoolAccess(
+  env: AppEnv,
+  userId: string | null,
+  now = new Date(),
+): Promise<void> {
+  if (!userId)
+    throw new DomainError('pool_unavailable', 'The community pool needs a signed-in account');
+  const row = await env.DB.prepare(
+    `SELECT u.email, u.created_at, u.pool_suspended, u.pool_verified_at, u.pool_identity,
+       (SELECT suspended FROM pool_identities WHERE identity = u.pool_identity) AS identity_suspended
+       FROM auth_users u WHERE u.id = ?`,
+  )
+    .bind(userId)
+    .first<PoolAccessRow>();
+  if (!row) refuseAccess('verify');
+  if (row.pool_suspended || row.identity_suspended) refuseAccess('suspended');
+  if (!row.pool_verified_at) refuseAccess('verify');
+  if (!row.pool_identity) {
+    if ((await claimPoolIdentity(env.DB, userId, row.email, now)) === 'duplicate')
+      refuseAccess('duplicate_identity');
+    // A mailbox whose earlier account was suspended, then deleted.
+    if (await identitySuspended(env.DB, await poolIdentity(row.email))) refuseAccess('suspended');
+  }
+  const minAge = appConfig(env).pool.minAccountAgeMs;
+  if (minAge > 0 && now.getTime() - row.created_at < minAge) refuseAccess('too_new');
+}
+
 /**
  * Checks that the caller may generate, in order: the membership; who pays
  * (`resolveFunding`); then either the pool's own rules (no reviews, the
- * message length; the reply itself is reserved, or refused with 402/429, by
- * the tree's Durable Object before any node is written) or the existing
- * checks: allowed model, credit, rate limit. Sets `c.var.account` to the
- * account that will pay, so the caller must build its ChatService after this.
+ * message length, the account gates of `assertPoolAccess`, and for a context
+ * resolve PoolBank's rate check; a reply itself is reserved, or refused with
+ * 402/429, by the tree's Durable Object before any node is written) or the
+ * existing checks: allowed model, credit, rate limit. Sets `c.var.account` to
+ * the account that will pay, so the caller must build its ChatService after this.
  */
 export async function assertCanGenerate(
   c: AppContext,
@@ -80,7 +155,14 @@ export async function assertCanGenerate(
       pool.model,
       { userKeys: false },
     );
-    // S4 adds the pool's account gates here, and PoolBank.admit for a context resolve.
+    await assertPoolAccess(c.env, account.userId);
+    if (check.purpose === 'resolve') {
+      // A send is admitted by its reply's reservation; a resolve reserves nothing itself.
+      const admitted = await poolBank(c.env, pool.accountId).admit(
+        poolAdmitRequest(pool, account.userId!),
+      );
+      if (!admitted.ok) throw new PoolBlockedError(poolBlockDetails(admitted));
+    }
     return account;
   }
 

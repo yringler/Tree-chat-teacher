@@ -18,7 +18,7 @@ import {
 } from '../src/billing/meter.js';
 import { reconcilePendingUsage, reconcilePoolUsage } from '../src/billing/reconcile.js';
 import { markDispatched, setGenerationId, settleUsage } from '../src/billing/usage-store.js';
-import type { PoolCaps } from '../src/config.js';
+import type { PoolCaps, PoolRateLimits } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { expirePoolReservations } from '../src/pool/expiry.js';
 import { poolBank } from '../src/pool/ids.js';
@@ -46,6 +46,7 @@ const OPEN_CAPS: PoolCaps = {
   ip: { requestsPerDay: 1_000_000, spendMicrosPerDay: 1e12 },
 };
 const NO_BREAKER = { windowMs: DAY, maxMicros: 1e12 };
+const OPEN_LIMITS: PoolRateLimits = { userPerMinute: 1_000_000, ipPerMinute: 1_000_000 };
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -108,6 +109,7 @@ function request(poolId: string, overrides: Partial<PoolReserveRequest> = {}): P
     holdMicros: 3_000,
     feeBps: 0,
     caps: OPEN_CAPS,
+    limits: OPEN_LIMITS,
     overage: NO_BREAKER,
     expiry: { ttlMs: TTL, giveUpMs: GIVE_UP, batch: 20 },
     ...overrides,
@@ -160,6 +162,7 @@ function params(poolId: string, overrides: Partial<PoolParams> = {}): PoolParams
     ...resolvePoolParams(env, null),
     accountId: poolId,
     caps: OPEN_CAPS,
+    limits: OPEN_LIMITS,
     overage: NO_BREAKER,
     ...overrides,
   };
@@ -479,6 +482,89 @@ describe('PoolBank: caps inside reserve', () => {
       markup_bps: 0,
     });
     expect(await reserve(poolId, { holdMicros: 1 })).toMatchObject({ ok: false, reason: 'empty' });
+  });
+});
+
+describe('PoolBank: per-minute rate limits', () => {
+  const MINUTE = 60_000;
+  /** The start of a minute well inside today (the day caps stay out of the way). */
+  const minuteStart = () => Math.floor(Date.now() / MINUTE) * MINUTE;
+
+  it('counts replies per user and per network in fixed minutes; other calls ride free', async () => {
+    quiet();
+    const poolId = uniq('pool');
+    await fund(poolId, 1_000_000);
+    const t = minuteStart();
+    const limits: PoolRateLimits = { userPerMinute: 2, ipPerMinute: 3 };
+    const [alice, bob, carol] = [uniq('user'), uniq('user'), uniq('user')];
+    const at = (now: number, userId: string, extra: Partial<PoolReserveRequest> = {}) =>
+      reserve(poolId, { userId, ipKey: 'net-a', limits, now, ...extra });
+
+    expect((await at(t, alice)).ok).toBe(true);
+    expect((await at(t + 1, alice)).ok).toBe(true);
+    // Summaries, titles and tagging are part of an admitted reply.
+    expect((await at(t + 2, alice, { purpose: 'summary' })).ok).toBe(true);
+    expect((await at(t + 3, alice, { purpose: 'tagging' })).ok).toBe(true);
+    expect(await at(t + 4, alice)).toMatchObject({
+      ok: false,
+      reason: 'rate',
+      limit: 2,
+      resetAt: new Date(t + MINUTE).toISOString(),
+    });
+    // The network has room for one more, from anyone on it.
+    expect((await at(t + 5, bob)).ok).toBe(true);
+    expect(await at(t + 6, carol)).toMatchObject({ ok: false, reason: 'rate', limit: 3 });
+    // Another network, and the next minute, start from zero.
+    expect((await at(t + 7, carol, { ipKey: 'net-b' })).ok).toBe(true);
+    expect((await at(t + MINUTE, alice)).ok).toBe(true);
+  });
+
+  it('admit counts like a reply and refuses on the breaker too', async () => {
+    quiet();
+    const poolId = uniq('pool');
+    await fund(poolId, 1_000_000);
+    const now = minuteStart();
+    const userId = uniq('user');
+    const limits: PoolRateLimits = { userPerMinute: 1, ipPerMinute: 10 };
+    const admit = (overage = NO_BREAKER) =>
+      poolBank(env, poolId).admit({ poolId, userId, ipKey: null, limits, overage, now });
+    expect(await admit()).toEqual({ ok: true });
+    expect(await admit()).toMatchObject({ ok: false, reason: 'rate', limit: 1 });
+    expect(await reserve(poolId, { userId, limits, now })).toMatchObject({ reason: 'rate' });
+    // A tripped breaker refuses before any counting.
+    await insertPoolRow(poolId, new Date().toISOString(), { status: 'settled', chargeMicros: 0 });
+    await env.DB.prepare(`UPDATE usage_events SET overage_micros = 500 WHERE account_id = ?`)
+      .bind(poolId)
+      .run();
+    expect(
+      await poolBank(env, poolId).admit({
+        poolId,
+        userId: uniq('user'),
+        ipKey: null,
+        limits,
+        overage: { windowMs: DAY, maxMicros: 100 },
+        now: now + 2 * MINUTE,
+      }),
+    ).toMatchObject({ ok: false, reason: 'unpriced' });
+  });
+
+  it('fails closed: a storage error refuses instead of admitting', async () => {
+    quiet();
+    const poolId = uniq('pool');
+    await fund(poolId, 1_000_000);
+    await poolBank(env, poolId).failRateChecks(2);
+    expect(await reserve(poolId)).toMatchObject({ ok: false, reason: 'rate' });
+    expect(
+      await poolBank(env, poolId).admit({
+        poolId,
+        userId: uniq('user'),
+        ipKey: null,
+        limits: OPEN_LIMITS,
+        overage: NO_BREAKER,
+      }),
+    ).toMatchObject({ ok: false, reason: 'rate' });
+    expect(await poolRows(poolId)).toEqual([]);
+    expect((await reserve(poolId)).ok).toBe(true);
   });
 });
 

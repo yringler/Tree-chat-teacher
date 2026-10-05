@@ -79,7 +79,10 @@ import type { PoolBlockDetails } from './pool.js';
  *   GET    /api/admin/status                     -> AdminStatusResponse
  *   GET    /api/admin/users?q=&cursor=           -> AdminUsersResponse (newest first, ADMIN_USERS_PAGE per page,
  *                                                q = email substring)
- *   PATCH  /api/admin/users/:userId UpdateAdminUserRequest -> AdminUser (same-origin only)
+ *   PATCH  /api/admin/users/:userId UpdateAdminUserRequest -> AdminUser (same-origin only;
+ *                                                share permission and/or pool suspension)
+ *   GET    /api/admin/pool/usage?days=&limit=    -> AdminPoolUsageResponse (per-user pool consumption,
+ *                                                most spend first; today's busiest network keys)
  *   GET    /api/admin/users/:userId/shares       -> ShareSummary[] (both of the user's accounts, newest first)
  *   POST   /api/admin/shares/:shareId/revoke     -> ShareSummary (any owner's share; same-origin only)
  *
@@ -101,6 +104,19 @@ import type { PoolBlockDetails } from './pool.js';
  *   GET  /api/branches/:branchId/context?resolve=true   gated the same way; summaries run on the pool
  *   POST /api/nodes/:nodeId/review               403 `pool_unavailable` on the `pool` header (no
  *                                                reviews on the pool); `credit` never falls back
+ *   POST /api/pool/verify  PoolVerifyRequest  -> PoolVerifyResponse (same-origin only; a Turnstile
+ *                                                pass for accounts with none on record; 400 when the
+ *                                                token fails, 403 `pool_unavailable` reason
+ *                                                `duplicate_identity` when another account uses the
+ *                                                same mailbox)
+ *
+ * A pool send or resolve is refused (403 `pool_unavailable`, before anything
+ * is written) for an account that is `suspended` by an admin, has no
+ * Turnstile pass on record (`verify`), shares its mailbox with another pool
+ * account (`duplicate_identity`) or is newer than POOL_MIN_ACCOUNT_AGE_MS
+ * (`too_new`); and with 429 `pool_cap_reached` past a daily cap or a
+ * per-minute limit (`rate`). There is no OpenAI-compatible endpoint: the
+ * pool is only reachable through the routes above.
  *
  * Public (no sign-in; rate-limited; read-only):
  *

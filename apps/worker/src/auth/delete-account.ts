@@ -8,6 +8,7 @@ import { sameOriginOnly } from '../byok/guard.js';
 import { clearKeyCookie } from '../byok/keys.js';
 import type { AppBindings, AppContext, AppEnv } from '../env.js';
 import { validateJson } from '../http/errors.js';
+import { poolIdentity } from '../pool/identity.js';
 import { purgeShare } from '../share/cache.js';
 import { POWER_ACCOUNT_PREFIX } from './account.js';
 
@@ -45,14 +46,26 @@ export interface DeletedUser {
  * which holds amounts, model names and token counts but no message content.
  * Tax and accounting law require keeping payment records, and once the
  * user row is gone the `u_<userId>` id leads nowhere. The privacy policy
- * (http/legal.ts) says so.
+ * (http/legal.ts) says so. Also kept: the community pool's identity records
+ * (`pool_identity_holders`, `pool_identities`: a SHA-256 of the normalised
+ * email, user ids and a suspension flag, no address), and a suspended user's
+ * suspension is written there first, so signing up again with the same
+ * mailbox neither lifts a pool suspension nor resets the pool's daily caps.
  */
 export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUser> {
   const accountIds = [POWER_ACCOUNT_PREFIX + userId, accountIdForUser(userId)];
 
-  const user = await env.DB.prepare('SELECT stripe_customer_id FROM auth_users WHERE id = ?1')
+  const user = await env.DB.prepare(
+    `SELECT email, stripe_customer_id, pool_suspended, pool_identity
+       FROM auth_users WHERE id = ?1`,
+  )
     .bind(userId)
-    .first<{ stripe_customer_id: string | null }>();
+    .first<{
+      email: string;
+      stripe_customer_id: string | null;
+      pool_suspended: number;
+      pool_identity: string | null;
+    }>();
   if (!user) throw new DomainError('not_found', 'Account not found');
 
   const stripeCustomerDeleted = await deleteStripeCustomer(env, user.stripe_customer_id);
@@ -63,8 +76,21 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
     .bind(...accountIds)
     .all<{ token: string; version: number }>();
 
+  // A pool suspension stays with the mailbox (its pool identity, claimed or not yet).
+  const suspendedIdentity = user.pool_suspended
+    ? (user.pool_identity ?? (await poolIdentity(user.email)))
+    : null;
+
   const [p, u] = accountIds;
   await env.DB.batch([
+    ...(suspendedIdentity
+      ? [
+          env.DB.prepare(
+            `INSERT INTO pool_identities (identity, suspended) VALUES (?1, 1)
+             ON CONFLICT(identity) DO UPDATE SET suspended = 1`,
+          ).bind(suspendedIdentity),
+        ]
+      : []),
     env.DB.prepare('DELETE FROM trees WHERE account_id IN (?1, ?2)').bind(p, u),
     env.DB.prepare('DELETE FROM shares WHERE account_id IN (?1, ?2)').bind(p, u),
     env.DB.prepare('DELETE FROM account_settings WHERE account_id IN (?1, ?2)').bind(p, u),

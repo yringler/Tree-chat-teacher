@@ -78,6 +78,13 @@
       "when": 1791167755708,
       "tag": "0010_pool_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1791175958052,
+      "tag": "0011_pool_access",
+      "breakpoints": true
     }
   ]
 }

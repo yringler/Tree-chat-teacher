@@ -1,8 +1,12 @@
 import { NotFoundError, ValidationError } from '@tangent/core';
 import {
   ADMIN_USERS_PAGE,
+  adminPoolUsageQuerySchema,
   adminUsersQuerySchema,
   updateAdminUserRequestSchema,
+  type AdminPoolIpKeyRow,
+  type AdminPoolUsageResponse,
+  type AdminPoolUsageRow,
   type AdminStatusResponse,
   type AdminUser,
   type AdminUsersResponse,
@@ -12,9 +16,11 @@ import { Hono } from 'hono';
 import { POWER_ACCOUNT_PREFIX, SIMPLE_ACCOUNT_PREFIX } from '../auth/account.js';
 import { adminOnly, adminUserIds } from '../auth/admin.js';
 import { sameOriginOnly } from '../byok/guard.js';
+import { appConfig } from '../config.js';
 import { createD1Repositories } from '../db/d1-repositories.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { validateJson, validateQuery } from '../http/errors.js';
+import { identitySuspensionStatement } from '../pool/identity.js';
 import { purgeShare } from '../share/cache.js';
 import { shareService, sharingEnabled } from '../services.js';
 
@@ -24,6 +30,7 @@ interface UserRow {
   name: string;
   created_at: number;
   share_allowed: number;
+  pool_suspended: number;
   active_shares: number;
 }
 
@@ -33,6 +40,8 @@ interface UserRow {
  * compared as text like ShareService does).
  */
 const USER_COLUMNS = `u.id, u.email, u.name, u.created_at, u.share_allowed,
+  (u.pool_suspended OR COALESCE((SELECT pi.suspended FROM pool_identities pi
+    WHERE pi.identity = u.pool_identity), 0)) AS pool_suspended,
   (SELECT COUNT(*) FROM shares s
     WHERE s.account_id IN ('${POWER_ACCOUNT_PREFIX}' || u.id, '${SIMPLE_ACCOUNT_PREFIX}' || u.id)
       AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > ?1)) AS active_shares`;
@@ -46,7 +55,32 @@ function toAdminUser(row: UserRow, admins: ReadonlySet<string>): AdminUser {
     shareAllowed: row.share_allowed === 1,
     isAdmin: admins.has(row.id),
     activeShares: row.active_shares,
+    poolSuspended: row.pool_suspended === 1,
   };
+}
+
+/** What one pool row costs: its charge once settled, its hold while pending. */
+const SPENT = `(CASE WHEN e.status = 'pending' THEN e.hold_micros ELSE COALESCE(e.charge_micros, 0) END)`;
+
+/** Pool replies (released ones never reached the model) and spend, tagging excluded. */
+const POOL_USAGE_COLUMNS = `
+  COUNT(CASE WHEN e.purpose = 'reply' AND COALESCE(e.settle_reason, '') <> 'released' THEN 1 END) AS requests,
+  COALESCE(SUM(CASE WHEN e.purpose <> 'tagging' THEN ${SPENT} END), 0) AS spend`;
+
+interface PoolUserRow {
+  user_id: string;
+  email: string | null;
+  requests: number;
+  spend: number;
+  tagging: number;
+  last_at: string;
+}
+
+interface PoolNetworkRow {
+  ip_key: string;
+  users: number;
+  requests: number;
+  spend: number;
 }
 
 function encodeCursor(createdAt: number, id: string): string {
@@ -81,8 +115,11 @@ async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
  * packages/shared/src/admin.ts and the route list in api.ts.
  *
  * It manages who may publish share links while DMCA_AGENT_REGISTERED is off
- * (`auth_users.share_allowed`, see `canShare`), and takes any share down
- * without its owner (a DMCA notice, docs/LEGAL.md §8).
+ * (`auth_users.share_allowed`, see `canShare`), takes any share down
+ * without its owner (a DMCA notice, docs/LEGAL.md §8), suspends a user's
+ * community pool access (`auth_users.pool_suspended` and the user's pool
+ * identity, checked by the pool gate on every pool request) and reports who
+ * consumes the pool.
  */
 export function adminRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
@@ -124,21 +161,85 @@ export function adminRoutes(): Hono<AppBindings> {
     } satisfies AdminUsersResponse);
   });
 
-  // Revoking the permission takes the user's links down at once: /s/* checks it per request.
+  // Revoking the share permission takes the user's links down at once: /s/* checks it per
+  // request. A pool suspension applies from the user's next pool request (the gate reads it).
   r.patch(
     '/users/:userId',
     sameOriginOnly,
     validateJson(updateAdminUserRequestSchema),
     async (c) => {
       const userId = c.req.param('userId');
-      const { shareAllowed } = c.req.valid('json');
-      const updated = await c.env.DB.prepare('UPDATE auth_users SET share_allowed = ? WHERE id = ?')
-        .bind(shareAllowed ? 1 : 0, userId)
-        .run();
-      if (!updated.meta.changes) throw new NotFoundError('User');
+      const { shareAllowed, poolSuspended } = c.req.valid('json');
+      const sets: string[] = [];
+      const params: number[] = [];
+      if (shareAllowed !== undefined) {
+        sets.push('share_allowed = ?');
+        params.push(shareAllowed ? 1 : 0);
+      }
+      if (poolSuspended !== undefined) {
+        sets.push('pool_suspended = ?');
+        params.push(poolSuspended ? 1 : 0);
+      }
+      const db = c.env.DB;
+      const [updated] = await db.batch([
+        db.prepare(`UPDATE auth_users SET ${sets.join(', ')} WHERE id = ?`).bind(...params, userId),
+        // On the pool identity too, so deleting the account doesn't lift it.
+        ...(poolSuspended !== undefined
+          ? [identitySuspensionStatement(db, userId, poolSuspended)]
+          : []),
+      ]);
+      if (!updated!.meta.changes) throw new NotFoundError('User');
+      if (poolSuspended !== undefined)
+        console.log(JSON.stringify({ event: 'pool_suspension_set', userId, poolSuspended }));
       return c.json((await getUser(c.env, userId)) satisfies AdminUser);
     },
   );
+
+  // Who consumes the community pool, to spot outliers and account farms.
+  r.get('/pool/usage', validateQuery(adminPoolUsageQuerySchema), async (c) => {
+    const { days, limit } = c.req.valid('query');
+    const poolId = appConfig(c.env).pool.accountId;
+    const now = new Date();
+    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const since = new Date(today - (days - 1) * 86_400_000).toISOString();
+    const [users, networks] = await c.env.DB.batch<Record<string, unknown>>([
+      c.env.DB.prepare(
+        `SELECT e.user_id, u.email, ${POOL_USAGE_COLUMNS},
+           COALESCE(SUM(CASE WHEN e.purpose = 'tagging' THEN ${SPENT} END), 0) AS tagging,
+           MAX(e.created_at) AS last_at
+         FROM usage_events e LEFT JOIN auth_users u ON u.id = e.user_id
+         WHERE e.account_id = ?1 AND e.created_at >= ?2 AND e.user_id IS NOT NULL
+         GROUP BY e.user_id
+         ORDER BY spend DESC, requests DESC, e.user_id
+         LIMIT ?3`,
+      ).bind(poolId, since, limit),
+      c.env.DB.prepare(
+        `SELECT e.ip_key, COUNT(DISTINCT e.user_id) AS users, ${POOL_USAGE_COLUMNS}
+         FROM usage_events e
+         WHERE e.account_id = ?1 AND e.created_at >= ?2 AND e.ip_key IS NOT NULL
+         GROUP BY e.ip_key
+         ORDER BY users DESC, spend DESC, e.ip_key
+         LIMIT ?3`,
+      ).bind(poolId, new Date(today).toISOString(), limit),
+    ]);
+    return c.json({
+      since,
+      rows: (users!.results as unknown as PoolUserRow[]).map((r): AdminPoolUsageRow => ({
+        userId: r.user_id,
+        email: r.email,
+        requests: Number(r.requests),
+        spendMicros: Number(r.spend),
+        taggingMicros: Number(r.tagging),
+        lastAt: r.last_at,
+      })),
+      ipKeys: (networks!.results as unknown as PoolNetworkRow[]).map((r): AdminPoolIpKeyRow => ({
+        ipKey: r.ip_key,
+        users: Number(r.users),
+        requests: Number(r.requests),
+        spendMicros: Number(r.spend),
+      })),
+    } satisfies AdminPoolUsageResponse);
+  });
 
   r.get('/users/:userId/shares', async (c) => {
     const { id } = await getUser(c.env, c.req.param('userId'));

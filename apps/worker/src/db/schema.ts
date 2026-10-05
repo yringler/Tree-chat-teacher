@@ -224,8 +224,32 @@ export const authUsers = sqliteTable(
      * endpoint can set it.
      */
     shareAllowed: integer('share_allowed', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * The operator suspended this user's community pool access (the admin
+     * page, `PATCH /api/admin/users/:userId`), or a lost dispute of their pool
+     * purchase did. Like the next two columns, not a Better Auth field, so no
+     * auth endpoint can set it.
+     */
+    poolSuspended: integer('pool_suspended', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * ISO timestamp of the user's first Cloudflare Turnstile pass (a magic-link
+     * sign-in, the interstitial after a first OAuth sign-in, or
+     * `POST /api/pool/verify`); null = the pool asks for one first.
+     */
+    poolVerifiedAt: text('pool_verified_at'),
+    /**
+     * SHA-256 of the user's normalised email (pool/identity.ts): one pool
+     * identity per mailbox, so `a.b+x@gmail.com` can't be a second free tier
+     * next to `ab@gmail.com`. Claimed at verification; null until then.
+     */
+    poolIdentity: text('pool_identity'),
   },
-  (t) => [index('auth_users_stripe_customer_idx').on(t.stripeCustomerId)],
+  (t) => [
+    index('auth_users_stripe_customer_idx').on(t.stripeCustomerId),
+    uniqueIndex('auth_users_pool_identity_idx')
+      .on(t.poolIdentity)
+      .where(sql`${t.poolIdentity} IS NOT NULL`),
+  ],
 );
 
 export const authSessions = sqliteTable(
@@ -451,4 +475,30 @@ export const usageEvents = sqliteTable(
     index('usage_events_pool_ip_idx').on(t.accountId, t.ipKey, t.createdAt),
     index('usage_events_pool_tier_idx').on(t.accountId, t.tier, t.createdAt),
   ],
+);
+
+// ---- Community pool identities (src/pool/identity.ts)
+//
+// A mailbox's pool identity (`auth_users.pool_identity`, a SHA-256 of the
+// normalised email) outlives the account that claimed it: deleting the
+// account and signing up again with the same mailbox must not lift a
+// suspension or reset the daily caps. These two tables hold only that hash
+// and user ids, and account deletion keeps them, like the ledger.
+
+/** Per mailbox: an operator suspension that survives the account's deletion. */
+export const poolIdentities = sqliteTable('pool_identities', {
+  identity: text('identity').primaryKey(),
+  /** Set with the holder's `pool_suspended` (admin PATCH, account deletion); cleared by an admin unsuspend. */
+  suspended: integer('suspended', { mode: 'boolean' }).notNull().default(false),
+});
+
+/** Every account that has held a pool identity, so the daily caps count the mailbox's usage. */
+export const poolIdentityHolders = sqliteTable(
+  'pool_identity_holders',
+  {
+    userId: text('user_id').primaryKey(),
+    identity: text('identity').notNull(),
+    claimedAt: text('claimed_at').notNull(),
+  },
+  (t) => [index('pool_identity_holders_identity_idx').on(t.identity)],
 );

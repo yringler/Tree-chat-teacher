@@ -255,7 +255,8 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 `;
 }
 
-async function sha256Base64(text: string): Promise<string> {
+/** Base64 SHA-256 of `text`: a CSP source hash. */
+export async function sha256Base64(text: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   let bin = '';
   for (const b of new Uint8Array(digest)) bin += String.fromCharCode(b);

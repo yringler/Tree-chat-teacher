@@ -55,7 +55,8 @@
       "/",
       "/welcome",
       "/privacy",
-      "/terms"
+      "/terms",
+      "/verify"
     ]
   },
   "d1_databases": [

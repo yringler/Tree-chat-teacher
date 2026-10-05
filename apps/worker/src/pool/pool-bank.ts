@@ -13,8 +13,11 @@
 //
 // PoolBank reads no pool config from its own env: every cap, price and TTL
 // arrives as an argument, resolved Worker-side (pool/params.ts). Its storage
-// holds the expiry alarm and the parameters it runs with, and the balance
-// checkpoint that keeps a reservation's ledger sums to the rows since it.
+// holds the expiry alarm and the parameters it runs with, the balance
+// checkpoint that keeps a reservation's ledger sums to the rows since it, and
+// the per-minute rate-limit counters (per user and per network). The rate
+// limits fail closed: if the counters can't be read or written, the request
+// is refused.
 import type { PoolBlockReason, UsagePurpose } from '@tangent/shared';
 import { DurableObject } from 'cloudflare:workers';
 import {
@@ -24,7 +27,7 @@ import {
   type BalanceRow,
 } from '../billing/ledger.js';
 import { insertPendingUsageStatement, type PoolTier } from '../billing/usage-store.js';
-import type { PoolCaps, PoolOverage } from '../config.js';
+import type { PoolCaps, PoolOverage, PoolRateLimits } from '../config.js';
 import type { AppEnv } from '../env.js';
 import {
   expirePoolReservations,
@@ -35,6 +38,8 @@ import {
 import { supporterFrom, supporterStatement } from './supporter.js';
 
 const DAY_MS = 24 * 60 * 60_000;
+/** The rate limits' fixed window. */
+const MINUTE_MS = 60_000;
 /** The overage sum is re-read at most this often (it scans a day of settled rows). */
 const BREAKER_CACHE_MS = 60_000;
 /** When an expiry pass left more expired rows than its batch, the alarm comes back after this. */
@@ -44,13 +49,14 @@ const VERIFY_EVERY_MS = DAY_MS;
 
 /**
  * Why a reservation was refused, in the order they are checked: `unpriced`
- * (the overage breaker is tripped), the caller's daily caps (`cap_requests`,
- * `cap_spend`), the network's (`cap_ip`), `empty` (the pool can't cover the
- * hold), then the free tier's global ceiling (`cap_global`).
+ * (the overage breaker is tripped), `rate` (replies only: the caller's or
+ * their network's requests this minute), the caller's daily caps
+ * (`cap_requests`, `cap_spend`), the network's (`cap_ip`), `empty` (the pool
+ * can't cover the hold), then the free tier's global ceiling (`cap_global`).
  */
 export type PoolRefusalReason = Extract<
   PoolBlockReason,
-  'unpriced' | 'cap_requests' | 'cap_spend' | 'cap_ip' | 'cap_global' | 'empty'
+  'unpriced' | 'rate' | 'cap_requests' | 'cap_spend' | 'cap_ip' | 'cap_global' | 'empty'
 >;
 
 export interface PoolExpiryParams {
@@ -78,8 +84,21 @@ export interface PoolReserveRequest {
   /** Fee stored on the row and applied when it settles. */
   feeBps: number;
   caps: PoolCaps;
+  /** Per-minute limits; only replies count toward them (and `admit`). */
+  limits: PoolRateLimits;
   overage: PoolOverage;
   expiry: PoolExpiryParams;
+  /** Tests only: the clock, in ms. */
+  now?: number;
+}
+
+/** `admit`: the rate check of a request that reserves nothing itself (a context resolve). */
+export interface PoolAdmitRequest {
+  poolId: string;
+  userId: string;
+  ipKey: string | null;
+  limits: PoolRateLimits;
+  overage: PoolOverage;
   /** Tests only: the clock, in ms. */
   now?: number;
 }
@@ -87,9 +106,12 @@ export interface PoolReserveRequest {
 export interface PoolRefusal {
   ok: false;
   reason: PoolRefusalReason;
-  /** When a daily cap resets (the next 00:00 UTC); null for `empty` and `unpriced`. */
+  /**
+   * When the cap resets: the next 00:00 UTC for a daily cap, the next minute
+   * for `rate`; null for `empty` and `unpriced`.
+   */
   resetAt: string | null;
-  /** The cap that was hit (replies, or micro-USD); null for `empty` and `unpriced`. */
+  /** The cap that was hit (replies or requests a minute, or micro-USD); null for `empty` and `unpriced`. */
   limit: number | null;
   supporter: boolean;
   /** The same cap for supporters (`cap_requests`, `cap_spend` only), for "supporters get more". */
@@ -97,6 +119,7 @@ export interface PoolRefusal {
 }
 
 export type PoolReserveResult = { ok: true; usageId: string; tier: PoolTier } | PoolRefusal;
+export type PoolAdmitResult = { ok: true } | PoolRefusal;
 
 export interface PoolMaintainResult {
   checkpoint: BalanceCheckpoint | null;
@@ -135,11 +158,46 @@ function dayStart(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
+/** The refusal of `req`, logged as one JSON line (the operator's view of who hits which limit). */
+function refusal(
+  req: { poolId: string; userId: string; purpose?: UsagePurpose; holdMicros?: number },
+  reason: PoolRefusalReason,
+  fields: {
+    resetAt?: string | null;
+    limit?: number | null;
+    supporter?: boolean;
+    supporterLimit?: number | null;
+  } = {},
+): PoolRefusal {
+  const refused: PoolRefusal = {
+    ok: false,
+    reason,
+    resetAt: fields.resetAt ?? null,
+    limit: fields.limit ?? null,
+    supporter: fields.supporter ?? false,
+    supporterLimit: fields.supporterLimit ?? null,
+  };
+  console.log(
+    JSON.stringify({
+      event: 'pool_refused',
+      poolId: req.poolId,
+      userId: req.userId,
+      purpose: req.purpose ?? 'admit',
+      holdMicros: req.holdMicros ?? 0,
+      ...refused,
+    }),
+  );
+  return refused;
+}
+
 export class PoolBank extends DurableObject<AppEnv> {
   /** Serialises reservations (DO input gates don't hold across D1 I/O). */
   private lock: Promise<unknown> = Promise.resolve();
   private expiry: StoredExpiry | null = null;
   private breaker: { poolId: string; overageMicros: number; readAt: number } | null = null;
+  private rateTableReady = false;
+  /** Tests only (`failRateChecks`): rate checks that throw, to show they fail closed. */
+  private rateFailures = 0;
 
   /**
    * Reserves `holdMicros` of the pool for one call, or refuses it. The pending
@@ -165,30 +223,21 @@ export class PoolBank extends DurableObject<AppEnv> {
       supporter: boolean,
       limit: number | null = null,
       supporterLimit: number | null = null,
-    ): PoolRefusal => {
-      const capped = reason !== 'empty' && reason !== 'unpriced';
-      const refusal: PoolRefusal = {
-        ok: false,
-        reason,
-        resetAt: capped ? resetAt : null,
+    ): PoolRefusal =>
+      refusal(req, reason, {
+        resetAt: reason !== 'empty' && reason !== 'unpriced' ? resetAt : null,
         limit,
         supporter,
         supporterLimit,
-      };
-      console.log(
-        JSON.stringify({
-          event: 'pool_refused',
-          poolId: req.poolId,
-          userId: req.userId,
-          purpose: req.purpose,
-          holdMicros: req.holdMicros,
-          ...refusal,
-        }),
-      );
-      return refusal;
-    };
+      });
 
     if (await this.breakerTripped(req.poolId, req.overage, now)) return refuse('unpriced', false);
+    // Only replies count toward the per-minute limits: a reply's summaries, its title and
+    // topic tagging ride on the reply that was admitted.
+    if (req.purpose === 'reply') {
+      const limited = this.takeRate(req, now);
+      if (limited) return limited;
+    }
 
     const checkpoint = await this.checkpointOf(req.poolId);
     const from = checkpoint?.at ?? '';
@@ -204,10 +253,14 @@ export class PoolBank extends DurableObject<AppEnv> {
                 FROM usage_events WHERE account_id = ?1 AND created_at >= ?3 AND created_at < ?4) AS available`,
         )
         .bind(req.poolId, checkpoint?.balanceMicros ?? 0, from, day),
+      // The caller's usage, and that of every account that held their pool identity
+      // (deleting the account and signing up again doesn't reset the day).
       db
         .prepare(
           `SELECT ${DAY_USAGE_COLUMNS} FROM usage_events
-           WHERE account_id = ?1 AND user_id = ?2 AND created_at >= ?3`,
+           WHERE account_id = ?1 AND created_at >= ?3 AND user_id IN (
+             SELECT ?2 UNION SELECT h.user_id FROM pool_identity_holders h
+               JOIN pool_identity_holders me ON me.identity = h.identity WHERE me.user_id = ?2)`,
         )
         .bind(req.poolId, req.userId, day),
       db
@@ -307,11 +360,25 @@ export class PoolBank extends DurableObject<AppEnv> {
   }
 
   /**
-   * The rate and gate check without a reservation, for `context?resolve`
-   * (docs/pool/PLAN.md §1.2). Filled in S4.
+   * The breaker and rate check without a reservation, for `context?resolve`
+   * (docs/pool/PLAN.md §1.2): the summaries it generates then reserve through
+   * the meter, which checks the caps and the balance. Counts toward the
+   * per-minute limits like a reply.
    */
-  async admit(_req: unknown): Promise<never> {
-    throw new Error('Not implemented (S4)');
+  async admit(req: PoolAdmitRequest): Promise<PoolAdmitResult> {
+    const run = this.lock.then(async (): Promise<PoolAdmitResult> => {
+      const now = new Date(req.now ?? Date.now());
+      if (await this.breakerTripped(req.poolId, req.overage, now)) return refusal(req, 'unpriced');
+      return this.takeRate(req, now) ?? { ok: true };
+    });
+    this.lock = run.catch(() => undefined);
+    return run;
+  }
+
+  /** Tests only (`TEST_SEAMS`): the next `count` rate checks throw, as a storage failure would. */
+  async failRateChecks(count: number): Promise<void> {
+    this.assertTestSeams();
+    this.rateFailures = count;
   }
 
   /** Expires stale reservations, then re-arms for the next one. Takes no lock. */
@@ -462,6 +529,66 @@ export class PoolBank extends DurableObject<AppEnv> {
   private async checkpointOf(poolId: string): Promise<StoredCheckpoint | null> {
     const checkpoint = await this.ctx.storage.get<StoredCheckpoint>('checkpoint');
     return checkpoint?.poolId === poolId ? checkpoint : null;
+  }
+
+  /**
+   * Counts one request against the per-minute limits of the caller and their
+   * network (fixed one-minute windows in this object's SQLite storage), or
+   * refuses it with `rate` when either is used up. A refused request isn't
+   * counted. Runs under the lock. Fails closed: any storage error refuses.
+   */
+  private takeRate(
+    req: {
+      poolId: string;
+      userId: string;
+      ipKey: string | null;
+      limits: PoolRateLimits;
+      purpose?: UsagePurpose;
+      holdMicros?: number;
+    },
+    now: Date,
+  ): PoolRefusal | null {
+    const minute = Math.floor(now.getTime() / MINUTE_MS);
+    const resetAt = new Date((minute + 1) * MINUTE_MS).toISOString();
+    const buckets: { key: string; limit: number }[] = [
+      { key: `u:${req.userId}`, limit: req.limits.userPerMinute },
+    ];
+    if (req.ipKey !== null) buckets.push({ key: `ip:${req.ipKey}`, limit: req.limits.ipPerMinute });
+    try {
+      if (this.rateFailures > 0) {
+        this.rateFailures--;
+        throw new Error('Rate counters unavailable (test)');
+      }
+      const sql = this.ctx.storage.sql;
+      if (!this.rateTableReady) {
+        sql.exec(
+          `CREATE TABLE IF NOT EXISTS rate_windows (
+             key TEXT PRIMARY KEY, minute INTEGER NOT NULL, count INTEGER NOT NULL)`,
+        );
+        this.rateTableReady = true;
+      }
+      // Older windows are over: what remains is this minute's counts.
+      sql.exec('DELETE FROM rate_windows WHERE minute <> ?', minute);
+      for (const b of buckets) {
+        const row = sql
+          .exec<{ count: number }>('SELECT count FROM rate_windows WHERE key = ?', b.key)
+          .toArray()[0];
+        if ((row?.count ?? 0) >= b.limit) return refusal(req, 'rate', { resetAt, limit: b.limit });
+      }
+      for (const b of buckets)
+        sql.exec(
+          `INSERT INTO rate_windows (key, minute, count) VALUES (?, ?, 1)
+           ON CONFLICT(key) DO UPDATE SET count = count + 1`,
+          b.key,
+          minute,
+        );
+      return null;
+    } catch (err) {
+      console.error(
+        JSON.stringify({ event: 'pool_rate_unavailable', poolId: req.poolId, error: String(err) }),
+      );
+      return refusal(req, 'rate', { resetAt });
+    }
   }
 
   /**

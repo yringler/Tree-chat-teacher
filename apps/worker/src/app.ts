@@ -8,9 +8,11 @@ import { apiError, notFound, onError } from './http/errors.js';
 import { landingRoutes } from './http/landing.js';
 import { adminAppRoutes, canvasAppRoutes, learnAppRoutes } from './http/learn-app.js';
 import { legalRoutes } from './http/legal.js';
+import { verifyPageRoutes } from './http/verify-page.js';
 import { adminRoutes } from './routes/admin.js';
 import { apiRoutes } from './routes/api.js';
 import { billingRoutes } from './routes/billing.js';
+import { poolRoutes } from './routes/pool.js';
 import { shareRoutes } from './routes/share.js';
 
 export interface AppOptions {
@@ -23,13 +25,16 @@ export interface AppOptions {
  * - `/api/login-options` is public: what the login page should offer.
  * - Every other `/api/*` route requires a session (auth/session.ts) and acts
  *   as the caller's account for the app named by the `x-tangent-mode` header
- *   (auth/account.ts); `/api/billing/*` is the billing API, and `/api/admin/*`
- *   the admin API (admins only, routes/admin.ts).
+ *   (auth/account.ts); `/api/billing/*` is the billing API, `/api/pool/*` the
+ *   community pool's (routes/pool.ts), and `/api/admin/*` the admin API
+ *   (admins only, routes/admin.ts).
  * - `/s/*` is public and read-only.
  * - `/learn`, `/learn/*` serve the simple app, `/canvas`, `/canvas/*` the
  *   canvas app and `/admin`, `/admin/*` the admin app, to admins only
  *   (http/learn-app.ts).
  * - `/privacy` and `/terms` are the public legal pages (http/legal.ts).
+ * - `/verify` is the Turnstile interstitial after a first OAuth sign-in
+ *   (http/verify-page.ts).
  * - `/welcome`, and `/` for anonymous visitors, serve the landing page
  *   (http/landing.ts); `/` with a session cookie is the power app's index.
  * Everything else is served by Workers Static Assets before the Worker runs
@@ -62,12 +67,14 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   app.use('/api/*', accountMiddleware);
   app.route('/api/billing', billingRoutes());
   app.route('/api/admin', adminRoutes());
+  app.route('/api/pool', poolRoutes());
   app.route('/api', apiRoutes());
   app.route('/s', shareRoutes());
   app.route('/', learnAppRoutes());
   app.route('/', canvasAppRoutes());
   app.route('/', adminAppRoutes(options.auth));
   app.route('/', legalRoutes());
+  app.route('/', verifyPageRoutes(options.auth));
   app.route('/', landingRoutes());
   return app;
 }

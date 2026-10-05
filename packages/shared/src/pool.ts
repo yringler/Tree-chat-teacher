@@ -75,3 +75,18 @@ export function poolErrorCode(reason: PoolBlockReason): PoolErrorCode {
       return 'pool_unavailable';
   }
 }
+
+/**
+ * `POST /api/pool/verify`: a Cloudflare Turnstile token, for accounts with no
+ * Turnstile pass on record (they predate the check at sign-in). The first
+ * pool use asks for it (`pool_unavailable`, reason `verify`).
+ */
+export const poolVerifyRequestSchema = z.object({
+  token: z.string().min(1).max(2048),
+});
+export type PoolVerifyRequest = z.infer<typeof poolVerifyRequestSchema>;
+
+/** `POST /api/pool/verify`: the account may now use the pool (subject to its caps). */
+export interface PoolVerifyResponse {
+  verified: true;
+}
