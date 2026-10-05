@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import type { AdminStatusResponse, MeResponse } from '@tangent/shared';
-import { ApiClient, AuthService, errorMessage, Icon } from '@tangent/web-shared';
+import { ApiClient, AuthService, errorMessage, Logo } from '@tangent/web-shared';
 import { PoolPage } from './pool-page';
 import { PoolTopicsPage } from './pool-topics-page';
 import { PoolUsagePage } from './pool-usage-page';
@@ -16,12 +16,12 @@ import { UsersPage } from './users-page';
  */
 @Component({
   selector: 'app-root',
-  imports: [Icon, PoolPage, PoolTopicsPage, PoolUsagePage, UsersPage],
+  imports: [Logo, PoolPage, PoolTopicsPage, PoolUsagePage, UsersPage],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="admin-head">
       <a href="/" class="brand" aria-label="Back to Tangent">
-        <app-icon name="tree" [size]="20" />
+        <app-logo [size]="22" />
         <span aria-hidden="true">Tangent</span>
       </a>
       <span class="badge badge-warn">admin</span>

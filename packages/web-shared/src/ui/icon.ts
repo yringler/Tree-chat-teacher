@@ -22,7 +22,6 @@ const PATHS = {
   stop: 'M7 7h10v10H7z',
   send: 'M5 12h14M13 6l6 6-6 6',
   back: 'M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3',
-  tree: 'M12 3v18M12 8l-5 4M12 13l5 4',
   external: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
   refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6',
