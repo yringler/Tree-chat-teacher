@@ -511,12 +511,12 @@ The rest of this section describes the power app (`apps/web`).
 
 **The simple app** (`apps/simple`, `baseHref: '/learn/'`) has its own lean `LessonStore` on `runStream` and the `@tangent/core` tree utilities. Routes:
 
-- `/learn/`: the lesson list and "New lesson";
+- `/learn/`: the lesson list (each lesson with Export, the JSON backup power uses, and Delete), "New lesson" and Import (a backup from either app, adapted to Learn on the server: `adaptBackupForLearn`);
 - `/learn/t/:treeId[/b/:branchId]`: the chat with streaming, a Smart/Simple toggle, "Ask about this" (a `path` branch from selected text), the tangents each reply ends with (buttons parsed from the reply's `<tangents>` block; one tap makes a `path` branch titled after the tangent and sends the title as its first message) and a simple branch list;
 - `/learn/billing`: the shared billing page (`BillingPage` in `@tangent/web-shared`, also power's `/billing`): the membership (status, Subscribe, "Have a code?", "Manage billing" in the Customer Portal) and, where credit is sold, balance, top-ups and recent usage; while the membership blocks generating, the shared `MembershipGate` panel covers the rest of the app;
 - `/learn/login`: the shared `LoginPage`.
 
-There is no inspector, reviewer, shares, export, BYOK, context-mode or model picker, or system prompt editor (the API's `/api/settings` works for Learn accounts too, but the app has no UI for it). A 402 sends the user to the billing page.
+There is no inspector, reviewer, shares, Markdown or HTML export, BYOK, context-mode or model picker, or system prompt editor (the API's `/api/settings` works for Learn accounts too, but the app has no UI for it). A 402 sends the user to the billing page.
 
 **The canvas app** (`apps/canvas`, `baseHref: '/canvas/'`, experimental) is a third view over the **power** account: it sends no mode header, so it reads and writes the same trees as `apps/web` on the same key cookie. Routes: `/canvas/` (the list and "New conversation"), `/canvas/t/:treeId[/b/:branchId]` (the canvas; the URL names the selected lane), `/canvas/login`, and `/canvas/demo/…` over the power demo's in-browser backend (`demoProviders('canvas')`). Its pieces:
 
