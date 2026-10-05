@@ -20,10 +20,10 @@ describe('the pool meter', () => {
 
   it('counts this week in aggregate only', () => {
     expect(poolWeekLabel(STATUS)).toBe(
-      '87 learners helped this week · 1,240 exchanges funded this week',
+      '87 learners on the pool this week · 1,240 exchanges funded this week',
     );
     expect(poolWeekLabel({ week: { ...STATUS.week, learners: 1, exchanges: 1 } })).toBe(
-      '1 learner helped this week · 1 exchange funded this week',
+      '1 learner on the pool this week · 1 exchange funded this week',
     );
   });
 });

@@ -190,9 +190,21 @@ describe('the landing page’s pool meter', () => {
     );
     expect(html).toContain(`About ${sessions} learning sessions left`);
     expect(html).toContain('$2.46 in the pool');
-    expect(html).toContain('1 learner helped this week · 1 exchange funded this week');
+    expect(html).toContain('1 learner on the pool this week · 1 exchange funded this week');
+    expect(html).toContain('<h2 id="pool">Curiosity shouldn’t need a credit card</h2>');
     expect(html).toContain(
-      `<p class="sub">${COMMITMENT.replace("it's", 'it&#39;s')} Any signed-in`,
+      `whether or not they can pay. ${COMMITMENT.replace("it's", 'it&#39;s')} Any signed-in`,
+    );
+    // Open pool: "free" in the hero, the CTAs and the pricing card.
+    expect(html).toContain('<p class="free"><strong>Free to start.</strong>');
+    expect(html).toContain('<a class="btn" href="/learn/login">Start learning free</a>');
+    expect(html).toContain(
+      '<div class="ctas"><a class="btn primary" href="/learn/login">Start learning free</a><a class="btn" href="/pool">How the pool works</a></div>',
+    );
+    expect(html).toContain('<h3>Free, your key, or pay as you go</h3>');
+    // Before the two modes, so the free option comes ahead of the paid ones.
+    expect(html.indexOf('aria-labelledby="pool"')).toBeLessThan(
+      html.indexOf('aria-labelledby="modes"'),
     );
     expect(html).toContain(
       'Each reply is paid from the pool at the AI provider&#39;s price, with no markup, and costs the learner nothing.',
@@ -217,6 +229,15 @@ describe('the landing page’s pool meter', () => {
   it('shows the empty state: Tangent refills it', async () => {
     const html = await (await visitor(poolEnv(uniq('pool')))('/welcome')).text();
     expect(html).toContain('The community pool is empty until Tangent adds more credit.');
+    // No promise of free learning while there is nothing to learn on.
+    expect(html).not.toContain('class="free"');
+    expect(html).not.toContain('Start learning free');
+    expect(html).toContain('<a class="btn" href="/learn/login">Start learning</a>');
+    expect(html).toContain(
+      '<div class="ctas"><a class="btn" href="/pool">How the pool works</a></div>',
+    );
+    // The commitment stands even when the balance is 0.
+    expect(html).toContain('Curiosity shouldn’t need a credit card');
   });
 
   it('reads the share from the config, and states no percentage at 0', async () => {
@@ -224,11 +245,16 @@ describe('the landing page’s pool meter', () => {
       await visitor(poolEnv(uniq('pool'), { POOL_REVENUE_SHARE_BPS: '1500' }))('/welcome')
     ).text();
     expect(at15).toContain('Tangent puts 15% of what it earns into it: 15% of each membership');
+    const unshared = uniq('pool');
+    await fundPool(unshared, 1_000_000);
     const none = await (
-      await visitor(poolEnv(uniq('pool'), { POOL_REVENUE_SHARE_BPS: '0' }))('/welcome')
+      await visitor(poolEnv(unshared, { POOL_REVENUE_SHARE_BPS: '0' }))('/welcome')
     ).text();
+    expect(none).toContain('<p class="free"><strong>Free to start.</strong>');
+    expect(none).toContain('free credit Tangent provides so that anyone can learn here');
     expect(none).toContain('The community pool is free credit Tangent provides. Any signed-in');
     expect(none).not.toContain('of what it earns');
+    expect(none).not.toMatch(/from its revenue|part of what it earns/);
   });
 
   it('is left out while the pool is off, or when it can’t be read', async () => {
@@ -236,6 +262,7 @@ describe('the landing page’s pool meter', () => {
       await visitor(poolEnv(uniq('pool'), { POOL_ENABLED: 'false' }))('/welcome')
     ).text();
     expect(off).not.toContain('The community pool');
+    expect(off).not.toMatch(/learning free|Free to start|Free, your key/);
     expect(off).toContain('Follow every tangent');
 
     const broken = envWithFailingDb(poolEnv(uniq('pool')), /credit_grants|usage_events/);
