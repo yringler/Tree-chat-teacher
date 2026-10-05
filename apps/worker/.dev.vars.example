@@ -38,26 +38,35 @@ DEV_ALLOW_NO_AUTH=true
 # OpenRouter key that the built-in provider `tangent` spends (Learn's "Use Tangent credit", power's
 # "Tangent credit"; give it a small credit limit). No fallback to OPENROUTER_API_KEY:
 # OPENROUTER_SIMPLE_API_KEY=sk-or-...
-# Stripe test mode. Both must be set for billing (and for the built-in provider to be offered at all).
-# STRIPE_SECRET_KEY=sk_test_...
-# The whsec_... that `stripe listen --forward-to localhost:8787/api/auth/stripe/webhook` prints:
-# STRIPE_WEBHOOK_SECRET=whsec_...
-# STRIPE_CREDITS_PRODUCT_ID=prod_...
-# The membership's yearly test price (empty = no membership needed to generate), and the flag that
-# charges it (off in wrangler.jsonc: without it nobody needs a membership, whatever the price id says):
-# STRIPE_MEMBERSHIP_PRICE_ID=price_...
+# Payments: Polar's sandbox (https://sandbox.polar.sh; test card 4242 4242 4242 4242). Both secrets
+# must be set for billing (and for the built-in provider to be offered at all). wrangler.jsonc says
+# POLAR_SERVER=production, so set the sandbox here:
+# POLAR_SERVER=sandbox
+# An organization access token of the sandbox org:
+# POLAR_ACCESS_TOKEN=polar_oat_...
+# The secret of a sandbox webhook endpoint pointing at a public tunnel to localhost, e.g.
+# `cloudflared tunnel --url http://localhost:8787` → https://<random>.trycloudflare.com/api/webhooks/polar
+# (Polar has no local forwarding CLI; see docs/polar-migration/04-verification.md):
+# POLAR_WEBHOOK_SECRET=whsec_...
+# The sandbox credits product (one-time; each checkout sets its own USD price):
+# POLAR_CREDITS_PRODUCT_ID=...
+# The sandbox membership product (yearly; empty = no membership needed to generate), and the flag that
+# charges it (off in wrangler.jsonc: without it nobody needs a membership, whatever is sold):
+# POLAR_MEMBERSHIP_PRODUCT_ID=...
 # ANNUAL_FEE_ENABLED=true
 # A code that waives the membership fee for whoever enters it (empty = no code redemption):
 # MEMBERSHIP_WAIVER_CODE=
 # The markup is MARKUP_BPS (wrangler.jsonc); MARKUP_PREPAID_BPS is still read while it is empty (deprecated).
 
-# --- Option C: the built-in provider on credit, offline (no OpenRouter, no Stripe). Works with Option A or B.
+# --- Option C: the built-in provider on credit, offline (no OpenRouter, no payments). Works with Option A or B.
 # A fake `tangent` provider that reports a fixed cost per call (the shape the worker tests use):
 # SIMPLE_PROVIDER='{"id":"tangent","kind":"fake","label":"Tangent","defaultModel":"smart","models":[{"id":"smart","label":"Smart"},{"id":"simple","label":"Simple"}],"options":{"chunkSize":4,"costUsd":0.001234}}'
 # Placeholders so sends are allowed (top-ups and the membership checkout won't work with them;
-# leave STRIPE_MEMBERSHIP_PRICE_ID empty, or waive yourself with the README's SQL):
-# STRIPE_SECRET_KEY=sk_test_placeholder
-# STRIPE_WEBHOOK_SECRET=whsec_placeholder
+# leave POLAR_MEMBERSHIP_PRODUCT_ID empty, or waive yourself with the README's SQL), or instead
+# PERSONAL_CREDIT_ENABLED=true (below):
+# POLAR_SERVER=sandbox
+# POLAR_ACCESS_TOKEN=polar_oat_placeholder
+# POLAR_WEBHOOK_SECRET=whsec_placeholder
 # Then grant yourself credit (5000000 = $5) with the SQL insert into credit_grants from the README
 # ("Manual credit or adjustments", with --local; the account is `default_simple` under Option A,
 # `u_<your user id>` under Option B, for both apps), then pick "Use Tangent credit" and chat at
@@ -70,9 +79,9 @@ DEV_ALLOW_NO_AUTH=true
 # POOL_MODEL=simple
 # MODEL_PRICES='{"simple":{"in":100000,"out":400000,"context":131072}}'
 # Learn then spends from the pool when it picks the pool, or when its credit runs out (sends only).
-# Admin-granted personal credit without Stripe:
+# Admin-granted personal credit without payments:
 # PERSONAL_CREDIT_ENABLED=true
-# Fund the pool (or yourself) as a purchase would, without Stripe: POST /api/admin/credit with
+# Fund the pool (or yourself) as a purchase would, without a payment: POST /api/admin/credit with
 # "mode": "simulated_purchase" (see the README's "Manual credit or adjustments"). Never in production.
 # DEV_PURCHASES_ENABLED=true
 # The weekly impact snapshot runs on the Monday cron; to run it locally, start `wrangler dev

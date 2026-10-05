@@ -72,7 +72,7 @@ describe('GET /api/pool/status', () => {
     const config = appConfig(poolEnv(poolId));
     expect(status).toEqual({
       enabled: true,
-      // vitest.config.ts configures Stripe and its credits product.
+      // vitest.config.ts configures the fake payment provider, which sells credit.
       fundingOpen: true,
       availableMicros: 1_000_000,
       sessionsRemaining: Math.floor(1_000_000 / config.pool.sessionEstimateMicros),
@@ -133,7 +133,7 @@ describe('GET /api/pool/status', () => {
     expect(status).toMatchObject({ enabled: false, availableMicros: 0, sessionsRemaining: 0 });
   });
 
-  it('says funding is not open yet without Stripe', async () => {
+  it('says funding is not open yet without payments', async () => {
     const status = await poolStatus(poolEnv(uniq('pool'), { PAYMENT_PROVIDER: 'polar' }));
     expect(status).toMatchObject({ enabled: true, fundingOpen: false });
   });
@@ -202,7 +202,7 @@ describe('the landing page’s pool meter', () => {
     expect(html).not.toContain('<script');
   });
 
-  it('shows the empty state, and "Funding opens soon" before Stripe is set up', async () => {
+  it('shows the empty state, and "Funding opens soon" before payments are set up', async () => {
     const poolId = uniq('pool');
     const html = await (
       await visitor(poolEnv(poolId, { PAYMENT_PROVIDER: 'polar' }))('/welcome')

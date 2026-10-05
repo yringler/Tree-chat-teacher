@@ -967,21 +967,7 @@ describe('account deletion', () => {
     return row?.n ?? 0;
   }
 
-  /** A real customer in the Stripe mock, linked to the user as the first checkout would. */
-  async function linkStripeCustomer(userId: string): Promise<string> {
-    const res = await fetch('https://api.stripe.com/v1/customers', {
-      method: 'POST',
-      headers: { authorization: 'Bearer sk_test_x' },
-      body: new URLSearchParams({ email: `${userId}@example.org` }),
-    });
-    const { id } = (await res.json()) as { id: string };
-    await env.DB.prepare('UPDATE auth_users SET stripe_customer_id = ?1 WHERE id = ?2')
-      .bind(id, userId)
-      .run();
-    return id;
-  }
-
-  it('deletes both accounts, their data, sign-in and Stripe customer; keeps the ledger and other users', async () => {
+  it('deletes both accounts, their data, sign-in and billing customer; keeps the ledger and other users', async () => {
     const a = await newUser();
     const other = await newUser();
     const userId = a.power.accountId.slice(2);
@@ -1003,7 +989,7 @@ describe('account deletion', () => {
       providerRef: null,
       note: 'test',
     });
-    const customerId = await linkStripeCustomer(userId);
+    await rememberCustomer(env.DB, 'fake', userId, 'cust_gone');
 
     // The confirmation must be the user's own email.
     const wrong = await a.call('/api/account', {
@@ -1064,10 +1050,9 @@ describe('account deletion', () => {
       ),
     ).toBe(1);
 
-    const calls = (await (
-      await fetch(`https://api.stripe.com/__mock/calls?path=/v1/customers/${customerId}`)
-    ).json()) as { method: string }[];
-    expect(calls.some((c) => c.method === 'DELETE')).toBe(true);
+    expect(
+      await count('SELECT COUNT(*) AS n FROM billing_customers WHERE user_id = ?1', userId),
+    ).toBe(0);
 
     // The share link is gone and the old session no longer signs anyone in.
     expect((await a.call(`/s/${share.token}`)).status).toBe(404);

@@ -2,7 +2,6 @@
 // in workerd; not by vitest.config.ts). Ids are unique per call, so files and
 // tests sharing a D1 database or the Node-side mocks never collide.
 import type { AppEnv, AccountContext } from '../../src/env.js';
-import type { MockPaymentIntent, MockStripeCall } from './stripe.js';
 import type { ScriptedGeneration } from './openrouter.js';
 
 let seq = 0;
@@ -54,16 +53,16 @@ export function devPowerAccount(overrides: Partial<AccountContext> = {}): Accoun
 
 export async function insertUser(
   env: AppEnv,
-  user: { id: string; email?: string; name?: string; stripeCustomerId?: string | null },
+  user: { id: string; email?: string; name?: string },
 ): Promise<{ id: string; email: string; name: string }> {
   const email = user.email ?? `${user.id}@example.com`;
   const name = user.name ?? 'Test User';
   const now = Date.now();
   await env.DB.prepare(
-    `INSERT INTO auth_users (id, name, email, email_verified, created_at, updated_at, stripe_customer_id)
-     VALUES (?, ?, ?, 1, ?, ?, ?)`,
+    `INSERT INTO auth_users (id, name, email, email_verified, created_at, updated_at)
+     VALUES (?, ?, ?, 1, ?, ?)`,
   )
-    .bind(user.id, name, email, now, now, user.stripeCustomerId ?? null)
+    .bind(user.id, name, email, now, now)
     .run();
   return { id: user.id, email, name };
 }
@@ -251,27 +250,6 @@ export function envWithFailingDb(env: AppEnv, failing: RegExp): AppEnv {
 }
 
 // ---- Node-side mocks, driven over fetch (vitest.config.ts outboundService)
-
-export async function stripeCalls(path?: string): Promise<MockStripeCall[]> {
-  const res = await fetch(
-    `https://api.stripe.com/__mock/calls${path ? `?path=${encodeURIComponent(path)}` : ''}`,
-  );
-  return (await res.json()) as MockStripeCall[];
-}
-
-export async function stripeFixtures(objects: {
-  checkoutSessions?: Record<string, unknown>[];
-  refunds?: Record<string, unknown>[];
-  paymentIntents?: MockPaymentIntent[];
-  invoicePayments?: Record<string, unknown>[];
-}): Promise<void> {
-  const res = await fetch('https://api.stripe.com/__mock/objects', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(objects),
-  });
-  if (!res.ok) throw new Error(`stripe mock: ${res.status}`);
-}
 
 export async function scriptGeneration(id: string, responses: ScriptedGeneration[]): Promise<void> {
   const res = await fetch('https://openrouter.ai/__mock/generation', {

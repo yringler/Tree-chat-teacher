@@ -14,7 +14,7 @@
 // account `u_<userId>`, and their refunds (which recorded no gross) through
 // their amount, which was the refunded pre-tax share. With
 // `SUPPORTER_WINDOW_MONTHS` set, the latest purchase must also be that recent.
-import { accountIdForUser } from '../billing/stripe.js';
+import { accountIdForUser } from '../auth/account.js';
 
 /** Net purchases at or below this (one cent) are rounding residue, not a purchase. */
 export const SUPPORTER_ROUNDING_MICROS = 10_000;

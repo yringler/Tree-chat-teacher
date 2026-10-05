@@ -148,10 +148,10 @@ export const ADMIN_CREDIT_MAX_CENTS = 50_000;
 
 /**
  * `POST /api/admin/credit`: credit (or debit) a user's personal ledger or the
- * community pool without Stripe.
+ * community pool without a payment.
  * - `adjustment`: a signed ledger adjustment (goodwill credit, a correction).
  *   A negative pool adjustment is clamped to what the pool has available.
- * - `simulated_purchase`: fulfils a purchase as the Stripe webhook would (pool:
+ * - `simulated_purchase`: fulfils a purchase as the payment webhook would (pool:
  *   the buyer becomes a supporter), with no processing fee, so the full amount
  *   is credited. Only where the server allows it (`DEV_PURCHASES_ENABLED`, never in
  *   production); otherwise 404.

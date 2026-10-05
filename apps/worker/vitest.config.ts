@@ -3,7 +3,6 @@ import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-worker
 import { defineConfig } from 'vitest/config';
 import { mockOpenRouter, OPENROUTER_ORIGIN } from './test/mocks/openrouter.js';
 import { mockPolar, POLAR_ORIGIN } from './test/mocks/polar.js';
-import { mockStripe, STRIPE_ORIGIN } from './test/mocks/stripe.js';
 
 const MOCK_UPSTREAM = 'https://llm.test';
 /** Test-only 32-byte secret (base64). */
@@ -14,9 +13,8 @@ const TEST_KEY_SECRET = Buffer.alloc(32, 7).toString('base64');
  * the reply echoes the rest of the key so tests can tell which key was used.
  * `…-slow` keys stream slowly (abort tests).
  *
- * Stripe (api.stripe.com), Polar's sandbox (sandbox-api.polar.sh) and OpenRouter
- * (openrouter.ai) are delegated to test/mocks/stripe.ts, test/mocks/polar.ts and
- * test/mocks/openrouter.ts. Mechanism: miniflare's
+ * Polar's sandbox (sandbox-api.polar.sh) and OpenRouter (openrouter.ai) are
+ * delegated to test/mocks/polar.ts and test/mocks/openrouter.ts. Mechanism: miniflare's
  * `outboundService` (this function) receives every global `fetch()` made by the
  * Worker, its Durable Objects and the test files themselves, and runs in the
  * Node host process. The mocks are therefore plain Node modules imported here;
@@ -27,7 +25,6 @@ const TEST_KEY_SECRET = Buffer.alloc(32, 7).toString('base64');
  */
 async function mockUpstream(request: Request): Promise<Response> {
   const url = new URL(request.url);
-  if (url.origin === STRIPE_ORIGIN) return mockStripe(request);
   if (url.origin === POLAR_ORIGIN) return mockPolar(request);
   if (url.origin === OPENROUTER_ORIGIN) return mockOpenRouter(request);
   // Cloudflare Turnstile siteverify: the token `pass` is valid.
@@ -141,14 +138,10 @@ export default defineConfig({
             POLAR_WEBHOOK_SECRET: '',
             // Pool purchases open (wrangler.jsonc ships them off, D1).
             POOL_PURCHASES_ENABLED: 'true',
-            STRIPE_SECRET_KEY: 'sk_test_x',
-            STRIPE_WEBHOOK_SECRET: 'whsec_test',
-            STRIPE_CREDITS_PRODUCT_ID: 'prod_test',
-            // No membership by default (tests that need one pass ANNUAL_FEE_ENABLED: 'true' and
-            // STRIPE_MEMBERSHIP_PRICE_ID in an env override), so the other suites generate freely. The
-            // fee is off as deployed; the price and credit are the defaults.
+            // No membership required by default (tests that need one pass ANNUAL_FEE_ENABLED: 'true' in
+            // an env override), so the other suites generate freely. The fee is off as deployed; the
+            // price and credit are the defaults.
             ANNUAL_FEE_ENABLED: 'false',
-            STRIPE_MEMBERSHIP_PRICE_ID: '',
             MEMBERSHIP_PRICE_CENTS: '1000',
             MEMBERSHIP_CREDIT_CENTS: '200',
             MEMBERSHIP_WAIVER_CODE: '',

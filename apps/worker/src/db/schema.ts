@@ -208,11 +208,9 @@ export const authUsers = sqliteTable(
     image: text('image'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
-    /** Stripe customer (Better Auth Stripe plugin field); set lazily on the first checkout. */
-    stripeCustomerId: text('stripe_customer_id'),
     /**
      * The operator waived the membership fee (by hand, or the user redeemed
-     * MEMBERSHIP_WAIVER_CODE). Wins over the Stripe subscription; clear it to revoke.
+     * MEMBERSHIP_WAIVER_CODE). Wins over the membership subscription; clear it to revoke.
      */
     membershipWaived: integer('membership_waived', { mode: 'boolean' }).notNull().default(false),
     /** ISO timestamp of when the waiver was first granted; null when never waived. */
@@ -245,7 +243,6 @@ export const authUsers = sqliteTable(
     poolIdentity: text('pool_identity'),
   },
   (t) => [
-    index('auth_users_stripe_customer_idx').on(t.stripeCustomerId),
     uniqueIndex('auth_users_pool_identity_idx')
       .on(t.poolIdentity)
       .where(sql`${t.poolIdentity} IS NOT NULL`),
@@ -337,40 +334,6 @@ export const authRateLimits = sqliteTable('auth_rate_limits', {
   lastRequest: integer('last_request').notNull(),
 });
 
-/**
- * Better Auth Stripe plugin `subscription` model: the membership (plan `membership`).
- * `referenceId` is the Better Auth user id. Mapped as `subscription` in the
- * drizzleAdapter schema (src/auth/auth.ts).
- */
-export const authSubscriptions = sqliteTable(
-  'auth_subscriptions',
-  {
-    id: text('id').primaryKey(),
-    plan: text('plan').notNull(),
-    referenceId: text('reference_id').notNull(),
-    stripeCustomerId: text('stripe_customer_id'),
-    stripeSubscriptionId: text('stripe_subscription_id'),
-    status: text('status').notNull().default('incomplete'),
-    periodStart: integer('period_start', { mode: 'timestamp_ms' }),
-    periodEnd: integer('period_end', { mode: 'timestamp_ms' }),
-    trialStart: integer('trial_start', { mode: 'timestamp_ms' }),
-    trialEnd: integer('trial_end', { mode: 'timestamp_ms' }),
-    cancelAtPeriodEnd: integer('cancel_at_period_end', { mode: 'boolean' })
-      .notNull()
-      .default(false),
-    cancelAt: integer('cancel_at', { mode: 'timestamp_ms' }),
-    canceledAt: integer('canceled_at', { mode: 'timestamp_ms' }),
-    endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
-    seats: integer('seats'),
-    billingInterval: text('billing_interval'),
-    stripeScheduleId: text('stripe_schedule_id'),
-  },
-  (t) => [
-    index('auth_subscriptions_reference_idx').on(t.referenceId),
-    index('auth_subscriptions_stripe_sub_idx').on(t.stripeSubscriptionId),
-  ],
-);
-
 // ---- Billing (see src/billing/ and, for the community pool, src/pool/)
 //
 // Ledger in integer micro-USD. Balance = Σ credit_grants.amount_micros
@@ -403,7 +366,7 @@ export const creditGrants = sqliteTable(
     /**
      * Idempotency key, unique: a payment provider's namespaced object ref
      * (`<provider>:<object>:<id>`, billing/payments/refs.ts), `admin:<key>`,
-     * `dev:<key>`, or a bare Stripe object id on rows from before migration 0014.
+     * `dev:<key>`, or a bare object id of the previous processor on rows from before migration 0014.
      */
     providerRef: text('provider_ref').unique(),
     note: text('note'),

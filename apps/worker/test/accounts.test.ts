@@ -162,7 +162,7 @@ describe('resolveAccount', () => {
       resolveAccount(withEnv({ PAYMENT_PROVIDER: 'polar' }), user('a@example.org'), learn('credit'))
         .funding,
     ).toBe('own-key');
-    // PERSONAL_CREDIT_ENABLED offers credit before Stripe is configured.
+    // PERSONAL_CREDIT_ENABLED offers credit before payments are configured.
     expect(
       resolveAccount(
         withEnv({ PAYMENT_PROVIDER: 'polar', PERSONAL_CREDIT_ENABLED: 'true' }),

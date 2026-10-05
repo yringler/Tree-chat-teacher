@@ -7,8 +7,8 @@ import type { UsagePurpose } from './provider.js';
  * Credit and membership are per user and shared by both apps.
  *
  * Units: the ledger is integer micro-USD (`MICROS_PER_USD`); top-ups are whole
- * US cents. Every amount shown to users is pre-tax (Stripe Tax adds tax at
- * checkout).
+ * US cents. Every amount shown to users is pre-tax (the payment provider adds
+ * tax at checkout).
  */
 
 /**
@@ -87,9 +87,6 @@ export const membershipWaiverRequestSchema = z.object({
 /** `POST /api/billing/membership/waiver`: redeem the operator's code to waive the fee. */
 export type MembershipWaiverRequest = z.infer<typeof membershipWaiverRequestSchema>;
 
-/** The Better Auth Stripe plugin's plan name of the membership (`subscription.upgrade({ plan })`). */
-export const MEMBERSHIP_PLAN = 'membership';
-
 /**
  * A subscription's status, normalised from the payment provider's own
  * vocabulary (the server maps each provider's statuses onto these):
@@ -135,7 +132,7 @@ export interface MembershipInfo {
   periodEnd: string | null;
   /** The subscription ends at `periodEnd` (cancelled in the billing portal). */
   cancelAtPeriodEnd: boolean;
-  /** Display price per year, pre-tax (Stripe Tax adds tax at checkout). */
+  /** Display price per year, pre-tax (tax is added at checkout). */
   priceCents: number;
   /**
    * Credit granted with each paid membership year; 0 when the server doesn't
@@ -153,7 +150,7 @@ export interface PurchaseInfo {
   kind: 'purchase' | 'subscription';
   /** Pre-tax amount paid. */
   grossMicros: number;
-  /** Stripe's payment processing fee, deducted from the credit. */
+  /** The payment provider's processing fee, deducted from the credit. */
   feeMicros: number;
   /** Credit added: `grossMicros - feeMicros`. */
   creditMicros: number;
@@ -162,7 +159,7 @@ export interface PurchaseInfo {
 
 /** `GET /api/billing`. */
 export interface BillingSummary {
-  /** False when Stripe isn't configured on the server (no top-ups, no spending). */
+  /** False when no payment provider is configured on the server (no top-ups, no spending). */
   enabled: boolean;
   /** The user's membership, as `MeResponse.membership`. */
   membership: MembershipInfo;
@@ -172,8 +169,8 @@ export interface BillingSummary {
    */
   builtInCredit: boolean;
   /**
-   * False when one-time top-ups can't be sold (no `STRIPE_CREDITS_PRODUCT_ID`),
-   * even though billing is enabled. Absent = assume they can.
+   * False when one-time top-ups can't be sold (the provider sells no credits
+   * product), even though billing is enabled. Absent = assume they can.
    */
   topUpsEnabled?: boolean;
   currency: 'usd';

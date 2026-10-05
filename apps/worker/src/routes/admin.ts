@@ -160,7 +160,7 @@ async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
  * without its owner (a DMCA notice, docs/LEGAL.md §8), suspends a user's
  * community pool access (`auth_users.pool_suspended` and the user's pool
  * identity, checked by the pool gate on every pool request), reports who
- * consumes the pool, and credits a user's ledger or the pool without Stripe
+ * consumes the pool, and credits a user's ledger or the pool without a payment
  * (`POST /credit`: adjustments, and simulated purchases where
  * DEV_PURCHASES_ENABLED allows them), showing the pool's balance and overage
  * breaker (`GET /pool`). It also runs the impact feed's review
@@ -356,7 +356,7 @@ export function adminRoutes(): Hono<AppBindings> {
     },
   );
 
-  // Credit without Stripe: a signed adjustment of a user's ledger or the pool (a negative pool
+  // Credit without a payment: a signed adjustment of a user's ledger or the pool (a negative pool
   // adjustment is clamped to what the pool has available, under PoolBank's lock), or a simulated
   // purchase, fulfilled exactly as the webhook would. Idempotent on the key.
   r.post('/credit', sameOriginOnly, validateJson(adminCreditRequestSchema), async (c) => {

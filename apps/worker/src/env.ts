@@ -51,19 +51,6 @@ export interface AppEnv extends Env {
   POLAR_ACCESS_TOKEN?: string;
   /** Signing secret (`whsec_…`) of the Polar webhook endpoint `/api/webhooks/polar`. */
   POLAR_WEBHOOK_SECRET?: string;
-  /** `sandbox` (the default when empty, so a missing var can't charge real cards) or `production`. */
-  POLAR_SERVER?: string;
-  /** The Polar one-time product that credit top-ups and pool purchases are sold as (ad-hoc USD price). */
-  POLAR_CREDITS_PRODUCT_ID?: string;
-  /** The Polar yearly product of the membership; empty = no membership is sold or required. */
-  POLAR_MEMBERSHIP_PRODUCT_ID?: string;
-  /** The fee estimate used when an order reports no usable fee (D3): bps of the total, plus fixed cents. */
-  POLAR_FEE_BPS?: string;
-  POLAR_FEE_FIXED_CENTS?: string;
-  /** Stripe API key. Billing is enabled only when this and STRIPE_WEBHOOK_SECRET are set. */
-  STRIPE_SECRET_KEY?: string;
-  /** Signing secret of the webhook endpoint `/api/auth/stripe/webhook`. */
-  STRIPE_WEBHOOK_SECRET?: string;
   /**
    * A code users redeem (`POST /api/billing/membership/waiver`) to have the
    * membership fee waived. Empty = no code redemption. If it leaks, change it
@@ -86,11 +73,6 @@ export interface AppEnv extends Env {
   MARKUP_PREPAID_BPS?: string;
   /** Tests only ("true"): enables test-only RPC methods such as `PoolBank.expire(now)`. */
   TEST_SEAMS?: string;
-  /**
-   * The payment provider (billing/payments/index.ts): `polar` (the default
-   * when empty), or `fake` in tests (only with TEST_SEAMS).
-   */
-  PAYMENT_PROVIDER?: string;
   /** Tests only (with `PAYMENT_PROVIDER=fake`): the fake provider's options, JSON (billing/providers/fake.ts). */
   FAKE_PAYMENTS?: string;
   /** Tests only (with `TEST_SEAMS`): a pool notice version above the code's, as after a text change. */

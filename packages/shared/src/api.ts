@@ -78,9 +78,6 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *                                                provider has no customer for the user yet)
  *   POST   /api/webhooks/:provider                Payment provider webhooks (public, signed;
  *                                                `/api/webhooks/polar`)
- *   POST   /api/auth/subscription/{upgrade,billing-portal,list,cancel,restore}  Better Auth Stripe plugin
- *                                                (one plan, MEMBERSHIP_PLAN: the yearly membership)
- *   POST   /api/auth/stripe/webhook               Stripe webhooks (plugin + our onEvent)
  *
  * Admin (admins only: ADMIN_USER_IDS, or the local dev bypass; 404 `not_found`
  * to anyone else; admin.ts):
@@ -214,7 +211,7 @@ export interface MeResponse {
   operatorKeys: boolean;
   /**
    * True when the server offers the built-in provider (`tangent`, the
-   * operator's OpenRouter key) on prepaid credit: Stripe and the operator's
+   * operator's OpenRouter key) on prepaid credit: payments and the operator's
    * key are set up. Power lists it among its providers; Learn offers it as
    * "Use Tangent credit". The credit is per user, shared by both apps.
    */
@@ -312,8 +309,8 @@ export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
 /**
  * Permanently deletes the signed-in user: both of their accounts (power and
  * Learn) with every conversation, share link and setting, their sign-in
- * methods and sessions, and their Stripe customer (which cancels their
- * membership). `confirmEmail` must be the user's email, so a stray request can't do it.
+ * methods and sessions, and their customer record with the payment provider
+ * (which cancels their membership). `confirmEmail` must be the user's email, so a stray request can't do it.
  */
 export const deleteAccountRequestSchema = z.object({
   confirmEmail: z.string().trim().min(1).max(320),

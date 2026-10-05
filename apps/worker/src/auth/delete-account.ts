@@ -2,21 +2,19 @@ import { DomainError, ValidationError } from '@tangent/core';
 import { deleteAccountRequestSchema } from '@tangent/shared';
 import { Hono } from 'hono';
 import { deleteCookie } from 'hono/cookie';
-import Stripe from 'stripe';
 import {
   customerProvidersOf,
   customerRefFor,
   forgetCustomersStatement,
 } from '../billing/payments/customers.js';
 import { paymentProvider } from '../billing/payments/index.js';
-import { accountIdForUser, billingConfigured, getStripe } from '../billing/stripe.js';
 import { sameOriginOnly } from '../byok/guard.js';
 import { clearKeyCookie } from '../byok/keys.js';
 import type { AppBindings, AppContext, AppEnv } from '../env.js';
 import { validateJson } from '../http/errors.js';
 import { poolIdentity } from '../pool/identity.js';
 import { purgeShare } from '../share/cache.js';
-import { POWER_ACCOUNT_PREFIX } from './account.js';
+import { accountIdForUser, POWER_ACCOUNT_PREFIX } from './account.js';
 
 /**
  * Better Auth's cookies (`cookiePrefix: 'tangent'` in auth/auth.ts), plain on
@@ -31,7 +29,6 @@ export interface DeletedUser {
   shareTokens: string[];
   /** The payment provider held a customer for the user, and it was deleted (or anonymised). */
   billingCustomerDeleted: boolean;
-  stripeCustomerDeleted: boolean;
 }
 
 /**
@@ -41,8 +38,7 @@ export interface DeletedUser {
  *    ended and the customer deleted or anonymised (`deleteCustomer`), so no
  *    membership keeps charging a user who no longer exists. A failure here
  *    aborts the whole deletion: better a retry than a subscription with
- *    nobody behind it. (Also a Stripe customer from before payments moved
- *    to the provider port.)
+ *    nobody behind it.
  * 2. In one D1 batch (a transaction): both accounts' trees (branches, nodes,
  *    summaries and shares with their snapshots go by ON DELETE CASCADE),
  *    any share or setting left over, their subscription and payment-customer
@@ -69,20 +65,17 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
   const accountIds = [POWER_ACCOUNT_PREFIX + userId, accountIdForUser(userId)];
 
   const user = await env.DB.prepare(
-    `SELECT email, stripe_customer_id, pool_suspended, pool_identity
-       FROM auth_users WHERE id = ?1`,
+    `SELECT email, pool_suspended, pool_identity FROM auth_users WHERE id = ?1`,
   )
     .bind(userId)
     .first<{
       email: string;
-      stripe_customer_id: string | null;
       pool_suspended: number;
       pool_identity: string | null;
     }>();
   if (!user) throw new DomainError('not_found', 'Account not found');
 
   const billingCustomerDeleted = await deleteBillingCustomer(env, userId);
-  const stripeCustomerDeleted = await deleteStripeCustomer(env, user.stripe_customer_id);
 
   const shares = await env.DB.prepare(
     'SELECT token, version FROM shares WHERE account_id IN (?1, ?2)',
@@ -108,7 +101,6 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
     env.DB.prepare('DELETE FROM trees WHERE account_id IN (?1, ?2)').bind(p, u),
     env.DB.prepare('DELETE FROM shares WHERE account_id IN (?1, ?2)').bind(p, u),
     env.DB.prepare('DELETE FROM account_settings WHERE account_id IN (?1, ?2)').bind(p, u),
-    env.DB.prepare('DELETE FROM auth_subscriptions WHERE reference_id = ?1').bind(userId),
     env.DB.prepare('DELETE FROM billing_subscriptions WHERE user_id = ?1').bind(userId),
     forgetCustomersStatement(env.DB, userId),
     env.DB.prepare(
@@ -127,7 +119,6 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
     accountIds,
     shareTokens: shares.results.map((s) => s.token),
     billingCustomerDeleted,
-    stripeCustomerDeleted,
   };
 }
 
@@ -156,34 +147,6 @@ async function deleteBillingCustomer(env: AppEnv, userId: string): Promise<boole
     throw new DomainError(
       'internal',
       "Couldn't cancel your billing with our payment provider, so nothing was deleted. Please try again.",
-    );
-  }
-}
-
-/** Deletes the Stripe customer (cancelling its subscriptions); true when there was one to delete. */
-async function deleteStripeCustomer(env: AppEnv, customerId: string | null): Promise<boolean> {
-  if (!customerId) return false;
-  const stripe = billingConfigured(env) ? getStripe(env) : null;
-  if (!stripe) {
-    // Billing has been switched off since this customer was created, so nothing
-    // here can reach Stripe; the operator has to delete the customer by hand.
-    console.error(
-      `Account deletion: Stripe is not configured; delete customer ${customerId} in Stripe`,
-    );
-    return false;
-  }
-  try {
-    await stripe.customers.del(customerId);
-    return true;
-  } catch (err) {
-    // Already deleted (in the Stripe dashboard, or by an earlier attempt that failed later on).
-    if (err instanceof Stripe.errors.StripeInvalidRequestError && err.code === 'resource_missing') {
-      return false;
-    }
-    console.error('Account deletion: Stripe customer deletion failed', err);
-    throw new DomainError(
-      'internal',
-      "Couldn't cancel your billing with Stripe, so nothing was deleted. Please try again.",
     );
   }
 }

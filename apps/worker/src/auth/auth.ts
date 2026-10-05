@@ -1,24 +1,19 @@
 import { passkey } from '@better-auth/passkey';
-import { stripe } from '@better-auth/stripe';
 import { betterAuth, type BetterAuthOptions } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { createAuthMiddleware } from 'better-auth/api';
 import { setSessionCookie } from 'better-auth/cookies';
 import { captcha } from 'better-auth/plugins';
 import { magicLink } from 'better-auth/plugins/magic-link';
-import { MEMBERSHIP_PLAN } from '@tangent/shared';
 import { drizzle } from 'drizzle-orm/d1';
 import {
   authAccounts,
   authPasskeys,
   authRateLimits,
   authSessions,
-  authSubscriptions,
   authUsers,
   authVerifications,
 } from '../db/schema.js';
-import { billingConfigured, getStripe, membershipPriceId } from '../billing/stripe.js';
-import { handleStripeEvent } from '../billing/webhook.js';
 import { appConfig } from '../config.js';
 import { createEmailSender, magicLinkEmail, type EmailSender } from '../email/index.js';
 import type { AppEnv } from '../env.js';
@@ -44,10 +39,8 @@ import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnst
  * their own accounts (auth/account.ts). Power mode is bring-your-own-key for
  * every signed-in user: the server's provider keys serve only the local dev bypass.
  *
- * When Stripe is configured (billing/stripe.ts) the Better Auth Stripe plugin
- * adds the membership endpoints (`/api/auth/subscription/*`) and the one
- * Stripe webhook, `/api/auth/stripe/webhook`, whose events also reach our
- * ledger through `onEvent` (billing/webhook.ts).
+ * Payments don't go through Better Auth: the membership, top-ups and the
+ * payment provider's webhooks are billing routes (billing/payments).
  */
 
 export const AUTH_BASE_PATH = '/api/auth';
@@ -213,9 +206,6 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
         verification: authVerifications,
         passkey: authPasskeys,
         rateLimit: authRateLimits,
-        // The Stripe plugin's table; mapped even when billing is off so the
-        // schema doesn't depend on configuration.
-        subscription: authSubscriptions,
       },
     }),
     // No passwords, ever: email+password stays disabled (the default), so
@@ -311,50 +301,8 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
         // Turnstile's test keys report their own hostname, so only pin it in deployments.
         ...(local ? {} : { allowedHostnames: [base.hostname] }),
       }),
-      ...stripePlugin(env),
     ],
   });
-}
-
-/**
- * The Better Auth Stripe plugin, only when billing is configured (PLAN §2.3).
- * Customers are created lazily (first checkout). Its one plan is the yearly
- * membership (`MEMBERSHIP_PLAN`, STRIPE_MEMBERSHIP_PRICE_ID; none while that
- * is unset): the plugin holds one subscription per user, so there is room for
- * nothing else. Every webhook event is passed on to our ledger. Throwing from
- * `onEvent` makes the plugin answer 400, so Stripe retries.
- */
-function stripePlugin(env: AppEnv) {
-  const client = billingConfigured(env) ? getStripe(env) : null;
-  if (!client) return [];
-  return [
-    stripe({
-      stripeClient: client,
-      stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET?.trim() ?? '',
-      createCustomerOnSignUp: false,
-      onEvent: (event) => handleStripeEvent(env, event),
-      subscription: {
-        enabled: true,
-        requireEmailVerification: true,
-        plans: membershipPlans(env),
-        // Stripe Tax on exclusive prices; tax never enters our ledger.
-        getCheckoutSessionParams: () => ({
-          params: {
-            automatic_tax: { enabled: true },
-            billing_address_collection: 'required' as const,
-            tax_id_collection: { enabled: true },
-          },
-        }),
-      },
-    }),
-  ];
-}
-
-function membershipPlans(env: AppEnv) {
-  const priceId = membershipPriceId(env);
-  if (!priceId) return [];
-  // One plan, so there is nothing to switch to and nothing to prorate.
-  return [{ name: MEMBERSHIP_PLAN, priceId, prorationBehavior: 'none' as const }];
 }
 
 export type Auth = ReturnType<typeof createAuth>;
