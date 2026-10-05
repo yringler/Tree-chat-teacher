@@ -474,6 +474,8 @@ export const usageEvents = sqliteTable(
     index('usage_events_pool_user_idx').on(t.accountId, t.userId, t.createdAt),
     index('usage_events_pool_ip_idx').on(t.accountId, t.ipKey, t.createdAt),
     index('usage_events_pool_tier_idx').on(t.accountId, t.tier, t.createdAt),
+    // The weekly impact job's tag retention: a branch's latest pool reply.
+    index('usage_events_branch_idx').on(t.branchId, t.createdAt),
   ],
 );
 
@@ -538,3 +540,53 @@ export const poolTopicTags = sqliteTable(
   },
   (t) => [index('pool_topic_tags_topic_idx').on(t.topicId, t.createdAt)],
 );
+
+// ---- Community pool impact feed (src/pool/impact.ts, docs/pool/PLAN.md §S8b)
+
+/**
+ * One immutable public snapshot per ISO week (`week_start`: its Monday,
+ * `YYYY-MM-DD`), written by the weekly cron. Totals cover every funded pool
+ * reply of the week, sensitive and unnamed topics included.
+ */
+export const poolImpactSnapshots = sqliteTable('pool_impact_snapshots', {
+  weekStart: text('week_start').primaryKey(),
+  /** Pool replies settled above 0 in the week. */
+  exchanges: integer('exchanges').notNull(),
+  /** Distinct users of those replies. */
+  learners: integer('learners').notNull(),
+  /** Distinct topics touched (the sentinel `sensitive` counts as one). */
+  topics: integer('topics').notNull(),
+  /** Average branch depth of the tagged replies, × 1000. */
+  avgDepthMilli: integer('avg_depth_milli').notNull(),
+  maxDepth: integer('max_depth').notNull(),
+  /** The published topic with the greatest average depth; null when none is published. */
+  deepestTopicId: text('deepest_topic_id'),
+  createdAt: text('created_at').notNull(),
+});
+
+/** The topics a snapshot names: published ones only (threshold, not sensitive or blocked, approved). */
+export const poolImpactTopics = sqliteTable(
+  'pool_impact_topics',
+  {
+    weekStart: text('week_start').notNull(),
+    topicId: text('topic_id').notNull(),
+    learners: integer('learners').notNull(),
+    exchanges: integer('exchanges').notNull(),
+    avgDepthMilli: integer('avg_depth_milli').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.weekStart, t.topicId] })],
+);
+
+/**
+ * The admin review queue: a topic that first qualifies to be named is queued
+ * `pending`; only `approved` topics are ever published, from the next week on.
+ */
+export const poolTopicReviews = sqliteTable('pool_topic_reviews', {
+  topicId: text('topic_id').primaryKey(),
+  status: text('status', { enum: ['pending', 'approved', 'rejected'] }).notNull(),
+  /** The week (`YYYY-MM-DD`) it first qualified. */
+  firstSeenWeek: text('first_seen_week').notNull(),
+  decidedAt: text('decided_at'),
+  /** The admin's user id. */
+  decidedBy: text('decided_by'),
+});

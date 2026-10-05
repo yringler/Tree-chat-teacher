@@ -43,6 +43,28 @@ import { supporterFrom, supporterStatement } from './supporter.js';
 const DAY_MS = 24 * 60 * 60_000;
 /** The rate limits' fixed window. */
 const MINUTE_MS = 60_000;
+/**
+ * The overage breaker's sum: the pool's settled overage (charges above their
+ * holds) created within `windowMs` before `now`, micro-USD. The breaker is
+ * tripped while it exceeds `PoolOverage.maxMicros`; the admin pool panel
+ * reads the same sum.
+ */
+export async function poolOverageMicros(
+  db: D1Database,
+  poolId: string,
+  windowMs: number,
+  now: Date,
+): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COALESCE(SUM(overage_micros), 0) AS overage FROM usage_events
+       WHERE account_id = ? AND status = 'settled' AND created_at >= ?`,
+    )
+    .bind(poolId, new Date(now.getTime() - windowMs).toISOString())
+    .first<{ overage: number }>();
+  return Number(row?.overage ?? 0);
+}
+
 /** The overage sum is re-read at most this often (it scans a day of settled rows). */
 const BREAKER_CACHE_MS = 60_000;
 /** When an expiry pass left more expired rows than its batch, the alarm comes back after this. */
@@ -703,13 +725,8 @@ export class PoolBank extends DurableObject<AppEnv> {
       t - cached.readAt >= BREAKER_CACHE_MS ||
       t < cached.readAt
     ) {
-      const row = await this.env.DB.prepare(
-        `SELECT COALESCE(SUM(overage_micros), 0) AS overage FROM usage_events
-         WHERE account_id = ? AND status = 'settled' AND created_at >= ?`,
-      )
-        .bind(poolId, new Date(t - overage.windowMs).toISOString())
-        .first<{ overage: number }>();
-      this.breaker = { poolId, overageMicros: Number(row?.overage ?? 0), readAt: t };
+      const overageMicros = await poolOverageMicros(this.env.DB, poolId, overage.windowMs, now);
+      this.breaker = { poolId, overageMicros, readAt: t };
       if (this.breaker.overageMicros > overage.maxMicros) {
         console.error(
           JSON.stringify({

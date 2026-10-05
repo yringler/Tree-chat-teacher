@@ -13,7 +13,8 @@ import { verifyPageRoutes } from './http/verify-page.js';
 import { adminRoutes } from './routes/admin.js';
 import { apiRoutes } from './routes/api.js';
 import { billingRoutes } from './routes/billing.js';
-import { poolRoutes, poolStatusRoute } from './routes/pool.js';
+import { featuredRoute } from './routes/featured.js';
+import { poolImpactRoutes, poolRoutes, poolStatusRoute } from './routes/pool.js';
 import { shareRoutes } from './routes/share.js';
 
 export interface AppOptions {
@@ -23,8 +24,11 @@ export interface AppOptions {
 /**
  * The HTTP app.
  * - `/api/auth/*` is Better Auth (sign-in, callbacks, session, passkeys).
- * - `/api/login-options` is public: what the login page should offer, and
- *   `/api/pool/status` the community pool's meter (routes/pool.ts).
+ * - `/api/login-options` is public: what the login page should offer,
+ *   `/api/pool/status` the community pool's meter and `/api/pool/impact*`
+ *   its weekly impact snapshots (routes/pool.ts).
+ * - `/api/featured*` is always 404: the featured-conversations wall is a stub
+ *   (routes/featured.ts).
  * - Every other `/api/*` route requires a session (auth/session.ts) and acts
  *   as the caller's account for the app named by the `x-tangent-mode` header
  *   (auth/account.ts); `/api/billing/*` is the billing API, `/api/pool/*` the
@@ -67,6 +71,9 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   });
 
   app.get('/api/pool/status', poolStatusRoute);
+  app.route('/api/pool/impact', poolImpactRoutes());
+  app.all('/api/featured', featuredRoute);
+  app.all('/api/featured/*', featuredRoute);
 
   app.use('/api/*', sessionMiddleware(options.auth));
   app.use('/api/*', accountMiddleware);

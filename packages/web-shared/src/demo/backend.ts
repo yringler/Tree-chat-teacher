@@ -33,6 +33,7 @@ import {
   type MeResponse,
   type MembershipInfo,
   POOL_NOTICE_VERSION,
+  type PoolImpactWeeksResponse,
   type PoolMeResponse,
   type PoolStatusResponse,
   type ProviderEvent,
@@ -316,6 +317,7 @@ export class DemoBackend {
         sharing: false,
         isAdmin: false,
         membership: { ...DEMO_MEMBERSHIP },
+        featuredConversations: false,
       } satisfies MeResponse);
     }
     if (method === 'GET' && path === '/api/login-options') {
@@ -352,6 +354,13 @@ export class DemoBackend {
         ...DEMO_POOL_ME,
         personalAvailableMicros: this.balanceMicros - this.heldMicros,
       } satisfies PoolMeResponse);
+    }
+    // No impact snapshots: the demos' pool funds nothing.
+    if (method === 'GET' && path === '/api/pool/impact/weeks') {
+      return json({ weeks: [] } satisfies PoolImpactWeeksResponse);
+    }
+    if (method === 'GET' && path === '/api/pool/impact') {
+      return apiError('not_found', 'Impact snapshot not found');
     }
 
     // Account settings (the default system prompt), kept with the session

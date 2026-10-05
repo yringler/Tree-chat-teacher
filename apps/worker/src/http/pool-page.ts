@@ -4,14 +4,19 @@ import {
   formatCents,
   formatMicros,
   POOL_EMPTY_TEXT,
+  POOL_IMPACT_WEEK_PATTERN,
+  poolImpactWeekText,
   poolMarginText,
+  type PoolImpactResponse,
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import { appConfig } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
+import { poolImpactWeeks, readPoolImpact } from '../pool/impact.js';
 import { poolModel } from '../pool/params.js';
 import { ceilingHoldMicros } from '../pool/pricing.js';
 import { simpleProviderConfig } from '../simple-mode.js';
+import { renderImpactBlock } from './impact-block.js';
 import { legalInfo, type LegalInfo } from './legal-info.js';
 import { legalResponse, page } from './legal.js';
 
@@ -38,6 +43,21 @@ export interface PoolPageFacts {
   perMinute: number;
   /** The reply's ceiling hold: the part of a daily spend cap that can't start one more reply. */
   ceilingHoldMicros: number | null;
+  /** Distinct learners a topic needs in a week to be named (`IMPACT_MIN_DISTINCT_USERS`). */
+  minDistinctUsers: number;
+  /** Days a topic tag outlives its branch's last pool use. */
+  tagRetentionDays: number;
+}
+
+/**
+ * The impact feed on `/pool`: the snapshot shown (the requested week's, else
+ * the latest), the weeks to choose from (newest first), and the week asked
+ * for with `?week=`, if any. Null when it couldn't be read (or the pool is off).
+ */
+export interface PoolPageFeed {
+  requestedWeek: string | null;
+  impact: PoolImpactResponse | null;
+  weeks: string[];
 }
 
 export function poolPageFacts(env: AppEnv): PoolPageFacts {
@@ -60,7 +80,34 @@ export function poolPageFacts(env: AppEnv): PoolPageFacts {
     ceilingHoldMicros: price
       ? ceilingHoldMicros(price, pool.maxOutputTokens, config.billing.openRouterFeeBps)
       : null,
+    minDistinctUsers: config.impact.minDistinctUsers,
+    tagRetentionDays: config.impact.tagRetentionDays,
   };
+}
+
+/** The live part of "What the pool is funding": a snapshot and the week selector. */
+function feedSection(feed: PoolPageFeed | null): string {
+  if (!feed) return '';
+  let shown: string;
+  if (feed.requestedWeek && !feed.impact)
+    shown = '<p class="impact-missing">No snapshot for that week.</p>';
+  else if (!feed.impact)
+    shown =
+      '<p>The first weekly snapshot appears on the Monday after the pool’s first full week.</p>';
+  else
+    shown = `<h3>${escapeHtml(poolImpactWeekText(feed.impact.weekStart).replace(/^t/, 'T'))}</h3>\n${renderImpactBlock(feed.impact)}`;
+  const current = feed.impact?.weekStart;
+  const weeks = feed.weeks.length
+    ? `<nav aria-label="Past weeks"><h3>Past weeks</h3><ul class="weeks">${feed.weeks
+        .map((w) => {
+          const label = escapeHtml(poolImpactWeekText(w).replace(/^the week of /, 'Week of '));
+          return w === current
+            ? `<li><a href="/pool?week=${w}#impact" aria-current="page">${label}</a></li>`
+            : `<li><a href="/pool?week=${w}#impact">${label}</a></li>`;
+        })
+        .join('')}</ul></nav>`
+    : '';
+  return `${shown}\n${weeks}\n`;
 }
 
 /** `$0.10` from a cent up; `1.4¢` below a cent. */
@@ -75,7 +122,11 @@ function supporterTerm(months: number | null): string {
   return `Anyone whose credit purchases (to their own account or to the pool) add up to more than $0, after refunds, is a supporter for ${months} ${months === 1 ? 'month' : 'months'} after their latest purchase.`;
 }
 
-export function renderPoolPage(info: LegalInfo, f: PoolPageFacts): string {
+export function renderPoolPage(
+  info: LegalInfo,
+  f: PoolPageFacts,
+  feed: PoolPageFeed | null = null,
+): string {
   const model = `${escapeHtml(f.model.label)} (<code>${escapeHtml(f.model.id)}</code>)`;
   const margin = formatBps(f.marginBps);
   const ceiling =
@@ -123,19 +174,58 @@ ${ceiling}
 <h2>Supporters</h2>
 <p>${escapeHtml(supporterTerm(f.supporter.windowMonths))} Supporters get the higher limits above. It's a thank-you for funding Tangent, and it makes farming free accounts pointless.</p>
 
-<h2>What the pool is funding</h2>
-<p>We plan to show which topics the pool funds, as a public weekly feed. It will count topics only (for example "Roman history: 40 learners this week"), never anyone's questions; a topic is only named once enough different learners touched it that week, sensitive subjects such as health or personal finances are never named, and new topics are reviewed before they appear. Pool learners will be asked to acknowledge this before it starts. Until then, nothing about what you ask is collected for it.</p>
-
+<h2 id="impact">What the pool is funding</h2>
+<p>Every Monday, Tangent publishes what the pool funded the week before (Monday to Sunday, UTC): how many exchanges and learners, how many topics, and how deep learners went down their branches. These are totals only. No one's questions or name are ever shown, and a topic is named only when all of these hold:</p>
+<ul>
+<li>at least ${f.minDistinctUsers.toLocaleString('en-US')} different learners explored it that week (fewer only count toward the totals);</li>
+<li>it isn't a sensitive subject: health, mental health, sexuality, legal matters, personal finances and religious doubt are counted but never named;</li>
+<li>it isn't on the blocklist, and an administrator reviewed it the first time it qualified. After approval it appears automatically in later weeks.</li>
+</ul>
+<p>Topics come from a fixed list. After a pool reply, the pool's model sorts that one message into a topic; the message itself isn't stored, and the topic is kept without your name, then deleted ${f.tagRetentionDays.toLocaleString('en-US')} days after the conversation's last use of the pool. Pool learners acknowledge this before their first pool request. Conversations on your own credit or your own key are never sorted.</p>
+${feedSection(feed)}
 <h2>More</h2>
 <p>Pool purchases follow the <a href="/terms">terms of service</a> (section 7), and the <a href="/privacy">privacy policy</a> describes what is stored about pool use.</p>`,
   );
 }
 
+/**
+ * The impact feed for `/pool?week=…`: that week's snapshot (none for an
+ * unknown or malformed week), else the latest, and the weeks to pick from.
+ * Null while the pool is off or when D1 can't be read (the page still renders).
+ */
+export async function poolPageFeed(
+  env: AppEnv,
+  week: string | undefined,
+): Promise<PoolPageFeed | null> {
+  if (!appConfig(env).flags.poolEnabled) return null;
+  const requestedWeek = week?.trim() || null;
+  try {
+    const valid = requestedWeek !== null && POOL_IMPACT_WEEK_PATTERN.test(requestedWeek);
+    const [impact, weeks] = await Promise.all([
+      requestedWeek === null || valid
+        ? readPoolImpact(env.DB, requestedWeek ?? undefined)
+        : Promise.resolve(null),
+      poolImpactWeeks(env.DB),
+    ]);
+    return { requestedWeek, impact, weeks };
+  } catch (err) {
+    console.warn('/pool: the impact feed could not be read', err);
+    return null;
+  }
+}
+
 /** `GET /pool`, public (mounted at the root by `createApp`; listed in run_worker_first). */
 export function poolPageRoutes(): Hono<AppBindings> {
   const app = new Hono<AppBindings>();
-  app.get('/pool', (c) =>
-    legalResponse(c, renderPoolPage(legalInfo(c.env, c.req.raw), poolPageFacts(c.env))),
+  app.get('/pool', async (c) =>
+    legalResponse(
+      c,
+      renderPoolPage(
+        legalInfo(c.env, c.req.raw),
+        poolPageFacts(c.env),
+        await poolPageFeed(c.env, c.req.query('week')),
+      ),
+    ),
   );
   return app;
 }

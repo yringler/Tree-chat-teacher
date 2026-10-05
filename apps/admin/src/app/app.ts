@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import type { AdminStatusResponse, MeResponse } from '@tangent/shared';
 import { ApiClient, AuthService, errorMessage, Icon } from '@tangent/web-shared';
+import { PoolPage } from './pool-page';
+import { PoolTopicsPage } from './pool-topics-page';
 import { PoolUsagePage } from './pool-usage-page';
 import { UsersPage } from './users-page';
 
@@ -8,11 +10,13 @@ import { UsersPage } from './users-page';
  * The admin app, served under /admin/ to admins only (the Worker answers 404
  * to anyone else; ADMIN_USER_IDS). One page: who may publish share links
  * while DMCA_AGENT_REGISTERED is off, taking any share down, suspending a
- * user's community pool access, and who uses the pool most.
+ * user's community pool access, the pool's balance and overage breaker with
+ * top-ups and corrections, who uses the pool most, and the review queue
+ * of topics the pool's public impact feed may name.
  */
 @Component({
   selector: 'app-root',
-  imports: [Icon, PoolUsagePage, UsersPage],
+  imports: [Icon, PoolPage, PoolTopicsPage, PoolUsagePage, UsersPage],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="admin-head">
@@ -52,7 +56,9 @@ import { UsersPage } from './users-page';
           }
         }
         <app-users-page />
+        <app-pool-page />
         <app-pool-usage-page />
+        <app-pool-topics-page />
       }
     </main>
   `,

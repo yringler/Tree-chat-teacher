@@ -1,7 +1,15 @@
 import '@angular/compiler'; // JIT: the component metadata below.
-import { FORBIDDEN_POOL_COPY, POOL_NOTICE_TEXT, type PoolBlockDetails } from '@tangent/shared';
+import {
+  FORBIDDEN_POOL_COPY,
+  POOL_NOTICE_TEXT,
+  poolImpactDepthText,
+  poolImpactHeadline,
+  poolImpactTopicText,
+  type PoolBlockDetails,
+} from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { BillingPage } from '../billing/billing-page';
+import { ImpactFeed } from './impact-feed';
 import { PoolBlockNotice } from './pool-block-notice';
 import { PoolFirstUseDialog } from './pool-first-use-dialog';
 import { PoolFundSection } from './pool-fund-section';
@@ -25,7 +33,14 @@ const REASONS: PoolBlockDetails['reason'][] = [
 
 describe('pool copy rule', () => {
   it('never says donate, donation or tax-deductible (templates)', () => {
-    for (const type of [PoolFundSection, PoolMeter, PoolBlockNotice, PoolFirstUseDialog, BillingPage])
+    for (const type of [
+      PoolFundSection,
+      PoolMeter,
+      ImpactFeed,
+      PoolBlockNotice,
+      PoolFirstUseDialog,
+      BillingPage,
+    ])
       expect(templateOf(type)).not.toMatch(FORBIDDEN_POOL_COPY);
   });
 
@@ -34,6 +49,13 @@ describe('pool copy rule', () => {
       poolFundingNote(800),
       sessionsLabel({ sessionsRemaining: 3 }),
       POOL_NOTICE_TEXT,
+      poolImpactHeadline({ weekStart: '2026-09-28', exchanges: 2, learners: 1, topics: 1 }),
+      poolImpactDepthText({
+        avgDepth: 1.5,
+        maxDepth: 3,
+        deepest: { id: 'math.algebra', label: 'Algebra', avgDepth: 2 },
+      }),
+      poolImpactTopicText({ label: 'Algebra', learners: 5 }),
     ];
     for (const reason of REASONS) {
       const t = poolBlockText({

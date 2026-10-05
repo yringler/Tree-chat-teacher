@@ -53,6 +53,7 @@ function me(m: MembershipInfo): MeResponse {
     sharing: false,
     isAdmin: false,
     membership: m,
+    featuredConversations: false,
   };
 }
 

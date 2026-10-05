@@ -24,6 +24,7 @@ Set to Yehuda Ringler, governed by the laws of the Commonwealth of Pennsylvania,
 - no sale of personal data, no training of models by us;
 - message content never in logs;
 - the community pool's topic tags hold no message text and no account id, sensitive topics are stored only as `sensitive`, and a tag is deleted 14 days after its branch's last pool use or with the account; notice acknowledgments are kept until the account is deleted (`pool/tagging.ts`, `pool/consent.ts`; a test scans the tables and logs for the message).
+- the pool's public impact feed (`/pool`, the landing page, `GET /api/pool/impact`) shows weekly aggregates only: exchanges, learners, topics and branch depth in total, and a topic by name only when at least `IMPACT_MIN_DISTINCT_USERS` (never below 3) distinct learners touched it that week, it isn't sensitive or blocklisted, and an admin approved it. Snapshots hold no user, branch or tree id and are kept so past weeks stay browsable (`pool/impact.ts`; `pool-impact-aggregate.test.ts` checks the threshold, the sensitive rule, the review queue and that responses carry no ids). The pool notice (`POOL_NOTICE_TEXT`) discloses this before the first pool request, and the privacy policy's pool row and retention list describe it.
 
 ## 2. Account deletion
 
@@ -124,6 +125,8 @@ Share links publish user content to the internet, which makes Tangent a host of 
 | A way to take a share down without the owner: the admin page (`/admin/`, `POST /api/admin/shares/:id/revoke`) revokes any user's share and purges its cached copy; turning a user's **May share** off takes all their links down while the flag is off                                                                                                    | done                    |
 | EU Digital Services Act: hosting services need a contact point and a notice-and-action mechanism; the contact email covers a small service                                                                                                                                                                                                                | done (contact)          |
 | If you learn of CSAM: US providers must report it to NCMEC's CyberTipline                                                                                                                                                                                                                                                                                 | **you** (know the duty) |
+| Featured conversations (a public wall of conversations users opt in to publish) would host user content too. It is only a stub behind `FEATURED_CONVERSATIONS_ENABLED` (off): every `/api/featured/*` route is 404 either way, no app shows it and no table or column stores anything for it. Building it waits for the DMCA agent above (`featuredEnabled` also requires `DMCA_AGENT_REGISTERED`); see docs/DEFERRED.md | not built               |
+| The pool's impact feed publishes only aggregate topic counts chosen from a fixed list (never user text), each topic approved by an admin before it is first named and blockable with `POOL_TOPIC_BLOCKLIST`, so it hosts no user content | done                    |
 
 ## 9. Sign-in providers and email
 

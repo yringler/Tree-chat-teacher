@@ -5,11 +5,13 @@ import {
   poolMarginText,
   poolSessionsHeadline,
   poolWeekText,
+  type PoolImpactResponse,
   type PoolStatusResponse,
 } from '@tangent/shared';
 import { Hono, type Context } from 'hono';
 import { authBaseUrl, authConfigured } from '../auth/auth.js';
 import type { AppBindings, AppEnv } from '../env.js';
+import { latestImpactForPage, renderImpactBlock } from './impact-block.js';
 import { copyrightNotice, legalInfo } from './legal-info.js';
 import { LEARN_APP_CSP, LEARN_COMMON_HEADERS } from './learn-app.js';
 import { cachedPoolStatus } from '../pool/status.js';
@@ -108,6 +110,12 @@ h2{margin:0 0 8px;font-size:clamp(1.4rem,4vw,1.85rem);line-height:1.2;letter-spa
 .pool .week{margin:0;color:var(--muted)}
 .pool .fee{margin:0;color:var(--muted);font-size:.88rem}
 .pool .ctas{margin:0}
+.impact{display:grid;gap:8px}
+.impact p{margin:0}
+.impact .head{font-weight:600}
+.impact .depth,.impact .note{color:var(--muted)}
+.impact .topics{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 0;padding:0;list-style:none}
+.impact .topics li{padding:4px 10px;border:1px solid var(--border);border-radius:999px;background:var(--accent-soft);font-size:.9rem}
 footer{padding:32px 0 48px;border-top:1px solid var(--border);color:var(--muted);font-size:.9rem}
 footer .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px}
 footer nav{display:flex;flex-wrap:wrap;gap:18px}
@@ -155,10 +163,18 @@ export interface LandingPageOptions {
   sharing: boolean;
   /** The community pool's meter; absent when the pool is off or couldn't be read. */
   pool?: PoolStatusResponse;
+  /** The pool's latest weekly impact snapshot; absent when there is none (or the pool is off). */
+  impact?: PoolImpactResponse;
 }
 
-/** The community pool section: the meter, this week's counts and how to fund it. */
-function poolSection(pool: PoolStatusResponse): string {
+/** Topics the landing page names at most; `/pool` lists them all. */
+const LANDING_IMPACT_TOPICS = 12;
+
+/**
+ * The community pool section: the meter, this week's counts, the latest
+ * weekly impact snapshot when there is one, and how to fund it.
+ */
+function poolSection(pool: PoolStatusResponse, impact?: PoolImpactResponse): string {
   const meter =
     pool.sessionsRemaining > 0
       ? `<p class="meter">${escapeHtml(poolSessionsHeadline(pool.sessionsRemaining))} left<small>${escapeHtml(formatMicros(pool.availableMicros))} in the pool</small></p>`
@@ -173,7 +189,7 @@ function poolSection(pool: PoolStatusResponse): string {
 <div class="pool">
 ${meter}
 <p class="week">${escapeHtml(poolWeekText(pool.week))}</p>
-<div class="ctas">${fund}<a class="btn" href="/pool">How the pool works</a></div>
+${impact ? `${renderImpactBlock(impact, LANDING_IMPACT_TOPICS)}\n` : ''}<div class="ctas">${fund}<a class="btn" href="/pool">How the pool works</a></div>
 <p class="fee">Funding the pool is a credit purchase. ${escapeHtml(poolMarginText(pool.marginBps))}</p>
 </div>
 </div>
@@ -285,7 +301,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 </div>
 </div>
 </section>
-${opts.pool ? poolSection(opts.pool) : ''}</main>
+${opts.pool ? poolSection(opts.pool, opts.impact) : ''}</main>
 <footer>
 <div class="wrap">
 <span>${escapeHtml(copyrightNotice(opts.operator))}</span>
@@ -353,7 +369,8 @@ async function landingResponse(
   const canonicalUrl = new URL('/', authBaseUrl(c.env, c.req.raw)).toString();
   const { operator, sharing } = legalInfo(c.env, c.req.raw);
   const pool = await landingPool(c);
-  return new Response(renderLandingPage({ canonicalUrl, operator, sharing, pool }), {
+  const impact = pool ? await latestImpactForPage(c.env) : undefined;
+  return new Response(renderLandingPage({ canonicalUrl, operator, sharing, pool, impact }), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Security-Policy': await landingCsp(),

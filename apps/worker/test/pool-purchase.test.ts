@@ -1,9 +1,10 @@
 // Buying credit for the community pool (docs/pool/PLAN.md §S5): checkout
 // targets, the webhook's pool fulfilment (margin at purchase), refunds and
-// disputes through PoolBank.debit, and the admin's credit route.
+// disputes through PoolBank.debit, the admin's credit route and pool panel.
 import {
   POOL_FUND_PRESETS_CENTS,
   type AdminCreditResponse,
+  type AdminPoolResponse,
   type ApiError,
   type CheckoutResponse,
   type TreeDetail,
@@ -762,5 +763,60 @@ describe('POST /api/admin/credit', () => {
     expect(results).toMatchObject([{ funding: 'personal', status: 'settled' }]);
     expect(results[0]!.charge_micros).toBeGreaterThan(0);
     expect(await balance(`u_${user.userId}`)).toBe(1_000_000 - results[0]!.charge_micros!);
+  });
+});
+
+describe('GET /api/admin/pool', () => {
+  it('reports the pool’s balance, holds and overage breaker, to admins only', async () => {
+    const admin = await poolReadyUser({ funds: 0 });
+    const user = await poolReadyUser({ poolId: admin.poolId, funds: 0 });
+    const poolId = admin.poolId;
+    const e = authEnv({
+      POOL_ACCOUNT_ID: poolId,
+      ADMIN_USER_IDS: admin.userId,
+      POOL_OVERAGE_MAX_MICROS: '1000',
+    });
+    const read = (as = admin) => as.client.call('/api/admin/pool', {}, e);
+    await fundPool(poolId, 5_000_000);
+    const now = Date.now();
+    const usage = (charge: number | null, overage: number, at: number) =>
+      env.DB.prepare(
+        `INSERT INTO usage_events (id, account_id, funding, purpose, provider_id, model, status,
+           hold_micros, markup_bps, fee_bps, charge_micros, overage_micros, created_at)
+         VALUES (?, ?, 'pool', 'reply', 'tangent', 'simple', ?, 3000, 0, 0, ?, ?, ?)`,
+      ).bind(
+        uniq('use'),
+        poolId,
+        charge === null ? 'pending' : 'settled',
+        charge,
+        overage,
+        new Date(at).toISOString(),
+      );
+    await env.DB.batch([
+      usage(null, 0, now),
+      usage(3_000, 600, now - 60_000),
+      // Outside the 24 h window: not in the breaker's sum.
+      usage(3_000, 5_000, now - 25 * 60 * 60_000),
+    ]);
+
+    const report = await json<AdminPoolResponse>(await read());
+    expect(report).toEqual({
+      enabled: true,
+      accountId: poolId,
+      balanceMicros: 5_000_000 - 6_000,
+      heldMicros: 3_000,
+      pendingCalls: 1,
+      availableMicros: 5_000_000 - 9_000,
+      devPurchasesEnabled: false,
+      breaker: { overageMicros: 600, maxMicros: 1_000, windowMs: 24 * 60 * 60_000, tripped: false },
+    });
+
+    await usage(3_000, 600, now - 30_000).run();
+    expect((await json<AdminPoolResponse>(await read())).breaker).toMatchObject({
+      overageMicros: 1_200,
+      tripped: true,
+    });
+
+    expect((await json<ApiError>(await read(user), 404)).error.code).toBe('not_found');
   });
 });

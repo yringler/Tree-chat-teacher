@@ -109,6 +109,40 @@ export interface AdminPoolUsageResponse {
   ipKeys: AdminPoolIpKeyRow[];
 }
 
+/**
+ * `GET /api/admin/pool`: the community pool's ledger and its overage breaker,
+ * for the admin pool panel (read-only; top-ups and corrections go through
+ * `POST /api/admin/credit`).
+ */
+export interface AdminPoolResponse {
+  /** POOL_ENABLED (and a usable built-in provider): the pool takes requests. */
+  enabled: boolean;
+  /** The pool's ledger account id (POOL_ACCOUNT_ID). */
+  accountId: string;
+  /** Σ grants − Σ settled charges, micro-USD (pending holds not deducted). */
+  balanceMicros: number;
+  /** Held by pending reservations, micro-USD. */
+  heldMicros: number;
+  /** Pending reservations. */
+  pendingCalls: number;
+  /** `balanceMicros − heldMicros`, floored at 0: what requests can still reserve. */
+  availableMicros: number;
+  /** Simulated purchases are allowed (DEV_PURCHASES_ENABLED). */
+  devPurchasesEnabled: boolean;
+  /**
+   * The overage breaker (PoolBank): settled overage (charges above their
+   * holds) summed over the last `windowMs`; while it exceeds `maxMicros` the
+   * pool refuses every request. `tripped` is read from D1 now; PoolBank
+   * re-reads it at most once a minute.
+   */
+  breaker: {
+    overageMicros: number;
+    maxMicros: number;
+    windowMs: number;
+    tripped: boolean;
+  };
+}
+
 /** Largest admin credit, either way, in US cents ($500). */
 export const ADMIN_CREDIT_MAX_CENTS = 50_000;
 
@@ -157,3 +191,46 @@ export interface AdminCreditResponse {
   /** The target ledger's balance afterwards (settled; pending holds not deducted). */
   balanceMicros: number;
 }
+
+/**
+ * The impact feed's review queue: the first time a topic would be named
+ * publicly it is queued `pending` instead; `approved` topics publish from the
+ * next weekly snapshot on, `rejected` ones never.
+ */
+export const POOL_TOPIC_REVIEW_STATUSES = ['pending', 'approved', 'rejected'] as const;
+export type PoolTopicReviewStatus = (typeof POOL_TOPIC_REVIEW_STATUSES)[number];
+
+/** `GET /api/admin/pool/topics`: one status (default `pending`, the queue). */
+export const adminPoolTopicsQuerySchema = z.object({
+  status: z.enum(POOL_TOPIC_REVIEW_STATUSES).default('pending'),
+});
+export type AdminPoolTopicsQuery = z.infer<typeof adminPoolTopicsQuerySchema>;
+
+/** A topic in the review queue (or decided). */
+export interface AdminPoolTopic {
+  /** Taxonomy leaf id. */
+  id: string;
+  label: string;
+  /** Its parent's label (`History` for `history.ancient-rome`). */
+  group: string;
+  status: PoolTopicReviewStatus;
+  /** The week (`YYYY-MM-DD`) it first had enough learners to be named. */
+  firstSeenWeek: string;
+  /** ISO; null while pending. */
+  decidedAt: string | null;
+  /** The deciding admin's user id; null while pending. */
+  decidedBy: string | null;
+  /** On POOL_TOPIC_BLOCKLIST: never published, whatever its status. */
+  blocklisted: boolean;
+}
+
+/** `GET /api/admin/pool/topics`, oldest first. */
+export interface AdminPoolTopicsResponse {
+  topics: AdminPoolTopic[];
+}
+
+/** `POST /api/admin/pool/topics/:topicId`: approve or reject a queued topic (or change a decision). */
+export const adminPoolTopicDecisionSchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+});
+export type AdminPoolTopicDecision = z.infer<typeof adminPoolTopicDecisionSchema>;

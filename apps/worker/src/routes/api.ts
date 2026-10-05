@@ -109,6 +109,8 @@ export function apiRoutes(): Hono<AppBindings> {
       sharing,
       isAdmin: isAdmin(c.env, identity),
       membership,
+      // The featured wall is a stub (routes/featured.ts): never offered.
+      featuredConversations: false,
     } satisfies MeResponse);
   });
 

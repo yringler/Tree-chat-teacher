@@ -53,6 +53,7 @@ describe('appConfig', () => {
       annualFeeEnabled: false,
       personalCreditEnabled: false,
       devPurchasesEnabled: false,
+      featuredConversationsEnabled: false,
     });
     expect(c.prices).toEqual(DEFAULT_MODEL_PRICES);
     expect(c.pool).toMatchObject({
@@ -101,6 +102,7 @@ describe('appConfig', () => {
       ANNUAL_FEE_ENABLED: 'true',
       PERSONAL_CREDIT_ENABLED: 'TRUE',
       DEV_PURCHASES_ENABLED: 'true',
+      FEATURED_CONVERSATIONS_ENABLED: 'true',
       POOL_ACCOUNT_ID: 'pool-x',
       POOL_FREE_REQUESTS_PER_DAY: '9',
       SUPPORTER_WINDOW_MONTHS: '12',
@@ -114,6 +116,7 @@ describe('appConfig', () => {
       annualFeeEnabled: true,
       personalCreditEnabled: true,
       devPurchasesEnabled: true,
+      featuredConversationsEnabled: true,
     });
     expect(c.pool.accountId).toBe('pool-x');
     expect(c.pool.caps.free.requestsPerDay).toBe(9);

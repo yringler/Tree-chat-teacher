@@ -132,6 +132,7 @@ describe('fail closed', () => {
         priceCents: 1000,
         includedCreditCents: 200,
       },
+      featuredConversations: false,
     } satisfies MeResponse);
 
     // Secret set: DEV_ALLOW_NO_AUTH=true is ignored and a session is required.
@@ -170,6 +171,7 @@ describe('fail closed', () => {
         priceCents: 1000,
         includedCreditCents: 200,
       },
+      featuredConversations: false,
     });
   });
 });

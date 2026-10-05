@@ -84,11 +84,18 @@ export {
   membershipStatusText,
   subscribeToMembership,
 } from './billing/membership';
-export { formatBps, formatCents, formatCharge, formatMicros } from './billing/format';
+export {
+  formatBps,
+  formatCents,
+  formatCharge,
+  formatMicros,
+  parseDollarsToCents,
+} from './billing/format';
 
 // The community pool: the meter, the fund section, the inline empty/cap states and the first-use check
 export { PoolMeter } from './pool/pool-meter';
 export { PoolFundSection } from './pool/pool-fund-section';
+export { ImpactFeed, loadLatestImpact } from './pool/impact-feed';
 export {
   PoolFundController,
   type PoolFundDeps,

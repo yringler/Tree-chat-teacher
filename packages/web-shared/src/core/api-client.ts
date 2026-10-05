@@ -1,5 +1,11 @@
 import { inject, Injectable } from '@angular/core';
 import type {
+  AdminCreditRequest,
+  AdminCreditResponse,
+  AdminPoolResponse,
+  AdminPoolTopic,
+  AdminPoolTopicDecision,
+  AdminPoolTopicsResponse,
   AdminPoolUsageResponse,
   AdminStatusResponse,
   AdminUser,
@@ -24,9 +30,12 @@ import type {
   PoolConsentDetails,
   PoolConsentRequest,
   PoolConsentResponse,
+  PoolImpactResponse,
+  PoolImpactWeeksResponse,
   PoolMeResponse,
   PoolStatusResponse,
   ProviderInfo,
+  PoolTopicReviewStatus,
   PurchaseTarget,
   ReviewRequest,
   SendMessageRequest,
@@ -169,6 +178,22 @@ export class ApiClient {
   }
 
   /**
+   * A weekly impact snapshot of the pool (public): `week` (`YYYY-MM-DD`, its
+   * Monday) or the latest. 404 `not_found` when there is none yet.
+   */
+  poolImpact(week?: string): Promise<PoolImpactResponse> {
+    return this.json(
+      'GET',
+      week ? `/pool/impact?${new URLSearchParams({ week }).toString()}` : '/pool/impact',
+    );
+  }
+
+  /** The weeks with an impact snapshot, newest first (public). */
+  poolImpactWeeks(): Promise<PoolImpactWeeksResponse> {
+    return this.json('GET', '/pool/impact/weeks');
+  }
+
+  /**
    * Acknowledges the pool notice at `version` (the one shown); a version that
    * is no longer current is 409 `conflict`.
    */
@@ -308,9 +333,38 @@ export class ApiClient {
     return this.json('PATCH', `/admin/users/${enc(userId)}`, req);
   }
 
+  /** The community pool's balance, holds and overage breaker state. */
+  adminPool(): Promise<AdminPoolResponse> {
+    return this.json('GET', '/admin/pool');
+  }
+
+  /**
+   * Credits (or debits) a user's personal ledger or the pool without Stripe:
+   * an adjustment, or a simulated purchase where DEV_PURCHASES_ENABLED allows
+   * it. Idempotent on `idempotencyKey`.
+   */
+  adminCredit(req: AdminCreditRequest): Promise<AdminCreditResponse> {
+    return this.json('POST', '/admin/credit', req);
+  }
+
   /** Pool consumption per user over the last `days`, most spend first, and today's busiest networks. */
   adminPoolUsage(days?: number): Promise<AdminPoolUsageResponse> {
     return this.json('GET', days ? `/admin/pool/usage?days=${days}` : '/admin/pool/usage');
+  }
+
+  /** The impact feed's review queue (`pending`, the default) or the decided topics. */
+  adminPoolTopics(status?: PoolTopicReviewStatus): Promise<AdminPoolTopicsResponse> {
+    return this.json('GET', status ? `/admin/pool/topics?status=${status}` : '/admin/pool/topics');
+  }
+
+  /** Approves (named from the next weekly snapshot on) or rejects a queued topic. */
+  decideAdminPoolTopic(
+    topicId: string,
+    decision: AdminPoolTopicDecision['decision'],
+  ): Promise<AdminPoolTopic> {
+    return this.json('POST', `/admin/pool/topics/${enc(topicId)}`, {
+      decision,
+    } satisfies AdminPoolTopicDecision);
   }
 
   adminUserShares(userId: string): Promise<ShareSummary[]> {

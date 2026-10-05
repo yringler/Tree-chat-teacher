@@ -163,6 +163,8 @@ export default defineConfig({
             // Generation lookups made inside Durable Objects (PoolBank's expiry) reach the
             // OpenRouter mock with this key; tests that need no key override it with ''.
             OPENROUTER_SIMPLE_API_KEY: 'sk-or-test',
+            // As deployed; pool-featured.test.ts also turns it on (the stub is 404 either way).
+            FEATURED_CONVERSATIONS_ENABLED: 'false',
             // Test-only RPC methods (PoolBank.expire, PoolBank.status).
             TEST_SEAMS: 'true',
           },

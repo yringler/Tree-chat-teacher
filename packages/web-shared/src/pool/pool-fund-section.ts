@@ -11,6 +11,7 @@ import { formatCents } from '../billing/format';
 import { ApiClient } from '../core/api-client';
 import { DEMO_MODE } from '../core/demo';
 import { Icon } from '../ui/icon';
+import { ImpactFeed } from './impact-feed';
 import { PoolFundController } from './pool-fund-controller';
 import { poolFundingNote } from './pool-format';
 import { PoolMeter } from './pool-meter';
@@ -18,13 +19,14 @@ import { PoolMeter } from './pool-meter';
 /**
  * "Fund the community pool" on the billing page of both apps (`#fund-pool`):
  * the meter, preset amounts at or above the pool minimum, the one-line
- * margin disclosure and a link to `/pool`. Before Stripe is set up the
+ * margin disclosure and a link to `/pool`, with last week's impact feed under
+ * the meter once a snapshot exists. Before Stripe is set up the
  * section still shows the meter and the link, with a disabled "Funding opens
  * soon". Nothing renders while the pool is off.
  */
 @Component({
   selector: 'app-pool-fund-section',
-  imports: [Icon, PoolMeter],
+  imports: [Icon, ImpactFeed, PoolMeter],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(window:pageshow)': 'onPageShow($event)' },
   template: `
@@ -74,6 +76,7 @@ import { PoolMeter } from './pool-meter';
             }
           }
           <app-pool-meter [status]="s" />
+          <app-impact-feed />
           <p class="muted small">
             Credit in the pool lets any signed-in learner keep learning on {{ s.model.label }},
             within daily limits.

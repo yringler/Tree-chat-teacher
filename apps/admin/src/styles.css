@@ -115,3 +115,18 @@
 .admin-share-title {
   font-weight: 600;
 }
+
+.admin-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 8px 0 16px;
+}
+
+.admin-facts dt {
+  font-weight: 600;
+}
+
+.admin-facts dd {
+  margin: 0;
+}

@@ -154,6 +154,12 @@ export interface AppConfig {
      * Never on in production: a simulated purchase makes its buyer a supporter.
      */
     devPurchasesEnabled: boolean;
+    /**
+     * The "featured learning" wall (`FEATURED_CONVERSATIONS_ENABLED`, default
+     * off). Only a stub exists: `/api/featured` is 404 either way and nothing
+     * renders or is collected (`featuredEnabled`, routes/featured.ts).
+     */
+    featuredConversationsEnabled: boolean;
   };
   prices: Readonly<Record<string, ModelPrice>>;
   billing: {
@@ -289,6 +295,7 @@ function parse(env: AppEnv): AppConfig {
       annualFeeEnabled: boolVar(env.ANNUAL_FEE_ENABLED, false),
       personalCreditEnabled: boolVar(env.PERSONAL_CREDIT_ENABLED, false),
       devPurchasesEnabled: boolVar(env.DEV_PURCHASES_ENABLED, false),
+      featuredConversationsEnabled: boolVar(env.FEATURED_CONVERSATIONS_ENABLED, false),
     },
     prices: parsePrices(env.MODEL_PRICES),
     billing: {
