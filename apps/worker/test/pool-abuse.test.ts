@@ -119,7 +119,7 @@ async function purchase(
 ): Promise<void> {
   const gross = opts.grossMicros ?? 5_000_000;
   await env.DB.prepare(
-    `INSERT INTO credit_grants (id, account_id, kind, amount_micros, gross_micros, user_id, stripe_ref, created_at)
+    `INSERT INTO credit_grants (id, account_id, kind, amount_micros, gross_micros, user_id, provider_ref, created_at)
      VALUES (?, ?, 'purchase', ?, ?, ?, ?, ?)`,
   )
     .bind(
@@ -137,7 +137,7 @@ async function purchase(
 /** A refund of a pool purchase whose debit was clamped to 0 (the pool was drained first). */
 async function clampedPoolRefund(userId: string, poolId: string, grossMicros: number) {
   await env.DB.prepare(
-    `INSERT INTO credit_grants (id, account_id, kind, amount_micros, gross_micros, user_id, stripe_ref, note, created_at)
+    `INSERT INTO credit_grants (id, account_id, kind, amount_micros, gross_micros, user_id, provider_ref, note, created_at)
      VALUES (?, ?, 'refund', 0, ?, ?, ?, ?, ?)`,
   )
     .bind(
@@ -202,7 +202,7 @@ describe('supporter escalation', () => {
 
     // Refunded in full: net purchases are 0, so the free caps apply again (already used up).
     await env.DB.prepare(
-      `INSERT INTO credit_grants (id, account_id, kind, amount_micros, gross_micros, user_id, stripe_ref, created_at)
+      `INSERT INTO credit_grants (id, account_id, kind, amount_micros, gross_micros, user_id, provider_ref, created_at)
        VALUES (?, ?, 'refund', -5000000, -5000000, ?, ?, ?)`,
     )
       .bind(uniq('grant'), `u_${u.userId}`, u.userId, uniq('re'), new Date().toISOString())

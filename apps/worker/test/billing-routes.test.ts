@@ -61,7 +61,7 @@ describe('billing routes', () => {
       accountId: account.billingAccountId,
       kind: 'purchase',
       amountMicros: 2_000_000,
-      stripeRef: uniq('cs'),
+      providerRef: uniq('cs'),
     });
     await insertUsage(env, {
       accountId: account.billingAccountId,
@@ -93,7 +93,7 @@ describe('billing routes', () => {
       accountId: account.id,
       kind: 'purchase',
       amountMicros: 5_000_000,
-      stripeRef: uniq('cs'),
+      providerRef: uniq('cs'),
     });
     const res = await appAs(account)('/api/billing');
     expect(res.headers.get('Cache-Control')).toBe('no-store');

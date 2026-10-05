@@ -371,7 +371,7 @@ describe('Learn mode on paid credit', () => {
       accountId: u.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
       note: 'test',
     });
     const res = await u.call(`/api/branches/${trunk.id}/messages`, {
@@ -418,7 +418,7 @@ describe('Learn mode on paid credit', () => {
       accountId: u.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_500_000,
-      stripeRef: null,
+      providerRef: null,
     });
     for (const learn of [undefined, 'credit', 'own-key'] as const) {
       const summary = await json<BillingSummary>(
@@ -482,7 +482,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       accountId: `u_${userId}`,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     const res = await send(onTangent.trunk.id);
     expect(res.status).toBe(200);
@@ -519,7 +519,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       accountId: `u_${userId}`,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     expect((await review('tangent', 'smart')).status).toBe(200);
     expect(await usageRows(`u_${userId}`)).toBe(1);
@@ -532,7 +532,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       accountId: ledger,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     const onTangent = await powerTree(u, 'tangent', 'smart');
     const own = await powerTree(u, 'fake', 'fake-1');
@@ -581,7 +581,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       accountId: u.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     const power = await powerTree(u, 'tangent', 'smart');
     const learn = await treeWithNodes(u, 'credit');
@@ -604,7 +604,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       accountId: u.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     const open = await powerTree(u, 'tangent', 'vendor/any-model:free');
     const ok = await u.call(`/api/branches/${open.trunk.id}/messages`, {
@@ -999,7 +999,7 @@ describe('account deletion', () => {
       accountId: a.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
       note: 'test',
     });
     const customerId = await linkStripeCustomer(userId);

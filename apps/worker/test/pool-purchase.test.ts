@@ -47,13 +47,13 @@ interface GrantRow {
   fee_micros: number;
   margin_bps: number;
   user_id: string | null;
-  stripe_ref: string | null;
+  provider_ref: string | null;
   note: string | null;
 }
 
 async function grants(accountId: string): Promise<GrantRow[]> {
   const { results } = await env.DB.prepare(
-    `SELECT account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id, stripe_ref, note
+    `SELECT account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id, provider_ref, note
      FROM credit_grants WHERE account_id = ? ORDER BY created_at, id`,
   )
     .bind(accountId)
@@ -219,7 +219,7 @@ describe('pool purchases through the Stripe webhook', () => {
         fee_micros: (fee.stripe + fee.tax) * 10_000,
         margin_bps: 800,
         user_id: buyer,
-        stripe_ref: session.id,
+        provider_ref: session.id,
         note: 'Community pool purchase',
       },
     ]);
@@ -271,7 +271,7 @@ describe('pool purchases through the Stripe webhook', () => {
     // An explicit personal target is the same.
     const explicit = await paidSession({ target: 'personal', accountId, userId });
     await handleStripeEvent(env, event('checkout.session.completed', explicit));
-    expect((await grants(accountId)).map((g) => g.stripe_ref)).toEqual([session.id, explicit.id]);
+    expect((await grants(accountId)).map((g) => g.provider_ref)).toEqual([session.id, explicit.id]);
   });
 
   it('ignores a credits session for an unknown target', async () => {
@@ -297,7 +297,7 @@ describe('pool purchase refunds and disputes', () => {
       amount_micros: -TEN_DOLLARS_AT_8,
       gross_micros: -10_000_000,
       user_id: buyer,
-      stripe_ref: refund.id,
+      provider_ref: refund.id,
     });
     expect(rows[1]!.note).toContain(`requested=${TEN_DOLLARS_AT_8};shortfall=0`);
     expect(await balance(poolId)).toBe(0);
@@ -319,7 +319,7 @@ describe('pool purchase refunds and disputes', () => {
       env,
       event('charge.refunded', refundedCharge(session, chargeId, [first])),
     );
-    const refundRow = (await grants(poolId)).find((g) => g.stripe_ref === first.id)!;
+    const refundRow = (await grants(poolId)).find((g) => g.provider_ref === first.id)!;
     // 543 of 1087 cents is 4.995400 $ pre-tax; credit-equivalent at 8%: 4.625370 $.
     const requested = Math.round((4_995_400 * TEN_DOLLARS_AT_8) / 10_000_000);
     expect(refundRow).toMatchObject({ kind: 'refund', amount_micros: 0, gross_micros: -4_995_400 });
@@ -338,7 +338,7 @@ describe('pool purchase refunds and disputes', () => {
       event('charge.refunded', refundedCharge(session, chargeId, [second, first])),
     );
     const refunds = (await grants(poolId)).filter((g) => g.kind === 'refund');
-    expect(refunds.map((g) => g.stripe_ref)).toEqual([first.id, second.id]);
+    expect(refunds.map((g) => g.provider_ref)).toEqual([first.id, second.id]);
     expect(refunds[0]!.amount_micros).toBe(0);
     expect(refunds[1]!.amount_micros).toBeLessThan(0);
     expect(await balance(poolId)).toBe(20_000_000 + refunds[1]!.amount_micros);
@@ -350,7 +350,7 @@ describe('pool purchase refunds and disputes', () => {
     await handleStripeEvent(env, event('charge.dispute.funds_withdrawn', d));
     await handleStripeEvent(env, event('charge.dispute.funds_withdrawn', d));
     let rows = await grants(poolId);
-    expect(rows.filter((g) => g.stripe_ref === d.id)).toMatchObject([
+    expect(rows.filter((g) => g.provider_ref === d.id)).toMatchObject([
       {
         kind: 'refund',
         amount_micros: -TEN_DOLLARS_AT_8,
@@ -364,7 +364,7 @@ describe('pool purchase refunds and disputes', () => {
     await handleStripeEvent(env, event('charge.dispute.funds_reinstated', won));
     await handleStripeEvent(env, event('charge.dispute.funds_reinstated', won));
     rows = await grants(poolId);
-    expect(rows.filter((g) => g.stripe_ref === `${d.id}:reinstated`)).toMatchObject([
+    expect(rows.filter((g) => g.provider_ref === `${d.id}:reinstated`)).toMatchObject([
       { kind: 'refund', amount_micros: TEN_DOLLARS_AT_8, gross_micros: 10_000_000, user_id: buyer },
     ]);
     expect(await balance(poolId)).toBe(TEN_DOLLARS_AT_8);
@@ -386,7 +386,7 @@ describe('pool purchase refunds and disputes', () => {
     await insertUsage(env, { accountId: poolId, status: 'settled', chargeMicros: 9_000_000 });
     const d = dispute(session);
     await handleStripeEvent(env, event('charge.dispute.funds_withdrawn', d));
-    expect((await grants(poolId)).find((g) => g.stripe_ref === d.id)?.amount_micros).toBe(
+    expect((await grants(poolId)).find((g) => g.provider_ref === d.id)?.amount_micros).toBe(
       -(TEN_DOLLARS_AT_8 - 9_000_000),
     );
     expect(await balance(poolId)).toBe(0);
@@ -404,7 +404,7 @@ describe('pool purchase refunds and disputes', () => {
     const d = dispute(session);
     await handleStripeEvent(env, event('charge.dispute.funds_withdrawn', d));
     await handleStripeEvent(env, event('charge.dispute.funds_withdrawn', d));
-    expect((await grants(accountId)).filter((g) => g.stripe_ref === d.id)).toMatchObject([
+    expect((await grants(accountId)).filter((g) => g.provider_ref === d.id)).toMatchObject([
       { kind: 'refund', amount_micros: -10_000_000, gross_micros: -10_000_000, user_id: userId },
     ]);
     // The fee was never credited, so the balance goes negative by it, as for refunds.
@@ -596,7 +596,7 @@ describe('POST /api/admin/credit', () => {
         amount_micros: 5_000_000,
         gross_micros: null,
         user_id: user.userId,
-        stripe_ref: `admin:${body.idempotencyKey}`,
+        provider_ref: `admin:${body.idempotencyKey}`,
         note: 'Goodwill',
       },
     ]);
@@ -624,7 +624,7 @@ describe('POST /api/admin/credit', () => {
       amountMicros: -3_000_000,
     });
     const row = (await grants(poolId)).find(
-      (g) => g.stripe_ref === `admin:${debit.idempotencyKey}`,
+      (g) => g.provider_ref === `admin:${debit.idempotencyKey}`,
     );
     expect(row).toMatchObject({ kind: 'adjustment', amount_micros: -3_000_000 });
     expect(row!.note).toContain('requested=5000000;shortfall=2000000');
@@ -700,7 +700,7 @@ describe('POST /api/admin/credit', () => {
         gross_micros: 10_000_000,
         margin_bps: 800,
         user_id: on.user.userId,
-        stripe_ref: `dev:${pool.idempotencyKey}`,
+        provider_ref: `dev:${pool.idempotencyKey}`,
       },
     ]);
     // A simulated purchase counts like a real one.

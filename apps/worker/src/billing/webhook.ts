@@ -215,7 +215,7 @@ async function creditMembershipInvoice(env: AppEnv, invoice: Stripe.Invoice): Pr
     amountMicros: centsToMicros(cents),
     grossMicros: null,
     feeMicros: 0,
-    stripeRef: invoice.id,
+    providerRef: invoice.id,
     note: MEMBERSHIP_CREDIT_NOTE,
   });
 }
@@ -290,7 +290,7 @@ async function invoiceGrant(
   const row = await db
     .prepare(
       `SELECT account_id, amount_micros, gross_micros FROM credit_grants
-       WHERE stripe_ref = ? AND kind = 'subscription' LIMIT 1`,
+       WHERE provider_ref = ? AND kind = 'subscription' LIMIT 1`,
     )
     .bind(invoiceId)
     .first<{ account_id: string; amount_micros: number; gross_micros: number | null }>();
@@ -351,7 +351,7 @@ async function debitRefunds(env: AppEnv, charge: Stripe.Charge): Promise<void> {
           accountId: grant.accountId,
           kind: 'refund',
           amountMicros: -grant.amountMicros,
-          stripeRef: first.id,
+          providerRef: first.id,
           note: `Refund of membership invoice ${invoiceId}`,
         });
         return;
@@ -374,7 +374,7 @@ async function debitRefunds(env: AppEnv, charge: Stripe.Charge): Promise<void> {
       amountMicros: -micros,
       grossMicros: -micros,
       userId,
-      stripeRef: refund.id,
+      providerRef: refund.id,
       note: `Refund of ${charge.id}`,
     });
   }
@@ -492,7 +492,7 @@ async function debitDispute(env: AppEnv, dispute: Stripe.Dispute): Promise<void>
     amountMicros: -micros,
     grossMicros: -micros,
     userId: share.userId ?? userIdOfAccount(accountId),
-    stripeRef: dispute.id,
+    providerRef: dispute.id,
     note,
   });
 }
@@ -519,7 +519,7 @@ async function reinstateDispute(env: AppEnv, dispute: Stripe.Dispute): Promise<v
     amountMicros: -debited.amount_micros,
     grossMicros: debited.gross_micros === null ? null : -debited.gross_micros,
     userId: debited.user_id,
-    stripeRef: `${dispute.id}:reinstated`,
+    providerRef: `${dispute.id}:reinstated`,
     note: `Dispute ${dispute.id} won`,
   });
 }

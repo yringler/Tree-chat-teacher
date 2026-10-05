@@ -146,7 +146,7 @@ export interface PoolRefusal {
 /** `debit`: take up to `requestedMicros` from the pool, keyed on `refId`. */
 export interface PoolDebitRequest {
   poolId: string;
-  /** Idempotency key: the Stripe refund or dispute id, or `admin:<key>`. */
+  /** Idempotency key: the payment provider's refund or dispute ref, or `admin:<key>`. */
   refId: string;
   /** Positive micro-USD to take; the debit is clamped to what is available. */
   requestedMicros: number;
@@ -473,7 +473,7 @@ export class PoolBank extends DurableObject<AppEnv> {
       amountMicros: -amount,
       grossMicros: req.grossMicros,
       userId: req.userId,
-      stripeRef: req.refId,
+      providerRef: req.refId,
       note: `${req.note} (requested=${req.requestedMicros};shortfall=${shortfall})`,
     });
     if (debited && shortfall > 0) {

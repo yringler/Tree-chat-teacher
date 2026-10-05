@@ -187,12 +187,12 @@ export async function usageRow(env: AppEnv, id: string): Promise<UsageRow> {
 export async function grantsFor(
   env: AppEnv,
   accountId: string,
-): Promise<{ kind: string; amount_micros: number; stripe_ref: string | null }[]> {
+): Promise<{ kind: string; amount_micros: number; provider_ref: string | null }[]> {
   const { results } = await env.DB.prepare(
-    'SELECT kind, amount_micros, stripe_ref FROM credit_grants WHERE account_id = ? ORDER BY created_at, id',
+    'SELECT kind, amount_micros, provider_ref FROM credit_grants WHERE account_id = ? ORDER BY created_at, id',
   )
     .bind(accountId)
-    .all<{ kind: string; amount_micros: number; stripe_ref: string | null }>();
+    .all<{ kind: string; amount_micros: number; provider_ref: string | null }>();
   return results;
 }
 
@@ -206,11 +206,11 @@ export async function grantDetailsFor(
     amount_micros: number;
     gross_micros: number | null;
     fee_micros: number;
-    stripe_ref: string | null;
+    provider_ref: string | null;
   }[]
 > {
   const { results } = await env.DB.prepare(
-    `SELECT kind, amount_micros, gross_micros, fee_micros, stripe_ref FROM credit_grants
+    `SELECT kind, amount_micros, gross_micros, fee_micros, provider_ref FROM credit_grants
      WHERE account_id = ? ORDER BY created_at, id`,
   )
     .bind(accountId)
@@ -219,7 +219,7 @@ export async function grantDetailsFor(
       amount_micros: number;
       gross_micros: number | null;
       fee_micros: number;
-      stripe_ref: string | null;
+      provider_ref: string | null;
     }>();
   return results;
 }

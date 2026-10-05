@@ -139,7 +139,7 @@ async function giveCredit(userId: string, micros = 1_000_000): Promise<void> {
     accountId: `u_${userId}`,
     kind: 'adjustment',
     amountMicros: micros,
-    stripeRef: null,
+    providerRef: null,
   });
 }
 

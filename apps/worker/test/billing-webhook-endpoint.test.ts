@@ -96,7 +96,7 @@ describe('Stripe webhook endpoint', () => {
     expect(again.status).toBe(200);
 
     expect(await grantsFor(env, accountId)).toEqual([
-      { kind: 'purchase', amount_micros: 18_960_000, stripe_ref: session.id },
+      { kind: 'purchase', amount_micros: 18_960_000, provider_ref: session.id },
     ]);
     expect((await getBalance(env.DB, accountId)).balanceMicros).toBe(18_960_000);
   });
@@ -121,7 +121,7 @@ describe('Stripe webhook endpoint', () => {
     expect(res.status, await res.text()).toBe(200);
     expect((await deliver(eventOf('invoice.paid', invoice))).status).toBe(200);
     expect(await grantsFor(env, `u_${userId}`)).toEqual([
-      { kind: 'subscription', amount_micros: 2_000_000, stripe_ref: invoice.id },
+      { kind: 'subscription', amount_micros: 2_000_000, provider_ref: invoice.id },
     ]);
   });
 

@@ -102,7 +102,7 @@ export async function fulfilPurchase(env: AppEnv, p: PaidPurchase): Promise<bool
       kind: 'purchase',
       ...poolPurchaseAmounts(p.grossCents, p.processorFeeCents, config.pool.marginBps),
       userId: p.userId,
-      stripeRef: p.ref,
+      providerRef: p.ref,
       note: p.note ?? 'Community pool purchase',
     });
   }
@@ -113,7 +113,7 @@ export async function fulfilPurchase(env: AppEnv, p: PaidPurchase): Promise<bool
     kind: 'purchase',
     ...netOfFee(p.grossCents, p.processorFeeCents),
     userId: p.userId,
-    stripeRef: p.ref,
+    providerRef: p.ref,
     note: p.note ?? 'Credit top-up',
   });
 }

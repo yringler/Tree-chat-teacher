@@ -348,7 +348,7 @@ describe('the pool notice', () => {
       accountId: `u_${u.userId}`,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     const { branchId } = await newTree(u, 'credit');
     await sendOk(u, branchId, 'Hi', { learn: 'credit' });
@@ -430,7 +430,7 @@ describe('request-time topic tagging', () => {
       accountId: `u_${u.userId}`,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     const personal = await newTree(u, 'credit');
     await sendOk(u, personal.branchId, 'Paid [topic:math.algebra]', { learn: 'credit' });
@@ -460,7 +460,7 @@ describe('request-time topic tagging', () => {
       accountId: `u_${u.userId}`,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     const { branchId } = await newTree(u, 'credit');
     // `[any-topic:math.algebra]` makes the fake answer math.algebra whenever it is in ANY message

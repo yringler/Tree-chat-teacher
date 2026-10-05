@@ -184,7 +184,7 @@ describe('Stripe webhook fulfilment', () => {
         amount_micros: 4_540_000,
         gross_micros: 5_000_000,
         fee_micros: 460_000,
-        stripe_ref: session['id'],
+        provider_ref: session['id'],
       },
     ]);
     expect(await balance(accountId)).toBe(4_540_000);
@@ -205,7 +205,7 @@ describe('Stripe webhook fulfilment', () => {
     const fee = defaultFee(1087); // 2.9% + 30¢ + 0.5% of the taxed total = 67¢
     expect(fee).toBe(67);
     expect(await grantsFor(env, accountId)).toEqual([
-      { kind: 'purchase', amount_micros: net(1000, fee), stripe_ref: session['id'] },
+      { kind: 'purchase', amount_micros: net(1000, fee), provider_ref: session['id'] },
     ]);
     expect(await balance(accountId)).toBe(net(1000, fee));
     // Redeliveries are answered from the ledger, without another fee lookup.
@@ -290,10 +290,10 @@ describe('Stripe webhook fulfilment', () => {
       fee_micros: 0,
     };
     expect(await grantDetailsFor(env, accountId)).toEqual([
-      { ...gift, stripe_ref: first.id },
-      { ...gift, stripe_ref: renewal.id },
+      { ...gift, provider_ref: first.id },
+      { ...gift, provider_ref: renewal.id },
     ]);
-    const note = await env.DB.prepare('SELECT note FROM credit_grants WHERE stripe_ref = ?')
+    const note = await env.DB.prepare('SELECT note FROM credit_grants WHERE provider_ref = ?')
       .bind(first.id)
       .first<{ note: string }>();
     expect(note?.note).toBe('Included with membership');
@@ -325,7 +325,7 @@ describe('Stripe webhook fulfilment', () => {
         amount_micros: 2_000_000,
         gross_micros: null,
         fee_micros: 0,
-        stripe_ref: paid.id,
+        provider_ref: paid.id,
       },
     ]);
   });
@@ -362,7 +362,7 @@ describe('Stripe webhook fulfilment', () => {
     );
     await handleStripeEvent(memberEnv, event('invoice.paid', byMetadata));
     await handleStripeEvent(memberEnv, event('invoice.paid', bySubscription));
-    expect((await grantsFor(env, accountId)).map((g) => g.stripe_ref)).toEqual([
+    expect((await grantsFor(env, accountId)).map((g) => g.provider_ref)).toEqual([
       byMetadata.id,
       bySubscription.id,
     ]);
@@ -462,8 +462,8 @@ describe('Stripe webhook fulfilment', () => {
       event('charge.refunded', charge([retry, rest, { ...partial, status: 'failed' }])),
     );
     expect(await grantsFor(env, accountId)).toEqual([
-      { kind: 'subscription', amount_micros: 2_000_000, stripe_ref: inv.id },
-      { kind: 'refund', amount_micros: -2_000_000, stripe_ref: partial.id },
+      { kind: 'subscription', amount_micros: 2_000_000, provider_ref: inv.id },
+      { kind: 'refund', amount_micros: -2_000_000, provider_ref: partial.id },
     ]);
     expect(await balance(accountId)).toBe(0);
   });
@@ -510,7 +510,7 @@ describe('Stripe webhook fulfilment', () => {
       amountMicros: 9_340_000,
       grossMicros: 10_000_000,
       feeMicros: 660_000,
-      stripeRef: inv.id,
+      providerRef: inv.id,
     });
     const refundId = uniq('re');
     const chargeId = uniq('ch');
@@ -534,7 +534,7 @@ describe('Stripe webhook fulfilment', () => {
     expect((await grantsFor(env, accountId)).at(-1)).toEqual({
       kind: 'refund',
       amount_micros: -10_850_000,
-      stripe_ref: refundId,
+      provider_ref: refundId,
     });
   });
 
@@ -590,8 +590,8 @@ describe('Stripe webhook fulfilment', () => {
     await handleStripeEvent(env, event('charge.refunded', charge([refundA, failed])));
     await handleStripeEvent(env, event('charge.refunded', charge([refundA, refundB])));
     expect(await grantsFor(env, accountId)).toEqual([
-      { kind: 'refund', amount_micros: -5_000_000, stripe_ref: refundA.id },
-      { kind: 'refund', amount_micros: -5_000_000, stripe_ref: refundB.id },
+      { kind: 'refund', amount_micros: -5_000_000, provider_ref: refundA.id },
+      { kind: 'refund', amount_micros: -5_000_000, provider_ref: refundB.id },
     ]);
   });
 
@@ -619,7 +619,7 @@ describe('Stripe webhook fulfilment', () => {
       }),
     );
     expect(await grantsFor(env, accountId)).toEqual([
-      { kind: 'refund', amount_micros: -20_000_000, stripe_ref: refund.id },
+      { kind: 'refund', amount_micros: -20_000_000, provider_ref: refund.id },
     ]);
     const listed = await stripeCalls('/v1/refunds');
     expect(listed.some((c) => c.query['charge'] === chargeId)).toBe(true);

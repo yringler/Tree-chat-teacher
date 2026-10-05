@@ -386,7 +386,7 @@ export const creditGrants = sqliteTable(
     id: text('id').primaryKey(),
     accountId: text('account_id').notNull(),
     kind: text('kind', { enum: ['purchase', 'subscription', 'refund', 'adjustment'] }).notNull(),
-    /** Signed: refunds are negative. For purchases, the credit net of Stripe's fee (personal) or of the margin (pool). */
+    /** Signed: refunds are negative. For purchases, the credit net of the processing fee (personal) or of the margin (pool). */
     amountMicros: integer('amount_micros').notNull(),
     /**
      * Purchases: the pre-tax amount paid (`amount + fee` for personal credit); refunds and
@@ -394,14 +394,18 @@ export const creditGrants = sqliteTable(
      * adjustments and older refunds.
      */
     grossMicros: integer('gross_micros'),
-    /** Purchases: Stripe's actual processing fee (deducted from personal credit; recorded only for the pool). */
+    /** Purchases: the payment provider's actual processing fee (deducted from personal credit; recorded only for the pool). */
     feeMicros: integer('fee_micros').notNull().default(0),
     /** Pool purchases: the margin taken, in bps (`amount = gross / (1 + margin)`); 0 otherwise. */
     marginBps: integer('margin_bps').notNull().default(0),
     /** The buyer or beneficiary (Better Auth user id); null on rows before migration 0010 and pool adjustments. */
     userId: text('user_id'),
-    /** Stripe object id (checkout session, invoice, refund), or `admin:<key>`; unique for idempotency. */
-    stripeRef: text('stripe_ref').unique(),
+    /**
+     * Idempotency key, unique: a payment provider's namespaced object ref
+     * (`<provider>:<object>:<id>`, billing/payments/refs.ts), `admin:<key>`,
+     * `dev:<key>`, or a bare Stripe object id on rows from before migration 0014.
+     */
+    providerRef: text('provider_ref').unique(),
     note: text('note'),
     createdAt: text('created_at').notNull(),
   },
@@ -410,6 +414,60 @@ export const creditGrants = sqliteTable(
     index('credit_grants_user_idx').on(t.userId, t.kind),
     index('credit_grants_account_created_idx').on(t.accountId, t.createdAt),
   ],
+);
+
+/**
+ * Who a user is at a payment provider: written from any payment event that
+ * carries both ids (billing/payments/customers.ts). It tells account deletion
+ * whether the provider holds a customer, and serves admin lookups. Keyed per
+ * provider, so a provider switch needs no schema change.
+ */
+export const billingCustomers = sqliteTable(
+  'billing_customers',
+  {
+    /** A `ProviderId` (billing/payments/port.ts). */
+    provider: text('provider').notNull(),
+    userId: text('user_id').notNull(),
+    /** The provider's own customer id. */
+    customerRef: text('customer_ref').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.provider, t.userId] }),
+    index('billing_customers_ref_idx').on(t.provider, t.customerRef),
+  ],
+);
+
+/**
+ * The membership subscription, as its provider last reported it: a snapshot
+ * upserted from `membership.changed` events (billing/payments/apply.ts),
+ * guarded by `version` so late or duplicate deliveries never roll it back.
+ */
+export const billingSubscriptions = sqliteTable(
+  'billing_subscriptions',
+  {
+    /** Namespaced provider ref, e.g. `polar:subscription:<id>`. */
+    ref: text('ref').primaryKey(),
+    provider: text('provider').notNull(),
+    /** The Better Auth user id. */
+    userId: text('user_id').notNull(),
+    /** What the subscription is for; only `membership` today. */
+    kind: text('kind').notNull(),
+    /** Normalised `SubscriptionStatus` (@tangent/shared). */
+    status: text('status').notNull(),
+    /** The provider's own status, for support; never sent to the apps. */
+    providerStatus: text('provider_status').notNull(),
+    /** ISO timestamp of the current period's end. */
+    currentPeriodEnd: text('current_period_end'),
+    cancelAtPeriodEnd: integer('cancel_at_period_end', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    endedAt: text('ended_at'),
+    /** Monotonic per subscription (an ISO timestamp from the provider); older snapshots are dropped. */
+    version: text('version').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [index('billing_subscriptions_user_idx').on(t.userId, t.kind)],
 );
 
 /**

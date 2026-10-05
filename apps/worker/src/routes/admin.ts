@@ -410,7 +410,7 @@ export function adminRoutes(): Hono<AppBindings> {
           amountMicros,
           grossMicros: null,
           userId: req.userId,
-          stripeRef: ref,
+          providerRef: ref,
           note,
         });
       }

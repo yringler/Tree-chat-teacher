@@ -14,20 +14,21 @@ export interface CreditGrantInput {
   kind: CreditGrantKind;
   /** Signed micro-USD (refunds are negative); for purchases, net of the processing fee (or of the pool margin). */
   amountMicros: number;
-  /** Purchases: the pre-tax amount paid, before Stripe's fee. Refunds: minus the refunded pre-tax amount. */
+  /** Purchases: the pre-tax amount paid, before the processing fee. Refunds: minus the refunded pre-tax amount. */
   grossMicros?: number | null;
-  /** Purchases: Stripe's actual processing fee (`grossMicros - amountMicros` for personal credit). */
+  /** Purchases: the payment provider's actual processing fee (`grossMicros - amountMicros` for personal credit). */
   feeMicros?: number;
   /** Pool purchases: the margin applied, in bps. */
   marginBps?: number;
   /** The buyer or beneficiary. */
   userId?: string | null;
   /**
-   * Idempotency key: the Stripe object id (session, invoice, refund, dispute),
-   * `admin:<key>` for an admin's adjustment or `dev:<key>` for a simulated
-   * purchase (Stripe ids never start with those); null for SQL adjustments.
+   * Idempotency key: the payment provider's object ref (a checkout, order,
+   * invoice, refund or dispute), `admin:<key>` for an admin's adjustment or
+   * `dev:<key>` for a simulated purchase (provider refs never start with
+   * those); null for SQL adjustments.
    */
-  stripeRef: string | null;
+  providerRef: string | null;
   note?: string;
 }
 
@@ -93,7 +94,7 @@ export async function getBalance(
   return readBalance(await balanceStatement(db, accountId, checkpoint).first<BalanceRow>());
 }
 
-/** Inserts a grant; resolves false when `stripeRef` was already granted (duplicate delivery). */
+/** Inserts a grant; resolves false when `providerRef` was already granted (duplicate delivery). */
 export async function grantCredit(db: D1Database, g: CreditGrantInput): Promise<boolean> {
   if (!Number.isSafeInteger(g.amountMicros))
     throw new Error('grantCredit: amountMicros must be an integer');
@@ -107,9 +108,9 @@ export async function grantCredit(db: D1Database, g: CreditGrantInput): Promise<
   const result = await db
     .prepare(
       `INSERT INTO credit_grants
-         (id, account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id, stripe_ref, note, created_at)
+         (id, account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id, provider_ref, note, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(stripe_ref) DO NOTHING`,
+       ON CONFLICT(provider_ref) DO NOTHING`,
     )
     .bind(
       crypto.randomUUID(),
@@ -120,7 +121,7 @@ export async function grantCredit(db: D1Database, g: CreditGrantInput): Promise<
       fee,
       marginBps,
       g.userId ?? null,
-      g.stripeRef,
+      g.providerRef,
       g.note ?? null,
       new Date().toISOString(),
     )
@@ -128,11 +129,11 @@ export async function grantCredit(db: D1Database, g: CreditGrantInput): Promise<
   return (result.meta.changes ?? 0) > 0;
 }
 
-/** True when a grant for this Stripe object already exists (a redelivered event). */
-export async function hasGrant(db: D1Database, stripeRef: string): Promise<boolean> {
+/** True when a grant for this payment object already exists (a redelivered event). */
+export async function hasGrant(db: D1Database, providerRef: string): Promise<boolean> {
   const row = await db
-    .prepare('SELECT 1 AS one FROM credit_grants WHERE stripe_ref = ? LIMIT 1')
-    .bind(stripeRef)
+    .prepare('SELECT 1 AS one FROM credit_grants WHERE provider_ref = ? LIMIT 1')
+    .bind(providerRef)
     .first<{ one: number }>();
   return row !== null;
 }
@@ -148,13 +149,13 @@ export interface GrantRow {
   user_id: string | null;
 }
 
-/** The grant written for `stripeRef` (a Stripe object id, or `admin:` / `dev:` key), if any. */
-export async function grantByRef(db: D1Database, stripeRef: string): Promise<GrantRow | null> {
+/** The grant written for `providerRef` (a payment object ref, or `admin:` / `dev:` key), if any. */
+export async function grantByRef(db: D1Database, providerRef: string): Promise<GrantRow | null> {
   return db
     .prepare(
       `SELECT account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id
-       FROM credit_grants WHERE stripe_ref = ? LIMIT 1`,
+       FROM credit_grants WHERE provider_ref = ? LIMIT 1`,
     )
-    .bind(stripeRef)
+    .bind(providerRef)
     .first<GrantRow>();
 }

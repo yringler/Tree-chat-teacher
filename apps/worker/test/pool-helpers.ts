@@ -24,7 +24,7 @@ export async function fundPool(
   createdAt = LONG_AGO,
 ): Promise<void> {
   await env.DB.prepare(
-    `INSERT INTO credit_grants (id, account_id, kind, amount_micros, stripe_ref, created_at)
+    `INSERT INTO credit_grants (id, account_id, kind, amount_micros, provider_ref, created_at)
      VALUES (?, ?, 'adjustment', ?, NULL, ?)`,
   )
     .bind(uniq('grant'), poolId, micros, createdAt)

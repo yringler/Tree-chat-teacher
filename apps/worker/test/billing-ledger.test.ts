@@ -28,7 +28,7 @@ describe('ledger', () => {
   it('grants are idempotent on the Stripe ref', async () => {
     const accountId = uniq('acct');
     const ref = uniq('cs');
-    const g = { accountId, kind: 'purchase' as const, amountMicros: 5_000_000, stripeRef: ref };
+    const g = { accountId, kind: 'purchase' as const, amountMicros: 5_000_000, providerRef: ref };
     expect(await hasGrant(env.DB, ref)).toBe(false);
     expect(await grantCredit(env.DB, g)).toBe(true);
     expect(await hasGrant(env.DB, ref)).toBe(true);
@@ -43,7 +43,7 @@ describe('ledger', () => {
       accountId,
       kind: 'adjustment' as const,
       amountMicros: 1_000,
-      stripeRef: null,
+      providerRef: null,
       note: 'goodwill',
     };
     expect(await grantCredit(env.DB, g)).toBe(true);
@@ -57,13 +57,13 @@ describe('ledger', () => {
       accountId,
       kind: 'purchase',
       amountMicros: 10_000_000,
-      stripeRef: uniq('cs'),
+      providerRef: uniq('cs'),
     });
     await grantCredit(env.DB, {
       accountId,
       kind: 'refund',
       amountMicros: -2_000_000,
-      stripeRef: uniq('re'),
+      providerRef: uniq('re'),
     });
     await insertUsage(env, { accountId, status: 'settled', chargeMicros: 1358 });
     await insertUsage(env, { accountId, status: 'settled', chargeMicros: 642 });
@@ -85,7 +85,7 @@ describe('ledger', () => {
         accountId: uniq('acct'),
         kind: 'adjustment',
         amountMicros: 1.5,
-        stripeRef: null,
+        providerRef: null,
       }),
     ).rejects.toThrow(/integer/);
   });
@@ -131,7 +131,7 @@ describe('assertCanSpend', () => {
       accountId: account.billingAccountId,
       kind: 'purchase',
       amountMicros: 5_000_000,
-      stripeRef: uniq('cs'),
+      providerRef: uniq('cs'),
     });
     await expect(assertCanSpend(env, account, 'tangent')).resolves.toBeUndefined();
   });
@@ -145,7 +145,7 @@ describe('assertCanSpend', () => {
       accountId: account.id,
       kind: 'purchase',
       amountMicros: 5_000_000,
-      stripeRef: uniq('cs'),
+      providerRef: uniq('cs'),
     });
     await expect(assertCanSpend(env, account, 'tangent')).resolves.toBeUndefined();
   });
@@ -156,7 +156,7 @@ describe('assertCanSpend', () => {
       accountId: account.id,
       kind: 'adjustment',
       amountMicros: 39_999,
-      stripeRef: null,
+      providerRef: null,
     });
     await expect(assertCanSpend(env, account, 'tangent')).resolves.toBeUndefined();
     await insertUsage(env, { accountId: account.id, status: 'pending', holdMicros: 20_000 });
@@ -171,7 +171,7 @@ describe('assertCanSpend', () => {
       accountId: account.id,
       kind: 'adjustment',
       amountMicros: 5_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     const err = await assertCanSpend(
       { ...env, STRIPE_WEBHOOK_SECRET: '' },
@@ -194,14 +194,14 @@ describe('billing summary', () => {
       amountMicros: 10_000_000,
       grossMicros: 10_670_000,
       feeMicros: 670_000,
-      stripeRef: uniq('cs'),
+      providerRef: uniq('cs'),
     });
     // Without a gross amount (an adjustment), a grant is not a purchase to show.
     await grantCredit(env.DB, {
       accountId: account.id,
       kind: 'adjustment',
       amountMicros: 0,
-      stripeRef: null,
+      providerRef: null,
     });
     await insertUsage(env, { accountId: account.id, status: 'settled', chargeMicros: 1_000_000 });
     await insertUsage(env, { accountId: account.id, status: 'pending', holdMicros: 20_000 });
@@ -213,7 +213,7 @@ describe('billing summary', () => {
       kind: 'subscription',
       amountMicros: 2_000_000,
       grossMicros: null,
-      stripeRef: uniq('in'),
+      providerRef: uniq('in'),
     });
 
     expect(await getBillingSummary(env, account)).toEqual({
@@ -282,7 +282,7 @@ describe('billing summary in power mode', () => {
       accountId: power.billingAccountId,
       kind: 'adjustment',
       amountMicros: 3_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     await insertUsage(env, {
       accountId: power.billingAccountId,
@@ -294,7 +294,7 @@ describe('billing summary in power mode', () => {
       accountId: power.id,
       kind: 'adjustment',
       amountMicros: 7_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     expect(await getBillingSummary(env, power)).toMatchObject({
       builtInCredit: true,

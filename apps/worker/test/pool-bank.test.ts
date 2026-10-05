@@ -65,7 +65,7 @@ function sleep(ms: number): Promise<void> {
 /** A grant to the pool, made long ago by default (so it is in the 00:00 UTC balance). */
 async function fund(poolId: string, micros: number, createdAt = LONG_AGO): Promise<void> {
   await env.DB.prepare(
-    `INSERT INTO credit_grants (id, account_id, kind, amount_micros, stripe_ref, created_at)
+    `INSERT INTO credit_grants (id, account_id, kind, amount_micros, provider_ref, created_at)
      VALUES (?, ?, 'adjustment', ?, NULL, ?)`,
   )
     .bind(uniq('grant'), poolId, micros, createdAt)
@@ -75,7 +75,7 @@ async function fund(poolId: string, micros: number, createdAt = LONG_AGO): Promi
 /** A pool purchase by `userId` (makes them a supporter). */
 async function purchase(userId: string, grossMicros = 5_000_000): Promise<void> {
   await env.DB.prepare(
-    `INSERT INTO credit_grants (id, account_id, kind, amount_micros, gross_micros, user_id, stripe_ref, created_at)
+    `INSERT INTO credit_grants (id, account_id, kind, amount_micros, gross_micros, user_id, provider_ref, created_at)
      VALUES (?, ?, 'purchase', ?, ?, ?, ?, ?)`,
   )
     .bind(uniq('grant'), uniq('elsewhere'), grossMicros, grossMicros, userId, uniq('cs'), LONG_AGO)
