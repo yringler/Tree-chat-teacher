@@ -22,10 +22,16 @@
 //   0 row, so each day is decided exactly once. A settled row never changes,
 //   so a day's sum is final once the day has ended.
 //
+//   While the pool is off or the share is 0 the cron keeps running and writes
+//   a 0 row for each completed day, so turning the pool back on never
+//   back-fills the days it was off: each day is decided by the setting in
+//   force when the cron first reaches it.
+//
 // Rounding: integer micro-USD, rounded down (per markup rate for a day's
 // usage), so the pool never gets more than the stated share.
 //
-// Nothing accrues while the pool is off (`POOL_ENABLED`) or the share is 0.
+// Nothing accrues while the pool is off (`POOL_ENABLED`) or the share is 0,
+// then or later.
 import type { ProviderRef } from '../billing/payments/port.js';
 import { membershipPoolShareRef, poolShareReversalRef } from '../billing/payments/refs.js';
 import { grantByRef, grantCredit } from '../billing/ledger.js';
@@ -183,12 +189,12 @@ async function lastSharedDay(db: D1Database): Promise<string | null> {
  * not yet shared, oldest first, from the day after the latest one on record
  * (at most USAGE_SHARE_CATCH_UP_DAYS back; the first run starts at
  * yesterday) through the last day that ended at least USAGE_SHARE_GRACE_MS
- * before `now`. Idempotent: each day's grant is keyed on its date.
+ * before `now`. Idempotent: each day's grant is keyed on its date. While the
+ * share is off (pool off or 0%), each such day gets a 0 row instead.
  */
 export async function accruePoolUsageShare(env: AppEnv, now: Date): Promise<UsageShareResult> {
   const result: UsageShareResult = { days: [], addedMicros: 0 };
   const bps = revenueShareBps(env);
-  if (bps <= 0) return result;
   const lastDay = Date.parse(utcDay(new Date(now.getTime() - USAGE_SHARE_GRACE_MS))) - DAY_MS;
   const earliest = lastDay - (USAGE_SHARE_CATCH_UP_DAYS - 1) * DAY_MS;
   const last = await lastSharedDay(env.DB);
@@ -197,12 +203,10 @@ export async function accruePoolUsageShare(env: AppEnv, now: Date): Promise<Usag
   for (let day = first; day <= lastDay; day += DAY_MS) {
     const from = new Date(day).toISOString();
     const date = from.slice(0, 10);
-    const { markupMicros, shareMicros } = await usageMarkupBetween(
-      env.DB,
-      from,
-      new Date(day + DAY_MS).toISOString(),
-      bps,
-    );
+    const { markupMicros, shareMicros } =
+      bps > 0
+        ? await usageMarkupBetween(env.DB, from, new Date(day + DAY_MS).toISOString(), bps)
+        : { markupMicros: 0, shareMicros: 0 };
     const granted = await grantCredit(env.DB, {
       accountId: poolId,
       kind: 'contribution',
@@ -210,13 +214,16 @@ export async function accruePoolUsageShare(env: AppEnv, now: Date): Promise<Usag
       grossMicros: markupMicros,
       userId: null,
       providerRef: usageShareRef(date),
-      note: `Revenue share: ${bps / 100}% of the markup on personal credit used on ${date} (UTC)`,
+      note:
+        bps > 0
+          ? `Revenue share: ${bps / 100}% of the markup on personal credit used on ${date} (UTC)`
+          : `Revenue share off (pool off or 0%): nothing shared for ${date} (UTC)`,
     });
     if (!granted) continue;
     result.days.push(date);
     result.addedMicros += shareMicros;
   }
-  if (result.days.length)
+  if (result.days.length && bps > 0)
     console.log(
       JSON.stringify({
         event: 'pool_usage_share',

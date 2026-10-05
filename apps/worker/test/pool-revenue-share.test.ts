@@ -285,13 +285,18 @@ describe('the daily share of the markup', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const off = shareEnv({ POOL_REVENUE_SHARE_BPS: '0' });
     await usage({ settledAt: '2003-05-01T10:00:00.000Z', chargeMicros: 1_100_000 });
-    expect((await accruePoolUsageShare(off.e, new Date('2003-05-02T01:00:00.000Z'))).days).toEqual(
-      [],
-    );
+    // The day is decided at 0 (a 0 row), so it is never shared later.
+    expect(await accruePoolUsageShare(off.e, new Date('2003-05-02T01:00:00.000Z'))).toEqual({
+      days: ['2003-05-01'],
+      addedMicros: 0,
+    });
+    expect(await balance(off.poolId)).toBe(0);
     const disabled = shareEnv({ POOL_ENABLED: 'false' });
-    expect(
-      (await accruePoolUsageShare(disabled.e, new Date('2003-05-02T01:00:00.000Z'))).days,
-    ).toEqual([]);
+    expect(await accruePoolUsageShare(disabled.e, new Date('2003-05-03T01:00:00.000Z'))).toEqual({
+      days: ['2003-05-02'],
+      addedMicros: 0,
+    });
+    expect(await balance(disabled.poolId)).toBe(0);
 
     const { e } = shareEnv();
     await accruePoolUsageShare(e, new Date('2003-05-02T01:00:00.000Z'));
@@ -301,6 +306,37 @@ describe('the daily share of the markup', () => {
     expect(days.at(-1)).toBe('2003-06-30');
     expect(days[0]).toBe('2003-05-31');
     log.mockRestore();
+  });
+
+  it('never back-fills the days the pool was off or the share was 0', async () => {
+    const { e, poolId } = shareEnv();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await usage({ settledAt: '2003-08-01T10:00:00.000Z', chargeMicros: 1_100_000 });
+    await accruePoolUsageShare(e, new Date('2003-08-02T01:00:00.000Z'));
+    // Off from the 2nd through the 4th (the cron keeps running), with markup each day.
+    for (const day of ['02', '03', '04'])
+      await usage({ settledAt: `2003-08-${day}T10:00:00.000Z`, chargeMicros: 1_100_000 });
+    const off = { ...e, POOL_ENABLED: 'false' } as AppEnv;
+    await accruePoolUsageShare(off, new Date('2003-08-03T01:00:00.000Z'));
+    await accruePoolUsageShare(
+      { ...e, POOL_REVENUE_SHARE_BPS: '0' } as AppEnv,
+      new Date('2003-08-05T01:00:00.000Z'),
+    );
+    // Back on: only the days from now on accrue.
+    await usage({ settledAt: '2003-08-05T10:00:00.000Z', chargeMicros: 1_100_000 });
+    expect(await accruePoolUsageShare(e, new Date('2003-08-06T01:00:00.000Z'))).toEqual({
+      days: ['2003-08-05'],
+      addedMicros: 20_000,
+    });
+    log.mockRestore();
+    expect(await balance(poolId)).toBe(40_000);
+    expect((await usageShares(poolId)).map((r) => [r.provider_ref, r.amount_micros])).toEqual([
+      ['pool-share:usage:2003-08-01', 20_000],
+      ['pool-share:usage:2003-08-02', 0],
+      ['pool-share:usage:2003-08-03', 0],
+      ['pool-share:usage:2003-08-04', 0],
+      ['pool-share:usage:2003-08-05', 20_000],
+    ]);
   });
 
   it('works through the $10 top-up example: $0.17 of the ≈$0.84 markup on $9.20 of credit', async () => {
