@@ -1,0 +1,439 @@
+// The domain side of payments (03-architecture.md §2.3): what each normalised
+// `PaymentEvent` does to the ledger, the community pool and the membership.
+// Provider-independent: adapters (billing/providers/*) turn deliveries and
+// polls into events, and this module decides. Every write is idempotent on a
+// provider ref (`credit_grants.provider_ref`) or guarded by a version
+// (`billing_subscriptions`), so redeliveries, duplicates and any order of
+// events are safe:
+//
+// - payment.succeeded, credits → `fulfilPurchase` (personal or pool, net of
+//   the processing fee), once per payment ref. Non-USD and unknown targets
+//   are logged and never credited; an unknown fee throws RetryLaterError.
+// - payment.succeeded, membership (first year or renewal) → the included
+//   credit (MEMBERSHIP_CREDIT_CENTS), a fixed gift with no gross or fee.
+// - refund.succeeded → a personal purchase: − the refunded pre-tax amount in
+//   full (the processor keeps its fee, so the refund passes it on); a pool
+//   purchase: − the share of what it credited, clamped by PoolBank.debit; a
+//   membership payment: its included credit, once per payment.
+// - dispute.opened / dispute.lost → debited like a refund of the disputed
+//   amount (membership disputes are left to the operator); lost also
+//   suspends the buyer's pool access, once. dispute.won → what the dispute
+//   took is credited back, once.
+// - membership.changed → the `billing_subscriptions` snapshot, newest wins.
+//
+// Any event that names both our user and the provider's customer records
+// them in `billing_customers`.
+import { billingAccountIdFor, DEV_SIMPLE_ACCOUNT_ID, userIdOfAccount } from '../../auth/account.js';
+import { appConfig } from '../../config.js';
+import type { AppEnv } from '../../env.js';
+import { identitySuspensionStatement } from '../../pool/identity.js';
+import { poolBank } from '../../pool/ids.js';
+import { creditEquivalentMicros } from '../../pool/pricing.js';
+import { grantByRef, grantCredit, hasGrant, type GrantRow } from '../ledger.js';
+import { membershipCreditCents } from '../membership.js';
+import { centsToMicros } from '../pricing.js';
+import { fulfilPurchase } from '../purchases.js';
+import { rememberCustomer } from './customers.js';
+import { paymentProvider } from './index.js';
+import type {
+  DisputeEvent,
+  MembershipChanged,
+  PaymentEvent,
+  PaymentProvider,
+  PaymentSucceeded,
+  ProviderRef,
+  RefundSucceeded,
+} from './port.js';
+import { membershipRefundRef, reinstatedRef } from './refs.js';
+
+/** The note on the credit a membership payment includes (and that a refund of it takes back). */
+export const MEMBERSHIP_CREDIT_NOTE = 'Included with membership';
+/** The `billing_subscriptions.kind` (and checkout metadata `kind`) of the yearly membership. */
+export const MEMBERSHIP_KIND = 'membership';
+
+/**
+ * Thrown when the provider should deliver the event again later (a fee not
+ * known yet, a refund that arrived before its payment): the webhook route
+ * answers 500, and a dispute poll retries on its next run.
+ */
+export class RetryLaterError extends Error {
+  override readonly name = 'RetryLaterError';
+}
+
+/** `applied`: something was written; `duplicate`: already done; `skipped`: nothing to do. */
+export type ApplyResult = 'applied' | 'duplicate' | 'skipped';
+
+export interface ApplyDeps {
+  /** Asked about payments we hold no grant for (`getPayment`); null when payments are off. */
+  provider: PaymentProvider | null;
+}
+
+function log(event: string, fields: Record<string, unknown>): void {
+  console.warn(JSON.stringify({ event, ...fields }));
+}
+
+function written(changed: boolean): ApplyResult {
+  return changed ? 'applied' : 'duplicate';
+}
+
+/**
+ * True when `accountId` is a user's own ledger (`u_<userId>`, or the dev
+ * bypass's `default_simple`); anything else that received a purchase is a
+ * community pool account.
+ */
+function isPersonalLedger(accountId: string): boolean {
+  return accountId === DEV_SIMPLE_ACCOUNT_ID || userIdOfAccount(accountId) !== null;
+}
+
+/** Applies one normalised payment event. Throws RetryLaterError (or a D1 error) to be retried. */
+export async function applyPaymentEvent(
+  env: AppEnv,
+  event: PaymentEvent,
+  deps: ApplyDeps = { provider: paymentProvider(env) },
+): Promise<ApplyResult> {
+  switch (event.type) {
+    case 'payment.succeeded':
+      return paymentSucceeded(env, event);
+    case 'refund.succeeded':
+      return refundSucceeded(env, event, deps);
+    case 'dispute.opened':
+    case 'dispute.lost':
+      return disputeDebited(env, event, deps);
+    case 'dispute.won':
+      return disputeWon(env, event);
+    case 'membership.changed':
+      return membershipChanged(env, event);
+  }
+}
+
+async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<ApplyResult> {
+  if (e.userId && e.customerRef)
+    await rememberCustomer(env.DB, e.provider, e.userId, e.customerRef);
+  const purpose = e.purpose;
+  if (purpose.kind === 'other') {
+    log('payment_not_credited', { reason: 'other', paymentRef: e.paymentRef });
+    return 'skipped';
+  }
+  if (purpose.kind === 'membership') return membershipPayment(env, e);
+
+  if (e.currency !== 'usd') {
+    log('payment_not_credited', {
+      reason: 'currency',
+      paymentRef: e.paymentRef,
+      currency: e.currency,
+    });
+    return 'skipped';
+  }
+  if (purpose.target === 'unknown') {
+    log('payment_not_credited', { reason: 'unknown_target', paymentRef: e.paymentRef });
+    return 'skipped';
+  }
+  if (!(e.netCents > 0)) return 'skipped';
+  if (await hasGrant(env.DB, e.paymentRef)) return 'duplicate';
+  if (!e.fee) throw new RetryLaterError(`The fee of ${e.paymentRef} is not known yet`);
+  const accountId =
+    purpose.accountId ||
+    (purpose.target === 'pool'
+      ? appConfig(env).pool.accountId
+      : e.userId
+        ? billingAccountIdFor(e.userId)
+        : null);
+  if (!accountId) {
+    log('payment_not_credited', { reason: 'no_account', paymentRef: e.paymentRef });
+    return 'skipped';
+  }
+  if (e.fee.estimated)
+    log('fee_estimated', { paymentRef: e.paymentRef, feeCents: e.fee.cents, netCents: e.netCents });
+  return written(
+    await fulfilPurchase(env, {
+      target: purpose.target,
+      userId: e.userId ?? userIdOfAccount(accountId),
+      accountId,
+      grossCents: e.netCents,
+      processorFeeCents: e.fee.cents,
+      ref: e.paymentRef,
+    }),
+  );
+}
+
+/**
+ * A paid membership year (the first or a renewal) includes
+ * MEMBERSHIP_CREDIT_CENTS of credit: a fixed gift, not a purchase, so no
+ * gross amount or fee. Nothing when the built-in provider isn't offered (the
+ * amount is then 0) or nothing was paid (a trial or a 100% discount).
+ */
+async function membershipPayment(env: AppEnv, e: PaymentSucceeded): Promise<ApplyResult> {
+  const cents = membershipCreditCents(env);
+  if (cents <= 0 || !(e.netCents > 0)) return 'skipped';
+  if (!e.userId) {
+    log('payment_not_credited', { reason: 'no_user', paymentRef: e.paymentRef });
+    return 'skipped';
+  }
+  return written(
+    await grantCredit(env.DB, {
+      accountId: billingAccountIdFor(e.userId),
+      kind: 'subscription',
+      amountMicros: centsToMicros(cents),
+      grossMicros: null,
+      feeMicros: 0,
+      userId: e.userId,
+      providerRef: e.paymentRef,
+      note: MEMBERSHIP_CREDIT_NOTE,
+    }),
+  );
+}
+
+/**
+ * The grant a refund or dispute names. With none, asks the provider: a
+ * credits payment not credited yet means the event came first, so retry; a
+ * payment that never grants anything (or one the provider doesn't know)
+ * means there is nothing to take back.
+ */
+async function paidGrant(
+  env: AppEnv,
+  paymentRef: ProviderRef,
+  deps: ApplyDeps,
+): Promise<GrantRow | null> {
+  const grant = await grantByRef(env.DB, paymentRef);
+  if (grant) return grant;
+  const facts = deps.provider ? await deps.provider.getPayment(paymentRef) : null;
+  if (
+    facts?.purpose.kind === 'credits' &&
+    facts.purpose.target !== 'unknown' &&
+    facts.currency === 'usd' &&
+    facts.netCents > 0
+  )
+    throw new RetryLaterError(`${paymentRef} is not credited yet`);
+  return null;
+}
+
+async function refundSucceeded(
+  env: AppEnv,
+  e: RefundSucceeded,
+  deps: ApplyDeps,
+): Promise<ApplyResult> {
+  if (e.currency !== 'usd') {
+    log('refund_not_debited', { reason: 'currency', refundRef: e.refundRef, currency: e.currency });
+    return 'skipped';
+  }
+  const grant = await paidGrant(env, e.paymentRef, deps);
+  if (!grant) return 'skipped';
+  if (grant.kind === 'subscription') {
+    // The membership's included credit is taken back once, whatever the refunded amount
+    // (a fixed gift, not a share of the price), so later partial refunds add nothing.
+    if (grant.amount_micros <= 0) return 'skipped';
+    return written(
+      await grantCredit(env.DB, {
+        accountId: grant.account_id,
+        kind: 'refund',
+        amountMicros: -grant.amount_micros,
+        userId: grant.user_id,
+        providerRef: membershipRefundRef(e.paymentRef),
+        note: `Refund of membership payment ${e.paymentRef}`,
+      }),
+    );
+  }
+  if (grant.kind !== 'purchase') return 'skipped';
+  return debitPurchase(env, grant, {
+    ref: e.refundRef,
+    netCents: e.netCents,
+    note: `Refund of ${e.paymentRef}`,
+  });
+}
+
+/**
+ * Debits a purchase being refunded or disputed: a personal purchase by the
+ * refunded pre-tax amount in full (it may go negative; the processor keeps
+ * its fee, so the refund passes it on), a pool purchase through
+ * `debitPoolPurchase` (clamped). Keyed on `ref`.
+ */
+async function debitPurchase(
+  env: AppEnv,
+  grant: GrantRow,
+  debit: { ref: ProviderRef; netCents: number; note: string },
+): Promise<ApplyResult> {
+  const micros = centsToMicros(debit.netCents);
+  if (micros <= 0) return 'skipped';
+  if (!isPersonalLedger(grant.account_id)) {
+    const { debited } = await debitPoolPurchase(env, {
+      poolId: grant.account_id,
+      grant,
+      refId: debit.ref,
+      refundedGrossMicros: micros,
+      userId: grant.user_id,
+      note: debit.note,
+    });
+    return written(debited);
+  }
+  return written(
+    await grantCredit(env.DB, {
+      accountId: grant.account_id,
+      kind: 'refund',
+      amountMicros: -micros,
+      grossMicros: -micros,
+      userId: grant.user_id ?? userIdOfAccount(grant.account_id),
+      providerRef: debit.ref,
+      note: debit.note,
+    }),
+  );
+}
+
+/**
+ * Debits the pool for `refundedGrossMicros` (pre-tax) of a pool purchase
+ * being refunded or disputed: the share of what the purchase actually
+ * credited (`creditEquivalentMicros`, net of its fee), or, for a purchase
+ * that was never credited, at most the refunded amount; clamped to what the
+ * pool has available. The row is always written (PoolBank.debit), so a
+ * redelivery is a no-op.
+ */
+export async function debitPoolPurchase(
+  env: AppEnv,
+  d: {
+    poolId: string;
+    grant: GrantRow | null;
+    refId: string;
+    refundedGrossMicros: number;
+    userId: string | null;
+    note: string;
+  },
+): Promise<{ debited: boolean }> {
+  if (d.refundedGrossMicros <= 0) return { debited: false };
+  const grant = d.grant;
+  const requested =
+    grant && grant.gross_micros !== null && grant.gross_micros > 0
+      ? creditEquivalentMicros(d.refundedGrossMicros, {
+          amountMicros: grant.amount_micros,
+          grossMicros: grant.gross_micros,
+        })
+      : d.refundedGrossMicros;
+  const result = await poolBank(env, d.poolId).debit({
+    poolId: d.poolId,
+    refId: d.refId,
+    requestedMicros: requested,
+    kind: 'refund',
+    userId: grant?.user_id ?? d.userId,
+    grossMicros: -d.refundedGrossMicros,
+    note: d.note,
+  });
+  return { debited: result.debited };
+}
+
+async function disputeDebited(env: AppEnv, e: DisputeEvent, deps: ApplyDeps): Promise<ApplyResult> {
+  if (e.currency !== 'usd') {
+    log('dispute_not_debited', { reason: 'currency', disputeRef: e.disputeRef });
+    return 'skipped';
+  }
+  const grant = await paidGrant(env, e.paymentRef, deps);
+  if (!grant || grant.kind !== 'purchase') {
+    // A membership payment (or one that granted nothing): left to the operator.
+    log('dispute_not_debited', { reason: 'not_a_purchase', disputeRef: e.disputeRef });
+    return 'skipped';
+  }
+  const result = await debitPurchase(env, grant, {
+    ref: e.disputeRef,
+    netCents: e.netCents,
+    note: `Dispute of ${e.paymentRef}`,
+  });
+  if (e.type !== 'dispute.lost') return result;
+  const userId = grant.user_id ?? userIdOfAccount(grant.account_id);
+  const suspended = userId ? await suspendForLostDispute(env, grant, userId, e.disputeRef) : false;
+  return result === 'applied' || suspended ? 'applied' : result;
+}
+
+/**
+ * A dispute of a credit purchase was lost: its buyer's community pool access
+ * is suspended (on the account and its pool identity, as an admin's
+ * suspension; an admin can lift it). Once per dispute: a zero-amount marker
+ * row keyed `<disputeRef>:lost` records it, so a poller that keeps seeing
+ * the dispute as lost never undoes an admin's lift.
+ */
+async function suspendForLostDispute(
+  env: AppEnv,
+  grant: GrantRow,
+  userId: string,
+  disputeRef: ProviderRef,
+): Promise<boolean> {
+  const first = await grantCredit(env.DB, {
+    accountId: grant.account_id,
+    kind: 'adjustment',
+    amountMicros: 0,
+    userId,
+    providerRef: `${disputeRef}:lost`,
+    note: `Dispute ${disputeRef} lost: pool access suspended`,
+  });
+  if (!first) return false;
+  await suspendPoolAccess(env, userId, disputeRef);
+  return true;
+}
+
+/** Suspends `userId`'s community pool access after a lost dispute (account and pool identity). */
+export async function suspendPoolAccess(
+  env: AppEnv,
+  userId: string,
+  disputeRef: string,
+): Promise<void> {
+  const db = env.DB;
+  await db.batch([
+    db.prepare('UPDATE auth_users SET pool_suspended = 1 WHERE id = ?').bind(userId),
+    identitySuspensionStatement(db, userId, true),
+  ]);
+  log('pool_suspended_dispute_lost', { userId, disputeId: disputeRef });
+}
+
+/**
+ * The dispute was won and its funds reinstated: credits back exactly what the
+ * dispute debited (for the pool, the clamped amount), once. Nothing when it
+ * never debited anything (a poller may first see a dispute already won).
+ */
+async function disputeWon(env: AppEnv, e: DisputeEvent): Promise<ApplyResult> {
+  const debited = await grantByRef(env.DB, e.disputeRef);
+  if (!debited) return 'skipped';
+  return written(
+    await grantCredit(env.DB, {
+      accountId: debited.account_id,
+      kind: 'refund',
+      amountMicros: -debited.amount_micros,
+      grossMicros: debited.gross_micros === null ? null : -debited.gross_micros,
+      userId: debited.user_id,
+      providerRef: reinstatedRef(e.disputeRef),
+      note: `Dispute ${e.disputeRef} won`,
+    }),
+  );
+}
+
+/**
+ * Upserts the membership snapshot, unless a newer version is already stored
+ * (the same version is rewritten: deliveries of one state carry the same
+ * data). Ignored for a user who no longer exists.
+ */
+async function membershipChanged(env: AppEnv, e: MembershipChanged): Promise<ApplyResult> {
+  if (e.customerRef) await rememberCustomer(env.DB, e.provider, e.userId, e.customerRef);
+  const result = await env.DB.prepare(
+    `INSERT INTO billing_subscriptions
+       (ref, provider, user_id, kind, status, provider_status, current_period_end,
+        cancel_at_period_end, ended_at, version, updated_at)
+     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
+     WHERE EXISTS (SELECT 1 FROM auth_users WHERE id = ?3)
+     ON CONFLICT(ref) DO UPDATE SET
+       status = excluded.status, provider_status = excluded.provider_status,
+       current_period_end = excluded.current_period_end,
+       cancel_at_period_end = excluded.cancel_at_period_end, ended_at = excluded.ended_at,
+       version = excluded.version, updated_at = excluded.updated_at
+     WHERE excluded.version >= billing_subscriptions.version`,
+  )
+    .bind(
+      e.subscriptionRef,
+      e.provider,
+      e.userId,
+      MEMBERSHIP_KIND,
+      e.status,
+      e.providerStatus,
+      e.currentPeriodEnd,
+      e.cancelAtPeriodEnd ? 1 : 0,
+      e.endedAt,
+      e.version,
+      new Date().toISOString(),
+    )
+    .run();
+  return written((result.meta.changes ?? 0) > 0);
+}

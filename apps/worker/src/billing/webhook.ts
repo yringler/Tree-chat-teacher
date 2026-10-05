@@ -41,17 +41,16 @@ import type Stripe from 'stripe';
 import { billingAccountIdFor, userIdOfAccount } from '../auth/account.js';
 import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
-import { identitySuspensionStatement } from '../pool/identity.js';
-import { poolBank } from '../pool/ids.js';
-import { creditEquivalentMicros } from '../pool/pricing.js';
 import { grantByRef, grantCredit, hasGrant } from './ledger.js';
 import { membershipCreditCents } from './membership.js';
 import { centsToMicros } from './pricing.js';
+import {
+  debitPoolPurchase as debitPoolGrant,
+  MEMBERSHIP_CREDIT_NOTE,
+  suspendPoolAccess,
+} from './payments/apply.js';
 import { fulfilPurchase } from './purchases.js';
 import { getStripe, membershipPriceId, userIdForCustomer } from './stripe.js';
-
-/** The note on the credit a membership invoice includes (and that a refund of it takes back). */
-export const MEMBERSHIP_CREDIT_NOTE = 'Included with membership';
 
 function idOf(ref: string | { id: string } | null | undefined): string | null {
   if (!ref) return null;
@@ -381,11 +380,9 @@ async function debitRefunds(env: AppEnv, charge: Stripe.Charge): Promise<void> {
 }
 
 /**
- * Debits the pool for `refundedCents` (tax included) of a pool purchase being
- * refunded or disputed: the credit-equivalent of its pre-tax share (what that
- * part of the purchase actually credited, net of the fee), clamped to what the pool
- * has available. The row is always written (PoolBank.debit), so a
- * redelivery is a no-op.
+ * Shim onto the provider-neutral `debitPoolPurchase` (payments/apply.ts):
+ * debits the pool for `refundedCents` (tax included) of a pool purchase being
+ * refunded or disputed, by the pre-tax share of it.
  */
 async function debitPoolPurchase(
   env: AppEnv,
@@ -395,23 +392,12 @@ async function debitPoolPurchase(
   const refundedGross = Math.round(centsToMicros(debit.refundedCents) * share.ratio);
   if (refundedGross <= 0) return;
   const grant = share.sessionId ? await grantByRef(env.DB, share.sessionId) : null;
-  const config = appConfig(env);
-  const requested =
-    grant && grant.gross_micros !== null && grant.gross_micros > 0
-      ? creditEquivalentMicros(refundedGross, {
-          amountMicros: grant.amount_micros,
-          grossMicros: grant.gross_micros,
-        })
-      : // The purchase was never credited (or is unknown): at most its pre-tax share.
-        refundedGross;
-  const poolId = grant?.account_id ?? share.accountId ?? config.pool.accountId;
-  await poolBank(env, poolId).debit({
-    poolId,
+  await debitPoolGrant(env, {
+    poolId: grant?.account_id ?? share.accountId ?? appConfig(env).pool.accountId,
+    grant,
     refId: debit.refId,
-    requestedMicros: requested,
-    kind: 'refund',
-    userId: grant?.user_id ?? share.userId,
-    grossMicros: -refundedGross,
+    refundedGrossMicros: refundedGross,
+    userId: share.userId,
     note: debit.note,
   });
 }
@@ -536,14 +522,7 @@ async function suspendForLostDispute(env: AppEnv, dispute: Stripe.Dispute): Prom
   const share = await purchaseShare(env, stripe, await disputedPaymentIntent(stripe, dispute));
   const userId = share.userId ?? (share.accountId ? userIdOfAccount(share.accountId) : null);
   if (!share.topUp || !userId) return;
-  const db = env.DB;
-  await db.batch([
-    db.prepare('UPDATE auth_users SET pool_suspended = 1 WHERE id = ?').bind(userId),
-    identitySuspensionStatement(db, userId, true),
-  ]);
-  console.warn(
-    JSON.stringify({ event: 'pool_suspended_dispute_lost', userId, disputeId: dispute.id }),
-  );
+  await suspendPoolAccess(env, userId, dispute.id);
 }
 
 /**
