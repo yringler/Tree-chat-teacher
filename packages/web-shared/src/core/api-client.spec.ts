@@ -2,7 +2,16 @@ import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classe
 import { Injector, type Provider } from '@angular/core';
 import type { BillingSummary, UsageListResponse } from '@tangent/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiClient, ApiError, isMembershipRequired, isPaymentRequired } from './api-client';
+import {
+  ApiClient,
+  ApiError,
+  isMembershipRequired,
+  isPaymentRequired,
+  isPoolCapReached,
+  isPoolEmpty,
+  isPoolConsentRequired,
+  isPoolUnavailable,
+} from './api-client';
 import { API_FETCH, API_HEADERS } from './api-fetch';
 
 type FetchArgs = [input: string, init: RequestInit];
@@ -105,6 +114,136 @@ describe('ApiClient billing', () => {
     expect(isPaymentRequired(err)).toBe(true);
     expect(isPaymentRequired(new ApiError(403, 'forbidden', 'x'))).toBe(false);
     expect(isPaymentRequired(new Error('x'))).toBe(false);
+  });
+});
+
+describe('ApiClient community pool', () => {
+  let fetchMock: ReturnType<typeof vi.fn<(...args: FetchArgs) => Promise<Response>>>;
+  const api = createApi();
+
+  beforeEach(() => {
+    fetchMock = vi.fn<(...args: FetchArgs) => Promise<Response>>();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('poolStatus() and poolMe() GET /api/pool/status and /api/pool/me', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({}));
+    await api.poolStatus();
+    await api.poolMe();
+    expect(fetchMock.mock.calls.map(([url, init]) => [init.method, url])).toEqual([
+      ['GET', '/api/pool/status'],
+      ['GET', '/api/pool/me'],
+    ]);
+  });
+
+  it('poolImpact(week?) and poolImpactWeeks() GET the public impact feed', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({}));
+    await api.poolImpact();
+    await api.poolImpact('2026-09-28');
+    await api.poolImpactWeeks();
+    expect(fetchMock.mock.calls.map(([url, init]) => [init.method, url])).toEqual([
+      ['GET', '/api/pool/impact'],
+      ['GET', '/api/pool/impact?week=2026-09-28'],
+      ['GET', '/api/pool/impact/weeks'],
+    ]);
+  });
+
+  it('adminPool() GETs the pool panel; adminCredit POSTs the request as given', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({}));
+    await api.adminPool();
+    const req = {
+      target: 'pool',
+      userId: null,
+      amountCents: 2000,
+      mode: 'adjustment',
+      idempotencyKey: 'key-12345678',
+    } as const;
+    await api.adminCredit(req);
+    expect(fetchMock.mock.calls.map(([url, init]) => [init.method, url])).toEqual([
+      ['GET', '/api/admin/pool'],
+      ['POST', '/api/admin/credit'],
+    ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]![1].body))).toEqual(req);
+  });
+
+  it('adminPoolTopics(status?) lists the review queue; decideAdminPoolTopic POSTs the decision', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ topics: [] }));
+    await api.adminPoolTopics();
+    await api.adminPoolTopics('rejected');
+    await api.decideAdminPoolTopic('history.ancient-rome', 'approved');
+    expect(fetchMock.mock.calls.map(([url, init]) => [init.method, url])).toEqual([
+      ['GET', '/api/admin/pool/topics'],
+      ['GET', '/api/admin/pool/topics?status=rejected'],
+      ['POST', '/api/admin/pool/topics/history.ancient-rome'],
+    ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[2]![1].body))).toEqual({ decision: 'approved' });
+  });
+
+  it('createCheckout(cents, "pool") names the pool as the target', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ url: 'https://checkout.stripe.com/c/p' }));
+    await api.createCheckout(2000, 'pool');
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1].body))).toEqual({
+      amountCents: 2000,
+      target: 'pool',
+    });
+  });
+
+  it('poolConsent(version) POSTs the version shown to /api/pool/consent', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ version: 1, acknowledgedAt: '2026-10-05T12:00:00.000Z' }),
+    );
+    await expect(api.poolConsent(1)).resolves.toEqual({
+      version: 1,
+      acknowledgedAt: '2026-10-05T12:00:00.000Z',
+    });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect([init.method, url]).toEqual(['POST', '/api/pool/consent']);
+    expect(JSON.parse(String(init.body))).toEqual({ version: 1 });
+  });
+
+  it('keeps the notice version a pool_consent_required asks for', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          error: {
+            code: 'pool_consent_required',
+            message: 'Read the notice',
+            consent: { currentVersion: 2 },
+          },
+        },
+        403,
+      ),
+    );
+    const err = await api.poolMe().catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 403, consent: { currentVersion: 2 }, pool: null });
+    expect(isPoolConsentRequired(err)).toBe(true);
+    expect(isPoolUnavailable(err)).toBe(false);
+    expect(new ApiError(403, 'pool_unavailable', 'x').consent).toBeNull();
+  });
+
+  it('keeps what a pool refusal hit on the ApiError', async () => {
+    const pool = {
+      reason: 'cap_requests',
+      limit: 30,
+      resetAt: '2026-10-06T00:00:00.000Z',
+      supporter: false,
+      supporterLimit: 150,
+    };
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ error: { code: 'pool_cap_reached', message: 'Cap', pool } }, 429),
+    );
+    const err = await api.poolMe().catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 429, code: 'pool_cap_reached', pool });
+    expect(isPoolCapReached(err)).toBe(true);
+    expect(isPoolEmpty(err)).toBe(false);
+    expect(isPoolEmpty(new ApiError(402, 'pool_empty', 'Empty'))).toBe(true);
+    expect(isPoolUnavailable(new ApiError(403, 'pool_unavailable', 'No'))).toBe(true);
+    // Any other error has no pool details.
+    expect(new ApiError(402, 'payment_required', 'x').pool).toBeNull();
   });
 });
 

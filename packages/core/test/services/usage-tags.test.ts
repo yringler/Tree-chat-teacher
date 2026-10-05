@@ -50,8 +50,13 @@ describe('ChatService usage tags', () => {
     const root = await send(chat, tree.trunkBranchId, 'ROOT');
     expect(root.last.type).toBe('done');
     expect(tags(provider.calls)).toEqual([
-      { purpose: 'reply', treeId: tree.id, nodeId: root.begin.assistantNode.id },
-      { purpose: 'title', treeId: tree.id, nodeId: null },
+      {
+        purpose: 'reply',
+        treeId: tree.id,
+        branchId: tree.trunkBranchId,
+        nodeId: root.begin.assistantNode.id,
+      },
+      { purpose: 'title', treeId: tree.id, branchId: tree.trunkBranchId, nodeId: null },
     ]);
     expect(provider.kindOf(provider.calls[1]!)).toBe('title');
 
@@ -65,9 +70,14 @@ describe('ChatService usage tags', () => {
     expect(side.last.type).toBe('done');
     expect(provider.calls.map((c) => provider.kindOf(c))).toEqual(['summary', 'chat', 'title']);
     expect(tags(provider.calls)).toEqual([
-      { purpose: 'summary', treeId: tree.id, nodeId: null },
-      { purpose: 'reply', treeId: tree.id, nodeId: side.begin.assistantNode.id },
-      { purpose: 'title', treeId: tree.id, nodeId: null },
+      { purpose: 'summary', treeId: tree.id, branchId: branch.id, nodeId: null },
+      {
+        purpose: 'reply',
+        treeId: tree.id,
+        branchId: branch.id,
+        nodeId: side.begin.assistantNode.id,
+      },
+      { purpose: 'title', treeId: tree.id, branchId: branch.id, nodeId: null },
     ]);
 
     // Review of the side reply (the summary is cached, so only the reviewer runs).
@@ -80,7 +90,12 @@ describe('ChatService usage tags', () => {
     expect(review.at(-1)?.type).toBe('done');
     expect(provider.calls).toEqual([]);
     expect(tags(reviewer.calls)).toEqual([
-      { purpose: 'review', treeId: tree.id, nodeId: side.begin.assistantNode.id },
+      {
+        purpose: 'review',
+        treeId: tree.id,
+        branchId: branch.id,
+        nodeId: side.begin.assistantNode.id,
+      },
     ]);
   });
 
@@ -94,7 +109,9 @@ describe('ChatService usage tags', () => {
     });
     provider.calls.length = 0;
     await chat.planContext(branch.id, null, { resolveSummaries: true });
-    expect(tags(provider.calls)).toEqual([{ purpose: 'summary', treeId: tree.id, nodeId: null }]);
+    expect(tags(provider.calls)).toEqual([
+      { purpose: 'summary', treeId: tree.id, branchId: branch.id, nodeId: null },
+    ]);
   });
 });
 

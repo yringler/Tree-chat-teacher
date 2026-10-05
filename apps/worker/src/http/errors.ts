@@ -1,4 +1,10 @@
-import { DomainError, HTTP_STATUS, ValidationError } from '@tangent/core';
+import {
+  DomainError,
+  HTTP_STATUS,
+  PoolBlockedError,
+  PoolConsentRequiredError,
+  ValidationError,
+} from '@tangent/core';
 import type { ApiError, ApiErrorCode } from '@tangent/shared';
 import type { Context, ErrorHandler, NotFoundHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
@@ -6,9 +12,32 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { validator } from 'hono/validator';
 import { ZodError, type z } from 'zod';
 
-export function apiError(c: Context, code: ApiErrorCode, message: string): Response {
-  const body: ApiError = { error: { code, message } };
+export function apiError(
+  c: Context,
+  code: ApiErrorCode,
+  message: string,
+  extra: Omit<ApiError['error'], 'code' | 'message'> = {},
+): Response {
+  const body: ApiError = { error: { code, message, ...extra } };
   return c.json(body, HTTP_STATUS[code] as ContentfulStatusCode);
+}
+
+/**
+ * The `ApiError` body of a domain error; a pool refusal carries what it hit
+ * (`error.pool`), a missing pool consent the notice version to acknowledge
+ * (`error.consent`).
+ */
+export function apiErrorBody(err: DomainError): ApiError {
+  return {
+    error: {
+      code: err.code,
+      message: err.message,
+      ...(err instanceof PoolBlockedError ? { pool: err.details } : {}),
+      ...(err instanceof PoolConsentRequiredError
+        ? { consent: { currentVersion: err.currentVersion } }
+        : {}),
+    },
+  };
 }
 
 /** Human-readable one-liner, e.g. `title: Too small; nodeId: Required`. */
@@ -43,7 +72,10 @@ function codeForStatus(status: number): ApiErrorCode {
 }
 
 export const onError: ErrorHandler = (err, c) => {
-  if (err instanceof DomainError) return apiError(c, err.code, err.message);
+  if (err instanceof DomainError) {
+    const { code, message, ...extra } = apiErrorBody(err).error;
+    return apiError(c, code, message, extra);
+  }
   if (err instanceof ZodError) return apiError(c, 'bad_request', formatZodError(err));
   if (err instanceof HTTPException) {
     const code = codeForStatus(err.status);

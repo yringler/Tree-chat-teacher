@@ -108,18 +108,65 @@ export default defineConfig({
               label: 'Tangent',
               defaultModel: 'smart',
               models: [{ id: 'smart', label: 'Smart' }, { id: 'simple', label: 'Simple' }],
-              options: { chunkSize: 4, costUsd: 0.001234 },
+              // `[echo-request]` in a message makes the reply echo the request's model, output cap
+              // and system prompt (the pool tests check what was really sent upstream).
+              // `[topic:<id>]` makes it answer `<id>`, which the pool's topic classifier reads as its
+              // answer (pool-impact-tagging.test.ts); any other message gets the default fake reply,
+              // which is no topic id, so other tests' pool replies are classified but never tagged.
+              // `[any-topic:<id>]` answers `<id>` when it is in ANY message sent, so a test can tell
+              // whether the classifier was sent a branch's earlier history (it must not be).
+              options: {
+                chunkSize: 4,
+                costUsd: 0.001234,
+                echoRequest: '[echo-request]',
+                responses: {
+                  '[topic:math.algebra]': 'math.algebra',
+                  '[topic:history.ancient-rome]': 'history.ancient-rome',
+                  '[topic:health.conditions]': 'health.conditions',
+                },
+                anyMessageResponses: { '[any-topic:math.algebra]': 'math.algebra' },
+              },
             }),
             STRIPE_SECRET_KEY: 'sk_test_x',
             STRIPE_WEBHOOK_SECRET: 'whsec_test',
             STRIPE_CREDITS_PRODUCT_ID: 'prod_test',
-            // No membership by default (tests that need one pass STRIPE_MEMBERSHIP_PRICE_ID in an env
-            // override), so the other suites generate freely. The price and credit are the defaults.
+            // No membership by default (tests that need one pass ANNUAL_FEE_ENABLED: 'true' and
+            // STRIPE_MEMBERSHIP_PRICE_ID in an env override), so the other suites generate freely. The
+            // fee is off as deployed; the price and credit are the defaults.
+            ANNUAL_FEE_ENABLED: 'false',
             STRIPE_MEMBERSHIP_PRICE_ID: '',
             MEMBERSHIP_PRICE_CENTS: '1000',
             MEMBERSHIP_CREDIT_CENTS: '200',
             MEMBERSHIP_WAIVER_CODE: '',
             MARKUP_BPS: '1000',
+            // The community pool, on (wrangler.jsonc ships it off). Pool tests isolate themselves with a
+            // unique POOL_ACCOUNT_ID per test. The pool model is the fake `tangent` provider's `simple`,
+            // priced at 1 µ$ per token each way, so every reply hold (up to 2,048 tokens out) is above
+            // the fake's reported cost (0.001234 USD ≈ 1,302 µ$ with the fee) and only the test that
+            // targets the clamp hits it. Caps are small so cap tests stay short; the per-minute
+            // limits sit above them, so a cap test sees the cap.
+            POOL_ENABLED: 'true',
+            PERSONAL_CREDIT_ENABLED: 'false',
+            // As deployed: tests that simulate purchases turn it on in an env override.
+            DEV_PURCHASES_ENABLED: 'false',
+            POOL_ACCOUNT_ID: 'pool',
+            POOL_MODEL: 'simple',
+            MODEL_PRICES: JSON.stringify({ simple: { in: 1_000_000, out: 1_000_000, context: 8_192 } }),
+            POOL_MAX_OUTPUT_TOKENS: '2048',
+            POOL_FREE_REQUESTS_PER_DAY: '3',
+            POOL_FREE_SPEND_MICROS_PER_DAY: '1000000',
+            POOL_SUPPORTER_REQUESTS_PER_DAY: '6',
+            POOL_SUPPORTER_SPEND_MICROS_PER_DAY: '5000000',
+            SUPPORTER_WINDOW_MONTHS: '',
+            POOL_USER_PER_MINUTE: '100',
+            POOL_IP_PER_MINUTE: '100',
+            // Generation lookups made inside Durable Objects (PoolBank's expiry) reach the
+            // OpenRouter mock with this key; tests that need no key override it with ''.
+            OPENROUTER_SIMPLE_API_KEY: 'sk-or-test',
+            // As deployed; pool-featured.test.ts also turns it on (the stub is 404 either way).
+            FEATURED_CONVERSATIONS_ENABLED: 'false',
+            // Test-only RPC methods (PoolBank.expire, PoolBank.status).
+            TEST_SEAMS: 'true',
           },
           ratelimits: {
             CHAT_RATE_LIMITER: { namespace_id: '1002', simple: { limit: 5, period: 60 } },

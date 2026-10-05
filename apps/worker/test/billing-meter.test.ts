@@ -134,7 +134,12 @@ function harness(account: AccountContext = simpleAccount()): Harness {
 }
 
 const COST = 0.001234;
-const tag: UsageTag = { purpose: 'reply', treeId: 'tree_1', nodeId: 'node_1' };
+const tag: UsageTag = {
+  purpose: 'reply',
+  treeId: 'tree_1',
+  branchId: 'branch_1',
+  nodeId: 'node_1',
+};
 
 describe('usage meter', () => {
   it('settles cost × 1.055 (OpenRouter fee) × 1.10 inline (no subscription), with tokens, tag and generation id', async () => {
@@ -191,7 +196,14 @@ describe('usage meter', () => {
         { type: 'billing', generationId: uniq('gen'), costUsd: COST },
         { type: 'done', stopReason: 'stop' },
       ],
-      { env: { ...env, MARKUP_BPS: '500', STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership' } },
+      {
+        env: {
+          ...env,
+          MARKUP_BPS: '500',
+          ANNUAL_FEE_ENABLED: 'true',
+          STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership',
+        },
+      },
     );
     expect((await h.rows())[0]).toMatchObject({
       status: 'settled',

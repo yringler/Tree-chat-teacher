@@ -35,10 +35,13 @@ export const LEGAL_STYLE =
 .doc table{width:100%;border-collapse:collapse;font-size:.92rem}
 .doc th,.doc td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
 .doc code{font-size:.88em}
+.doc .weeks{display:flex;flex-wrap:wrap;gap:6px 16px;padding:0;list-style:none}
+.doc .weeks a[aria-current]{font-weight:700}
 @media (max-width:479px){.top nav a+a{display:inline}}
 `;
 
-function page(info: LegalInfo, path: string, title: string, body: string): string {
+/** A long-form public page (the legal pages, `/pool`) in the landing page's look. */
+export function page(info: LegalInfo, path: string, title: string, body: string): string {
   const canonical = escapeHtml(new URL(path, info.origin).toString());
   return `<!doctype html>
 <html lang="en">
@@ -61,7 +64,7 @@ ${body}
 <footer>
 <div class="wrap">
 <span>${escapeHtml(copyrightNotice(info.operator))}</span>
-<nav aria-label="Footer"><a href="/welcome">About Tangent</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+<nav aria-label="Footer"><a href="/welcome">About Tangent</a><a href="/pool">Community pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
 </div>
 </footer>
 </body>
@@ -106,6 +109,7 @@ export function renderPrivacyPage(info: LegalInfo): string {
 <tr><td>Your content</td><td>Conversations (messages, replies, branch titles, summaries), system prompts, settings, and share links you create.</td><td>This is the service. Stored in our database until you delete it.</td></tr>
 <tr><td>AI provider API keys</td><td>If you add your own key, it is encrypted into a cookie that only your browser holds. We never store it on our servers; it is decrypted in memory for each request and never logged.</td><td>To call the provider on your behalf.</td></tr>
 <tr><td>Billing (paid credit only)</td><td>Your Stripe customer id, credit purchases and refunds, membership status, and for each paid reply: the model, token counts, cost and time. Card numbers and billing addresses go to Stripe and never reach us.</td><td>To charge for what you use, show you your usage, and keep the records tax law requires.</td></tr>
+<tr><td>Community pool (only if you use it)</td><td>That you acknowledged the pool notice: which version, and when. For each conversation branch the pool pays for: one topic from a fixed list (such as "Ancient Rome"), how deep the branch sits in its conversation, and the date. The topic is stored without any text from your messages and without your account id; sensitive topics (such as health, legal or money matters) are stored only as "sensitive". To pick the topic, the message of that pool exchange is sent once more to the pool's AI model, and only its one-word answer is kept. Our usage records of the pool (see Billing) could still connect a branch to your account while its topic is kept.</td><td>To show the notice again only when it changes, and to publish anonymous weekly counts of what the pool funds on the <a href="/pool">pool page</a> and the home page: exchanges, learners, topics and branch depth in total, and topics by name only when enough different learners touched them that week, never a sensitive one, and only after an administrator approved the topic.</td></tr>
 <tr><td>Technical logs</td><td>Errors and request metadata (time, path, status, IP address) kept by our hosting provider's logs for a short time. Rate-limit counters per IP address. Never message content or API keys.</td><td>Security, abuse prevention and fixing bugs.</td></tr>
 </tbody>
 </table>
@@ -144,6 +148,8 @@ ${shareIntro}<p>When you create a share link, anyone who has the link can read w
 <ul>
 <li>Conversations, settings and share links: until you delete them or your account. Deleting is immediate in the app.</li>
 <li>Sessions: until they expire or you sign out. Sign-in links: 15 minutes.</li>
+<li>Community pool notice acknowledgments: until your account is deleted. Pool topics: until 14 days after the branch was last used on the pool, or until your account is deleted, whichever comes first.</li>
+<li>The weekly community pool snapshots (counts only, nothing about any one person): kept, so past weeks stay browsable.</li>
 <li>Payment records (credit purchases, refunds, usage charges): kept after your account is deleted, for as long as tax and accounting law requires (typically up to 7 years). They contain no message content, and nothing in them is linked to your email once your account is gone. Stripe keeps its own records under its policy.</li>
 <li>Database recovery history: deleted data remains in our hosting provider's point-in-time recovery for up to 30 days, after which it is gone for good.</li>
 </ul>
@@ -221,6 +227,7 @@ export function renderTermsPage(info: LegalInfo): string {
 <li>Credit is prepaid, is used up as you send messages, has no cash value and can't be transferred. It doesn't expire while your account exists. Deleting your account forfeits any credit left.</li>
 <li>Where the service requires a membership to generate replies, it renews automatically each year until you cancel it under "Manage billing". Cancelling stops future renewals; the membership runs to the end of the paid year, and credit already granted stays usable.</li>
 <li>Purchases are not refundable except where the law requires, or where we decide otherwise. If you're a consumer in the EU or UK, you agree that credit is delivered right away and acknowledge that, once you start using it, you lose the 14-day right of withdrawal for the part used.</li>
+<li>You can also buy credit for the <a href="/pool">community pool</a> instead of your own account. A pool purchase adds the amount paid, less a margin shown before you pay, to the pool, which any signed-in learner may use within its limits. It is a purchase like any other: the credit belongs to the pool, not to you, and it can't be moved back to your account. The pool's model, limits and availability may change, and it may be empty.</li>
 <li>We may change prices; changes apply to credit bought or membership periods starting after the change.</li>
 </ul>
 
@@ -253,7 +260,8 @@ export function renderTermsPage(info: LegalInfo): string {
   );
 }
 
-async function legalResponse(c: Context<AppBindings>, html: string): Promise<Response> {
+/** A public page styled by LEGAL_STYLE, cacheable for five minutes. */
+export async function legalResponse(c: Context<AppBindings>, html: string): Promise<Response> {
   return new Response(html, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',

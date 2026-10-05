@@ -1,5 +1,6 @@
-import type { AccountMode } from '@tangent/shared';
+import type { AccountMode, FundingSource } from '@tangent/shared';
 import type { Context } from 'hono';
+import type { PoolParams } from './pool/params.js';
 import { BUILT_IN_PROVIDER_ID } from './simple-mode.js';
 
 /**
@@ -66,6 +67,15 @@ export interface AppEnv extends Env {
    * is empty. No longer in wrangler.jsonc; kept for one release.
    */
   MARKUP_PREPAID_BPS?: string;
+  /**
+   * The pool margin as a percentage (e.g. "8"), the spec's name for
+   * `POOL_MARGIN_BPS`; read only while that var is empty (src/config.ts).
+   */
+  MARGIN_PERCENT?: string;
+  /** Tests only ("true"): enables test-only RPC methods such as `PoolBank.expire(now)`. */
+  TEST_SEAMS?: string;
+  /** Tests only (with `TEST_SEAMS`): a pool notice version above the code's, as after a text change. */
+  POOL_NOTICE_VERSION?: string;
 }
 
 /**
@@ -102,6 +112,26 @@ export interface AccountContext {
    * co.) may be used. Every signed-in user is bring-your-own-key for those.
    */
   operatorKeys: boolean;
+  /**
+   * Who pays for the built-in provider's calls (auth/account.ts): `personal`
+   * (the ledger at `billingAccountId`), `pool` (the community pool; Learn
+   * only, `builtIn` when the pool is on) or `own-key` (Learn on the user's
+   * key, where `builtIn` is false). Power is always `personal`.
+   */
+  funding: FundingSource;
+  /**
+   * Pool funding only: what pool calls run with, resolved Worker-side from
+   * the config (pool/params.ts). The Durable Objects read it from here, never
+   * from their own env.
+   */
+  pool?: PoolParams;
+}
+
+/** True when the account's metered calls are paid by the community pool. */
+export function isPoolFunded(
+  account: AccountContext,
+): account is AccountContext & { funding: 'pool'; pool: PoolParams } {
+  return account.funding === 'pool' && account.builtIn && account.pool !== undefined;
 }
 
 /**

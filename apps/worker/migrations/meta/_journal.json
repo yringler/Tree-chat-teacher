@@ -71,6 +71,34 @@
       "when": 1791163276539,
       "tag": "0009_share_allowed",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791167755708,
+      "tag": "0010_pool_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1791175958052,
+      "tag": "0011_pool_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1791185722535,
+      "tag": "0012_pool_consent_tags",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1791189618774,
+      "tag": "0013_pool_impact",
+      "breakpoints": true
     }
   ]
 }

@@ -10,14 +10,16 @@
 //
 // Control endpoints (plain `fetch()` from a test):
 // - POST /__mock/generation { id, responses: [{ status, body? } | { costUsd, inputTokens?, outputTokens?, cancelled? }] }
-//   scripts <id>; a `costUsd` entry is shorthand for a 200 with that data.
+//   scripts <id>; a `costUsd` entry is shorthand for a 200 with that data. Any entry may add
+//   `delayMs`: the response is sent that much later (slow-upstream tests).
 // - GET  /__mock/generation-calls?id=<id> → { count, authorizations }
 
 export const OPENROUTER_ORIGIN = 'https://openrouter.ai';
 
-export type ScriptedGeneration =
+export type ScriptedGeneration = (
   | { status: number; body?: unknown }
-  | { costUsd: number; inputTokens?: number; outputTokens?: number; cancelled?: boolean };
+  | { costUsd: number; inputTokens?: number; outputTokens?: number; cancelled?: boolean }
+) & { delayMs?: number };
 
 interface Script {
   responses: ScriptedGeneration[];
@@ -87,6 +89,7 @@ export async function mockOpenRouter(request: Request): Promise<Response> {
       );
     }
     const entry = s.responses.length > 1 ? s.responses.shift() : s.responses[0];
+    if (entry?.delayMs) await new Promise((r) => setTimeout(r, entry.delayMs));
     return render(id, entry);
   }
   return Response.json({ error: { code: 404, message: 'Not found' } }, { status: 404 });

@@ -19,7 +19,11 @@ import { defaultFeeDetails, type MockPaymentIntent } from './mocks/stripe.js';
 const env = rawEnv as unknown as AppEnv;
 const MEMBERSHIP_PRICE = 'price_test_membership';
 /** The membership sold and required, and the built-in provider offered (vitest.config.ts). */
-const memberEnv: AppEnv = { ...env, STRIPE_MEMBERSHIP_PRICE_ID: MEMBERSHIP_PRICE };
+const memberEnv: AppEnv = {
+  ...env,
+  ANNUAL_FEE_ENABLED: 'true',
+  STRIPE_MEMBERSHIP_PRICE_ID: MEMBERSHIP_PRICE,
+};
 
 let eventSeq = 0;
 function event(type: string, object: Record<string, unknown>): Stripe.Event {
@@ -307,6 +311,23 @@ describe('Stripe webhook fulfilment', () => {
       event('invoice.paid', await invoice(customer)),
     );
     expect(await balance(accountId)).toBe(5_000_000);
+  });
+
+  it('grants the included credit with the annual fee off (ANNUAL_FEE_ENABLED gates only the requirement)', async () => {
+    const { customer, accountId } = await userWithCustomer();
+    const feeOff: AppEnv = { ...memberEnv, ANNUAL_FEE_ENABLED: 'false' };
+    const paid = await invoice(customer);
+    await handleStripeEvent(feeOff, event('invoice.paid', paid));
+    await handleStripeEvent(feeOff, event('invoice.paid', paid)); // redelivery
+    expect(await grantDetailsFor(env, accountId)).toEqual([
+      {
+        kind: 'subscription',
+        amount_micros: 2_000_000,
+        gross_micros: null,
+        fee_micros: 0,
+        stripe_ref: paid.id,
+      },
+    ]);
   });
 
   it('recognises a renewal on an older price by the plugin subscription row', async () => {

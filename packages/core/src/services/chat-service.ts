@@ -43,9 +43,11 @@ import {
   cleanTitle,
   plainText,
   renderPlan,
+  type RenderOptions,
 } from '../context/render.js';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
 import type { Repositories } from '../repository.js';
+import type { TokenEstimator } from '../tokens.js';
 import { newId as defaultNewId, systemClock, type Clock } from '../util.js';
 
 export interface ChatSettings {
@@ -86,14 +88,54 @@ export interface ChatServiceDeps {
    * the account's saved settings name one. Default: none.
    */
   defaultSystemPrompt?: string | null;
+  /**
+   * The one model every generation of this instance uses (replies, budgets,
+   * summaries and titles without a configured summary model), whatever the
+   * branch says; the branch row is not changed. The community pool sets it.
+   */
+  pinnedModel?: string;
+  /**
+   * The system prompt every generation of this instance uses instead of the
+   * tree's own (the community pool's locked prompt). The tree is not changed.
+   */
+  systemPromptOverride?: string;
+  /**
+   * Makes the input budget a hard bound (the community pool): context budgets
+   * are measured with `estimateTokens` instead of the default chars/3.5, and
+   * every summary prompt is clipped to the summary model's input budget,
+   * measured the same way, so no request of this instance exceeds it.
+   */
+  inputBound?: { estimateTokens: TokenEstimator };
+  /**
+   * The longest anchor quote generations of this instance use; longer ones
+   * are clipped (the community pool: the quote is client-set free text, so it
+   * gets no more room than a message). Default: unlimited.
+   */
+  anchorQuoteMaxChars?: number;
   clock?: Clock;
   newId?: () => string;
+}
+
+/** `branch` with its anchor quote cut to `maxChars` (marked with an ellipsis). */
+function clipAnchorQuote(branch: Branch, maxChars: number | undefined): Branch {
+  const quote = branch.anchorQuote;
+  if (maxChars === undefined || quote === null || quote.length <= maxChars) return branch;
+  return { ...branch, anchorQuote: `${quote.slice(0, Math.max(0, maxChars - 1))}…` };
 }
 
 export interface BeginSendResult {
   branch: Branch;
   userNode: ChatNode;
   assistantNode: ChatNode;
+}
+
+/** Options of `runGeneration`. */
+export interface RunGenerationOptions {
+  /**
+   * A reservation the caller already made for the reply (the community
+   * pool's ceiling hold), passed to the provider as `usageTag.reservationId`.
+   */
+  reservationId?: string;
 }
 
 /** A validated review, ready to run (see `prepareReview`). */
@@ -394,13 +436,14 @@ export class ChatService {
     let step = await steps.next();
     while (!step.done) step = await steps.next();
     const plan = step.value;
-    const caps = inputs.provider.capabilities(inputs.branch.model);
-    const rendered = renderPlan(plan, { supportsSystemPrompt: caps.supportsSystemPrompt });
+    const model = this.modelOf(inputs.branch);
+    const caps = inputs.provider.capabilities(model);
+    const rendered = renderPlan(plan, this.renderOptions(caps.supportsSystemPrompt));
     let exactInputTokens: number | null = null;
     if (caps.supportsTokenCount && inputs.provider.countTokens && rendered.messages.length > 0) {
       try {
         exactInputTokens = await inputs.provider.countTokens({
-          model: inputs.branch.model,
+          model,
           system: rendered.system,
           messages: rendered.messages,
           ...(options.signal ? { signal: options.signal } : {}),
@@ -413,7 +456,7 @@ export class ChatService {
       plan,
       rendered,
       providerId: inputs.branch.providerId,
-      model: inputs.branch.model,
+      model,
       exactInputTokens,
     };
   }
@@ -423,8 +466,13 @@ export class ChatService {
    * must belong to that branch (and hence to the same owned tree).
    */
   private async loadPlanInputs(branchId: string, nodeId: string | null): Promise<PlanInputs> {
-    const { branch, tree } = await this.requireOwnedBranch(branchId);
-    const chain = await this.repo.getBranchChain(branchId);
+    const owned = await this.requireOwnedBranch(branchId);
+    // The only way into the context's system prompt (the `tree-system-prompt` segment).
+    const override = this.deps.systemPromptOverride;
+    const tree = override === undefined ? owned.tree : { ...owned.tree, systemPrompt: override };
+    const clip = (b: Branch): Branch => clipAnchorQuote(b, this.deps.anchorQuoteMaxChars);
+    const branch = clip(owned.branch);
+    const chain = (await this.repo.getBranchChain(branchId)).map(clip);
 
     let path: ChatNode[];
     if (nodeId) {
@@ -438,8 +486,26 @@ export class ChatService {
       const tail = leaf?.id ?? branch.branchPointNodeId;
       path = tail ? await this.repo.getAncestorPath(tail) : [];
     }
+    // With a locked prompt, a stored `system` node (e.g. from an imported
+    // backup) must not reach the system channel: it is planned as a user turn.
+    if (override !== undefined) {
+      path = path.map((n) => (n.role === 'system' ? { ...n, role: 'user' } : n));
+    }
     const provider = this.requireProvider(branch.providerId);
     return { tree, chain, path, branch, targetNodeId: nodeId, provider };
+  }
+
+  /** With a locked system prompt, anchor quotes stay out of the system channel. */
+  private renderOptions(supportsSystemPrompt: boolean): RenderOptions {
+    return {
+      supportsSystemPrompt,
+      anchorsAsUserText: this.deps.systemPromptOverride !== undefined,
+    };
+  }
+
+  /** The model generations on `branch` use: the pinned one, else the branch's. */
+  private modelOf(branch: Branch): string {
+    return this.deps.pinnedModel ?? branch.model;
   }
 
   private budgetFor(
@@ -462,7 +528,7 @@ export class ChatService {
       if (provider) return { provider, model: summaryModel ?? provider.defaultModel() };
     }
     // No (usable) summary provider configured: summarize with the branch's own model.
-    return { provider: this.requireProvider(branch.providerId), model: branch.model };
+    return { provider: this.requireProvider(branch.providerId), model: this.modelOf(branch) };
   }
 
   /**
@@ -478,7 +544,7 @@ export class ChatService {
     const summaries = new Map<string, string>();
     const failed = new Set<string>();
     const { provider: summaryProvider, model: summaryModel } = this.summaryTarget(inputs.branch);
-    const { maxInputTokens } = this.budgetFor(inputs.provider, inputs.branch.model);
+    const { maxInputTokens } = this.budgetFor(inputs.provider, this.modelOf(inputs.branch));
     const lookedUp = new Set<string>();
 
     const plan = (): ContextPlan =>
@@ -491,6 +557,7 @@ export class ChatService {
         summaries,
         failedSummaries: failed,
         budget: { maxInputTokens },
+        ...(this.deps.inputBound ? { estimateTokens: this.deps.inputBound.estimateTokens } : {}),
       });
 
     let current = plan();
@@ -536,7 +603,7 @@ export class ChatService {
           summaryProvider,
           summaryModel,
           request,
-          inputs.tree.id,
+          { treeId: inputs.tree.id, branchId: inputs.branch.id },
           signal,
         );
         if (text === null) {
@@ -564,16 +631,24 @@ export class ChatService {
     provider: LlmProvider,
     model: string,
     request: SummaryRequest,
-    treeId: string,
+    target: { treeId: string; branchId: string },
     signal?: AbortSignal,
   ): Promise<string | null> {
-    const prompt = buildSummaryPrompt(request);
+    const bound = this.deps.inputBound;
+    const prompt = buildSummaryPrompt(
+      request,
+      bound && {
+        maxInputTokens: this.budgetFor(provider, model).maxInputTokens,
+        estimateTokens: bound.estimateTokens,
+      },
+    );
+    if (prompt === null) return null;
     const text = await collectText(
       provider,
       model,
       prompt,
       signal ?? new AbortController().signal,
-      { purpose: 'summary', treeId, nodeId: null },
+      { purpose: 'summary', ...target, nodeId: null },
     );
     return text?.trim() ? text.trim() : null;
   }
@@ -622,7 +697,7 @@ export class ChatService {
       status: 'streaming',
       error: null,
       providerId: branch.providerId,
-      model: branch.model,
+      model: this.modelOf(branch),
       usage: null,
       createdAt: now,
     };
@@ -636,7 +711,11 @@ export class ChatService {
    * yields exactly one terminal `done` or `error`. Never throws. Persists
    * partial content on abort/error. Auto-titles the branch when enabled.
    */
-  async *runGeneration(begin: BeginSendResult, signal: AbortSignal): AsyncIterable<StreamEvent> {
+  async *runGeneration(
+    begin: BeginSendResult,
+    signal: AbortSignal,
+    options: RunGenerationOptions = {},
+  ): AsyncIterable<StreamEvent> {
     const { assistantNode, userNode } = begin;
     let branch = begin.branch;
     let content = '';
@@ -670,18 +749,25 @@ export class ChatService {
           message: 'A summary could not be generated; sending without it.',
         };
       }
-      const caps = inputs.provider.capabilities(branch.model);
-      const rendered = renderPlan(plan, { supportsSystemPrompt: caps.supportsSystemPrompt });
-      const { maxOutput } = this.budgetFor(inputs.provider, branch.model);
+      const model = this.modelOf(branch);
+      const caps = inputs.provider.capabilities(model);
+      const rendered = renderPlan(plan, this.renderOptions(caps.supportsSystemPrompt));
+      const { maxOutput } = this.budgetFor(inputs.provider, model);
 
       let terminal: { status: 'complete' } | { status: 'error'; message: string } | null = null;
       for await (const event of inputs.provider.stream({
-        model: branch.model,
+        model,
         system: rendered.system,
         messages: rendered.messages,
         maxOutputTokens: maxOutput,
         signal,
-        usageTag: { purpose: 'reply', treeId: inputs.tree.id, nodeId: assistantNode.id },
+        usageTag: {
+          purpose: 'reply',
+          treeId: inputs.tree.id,
+          branchId: branch.id,
+          nodeId: assistantNode.id,
+          ...(options.reservationId ? { reservationId: options.reservationId } : {}),
+        },
       })) {
         if (event.type === 'delta') {
           content += event.text;
@@ -750,7 +836,7 @@ export class ChatService {
         model,
         buildTitlePrompt(messages),
         AbortSignal.timeout(TITLE_TIMEOUT_MS),
-        { purpose: 'title', treeId: tree.id, nodeId: null },
+        { purpose: 'title', treeId: tree.id, branchId: branch.id, nodeId: null },
       );
       const title = raw ? cleanTitle(raw) : null;
       if (!title) return null;
@@ -800,8 +886,8 @@ export class ChatService {
         yield { type: 'status', message: step.value };
         step = await steps.next();
       }
-      const caps = inputs.provider.capabilities(inputs.branch.model);
-      const context = renderPlan(step.value, { supportsSystemPrompt: caps.supportsSystemPrompt });
+      const caps = inputs.provider.capabilities(this.modelOf(inputs.branch));
+      const context = renderPlan(step.value, this.renderOptions(caps.supportsSystemPrompt));
       const reviewer = this.requireProvider(review.providerId);
       const prompt = buildReviewPrompt(context, review.node.model);
       const rendered = reviewer.capabilities(review.model).supportsSystemPrompt
@@ -817,7 +903,12 @@ export class ChatService {
         messages: rendered.messages,
         maxOutputTokens: maxOutput,
         signal,
-        usageTag: { purpose: 'review', treeId: review.node.treeId, nodeId: review.node.id },
+        usageTag: {
+          purpose: 'review',
+          treeId: review.node.treeId,
+          branchId: review.node.branchId,
+          nodeId: review.node.id,
+        },
       })) {
         if (event.type === 'delta') yield { type: 'delta', text: event.text };
         else if (event.type === 'usage') Object.assign(usage, stripUndefined(event.usage));

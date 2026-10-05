@@ -12,6 +12,10 @@ export {
   errorMessage,
   isMembershipRequired,
   isPaymentRequired,
+  isPoolCapReached,
+  isPoolConsentRequired,
+  isPoolEmpty,
+  isPoolUnavailable,
   type ExportParams,
 } from './core/api-client';
 export { API_FETCH, API_HEADERS, defaultApiFetch } from './core/api-fetch';
@@ -80,4 +84,34 @@ export {
   membershipStatusText,
   subscribeToMembership,
 } from './billing/membership';
-export { formatBps, formatCents, formatCharge, formatMicros } from './billing/format';
+export {
+  formatBps,
+  formatCents,
+  formatCharge,
+  formatMicros,
+  parseDollarsToCents,
+} from './billing/format';
+
+// The community pool: the meter, the fund section, the inline empty/cap states and the first-use check
+export { PoolMeter } from './pool/pool-meter';
+export { PoolFundSection } from './pool/pool-fund-section';
+export { ImpactFeed, loadLatestImpact } from './pool/impact-feed';
+export {
+  PoolFundController,
+  type PoolFundDeps,
+  type PoolFundNotice,
+} from './pool/pool-fund-controller';
+export { PoolBlockNotice } from './pool/pool-block-notice';
+export { PoolFirstUseDialog, poolVerifyHref } from './pool/pool-first-use-dialog';
+export {
+  poolBlockOf,
+  poolBlockText,
+  poolDollarsLabel,
+  poolFundingNote,
+  poolMarginText,
+  poolWeekLabel,
+  sessionsLabel,
+  untilText,
+  type PoolBlock,
+  type PoolBlockText,
+} from './pool/pool-format';

@@ -6,11 +6,28 @@ Known gaps and follow-ups that were consciously left out of a change. Each entry
 
 Left out of the server side of the membership (`apps/worker/src/billing/membership.ts`). None blocks charging for it.
 
+- **Turning the annual fee off doesn't touch existing subscriptions.** With `ANNUAL_FEE_ENABLED` off nothing requires the membership and the billing page hides it, but Stripe keeps renewing subscriptions bought while it was on (each renewal still grants its included credit), and their holders can only cancel through the Customer Portal (Stripe's own emails link to it). Cancelling them in bulk, or keeping a "Manage billing" link for subscribers while the fee is off, is not done.
+
 - **No email when a membership lapses or a renewal fails.** Stripe's own customer emails (failed payments, upcoming renewals) cover it if they are turned on in the Dashboard (_Settings → Billing → Subscriptions and emails_); the app only shows the status on the billing page. Sending our own needs `customer.subscription.updated`/`deleted` handling in `billing/webhook.ts` and a template in `src/email/`.
 - **No admin UI for waivers.** Setting, clearing and listing `auth_users.membership_waived` is the SQL in the README ("Waiving the membership"). The admin page (`/admin/`, ADMIN_USER_IDS) manages only the share allowlist and takedowns so far; waivers could join it.
 - **One waiver code, not per-person codes.** A leaked code is changed for everyone; whoever redeemed it keeps the flag until it is cleared by hand. Per-person or single-use codes need a codes table.
 - **Monthly-plan subscriptions from before the membership are not migrated.** They no longer grant credit or count as a membership; an operator who sold them cancels them in Stripe (the Customer Portal can't switch them to the membership, which has its own price and interval).
 - **The included credit isn't prorated or clawed back on cancellation.** It is granted per paid invoice and taken back only when that invoice is refunded.
+
+## Community credit pool
+
+Left out of the pool (`docs/pool/PLAN.md`). None blocks launching it.
+
+- **No guest pool checkout.** Funding the pool needs a signed-in account (the checkout records the buyer, and the supporter tier reads it). A guest checkout would need Checkout with `customer_creation` and a way to attach the purchase to an account later.
+- **Personal credit still prices at usage (`MARKUP_BPS`), the pool at purchase (deviation D3).** Unifying personal pricing to margin-at-purchase needs a reprice rule for existing balances, a Terms §7 update, and `MARKUP_BPS` moved to 0 behind a flag.
+- **Disputes of membership invoices are handled by hand.** Only credit purchases (personal and pool) are debited automatically.
+- **Spending from the pool is Learn-only.** The power app and Canvas never use it (power mode ignores the `pool` payment header); the power app only shows the fund section on its billing page. Offering it there would need the pool's model pin and locked prompt to coexist with power mode's per-tree prompts and model pickers.
+- **No custom amount for funding the pool.** The fund section offers the presets (`POOL_FUND_PRESETS_CENTS`, $10/$20/$50); the API accepts any amount from the minimum to $500. A custom field would reuse the billing page's top-up form.
+- **The first-use human check leaves the app.** The apps' CSP doesn't load Turnstile, so `PoolFirstUseDialog` sends the learner to the Worker's `/verify` page and back; the unsent message isn't kept across that page load. Allowing `challenges.cloudflare.com` in the Learn app's CSP would let `<app-turnstile>` and `POST /api/pool/verify` run in place.
+- **No admin UI for personal credit.** The admin page's pool panel tops up and corrects the pool; crediting a user's personal ledger (`POST /api/admin/credit` with target `personal`) still needs the API.
+- **Featured conversations are a stub.** `FEATURED_CONVERSATIONS_ENABLED` (off) exists, `featuredEnabled(env)` also needs `DMCA_AGENT_REGISTERED`, and `/api/featured/*` answers 404 whatever the flags say; `MeResponse.featuredConversations` is always `false`; there are no tables, columns or UI. User-published content waits for the DMCA designated agent (docs/LEGAL.md §8), and share links already give explicit, revocable, per-conversation opt-in. A wall would: add `shares.featured_at` (set only by an explicit "Feature this conversation" action on an existing share, never by default, cleared by un-featuring or revoking the share), a moderated queue like the topic review queue, `GET /api/featured` listing approved, unrevoked shares of users who may share, and the routes and UI only while `featuredEnabled` is true.
+- **One global `PoolBank`.** Every pool reservation passes through one Durable Object (about two D1 round trips each). If it becomes a bottleneck, shard by user-id hash into N banks, each holding a slice of the balance that a coordinator rebalances, keeping never-negative per shard.
+- **The impact feed's review queue has no notification.** A topic waiting for review shows only on the admin page; an email or a count in the admin header would make it harder to miss. Snapshots are written once and never rewritten, so a topic approved late appears from the next week on.
 
 ## Power app and Canvas: membership and credit UI
 

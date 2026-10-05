@@ -32,6 +32,7 @@ function me(over: Partial<MeResponse> = {}): MeResponse {
     sharing: true,
     isAdmin: false,
     membership: membership(),
+    featuredConversations: false,
     ...over,
   };
 }

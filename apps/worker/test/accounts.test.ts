@@ -78,6 +78,7 @@ describe('resolveAccount', () => {
       billingAccountId: DEV_SIMPLE_ACCOUNT_ID,
       builtIn: true,
       operatorKeys: true,
+      funding: 'personal',
     });
     expect(resolveAccount(withEnv(), dev, learn('own-key'))).toEqual({
       id: DEV_SIMPLE_ACCOUNT_ID,
@@ -86,6 +87,7 @@ describe('resolveAccount', () => {
       billingAccountId: DEV_SIMPLE_ACCOUNT_ID,
       builtIn: false,
       operatorKeys: false,
+      funding: 'own-key',
     });
   });
 
@@ -97,6 +99,7 @@ describe('resolveAccount', () => {
       billingAccountId: 'u_usr1',
       builtIn: true,
       operatorKeys: false,
+      funding: 'personal',
     });
     expect(resolveAccount(withEnv(), user('someone@example.org'), learn('own-key'))).toEqual({
       id: 'u_usr1',
@@ -105,6 +108,7 @@ describe('resolveAccount', () => {
       billingAccountId: 'u_usr1',
       builtIn: false,
       operatorKeys: false,
+      funding: 'own-key',
     });
   });
 
@@ -137,6 +141,45 @@ describe('resolveAccount', () => {
     ).toBe(true);
   });
 
+  it('Learn on the pool: pool-funded while the pool is on, for signed-in users only', () => {
+    const pooled = resolveAccount(withEnv(), user('a@example.org'), learn('pool'));
+    expect(pooled).toMatchObject({ mode: 'simple', funding: 'pool', builtIn: true });
+    // Off, or the dev bypass (no user to cap): pool funding, but nothing to spend.
+    for (const [e, who] of [
+      [withEnv({ POOL_ENABLED: 'false' }), user('a@example.org')],
+      [withEnv(), dev],
+    ] as const) {
+      expect(resolveAccount(e, who, learn('pool'))).toMatchObject({
+        funding: 'pool',
+        builtIn: false,
+      });
+    }
+    // Credit is personal where it is offered, else the user's own key.
+    expect(resolveAccount(withEnv(), user('a@example.org'), learn('credit')).funding).toBe(
+      'personal',
+    );
+    expect(
+      resolveAccount(withEnv({ STRIPE_SECRET_KEY: '' }), user('a@example.org'), learn('credit'))
+        .funding,
+    ).toBe('own-key');
+    // PERSONAL_CREDIT_ENABLED offers credit before Stripe is configured.
+    expect(
+      resolveAccount(
+        withEnv({ STRIPE_SECRET_KEY: '', PERSONAL_CREDIT_ENABLED: 'true' }),
+        user('a@example.org'),
+        learn('credit'),
+      ),
+    ).toMatchObject({ funding: 'personal', builtIn: true });
+  });
+
+  it('power never uses the pool, whatever the payment header', () => {
+    const pool: AccountRequest = { mode: 'power', payment: 'pool' };
+    expect(resolveAccount(withEnv(), user('a@example.org'), pool)).toMatchObject({
+      mode: 'power',
+      funding: 'personal',
+    });
+  });
+
   it('power has the built-in provider whenever it is offered, whatever the payment header', () => {
     const credit: AccountRequest = { mode: 'power', payment: 'credit' };
     expect(resolveAccount(withEnv(), user('a@example.org'), power).builtIn).toBe(true);
@@ -156,6 +199,9 @@ describe('resolveAccount', () => {
     expect(
       accountRequest(new Headers({ [MODE_HEADER]: 'Simple', [PAYMENT_HEADER]: 'free' })),
     ).toEqual({ mode: 'power', payment: 'own-key' });
+    expect(
+      accountRequest(new Headers({ [MODE_HEADER]: 'simple', [PAYMENT_HEADER]: 'pool' })),
+    ).toEqual({ mode: 'simple', payment: 'pool' });
   });
 });
 

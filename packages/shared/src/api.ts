@@ -17,6 +17,7 @@ import type {
 } from './domain.js';
 import type { ProviderInfo } from './provider.js';
 import type { AccountMode, MembershipInfo } from './billing.js';
+import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
 
 /**
  * HTTP API contract between the Angular app and the Worker.
@@ -65,7 +66,8 @@ import type { AccountMode, MembershipInfo } from './billing.js';
  *
  *   GET    /api/billing                          -> BillingSummary
  *   GET    /api/billing/usage?cursor=&limit=     -> UsageListResponse (newest first, limit <= 100, default 50)
- *   POST   /api/billing/checkout CreateCheckoutRequest -> CheckoutResponse (same-origin only)
+ *   POST   /api/billing/checkout CreateCheckoutRequest -> CheckoutResponse (same-origin only;
+ *                                                target `personal` or `pool`; 400 below the pool minimum)
  *   POST   /api/billing/membership/waiver MembershipWaiverRequest -> MembershipInfo (same-origin only;
  *                                                400 no code configured, 403 wrong code, 429 rate limited)
  *   POST   /api/auth/subscription/{upgrade,billing-portal,list,cancel,restore}  Better Auth Stripe plugin
@@ -78,9 +80,20 @@ import type { AccountMode, MembershipInfo } from './billing.js';
  *   GET    /api/admin/status                     -> AdminStatusResponse
  *   GET    /api/admin/users?q=&cursor=           -> AdminUsersResponse (newest first, ADMIN_USERS_PAGE per page,
  *                                                q = email substring)
- *   PATCH  /api/admin/users/:userId UpdateAdminUserRequest -> AdminUser (same-origin only)
+ *   PATCH  /api/admin/users/:userId UpdateAdminUserRequest -> AdminUser (same-origin only;
+ *                                                share permission and/or pool suspension)
+ *   GET    /api/admin/pool/usage?days=&limit=    -> AdminPoolUsageResponse (per-user pool consumption,
+ *                                                most spend first; today's busiest network keys)
+ *   GET    /api/admin/pool                       -> AdminPoolResponse (the pool's balance, holds and
+ *                                                overage breaker state)
+ *   GET    /api/admin/pool/topics?status=        -> AdminPoolTopicsResponse (the impact feed's review queue)
+ *   POST   /api/admin/pool/topics/:topicId AdminPoolTopicDecision -> AdminPoolTopic (same-origin only;
+ *                                                404 for a topic never queued)
  *   GET    /api/admin/users/:userId/shares       -> ShareSummary[] (both of the user's accounts, newest first)
  *   POST   /api/admin/shares/:shareId/revoke     -> ShareSummary (any owner's share; same-origin only)
+ *   POST   /api/admin/credit AdminCreditRequest -> AdminCreditResponse (same-origin only; personal
+ *                                                or pool, idempotent; simulated purchases 404 unless
+ *                                                DEV_PURCHASES_ENABLED)
  *
  * Generating routes (messages, review, context?resolve=true) answer 402
  * `membership_required` when the membership is required and the user has
@@ -89,8 +102,41 @@ import type { AccountMode, MembershipInfo } from './billing.js';
  * low. Calls on the user's own keys never touch credit. Every other route
  * stays open without a membership: nobody is locked out of their data.
  *
+ * Community pool (pool.ts; Learn only, PAYMENT_HEADER `pool`, or `credit`
+ * whose credit can't cover a call): the server pins the pool's model, system
+ * prompt, output cap and context cap, whatever the tree or branch says.
+ *
+ *   POST /api/branches/:branchId/messages       402 `pool_empty`, 429 `pool_cap_reached`,
+ *                                                403 `pool_unavailable` (with `error.pool`), always
+ *                                                before any message is written; 400 for a message
+ *                                                longer than the pool accepts
+ *   GET  /api/branches/:branchId/context?resolve=true   gated the same way; summaries run on the pool
+ *   POST /api/nodes/:nodeId/review               403 `pool_unavailable` on the `pool` header (no
+ *                                                reviews on the pool); `credit` never falls back
+ *   POST /api/pool/verify  PoolVerifyRequest  -> PoolVerifyResponse (same-origin only; a Turnstile
+ *                                                pass for accounts with none on record; 400 when the
+ *                                                token fails, 403 `pool_unavailable` reason
+ *                                                `duplicate_identity` when another account uses the
+ *                                                same mailbox)
+ *   GET  /api/pool/me                         -> PoolMeResponse (today's caps and use, verified,
+ *                                                supporter, the caller's own credit, the notice
+ *                                                version acknowledged and the current one)
+ *   POST /api/pool/consent PoolConsentRequest -> PoolConsentResponse (same-origin only; records the
+ *                                                acknowledgment of POOL_NOTICE_TEXT; 409 `conflict`
+ *                                                for any version but the current one)
+ *
+ * A pool send or resolve is refused (403 `pool_unavailable`, before anything
+ * is written) for an account that is `suspended` by an admin, has no
+ * Turnstile pass on record (`verify`), shares its mailbox with another pool
+ * account (`duplicate_identity`) or is newer than POOL_MIN_ACCOUNT_AGE_MS
+ * (`too_new`); with 403 `pool_consent_required` (`error.consent`) until the
+ * current pool notice is acknowledged (again after every version bump); and
+ * with 429 `pool_cap_reached` past a daily cap or a per-minute limit (`rate`). There is no OpenAI-compatible endpoint: the
+ * pool is only reachable through the routes above.
+ *
  * Public (no sign-in; rate-limited; read-only):
  *
+ *   GET /api/pool/status     -> PoolStatusResponse (the pool meter; aggregates only, cached 60 s)
  *   GET /s/:token            -> text/html viewer page (Open Graph tags, self-contained)
  *   GET /s/:token/data.json  -> SharePayload
  *
@@ -98,7 +144,14 @@ import type { AccountMode, MembershipInfo } from './billing.js';
  */
 
 export interface ApiError {
-  error: { code: ApiErrorCode; message: string };
+  error: {
+    code: ApiErrorCode;
+    message: string;
+    /** Pool refusals (`pool_*` codes): what was hit, for the empty and cap-reached states. */
+    pool?: PoolBlockDetails;
+    /** 403 `pool_consent_required`: the notice version to acknowledge (`POST /api/pool/consent`). */
+    consent?: PoolConsentDetails;
+  };
 }
 
 export type ApiErrorCode =
@@ -116,7 +169,15 @@ export type ApiErrorCode =
   /** 401: no usable API key for the provider (missing, tampered, expired or rotated key cookie). */
   | 'key_required'
   | 'provider_error'
-  | 'internal';
+  | 'internal'
+  /** 402: the community pool can't cover the request right now (`error.pool`). */
+  | 'pool_empty'
+  /** 429: a daily pool cap or rate limit was reached (`error.pool` says which, and when it resets). */
+  | 'pool_cap_reached'
+  /** 403: the current pool notice must be acknowledged first. */
+  | 'pool_consent_required'
+  /** 403: the pool can't be used for this request or by this account. */
+  | 'pool_unavailable';
 
 export interface MeResponse {
   /** Signed-in user's email; null only in dev bypass mode. */
@@ -164,6 +225,12 @@ export interface MeResponse {
    * answers 402 `membership_required`.
    */
   membership: MembershipInfo;
+  /**
+   * The "featured learning" wall of conversations users publish. Always false:
+   * only a stub exists (FEATURED_CONVERSATIONS_ENABLED, docs/DEFERRED.md), so
+   * no app renders an entry point.
+   */
+  featuredConversations: false;
 }
 
 /** What the login page offers. Magic links and passkeys are always available once auth is configured. */

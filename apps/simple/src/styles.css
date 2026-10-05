@@ -216,6 +216,19 @@ body {
   gap: 10px;
 }
 
+.pool-card {
+  padding: 14px 18px;
+}
+
+.pool-card h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.pool-card p {
+  margin: 0;
+}
+
 .lessons {
   display: flex;
   flex-direction: column;
@@ -546,6 +559,14 @@ button.crumb:hover {
   border-top: 1px solid var(--border);
   padding: 8px var(--gutter) max(10px, env(safe-area-inset-bottom));
   background: var(--bg);
+}
+
+/* The pool's inline state and the funding switch sit in the composer's column. */
+.composer-dock app-pool-block-notice,
+.composer-dock app-funding-toggle {
+  display: block;
+  max-width: var(--col);
+  margin: 0 auto 8px;
 }
 
 .composer-host {

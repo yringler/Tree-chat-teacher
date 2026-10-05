@@ -14,7 +14,15 @@ export function uniq(prefix: string): string {
 /** A simple (Learn) account `u_<userId>` on credit (the built-in provider), with a fresh user id. */
 export function simpleAccount(userId = uniq('user')): AccountContext {
   const id = `u_${userId}`;
-  return { id, mode: 'simple', userId, billingAccountId: id, builtIn: true, operatorKeys: false };
+  return {
+    id,
+    mode: 'simple',
+    userId,
+    billingAccountId: id,
+    builtIn: true,
+    operatorKeys: false,
+    funding: 'personal',
+  };
 }
 
 /** The same user's power account `p_<userId>`, on the same ledger, with the built-in provider. */
@@ -26,6 +34,7 @@ export function powerAccount(userId = uniq('user')): AccountContext {
     billingAccountId: `u_${userId}`,
     builtIn: true,
     operatorKeys: false,
+    funding: 'personal',
   };
 }
 
@@ -38,6 +47,7 @@ export function devPowerAccount(overrides: Partial<AccountContext> = {}): Accoun
     billingAccountId: 'default_simple',
     builtIn: true,
     operatorKeys: true,
+    funding: 'personal',
     ...overrides,
   };
 }
@@ -147,6 +157,14 @@ export interface UsageRow {
   output_tokens: number | null;
   created_at: string;
   settled_at: string | null;
+  branch_id: string | null;
+  user_id: string | null;
+  funding: 'personal' | 'pool';
+  ip_key: string | null;
+  tier: 'free' | 'supporter' | null;
+  overage_micros: number;
+  settle_reason: string | null;
+  dispatched_at: string | null;
 }
 
 export async function usageRows(env: AppEnv, accountId: string): Promise<UsageRow[]> {

@@ -8,9 +8,16 @@ import {
   type RenderedPrompt,
   type SummaryRequest,
 } from '@tangent/shared';
+import { MESSAGE_OVERHEAD_TOKENS, type TokenEstimator } from '../tokens.js';
 
 export interface RenderOptions {
   supportsSystemPrompt: boolean;
+  /**
+   * Render anchor quotes as quoted user-turn text instead of system sections
+   * (the community pool, whose system channel holds only its locked prompt
+   * and summaries). Default false.
+   */
+  anchorsAsUserText?: boolean;
 }
 
 export const SUMMARY_HEADING = '## Summary of the earlier conversation';
@@ -20,7 +27,8 @@ export const CONTINUATION_MESSAGE = '(Conversation continues.)';
 /**
  * Plan → provider-agnostic prompt.
  * - system: tree system prompt, system nodes, summaries and anchor quotes, in
- *   segment order, as labelled sections;
+ *   segment order, as labelled sections (anchor quotes join the messages as
+ *   user text instead with `anchorsAsUserText`);
  * - messages: ancestor + branch message segments in order; consecutive
  *   same-role messages are merged; a leading assistant message gets a
  *   synthetic user message in front so the list starts with `user`;
@@ -41,14 +49,13 @@ export function renderPlan(plan: ContextPlan, options: RenderOptions): RenderedP
           systemParts.push(`${SUMMARY_HEADING}\n\n${seg.text}`);
         break;
       case 'anchor':
-        systemParts.push(`${ANCHOR_HEADING}\n\n${seg.text}`);
+        if (options.anchorsAsUserText) pushMessage(messages, 'user', quotedAnchor(seg.text));
+        else systemParts.push(`${ANCHOR_HEADING}\n\n${seg.text}`);
         break;
       case 'ancestor':
       case 'branch': {
         if (seg.text.trim() === '') break;
-        const last = messages.at(-1);
-        if (last && last.role === seg.role) last.content = `${last.content}\n\n${seg.text}`;
-        else messages.push({ role: seg.role, content: seg.text });
+        pushMessage(messages, seg.role, seg.text);
         break;
       }
     }
@@ -66,6 +73,18 @@ export function renderPlan(plan: ContextPlan, options: RenderOptions): RenderedP
   return { system: null, messages };
 }
 
+/** Appends a message, merging it into the last one when the role repeats. */
+function pushMessage(messages: ChatMessage[], role: ChatMessage['role'], text: string): void {
+  const last = messages.at(-1);
+  if (last && last.role === role) last.content = `${last.content}\n\n${text}`;
+  else messages.push({ role, content: text });
+}
+
+/** An anchor quote as user text: quoted, so it reads as material, not instructions. */
+function quotedAnchor(text: string): string {
+  return `${ANCHOR_HEADING}\n\n<excerpt>\n${text}\n</excerpt>`;
+}
+
 function serializeTranscript(messages: readonly ChatMessage[]): string {
   return messages
     .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
@@ -79,18 +98,90 @@ const SUMMARY_SYSTEM =
   'Bullet points are fine. Do not invent anything that is not in the conversation. ' +
   'Keep it under about 300 words and output only the summary.';
 
-/** Prompt used to generate a branch/compaction summary for `request`. */
-export function buildSummaryPrompt(request: SummaryRequest): RenderedPrompt {
+/** A hard bound on a summary prompt's size (see `buildSummaryPrompt`). */
+export interface SummaryInputLimit {
+  maxInputTokens: number;
+  estimateTokens: TokenEstimator;
+}
+
+/** Marks the start of a transcript whose oldest part was cut to fit the limit. */
+export const CLIPPED_TRANSCRIPT_MARKER = '[Earlier part of the conversation omitted]\n…';
+/** Share of the input limit an excerpt (anchor quote) may take; the rest is for the transcript. */
+const MAX_FOCUS_SHARE = 0.25;
+
+function summaryPrompt(transcript: string, focus: string | null): RenderedPrompt {
   let system = SUMMARY_SYSTEM;
   let instruction = 'Summarize the conversation above so it can be continued in a new thread.';
-  if (request.focus !== null && request.focus.trim() !== '') {
+  if (focus !== null && focus.trim() !== '') {
     system +=
       ' The user is branching off to focus on a specific excerpt; emphasize what is relevant to it ' +
       'while keeping the context needed to understand it.';
-    instruction += `\n\nThe new thread focuses on this excerpt:\n\n<excerpt>\n${request.focus}\n</excerpt>`;
+    instruction += `\n\nThe new thread focuses on this excerpt:\n\n<excerpt>\n${focus}\n</excerpt>`;
   }
-  const content = `<conversation>\n${serializeTranscript(request.transcript)}\n</conversation>\n\n${instruction}`;
+  const content = `<conversation>\n${transcript}\n</conversation>\n\n${instruction}`;
   return { system, messages: [{ role: 'user', content }] };
+}
+
+function promptTokens(prompt: RenderedPrompt, estimate: TokenEstimator): number {
+  let total = prompt.system === null ? 0 : estimate(prompt.system);
+  for (const m of prompt.messages) total += estimate(m.content) + MESSAGE_OVERHEAD_TOKENS;
+  return total;
+}
+
+/** The longest prefix (`fromEnd` false) or suffix of `text` for which `fits` holds ('' if none). */
+function longestFitting(text: string, fromEnd: boolean, fits: (part: string) => boolean): string {
+  const cut = (n: number): string => {
+    if (n <= 0) return '';
+    let start = fromEnd ? text.length - n : 0;
+    let end = fromEnd ? text.length : n;
+    // Never split a surrogate pair.
+    if (fromEnd && /[\uDC00-\uDFFF]/.test(text[start] ?? '')) start++;
+    if (!fromEnd && /[\uD800-\uDBFF]/.test(text[end - 1] ?? '')) end--;
+    return text.slice(start, end);
+  };
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (fits(cut(mid))) lo = mid;
+    else hi = mid - 1;
+  }
+  return cut(lo);
+}
+
+/**
+ * Prompt used to generate a branch/compaction summary for `request`. With a
+ * `limit` the whole prompt, measured with its estimator, never exceeds
+ * `limit.maxInputTokens`: the excerpt keeps its start (at most a quarter of
+ * the limit) and the transcript keeps its most recent part. null when even
+ * the instructions alone do not fit.
+ */
+export function buildSummaryPrompt(request: SummaryRequest): RenderedPrompt;
+export function buildSummaryPrompt(
+  request: SummaryRequest,
+  limit: SummaryInputLimit | undefined,
+): RenderedPrompt | null;
+export function buildSummaryPrompt(
+  request: SummaryRequest,
+  limit?: SummaryInputLimit,
+): RenderedPrompt | null {
+  const transcript = serializeTranscript(request.transcript);
+  const full = summaryPrompt(transcript, request.focus);
+  if (!limit) return full;
+  const { maxInputTokens: max, estimateTokens: estimate } = limit;
+  const fits = (prompt: RenderedPrompt): boolean => promptTokens(prompt, estimate) <= max;
+  if (fits(full)) return full;
+
+  let focus = request.focus;
+  if (focus !== null && estimate(focus) > max * MAX_FOCUS_SHARE) {
+    focus = `${longestFitting(focus, false, (part) => estimate(part) <= max * MAX_FOCUS_SHARE - 1)}…`;
+  }
+  if (fits(summaryPrompt(transcript, focus))) return summaryPrompt(transcript, focus);
+  if (!fits(summaryPrompt(CLIPPED_TRANSCRIPT_MARKER, focus))) return null;
+  const tail = longestFitting(transcript, true, (part) =>
+    fits(summaryPrompt(`${CLIPPED_TRANSCRIPT_MARKER}${part}`, focus)),
+  );
+  return summaryPrompt(`${CLIPPED_TRANSCRIPT_MARKER}${tail}`, focus);
 }
 
 const choices = (values: Readonly<Record<string, string>>): string =>

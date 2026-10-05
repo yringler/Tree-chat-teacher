@@ -17,6 +17,7 @@ const MEMBERSHIP_PRICE = 'price_test_membership';
 const env = {
   ...(rawEnv as unknown as AppEnv),
   BETTER_AUTH_SECRET: 'test-secret-test-secret-test-secret-0123',
+  ANNUAL_FEE_ENABLED: 'true',
   STRIPE_MEMBERSHIP_PRICE_ID: MEMBERSHIP_PRICE,
 } as AppEnv;
 

@@ -27,6 +27,7 @@ const CODE = 'friends-of-tangent';
 /** The membership sold and required (vitest.config.ts leaves it off), with a waiver code. */
 const memberEnv: AppEnv = {
   ...env,
+  ANNUAL_FEE_ENABLED: 'true',
   STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership',
   MEMBERSHIP_WAIVER_CODE: CODE,
 };

@@ -8,27 +8,29 @@ import {
   type BillingSummary,
   type CheckoutResponse,
   type PurchaseInfo,
+  type PurchaseTarget,
   type UsageEntry,
   type UsageListResponse,
   type UsagePurpose,
 } from '@tangent/shared';
 import { isMetered, type AccountContext, type AppEnv } from '../env.js';
-import { builtInAvailable } from '../services.js';
+import { builtInAvailable, personalCreditReady } from '../services.js';
 import { getBalance } from './ledger.js';
 import { membershipFor } from './membership.js';
 import { billingConfigured, ensureStripeCustomer, getStripe } from './stripe.js';
-import { intVar } from './vars.js';
+import { appConfig } from '../config.js';
 
-export const DEFAULT_USAGE_HOLD_MICROS = 20_000;
-export const DEFAULT_USAGE_MAX_PENDING = 3;
-export const DEFAULT_MARKUP_BPS = 1000;
-/** OpenRouter's fee on credit purchases (5.5%; higher for top-ups under ~$15, see README). */
-export const DEFAULT_OPENROUTER_FEE_BPS = 550;
+export {
+  DEFAULT_MARKUP_BPS,
+  DEFAULT_OPENROUTER_FEE_BPS,
+  DEFAULT_USAGE_HOLD_MICROS,
+  DEFAULT_USAGE_MAX_PENDING,
+} from '../config.js';
 export const MAX_USAGE_PAGE = 100;
 
 /** Per-call hold and minimum available balance (`USAGE_HOLD_MICROS`). */
 export function usageHoldMicros(env: AppEnv): number {
-  return intVar(env.USAGE_HOLD_MICROS, DEFAULT_USAGE_HOLD_MICROS);
+  return appConfig(env).billing.usageHoldMicros;
 }
 
 /**
@@ -37,12 +39,12 @@ export function usageHoldMicros(env: AppEnv): number {
  * at most this many calls, each within the built-in provider's token caps.
  */
 export function usageMaxPending(env: AppEnv): number {
-  return intVar(env.USAGE_MAX_PENDING, DEFAULT_USAGE_MAX_PENDING);
+  return appConfig(env).billing.usageMaxPending;
 }
 
 /** OpenRouter's credit-purchase fee in bps (`OPENROUTER_FEE_BPS`), part of the provider cost. */
 export function openRouterFeeBps(env: AppEnv): number {
-  return intVar(env.OPENROUTER_FEE_BPS, DEFAULT_OPENROUTER_FEE_BPS);
+  return appConfig(env).billing.openRouterFeeBps;
 }
 
 /**
@@ -51,7 +53,7 @@ export function openRouterFeeBps(env: AppEnv): number {
  * else 1000 (+10%). The same for every user: there are no plan discounts.
  */
 export function markupFor(env: AppEnv): number {
-  return intVar(env.MARKUP_BPS, intVar(env.MARKUP_PREPAID_BPS, DEFAULT_MARKUP_BPS));
+  return appConfig(env).billing.markupBps;
 }
 
 function notConfigured(): DomainError {
@@ -72,7 +74,7 @@ export async function assertCanSpend(
   providerId: string,
 ): Promise<void> {
   if (!isMetered(account, providerId)) return;
-  if (!billingConfigured(env)) throw notConfigured();
+  if (!personalCreditReady(env)) throw notConfigured();
   const { balanceMicros, heldMicros, pendingCalls } = await getBalance(
     env.DB,
     account.billingAccountId,
@@ -116,6 +118,11 @@ async function lastPurchase(env: AppEnv, accountId: string): Promise<PurchaseInf
   };
 }
 
+/** One-time credit purchases (top-ups, and funding the pool) can be sold: Stripe and its credits product are set up. */
+export function topUpsEnabled(env: AppEnv): boolean {
+  return billingConfigured(env) && !!env.STRIPE_CREDITS_PRODUCT_ID?.trim();
+}
+
 export async function getBillingSummary(
   env: AppEnv,
   account: AccountContext,
@@ -129,7 +136,7 @@ export async function getBillingSummary(
     enabled: billingConfigured(env),
     membership,
     builtInCredit: builtInAvailable(env),
-    topUpsEnabled: billingConfigured(env) && !!env.STRIPE_CREDITS_PRODUCT_ID?.trim(),
+    topUpsEnabled: topUpsEnabled(env),
     currency: 'usd',
     balanceMicros,
     heldMicros,
@@ -215,24 +222,33 @@ export async function listUsage(
 /**
  * The page Stripe Checkout returns to: the billing page of the app the
  * checkout started from (`/billing` in power, `/learn/billing` in Learn).
+ * A pool purchase adds `target=pool`, so the page waits for the pool's
+ * balance instead of the buyer's.
  */
 export function checkoutReturnUrl(
   baseUrl: string,
   account: AccountContext,
   outcome: 'success' | 'cancel',
+  target: PurchaseTarget = 'personal',
 ): string {
   const base = baseUrl.replace(/\/+$/, '');
   const page = account.mode === 'simple' ? '/learn/billing' : '/billing';
-  return `${base}${page}?checkout=${outcome}`;
+  return `${base}${page}?checkout=${outcome}${target === 'pool' ? '&target=pool' : ''}`;
 }
 
-/** Creates a Stripe Checkout Session (mode `payment`) for a credit top-up, in either mode. */
+/**
+ * Creates a Stripe Checkout Session (mode `payment`) for a credit purchase, in
+ * either mode: a top-up of the user's own credit, or (`target` `pool`, checked
+ * by billing/purchases.ts) credit for the community pool. The metadata names
+ * the target, the ledger credited and the buyer, for the webhook.
+ */
 export async function createCreditCheckout(
   env: AppEnv,
   account: AccountContext,
   user: { id: string; email: string; name: string },
   amountCents: number,
   baseUrl: string,
+  target: PurchaseTarget = 'personal',
 ): Promise<CheckoutResponse> {
   if (
     !Number.isInteger(amountCents) ||
@@ -248,9 +264,15 @@ export async function createCreditCheckout(
   if (!billingConfigured(env) || !stripe || !productId) throw notConfigured();
 
   const customer = await ensureStripeCustomer(env, user);
-  // The user's ledger, whichever app the top-up was bought from.
-  const accountId = account.billingAccountId;
-  const metadata = { kind: 'credits', accountId, amountCents: String(amountCents) };
+  // The user's ledger, whichever app the top-up was bought from; or the pool's.
+  const accountId = target === 'pool' ? appConfig(env).pool.accountId : account.billingAccountId;
+  const metadata = {
+    kind: 'credits',
+    target,
+    accountId,
+    userId: user.id,
+    amountCents: String(amountCents),
+  };
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
     customer,
@@ -271,10 +293,10 @@ export async function createCreditCheckout(
     ],
     client_reference_id: accountId,
     metadata,
-    // Lets refunds (charge.refunded) find the account and the pre-tax share.
+    // Lets refunds and disputes find the account, the buyer and the pre-tax share.
     payment_intent_data: { metadata },
-    success_url: checkoutReturnUrl(baseUrl, account, 'success'),
-    cancel_url: checkoutReturnUrl(baseUrl, account, 'cancel'),
+    success_url: checkoutReturnUrl(baseUrl, account, 'success', target),
+    cancel_url: checkoutReturnUrl(baseUrl, account, 'cancel', target),
   });
   if (!session.url) throw new Error('Stripe returned a Checkout Session without a URL');
   return { url: session.url };

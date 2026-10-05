@@ -1,5 +1,12 @@
 import { inject, Injectable } from '@angular/core';
 import type {
+  AdminCreditRequest,
+  AdminCreditResponse,
+  AdminPoolResponse,
+  AdminPoolTopic,
+  AdminPoolTopicDecision,
+  AdminPoolTopicsResponse,
+  AdminPoolUsageResponse,
   AdminStatusResponse,
   AdminUser,
   AdminUsersResponse,
@@ -8,6 +15,7 @@ import type {
   BillingSummary,
   Branch,
   CheckoutResponse,
+  CreateCheckoutRequest,
   ContextPlanResponse,
   CreateBranchRequest,
   CreateShareRequest,
@@ -18,7 +26,17 @@ import type {
   MembershipInfo,
   MembershipWaiverRequest,
   MeResponse,
+  PoolBlockDetails,
+  PoolConsentDetails,
+  PoolConsentRequest,
+  PoolConsentResponse,
+  PoolImpactResponse,
+  PoolImpactWeeksResponse,
+  PoolMeResponse,
+  PoolStatusResponse,
   ProviderInfo,
+  PoolTopicReviewStatus,
+  PurchaseTarget,
   ReviewRequest,
   SendMessageRequest,
   SettingsResponse,
@@ -37,12 +55,18 @@ import type {
 } from '@tangent/shared';
 import { API_FETCH, API_HEADERS, defaultApiFetch } from './api-fetch';
 
-/** Thrown for every non-2xx API response (and for network failures, with status 0). */
+/**
+ * Thrown for every non-2xx API response (and for network failures, with
+ * status 0). `pool` carries what a community pool refusal hit (`pool_*` codes);
+ * `consent` the pool notice version to acknowledge (`pool_consent_required`).
+ */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: ApiErrorCode | 'network',
     message: string,
+    readonly pool: PoolBlockDetails | null = null,
+    readonly consent: PoolConsentDetails | null = null,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -126,9 +150,55 @@ export class ApiClient {
     return this.json('GET', qs ? `/billing/usage?${qs}` : '/billing/usage');
   }
 
-  /** Starts a one-time credit top-up; resolves with the Stripe Checkout URL to send the browser to. */
-  createCheckout(amountCents: number): Promise<CheckoutResponse> {
-    return this.json('POST', '/billing/checkout', { amountCents });
+  /**
+   * Starts a one-time credit purchase, for the caller (`personal`, a top-up)
+   * or for the community pool; resolves with the Stripe Checkout URL to send
+   * the browser to.
+   */
+  createCheckout(
+    amountCents: number,
+    target: PurchaseTarget = 'personal',
+  ): Promise<CheckoutResponse> {
+    return this.json('POST', '/billing/checkout', {
+      amountCents,
+      ...(target === 'pool' ? { target } : {}),
+    } satisfies CreateCheckoutRequest);
+  }
+
+  // The community pool
+
+  /** The pool meter (public; cached for a minute). */
+  poolStatus(): Promise<PoolStatusResponse> {
+    return this.json('GET', '/pool/status');
+  }
+
+  /** The caller's caps and use of the pool today. */
+  poolMe(): Promise<PoolMeResponse> {
+    return this.json('GET', '/pool/me');
+  }
+
+  /**
+   * A weekly impact snapshot of the pool (public): `week` (`YYYY-MM-DD`, its
+   * Monday) or the latest. 404 `not_found` when there is none yet.
+   */
+  poolImpact(week?: string): Promise<PoolImpactResponse> {
+    return this.json(
+      'GET',
+      week ? `/pool/impact?${new URLSearchParams({ week }).toString()}` : '/pool/impact',
+    );
+  }
+
+  /** The weeks with an impact snapshot, newest first (public). */
+  poolImpactWeeks(): Promise<PoolImpactWeeksResponse> {
+    return this.json('GET', '/pool/impact/weeks');
+  }
+
+  /**
+   * Acknowledges the pool notice at `version` (the one shown); a version that
+   * is no longer current is 409 `conflict`.
+   */
+  poolConsent(version: number): Promise<PoolConsentResponse> {
+    return this.json('POST', '/pool/consent', { version } satisfies PoolConsentRequest);
   }
 
   /**
@@ -263,6 +333,40 @@ export class ApiClient {
     return this.json('PATCH', `/admin/users/${enc(userId)}`, req);
   }
 
+  /** The community pool's balance, holds and overage breaker state. */
+  adminPool(): Promise<AdminPoolResponse> {
+    return this.json('GET', '/admin/pool');
+  }
+
+  /**
+   * Credits (or debits) a user's personal ledger or the pool without Stripe:
+   * an adjustment, or a simulated purchase where DEV_PURCHASES_ENABLED allows
+   * it. Idempotent on `idempotencyKey`.
+   */
+  adminCredit(req: AdminCreditRequest): Promise<AdminCreditResponse> {
+    return this.json('POST', '/admin/credit', req);
+  }
+
+  /** Pool consumption per user over the last `days`, most spend first, and today's busiest networks. */
+  adminPoolUsage(days?: number): Promise<AdminPoolUsageResponse> {
+    return this.json('GET', days ? `/admin/pool/usage?days=${days}` : '/admin/pool/usage');
+  }
+
+  /** The impact feed's review queue (`pending`, the default) or the decided topics. */
+  adminPoolTopics(status?: PoolTopicReviewStatus): Promise<AdminPoolTopicsResponse> {
+    return this.json('GET', status ? `/admin/pool/topics?status=${status}` : '/admin/pool/topics');
+  }
+
+  /** Approves (named from the next weekly snapshot on) or rejects a queued topic. */
+  decideAdminPoolTopic(
+    topicId: string,
+    decision: AdminPoolTopicDecision['decision'],
+  ): Promise<AdminPoolTopic> {
+    return this.json('POST', `/admin/pool/topics/${enc(topicId)}`, {
+      decision,
+    } satisfies AdminPoolTopicDecision);
+  }
+
   adminUserShares(userId: string): Promise<ShareSummary[]> {
     return this.json('GET', `/admin/users/${enc(userId)}/shares`);
   }
@@ -356,7 +460,13 @@ export class ApiClient {
       // Not JSON (e.g. a proxy error page).
     }
     if (isErrorBody(parsed))
-      return new ApiError(res.status, parsed.error.code, parsed.error.message);
+      return new ApiError(
+        res.status,
+        parsed.error.code,
+        parsed.error.message,
+        parsed.error.pool ?? null,
+        parsed.error.consent ?? null,
+      );
     return new ApiError(res.status, fallbackCode(res.status), `${res.status} ${res.statusText}`);
   }
 }
@@ -374,4 +484,24 @@ export function isPaymentRequired(err: unknown): boolean {
 /** True for a 402 `membership_required` ApiError (generating needs the yearly membership). */
 export function isMembershipRequired(err: unknown): boolean {
   return err instanceof ApiError && err.code === 'membership_required';
+}
+
+/** True for a 402 `pool_empty`: the community pool can't cover a request right now. */
+export function isPoolEmpty(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.code === 'pool_empty';
+}
+
+/** True for a 429 `pool_cap_reached`: a daily pool cap or per-minute limit (`err.pool` says which). */
+export function isPoolCapReached(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.code === 'pool_cap_reached';
+}
+
+/** True for a 403 `pool_consent_required`: the current pool notice must be acknowledged first. */
+export function isPoolConsentRequired(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.code === 'pool_consent_required';
+}
+
+/** True for a 403 `pool_unavailable`: this request or account can't use the pool (`err.pool?.reason`). */
+export function isPoolUnavailable(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.code === 'pool_unavailable';
 }

@@ -24,26 +24,29 @@ import {
   membershipStatusText,
 } from './membership';
 import { MembershipCodeForm } from './membership-code-form';
+import { PoolFundSection } from '../pool/pool-fund-section';
 
 const PURPOSE_LABELS: Record<UsagePurpose, string> = {
   reply: 'Reply',
   summary: 'Summary',
   title: 'Title',
   review: 'Review',
+  tagging: 'Topic tag',
   other: 'Other',
 };
 
 /**
  * The billing page of both apps (`/learn/billing`, `/billing`): the yearly
  * membership, credit for the built-in provider (balance, top-ups, recent
- * usage) and the Stripe customer portal; each section only where it applies.
- * Stripe sends the browser back with `?checkout=success|cancel` (bound as
- * the `checkout` input when the router has component input binding,
- * otherwise read from the route). Styles: `.billing-*` in base.css.
+ * usage), the Stripe customer portal, and funding the community pool
+ * (PoolFundSection); each section only where it applies. Stripe sends the
+ * browser back with `?checkout=success|cancel`, plus `&target=pool` after a
+ * pool purchase (bound as the `checkout` and `target` inputs when the router
+ * has component input binding, otherwise read from the route). Styles: `.billing-*` in base.css.
  */
 @Component({
   selector: 'app-billing-page',
-  imports: [DatePipe, Icon, MembershipCodeForm, RouterLink],
+  imports: [DatePipe, Icon, MembershipCodeForm, PoolFundSection, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'billing-page', '(window:pageshow)': 'onPageShow($event)' },
   template: `
@@ -239,7 +242,7 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
             </section>
           }
         } @else if (!s.membership.required) {
-          <p class="notice">There is nothing to pay for on this server.</p>
+          <p class="notice">Nothing on this server requires payment.</p>
         }
 
         @if (ctl.actionError(); as e) {
@@ -328,6 +331,8 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
     } @else {
       <p class="muted">Loading…</p>
     }
+
+    <app-pool-fund-section [funded]="poolFunded" />
   `,
 })
 export class BillingPage implements OnInit, OnDestroy {
@@ -342,6 +347,8 @@ export class BillingPage implements OnInit, OnDestroy {
   readonly billingPath = input('/billing');
   /** `?checkout=success|cancel` when the router binds query params to inputs. */
   readonly checkout = input<string | undefined>();
+  /** `?target=pool`: the checkout was a pool purchase. */
+  readonly target = input<string | undefined>();
 
   /** The demo can't buy anything: top-ups, Subscribe and the portal are off. */
   protected readonly demo = inject(DEMO_MODE);
@@ -366,9 +373,17 @@ export class BillingPage implements OnInit, OnDestroy {
     }
   }
 
+  /** Back from a paid pool checkout: the fund section waits for the pool, not this page for credit. */
+  protected poolFunded = false;
+
   ngOnInit(): void {
-    const checkout = this.checkout() ?? this.route?.snapshot.queryParamMap.get('checkout');
-    void this.ctl.init(checkout);
+    const query = this.route?.snapshot.queryParamMap;
+    const checkout = this.checkout() ?? query?.get('checkout');
+    const target = this.target() ?? query?.get('target');
+    this.poolFunded = checkout === 'success' && target === 'pool';
+    // A paid pool checkout only clears the parameters; the fund section shows the outcome.
+    void this.ctl.init(this.poolFunded ? null : checkout);
+    if (this.poolFunded) this.clearCheckoutParam();
   }
 
   ngOnDestroy(): void {
@@ -445,7 +460,7 @@ export class BillingPage implements OnInit, OnDestroy {
     if (this.router && this.route) {
       void this.router.navigate([], {
         relativeTo: this.route,
-        queryParams: { checkout: null },
+        queryParams: { checkout: null, target: null },
         queryParamsHandling: 'merge',
         replaceUrl: true,
       });
@@ -453,6 +468,7 @@ export class BillingPage implements OnInit, OnDestroy {
     }
     const url = new URL(location.href);
     url.searchParams.delete('checkout');
+    url.searchParams.delete('target');
     history.replaceState(history.state, '', url);
   }
 }

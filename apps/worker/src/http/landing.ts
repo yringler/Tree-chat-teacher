@@ -1,9 +1,21 @@
 import { escapeHtml } from '@tangent/render';
+import {
+  formatMicros,
+  POOL_EMPTY_TEXT,
+  poolMarginText,
+  poolSessionsHeadline,
+  poolWeekText,
+  type PoolImpactResponse,
+  type PoolStatusResponse,
+} from '@tangent/shared';
 import { Hono, type Context } from 'hono';
 import { authBaseUrl, authConfigured } from '../auth/auth.js';
 import type { AppBindings, AppEnv } from '../env.js';
+import { latestImpactForPage, renderImpactBlock } from './impact-block.js';
 import { copyrightNotice, legalInfo } from './legal-info.js';
 import { LEARN_APP_CSP, LEARN_COMMON_HEADERS } from './learn-app.js';
+import { cachedPoolStatus } from '../pool/status.js';
+import { waitUntilOf } from '../routes/pool.js';
 
 /**
  * Better Auth's session cookie (`cookiePrefix: 'tangent'` in auth/auth.ts),
@@ -92,6 +104,18 @@ h2{margin:0 0 8px;font-size:clamp(1.4rem,4vw,1.85rem);line-height:1.2;letter-spa
 .mode li{margin:0 0 6px}
 .mode li::marker{color:var(--accent)}
 .mode.learn{border-color:var(--accent);box-shadow:var(--shadow)}
+.pool{display:grid;gap:20px;padding:24px;border:1px solid var(--accent);border-radius:14px;background:var(--bg-elev);box-shadow:var(--shadow)}
+.pool .meter{margin:0;font-size:clamp(1.5rem,5vw,2rem);font-weight:700;line-height:1.2}
+.pool .meter small{display:block;margin-top:4px;color:var(--muted);font-size:1rem;font-weight:500}
+.pool .week{margin:0;color:var(--muted)}
+.pool .fee{margin:0;color:var(--muted);font-size:.88rem}
+.pool .ctas{margin:0}
+.impact{display:grid;gap:8px}
+.impact p{margin:0}
+.impact .head{font-weight:600}
+.impact .depth,.impact .note{color:var(--muted)}
+.impact .topics{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 0;padding:0;list-style:none}
+.impact .topics li{padding:4px 10px;border:1px solid var(--border);border-radius:999px;background:var(--accent-soft);font-size:.9rem}
 footer{padding:32px 0 48px;border-top:1px solid var(--border);color:var(--muted);font-size:.9rem}
 footer .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px}
 footer nav{display:flex;flex-wrap:wrap;gap:18px}
@@ -137,6 +161,40 @@ export interface LandingPageOptions {
   operator: string;
   /** Share links are offered to everyone (DMCA_AGENT_REGISTERED); otherwise only export is advertised. */
   sharing: boolean;
+  /** The community pool's meter; absent when the pool is off or couldn't be read. */
+  pool?: PoolStatusResponse;
+  /** The pool's latest weekly impact snapshot; absent when there is none (or the pool is off). */
+  impact?: PoolImpactResponse;
+}
+
+/** Topics the landing page names at most; `/pool` lists them all. */
+const LANDING_IMPACT_TOPICS = 12;
+
+/**
+ * The community pool section: the meter, this week's counts, the latest
+ * weekly impact snapshot when there is one, and how to fund it.
+ */
+function poolSection(pool: PoolStatusResponse, impact?: PoolImpactResponse): string {
+  const meter =
+    pool.sessionsRemaining > 0
+      ? `<p class="meter">${escapeHtml(poolSessionsHeadline(pool.sessionsRemaining))} left<small>${escapeHtml(formatMicros(pool.availableMicros))} in the pool</small></p>`
+      : `<p class="meter">${escapeHtml(POOL_EMPTY_TEXT)}<small>${escapeHtml(formatMicros(pool.availableMicros))} in the pool</small></p>`;
+  const fund = pool.fundingOpen
+    ? '<a class="btn primary" href="/learn/billing#fund-pool">Fund the pool</a>'
+    : '<span class="btn" aria-disabled="true">Funding opens soon</span>';
+  return `<section aria-labelledby="pool">
+<div class="wrap">
+<h2 id="pool">The community pool</h2>
+<p class="sub">Credit anyone can add and any signed-in learner can use in Learn, on ${escapeHtml(pool.model.label)}, within daily limits. When your own credit runs out, the pool keeps you learning.</p>
+<div class="pool">
+${meter}
+<p class="week">${escapeHtml(poolWeekText(pool.week))}</p>
+${impact ? `${renderImpactBlock(impact, LANDING_IMPACT_TOPICS)}\n` : ''}<div class="ctas">${fund}<a class="btn" href="/pool">How the pool works</a></div>
+<p class="fee">Funding the pool is a credit purchase. ${escapeHtml(poolMarginText(pool.marginBps))}</p>
+</div>
+</div>
+</section>
+`;
 }
 
 const TITLE = 'Tangent: learn by following your curiosity, one branch at a time';
@@ -225,7 +283,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <li>Tangents after every answer, each one a tap away</li>
 <li>Side questions with Ask about this</li>
 <li>Smart and Simple tiers, one toggle</li>
-<li>Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit</li>
+<li>Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit</li>${opts.pool ? '\n<li>Or learn on the community pool, funded by people who add credit to it</li>' : ''}
 </ul>
 <a class="btn primary" href="/learn/login">Start learning</a>
 </article>
@@ -243,11 +301,11 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 </div>
 </div>
 </section>
-</main>
+${opts.pool ? poolSection(opts.pool, opts.impact) : ''}</main>
 <footer>
 <div class="wrap">
 <span>${escapeHtml(copyrightNotice(opts.operator))}</span>
-<nav aria-label="Footer"><a href="/learn/demo">Try the demo</a><a href="/learn/login">Sign in to Learn</a><a href="/login">Power sign in</a><a href="/welcome">About Tangent</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+<nav aria-label="Footer"><a href="/learn/demo">Try the demo</a><a href="/learn/login">Sign in to Learn</a><a href="/login">Power sign in</a><a href="/welcome">About Tangent</a><a href="/pool">Community pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
 </div>
 </footer>
 </body>
@@ -255,7 +313,8 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 `;
 }
 
-async function sha256Base64(text: string): Promise<string> {
+/** Base64 SHA-256 of `text`: a CSP source hash. */
+export async function sha256Base64(text: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   let bin = '';
   for (const b of new Uint8Array(digest)) bin += String.fromCharCode(b);
@@ -291,6 +350,17 @@ export function landingCsp(): Promise<string> {
   return styleCsp(LANDING_STYLE);
 }
 
+/** The pool meter while the pool is on; omitted when it is off or can't be read (the page still renders). */
+async function landingPool(c: Context<AppBindings>): Promise<PoolStatusResponse | undefined> {
+  try {
+    const status = await cachedPoolStatus(c.env, waitUntilOf(c));
+    return status.enabled ? status : undefined;
+  } catch (err) {
+    console.warn('Landing page: the pool meter could not be read', err);
+    return undefined;
+  }
+}
+
 /** The landing page; `headers` adds to (or overrides) the common ones. */
 async function landingResponse(
   c: Context<AppBindings>,
@@ -298,7 +368,9 @@ async function landingResponse(
 ): Promise<Response> {
   const canonicalUrl = new URL('/', authBaseUrl(c.env, c.req.raw)).toString();
   const { operator, sharing } = legalInfo(c.env, c.req.raw);
-  return new Response(renderLandingPage({ canonicalUrl, operator, sharing }), {
+  const pool = await landingPool(c);
+  const impact = pool ? await latestImpactForPage(c.env) : undefined;
+  return new Response(renderLandingPage({ canonicalUrl, operator, sharing, pool, impact }), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Security-Policy': await landingCsp(),

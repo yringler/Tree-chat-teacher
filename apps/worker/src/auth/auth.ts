@@ -19,8 +19,11 @@ import {
 } from '../db/schema.js';
 import { billingConfigured, getStripe, membershipPriceId } from '../billing/stripe.js';
 import { handleStripeEvent } from '../billing/webhook.js';
+import { appConfig } from '../config.js';
 import { createEmailSender, magicLinkEmail, type EmailSender } from '../email/index.js';
 import type { AppEnv } from '../env.js';
+import { markPoolVerified } from '../pool/identity.js';
+import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnstile.js';
 
 /**
  * Better Auth (https://better-auth.com), mounted at `/api/auth/*`.
@@ -30,8 +33,14 @@ import type { AppEnv } from '../env.js';
  * added from the account dialog once signed in, then work as a sign-in method.
  *
  * Anyone may sign up; abuse is bounded by Turnstile and the rate limits on
- * magic links. A user needs a verified email (OAuth providers report it, a
- * magic link proves it): unverified users are never created. Each user gets
+ * magic links. While the community pool is on, Turnstile runs on every first
+ * sign-in (docs/pool/PLAN.md §9, D4): a magic link can only be requested with
+ * a Turnstile pass, so signing in with one records it
+ * (`auth_users.pool_verified_at`); a first OAuth sign-in (or any OAuth
+ * sign-in of a user with no pass on record) is sent through the Turnstile
+ * interstitial (http/verify-page.ts) on its way to the app. A user needs a
+ * verified email (OAuth providers report it, a magic link proves it):
+ * unverified users are never created. Each user gets
  * their own accounts (auth/account.ts). Power mode is bring-your-own-key for
  * every signed-in user: the server's provider keys serve only the local dev bypass.
  *
@@ -87,6 +96,15 @@ function isLocalHost(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
 }
 
+/**
+ * The hostname a Turnstile token must have been issued for: this deployment's.
+ * Null (not pinned) on localhost, as Turnstile's test keys report their own.
+ */
+export function turnstileHostname(env: AppEnv, request: Request): string | null {
+  const hostname = new URL(authBaseUrl(env, request)).hostname;
+  return isLocalHost(hostname) ? null : hostname;
+}
+
 function oauthApp(id: string | undefined, secret: string | undefined) {
   const clientId = id?.trim();
   const clientSecret = secret?.trim();
@@ -134,6 +152,38 @@ const NO_OAUTH_TOKENS = {
   accessTokenExpiresAt: null,
   refreshTokenExpiresAt: null,
 };
+
+/**
+ * Turnstile on first sign-in (see `createAuth`), while the community pool is
+ * on. A magic link was requested with a Turnstile pass: the user is recorded
+ * as verified. An OAuth callback
+ * of a user with no pass on record is redirected through the interstitial,
+ * which continues to where the callback was going. Passkeys need a session to
+ * be added, so they never sign a user in for the first time.
+ */
+async function recordFirstSignInCheck(
+  env: AppEnv,
+  origin: string,
+  path: string | undefined,
+  user: { id: string; email: string },
+  headers: Headers | undefined,
+): Promise<void> {
+  // Only while the pool is on: it is what the record is for (pool/identity.ts).
+  if (!appConfig(env).flags.poolEnabled) return;
+  if (path === '/magic-link/verify') {
+    await markPoolVerified(env.DB, user.id, user.email);
+    return;
+  }
+  if (!path?.startsWith('/callback/') || !headers || !turnstileConfigured(env)) return;
+  const location = headers.get('location');
+  if (!location) return;
+  const row = await env.DB.prepare('SELECT pool_verified_at FROM auth_users WHERE id = ?')
+    .bind(user.id)
+    .first<{ pool_verified_at: string | null }>();
+  if (row?.pool_verified_at) return;
+  // The callback's error redirects (`/login?error=…`) carry no session, so this is a sign-in.
+  headers.set('location', verifyPageUrl(safeNextPath(location, origin)));
+}
 
 /** Drops pending `Set-Cookie` entries for `name` so a re-issued cookie is the only one on the wire. */
 function dropSetCookie(headers: Headers | undefined, name: string): void {
@@ -217,6 +267,13 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
         if (!isSignInCompletion(ctx.path)) return;
         const created = ctx.context.newSession;
         if (!created) return;
+        await recordFirstSignInCheck(
+          env,
+          base.origin,
+          ctx.path,
+          created.user,
+          ctx.context.responseHeaders,
+        );
         const remember = ctx.getCookie(REMEMBER_COOKIE) === '1';
         ctx.setCookie(REMEMBER_COOKIE, '', { path: AUTH_BASE_PATH, maxAge: 0 });
         if (remember) return;

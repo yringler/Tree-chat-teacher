@@ -2,14 +2,15 @@ import { computed, inject, Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
 // The tree helpers only: the rest of @tangent/core (the ChatService) is for the lazy demo chunk.
 import { branchChain, branchPath, indexTree, type TreeIndex } from '@tangent/core/tree';
-import type {
-  Branch,
-  ChatNode,
-  ModelInfo,
-  ProviderInfo,
-  StreamEvent,
-  TreeDetail,
-  TreeSummary,
+import {
+  POOL_NOTICE_VERSION,
+  type Branch,
+  type ChatNode,
+  type ModelInfo,
+  type ProviderInfo,
+  type StreamEvent,
+  type TreeDetail,
+  type TreeSummary,
 } from '@tangent/shared';
 import {
   ApiClient,
@@ -17,7 +18,11 @@ import {
   errorMessage,
   isMembershipRequired,
   isPaymentRequired,
+  isPoolConsentRequired,
+  isPoolUnavailable,
+  poolBlockOf,
   runStream,
+  type PoolBlock,
   type StreamOutcome,
 } from '@tangent/web-shared';
 import { AccountStore } from './account-store';
@@ -40,10 +45,21 @@ export interface UnsentDraft {
   text: string;
 }
 
+/**
+ * A message the community pool refused (402 `pool_empty`, 429
+ * `pool_cap_reached`), shown inline in its branch above the composer.
+ */
+export interface LessonPoolBlock extends PoolBlock {
+  branchId: string;
+}
+
 /** The server-side provider of simple accounts (PLAN §2.2); the first provider otherwise. */
 const LEARN_PROVIDER_ID = 'tangent';
 
 export const OUT_OF_CREDIT_MESSAGE = 'Add credit to keep learning';
+/** The pool notice changed since this page loaded: its copy of the text is stale. */
+export const STALE_POOL_NOTICE_MESSAGE =
+  'The community pool notice has changed. Reload the page to read the new one.';
 
 function upsertById<T extends { id: string }>(list: readonly T[], items: readonly T[]): T[] {
   const out = [...list];
@@ -62,7 +78,11 @@ function upsertById<T extends { id: string }>(list: readonly T[], items: readonl
  * asks the server to cancel (the stream then ends with an `error` event),
  * and replies still running when a lesson is opened are re-attached.
  * A 402 `payment_required` (out of credit) sends the learner to the billing
- * page; a 402 `membership_required` shows the membership gate.
+ * page; a 402 `membership_required` shows the membership gate. The community
+ * pool's refusals are states, not errors: empty (402 `pool_empty`) and cap
+ * reached (429 `pool_cap_reached`) show inline in the chat (`poolBlock`),
+ * and a first pool message without a human check on record opens the check.
+ * All of them arrive before the message is written, so it is kept.
  */
 @Injectable({ providedIn: 'root' })
 export class LessonStore {
@@ -97,6 +117,7 @@ export class LessonStore {
   /** Branch whose POST is in flight (before `start` arrives). */
   readonly sendingBranchId = signal<string | null>(null);
   readonly unsentDraft = signal<UnsentDraft | null>(null);
+  readonly poolBlock = signal<LessonPoolBlock | null>(null);
   private readonly controllers = new Map<string, AbortController>();
   private detailSeq = 0;
 
@@ -354,6 +375,7 @@ export class LessonStore {
   async send(branchId: string, content: string): Promise<boolean> {
     this.sendingBranchId.set(branchId);
     if (this.unsentDraft()?.branchId === branchId) this.unsentDraft.set(null);
+    if (this.poolBlock()?.branchId === branchId) this.poolBlock.set(null);
     const ctrl = new AbortController();
     let nodeId: string | null = null;
     try {
@@ -378,9 +400,19 @@ export class LessonStore {
       this.finish(nodeId, outcome);
       return true;
     } catch (err) {
+      const block = poolBlockOf(err);
+      if (block) {
+        // The pool's empty and cap-reached states: inline, never a toast or a navigation.
+        this.unsentDraft.set({ branchId, text: content });
+        this.poolBlock.set({ ...block, branchId });
+        void this.account.refreshPool();
+        return false;
+      }
       if (
         isPaymentRequired(err) ||
         isMembershipRequired(err) ||
+        isPoolUnavailable(err) ||
+        isPoolConsentRequired(err) ||
         (err instanceof ApiError && err.code === 'key_required')
       ) {
         this.unsentDraft.set({ branchId, text: content });
@@ -391,6 +423,42 @@ export class LessonStore {
       if (this.sendingBranchId() === branchId) this.sendingBranchId.set(null);
       if (nodeId) this.controllers.delete(nodeId);
     }
+  }
+
+  dismissPoolBlock(): void {
+    this.poolBlock.set(null);
+  }
+
+  /**
+   * The pool notice was acknowledged (PoolFirstUseDialog): records it at the
+   * version of the text this build shows (`POOL_NOTICE_VERSION`, never the
+   * version the server asked for), then sends the message the pool refused for
+   * want of it, if any. False when it couldn't be recorded (the dialog stays
+   * open). When the server asked for another version, or answers 409, the
+   * notice changed since this page loaded, so this copy of its text is stale.
+   */
+  async acknowledgePoolNotice(): Promise<boolean> {
+    const asked = this.ui.poolConsentVersion();
+    if (asked !== null && asked !== POOL_NOTICE_VERSION) {
+      this.ui.notify(STALE_POOL_NOTICE_MESSAGE, 'error');
+      return false;
+    }
+    try {
+      await this.api.poolConsent(POOL_NOTICE_VERSION);
+    } catch (err) {
+      this.ui.notify(
+        err instanceof ApiError && err.code === 'conflict'
+          ? STALE_POOL_NOTICE_MESSAGE
+          : errorMessage(err),
+        'error',
+      );
+      return false;
+    }
+    this.ui.poolConsentVersion.set(null);
+    void this.account.refreshPool();
+    const draft = this.unsentDraft();
+    if (draft) void this.send(draft.branchId, draft.text);
+    return true;
   }
 
   /** Stop: the server cancels the generation and the stream ends with an `error` event. */
@@ -405,11 +473,22 @@ export class LessonStore {
   /**
    * Reports an error. No membership (402 membership_required) shows the gate;
    * out of credit (402 payment_required) goes to the billing page; a missing
-   * or unreadable own key (401 key_required) opens the payment dialog.
+   * or unreadable own key (401 key_required) opens the payment dialog; a pool
+   * account without a human check on record (403 pool_unavailable, `verify`)
+   * opens the check; one that hasn't acknowledged the current pool notice
+   * (403 pool_consent_required) opens the notice.
    */
   fail(err: unknown): void {
     if (isMembershipRequired(err)) {
       this.account.membershipRequired();
+      return;
+    }
+    if (isPoolUnavailable(err) && err.pool?.reason === 'verify') {
+      this.ui.poolVerifyOpen.set(true);
+      return;
+    }
+    if (isPoolConsentRequired(err)) {
+      this.ui.poolConsentVersion.set(err.consent?.currentVersion ?? POOL_NOTICE_VERSION);
       return;
     }
     if (err instanceof ApiError && err.code === 'key_required') {
@@ -512,6 +591,7 @@ export class LessonStore {
       }
     }
     void this.account.refreshBalance();
+    if (this.account.payment.poolAvailable()) void this.account.refreshPool();
     void this.refreshAfterCompletion();
   }
 

@@ -1,5 +1,7 @@
 // The yearly membership (PLAN §2.3, §13): required to generate in either app
-// once billing and STRIPE_MEMBERSHIP_PRICE_ID are configured. It is the one
+// once ANNUAL_FEE_ENABLED is "true" and billing and STRIPE_MEMBERSHIP_PRICE_ID
+// are configured (docs/pool/PLAN.md S7; the flag ships off, gating, not
+// deleting, everything below). It is the one
 // plan of the Better Auth Stripe plugin (auth/auth.ts), whose `auth_subscriptions`
 // row tells whether it is paid; `auth_users.membership_waived` lets the
 // operator waive the fee per user, and wins over Stripe.
@@ -7,11 +9,10 @@ import { DomainError, MembershipRequiredError } from '@tangent/core';
 import { MEMBERSHIP_PLAN, type MembershipInfo } from '@tangent/shared';
 import type { AccountContext, AppEnv } from '../env.js';
 import { builtInAvailable } from '../services.js';
-import { intVar } from './vars.js';
+import { appConfig } from '../config.js';
 import { billingConfigured, membershipPriceId } from './stripe.js';
 
-export const DEFAULT_MEMBERSHIP_PRICE_CENTS = 1000;
-export const DEFAULT_MEMBERSHIP_CREDIT_CENTS = 200;
+export { DEFAULT_MEMBERSHIP_CREDIT_CENTS, DEFAULT_MEMBERSHIP_PRICE_CENTS } from '../config.js';
 
 /**
  * Subscription statuses that count as a paid membership. `past_due` does:
@@ -20,14 +21,22 @@ export const DEFAULT_MEMBERSHIP_CREDIT_CENTS = 200;
  */
 const ACTIVE_STATUSES = ['active', 'trialing', 'past_due'];
 
-/** True when generating needs a membership: billing and the membership price are configured. */
+/**
+ * True when generating needs a membership: the annual fee is on
+ * (`ANNUAL_FEE_ENABLED`) and billing and the membership price are configured.
+ * Off, `MembershipInfo.required` is false, which hides every gate in the apps.
+ */
 export function membershipRequired(env: AppEnv): boolean {
-  return billingConfigured(env) && membershipPriceId(env) !== null;
+  return (
+    appConfig(env).flags.annualFeeEnabled &&
+    billingConfigured(env) &&
+    membershipPriceId(env) !== null
+  );
 }
 
 /** The yearly price shown to users (`MEMBERSHIP_PRICE_CENTS`; Stripe charges the configured price). */
 export function membershipPriceCents(env: AppEnv): number {
-  return intVar(env.MEMBERSHIP_PRICE_CENTS, DEFAULT_MEMBERSHIP_PRICE_CENTS);
+  return appConfig(env).billing.membershipPriceCents;
 }
 
 /**
@@ -37,7 +46,7 @@ export function membershipPriceCents(env: AppEnv): number {
  */
 export function membershipCreditCents(env: AppEnv): number {
   if (!builtInAvailable(env)) return 0;
-  return intVar(env.MEMBERSHIP_CREDIT_CENTS, DEFAULT_MEMBERSHIP_CREDIT_CENTS);
+  return appConfig(env).billing.membershipCreditCentsRaw;
 }
 
 interface MembershipRow {

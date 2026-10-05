@@ -9,7 +9,9 @@ import {
 import { createMiddleware } from 'hono/factory';
 import { accountIdForUser } from '../billing/stripe.js';
 import type { AccountContext, AppBindings, AppEnv, Identity } from '../env.js';
-import { builtInAvailable } from '../services.js';
+import { ipKey, utcDay } from '../pool/ids.js';
+import { resolvePoolParams } from '../pool/params.js';
+import { builtInAvailable, poolAvailable } from '../services.js';
 
 /** Prefix of power-mode account ids: `p_<Better Auth user id>`. */
 export const POWER_ACCOUNT_PREFIX = 'p_';
@@ -44,11 +46,14 @@ export interface AccountRequest {
   payment: LearnPayment;
 }
 
+const PAYMENTS: ReadonlySet<string> = new Set<LearnPayment>(['own-key', 'credit', 'pool']);
+
 /** Reads MODE_HEADER and PAYMENT_HEADER; anything unexpected means power / own-key. */
 export function accountRequest(headers: Headers): AccountRequest {
+  const payment = headers.get(PAYMENT_HEADER) ?? '';
   return {
     mode: headers.get(MODE_HEADER) === 'simple' ? 'simple' : 'power',
-    payment: headers.get(PAYMENT_HEADER) === 'credit' ? 'credit' : 'own-key',
+    payment: PAYMENTS.has(payment) ? (payment as LearnPayment) : 'own-key',
   };
 }
 
@@ -69,6 +74,15 @@ export function accountRequest(headers: Headers): AccountRequest {
  * isn't offered falls back to the user's own key, which never costs the
  * operator anything. `operatorKeys` (the power configs' server secrets) is
  * the local dev bypass only.
+ *
+ * Funding (`AccountContext.funding`): Learn's `credit` is `personal` where
+ * credit is offered (else `own-key`, as above); `pool` is the community pool,
+ * `builtIn` only while the pool is on (`poolAvailable`) and for a signed-in
+ * user (the dev bypass has no user to cap); `own-key` otherwise. Power is
+ * always `personal` and never uses the pool, whatever the header says. The
+ * pool's parameters are added by `withPoolParams` (they need the caller's
+ * network), and a send whose credit runs out may still move to the pool
+ * (billing/gate.ts `resolveFunding`).
  */
 export function resolveAccount(
   env: AppEnv,
@@ -79,13 +93,17 @@ export function resolveAccount(
   if (!identity.devMode && !userId) throw new DomainError('unauthorized', 'Sign in required');
   const billingAccountId = billingAccountIdFor(userId);
   if (request.mode === 'simple') {
+    const simple = { id: billingAccountId, mode: 'simple', userId, billingAccountId } as const;
+    if (request.payment === 'pool') {
+      const builtIn = userId !== null && poolAvailable(env);
+      return { ...simple, builtIn, operatorKeys: false, funding: 'pool' };
+    }
+    const credit = request.payment === 'credit' && builtInAvailable(env);
     return {
-      id: billingAccountId,
-      mode: 'simple',
-      userId,
-      billingAccountId,
-      builtIn: request.payment === 'credit' && builtInAvailable(env),
+      ...simple,
+      builtIn: credit,
       operatorKeys: false,
+      funding: credit ? 'personal' : 'own-key',
     };
   }
   return {
@@ -95,7 +113,43 @@ export function resolveAccount(
     billingAccountId,
     builtIn: builtInAvailable(env),
     operatorKeys: identity.devMode,
+    funding: 'personal',
   };
+}
+
+/** The caller's network key for the pool's per-network caps; null without an address or a secret. */
+async function poolIpKey(env: AppEnv, ip: string | null, now = new Date()): Promise<string | null> {
+  const secret = env.BETTER_AUTH_SECRET?.trim();
+  if (!secret || !ip?.trim()) return null;
+  return ipKey(secret, utcDay(now), ip);
+}
+
+/**
+ * `account` as the community pool funds it: the pool's parameters resolved
+ * from this request's env and the caller's network (`ip`), `builtIn` while
+ * the pool is on and the caller is signed in. A no-op for power, and for an
+ * account that is not pool-funded and not asked to become so (`toPool`).
+ */
+export async function withPoolParams(
+  env: AppEnv,
+  account: AccountContext,
+  ip: string | null,
+  toPool = false,
+): Promise<AccountContext> {
+  if (account.mode !== 'simple' || (account.funding !== 'pool' && !toPool)) return account;
+  const builtIn = account.userId !== null && poolAvailable(env);
+  if (!builtIn) return { ...account, funding: 'pool', builtIn: false };
+  return {
+    ...account,
+    funding: 'pool',
+    builtIn,
+    pool: resolvePoolParams(env, await poolIpKey(env, ip)),
+  };
+}
+
+/** The address the request comes from (Cloudflare's `cf-connecting-ip`). */
+export function clientIp(headers: Headers): string | null {
+  return headers.get('cf-connecting-ip');
 }
 
 // Account rows known to exist, per D1 binding, for this isolate's lifetime.
@@ -130,7 +184,12 @@ export async function ensureAccountRow(db: D1Database, account: AccountContext):
 
 /** Sets `c.var.account` / `c.var.accountId` for owner routes. Must run after the session middleware. */
 export const accountMiddleware = createMiddleware<AppBindings>(async (c, next) => {
-  const account = resolveAccount(c.env, c.var.identity, accountRequest(c.req.raw.headers));
+  const headers = c.req.raw.headers;
+  const account = await withPoolParams(
+    c.env,
+    resolveAccount(c.env, c.var.identity, accountRequest(headers)),
+    clientIp(headers),
+  );
   await ensureAccountRow(c.env.DB, account);
   c.set('account', account);
   c.set('accountId', account.id);

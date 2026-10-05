@@ -42,7 +42,8 @@
     // /learn*, /canvas* and /admin* do too, for those apps' index.html and CSP (the admin app's
     // only for admins, see ADMIN_USER_IDS). "/welcome" is the
     // landing page, and "/" (exact path) is too for anonymous visitors (src/http/landing.ts).
-    // "/privacy" and "/terms" are the public legal pages (src/http/legal.ts).
+    // "/privacy" and "/terms" are the public legal pages (src/http/legal.ts), "/pool" the
+    // community pool's transparency page (src/http/pool-page.ts).
     "run_worker_first": [
       "/api/*",
       "/s/*",
@@ -55,24 +56,39 @@
       "/",
       "/welcome",
       "/privacy",
-      "/terms"
+      "/terms",
+      "/pool",
+      "/verify"
     ]
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "tangent",
-      // D1 database "tangent" on the owner's account (migrations 0000-0001 applied).
+      // D1 database "tangent" on the owner's account. Apply new migrations (./migrations) with
+      // `pnpm db:migrate:remote` before deploying code that needs them.
       "database_id": "6f9486ed-e5fd-4dfa-b434-10274a650297",
       "migrations_dir": "migrations"
     }
   ],
   "durable_objects": {
-    "bindings": [{ "name": "TREE_SESSION", "class_name": "TreeSession" }]
+    "bindings": [
+      { "name": "TREE_SESSION", "class_name": "TreeSession" },
+      // The community credit pool's bank: serialises every reservation against the pool's
+      // balance, one instance per pool account id (src/pool/pool-bank.ts).
+      { "name": "POOL_BANK", "class_name": "PoolBank" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TreeSession"] }],
-  // Usage reconciliation backstop for simple-mode billing (src/billing/reconcile.ts).
-  "triggers": { "crons": ["*/10 * * * *"] },
+  // Durable Object class migrations: append a new tag, never edit an applied one.
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["TreeSession"] },
+    { "tag": "v2", "new_sqlite_classes": ["PoolBank"] }
+  ],
+  // Every 10 minutes: settles usage the stream couldn't (src/billing/reconcile.ts), expires stale
+  // community pool reservations and maintains the pool's balance checkpoint.
+  // Mondays 04:17 UTC: the community pool's weekly impact snapshot of the ISO week just ended, and
+  // its topic-tag retention (src/pool/impact.ts). src/index.ts dispatches on the cron string.
+  "triggers": { "crons": ["*/10 * * * *", "17 4 * * 1"] },
   "ratelimits": [
     {
       "name": "SHARE_RATE_LIMITER",
@@ -127,8 +143,8 @@
     // OPENROUTER_SIMPLE_API_KEY are set, both apps offer the built-in provider `tangent` on prepaid
     // credit (per user, shared by both apps): Learn as "Use Tangent credit", power as the provider
     // "Tangent credit" with any OpenRouter model. Otherwise everyone brings their own key.
-    // With Stripe and STRIPE_MEMBERSHIP_PRICE_ID set, generating in either app needs the yearly
-    // membership (waivable per user, see MEMBERSHIP_WAIVER_CODE below and the README).
+    // With ANNUAL_FEE_ENABLED "true" and Stripe and STRIPE_MEMBERSHIP_PRICE_ID set, generating in either
+    // app needs the yearly membership (waivable per user, see MEMBERSHIP_WAIVER_CODE below and the README).
     // The suggested OpenRouter models: Learn's Smart / Simple tiers, listed first in power.
     "SIMPLE_SMART_MODEL": "deepseek/deepseek-v4-pro",
     "SIMPLE_FAST_MODEL": "deepseek/deepseek-v4-flash",
@@ -153,15 +169,98 @@
     "MARKUP_BPS": "1000",
     // Stripe product (with a tax code) for one-time credit top-ups.
     "STRIPE_CREDITS_PRODUCT_ID": "",
+    // "true" charges the yearly membership fee: with the price id below set, generating in either app
+    // needs a membership. "false" (default) = nobody needs one, whatever the price id says; any
+    // signed-in user may use the community pool (within its caps) and buy personal credit.
+    "ANNUAL_FEE_ENABLED": "false",
     // Stripe price id of the membership: a yearly recurring price, tax behaviour exclusive. Empty = no
-    // membership (generating needs none); set = required in both apps (Better Auth Stripe plugin plan
-    // "membership").
+    // membership (generating needs none); set = required in both apps while ANNUAL_FEE_ENABLED is
+    // "true" (Better Auth Stripe plugin plan "membership").
     "STRIPE_MEMBERSHIP_PRICE_ID": "",
     // The membership's yearly price in US cents, for display only (Stripe charges the price above).
     "MEMBERSHIP_PRICE_CENTS": "1000",
     // Credit included with each paid membership year, in US cents (200 = $2.00); granted only while
     // the built-in provider is offered. 0 = none.
-    "MEMBERSHIP_CREDIT_CENTS": "200"
+    "MEMBERSHIP_CREDIT_CENTS": "200",
+    // ---- The community credit pool (docs/pool/SPEC.md, src/config.ts). Anyone may fund it; any
+    // signed-in Learn user may learn from it on one economical model, within daily caps. Every value
+    // below is read through src/config.ts; empty or malformed = the default named in the comment.
+    // "true" turns the pool on. Off, nothing spends from it.
+    "POOL_ENABLED": "false",
+    // "true": personal credit (e.g. admin-granted) may be spent before Stripe is configured. With Stripe
+    // configured it always may; empty or "false" = only then.
+    "PERSONAL_CREDIT_ENABLED": "false",
+    // "true" lets admins simulate purchases without Stripe (POST /api/admin/credit, mode
+    // simulated_purchase), for local testing. Keep it "false" in production.
+    "DEV_PURCHASES_ENABLED": "false",
+    // Ledger account id of the pool in credit_grants / usage_events (default "pool").
+    "POOL_ACCOUNT_ID": "pool",
+    // The one model pool replies use; empty = SIMPLE_FAST_MODEL. It must have an entry in the price table.
+    "POOL_MODEL": "",
+    // The locked system prompt of pool replies; empty = SIMPLE_SYSTEM_PROMPT, else the built-in prompt.
+    "POOL_SYSTEM_PROMPT": "",
+    // Margin taken when the pool is funded, in bps (800 = 8%): $10 buys $10 / 1.08 of pool credit.
+    // MARGIN_PERCENT (e.g. "8") is accepted instead while this is empty.
+    "POOL_MARGIN_BPS": "800",
+    // Smallest pool purchase in US cents (1000 = $10), so the margin covers card processing.
+    "POOL_MIN_PURCHASE_CENTS": "1000",
+    // Per-call input and output token caps of pool calls, and the longest message a pool send accepts.
+    "POOL_MAX_INPUT_TOKENS": "16000",
+    "POOL_MAX_OUTPUT_TOKENS": "1024",
+    "POOL_MAX_MESSAGE_CHARS": "4000",
+    // A reservation still pending after this long is expired by the PoolBank alarm (10 min).
+    "POOL_RESERVATION_TTL_MS": "600000",
+    // A dispatched call whose cost is still unknown after this long is charged its full hold (1 h).
+    "POOL_GIVE_UP_MS": "3600000",
+    // Pool calls are aborted after this long (120 s; at most the TTL minus a minute).
+    "POOL_CALL_TIMEOUT_MS": "120000",
+    // Reservations one expiry pass settles before it re-arms.
+    "POOL_EXPIRE_BATCH": "20",
+    // Micro-USD one "learning session" is shown as on the pool meter (20000 = $0.02).
+    "POOL_SESSION_ESTIMATE_MICROS": "20000",
+    // Daily caps per user (UTC day): replies and spend in micro-USD, for the free and supporter tiers.
+    "POOL_FREE_REQUESTS_PER_DAY": "30",
+    "POOL_FREE_SPEND_MICROS_PER_DAY": "100000",
+    "POOL_SUPPORTER_REQUESTS_PER_DAY": "150",
+    "POOL_SUPPORTER_SPEND_MICROS_PER_DAY": "500000",
+    // A supporter has net purchases above $0. Empty = for life; a number of months = only while
+    // their latest purchase is that recent.
+    "SUPPORTER_WINDOW_MONTHS": "",
+    // What the free tier may spend from the pool per UTC day, all users together: the lower of
+    // this many micro-USD and this share (bps) of the pool's balance at 00:00 UTC plus what was
+    // added to it since.
+    "POOL_FREE_DAILY_GLOBAL_MICROS": "5000000",
+    "POOL_FREE_DAILY_GLOBAL_BPS": "2000",
+    // The same ceiling for all supporters together, so one small purchase per account cannot
+    // turn a farm of accounts into an unbounded drain.
+    "POOL_SUPPORTER_DAILY_GLOBAL_MICROS": "10000000",
+    "POOL_SUPPORTER_DAILY_GLOBAL_BPS": "4000",
+    // Daily caps per network (IPv4 address or IPv6 /64), all users together.
+    "POOL_IP_REQUESTS_PER_DAY": "60",
+    "POOL_IP_SPEND_MICROS_PER_DAY": "300000",
+    // Per-minute rate limits of pool replies, per user and per network.
+    "POOL_USER_PER_MINUTE": "6",
+    "POOL_IP_PER_MINUTE": "20",
+    // Minimum account age before first pool use, in ms (0 = none).
+    "POOL_MIN_ACCOUNT_AGE_MS": "0",
+    // Overage breaker: when settled charges exceeded their holds by more than this many micro-USD
+    // within the window, the pool refuses every reservation until the window clears (a price drifted).
+    "POOL_OVERAGE_WINDOW_MS": "86400000",
+    "POOL_OVERAGE_MAX_MICROS": "200000",
+    // JSON merged over the built-in price table (src/config.ts), micro-USD per million tokens:
+    // {"<model id>": {"in": 100000, "out": 400000, "context": 131072, "feeBps": 550}}. feeBps is
+    // optional (default OPENROUTER_FEE_BPS). A model without a price can't be used by the pool.
+    "MODEL_PRICES": "",
+    // Impact feed: a topic is named publicly only when at least this many distinct learners touched
+    // it in the week (default 5, never below 3); comma-separated topic ids never published; and how
+    // many days topic tags outlive their branch's last pool use.
+    "IMPACT_MIN_DISTINCT_USERS": "5",
+    "POOL_TOPIC_BLOCKLIST": "",
+    "IMPACT_TAG_RETENTION_DAYS": "14",
+    // A future "featured learning" wall of conversations users publish (opt-in per conversation).
+    // Only a stub exists and it stays off: user-published content waits for DMCA_AGENT_REGISTERED.
+    // Either way /api/featured/* is 404, nothing renders and nothing is collected for it.
+    "FEATURED_CONVERSATIONS_ENABLED": "false"
   }
   // Secrets (wrangler secret put): AI_GATEWAY_TOKEN,
   //   KEY_ENCRYPTION_SECRET (`openssl rand -base64 32`; enables bring-your-own-key, rotate to revoke all stored keys)

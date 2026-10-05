@@ -1,4 +1,10 @@
-import { ChatService, DEFAULT_CHAT_SETTINGS, ShareService, type ChatSettings } from '@tangent/core';
+import {
+  ChatService,
+  DEFAULT_CHAT_SETTINGS,
+  estimateTokensUtf8,
+  ShareService,
+  type ChatSettings,
+} from '@tangent/core';
 import {
   createProviderRegistry,
   DEFAULT_PROVIDER_CONFIGS,
@@ -8,17 +14,22 @@ import {
 import {
   DEFAULT_SYSTEM_PROMPT,
   LEARN_KEY_PROVIDER,
+  type LlmProvider,
   type ProviderConfig,
   type ProviderRegistry,
 } from '@tangent/shared';
 import { isAdminUserId } from './auth/admin.js';
-import { createUsageMeter, meteredRegistry } from './billing/meter.js';
+import { createPoolUsageMeter, createUsageMeter, meteredRegistry } from './billing/meter.js';
 import { billingConfigured } from './billing/stripe.js';
+import { appConfig } from './config.js';
 import { createD1Repositories } from './db/d1-repositories.js';
-import { isMetered, type AccountContext, type AppEnv } from './env.js';
+import { isMetered, isPoolFunded, type AccountContext, type AppEnv } from './env.js';
+import type { PoolParams } from './pool/params.js';
 import {
   BUILT_IN_PROVIDER_ID,
   builtInPowerConfig,
+  poolChatSettings,
+  poolProviderConfig,
   simpleChatSettings,
   simpleProviderConfig,
   simpleSystemPrompt,
@@ -123,22 +134,63 @@ export async function canShare(env: AppEnv, userId: string | null): Promise<bool
 }
 
 /**
- * True when the built-in provider can be offered on credit: billing is
- * configured and the `tangent` provider is usable with the operator's key.
- * Otherwise it is in no power registry, and Learn is bring-your-own-key only.
+ * True when the `tangent` provider is usable with the operator's key (the
+ * SIMPLE_PROVIDER override and its `apiKeySecret` respected), whoever pays.
  */
-export function builtInAvailable(env: AppEnv): boolean {
-  if (!billingConfigured(env)) return false;
+export function builtInProviderUsable(env: AppEnv): boolean {
   const registry = createProviderRegistry([simpleProviderConfig(env)], providerEnv(env));
   return registry.list()[0]?.available ?? false;
+}
+
+/**
+ * Personal credit may be spent: billing is configured, or the operator lets
+ * granted credit be spent without it (`PERSONAL_CREDIT_ENABLED`).
+ */
+export function personalCreditReady(env: AppEnv): boolean {
+  return billingConfigured(env) || appConfig(env).flags.personalCreditEnabled;
+}
+
+/**
+ * True when the built-in provider can be offered on credit: personal credit
+ * is ready and the `tangent` provider is usable with the operator's key.
+ * Otherwise it is in no power registry, and Learn is bring-your-own-key (or
+ * the community pool) only.
+ */
+export function builtInAvailable(env: AppEnv): boolean {
+  return personalCreditReady(env) && builtInProviderUsable(env);
+}
+
+/**
+ * True when Learn may spend from the community pool: `POOL_ENABLED` and the
+ * `tangent` provider is usable. Billing is not needed to spend from it.
+ */
+export function poolAvailable(env: AppEnv): boolean {
+  return appConfig(env).flags.poolEnabled && builtInProviderUsable(env);
+}
+
+/** Which service a request builds: `generating` = it will call a model (sends, context resolve). */
+export interface ServiceScope {
+  /**
+   * Pool restrictions apply only to the services that generate: routes that
+   * never call a model (`/api/providers`, creating trees and branches) keep the
+   * simple config's models and default, so a pool session never writes the
+   * pool model onto a tree or branch.
+   */
+  generating?: boolean;
+}
+
+/** The pool's parameters when `scope` generates on the pool, else null. */
+function poolScope(account: AccountContext, scope: ServiceScope) {
+  return scope.generating && isPoolFunded(account) ? account.pool : null;
 }
 
 /**
  * The providers a request may use. Anyone can sign up, so the operator's keys
  * are withheld except through the built-in provider (`account.builtIn`, metered
  * by chatService) and, for the power configs, in the dev bypass (`operatorKeys`):
- * - simple, on credit: only the `tangent` provider on the operator's key;
- *   user keys are ignored.
+ * - simple, on credit or the pool: only the `tangent` provider on the
+ *   operator's key; user keys are ignored. A generating pool request gets the
+ *   pool's config of it (`poolProviderConfig`).
  * - simple, own key: the same provider config, on the user's OpenRouter key
  *   (key cookie entry LEARN_KEY_PROVIDER) and never the operator's.
  * - power: the configured providers, user keys overriding server secrets.
@@ -151,10 +203,18 @@ export function registryFor(
   env: AppEnv,
   account: AccountContext,
   apiKeys?: UserApiKeys,
+  scope: ServiceScope = {},
 ): ProviderRegistry {
   if (account.mode === 'simple') {
     const config = simpleProviderConfig(env);
-    if (account.builtIn) return createProviderRegistry([config], providerEnv(env));
+    if (account.builtIn) {
+      // On the pool, a generating request sees only the pool model, with its caps.
+      const pool = poolScope(account, scope);
+      return createProviderRegistry(
+        [pool ? poolProviderConfig(env, pool) : config],
+        providerEnv(env),
+      );
+    }
     const own = apiKeys?.[LEARN_KEY_PROVIDER];
     return createProviderRegistry(
       [config],
@@ -193,7 +253,13 @@ function withBuiltIn(own: ProviderRegistry, builtIn: ProviderRegistry): Provider
   };
 }
 
-export function chatSettingsFor(env: AppEnv, account: AccountContext): ChatSettings {
+export function chatSettingsFor(
+  env: AppEnv,
+  account: AccountContext,
+  scope: ServiceScope = {},
+): ChatSettings {
+  const pool = poolScope(account, scope);
+  if (pool) return poolChatSettings(pool);
   if (account.mode === 'simple') return simpleChatSettings(env);
   const summaryProviderId = env.SUMMARY_PROVIDER_ID?.trim() || null;
   return {
@@ -209,13 +275,20 @@ export function chatSettingsFor(env: AppEnv, account: AccountContext): ChatSetti
  * Built-in system prompt of an account's new trees, used when the request
  * names none and the account has none saved (GET/PATCH /api/settings). Both
  * modes share DEFAULT_SYSTEM_PROMPT; only Learn honours the operator's
- * SIMPLE_SYSTEM_PROMPT, since power users can set their own.
+ * SIMPLE_SYSTEM_PROMPT, since power users can set their own. A generating
+ * pool request uses the pool's locked prompt (which also replaces the tree's).
  */
-export function defaultSystemPromptFor(env: AppEnv, account: AccountContext): string {
+export function defaultSystemPromptFor(
+  env: AppEnv,
+  account: AccountContext,
+  scope: ServiceScope = {},
+): string {
+  const pool = poolScope(account, scope);
+  if (pool) return pool.systemPrompt;
   return account.mode === 'simple' ? simpleSystemPrompt(env) : DEFAULT_SYSTEM_PROMPT;
 }
 
-export interface ChatServiceOptions {
+export interface ChatServiceOptions extends ServiceScope {
   /** Bring-your-own-key overrides (ignored by Learn on credit, see registryFor). */
   apiKeys?: UserApiKeys;
   /** Where the usage meter parks its background work (built-in provider calls). */
@@ -229,9 +302,10 @@ const detach: Defer = (p) => {
 
 /**
  * Every call on the built-in provider is metered: its `stream()` records a
- * `usage_events` row (billing/meter.ts); the account's other providers are
- * passed through. The meter is built on the first `get`, so routes that never
- * generate (listing trees, reading providers) don't pay for it.
+ * `usage_events` row (billing/meter.ts) on the user's ledger, or reserves it
+ * on the community pool when the account is pool-funded; the account's other
+ * providers are passed through. The meter is built on the first `get`, so
+ * routes that never generate (listing trees, reading providers) don't pay for it.
  */
 function meteredLazily(
   inner: ProviderRegistry,
@@ -240,11 +314,14 @@ function meteredLazily(
   defer: Defer,
 ): ProviderRegistry {
   let metered: ProviderRegistry | null = null;
+  const meter = () => {
+    if (!isPoolFunded(account)) return createUsageMeter(env, account, defer);
+    if (!account.userId) throw new Error('The community pool needs a signed-in user');
+    return createPoolUsageMeter(env, account.pool, account.userId, defer);
+  };
   return {
     get: (providerId) => {
-      metered ??= meteredRegistry(inner, createUsageMeter(env, account, defer), (id) =>
-        isMetered(account, id),
-      );
+      metered ??= meteredRegistry(inner, meter(), (id) => isMetered(account, id));
       return metered.get(providerId);
     },
     list: () => inner.list(),
@@ -252,21 +329,94 @@ function meteredLazily(
   };
 }
 
-/** The only place Worker env is translated into a ChatService for an account. */
+/**
+ * Every call through `inner` uses `model`, whatever the request says: the
+ * backstop of the pool's pinned model (ChatService pins it too). It wraps the
+ * meter, so the meter only ever sees the pinned model.
+ */
+export function pinnedModelRegistry(inner: ProviderRegistry, model: string): ProviderRegistry {
+  const cache = new WeakMap<LlmProvider, LlmProvider>();
+  return {
+    get(providerId) {
+      const provider = inner.get(providerId);
+      if (!provider) return provider;
+      let pinned = cache.get(provider);
+      if (!pinned) {
+        pinned = {
+          get id() {
+            return provider.id;
+          },
+          get kind() {
+            return provider.kind;
+          },
+          get label() {
+            return provider.label;
+          },
+          models: () => provider.models(),
+          defaultModel: () => provider.defaultModel(),
+          capabilities: () => provider.capabilities(model),
+          stream: (request) => provider.stream({ ...request, model }),
+        };
+        const count = provider.countTokens?.bind(provider);
+        if (count) pinned.countTokens = (request) => count({ ...request, model });
+        cache.set(provider, pinned);
+      }
+      return pinned;
+    },
+    list: () => inner.list(),
+    defaultProviderId: () => inner.defaultProviderId(),
+  };
+}
+
+/**
+ * The providers of a generating pool-funded request (the chat service's, and
+ * the pool's topic classifier, pool/tagging.ts): the pool's config of the
+ * built-in provider, every call reserved and settled on the pool, and pinned
+ * to the pool model. `inner` is the unmetered registry (tests pass a
+ * recording one).
+ */
+export function poolGeneratingRegistry(
+  env: AppEnv,
+  account: AccountContext & { pool: PoolParams },
+  defer: Defer,
+  inner: ProviderRegistry = registryFor(env, account, undefined, { generating: true }),
+): ProviderRegistry {
+  return pinnedModelRegistry(meteredLazily(inner, env, account, defer), account.pool.model);
+}
+
+/**
+ * The only place Worker env is translated into a ChatService for an account.
+ * A `generating` service of a pool-funded account runs under the pool's
+ * restrictions: its model, locked system prompt, input and output caps.
+ */
 export function chatService(
   env: AppEnv,
   account: AccountContext,
   opts: ChatServiceOptions = {},
 ): ChatService {
-  const registry = registryFor(env, account, opts.apiKeys);
+  const scope: ServiceScope = { generating: opts.generating === true };
+  const pool = poolScope(account, scope);
+  const registry = registryFor(env, account, opts.apiKeys, scope);
+  const defer = opts.defer ?? detach;
+  let providers = registry;
+  if (pool) providers = poolGeneratingRegistry(env, { ...account, pool }, defer, registry);
+  else if (account.builtIn) providers = meteredLazily(registry, env, account, defer);
   return new ChatService({
     repos: createD1Repositories(env.DB),
     accountId: account.id,
-    providers: account.builtIn
-      ? meteredLazily(registry, env, account, opts.defer ?? detach)
-      : registry,
-    settings: chatSettingsFor(env, account),
-    defaultSystemPrompt: defaultSystemPromptFor(env, account),
+    providers,
+    settings: chatSettingsFor(env, account, scope),
+    defaultSystemPrompt: defaultSystemPromptFor(env, account, scope),
+    ...(pool
+      ? {
+          pinnedModel: pool.model,
+          systemPromptOverride: pool.systemPrompt,
+          // Budgets and summary prompts in UTF-8 bytes, so the pool's context limit is a hard bound.
+          inputBound: { estimateTokens: estimateTokensUtf8 },
+          // A client-set anchor quote gets no more room than a message.
+          anchorQuoteMaxChars: pool.maxMessageChars,
+        }
+      : {}),
   });
 }
 

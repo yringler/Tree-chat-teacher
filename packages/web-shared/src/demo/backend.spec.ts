@@ -250,6 +250,19 @@ describe('demo backend', () => {
     await expect(api.createCheckout(500)).rejects.toBeInstanceOf(ApiError);
   });
 
+  it('answers the pool routes with the pool off, so no pool UI shows and nothing is funded', async () => {
+    const { api } = setup();
+    await expect(api.poolStatus()).resolves.toMatchObject({ enabled: false, fundingOpen: false });
+    await expect(api.poolMe()).resolves.toMatchObject({
+      available: false,
+      personalAvailableMicros: DEMO_START_BALANCE_MICROS,
+    });
+    await expect(api.createCheckout(1000, 'pool')).rejects.toBeInstanceOf(ApiError);
+    // No impact snapshots either.
+    await expect(api.poolImpact()).rejects.toMatchObject({ status: 404, code: 'not_found' });
+    await expect(api.poolImpactWeeks()).resolves.toEqual({ weeks: [] });
+  });
+
   it('rejects invalid bodies with a 400', async () => {
     const { api } = setup();
     await expect(api.createBranch({ fromNodeId: '' })).rejects.toMatchObject({
@@ -325,6 +338,7 @@ describe('power demo backend', () => {
       sharing: false,
       isAdmin: false,
       membership: { required: false },
+      featuredConversations: false,
     });
     await expect(api.keyStatus()).resolves.toEqual({
       enabled: false,

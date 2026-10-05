@@ -38,14 +38,14 @@ export type CallInit = RequestInit & { json?: unknown; learn?: LearnPayment };
 let ipSeq = 0;
 
 /**
- * A browser: its own IP (Better Auth rate limits are per IP) and cookie jar.
- * `learn` sends the request as Tangent Learn does (mode and payment headers);
- * without it the request is the power app's.
+ * A browser: its own IP (Better Auth rate limits are per IP; `opts.ip` shares
+ * one between browsers) and cookie jar. `learn` sends the request as Tangent
+ * Learn does (mode and payment headers); without it the request is the power app's.
  */
-export function client(e: AppEnv = authEnv()) {
+export function client(e: AppEnv = authEnv(), opts: { ip?: string } = {}) {
   const mail = new CapturingSender();
   const app = createApp({ auth: { emailSender: mail } });
-  const ip = `198.51.100.${++ipSeq}`;
+  const ip = opts.ip ?? `198.51.100.${++ipSeq}`;
   const jar = new Map<string, string>();
   const keep = (res: Response) => {
     for (const c of res.headers.getSetCookie()) {
@@ -96,5 +96,5 @@ export function client(e: AppEnv = authEnv()) {
       redirect: 'manual',
     });
   };
-  return { call, signIn, mail, env: e };
+  return { call, signIn, mail, env: e, ip };
 }
