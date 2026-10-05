@@ -3,6 +3,7 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { DEMO_MODE, Icon, Logo, ModeSwitch } from '@tangent/web-shared';
+import { confirmDeleteTree } from '../dialogs/tree-settings';
 import { ImportButton } from '../ui/import-button';
 import { OutlineItem } from './outline-item';
 
@@ -40,24 +41,36 @@ import { OutlineItem } from './outline-item';
       <ul>
         @for (t of store.trees(); track t.id) {
           @let current = t.id === store.selectedTreeId();
+          @let title = current ? (store.detail()?.tree?.title ?? t.title) : t.title;
           <li>
-            <a
-              class="tree-link"
-              [routerLink]="['/t', t.id]"
-              [class.is-current]="current"
-              [attr.aria-current]="current ? 'true' : null"
-              (click)="ui.drawerOpen.set(false)"
-            >
-              <span class="tree-title">{{
-                current ? (store.detail()?.tree?.title ?? t.title) : t.title
-              }}</span>
-              <span
-                class="count"
-                [attr.title]="t.branchCount + ' branches, ' + t.messageCount + ' messages'"
+            <div class="tree-row" [class.is-current]="current">
+              <a
+                class="tree-link"
+                [routerLink]="['/t', t.id]"
+                [class.is-current]="current"
+                [attr.aria-current]="current ? 'true' : null"
+                (click)="ui.drawerOpen.set(false)"
               >
-                {{ t.branchCount }}·{{ t.messageCount }}
+                <span class="tree-title">{{ title }}</span>
+                <span
+                  class="count"
+                  [attr.title]="t.branchCount + ' branches, ' + t.messageCount + ' messages'"
+                >
+                  {{ t.branchCount }}·{{ t.messageCount }}
+                </span>
+              </a>
+              <span class="row-actions">
+                <button
+                  type="button"
+                  class="icon-btn icon-btn-danger"
+                  [attr.aria-label]="'Delete ' + title"
+                  title="Delete conversation"
+                  (click)="remove(t.id, title)"
+                >
+                  <app-icon name="trash" [size]="13" />
+                </button>
               </span>
-            </a>
+            </div>
             @if (current) {
               @if (store.outline(); as root) {
                 <ul class="outline" role="tree" aria-label="Branches">
@@ -145,4 +158,10 @@ export class Sidebar {
     const labels = ids.map((id) => this.store.providerMap().get(id)?.label ?? id);
     return `API keys: yours for ${labels.join(', ')}`;
   });
+
+  /** Delete from the list, without opening the conversation (the button sits beside its link). */
+  protected remove(treeId: string, title: string): void {
+    if (!confirmDeleteTree(title)) return;
+    void this.store.deleteTree(treeId);
+  }
 }

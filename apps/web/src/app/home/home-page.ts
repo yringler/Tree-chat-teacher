@@ -12,11 +12,15 @@ import { Composer } from '../chat/composer';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { APP_BASES, Icon, readOnlyText } from '@tangent/web-shared';
-import { providerRouteKey } from '@tangent/shared';
+import { providerRouteKey, type TreeSummary } from '@tangent/shared';
+import { confirmDeleteTree } from '../dialogs/tree-settings';
 import { ImportButton } from '../ui/import-button';
 import { ModelPicker } from '../ui/model-picker';
 
-/** `/`: start a new conversation (the tree is created on the first send) and list existing ones. */
+/**
+ * `/`: start a new conversation (the tree is created on the first send) and
+ * list existing ones, each with Delete (also while read-only: it generates nothing).
+ */
 @Component({
   selector: 'app-home-page',
   imports: [Composer, ModelPicker, RouterLink, Icon, ImportButton, DatePipe],
@@ -77,7 +81,7 @@ import { ModelPicker } from '../ui/model-picker';
         }
         <ul class="card-list">
           @for (t of store.trees(); track t.id) {
-            <li>
+            <li class="tree-row">
               <a class="card card-link" [routerLink]="['/t', t.id]">
                 <strong>{{ t.title }}</strong>
                 <span class="muted small">
@@ -86,6 +90,15 @@ import { ModelPicker } from '../ui/model-picker';
                   {{ t.updatedAt | date: 'medium' }}
                 </span>
               </a>
+              <button
+                type="button"
+                class="icon-btn icon-btn-danger"
+                [attr.aria-label]="'Delete ' + t.title"
+                title="Delete conversation"
+                (click)="remove(t)"
+              >
+                <app-icon name="trash" />
+              </button>
             </li>
           }
         </ul>
@@ -136,5 +149,10 @@ export class HomePage {
     } finally {
       this.starting.set(false);
     }
+  }
+
+  protected remove(t: TreeSummary): void {
+    if (!confirmDeleteTree(t.title)) return;
+    void this.store.deleteTree(t.id);
   }
 }

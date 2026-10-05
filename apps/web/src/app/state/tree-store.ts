@@ -529,14 +529,21 @@ export class TreeStore {
     }
   }
 
-  async deleteTree(treeId: string): Promise<void> {
+  /**
+   * Deletes a whole conversation (not a generating call: it stays available
+   * while power is read-only). If it is open, goes home. The caller confirms
+   * first. Resolves true if it was deleted.
+   */
+  async deleteTree(treeId: string): Promise<boolean> {
     try {
       await this.api.deleteTree(treeId);
       this.trees.update((list) => list.filter((t) => t.id !== treeId));
       if (this.selectedTreeId() === treeId) await this.router.navigate(['/']);
       this.ui.notify('Conversation deleted');
+      return true;
     } catch (err) {
       this.fail(err);
+      return false;
     }
   }
 
