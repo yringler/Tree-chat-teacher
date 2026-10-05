@@ -6,6 +6,7 @@ import {
   ceilingHoldMicros,
   chargeFromTokensMicros,
   costFromTokensNanos,
+  exceedsContext,
   inputBoundTokens,
   poolCreditMicros,
   utf8Bytes,
@@ -25,22 +26,26 @@ describe('pool pricing', () => {
     expect(utf8Bytes('hello')).toBe(5);
     expect(utf8Bytes('漢字')).toBe(6);
     // 5 + 3 bytes, 2 messages × 4, + 16
-    expect(inputBoundTokens({ system: 'hello', messages: [msg('abc'), msg('')] }, 1000)).toBe(
+    expect(inputBoundTokens({ system: 'hello', messages: [msg('abc'), msg('')] })).toBe(
       5 + 3 + 8 + 16,
     );
-    expect(inputBoundTokens({ system: null, messages: [msg('漢字漢字')] }, 1000)).toBe(12 + 4 + 16);
+    expect(inputBoundTokens({ system: null, messages: [msg('漢字漢字')] })).toBe(12 + 4 + 16);
   });
 
-  it('clamps the input bound to the context window', () => {
-    expect(inputBoundTokens({ system: null, messages: [msg('x'.repeat(10_000))] }, 4096)).toBe(
-      4096,
+  it('flags requests whose input bound exceeds the context window (refused, never clamped)', () => {
+    const small = { ...FLASH, contextTokens: 4096 };
+    expect(exceedsContext(small, { system: null, messages: [msg('x'.repeat(10_000))] })).toBe(true);
+    expect(exceedsContext(small, { system: null, messages: [msg('x'.repeat(4096 - 20))] })).toBe(
+      false,
     );
+    // CJK counts bytes: 1_400 characters are 4_200 bytes.
+    expect(exceedsContext(small, { system: null, messages: [msg('漢'.repeat(1_400))] })).toBe(true);
   });
 
   it('rounds holds up and applies the fee', () => {
     // (37 × 0.1 + 100 × 0.4) µ$ = 43.7 → × 1.055 = 46.1035 → 47
     const request = { system: null, messages: [msg('x'.repeat(17))] };
-    expect(inputBoundTokens(request, FLASH.contextTokens)).toBe(37);
+    expect(inputBoundTokens(request)).toBe(37);
     expect(worstCaseHoldMicros(FLASH, request, 100, 550)).toBe(47);
     // A per-model fee wins over the default.
     expect(worstCaseHoldMicros({ ...FLASH, feeBps: 0 }, request, 100, 550)).toBe(44);

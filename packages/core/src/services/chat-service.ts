@@ -43,9 +43,11 @@ import {
   cleanTitle,
   plainText,
   renderPlan,
+  type RenderOptions,
 } from '../context/render.js';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
 import type { Repositories } from '../repository.js';
+import type { TokenEstimator } from '../tokens.js';
 import { newId as defaultNewId, systemClock, type Clock } from '../util.js';
 
 export interface ChatSettings {
@@ -97,8 +99,28 @@ export interface ChatServiceDeps {
    * tree's own (the community pool's locked prompt). The tree is not changed.
    */
   systemPromptOverride?: string;
+  /**
+   * Makes the input budget a hard bound (the community pool): context budgets
+   * are measured with `estimateTokens` instead of the default chars/3.5, and
+   * every summary prompt is clipped to the summary model's input budget,
+   * measured the same way, so no request of this instance exceeds it.
+   */
+  inputBound?: { estimateTokens: TokenEstimator };
+  /**
+   * The longest anchor quote generations of this instance use; longer ones
+   * are clipped (the community pool: the quote is client-set free text, so it
+   * gets no more room than a message). Default: unlimited.
+   */
+  anchorQuoteMaxChars?: number;
   clock?: Clock;
   newId?: () => string;
+}
+
+/** `branch` with its anchor quote cut to `maxChars` (marked with an ellipsis). */
+function clipAnchorQuote(branch: Branch, maxChars: number | undefined): Branch {
+  const quote = branch.anchorQuote;
+  if (maxChars === undefined || quote === null || quote.length <= maxChars) return branch;
+  return { ...branch, anchorQuote: `${quote.slice(0, Math.max(0, maxChars - 1))}…` };
 }
 
 export interface BeginSendResult {
@@ -416,7 +438,7 @@ export class ChatService {
     const plan = step.value;
     const model = this.modelOf(inputs.branch);
     const caps = inputs.provider.capabilities(model);
-    const rendered = renderPlan(plan, { supportsSystemPrompt: caps.supportsSystemPrompt });
+    const rendered = renderPlan(plan, this.renderOptions(caps.supportsSystemPrompt));
     let exactInputTokens: number | null = null;
     if (caps.supportsTokenCount && inputs.provider.countTokens && rendered.messages.length > 0) {
       try {
@@ -445,11 +467,12 @@ export class ChatService {
    */
   private async loadPlanInputs(branchId: string, nodeId: string | null): Promise<PlanInputs> {
     const owned = await this.requireOwnedBranch(branchId);
-    const branch = owned.branch;
     // The only way into the context's system prompt (the `tree-system-prompt` segment).
     const override = this.deps.systemPromptOverride;
     const tree = override === undefined ? owned.tree : { ...owned.tree, systemPrompt: override };
-    const chain = await this.repo.getBranchChain(branchId);
+    const clip = (b: Branch): Branch => clipAnchorQuote(b, this.deps.anchorQuoteMaxChars);
+    const branch = clip(owned.branch);
+    const chain = (await this.repo.getBranchChain(branchId)).map(clip);
 
     let path: ChatNode[];
     if (nodeId) {
@@ -470,6 +493,14 @@ export class ChatService {
     }
     const provider = this.requireProvider(branch.providerId);
     return { tree, chain, path, branch, targetNodeId: nodeId, provider };
+  }
+
+  /** With a locked system prompt, anchor quotes stay out of the system channel. */
+  private renderOptions(supportsSystemPrompt: boolean): RenderOptions {
+    return {
+      supportsSystemPrompt,
+      anchorsAsUserText: this.deps.systemPromptOverride !== undefined,
+    };
   }
 
   /** The model generations on `branch` use: the pinned one, else the branch's. */
@@ -526,6 +557,7 @@ export class ChatService {
         summaries,
         failedSummaries: failed,
         budget: { maxInputTokens },
+        ...(this.deps.inputBound ? { estimateTokens: this.deps.inputBound.estimateTokens } : {}),
       });
 
     let current = plan();
@@ -602,7 +634,15 @@ export class ChatService {
     target: { treeId: string; branchId: string },
     signal?: AbortSignal,
   ): Promise<string | null> {
-    const prompt = buildSummaryPrompt(request);
+    const bound = this.deps.inputBound;
+    const prompt = buildSummaryPrompt(
+      request,
+      bound && {
+        maxInputTokens: this.budgetFor(provider, model).maxInputTokens,
+        estimateTokens: bound.estimateTokens,
+      },
+    );
+    if (prompt === null) return null;
     const text = await collectText(
       provider,
       model,
@@ -711,7 +751,7 @@ export class ChatService {
       }
       const model = this.modelOf(branch);
       const caps = inputs.provider.capabilities(model);
-      const rendered = renderPlan(plan, { supportsSystemPrompt: caps.supportsSystemPrompt });
+      const rendered = renderPlan(plan, this.renderOptions(caps.supportsSystemPrompt));
       const { maxOutput } = this.budgetFor(inputs.provider, model);
 
       let terminal: { status: 'complete' } | { status: 'error'; message: string } | null = null;
@@ -847,7 +887,7 @@ export class ChatService {
         step = await steps.next();
       }
       const caps = inputs.provider.capabilities(this.modelOf(inputs.branch));
-      const context = renderPlan(step.value, { supportsSystemPrompt: caps.supportsSystemPrompt });
+      const context = renderPlan(step.value, this.renderOptions(caps.supportsSystemPrompt));
       const reviewer = this.requireProvider(review.providerId);
       const prompt = buildReviewPrompt(context, review.node.model);
       const rendered = reviewer.capabilities(review.model).supportsSystemPrompt

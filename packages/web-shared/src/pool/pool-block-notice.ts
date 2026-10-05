@@ -10,7 +10,8 @@ import { poolBlockText, type PoolBlock } from './pool-format';
  *   **Fund the pool** and **Buy personal credits**;
  * - a cap: the cap, when it resets, and that supporters get more.
  * The message itself is kept in the composer. While funding isn't open yet
- * (no Stripe), both actions lead to `/pool`, which explains the pool.
+ * (no Stripe), nothing can be bought: the empty state says funding opens
+ * soon and links to `/pool`, which explains the pool.
  */
 @Component({
   selector: 'app-pool-block-notice',
@@ -34,8 +35,8 @@ import { poolBlockText, type PoolBlock } from './pool-format';
               >
               <a class="btn btn-sm" [routerLink]="billingPath()">Buy personal credits</a>
             } @else {
-              <a class="btn btn-primary btn-sm" href="/pool">Fund the pool</a>
-              <a class="btn btn-sm" href="/pool">Buy personal credits</a>
+              <span class="muted small">Funding opens soon.</span>
+              <a class="btn btn-sm" href="/pool">How the pool works</a>
             }
           </div>
         } @else if (text().supporters && fundingOpen()) {

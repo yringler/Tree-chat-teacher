@@ -86,11 +86,18 @@ describe('poolBlockText', () => {
 
   it('the network and everyone-together ceilings read "busy today"', () => {
     for (const reason of ['cap_ip', 'cap_global'] as const)
-      expect(poolBlockText(cap({ reason, supporterLimit: null }), NOW)).toEqual({
+      expect(poolBlockText(cap({ reason, supporterLimit: null, supporter: true }), NOW)).toEqual({
         title: 'The community pool is busy today.',
         detail: 'It resets at 00:00 UTC (in 5 h).',
         supporters: null,
       });
+    // The everyone-together ceiling is per tier: a non-supporter hears that supporters have their own.
+    expect(poolBlockText(cap({ reason: 'cap_global', supporterLimit: null }), NOW).supporters).toBe(
+      'Supporters have a separate daily allowance.',
+    );
+    expect(
+      poolBlockText(cap({ reason: 'cap_ip', supporterLimit: null }), NOW).supporters,
+    ).toBeNull();
   });
 
   it('the per-minute limit: try again shortly', () => {
@@ -121,10 +128,16 @@ describe('PoolBlockNotice', () => {
     expect(t).toContain(
       '<a class="btn btn-primary btn-sm" [routerLink]="billingPath()" fragment="fund-pool"\n                >Fund the pool</a\n              >',
     );
-    expect(t).toContain('<a class="btn btn-sm" [routerLink]="billingPath()">Buy personal credits</a>');
-    // Before funding opens, both lead to the page that explains the pool.
-    expect(t).toContain('<a class="btn btn-primary btn-sm" href="/pool">Fund the pool</a>');
-    expect(t).toContain('<a class="btn btn-sm" href="/pool">Buy personal credits</a>');
+    expect(t).toContain(
+      '<a class="btn btn-sm" [routerLink]="billingPath()">Buy personal credits</a>',
+    );
+    // Before funding opens nothing can be bought: no dead-end purchase links, just the page
+    // that explains the pool.
+    const closed = t.slice(t.indexOf('} @else {'), t.indexOf('} @else if'));
+    expect(closed).toContain('Funding opens soon.');
+    expect(closed).toContain('<a class="btn btn-sm" href="/pool">How the pool works</a>');
+    expect(closed).not.toContain('Buy');
+    expect(closed).not.toContain('Fund the pool');
     expect(t).toContain('aria-label="Dismiss"');
   });
 });

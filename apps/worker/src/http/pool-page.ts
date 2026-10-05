@@ -10,7 +10,7 @@ import {
   type PoolImpactResponse,
 } from '@tangent/shared';
 import { Hono } from 'hono';
-import { appConfig } from '../config.js';
+import { appConfig, type PoolGlobalCap } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { poolImpactWeeks, readPoolImpact } from '../pool/impact.js';
 import { poolModel } from '../pool/params.js';
@@ -38,7 +38,8 @@ export interface PoolPageFacts {
   maxOutputTokens: number;
   free: { requestsPerDay: number; spendMicrosPerDay: number };
   supporter: { requestsPerDay: number; spendMicrosPerDay: number; windowMonths: number | null };
-  globalFree: { spendMicrosPerDay: number; bpsOfMorningBalance: number };
+  globalFree: PoolGlobalCap;
+  globalSupporter: PoolGlobalCap;
   ip: { requestsPerDay: number; spendMicrosPerDay: number };
   perMinute: number;
   /** The reply's ceiling hold: the part of a daily spend cap that can't start one more reply. */
@@ -75,6 +76,7 @@ export function poolPageFacts(env: AppEnv): PoolPageFacts {
     free: pool.caps.free,
     supporter: pool.caps.supporter,
     globalFree: pool.caps.globalFree,
+    globalSupporter: pool.caps.globalSupporter,
     ip: pool.caps.ip,
     perMinute: pool.limits.userPerMinute,
     ceilingHoldMicros: price
@@ -83,6 +85,11 @@ export function poolPageFacts(env: AppEnv): PoolPageFacts {
     minDistinctUsers: config.impact.minDistinctUsers,
     tagRetentionDays: config.impact.tagRetentionDays,
   };
+}
+
+/** "$5.00 or 20% of the pool at 00:00 UTC plus what's added that day, whichever is lower". */
+function globalCapText(cap: PoolGlobalCap): string {
+  return `${escapeHtml(formatMicros(cap.spendMicrosPerDay))} or ${escapeHtml(formatBps(cap.bpsOfMorningBalance))} of the pool at 00:00 UTC plus what's added that day, whichever is lower`;
 }
 
 /** The live part of "What the pool is funding": a snapshot and the week selector. */
@@ -166,10 +173,11 @@ ${f.enabled ? '' : '<p class="updated">The community pool is not open on this se
 <tr><td>Spending per learner per day</td><td>${escapeHtml(formatMicros(f.free.spendMicrosPerDay))} (supporters: ${escapeHtml(formatMicros(f.supporter.spendMicrosPerDay))})</td></tr>
 <tr><td>Replies per minute</td><td>${f.perMinute.toLocaleString('en-US')}</td></tr>
 <tr><td>Per network per day</td><td>${f.ip.requestsPerDay.toLocaleString('en-US')} replies, ${escapeHtml(formatMicros(f.ip.spendMicrosPerDay))}</td></tr>
-<tr><td>All non-supporters together, per day</td><td>${escapeHtml(formatMicros(f.globalFree.spendMicrosPerDay))} or ${escapeHtml(formatBps(f.globalFree.bpsOfMorningBalance))} of the pool at 00:00 UTC, whichever is lower</td></tr>
+<tr><td>All non-supporters together, per day</td><td>${globalCapText(f.globalFree)}</td></tr>
+<tr><td>All supporters together, per day</td><td>${globalCapText(f.globalSupporter)}</td></tr>
 </tbody>
 </table>
-<p>Daily limits reset at 00:00 UTC. The last one keeps a busy day from emptying the pool before the people who funded it get to use it. Using the pool needs a signed-in account that passed a quick human check, and one account per email address.</p>
+<p>Daily limits reset at 00:00 UTC. The last two keep a busy day from emptying the pool before the people who funded it get to use it; money added during the day counts toward them straight away. Using the pool needs a signed-in account that passed a quick human check, and one account per email address.</p>
 ${ceiling}
 <h2>Supporters</h2>
 <p>${escapeHtml(supporterTerm(f.supporter.windowMonths))} Supporters get the higher limits above. It's a thank-you for funding Tangent, and it makes farming free accounts pointless.</p>

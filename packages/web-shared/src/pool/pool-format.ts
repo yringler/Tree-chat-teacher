@@ -83,7 +83,8 @@ function limitText(reason: PoolBlockDetails['reason'], limit: number): string {
  * What the chat says when the pool refused a message (spec §8):
  * - empty: "The community pool is empty. It refills as people fund it.";
  * - a daily cap: the cap, when it resets, and that supporters get more;
- * - the network's or everyone's daily ceiling: "busy today";
+ * - the network's or everyone's daily ceiling: "busy today" (and, for the
+ *   free tier's ceiling, that supporters have their own);
  * - per-minute: try again in a minute.
  */
 export function poolBlockText(block: PoolBlock, now: Date = new Date()): PoolBlockText {
@@ -110,7 +111,11 @@ export function poolBlockText(block: PoolBlock, now: Date = new Date()): PoolBlo
       return {
         title: 'The community pool is busy today.',
         detail: `It resets at ${reset}.`,
-        supporters: null,
+        // Each tier has its own everyone-together ceiling; a network's limit binds supporters too.
+        supporters:
+          d.reason === 'cap_global' && !d.supporter
+            ? 'Supporters have a separate daily allowance.'
+            : null,
       };
     default: {
       const title =

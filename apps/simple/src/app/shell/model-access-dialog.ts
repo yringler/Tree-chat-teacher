@@ -197,7 +197,7 @@ export class ModelAccessDialog {
     this.error.set(null);
     this.account.payment.choose(payment);
     if (payment === 'credit') void this.account.refreshBalance();
-    if (payment === 'pool') void this.account.refreshPool();
+    if (payment === 'pool') void this.account.switchToPool();
   }
 
   protected async save(): Promise<void> {

@@ -73,6 +73,7 @@ describe('appConfig', () => {
         free: { requestsPerDay: 30, spendMicrosPerDay: 100_000 },
         supporter: { requestsPerDay: 150, spendMicrosPerDay: 500_000, windowMonths: null },
         globalFree: { spendMicrosPerDay: 5_000_000, bpsOfMorningBalance: 2_000 },
+        globalSupporter: { spendMicrosPerDay: 10_000_000, bpsOfMorningBalance: 4_000 },
         ip: { requestsPerDay: 60, spendMicrosPerDay: 300_000 },
       },
       limits: { userPerMinute: 6, ipPerMinute: 20 },

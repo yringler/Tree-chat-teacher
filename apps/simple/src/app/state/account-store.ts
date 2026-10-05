@@ -10,6 +10,7 @@ import {
 } from '@tangent/shared';
 import { ApiClient, DEMO_MODE, formatMicros, membershipBlocks } from '@tangent/web-shared';
 import { PaymentStore } from './payment-store';
+import { UiStore } from './ui-store';
 
 /**
  * The signed-in caller, their membership, how they pay (own key, credit or
@@ -19,6 +20,7 @@ import { PaymentStore } from './payment-store';
 export class AccountStore {
   private readonly api = inject(ApiClient);
   readonly payment = inject(PaymentStore);
+  private readonly ui = inject(UiStore);
 
   readonly me = signal<MeResponse | null>(null);
   /** Null until loaded, or when billing can't be read (the pill is hidden then). */
@@ -152,6 +154,29 @@ export class AccountStore {
     } catch (err) {
       console.warn('Could not load the community pool', err);
     }
+  }
+
+  /**
+   * The pool notice version the learner still has to acknowledge before
+   * their first pool request, or null (none due, or the human check comes
+   * first: the server asks for that before the notice).
+   */
+  readonly poolNoticeDue = computed(() => {
+    const me = this.poolMe();
+    if (!me?.available || !me.verified) return null;
+    return (me.consentVersion ?? 0) < me.currentNoticeVersion ? me.currentNoticeVersion : null;
+  });
+
+  /**
+   * The learner switched replies to the community pool: re-reads it and, if
+   * they haven't acknowledged the current pool notice, shows it now (spec:
+   * "when a user first switches to pool funding"). A pool send refused with
+   * 403 `pool_consent_required` still opens it too.
+   */
+  async switchToPool(): Promise<void> {
+    await this.refreshPool();
+    const due = this.poolNoticeDue();
+    if (due !== null && this.payment.payment() === 'pool') this.ui.poolConsentVersion.set(due);
   }
 
   async refreshKey(): Promise<void> {

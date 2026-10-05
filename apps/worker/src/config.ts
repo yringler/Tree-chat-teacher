@@ -81,6 +81,11 @@ export interface PoolTierCaps {
   spendMicrosPerDay: number;
 }
 
+export interface PoolGlobalCap {
+  spendMicrosPerDay: number;
+  bpsOfMorningBalance: number;
+}
+
 export interface PoolCaps {
   free: PoolTierCaps;
   /** Supporters: net purchases above $0 (pool/supporter.ts). */
@@ -88,8 +93,14 @@ export interface PoolCaps {
     /** Months a purchase keeps its buyer a supporter; null = for life. */
     windowMonths: number | null;
   };
-  /** The free tier's spend per UTC day, all users together: the lower of the two. */
-  globalFree: { spendMicrosPerDay: number; bpsOfMorningBalance: number };
+  /**
+   * The free tier's spend per UTC day, all users together: the lower of the
+   * two. The share is of the day's base, the pool's balance at 00:00 UTC
+   * plus what was added to it since.
+   */
+  globalFree: PoolGlobalCap;
+  /** The supporter tier's own ceiling, all supporters together (same form as `globalFree`). */
+  globalSupporter: PoolGlobalCap;
   /** Per network (IPv4 address or IPv6 /64), all users together. */
   ip: PoolTierCaps;
 }
@@ -346,6 +357,10 @@ function parse(env: AppEnv): AppConfig {
         globalFree: {
           spendMicrosPerDay: intVar(env.POOL_FREE_DAILY_GLOBAL_MICROS, 5_000_000),
           bpsOfMorningBalance: intVar(env.POOL_FREE_DAILY_GLOBAL_BPS, 2_000),
+        },
+        globalSupporter: {
+          spendMicrosPerDay: intVar(env.POOL_SUPPORTER_DAILY_GLOBAL_MICROS, 10_000_000),
+          bpsOfMorningBalance: intVar(env.POOL_SUPPORTER_DAILY_GLOBAL_BPS, 4_000),
         },
         ip: {
           requestsPerDay: intVar(env.POOL_IP_REQUESTS_PER_DAY, 60),

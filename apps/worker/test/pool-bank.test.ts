@@ -43,6 +43,7 @@ const OPEN_CAPS: PoolCaps = {
   free: { requestsPerDay: 1_000_000, spendMicrosPerDay: 1e12 },
   supporter: { requestsPerDay: 1_000_000, spendMicrosPerDay: 1e12, windowMonths: null },
   globalFree: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 1e9 },
+  globalSupporter: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 1e9 },
   ip: { requestsPerDay: 1_000_000, spendMicrosPerDay: 1e12 },
 };
 const NO_BREAKER = { windowMs: DAY, maxMicros: 1e12 };
@@ -397,14 +398,14 @@ describe('PoolBank: caps inside reserve', () => {
     });
   });
 
-  it("caps the free tier's spend at a share of the 00:00 UTC balance; supporters and tagging are not counted", async () => {
+  it("caps the free tier's spend at a share of the day's base; supporters and tagging are not counted", async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
-    await fund(poolId, 900_000, new Date().toISOString()); // added today: not in the morning balance
+    await fund(poolId, 900_000, new Date().toISOString()); // added today: in the day's base too
     const caps: PoolCaps = {
       ...OPEN_CAPS,
-      globalFree: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 1_000 },
+      globalFree: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 },
     };
     // Free-tier tagging holds count toward no one's caps, the global ceiling included.
     await reserved(poolId, { caps, purpose: 'tagging' });
@@ -431,6 +432,45 @@ describe('PoolBank: caps inside reserve', () => {
       reason: 'cap_global',
       limit: 9_500,
     });
+  });
+
+  it('a pool empty at 00:00 UTC and funded later that day serves the free tier at once', async () => {
+    quiet();
+    const poolId = uniq('pool');
+    await fund(poolId, 1_000_000, new Date().toISOString());
+    const caps: PoolCaps = {
+      ...OPEN_CAPS,
+      globalFree: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 2_000 },
+    };
+    expect(await reserve(poolId, { caps })).toMatchObject({ ok: true, tier: 'free' });
+    // 20% of the $1 added today.
+    expect(await reserve(poolId, { caps, holdMicros: 200_000 })).toMatchObject({
+      ok: false,
+      reason: 'cap_global',
+      limit: 200_000,
+    });
+  });
+
+  it('caps all supporters together at their own share of the day; the free tier is apart', async () => {
+    quiet();
+    const poolId = uniq('pool');
+    await fund(poolId, 1_000_000);
+    const caps: PoolCaps = {
+      ...OPEN_CAPS,
+      globalFree: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 }, // 10_000
+      globalSupporter: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 }, // 10_000
+    };
+    const farm = [uniq('user'), uniq('user'), uniq('user'), uniq('user')];
+    for (const userId of farm) await purchase(userId);
+    for (const userId of farm.slice(0, 3)) await reserved(poolId, { caps, userId }); // 9_000
+    expect(await reserve(poolId, { caps, userId: farm[3]! })).toMatchObject({
+      ok: false,
+      reason: 'cap_global',
+      supporter: true,
+      limit: 10_000,
+    });
+    // Supporters' spend leaves the free tier's ceiling alone.
+    expect(await reserve(poolId, { caps })).toMatchObject({ ok: true, tier: 'free' });
   });
 
   it('computes the supporter tier from D1: a purchase switches tiers with the same arguments', async () => {

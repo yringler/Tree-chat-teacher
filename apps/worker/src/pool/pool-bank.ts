@@ -201,10 +201,12 @@ export interface DayRow {
 }
 
 /** Day-to-date pool usage: replies (released ones excluded) and spend (tagging excluded). */
+/** A usage row's spend: its hold while pending, its charge once settled. */
+const SPEND_EXPR = `(CASE WHEN status = 'pending' THEN hold_micros ELSE COALESCE(charge_micros, 0) END)`;
+
 const DAY_USAGE_COLUMNS = `
   COUNT(CASE WHEN purpose = 'reply' AND COALESCE(settle_reason, '') <> 'released' THEN 1 END) AS requests,
-  COALESCE(SUM(CASE WHEN purpose <> 'tagging'
-    THEN (CASE WHEN status = 'pending' THEN hold_micros ELSE COALESCE(charge_micros, 0) END) END), 0) AS spend`;
+  COALESCE(SUM(CASE WHEN purpose <> 'tagging' THEN ${SPEND_EXPR} END), 0) AS spend`;
 
 /** 00:00 UTC of `now`'s day: the daily caps' window starts here. */
 export function dayStart(now: Date): Date {
@@ -332,6 +334,13 @@ export class PoolBank extends DurableObject<AppEnv> {
                 FROM usage_events WHERE account_id = ?1 AND created_at >= ?3 AND created_at < ?4) AS available`,
         )
         .bind(req.poolId, checkpoint?.balanceMicros ?? 0, from, day),
+      // What was added to the pool since 00:00 UTC: today's funding counts toward the ceilings.
+      db
+        .prepare(
+          `SELECT COALESCE(SUM(amount_micros), 0) AS added FROM credit_grants
+           WHERE account_id = ?1 AND amount_micros > 0 AND created_at >= ?2`,
+        )
+        .bind(req.poolId, day),
       userDayUsageStatement(db, req.poolId, req.userId, day),
       db
         .prepare(
@@ -339,23 +348,28 @@ export class PoolBank extends DurableObject<AppEnv> {
            WHERE account_id = ?1 AND ip_key = ?2 AND created_at >= ?3`,
         )
         .bind(req.poolId, req.ipKey ?? '', day),
+      // Each tier's spend today, all users together (tagging counts toward no one's caps).
       db
         .prepare(
-          `SELECT COALESCE(SUM(CASE WHEN status = 'pending' THEN hold_micros ELSE COALESCE(charge_micros, 0) END), 0) AS spend
+          `SELECT
+             COALESCE(SUM(CASE WHEN tier = 'free' THEN ${SPEND_EXPR} END), 0) AS free,
+             COALESCE(SUM(CASE WHEN tier = 'supporter' THEN ${SPEND_EXPR} END), 0) AS supporter
            FROM usage_events
-           WHERE account_id = ?1 AND tier = 'free' AND purpose <> 'tagging' AND created_at >= ?2`,
+           WHERE account_id = ?1 AND tier IN ('free', 'supporter') AND purpose <> 'tagging'
+             AND created_at >= ?2`,
         )
         .bind(req.poolId, day),
       supporterStatement(db, req.userId),
     ];
-    const [balanceRes, morningRes, userRes, ipRes, globalRes, supporterRes] =
+    const [balanceRes, morningRes, addedRes, userRes, ipRes, globalRes, supporterRes] =
       await db.batch<Record<string, unknown>>(statements);
     const balance = readBalance(balanceRes!.results[0] as BalanceRow | undefined);
     const available = balance.balanceMicros - balance.heldMicros;
     const morning = Number((morningRes!.results[0] as { available?: number })?.available ?? 0);
+    const added = Number((addedRes!.results[0] as { added?: number })?.added ?? 0);
     const user = userRes!.results[0] as DayRow | undefined;
     const ip = ipRes!.results[0] as DayRow | undefined;
-    const freeSpend = Number((globalRes!.results[0] as { spend?: number })?.spend ?? 0);
+    const tierSpend = globalRes!.results[0] as { free?: number; supporter?: number } | undefined;
     const supporter = supporterFrom(
       supporterRes!.results[0] as { net: number | null; last_purchase: string | null } | undefined,
       now,
@@ -392,11 +406,15 @@ export class PoolBank extends DurableObject<AppEnv> {
     }
     // An empty pool says so (the first-class empty state), rather than "busy today".
     if (available < hold) return refuse('empty', supporter);
-    if (req.purpose !== 'tagging' && !supporter) {
-      const g = req.caps.globalFree;
-      const share = Math.floor((Math.max(0, morning) * g.bpsOfMorningBalance) / 10_000);
+    if (req.purpose !== 'tagging') {
+      // Each tier has its own ceiling for all its users together, a share of the day's base:
+      // the balance at 00:00 UTC plus what was added since (so funding helps the same day).
+      const g = supporter ? req.caps.globalSupporter : req.caps.globalFree;
+      const base = Math.max(0, morning) + Math.max(0, added);
+      const share = Math.floor((base * g.bpsOfMorningBalance) / 10_000);
       const ceiling = Math.min(g.spendMicrosPerDay, share);
-      if (freeSpend + hold > ceiling) return refuse('cap_global', supporter, ceiling);
+      const spent = Number((supporter ? tierSpend?.supporter : tierSpend?.free) ?? 0);
+      if (spent + hold > ceiling) return refuse('cap_global', supporter, ceiling);
     }
 
     const usageId = crypto.randomUUID();

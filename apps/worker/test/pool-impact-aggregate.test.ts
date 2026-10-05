@@ -539,6 +539,34 @@ describe('aggregatePoolImpact: idempotence and tag retention', () => {
   });
 });
 
+describe('aggregatePoolImpact: a week without funded exchanges', () => {
+  it('publishes nothing, and a zero snapshot stored earlier is never served', async () => {
+    const poolId = uniq('pool');
+    const w = nextWeek();
+    const run = await aggregatePoolImpact(env, w.cron, poolId);
+    expect(run).toMatchObject({ week: w.key, outcome: 'no_exchanges', named: [], queued: [] });
+    expect(
+      await env.DB.prepare('SELECT 1 FROM pool_impact_snapshots WHERE week_start = ?')
+        .bind(w.key)
+        .first(),
+    ).toBeNull();
+
+    // A zero week written before this rule (e.g. right after launch) stays out of the feed.
+    await env.DB.prepare(
+      `INSERT INTO pool_impact_snapshots (week_start, exchanges, learners, topics,
+         avg_depth_milli, max_depth, deepest_topic_id, created_at)
+       VALUES (?, 0, 0, 0, 0, 0, NULL, ?)`,
+    )
+      .bind(w.key, new Date().toISOString())
+      .run();
+    expect((await visitor(authEnv())(`/api/pool/impact?week=${w.key}`)).status).toBe(404);
+    const weeks = (await (await visitor(authEnv())('/api/pool/impact/weeks')).json()) as {
+      weeks: string[];
+    };
+    expect(weeks.weeks).not.toContain(w.key);
+  });
+});
+
 describe('aggregatePoolImpact: while the pool is off', () => {
   it('writes no snapshot (a pre-launch zero week is never published) but still expires tags', async () => {
     const poolId = uniq('pool');

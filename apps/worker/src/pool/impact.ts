@@ -92,7 +92,8 @@ export interface ImpactRunResult {
    * `pool_off`: POOL_ENABLED is false, so no snapshot is written (a week
    * before launch would otherwise be published, immutably, as a zero week).
    */
-  outcome: 'created' | 'exists' | 'pool_off';
+  /** `no_exchanges`: the pool funded nothing that week, so there is nothing to publish. */
+  outcome: 'created' | 'exists' | 'pool_off' | 'no_exchanges';
   /** Topics the snapshot names. */
   named: string[];
   /** Topics queued for review by this run. */
@@ -146,7 +147,7 @@ export async function deleteStaleTags(db: D1Database, now: Date, days: number): 
 /**
  * Writes the snapshot of the ISO week that ended before `now` for `poolId`,
  * unless one exists (snapshots are immutable, so a re-run or a retried cron is
- * a no-op) or the pool is off, then runs the tag retention pass (always). The snapshot, its named topics
+ * a no-op), the pool is off or it funded no exchange that week, then runs the tag retention pass (always). The snapshot, its named topics
  * and the newly queued topics are one D1 batch (a transaction).
  */
 export async function aggregatePoolImpact(
@@ -203,6 +204,13 @@ export async function aggregatePoolImpact(
       db.prepare('SELECT topic_id, status FROM pool_topic_reviews'),
     ]);
     const totals = totalsRes!.results[0] as unknown as TotalsRow | undefined;
+    if (Number(totals?.exchanges ?? 0) === 0) {
+      // A week without funded exchanges (before launch, or a quiet week) is never published.
+      result.outcome = 'no_exchanges';
+      result.tagsDeleted = await deleteStaleTags(db, now, impact.tagRetentionDays);
+      console.log(JSON.stringify({ event: 'pool_impact', ...result, queued: 0 }));
+      return result;
+    }
     const depth = depthRes!.results[0] as unknown as DepthRow | undefined;
     const reviews = new Map(
       (reviewsRes!.results as unknown as { topic_id: string; status: string }[]).map((r) => [
@@ -319,7 +327,7 @@ export async function readPoolImpact(
     .prepare(
       `SELECT week_start, exchanges, learners, topics, avg_depth_milli, max_depth, deepest_topic_id
        FROM pool_impact_snapshots
-       ${week ? 'WHERE week_start = ?' : 'ORDER BY week_start DESC LIMIT 1'}`,
+       WHERE exchanges > 0 ${week ? 'AND week_start = ?' : 'ORDER BY week_start DESC LIMIT 1'}`,
     )
     .bind(...(week ? [week] : []))
     .first<SnapshotRow>();
@@ -354,7 +362,9 @@ export async function readPoolImpact(
 /** The weeks with a snapshot, newest first (at most `POOL_IMPACT_WEEKS_MAX`). */
 export async function poolImpactWeeks(db: D1Database): Promise<string[]> {
   const { results } = await db
-    .prepare('SELECT week_start FROM pool_impact_snapshots ORDER BY week_start DESC LIMIT ?')
+    .prepare(
+      'SELECT week_start FROM pool_impact_snapshots WHERE exchanges > 0 ORDER BY week_start DESC LIMIT ?',
+    )
     .bind(POOL_IMPACT_WEEKS_MAX)
     .all<{ week_start: string }>();
   return results.map((r) => r.week_start);

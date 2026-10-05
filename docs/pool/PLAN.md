@@ -765,7 +765,7 @@ Every stage runs `pnpm -r typecheck` and `cd apps/worker && pnpm test`, plus the
 * **Global serialisation.** Every reply reserve passes through one `PoolBank` with about two D1 round trips. The checkpoint keeps it O(recent rows). Sharding is the DEFERRED escape hatch.
 * **Shared test D1.** Pool tests isolate by unique `POOL_ACCOUNT_ID` per test (Worker-resolved, §3); a test that forgets this gets order-dependent balances. `poolReadyUser` always generates one.
 * **Price drift.** Mitigated by `max_price` routing and the overage breaker; the cost is a breaker trip (pool refuses), not unbounded loss.
-* **Ceiling hold** blocks the last ~1.4¢ of a user's daily spend cap, and with a much larger context window could block more; documented, and `contextTokens` in the price entry can be lowered to the pool's real limit.
+* **Ceiling hold** blocks the last ~1.4¢ of a user's daily spend cap, and with a much larger context window could block more; documented. `contextTokens` in the price entry is the most a pool request may send: a request whose byte bound exceeds it is refused, not clamped, so lowering it lowers the ceiling hold without under-holding any call (keep it above 3.5 × `POOL_MAX_INPUT_TOKENS` plus framing, about 57 000 at the defaults, or the longest replies are refused).
 
 ## 11. Critique responses
 

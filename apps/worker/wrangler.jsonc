@@ -227,9 +227,14 @@
     // their latest purchase is that recent.
     "SUPPORTER_WINDOW_MONTHS": "",
     // What the free tier may spend from the pool per UTC day, all users together: the lower of
-    // this many micro-USD and this share (bps) of the pool's balance at 00:00 UTC.
+    // this many micro-USD and this share (bps) of the pool's balance at 00:00 UTC plus what was
+    // added to it since.
     "POOL_FREE_DAILY_GLOBAL_MICROS": "5000000",
     "POOL_FREE_DAILY_GLOBAL_BPS": "2000",
+    // The same ceiling for all supporters together, so one small purchase per account cannot
+    // turn a farm of accounts into an unbounded drain.
+    "POOL_SUPPORTER_DAILY_GLOBAL_MICROS": "10000000",
+    "POOL_SUPPORTER_DAILY_GLOBAL_BPS": "4000",
     // Daily caps per network (IPv4 address or IPv6 /64), all users together.
     "POOL_IP_REQUESTS_PER_DAY": "60",
     "POOL_IP_SPEND_MICROS_PER_DAY": "300000",

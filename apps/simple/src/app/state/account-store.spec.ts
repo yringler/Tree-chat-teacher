@@ -11,6 +11,7 @@ import { ApiClient, DEMO_MODE } from '@tangent/web-shared';
 import { describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
 import { PaymentStore } from './payment-store';
+import { UiStore } from './ui-store';
 
 function membership(overrides: Partial<MembershipInfo> = {}): MembershipInfo {
   return {
@@ -85,22 +86,27 @@ const POOL_ME: PoolMeResponse = {
   currentNoticeVersion: 1,
 };
 
-function setup(billing: () => Promise<BillingSummary>, pool: PoolStatusResponse = POOL) {
+function setup(
+  billing: () => Promise<BillingSummary>,
+  pool: PoolStatusResponse = POOL,
+  poolMe: PoolMeResponse = POOL_ME,
+) {
   const api = {
     billing: vi.fn(billing),
     poolStatus: vi.fn(async () => pool),
-    poolMe: vi.fn(async () => POOL_ME),
+    poolMe: vi.fn(async () => poolMe),
     keyStatus: vi.fn(async () => ({ enabled: true, hasKey: true, providers: ['openrouter'] })),
   };
   const injector = Injector.create({
     providers: [
       { provide: AccountStore },
       { provide: PaymentStore },
+      { provide: UiStore },
       { provide: DEMO_MODE, useValue: false },
       { provide: ApiClient, useValue: api },
     ],
   });
-  return { account: injector.get(AccountStore), api };
+  return { account: injector.get(AccountStore), ui: injector.get(UiStore), api };
 }
 
 describe('AccountStore membership', () => {
@@ -217,6 +223,24 @@ describe('AccountStore community pool', () => {
     account.poolStatus.set(POOL);
     account.poolMe.set({ ...POOL_ME, caps: { ...POOL_ME.caps, usedRequests: 30 } });
     expect(account.poolLow()).toBe(true);
+  });
+
+  it('switching to the pool shows the notice at once when it is not acknowledged yet', async () => {
+    const fresh = { ...POOL_ME, consentVersion: null };
+    const { account, ui } = setup(async () => summary(membership()), POOL, fresh);
+    account.setMe(me(membership({ required: false })));
+    account.payment.choose('pool');
+    await account.switchToPool();
+    expect(ui.poolConsentVersion()).toBe(1);
+
+    // Acknowledged already, or not verified yet (the check comes first): nothing opens.
+    for (const poolMe of [POOL_ME, { ...fresh, verified: false }]) {
+      const s = setup(async () => summary(membership()), POOL, poolMe);
+      s.account.setMe(me(membership({ required: false })));
+      s.account.payment.choose('pool');
+      await s.account.switchToPool();
+      expect(s.ui.poolConsentVersion()).toBeNull();
+    }
   });
 
   it('while the pool is off it is not offered and its caps are not read', async () => {

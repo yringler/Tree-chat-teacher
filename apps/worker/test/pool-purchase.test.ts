@@ -606,7 +606,8 @@ describe('POST /api/admin/credit', () => {
 
   it('adjusts the pool, clamping a debit to what it has', async () => {
     const { poolId, credit } = await setup();
-    const add = { target: 'pool', userId: null, mode: 'adjustment' };
+    // No userId: an anonymous top-up (the same as `userId: null`).
+    const add = { target: 'pool', mode: 'adjustment' };
     expect(
       await json<AdminCreditResponse>(
         await credit({ ...add, amountCents: 300, idempotencyKey: key() }),

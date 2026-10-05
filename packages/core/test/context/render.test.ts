@@ -6,11 +6,13 @@ import {
   buildSummaryPrompt,
   buildTitlePrompt,
   cleanTitle,
+  CLIPPED_TRANSCRIPT_MARKER,
   CONTINUATION_MESSAGE,
   renderPlan,
   SUMMARY_HEADING,
   plainText,
 } from '../../src/context/render.js';
+import { estimateTokensUtf8, MESSAGE_OVERHEAD_TOKENS } from '../../src/tokens.js';
 import { Fixture, resolveAll } from './fixtures.js';
 
 const WITH_SYSTEM = { supportsSystemPrompt: true };
@@ -140,6 +142,24 @@ suite('renderPlan', () => {
     expect(out.messages).toEqual([{ role: 'user', content: 'go' }]);
   });
 
+  it('with anchorsAsUserText, quotes anchors into the user turn and keeps them out of system', () => {
+    const out = renderPlan(
+      plan([
+        sys('SP'),
+        msg('ancestor', 'assistant', 'answer'),
+        anchor('the quote'),
+        msg('branch', 'user', 'go'),
+      ]),
+      { ...WITH_SYSTEM, anchorsAsUserText: true },
+    );
+    expect(out.system).toBe('SP');
+    expect(out.messages).toEqual([
+      { role: 'user', content: CONTINUATION_MESSAGE },
+      { role: 'assistant', content: 'answer' },
+      { role: 'user', content: `${ANCHOR_HEADING}\n\n<excerpt>\nthe quote\n</excerpt>\n\ngo` },
+    ]);
+  });
+
   it('omits pending and failed summaries', () => {
     const out = renderPlan(
       plan([summary('pending', null), summary('failed', null), msg('branch', 'user', 'go')]),
@@ -267,6 +287,47 @@ suite('buildSummaryPrompt', () => {
     const out = buildSummaryPrompt({ ...request, focus: 'sort stability' });
     expect(out.messages[0]!.content).toContain('sort stability');
     expect(out.system).toMatch(/excerpt/);
+  });
+
+  suite('with an input limit', () => {
+    const tokensOf = (p: { system: string | null; messages: { content: string }[] }) =>
+      (p.system === null ? 0 : estimateTokensUtf8(p.system)) +
+      p.messages.reduce((n, m) => n + estimateTokensUtf8(m.content) + MESSAGE_OVERHEAD_TOKENS, 0);
+    const limit = { maxInputTokens: 600, estimateTokens: estimateTokensUtf8 };
+
+    it('leaves a prompt that fits unchanged', () => {
+      expect(buildSummaryPrompt(request, limit)).toEqual(buildSummaryPrompt(request));
+    });
+
+    it('keeps the most recent part of a transcript that does not fit, within the limit in bytes', () => {
+      const huge: SummaryRequest = {
+        ...request,
+        transcript: [
+          { role: 'user', content: `OLDEST ${'漢'.repeat(1_000_000)}` },
+          { role: 'assistant', content: 'NEWEST answer' },
+        ],
+      };
+      const out = buildSummaryPrompt(huge, limit)!;
+      expect(tokensOf(out)).toBeLessThanOrEqual(600);
+      expect(tokensOf(out)).toBeGreaterThan(550);
+      const content = out.messages[0]!.content;
+      expect(content).toContain(CLIPPED_TRANSCRIPT_MARKER);
+      expect(content).toContain('Assistant: NEWEST answer');
+      expect(content).not.toContain('OLDEST');
+      expect(content).not.toMatch(/[\uD800-\uDFFF]/);
+    });
+
+    it('clips a long excerpt to a quarter of the limit, keeping its start', () => {
+      const out = buildSummaryPrompt({ ...request, focus: `START ${'x'.repeat(50_000)}` }, limit)!;
+      expect(tokensOf(out)).toBeLessThanOrEqual(600);
+      const content = out.messages[0]!.content;
+      expect(content).toContain('<excerpt>\nSTART x');
+      expect(content).toContain('User: How do I sort?');
+    });
+
+    it('is null when the instructions alone exceed the limit', () => {
+      expect(buildSummaryPrompt(request, { ...limit, maxInputTokens: 50 })).toBeNull();
+    });
   });
 });
 

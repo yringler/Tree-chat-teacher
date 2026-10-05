@@ -1,4 +1,10 @@
-import { ChatService, DEFAULT_CHAT_SETTINGS, ShareService, type ChatSettings } from '@tangent/core';
+import {
+  ChatService,
+  DEFAULT_CHAT_SETTINGS,
+  estimateTokensUtf8,
+  ShareService,
+  type ChatSettings,
+} from '@tangent/core';
 import {
   createProviderRegistry,
   DEFAULT_PROVIDER_CONFIGS,
@@ -401,7 +407,16 @@ export function chatService(
     providers,
     settings: chatSettingsFor(env, account, scope),
     defaultSystemPrompt: defaultSystemPromptFor(env, account, scope),
-    ...(pool ? { pinnedModel: pool.model, systemPromptOverride: pool.systemPrompt } : {}),
+    ...(pool
+      ? {
+          pinnedModel: pool.model,
+          systemPromptOverride: pool.systemPrompt,
+          // Budgets and summary prompts in UTF-8 bytes, so the pool's context limit is a hard bound.
+          inputBound: { estimateTokens: estimateTokensUtf8 },
+          // A client-set anchor quote gets no more room than a message.
+          anchorQuoteMaxChars: pool.maxMessageChars,
+        }
+      : {}),
   });
 }
 

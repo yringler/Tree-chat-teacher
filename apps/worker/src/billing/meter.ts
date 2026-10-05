@@ -35,7 +35,7 @@ import type { AccountContext, AppEnv } from '../env.js';
 import { poolBank } from '../pool/ids.js';
 import { poolReserveRequest, type PoolParams } from '../pool/params.js';
 import type { PoolRefusal } from '../pool/pool-bank.js';
-import { worstCaseHoldMicros } from '../pool/pricing.js';
+import { exceedsContext, inputBoundTokens, worstCaseHoldMicros } from '../pool/pricing.js';
 import { poolSettlement, type PoolSettlement } from '../pool/settle-policy.js';
 import { costUsdToNanos } from './pricing.js';
 import { reconcileGeneration, RECONCILE_RETRY_DELAYS_MS } from './reconcile.js';
@@ -84,6 +84,17 @@ export class PoolRefusedError extends Error {
   constructor(readonly refusal: Pick<PoolRefusal, 'reason'> & Partial<PoolRefusal>) {
     super(`The community pool refused the call (${refusal.reason})`);
     this.name = 'PoolRefusedError';
+  }
+}
+
+/**
+ * A pool request's input could exceed its price entry's context window, so its
+ * hold would not bound its cost: the call is failed before anything is sent.
+ */
+export class PoolRequestTooLargeError extends Error {
+  constructor(readonly inputBoundTokens: number) {
+    super(`The request is too large for the community pool (${inputBoundTokens} tokens)`);
+    this.name = 'PoolRequestTooLargeError';
   }
 }
 
@@ -351,6 +362,19 @@ export function createPoolUsageMeter(
         request.maxOutputTokens ?? pool.maxOutputTokens,
         pool.maxOutputTokens,
       );
+      if (exceedsContext(price, request)) {
+        const bound = inputBoundTokens(request);
+        console.warn(
+          JSON.stringify({
+            event: 'pool_request_too_large',
+            userId,
+            purpose: tag?.purpose ?? 'other',
+            inputBoundTokens: bound,
+            contextTokens: price.contextTokens,
+          }),
+        );
+        throw new PoolRequestTooLargeError(bound);
+      }
       const holdMicros = worstCaseHoldMicros(price, request, maxOutput, price.feeBps);
       let usageId: string;
       let feeBps = price.feeBps;
@@ -409,6 +433,18 @@ async function* meteredStream(
               ? 'server'
               : 'rate_limit',
           message: 'The community pool cannot cover this request right now.',
+          retryable: false,
+          upstream: 'not_sent',
+        },
+      };
+      return;
+    }
+    if (e instanceof PoolRequestTooLargeError) {
+      yield {
+        type: 'error',
+        error: {
+          code: 'context_length',
+          message: 'This conversation is too long for the community pool.',
           retryable: false,
           upstream: 'not_sent',
         },

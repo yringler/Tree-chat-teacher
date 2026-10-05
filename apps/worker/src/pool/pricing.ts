@@ -35,17 +35,27 @@ export function feeBpsOf(price: ModelPrice, defaultFeeBps: number): number {
 /**
  * An upper bound on the input tokens of a request: byte-level BPE tokenizers
  * never emit more tokens than input bytes, so the UTF-8 length (plus framing)
- * bounds any of them, where chars/3.5 (core/tokens.ts) does not. Clamped to
- * the model's context window: a larger prompt is rejected upstream.
+ * bounds any of them, where chars/3.5 (core/tokens.ts) does not.
  */
-export function inputBoundTokens(
-  request: { system: string | null; messages: readonly ChatMessage[] },
-  contextTokens: number,
-): number {
+export function inputBoundTokens(request: {
+  system: string | null;
+  messages: readonly ChatMessage[];
+}): number {
   let bytes = request.system === null ? 0 : utf8Bytes(request.system);
   for (const m of request.messages) bytes += utf8Bytes(m.content);
-  const bound = bytes + TOKENS_PER_MESSAGE * request.messages.length + TOKENS_PER_REQUEST;
-  return Math.min(bound, contextTokens);
+  return bytes + TOKENS_PER_MESSAGE * request.messages.length + TOKENS_PER_REQUEST;
+}
+
+/**
+ * Whether a request's input bound exceeds the price entry's context window.
+ * The pool refuses such a request instead of clamping its hold, so a hold is
+ * a true bound even when `contextTokens` is below the model's real window.
+ */
+export function exceedsContext(
+  price: ModelPrice,
+  request: { system: string | null; messages: readonly ChatMessage[] },
+): boolean {
+  return inputBoundTokens(request) > price.contextTokens;
 }
 
 /** `ceil((inTok·in + outTok·out) / 10⁶ × (1 + fee))` micro-USD. */
@@ -63,8 +73,9 @@ function priceMicros(
 }
 
 /**
- * The most a request can cost on the pool, in micro-USD: its input bound and
- * `maxOutputTokens` at the model's price, grossed up by its fee, rounded up.
+ * The most a request can cost on the pool, in micro-USD: its input bound
+ * (at most the context window; see `exceedsContext`) and `maxOutputTokens` at
+ * the model's price, grossed up by its fee, rounded up.
  */
 export function worstCaseHoldMicros(
   price: ModelPrice,
@@ -74,7 +85,7 @@ export function worstCaseHoldMicros(
 ): number {
   return priceMicros(
     price,
-    inputBoundTokens(request, price.contextTokens),
+    Math.min(inputBoundTokens(request), price.contextTokens),
     maxOutputTokens,
     feeBpsOf(price, defaultFeeBps),
   );

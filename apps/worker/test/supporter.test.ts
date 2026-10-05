@@ -103,6 +103,28 @@ describe('isSupporter', () => {
     expect(await isSupporter(env.DB, legacy, NOW, null)).toBe(false);
   });
 
+  it('a full refund in rounded parts leaves no supporter behind', async () => {
+    const userId = uniq('user');
+    await grant({
+      accountId: `u_${userId}`,
+      kind: 'purchase',
+      amountMicros: 10_000_000,
+      grossMicros: 10_000_000,
+      userId,
+    });
+    // $10.83 with tax refunded as three $3.61 refunds: each pre-tax share rounds to 3_333_333.
+    for (let i = 0; i < 3; i++) {
+      await grant({
+        accountId: `u_${userId}`,
+        kind: 'refund',
+        amountMicros: -3_333_333,
+        grossMicros: -3_333_333,
+        userId,
+      });
+    }
+    expect(await isSupporter(env.DB, userId, NOW, null)).toBe(false);
+  });
+
   it('is lifetime by default; with SUPPORTER_WINDOW_MONTHS the latest purchase must be recent', async () => {
     const userId = uniq('user');
     await grant({

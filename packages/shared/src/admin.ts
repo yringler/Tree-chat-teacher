@@ -160,8 +160,11 @@ export const ADMIN_CREDIT_MAX_CENTS = 50_000;
 export const adminCreditRequestSchema = z
   .object({
     target: z.enum(PURCHASE_TARGETS),
-    /** The beneficiary (personal: required) or, for the pool, the buyer credited as supporter. */
-    userId: z.string().min(1).nullable(),
+    /**
+     * The beneficiary (personal: required) or, for the pool, the buyer credited
+     * as supporter; omitted or null for an anonymous pool top-up.
+     */
+    userId: z.string().min(1).nullable().default(null),
     amountCents: z
       .number()
       .int()
