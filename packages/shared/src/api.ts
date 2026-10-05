@@ -76,8 +76,8 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *   POST   /api/billing/portal                    -> PortalResponse (same-origin only; the payment
  *                                                provider's billing portal; 404 `no_customer` when the
  *                                                provider has no customer for the user yet)
- *   POST   /api/webhooks/:provider                Payment provider webhooks (public, signed;
- *                                                `/api/webhooks/polar`)
+ *   POST   /api/webhooks/:provider                Payment provider webhooks (public, signed by the
+ *                                                active provider; see the README)
  *
  * Admin (admins only: ADMIN_USER_IDS, or the local dev bypass; 404 `not_found`
  * to anyone else; admin.ts):

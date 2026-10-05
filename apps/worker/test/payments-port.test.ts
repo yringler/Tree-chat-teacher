@@ -154,6 +154,21 @@ describe('payment provider selection', () => {
     expect(webhookProvider(e, 'polar')).toBeNull();
   });
 
+  it('defaults to Polar, which is off without its secrets', () => {
+    expect(paymentProvider({ ...env, PAYMENT_PROVIDER: '' } as AppEnv)).toBeNull();
+    const polar = paymentProvider({
+      ...env,
+      PAYMENT_PROVIDER: ' ',
+      POLAR_ACCESS_TOKEN: 'polar_oat_x',
+      POLAR_WEBHOOK_SECRET: 'whsec_x',
+      POLAR_CREDITS_PRODUCT_ID: 'prod_c',
+      POLAR_MEMBERSHIP_PRODUCT_ID: '',
+    } as AppEnv);
+    expect(polar?.id).toBe('polar');
+    expect(polar?.capabilities).toEqual({ topUps: true, membership: false });
+    expect(polar?.disputes.mode).toBe('poll');
+  });
+
   it('refuses the fake outside tests and unknown providers', () => {
     expect(() =>
       paymentProvider({ ...env, PAYMENT_PROVIDER: 'fake', TEST_SEAMS: '' } as AppEnv),
