@@ -499,6 +499,27 @@ export interface TreeBackup {
   nodes: ChatNode[];
 }
 
+/**
+ * The file-name stem of an export or backup of a tree titled `title`: ASCII
+ * words joined by hyphens, at most 60 characters, `tangent-export` when
+ * nothing is left.
+ */
+export function exportFileStem(title: string): string {
+  const s = title
+    .normalize('NFKD')
+    .replace(/[^\w\s-]/g, '')
+    .trim()
+    .replace(/[\s_]+/g, '-')
+    .toLowerCase()
+    .slice(0, 60);
+  return s || 'tangent-export';
+}
+
+/** The file name of a tree's JSON backup (`<stem>.tangent.json`), from the server or a Learn download. */
+export function backupFileName(title: string): string {
+  return `${exportFileStem(title)}.tangent.json`;
+}
+
 const isoDate = z.string().min(1).max(64);
 const role = z.enum(['user', 'assistant', 'system']);
 const nodeStatus = z.enum(['streaming', 'complete', 'error']);

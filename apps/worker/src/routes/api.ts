@@ -7,9 +7,11 @@ import {
 } from '@tangent/core';
 import { payloadToMarkdown, renderViewerPage, viewerCsp } from '@tangent/render';
 import {
+  backupFileName,
   createBranchRequestSchema,
   createShareRequestSchema,
   createTreeRequestSchema,
+  exportFileStem,
   exportQuerySchema,
   reviewRequestSchema,
   sendMessageRequestSchema,
@@ -158,7 +160,7 @@ export function apiRoutes(): Hono<AppBindings> {
   api.get('/trees/:treeId/backup', async (c) => {
     const backup = await chatOf(c).exportBackup(c.req.param('treeId'));
     return c.json(backup, 200, {
-      'Content-Disposition': `attachment; filename="${slug(backup.tree.title)}.tangent.json"`,
+      'Content-Disposition': `attachment; filename="${backupFileName(backup.tree.title)}"`,
     });
   });
   api.post('/import', validateJson(treeBackupSchema), async (c) =>
@@ -382,7 +384,7 @@ export function apiRoutes(): Hono<AppBindings> {
           : 'Nothing to export',
       );
     }
-    const name = slug(result.payload.title);
+    const name = exportFileStem(result.payload.title);
     if (q.format === 'md') {
       return c.body(payloadToMarkdown(result.payload), 200, {
         'Content-Type': 'text/markdown; charset=utf-8',
@@ -405,15 +407,4 @@ function session(env: AppEnv, treeId: string) {
 
 function sessionUrl(path: string, params: Record<string, string>): string {
   return `https://tree-session${path}?${new URLSearchParams(params).toString()}`;
-}
-
-export function slug(title: string): string {
-  const s = title
-    .normalize('NFKD')
-    .replace(/[^\w\s-]/g, '')
-    .trim()
-    .replace(/[\s_]+/g, '-')
-    .toLowerCase()
-    .slice(0, 60);
-  return s || 'tangent-export';
 }

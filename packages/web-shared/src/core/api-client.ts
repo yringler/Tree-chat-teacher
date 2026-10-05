@@ -43,6 +43,7 @@ import type {
   ShareScope,
   ShareSummary,
   Tree,
+  TreeBackup,
   TreeBackupInput,
   TreeDetail,
   TreeSummary,
@@ -407,6 +408,15 @@ export class ApiClient {
   /** Download link for the JSON backup of one tree. */
   backupUrl(treeId: string): string {
     return `${this.base}/trees/${enc(treeId)}/backup`;
+  }
+
+  /**
+   * The JSON backup of one tree, fetched with this app's headers. Learn saves
+   * it from here: a plain link sends no mode header, so the server would look
+   * for the tree in the power account.
+   */
+  backup(treeId: string): Promise<TreeBackup> {
+    return this.json('GET', `/trees/${enc(treeId)}/backup`);
   }
 
   importBackup(backup: TreeBackupInput): Promise<TreeDetail> {

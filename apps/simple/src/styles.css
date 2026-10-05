@@ -235,6 +235,13 @@ body {
   gap: 10px;
 }
 
+.lessons-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .lesson-row {
   display: flex;
   align-items: center;

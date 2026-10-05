@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import { readBackupFile } from '../core/backup-file';
+import { Icon, readBackupFile } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
-import { Icon } from '@tangent/web-shared';
 
 /** "Import backup" button: file input → validate → POST /api/import → open the new tree. */
 @Component({

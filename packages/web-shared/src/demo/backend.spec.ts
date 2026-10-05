@@ -473,6 +473,14 @@ describe('power demo backend', () => {
     expect(lesson.nodes.map((n) => n.content)).toEqual(backup.nodes.map((n) => n.content));
     expect((await learn.api.listTrees()).map((t) => t.id)).toEqual([lesson.tree.id]);
 
+    // Learn's Export (fetched through the API transport) imports back as the same lesson.
+    const again = await learn.api.importBackup(await learn.api.backup(lesson.tree.id));
+    expect(again.tree.id).not.toBe(lesson.tree.id);
+    expect(again.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode])).toEqual(
+      lesson.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode]),
+    );
+    expect(again.nodes.map((n) => n.content)).toEqual(lesson.nodes.map((n) => n.content));
+
     // The Power demo imports the same file as it is.
     const copy = await power.api.importBackup(fromPower);
     expect(copy.tree.systemPrompt).toBe('Talk like a pirate.');

@@ -430,6 +430,21 @@ describe('ApiClient headers', () => {
     });
   });
 
+  it("backup(treeId) GETs the tree's backup with the app's headers (Learn's mode reaches its account)", async () => {
+    const fetchMock = vi.fn<(...args: FetchArgs) => Promise<Response>>(async () =>
+      jsonResponse({ format: 'tangent-tree-backup' }),
+    );
+    const api = createApi([
+      { provide: API_FETCH, useValue: fetchMock },
+      { provide: API_HEADERS, useValue: () => ({ 'x-tangent-mode': 'simple' }) },
+    ]);
+    await expect(api.backup('t/1')).resolves.toEqual({ format: 'tangent-tree-backup' });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('/api/trees/t%2F1/backup');
+    expect(init.method).toBe('GET');
+    expect(init.headers).toMatchObject({ 'x-tangent-mode': 'simple' });
+  });
+
   it('sends none by default', async () => {
     const fetchMock = vi.fn<(...args: FetchArgs) => Promise<Response>>(async () =>
       jsonResponse([]),

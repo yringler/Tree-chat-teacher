@@ -19,6 +19,14 @@ export {
   type ExportParams,
 } from './core/api-client';
 export { API_FETCH, API_HEADERS, defaultApiFetch } from './core/api-fetch';
+export {
+  backupFile,
+  MAX_BACKUP_BYTES,
+  readBackupFile,
+  SAVE_FILE,
+  type BackupFile,
+  type SaveFile,
+} from './core/backup-file';
 export { APP_PATHS, provideAppPaths, type AppPaths } from './core/app-paths';
 export {
   AUTH_CLIENT,
