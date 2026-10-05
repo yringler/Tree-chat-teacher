@@ -1,9 +1,9 @@
 import { escapeHtml } from '@tangent/render';
 import {
+  formatBps,
   formatMicros,
   POOL_AT_COST_TEXT,
   POOL_EMPTY_TEXT,
-  poolFundingText,
   poolSessionsHeadline,
   poolWeekText,
   type PoolImpactResponse,
@@ -180,19 +180,21 @@ function poolOpen(pool: PoolStatusResponse | undefined): pool is PoolStatusRespo
 }
 
 /**
- * Why the pool exists. It names Tangent's earnings only while a revenue share
- * is committed (`POOL_REVENUE_SHARE_BPS` > 0); at 0 the credit is simply
- * Tangent's, at its discretion.
+ * The pool section's intro: why the pool exists and, while a revenue share is
+ * committed (`POOL_REVENUE_SHARE_BPS` > 0), its percentage from the config.
+ * The details (what the share is of, the model, the limits) are on `/pool`.
  */
-function poolMissionText(revenueShareBps: number): string {
-  return revenueShareBps > 0
-    ? 'Good AI tutoring costs money to run, so most of it sits behind a paywall. Tangent sets aside part of what it earns so that anyone can learn here, whether or not they can pay.'
-    : 'Good AI tutoring costs money to run, so most of it sits behind a paywall. Tangent provides free credit so that anyone can learn here, whether or not they can pay.';
+function poolIntroText(revenueShareBps: number): string {
+  const funded =
+    revenueShareBps > 0
+      ? `Tangent puts ${formatBps(revenueShareBps)} of what it earns into the community pool`
+      : 'Tangent adds free credit to the community pool';
+  return `Good AI tutoring costs money to run, so most of it sits behind a paywall. ${funded} so that anyone can learn here for free, within daily limits.`;
 }
 
 /**
  * The community pool section: why it exists, where its credit comes from
- * (Tangent's revenue share, `poolFundingText`), the meter, this week's
+ * (Tangent's revenue share, in brief), the meter, this week's
  * counts and the latest weekly impact snapshot when there is one. It is
  * Tangent's own commitment: nothing here is for sale, and nothing asks the
  * visitor to pay for anyone else (docs/DECISIONS.md, "Revenue-funded
@@ -211,7 +213,7 @@ function poolSection(pool: PoolStatusResponse, impact?: PoolImpactResponse): str
 <div class="wrap">
 <p class="eyebrow">The community pool</p>
 <h2 id="pool">Curiosity shouldn’t need a credit card</h2>
-<p class="sub">${escapeHtml(poolMissionText(pool.revenueShareBps))} ${escapeHtml(poolFundingText(pool.revenueShareBps))} Any signed-in learner can use it in Learn, on ${escapeHtml(pool.model.label)}, within daily limits.</p>
+<p class="sub">${escapeHtml(poolIntroText(pool.revenueShareBps))}</p>
 <div class="pool">
 ${meter}
 <p class="week">${escapeHtml(poolWeekText(pool.week))}</p>
@@ -315,7 +317,7 @@ ${opts.pool ? poolSection(opts.pool, opts.impact) : ''}<section aria-labelledby=
 <li>Smart and Simple tiers, one toggle</li>
 <li>Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit</li>${opts.pool ? `\n<li>Or learn free on the community pool, within daily limits, on credit Tangent provides${opts.pool.revenueShareBps > 0 ? ' from its revenue' : ''}</li>` : ''}
 </ul>
-<a class="btn primary" href="/learn/login">Start learning</a>
+<a class="btn primary" href="/learn/login">${free ? 'Start learning free' : 'Start learning'}</a>
 </article>
 <article class="card mode">
 <h3>Power</h3>

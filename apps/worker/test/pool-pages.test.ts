@@ -193,11 +193,14 @@ describe('the landing page’s pool meter', () => {
     expect(html).toContain('1 learner on the pool this week · 1 exchange funded this week');
     expect(html).toContain('<h2 id="pool">Curiosity shouldn’t need a credit card</h2>');
     expect(html).toContain(
-      `whether or not they can pay. ${COMMITMENT.replace("it's", 'it&#39;s')} Any signed-in`,
+      '<p class="sub">Good AI tutoring costs money to run, so most of it sits behind a paywall. Tangent puts 20% of what it earns into the community pool so that anyone can learn here for free, within daily limits.</p>',
     );
     // Open pool: "free" in the hero, the CTAs and the pricing card.
     expect(html).toContain('<p class="free"><strong>Free to start.</strong>');
     expect(html).toContain('<a class="btn" href="/learn/login">Start learning free</a>');
+    expect(html).toContain(
+      '<a class="btn primary" href="/learn/login">Start learning free</a>\n</article>',
+    );
     expect(html).toContain(
       '<div class="ctas"><a class="btn primary" href="/learn/login">Start learning free</a><a class="btn" href="/pool">How the pool works</a></div>',
     );
@@ -244,7 +247,7 @@ describe('the landing page’s pool meter', () => {
     const at15 = await (
       await visitor(poolEnv(uniq('pool'), { POOL_REVENUE_SHARE_BPS: '1500' }))('/welcome')
     ).text();
-    expect(at15).toContain('Tangent puts 15% of what it earns into it: 15% of each membership');
+    expect(at15).toContain('Tangent puts 15% of what it earns into the community pool');
     const unshared = uniq('pool');
     await fundPool(unshared, 1_000_000);
     const none = await (
@@ -252,7 +255,7 @@ describe('the landing page’s pool meter', () => {
     ).text();
     expect(none).toContain('<p class="free"><strong>Free to start.</strong>');
     expect(none).toContain('free credit Tangent provides so that anyone can learn here');
-    expect(none).toContain('The community pool is free credit Tangent provides. Any signed-in');
+    expect(none).toContain('Tangent adds free credit to the community pool so that anyone');
     expect(none).not.toContain('of what it earns');
     expect(none).not.toMatch(/from its revenue|part of what it earns/);
   });
