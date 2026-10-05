@@ -18,7 +18,7 @@ import {
 } from '@tangent/shared';
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-import { getBalance } from '../src/billing/ledger.js';
+import { getBalance, grantCredit } from '../src/billing/ledger.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
 import { makeNode } from './fixtures.js';
@@ -367,15 +367,50 @@ describe('copying the same power tree to Learn twice', () => {
   });
 });
 
-describe('a new power user with no keys and no credit', () => {
+describe('the default route of a new power tree (docs/DECISIONS.md "Default route of a new tree")', () => {
   /** The default providers (PROVIDERS unset: `fake` isn't among them), the fee off. */
   const DEFAULTS: Partial<AppEnv> = {
     PROVIDERS: '',
     ANNUAL_FEE_ENABLED: 'false',
     POOL_ENABLED: 'false',
   };
+  /**
+   * Tangent credit offered: the built-in endpoint as deployed, not a test fake (the
+   * default route skips fakes), on the mock upstream of vitest.config.ts.
+   */
+  const CREDIT: Partial<AppEnv> = {
+    SIMPLE_PROVIDER: JSON.stringify({
+      id: 'openrouter',
+      kind: 'anthropic',
+      label: 'Tangent',
+      baseUrl: 'https://llm.test',
+      apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
+      defaultModel: 'smart',
+      models: [
+        { id: 'smart', label: 'Smart' },
+        { id: 'simple', label: 'Simple' },
+      ],
+    }),
+    OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR',
+  };
 
-  it('a new tree starts on the first configured provider (Anthropic); the first send is 401 key_required', async () => {
+  const newTree = async (u: User) =>
+    json<TreeDetail>(await u.call('/api/trees', { method: 'POST', json: {} }), 201);
+  const firstSend = (u: User, tree: TreeDetail) =>
+    u.call(`/api/branches/${tree.tree.trunkBranchId}/messages`, {
+      method: 'POST',
+      json: { content: 'Hello' },
+    });
+  /** Credit on the user's ledger (an admin grant). */
+  const grant = (u: User, amountMicros = 1_000_000) =>
+    grantCredit(env.DB, {
+      accountId: `u_${u.userId}`,
+      kind: 'adjustment',
+      amountMicros,
+      providerRef: null,
+    });
+
+  it('no keys, no credit offered: OpenRouter on the own key; the first send asks for an OpenRouter key', async () => {
     // No credit offered (payments not configured), so nothing can pay but the user's own key.
     const u = await newUser({ ...DEFAULTS, PAYMENT_PROVIDER: 'polar' });
     expect(u.me.builtInCredit).toBe(false);
@@ -388,57 +423,120 @@ describe('a new power user with no keys and no credit', () => {
       ['openrouter', false, 'own-key'],
     ]);
 
-    const tree = await json<TreeDetail>(
-      await u.call('/api/trees', { method: 'POST', json: {} }),
-      201,
-    );
+    const tree = await newTree(u);
+    // OpenRouter's configured default model (the suggested smart one).
     expect(tree.branches[0]).toMatchObject({
-      providerId: 'anthropic',
-      model: 'claude-opus-5-5',
+      providerId: 'openrouter',
+      model: 'deepseek/deepseek-v4-pro',
       funding: 'own-key',
     });
-    const send = await u.call(`/api/branches/${tree.tree.trunkBranchId}/messages`, {
-      method: 'POST',
-      json: { content: 'Hello' },
-    });
-    expect((await json<ApiError>(send, 401)).error).toEqual({
+    expect((await json<ApiError>(await firstSend(u, tree), 401)).error).toEqual({
       code: 'key_required',
-      message: 'Add your Anthropic API key to continue this conversation.',
+      message: 'Add your OpenRouter API key to continue this conversation.',
     });
     // Not a lost session: the user is still signed in.
     expect((await u.call('/api/me')).status).toBe(200);
   });
 
-  it('where Tangent credit is offered, a new tree starts on it instead, and an empty balance is 402', async () => {
-    // The built-in endpoint as deployed: not a test fake (the default route skips fakes), on
-    // the mock upstream of vitest.config.ts. The send is refused before any call reaches it.
+  it('a self-hosted provider list without OpenRouter: the first configured provider (Anthropic)', async () => {
     const u = await newUser({
       ...DEFAULTS,
-      SIMPLE_PROVIDER: JSON.stringify({
-        id: 'openrouter',
-        kind: 'anthropic',
-        label: 'Tangent',
-        baseUrl: 'https://llm.test',
-        apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
-        defaultModel: 'smart',
-        models: [
-          { id: 'smart', label: 'Smart' },
-          { id: 'simple', label: 'Simple' },
-        ],
-      }),
-      OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR',
+      PAYMENT_PROVIDER: 'polar',
+      PROVIDERS: JSON.stringify([
+        {
+          id: 'anthropic',
+          kind: 'anthropic',
+          label: 'Anthropic',
+          apiKeySecret: 'ANTHROPIC_API_KEY',
+          defaultModel: 'claude-test',
+          models: [{ id: 'claude-test', label: 'Claude Test' }],
+        },
+        {
+          id: 'openai',
+          kind: 'openai-compatible',
+          label: 'OpenAI',
+          baseUrl: 'https://llm.test/v1',
+          apiKeySecret: 'OPENAI_API_KEY',
+          defaultModel: 'gpt-test',
+          models: [{ id: 'gpt-test', label: 'GPT Test' }],
+        },
+      ]),
     });
+    const tree = await newTree(u);
+    expect(tree.branches[0]).toMatchObject({
+      providerId: 'anthropic',
+      model: 'claude-test',
+      funding: 'own-key',
+    });
+    expect((await json<ApiError>(await firstSend(u, tree), 401)).error).toEqual({
+      code: 'key_required',
+      message: 'Add your Anthropic API key to continue this conversation.',
+    });
+  });
+
+  it('no keys, credit offered but a zero balance: OpenRouter on the own key, 401 key_required (not 402)', async () => {
+    const u = await newUser({ ...DEFAULTS, ...CREDIT });
     expect(u.me.builtInCredit).toBe(true);
-    const tree = await json<TreeDetail>(
-      await u.call('/api/trees', { method: 'POST', json: {} }),
-      201,
-    );
-    // "The first usable non-fake own provider, then Tangent credit": no key, so credit.
-    expect(tree.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'credit' });
-    const send = await u.call(`/api/branches/${tree.tree.trunkBranchId}/messages`, {
-      method: 'POST',
-      json: { content: 'Hello' },
+    const tree = await newTree(u);
+    // Never onto credit that can't pay.
+    expect(tree.branches[0]).toMatchObject({
+      providerId: 'openrouter',
+      model: 'deepseek/deepseek-v4-pro',
+      funding: 'own-key',
     });
-    expect((await json<ApiError>(send, 402)).error.code).toBe('payment_required');
+    const send = await firstSend(u, tree);
+    expect((await json<ApiError>(send, 401)).error).toEqual({
+      code: 'key_required',
+      message: 'Add your OpenRouter API key to continue this conversation.',
+    });
+    expect(await getBalance(env.DB, `u_${u.userId}`)).toMatchObject({ balanceMicros: 0 });
+  });
+
+  it('no keys, credit offered and a balance: Tangent credit, and the first send gets a reply', async () => {
+    const u = await newUser({ ...DEFAULTS, ...CREDIT });
+    await grant(u);
+    const tree = await newTree(u);
+    expect(tree.branches[0]).toMatchObject({
+      providerId: 'openrouter',
+      model: 'smart',
+      funding: 'credit',
+    });
+    const send = await firstSend(u, tree);
+    expect(send.status, await send.clone().text()).toBe(200);
+    expect(await send.text()).toContain('"type":"done"');
+  });
+
+  it('a saved own key comes first, credit or not; the server reads the key cookie for it', async () => {
+    const u = await newUser({ ...DEFAULTS, ...CREDIT });
+    await grant(u);
+    const saved = await u.call('/api/key', {
+      method: 'POST',
+      json: { provider: 'openai', apiKey: 'sk-openai-0123456789abcdef' },
+    });
+    expect(saved.status, await saved.text()).toBe(204);
+    expect((await newTree(u)).branches[0]).toMatchObject({
+      providerId: 'openai',
+      funding: 'own-key',
+    });
+  });
+
+  it('own keys locked by a lapsed membership: credit that can pay wins, even over a saved key', async () => {
+    const u = await newUser({ ...FEE_ON, ...DEFAULTS, ANNUAL_FEE_ENABLED: 'true', ...CREDIT });
+    await insertSubscription(env, u.userId, 'canceled');
+    const saved = await u.call('/api/key', {
+      method: 'POST',
+      json: { provider: 'openai', apiKey: 'sk-openai-0123456789abcdef' },
+    });
+    expect(saved.status, await saved.text()).toBe(204);
+    // No credit left either: nothing can generate (the app shows the notice instead of the
+    // new-conversation box); the server's fallback stays off credit.
+    expect((await newTree(u)).branches[0]).toMatchObject({
+      providerId: 'openai',
+      funding: 'own-key',
+    });
+    await grant(u);
+    const tree = await newTree(u);
+    expect(tree.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'credit' });
+    expect((await firstSend(u, tree)).status).toBe(200);
   });
 });

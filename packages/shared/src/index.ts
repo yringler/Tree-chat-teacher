@@ -2,6 +2,7 @@ export * from './domain.js';
 export * from './context-plan.js';
 export * from './provider.js';
 export * from './route.js';
+export * from './default-route.js';
 export * from './share.js';
 export * from './api.js';
 export * from './review.js';

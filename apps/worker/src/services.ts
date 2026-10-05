@@ -22,6 +22,7 @@ import {
   type ProviderRegistry,
 } from '@tangent/shared';
 import { isAdminUserId } from './auth/admin.js';
+import { defaultRouteFacts } from './billing/gate.js';
 import { createPoolUsageMeter, createUsageMeter, meteredRegistry } from './billing/meter.js';
 import { paymentsConfigured } from './billing/payments/index.js';
 import { appConfig } from './config.js';
@@ -452,7 +453,13 @@ export function chatService(
     repos: createD1Repositories(env.DB),
     accountId: account.id,
     providers,
-    ...(creditProviders ? { creditProviders } : {}),
+    ...(creditProviders
+      ? {
+          creditProviders,
+          // A new tree's default route starts on credit only when it can pay (docs/DECISIONS.md).
+          defaultRouteFacts: () => defaultRouteFacts(env, account),
+        }
+      : {}),
     // Learn pays per request: branch funding is ignored and written as `own-key`.
     // Imports into Learn are adapted to its provider, models, context and prompt.
     ...(account.mode === 'simple'
