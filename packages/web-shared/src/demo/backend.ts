@@ -253,8 +253,11 @@ export class DemoBackend {
       repos: this.repos,
       accountId: DEMO_ACCOUNT_ID,
       providers: registry,
-      // Like the Worker: Learn pays per request, so its branches are written `own-key`.
-      ...(this.mode === 'simple' ? { fixedFunding: 'own-key' as const } : {}),
+      // Like the Worker: Learn pays per request, so its branches are written `own-key`,
+      // and imports are adapted to its provider, models, context and prompt.
+      ...(this.mode === 'simple'
+        ? { fixedFunding: 'own-key' as const, adaptImportsForLearn: true }
+        : {}),
       settings: { ...DEFAULT_CHAT_SETTINGS, maxInputTokens: 60_000 },
       // New conversations get the same built-in prompt as on the server (both modes).
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,

@@ -50,6 +50,7 @@ import {
   type RenderOptions,
 } from '../context/render.js';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
+import { adaptBackupForLearn, type LearnImportTarget } from '../learn-import.js';
 import type { Repositories } from '../repository.js';
 import type { TokenEstimator } from '../tokens.js';
 import { newId as defaultNewId, systemClock, type Clock } from '../util.js';
@@ -102,6 +103,12 @@ export interface ChatServiceDeps {
    * every branch this instance writes gets this funding (`own-key`).
    */
   fixedFunding?: BranchFunding;
+  /**
+   * Learn: imported backups are adapted to what Learn can show and continue
+   * (`adaptBackupForLearn`): onto this instance's provider (`providers`'
+   * default) and its models, `path` context, and the prompt a new tree gets.
+   */
+  adaptImportsForLearn?: boolean;
   settings: ChatSettings;
   /**
    * Built-in system prompt of new trees, used when neither the request nor
@@ -995,9 +1002,15 @@ export class ChatService {
     };
   }
 
-  /** Restores a backup under fresh ids. */
+  /**
+   * Restores a backup under fresh ids, in this instance's account. Learn
+   * (`adaptImportsForLearn`) first adapts it to what Learn can run.
+   */
   async importBackup(backup: TreeBackup | TreeBackupInput): Promise<TreeDetail> {
-    const data = treeBackupSchema.parse(backup);
+    const parsed = treeBackupSchema.parse(backup);
+    const data = this.deps.adaptImportsForLearn
+      ? adaptBackupForLearn(parsed, await this.learnImportTarget())
+      : parsed;
     const branchIds = new Map(data.branches.map((b) => [b.id, this.newId()] as const));
     const nodeIds = new Map(data.nodes.map((n) => [n.id, this.newId()] as const));
     const mapBranch = (id: string): string => {
@@ -1048,6 +1061,19 @@ export class ChatService {
   }
 
   // -------------------------------------------------------------- helpers
+
+  /** What Learn adapts an import to: its one provider and models, and a new tree's prompt. */
+  private async learnImportTarget(): Promise<LearnImportTarget> {
+    const providers = this.deps.providers;
+    const provider = providers.get(providers.defaultProviderId());
+    if (!provider) throw new ValidationError('There is no provider to import onto');
+    return {
+      providerId: provider.id,
+      models: provider.models().map((m) => m.id),
+      defaultModel: provider.defaultModel(),
+      systemPrompt: await this.newTreeSystemPrompt(),
+    };
+  }
 
   /** How calls on `branch` are paid as far as this instance knows: Learn's fixed funding, else the branch's. */
   private fundingOf(branch: Pick<Branch, 'funding'>): BranchFunding {

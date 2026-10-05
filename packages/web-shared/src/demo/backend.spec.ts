@@ -445,6 +445,41 @@ describe('power demo backend', () => {
     expect(copy.nodes).toHaveLength(8);
     expect(await api.listTrees()).toHaveLength(2);
   });
+
+  it("adapts a power backup imported into the Learn demo to Learn's provider, models, context and prompt", async () => {
+    const power = setup({ mode: 'power' });
+    const [tree] = await power.api.listTrees();
+    const res = await power.backend.fetch(power.api.backupUrl(tree!.id));
+    const backup = (await res.json()) as Parameters<ApiClient['importBackup']>[0];
+    // As power could have made it: another provider, a summary branch, a custom prompt.
+    const [trunk, ...rest] = backup.branches;
+    const fromPower = {
+      ...backup,
+      tree: { ...backup.tree, systemPrompt: 'Talk like a pirate.' },
+      branches: [
+        { ...trunk!, providerId: 'anthropic', model: 'vendor-large' },
+        ...rest.map((b) => ({ ...b, contextMode: 'summary' as const, funding: 'credit' as const })),
+      ],
+    };
+
+    const learn = setup({ seed: false });
+    const lesson = await learn.api.importBackup(fromPower);
+    expect(lesson.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(lesson.branches.map((b) => [b.providerId, b.contextMode, b.funding])).toEqual(
+      lesson.branches.map(() => ['openrouter', 'path', 'own-key']),
+    );
+    expect(lesson.branches[0]!.model).toBe('smart');
+    expect(lesson.branches.slice(1).map((b) => b.model)).toEqual(rest.map((b) => b.model));
+    expect(lesson.nodes.map((n) => n.content)).toEqual(backup.nodes.map((n) => n.content));
+    expect((await learn.api.listTrees()).map((t) => t.id)).toEqual([lesson.tree.id]);
+
+    // The Power demo imports the same file as it is.
+    const copy = await power.api.importBackup(fromPower);
+    expect(copy.tree.systemPrompt).toBe('Talk like a pirate.');
+    expect(copy.branches.map((b) => [b.providerId, b.contextMode])).toEqual(
+      fromPower.branches.map((b) => [b.providerId, b.contextMode]),
+    );
+  });
 });
 
 function memoryStorage(): DemoStorage & { data: Map<string, string> } {

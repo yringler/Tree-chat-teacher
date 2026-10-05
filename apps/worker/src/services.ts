@@ -454,7 +454,10 @@ export function chatService(
     providers,
     ...(creditProviders ? { creditProviders } : {}),
     // Learn pays per request: branch funding is ignored and written as `own-key`.
-    ...(account.mode === 'simple' ? { fixedFunding: 'own-key' as const } : {}),
+    // Imports into Learn are adapted to its provider, models, context and prompt.
+    ...(account.mode === 'simple'
+      ? { fixedFunding: 'own-key' as const, adaptImportsForLearn: true }
+      : {}),
     settings: chatSettingsFor(env, account, scope),
     defaultSystemPrompt: defaultSystemPromptFor(env, account, scope),
     ...(pool
