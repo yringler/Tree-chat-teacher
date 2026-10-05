@@ -369,11 +369,11 @@ export const creditGrants = sqliteTable(
     /**
      * Idempotency key, unique: a payment provider's namespaced object ref
      * (`<provider>:<object>:<id>`, billing/payments/refs.ts), `admin:<key>`,
-     * `dev:<key>`, or a bare object id of the previous processor on rows from before migration 0014.
+     * `dev:<key>`, or a bare object id of the previous processor on rows from before migration 0015.
      */
     providerRef: text('provider_ref').unique(),
     /**
-     * Refunds, disputes and their reinstatements (since migration 0017): the payment they
+     * Refunds, disputes and their reinstatements (since migration 0018): the payment they
      * take back from, so together they never take back more than it granted
      * (billing/payments/apply.ts). Also a membership payment's revenue share taken back.
      */
@@ -625,3 +625,32 @@ export const poolTopicReviews = sqliteTable('pool_topic_reviews', {
   /** The admin's user id. */
   decidedBy: text('decided_by'),
 });
+
+/**
+ * OpenRouter list prices of the priced models, refreshed daily by the price
+ * sync (pool/price-sync.ts). They replace the built-in placeholder prices of
+ * `DEFAULT_MODEL_PRICES`; an explicit `MODEL_PRICES` entry still wins.
+ */
+export const modelPrices = sqliteTable('model_prices', {
+  model: text('model').primaryKey(),
+  inMicrosPerMTok: integer('in_micros_per_mtok').notNull(),
+  outMicrosPerMTok: integer('out_micros_per_mtok').notNull(),
+  /** OpenRouter's `context_length`; null when not reported. */
+  contextTokens: integer('context_tokens'),
+  /** When a sync last confirmed the price (ISO). */
+  fetchedAt: text('fetched_at').notNull(),
+});
+
+/** Every price a sync first saw (append-only): one row per new or changed price. */
+export const modelPriceHistory = sqliteTable(
+  'model_price_history',
+  {
+    model: text('model').notNull(),
+    inMicrosPerMTok: integer('in_micros_per_mtok').notNull(),
+    outMicrosPerMTok: integer('out_micros_per_mtok').notNull(),
+    contextTokens: integer('context_tokens'),
+    /** ISO. */
+    recordedAt: text('recorded_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.model, t.recordedAt] })],
+);

@@ -20,7 +20,7 @@ import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test'
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
-import { CRON_FREQUENT, CRON_WEEKLY, cronTasks, type CronJobs } from '../src/cron.js';
+import { CRON_DAILY, CRON_FREQUENT, CRON_WEEKLY, cronTasks, type CronJobs } from '../src/cron.js';
 import type { AppEnv } from '../src/env.js';
 import { LANDING_STYLE } from '../src/http/landing.js';
 import { aggregatePoolImpact, isBlocklisted, previousWeek, weekKey } from '../src/pool/impact.js';
@@ -727,6 +727,7 @@ describe('cron dispatch', () => {
       poolImpact: vi.fn(() => Promise.resolve()),
       paymentDisputes: vi.fn(() => Promise.resolve()),
       poolRevenueShare: vi.fn(() => Promise.resolve()),
+      priceSync: vi.fn(() => Promise.resolve()),
     } satisfies CronJobs;
     return jobs;
   }
@@ -748,6 +749,25 @@ describe('cron dispatch', () => {
     expect(weekly.poolExpiry).not.toHaveBeenCalled();
     expect(weekly.paymentDisputes).not.toHaveBeenCalled();
     expect(weekly.poolRevenueShare).not.toHaveBeenCalled();
+    expect(weekly.priceSync).not.toHaveBeenCalled();
+    expect(frequent.priceSync).not.toHaveBeenCalled();
+
+    const daily = spies();
+    await Promise.all(cronTasks(CRON_DAILY, env, now, daily));
+    expect(daily.priceSync).toHaveBeenCalledWith(env, now);
+    expect(daily.reconcile).not.toHaveBeenCalled();
+    expect(daily.poolImpact).not.toHaveBeenCalled();
+
+    // A failed sync is logged, not thrown into the scheduled handler.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const failing = spies();
+    failing.priceSync.mockImplementation(() => Promise.reject(new Error('down')));
+    await expect(Promise.all(cronTasks(CRON_DAILY, env, now, failing))).resolves.toBeDefined();
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('price sync failed'),
+      expect.any(Error),
+    );
+    error.mockRestore();
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const unknown = spies();

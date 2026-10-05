@@ -215,13 +215,13 @@ describe('appConfig', () => {
 });
 
 describe('the pool notice version', () => {
-  it('is the code constant; only a test env (TEST_SEAMS) may raise it, never lower it', () => {
+  it('is the code constant; only a test env (TEST_SEAMS) may raise it, never lower it', async () => {
     expect(appConfig({ ...env, POOL_NOTICE_VERSION: '' } as AppEnv).pool.noticeVersion).toBe(
       POOL_NOTICE_VERSION,
     );
     const raised = { ...env, POOL_NOTICE_VERSION: String(POOL_NOTICE_VERSION + 1) } as AppEnv;
     expect(appConfig(raised).pool.noticeVersion).toBe(POOL_NOTICE_VERSION + 1);
-    expect(resolvePoolParams(raised, null).noticeVersion).toBe(POOL_NOTICE_VERSION + 1);
+    expect((await resolvePoolParams(raised, null)).noticeVersion).toBe(POOL_NOTICE_VERSION + 1);
     expect(appConfig({ ...raised, TEST_SEAMS: '' } as AppEnv).pool.noticeVersion).toBe(
       POOL_NOTICE_VERSION,
     );
@@ -232,8 +232,8 @@ describe('the pool notice version', () => {
 });
 
 describe('resolvePoolParams', () => {
-  it('prices the pool model, filling in the default fee', () => {
-    const p = resolvePoolParams(env, 'ipk');
+  it('prices the pool model, filling in the default fee', async () => {
+    const p = await resolvePoolParams(env, 'ipk');
     expect(p).toMatchObject({
       accountId: 'pool',
       model: 'simple',
@@ -248,9 +248,11 @@ describe('resolvePoolParams', () => {
     });
   });
 
-  it('defaults the model to the simple provider fast model; an unpriced model has no price', () => {
+  it('defaults the model to the simple provider fast model; an unpriced model has no price', async () => {
     const noModel = { ...env, POOL_MODEL: '' } as AppEnv;
     expect(poolModel(noModel)).toBe('simple'); // the fake config's second model
-    expect(resolvePoolParams({ ...env, POOL_MODEL: 'smart' } as AppEnv, null).price).toBeNull();
+    expect(
+      (await resolvePoolParams({ ...env, POOL_MODEL: 'smart' } as AppEnv, null)).price,
+    ).toBeNull();
   });
 });

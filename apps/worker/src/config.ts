@@ -62,8 +62,9 @@ export interface ModelPrice {
 
 /**
  * Placeholder prices of the default pool models (OpenRouter list prices when
- * the pool was planned); the operator confirms them before enabling the pool.
- * `MODEL_PRICES` overrides or extends them.
+ * the pool was planned). The daily price sync (pool/model-prices.ts) replaces
+ * them with OpenRouter's current list prices; `MODEL_PRICES` overrides or
+ * extends them, and an override also wins over the synced price.
  */
 export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   'deepseek/deepseek-v4-flash': {
@@ -180,7 +181,10 @@ export interface AppConfig {
      */
     featuredConversationsEnabled: boolean;
   };
+  /** The built-in price table with `MODEL_PRICES` merged over it. */
   prices: Readonly<Record<string, ModelPrice>>;
+  /** The models `MODEL_PRICES` prices explicitly: their entry wins over a synced price. */
+  priceOverrides: readonly string[];
   billing: {
     usageHoldMicros: number;
     usageMaxPending: number;
@@ -262,7 +266,10 @@ const modelPricesSchema = z.record(
   }),
 );
 
-function parsePrices(raw: string | undefined): Readonly<Record<string, ModelPrice>> {
+function parsePrices(raw: string | undefined): {
+  prices: Readonly<Record<string, ModelPrice>>;
+  overrides: string[];
+} {
   const overrides = jsonVar('MODEL_PRICES', raw, modelPricesSchema, {});
   const prices: Record<string, ModelPrice> = { ...DEFAULT_MODEL_PRICES };
   for (const [model, p] of Object.entries(overrides)) {
@@ -273,7 +280,7 @@ function parsePrices(raw: string | undefined): Readonly<Record<string, ModelPric
       ...(p.feeBps !== undefined ? { feeBps: p.feeBps } : {}),
     };
   }
-  return prices;
+  return { prices, overrides: Object.keys(overrides) };
 }
 
 /** A positive number of months, or null (empty or anything else: for life). */
@@ -299,6 +306,7 @@ function parse(env: AppEnv): AppConfig {
   const callTimeout = positiveInt(env.POOL_CALL_TIMEOUT_MS, 120_000);
   const giveUp = positiveInt(env.POOL_GIVE_UP_MS, 60 * 60_000);
   const minUsers = intVar(env.IMPACT_MIN_DISTINCT_USERS, 5);
+  const prices = parsePrices(env.MODEL_PRICES);
   return {
     flags: {
       poolEnabled: boolVar(env.POOL_ENABLED, false),
@@ -307,7 +315,8 @@ function parse(env: AppEnv): AppConfig {
       devPurchasesEnabled: boolVar(env.DEV_PURCHASES_ENABLED, false),
       featuredConversationsEnabled: boolVar(env.FEATURED_CONVERSATIONS_ENABLED, false),
     },
-    prices: parsePrices(env.MODEL_PRICES),
+    prices: prices.prices,
+    priceOverrides: prices.overrides,
     billing: {
       usageHoldMicros: intVar(env.USAGE_HOLD_MICROS, DEFAULT_USAGE_HOLD_MICROS),
       usageMaxPending: intVar(env.USAGE_MAX_PENDING, DEFAULT_USAGE_MAX_PENDING),

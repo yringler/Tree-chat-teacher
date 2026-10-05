@@ -29,6 +29,8 @@ import { simpleProviderConfig } from '../src/simple-mode.js';
 import { scriptGeneration, uniq, usageRow, type UsageRow } from './mocks/billing-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
+/** The pool params of the test env (its price is a `MODEL_PRICES` entry: no D1 read). */
+const BASE_PARAMS = await resolvePoolParams(env, null);
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
@@ -160,7 +162,7 @@ async function insertPoolRow(
 /** Pool params for the meter, on a test pool. */
 function params(poolId: string, overrides: Partial<PoolParams> = {}): PoolParams {
   return {
-    ...resolvePoolParams(env, null),
+    ...BASE_PARAMS,
     accountId: poolId,
     caps: OPEN_CAPS,
     limits: OPEN_LIMITS,

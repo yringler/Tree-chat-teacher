@@ -12,6 +12,7 @@ import { Hono } from 'hono';
 import { appConfig, type PoolGlobalCap } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { poolImpactWeeks, readPoolImpact } from '../pool/impact.js';
+import { modelPrice } from '../pool/model-prices.js';
 import { poolModel } from '../pool/params.js';
 import { ceilingHoldMicros } from '../pool/pricing.js';
 import { poolContributions } from '../pool/revenue-share.js';
@@ -64,11 +65,11 @@ export interface PoolPageFeed {
   weeks: string[];
 }
 
-export function poolPageFacts(env: AppEnv): PoolPageFacts {
+export async function poolPageFacts(env: AppEnv): Promise<PoolPageFacts> {
   const config = appConfig(env);
   const pool = config.pool;
   const id = poolModel(env);
-  const price = config.prices[id];
+  const price = await modelPrice(env, id);
   return {
     enabled: config.flags.poolEnabled,
     model: { id, label: simpleProviderConfig(env).models.find((m) => m.id === id)?.label ?? id },
@@ -273,7 +274,7 @@ export function poolPageRoutes(): Hono<AppBindings> {
       c,
       renderPoolPage(
         legalInfo(c.env, c.req.raw),
-        poolPageFacts(c.env),
+        await poolPageFacts(c.env),
         await poolPageFeed(c.env, c.req.query('week')),
         await poolPageContributions(c.env),
       ),

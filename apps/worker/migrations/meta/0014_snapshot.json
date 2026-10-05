@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1fc33112-6be3-4e29-9577-42524e6df486",
+  "id": "ad20cba1-2027-4d5c-83b8-7ff933e64401",
   "prevId": "5cb25d67-9f7d-4a61-add6-2d735c9b217a",
   "tables": {
     "account_settings": {
@@ -811,158 +811,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "billing_customers": {
-      "name": "billing_customers",
-      "columns": {
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "customer_ref": {
-          "name": "customer_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "billing_customers_ref_idx": {
-          "name": "billing_customers_ref_idx",
-          "columns": [
-            "provider",
-            "customer_ref"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "billing_customers_provider_user_id_pk": {
-          "columns": [
-            "provider",
-            "user_id"
-          ],
-          "name": "billing_customers_provider_user_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "billing_subscriptions": {
-      "name": "billing_subscriptions",
-      "columns": {
-        "ref": {
-          "name": "ref",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "provider_status": {
-          "name": "provider_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "current_period_end": {
-          "name": "current_period_end",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "cancel_at_period_end": {
-          "name": "cancel_at_period_end",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "version": {
-          "name": "version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "billing_subscriptions_user_idx": {
-          "name": "billing_subscriptions_user_idx",
-          "columns": [
-            "user_id",
-            "kind"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "branches": {
       "name": "branches",
       "columns": {
@@ -1162,8 +1010,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "provider_ref": {
-          "name": "provider_ref",
+        "stripe_ref": {
+          "name": "stripe_ref",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1185,10 +1033,10 @@
         }
       },
       "indexes": {
-        "credit_grants_provider_ref_unique": {
-          "name": "credit_grants_provider_ref_unique",
+        "credit_grants_stripe_ref_unique": {
+          "name": "credit_grants_stripe_ref_unique",
           "columns": [
-            "provider_ref"
+            "stripe_ref"
           ],
           "isUnique": true
         },
@@ -1216,6 +1064,104 @@
           "isUnique": false
         }
       },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "model_price_history": {
+      "name": "model_price_history",
+      "columns": {
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "in_micros_per_mtok": {
+          "name": "in_micros_per_mtok",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "out_micros_per_mtok": {
+          "name": "out_micros_per_mtok",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "context_tokens": {
+          "name": "context_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "recorded_at": {
+          "name": "recorded_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "model_price_history_model_recorded_at_pk": {
+          "columns": [
+            "model",
+            "recorded_at"
+          ],
+          "name": "model_price_history_model_recorded_at_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "model_prices": {
+      "name": "model_prices",
+      "columns": {
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "in_micros_per_mtok": {
+          "name": "in_micros_per_mtok",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "out_micros_per_mtok": {
+          "name": "out_micros_per_mtok",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "context_tokens": {
+          "name": "context_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -2344,9 +2290,7 @@
   "_meta": {
     "schemas": {},
     "tables": {},
-    "columns": {
-      "\"credit_grants\".\"stripe_ref\"": "\"credit_grants\".\"provider_ref\""
-    }
+    "columns": {}
   },
   "internal": {
     "indexes": {}

@@ -1,0 +1,264 @@
+// Model prices: OpenRouter's list prices, synced daily by the cron into D1
+// (`model_prices`, with every new or changed price kept in
+// `model_price_history`), and the price a pool hold is computed from.
+//
+// Which price a model is held at: its explicit `MODEL_PRICES` entry (the
+// operator's choice), else the synced list price, else the built-in
+// placeholder (`DEFAULT_MODEL_PRICES`). Only a model with a configured entry
+// is priced at all, so the sync refreshes a known model's price but never
+// makes a new model usable by the pool. The context window is the lower of
+// the configured one and OpenRouter's: a smaller window only makes the pool
+// refuse more requests (`exceedsContext`), and the ceiling hold stays small.
+//
+// Safety: a price increase is applied whatever its size (holds only grow, so
+// the pool refuses earlier rather than overspending). A drop to under
+// 1/`MAX_PRICE_DROP_FACTOR` of the stored price is held back and logged
+// (`price_sync_anomaly`): a bogus low price would make holds smaller than real
+// costs and trip the overage breaker. An operator who confirms such a drop
+// sets it in `MODEL_PRICES`. A failed fetch, or a model missing from the list,
+// keeps the stored price.
+import { appConfig, type ModelPrice } from '../config.js';
+import type { AppEnv } from '../env.js';
+import { poolModel } from './params.js';
+
+export const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
+/** A synced price below 1/this of the stored one is held back as an anomaly. */
+export const MAX_PRICE_DROP_FACTOR = 10;
+const FETCH_TIMEOUT_MS = 15_000;
+/** USD per token × 10¹² = micro-USD per million tokens. */
+const SCALE_DIGITS = 12;
+
+/** A list price in the price table's units. */
+export interface ListPrice {
+  inMicrosPerMTok: number;
+  outMicrosPerMTok: number;
+  /** OpenRouter's `context_length`; null when not reported. */
+  contextTokens: number | null;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * OpenRouter's USD-per-token decimal string (`"0.000002"`) in micro-USD per
+ * million tokens (`2000000`), exactly: decimal digits shifted in BigInt, not
+ * float math, and rounded up past the 12th decimal (in the pool's favour).
+ * Null for anything else, including the `"-1"` of variably priced routers.
+ */
+export function usdPerTokenToMicrosPerMTok(raw: unknown): number | null {
+  if (typeof raw !== 'string') return null;
+  const m = /^(\d+)(?:\.(\d+))?$/.exec(raw.trim());
+  if (!m) return null;
+  const whole = m[1] as string;
+  const frac = m[2] ?? '';
+  const kept = frac.slice(0, SCALE_DIGITS).padEnd(SCALE_DIGITS, '0');
+  let micros = BigInt(whole) * 10n ** BigInt(SCALE_DIGITS) + BigInt(kept);
+  if (/[1-9]/.test(frac.slice(SCALE_DIGITS))) micros += 1n;
+  return micros <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(micros) : null;
+}
+
+/**
+ * The list prices in a `GET /api/v1/models` body, by model id; null for a
+ * listed model whose price is unusable. Throws on a body without `data`.
+ */
+export function parseListPrices(body: unknown): Map<string, ListPrice | null> {
+  const data = isRecord(body) ? body['data'] : undefined;
+  if (!Array.isArray(data)) throw new Error('OpenRouter models list has no data array');
+  const prices = new Map<string, ListPrice | null>();
+  for (const entry of data) {
+    if (!isRecord(entry) || typeof entry['id'] !== 'string') continue;
+    const pricing = entry['pricing'];
+    const inMicros = isRecord(pricing) ? usdPerTokenToMicrosPerMTok(pricing['prompt']) : null;
+    const outMicros = isRecord(pricing) ? usdPerTokenToMicrosPerMTok(pricing['completion']) : null;
+    const context = entry['context_length'];
+    prices.set(
+      entry['id'],
+      inMicros === null || outMicros === null
+        ? null
+        : {
+            inMicrosPerMTok: inMicros,
+            outMicrosPerMTok: outMicros,
+            contextTokens:
+              typeof context === 'number' && Number.isSafeInteger(context) && context > 0
+                ? context
+                : null,
+          },
+    );
+  }
+  return prices;
+}
+
+/** `GET /api/v1/models` (public, no key). Throws on network failure, non-2xx or a malformed body. */
+export async function fetchListPrices(
+  fetchImpl: typeof fetch = (input, init) => globalThis.fetch(input, init),
+): Promise<Map<string, ListPrice | null>> {
+  const res = await fetchImpl(OPENROUTER_MODELS_URL, {
+    headers: { accept: 'application/json' },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new Error(`OpenRouter models list failed: HTTP ${res.status}`);
+  }
+  return parseListPrices(await res.json());
+}
+
+interface PriceRow {
+  model: string;
+  in_micros_per_mtok: number;
+  out_micros_per_mtok: number;
+  context_tokens: number | null;
+}
+
+function listPriceOf(row: PriceRow): ListPrice {
+  return {
+    inMicrosPerMTok: row.in_micros_per_mtok,
+    outMicrosPerMTok: row.out_micros_per_mtok,
+    contextTokens: row.context_tokens,
+  };
+}
+
+/** The stored (synced) price of `model`, or null when none was synced. */
+export async function storedPrice(db: D1Database, model: string): Promise<ListPrice | null> {
+  const row = await db
+    .prepare(
+      'SELECT model, in_micros_per_mtok, out_micros_per_mtok, context_tokens FROM model_prices WHERE model = ?1',
+    )
+    .bind(model)
+    .first<PriceRow>();
+  return row ? listPriceOf(row) : null;
+}
+
+/**
+ * The price `model` is held at (see the header), or null when it has no
+ * configured entry. A failed D1 read falls back to the configured entry.
+ */
+export async function modelPrice(env: AppEnv, model: string): Promise<ModelPrice | null> {
+  const config = appConfig(env);
+  const entry = config.prices[model];
+  if (!entry) return null;
+  if (config.priceOverrides.includes(model)) return entry;
+  let synced: ListPrice | null;
+  try {
+    synced = await storedPrice(env.DB, model);
+  } catch (e) {
+    console.error(`Synced price of ${model} could not be read; using the configured one`, e);
+    return entry;
+  }
+  if (!synced) return entry;
+  return {
+    ...entry,
+    inMicrosPerMTok: synced.inMicrosPerMTok,
+    outMicrosPerMTok: synced.outMicrosPerMTok,
+    contextTokens:
+      synced.contextTokens === null
+        ? entry.contextTokens
+        : Math.min(entry.contextTokens, synced.contextTokens),
+  };
+}
+
+/** The models the sync tracks: every configured price, and the pool model. */
+export function trackedModels(env: AppEnv): string[] {
+  return [...new Set([...Object.keys(appConfig(env).prices), poolModel(env)])];
+}
+
+/** Whether `next` drops either price to under 1/`MAX_PRICE_DROP_FACTOR` of `prev`. */
+export function isAnomalousDrop(prev: ListPrice, next: ListPrice): boolean {
+  return (
+    next.inMicrosPerMTok * MAX_PRICE_DROP_FACTOR < prev.inMicrosPerMTok ||
+    next.outMicrosPerMTok * MAX_PRICE_DROP_FACTOR < prev.outMicrosPerMTok
+  );
+}
+
+function samePrice(a: ListPrice, b: ListPrice): boolean {
+  return (
+    a.inMicrosPerMTok === b.inMicrosPerMTok &&
+    a.outMicrosPerMTok === b.outMicrosPerMTok &&
+    a.contextTokens === b.contextTokens
+  );
+}
+
+export interface PriceSyncResult {
+  /** New or changed prices, written (and added to the history). */
+  changed: string[];
+  /** Prices the list confirmed as stored. */
+  unchanged: string[];
+  /** Not listed, or listed without a usable price: the stored price stays. */
+  missing: string[];
+  /** Held back (`isAnomalousDrop`): the stored price stays. */
+  anomalies: string[];
+}
+
+/**
+ * The daily price sync: fetches OpenRouter's list prices and stores those of
+ * the tracked models (see the header for what is held back). Throws when the
+ * list can't be fetched or D1 can't be written; nothing is stored then.
+ */
+export async function syncModelPrices(
+  env: AppEnv,
+  now: Date,
+  fetchImpl?: typeof fetch,
+): Promise<PriceSyncResult> {
+  const config = appConfig(env);
+  const models = trackedModels(env);
+  const list = await fetchListPrices(fetchImpl);
+  const at = now.toISOString();
+  const result: PriceSyncResult = { changed: [], unchanged: [], missing: [], anomalies: [] };
+  const writes: D1PreparedStatement[] = [];
+
+  for (const model of models) {
+    const next = list.get(model);
+    if (!next) {
+      result.missing.push(model);
+      console.warn(JSON.stringify({ event: 'price_sync_missing', model }));
+      continue;
+    }
+    const prev = await storedPrice(env.DB, model);
+    if (prev && isAnomalousDrop(prev, next)) {
+      result.anomalies.push(model);
+      console.error(
+        JSON.stringify({ event: 'price_sync_anomaly', model, stored: prev, listed: next }),
+      );
+      continue;
+    }
+    // An override below the list price under-holds: real costs exceed the holds.
+    const override = config.priceOverrides.includes(model) ? config.prices[model] : undefined;
+    if (
+      override &&
+      (override.inMicrosPerMTok < next.inMicrosPerMTok ||
+        override.outMicrosPerMTok < next.outMicrosPerMTok)
+    ) {
+      console.warn(
+        JSON.stringify({ event: 'price_override_below_list', model, override, listed: next }),
+      );
+    }
+    const changed = !prev || !samePrice(prev, next);
+    (changed ? result.changed : result.unchanged).push(model);
+    writes.push(
+      env.DB.prepare(
+        `INSERT INTO model_prices (model, in_micros_per_mtok, out_micros_per_mtok, context_tokens, fetched_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT (model) DO UPDATE SET in_micros_per_mtok = excluded.in_micros_per_mtok,
+           out_micros_per_mtok = excluded.out_micros_per_mtok,
+           context_tokens = excluded.context_tokens, fetched_at = excluded.fetched_at`,
+      ).bind(model, next.inMicrosPerMTok, next.outMicrosPerMTok, next.contextTokens, at),
+    );
+    if (changed) {
+      if (prev) {
+        console.warn(JSON.stringify({ event: 'price_changed', model, from: prev, to: next }));
+      }
+      writes.push(
+        env.DB.prepare(
+          `INSERT OR IGNORE INTO model_price_history
+             (model, in_micros_per_mtok, out_micros_per_mtok, context_tokens, recorded_at)
+           VALUES (?1, ?2, ?3, ?4, ?5)`,
+        ).bind(model, next.inMicrosPerMTok, next.outMicrosPerMTok, next.contextTokens, at),
+      );
+    }
+  }
+
+  if (writes.length > 0) await env.DB.batch(writes);
+  console.log(JSON.stringify({ event: 'price_sync', ...result }));
+  return result;
+}

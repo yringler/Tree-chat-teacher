@@ -40,6 +40,8 @@ import { poolReadyUser, taggingSettled } from './pool-helpers.js';
 import { authEnv, type CallInit } from './session-client.js';
 
 const env = rawEnv as unknown as AppEnv;
+/** The pool params of the test env (its price is a `MODEL_PRICES` entry: no D1 read). */
+const BASE_PARAMS = await resolvePoolParams(env, null);
 
 type User = Awaited<ReturnType<typeof poolReadyUser>>;
 
@@ -173,7 +175,7 @@ function poolAccount(poolId: string, userId = uniq('user')): AccountContext {
   return {
     ...simpleAccount(userId),
     funding: 'pool',
-    pool: { ...resolvePoolParams(env, null), accountId: poolId },
+    pool: { ...BASE_PARAMS, accountId: poolId },
   };
 }
 

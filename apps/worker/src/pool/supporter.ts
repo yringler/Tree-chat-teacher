@@ -12,7 +12,7 @@
 // Admin adjustments and membership credit never count, and neither does a
 // membership refund taking the included credit back (`<paymentRef>:membership-refund`,
 // a `refund` row with no gross). A personal purchase's refunds, disputes and
-// reinstatements since migration 0017 (`payment_ref` set) count by amount,
+// reinstatements since migration 0018 (`payment_ref` set) count by amount,
 // what they actually took back (capped together at the purchase, so a refund
 // and a dispute of it count once), which there is the pre-tax amount. Grants from before
 // migration 0010 have no `user_id`; personal ones count through their ledger

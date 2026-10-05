@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "aa724ecd-b43a-4e54-adee-cec9577fd31f",
-  "prevId": "1fc33112-6be3-4e29-9577-42524e6df486",
+  "id": "45de4878-066c-47cc-b728-01cb2d25bd9e",
+  "prevId": "595fd6ae-e36a-48dd-a004-13ed5048202b",
   "tables": {
     "account_settings": {
       "name": "account_settings",
@@ -1009,6 +1009,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "payment_ref": {
+          "name": "payment_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "note": {
           "name": "note",
           "type": "text",
@@ -1052,6 +1059,13 @@
           "columns": [
             "account_id",
             "created_at"
+          ],
+          "isUnique": false
+        },
+        "credit_grants_payment_idx": {
+          "name": "credit_grants_payment_idx",
+          "columns": [
+            "payment_ref"
           ],
           "isUnique": false
         }
@@ -2269,6 +2283,14 @@
             "created_at"
           ],
           "isUnique": false
+        },
+        "usage_events_personal_settled_idx": {
+          "name": "usage_events_personal_settled_idx",
+          "columns": [
+            "settled_at"
+          ],
+          "isUnique": false,
+          "where": "funding = 'personal' AND status = 'settled'"
         }
       },
       "foreignKeys": {},

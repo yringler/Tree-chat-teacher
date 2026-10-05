@@ -150,7 +150,7 @@ export async function withPoolParams(
     ...account,
     funding: 'pool',
     builtIn,
-    pool: resolvePoolParams(env, await poolIpKey(env, ip)),
+    pool: await resolvePoolParams(env, await poolIpKey(env, ip)),
   };
 }
 
