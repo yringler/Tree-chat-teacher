@@ -283,12 +283,9 @@ async function debitPurchase(
   const micros = centsToMicros(debit.netCents);
   if (micros <= 0) return 'skipped';
   if (!isPersonalLedger(grant.account_id)) {
-    const { debited } = await debitPoolPurchase(env, {
-      poolId: grant.account_id,
-      grant,
+    const { debited } = await debitPoolPurchase(env, grant, {
       refId: debit.ref,
       refundedGrossMicros: micros,
-      userId: grant.user_id,
       note: debit.note,
     });
     return written(debited);
@@ -309,37 +306,31 @@ async function debitPurchase(
 /**
  * Debits the pool for `refundedGrossMicros` (pre-tax) of a legacy pool
  * purchase being refunded or disputed: the share of what the purchase actually
- * credited (`creditEquivalentMicros`, net of its fee), or, for a purchase
- * that was never credited, at most the refunded amount; clamped to what the
+ * credited (`creditEquivalentMicros`, net of its fee), or, for an old row
+ * without its gross amount, at most the refunded amount; clamped to what the
  * pool has available. The row is always written (PoolBank.debit), so a
  * redelivery is a no-op.
  */
-export async function debitPoolPurchase(
+async function debitPoolPurchase(
   env: AppEnv,
-  d: {
-    poolId: string;
-    grant: GrantRow | null;
-    refId: string;
-    refundedGrossMicros: number;
-    userId: string | null;
-    note: string;
-  },
+  grant: GrantRow,
+  d: { refId: string; refundedGrossMicros: number; note: string },
 ): Promise<{ debited: boolean }> {
   if (d.refundedGrossMicros <= 0) return { debited: false };
-  const grant = d.grant;
+  const poolId = grant.account_id;
   const requested =
-    grant && grant.gross_micros !== null && grant.gross_micros > 0
+    grant.gross_micros !== null && grant.gross_micros > 0
       ? creditEquivalentMicros(d.refundedGrossMicros, {
           amountMicros: grant.amount_micros,
           grossMicros: grant.gross_micros,
         })
       : d.refundedGrossMicros;
-  const result = await poolBank(env, d.poolId).debit({
-    poolId: d.poolId,
+  const result = await poolBank(env, poolId).debit({
+    poolId,
     refId: d.refId,
     requestedMicros: requested,
     kind: 'refund',
-    userId: grant?.user_id ?? d.userId,
+    userId: grant.user_id,
     grossMicros: -d.refundedGrossMicros,
     note: d.note,
   });
@@ -395,11 +386,7 @@ async function suspendForLostDispute(
 }
 
 /** Suspends `userId`'s community pool access after a lost dispute (account and pool identity). */
-export async function suspendPoolAccess(
-  env: AppEnv,
-  userId: string,
-  disputeRef: string,
-): Promise<void> {
+async function suspendPoolAccess(env: AppEnv, userId: string, disputeRef: string): Promise<void> {
   const db = env.DB;
   await db.batch([
     db.prepare('UPDATE auth_users SET pool_suspended = 1 WHERE id = ?').bind(userId),

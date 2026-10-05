@@ -30,8 +30,6 @@ export interface CreditGrantInput {
   grossMicros?: number | null;
   /** Purchases: the payment provider's actual processing fee (`grossMicros - amountMicros` for personal credit). */
   feeMicros?: number;
-  /** Pool purchases from before the per-call pool markup: the margin applied, in bps; 0 since. */
-  marginBps?: number;
   /** The buyer or beneficiary. */
   userId?: string | null;
   /**
@@ -114,14 +112,11 @@ export async function grantCredit(db: D1Database, g: CreditGrantInput): Promise<
   const fee = g.feeMicros ?? 0;
   if ((gross !== null && !Number.isSafeInteger(gross)) || !Number.isSafeInteger(fee))
     throw new Error('grantCredit: grossMicros and feeMicros must be integers');
-  const marginBps = g.marginBps ?? 0;
-  if (!Number.isSafeInteger(marginBps))
-    throw new Error('grantCredit: marginBps must be an integer');
   const result = await db
     .prepare(
       `INSERT INTO credit_grants
          (id, account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id, provider_ref, note, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
        ON CONFLICT(provider_ref) DO NOTHING`,
     )
     .bind(
@@ -131,7 +126,6 @@ export async function grantCredit(db: D1Database, g: CreditGrantInput): Promise<
       g.amountMicros,
       gross,
       fee,
-      marginBps,
       g.userId ?? null,
       g.providerRef,
       g.note ?? null,
@@ -156,8 +150,6 @@ export interface GrantRow {
   kind: CreditGrantKind;
   amount_micros: number;
   gross_micros: number | null;
-  fee_micros: number;
-  margin_bps: number;
   user_id: string | null;
 }
 
@@ -165,7 +157,7 @@ export interface GrantRow {
 export async function grantByRef(db: D1Database, providerRef: string): Promise<GrantRow | null> {
   return db
     .prepare(
-      `SELECT account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id
+      `SELECT account_id, kind, amount_micros, gross_micros, user_id
        FROM credit_grants WHERE provider_ref = ? LIMIT 1`,
     )
     .bind(providerRef)
