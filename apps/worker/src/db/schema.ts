@@ -386,7 +386,7 @@ export const creditGrants = sqliteTable(
     id: text('id').primaryKey(),
     accountId: text('account_id').notNull(),
     kind: text('kind', { enum: ['purchase', 'subscription', 'refund', 'adjustment'] }).notNull(),
-    /** Signed: refunds are negative. For purchases, the credit net of the processing fee (personal) or of the margin (pool). */
+    /** Signed: refunds are negative. For purchases, the credit net of the processing fee (older pool purchases: of the margin). */
     amountMicros: integer('amount_micros').notNull(),
     /**
      * Purchases: the pre-tax amount paid (`amount + fee` for personal credit); refunds and
@@ -396,7 +396,7 @@ export const creditGrants = sqliteTable(
     grossMicros: integer('gross_micros'),
     /** Purchases: the payment provider's actual processing fee (deducted from personal credit; recorded only for the pool). */
     feeMicros: integer('fee_micros').notNull().default(0),
-    /** Pool purchases: the margin taken, in bps (`amount = gross / (1 + margin)`); 0 otherwise. */
+    /** Older pool purchases: the margin taken, in bps (`amount = gross / (1 + margin)`); 0 otherwise, and since the pool moved to a per-call markup. */
     marginBps: integer('margin_bps').notNull().default(0),
     /** The buyer or beneficiary (Better Auth user id); null on rows before migration 0010 and pool adjustments. */
     userId: text('user_id'),

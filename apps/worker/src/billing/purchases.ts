@@ -1,12 +1,14 @@
 // The purchase interface (docs/pool/PLAN.md §S5): how credit is bought and,
 // once paid, what it credits. Two targets share it:
 //
-// - `personal`: the buyer's own ledger (`u_<userId>`), credited the pre-tax
-//   amount net of Stripe's actual processing fee, spent with the usage-time
-//   markup (MARKUP_BPS), as before the pool;
-// - `pool`: the community pool, credited `gross / (1 + POOL_MARGIN_BPS)`. The
-//   margin is taken at purchase and covers Stripe's fee, which is recorded
-//   but not deducted (deviation D3: the margin applies to the pool only).
+// - `personal`: the buyer's own ledger (`u_<userId>`), spent with the
+//   usage-time markup (MARKUP_BPS);
+// - `pool`: the community pool, spent with the pool's usage-time markup
+//   (POOL_MARKUP_BPS).
+//
+// Both are credited the same way: the pre-tax amount paid net of the payment
+// provider's actual processing fee (`netOfFee`). The operator earns on usage,
+// never on the purchase (docs/polar-migration/04-verification.md, D4).
 //
 // Stripe is the one `PurchaseProvider` (checkout); its webhook
 // (billing/webhook.ts), the admin's simulated purchases and nothing else call
@@ -17,7 +19,6 @@ import { MAX_TOP_UP_CENTS, type CheckoutResponse, type PurchaseTarget } from '@t
 import { billingAccountIdFor } from '../auth/account.js';
 import { appConfig } from '../config.js';
 import type { AccountContext, AppEnv } from '../env.js';
-import { poolCreditMicros } from '../pool/pricing.js';
 import { poolAvailable } from '../services.js';
 import { grantCredit } from './ledger.js';
 import { centsToMicros } from './pricing.js';
@@ -58,7 +59,7 @@ export interface PaidPurchase {
   note?: string;
 }
 
-/** The personal grant amounts for a pre-tax `subtotalCents` paid with `feeCents` of processing fees. */
+/** The grant amounts (personal or pool) for a pre-tax `subtotalCents` paid with `feeCents` of processing fees. */
 export function netOfFee(
   subtotalCents: number,
   feeCents: number,
@@ -69,21 +70,6 @@ export function netOfFee(
     amountMicros: centsToMicros(subtotalCents - fee),
     grossMicros: centsToMicros(subtotalCents),
     feeMicros: centsToMicros(fee),
-  };
-}
-
-/** The pool grant amounts for a pre-tax `grossCents` at `marginBps`; the fee is recorded only. */
-export function poolPurchaseAmounts(
-  grossCents: number,
-  feeCents: number,
-  marginBps: number,
-): { amountMicros: number; grossMicros: number; feeMicros: number; marginBps: number } {
-  const grossMicros = centsToMicros(grossCents);
-  return {
-    amountMicros: poolCreditMicros(grossMicros, marginBps),
-    grossMicros,
-    feeMicros: centsToMicros(Math.max(0, feeCents)),
-    marginBps,
   };
 }
 
@@ -100,7 +86,7 @@ export async function fulfilPurchase(env: AppEnv, p: PaidPurchase): Promise<bool
     return grantCredit(env.DB, {
       accountId: p.accountId || config.pool.accountId,
       kind: 'purchase',
-      ...poolPurchaseAmounts(p.grossCents, p.processorFeeCents, config.pool.marginBps),
+      ...netOfFee(p.grossCents, p.processorFeeCents),
       userId: p.userId,
       providerRef: p.ref,
       note: p.note ?? 'Community pool purchase',
@@ -120,8 +106,8 @@ export async function fulfilPurchase(env: AppEnv, p: PaidPurchase): Promise<bool
 
 /**
  * Throws unless `target` may be bought for `amountCents`: the pool must be on,
- * and a pool purchase at least POOL_MIN_PURCHASE_CENTS (so the margin covers
- * Stripe's fee). Personal bounds are checked by the checkout itself.
+ * and a pool purchase at least POOL_MIN_PURCHASE_CENTS. Personal bounds are
+ * checked by the checkout itself.
  */
 export function assertPurchasable(env: AppEnv, target: PurchaseTarget, amountCents: number): void {
   if (target !== 'pool') return;

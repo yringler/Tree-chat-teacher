@@ -21,6 +21,8 @@ export interface PoolParams {
   model: string;
   /** Its price entry with `feeBps` filled in; null = not priced, so the pool refuses (`unpriced`). */
   price: (ModelPrice & { feeBps: number }) | null;
+  /** The markup on each pool call's true cost (`POOL_MARKUP_BPS`), priced into holds and charges. */
+  markupBps: number;
   systemPrompt: string;
   maxInputTokens: number;
   maxOutputTokens: number;
@@ -54,6 +56,7 @@ export function resolvePoolParams(env: AppEnv, ipKey: string | null): PoolParams
     accountId: pool.accountId,
     model,
     price: entry ? { ...entry, feeBps: entry.feeBps ?? config.billing.openRouterFeeBps } : null,
+    markupBps: pool.markupBps,
     systemPrompt: pool.systemPrompt,
     maxInputTokens: pool.maxInputTokens,
     maxOutputTokens: pool.maxOutputTokens,
@@ -80,6 +83,8 @@ export interface PoolCall {
   /** Worst-case cost of the call, micro-USD. */
   holdMicros: number;
   feeBps: number;
+  /** The pool markup, stored on the row and applied when it settles. */
+  markupBps: number;
 }
 
 /** The `PoolBank.reserve` request of `userId`'s `call`, with the pool's caps and expiry. */

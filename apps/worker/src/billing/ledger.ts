@@ -12,13 +12,13 @@ export type CreditGrantKind = 'purchase' | 'subscription' | 'refund' | 'adjustme
 export interface CreditGrantInput {
   accountId: string;
   kind: CreditGrantKind;
-  /** Signed micro-USD (refunds are negative); for purchases, net of the processing fee (or of the pool margin). */
+  /** Signed micro-USD (refunds are negative); for purchases, net of the processing fee (pool purchases before 2026-10: of the pool margin). */
   amountMicros: number;
   /** Purchases: the pre-tax amount paid, before the processing fee. Refunds: minus the refunded pre-tax amount. */
   grossMicros?: number | null;
   /** Purchases: the payment provider's actual processing fee (`grossMicros - amountMicros` for personal credit). */
   feeMicros?: number;
-  /** Pool purchases: the margin applied, in bps. */
+  /** Pool purchases from before the per-call pool markup: the margin applied, in bps; 0 since. */
   marginBps?: number;
   /** The buyer or beneficiary. */
   userId?: string | null;

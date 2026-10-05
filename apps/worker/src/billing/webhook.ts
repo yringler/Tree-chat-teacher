@@ -5,8 +5,8 @@
 // - checkout.session.completed (payment mode, kind=credits, paid) and
 //   checkout.session.async_payment_succeeded → a purchase, credited by
 //   `fulfilPurchase` (billing/purchases.ts) to its `metadata.target`: absent
-//   or `personal` → the buyer's ledger, + amount_subtotal − fee; `pool` → the
-//   community pool, + amount_subtotal / (1 + POOL_MARGIN_BPS) (ref: session id).
+//   or `personal` → the buyer's ledger, `pool` → the community pool; either
+//   way + amount_subtotal − fee (ref: session id).
 //   Tax goes to Stripe Tax and is never credited.
 // - invoice.paid of the membership (the first year and every renewal), when
 //   something was paid → + MEMBERSHIP_CREDIT_CENTS, a fixed gift with no fee
@@ -43,7 +43,7 @@ import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { identitySuspensionStatement } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
-import { creditEquivalentMicros, poolCreditMicros } from '../pool/pricing.js';
+import { creditEquivalentMicros } from '../pool/pricing.js';
 import { grantByRef, grantCredit, hasGrant } from './ledger.js';
 import { membershipCreditCents } from './membership.js';
 import { centsToMicros } from './pricing.js';
@@ -383,7 +383,7 @@ async function debitRefunds(env: AppEnv, charge: Stripe.Charge): Promise<void> {
 /**
  * Debits the pool for `refundedCents` (tax included) of a pool purchase being
  * refunded or disputed: the credit-equivalent of its pre-tax share (what that
- * part of the purchase granted after the margin), clamped to what the pool
+ * part of the purchase actually credited, net of the fee), clamped to what the pool
  * has available. The row is always written (PoolBank.debit), so a
  * redelivery is a no-op.
  */
@@ -402,8 +402,8 @@ async function debitPoolPurchase(
           amountMicros: grant.amount_micros,
           grossMicros: grant.gross_micros,
         })
-      : // The purchase was never credited (or is unknown): what it would have granted.
-        poolCreditMicros(refundedGross, config.pool.marginBps);
+      : // The purchase was never credited (or is unknown): at most its pre-tax share.
+        refundedGross;
   const poolId = grant?.account_id ?? share.accountId ?? config.pool.accountId;
   await poolBank(env, poolId).debit({
     poolId,

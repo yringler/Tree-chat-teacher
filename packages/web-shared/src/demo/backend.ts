@@ -91,7 +91,7 @@ export const DEMO_POOL_STATUS: PoolStatusResponse = {
   sessionsRemaining: 0,
   model: { id: 'lorem', label: 'Simple' },
   week: { start: '1970-01-05T00:00:00.000Z', exchanges: 0, learners: 0 },
-  marginBps: 800,
+  markupBps: 500,
   minPurchaseCents: 1000,
 };
 const DEMO_POOL_ME: Omit<PoolMeResponse, 'personalAvailableMicros'> = {

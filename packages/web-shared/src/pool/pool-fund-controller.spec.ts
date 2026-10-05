@@ -9,7 +9,7 @@ const STATUS: PoolStatusResponse = {
   sessionsRemaining: 120,
   model: { id: 'deepseek/deepseek-v4-flash', label: 'Simple' },
   week: { start: '2026-10-05T00:00:00.000Z', exchanges: 340, learners: 12 },
-  marginBps: 800,
+  markupBps: 500,
   minPurchaseCents: 1000,
 };
 

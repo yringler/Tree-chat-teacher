@@ -108,6 +108,8 @@ export interface PoolReserveRequest {
   holdMicros: number;
   /** Fee stored on the row and applied when it settles. */
   feeBps: number;
+  /** Markup (POOL_MARKUP_BPS) stored on the row and applied when it settles. */
+  markupBps: number;
   caps: PoolCaps;
   /** Per-minute limits; only replies count toward them (and `admit`). */
   limits: PoolRateLimits;
@@ -432,7 +434,7 @@ export class PoolBank extends DurableObject<AppEnv> {
       providerId: req.providerId,
       model: req.model,
       holdMicros: hold,
-      markupBps: 0,
+      markupBps: req.markupBps,
       feeBps: req.feeBps,
       createdAt: now.toISOString(),
     }).run();

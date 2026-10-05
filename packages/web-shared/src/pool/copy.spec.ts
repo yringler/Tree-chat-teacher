@@ -46,7 +46,7 @@ describe('pool copy rule', () => {
 
   it('never says it in generated text either', () => {
     const texts = [
-      poolFundingNote(800),
+      poolFundingNote(500),
       sessionsLabel({ sessionsRemaining: 3 }),
       POOL_NOTICE_TEXT,
       poolImpactHeadline({ weekStart: '2026-09-28', exchanges: 2, learners: 1, topics: 1 }),

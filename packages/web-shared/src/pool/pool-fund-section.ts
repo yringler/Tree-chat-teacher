@@ -19,7 +19,7 @@ import { PoolMeter } from './pool-meter';
 /**
  * "Fund the community pool" on the billing page of both apps (`#fund-pool`):
  * the meter, preset amounts at or above the pool minimum, the one-line
- * margin disclosure and a link to `/pool`, with last week's impact feed under
+ * pricing disclosure and a link to `/pool`, with last week's impact feed under
  * the meter once a snapshot exists. Before Stripe is set up the
  * section still shows the meter and the link, with a disabled "Funding opens
  * soon". Nothing renders while the pool is off.
@@ -61,8 +61,8 @@ import { PoolMeter } from './pool-meter';
             @case ('slow') {
               <div class="notice billing-banner" role="status" aria-live="polite">
                 <span>
-                  Thanks! Your payment went through. The pool meter can take a few minutes to
-                  show it.
+                  Thanks! Your payment went through. The pool meter can take a few minutes to show
+                  it.
                 </span>
                 <button
                   type="button"
@@ -142,7 +142,7 @@ export class PoolFundSection implements OnInit, OnDestroy {
   }
 
   protected note(s: PoolStatusResponse): string {
-    return poolFundingNote(s.marginBps);
+    return poolFundingNote(s.markupBps);
   }
 
   protected cents_(cents: number): string {

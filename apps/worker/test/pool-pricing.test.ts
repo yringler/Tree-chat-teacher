@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { chargeMicros } from '../src/billing/pricing.js';
 import type { ModelPrice } from '../src/config.js';
+import { netOfFee } from '../src/billing/purchases.js';
 import { ipKey, ipPrefix } from '../src/pool/ids.js';
 import {
   ceilingHoldMicros,
@@ -8,7 +9,6 @@ import {
   costFromTokensNanos,
   exceedsContext,
   inputBoundTokens,
-  poolCreditMicros,
   utf8Bytes,
   worstCaseHoldMicros,
 } from '../src/pool/pricing.js';
@@ -42,42 +42,70 @@ describe('pool pricing', () => {
     expect(exceedsContext(small, { system: null, messages: [msg('漢'.repeat(1_400))] })).toBe(true);
   });
 
-  it('rounds holds up and applies the fee', () => {
+  it('rounds holds up and applies the fee and the markup', () => {
     // (37 × 0.1 + 100 × 0.4) µ$ = 43.7 → × 1.055 = 46.1035 → 47
     const request = { system: null, messages: [msg('x'.repeat(17))] };
     expect(inputBoundTokens(request)).toBe(37);
-    expect(worstCaseHoldMicros(FLASH, request, 100, 550)).toBe(47);
+    expect(worstCaseHoldMicros(FLASH, request, 100, 550, 0)).toBe(47);
     // A per-model fee wins over the default.
-    expect(worstCaseHoldMicros({ ...FLASH, feeBps: 0 }, request, 100, 550)).toBe(44);
+    expect(worstCaseHoldMicros({ ...FLASH, feeBps: 0 }, request, 100, 550, 0)).toBe(44);
+    // + 5% markup: 43.7 × 1.055 × 1.05 = 48.408675 → 49
+    expect(worstCaseHoldMicros(FLASH, request, 100, 550, 500)).toBe(49);
   });
 
   it('puts the ceiling hold above any exact hold of the same model and output cap', () => {
-    const ceiling = ceilingHoldMicros(FLASH, 1024, 550);
-    // About $0.014 on the flash model (the cost documented on /pool).
-    expect(ceiling).toBe(Math.ceil(((131_072 * 100_000 + 1024 * 400_000) / 1e6) * 1.055));
+    const ceiling = ceilingHoldMicros(FLASH, 1024, 550, 500);
+    // About $0.015 on the flash model (the cost documented on /pool).
+    // (131_072 × 0.1 + 1024 × 0.4) µ$ = 13_516.8 µ$ × 1.055 × 1.05 = 14_973.18 → 14_974
+    expect(ceiling).toBe(14_974);
     for (const n of [0, 1, 1000, 200_000]) {
       const exact = worstCaseHoldMicros(
         FLASH,
         { system: 's', messages: [msg('y'.repeat(n))] },
         1024,
         550,
+        500,
       );
       expect(exact).toBeLessThanOrEqual(ceiling);
     }
   });
 
-  it('prices tokens in nano-USD, and charges them with the per-model fee and no markup', () => {
+  it('prices tokens in nano-USD, and charges them with the per-model fee and the pool markup', () => {
     expect(costFromTokensNanos(FLASH, 1000, 500)).toBe(300_000); // 0.1 + 0.2 µ$… × 1000 tokens
     expect(costFromTokensNanos(FLASH, 1, 0)).toBe(100); // 0.1 µ$ = 100 n$
     expect(costFromTokensNanos({ ...FLASH, inMicrosPerMTok: 1 }, 1, 0)).toBe(1); // rounds up
-    expect(chargeFromTokensMicros(FLASH, 1000, 500, 550)).toBe(chargeMicros(300_000, 0, 550));
-    expect(chargeFromTokensMicros(FLASH, 1000, 500, 0)).toBe(300);
+    expect(chargeFromTokensMicros(FLASH, 1000, 500, 550, 500)).toBe(
+      chargeMicros(300_000, 500, 550),
+    );
+    // settle = cost × (1 + fee) × (1 + markup): 300 µ$ × 1.055 × 1.05 = 332.325 → 333
+    expect(chargeFromTokensMicros(FLASH, 1000, 500, 550, 500)).toBe(333);
+    expect(chargeFromTokensMicros(FLASH, 1000, 500, 0, 0)).toBe(300);
   });
 
-  it('takes the margin at purchase: $10 at 8% buys $9.259259', () => {
-    expect(poolCreditMicros(10_000_000, 800)).toBe(9_259_259);
-    expect(poolCreditMicros(10_000_000, 0)).toBe(10_000_000);
-    expect(poolCreditMicros(0, 800)).toBe(0);
+  it('holds at least what the call settles at, markup included', () => {
+    for (const [inTok, outTok] of [
+      [0, 1],
+      [37, 100],
+      [1000, 500],
+      [131_072, 1024],
+    ] as const) {
+      const request = { system: null, messages: [msg('x'.repeat(Math.max(0, inTok - 20)))] };
+      const bound = inputBoundTokens(request);
+      for (const markup of [0, 500, 1000]) {
+        const hold = worstCaseHoldMicros(FLASH, request, outTok, 550, markup);
+        const settle = chargeFromTokensMicros(FLASH, bound, outTok, 550, markup);
+        expect(hold, `${inTok}/${outTok} at ${markup}`).toBeGreaterThanOrEqual(settle);
+      }
+    }
+  });
+
+  it('credits a pool purchase what was paid minus the processing fee, like a top-up', () => {
+    // $10 with an 80¢ fee adds $9.20; no margin is taken at purchase.
+    expect(netOfFee(1000, 80)).toEqual({
+      amountMicros: 9_200_000,
+      grossMicros: 10_000_000,
+      feeMicros: 800_000,
+    });
   });
 });
 

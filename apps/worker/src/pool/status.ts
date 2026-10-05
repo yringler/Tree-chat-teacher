@@ -47,7 +47,7 @@ export async function poolStatus(env: AppEnv, now = new Date()): Promise<PoolSta
     sessionsRemaining: 0,
     model: poolModelInfo(env),
     week: { start: week, exchanges: 0, learners: 0 },
-    marginBps: pool.marginBps,
+    markupBps: pool.markupBps,
     minPurchaseCents: pool.minPurchaseCents,
   };
   if (!base.enabled) return base;

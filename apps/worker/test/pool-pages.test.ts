@@ -78,7 +78,7 @@ describe('GET /api/pool/status', () => {
       sessionsRemaining: Math.floor(1_000_000 / config.pool.sessionEstimateMicros),
       model: { id: 'simple', label: expect.any(String) },
       week: { start: weekStart(new Date()).toISOString(), exchanges: 0, learners: 0 },
-      marginBps: config.pool.marginBps,
+      markupBps: config.pool.markupBps,
       minPurchaseCents: config.pool.minPurchaseCents,
     });
     // The edge copy answers the next minute's visitors, whatever D1 says meanwhile.
@@ -194,7 +194,9 @@ describe('the landing page’s pool meter', () => {
       '<a class="btn primary" href="/learn/billing#fund-pool">Fund the pool</a>',
     );
     expect(html).toContain('<a class="btn" href="/pool">How the pool works</a>');
-    expect(html).toContain('8% covers card processing, hosting and keeps Tangent running.');
+    expect(html).toContain('A pool purchase adds what you paid minus the card processing fee.');
+    expect(html).toMatch(/plus a 5% markup/);
+    expect(html).not.toContain('÷');
     // Still one hashed stylesheet and no script.
     expect([...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1])).toEqual([
       LANDING_STYLE,
@@ -241,11 +243,13 @@ describe('/pool', () => {
     expect(html).not.toContain('<script');
   });
 
-  it('states this deployment’s model, margin, minimum, caps and supporter rule', async () => {
+  it('states this deployment’s model, markup, minimum, caps and supporter rule', async () => {
     const e = poolEnv(uniq('pool'), { POOL_FREE_REQUESTS_PER_DAY: '30' });
     const html = await (await visitor(e)('/pool')).text();
     expect(html).toContain('<code>simple</code>');
-    expect(html).toContain('8% covers card processing, hosting and keeps Tangent running.');
+    expect(html).toContain('A pool purchase adds what you paid minus the card processing fee.');
+    expect(html).toMatch(/plus a 5% markup/);
+    expect(html).not.toContain('÷');
     expect(html).toContain('The smallest pool purchase is $10');
     expect(html).toContain('<td>Replies per learner per day</td><td>30 (supporters: 6)</td>');
     expect(html).toContain('add up to more than $0, after refunds, is a supporter.');

@@ -109,6 +109,7 @@ function request(poolId: string, overrides: Partial<PoolReserveRequest> = {}): P
     model: 'simple',
     holdMicros: 3_000,
     feeBps: 0,
+    markupBps: 0,
     caps: OPEN_CAPS,
     limits: OPEN_LIMITS,
     overage: NO_BREAKER,
@@ -297,7 +298,8 @@ describe('PoolBank: the never-negative invariant (spec test)', () => {
       (p) => deferred.push(p),
       FAST,
     );
-    // The fake `tangent` provider of vitest.config.ts (reports 0.001234 USD per call).
+    // The fake `tangent` provider of vitest.config.ts (reports 0.001234 USD per call), charged
+    // with the fee and the pool markup: ceil(1234 × 1.055 × 1.05) = 1367 µ$.
     const inner = createProviderRegistry([simpleProviderConfig(env)], { secrets: {} });
     const registry = meteredRegistry(inner, meter, (id) => id === 'tangent');
     const runs = await Promise.all(
@@ -307,11 +309,13 @@ describe('PoolBank: the never-negative invariant (spec test)', () => {
     const done = runs.filter((events) => events.at(-1)?.type === 'done');
     const refused = runs.filter((events) => events.at(-1)?.type === 'error');
     expect(done.length + refused.length).toBe(20);
-    expect(refused.length).toBeGreaterThanOrEqual(5); // 20 × 1_302 > 20_000
+    expect(refused.length).toBeGreaterThanOrEqual(5); // 20 × 1_367 > 20_000
     const rows = await poolRows(poolId);
     expect(rows).toHaveLength(done.length);
-    expect(rows.every((r) => r.status === 'settled' && r.charge_micros === 1302)).toBe(true);
-    expect(await available(poolId)).toBe(20_000 - 1302 * done.length);
+    expect(
+      rows.every((r) => r.status === 'settled' && r.charge_micros === 1367 && r.markup_bps === 500),
+    ).toBe(true);
+    expect(await available(poolId)).toBe(20_000 - 1367 * done.length);
     expect(await available(poolId)).toBeGreaterThanOrEqual(0);
   });
 });
@@ -677,8 +681,12 @@ describe('Pool meter', () => {
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
     const p = params(poolId);
-    const ceiling = ceilingHoldMicros(p.price!, p.maxOutputTokens, p.price!.feeBps);
-    const reservationId = await reserved(poolId, { holdMicros: ceiling, feeBps: p.price!.feeBps });
+    const ceiling = ceilingHoldMicros(p.price!, p.maxOutputTokens, p.price!.feeBps, p.markupBps);
+    const reservationId = await reserved(poolId, {
+      holdMicros: ceiling,
+      feeBps: p.price!.feeBps,
+      markupBps: p.markupBps,
+    });
     const deferred: Promise<unknown>[] = [];
     const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
     const inner = createProviderRegistry([simpleProviderConfig(env)], { secrets: {} });
@@ -691,8 +699,11 @@ describe('Pool meter', () => {
     }
     await settleAll(deferred);
     expect(events.at(-1)?.type).toBe('done');
-    // (2 bytes + 4 + 16) in + 2_048 out at 1 µ$ each, × 1.055.
-    expect(pending).toMatchObject({ status: 'pending', hold_micros: Math.ceil(2070 * 1.055) });
+    // (2 bytes + 4 + 16) in + 2_048 out at 1 µ$ each, × 1.055 (fee) × 1.05 (pool markup).
+    expect(pending).toMatchObject({
+      status: 'pending',
+      hold_micros: Math.ceil(2070 * 1.055 * 1.05),
+    });
     expect(pending!.hold_micros).toBeLessThan(ceiling);
     expect(pending!.dispatched_at).not.toBeNull();
     const rows = await poolRows(poolId);
@@ -700,7 +711,7 @@ describe('Pool meter', () => {
     expect(rows[0]).toMatchObject({
       id: reservationId,
       status: 'settled',
-      charge_micros: 1302,
+      charge_micros: 1367,
       settle_reason: 'cost',
     });
   });
@@ -711,8 +722,12 @@ describe('Pool meter', () => {
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
     const p = params(poolId);
-    const ceiling = ceilingHoldMicros(p.price!, p.maxOutputTokens, p.price!.feeBps);
-    const reservationId = await reserved(poolId, { holdMicros: ceiling, feeBps: p.price!.feeBps });
+    const ceiling = ceilingHoldMicros(p.price!, p.maxOutputTokens, p.price!.feeBps, p.markupBps);
+    const reservationId = await reserved(poolId, {
+      holdMicros: ceiling,
+      feeBps: p.price!.feeBps,
+      markupBps: p.markupBps,
+    });
     // Run A has dispatched the reservation and is still streaming upstream.
     await markDispatched(env.DB, reservationId);
     let calls = 0;
@@ -830,14 +845,14 @@ describe('Pool meter', () => {
       charge_micros: 0,
       settle_reason: 'released',
     });
-    // 150 tokens at 1 µ$, × 1.055.
+    // 150 tokens at 1 µ$, × 1.055 (fee) × 1.05 (pool markup) = 166.2 → 167.
     expect(priced).toMatchObject({
       status: 'settled',
-      charge_micros: 159,
+      charge_micros: 167,
       settle_reason: 'tokens',
       cost_nanos: 150_000,
     });
-    expect(await available(poolId)).toBe(100_000 - 159);
+    expect(await available(poolId)).toBe(100_000 - 167);
   });
 });
 
@@ -912,6 +927,27 @@ describe('PoolBank: reservation expiry (spec test)', () => {
       settle_reason: 'released',
     });
     expect(await available(poolId)).toBe(100_000 - 3_000 - 2_000 - 3_000);
+  });
+
+  it('charges an expired call its cost with the row’s fee and pool markup', async () => {
+    quiet();
+    const poolId = uniq('pool');
+    await fund(poolId, 100_000);
+    const stub = poolBank(env, poolId);
+    const found = await reserved(poolId, { holdMicros: 5_000, feeBps: 550, markupBps: 500 });
+    await markDispatched(env.DB, found);
+    const gen = uniq('gen-ok');
+    await setGenerationId(env.DB, found, gen);
+    await scriptGeneration(gen, [{ costUsd: 0.002, inputTokens: 10, outputTokens: 20 }]);
+    await stub.expire(Date.now() + TTL + 1_000);
+    // settle = cost × (1 + fee) × (1 + markup): 2_000 µ$ × 1.055 × 1.05 = 2_215.5 → 2_216.
+    expect(await usageRow(env, found)).toMatchObject({
+      status: 'settled',
+      settle_reason: 'generation',
+      markup_bps: 500,
+      fee_bps: 550,
+      charge_micros: 2_216,
+    });
   });
 
   it('runs from the alarm and re-arms while expired rows remain', async () => {

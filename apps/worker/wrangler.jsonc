@@ -199,10 +199,10 @@
     "POOL_MODEL": "",
     // The locked system prompt of pool replies; empty = SIMPLE_SYSTEM_PROMPT, else the built-in prompt.
     "POOL_SYSTEM_PROMPT": "",
-    // Margin taken when the pool is funded, in bps (800 = 8%): $10 buys $10 / 1.08 of pool credit.
-    // MARGIN_PERCENT (e.g. "8") is accepted instead while this is empty.
-    "POOL_MARGIN_BPS": "800",
-    // Smallest pool purchase in US cents (1000 = $10), so the margin covers card processing.
+    // Markup on each pool reply's true cost, in bps (500 = +5%): charge = price × (1 + fee) × (1 + markup).
+    // A pool purchase adds what was paid minus the card processing fee, like a personal top-up.
+    "POOL_MARKUP_BPS": "500",
+    // Smallest pool purchase in US cents (1000 = $10).
     "POOL_MIN_PURCHASE_CENTS": "1000",
     // Per-call input and output token caps of pool calls, and the longest message a pool send accepts.
     "POOL_MAX_INPUT_TOKENS": "16000",

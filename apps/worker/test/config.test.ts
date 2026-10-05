@@ -59,7 +59,7 @@ describe('appConfig', () => {
     expect(c.pool).toMatchObject({
       accountId: 'pool',
       model: null,
-      marginBps: 800,
+      markupBps: 500,
       minPurchaseCents: 1000,
       maxInputTokens: 16_000,
       maxOutputTokens: 1024,
@@ -165,14 +165,10 @@ describe('appConfig', () => {
     expect(error).toHaveBeenCalled();
   });
 
-  it('accepts MARGIN_PERCENT as an alias of POOL_MARGIN_BPS', () => {
-    expect(appConfig(blank({ MARGIN_PERCENT: '8' })).pool.marginBps).toBe(800);
-    expect(appConfig(blank({ MARGIN_PERCENT: '7.5' })).pool.marginBps).toBe(750);
-    expect(appConfig(blank({ MARGIN_PERCENT: '7.5', POOL_MARGIN_BPS: '900' })).pool.marginBps).toBe(
-      900,
-    );
-    expect(appConfig(blank({ MARGIN_PERCENT: 'eight' })).pool.marginBps).toBe(800);
-    expect(appConfig(blank({ POOL_MARGIN_BPS: '0' })).pool.marginBps).toBe(0);
+  it('reads the pool markup from POOL_MARKUP_BPS (default 5%)', () => {
+    expect(appConfig(blank({ POOL_MARKUP_BPS: '750' })).pool.markupBps).toBe(750);
+    expect(appConfig(blank({ POOL_MARKUP_BPS: '0' })).pool.markupBps).toBe(0);
+    expect(appConfig(blank({ POOL_MARKUP_BPS: 'five' })).pool.markupBps).toBe(500);
   });
 
   it('clamps unsafe combinations, logging each', () => {

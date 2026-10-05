@@ -9,7 +9,7 @@ const STATUS: PoolStatusResponse = {
   sessionsRemaining: 123,
   model: { id: 'm', label: 'Simple' },
   week: { start: '2026-10-05T00:00:00.000Z', exchanges: 1240, learners: 87 },
-  marginBps: 800,
+  markupBps: 500,
   minPurchaseCents: 1000,
 };
 
@@ -29,9 +29,9 @@ describe('the pool meter', () => {
     );
   });
 
-  it('discloses the margin as a credit purchase', () => {
-    expect(poolFundingNote(800)).toBe(
-      'Funding the pool is a credit purchase. 8% covers card processing, hosting and keeps Tangent running.',
+  it('discloses the fee pass-through and the markup as a credit purchase', () => {
+    expect(poolFundingNote(500)).toBe(
+      "Funding the pool is a credit purchase. A pool purchase adds what you paid minus the card processing fee. Each reply from the pool costs the AI provider's price plus a 5% markup.",
     );
   });
 });

@@ -52,10 +52,12 @@ export const MICROS_PER_USD = 1_000_000;
 
 /**
  * What a credit purchase buys:
- * - `personal`: credit on the buyer's own ledger (net of Stripe's fee);
- * - `pool`: credit in the community pool (pool.ts), net of the pool margin.
- *   At least the pool minimum (`POOL_MIN_PURCHASE_CENTS`, default $10), so
- *   the margin covers card processing.
+ * - `personal`: credit on the buyer's own ledger;
+ * - `pool`: credit in the community pool (pool.ts), at least the pool minimum
+ *   (`POOL_MIN_PURCHASE_CENTS`, default $10).
+ * Either way the purchase adds what was paid (pre-tax) minus the processing
+ * fee; the operator earns a markup on usage instead (`MARKUP_BPS` for
+ * personal credit, `POOL_MARKUP_BPS` for the pool).
  */
 export const PURCHASE_TARGETS = ['personal', 'pool'] as const;
 export type PurchaseTarget = (typeof PURCHASE_TARGETS)[number];

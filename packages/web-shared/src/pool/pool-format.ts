@@ -1,7 +1,7 @@
 import {
   formatMicros,
   POOL_EMPTY_TEXT,
-  poolMarginText,
+  poolPricingText,
   poolSessionsHeadline,
   poolWeekText,
   type PoolBlockDetails,
@@ -10,13 +10,13 @@ import {
 import { ApiError, isPoolCapReached, isPoolEmpty } from '../core/api-client';
 
 /*
- * The community pool as both apps word it: the meter, the margin disclosure
+ * The community pool as both apps word it: the meter, the pricing disclosure
  * and the inline empty and cap-reached states. Plain functions, so the specs
  * check the exact copy. Copy rules (docs/pool/PLAN.md §8): "fund the pool",
  * a credit purchase; never a donation.
  */
 
-export { poolMarginText, POOL_EMPTY_TEXT };
+export { poolPricingText, POOL_EMPTY_TEXT };
 
 /** `About 120 learning sessions`, the meter's headline. */
 export function sessionsLabel(status: Pick<PoolStatusResponse, 'sessionsRemaining'>): string {
@@ -132,6 +132,6 @@ export function poolBlockText(block: PoolBlock, now: Date = new Date()): PoolBlo
 }
 
 /** The disclosure under every way to fund the pool. */
-export function poolFundingNote(marginBps: number): string {
-  return `Funding the pool is a credit purchase. ${poolMarginText(marginBps)}`;
+export function poolFundingNote(markupBps: number): string {
+  return `Funding the pool is a credit purchase. ${poolPricingText(markupBps)}`;
 }

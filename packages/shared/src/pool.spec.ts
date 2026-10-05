@@ -13,7 +13,7 @@ import {
   poolImpactQuerySchema,
   poolImpactTopicText,
   poolImpactWeekText,
-  poolMarginText,
+  poolPricingText,
   poolSessionsText,
 } from './pool.js';
 
@@ -58,15 +58,15 @@ describe('pool copy', () => {
     expect(poolSessionsText(2.9)).toBe('about 2 learning sessions');
   });
 
-  it('discloses the margin in one line', () => {
-    expect(poolMarginText(800)).toBe(
-      '8% covers card processing, hosting and keeps Tangent running.',
+  it('discloses the fee pass-through and the per-reply markup', () => {
+    expect(poolPricingText(500)).toBe(
+      "A pool purchase adds what you paid minus the card processing fee. Each reply from the pool costs the AI provider's price plus a 5% markup.",
     );
-    expect(poolMarginText(750)).toMatch(/^7\.5% covers/);
+    expect(poolPricingText(750)).toMatch(/plus a 7\.5% markup\.$/);
   });
 
   it('never calls funding a donation', () => {
-    for (const text of [POOL_EMPTY_TEXT, poolMarginText(800), poolSessionsText(10)])
+    for (const text of [POOL_EMPTY_TEXT, poolPricingText(500), poolSessionsText(10)])
       expect(text).not.toMatch(FORBIDDEN_POOL_COPY);
     for (const bad of [
       'Donate',

@@ -249,13 +249,14 @@ class PoolRun extends ObservedRun {
   constructor(
     env: AppEnv,
     usageId: string,
+    markupBps: number,
     feeBps: number,
     defer: (p: Promise<unknown>) => void,
     options: UsageMeterOptions,
     request: GenerateRequest,
     private readonly pool: PoolParams,
   ) {
-    super(env, usageId, 0, feeBps, defer, options, request);
+    super(env, usageId, markupBps, feeBps, defer, options, request);
   }
 
   override async dispatch(): Promise<boolean> {
@@ -375,15 +376,23 @@ export function createPoolUsageMeter(
         );
         throw new PoolRequestTooLargeError(bound);
       }
-      const holdMicros = worstCaseHoldMicros(price, request, maxOutput, price.feeBps);
+      const holdMicros = worstCaseHoldMicros(
+        price,
+        request,
+        maxOutput,
+        price.feeBps,
+        pool.markupBps,
+      );
       let usageId: string;
       let feeBps = price.feeBps;
+      let markupBps = pool.markupBps;
       if (tag?.reservationId) {
         // The reply was reserved at its ceiling before the prompt existed: shrink, never re-reserve.
         const shrunk = await shrinkHold(env.DB, tag.reservationId, pool.accountId, holdMicros);
         if (!shrunk) throw new Error(`Pool reservation ${tag.reservationId} is no longer pending`);
         usageId = tag.reservationId;
         feeBps = shrunk.feeBps;
+        markupBps = shrunk.markupBps;
       } else {
         const result = await poolBank(env, pool.accountId).reserve(
           poolReserveRequest(pool, userId, {
@@ -394,6 +403,7 @@ export function createPoolUsageMeter(
             providerId,
             holdMicros,
             feeBps,
+            markupBps,
           }),
         );
         if (!result.ok) throw new PoolRefusedError(result);
@@ -404,7 +414,7 @@ export function createPoolUsageMeter(
         maxOutputTokens: maxOutput,
         signal: AbortSignal.any([request.signal, AbortSignal.timeout(pool.callTimeoutMs)]),
       };
-      return new PoolRun(env, usageId, feeBps, defer, options, upstream, pool);
+      return new PoolRun(env, usageId, markupBps, feeBps, defer, options, upstream, pool);
     },
   };
 }

@@ -109,8 +109,8 @@ export interface PoolStatusResponse {
   model: { id: string; label: string };
   /** Since Monday 00:00 UTC: pool replies that cost something, and the learners they went to. */
   week: { start: string; exchanges: number; learners: number };
-  /** The margin on pool purchases, bps (`poolMarginText`). */
-  marginBps: number;
+  /** The markup on each pool reply's cost, bps (`poolPricingText`). */
+  markupBps: number;
   /** The smallest pool purchase, cents. */
   minPurchaseCents: number;
 }
@@ -195,9 +195,13 @@ export function poolWeekText(week: { learners: number; exchanges: number }): str
   );
 }
 
-/** The one-line margin disclosure next to every way to fund the pool (docs/pool/PLAN.md §8). */
-export function poolMarginText(marginBps: number): string {
-  return `${formatBps(marginBps)} covers card processing, hosting and keeps Tangent running.`;
+/**
+ * The one-line pricing disclosure next to every way to fund the pool
+ * (docs/pool/PLAN.md §8): purchases pass the processing fee through, and the
+ * operator earns a markup on each reply.
+ */
+export function poolPricingText(markupBps: number): string {
+  return `A pool purchase adds what you paid minus the card processing fee. Each reply from the pool costs the AI provider's price plus a ${formatBps(markupBps)} markup.`;
 }
 
 /**

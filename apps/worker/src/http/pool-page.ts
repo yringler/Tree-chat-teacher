@@ -6,7 +6,7 @@ import {
   POOL_EMPTY_TEXT,
   POOL_IMPACT_WEEK_PATTERN,
   poolImpactWeekText,
-  poolMarginText,
+  poolPricingText,
   type PoolImpactResponse,
 } from '@tangent/shared';
 import { Hono } from 'hono';
@@ -22,7 +22,7 @@ import { legalResponse, page } from './legal.js';
 
 /**
  * `/pool`: how the community pool works (spec §8, transparency page). A
- * static, script-free page like the legal pages, whose numbers (margin,
+ * static, script-free page like the legal pages, whose numbers (markup,
  * minimum, model, caps) come from the config module, so it always describes
  * what this deployment does. Copy rules (docs/pool/PLAN.md §8): funding the
  * pool is a credit purchase; never a donation.
@@ -32,7 +32,7 @@ import { legalResponse, page } from './legal.js';
 export interface PoolPageFacts {
   enabled: boolean;
   model: { id: string; label: string };
-  marginBps: number;
+  markupBps: number;
   minPurchaseCents: number;
   sessionEstimateMicros: number;
   maxOutputTokens: number;
@@ -69,7 +69,7 @@ export function poolPageFacts(env: AppEnv): PoolPageFacts {
   return {
     enabled: config.flags.poolEnabled,
     model: { id, label: simpleProviderConfig(env).models.find((m) => m.id === id)?.label ?? id },
-    marginBps: pool.marginBps,
+    markupBps: pool.markupBps,
     minPurchaseCents: pool.minPurchaseCents,
     sessionEstimateMicros: pool.sessionEstimateMicros,
     maxOutputTokens: pool.maxOutputTokens,
@@ -80,7 +80,12 @@ export function poolPageFacts(env: AppEnv): PoolPageFacts {
     ip: pool.caps.ip,
     perMinute: pool.limits.userPerMinute,
     ceilingHoldMicros: price
-      ? ceilingHoldMicros(price, pool.maxOutputTokens, config.billing.openRouterFeeBps)
+      ? ceilingHoldMicros(
+          price,
+          pool.maxOutputTokens,
+          config.billing.openRouterFeeBps,
+          pool.markupBps,
+        )
       : null,
     minDistinctUsers: config.impact.minDistinctUsers,
     tagRetentionDays: config.impact.tagRetentionDays,
@@ -135,7 +140,7 @@ export function renderPoolPage(
   feed: PoolPageFeed | null = null,
 ): string {
   const model = `${escapeHtml(f.model.label)} (<code>${escapeHtml(f.model.id)}</code>)`;
-  const margin = formatBps(f.marginBps);
+  const markup = formatBps(f.markupBps);
   const ceiling =
     f.ceilingHoldMicros === null
       ? ''
@@ -146,7 +151,7 @@ export function renderPoolPage(
     'The community pool',
     `<h1>The community pool</h1>
 <div class="summary">
-<p><strong>The short version.</strong> The community pool is credit that anyone can add to and any signed-in learner can use in Tangent Learn, on one economical model, within daily limits. Adding to it is a credit purchase from ${escapeHtml(info.operator)}: you choose the pool instead of your own account. ${escapeHtml(poolMarginText(f.marginBps))}</p>
+<p><strong>The short version.</strong> The community pool is credit that anyone can add to and any signed-in learner can use in Tangent Learn, on one economical model, within daily limits. Adding to it is a credit purchase from ${escapeHtml(info.operator)}: you choose the pool instead of your own account. ${escapeHtml(poolPricingText(f.markupBps))}</p>
 </div>
 ${f.enabled ? '' : '<p class="updated">The community pool is not open on this server yet.</p>\n'}
 <h2>How it works</h2>
@@ -158,8 +163,8 @@ ${f.enabled ? '' : '<p class="updated">The community pool is not open on this se
 <li>The meter shows about how many learning sessions the pool still covers, counting ${escapeHtml(formatMicros(f.sessionEstimateMicros))} per session, next to the amount in dollars and how many learners and exchanges it funded this week. Those are totals only; no one's name or questions are shown.</li>
 </ul>
 
-<h2>What the margin covers</h2>
-<p>A pool purchase of $10 adds $10 ÷ (1 + ${margin}) of credit to the pool. The ${margin} pays for card processing, hosting and keeping Tangent running. The pool then pays each reply's actual cost, with no markup on top. The smallest pool purchase is ${escapeHtml(formatCents(f.minPurchaseCents))}, so the margin covers the card fee. Prices are before tax; tax is added at checkout.</p>
+<h2>What a purchase adds, and what a reply costs</h2>
+<p>A pool purchase adds what you paid minus the card processing fee, the same as buying credit for yourself: a $10 purchase adds $10 less that fee. Each reply from the pool then costs the AI provider's price (including the provider's credit-purchase fee) plus a ${markup} markup, which pays for hosting and keeping Tangent running. The smallest pool purchase is ${escapeHtml(formatCents(f.minPurchaseCents))}. Prices are before tax; tax is added at checkout.</p>
 
 <h2>Which model pool learners get</h2>
 <p>Every reply on the pool uses ${model}, with a fixed teaching prompt, replies of at most ${f.maxOutputTokens.toLocaleString('en-US')} tokens and a capped amount of earlier conversation. Choosing another model or prompt isn't possible on the pool; that keeps it a learning tool and stretches every dollar. Reviews aren't available on the pool.</p>

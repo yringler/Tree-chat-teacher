@@ -1,4 +1,4 @@
-// The one config module (docs/pool/PLAN.md §4): every cap, price, margin,
+// The one config module (docs/pool/PLAN.md §4): every cap, price, markup,
 // limit and flag the billing code and the community pool read. Values come
 // from wrangler.jsonc `vars` (strings), parsed once per env object and frozen;
 // empty or malformed values fall back to the defaults below, and the safety
@@ -36,8 +36,12 @@ export const DEFAULT_SIMPLE_MAX_INPUT_TOKENS = 60_000;
 
 /** The community pool's ledger account id (`POOL_ACCOUNT_ID`). */
 export const DEFAULT_POOL_ACCOUNT_ID = 'pool';
-/** Margin on pool purchases in bps (8%): `credit = gross / (1 + margin)`. */
-export const DEFAULT_POOL_MARGIN_BPS = 800;
+/**
+ * Markup on each pool call's true cost, in bps (5%): what the operator earns
+ * on the pool. Purchases add what was paid minus the processing fee, as
+ * personal top-ups do (docs/polar-migration/04-verification.md, D4).
+ */
+export const DEFAULT_POOL_MARKUP_BPS = 500;
 /** A smaller impact threshold would make single learners identifiable. */
 export const MIN_IMPACT_DISTINCT_USERS = 3;
 /** The expiry alarm needs this much slack between a call's timeout and its reservation's TTL. */
@@ -122,7 +126,8 @@ export interface PoolConfig {
   /** `POOL_MODEL`; null = the simple provider's fast model, resolved by the caller. */
   model: string | null;
   systemPrompt: string;
-  marginBps: number;
+  /** `POOL_MARKUP_BPS`: the markup on each pool call's cost, applied to holds and charges. */
+  markupBps: number;
   minPurchaseCents: number;
   maxInputTokens: number;
   maxOutputTokens: number;
@@ -268,15 +273,6 @@ function parsePrices(raw: string | undefined): Readonly<Record<string, ModelPric
   return prices;
 }
 
-/** `POOL_MARGIN_BPS`, else `MARGIN_PERCENT` × 100 (up to two decimals), else 800. */
-function parseMarginBps(env: AppEnv): number {
-  const bps = intVar(env.POOL_MARGIN_BPS, -1);
-  if (bps >= 0) return bps;
-  const percent = env.MARGIN_PERCENT?.trim();
-  if (percent && /^\d+(\.\d{1,2})?$/.test(percent)) return Math.round(Number(percent) * 100);
-  return DEFAULT_POOL_MARGIN_BPS;
-}
-
 /** A positive number of months, or null (empty or anything else: for life). */
 function optionalMonths(raw: string | undefined): number | null {
   const n = positiveInt(raw, 0);
@@ -328,7 +324,7 @@ function parse(env: AppEnv): AppConfig {
       model: env.POOL_MODEL?.trim() || null,
       systemPrompt:
         env.POOL_SYSTEM_PROMPT?.trim() || env.SIMPLE_SYSTEM_PROMPT?.trim() || DEFAULT_SYSTEM_PROMPT,
-      marginBps: parseMarginBps(env),
+      markupBps: intVar(env.POOL_MARKUP_BPS, DEFAULT_POOL_MARKUP_BPS),
       minPurchaseCents: intVar(env.POOL_MIN_PURCHASE_CENTS, 1000),
       maxInputTokens: positiveInt(env.POOL_MAX_INPUT_TOKENS, 16_000),
       maxOutputTokens: positiveInt(env.POOL_MAX_OUTPUT_TOKENS, 1024),

@@ -65,7 +65,7 @@ const POOL: PoolStatusResponse = {
   sessionsRemaining: 120,
   model: { id: 'fast', label: 'Simple' },
   week: { start: '2026-10-05T00:00:00.000Z', exchanges: 3, learners: 2 },
-  marginBps: 800,
+  markupBps: 500,
   minPurchaseCents: 1000,
 };
 

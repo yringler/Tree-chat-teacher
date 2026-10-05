@@ -182,7 +182,7 @@ const POOL_STATUS: PoolStatusResponse = {
   sessionsRemaining: 0,
   model: { id: 'fast-model', label: 'Simple' },
   week: { start: T, exchanges: 0, learners: 0 },
-  marginBps: 800,
+  markupBps: 500,
   minPurchaseCents: 1000,
 };
 

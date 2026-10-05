@@ -2,7 +2,7 @@ import { escapeHtml } from '@tangent/render';
 import {
   formatMicros,
   POOL_EMPTY_TEXT,
-  poolMarginText,
+  poolPricingText,
   poolSessionsHeadline,
   poolWeekText,
   type PoolImpactResponse,
@@ -190,7 +190,7 @@ function poolSection(pool: PoolStatusResponse, impact?: PoolImpactResponse): str
 ${meter}
 <p class="week">${escapeHtml(poolWeekText(pool.week))}</p>
 ${impact ? `${renderImpactBlock(impact, LANDING_IMPACT_TOPICS)}\n` : ''}<div class="ctas">${fund}<a class="btn" href="/pool">How the pool works</a></div>
-<p class="fee">Funding the pool is a credit purchase. ${escapeHtml(poolMarginText(pool.marginBps))}</p>
+<p class="fee">Funding the pool is a credit purchase. ${escapeHtml(poolPricingText(pool.markupBps))}</p>
 </div>
 </div>
 </section>

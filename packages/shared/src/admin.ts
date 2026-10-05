@@ -152,8 +152,8 @@ export const ADMIN_CREDIT_MAX_CENTS = 50_000;
  * - `adjustment`: a signed ledger adjustment (goodwill credit, a correction).
  *   A negative pool adjustment is clamped to what the pool has available.
  * - `simulated_purchase`: fulfils a purchase as the Stripe webhook would (pool:
- *   net of the margin, and the buyer becomes a supporter), with no processing
- *   fee. Only where the server allows it (`DEV_PURCHASES_ENABLED`, never in
+ *   the buyer becomes a supporter), with no processing fee, so the full amount
+ *   is credited. Only where the server allows it (`DEV_PURCHASES_ENABLED`, never in
  *   production); otherwise 404.
  * `idempotencyKey` makes a retry a no-op (`credited: false`).
  */

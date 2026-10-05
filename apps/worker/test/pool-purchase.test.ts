@@ -1,5 +1,5 @@
 // Buying credit for the community pool (docs/pool/PLAN.md §S5): checkout
-// targets, the webhook's pool fulfilment (margin at purchase), refunds and
+// targets, the webhook's pool fulfilment (net of the processing fee), refunds and
 // disputes through PoolBank.debit, the admin's credit route and pool panel.
 import {
   POOL_FUND_PRESETS_CENTS,
@@ -16,12 +16,11 @@ import { describe, expect, it } from 'vitest';
 import wranglerText from '../wrangler.jsonc?raw';
 import { createApp } from '../src/app.js';
 import { getBalance } from '../src/billing/ledger.js';
-import { fulfilPurchase, poolPurchaseAmounts } from '../src/billing/purchases.js';
+import { fulfilPurchase } from '../src/billing/purchases.js';
 import { handleStripeEvent } from '../src/billing/webhook.js';
 import { appConfig } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { poolBank } from '../src/pool/ids.js';
-import { poolCreditMicros } from '../src/pool/pricing.js';
 import { isSupporter } from '../src/pool/supporter.js';
 import {
   insertUsage,
@@ -36,8 +35,11 @@ import { authEnv } from './session-client.js';
 
 const env = rawEnv as unknown as AppEnv;
 const ORIGIN = 'https://tangent.example.com';
-/** $10 at the default 8% margin: floor(10_000_000 × 10⁴ / 10_800). */
-const TEN_DOLLARS_AT_8 = 9_259_259;
+/**
+ * A $10 pool purchase through the Stripe mock (total $10.87 with tax): $10
+ * minus the mock's default fee on the total, 2.9% + 30¢ + 0.5% (67¢).
+ */
+const TEN_DOLLARS_NET = 9_330_000;
 
 interface GrantRow {
   account_id: string;
@@ -195,7 +197,7 @@ async function poolPurchase(subtotal = 1000) {
 }
 
 describe('pool purchases through the Stripe webhook', () => {
-  it('credits a signed pool event once, net of the margin, whichever events deliver it', async () => {
+  it('credits a signed pool event once, net of the fee, whichever events deliver it', async () => {
     const poolId = uniq('pool');
     const buyer = uniq('user');
     await insertUser(env, { id: buyer });
@@ -213,31 +215,38 @@ describe('pool purchases through the Stripe webhook', () => {
       {
         account_id: poolId,
         kind: 'purchase',
-        amount_micros: TEN_DOLLARS_AT_8,
+        amount_micros: TEN_DOLLARS_NET,
         gross_micros: 10_000_000,
-        // Stripe's fee is recorded, not deducted: the margin pays it.
+        // The processing fee comes out of the credit, as for a personal top-up.
         fee_micros: (fee.stripe + fee.tax) * 10_000,
-        margin_bps: 800,
+        margin_bps: 0,
         user_id: buyer,
         provider_ref: session.id,
         note: 'Community pool purchase',
       },
     ]);
-    expect(await balance(poolId)).toBe(TEN_DOLLARS_AT_8);
+    expect(await balance(poolId)).toBe(TEN_DOLLARS_NET);
     // The buyer's personal ledger is untouched, and they are now a supporter.
     expect(await balance(`u_${buyer}`)).toBe(0);
     expect(await isSupporter(env.DB, buyer, new Date(), null)).toBe(true);
   });
 
-  it('applies POOL_MARGIN_BPS (or MARGIN_PERCENT) at purchase', async () => {
+  it('takes no margin at purchase, whatever POOL_MARKUP_BPS says', async () => {
     const poolId = uniq('pool');
     const session = await paidSession({ target: 'pool', accountId: poolId, subtotal: 2000 });
     await handleStripeEvent(
-      { ...env, POOL_MARGIN_BPS: '', MARGIN_PERCENT: '10' } as AppEnv,
+      { ...env, POOL_MARKUP_BPS: '1000' } as AppEnv,
       event('checkout.session.completed', session),
     );
+    const fee = defaultFeeDetails(2174);
+    const feeCents = fee.stripe + fee.tax;
     expect(await grants(poolId)).toMatchObject([
-      { amount_micros: 18_181_818, gross_micros: 20_000_000, margin_bps: 1000 },
+      {
+        amount_micros: (2000 - feeCents) * 10_000,
+        gross_micros: 20_000_000,
+        fee_micros: feeCents * 10_000,
+        margin_bps: 0,
+      },
     ]);
   });
 
@@ -248,7 +257,7 @@ describe('pool purchases through the Stripe webhook', () => {
       { ...env, POOL_ACCOUNT_ID: poolId } as AppEnv,
       event('checkout.session.completed', session),
     );
-    expect(await balance(poolId)).toBe(TEN_DOLLARS_AT_8);
+    expect(await balance(poolId)).toBe(TEN_DOLLARS_NET);
   });
 
   it('credits sessions without a target (from before the pool) personally, recording the buyer', async () => {
@@ -294,12 +303,12 @@ describe('pool purchase refunds and disputes', () => {
     const rows = await grants(poolId);
     expect(rows[1]).toMatchObject({
       kind: 'refund',
-      amount_micros: -TEN_DOLLARS_AT_8,
+      amount_micros: -TEN_DOLLARS_NET,
       gross_micros: -10_000_000,
       user_id: buyer,
       provider_ref: refund.id,
     });
-    expect(rows[1]!.note).toContain(`requested=${TEN_DOLLARS_AT_8};shortfall=0`);
+    expect(rows[1]!.note).toContain(`requested=${TEN_DOLLARS_NET};shortfall=0`);
     expect(await balance(poolId)).toBe(0);
     // Refunded in full: no longer a supporter.
     expect(await isSupporter(env.DB, buyer, new Date(), null)).toBe(false);
@@ -311,7 +320,7 @@ describe('pool purchase refunds and disputes', () => {
     await insertUsage(env, {
       accountId: poolId,
       status: 'settled',
-      chargeMicros: TEN_DOLLARS_AT_8,
+      chargeMicros: TEN_DOLLARS_NET,
     });
     const chargeId = uniq('ch');
     const first = { id: uniq('re'), amount: 543 };
@@ -320,8 +329,8 @@ describe('pool purchase refunds and disputes', () => {
       event('charge.refunded', refundedCharge(session, chargeId, [first])),
     );
     const refundRow = (await grants(poolId)).find((g) => g.provider_ref === first.id)!;
-    // 543 of 1087 cents is 4.995400 $ pre-tax; credit-equivalent at 8%: 4.625370 $.
-    const requested = Math.round((4_995_400 * TEN_DOLLARS_AT_8) / 10_000_000);
+    // 543 of 1087 cents is 4.995400 $ pre-tax; credit-equivalent of what the purchase added.
+    const requested = Math.round((4_995_400 * TEN_DOLLARS_NET) / 10_000_000);
     expect(refundRow).toMatchObject({ kind: 'refund', amount_micros: 0, gross_micros: -4_995_400 });
     expect(refundRow.note).toContain(`requested=${requested};shortfall=${requested}`);
 
@@ -353,7 +362,7 @@ describe('pool purchase refunds and disputes', () => {
     expect(rows.filter((g) => g.provider_ref === d.id)).toMatchObject([
       {
         kind: 'refund',
-        amount_micros: -TEN_DOLLARS_AT_8,
+        amount_micros: -TEN_DOLLARS_NET,
         gross_micros: -10_000_000,
         user_id: buyer,
       },
@@ -365,9 +374,9 @@ describe('pool purchase refunds and disputes', () => {
     await handleStripeEvent(env, event('charge.dispute.funds_reinstated', won));
     rows = await grants(poolId);
     expect(rows.filter((g) => g.provider_ref === `${d.id}:reinstated`)).toMatchObject([
-      { kind: 'refund', amount_micros: TEN_DOLLARS_AT_8, gross_micros: 10_000_000, user_id: buyer },
+      { kind: 'refund', amount_micros: TEN_DOLLARS_NET, gross_micros: 10_000_000, user_id: buyer },
     ]);
-    expect(await balance(poolId)).toBe(TEN_DOLLARS_AT_8);
+    expect(await balance(poolId)).toBe(TEN_DOLLARS_NET);
     expect((await poolAccess(buyer))?.pool_suspended).toBe(0);
 
     // Another purchase's dispute is lost: its buyer loses pool access.
@@ -387,11 +396,11 @@ describe('pool purchase refunds and disputes', () => {
     const d = dispute(session);
     await handleStripeEvent(env, event('charge.dispute.funds_withdrawn', d));
     expect((await grants(poolId)).find((g) => g.provider_ref === d.id)?.amount_micros).toBe(
-      -(TEN_DOLLARS_AT_8 - 9_000_000),
+      -(TEN_DOLLARS_NET - 9_000_000),
     );
     expect(await balance(poolId)).toBe(0);
     await handleStripeEvent(env, event('charge.dispute.funds_reinstated', { ...d, status: 'won' }));
-    expect(await balance(poolId)).toBe(TEN_DOLLARS_AT_8 - 9_000_000);
+    expect(await balance(poolId)).toBe(TEN_DOLLARS_NET - 9_000_000);
   });
 
   it('a dispute of a personal top-up debits personal credit, unclamped', async () => {
@@ -455,22 +464,22 @@ describe('pool purchase refunds and disputes', () => {
 });
 
 describe('pool pricing', () => {
-  it('the margin covers Stripe’s fee on the pre-tax amount at every preset, at 2.9% + 30¢ and 4.4% + 30¢', () => {
-    const { minPurchaseCents, marginBps } = appConfig(env).pool;
-    for (const cents of POOL_FUND_PRESETS_CENTS) {
+  it('offers presets from the minimum, and credits gross minus the fee (credit = gross − fee)', async () => {
+    const { minPurchaseCents } = appConfig(env).pool;
+    for (const cents of POOL_FUND_PRESETS_CENTS)
       expect(cents).toBeGreaterThanOrEqual(minPurchaseCents);
-      const margin = cents * 10_000 - poolCreditMicros(cents * 10_000, marginBps);
-      for (const rate of [0.029, 0.044]) {
-        const feeMicros = (Math.round(cents * rate) + 30) * 10_000;
-        expect(margin - feeMicros, `${cents}¢ at ${rate}`).toBeGreaterThanOrEqual(0);
-      }
-    }
-    expect(poolPurchaseAmounts(1000, 59, 800)).toEqual({
-      amountMicros: TEN_DOLLARS_AT_8,
-      grossMicros: 10_000_000,
-      feeMicros: 590_000,
-      marginBps: 800,
+    const poolId = uniq('pool');
+    await fulfilPurchase(env, {
+      target: 'pool',
+      userId: null,
+      accountId: poolId,
+      grossCents: 1000,
+      processorFeeCents: 59,
+      ref: `dev:${uniq('key')}`,
     });
+    expect(await grants(poolId)).toMatchObject([
+      { amount_micros: 9_410_000, gross_micros: 10_000_000, fee_micros: 590_000, margin_bps: 0 },
+    ]);
   });
 
   it('fulfilPurchase is idempotent on its ref', async () => {
@@ -485,7 +494,7 @@ describe('pool pricing', () => {
     };
     expect(await fulfilPurchase(env, p)).toBe(true);
     expect(await fulfilPurchase(env, p)).toBe(false);
-    expect(await balance(poolId)).toBe(TEN_DOLLARS_AT_8);
+    expect(await balance(poolId)).toBe(10_000_000);
   });
 });
 
@@ -687,8 +696,8 @@ describe('POST /api/admin/credit', () => {
     const pool = purchase(on.user.userId, 'pool');
     expect(await json<AdminCreditResponse>(await on.credit(pool))).toEqual({
       credited: true,
-      amountMicros: TEN_DOLLARS_AT_8,
-      balanceMicros: TEN_DOLLARS_AT_8,
+      amountMicros: 10_000_000,
+      balanceMicros: 10_000_000,
     });
     expect(await json<AdminCreditResponse>(await on.credit(pool))).toMatchObject({
       credited: false,
@@ -696,9 +705,9 @@ describe('POST /api/admin/credit', () => {
     expect(await grants(on.poolId)).toMatchObject([
       {
         kind: 'purchase',
-        amount_micros: TEN_DOLLARS_AT_8,
+        amount_micros: 10_000_000,
         gross_micros: 10_000_000,
-        margin_bps: 800,
+        margin_bps: 0,
         user_id: on.user.userId,
         provider_ref: `dev:${pool.idempotencyKey}`,
       },
