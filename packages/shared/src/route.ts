@@ -73,3 +73,8 @@ export function sameRoute(
 ): boolean {
   return routeKey(a) === routeKey(b);
 }
+
+/** The `routeKey` of a `/api/providers` entry (its id and funding). */
+export function providerRouteKey(p: { id: string; funding?: BranchFunding | undefined }): string {
+  return routeKey({ providerId: p.id, funding: p.funding });
+}

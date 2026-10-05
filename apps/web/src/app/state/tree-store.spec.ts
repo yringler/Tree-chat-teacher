@@ -1,7 +1,7 @@
 import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classes without the Angular CLI.
 import { Injector } from '@angular/core';
 import { Router } from '@angular/router';
-import type { BillingSummary, MeResponse, MembershipInfo } from '@tangent/shared';
+import type { BillingSummary, MeResponse, MembershipInfo, ProviderInfo } from '@tangent/shared';
 import { ApiClient, ApiError } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeStore } from './tree-store';
@@ -158,5 +158,40 @@ describe('TreeStore membership and credit', () => {
     s.store.applyBilling(paid);
     expect(s.store.membershipBlocked()).toBe(false);
     expect(s.store.billing()).toBe(paid);
+  });
+});
+
+describe('TreeStore routes (provider + funding)', () => {
+  const entry = (funding: 'own-key' | 'credit', label: string): ProviderInfo => ({
+    id: 'openrouter',
+    kind: 'openai-compatible',
+    label,
+    models: [],
+    defaultModel: 'a/b',
+    openModels: true,
+    available: true,
+    acceptsUserKey: funding === 'own-key',
+    keySource: funding === 'own-key' ? 'user' : 'server',
+    funding,
+  });
+
+  it('tells the built-in endpoint on the user key from Tangent credit, and sends the funding', async () => {
+    const s = setup();
+    s.store.providers.set([entry('own-key', 'OpenRouter'), entry('credit', 'Tangent credit')]);
+    expect(s.store.providerOf({ providerId: 'openrouter' })?.label).toBe('OpenRouter');
+    expect(s.store.providerOf({ providerId: 'openrouter', funding: 'credit' })?.label).toBe(
+      'Tangent credit',
+    );
+    const createTree = vi.fn(async () => {
+      throw new ApiError(400, 'bad_request', 'stop here');
+    });
+    (s.api as unknown as { createTree: typeof createTree }).createTree = createTree;
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await s.store.startConversation('Hi', 'openrouter@credit', 'a/b');
+    expect(createTree).toHaveBeenCalledWith({
+      providerId: 'openrouter',
+      funding: 'credit',
+      model: 'a/b',
+    });
   });
 });

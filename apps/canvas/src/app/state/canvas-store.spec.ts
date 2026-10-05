@@ -7,13 +7,14 @@ import type {
   ChatNode,
   ContextPlanResponse,
   MeResponse,
+  ProviderInfo,
   StreamEvent,
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
 import { ApiClient, ApiError } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CanvasStore } from './canvas-store';
+import { CanvasStore, modelLabel } from './canvas-store';
 import { UiStore } from './ui-store';
 
 const T = '2026-01-01T00:00:00.000Z';
@@ -255,5 +256,33 @@ describe('CanvasStore', () => {
     const unsold = setup();
     await unsold.store.init({ builtInCredit: false, membership: inactive } as MeResponse);
     expect(unsold.store.membershipBlocked()).toBe(true);
+  });
+});
+
+describe('modelLabel', () => {
+  const entry = (funding: 'own-key' | 'credit', label: string): ProviderInfo => ({
+    id: 'openrouter',
+    kind: 'openai-compatible',
+    label: funding,
+    models: [{ id: 'a/smart', label }],
+    defaultModel: 'a/smart',
+    openModels: true,
+    available: true,
+    acceptsUserKey: funding === 'own-key',
+    keySource: null,
+    funding,
+  });
+  const providers = [entry('own-key', 'Smart'), entry('credit', 'Smart (suggested)')];
+
+  it('labels by route: the same endpoint on the user key or on Tangent credit', () => {
+    expect(modelLabel(providers, { providerId: 'openrouter' }, 'a/smart')).toBe('Smart');
+    expect(modelLabel(providers, { providerId: 'openrouter', funding: 'credit' }, 'a/smart')).toBe(
+      'Smart (suggested)',
+    );
+    // A reply records no funding; an unlisted model is shortened.
+    expect(modelLabel(providers.slice(1), { providerId: 'openrouter' }, 'a/smart')).toBe(
+      'Smart (suggested)',
+    );
+    expect(modelLabel(providers, { providerId: 'openrouter' }, 'vendor/other')).toBe('other');
   });
 });

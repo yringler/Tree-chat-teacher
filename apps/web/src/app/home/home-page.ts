@@ -5,6 +5,7 @@ import { Composer } from '../chat/composer';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { Icon } from '@tangent/web-shared';
+import { providerRouteKey } from '@tangent/shared';
 import { ImportButton } from '../ui/import-button';
 import { ModelPicker } from '../ui/model-picker';
 
@@ -33,8 +34,8 @@ import { ModelPicker } from '../ui/model-picker';
           Ask anything. Later, branch from any message to explore a tangent — with the full path, a
           summary, or a clean slate as context.
         </p>
-        @if (providerId() !== '') {
-          <app-model-picker [(providerId)]="providerId" [(modelId)]="modelId" />
+        @if (route() !== '') {
+          <app-model-picker [(route)]="route" [(modelId)]="modelId" />
         }
         <app-composer
           placeholder="Start a conversation…"
@@ -74,15 +75,16 @@ import { ModelPicker } from '../ui/model-picker';
 export class HomePage {
   protected readonly store = inject(TreeStore);
   protected readonly ui = inject(UiStore);
-  protected readonly providerId = signal('');
+  /** The picked provider and funding, as a `routeKey`. */
+  protected readonly route = signal('');
   protected readonly modelId = signal('');
   protected readonly starting = signal(false);
 
   constructor() {
     effect(() => {
       const p = this.store.defaultProvider();
-      if (p && this.providerId() === '') {
-        this.providerId.set(p.id);
+      if (p && this.route() === '') {
+        this.route.set(providerRouteKey(p));
         this.modelId.set(p.defaultModel);
       }
     });
@@ -93,7 +95,7 @@ export class HomePage {
     try {
       await this.store.startConversation(
         content,
-        this.providerId() || null,
+        this.route() || null,
         this.modelId().trim() || null,
       );
     } finally {

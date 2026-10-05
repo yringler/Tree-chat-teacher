@@ -32,7 +32,12 @@ describe('modelHint', () => {
   });
 
   it('flags an empty or malformed id on an open provider', () => {
-    const open = provider({ id: 'tangent', openModels: true, acceptsUserKey: false });
+    const open = provider({
+      id: 'openrouter',
+      funding: 'credit',
+      openModels: true,
+      acceptsUserKey: false,
+    });
     expect(modelHint(open, '  ')).toMatch(/Enter a model id/);
     expect(modelHint(open, 'two words')).toMatch(/Not a model id/);
     expect(modelHint(open, '/leading-slash')).toMatch(/Not a model id/);

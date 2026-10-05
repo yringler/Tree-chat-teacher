@@ -10,6 +10,7 @@ import {
   type NavDirection,
   type TreeIndex,
 } from '@tangent/core/tree';
+import { parseRouteKey, providerRouteKey, routeKey, type BranchFunding } from '@tangent/shared';
 import type {
   BillingSummary,
   Branch,
@@ -53,6 +54,8 @@ export interface LiveReply {
 export interface BranchVariant {
   contextMode: ContextMode;
   providerId: string;
+  /** Who pays: the user's own key, or Tangent credit. */
+  funding: BranchFunding;
   model: string;
 }
 
@@ -95,9 +98,20 @@ function upsertById<T extends { id: string }>(list: readonly T[], items: readonl
   return out;
 }
 
-/** Short label of a model id: the part after the last `/` (OpenRouter ids), trimmed. */
-export function modelLabel(providers: readonly ProviderInfo[], providerId: string, model: string) {
-  const p = providers.find((x) => x.id === providerId);
+/**
+ * Short label of a model id: its listed label on the route's provider (or, for
+ * a reply, which records no funding, any entry of that provider), else the
+ * part after the last `/` (OpenRouter ids).
+ */
+export function modelLabel(
+  providers: readonly ProviderInfo[],
+  route: { providerId: string; funding?: BranchFunding },
+  model: string,
+) {
+  const key = routeKey(route);
+  const p =
+    providers.find((x) => providerRouteKey(x) === key) ??
+    providers.find((x) => x.id === route.providerId);
   const m = p?.models.find((x) => x.id === model);
   if (m) return m.label;
   const slash = model.lastIndexOf('/');
@@ -220,7 +234,10 @@ export class CanvasStore {
     this.noticeForced.set(false);
   }
 
-  readonly providerMap = computed(() => new Map(this.providers().map((p) => [p.id, p])));
+  /** Providers by route (`routeKey`): the built-in endpoint is listed on the user's key and on Tangent credit. */
+  readonly providerMap = computed(
+    () => new Map(this.providers().map((p) => [providerRouteKey(p), p])),
+  );
 
   /** First provider with an API key, falling back to the first configured. */
   readonly defaultProvider = computed<ProviderInfo | null>(
@@ -409,15 +426,18 @@ export class CanvasStore {
     }
   }
 
-  /** New tree from the home page: creates it, opens it, sends the first message. */
+  /**
+   * New tree from the home page: creates it, opens it, sends the first
+   * message. `route` is a `routeKey` (provider and funding), null for the default.
+   */
   async startConversation(
     content: string,
-    providerId: string | null,
+    route: string | null,
     model: string | null,
   ): Promise<void> {
     try {
       const detail = await this.api.createTree({
-        ...(providerId ? { providerId } : {}),
+        ...(route ? parseRouteKey(route) : {}),
         ...(model ? { model } : {}),
       });
       this.detail.set(detail);
@@ -469,7 +489,7 @@ export class CanvasStore {
     const created: Branch[] = [];
     const base = req.title.trim();
     for (const v of req.variants) {
-      const suffix = `${modelLabel(this.providers(), v.providerId, v.model)} · ${v.contextMode}`;
+      const suffix = `${modelLabel(this.providers(), v, v.model)} · ${v.contextMode}`;
       const title = several ? (base ? `${base} (${suffix})` : suffix) : base;
       const branch = await this.createBranch(
         {
@@ -477,6 +497,7 @@ export class CanvasStore {
           contextMode: v.contextMode,
           anchorQuote: req.anchorQuote,
           providerId: v.providerId,
+          funding: v.funding,
           model: v.model,
           isPrivate: req.isPrivate,
           ...(title ? { title } : {}),

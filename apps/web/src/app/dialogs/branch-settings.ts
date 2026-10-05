@@ -6,7 +6,13 @@ import {
   type OnInit,
   signal,
 } from '@angular/core';
-import type { Branch, ContextMode, UpdateBranchRequest } from '@tangent/shared';
+import {
+  parseRouteKey,
+  routeKey,
+  type Branch,
+  type ContextMode,
+  type UpdateBranchRequest,
+} from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { Icon, Modal } from '@tangent/web-shared';
@@ -80,8 +86,8 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
           <p class="muted small">This is the trunk: it has no parent context, mode or anchor.</p>
         }
 
-        @if (providerId()) {
-          <app-model-picker [(providerId)]="providerId" [(modelId)]="modelId" />
+        @if (route()) {
+          <app-model-picker [(route)]="route" [(modelId)]="modelId" />
         }
 
         <label class="check">
@@ -113,7 +119,8 @@ export class BranchSettings implements OnInit {
   protected readonly mode = signal<ContextMode>('path');
   protected readonly quote = signal('');
   protected readonly isPrivate = signal(false);
-  protected readonly providerId = signal('');
+  /** Provider and funding, as a `routeKey`. */
+  protected readonly route = signal('');
   protected readonly modelId = signal('');
   protected readonly saving = signal(false);
 
@@ -123,7 +130,7 @@ export class BranchSettings implements OnInit {
     this.mode.set(b.contextMode);
     this.quote.set(b.anchorQuote ?? '');
     this.isPrivate.set(b.isPrivate);
-    this.providerId.set(b.providerId);
+    this.route.set(routeKey(b));
     this.modelId.set(b.model);
   }
 
@@ -147,8 +154,10 @@ export class BranchSettings implements OnInit {
     }
     if (this.isPrivate() !== b.isPrivate) req.isPrivate = this.isPrivate();
     const model = this.modelId().trim();
-    if (this.providerId() !== b.providerId || model !== b.model) {
-      req.providerId = this.providerId();
+    if (this.route() !== routeKey(b) || model !== b.model) {
+      const { providerId, funding } = parseRouteKey(this.route());
+      req.providerId = providerId;
+      req.funding = funding;
       req.model = model;
     }
     if (Object.keys(req).length === 0) {

@@ -37,7 +37,7 @@
   <div class="inspector-body" [class.is-stale]="loading()" [attr.aria-busy]="loading()">
     <dl class="kv">
       <dt>Model</dt>
-      <dd>{{ store.providerMap().get(d.providerId)?.label ?? d.providerId }} · {{ d.model }}</dd>
+      <dd>{{ store.providerOf(d)?.label ?? d.providerId }} · {{ d.model }}</dd>
       <dt>Segments</dt>
       <dd>{{ d.plan.segments.length }}</dd>
       @if (d.exactInputTokens !== null) {

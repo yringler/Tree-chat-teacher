@@ -12,6 +12,7 @@ import {
   type OutlineItem,
   type TreeIndex,
 } from '@tangent/core';
+import { parseRouteKey, providerRouteKey, routeKey, type BranchFunding } from '@tangent/shared';
 import type {
   BillingSummary,
   Branch,
@@ -210,7 +211,19 @@ export class TreeStore {
     this.gateForced.set(false);
   }
 
-  readonly providerMap = computed(() => new Map(this.providers().map((p) => [p.id, p])));
+  /**
+   * Providers by route (`routeKey`): a plain provider id for the user's own
+   * key, `<id>@credit` for Tangent credit (power lists the built-in endpoint
+   * on both).
+   */
+  readonly providerMap = computed(
+    () => new Map(this.providers().map((p) => [providerRouteKey(p), p])),
+  );
+
+  /** The provider entry of a route: a branch, a reviewer, a context plan. */
+  providerOf(route: { providerId: string; funding?: BranchFunding }): ProviderInfo | undefined {
+    return this.providerMap().get(routeKey(route));
+  }
 
   /** First provider with an API key, falling back to the first configured. */
   readonly defaultProvider = computed<ProviderInfo | null>(
@@ -401,15 +414,18 @@ export class TreeStore {
     }
   }
 
-  /** New tree from the empty state: creates it, opens it, sends the first message. */
+  /**
+   * New tree from the empty state: creates it, opens it, sends the first
+   * message. `route` is a `routeKey` (provider and funding), null for the default.
+   */
   async startConversation(
     content: string,
-    providerId: string | null,
+    route: string | null,
     model: string | null,
   ): Promise<void> {
     try {
       const detail = await this.api.createTree({
-        ...(providerId ? { providerId } : {}),
+        ...(route ? parseRouteKey(route) : {}),
         ...(model ? { model } : {}),
       });
       this.detail.set(detail);

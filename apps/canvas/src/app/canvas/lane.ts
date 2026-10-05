@@ -86,7 +86,13 @@ export const MODE_LABEL = { path: 'full path', summary: 'summary', independent: 
         <span class="badge mode-{{ b.contextMode }}" [attr.title]="modeHelp()">
           {{ modeLabel[b.contextMode] }}
         </span>
-        <span class="badge" [attr.title]="b.providerId + ' · ' + b.model">{{ model() }}</span>
+        <span
+          class="badge"
+          [attr.title]="
+            b.providerId + (b.funding === 'credit' ? ' (Tangent credit)' : '') + ' · ' + b.model
+          "
+          >{{ model() }}</span
+        >
         @if (b.isPrivate) {
           <span class="badge" title="Private: left out of shares and exports"
             ><app-icon name="lock" [size]="10" /> private</span
@@ -188,7 +194,7 @@ export class Lane implements OnDestroy {
   protected readonly busy = computed(() => this.store.busyBranches().has(this.place().branch.id));
   protected readonly model = computed(() => {
     const b = this.place().branch;
-    return modelLabel(this.store.providers(), b.providerId, b.model);
+    return modelLabel(this.store.providers(), b, b.model);
   });
   protected readonly modeHelp = computed(() => {
     switch (this.place().branch.contextMode) {
