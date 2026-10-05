@@ -10,7 +10,13 @@ import {
   type NavDirection,
   type TreeIndex,
 } from '@tangent/core/tree';
-import { parseRouteKey, providerRouteKey, routeKey, type BranchFunding } from '@tangent/shared';
+import {
+  isModelAllowed,
+  parseRouteKey,
+  providerRouteKey,
+  routeKey,
+  type BranchFunding,
+} from '@tangent/shared';
 import type {
   BillingSummary,
   Branch,
@@ -33,7 +39,10 @@ import {
   ApiError,
   creditCarriesOn,
   errorMessage,
+  lockedFundings,
   membershipBlocks,
+  routeLocked,
+  routeOpen,
   runStream,
   type StreamOutcome,
 } from '@tangent/web-shared';
@@ -234,6 +243,56 @@ export class CanvasStore {
     this.noticeForced.set(false);
   }
 
+  /**
+   * The fundings that need the membership in this account, from `me` (the
+   * server's rule: `['own-key']` where a membership is required).
+   */
+  readonly membershipNeededFor = signal<readonly BranchFunding[]>([]);
+
+  /** The fundings the user can't generate on right now (docs/DECISIONS.md "Read-only power"). */
+  readonly lockedFundings = computed(() =>
+    lockedFundings(this.membershipNeededFor(), this.membership()),
+  );
+
+  /**
+   * A lane (or any route) whose funding needs the membership the user lacks:
+   * read-only, its composer replaced by the notice (renew, copy to Learn).
+   */
+  routeLocked(route: { funding?: BranchFunding }): boolean {
+    return routeLocked(this.lockedFundings(), route);
+  }
+
+  /** Tangent credit, when a read-only lane could carry on with it (a non-member spends what is left). */
+  readonly creditRoute = computed<ProviderInfo | null>(() => {
+    const usable = !membershipBlocks(this.membership()) || this.creditCarriesOn();
+    return (
+      this.providers().find(
+        (p) => p.funding === 'credit' && routeOpen(p, this.lockedFundings(), usable),
+      ) ?? null
+    );
+  });
+
+  /**
+   * "Continue with Tangent credit" on a read-only lane: moves it onto credit,
+   * keeping its model where credit offers it, else on credit's default model.
+   */
+  async switchToCredit(branchId: string): Promise<boolean> {
+    const credit = this.creditRoute();
+    const branch = this.index()?.branches.get(branchId);
+    if (!credit || !branch) return false;
+    const model =
+      branch.providerId === credit.id && isModelAllowed(credit, branch.model)
+        ? branch.model
+        : credit.defaultModel;
+    const ok = await this.updateBranch(branch.id, {
+      providerId: credit.id,
+      funding: 'credit',
+      model,
+    });
+    if (ok) this.ui.notify(`“${branch.title}” now uses Tangent credit`);
+    return ok;
+  }
+
   /** Providers by route (`routeKey`): the built-in endpoint is listed on the user's key and on Tangent credit. */
   readonly providerMap = computed(
     () => new Map(this.providers().map((p) => [providerRouteKey(p), p])),
@@ -282,12 +341,26 @@ export class CanvasStore {
   // Bootstrapping
 
   async init(me: MeResponse): Promise<void> {
-    this.me.set(me);
-    this.membership.set(me.membership);
+    this.applyMe(me);
     // Without a membership, the balance decides whether the notice shows on load.
     const balance =
       membershipBlocks(me.membership) && me.builtInCredit ? this.refreshBilling() : null;
     await Promise.all([this.refreshKeys(), this.loadTrees(), balance]);
+  }
+
+  private applyMe(me: MeResponse): void {
+    this.me.set(me);
+    this.membership.set(me.membership);
+    this.membershipNeededFor.set(me.membershipNeededFor ?? []);
+  }
+
+  /** Re-reads `me`: the membership and the fundings that need it, as the server sees them now. */
+  async refreshMe(): Promise<void> {
+    try {
+      this.applyMe(await this.api.me());
+    } catch (err) {
+      console.warn('me failed', err);
+    }
   }
 
   async refreshKeys(): Promise<void> {
@@ -685,9 +758,13 @@ export class CanvasStore {
   fail(err: unknown): void {
     console.error(err);
     if (err instanceof ApiError && err.code === 'membership_required') {
-      // The shell's notice explains it and links to the power app's /billing.
+      // The shell's notice explains it and links to the power app's /billing; own-key
+      // lanes turn read-only (the only funding the server asks the membership for), and
+      // `me` brings the rest.
       this.membership.update((m) => (m ? { ...m, required: true, status: 'inactive' } : m));
+      this.membershipNeededFor.update((f) => (f.includes('own-key') ? f : [...f, 'own-key']));
       this.noticeForced.set(true);
+      void this.refreshMe();
       void this.refreshBilling();
       return;
     }

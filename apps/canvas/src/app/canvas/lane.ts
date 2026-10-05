@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { branchLeaf } from '@tangent/core/tree';
 import type { ChatNode } from '@tangent/shared';
-import { Icon } from '@tangent/web-shared';
+import { Icon, ReadOnlyComposer } from '@tangent/web-shared';
 import type { LanePlacement } from '../layout/layout';
 import { LayoutStore } from '../layout/layout-store';
 import { CanvasStore, modelLabel, type Lineage } from '../state/canvas-store';
@@ -31,7 +31,7 @@ export const MODE_LABEL = { path: 'full path', summary: 'summary', independent: 
  */
 @Component({
   selector: 'app-lane',
-  imports: [Icon, Card, LaneComposer],
+  imports: [Icon, Card, LaneComposer, ReadOnlyComposer],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let b = place().branch;
@@ -140,15 +140,27 @@ export const MODE_LABEL = { path: 'full path', summary: 'summary', independent: 
           <app-card [node]="n" [focused]="n.id === store.focusedNodeId()" [lit]="litOf(n)" />
         }
       </div>
-      <app-lane-composer
-        [inputId]="'composer-' + b.id"
-        [placeholder]="nodes().length === 0 ? 'Ask here…' : 'Reply in this lane…'"
-        [disabled]="busy()"
-        [busy]="streaming() !== null"
-        [selected]="selected"
-        (send)="send($event)"
-        (stop)="stop()"
-      />
+      @if (store.routeLocked(b) && store.membership(); as membership) {
+        <!-- The lane's funding needs the membership the user lacks: read it, renew, or copy it. -->
+        <app-read-only-composer
+          [compact]="true"
+          [membership]="membership"
+          [treeId]="b.treeId"
+          [credit]="store.creditRoute() !== null"
+          (useCredit)="store.switchToCredit(b.id)"
+          (pointerdown)="$event.stopPropagation()"
+        />
+      } @else {
+        <app-lane-composer
+          [inputId]="'composer-' + b.id"
+          [placeholder]="nodes().length === 0 ? 'Ask here…' : 'Reply in this lane…'"
+          [disabled]="busy()"
+          [busy]="streaming() !== null"
+          [selected]="selected"
+          (send)="send($event)"
+          (stop)="stop()"
+        />
+      }
     }
   `,
   host: {
