@@ -405,6 +405,33 @@ describe('social sign-in', () => {
     expect(row).toBeNull();
   });
 
+  it('keeps the Google account id but none of its tokens, on sign-up or later sign-ins', async () => {
+    const email = 'tokens@example.org';
+    const stored = () =>
+      env.DB.prepare(
+        `SELECT a.account_id, a.access_token, a.refresh_token, a.id_token,
+                a.access_token_expires_at, a.refresh_token_expires_at
+           FROM auth_accounts a JOIN auth_users u ON u.id = a.user_id
+          WHERE u.email = ? AND a.provider_id = 'google'`,
+      )
+        .bind(email)
+        .first();
+    const noTokens = {
+      account_id: `google-${email}`,
+      access_token: null,
+      refresh_token: null,
+      id_token: null,
+      access_token_expires_at: null,
+      refresh_token_expires_at: null,
+    };
+
+    expect((await googleSignIn(setup(googleEnv()), email, true)).status).toBe(302);
+    expect(await stored()).toEqual(noTokens);
+    // A returning user goes through the update path (Better Auth refreshes tokens there).
+    expect((await googleSignIn(setup(googleEnv()), email, true)).status).toBe(302);
+    expect(await stored()).toEqual(noTokens);
+  });
+
   it('refuses a provider that is not configured', async () => {
     const { call } = setup();
     const res = await call('/api/auth/sign-in/social', {

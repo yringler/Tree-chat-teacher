@@ -1,8 +1,8 @@
 {
-  "id": "e419df94-6f90-4577-80b4-76d0424f360a",
-  "prevId": "a180c7b8-7fd5-4004-8a9d-e94de1c4ebfc",
   "version": "6",
   "dialect": "sqlite",
+  "id": "7e150f2b-7461-4295-ab01-c084eaa216da",
+  "prevId": "e419df94-6f90-4577-80b4-76d0424f360a",
   "tables": {
     "account_settings": {
       "name": "account_settings",
@@ -198,15 +198,15 @@
         "auth_accounts_user_id_auth_users_id_fk": {
           "name": "auth_accounts_user_id_auth_users_id_fk",
           "tableFrom": "auth_accounts",
+          "tableTo": "auth_users",
           "columnsFrom": [
             "user_id"
           ],
-          "tableTo": "auth_users",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -314,15 +314,15 @@
         "auth_passkeys_user_id_auth_users_id_fk": {
           "name": "auth_passkeys_user_id_auth_users_id_fk",
           "tableFrom": "auth_passkeys",
+          "tableTo": "auth_users",
           "columnsFrom": [
             "user_id"
           ],
-          "tableTo": "auth_users",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -455,15 +455,15 @@
         "auth_sessions_user_id_auth_users_id_fk": {
           "name": "auth_sessions_user_id_auth_users_id_fk",
           "tableFrom": "auth_sessions",
+          "tableTo": "auth_users",
           "columnsFrom": [
             "user_id"
           ],
-          "tableTo": "auth_users",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -690,6 +690,14 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "share_allowed": {
+          "name": "share_allowed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         }
       },
       "indexes": {
@@ -896,15 +904,15 @@
         "branches_tree_id_trees_id_fk": {
           "name": "branches_tree_id_trees_id_fk",
           "tableFrom": "branches",
+          "tableTo": "trees",
           "columnsFrom": [
             "tree_id"
           ],
-          "tableTo": "trees",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1130,36 +1138,36 @@
           "columns": [
             "tree_id"
           ],
-          "where": "status = 'streaming'",
-          "isUnique": false
+          "isUnique": false,
+          "where": "status = 'streaming'"
         }
       },
       "foreignKeys": {
         "nodes_tree_id_trees_id_fk": {
           "name": "nodes_tree_id_trees_id_fk",
           "tableFrom": "nodes",
+          "tableTo": "trees",
           "columnsFrom": [
             "tree_id"
           ],
-          "tableTo": "trees",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "nodes_branch_id_branches_id_fk": {
           "name": "nodes_branch_id_branches_id_fk",
           "tableFrom": "nodes",
+          "tableTo": "branches",
           "columnsFrom": [
             "branch_id"
           ],
-          "tableTo": "branches",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1196,15 +1204,15 @@
         "share_snapshots_share_id_shares_id_fk": {
           "name": "share_snapshots_share_id_shares_id_fk",
           "tableFrom": "share_snapshots",
+          "tableTo": "shares",
           "columnsFrom": [
             "share_id"
           ],
-          "tableTo": "shares",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -1366,15 +1374,15 @@
         "shares_tree_id_trees_id_fk": {
           "name": "shares_tree_id_trees_id_fk",
           "tableFrom": "shares",
+          "tableTo": "trees",
           "columnsFrom": [
             "tree_id"
           ],
-          "tableTo": "trees",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1447,15 +1455,15 @@
         "summaries_tree_id_trees_id_fk": {
           "name": "summaries_tree_id_trees_id_fk",
           "tableFrom": "summaries",
+          "tableTo": "trees",
           "columnsFrom": [
             "tree_id"
           ],
-          "tableTo": "trees",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -1692,8 +1700,8 @@
           "columns": [
             "created_at"
           ],
-          "where": "status = 'pending'",
-          "isUnique": false
+          "isUnique": false,
+          "where": "status = 'pending'"
         }
       },
       "foreignKeys": {},
@@ -1705,9 +1713,9 @@
   "views": {},
   "enums": {},
   "_meta": {
-    "columns": {},
     "schemas": {},
-    "tables": {}
+    "tables": {},
+    "columns": {}
   },
   "internal": {
     "indexes": {}
