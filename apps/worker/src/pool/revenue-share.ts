@@ -7,9 +7,9 @@
 // - Membership: when a paid membership payment (first year or renewal) is
 //   applied, share × (pre-tax amount − the processor's actual fee), keyed
 //   `<paymentRef>:pool-share`. A refund of that payment takes back the same
-//   proportion of the share (refunded pre-tax / paid pre-tax), clamped to
-//   what the pool has available like every pool debit, keyed
-//   `<refundRef>:pool-share`. Membership disputes are left to the operator,
+//   proportion of the share (refunded pre-tax / paid pre-tax), capped at
+//   what is left of the share after earlier refunds and clamped to what the
+//   pool has available like every pool debit, keyed `<refundRef>:pool-share`. Membership disputes are left to the operator,
 //   as for the included credit.
 // - Personal credit: share × the markup part of the personal charges that
 //   settled in a UTC day: Σ charge × markup / (10,000 + markup), from each
@@ -116,6 +116,7 @@ export async function reverseMembershipShare(
     kind: 'contribution',
     userId: null,
     grossMicros: -refunded,
+    cap: { paymentRef: r.paymentRef, maxMicros: share.amount_micros },
     note: `Refund ${r.refundRef} of membership payment ${r.paymentRef}: revenue share taken back`,
   });
   return result.debited;

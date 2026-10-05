@@ -11,7 +11,10 @@
 //
 // Admin adjustments and membership credit never count, and neither does a
 // membership refund taking the included credit back (`<paymentRef>:membership-refund`,
-// a `refund` row with no gross). Grants from before
+// a `refund` row with no gross). A personal purchase's refunds, disputes and
+// reinstatements since migration 0017 (`payment_ref` set) count by amount,
+// what they actually took back (capped together at the purchase, so a refund
+// and a dispute of it count once), which there is the pre-tax amount. Grants from before
 // migration 0010 have no `user_id`; personal ones count through their ledger
 // account `u_<userId>`, and their refunds (which recorded no gross) through
 // their amount, which was the refunded pre-tax share. With
@@ -33,6 +36,7 @@ export function supporterStatement(db: D1Database, userId: string): D1PreparedSt
       `SELECT
          SUM(CASE WHEN kind = 'purchase' THEN COALESCE(gross_micros, 0)
                   WHEN provider_ref LIKE '%:membership-refund' THEN 0
+                  WHEN payment_ref IS NOT NULL AND account_id = ?2 THEN amount_micros
                   ELSE COALESCE(gross_micros, amount_micros) END) AS net,
          MAX(CASE WHEN kind = 'purchase' THEN created_at END) AS last_purchase
        FROM credit_grants

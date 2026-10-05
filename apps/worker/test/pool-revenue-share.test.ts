@@ -148,6 +148,23 @@ describe('membership payments', () => {
     // The included credit came back out once, as before.
     expect(await balance(`u_${userId}`)).toBe(0);
   });
+
+  it('refunds take back at most the whole share, however much they add up to', async () => {
+    const { e, poolId } = shareEnv();
+    const userId = await newUser();
+    const payment = membershipPaid(userId, { netCents: 1000 });
+    await applyPaymentEvent(e, payment, noProvider);
+    await grantCredit(env.DB, {
+      accountId: poolId,
+      kind: 'adjustment',
+      amountMicros: 10_000_000,
+      providerRef: `admin:${uniq('top')}`,
+    });
+    // 60%, then a refund the provider reports as the whole amount: 100% of the share, not 160%.
+    await applyPaymentEvent(e, refunded(payment.paymentRef, 600), noProvider);
+    await applyPaymentEvent(e, refunded(payment.paymentRef, 1000), noProvider);
+    expect(await balance(poolId)).toBe(10_000_000);
+  });
 });
 
 // ---- The daily share of the markup on personal credit.

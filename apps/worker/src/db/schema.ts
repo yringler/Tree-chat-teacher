@@ -372,6 +372,12 @@ export const creditGrants = sqliteTable(
      * `dev:<key>`, or a bare object id of the previous processor on rows from before migration 0014.
      */
     providerRef: text('provider_ref').unique(),
+    /**
+     * Refunds, disputes and their reinstatements (since migration 0017): the payment they
+     * take back from, so together they never take back more than it granted
+     * (billing/payments/apply.ts). Also a membership payment's revenue share taken back.
+     */
+    paymentRef: text('payment_ref'),
     note: text('note'),
     createdAt: text('created_at').notNull(),
   },
@@ -379,6 +385,7 @@ export const creditGrants = sqliteTable(
     index('credit_grants_account_idx').on(t.accountId),
     index('credit_grants_user_idx').on(t.userId, t.kind),
     index('credit_grants_account_created_idx').on(t.accountId, t.createdAt),
+    index('credit_grants_payment_idx').on(t.paymentRef),
   ],
 );
 

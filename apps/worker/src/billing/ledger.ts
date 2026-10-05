@@ -41,6 +41,8 @@ export interface CreditGrantInput {
    * null for SQL adjustments.
    */
   providerRef: string | null;
+  /** Refunds, disputes, reinstatements and revenue-share reversals: the payment they take back from. */
+  paymentRef?: string | null;
   note?: string;
 }
 
@@ -117,8 +119,8 @@ export async function grantCredit(db: D1Database, g: CreditGrantInput): Promise<
   const result = await db
     .prepare(
       `INSERT INTO credit_grants
-         (id, account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id, provider_ref, note, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+         (id, account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id, provider_ref, payment_ref, note, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
        ON CONFLICT(provider_ref) DO NOTHING`,
     )
     .bind(
@@ -130,8 +132,63 @@ export async function grantCredit(db: D1Database, g: CreditGrantInput): Promise<
       fee,
       g.userId ?? null,
       g.providerRef,
+      g.paymentRef ?? null,
       g.note ?? null,
       new Date().toISOString(),
+    )
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+/**
+ * Inserts a `refund` row of the payment `paymentRef` on `accountId` (a refund
+ * or dispute of a personal purchase, or a won dispute's reinstatement) so
+ * that all of that payment's rows there together take back
+ * `min(capMicros, what they ask)`. Each row's gross is what it asks: minus
+ * the refunded or disputed pre-tax amount, or, for a reinstatement, plus
+ * what its dispute asked. Its amount is what moves the payment's net
+ * clawback to that target: a debit never adds credit and a reinstatement
+ * never takes any. One statement, so concurrent writers for one payment
+ * can't both take the remainder. Resolves false when `providerRef` was
+ * already written.
+ */
+export async function grantTowardCap(
+  db: D1Database,
+  g: {
+    accountId: string;
+    grossMicros: number;
+    capMicros: number;
+    paymentRef: string;
+    userId: string | null;
+    providerRef: string;
+    note: string;
+  },
+): Promise<boolean> {
+  if (!Number.isSafeInteger(g.grossMicros) || !Number.isSafeInteger(g.capMicros))
+    throw new Error('grantTowardCap: grossMicros and capMicros must be integers');
+  const result = await db
+    .prepare(
+      `INSERT INTO credit_grants
+         (id, account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id, provider_ref, payment_ref, note, created_at)
+       SELECT ?1, ?2, 'refund',
+              CASE WHEN ?3 < 0 THEN MIN(0, t.amount) ELSE MAX(0, t.amount) END,
+              ?3, 0, 0, ?4, ?5, ?6, ?7, ?8
+       FROM (SELECT -MIN(?9, MAX(0, -(COALESCE(SUM(gross_micros), 0) + ?3)))
+                    - COALESCE(SUM(amount_micros), 0) AS amount
+             FROM credit_grants WHERE account_id = ?2 AND payment_ref = ?6) AS t
+       WHERE true
+       ON CONFLICT(provider_ref) DO NOTHING`,
+    )
+    .bind(
+      crypto.randomUUID(),
+      g.accountId,
+      g.grossMicros,
+      g.userId,
+      g.providerRef,
+      g.paymentRef,
+      g.note,
+      new Date().toISOString(),
+      g.capMicros,
     )
     .run();
   return (result.meta.changes ?? 0) > 0;
