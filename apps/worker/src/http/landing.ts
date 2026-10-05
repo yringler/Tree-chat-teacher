@@ -128,8 +128,9 @@ footer a{color:var(--muted)}
 `;
 
 /**
- * Brand mark: the app icon (apps/web/public/favicon.svg) in one colour. An
- * orb, a ray touching it at exactly one point, and the point it heads to.
+ * Brand mark: the app icon (apps/web/public/favicon.svg, the web-shared Logo)
+ * in one colour. An orb, a ray touching it at exactly one point, and the
+ * point it heads to.
  */
 export const MARK =
   '<svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">' +

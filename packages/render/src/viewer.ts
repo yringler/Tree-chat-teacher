@@ -17,7 +17,8 @@ export interface ViewerPageOptions {
 }
 
 /**
- * App icon (same artwork as apps/web/public/favicon.svg; keep them in sync).
+ * App icon (same artwork as apps/web/public/favicon.svg and the web-shared
+ * Logo component; keep them in sync).
  * Embedded as a data: URI so exported files stay self-contained; the viewer
  * CSP's `img-src https: data:` allows it.
  */

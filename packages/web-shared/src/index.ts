@@ -58,6 +58,7 @@ export {
 
 // UI
 export { Icon, type IconName } from './ui/icon';
+export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';
 export { ModeSwitch } from './ui/mode-switch';
 export { Turnstile } from './ui/turnstile';

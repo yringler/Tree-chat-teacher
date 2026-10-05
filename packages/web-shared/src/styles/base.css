@@ -167,7 +167,8 @@ hr {
   padding: 4px 12px;
 }
 
-.icon {
+.icon,
+.logo {
   display: inline-flex;
   flex: none;
 }
