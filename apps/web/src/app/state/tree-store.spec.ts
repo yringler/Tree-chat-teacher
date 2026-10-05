@@ -69,25 +69,51 @@ describe('TreeStore membership and credit', () => {
     vi.restoreAllMocks();
   });
 
-  it('keeps the membership from me and blocks only when it is required and inactive', async () => {
+  it('keeps the membership from me; on load it blocks only without a membership or credit', async () => {
     const s = setup();
     await s.store.init(me());
     expect(s.store.membership()?.status).toBe('active');
     expect(s.store.membershipBlocked()).toBe(false);
+    expect(s.api.billing).not.toHaveBeenCalled();
 
+    // No membership, but credit left: Tangent credit still works, so no gate.
     await s.store.init(me({ membership: membership({ status: 'inactive' }) }));
-    expect(s.store.membershipBlocked()).toBe(true);
+    expect(s.api.billing).toHaveBeenCalled();
+    expect(s.store.creditCarriesOn()).toBe(true);
+    expect(s.store.membershipBlocked()).toBe(false);
 
     await s.store.init(me({ membership: membership({ required: false, status: 'inactive' }) }));
     expect(s.store.membershipBlocked()).toBe(false);
   });
 
-  it('a 402 membership_required raises the gate without a toast', async () => {
+  it('blocks on load without a membership when the balance is used up or credit is not sold', async () => {
+    const s = setup();
+    s.api.billing.mockResolvedValue({ availableMicros: 0 } as BillingSummary);
+    await s.store.init(me({ membership: membership({ status: 'inactive' }) }));
+    expect(s.store.membershipBlocked()).toBe(true);
+    expect(s.store.membershipDismissible()).toBe(false);
+
+    const t = setup();
+    await t.store.init(
+      me({ builtInCredit: false, membership: membership({ status: 'inactive' }) }),
+    );
+    expect(t.api.billing).not.toHaveBeenCalled();
+    expect(t.store.membershipBlocked()).toBe(true);
+  });
+
+  it('a 402 membership_required raises the gate without a toast; with credit left it can be dismissed', async () => {
     const s = setup();
     await s.store.init(me());
     s.store.fail(new ApiError(402, 'membership_required', 'Membership required'));
     expect(s.store.membershipBlocked()).toBe(true);
     expect(s.ui.toasts()).toEqual([]);
+    await vi.waitFor(() => expect(s.store.billing()).toBe(summary));
+    expect(s.store.membershipDismissible()).toBe(true);
+    s.store.dismissMembershipGate();
+    expect(s.store.membershipBlocked()).toBe(false);
+    // Another own-key call refused: the gate again.
+    s.store.fail(new ApiError(402, 'membership_required', 'Membership required'));
+    expect(s.store.membershipBlocked()).toBe(true);
   });
 
   it('a 402 payment_required links to /billing and refreshes the balance', async () => {
@@ -125,6 +151,7 @@ describe('TreeStore membership and credit', () => {
 
   it('a summary from the billing page lifts the gate once the membership is active', async () => {
     const s = setup();
+    s.api.billing.mockResolvedValue({ availableMicros: 0 } as BillingSummary);
     await s.store.init(me({ membership: membership({ status: 'inactive' }) }));
     expect(s.store.membershipBlocked()).toBe(true);
     const paid = { ...summary, membership: membership({ status: 'active' }) };

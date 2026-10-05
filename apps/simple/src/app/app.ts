@@ -86,7 +86,7 @@ import { UiStore } from './state/ui-store';
           [membership]="membership"
           [appName]="brand"
           billingPath="/learn/billing"
-          needs="Tangent credit needs one (your own key doesn't)"
+          needs="Buying credit needs one (Learn on your own key doesn't)"
           [freeTier]="account.freeTierOffered()"
           (redeemed)="account.setMembership($event)"
           (freeTierChosen)="account.useFreeTier()"

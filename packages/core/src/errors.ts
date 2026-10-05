@@ -71,7 +71,7 @@ export class PaymentRequiredError extends DomainError {
 
 /**
  * The request needs the yearly membership (required once the operator
- * configures it: power mode, and buying or spending credit) and the user
+ * configures it: power mode on the user's own keys, and buying credit) and the user
  * neither has one nor had the fee waived.
  */
 export class MembershipRequiredError extends DomainError {

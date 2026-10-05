@@ -95,7 +95,7 @@ describe('landingRoutes', () => {
     expect(html).toContain('<a href="/login">Power users: sign in</a>');
   });
 
-  it('with the membership on: own keys stay free in Learn; power mode and credit need it', async () => {
+  it('with the membership on: own keys stay free in Learn; power keys and buying credit need it', async () => {
     const off = await (
       await setup({ env: { ANNUAL_FEE_ENABLED: 'false' } }).request('/welcome')
     ).text();
@@ -103,9 +103,9 @@ describe('landingRoutes', () => {
     const { request } = setup({ env: { ANNUAL_FEE_ENABLED: 'true' } });
     const html = await (await request('/welcome')).text();
     expect(html).toContain('Tangent charges nothing, with no membership needed');
-    expect(html).toContain('Or, with a yearly membership, use prepaid credit');
-    expect(html).toContain('prepaid credit with a membership');
-    expect(html).toContain('Needs a yearly membership.');
+    expect(html).toContain('buying it needs a yearly membership; spending what you have');
+    expect(html).toContain('prepaid credit (buying it needs a membership)');
+    expect(html).toContain('Your own keys here need a yearly membership');
   });
 
   it('serves the landing page at / to an anonymous visitor, uncached', async () => {

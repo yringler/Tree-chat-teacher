@@ -39,11 +39,12 @@ export class AccountStore {
   private readonly gateForced = signal(false);
 
   /**
-   * The shell shows the membership gate. Learn never needs a membership for
-   * the learner's own key or the community pool, only for credit (which a
-   * non-member's replies never default to), so the gate shows only after the
-   * server refused a reply with 402 `membership_required` (a membership that
-   * lapsed while replies ran on credit) and the learner still has none.
+   * The shell shows the membership gate. No Learn reply needs a membership
+   * (the learner's own key, the pool and credit they hold are all open to
+   * non-members; only buying credit and power mode on own keys need one), so
+   * this is a safeguard: it shows only if the server ever refuses a reply
+   * with 402 `membership_required` while the learner has none, and its way
+   * out moves replies off credit.
    */
   readonly membershipBlocked = computed(
     () => this.gateForced() && membershipBlocks(this.membership()),
@@ -71,11 +72,16 @@ export class AccountStore {
     () => this.payment.payment() === 'own-key' && this.keyStatus() !== null && !this.hasOwnKey(),
   );
 
-  /** The header's balance pill: only while replies run on credit. */
-  readonly balanceLabel = computed(() => {
+  /** The available credit as money ("$1.20"); null until the billing summary is loaded. */
+  readonly balanceText = computed(() => {
     const b = this.billing();
-    return b && this.payment.payment() === 'credit' ? formatMicros(b.availableMicros) : null;
+    return b ? formatMicros(b.availableMicros) : null;
   });
+
+  /** The header's balance pill: only while replies run on credit. */
+  readonly balanceLabel = computed(() =>
+    this.payment.payment() === 'credit' ? this.balanceText() : null,
+  );
 
   /** The header's pool pill while replies run on the pool: the dollars in it. */
   readonly poolLabel = computed(() => {
@@ -114,8 +120,8 @@ export class AccountStore {
    */
   readonly fundingChoice = computed(() => {
     if (this.demo || !this.payment.builtInCredit() || !this.payment.poolAvailable()) return false;
-    // Credit is members-only while the membership is required.
-    if (!this.payment.member()) return false;
+    // Credit a non-member still holds can pay; with none left, only a member's can.
+    if (!this.payment.creditUsable()) return false;
     if (this.payment.payment() === 'own-key') return false;
     const own = this.poolMe()?.personalAvailableMicros ?? this.billing()?.availableMicros ?? 0;
     return own > 0;
@@ -123,7 +129,8 @@ export class AccountStore {
 
   /**
    * Personal credit can be bought now: credit is offered, the provider sells
-   * top-ups and the learner may buy (a member, or no membership required).
+   * top-ups and the learner may buy (a member, or no membership required;
+   * spending what they hold needs neither).
    */
   readonly creditOnSale = computed(
     () =>
@@ -152,6 +159,7 @@ export class AccountStore {
   /** A fresh billing summary (also from the billing page): balance and membership. */
   applyBilling(summary: BillingSummary): void {
     this.billing.set(summary);
+    this.payment.creditAvailableMicros.set(summary.availableMicros);
     this.useMembership(summary.membership);
   }
 

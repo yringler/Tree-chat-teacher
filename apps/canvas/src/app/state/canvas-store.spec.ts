@@ -222,8 +222,37 @@ describe('CanvasStore', () => {
       s.store.fail(new ApiError(402, 'payment_required', 'Not enough credit'));
       expect(s.ui.toasts()[0]?.link).toEqual({ label: 'Add credit', href: '/billing' });
       await vi.waitFor(() => expect(s.store.billing()?.availableMicros).toBe(3_000_000));
+      // Credit left: the notice can be dismissed.
+      expect(s.store.membershipDismissible()).toBe(true);
+      s.store.dismissMembershipNotice();
+      expect(s.store.membershipBlocked()).toBe(false);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('without a membership, the notice shows on load only when no credit can carry on', async () => {
+    const inactive = {
+      required: true,
+      status: 'inactive',
+      subscriptionStatus: null,
+      periodEnd: null,
+      cancelAtPeriodEnd: false,
+      priceCents: 1000,
+      includedCreditCents: 0,
+    } as const;
+    const withCredit = setup();
+    await withCredit.store.init({ builtInCredit: true, membership: inactive } as MeResponse);
+    expect(withCredit.store.membershipBlocked()).toBe(false);
+
+    const used = setup();
+    used.api.billing.mockResolvedValue({ availableMicros: 0 } as BillingSummary);
+    await used.store.init({ builtInCredit: true, membership: inactive } as MeResponse);
+    expect(used.store.membershipBlocked()).toBe(true);
+    expect(used.store.membershipDismissible()).toBe(false);
+
+    const unsold = setup();
+    await unsold.store.init({ builtInCredit: false, membership: inactive } as MeResponse);
+    expect(unsold.store.membershipBlocked()).toBe(true);
   });
 });

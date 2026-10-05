@@ -102,8 +102,8 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *
  * Generating routes (messages, review, context?resolve=true) answer 402
  * `membership_required` when the membership is required, the user has none
- * (`MembershipInfo`) and the request is power mode or Learn on credit (Learn
- * on its own key or the pool needs no membership), then 402 `payment_required` when a call on the
+ * (`MembershipInfo`) and the request is power mode on the user's own keys
+ * (Learn, and Tangent credit in either app, need no membership), then 402 `payment_required` when a call on the
  * built-in provider (`tangent`, on credit) finds the available credit too
  * low. Calls on the user's own keys never touch credit. Every other route
  * stays open without a membership: nobody is locked out of their data.
@@ -170,7 +170,7 @@ export type ApiErrorCode =
   | 'rate_limited'
   /** 402: a call on the built-in provider needs more credit (or billing isn't configured). */
   | 'payment_required'
-  /** 402: power mode or credit needs the yearly membership (`MembershipInfo.required`), and the user has none. */
+  /** 402: power mode on own keys (or buying credit) needs the yearly membership (`MembershipInfo.required`), and the user has none. */
   | 'membership_required'
   /** 401: no usable API key for the provider (missing, tampered, expired or rotated key cookie). */
   | 'key_required'
@@ -229,8 +229,9 @@ export interface MeResponse {
   isAdmin: boolean;
   /**
    * The user's membership, so the apps can gate generating at startup:
-   * `required && status === 'inactive'` means power mode and Learn on credit
-   * answer 402 `membership_required` (Learn on its own key or the pool doesn't).
+   * `required && status === 'inactive'` means power mode on the user's own
+   * keys and buying credit answer 402 `membership_required` (Learn, and
+   * spending credit already held, don't).
    */
   membership: MembershipInfo;
   /**

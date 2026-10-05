@@ -22,7 +22,7 @@ import { UiStore } from '../state/ui-store';
           Replies run on your own OpenRouter key, and none is saved in this browser yet.
           <button type="button" class="link-btn" (click)="ui.accessOpen.set(true)">
             Add your key{{
-              account.payment.builtInCredit() && account.payment.member()
+              account.payment.builtInCredit() && account.payment.creditUsable()
                 ? ' or use Tangent credit'
                 : ''
             }}

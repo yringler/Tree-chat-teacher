@@ -20,8 +20,9 @@ function stored(): LearnPayment | null {
  * with the mode header that makes the server act as the learner's Learn
  * account. A choice the server doesn't offer falls back: credit, then the
  * own key if one is saved, then the pool (only an explicit pool choice
- * outranks a saved key), then the own key. Credit is members-only while the
- * membership is required (`member`), so a non-member never lands on it. The server only honours `credit` and `pool` where
+ * outranks a saved key), then the own key. Credit counts only while it is
+ * usable (`creditUsable`): for a member, or for anyone with a balance left
+ * (spending credit needs no membership; buying it does). The server only honours `credit` and `pool` where
  * it offers them (`MeResponse.builtInCredit`, `PoolStatusResponse.enabled`),
  * so a stale choice can never spend anything the learner didn't pick.
  *
@@ -42,11 +43,16 @@ export class PaymentStore {
   readonly hasOwnKey = signal<boolean | null>(null);
   /**
    * False when the membership is required and the learner has none (from
-   * AccountStore): credit is members-only then (buying and spending), so
-   * replies run on the learner's own key or the pool, both free of the
-   * membership.
+   * AccountStore): they can't buy credit then, only spend what they hold.
    */
   readonly member = signal(true);
+  /** The learner's available credit (from the billing summary, via AccountStore); null until known. */
+  readonly creditAvailableMicros = signal<number | null>(null);
+  /**
+   * Credit can pay for replies: the learner is a member (or none is
+   * required), who can always buy more, or has a balance left to spend.
+   */
+  readonly creditUsable = computed(() => this.member() || (this.creditAvailableMicros() ?? 0) > 0);
   /** The learner's explicit choice; null until they pick one (credit is the default where sold). */
   private readonly chosen = signal<LearnPayment | null>(stored());
   /** The demo always runs on its pretend credit, whatever this browser chose for real. */
@@ -54,15 +60,15 @@ export class PaymentStore {
 
   /**
    * What replies actually run on: the own key when chosen; the pool when
-   * chosen and on; otherwise credit if sold and the learner is a member (or
-   * none is required), else a saved (or not yet known) own key (so a key
+   * chosen and on; otherwise credit if sold and usable (`creditUsable`),
+   * else a saved (or not yet known) own key (so a key
    * user who never picked never lands on the pool), else the pool, else the
    * own key.
    */
   readonly payment = computed<LearnPayment>(() => {
     if (this.demo) return 'credit';
     const chosen = this.chosen();
-    const credit = this.builtInCredit() && this.member();
+    const credit = this.builtInCredit() && this.creditUsable();
     const pool = this.poolAvailable();
     if (chosen === 'own-key') return 'own-key';
     if (chosen === 'pool' && pool) return 'pool';

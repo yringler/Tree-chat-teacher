@@ -175,7 +175,8 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
               <p class="muted small">One-time top-ups aren't available on this server right now.</p>
             } @else if (membersOnly(s)) {
               <p class="muted small billing-members-only">
-                Credit is for members: subscribe above to buy and spend it.
+                Buying credit is for members: subscribe above to add more. Credit you already have
+                stays spendable.
               </p>
             } @else {
               <div class="billing-presets" role="group" aria-label="Top-up amounts">
@@ -402,7 +403,7 @@ export class BillingPage implements OnInit, OnDestroy {
     return membershipPriceText(m);
   }
 
-  /** Buying and spending credit need the membership the user lacks (the server answers 402). */
+  /** Buying credit needs the membership the user lacks (the server answers 402); spending doesn't. */
   protected membersOnly(s: BillingSummary): boolean {
     return membershipBlocks(s.membership);
   }

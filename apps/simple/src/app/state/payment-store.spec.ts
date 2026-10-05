@@ -106,7 +106,26 @@ describe('PaymentStore', () => {
     expect(q.payment()).toBe('credit');
   });
 
-  it('a non-member never lands on credit: a saved key first, else the pool', () => {
+  it('credit is usable for a member, or for anyone with a balance left', () => {
+    const p = create();
+    p.builtInCredit.set(true);
+    expect(p.creditUsable()).toBe(true);
+    p.member.set(false);
+    expect(p.creditUsable()).toBe(false);
+    expect(p.payment()).toBe('own-key');
+    p.creditAvailableMicros.set(250_000);
+    expect(p.creditUsable()).toBe(true);
+    expect(p.payment()).toBe('credit');
+    p.creditAvailableMicros.set(0);
+    expect(p.creditUsable()).toBe(false);
+    expect(p.payment()).toBe('own-key');
+    // A member with nothing left may still pick credit (and buy more).
+    p.member.set(true);
+    expect(p.creditUsable()).toBe(true);
+    expect(p.payment()).toBe('credit');
+  });
+
+  it('a non-member with no balance never lands on credit: a saved key first, else the pool', () => {
     const p = create();
     p.builtInCredit.set(true);
     p.poolAvailable.set(true);

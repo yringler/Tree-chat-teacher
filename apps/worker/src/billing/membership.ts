@@ -1,7 +1,8 @@
-// The yearly membership (PLAN §2.3, §13): required for power mode, for buying
-// and spending personal credit, and for the pool's higher member caps once
-// ANNUAL_FEE_ENABLED is "true" and the payment provider sells it; Learn on the
-// user's own key and on the pool's free caps never needs it (billing/gate.ts
+// The yearly membership (PLAN §2.3, §13): required for power mode on the
+// user's own keys and for buying personal credit, and it unlocks the pool's
+// higher member caps, once ANNUAL_FEE_ENABLED is "true" and the payment
+// provider sells it. Learn on the user's own key or the pool's free caps, and
+// spending credit already held, never need it (billing/gate.ts
 // `needsMembership`)
 // (docs/pool/PLAN.md S7; the flag ships off, gating, not deleting, everything
 // below). Its subscription is a snapshot in `billing_subscriptions`, kept by
@@ -28,8 +29,8 @@ import { billingPageUrl, checkoutReturnUrl } from './service.js';
 const ACTIVE_STATUSES: readonly SubscriptionStatus[] = ['active', 'trialing', 'past_due'];
 
 /**
- * True when the membership is required (power mode, credit, the pool's
- * member caps; see billing/gate.ts `needsMembership`): the annual fee is on
+ * True when the membership is required (power mode on own keys, buying
+ * credit, the pool's member caps; see billing/gate.ts `needsMembership`): the annual fee is on
  * (`ANNUAL_FEE_ENABLED`) and the payment provider sells the membership.
  * Off, `MembershipInfo.required` is false, which hides every gate in the apps.
  */
@@ -106,8 +107,9 @@ export async function membershipFor(env: AppEnv, account: AccountContext): Promi
 /**
  * Throws `MembershipRequiredError` (402 `membership_required`) when the
  * membership is required and the user has neither paid nor been waived. Only
- * the routes that generate call it: reading, exporting, deleting and settings
- * stay open, so nobody is locked out of their data.
+ * power-mode calls on the user's own keys (billing/gate.ts) and buying credit
+ * call it: reading, exporting, deleting, settings and spending credit already
+ * held stay open, so nobody is locked out of their data or their credit.
  */
 export async function assertMember(env: AppEnv, account: AccountContext): Promise<void> {
   const membership = await membershipFor(env, account);

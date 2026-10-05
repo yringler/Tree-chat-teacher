@@ -71,6 +71,7 @@ export { BILLING_SUMMARY_LISTENER } from './billing/billing-listener';
 export { MembershipGate } from './billing/membership-gate';
 export { MembershipCodeForm } from './billing/membership-code-form';
 export {
+  creditCarriesOn,
   creditFeeText,
   includedCreditText,
   membershipBlocks,

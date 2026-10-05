@@ -1025,6 +1025,13 @@ textarea:focus-visible {
   margin-top: 4px;
 }
 
+.membership-gate-free,
+.membership-gate-learn {
+  width: 100%;
+  justify-content: center;
+  margin-top: 8px;
+}
+
 .membership-gate-links {
   display: flex;
   justify-content: space-between;

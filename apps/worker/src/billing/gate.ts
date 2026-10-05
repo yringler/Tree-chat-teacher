@@ -27,7 +27,7 @@ import { poolBank } from '../pool/ids.js';
 import { poolAdmitRequest, poolBlockDetails } from '../pool/params.js';
 import { poolAvailable, registryFor } from '../services.js';
 import { getBalance } from './ledger.js';
-import { assertMember, membershipFor } from './membership.js';
+import { assertMember } from './membership.js';
 import { assertCanSpend, usageHoldMicros } from './service.js';
 
 /** What a generating request is about to do. */
@@ -49,11 +49,11 @@ export interface GenerateCheck {
 /**
  * Who pays for a generating request, decided by the server. A Learn send or
  * context resolve on personal credit moves to the community pool when the pool
- * is on and the caller either can't cover one more call
- * (`available < USAGE_HOLD_MICROS`) or may not spend credit (no membership
- * while the fee is on: the free tier). A review never moves, and keeps its
- * 402 `payment_required` or `membership_required`; nor does a send while the
- * pool is off (`assertCanGenerate` then answers 402 for a non-member).
+ * is on and the caller can't cover one more call
+ * (`available < USAGE_HOLD_MICROS`). Spending credit needs no membership, so a
+ * lapsed member (or anyone holding credit) keeps spending it until it runs
+ * short. A review never moves, and keeps its 402 `payment_required`; nor does
+ * a send while the pool is off.
  */
 export async function resolveFunding(
   c: AppContext,
@@ -63,12 +63,8 @@ export async function resolveFunding(
   if (purpose === 'review' || account.mode !== 'simple' || account.funding !== 'personal')
     return account;
   if (!account.userId || !poolAvailable(c.env)) return account;
-  const [{ balanceMicros, heldMicros }, member] = await Promise.all([
-    getBalance(c.env.DB, account.billingAccountId),
-    membershipFor(c.env, account),
-  ]);
-  const mayUseCredit = !member.required || member.status !== 'inactive';
-  if (mayUseCredit && balanceMicros - heldMicros >= usageHoldMicros(c.env)) return account;
+  const { balanceMicros, heldMicros } = await getBalance(c.env.DB, account.billingAccountId);
+  if (balanceMicros - heldMicros >= usageHoldMicros(c.env)) return account;
   return withPoolParams(c.env, account, clientIp(c.req.raw.headers), true);
 }
 
@@ -137,13 +133,24 @@ export async function assertPoolAccess(
 
 /**
  * True when this request needs the membership (once the fee is on): power
- * mode, whatever pays (own keys or Tangent credit), and Learn on personal
- * credit. Learn on its own key and on the community pool stay free: BYOK is
- * free for everyone, and the fee pays for power mode, credit and the pool's
- * higher member caps (docs/DECISIONS.md "Two tiers").
+ * mode on any call that isn't metered, that is on the user's own keys. A
+ * review counts both its reviewer (`providerId`) and its branch's summaries
+ * (`alsoSpendsOn`), so any own-key call in it needs the membership; a context
+ * resolve checks the branch's provider. Learn never needs it (its own key and
+ * the pool are free), and spending Tangent credit never does in either app:
+ * credit already paid for stays spendable after a membership lapses. Buying
+ * credit is the other members-only thing (`startTopUpCheckout`).
+ * See docs/DECISIONS.md "Two tiers".
  */
-export function needsMembership(account: AccountContext): boolean {
-  return account.mode !== 'simple' || account.funding === 'personal';
+export function needsMembership(
+  account: AccountContext,
+  check: Pick<GenerateCheck, 'providerId' | 'alsoSpendsOn'>,
+): boolean {
+  if (account.mode === 'simple') return false;
+  const providers = [check.providerId, check.alsoSpendsOn].filter(
+    (id): id is string => id !== undefined,
+  );
+  return providers.some((id) => !isMetered(account, id));
 }
 
 /**
@@ -153,8 +160,8 @@ export function needsMembership(account: AccountContext): boolean {
  * of the current pool notice (403 `pool_consent_required`, gate step 5), and
  * for a context resolve PoolBank's rate check; a reply itself is reserved, or refused with
  * 402/429, by the tree's Durable Object before any node is written) or the
- * existing checks: the membership where `needsMembership` says so (power mode,
- * and Learn on personal credit; Learn on its own key needs none), allowed
+ * existing checks: the membership where `needsMembership` says so (power mode
+ * on the user's own keys; Learn and Tangent credit need none), allowed
  * model, credit, rate limit. Sets `c.var.account` to the account that will
  * pay, so the caller must build its ChatService after this.
  */
@@ -195,7 +202,7 @@ export async function assertCanGenerate(
     return account;
   }
 
-  if (needsMembership(account)) await assertMember(c.env, account);
+  if (needsMembership(account, check)) await assertMember(c.env, account);
   if (check.model !== null) {
     const keys = check.keys?.state === 'ok' ? check.keys.keys : undefined;
     assertGenerationAllowed(registryFor(c.env, account, keys), check.providerId, check.model, {

@@ -5,6 +5,7 @@ import { filter, map } from 'rxjs';
 import type { MembershipInfo } from '@tangent/shared';
 import {
   ApiClient,
+  APP_BASES,
   APP_PATHS,
   AuthService,
   DEMO_MODE,
@@ -36,6 +37,8 @@ export class App {
   protected readonly demo = inject(DEMO_MODE);
   /** Where the demo banner's call to action goes (the real sign-in page). */
   protected readonly signupUrl = '/login';
+  /** The membership gate's way out: Learn, free on the user's own key. */
+  protected readonly learnHref = APP_BASES.simple;
   /**
    * The login page is always its own document (see AuthService), so this is
    * fixed for the page's lifetime. It renders without the app shell and
@@ -53,8 +56,9 @@ export class App {
     { initialValue: null },
   );
   /**
-   * The membership to ask for while generating is blocked (a panel over the
-   * app); never over `/billing` (where the user subscribes), the login page
+   * The membership to ask for (a panel over the app) while the user has none
+   * and no Tangent credit to carry on with, or after an own-key call was
+   * refused (TreeStore `membershipBlocked`); never over `/billing` (where the user subscribes), the login page
    * or the demo. Waits for the first navigation so it doesn't flash over
    * `/billing`.
    */

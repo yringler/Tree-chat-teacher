@@ -141,12 +141,36 @@ describe('AccountStore membership', () => {
     expect(account.balanceLabel()).toBe('$3.00');
     expect(account.creditOnSale()).toBe(true);
 
-    // The membership lapsed: credit is members only, so replies leave it (no gate yet).
+    // The membership lapsed: the credit left stays spendable, but buying more needs one.
     account.applyBilling(summary(membership(), 1_000_000));
     expect(account.membershipBlocked()).toBe(false);
+    expect(account.payment.creditUsable()).toBe(true);
+    expect(account.payment.payment()).toBe('credit');
+    expect(account.balanceLabel()).toBe('$1.00');
+    expect(account.balanceText()).toBe('$1.00');
+    expect(account.creditOnSale()).toBe(false);
+
+    // Used up: credit is no longer usable, so replies leave it.
+    account.applyBilling(summary(membership(), 0));
+    expect(account.payment.creditUsable()).toBe(false);
     expect(account.payment.payment()).toBe('own-key');
     expect(account.balanceLabel()).toBeNull();
+  });
+
+  it('a non-member with a balance gets the funding toggle; without one, not', async () => {
+    const { account } = setup(async () => summary(membership(), 500_000));
+    account.setMe(me(membership()));
+    await account.refreshPool();
+    expect(account.fundingChoice()).toBe(false);
+    await account.refreshBalance();
+    expect(account.payment.creditUsable()).toBe(true);
+    expect(account.payment.payment()).toBe('credit');
+    expect(account.fundingChoice()).toBe(true);
     expect(account.creditOnSale()).toBe(false);
+    account.applyBilling(summary(membership(), 0));
+    account.poolMe.set({ ...POOL_ME, personalAvailableMicros: 0 });
+    expect(account.fundingChoice()).toBe(false);
+    expect(account.payment.payment()).toBe('own-key');
   });
 
   it('a 402 membership_required blocks at once, then re-reads the real state', async () => {
@@ -161,7 +185,7 @@ describe('AccountStore membership', () => {
     expect(account.membershipBlocked()).toBe(true);
   });
 
-  it('a non-member defaults to a saved key, else the pool, and never to credit', async () => {
+  it('a non-member without a balance defaults to a saved key, else the pool, and never to credit', async () => {
     const { account } = setup(async () => summary(membership()));
     account.setMe(me(membership()));
     await account.refreshPool();

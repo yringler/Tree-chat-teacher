@@ -257,7 +257,7 @@ export async function startTopUpCheckout(
   }
   const provider = paymentProvider(env);
   if (!provider?.capabilities.topUps) throw notConfigured();
-  // Credit is spent only by members while the fee is on, so only members may buy it.
+  // Buying credit is a membership benefit while the fee is on (spending what is held is not).
   await assertMember(env, account);
   const buyer = await buyerFor(env.DB, provider.id, userId);
   if (!buyer) throw new DomainError('unauthorized', 'Sign in to add credit');
