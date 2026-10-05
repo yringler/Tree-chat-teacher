@@ -4,6 +4,8 @@
 // asks for "the provider" and gets the port.
 import type { AppEnv } from '../../env.js';
 import { createFakeProvider, parseFakeOptions } from '../providers/fake.js';
+import { createPolarProvider } from '../providers/polar/adapter.js';
+import { polarConfig } from '../providers/polar/config.js';
 import type { PaymentProvider, ProviderId } from './port.js';
 
 export * from './port.js';
@@ -21,9 +23,10 @@ function selectedProvider(env: AppEnv): string {
 export function paymentProvider(env: AppEnv): PaymentProvider | null {
   const id = selectedProvider(env);
   switch (id) {
-    case 'polar':
-      // The Polar adapter is registered in a later step; until then, no provider.
-      return null;
+    case 'polar': {
+      const config = polarConfig(env);
+      return config ? createPolarProvider(config) : null;
+    }
     case 'fake':
       if (env.TEST_SEAMS !== 'true')
         throw new Error('PAYMENT_PROVIDER=fake is only allowed in tests (TEST_SEAMS)');

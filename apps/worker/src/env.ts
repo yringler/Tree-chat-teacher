@@ -43,6 +43,23 @@ export interface AppEnv extends Env {
    * var (OpenRouter's credit-purchase fee), then marked up.
    */
   OPENROUTER_SIMPLE_API_KEY?: string;
+  /**
+   * Polar organization access token (`polar_oat_…`), for the `polar` payment
+   * provider (billing/providers/polar). Payments are on only when this and
+   * POLAR_WEBHOOK_SECRET are set. Sandbox and production tokens differ.
+   */
+  POLAR_ACCESS_TOKEN?: string;
+  /** Signing secret (`whsec_…`) of the Polar webhook endpoint `/api/webhooks/polar`. */
+  POLAR_WEBHOOK_SECRET?: string;
+  /** `sandbox` (the default when empty, so a missing var can't charge real cards) or `production`. */
+  POLAR_SERVER?: string;
+  /** The Polar one-time product that credit top-ups and pool purchases are sold as (ad-hoc USD price). */
+  POLAR_CREDITS_PRODUCT_ID?: string;
+  /** The Polar yearly product of the membership; empty = no membership is sold or required. */
+  POLAR_MEMBERSHIP_PRODUCT_ID?: string;
+  /** The fee estimate used when an order reports no usable fee (D3): bps of the total, plus fixed cents. */
+  POLAR_FEE_BPS?: string;
+  POLAR_FEE_FIXED_CENTS?: string;
   /** Stripe API key. Billing is enabled only when this and STRIPE_WEBHOOK_SECRET are set. */
   STRIPE_SECRET_KEY?: string;
   /** Signing secret of the webhook endpoint `/api/auth/stripe/webhook`. */
