@@ -86,6 +86,17 @@ export interface ChatServiceDeps {
    * the account's saved settings name one. Default: none.
    */
   defaultSystemPrompt?: string | null;
+  /**
+   * The one model every generation of this instance uses (replies, budgets,
+   * summaries and titles without a configured summary model), whatever the
+   * branch says; the branch row is not changed. The community pool sets it.
+   */
+  pinnedModel?: string;
+  /**
+   * The system prompt every generation of this instance uses instead of the
+   * tree's own (the community pool's locked prompt). The tree is not changed.
+   */
+  systemPromptOverride?: string;
   clock?: Clock;
   newId?: () => string;
 }
@@ -94,6 +105,15 @@ export interface BeginSendResult {
   branch: Branch;
   userNode: ChatNode;
   assistantNode: ChatNode;
+}
+
+/** Options of `runGeneration`. */
+export interface RunGenerationOptions {
+  /**
+   * A reservation the caller already made for the reply (the community
+   * pool's ceiling hold), passed to the provider as `usageTag.reservationId`.
+   */
+  reservationId?: string;
 }
 
 /** A validated review, ready to run (see `prepareReview`). */
@@ -394,13 +414,14 @@ export class ChatService {
     let step = await steps.next();
     while (!step.done) step = await steps.next();
     const plan = step.value;
-    const caps = inputs.provider.capabilities(inputs.branch.model);
+    const model = this.modelOf(inputs.branch);
+    const caps = inputs.provider.capabilities(model);
     const rendered = renderPlan(plan, { supportsSystemPrompt: caps.supportsSystemPrompt });
     let exactInputTokens: number | null = null;
     if (caps.supportsTokenCount && inputs.provider.countTokens && rendered.messages.length > 0) {
       try {
         exactInputTokens = await inputs.provider.countTokens({
-          model: inputs.branch.model,
+          model,
           system: rendered.system,
           messages: rendered.messages,
           ...(options.signal ? { signal: options.signal } : {}),
@@ -413,7 +434,7 @@ export class ChatService {
       plan,
       rendered,
       providerId: inputs.branch.providerId,
-      model: inputs.branch.model,
+      model,
       exactInputTokens,
     };
   }
@@ -423,7 +444,11 @@ export class ChatService {
    * must belong to that branch (and hence to the same owned tree).
    */
   private async loadPlanInputs(branchId: string, nodeId: string | null): Promise<PlanInputs> {
-    const { branch, tree } = await this.requireOwnedBranch(branchId);
+    const owned = await this.requireOwnedBranch(branchId);
+    const branch = owned.branch;
+    // The only way into the context's system prompt (the `tree-system-prompt` segment).
+    const override = this.deps.systemPromptOverride;
+    const tree = override === undefined ? owned.tree : { ...owned.tree, systemPrompt: override };
     const chain = await this.repo.getBranchChain(branchId);
 
     let path: ChatNode[];
@@ -438,8 +463,18 @@ export class ChatService {
       const tail = leaf?.id ?? branch.branchPointNodeId;
       path = tail ? await this.repo.getAncestorPath(tail) : [];
     }
+    // With a locked prompt, a stored `system` node (e.g. from an imported
+    // backup) must not reach the system channel: it is planned as a user turn.
+    if (override !== undefined) {
+      path = path.map((n) => (n.role === 'system' ? { ...n, role: 'user' } : n));
+    }
     const provider = this.requireProvider(branch.providerId);
     return { tree, chain, path, branch, targetNodeId: nodeId, provider };
+  }
+
+  /** The model generations on `branch` use: the pinned one, else the branch's. */
+  private modelOf(branch: Branch): string {
+    return this.deps.pinnedModel ?? branch.model;
   }
 
   private budgetFor(
@@ -462,7 +497,7 @@ export class ChatService {
       if (provider) return { provider, model: summaryModel ?? provider.defaultModel() };
     }
     // No (usable) summary provider configured: summarize with the branch's own model.
-    return { provider: this.requireProvider(branch.providerId), model: branch.model };
+    return { provider: this.requireProvider(branch.providerId), model: this.modelOf(branch) };
   }
 
   /**
@@ -478,7 +513,7 @@ export class ChatService {
     const summaries = new Map<string, string>();
     const failed = new Set<string>();
     const { provider: summaryProvider, model: summaryModel } = this.summaryTarget(inputs.branch);
-    const { maxInputTokens } = this.budgetFor(inputs.provider, inputs.branch.model);
+    const { maxInputTokens } = this.budgetFor(inputs.provider, this.modelOf(inputs.branch));
     const lookedUp = new Set<string>();
 
     const plan = (): ContextPlan =>
@@ -622,7 +657,7 @@ export class ChatService {
       status: 'streaming',
       error: null,
       providerId: branch.providerId,
-      model: branch.model,
+      model: this.modelOf(branch),
       usage: null,
       createdAt: now,
     };
@@ -636,7 +671,11 @@ export class ChatService {
    * yields exactly one terminal `done` or `error`. Never throws. Persists
    * partial content on abort/error. Auto-titles the branch when enabled.
    */
-  async *runGeneration(begin: BeginSendResult, signal: AbortSignal): AsyncIterable<StreamEvent> {
+  async *runGeneration(
+    begin: BeginSendResult,
+    signal: AbortSignal,
+    options: RunGenerationOptions = {},
+  ): AsyncIterable<StreamEvent> {
     const { assistantNode, userNode } = begin;
     let branch = begin.branch;
     let content = '';
@@ -670,13 +709,14 @@ export class ChatService {
           message: 'A summary could not be generated; sending without it.',
         };
       }
-      const caps = inputs.provider.capabilities(branch.model);
+      const model = this.modelOf(branch);
+      const caps = inputs.provider.capabilities(model);
       const rendered = renderPlan(plan, { supportsSystemPrompt: caps.supportsSystemPrompt });
-      const { maxOutput } = this.budgetFor(inputs.provider, branch.model);
+      const { maxOutput } = this.budgetFor(inputs.provider, model);
 
       let terminal: { status: 'complete' } | { status: 'error'; message: string } | null = null;
       for await (const event of inputs.provider.stream({
-        model: branch.model,
+        model,
         system: rendered.system,
         messages: rendered.messages,
         maxOutputTokens: maxOutput,
@@ -686,6 +726,7 @@ export class ChatService {
           treeId: inputs.tree.id,
           branchId: branch.id,
           nodeId: assistantNode.id,
+          ...(options.reservationId ? { reservationId: options.reservationId } : {}),
         },
       })) {
         if (event.type === 'delta') {
@@ -805,7 +846,7 @@ export class ChatService {
         yield { type: 'status', message: step.value };
         step = await steps.next();
       }
-      const caps = inputs.provider.capabilities(inputs.branch.model);
+      const caps = inputs.provider.capabilities(this.modelOf(inputs.branch));
       const context = renderPlan(step.value, { supportsSystemPrompt: caps.supportsSystemPrompt });
       const reviewer = this.requireProvider(review.providerId);
       const prompt = buildReviewPrompt(context, review.node.model);

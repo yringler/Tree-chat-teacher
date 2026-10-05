@@ -30,6 +30,7 @@ interface FakeOptions {
   delayMs: number;
   failWith: ProviderErrorCode | null;
   costUsd: number | null;
+  echoRequest: boolean | string;
 }
 
 function readOptions(options: Record<string, unknown> | undefined): FakeOptions {
@@ -43,16 +44,18 @@ function readOptions(options: Record<string, unknown> | undefined): FakeOptions 
   const dm = o['delayMs'];
   const fw = o['failWith'];
   const cost = o['costUsd'];
+  const echo = o['echoRequest'];
   return {
     responses,
     chunkSize: typeof cs === 'number' && Number.isInteger(cs) && cs > 0 ? cs : 8,
     delayMs: typeof dm === 'number' && dm > 0 ? dm : 0,
     failWith: typeof fw === 'string' && ERROR_CODES.has(fw) ? (fw as ProviderErrorCode) : null,
     costUsd: typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? cost : null,
+    echoRequest: echo === true || (typeof echo === 'string' && echo !== '') ? echo : false,
   };
 }
 
-type Input = Pick<GenerateRequest, 'model' | 'system' | 'messages'>;
+type Input = Pick<GenerateRequest, 'model' | 'system' | 'messages' | 'maxOutputTokens'>;
 
 function inputTokens(request: Input): number {
   let chars = request.system?.length ?? 0;
@@ -73,6 +76,10 @@ function inputTokens(request: Input): number {
  * - chunkSize: number (default 8) — characters per `delta`;
  * - delayMs: number (default 0) — await between deltas (to test abort);
  * - failWith: ProviderErrorCode — emit this error after the first delta;
+ * - echoRequest: true | string (tests only) — reply with what the request
+ *   asked for instead: `ECHO model=<model> maxOutputTokens=<n> system=<JSON
+ *   of the system prompt>`; a string echoes only when the last user message
+ *   contains it (so one config can serve other tests unchanged);
  * - costUsd: number — simulate OpenRouter billing: yield
  *   `{type:'billing', generationId:'gen-fake-<uuid>'}` before the first delta and
  *   `{type:'billing', generationId, costUsd}` right before `done` (not on
@@ -96,6 +103,10 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
         lastUser = m.content;
         break;
       }
+    }
+    const echo = opts.echoRequest;
+    if (echo === true || (typeof echo === 'string' && lastUser.includes(echo))) {
+      return `ECHO model=${request.model} maxOutputTokens=${request.maxOutputTokens ?? 'none'} system=${JSON.stringify(request.system)}`;
     }
     for (const [key, value] of opts.responses) if (lastUser.includes(key)) return value;
     return `Fake reply (${request.model}) to ${request.messages.length} message(s): "${lastUser.slice(0, 80)}"`;

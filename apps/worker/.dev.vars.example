@@ -67,3 +67,6 @@ DEV_ALLOW_NO_AUTH=true
 # POOL_ENABLED=true
 # POOL_MODEL=simple
 # MODEL_PRICES='{"simple":{"in":100000,"out":400000,"context":131072}}'
+# Learn then spends from the pool when it picks the pool, or when its credit runs out (sends only).
+# Admin-granted personal credit without Stripe:
+# PERSONAL_CREDIT_ENABLED=true

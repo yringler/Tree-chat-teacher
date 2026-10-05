@@ -178,6 +178,9 @@
     // below is read through src/config.ts; empty or malformed = the default named in the comment.
     // "true" turns the pool on. Off, nothing spends from it.
     "POOL_ENABLED": "false",
+    // "true": personal credit (e.g. admin-granted) may be spent before Stripe is configured. With Stripe
+    // configured it always may; empty or "false" = only then.
+    "PERSONAL_CREDIT_ENABLED": "false",
     // Ledger account id of the pool in credit_grants / usage_events (default "pool").
     "POOL_ACCOUNT_ID": "pool",
     // The one model pool replies use; empty = SIMPLE_FAST_MODEL. It must have an entry in the price table.

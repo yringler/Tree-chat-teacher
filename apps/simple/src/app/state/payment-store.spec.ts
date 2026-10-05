@@ -49,6 +49,17 @@ describe('PaymentStore', () => {
     expect(again.payment()).toBe('own-key');
   });
 
+  it('remembers a pool choice (and ignores anything unknown)', () => {
+    storage.set('tangent.learn.payment', 'pool');
+    const p = create();
+    p.builtInCredit.set(true);
+    expect(p.payment()).toBe('pool');
+    storage.set('tangent.learn.payment', 'free');
+    const q = create();
+    q.builtInCredit.set(true);
+    expect(q.payment()).toBe('credit');
+  });
+
   it('the demo always uses its pretend credit', () => {
     storage.set('tangent.learn.payment', 'own-key');
     expect(create(true).payment()).toBe('credit');

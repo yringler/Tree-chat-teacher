@@ -7,7 +7,7 @@ const STORAGE_KEY = 'tangent.learn.payment';
 function stored(): LearnPayment | null {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    return v === 'own-key' || v === 'credit' ? v : null;
+    return v === 'own-key' || v === 'credit' || v === 'pool' ? v : null;
   } catch {
     return null;
   }

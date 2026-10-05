@@ -166,4 +166,18 @@ describe('fake provider', () => {
     const events = await collect(p.stream(req()));
     expect(events.some((e) => e.type === 'billing')).toBe(false);
   });
+
+  it('with echoRequest: replies with the model, output cap and system prompt it was sent', async () => {
+    const always = createFakeProvider({ ...BASE, options: { echoRequest: true } }, { secrets: {} });
+    expect(text(await collect(always.stream(req({ model: 'm', maxOutputTokens: 77 }))))).toBe(
+      'ECHO model=m maxOutputTokens=77 system="sys"',
+    );
+    // A string echoes only when the last user message contains it.
+    const marked = createFakeProvider({ ...BASE, options: { echoRequest: '[echo]' } }, { secrets: {} });
+    expect(text(await collect(marked.stream(req())))).toMatch(/^Fake reply/);
+    const echoed = await collect(
+      marked.stream(req({ system: null, messages: [{ role: 'user', content: 'hi [echo]' }] })),
+    );
+    expect(text(echoed)).toBe('ECHO model=fake-1 maxOutputTokens=none system=null');
+  });
 });

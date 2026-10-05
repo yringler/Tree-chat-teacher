@@ -209,6 +209,22 @@ export async function settleUsage(
   return { changed: row !== null, clamped: (row?.overage_micros ?? 0) > 0 };
 }
 
+/**
+ * Pool: releases a reservation at 0 while nothing was dispatched on it (a
+ * reply reserved before its nodes were written whose send never reached the
+ * provider). A dispatched or settled row is left to its meter and expiry.
+ */
+export async function releaseUndispatched(db: D1Database, usageId: string): Promise<boolean> {
+  const { changed } = await settleUsage(db, usageId, {
+    costNanos: 0,
+    markupBps: 0,
+    feeBps: 0,
+    reason: 'released',
+    requireUndispatched: true,
+  });
+  return changed;
+}
+
 /** Gives up on a row: `unresolved`, charged 0, for manual review. */
 export async function markUnresolved(
   db: D1Database,

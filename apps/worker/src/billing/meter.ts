@@ -33,7 +33,7 @@ import type {
 } from '@tangent/shared';
 import type { AccountContext, AppEnv } from '../env.js';
 import { poolBank } from '../pool/ids.js';
-import type { PoolParams } from '../pool/params.js';
+import { poolReserveRequest, type PoolParams } from '../pool/params.js';
 import type { PoolRefusal } from '../pool/pool-bank.js';
 import { worstCaseHoldMicros } from '../pool/pricing.js';
 import { poolSettlement, type PoolSettlement } from '../pool/settle-policy.js';
@@ -361,22 +361,17 @@ export function createPoolUsageMeter(
         usageId = tag.reservationId;
         feeBps = shrunk.feeBps;
       } else {
-        const result = await poolBank(env, pool.accountId).reserve({
-          poolId: pool.accountId,
-          userId,
-          ipKey: pool.ipKey,
-          purpose: tag?.purpose ?? 'other',
-          treeId: tag?.treeId ?? null,
-          branchId: tag?.branchId ?? null,
-          nodeId: tag?.nodeId ?? null,
-          providerId,
-          model: pool.model,
-          holdMicros,
-          feeBps,
-          caps: pool.caps,
-          overage: pool.overage,
-          expiry: { ttlMs: pool.ttlMs, giveUpMs: pool.giveUpMs, batch: pool.expireBatch },
-        });
+        const result = await poolBank(env, pool.accountId).reserve(
+          poolReserveRequest(pool, userId, {
+            purpose: tag?.purpose ?? 'other',
+            treeId: tag?.treeId ?? null,
+            branchId: tag?.branchId ?? null,
+            nodeId: tag?.nodeId ?? null,
+            providerId,
+            holdMicros,
+            feeBps,
+          }),
+        );
         if (!result.ok) throw new PoolRefusedError(result);
         usageId = result.usageId;
       }

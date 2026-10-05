@@ -27,9 +27,14 @@ export type AccountMode = 'power' | 'simple';
  *   sealed key cookie). Free; nothing is metered.
  * - `credit`: the built-in provider on the operator's key, metered and charged
  *   to the user's prepaid credit. Only offered when the server has billing and
- *   the operator key configured (`MeResponse.builtInCredit`).
+ *   the operator key configured (`MeResponse.builtInCredit`). A send (or a
+ *   context resolve) whose credit can't cover one call falls back to the
+ *   community pool where it is on; reviews never do.
+ * - `pool`: the community pool (pool.ts): one economical model, a locked
+ *   system prompt and capped output, within daily caps. The server decides
+ *   what a pool request may do; power mode never uses the pool.
  */
-export type LearnPayment = 'own-key' | 'credit';
+export type LearnPayment = 'own-key' | 'credit' | 'pool';
 
 /** Request header naming the app (`AccountMode`); absent = `power`. */
 export const MODE_HEADER = 'x-tangent-mode';

@@ -108,7 +108,9 @@ export default defineConfig({
               label: 'Tangent',
               defaultModel: 'smart',
               models: [{ id: 'smart', label: 'Smart' }, { id: 'simple', label: 'Simple' }],
-              options: { chunkSize: 4, costUsd: 0.001234 },
+              // `[echo-request]` in a message makes the reply echo the request's model, output cap
+              // and system prompt (the pool tests check what was really sent upstream).
+              options: { chunkSize: 4, costUsd: 0.001234, echoRequest: '[echo-request]' },
             }),
             STRIPE_SECRET_KEY: 'sk_test_x',
             STRIPE_WEBHOOK_SECRET: 'whsec_test',
@@ -127,6 +129,7 @@ export default defineConfig({
             // targets the clamp hits it. Caps are small so cap tests stay short; the per-minute
             // limits sit above them, so a cap test sees the cap.
             POOL_ENABLED: 'true',
+            PERSONAL_CREDIT_ENABLED: 'false',
             POOL_ACCOUNT_ID: 'pool',
             POOL_MODEL: 'simple',
             MODEL_PRICES: JSON.stringify({ simple: { in: 1_000_000, out: 1_000_000, context: 8_192 } }),

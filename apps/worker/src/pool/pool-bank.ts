@@ -15,7 +15,7 @@
 // arrives as an argument, resolved Worker-side (pool/params.ts). Its storage
 // holds the expiry alarm and the parameters it runs with, and the balance
 // checkpoint that keeps a reservation's ledger sums to the rows since it.
-import type { UsagePurpose } from '@tangent/shared';
+import type { PoolBlockReason, UsagePurpose } from '@tangent/shared';
 import { DurableObject } from 'cloudflare:workers';
 import {
   balanceStatement,
@@ -48,8 +48,10 @@ const VERIFY_EVERY_MS = DAY_MS;
  * `cap_spend`), the network's (`cap_ip`), `empty` (the pool can't cover the
  * hold), then the free tier's global ceiling (`cap_global`).
  */
-export type PoolRefusalReason =
-  'unpriced' | 'cap_requests' | 'cap_spend' | 'cap_ip' | 'cap_global' | 'empty';
+export type PoolRefusalReason = Extract<
+  PoolBlockReason,
+  'unpriced' | 'cap_requests' | 'cap_spend' | 'cap_ip' | 'cap_global' | 'empty'
+>;
 
 export interface PoolExpiryParams {
   /** Reservations older than this are expired by the alarm. */

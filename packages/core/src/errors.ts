@@ -1,4 +1,4 @@
-import type { ApiErrorCode } from '@tangent/shared';
+import { poolErrorCode, type ApiErrorCode, type PoolBlockDetails } from '@tangent/shared';
 
 /** Domain errors thrown by services; the HTTP layer maps `code` to a status. */
 export class DomainError extends Error {
@@ -48,6 +48,10 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   key_required: 401,
   provider_error: 502,
   internal: 500,
+  pool_empty: 402,
+  pool_cap_reached: 429,
+  pool_consent_required: 403,
+  pool_unavailable: 403,
 };
 
 /** No usable API key for the provider (missing, or an unreadable key cookie). */
@@ -72,4 +76,30 @@ export class MembershipRequiredError extends DomainError {
   constructor(message = 'A Tangent membership is needed to keep going') {
     super('membership_required', message);
   }
+}
+
+const POOL_MESSAGES: Record<ReturnType<typeof poolErrorCode>, string> = {
+  pool_empty: "The community pool can't cover this right now",
+  pool_cap_reached: "You have reached today's community pool limit",
+  pool_unavailable: 'The community pool is not available for this account',
+};
+
+/**
+ * The community pool refused a request (402 `pool_empty`, 429
+ * `pool_cap_reached` or 403 `pool_unavailable`, by `details.reason`). The HTTP
+ * layer sends `details` as `ApiError.error.pool`.
+ */
+export class PoolBlockedError extends DomainError {
+  constructor(
+    readonly details: PoolBlockDetails,
+    message?: string,
+  ) {
+    const code = poolErrorCode(details.reason);
+    super(code, message ?? POOL_MESSAGES[code]);
+  }
+}
+
+/** A refusal with no cap involved (`empty`, `unpriced`, or an account that may not use the pool). */
+export function poolBlock(reason: PoolBlockDetails['reason']): PoolBlockDetails {
+  return { reason, limit: null, resetAt: null, supporter: false, supporterLimit: null };
 }

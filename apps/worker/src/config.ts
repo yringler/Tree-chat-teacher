@@ -117,7 +117,14 @@ export interface PoolConfig {
 }
 
 export interface AppConfig {
-  flags: { poolEnabled: boolean };
+  flags: {
+    poolEnabled: boolean;
+    /**
+     * Personal credit may be spent before Stripe is configured (admin-granted
+     * credit, `PERSONAL_CREDIT_ENABLED`); billing being configured enables it anyway.
+     */
+    personalCreditEnabled: boolean;
+  };
   prices: Readonly<Record<string, ModelPrice>>;
   billing: {
     usageHoldMicros: number;
@@ -247,7 +254,10 @@ function parse(env: AppEnv): AppConfig {
   const giveUp = positiveInt(env.POOL_GIVE_UP_MS, 60 * 60_000);
   const minUsers = intVar(env.IMPACT_MIN_DISTINCT_USERS, 5);
   return {
-    flags: { poolEnabled: boolVar(env.POOL_ENABLED, false) },
+    flags: {
+      poolEnabled: boolVar(env.POOL_ENABLED, false),
+      personalCreditEnabled: boolVar(env.PERSONAL_CREDIT_ENABLED, false),
+    },
     prices: parsePrices(env.MODEL_PRICES),
     billing: {
       usageHoldMicros: intVar(env.USAGE_HOLD_MICROS, DEFAULT_USAGE_HOLD_MICROS),

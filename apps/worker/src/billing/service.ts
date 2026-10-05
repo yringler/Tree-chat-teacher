@@ -13,7 +13,7 @@ import {
   type UsagePurpose,
 } from '@tangent/shared';
 import { isMetered, type AccountContext, type AppEnv } from '../env.js';
-import { builtInAvailable } from '../services.js';
+import { builtInAvailable, personalCreditReady } from '../services.js';
 import { getBalance } from './ledger.js';
 import { membershipFor } from './membership.js';
 import { billingConfigured, ensureStripeCustomer, getStripe } from './stripe.js';
@@ -73,7 +73,7 @@ export async function assertCanSpend(
   providerId: string,
 ): Promise<void> {
   if (!isMetered(account, providerId)) return;
-  if (!billingConfigured(env)) throw notConfigured();
+  if (!personalCreditReady(env)) throw notConfigured();
   const { balanceMicros, heldMicros, pendingCalls } = await getBalance(
     env.DB,
     account.billingAccountId,

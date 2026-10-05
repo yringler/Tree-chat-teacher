@@ -342,7 +342,9 @@ describe('ownership across users', () => {
 
 describe('Learn mode on paid credit', () => {
   it('402 without credit; after a grant the send streams and is charged cost + fee + 10%', async () => {
-    const u = await newUser();
+    // With the pool off: a send on spent credit would otherwise move to the pool
+    // (pool-routing.test.ts); a review never does.
+    const u = await newUser(authEnv({ POOL_ENABLED: 'false' }));
     const { trunk, assistant } = await treeWithNodes(u, 'credit');
 
     for (const [path, init] of [
@@ -634,10 +636,11 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
 describe('membership', () => {
   const WAIVER = 'let-me-in';
   /** The membership sold and required, with a waiver code. */
-  const memberEnv = () =>
+  const memberEnv = (overrides: Partial<AppEnv> = {}) =>
     authEnv({
       STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership',
       MEMBERSHIP_WAIVER_CODE: WAIVER,
+      ...overrides,
     });
 
   /** The three generating requests on `owner`'s tree (power on the keyless fake provider, or Learn). */
@@ -711,7 +714,8 @@ describe('membership', () => {
   });
 
   it('a paid membership opens generating; credit is checked next', async () => {
-    const u = await newUser(memberEnv());
+    // With the pool off, so spent credit answers 402 (pool-routing.test.ts covers the fallback).
+    const u = await newUser(memberEnv({ POOL_ENABLED: 'false' }));
     await insertSubscription(env, u.power.accountId.slice(2), 'past_due');
     expect(
       (await json<MeResponse>(await u.call('/api/me', { learn: 'credit' }))).membership,

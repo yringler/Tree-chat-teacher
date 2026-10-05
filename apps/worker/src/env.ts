@@ -1,5 +1,6 @@
-import type { AccountMode } from '@tangent/shared';
+import type { AccountMode, FundingSource } from '@tangent/shared';
 import type { Context } from 'hono';
+import type { PoolParams } from './pool/params.js';
 import { BUILT_IN_PROVIDER_ID } from './simple-mode.js';
 
 /**
@@ -109,6 +110,26 @@ export interface AccountContext {
    * co.) may be used. Every signed-in user is bring-your-own-key for those.
    */
   operatorKeys: boolean;
+  /**
+   * Who pays for the built-in provider's calls (auth/account.ts): `personal`
+   * (the ledger at `billingAccountId`), `pool` (the community pool; Learn
+   * only, `builtIn` when the pool is on) or `own-key` (Learn on the user's
+   * key, where `builtIn` is false). Power is always `personal`.
+   */
+  funding: FundingSource;
+  /**
+   * Pool funding only: what pool calls run with, resolved Worker-side from
+   * the config (pool/params.ts). The Durable Objects read it from here, never
+   * from their own env.
+   */
+  pool?: PoolParams;
+}
+
+/** True when the account's metered calls are paid by the community pool. */
+export function isPoolFunded(
+  account: AccountContext,
+): account is AccountContext & { funding: 'pool'; pool: PoolParams } {
+  return account.funding === 'pool' && account.builtIn && account.pool !== undefined;
 }
 
 /**

@@ -3,6 +3,7 @@ import { parseProviderConfigs } from '@tangent/providers';
 import { DEFAULT_SYSTEM_PROMPT, type ModelInfo, type ProviderConfig } from '@tangent/shared';
 import { appConfig } from './config.js';
 import type { AppEnv } from './env.js';
+import type { PoolParams } from './pool/params.js';
 
 export { DEFAULT_SIMPLE_MAX_INPUT_TOKENS } from './config.js';
 
@@ -143,4 +144,98 @@ export function simpleChatSettings(env: AppEnv): ChatSettings {
  */
 export function simpleSystemPrompt(env: AppEnv): string {
   return env.SIMPLE_SYSTEM_PROMPT?.trim() || DEFAULT_SYSTEM_PROMPT;
+}
+
+/**
+ * The `tangent` provider as the community pool uses it: the simple config
+ * (same key, same SIMPLE_PROVIDER override) with the pool model as its only
+ * model, and one call's cost bounded by the pool's caps: the context window
+ * is the pool's input cap plus its output cap. On OpenRouter, routing is
+ * capped at the price table's price (`provider.max_price`, $/MTok), so an
+ * over-priced route fails upstream (released) instead of costing the operator.
+ * Other endpoints (OpenAI, Workers AI, local servers) get no `provider` field,
+ * which strict APIs reject; there the table must be the endpoint's own price.
+ */
+export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfig {
+  const base = simpleProviderConfig(env);
+  const listed = base.models.find((m) => m.id === pool.model);
+  const config: ProviderConfig = {
+    ...base,
+    models: [{ id: pool.model, label: listed?.label ?? 'Simple' }],
+    defaultModel: pool.model,
+    openModels: false,
+    maxContextTokens: pool.maxInputTokens + pool.maxOutputTokens,
+    maxOutputTokens: pool.maxOutputTokens,
+  };
+  if (base.kind !== 'openai-compatible' || !isOpenRouter(base.baseUrl) || !pool.price)
+    return config;
+  const extraBody = asRecord(base.options?.['extraBody']);
+  // Merged into the operator's own routing (e.g. `data_collection: 'deny'`),
+  // keeping a stricter `max_price` they set.
+  const routing = asRecord(extraBody['provider']);
+  const priorMax = asRecord(routing['max_price']);
+  return {
+    ...config,
+    options: {
+      ...base.options,
+      extraBody: {
+        ...extraBody,
+        provider: {
+          ...routing,
+          max_price: {
+            ...priorMax,
+            prompt: lowerPrice(priorMax['prompt'], pool.price.inMicrosPerMTok / 1_000_000),
+            completion: lowerPrice(priorMax['completion'], pool.price.outMicrosPerMTok / 1_000_000),
+          },
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Whether an openai-compatible base URL reaches OpenRouter: openrouter.ai
+ * itself, or the AI Gateway's OpenRouter route (`.../openrouter`). Unset means
+ * the provider's own default, api.openai.com.
+ */
+function isOpenRouter(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false;
+  try {
+    const url = new URL(baseUrl);
+    if (url.hostname === 'openrouter.ai') return true;
+    return (
+      url.hostname === 'gateway.ai.cloudflare.com' &&
+      url.pathname.replace(/\/+$/, '').endsWith('/openrouter')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** The operator's price cap when it is a stricter number, else the pool's. */
+function lowerPrice(prior: unknown, pool: number): number {
+  return typeof prior === 'number' && Number.isFinite(prior) && prior >= 0
+    ? Math.min(prior, pool)
+    : pool;
+}
+
+/**
+ * Chat settings of a pool generation: the pool's input and output caps, and
+ * summaries and titles on the pool model (so on the pool too).
+ */
+export function poolChatSettings(pool: PoolParams): ChatSettings {
+  return {
+    ...DEFAULT_CHAT_SETTINGS,
+    summaryProviderId: SIMPLE_PROVIDER_ID,
+    summaryModel: pool.model,
+    maxInputTokens: pool.maxInputTokens,
+    reservedOutputTokens: pool.maxOutputTokens,
+    autoTitle: true,
+  };
 }

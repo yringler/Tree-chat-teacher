@@ -25,12 +25,12 @@ import { createMiddleware } from 'hono/factory';
 import { z } from 'zod';
 import { isAdmin } from '../auth/admin.js';
 import { accountDeletionRoutes } from '../auth/delete-account.js';
-import { assertGenerationAllowed, enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
-import { assertMember, membershipFor } from '../billing/membership.js';
-import { assertCanSpend } from '../billing/service.js';
+import { sameOriginOnly } from '../byok/guard.js';
+import { assertCanGenerate } from '../billing/gate.js';
+import { membershipFor } from '../billing/membership.js';
 import { readKeys, requireReadableKeys, type UserKeys } from '../byok/keys.js';
 import { accountParams, type SessionSendBody } from '../do/tree-session.js';
-import { isMetered, usesUserKeys, type AppBindings, type AppContext, type AppEnv } from '../env.js';
+import { usesUserKeys, type AppBindings, type AppContext, type AppEnv } from '../env.js';
 import { validateJson, validateQuery } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { purgeShare } from '../share/cache.js';
@@ -49,16 +49,20 @@ const contextQuerySchema = z.object({
 
 /**
  * The caller's ChatService. `keys` are the user's own provider keys (unused
- * by Learn on credit); the usage meter of the built-in provider defers its
- * work to the request's `waitUntil`.
+ * by Learn on credit or the pool); the usage meter of the built-in provider
+ * defers its work to the request's `waitUntil`. `generating`: the service
+ * will call a model, so a pool-funded account gets the pool's restrictions;
+ * build it after `assertCanGenerate`, which settles who pays.
  */
 function chatOf(
   c: AppContext,
   keys: Extract<UserKeys, { state: 'ok' }> | null = null,
+  generating = false,
 ): ChatService {
   return chatService(c.env, c.var.account, {
     ...(keys ? { apiKeys: keys.keys } : {}),
     defer: (p) => c.executionCtx.waitUntil(p),
+    generating,
   });
 }
 
@@ -76,9 +80,11 @@ async function keysOf(c: AppContext): Promise<Extract<UserKeys, { state: 'ok' }>
  * and the account middleware (auth/account.ts). Every branch or node id is
  * resolved through the caller's account (`getOwnedBranch`/`getOwnedNode`)
  * before anything else happens, so another account's ids are 404. Routes that
- * generate check the membership (402 `membership_required`, when one is
- * required), then, for a call on the built-in provider, the credit (402
- * `payment_required`). Every other route stays open without a membership.
+ * generate pass `assertCanGenerate` (billing/gate.ts): the membership (402
+ * `membership_required`, when one is required), who pays (a Learn send on
+ * spent credit moves to the community pool), then the credit (402
+ * `payment_required`) or the pool's rules. Every other route stays open
+ * without a membership.
  */
 export function apiRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();
@@ -182,14 +188,18 @@ export function apiRoutes(): Hono<AppBindings> {
     async (c) => {
       const q = c.req.valid('query');
       const keys = await keysOf(c);
-      const chat = chatOf(c, keys);
+      let chat = chatOf(c, keys);
       const branch = await chat.getOwnedBranch(c.req.param('branchId'));
       // resolve=true may generate summaries (billed on the built-in provider, which
-      // summarizes its own branches); a plain plan only counts tokens.
+      // summarizes its own branches, or on the pool); a plain plan only counts tokens.
       if (q.resolve) {
-        await assertMember(c.env, c.var.account);
-        await assertCanSpend(c.env, c.var.account, branch.providerId);
-        await enforceRateLimit(c, keys, 'chat', branch.providerId);
+        await assertCanGenerate(c, {
+          purpose: 'resolve',
+          providerId: branch.providerId,
+          model: null,
+          keys,
+        });
+        chat = chatOf(c, keys, true);
       }
       const res = await chat.planContext(branch.id, q.nodeId ?? null, {
         resolveSummaries: q.resolve,
@@ -206,20 +216,21 @@ export function apiRoutes(): Hono<AppBindings> {
     validateJson(sendMessageRequestSchema),
     async (c) => {
       const keys = await keysOf(c);
-      const { account } = c.var;
-      const chat = chatOf(c, keys);
-      const branch = await chat.getOwnedBranch(c.req.param('branchId'));
-      // The route is the Durable Object's only way in, so this gate covers it.
-      await assertMember(c.env, account);
-      assertGenerationAllowed(chat.deps.providers, branch.providerId, branch.model, {
-        userKeys: !isMetered(account, branch.providerId),
+      const req = c.req.valid('json');
+      const branch = await chatOf(c, keys).getOwnedBranch(c.req.param('branchId'));
+      // The route is the Durable Object's only way in, so this gate covers it. On the
+      // pool, the Durable Object reserves the reply before writing any node.
+      const account = await assertCanGenerate(c, {
+        purpose: 'send',
+        providerId: branch.providerId,
+        model: branch.model,
+        keys,
+        content: req.content,
       });
-      await assertCanSpend(c.env, account, branch.providerId);
-      await enforceRateLimit(c, keys, 'chat', branch.providerId);
       // The Durable Object gets the still-sealed cookie value in the body (never
       // a header, which request logs may capture) and opens it itself.
       const body: SessionSendBody = {
-        ...c.req.valid('json'),
+        ...req,
         account,
         ...(keys ? { sealedKeys: keys.sealed } : {}),
       };
@@ -261,22 +272,22 @@ export function apiRoutes(): Hono<AppBindings> {
     async (c) => {
       const req = c.req.valid('json');
       const keys = await keysOf(c);
-      const chat = chatOf(c, keys);
+      let chat = chatOf(c, keys);
       const node = await chat.getOwnedNode(c.req.param('nodeId'));
-      await assertMember(c.env, c.var.account);
-      // The client picks the reviewer model here, so the allowlist is what bounds it.
-      // The review is metered iff the reviewer is the built-in provider.
-      assertGenerationAllowed(chat.deps.providers, req.providerId, req.model, {
-        userKeys: !isMetered(c.var.account, req.providerId),
-      });
-      await assertCanSpend(c.env, c.var.account, req.providerId);
-      // The context is resolved like a send on the node's branch, so missing summaries are
-      // generated on that branch's provider: its credit is checked too.
       const { providerId: branchProviderId } = await chat.getOwnedBranch(node.branchId);
-      if (branchProviderId !== req.providerId)
-        await assertCanSpend(c.env, c.var.account, branchProviderId);
+      // The client picks the reviewer model here, so the allowlist is what bounds it.
+      // The review is metered iff the reviewer is the built-in provider. The context is
+      // resolved like a send on the node's branch, so missing summaries are generated on
+      // that branch's provider: its credit is checked too. Never on the pool (403).
+      await assertCanGenerate(c, {
+        purpose: 'review',
+        providerId: req.providerId,
+        model: req.model,
+        alsoSpendsOn: branchProviderId,
+        keys,
+      });
+      chat = chatOf(c, keys, true);
       const prepared = await chat.prepareReview(node.id, req);
-      await enforceRateLimit(c, keys, 'chat', req.providerId);
 
       const encoder = new TextEncoder();
       const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
