@@ -22,9 +22,21 @@ import { UiStore } from '../state/ui-store';
         @if (me.devMode) {
           <p class="notice">Sign-in is disabled on this server (DEV_ALLOW_NO_AUTH).</p>
         } @else {
-          <p>
-            Signed in as <strong>{{ me.email }}</strong>
-          </p>
+          <div class="account-card">
+            <span class="account-avatar"><app-icon name="user" [size]="20" /></span>
+            <div class="account-who">
+              <span class="muted small">Signed in as</span>
+              <strong class="account-email">{{ me.email }}</strong>
+            </div>
+            <button
+              type="button"
+              class="btn account-sign-out"
+              [disabled]="busy()"
+              (click)="signOut()"
+            >
+              <app-icon name="signOut" /> Sign out
+            </button>
+          </div>
           @if (me.userId; as id) {
             <app-account-id [userId]="id" />
           }
@@ -81,12 +93,6 @@ import { UiStore } from '../state/ui-store';
           @if (error(); as e) {
             <p class="notice notice-error" role="alert">{{ e }}</p>
           }
-
-          <div class="form-actions">
-            <button type="button" class="btn btn-ghost" [disabled]="busy()" (click)="signOut()">
-              Sign out
-            </button>
-          </div>
 
           @if (me.email; as email) {
             <fieldset class="settings-section">

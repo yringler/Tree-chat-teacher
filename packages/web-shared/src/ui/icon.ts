@@ -9,6 +9,7 @@ const PATHS = {
   chevronDown: 'M6 9l6 6 6-6',
   chevronUp: 'M6 15l6-6 6 6',
   lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z',
+  signOut: 'M9 4H5v16h4M16 8l4 4-4 4M20 12H9',
   user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
   key: 'M14.5 9.5a4 4 0 1 0-4 4M10.5 13.5L4 20M6 18l2 2M8 16l2 2',
   branch:
