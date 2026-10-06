@@ -189,10 +189,10 @@
     "POLAR_SERVER": "production",
     // The Polar one-time product personal credit top-ups are sold as (each checkout sets an ad-hoc
     // USD price, tax exclusive). Empty = no top-ups.
-    "POLAR_CREDITS_PRODUCT_ID": "",
+    "POLAR_CREDITS_PRODUCT_ID": "1458ace2-00b3-4710-991e-8d8e04ed4385",
     // The Polar yearly product of the membership ($10, tax exclusive). Empty = no membership is sold
     // (generating needs none); set = required in both apps while ANNUAL_FEE_ENABLED is "true".
-    "POLAR_MEMBERSHIP_PRODUCT_ID": "",
+    "POLAR_MEMBERSHIP_PRODUCT_ID": "21924899-92dc-4d9e-b319-75796649f4e7",
     // Polar's fee as an estimate, used only when an order reports no usable fee (then logged as
     // `fee_estimated`): bps of the total charged plus fixed cents. Defaults: Starter, 5% + 50¢.
     "POLAR_FEE_BPS": "500",
