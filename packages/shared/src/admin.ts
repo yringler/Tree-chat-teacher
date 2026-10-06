@@ -35,6 +35,12 @@ export interface AdminUser {
   activeShares: number;
   /** The operator (or a lost dispute) suspended this user's community pool access. */
   poolSuspended: boolean;
+  /**
+   * The user's prepaid credit (their `u_<id>` ledger, shared by both apps),
+   * micro-USD: Σ grants − Σ settled charges, pending holds not deducted (like
+   * `AdminCreditResponse.balanceMicros`). Changed with `POST /api/admin/credit`.
+   */
+  creditBalanceMicros: number;
 }
 
 /** `GET /api/admin/users`, newest sign-up first. */

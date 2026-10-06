@@ -1,4 +1,5 @@
 import type {
+  AdminCreditResponse,
   AdminStatusResponse,
   AdminUser,
   AdminUsersResponse,
@@ -191,6 +192,7 @@ describe('admin API', () => {
       isAdmin: true,
       shareAllowed: false,
       activeShares: 0,
+      creditBalanceMicros: 0,
     });
 
     const found = await json<AdminUsersResponse>(
@@ -203,6 +205,28 @@ describe('admin API', () => {
     expect(none.users).toEqual([]);
 
     expect((await asAdmin('/api/admin/users?cursor=bogus')).status).toBe(400);
+  });
+
+  it("shows each user's credit balance, as an admin credit leaves it", async () => {
+    const { user, asAdmin } = await setup();
+    const credit = await asAdmin('/api/admin/credit', {
+      method: 'POST',
+      json: {
+        target: 'personal',
+        userId: user.id,
+        amountCents: 1250,
+        mode: 'adjustment',
+        idempotencyKey: `test-${crypto.randomUUID()}`,
+      },
+    });
+    expect(await json<AdminCreditResponse>(credit)).toMatchObject({
+      credited: true,
+      balanceMicros: 12_500_000,
+    });
+    const found = await json<AdminUsersResponse>(
+      await asAdmin(`/api/admin/users?q=${encodeURIComponent(user.email)}`),
+    );
+    expect(found.users).toMatchObject([{ id: user.id, creditBalanceMicros: 12_500_000 }]);
   });
 
   it('pages with a cursor', async () => {

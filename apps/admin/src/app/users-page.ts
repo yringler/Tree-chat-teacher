@@ -1,15 +1,54 @@
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import type { AdminUser, ShareSummary } from '@tangent/shared';
-import { ApiClient, errorMessage, Icon } from '@tangent/web-shared';
+import type { AdminCreditRequest, AdminUser, ShareSummary } from '@tangent/shared';
+import { ApiClient, errorMessage, formatCents, formatCharge, Icon } from '@tangent/web-shared';
+import { signedCreditCents } from './credit-amount';
 
 /** A user's shares once expanded: loading (null) or the list. */
 type SharesState = ShareSummary[] | null;
 
+/** What a user's credit form holds. */
+export interface UserCreditForm {
+  /** Dollars as typed; a leading `-` debits. */
+  amount: string;
+  note: string;
+}
+
+/**
+ * The `POST /api/admin/credit` request adding credit to (or, negative, taking
+ * it from) `userId`'s own ledger, or the reason it can't be sent. An
+ * adjustment: no payment, no processing fee, the full amount moves.
+ * `idempotencyKey` is the form's current key, so a retried submit is a no-op.
+ */
+export function userCreditRequest(
+  form: UserCreditForm,
+  userId: string,
+  idempotencyKey: string,
+): AdminCreditRequest | string {
+  const amountCents = signedCreditCents(form.amount);
+  if (typeof amountCents === 'string') return amountCents;
+  const note = form.note.trim();
+  return {
+    target: 'personal',
+    userId,
+    amountCents,
+    mode: 'adjustment',
+    idempotencyKey,
+    ...(note ? { note } : {}),
+  };
+}
+
+function newKey(): string {
+  return `user-${crypto.randomUUID()}`;
+}
+
+const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
+
 /**
  * Users, newest first, searchable by email: the per-user "May share"
- * permission, the community pool suspension and, expanded, the user's shares
- * with Revoke (a takedown).
+ * permission, the community pool suspension, the user's credit balance with a
+ * form to add (or take back) credit, and, expanded, the user's shares with
+ * Revoke (a takedown).
  */
 @Component({
   selector: 'app-users-page',
@@ -38,6 +77,7 @@ type SharesState = ShareSummary[] | null;
             <th scope="col">Active shares</th>
             <th scope="col">May share</th>
             <th scope="col">Pool suspended</th>
+            <th scope="col">Credit</th>
             <th scope="col"><span class="sr-only">Shares</span></th>
           </tr>
         </thead>
@@ -82,6 +122,22 @@ type SharesState = ShareSummary[] | null;
                   <span class="sr-only">{{ u.email }}'s community pool access is suspended</span>
                 </label>
               </td>
+              <td class="admin-nowrap">
+                {{ money(u.creditBalanceMicros) }}
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  [attr.aria-expanded]="creditFor() === u.id"
+                  [attr.aria-controls]="'credit-' + u.id"
+                  (click)="toggleCredit(u)"
+                >
+                  <app-icon
+                    [name]="creditFor() === u.id ? 'chevronDown' : 'chevronRight'"
+                    [size]="14"
+                  />
+                  Credit
+                </button>
+              </td>
               <td>
                 <button
                   type="button"
@@ -98,9 +154,44 @@ type SharesState = ShareSummary[] | null;
                 </button>
               </td>
             </tr>
+            @if (creditFor() === u.id) {
+              <tr [id]="'credit-' + u.id">
+                <td colspan="8" class="admin-shares">
+                  <form class="admin-search" (submit)="$event.preventDefault(); credit(u)">
+                    <label class="field">
+                      <span class="field-label">Amount ($, negative to debit)</span>
+                      <input
+                        type="text"
+                        inputmode="decimal"
+                        [value]="creditForm().amount"
+                        (input)="patchCredit({ amount: $any($event.target).value })"
+                      />
+                    </label>
+                    <label class="field">
+                      <span class="field-label">Note</span>
+                      <input
+                        type="text"
+                        maxlength="200"
+                        placeholder="Admin adjustment"
+                        [value]="creditForm().note"
+                        (input)="patchCredit({ note: $any($event.target).value })"
+                      />
+                    </label>
+                    <button type="submit" class="btn" [disabled]="busy().has(u.id)">Apply</button>
+                  </form>
+                  <p class="muted small">
+                    Adds to {{ u.email }}'s own credit, usable in both apps. No payment and no
+                    processing fee: the full amount is credited.
+                  </p>
+                  @if (creditResult(); as r) {
+                    <p class="muted small" role="status">{{ r }}</p>
+                  }
+                </td>
+              </tr>
+            }
             @if (shares().has(u.id)) {
               <tr [id]="'shares-' + u.id">
-                <td colspan="7" class="admin-shares">
+                <td colspan="8" class="admin-shares">
                   @if (shares().get(u.id); as list) {
                     @if (list.length === 0) {
                       <p class="muted small">No shares.</p>
@@ -140,7 +231,7 @@ type SharesState = ShareSummary[] | null;
           } @empty {
             @if (!loading()) {
               <tr>
-                <td colspan="7" class="muted">No users found.</td>
+                <td colspan="8" class="muted">No users found.</td>
               </tr>
             }
           }
@@ -166,6 +257,13 @@ export class UsersPage {
   protected readonly shares = signal<ReadonlyMap<string, SharesState>>(new Map());
   /** User and share ids with a request in flight. */
   protected readonly busy = signal<ReadonlySet<string>>(new Set());
+  /** The user whose credit form is open (one at a time). */
+  protected readonly creditFor = signal<string | null>(null);
+  protected readonly creditForm = signal<UserCreditForm>(EMPTY_CREDIT_FORM);
+  /** What the last credit submit did, shown under the open form. */
+  protected readonly creditResult = signal<string | null>(null);
+  /** Kept until a submit succeeds or the form changes, so a retried submit is a no-op. */
+  private creditKey = newKey();
   private query = '';
 
   constructor() {
@@ -175,6 +273,7 @@ export class UsersPage {
   protected search(q: string): void {
     this.query = q.trim();
     this.shares.set(new Map());
+    this.creditFor.set(null);
     void this.load(null);
   }
 
@@ -216,6 +315,52 @@ export class UsersPage {
         throw err;
       }
     });
+  }
+
+  protected toggleCredit(user: AdminUser): void {
+    this.creditFor.set(this.creditFor() === user.id ? null : user.id);
+    this.creditForm.set(EMPTY_CREDIT_FORM);
+    this.creditResult.set(null);
+    this.creditKey = newKey();
+  }
+
+  protected patchCredit(change: Partial<UserCreditForm>): void {
+    this.creditForm.update((f) => ({ ...f, ...change }));
+    this.creditKey = newKey();
+  }
+
+  /** Adds (or takes back) credit on the user's own ledger; a debit isn't clamped, so it asks first. */
+  protected async credit(user: AdminUser): Promise<void> {
+    const req = userCreditRequest(this.creditForm(), user.id, this.creditKey);
+    if (typeof req === 'string') {
+      this.error.set(req);
+      return;
+    }
+    if (
+      req.amountCents < 0 &&
+      !confirm(
+        `Take ${formatCents(-req.amountCents)} from ${user.email}'s credit? ` +
+          'The balance can go below zero.',
+      )
+    )
+      return;
+    this.creditResult.set(null);
+    await this.run(user.id, async () => {
+      const res = await this.api.adminCredit(req);
+      this.creditKey = newKey();
+      this.creditForm.set(EMPTY_CREDIT_FORM);
+      const current = this.users().find((u) => u.id === user.id);
+      if (current) this.replaceUser({ ...current, creditBalanceMicros: res.balanceMicros });
+      this.creditResult.set(
+        res.credited
+          ? `Applied ${this.money(res.amountMicros)}; balance ${this.money(res.balanceMicros)}.`
+          : 'Already applied (same request); nothing changed.',
+      );
+    });
+  }
+
+  protected money(micros: number): string {
+    return formatCharge(micros);
   }
 
   protected async toggleShares(user: AdminUser): Promise<void> {
