@@ -11,7 +11,8 @@
 // - POST   /v1/checkouts/                      → `{ id, url, status: 'open', ... }`; the url is
 //   `https://sandbox.polar.sh/checkout/polar_c_<n>`
 // - POST   /v1/customer-sessions/              → `{ customer_portal_url, customer_id, ... }` when
-//   the body's `external_customer_id` is a known customer, else 404 ResourceNotFound
+//   the body's `external_customer_id` is a known customer, else 422 "Customer does not exist."
+//   (Polar's real answer: a validation error on the body field, not a 404)
 // - GET    /v1/subscriptions/?external_customer_id=&active= → the known customer's registered
 //   subscriptions that are not revoked (paged: `items`, `pagination`)
 // - DELETE /v1/subscriptions/:id               → the subscription, now `canceled`, else 404
@@ -63,6 +64,23 @@ const state: State = {
 
 function notFound(): Response {
   return Response.json({ error: 'ResourceNotFound', detail: 'Not found' }, { status: 404 });
+}
+
+/** Polar's answer to a customer session for an unknown customer (customer_session/service.py). */
+function customerDoesNotExist(external: string): Response {
+  return Response.json(
+    {
+      detail: [
+        {
+          loc: ['body', 'external_customer_id'],
+          msg: 'Customer does not exist.',
+          type: 'value_error',
+          input: external,
+        },
+      ],
+    },
+    { status: 422 },
+  );
 }
 
 function page(items: Obj[], query: URLSearchParams): Response {
@@ -139,7 +157,7 @@ export async function mockPolar(request: Request): Promise<Response> {
     );
   }
   if (request.method === 'POST' && url.pathname === '/v1/customer-sessions/') {
-    if (!state.customers.has(external)) return notFound();
+    if (!state.customers.has(external)) return customerDoesNotExist(external);
     return Response.json(
       {
         id: `polar_cs_${++state.seq}`,
