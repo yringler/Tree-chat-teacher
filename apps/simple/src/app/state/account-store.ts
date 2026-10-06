@@ -3,6 +3,7 @@ import {
   LEARN_KEY_PROVIDER,
   type BillingSummary,
   type KeyStatusResponse,
+  type LearnPayment,
   type MembershipInfo,
   type MeResponse,
   type PoolMeResponse,
@@ -11,6 +12,19 @@ import {
 import { ApiClient, DEMO_MODE, formatMicros, membershipBlocks } from '@tangent/web-shared';
 import { PaymentStore } from './payment-store';
 import { UiStore } from './ui-store';
+
+/** What Learn's replies run on right now, for the header and the New lesson form. */
+export interface PaidBy {
+  readonly payment: LearnPayment;
+  /** "Your OpenRouter key", "Tangent credit" or "Community pool". */
+  readonly label: string;
+  /** The header's shorter name: "Your key", "Credit" or "Pool". */
+  readonly short: string;
+  /** "$1.20 left", "$2.40 in the pool" or "no key saved"; null when there is nothing to add. */
+  readonly detail: string | null;
+  /** Replies can't run on it now (no key, no credit, the pool or today's share used up). */
+  readonly warn: boolean;
+}
 
 /**
  * The signed-in caller, their membership, how they pay (own key, credit or
@@ -83,12 +97,37 @@ export class AccountStore {
     this.payment.payment() === 'credit' ? this.balanceText() : null,
   );
 
-  /** The header's pool pill while replies run on the pool: the dollars in it. */
-  readonly poolLabel = computed(() => {
-    const status = this.poolStatus();
-    return status?.enabled && this.payment.payment() === 'pool'
-      ? `Pool · ${formatMicros(status.availableMicros)}`
-      : null;
+  /** What replies run on (own key, credit or the pool), with its balance and whether it is used up. */
+  readonly paidBy = computed<PaidBy>(() => {
+    const payment = this.payment.payment();
+    if (payment === 'credit') {
+      const balance = this.balanceText();
+      return {
+        payment,
+        label: 'Tangent credit',
+        short: 'Credit',
+        detail: balance === null ? null : `${balance} left`,
+        warn: this.lowBalance(),
+      };
+    }
+    if (payment === 'pool') {
+      const status = this.poolStatus();
+      return {
+        payment,
+        label: 'Community pool',
+        short: 'Pool',
+        detail: status?.enabled ? `${formatMicros(status.availableMicros)} in the pool` : null,
+        warn: this.poolLow(),
+      };
+    }
+    const missing = this.needsKey();
+    return {
+      payment,
+      label: 'Your OpenRouter key',
+      short: 'Your key',
+      detail: missing ? 'no key saved' : null,
+      warn: missing,
+    };
   });
 
   /** The pool is empty, or the learner used up today's replies (the pill turns into a warning). */

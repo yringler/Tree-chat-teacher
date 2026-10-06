@@ -68,6 +68,22 @@ describe('ShareService', () => {
     expect((await shares.revoke(s.id)).state).toBe('revoked');
   });
 
+  it('deletes a share in any state: the link stops resolving and the share leaves the list', async () => {
+    const { shares, tree, repos } = await seeded();
+    const active = await shares.create({ treeId: tree.id, scope: 'tree' });
+    const revoked = await shares.create({ treeId: tree.id, scope: 'tree', mode: 'live' });
+    await shares.revoke(revoked.id);
+
+    expect((await shares.delete(active.id)).token).toBe(active.token);
+    expect(await shares.resolvePublic(active.token)).toEqual({ ok: false, reason: 'not_found' });
+    expect(await repos.shares.getSnapshot(active.id)).toBeNull();
+    expect((await shares.delete(revoked.id)).state).toBe('revoked');
+    expect(await shares.list()).toEqual([]);
+
+    await expect(shares.delete(active.id)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(shares.republish(active.id)).rejects.toBeInstanceOf(NotFoundError);
+  });
+
   it('expires', async () => {
     const { shares, tree, advance } = await seeded();
     const s = await shares.create({

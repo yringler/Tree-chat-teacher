@@ -5,6 +5,7 @@ import { FundingToggle, FUNDING_OPTIONS } from './chat/funding-toggle';
 import { HomePage } from './home/home-page';
 import { AppHeader } from './shell/app-header';
 import { ModelAccessDialog } from './shell/model-access-dialog';
+import { PaidBy } from './shell/paid-by';
 
 /** Template of a JIT-compiled component (the decorator's metadata). */
 function templateOf(type: object): string {
@@ -14,7 +15,7 @@ function templateOf(type: object): string {
 
 describe('Learn copy rule (community pool)', () => {
   it('funding the pool is a credit purchase: never "donate" or "tax-deductible"', () => {
-    for (const type of [AppHeader, ModelAccessDialog, HomePage, FundingToggle])
+    for (const type of [AppHeader, ModelAccessDialog, HomePage, FundingToggle, PaidBy])
       expect(templateOf(type)).not.toMatch(FORBIDDEN_POOL_COPY);
     for (const o of FUNDING_OPTIONS)
       expect(`${o.label} ${o.hint}`).not.toMatch(FORBIDDEN_POOL_COPY);

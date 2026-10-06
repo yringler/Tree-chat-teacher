@@ -148,6 +148,8 @@ export interface ShareRepository {
     >,
     snapshotJson?: string | null,
   ): Promise<ShareWithTree | null>;
+  /** Deletes the share with its snapshot; false when there was no such share. */
+  deleteShare(shareId: string): Promise<boolean>;
   getSnapshot(shareId: string): Promise<string | null>;
   incrementViewCount(shareId: string): Promise<void>;
 }

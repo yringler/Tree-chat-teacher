@@ -384,3 +384,51 @@
   gap: 8px;
   margin-top: 6px;
 }
+
+/* Account dialog: who is signed in, with sign-out beside it (dialogs/account-dialog.ts) */
+
+.account-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+
+.account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-elev);
+  box-shadow: 0 0 0 1px var(--border-strong);
+  color: var(--fg-muted);
+}
+
+.account-who {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.account-email {
+  overflow-wrap: anywhere;
+}
+
+.account-sign-out {
+  margin-left: auto;
+}
+
+.account-sign-out:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}

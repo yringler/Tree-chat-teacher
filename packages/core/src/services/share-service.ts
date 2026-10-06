@@ -149,6 +149,18 @@ export class ShareService {
   }
 
   /**
+   * Removes the share and its snapshot for good: the link stops resolving (404,
+   * as for a token that never existed) and the share leaves the list. Works in
+   * any state, so an active link can be taken down and removed in one step.
+   * Returns the share as it was, so the caller can purge its cached copies.
+   */
+  async delete(shareId: string): Promise<ShareSummary> {
+    const share = await this.requireOwnedShare(shareId);
+    if (!(await this.shares.deleteShare(shareId))) throw new NotFoundError('Share');
+    return this.summarize(share);
+  }
+
+  /**
    * Cheap validity check (no payload) used before serving an edge-cached copy.
    * Returns the share when active.
    */

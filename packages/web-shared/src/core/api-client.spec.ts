@@ -502,6 +502,14 @@ describe('ApiClient links', () => {
     ]);
   });
 
+  it('deleteShare DELETEs /api/shares/:id and resolves on 204', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await expect(api.deleteShare('s/1')).resolves.toBeUndefined();
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init.method])).toEqual([
+      ['/api/shares/s%2F1', 'DELETE'],
+    ]);
+  });
+
   it('createLink tells an existing pair (200) from a new link (201)', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(link, 200));
     await expect(api.createLink({ fromNodeId: 'b', toNodeId: 'a' })).resolves.toEqual({

@@ -522,6 +522,21 @@ describe('shares', () => {
     expect(await count('share_snapshots', 'share_id', 'missing')).toBe(0);
   });
 
+  it('deleteShare removes the share with its snapshot chunks', async () => {
+    const { tree } = await seedTree();
+    const share = makeShare(tree);
+    const kept = makeShare(tree);
+    await repos.shares.createShare(share, 'z'.repeat(SNAPSHOT_CHUNK_CHARS + 10));
+    await repos.shares.createShare(kept, '{}');
+    expect(await count('share_snapshots', 'share_id', share.id)).toBe(2);
+
+    expect(await repos.shares.deleteShare(share.id)).toBe(true);
+    expect(await repos.shares.getShare(share.id)).toBeNull();
+    expect(await count('share_snapshots', 'share_id', share.id)).toBe(0);
+    expect(await repos.shares.getSnapshot(kept.id)).toBe('{}');
+    expect(await repos.shares.deleteShare(share.id)).toBe(false);
+  });
+
   it('snapshots over 600K chars round-trip across 3 chunks', async () => {
     const { tree } = await seedTree();
     const share = makeShare(tree);

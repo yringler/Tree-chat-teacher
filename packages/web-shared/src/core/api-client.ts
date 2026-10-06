@@ -358,6 +358,10 @@ export class ApiClient {
     return this.json('POST', `/shares/${enc(shareId)}/revoke`);
   }
 
+  deleteShare(shareId: string): Promise<void> {
+    return this.json('DELETE', `/shares/${enc(shareId)}`);
+  }
+
   // Admin (the admin app; 404 for anyone but an admin)
 
   adminStatus(): Promise<AdminStatusResponse> {

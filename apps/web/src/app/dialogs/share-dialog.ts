@@ -138,6 +138,7 @@ import { ScopePicker } from '../ui/scope-picker';
                   [showTree]="false"
                   [branch]="r.branch"
                   (changed)="replace($event)"
+                  (deleted)="drop($event)"
                 ></li>
               }
             </ul>
@@ -209,6 +210,12 @@ export class ShareDialog {
 
   protected replace(updated: ShareSummary): void {
     this.all.update((list) => list.map((s) => (s.id === updated.id ? updated : s)));
+  }
+
+  protected drop(shareId: string): void {
+    this.all.update((list) => list.filter((s) => s.id !== shareId));
+    // The link shown after creating it is gone too.
+    if (this.created()?.id === shareId) this.created.set(null);
   }
 
   protected close(): void {

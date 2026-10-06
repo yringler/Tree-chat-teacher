@@ -250,6 +250,40 @@ describe('AccountStore membership', () => {
   });
 });
 
+describe('AccountStore paidBy', () => {
+  it('names credit with its balance, and warns once it is used up', async () => {
+    const { account } = setup(async () => summary(membership({ required: false }), 1_200_000));
+    account.setMe(me(membership({ required: false })));
+    expect(account.paidBy()).toMatchObject({ label: 'Tangent credit', detail: null, warn: false });
+    await account.refreshBalance();
+    expect(account.paidBy()).toEqual({
+      payment: 'credit',
+      label: 'Tangent credit',
+      short: 'Credit',
+      detail: '$1.20 left',
+      warn: false,
+    });
+    account.applyBilling(summary(membership({ required: false }), 0));
+    expect(account.paidBy()).toMatchObject({ detail: '$0.00 left', warn: true });
+  });
+
+  it('names the own key, and warns while none is saved', async () => {
+    const { account, api } = setup(async () => summary(membership()));
+    api.keyStatus.mockResolvedValueOnce({ enabled: true, hasKey: false, providers: [] });
+    account.payment.choose('own-key');
+    await account.refreshKey();
+    expect(account.paidBy()).toEqual({
+      payment: 'own-key',
+      label: 'Your OpenRouter key',
+      short: 'Your key',
+      detail: 'no key saved',
+      warn: true,
+    });
+    await account.refreshKey();
+    expect(account.paidBy()).toMatchObject({ detail: null, warn: false });
+  });
+});
+
 describe('AccountStore community pool', () => {
   it('offers the pool while it is on, and shows its pill while replies run on it', async () => {
     const { account, api } = setup(async () => summary(membership()));
@@ -258,10 +292,16 @@ describe('AccountStore community pool', () => {
     expect(account.payment.poolAvailable()).toBe(true);
     expect(api.poolMe).toHaveBeenCalled();
     // Credit is chosen (the default) and offered: no pool pill, no model lock.
-    expect(account.poolLabel()).toBeNull();
+    expect(account.paidBy().payment).toBe('credit');
     expect(account.poolModelHint()).toBeNull();
     account.payment.choose('pool');
-    expect(account.poolLabel()).toBe('Pool · $2.40');
+    expect(account.paidBy()).toEqual({
+      payment: 'pool',
+      label: 'Community pool',
+      short: 'Pool',
+      detail: '$2.40 in the pool',
+      warn: false,
+    });
     expect(account.poolLow()).toBe(false);
     expect(account.poolModel()).toEqual({ id: 'fast', label: 'Simple' });
     expect(account.poolModelHint()).toBe('The community pool uses Simple.');
@@ -295,7 +335,7 @@ describe('AccountStore community pool', () => {
     await account.refreshKey();
     expect(account.hasOwnKey()).toBe(true);
     expect(account.payment.payment()).toBe('own-key');
-    expect(account.poolLabel()).toBeNull();
+    expect(account.paidBy().label).toBe('Your OpenRouter key');
     expect(account.poolModel()).toBeNull();
     expect(account.fundingChoice()).toBe(false);
   });

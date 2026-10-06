@@ -12,8 +12,9 @@ import { SCOPE_LABEL } from './share-list';
 /**
  * One share as a card (`<li app-share-card>` in a `.card-list`), shared by the
  * Shares page and the share dialog: scope, mode, state, dates, the link, and
- * copy / open / edit / republish / revoke. Emits the share the server returns
- * after each change; the list owning it swaps it in.
+ * copy / open / edit / republish / revoke / delete. Emits the share the server
+ * returns after each change, which the list owning it swaps in, and the id of a
+ * deleted share, which it drops.
  */
 @Component({
   selector: 'li[app-share-card]',
@@ -108,6 +109,14 @@ import { SCOPE_LABEL } from './share-list';
           Revoke
         </button>
       }
+      <button
+        type="button"
+        class="btn btn-sm btn-danger-ghost"
+        [disabled]="busy()"
+        (click)="remove()"
+      >
+        <app-icon name="trash" /> Delete
+      </button>
     </div>
   `,
 })
@@ -123,6 +132,8 @@ export class ShareCard {
   readonly branch = input<string | null>(null);
   /** The share as the server returned it after a republish, revoke or edit. */
   readonly changed = output<ShareSummary>();
+  /** Id of the share once the server has deleted it. */
+  readonly deleted = output<string>();
 
   protected readonly busy = signal(false);
   protected readonly editing = signal(false);
@@ -149,6 +160,27 @@ export class ShareCard {
       return Promise.resolve(false);
     }
     return this.act(() => this.api.revokeShare(s.id), 'Link revoked');
+  }
+
+  /** Deletes the share (after a confirm); false when cancelled or it failed. */
+  protected async remove(): Promise<boolean> {
+    const s = this.share();
+    const stops = s.state === 'active' ? ' The link stops working immediately.' : '';
+    if (!confirm(`Delete “${s.title ?? s.treeTitle}”?${stops} This cannot be undone.`)) {
+      return false;
+    }
+    this.busy.set(true);
+    try {
+      await this.api.deleteShare(s.id);
+      this.deleted.emit(s.id);
+      this.ui.notify('Share deleted');
+      return true;
+    } catch (err) {
+      this.store.fail(err);
+      return false;
+    } finally {
+      this.busy.set(false);
+    }
   }
 
   protected startEdit(): void {

@@ -5,15 +5,16 @@ import { BRAND, BRAND_SHORT } from '../brand';
 import { DEMO_EXIT_URL } from '../demo/demo-mode';
 import { AccountStore } from '../state/account-store';
 import { UiStore } from '../state/ui-store';
+import { PaidBy } from './paid-by';
 
 /**
- * Brand, the Power / Learn switch, how replies are paid for (the credit
- * balance or the community pool, linking to billing, or "Your key") and the
- * account menu.
+ * Brand, the Power / Learn switch, what replies are paid by (own key, credit
+ * or the community pool: a button that opens "How replies are paid for") and
+ * the account menu.
  */
 @Component({
   selector: 'app-header',
-  imports: [RouterLink, Icon, Logo, ModeSwitch, AccountId],
+  imports: [RouterLink, Icon, Logo, ModeSwitch, AccountId, PaidBy],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="app-head">
@@ -25,40 +26,7 @@ import { UiStore } from '../state/ui-store';
       </a>
       <app-mode-switch current="simple" />
       <span class="spacer"></span>
-      @if (account.needsKey()) {
-        <button type="button" class="key-pill balance-low" (click)="ui.accessOpen.set(true)">
-          Add your key
-        </button>
-      } @else if (account.payment.payment() === 'own-key' && account.keyStatus()) {
-        <button
-          type="button"
-          class="key-pill"
-          title="Replies run on your own OpenRouter key"
-          (click)="ui.accessOpen.set(true)"
-        >
-          Your key
-        </button>
-      } @else if (account.poolLabel(); as pool) {
-        <a
-          routerLink="/billing"
-          class="balance-pill"
-          [class.balance-low]="account.poolLow()"
-          [attr.aria-label]="'Replies run on the community pool: ' + pool + '. Open billing'"
-          title="Community pool · Billing"
-        >
-          {{ pool }}
-        </a>
-      } @else if (account.balanceLabel(); as balance) {
-        <a
-          routerLink="/billing"
-          class="balance-pill"
-          [class.balance-low]="account.lowBalance()"
-          [attr.aria-label]="'Credit: ' + balance + '. Open billing'"
-          title="Credit left · Billing"
-        >
-          {{ balance }}
-        </a>
-      }
+      <app-paid-by variant="header" />
       <div class="menu-anchor">
         <button
           type="button"

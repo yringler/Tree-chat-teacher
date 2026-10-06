@@ -66,6 +66,7 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *   PATCH  /api/shares/:shareId   UpdateShareRequest -> ShareSummary
  *   POST   /api/shares/:shareId/republish         -> ShareSummary
  *   POST   /api/shares/:shareId/revoke            -> ShareSummary
+ *   DELETE /api/shares/:shareId                   -> 204 (the link 404s from then on)
  *   GET    /api/export?treeId=&scope=&nodeId=&format=md|html&includeAncestors= -> file download
  *   GET    /api/trees/:treeId/backup              -> TreeBackup (JSON download)
  *   POST   /api/import            TreeBackup      -> TreeDetail (new ids)
