@@ -42,7 +42,7 @@
 
   <ul class="card-list">
     @for (s of shares(); track s.id) {
-      <li app-share-card [share]="s" (changed)="replace($event)"></li>
+      <li app-share-card [share]="s" (changed)="replace($event)" (deleted)="drop($event)"></li>
     }
   </ul>
 </div>

@@ -255,6 +255,10 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
         else if (snapshotJson !== undefined) state.snapshots.set(shareId, snapshotJson);
         return withTree(s);
       },
+      async deleteShare(shareId) {
+        state.snapshots.delete(shareId);
+        return state.shares.delete(shareId);
+      },
       async getSnapshot(shareId) {
         return state.snapshots.get(shareId) ?? null;
       },
