@@ -86,6 +86,23 @@ function isNotFound(err: unknown): boolean {
   return err instanceof PolarClientError && err.statusCode === 404;
 }
 
+/**
+ * Polar's answer to a customer session for an external id it has no customer
+ * for: not a 404 but a 422 validation error on the body field, `{ detail: [{
+ * loc: ['body', 'external_customer_id'], msg: 'Customer does not exist.' }] }`.
+ */
+function isUnknownCustomer(err: unknown): boolean {
+  if (!(err instanceof PolarClientError) || err.statusCode !== 422) return false;
+  const detail = (err.error as { detail?: unknown } | null)?.detail;
+  return (
+    Array.isArray(detail) &&
+    detail.some((d: unknown) => {
+      const loc = (d as { loc?: unknown } | null)?.loc;
+      return Array.isArray(loc) && loc.at(-1) === 'external_customer_id';
+    })
+  );
+}
+
 function notConfigured(what: string): PaymentProviderError {
   return new PaymentProviderError(`Polar: no ${what} product is configured`, null, false);
 }
@@ -191,7 +208,7 @@ export function createPolarProvider(config: PolarConfig): PaymentProvider {
         });
         return { url: session.customer_portal_url, customerRef: session.customer_id };
       } catch (err) {
-        if (isNotFound(err)) return null;
+        if (isUnknownCustomer(err) || isNotFound(err)) return null;
         throw providerError('customerSessions.create', err);
       }
     },
