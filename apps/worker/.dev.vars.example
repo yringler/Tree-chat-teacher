@@ -50,8 +50,9 @@ DEV_ALLOW_NO_AUTH=true
 # POLAR_WEBHOOK_SECRET=whsec_...
 # The sandbox credits product (one-time; each checkout sets its own USD price):
 # POLAR_CREDITS_PRODUCT_ID=...
-# The sandbox membership product (yearly; empty = no membership needed to generate), and the flag that
-# charges it (off in wrangler.jsonc: without it nobody needs a membership, whatever is sold):
+# The sandbox membership product (yearly; empty = no membership is sold), and the flag that charges it
+# (off in wrangler.jsonc: without it nobody needs a membership, whatever is sold). Both set = power mode
+# (and Canvas) on own keys and buying credit need a membership; Learn and spending held credit never do:
 # POLAR_MEMBERSHIP_PRODUCT_ID=...
 # ANNUAL_FEE_ENABLED=true
 # A code that waives the membership fee for whoever enters it (empty = no code redemption):
