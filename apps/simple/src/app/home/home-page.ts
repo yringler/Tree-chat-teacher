@@ -8,13 +8,23 @@ import { lessonTitle } from '../chat/titles';
 import { ModelToggle } from '../chat/model-toggle';
 import { AccountStore } from '../state/account-store';
 import { ImportLessonButton } from './import-lesson-button';
+import { PaidBy } from '../shell/paid-by';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
 
 /** `/learn/`: start a new lesson, list the existing ones (Export, Delete) and import one. */
 @Component({
   selector: 'app-home-page',
-  imports: [Composer, ModelToggle, PoolMeter, RouterLink, Icon, ImportLessonButton, DatePipe],
+  imports: [
+    Composer,
+    ModelToggle,
+    PoolMeter,
+    RouterLink,
+    Icon,
+    ImportLessonButton,
+    PaidBy,
+    DatePipe,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page-body">
@@ -58,9 +68,12 @@ import { UiStore } from '../state/ui-store';
                 (changed)="pickedModel.set($event)"
               />
             }
-            <button type="submit" class="btn btn-primary" [disabled]="starting()">
-              <app-icon name="plus" /> Start lesson
-            </button>
+            <div class="start-group">
+              <app-paid-by />
+              <button type="submit" class="btn btn-primary" [disabled]="starting()">
+                <app-icon name="plus" /> Start lesson
+              </button>
+            </div>
           </div>
         </form>
       </section>
