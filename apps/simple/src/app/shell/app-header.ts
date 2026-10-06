@@ -19,7 +19,7 @@ import { UiStore } from '../state/ui-store';
     <header class="app-head">
       <a routerLink="/" class="brand" [attr.aria-label]="brand">
         <app-logo [size]="22" />
-        <span aria-hidden="true"
+        <span class="brand-word" aria-hidden="true"
           >{{ brandShort }}<span class="hide-narrow">{{ brandRest }}</span></span
         >
       </a>

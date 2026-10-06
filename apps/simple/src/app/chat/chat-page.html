@@ -15,35 +15,37 @@
         <app-icon name="back" />
       </a>
       <h1 class="lesson-title" [attr.title]="lessonTitle()">{{ lessonTitle() }}</h1>
-      @if (store.models().length > 1 && store.selectedBranch(); as b) {
-        <app-model-toggle
-          [models]="store.models()"
-          [value]="account.poolModel()?.id ?? b.model"
-          [disabled]="store.busy() || switching()"
-          [lockedHint]="account.poolModelHint()"
-          (changed)="setModel(b.id, $event)"
-        />
-      }
-      <app-text-size-menu heading="Lesson text size" />
-      <button
-        type="button"
-        class="icon-btn"
-        aria-label="Export this lesson"
-        title="Export (download a backup)"
-        [disabled]="store.exportingId() !== null"
-        (click)="exportLesson()"
-      >
-        <app-icon name="download" />
-      </button>
-      <button
-        type="button"
-        class="icon-btn"
-        aria-label="Delete this lesson"
-        title="Delete this lesson"
-        (click)="deleteLesson()"
-      >
-        <app-icon name="trash" />
-      </button>
+      <div class="lesson-tools">
+        @if (store.models().length > 1 && store.selectedBranch(); as b) {
+          <app-model-toggle
+            [models]="store.models()"
+            [value]="account.poolModel()?.id ?? b.model"
+            [disabled]="store.busy() || switching()"
+            [lockedHint]="account.poolModelHint()"
+            (changed)="setModel(b.id, $event)"
+          />
+        }
+        <app-text-size-menu heading="Lesson text size" />
+        <button
+          type="button"
+          class="icon-btn"
+          aria-label="Export this lesson"
+          title="Export (download a backup)"
+          [disabled]="store.exportingId() !== null"
+          (click)="exportLesson()"
+        >
+          <app-icon name="download" />
+        </button>
+        <button
+          type="button"
+          class="icon-btn"
+          aria-label="Delete this lesson"
+          title="Delete this lesson"
+          (click)="deleteLesson()"
+        >
+          <app-icon name="trash" />
+        </button>
+      </div>
     </div>
     @if (store.parentBranch(); as parent) {
       <nav class="crumbs" aria-label="Side question path">

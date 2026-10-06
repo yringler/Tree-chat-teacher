@@ -271,6 +271,37 @@ test('Learn demo: the lesson text size scales the messages only, and is remember
   expect(errors).toEqual([]);
 });
 
+test('Learn demo: on a phone the lesson title stays whole and every header control is on screen', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  for (const width of [360, 400]) {
+    await page.setViewportSize({ width, height: 720 });
+    await page.goto('/learn/demo/');
+    await page.locator('.lesson-row a').first().click();
+    const title = page.locator('.lesson-title');
+    await expect(title).toHaveText('How do kittens learn to whistle?');
+    // Not cut short: the title has a row of its own, the tools the next one.
+    expect(await title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    expect(await title.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+    const titleBox = (await title.boundingBox())!;
+    const tools = (await page.locator('.lesson-tools').boundingBox())!;
+    expect(tools.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height - 1);
+    // Nothing off the side of the page: the account menu and Aa are reachable.
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    );
+    for (const name of ['Account', 'Text size', 'Export this lesson', 'Delete this lesson']) {
+      const box = (await page.getByRole('button', { name, exact: true }).boundingBox())!;
+      expect(box.x + box.width, name).toBeLessThanOrEqual(width);
+    }
+    await page.getByRole('button', { name: 'Text size' }).click();
+    await expect(page.getByText('Lesson text size')).toBeVisible();
+    await page.keyboard.press('Escape');
+  }
+  expect(errors).toEqual([]);
+});
+
 test('power demo: ask your own question under a reply, inline or through the branch dialog', async ({
   page,
 }) => {

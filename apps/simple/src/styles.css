@@ -45,6 +45,28 @@ body {
   white-space: nowrap;
 }
 
+/*
+ * Narrow screens: the logo alone stands for the brand (the link keeps its
+ * name) and the mode switch is tighter, so the account menu stays on screen.
+ */
+.brand-word {
+  display: none;
+}
+
+.app-head .mode-switch-opt {
+  padding: 2px 6px;
+}
+
+@media (min-width: 480px) {
+  .brand-word {
+    display: inline;
+  }
+
+  .app-head .mode-switch-opt {
+    padding: 2px 8px;
+  }
+}
+
 .spacer {
   flex: 1;
 }
@@ -312,13 +334,40 @@ body {
   gap: 6px;
 }
 
+.lesson-head-row {
+  flex-wrap: wrap;
+}
+
+/*
+ * Narrow screens: the title has the first row to itself (after Back), up to
+ * two lines, and the tools (Smart/Simple, Aa, export, delete) the second.
+ */
 .lesson-title {
-  flex: 1;
+  flex: 1 1 calc(100% - 48px);
   min-width: 0;
   font-size: 1rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.lesson-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+@media (min-width: 480px) {
+  .lesson-title {
+    flex: 1 1 0;
+    display: block;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .crumbs {
