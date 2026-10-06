@@ -46,7 +46,7 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
 
 /**
  * Users, newest first, searchable by email: the per-user "May share"
- * permission, the community pool suspension, the user's credit balance with a
+ * permission, the open pool suspension, the user's credit balance with a
  * form to add (or take back) credit, and, expanded, the user's shares with
  * Revoke (a takedown).
  */
@@ -119,7 +119,7 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
                     [disabled]="busy().has(u.id)"
                     (change)="setPoolSuspended(u, $any($event.target))"
                   />
-                  <span class="sr-only">{{ u.email }}'s community pool access is suspended</span>
+                  <span class="sr-only">{{ u.email }}'s open pool access is suspended</span>
                 </label>
               </td>
               <td class="admin-nowrap">
@@ -304,7 +304,7 @@ export class UsersPage {
     });
   }
 
-  /** Suspends (or restores) the user's community pool access; their next pool request is refused. */
+  /** Suspends (or restores) the user's open pool access; their next pool request is refused. */
   protected async setPoolSuspended(user: AdminUser, box: HTMLInputElement): Promise<void> {
     const suspended = box.checked;
     await this.run(user.id, async () => {

@@ -1,4 +1,4 @@
-// Server-side Cloudflare Turnstile check (Siteverify) for the community pool's
+// Server-side Cloudflare Turnstile check (Siteverify) for the open pool's
 // human check: the interstitial after a first OAuth sign-in and
 // `POST /api/pool/verify`. Magic-link sign-ins are checked by Better Auth's
 // captcha plugin instead (auth/auth.ts). Fails closed: no secret, a network

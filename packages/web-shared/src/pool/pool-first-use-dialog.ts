@@ -27,8 +27,8 @@ import { Modal } from '../ui/modal';
     @if (consentVersion() === null) {
       <app-modal heading="One quick check" (closed)="closed.emit()">
         <p>
-          The community pool is for learners, so before your first message on it we check that
-          you're a person, not a script. It takes a few seconds, once.
+          The open pool is for learners, so before your first message on it we check that you're a
+          person, not a script. It takes a few seconds, once.
         </p>
         <p class="muted small">
           You come back to this lesson afterwards; then send your message again.
@@ -39,7 +39,7 @@ import { Modal } from '../ui/modal';
         </div>
       </app-modal>
     } @else if (stale()) {
-      <app-modal heading="The community pool notice has changed" (closed)="closed.emit()">
+      <app-modal heading="The open pool notice has changed" (closed)="closed.emit()">
         <p>Reload the page to read the new notice before your next message on the pool.</p>
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" (click)="closed.emit()">Not now</button>
@@ -47,7 +47,7 @@ import { Modal } from '../ui/modal';
         </div>
       </app-modal>
     } @else {
-      <app-modal heading="Before you use the community pool" (closed)="closed.emit()">
+      <app-modal heading="Before you use the open pool" (closed)="closed.emit()">
         <p>{{ noticeText }}</p>
         <label class="check">
           <input

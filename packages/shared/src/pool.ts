@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { formatBps } from './money.js';
 
 /**
- * The community credit pool (docs/pool/SPEC.md): free credit Tangent provides
+ * The open credit pool (docs/pool/SPEC.md): free credit Tangent provides
  * from its own revenue (`poolFundingText`; nobody buys pool credit), spent at
  * cost by signed-in Learn users on one economical model within daily caps.
  *
@@ -10,7 +10,7 @@ import { formatBps } from './money.js';
  * from the payment header and the user's credit (never the client alone):
  * - `own-key`: the user's own provider key; nothing is metered.
  * - `personal`: the user's prepaid credit (the built-in provider, metered).
- * - `pool`: the community pool.
+ * - `pool`: the open pool.
  */
 export type FundingSource = 'own-key' | 'personal' | 'pool';
 
@@ -174,7 +174,7 @@ export interface PoolConsentResponse {
  * The empty state, wherever it shows (spec §8). Only Tangent adds credit to
  * the pool (`poolFundingText`), so the copy never says people refill it.
  */
-export const POOL_EMPTY_TEXT = 'The community pool is empty until Tangent adds more credit.';
+export const POOL_EMPTY_TEXT = 'The open pool is empty until Tangent adds more credit.';
 
 /** `about 1,240 learning sessions`; `1` is singular and 0 reads "no learning sessions". */
 export function poolSessionsText(sessions: number): string {
@@ -205,9 +205,29 @@ export function poolWeekText(week: { learners: number; exchanges: number }): str
  * implements it. Nobody can buy credit for the pool.
  */
 export function poolFundingText(revenueShareBps: number): string {
-  if (revenueShareBps <= 0) return 'The community pool is free credit Tangent provides.';
+  if (revenueShareBps <= 0) return 'The open pool is free credit Tangent provides.';
   const share = formatBps(revenueShareBps);
-  return `The community pool is free credit Tangent provides. Tangent puts ${share} of what it earns into it: ${share} of each membership payment after payment fees, and ${share} of the markup on credit as it's used.`;
+  return `The open pool is free credit Tangent provides. Tangent puts ${share} of what it earns into it: ${share} of each membership payment after payment fees, and ${share} of its markup on credit as it's used.`;
+}
+
+/** The pool's motto: Tangent, not its customers, keeps learning open. */
+export const POOL_MOTTO = 'Tangent keeps learning open.';
+
+/**
+ * How the pool comes about, as three short steps for the landing and pricing
+ * pages. Tangent is the subject of every step that moves money: a customer
+ * pays for Tangent, never for someone else's learning (docs/DECISIONS.md).
+ */
+export function poolSteps(revenueShareBps: number, memberships: boolean): [string, string, string] {
+  const setAside =
+    revenueShareBps > 0
+      ? `It sets aside ${formatBps(revenueShareBps)} of what it earns as the open pool.`
+      : 'It sets aside free credit as the open pool.';
+  return [
+    `Tangent earns from ${memberships ? 'memberships and credit' : 'the credit people buy'}, like any software business.`,
+    setAside,
+    'Anyone signed in learns free on it, within daily limits, while it has credit.',
+  ];
 }
 
 /** What a pool reply costs the pool: its true cost, with no markup (Tangent funds the pool). */
@@ -216,10 +236,13 @@ export const POOL_AT_COST_TEXT =
 
 /**
  * Words pool copy must never use: the pool is free credit Tangent provides,
- * not a donation or anything people pay into (spec reasoning 3). Tests run
- * every pool page and template through it.
+ * not a donation, a sponsorship or anything people pay into (spec reasoning
+ * 3; the payment provider's acceptable use policy, docs/DECISIONS.md).
+ * Tests run every pool page and template through it. "Contribute" isn't
+ * here: the pool notice uses it for the topic tags.
  */
-export const FORBIDDEN_POOL_COPY = /donat|donor|tax[- ]?deductible|charit/i;
+export const FORBIDDEN_POOL_COPY =
+  /donat|donor|tax[- ]?deductible|charit|sponsor|crowdfund|patron|pledge|give back|pay(s|ing)? it forward|helped|supporter|community/i;
 
 // ---- The impact feed (spec §9 "Weekly aggregation", docs/pool/PLAN.md §S8b)
 

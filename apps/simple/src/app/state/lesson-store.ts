@@ -58,7 +58,7 @@ export interface UnsentDraft {
 }
 
 /**
- * A message the community pool refused (402 `pool_empty`, 429
+ * A message the open pool refused (402 `pool_empty`, 429
  * `pool_cap_reached`), shown inline in its branch above the composer.
  */
 export interface LessonPoolBlock extends PoolBlock {
@@ -87,7 +87,7 @@ const LEARN_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
 export const OUT_OF_CREDIT_MESSAGE = 'Add credit to keep learning';
 /** The pool notice changed since this page loaded: its copy of the text is stale. */
 export const STALE_POOL_NOTICE_MESSAGE =
-  'The community pool notice has changed. Reload the page to read the new one.';
+  'The open pool notice has changed. Reload the page to read the new one.';
 
 function upsertById<T extends { id: string }>(list: readonly T[], items: readonly T[]): T[] {
   const out = [...list];
@@ -106,7 +106,7 @@ function upsertById<T extends { id: string }>(list: readonly T[], items: readonl
  * asks the server to cancel (the stream then ends with an `error` event),
  * and replies still running when a lesson is opened are re-attached.
  * A 402 `payment_required` (out of credit) sends the learner to the billing
- * page; a 402 `membership_required` shows the membership gate. The community
+ * page; a 402 `membership_required` shows the membership gate. The open
  * pool's refusals are states, not errors: empty (402 `pool_empty`) and cap
  * reached (429 `pool_cap_reached`) show inline in the chat (`poolBlock`),
  * and a first pool message without a human check on record opens the check.
@@ -540,7 +540,7 @@ export class LessonStore {
   /** Whether replies in `branchId` can be checked against web sources (not on the pool). */
   canCheckSources(branchId: string): boolean {
     const branch = this.index()?.branches.get(branchId);
-    // The community pool can't pay for searches (its holds are priced from tokens alone).
+    // The open pool can't pay for searches (its holds are priced from tokens alone).
     if (!branch || this.account.payment.payment() === 'pool') return false;
     return this.providers().find((p) => p.id === branch.providerId)?.webSearch === true;
   }

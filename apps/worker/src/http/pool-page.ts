@@ -24,7 +24,7 @@ import { legalInfo, type LegalInfo } from './legal-info.js';
 import { legalResponse, page } from './legal.js';
 
 /**
- * `/pool`: how the community pool works (spec §8, transparency page). A
+ * `/pool`: how the open pool works (spec §8, transparency page). A
  * static, script-free page like the legal pages, whose numbers (revenue
  * share, model, caps) come from the config module, so it always describes
  * what this deployment does. The pool is free credit Tangent provides from
@@ -134,7 +134,7 @@ function smallMoney(micros: number): string {
 function membersText(offered: boolean): string {
   if (!offered)
     return 'There is no membership here right now, so every learner gets the free limits.';
-  return 'Anyone with a Tangent membership (yearly) is a member, and gets the higher limits above. Part of every membership payment goes into the pool. Paid accounts are much harder to farm than free ones, so they get more room.';
+  return 'Anyone with a Tangent membership (yearly) is a member, and gets the higher limits above. Paid accounts are much harder to farm than free ones, so they get more room.';
 }
 
 /** Where the pool's credit comes from, in detail (the summary states the commitment). */
@@ -163,18 +163,20 @@ export function renderPoolPage(
       : `<p>Before a reply starts, the pool sets aside what the longest possible reply could cost (about ${escapeHtml(smallMoney(f.ceilingHoldMicros))}) and settles the real cost when it ends. So the last ${escapeHtml(smallMoney(f.ceilingHoldMicros))} or so of a daily spending limit can't start a new reply.</p>\n`;
   const added =
     contributions && f.revenueShareBps > 0
-      ? `<p>So far the revenue share has added ${escapeHtml(formatMicros(contributions.weekMicros))} to the pool this week (since Monday, UTC) and ${escapeHtml(formatMicros(contributions.monthMicros))} this month.</p>\n`
+      ? `<p>So far Tangent’s revenue share has added ${escapeHtml(formatMicros(contributions.weekMicros))} to the pool this week (since Monday, UTC) and ${escapeHtml(formatMicros(contributions.monthMicros))} this month.</p>\n`
       : '';
   const contact = escapeHtml(info.contactEmail);
   return page(
     info,
     '/pool',
-    'The community pool',
-    `<h1>The community pool</h1>
+    'The open pool',
+    `<h1>The open pool: how Tangent keeps learning free</h1>
 <div class="summary">
 <p><strong>The short version.</strong> ${escapeHtml(poolFundingText(f.revenueShareBps))} Any signed-in learner can use it in Tangent Learn, on one economical model, within daily limits.</p>
 </div>
-${f.enabled ? '' : '<p class="updated">The community pool is not open on this server yet.</p>\n'}
+<h2>Why it exists</h2>
+<p>Good AI tutoring costs real money for every reply, so most of it sits behind a paywall. Tangent charges for ${f.membershipOffered ? 'memberships and credit' : 'credit'} like any software business, and keeps a share of what it earns open for anyone who wants to learn. Paying for Tangent pays for Tangent; the pool is Tangent’s own decision, within daily limits and while it has credit.</p>
+${f.enabled ? '' : '<p class="updated">The open pool isn’t running on this server yet.</p>\n'}
 <h2>Where the credit comes from</h2>
 <p>${escapeHtml(sourcesText(f.revenueShareBps))}</p>
 ${added}

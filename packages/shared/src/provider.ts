@@ -32,7 +32,7 @@ export interface ModelInfo {
 
 /**
  * Why a provider call is made; recorded with its usage for billing.
- * `tagging` is the community pool's topic classifier (charged to the pool).
+ * `tagging` is the open pool's topic classifier (charged to the pool).
  */
 export type UsagePurpose = 'reply' | 'summary' | 'title' | 'review' | 'tagging' | 'other';
 
@@ -45,7 +45,7 @@ export interface UsageTag {
   /** The node the call produces or is about (reply/review); null for summaries and titles. */
   nodeId: string | null;
   /**
-   * Community pool only: the pending usage row reserved for this call before
+   * Open pool only: the pending usage row reserved for this call before
    * it was assembled (the reply's ceiling hold). The meter shrinks that row's
    * hold to the call's exact worst case instead of reserving a second time.
    */
@@ -102,7 +102,7 @@ export interface ProviderError {
   /** HTTP status, if the error came from an HTTP response. */
   status?: number;
   retryable: boolean;
-  /** Set by providers that know it (openai-compatible); read by the community pool's settlement. */
+  /** Set by providers that know it (openai-compatible); read by the open pool's settlement. */
   upstream?: ProviderUpstream;
 }
 

@@ -43,7 +43,7 @@ export interface DeletedUser {
  *    summaries and shares with their snapshots go by ON DELETE CASCADE),
  *    any share or setting left over, their subscription and payment-customer
  *    rows, the account
- *    rows, the community pool notice acknowledgments (`pool_consents`) and
+ *    rows, the open pool notice acknowledgments (`pool_consents`) and
  *    the topic tags of branches the user's pool calls served
  *    (`pool_topic_tags`, found through their `usage_events`), and the auth
  *    user (sessions, linked OAuth identities and passkeys cascade).
@@ -55,7 +55,7 @@ export interface DeletedUser {
  * which holds amounts, model names and token counts but no message content.
  * Tax and accounting law require keeping payment records, and once the
  * user row is gone the `u_<userId>` id leads nowhere. The privacy policy
- * (http/legal.ts) says so. Also kept: the community pool's identity records
+ * (http/legal.ts) says so. Also kept: the open pool's identity records
  * (`pool_identity_holders`, `pool_identities`: a SHA-256 of the normalised
  * email, user ids and a suspension flag, no address), and a suspended user's
  * suspension is written there first, so signing up again with the same

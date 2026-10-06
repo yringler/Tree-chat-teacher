@@ -216,7 +216,7 @@ describe('AccountStore membership', () => {
     expect(account.payment.payment()).toBe('credit');
     account.membershipRequired();
     expect(account.membershipBlocked()).toBe(true);
-    expect(account.freeTierOffered()).toBe('Continue free on the community pool');
+    expect(account.freeTierOffered()).toBe('Continue free on the open pool');
     account.useFreeTier();
     expect(account.membershipBlocked()).toBe(false);
     expect(account.payment.payment()).toBe('pool');
@@ -284,7 +284,7 @@ describe('AccountStore paidBy', () => {
   });
 });
 
-describe('AccountStore community pool', () => {
+describe('AccountStore open pool', () => {
   it('offers the pool while it is on, and shows its pill while replies run on it', async () => {
     const { account, api } = setup(async () => summary(membership()));
     account.setMe(me(membership({ required: false })));
@@ -297,14 +297,14 @@ describe('AccountStore community pool', () => {
     account.payment.choose('pool');
     expect(account.paidBy()).toEqual({
       payment: 'pool',
-      label: 'Community pool',
+      label: 'Open pool',
       short: 'Pool',
       detail: '$2.40 in the pool',
       warn: false,
     });
     expect(account.poolLow()).toBe(false);
     expect(account.poolModel()).toEqual({ id: 'fast', label: 'Simple' });
-    expect(account.poolModelHint()).toBe('The community pool uses Simple.');
+    expect(account.poolModelHint()).toBe('The open pool uses Simple.');
   });
 
   it('offers the funding toggle only while both own credit and the pool can pay', async () => {

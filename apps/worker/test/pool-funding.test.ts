@@ -1,4 +1,4 @@
-// How credit reaches the community pool now that nobody buys it
+// How credit reaches the open pool now that nobody buys it
 // (docs/polar-migration/05-pool-framing.md, D1): a pool-target payment is
 // never credited, legacy pool purchase grants are still debited (clamped) by
 // their refunds and disputes, checkouts are personal only, and the admin's

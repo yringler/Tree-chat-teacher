@@ -1,6 +1,6 @@
 /**
  * Edge cache for public share responses (PLAN §1 "Public share"), also used
- * by the community pool's meter (pool/status.ts). Share keys embed
+ * by the open pool's meter (pool/status.ts). Share keys embed
  * the share version so a republish never serves stale content; purge is
  * best-effort because the Cache API is per-colo. Every helper swallows Cache
  * API failures (unavailable on workers.dev / in some test setups): worst case

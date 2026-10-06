@@ -6,7 +6,7 @@ import { ImpactFeed } from './impact-feed';
 import { PoolMeter } from './pool-meter';
 
 /**
- * "The community pool" on the billing page of both apps: the meter, last
+ * "The open pool" on the billing page of both apps: the meter, last
  * week's impact feed once a snapshot exists, where the pool's credit comes
  * from (`poolFundingText`: Tangent's revenue share; nobody buys pool credit)
  * and a link to `/pool`. Nothing renders while the pool is off or its status
@@ -20,7 +20,7 @@ import { PoolMeter } from './pool-meter';
     @if (status(); as s) {
       @if (s.enabled) {
         <section class="card billing-section pool-section" aria-labelledby="pool-section-h">
-          <h2 id="pool-section-h" class="billing-h">The community pool</h2>
+          <h2 id="pool-section-h" class="billing-h">The open pool</h2>
           <app-pool-meter [status]="s" />
           <app-impact-feed />
           <p class="muted small">

@@ -16,7 +16,7 @@ import { UiStore } from './ui-store';
 /** What Learn's replies run on right now, for the header and the New lesson form. */
 export interface PaidBy {
   readonly payment: LearnPayment;
-  /** "Your OpenRouter key", "Tangent credit" or "Community pool". */
+  /** "Your OpenRouter key", "Tangent credit" or "Open pool". */
   readonly label: string;
   /** The header's shorter name: "Your key", "Credit" or "Pool". */
   readonly short: string;
@@ -28,7 +28,7 @@ export interface PaidBy {
 
 /**
  * The signed-in caller, their membership, how they pay (own key, credit or
- * the community pool), their credit balance and the pool's meter.
+ * the open pool), their credit balance and the pool's meter.
  */
 @Injectable({ providedIn: 'root' })
 export class AccountStore {
@@ -43,7 +43,7 @@ export class AccountStore {
   readonly membership = signal<MembershipInfo | null>(null);
   /** The key cookie's state; null until loaded (and in the demo, which has no keys). */
   readonly keyStatus = signal<KeyStatusResponse | null>(null);
-  /** The community pool's meter; null until loaded or when it can't be read. */
+  /** The open pool's meter; null until loaded or when it can't be read. */
   readonly poolStatus = signal<PoolStatusResponse | null>(null);
   /** The learner's caps and use of the pool today; null until loaded, or while the pool is off. */
   readonly poolMe = signal<PoolMeResponse | null>(null);
@@ -66,13 +66,13 @@ export class AccountStore {
 
   /**
    * The gate's way out, continuing on the free tier without a membership:
-   * the community pool while it is on, else the learner's own key.
+   * the open pool while it is on, else the learner's own key.
    */
   readonly freeTierOffered = computed(() =>
     this.demo
       ? null
       : this.payment.poolAvailable()
-        ? 'Continue free on the community pool'
+        ? 'Continue free on the open pool'
         : 'Continue with my own OpenRouter key',
   );
 
@@ -114,7 +114,7 @@ export class AccountStore {
       const status = this.poolStatus();
       return {
         payment,
-        label: 'Community pool',
+        label: 'Open pool',
         short: 'Pool',
         detail: status?.enabled ? `${formatMicros(status.availableMicros)} in the pool` : null,
         warn: this.poolLow(),
@@ -140,7 +140,7 @@ export class AccountStore {
     );
   });
 
-  /** On the community pool, which uses one model: the Smart/Simple switch shows it, locked. */
+  /** On the open pool, which uses one model: the Smart/Simple switch shows it, locked. */
   readonly poolModel = computed(() => {
     const status = this.poolStatus();
     return status?.enabled && this.payment.payment() === 'pool' ? status.model : null;
@@ -149,7 +149,7 @@ export class AccountStore {
   /** Why the Smart/Simple switch is locked, or null when it isn't. */
   readonly poolModelHint = computed(() => {
     const model = this.poolModel();
-    return model ? `The community pool uses ${model.label}.` : null;
+    return model ? `The open pool uses ${model.label}.` : null;
   });
 
   /**
@@ -221,7 +221,7 @@ export class AccountStore {
 
   /**
    * The gate's way out (`freeTierOffered`): closes the gate and moves replies
-   * off credit, to the community pool while it is on, else to the learner's
+   * off credit, to the open pool while it is on, else to the learner's
    * own key (the composer then asks for one if none is saved).
    */
   useFreeTier(): void {
@@ -260,7 +260,7 @@ export class AccountStore {
       this.payment.poolAvailable.set(status.enabled);
       this.poolMe.set(status.enabled && !this.demo ? await this.api.poolMe() : null);
     } catch (err) {
-      console.warn('Could not load the community pool', err);
+      console.warn('Could not load the open pool', err);
     }
   }
 
@@ -276,7 +276,7 @@ export class AccountStore {
   });
 
   /**
-   * The learner switched replies to the community pool: re-reads it and, if
+   * The learner switched replies to the open pool: re-reads it and, if
    * they haven't acknowledged the current pool notice, shows it now (spec:
    * "when a user first switches to pool funding"). A pool send refused with
    * 403 `pool_consent_required` still opens it too.

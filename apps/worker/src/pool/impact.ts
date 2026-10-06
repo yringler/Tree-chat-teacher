@@ -1,4 +1,4 @@
-// The community pool's weekly impact snapshot (spec §9 "Weekly aggregation"
+// The open pool's weekly impact snapshot (spec §9 "Weekly aggregation"
 // and "Moderation", docs/pool/PLAN.md §S8b). The Monday cron aggregates the
 // ISO week just ended from the pool's usage rows and the request-time topic
 // tags (pool/tagging.ts) into one immutable public snapshot, then deletes

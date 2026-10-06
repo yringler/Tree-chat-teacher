@@ -33,7 +33,7 @@ export interface AdminUser {
   isAdmin: boolean;
   /** Shares of either of the user's accounts that are neither revoked nor expired. */
   activeShares: number;
-  /** The operator (or a lost dispute) suspended this user's community pool access. */
+  /** The operator (or a lost dispute) suspended this user's open pool access. */
   poolSuspended: boolean;
   /**
    * The user's prepaid credit (their `u_<id>` ledger, shared by both apps),
@@ -77,7 +77,7 @@ export const adminPoolUsageQuerySchema = z.object({
 });
 export type AdminPoolUsageQuery = z.infer<typeof adminPoolUsageQuerySchema>;
 
-/** One user's community pool consumption over the report's days. */
+/** One user's open pool consumption over the report's days. */
 export interface AdminPoolUsageRow {
   userId: string;
   /** Null when the user has been deleted. */
@@ -115,7 +115,7 @@ export interface AdminPoolUsageResponse {
 }
 
 /**
- * `GET /api/admin/pool`: the community pool's ledger and its overage breaker,
+ * `GET /api/admin/pool`: the open pool's ledger and its overage breaker,
  * for the admin pool panel (read-only; top-ups and corrections go through
  * `POST /api/admin/credit`).
  */
@@ -146,7 +146,7 @@ export interface AdminPoolResponse {
   };
 }
 
-/** The ledgers an admin can credit: a user's own, or the community pool. */
+/** The ledgers an admin can credit: a user's own, or the open pool. */
 export const ADMIN_CREDIT_TARGETS = ['personal', 'pool'] as const;
 
 /** Largest admin credit, either way, in US cents ($500). */
@@ -154,7 +154,7 @@ export const ADMIN_CREDIT_MAX_CENTS = 50_000;
 
 /**
  * `POST /api/admin/credit`: credit (or debit) a user's personal ledger or the
- * community pool without a payment.
+ * open pool without a payment.
  * - `adjustment`: a signed ledger adjustment (goodwill credit, a correction, or
  *   the operator adding credit to the pool). A negative pool adjustment is
  *   clamped to what the pool has available.

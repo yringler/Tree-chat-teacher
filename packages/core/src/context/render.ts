@@ -16,7 +16,7 @@ export interface RenderOptions {
   extraSystem?: string;
   /**
    * Render anchor quotes as quoted user-turn text instead of system sections
-   * (the community pool, whose system channel holds only its locked prompt
+   * (the open pool, whose system channel holds only its locked prompt
    * and summaries). Default false.
    */
   anchorsAsUserText?: boolean;

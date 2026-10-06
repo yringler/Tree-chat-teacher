@@ -6,7 +6,7 @@ import { UiStore } from '../state/ui-store';
 
 /**
  * What replies run on (the learner's own OpenRouter key, Tangent credit or
- * the community pool), as a button that opens "How replies are paid for".
+ * the open pool), as a button that opens "How replies are paid for".
  * `header` is the app header's pill ("Credit · $1.20", the amount hidden on
  * phones); `inline` sits next to Start lesson ("Replies paid by [Tangent
  * credit · $1.20 left  Change]"). The demo has no such dialog (it always runs on its pretend credit): the header pill

@@ -5,6 +5,7 @@ import {
   formatMicros,
   MAX_TOP_UP_CENTS,
   MIN_TOP_UP_CENTS,
+  POOL_MOTTO,
   poolFundingText,
 } from '@tangent/shared';
 import type { GroundingPolicy } from '@tangent/core';
@@ -15,9 +16,11 @@ import { paymentProvider } from '../billing/payments/index.js';
 import { appConfig, type PoolTierCaps } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { poolModel } from '../pool/params.js';
+import { cachedPoolStatus } from '../pool/status.js';
+import { waitUntilOf } from '../routes/pool.js';
 import { builtInAvailable, poolAvailable } from '../services.js';
 import { simpleProviderConfig } from '../simple-mode.js';
-import { LANDING_STYLE, MARK, styleCsp } from './landing.js';
+import { LANDING_STYLE, MARK, poolStepsHtml, styleCsp } from './landing.js';
 import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
 
 /**
@@ -25,22 +28,26 @@ import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
  * say it in a line or two, a comparison table spells it out row by row, and
  * numbered notes under the table carry the fine print (fees, tax, limits,
  * what needs a membership). Static and script-free like the landing page, and
- * every number comes from the config, so it describes what this deployment
- * actually sells: the free plan always; the paid column is the membership
+ * every number but the pool's balance comes from the config, so it describes
+ * what this deployment actually sells: the free plan always; the paid column is the membership
  * when one is required (`membershipRequired`), else pay-as-you-go credit when
- * credit is sold, else absent. The community pool is free credit Tangent
- * provides; nothing here offers it for sale or calls it a donation.
+ * credit is sold, else absent. The open pool is free credit Tangent
+ * provides; nothing here offers it for sale or calls it a donation. Each pool
+ * line on the plan cards says the replies last only while the pool has
+ * credit, with its balance from the landing page's cached meter.
  */
 
 /** Everything the page states, resolved from the config (one place, for the tests too). */
 export interface PricingFacts {
-  /** The community pool, while Learn may spend from it (`poolAvailable`). */
+  /** The open pool, while Learn may spend from it (`poolAvailable`). */
   pool: {
     modelLabel: string;
     revenueShareBps: number;
     maxOutputTokens: number;
     free: PoolTierCaps;
     member: PoolTierCaps;
+    /** What the pool can spend right now (the meter's `availableMicros`); null when it couldn't be read. */
+    availableMicros: number | null;
   } | null;
   /** Prepaid credit, while it is sold: the built-in provider is offered and the payment provider sells top-ups. */
   credit: {
@@ -56,7 +63,11 @@ export interface PricingFacts {
   sharing: boolean;
 }
 
-export function pricingFacts(env: AppEnv, sharing: boolean): PricingFacts {
+export function pricingFacts(
+  env: AppEnv,
+  sharing: boolean,
+  poolAvailableMicros: number | null = null,
+): PricingFacts {
   const config = appConfig(env);
   const poolId = poolModel(env);
   const creditSold = builtInAvailable(env) && (paymentProvider(env)?.capabilities.topUps ?? false);
@@ -69,6 +80,7 @@ export function pricingFacts(env: AppEnv, sharing: boolean): PricingFacts {
           maxOutputTokens: config.pool.maxOutputTokens,
           free: config.pool.caps.free,
           member: config.pool.caps.member,
+          availableMicros: poolAvailableMicros,
         }
       : null,
     credit: creditSold
@@ -96,6 +108,8 @@ export const PRICING_STYLE =
   `
 .intro{padding-top:24px;padding-bottom:40px}
 .intro .lede{max-width:40rem}
+.why{padding-bottom:56px}
+.why .sub{max-width:40rem}
 .plans{display:grid;gap:16px;padding-bottom:56px}
 .plan{display:flex;flex-direction:column;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-elev)}
 .plan.featured{border-color:var(--accent);box-shadow:var(--shadow)}
@@ -107,6 +121,7 @@ export const PRICING_STYLE =
 .plan li{margin:0 0 6px}
 .plan li::marker{color:var(--accent)}
 .plan .btn{align-self:flex-start;margin-top:auto}
+.plan .while{display:block;width:fit-content;margin-top:6px;padding:3px 10px;border:1px solid var(--accent);border-radius:999px;background:var(--accent-soft);font-size:.82rem;font-weight:600}
 .chart{overflow-x:auto;border:1px solid var(--border);border-radius:14px;background:var(--bg-elev)}
 .chart table{width:100%;border-collapse:collapse;font-size:.92rem}
 .chart th,.chart td{padding:10px 14px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
@@ -174,7 +189,7 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, string>> {
   if (credit) {
     const share =
       pool && pool.revenueShareBps > 0
-        ? ` ${escapeHtml(formatBps(pool.revenueShareBps))} of the markup goes into the community pool as credit is used.`
+        ? ` Tangent puts ${escapeHtml(formatBps(pool.revenueShareBps))} of its markup into the open pool as credit is used.`
         : '';
     texts.credit = `Each reply costs what OpenRouter charges for it, plus OpenRouter’s ${escapeHtml(formatBps(credit.openRouterFeeBps))} fee for buying credit, plus Tangent’s ${escapeHtml(formatBps(credit.markupBps))} markup. Summaries and titles made on credit are charged the same way, and the billing page lists every charge.${share}`;
     texts['top-up'] =
@@ -196,7 +211,7 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, string>> {
         : f.grounding === 'always-offer'
           ? 'Offered on every reply; the model decides whether to search, at most once a reply, and lists its sources under the answer.'
           : 'Offered when an answer likely needs it (a date or a figure, something recent, a few tangents deep, or when you ask for sources); the model decides whether to search, at most once a reply, and lists its sources under the answer.';
-    texts.search = `${when} A search adds a little to that reply’s cost. It runs on OpenRouter only, so not ${pool ? 'on the community pool or ' : ''}on Anthropic or OpenAI keys.`;
+    texts.search = `${when} A search adds a little to that reply’s cost. It runs on OpenRouter only, so not ${pool ? 'on the open pool or ' : ''}on Anthropic or OpenAI keys.`;
   }
   return texts;
 }
@@ -221,8 +236,39 @@ function cell(c: Cell): string {
   return `<td>${c}</td>`;
 }
 
+/**
+ * The pool's condition, stated under each pool line of the plan cards: the
+ * replies are there only while the pool has credit, and how much it has now.
+ */
+function whilePoolHasCredit(availableMicros: number | null): string {
+  const now =
+    availableMicros === null
+      ? ''
+      : availableMicros > 0
+        ? ` · currently ${escapeHtml(formatMicros(availableMicros))}`
+        : ' · empty right now';
+  return `<span class="while">While the pool has credit${now}</span>`;
+}
+
 function perDay(caps: PoolTierCaps): string {
   return `${caps.requestsPerDay.toLocaleString('en-US')} a day`;
+}
+
+/**
+ * "Why there's a free plan": the pool as Tangent's own policy, shown to
+ * everyone comparing plans. It never ties the pool to the reader's purchase:
+ * paying for Tangent pays for Tangent (docs/DECISIONS.md).
+ */
+function whyFreeSection(revenueShareBps: number, memberships: boolean): string {
+  return `<section class="why" aria-labelledby="why">
+<div class="wrap">
+<p class="eyebrow">The open pool</p>
+<h2 id="why">Why there’s a free plan</h2>
+<p class="sub">${escapeHtml(POOL_MOTTO)} Tangent is a business: ${memberships ? 'memberships and credit pay' : 'the credit people buy pays'} for it. It keeps a share of what it earns as the open pool, so there’s a free way in whenever the pool has credit. <a href="/pool">How the pool works</a></p>
+${poolStepsHtml(revenueShareBps, memberships)}
+</div>
+</section>
+`;
 }
 
 const TITLE = 'Pricing · Tangent';
@@ -238,8 +284,7 @@ function headline(f: PricingFacts): string {
 /** The friendly overview: the ways to pay, no fine print. */
 function lede(f: PricingFacts): string {
   const parts: string[] = [];
-  if (f.pool)
-    parts.push('Every account can learn for free on the community pool, within daily limits.');
+  if (f.pool) parts.push('Every account can learn for free on the open pool, within daily limits.');
   parts.push(
     f.pool
       ? 'Bring your own OpenRouter key and Tangent charges nothing.'
@@ -265,9 +310,9 @@ export function renderPricingPage(info: LegalInfo, f: PricingFacts): string {
   const freeCard = `<article class="plan${pool ? ' featured' : ''}">
 <h3>Free</h3>
 <p class="price">$0</p>
-<p class="for">${pool ? 'Learn every day on the community pool.' : 'Learn on your own OpenRouter key.'}</p>
+<p class="for">${pool ? 'Learn every day on the open pool.' : 'Learn on your own OpenRouter key.'}</p>
 <ul>
-${pool ? `<li>${pool.free.requestsPerDay.toLocaleString('en-US')} free replies a day on the community pool${notes.ref('pool')}</li>\n` : ''}<li>Your own OpenRouter key, with nothing added by Tangent${notes.ref('own-key')}</li>
+${pool ? `<li>${pool.free.requestsPerDay.toLocaleString('en-US')} free replies a day on the open pool${notes.ref('pool')}${whilePoolHasCredit(pool.availableMicros)}</li>\n` : ''}<li>Your own OpenRouter key, with nothing added by Tangent${notes.ref('own-key')}</li>
 ${membership ? '' : '<li>Every power-mode control, on your own keys</li>\n'}<li>The demo, with no sign-up</li>
 </ul>
 <a class="btn${pool ? ' primary' : ''}" href="/learn/login">${pool ? 'Start learning free' : 'Start learning'}</a>
@@ -281,7 +326,7 @@ ${membership ? '' : '<li>Every power-mode control, on your own keys</li>\n'}<li>
 <p class="for">More room to learn, and your own keys in power mode.</p>
 <ul>
 <li>Everything in Free</li>
-${pool ? `<li>${pool.member.requestsPerDay.toLocaleString('en-US')} pool replies a day instead of ${pool.free.requestsPerDay.toLocaleString('en-US')}</li>\n` : ''}<li>Your own API keys in power mode</li>
+${pool ? `<li>${pool.member.requestsPerDay.toLocaleString('en-US')} pool replies a day instead of ${pool.free.requestsPerDay.toLocaleString('en-US')}${whilePoolHasCredit(pool.availableMicros)}</li>\n` : ''}<li>Your own API keys in power mode</li>
 ${credit ? `<li>Prepaid credit for the Smart tier and any OpenRouter model${notes.ref('credit')}</li>\n` : ''}${credit && membership.includedCreditCents > 0 ? `<li>${escapeHtml(formatCents(membership.includedCreditCents))} of credit included each year${notes.ref('top-up')}</li>\n` : ''}</ul>
 <a class="btn" href="/learn/login">Sign in to join</a>
 </article>`;
@@ -304,7 +349,7 @@ ${searches ? `<li>${f.grounding === 'explicit' ? 'Web search to check any answer
   ];
   if (pool)
     learn.push({
-      label: `Replies on the community pool${notes.ref('pool')}`,
+      label: `Replies on the open pool${notes.ref('pool')}`,
       free: perDay(pool.free),
       paid: perDay(membership ? pool.member : pool.free),
     });
@@ -412,7 +457,7 @@ ${freeCard}
 ${paidCard}
 </div>
 </div>
-<section aria-labelledby="compare">
+${pool ? whyFreeSection(pool.revenueShareBps, membership !== null) : ''}<section aria-labelledby="compare">
 <div class="wrap">
 <h2 id="compare">Exactly what you get</h2>
 <p class="sub">Line by line. The numbered notes under the chart have the details.</p>
@@ -429,7 +474,7 @@ ${notes.list()}
 <footer>
 <div class="wrap">
 <span>${escapeHtml(copyrightNotice(info.operator))}</span>
-<nav aria-label="Footer"><a href="/learn/demo">Try the demo</a><a href="/welcome">About Tangent</a><a href="/pricing" aria-current="page">Pricing</a><a href="/pool">Community pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+<nav aria-label="Footer"><a href="/learn/demo">Try the demo</a><a href="/welcome">About Tangent</a><a href="/pricing" aria-current="page">Pricing</a><a href="/pool">Open pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
 </div>
 </footer>
 </body>
@@ -437,10 +482,22 @@ ${notes.list()}
 `;
 }
 
+/** What the pool can spend now, through the meter's edge cache; null while it is off or can't be read. */
+async function poolAvailableMicros(c: Context<AppBindings>): Promise<number | null> {
+  if (!poolAvailable(c.env)) return null;
+  try {
+    return (await cachedPoolStatus(c.env, waitUntilOf(c))).availableMicros;
+  } catch (err) {
+    console.warn('/pricing: the pool meter could not be read', err);
+    return null;
+  }
+}
+
 /** `/pricing`'s response: one hashed stylesheet, cacheable for five minutes. */
 async function pricingResponse(c: Context<AppBindings>): Promise<Response> {
   const info = legalInfo(c.env, c.req.raw);
-  return new Response(renderPricingPage(info, pricingFacts(c.env, info.sharing)), {
+  const facts = pricingFacts(c.env, info.sharing, await poolAvailableMicros(c));
+  return new Response(renderPricingPage(info, facts), {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Security-Policy': await styleCsp(PRICING_STYLE),

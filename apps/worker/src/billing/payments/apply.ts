@@ -1,5 +1,5 @@
 // The domain side of payments (03-architecture.md §2.3): what each normalised
-// `PaymentEvent` does to the ledger, the community pool and the membership.
+// `PaymentEvent` does to the ledger, the open pool and the membership.
 // Provider-independent: adapters (billing/providers/*) turn deliveries and
 // polls into events, and this module decides. Every write is idempotent on a
 // provider ref (`credit_grants.provider_ref`) or guarded by a version
@@ -12,7 +12,7 @@
 //   are logged and never credited; an unknown fee throws RetryLaterError.
 // - payment.succeeded, membership (first year or renewal) → the included
 //   credit (MEMBERSHIP_CREDIT_CENTS), a fixed gift with no gross or fee, and
-//   the community pool's revenue share of the payment after its fee
+//   the open pool's revenue share of the payment after its fee
 //   (pool/revenue-share.ts), each once per payment; an unknown fee throws
 //   RetryLaterError once the included credit is in.
 // - refund.succeeded → a personal purchase: − the refunded pre-tax amount in
@@ -96,7 +96,7 @@ function written(changed: boolean): ApplyResult {
 /**
  * True when `accountId` is a user's own ledger (`u_<userId>`, or the dev
  * bypass's `default_simple`); anything else that received a purchase is a
- * community pool account (a legacy pool purchase).
+ * open pool account (a legacy pool purchase).
  */
 function isPersonalLedger(accountId: string): boolean {
   return accountId === DEV_SIMPLE_ACCOUNT_ID || userIdOfAccount(accountId) !== null;
@@ -180,7 +180,7 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
  * MEMBERSHIP_CREDIT_CENTS of credit: a fixed gift, not a purchase, so no
  * gross amount or fee. Nothing when the built-in provider isn't offered (the
  * amount is then 0) or nothing was paid (a trial or a 100% discount). Then
- * the community pool's share of the payment (USD only), which needs the fee.
+ * the open pool's share of the payment (USD only), which needs the fee.
  */
 async function membershipPayment(env: AppEnv, e: PaymentSucceeded): Promise<ApplyResult> {
   if (!(e.netCents > 0)) return 'skipped';
@@ -431,7 +431,7 @@ async function disputeDebited(env: AppEnv, e: DisputeEvent, deps: ApplyDeps): Pr
 }
 
 /**
- * A dispute of a credit purchase was lost: its buyer's community pool access
+ * A dispute of a credit purchase was lost: its buyer's open pool access
  * is suspended (on the account and its pool identity, as an admin's
  * suspension; an admin can lift it). Once per dispute: a zero-amount marker
  * row keyed `<disputeRef>:lost` records it, so a poller that keeps seeing
@@ -456,7 +456,7 @@ async function suspendForLostDispute(
   return true;
 }
 
-/** Suspends `userId`'s community pool access after a lost dispute (account and pool identity). */
+/** Suspends `userId`'s open pool access after a lost dispute (account and pool identity). */
 async function suspendPoolAccess(env: AppEnv, userId: string, disputeRef: string): Promise<void> {
   const db = env.DB;
   await db.batch([

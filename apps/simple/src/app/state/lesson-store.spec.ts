@@ -501,7 +501,7 @@ describe('LessonStore', () => {
       memberLimit: null,
     };
     s.api.sendMessage.mockRejectedValue(
-      new ApiError(402, 'pool_empty', 'The community pool is empty', empty),
+      new ApiError(402, 'pool_empty', 'The open pool is empty', empty),
     );
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
 
@@ -624,13 +624,13 @@ describe('LessonStore', () => {
     const s = setup();
     await open(s, detail());
     s.api.sendMessage.mockRejectedValue(
-      new ApiError(403, 'pool_unavailable', 'Community pool access is suspended for this account'),
+      new ApiError(403, 'pool_unavailable', 'Open pool access is suspended for this account'),
     );
     await s.store.send('trunk', 'What is light?');
     expect(s.ui.poolVerifyOpen()).toBe(false);
     expect(s.ui.toasts().at(-1)).toMatchObject({
       kind: 'error',
-      text: 'Community pool access is suspended for this account',
+      text: 'Open pool access is suspended for this account',
     });
   });
 

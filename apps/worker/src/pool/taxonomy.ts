@@ -1,4 +1,4 @@
-// The community pool's topic taxonomy (spec §9 "Taxonomy", docs/pool/PLAN.md
+// The open pool's topic taxonomy (spec §9 "Taxonomy", docs/pool/PLAN.md
 // §S8a): a curated two-level tree of learning topics. The request-time
 // classifier (pool/tagging.ts) may answer only with a leaf id; anything else
 // is rejected and nothing is stored. Aggregation (S8b) counts per leaf with no

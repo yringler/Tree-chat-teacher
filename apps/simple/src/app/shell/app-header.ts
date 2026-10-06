@@ -9,7 +9,7 @@ import { PaidBy } from './paid-by';
 
 /**
  * Brand, the Power / Learn switch, what replies are paid by (own key, credit
- * or the community pool: a button that opens "How replies are paid for") and
+ * or the open pool: a button that opens "How replies are paid for") and
  * the account menu.
  */
 @Component({

@@ -25,7 +25,7 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), summa
  * code, the billing page or sign out. `needs` says what needs it (power mode
  * on the user's own keys, by default). There is no close button on purpose;
  * the app behind it should be `inert` meanwhile. `freeTier` labels a button
- * that carries on without a membership instead (Learn on the community pool
+ * that carries on without a membership instead (Learn on the open pool
  * or the user's own key; power on Tangent credit the user still holds), and
  * `learnHref` links to Learn, free on the user's own key (the power app's way
  * out). Not shown on the billing page, the login page or in the demos (the
@@ -96,7 +96,7 @@ export class MembershipGate {
   readonly needs = input('Power mode on your own keys needs one');
   /**
    * The label of a button that carries on without a membership instead of
-   * subscribing (Learn on the community pool or the user's own key; power on
+   * subscribing (Learn on the open pool or the user's own key; power on
    * Tangent credit the user still holds); null offers none.
    */
   readonly freeTier = input<string | null>(null);

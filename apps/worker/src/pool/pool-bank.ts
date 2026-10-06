@@ -1,4 +1,4 @@
-// PoolBank: the community pool's bank (docs/pool/PLAN.md §1.2). One Durable
+// PoolBank: the open pool's bank (docs/pool/PLAN.md §1.2). One Durable
 // Object per pool account id. D1 is the ledger and the authority; PoolBank
 // only serialises the operations that can lower the pool's available balance:
 //

@@ -144,7 +144,7 @@ export {
   parseDollarsToCents,
 } from './billing/format';
 
-// The community pool: the meter, the billing page's section, the inline empty/cap states and the first-use check
+// The open pool: the meter, the billing page's section, the inline empty/cap states and the first-use check
 export { PoolMeter } from './pool/pool-meter';
 export { PoolSection } from './pool/pool-section';
 export { ImpactFeed, loadLatestImpact } from './pool/impact-feed';

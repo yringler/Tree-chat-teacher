@@ -4,7 +4,7 @@ import type { AdminPoolUsageResponse } from '@tangent/shared';
 import { ApiClient, errorMessage, formatCharge } from '@tangent/web-shared';
 
 /**
- * Community pool consumption (`GET /api/admin/pool/usage`): who used the
+ * Open pool consumption (`GET /api/admin/pool/usage`): who used the
  * pool most over the last days, so outliers are easy to spot, and today's
  * network keys with several users (what an account farm looks like).
  * Suspending a user is the "Pool suspended" box in the users table.
@@ -14,7 +14,7 @@ import { ApiClient, errorMessage, formatCharge } from '@tangent/web-shared';
   imports: [DatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <h2>Community pool use</h2>
+    <h2>Open pool use</h2>
     <form class="admin-search" (submit)="$event.preventDefault(); load(+days.value)">
       <label class="field">
         <span class="field-label">Days</span>

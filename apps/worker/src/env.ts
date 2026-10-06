@@ -114,7 +114,7 @@ export interface AccountContext {
   operatorKeys: boolean;
   /**
    * Who pays for the built-in provider's calls (auth/account.ts): `personal`
-   * (the ledger at `billingAccountId`), `pool` (the community pool; Learn
+   * (the ledger at `billingAccountId`), `pool` (the open pool; Learn
    * only, `builtIn` when the pool is on) or `own-key` (Learn on the user's
    * key, where `builtIn` is false). Power is always `personal`.
    */
@@ -127,7 +127,7 @@ export interface AccountContext {
   pool?: PoolParams;
 }
 
-/** True when the account's metered calls are paid by the community pool. */
+/** True when the account's metered calls are paid by the open pool. */
 export function isPoolFunded(
   account: AccountContext,
 ): account is AccountContext & { funding: 'pool'; pool: PoolParams } {
@@ -136,7 +136,7 @@ export function isPoolFunded(
 
 /**
  * True when a call is metered: paid on the operator's key from the user's
- * credit or the community pool, never on the user's own key. Decided by
+ * credit or the open pool, never on the user's own key. Decided by
  * funding, never by the provider id (which names only the endpoint):
  * - Learn: by the request's payment (`account.builtIn`: credit or the pool),
  *   whatever the branch says; Learn ignores a branch's funding.

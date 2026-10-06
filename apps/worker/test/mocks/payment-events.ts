@@ -75,7 +75,7 @@ export async function legacyPoolPurchase(
     feeMicros: fee * 10_000,
     userId: o.userId,
     providerRef: paymentRef,
-    note: 'Community pool purchase',
+    note: 'Open pool purchase',
   });
   return { paymentRef };
 }

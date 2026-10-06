@@ -61,10 +61,10 @@ describe('pool copy', () => {
 
   it("states Tangent's revenue share from the configured rate", () => {
     expect(poolFundingText(2000)).toBe(
-      "The community pool is free credit Tangent provides. Tangent puts 20% of what it earns into it: 20% of each membership payment after payment fees, and 20% of the markup on credit as it's used.",
+      "The open pool is free credit Tangent provides. Tangent puts 20% of what it earns into it: 20% of each membership payment after payment fees, and 20% of its markup on credit as it's used.",
     );
     expect(poolFundingText(1250)).toContain('12.5% of each membership payment');
-    expect(poolFundingText(0)).toBe('The community pool is free credit Tangent provides.');
+    expect(poolFundingText(0)).toBe('The open pool is free credit Tangent provides.');
   });
 
   it('never offers pool credit for sale', () => {
@@ -75,7 +75,7 @@ describe('pool copy', () => {
       POOL_AT_COST_TEXT,
     ])
       expect(text).not.toMatch(/buy|purchase|fund the pool|people fund/i);
-    expect(POOL_EMPTY_TEXT).toBe('The community pool is empty until Tangent adds more credit.');
+    expect(POOL_EMPTY_TEXT).toBe('The open pool is empty until Tangent adds more credit.');
     expect(POOL_AT_COST_TEXT).toContain('with no markup');
   });
 

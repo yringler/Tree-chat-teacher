@@ -18,7 +18,7 @@ import { UiStore } from '../state/ui-store';
  * pay OpenRouter), Tangent credit (prepaid, on the built-in provider), which
  * is only offered when the server sells it (while the membership is
  * required, a non-member may spend credit they hold but not buy more; with
- * none left they see it disabled, with a link to the billing page), or the community pool, while it is on. The key is read from the input only at submit time, posted once
+ * none left they see it disabled, with a link to the billing page), or the open pool, while it is on. The key is read from the input only at submit time, posted once
  * and the field cleared: the server seals it into an HttpOnly cookie this
  * code can't read (the same cookie as power mode's OpenRouter key).
  */
@@ -82,7 +82,7 @@ import { UiStore } from '../state/ui-store';
                 (change)="choose('pool')"
               />
               <span>
-                <strong>Use the community pool</strong>
+                <strong>Use the open pool</strong>
                 <span class="muted small">
                   Free to you, within daily limits, on
                   {{ account.poolStatus()?.model?.label ?? 'one economical model' }}. Free credit

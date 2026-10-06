@@ -4,7 +4,7 @@ import type { UsagePurpose } from './provider.js';
 /**
  * Billing contract: the yearly membership (once the operator sets it up,
  * required for power mode on the user's own keys, for buying prepaid credit
- * and for the community pool's member caps; Learn on the user's own key or
+ * and for the open pool's member caps; Learn on the user's own key or
  * the pool's free caps, and spending credit already held, never need it) and
  * prepaid credit for the built-in provider.
  * Credit and membership are per user and shared by both apps.
@@ -32,8 +32,8 @@ export type AccountMode = 'power' | 'simple';
  *   to the user's prepaid credit. Only offered when the server has billing and
  *   the operator key configured (`MeResponse.builtInCredit`). A send (or a
  *   context resolve) whose credit can't cover one call falls back to the
- *   community pool where it is on; reviews never do.
- * - `pool`: the community pool (pool.ts): one economical model, a locked
+ *   open pool where it is on; reviews never do.
+ * - `pool`: the open pool (pool.ts): one economical model, a locked
  *   system prompt and capped output, within daily caps. The server decides
  *   what a pool request may do; power mode never uses the pool.
  */
@@ -57,7 +57,7 @@ export const MICROS_PER_USD = 1_000_000;
  * `POST /api/billing/checkout`: credit for the buyer's own account. The
  * purchase adds what was paid (pre-tax) minus the processing fee; the
  * operator earns a markup on usage instead (`MARKUP_BPS`). Nobody buys credit
- * for the community pool: Tangent funds it from its own revenue (pool.ts).
+ * for the open pool: Tangent funds it from its own revenue (pool.ts).
  */
 export const createCheckoutRequestSchema = z.object({
   amountCents: z.number().int().min(MIN_TOP_UP_CENTS).max(MAX_TOP_UP_CENTS),

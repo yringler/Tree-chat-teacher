@@ -4,9 +4,9 @@ import { Icon } from '../ui/icon';
 import { poolBlockText, type PoolBlock } from './pool-format';
 
 /**
- * The inline state of a message the community pool refused (spec §8), shown
+ * The inline state of a message the open pool refused (spec §8), shown
  * in the chat above the composer, never as a generic error toast:
- * - empty: "The community pool is empty until Tangent adds more credit." with
+ * - empty: "The open pool is empty until Tangent adds more credit." with
  *   **Buy personal credits** when personal credit is on sale (`creditOpen`),
  *   and **How the pool works** (`/pool`);
  * - a cap: the cap, when it resets, and that members get more (with

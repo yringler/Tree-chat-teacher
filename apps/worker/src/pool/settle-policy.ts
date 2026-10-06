@@ -1,4 +1,4 @@
-// How a community pool call is settled (docs/pool/PLAN.md §1.2, deviation D2):
+// How an open pool call is settled (docs/pool/PLAN.md §1.2, deviation D2):
 // one pure function shared by the meter, the expiry alarm and the cron.
 //
 // A reservation is released in full only when nothing can have been billed

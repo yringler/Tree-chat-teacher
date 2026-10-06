@@ -62,7 +62,7 @@ import { API_FETCH, API_HEADERS, defaultApiFetch } from './api-fetch';
 
 /**
  * Thrown for every non-2xx API response (and for network failures, with
- * status 0). `pool` carries what a community pool refusal hit (`pool_*` codes);
+ * status 0). `pool` carries what an open pool refusal hit (`pool_*` codes);
  * `consent` the pool notice version to acknowledge (`pool_consent_required`).
  */
 export class ApiError extends Error {
@@ -193,7 +193,7 @@ export class ApiClient {
     return this.json('POST', '/billing/portal');
   }
 
-  // The community pool
+  // The open pool
 
   /** The pool meter (public; cached for a minute). */
   poolStatus(): Promise<PoolStatusResponse> {
@@ -381,7 +381,7 @@ export class ApiClient {
     return this.json('PATCH', `/admin/users/${enc(userId)}`, req);
   }
 
-  /** The community pool's balance, holds and overage breaker state. */
+  /** The open pool's balance, holds and overage breaker state. */
   adminPool(): Promise<AdminPoolResponse> {
     return this.json('GET', '/admin/pool');
   }
@@ -568,7 +568,7 @@ export function isMembershipRequired(err: unknown): boolean {
   return err instanceof ApiError && err.code === 'membership_required';
 }
 
-/** True for a 402 `pool_empty`: the community pool can't cover a request right now. */
+/** True for a 402 `pool_empty`: the open pool can't cover a request right now. */
 export function isPoolEmpty(err: unknown): err is ApiError {
   return err instanceof ApiError && err.code === 'pool_empty';
 }

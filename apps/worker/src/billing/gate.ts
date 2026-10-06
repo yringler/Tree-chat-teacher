@@ -1,6 +1,6 @@
 // The one gate in front of every route that generates (docs/pool/PLAN.md §3):
 // sends, reviews and `context?resolve=true`. It decides who pays (personal
-// credit, the community pool or the user's own key) and checks that they can,
+// credit, the open pool or the user's own key) and checks that they can,
 // before anything is written or sent upstream.
 import {
   DomainError,
@@ -58,7 +58,7 @@ export interface GenerateCheck {
 
 /**
  * Who pays for a generating request, decided by the server. A Learn send or
- * context resolve on personal credit moves to the community pool when the pool
+ * context resolve on personal credit moves to the open pool when the pool
  * is on and the caller can't cover one more call
  * (`available < USAGE_HOLD_MICROS`). Spending credit needs no membership, so a
  * lapsed member (or anyone holding credit) keeps spending it until it runs
@@ -89,10 +89,10 @@ interface PoolAccessRow {
 }
 
 const POOL_ACCESS_MESSAGES: Partial<Record<PoolBlockDetails['reason'], string>> = {
-  suspended: 'Community pool access is suspended for this account',
-  verify: 'Complete the quick human check to use the community pool',
-  duplicate_identity: 'Another account with this email address already uses the community pool',
-  too_new: 'This account is too new to use the community pool yet',
+  suspended: 'Open pool access is suspended for this account',
+  verify: 'Complete the quick human check to use the open pool',
+  duplicate_identity: 'Another account with this email address already uses the open pool',
+  too_new: 'This account is too new to use the open pool yet',
 };
 
 /** The 403 `pool_unavailable` of an account the pool refuses, with its reason. */
@@ -119,8 +119,7 @@ export async function assertPoolAccess(
   userId: string | null,
   now = new Date(),
 ): Promise<void> {
-  if (!userId)
-    throw new DomainError('pool_unavailable', 'The community pool needs a signed-in account');
+  if (!userId) throw new DomainError('pool_unavailable', 'The open pool needs a signed-in account');
   const row = await env.DB.prepare(
     `SELECT u.email, u.created_at, u.pool_suspended, u.pool_verified_at, u.pool_identity,
        (SELECT suspended FROM pool_identities WHERE identity = u.pool_identity) AS identity_suspended
@@ -233,13 +232,13 @@ export async function assertCanGenerate(
 
   if (account.funding === 'pool') {
     if (check.purpose === 'review')
-      throw new DomainError('pool_unavailable', 'Reviews are not available on the community pool');
+      throw new DomainError('pool_unavailable', 'Reviews are not available on the open pool');
     if (!isPoolFunded(account))
-      throw new DomainError('pool_unavailable', 'The community pool is not available right now');
+      throw new DomainError('pool_unavailable', 'The open pool is not available right now');
     const pool = account.pool;
     if (check.content !== undefined && check.content.length > pool.maxMessageChars)
       throw new ValidationError(
-        `Messages on the community pool can be at most ${pool.maxMessageChars} characters`,
+        `Messages on the open pool can be at most ${pool.maxMessageChars} characters`,
       );
     // Whatever the branch says, a pool call runs on the pool model (services.ts pins it).
     assertGenerationAllowed(

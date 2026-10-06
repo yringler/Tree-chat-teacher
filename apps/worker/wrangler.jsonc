@@ -25,8 +25,8 @@
       "../simple/src",
       "../canvas/src",
       "../admin/src",
-      "../../packages/web-shared/src"
-    ]
+      "../../packages/web-shared/src",
+    ],
   },
   "assets": {
     // Assembled by scripts/assemble-assets.mjs (root `pnpm build`): the power app at the
@@ -43,7 +43,7 @@
     // only for admins, see ADMIN_USER_IDS). "/welcome" is the
     // landing page, and "/" (exact path) is too for anonymous visitors (src/http/landing.ts).
     // "/privacy" and "/terms" are the public legal pages (src/http/legal.ts), "/pool" the
-    // community pool's transparency page (src/http/pool-page.ts), "/pricing" the pricing chart
+    // open pool's transparency page (src/http/pool-page.ts), "/pricing" the pricing chart
     // (src/http/pricing-page.ts).
     "run_worker_first": [
       "/api/*",
@@ -60,8 +60,8 @@
       "/terms",
       "/pool",
       "/pricing",
-      "/verify"
-    ]
+      "/verify",
+    ],
   },
   "d1_databases": [
     {
@@ -70,47 +70,47 @@
       // D1 database "tangent" on the owner's account. Apply new migrations (./migrations) with
       // `pnpm db:migrate:remote` before deploying code that needs them.
       "database_id": "6f9486ed-e5fd-4dfa-b434-10274a650297",
-      "migrations_dir": "migrations"
-    }
+      "migrations_dir": "migrations",
+    },
   ],
   "durable_objects": {
     "bindings": [
       { "name": "TREE_SESSION", "class_name": "TreeSession" },
-      // The community credit pool's bank: serialises every reservation against the pool's
+      // The open credit pool's bank: serialises every reservation against the pool's
       // balance, one instance per pool account id (src/pool/pool-bank.ts).
-      { "name": "POOL_BANK", "class_name": "PoolBank" }
-    ]
+      { "name": "POOL_BANK", "class_name": "PoolBank" },
+    ],
   },
   // Durable Object class migrations: append a new tag, never edit an applied one.
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["TreeSession"] },
-    { "tag": "v2", "new_sqlite_classes": ["PoolBank"] }
+    { "tag": "v2", "new_sqlite_classes": ["PoolBank"] },
   ],
   // Every 10 minutes: settles usage the stream couldn't (src/billing/reconcile.ts), expires stale
-  // community pool reservations and maintains the pool's balance checkpoint.
+  // open pool reservations and maintains the pool's balance checkpoint.
   // Daily 03:23 UTC: OpenRouter's list prices of the priced models (src/pool/model-prices.ts).
-  // Mondays 04:17 UTC: the community pool's weekly impact snapshot of the ISO week just ended, and
+  // Mondays 04:17 UTC: the open pool's weekly impact snapshot of the ISO week just ended, and
   // its topic-tag retention (src/pool/impact.ts). src/index.ts dispatches on the cron string.
   "triggers": { "crons": ["*/10 * * * *", "23 3 * * *", "17 4 * * 1"] },
   "ratelimits": [
     {
       "name": "SHARE_RATE_LIMITER",
       "namespace_id": "1001",
-      "simple": { "limit": 120, "period": 60 }
+      "simple": { "limit": 120, "period": 60 },
     },
     {
       // Requests that spend a user-supplied API key, per key cookie; calls on the built-in provider
       // (Tangent credit), per user across both apps (see src/byok/guard.ts).
       "name": "CHAT_RATE_LIMITER",
       "namespace_id": "1002",
-      "simple": { "limit": 30, "period": 60 }
+      "simple": { "limit": 30, "period": 60 },
     },
     {
       // Saving a key (each save makes one verification call upstream), per account.
       "name": "KEY_RATE_LIMITER",
       "namespace_id": "1003",
-      "simple": { "limit": 10, "period": 60 }
-    }
+      "simple": { "limit": 10, "period": 60 },
+    },
   ],
   "vars": {
     // Public origin: share links, sign-in callbacks, magic links and the passkey relying party.
@@ -207,7 +207,7 @@
     // Canvas) on the user's own keys and buying credit need a membership, and members get the pool's
     // higher caps. Without one, own-key power branches and Canvas lanes are read-only; Learn (own key or
     // pool) and spending credit already held stay open. "false" (default) = nobody needs one, whatever
-    // is sold; any signed-in user may use power mode on own keys, the community pool (within its free
+    // is sold; any signed-in user may use power mode on own keys, the open pool (within its free
     // caps) and buy personal credit.
     "ANNUAL_FEE_ENABLED": "true",
     // The membership's yearly price in US cents, for display only (Polar charges its product's price).
@@ -215,7 +215,7 @@
     // Credit included with each paid membership year, in US cents (200 = $2.00); granted only while
     // the built-in provider is offered. 0 = none.
     "MEMBERSHIP_CREDIT_CENTS": "200",
-    // ---- The community credit pool (docs/pool/SPEC.md, src/config.ts). Tangent funds it from its own
+    // ---- The open credit pool (docs/pool/SPEC.md, src/config.ts). Tangent funds it from its own
     // revenue (POOL_REVENUE_SHARE_BPS) and admin adjustments; nobody buys credit for it. Any signed-in
     // Learn user may learn from it on one economical model, at cost, within daily caps. Every value
     // below is read through src/config.ts; empty or malformed = the default named in the comment.
@@ -294,8 +294,8 @@
     // A future "featured learning" wall of conversations users publish (opt-in per conversation).
     // Only a stub exists and it stays off: user-published content waits for DMCA_AGENT_REGISTERED.
     // Either way /api/featured/* is 404, nothing renders and nothing is collected for it.
-    "FEATURED_CONVERSATIONS_ENABLED": "false"
-  }
+    "FEATURED_CONVERSATIONS_ENABLED": "false",
+  },
   // Secrets (wrangler secret put): AI_GATEWAY_TOKEN,
   //   KEY_ENCRYPTION_SECRET (`openssl rand -base64 32`; enables bring-your-own-key, rotate to revoke all stored keys)
   //   BETTER_AUTH_SECRET (`openssl rand -base64 32`; signs session cookies, rotate to sign everyone out)

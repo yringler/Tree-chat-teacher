@@ -29,10 +29,17 @@ async function mockUpstream(request: Request): Promise<Response> {
   if (url.origin === POLAR_ORIGIN) return mockPolar(request);
   if (url.origin === OPENROUTER_ORIGIN) return mockOpenRouter(request);
   // Cloudflare Turnstile siteverify: the token `pass` is valid.
-  if (url.origin === 'https://challenges.cloudflare.com' && url.pathname === '/turnstile/v0/siteverify') {
+  if (
+    url.origin === 'https://challenges.cloudflare.com' &&
+    url.pathname === '/turnstile/v0/siteverify'
+  ) {
     const body = (await request.json()) as { response?: string };
     const ok = body.response === 'pass';
-    return Response.json({ success: ok, hostname: 'tangent.example.com', 'error-codes': ok ? [] : ['invalid-input-response'] });
+    return Response.json({
+      success: ok,
+      hostname: 'tangent.example.com',
+      'error-codes': ok ? [] : ['invalid-input-response'],
+    });
   }
   // Google's OAuth token endpoint: the authorization code is the email to sign in as
   // (an email starting with `unverified` comes back with email_verified: false).
@@ -41,30 +48,69 @@ async function mockUpstream(request: Request): Promise<Response> {
     const code = new URLSearchParams(await request.text()).get('code') ?? '';
     const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
     const verified = !code.startsWith('unverified');
-    const claims = { sub: `google-${code}`, email: code, email_verified: verified, name: 'Test User', iss: 'https://accounts.google.com' };
-    return Response.json({ access_token: 'at', refresh_token: 'rt', token_type: 'Bearer', expires_in: 3600, id_token: `${b64({ alg: 'none' })}.${b64(claims)}.` });
+    const claims = {
+      sub: `google-${code}`,
+      email: code,
+      email_verified: verified,
+      name: 'Test User',
+      iss: 'https://accounts.google.com',
+    };
+    return Response.json({
+      access_token: 'at',
+      refresh_token: 'rt',
+      token_type: 'Bearer',
+      expires_in: 3600,
+      id_token: `${b64({ alg: 'none' })}.${b64(claims)}.`,
+    });
   }
   if (url.origin !== MOCK_UPSTREAM) return new Response('blocked in tests', { status: 599 });
   const key = request.headers.get('x-api-key') ?? '';
   if (!key.startsWith('sk-ant-good')) {
-    return Response.json({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }, { status: 401 });
+    return Response.json(
+      { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } },
+      { status: 401 },
+    );
   }
   if (url.pathname === '/v1/models') return Response.json({ data: [] });
   if (url.pathname === '/v1/messages/count_tokens') return Response.json({ input_tokens: 5 });
   if (url.pathname !== '/v1/messages') return new Response('not found', { status: 404 });
   const tag = key.slice('sk-ant-good'.length);
   const slow = tag.endsWith('-slow');
-  const frame = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  const frame = (event: string, data: unknown) =>
+    `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   const enc = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     async start(ctrl) {
-      ctrl.enqueue(enc.encode(frame('message_start', { type: 'message_start', message: { usage: { input_tokens: 3, output_tokens: 1 } } })));
+      ctrl.enqueue(
+        enc.encode(
+          frame('message_start', {
+            type: 'message_start',
+            message: { usage: { input_tokens: 3, output_tokens: 1 } },
+          }),
+        ),
+      );
       const pieces = slow ? Array.from({ length: 200 }, () => '.') : [`key=${tag}`];
       for (const text of pieces) {
         if (slow) await new Promise((r) => setTimeout(r, 25));
-        ctrl.enqueue(enc.encode(frame('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })));
+        ctrl.enqueue(
+          enc.encode(
+            frame('content_block_delta', {
+              type: 'content_block_delta',
+              index: 0,
+              delta: { type: 'text_delta', text },
+            }),
+          ),
+        );
       }
-      ctrl.enqueue(enc.encode(frame('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } })));
+      ctrl.enqueue(
+        enc.encode(
+          frame('message_delta', {
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn' },
+            usage: { output_tokens: 2 },
+          }),
+        ),
+      );
       ctrl.enqueue(enc.encode(frame('message_stop', { type: 'message_stop' })));
       ctrl.close();
     },
@@ -94,10 +140,31 @@ export default defineConfig({
             // Sharing on, so the share suites run; test/share.test.ts covers it off.
             DMCA_AGENT_REGISTERED: 'true',
             PROVIDERS: JSON.stringify([
-              { id: 'fake', kind: 'fake', label: 'Fake', defaultModel: 'fake-1', models: [{ id: 'fake-1', label: 'Fake 1' }], options: { chunkSize: 4 } },
-              { id: 'slow', kind: 'fake', label: 'Slow', defaultModel: 'fake-1', models: [{ id: 'fake-1', label: 'Fake 1' }], options: { chunkSize: 2, delayMs: 30, webSearch: true } },
+              {
+                id: 'fake',
+                kind: 'fake',
+                label: 'Fake',
+                defaultModel: 'fake-1',
+                models: [{ id: 'fake-1', label: 'Fake 1' }],
+                options: { chunkSize: 4 },
+              },
+              {
+                id: 'slow',
+                kind: 'fake',
+                label: 'Slow',
+                defaultModel: 'fake-1',
+                models: [{ id: 'fake-1', label: 'Fake 1' }],
+                options: { chunkSize: 2, delayMs: 30, webSearch: true },
+              },
               // Bring-your-own-key only (no apiKeySecret); talks to mockUpstream below.
-              { id: 'ant', kind: 'anthropic', label: 'Ant', baseUrl: MOCK_UPSTREAM, defaultModel: 'claude-test', models: [{ id: 'claude-test', label: 'Claude Test' }] },
+              {
+                id: 'ant',
+                kind: 'anthropic',
+                label: 'Ant',
+                baseUrl: MOCK_UPSTREAM,
+                defaultModel: 'claude-test',
+                models: [{ id: 'claude-test', label: 'Claude Test' }],
+              },
             ]),
             KEY_ENCRYPTION_SECRET: TEST_KEY_SECRET,
             // Learn mode and billing (paid credit offered). Multi-user tests pass an env
@@ -108,7 +175,10 @@ export default defineConfig({
               kind: 'fake',
               label: 'Tangent',
               defaultModel: 'smart',
-              models: [{ id: 'smart', label: 'Smart' }, { id: 'simple', label: 'Simple' }],
+              models: [
+                { id: 'smart', label: 'Smart' },
+                { id: 'simple', label: 'Simple' },
+              ],
               // `[echo-request]` in a message makes the reply echo the request's model, output cap
               // and system prompt (the pool tests check what was really sent upstream).
               // `[topic:<id>]` makes it answer `<id>`, which the pool's topic classifier reads as its
@@ -148,7 +218,7 @@ export default defineConfig({
             MEMBERSHIP_CREDIT_CENTS: '200',
             MEMBERSHIP_WAIVER_CODE: '',
             MARKUP_BPS: '1000',
-            // The community pool, on (wrangler.jsonc ships it off). Pool tests isolate themselves with a
+            // The open pool, on (wrangler.jsonc ships it off). Pool tests isolate themselves with a
             // unique POOL_ACCOUNT_ID per test. The pool model is the fake built-in provider's `simple`,
             // priced at 1 µ$ per token each way, so every reply hold (up to 2,048 tokens out) is above
             // the fake's reported cost (0.001234 USD ≈ 1,302 µ$ with the fee) and only the test that
@@ -163,7 +233,9 @@ export default defineConfig({
             // a pool of their own, so membership payments elsewhere never touch the shared `pool`.
             POOL_REVENUE_SHARE_BPS: '0',
             POOL_MODEL: 'simple',
-            MODEL_PRICES: JSON.stringify({ simple: { in: 1_000_000, out: 1_000_000, context: 8_192 } }),
+            MODEL_PRICES: JSON.stringify({
+              simple: { in: 1_000_000, out: 1_000_000, context: 8_192 },
+            }),
             POOL_MAX_OUTPUT_TOKENS: '2048',
             POOL_FREE_REQUESTS_PER_DAY: '3',
             POOL_FREE_SPEND_MICROS_PER_DAY: '1000000',

@@ -160,14 +160,14 @@ export function personalCreditReady(env: AppEnv): boolean {
  * True when the built-in provider can be offered on credit: personal credit
  * is ready and the `tangent` provider is usable with the operator's key.
  * Otherwise it is in no power registry, and Learn is bring-your-own-key (or
- * the community pool) only.
+ * the open pool) only.
  */
 export function builtInAvailable(env: AppEnv): boolean {
   return personalCreditReady(env) && builtInProviderUsable(env);
 }
 
 /**
- * True when Learn may spend from the community pool: `POOL_ENABLED` and the
+ * True when Learn may spend from the open pool: `POOL_ENABLED` and the
  * `tangent` provider is usable. Billing is not needed to spend from it.
  */
 export function poolAvailable(env: AppEnv): boolean {
@@ -342,7 +342,7 @@ const detach: Defer = (p) => {
 /**
  * Every call through `inner` is metered: its `stream()` records a
  * `usage_events` row (billing/meter.ts) on the user's ledger, or reserves it
- * on the community pool when the account is pool-funded. `inner` is a
+ * on the open pool when the account is pool-funded. `inner` is a
  * registry whose every route is paid on the operator's key: Learn's on credit
  * or the pool, or power's Tangent credit (`creditRegistryFor`); a registry of
  * the user's own keys is never wrapped. The meter is built on the first
@@ -358,7 +358,7 @@ function meteredLazily(
   let metered: ProviderRegistry | null = null;
   const meter = () => {
     if (!isPoolFunded(account)) return createUsageMeter(env, account, defer);
-    if (!account.userId) throw new Error('The community pool needs a signed-in user');
+    if (!account.userId) throw new Error('The open pool needs a signed-in user');
     return createPoolUsageMeter(env, account.pool, account.userId, defer);
   };
   return {

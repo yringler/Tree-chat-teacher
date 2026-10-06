@@ -27,7 +27,7 @@ export interface AppOptions {
  * The HTTP app.
  * - `/api/auth/*` is Better Auth (sign-in, callbacks, session, passkeys).
  * - `/api/login-options` is public: what the login page should offer,
- *   `/api/pool/status` the community pool's meter and `/api/pool/impact*`
+ *   `/api/pool/status` the open pool's meter and `/api/pool/impact*`
  *   its weekly impact snapshots (routes/pool.ts).
  * - `POST /api/webhooks/:provider` is public too: payment provider webhooks,
  *   verified by their signature (routes/payment-webhooks.ts).
@@ -36,14 +36,14 @@ export interface AppOptions {
  * - Every other `/api/*` route requires a session (auth/session.ts) and acts
  *   as the caller's account for the app named by the `x-tangent-mode` header
  *   (auth/account.ts); `/api/billing/*` is the billing API, `/api/pool/*` the
- *   community pool's (routes/pool.ts), and `/api/admin/*` the admin API
+ *   open pool's (routes/pool.ts), and `/api/admin/*` the admin API
  *   (admins only, routes/admin.ts).
  * - `/s/*` is public and read-only.
  * - `/learn`, `/learn/*` serve the simple app, `/canvas`, `/canvas/*` the
  *   canvas app and `/admin`, `/admin/*` the admin app, to admins only
  *   (http/learn-app.ts).
  * - `/privacy` and `/terms` are the public legal pages (http/legal.ts), and
- *   `/pool` explains the community pool (http/pool-page.ts) and `/pricing`
+ *   `/pool` explains the open pool (http/pool-page.ts) and `/pricing`
  *   what each plan gets you (http/pricing-page.ts).
  * - `/verify` is the Turnstile interstitial after a first OAuth sign-in
  *   (http/verify-page.ts).

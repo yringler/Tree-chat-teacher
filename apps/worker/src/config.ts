@@ -1,5 +1,5 @@
 // The one config module (docs/pool/PLAN.md §4): every cap, price, markup,
-// limit and flag the billing code and the community pool read. Values come
+// limit and flag the billing code and the open pool read. Values come
 // from wrangler.jsonc `vars` (strings), parsed once per env object and frozen;
 // empty or malformed values fall back to the defaults below, and the safety
 // clamps at the end log when they change a value.
@@ -34,10 +34,10 @@ export const DEFAULT_MEMBERSHIP_PRICE_CENTS = 1000;
 export const DEFAULT_MEMBERSHIP_CREDIT_CENTS = 200;
 export const DEFAULT_SIMPLE_MAX_INPUT_TOKENS = 60_000;
 
-/** The community pool's ledger account id (`POOL_ACCOUNT_ID`). */
+/** The open pool's ledger account id (`POOL_ACCOUNT_ID`). */
 export const DEFAULT_POOL_ACCOUNT_ID = 'pool';
 /**
- * The share of Tangent's revenue that goes to the community pool, in bps
+ * The share of Tangent's revenue that goes to the open pool, in bps
  * (20%): of each membership payment net of tax and the processing fee, and of
  * the markup on personal credit as it is spent (pool/revenue-share.ts).
  */

@@ -5,7 +5,7 @@ let uid = 0;
 
 /**
  * Segmented Smart/Simple switch over the provider's models. `lockedHint`
- * disables it and says why (on the community pool, which uses one model).
+ * disables it and says why (on the open pool, which uses one model).
  */
 @Component({
   selector: 'app-model-toggle',
@@ -42,7 +42,7 @@ export class ModelToggle {
   readonly value = input<string | null>(null);
   readonly disabled = input(false);
   readonly label = input('Tutor');
-  /** Disables the switch, saying why (e.g. "The community pool uses Simple."). */
+  /** Disables the switch, saying why (e.g. "The open pool uses Simple."). */
   readonly lockedHint = input<string | null>(null);
   protected readonly hintId = `model-toggle-hint-${++uid}`;
   readonly changed = output<string>();

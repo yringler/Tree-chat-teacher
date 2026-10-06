@@ -6,6 +6,8 @@ import { appConfig } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { formatMicros } from '@tangent/shared';
 import { PRICING_STYLE } from '../src/http/pricing-page.js';
+import { uniq } from './mocks/billing-helpers.js';
+import { fundPool } from './pool-helpers.js';
 import { authEnv, ORIGIN } from './session-client.js';
 
 /** As deployed: the pool on with a 20% revenue share, credit sold (the fake provider), no membership. */
@@ -83,9 +85,7 @@ describe('/pricing', () => {
     expect(columns(html)).toEqual(['Free', 'Pay as you go']);
     expect(html).toContain('<h3>Free</h3>\n<p class="price">$0</p>');
     expect(html).toContain('<a class="btn primary" href="/learn/login">Start learning free</a>');
-    expect(html).toContain(
-      `${pool.caps.free.requestsPerDay} free replies a day on the community pool`,
-    );
+    expect(html).toContain(`${pool.caps.free.requestsPerDay} free replies a day on the open pool`);
     expect(html).toContain('<li>Every power-mode control, on your own keys</li>');
     expect(billing.markupBps).toBe(1000);
     expect(html).toContain('<p class="price">At cost<small> + 10% a reply</small>');
@@ -98,7 +98,13 @@ describe('/pricing', () => {
     expect(html).toContain(
       'Each reply costs what OpenRouter charges for it, plus OpenRouter’s 5.5% fee for buying credit, plus Tangent’s 10% markup.',
     );
-    expect(html).toContain('20% of the markup goes into the community pool as credit is used.');
+    expect(html).toContain('Tangent puts 20% of its markup into the open pool as credit is used.');
+    // Why there's a free plan: Tangent's own policy, not tied to the reader's purchase.
+    expect(html).toContain('<h2 id="why">Why there’s a free plan</h2>');
+    expect(html).toContain('Tangent is a business: the credit people buy pays for it.');
+    expect(html).toContain(
+      '<li>Tangent earns from the credit people buy, like any software business.</li>',
+    );
     expect(html).toContain('Top up between $5 and $500 at a time. Tax is added at checkout');
     expect(html).toContain('Credit doesn’t expire while your account exists');
     expect(html).toContain('<th scope="row">Any OpenRouter model, on Tangent credit</th>');
@@ -115,10 +121,14 @@ describe('/pricing', () => {
     expect(columns(html)).toEqual(['Free', 'Membership']);
     expect(html).toContain('<p class="price">$10<small> a year + tax</small>');
     expect(html).toContain(
-      `<li>${pool.caps.member.requestsPerDay} pool replies a day instead of ${pool.caps.free.requestsPerDay}</li>`,
+      `<li>${pool.caps.member.requestsPerDay} pool replies a day instead of ${pool.caps.free.requestsPerDay}<span class="while">While the pool has credit`,
     );
     expect(html).toContain('<li>$2 of credit included each year');
     expect(html).toContain('A yearly membership adds more room on the pool');
+    expect(html).toContain('Tangent is a business: memberships and credit pay for it.');
+    expect(html).toContain(
+      '<li>Tangent earns from memberships and credit, like any software business.</li>',
+    );
     expect(html).not.toContain('No subscription');
     expect(html).not.toContain('Every power-mode control, on your own keys');
     expect(html).toContain(
@@ -151,10 +161,26 @@ describe('/pricing', () => {
     expect(member).not.toMatch(/credit included|top up|Tangent’s \d+% markup/i);
   });
 
+  it('says on each pool line of the cards that it lasts while the pool has credit, with the balance now', async () => {
+    const poolId = uniq('pool');
+    await fundPool(poolId, 12_340_000);
+    const funded = (await pricing({ ...MEMBERSHIP, POOL_ACCOUNT_ID: poolId })).html;
+    const pill = '<span class="while">While the pool has credit · currently $12.34</span></li>';
+    expect(funded.split(pill).length).toBe(3);
+    expect(funded).toMatch(
+      /free replies a day on the open pool<sup[^]*?<\/sup><span class="while">/,
+    );
+
+    const empty = (await pricing({ POOL_ACCOUNT_ID: uniq('pool') })).html;
+    expect(empty).toContain(
+      '<span class="while">While the pool has credit · empty right now</span></li>',
+    );
+  });
+
   it('without the pool: no free replies are promised', async () => {
     const { html } = await pricing(NO_POOL);
     expect(html).toContain('<h1>Pay only for what you use.</h1>');
-    expect(html).not.toMatch(/community pool|Start learning free/);
+    expect(html).not.toMatch(/open pool|Start learning free/);
     expect(html).toContain('<a class="btn" href="/learn/login">Start learning</a>');
     expect(html).toContain('<p class="for">Learn on your own OpenRouter key.</p>');
 
@@ -167,7 +193,7 @@ describe('/pricing', () => {
     const auto = (await pricing({ GROUNDING: 'auto' })).html;
     expect(auto).toContain('<th scope="row">Web search to check facts');
     expect(auto).toContain('Offered when an answer likely needs it');
-    expect(auto).toContain('not on the community pool or on Anthropic or OpenAI keys');
+    expect(auto).toContain('not on the open pool or on Anthropic or OpenAI keys');
     const explicit = (await pricing({ GROUNDING: 'explicit' })).html;
     expect(explicit).toContain('<strong>Check sources</strong> under an answer');
     expect(explicit).toContain('<li>Web search to check any answer</li>');

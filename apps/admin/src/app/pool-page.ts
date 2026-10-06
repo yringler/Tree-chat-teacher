@@ -40,7 +40,7 @@ function newKey(): string {
 }
 
 /**
- * The community pool's ledger (`GET /api/admin/pool`): balance, what pending
+ * The open pool's ledger (`GET /api/admin/pool`): balance, what pending
  * reservations hold, and the overage breaker (while tripped, the pool refuses
  * every request until the window's overage falls back under the limit or the
  * price table is fixed). Below it, a top-up or correction of the pool
@@ -52,7 +52,7 @@ function newKey(): string {
   selector: 'app-pool-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <h2>Community pool</h2>
+    <h2>Open pool</h2>
     @if (error(); as e) {
       <p class="notice notice-error" role="alert">{{ e }}</p>
     }

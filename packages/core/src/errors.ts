@@ -81,13 +81,13 @@ export class MembershipRequiredError extends DomainError {
 }
 
 const POOL_MESSAGES: Record<ReturnType<typeof poolErrorCode>, string> = {
-  pool_empty: "The community pool can't cover this right now",
-  pool_cap_reached: "You have reached today's community pool limit",
-  pool_unavailable: 'The community pool is not available for this account',
+  pool_empty: "The open pool can't cover this right now",
+  pool_cap_reached: "You have reached today's open pool limit",
+  pool_unavailable: 'The open pool is not available for this account',
 };
 
 /**
- * The community pool refused a request (402 `pool_empty`, 429
+ * The open pool refused a request (402 `pool_empty`, 429
  * `pool_cap_reached` or 403 `pool_unavailable`, by `details.reason`). The HTTP
  * layer sends `details` as `ApiError.error.pool`.
  */
@@ -115,7 +115,7 @@ export class PoolConsentRequiredError extends DomainError {
   constructor(readonly currentVersion: number) {
     super(
       'pool_consent_required',
-      'Read and acknowledge the community pool notice before using the pool',
+      'Read and acknowledge the open pool notice before using the pool',
     );
   }
 }

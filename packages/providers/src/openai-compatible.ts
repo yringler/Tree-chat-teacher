@@ -92,8 +92,10 @@ function collectCitations(raw: unknown, into: Map<string, Citation>): boolean {
     if (!isRecord(c) || typeof c['url'] !== 'string') continue;
     const url = c['url'].trim();
     if (!isCitableUrl(url) || into.has(url) || into.size >= CITATIONS_MAX) continue;
-    const title = typeof c['title'] === 'string' && c['title'].trim() ? c['title'].trim().slice(0, 500) : null;
-    const content = typeof c['content'] === 'string' ? c['content'].replace(/\s+/g, ' ').trim() : '';
+    const title =
+      typeof c['title'] === 'string' && c['title'].trim() ? c['title'].trim().slice(0, 500) : null;
+    const content =
+      typeof c['content'] === 'string' ? c['content'].replace(/\s+/g, ' ').trim() : '';
     const excerpt = content
       ? content.length > CITATION_EXCERPT_MAX
         ? `${content.slice(0, CITATION_EXCERPT_MAX - 1)}…`
@@ -159,15 +161,20 @@ function codeForStreamError(err: Record<string, unknown>, message: string): Prov
  *
  * Error events say how far the call got (`ProviderError.upstream`): `not_sent`
  * (missing key, connection failure), `rejected` (non-2xx response) or
- * `stream` (failed after a 2xx response). The community pool releases a
+ * `stream` (failed after a 2xx response). The open pool releases a
  * reservation in full only for the first two.
  */
-export function createOpenAiCompatibleProvider(config: ProviderConfig, env: ProviderEnv): LlmProvider {
+export function createOpenAiCompatibleProvider(
+  config: ProviderConfig,
+  env: ProviderEnv,
+): LlmProvider {
   const baseUrl = stripTrailingSlash(config.baseUrl ?? DEFAULT_BASE_URL);
   const doFetch = getFetch(env);
   const optParam = config.options?.['maxTokensParam'];
   const maxTokensParam: MaxTokensParam =
-    optParam === 'max_tokens' || optParam === 'max_completion_tokens' ? optParam : defaultMaxTokensParam(baseUrl);
+    optParam === 'max_tokens' || optParam === 'max_completion_tokens'
+      ? optParam
+      : defaultMaxTokensParam(baseUrl);
   const extraBody = readExtraBody(config.options);
 
   const capabilities = (model: string) => resolveCapabilities(config, model, DEFAULTS, false);
@@ -206,7 +213,9 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
       }
       const webSearch = request.webSearch && caps.supportsWebSearch ? request.webSearch : null;
       const extra = webSearch
-        ? Object.fromEntries(Object.entries(extraBody).filter(([k]) => !WEB_SEARCH_BODY_KEYS.includes(k)))
+        ? Object.fromEntries(
+            Object.entries(extraBody).filter(([k]) => !WEB_SEARCH_BODY_KEYS.includes(k)),
+          )
         : extraBody;
       const body: Record<string, unknown> = {
         stream_options: { include_usage: true },
@@ -234,9 +243,15 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
         throw new ProviderFailure({ ...networkError(e, secrets), upstream: 'not_sent' });
       }
       if (!res.ok)
-        throw new ProviderFailure({ ...(await errorFromResponse(res, signal, secrets)), upstream: 'rejected' });
+        throw new ProviderFailure({
+          ...(await errorFromResponse(res, signal, secrets)),
+          upstream: 'rejected',
+        });
       if (!res.body)
-        throw new ProviderFailure({ ...providerError('network', 'Response has no body'), upstream: 'stream' });
+        throw new ProviderFailure({
+          ...providerError('network', 'Response has no body'),
+          upstream: 'stream',
+        });
 
       const headerId = res.headers.get('x-generation-id')?.trim();
       let generationId: string | undefined = headerId || undefined;
@@ -256,12 +271,19 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
         try {
           chunk = JSON.parse(raw);
         } catch {
-          throw new ProviderFailure({ ...providerError('unknown', 'Malformed chunk from provider'), upstream: 'stream' });
+          throw new ProviderFailure({
+            ...providerError('unknown', 'Malformed chunk from provider'),
+            upstream: 'stream',
+          });
         }
         if (!isRecord(chunk)) continue;
 
         const chunkId = chunk['id'];
-        if (generationId === undefined && typeof chunkId === 'string' && chunkId.startsWith('gen-')) {
+        if (
+          generationId === undefined &&
+          typeof chunkId === 'string' &&
+          chunkId.startsWith('gen-')
+        ) {
           generationId = chunkId;
           yield { type: 'billing', generationId };
         }
@@ -269,10 +291,18 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
         const err = chunk['error'];
         if (isRecord(err) || typeof err === 'string') {
           const errRec = isRecord(err) ? err : {};
-          const message = typeof err === 'string' ? err : typeof errRec['message'] === 'string' ? errRec['message'] : 'Provider stream error';
+          const message =
+            typeof err === 'string'
+              ? err
+              : typeof errRec['message'] === 'string'
+                ? errRec['message']
+                : 'Provider stream error';
           yield {
             type: 'error',
-            error: { ...providerError(codeForStreamError(errRec, message), redact(message, secrets)), upstream: 'stream' },
+            error: {
+              ...providerError(codeForStreamError(errRec, message), redact(message, secrets)),
+              upstream: 'stream',
+            },
           };
           return;
         }
@@ -291,8 +321,10 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
             }
             const message = choice['message'];
             const fromDelta = isRecord(delta) && collectCitations(delta['annotations'], citations);
-            const fromMessage = isRecord(message) && collectCitations(message['annotations'], citations);
-            if (fromDelta || fromMessage) yield { type: 'citations', citations: [...citations.values()] };
+            const fromMessage =
+              isRecord(message) && collectCitations(message['annotations'], citations);
+            if (fromDelta || fromMessage)
+              yield { type: 'citations', citations: [...citations.values()] };
           }
           const fr = choice['finish_reason'];
           if (typeof fr === 'string') {

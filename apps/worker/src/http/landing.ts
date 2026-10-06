@@ -4,7 +4,9 @@ import {
   formatMicros,
   POOL_AT_COST_TEXT,
   POOL_EMPTY_TEXT,
+  POOL_MOTTO,
   poolSessionsHeadline,
+  poolSteps,
   poolWeekText,
   type PoolImpactResponse,
   type PoolStatusResponse,
@@ -116,6 +118,10 @@ h2{margin:0 0 8px;font-size:clamp(1.4rem,4vw,1.85rem);line-height:1.2;letter-spa
 .pool .week{margin:0;color:var(--muted)}
 .pool .fee{margin:0;color:var(--muted);font-size:.88rem}
 .pool .ctas{margin:0}
+.steps{display:grid;gap:12px;margin:0;padding:0;list-style:none;counter-reset:step}
+.steps li{position:relative;padding:12px 14px 12px 48px;border:1px solid var(--border);border-radius:12px;background:var(--bg-sunken);font-size:.95rem;counter-increment:step}
+.steps li::before{content:counter(step);position:absolute;top:11px;left:14px;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--accent-fg);font-size:.8rem;font-weight:700}
+@media (min-width:720px){.steps{grid-template-columns:repeat(3,1fr)}}
 #pool+.sub{max-width:40rem}
 .impact{display:grid;gap:8px}
 .impact p{margin:0}
@@ -170,7 +176,7 @@ export interface LandingPageOptions {
   operator: string;
   /** Share links are offered to everyone (DMCA_AGENT_REGISTERED); otherwise only export is advertised. */
   sharing: boolean;
-  /** The community pool's meter; absent when the pool is off or couldn't be read. */
+  /** The open pool's meter; absent when the pool is off or couldn't be read. */
   pool?: PoolStatusResponse;
   /** The pool's latest weekly impact snapshot; absent when there is none (or the pool is off). */
   impact?: PoolImpactResponse;
@@ -196,21 +202,35 @@ function poolOpen(pool: PoolStatusResponse | undefined): pool is PoolStatusRespo
 function poolIntroText(revenueShareBps: number): string {
   const funded =
     revenueShareBps > 0
-      ? `Tangent puts ${formatBps(revenueShareBps)} of what it earns into the community pool`
-      : 'Tangent adds free credit to the community pool';
-  return `Good AI tutoring costs money to run, so most of it sits behind a paywall. ${funded} so that anyone can learn here for free, within daily limits.`;
+      ? `Tangent puts ${formatBps(revenueShareBps)} of what it earns into the open pool`
+      : 'Tangent adds free credit to the open pool';
+  return `Good AI tutoring costs money to run, so most of it sits behind a paywall. ${POOL_MOTTO} ${funded} so that anyone can learn here for free, within daily limits, while it has credit.`;
 }
 
+/** How the pool comes about, as three numbered steps (`poolSteps`); the landing and pricing pages share it. */
+export function poolStepsHtml(revenueShareBps: number, memberships: boolean): string {
+  return `<ol class="steps">${poolSteps(revenueShareBps, memberships)
+    .map((step) => `<li>${escapeHtml(step)}</li>`)
+    .join('')}</ol>`;
+}
+
+/** Learners on the pool this week the hero names at least; fewer would read as a weak signal. */
+const HERO_LEARNERS_MIN = 10;
+
 /**
- * The community pool section: why it exists, where its credit comes from
+ * The open pool section: why it exists, where its credit comes from
  * (Tangent's revenue share, in brief), the meter, this week's
  * counts and the latest weekly impact snapshot when there is one. It is
  * Tangent's own commitment: nothing here is for sale, and nothing asks the
  * visitor to pay for anyone else (docs/DECISIONS.md, "Revenue-funded
- * community pool"). The free sign-up button shows only while the pool has
+ * open pool"). The free sign-up button shows only while the pool has
  * credit.
  */
-function poolSection(pool: PoolStatusResponse, impact?: PoolImpactResponse): string {
+function poolSection(
+  pool: PoolStatusResponse,
+  memberships: boolean,
+  impact?: PoolImpactResponse,
+): string {
   const meter =
     pool.sessionsRemaining > 0
       ? `<p class="meter">${escapeHtml(poolSessionsHeadline(pool.sessionsRemaining))} left<small>${escapeHtml(formatMicros(pool.availableMicros))} in the pool</small></p>`
@@ -220,10 +240,11 @@ function poolSection(pool: PoolStatusResponse, impact?: PoolImpactResponse): str
     : '<a class="btn" href="/pool">How the pool works</a>';
   return `<section aria-labelledby="pool">
 <div class="wrap">
-<p class="eyebrow">The community pool</p>
+<p class="eyebrow">The open pool</p>
 <h2 id="pool">Curiosity shouldn’t need a credit card</h2>
 <p class="sub">${escapeHtml(poolIntroText(pool.revenueShareBps))}</p>
 <div class="pool">
+${poolStepsHtml(pool.revenueShareBps, memberships)}
 ${meter}
 <p class="week">${escapeHtml(poolWeekText(pool.week))}</p>
 ${impact ? `${renderImpactBlock(impact, LANDING_IMPACT_TOPICS)}\n` : ''}<div class="ctas">${ctas}</div>
@@ -244,7 +265,7 @@ ${impact ? `${renderImpactBlock(impact, LANDING_IMPACT_TOPICS)}\n` : ''}<div cla
 function groundingCard(policy: GroundingPolicy | undefined, pool: boolean): string {
   if (policy === undefined || policy === 'off') return '';
   const notPool = pool
-    ? ' Searching works on your own OpenRouter key or prepaid credit, not on the free community pool.'
+    ? ' Searching works on your own OpenRouter key or prepaid credit, not on the free open pool.'
     : '';
   if (policy === 'explicit') {
     return `<article class="card">${ICON_CHECK}<h3>Check any answer against the web</h3><p>Not sure about a detail? <strong>Check sources</strong> under an answer has the tutor search the web, correct itself where it needs to, and cite what it found.${notPool}</p></article>`;
@@ -264,7 +285,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
   const canonical = escapeHtml(opts.canonicalUrl);
   const free = poolOpen(opts.pool);
   const freeNote = poolOpen(opts.pool)
-    ? `<p class="free"><strong>Free to start.</strong> Signed-in learners can learn on the community pool: free credit Tangent ${opts.pool.revenueShareBps > 0 ? 'sets aside from its revenue' : 'provides'} so that anyone can learn here, within daily limits. <a href="#pool">How it works</a></p>\n`
+    ? `<p class="free"><strong>Free to start.</strong> ${escapeHtml(POOL_MOTTO)} ${opts.pool.revenueShareBps > 0 ? `It puts ${escapeHtml(formatBps(opts.pool.revenueShareBps))} of what it earns into the open pool` : 'It provides free credit in the open pool'}, so anyone signed in can learn here free, within daily limits.${opts.pool.week.learners >= HERO_LEARNERS_MIN ? ` ${opts.pool.week.learners.toLocaleString('en-US')} people learned free this week.` : ''} <a href="#pool">How it works</a></p>\n`
     : '';
   return `<!doctype html>
 <html lang="en">
@@ -325,11 +346,11 @@ ${freeNote}<p class="note">The demo is free and runs in your browser. Nothing is
 <article class="card">${ICON_COMPASS}<h3>Answers first, tangents next</h3><p>Ask a question and get the answer, straight away and in real depth: the mechanism, not just the fact, and no quiz in between. Every answer ends with a few tangents worth following. One tap opens any of them as a branch of its own.</p></article>
 <article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. The side question opens its own branch, so detours never clutter the main thread, and every branch stays one click away. Choose <strong>Smart</strong> for hard topics or <strong>Simple</strong> for quick ones.</p></article>
 <article class="card">${ICON_EYE}<h3>See exactly what the model sees</h3><p>In power mode, decide how much each branch inherits: the full path, a summary, or a clean slate. The inspector shows the exact prompt before anything is sent.</p></article>
-<article class="card">${ICON_COIN}<h3>${opts.pool ? 'Free, your key, or pay as you go' : 'Your key, or pay as you go'}</h3><p>${opts.pool ? 'Learn free on the community pool, within daily limits, while it has credit. ' : ''}Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or top up prepaid credit and pay for each reply at cost, plus a small markup. <a href="/pricing">See exactly what’s free and what’s paid</a></p></article>
+<article class="card">${ICON_COIN}<h3>${opts.pool ? 'Free, your key, or pay as you go' : 'Your key, or pay as you go'}</h3><p>${opts.pool ? 'Learn free on the open pool, within daily limits, while it has credit. ' : ''}Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or top up prepaid credit and pay for each reply at cost, plus a small markup. <a href="/pricing">See exactly what’s free and what’s paid</a></p></article>
 ${groundingCard(opts.grounding, opts.pool !== undefined)}</div>
 </div>
 </section>
-${opts.pool ? poolSection(opts.pool, opts.impact) : ''}<section aria-labelledby="modes">
+${opts.pool ? poolSection(opts.pool, opts.membership === true, opts.impact) : ''}<section aria-labelledby="modes">
 <div class="wrap">
 <h2 id="modes">Two ways to use it</h2>
 <p class="sub">One sign-in, two levels of control. Switch between them at any time.</p>
@@ -342,7 +363,7 @@ ${opts.pool ? poolSection(opts.pool, opts.impact) : ''}<section aria-labelledby=
 <li>Tangents after every answer, each one a tap away</li>
 <li>Side questions with Ask about this</li>
 <li>Smart and Simple tiers, one toggle</li>
-<li>${opts.membership ? 'Your own OpenRouter key at no charge from Tangent, no membership needed, or pay as you go from prepaid credit (buying it needs a membership)' : 'Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit'}</li>${opts.pool ? `\n<li>Or learn free on the community pool, within daily limits, on credit Tangent provides${opts.pool.revenueShareBps > 0 ? ' from its revenue' : ''}</li>` : ''}
+<li>${opts.membership ? 'Your own OpenRouter key at no charge from Tangent, no membership needed, or pay as you go from prepaid credit (buying it needs a membership)' : 'Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit'}</li>${opts.pool ? `\n<li>Or learn free on the open pool, within daily limits, on credit Tangent provides${opts.pool.revenueShareBps > 0 ? ' from its revenue' : ''}</li>` : ''}
 </ul>
 <a class="btn primary" href="/learn/login">${free ? 'Start learning free' : 'Start learning'}</a>
 </article>
@@ -364,7 +385,7 @@ ${opts.pool ? poolSection(opts.pool, opts.impact) : ''}<section aria-labelledby=
 <footer>
 <div class="wrap">
 <span>${escapeHtml(copyrightNotice(opts.operator))}</span>
-<nav aria-label="Footer"><a href="/learn/demo">Try the demo</a><a href="/learn/login">Sign in to Learn</a><a href="/login">Power sign in</a><a href="/welcome">About Tangent</a><a href="/pricing">Pricing</a><a href="/pool">Community pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+<nav aria-label="Footer"><a href="/learn/demo">Try the demo</a><a href="/learn/login">Sign in to Learn</a><a href="/login">Power sign in</a><a href="/welcome">About Tangent</a><a href="/pricing">Pricing</a><a href="/pool">Open pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
 </div>
 </footer>
 </body>

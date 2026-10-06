@@ -39,7 +39,7 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
 /**
  * The billing page of both apps (`/learn/billing`, `/billing`): the yearly
  * membership, credit for the built-in provider (balance, top-ups, recent
- * usage), the payment provider's billing portal, and the community pool's
+ * usage), the payment provider's billing portal, and the open pool's
  * meter (PoolSection; nothing to buy there); each section only where it
  * applies. The checkout sends the browser back with `?checkout=success|cancel`
  * (bound as the `checkout` input when the router has component input binding,

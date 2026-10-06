@@ -536,7 +536,7 @@ describe("the pool's context limit bounds every call", () => {
     // The reply's context is 200 KB: refused before anything is reserved or sent.
     expect(events.at(-1)).toMatchObject({
       type: 'error',
-      message: 'This conversation is too long for the community pool.',
+      message: 'This conversation is too long for the open pool.',
     });
     const calls = await rows(u.poolId);
     expect(calls.map((r) => [r.purpose, r.status, r.settle_reason])).toEqual([
