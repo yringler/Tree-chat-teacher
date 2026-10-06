@@ -1,4 +1,5 @@
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   effect,
@@ -16,7 +17,8 @@ import { UiStore } from '../state/ui-store';
 /**
  * The message box at the foot of every lane. Enter sends, Shift+Enter
  * inserts a newline; Stop replaces Send while the lane's reply streams.
- * Only the selected lane's box answers the global focus request.
+ * Only the selected lane's box answers the global focus request, or the
+ * box of the lane it names (a new lane, also once it first renders).
  */
 @Component({
   selector: 'app-lane-composer',
@@ -63,7 +65,9 @@ import { UiStore } from '../state/ui-store';
 export class LaneComposer {
   private readonly ui = inject(UiStore);
   readonly inputId = input.required<string>();
-  readonly placeholder = input('Reply in this lane…');
+  /** The lane this box writes in. */
+  readonly laneId = input.required<string>();
+  readonly placeholder = input('Continue this lane…');
   readonly disabled = input(false);
   readonly busy = input(false);
   /** True for the selected lane: it takes the global focus request. */
@@ -80,10 +84,21 @@ export class LaneComposer {
       const n = this.ui.composerFocus();
       if (n !== this.lastFocusRequest) {
         this.lastFocusRequest = n;
-        if (untracked(this.selected))
-          queueMicrotask(() => this.box().nativeElement.focus({ preventScroll: true }));
+        const lane = this.ui.composerFocusLane;
+        if (lane === untracked(this.laneId) || (lane === null && untracked(this.selected))) {
+          this.takeFocus();
+        }
       }
     });
+    // A lane created with a focus request for it: its box didn't exist when it was asked.
+    afterNextRender(() => {
+      if (this.ui.composerFocusLane === this.laneId()) this.takeFocus();
+    });
+  }
+
+  private takeFocus(): void {
+    this.ui.composerFocusLane = null;
+    queueMicrotask(() => this.box().nativeElement.focus({ preventScroll: true }));
   }
 
   protected onInput(box: HTMLTextAreaElement): void {

@@ -873,6 +873,49 @@ textarea:focus-visible {
   color: var(--accent);
 }
 
+/* Its fold button sits on the left, away from Ask. */
+.tangent-ask-fold {
+  margin-right: auto;
+  width: 28px;
+  height: 28px;
+}
+
+/* The newest reply's item (TangentAsk `latest`): the natural place to ask next. */
+.tangent-ask.is-latest:not(.is-disabled),
+.tangent-ask.is-latest:not(.is-disabled):hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.tangent-ask.is-latest:focus-within,
+.tangent-ask.is-latest:not(.is-disabled):focus-within:hover {
+  background: var(--bg-elev);
+}
+
+/* "Ask about this" on text selected in a message (ui/selection-ask.ts); each app places the host. */
+.selection-ask {
+  display: inline-flex;
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+
+.selection-ask-main {
+  border-radius: 999px;
+}
+
+.selection-ask-main:has(+ .selection-ask-more) {
+  border-radius: 999px 0 0 999px;
+}
+
+.selection-ask-more {
+  padding: 6px 12px 6px 9px;
+  border-left: 0;
+  border-color: var(--accent);
+  border-radius: 0 999px 999px 0;
+  color: var(--accent);
+}
+
 /* Text size ("Aa": ui/text-size-menu.ts), a popover under its button */
 .text-size-wrap {
   position: relative;

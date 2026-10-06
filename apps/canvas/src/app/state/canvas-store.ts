@@ -560,7 +560,7 @@ export class CanvasStore {
       this.applyBranch(branch);
       if (open) {
         this.go(branch.id);
-        this.ui.focusComposer();
+        this.ui.focusComposer(branch.id);
       }
       return branch;
     } catch (err) {
@@ -604,7 +604,7 @@ export class CanvasStore {
     if (message) {
       for (const b of created) void this.send(b.id, message);
     } else {
-      this.ui.focusComposer();
+      this.ui.focusComposer(first.id);
     }
     return created;
   }

@@ -476,9 +476,23 @@ button.crumb:hover {
 /* Composer */
 
 .composer-dock {
+  position: relative;
   border-top: 1px solid var(--border);
   padding: 10px 20px 14px;
   background: var(--bg);
+}
+
+/* "Ask about this" on a selection: floats just above the composer, over the messages. */
+.selection-float {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  padding: 0 12px 10px;
+  pointer-events: none;
 }
 
 .composer-host {

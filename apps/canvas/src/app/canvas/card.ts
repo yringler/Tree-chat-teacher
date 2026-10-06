@@ -99,6 +99,7 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
             settingsLabel="Lane settings: context, model, variants…"
             [expandable]="true"
             [busy]="asking()"
+            [latest]="latest()"
             [disabled]="locked()"
             disabledTitle="Asking needs a membership (this lane is on your own key)"
             (ask)="ask($event)"
@@ -172,6 +173,17 @@ export class Card {
     () => new Set(this.children().map((b) => b.title)),
   );
   protected readonly opening = signal<string | null>(null);
+
+  /**
+   * The selected lane's last card, a finished reply: its "Ask your own"
+   * starts open (TangentAsk `latest`). Only the selected lane's, so the canvas
+   * never shows a field open in every lane.
+   */
+  protected readonly latest = computed(() => {
+    const n = this.node();
+    if (!this.complete() || n.branchId !== this.store.selectedBranchId()) return false;
+    return this.store.index()?.nodesByBranch.get(n.branchId)?.at(-1)?.id === n.id;
+  });
 
   /** "Ask your own": the question being typed under the reply. */
   protected readonly askText = signal('');

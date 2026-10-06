@@ -118,16 +118,12 @@
     </div>
   </div>
 
-  @if (pendingAsk(); as ask) {
+  @if (pendingAsk.value(); as ask) {
     <div class="ask-bar">
-      <button
-        type="button"
-        class="btn btn-primary ask-btn"
-        (mousedown)="$event.preventDefault()"
-        (click)="askAbout(ask.nodeId, ask.quote)"
-      >
-        <app-icon name="branch" /> Ask about this
-      </button>
+      <app-selection-ask
+        title="A side question about the selected words, keeping the lesson so far"
+        (ask)="askAbout(ask)"
+      />
     </div>
   }
 

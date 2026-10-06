@@ -736,6 +736,25 @@ describe('TreeStore branching with a first message', () => {
     expect(s.go).toHaveBeenLastCalledWith('side', null);
   });
 
+  it('"Ask about this" opens a path branch quoting the selection, ready to type and unsent', async () => {
+    const s = open();
+    const before = s.ui.composerFocus();
+    const branch = await s.store.createBranch({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: 'a wave',
+    });
+    expect(branch?.id).toBe('side');
+    expect(s.createBranch).toHaveBeenCalledWith({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: 'a wave',
+    });
+    expect(s.go).toHaveBeenCalledWith('side');
+    expect(s.ui.composerFocus()).toBe(before + 1);
+    expect(s.sendMessage).not.toHaveBeenCalled();
+  });
+
   it('a branch that cannot be created sends nothing (the caller keeps the text)', async () => {
     const s = open();
     s.createBranch.mockRejectedValueOnce(new ApiError(500, 'internal', 'Nope'));

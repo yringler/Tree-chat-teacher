@@ -63,6 +63,12 @@ export class UiStore {
   readonly collapsed = signal<ReadonlySet<string>>(new Set());
   /** Bumped to ask the selected lane's composer to take focus. */
   readonly composerFocus = signal(0);
+  /**
+   * The lane the last focus request is for, when it names one: a lane just
+   * created isn't on the canvas yet when it is asked, so its composer takes
+   * the request once it renders (LaneComposer).
+   */
+  composerFocusLane: string | null = null;
   private toastSeq = 0;
 
   readonly anyDialogOpen = computed(
@@ -87,7 +93,9 @@ export class UiStore {
     this.toasts.update((list) => list.filter((t) => t.id !== id));
   }
 
-  focusComposer(): void {
+  /** Focus the selected lane's composer, or `laneId`'s (also once it first renders). */
+  focusComposer(laneId: string | null = null): void {
+    this.composerFocusLane = laneId;
     this.composerFocus.update((n) => n + 1);
   }
 

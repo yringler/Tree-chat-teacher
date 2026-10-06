@@ -76,7 +76,8 @@ import { ReviewVerdict } from '../ui/review-verdict';
       @if (streaming() && liveStatus()) {
         <p class="msg-status muted small">{{ liveStatus() }}</p>
       }
-      <div #body class="msg-body md" [innerHTML]="html()"></div>
+      <!-- data-node-id: the chat page maps a text selection in here to this message ("Ask about this"). -->
+      <div #body class="msg-body md" [attr.data-node-id]="n.id" [innerHTML]="html()"></div>
       @if (streaming()) {
         <span class="cursor" aria-hidden="true"></span>
         <span class="sr-only">Generating…</span>
@@ -157,6 +158,7 @@ import { ReviewVerdict } from '../ui/review-verdict';
               [expandable]="true"
               [reveal]="true"
               [busy]="asking()"
+              [latest]="latest()"
               [disabled]="locked()"
               disabledTitle="Asking needs a membership (this branch is on your own key)"
               (ask)="ask($event)"
@@ -352,6 +354,16 @@ export class MessageItem {
   protected readonly canAsk = computed(() => this.reviewable() && this.store.canGenerate());
   protected readonly askText = signal('');
   protected readonly asking = signal(false);
+  /** The open branch's newest reply: its "Ask your own" starts open (TangentAsk `latest`). */
+  protected readonly latest = computed(() => {
+    const n = this.node();
+    return (
+      n.role === 'assistant' &&
+      n.status === 'complete' &&
+      n.branchId === this.store.selectedBranchId() &&
+      this.store.path().at(-1)?.id === n.id
+    );
+  });
 
   protected async ask(text: string): Promise<void> {
     if (this.asking() || this.locked()) return;

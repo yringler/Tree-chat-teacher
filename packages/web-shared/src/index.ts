@@ -81,6 +81,13 @@ export { Modal } from './ui/modal';
 export { DEEP_BRANCH_DEPTH, SourcesList } from './ui/sources-list';
 export { TangentAsk } from './ui/tangent-ask';
 export { TextSizeMenu } from './ui/text-size-menu';
+export {
+  MAX_QUOTE,
+  PendingQuote,
+  SelectionAsk,
+  selectedMessageQuote,
+  type MessageQuote,
+} from './ui/selection-ask';
 export { ModeSwitch } from './ui/mode-switch';
 export { Turnstile } from './ui/turnstile';
 export { LoginPage } from './login/login-page';

@@ -233,6 +233,28 @@ describe('CanvasStore', () => {
     return createBranch;
   }
 
+  it('"Ask about this" opens a path lane quoting the selection, its box asked to take focus', async () => {
+    const s = setup();
+    const createBranch = lanes(s);
+    const go = vi.spyOn(s.store, 'go');
+    const before = s.ui.composerFocus();
+    const lane = await s.store.createBranch({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: 'A wave',
+    });
+    expect(createBranch).toHaveBeenCalledWith({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: 'A wave',
+    });
+    expect(go).toHaveBeenCalledWith('c1');
+    // The new lane isn't on the canvas yet: the request names it, for its box to take once rendered.
+    expect(s.ui.composerFocus()).toBe(before + 1);
+    expect(s.ui.composerFocusLane).toBe(lane?.id);
+    expect(s.api.sendMessage).not.toHaveBeenCalled();
+  });
+
   it('"Ask your own" opens an untitled path lane and asks the question there', async () => {
     const s = setup();
     const createBranch = lanes(s);

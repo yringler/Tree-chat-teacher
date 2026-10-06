@@ -854,12 +854,6 @@
   z-index: 3;
 }
 
-.float-btn {
-  border-radius: 999px;
-  box-shadow: var(--shadow);
-  pointer-events: auto;
-}
-
 /* Minimap */
 
 .minimap-host {

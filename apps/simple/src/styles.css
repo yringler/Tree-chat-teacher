@@ -617,11 +617,6 @@ button.crumb:hover {
   padding: 6px var(--gutter) 0;
 }
 
-.ask-btn {
-  border-radius: 999px;
-  box-shadow: var(--shadow);
-}
-
 .composer-dock {
   border-top: 1px solid var(--border);
   padding: 8px var(--gutter) max(10px, env(safe-area-inset-bottom));

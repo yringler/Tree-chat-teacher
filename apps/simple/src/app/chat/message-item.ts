@@ -84,6 +84,7 @@ import { branchTitle } from './titles';
             [(text)]="askText"
             label="Ask your own question as a side question"
             [busy]="asking()"
+            [latest]="latest()"
             (ask)="ask($event)"
           />
         </nav>
@@ -202,6 +203,15 @@ export class MessageItem {
   /** "Ask your own": the learner's question, sent in a new side question. */
   protected readonly askText = signal('');
   protected readonly asking = signal(false);
+  /** The newest reply of what is open: its "Ask your own" stands out (TangentAsk `latest`). */
+  protected readonly latest = computed(() => {
+    const n = this.node();
+    return (
+      this.askable() &&
+      n.branchId === this.store.selectedBranchId() &&
+      this.store.path().at(-1)?.id === n.id
+    );
+  });
 
   protected async ask(text: string): Promise<void> {
     if (this.asking()) return;

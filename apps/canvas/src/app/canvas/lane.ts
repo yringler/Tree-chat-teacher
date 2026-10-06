@@ -167,7 +167,8 @@ export const MODE_LABEL = { path: 'full path', summary: 'summary', independent: 
       } @else {
         <app-lane-composer
           [inputId]="'composer-' + b.id"
-          [placeholder]="nodes().length === 0 ? 'Ask here…' : 'Reply in this lane…'"
+          [laneId]="b.id"
+          [placeholder]="nodes().length === 0 ? 'Ask here…' : 'Continue this lane…'"
           [disabled]="busy()"
           [busy]="streaming() !== null"
           [selected]="selected"

@@ -15,6 +15,25 @@ function collectErrors(page: Page): string[] {
   return errors;
 }
 
+/** Selects `text` inside `scope` (its first occurrence), as dragging over it would. */
+async function selectText(scope: Locator, text: string): Promise<void> {
+  await scope.evaluate((root, wanted) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const i = n.textContent?.indexOf(wanted) ?? -1;
+      if (i < 0) continue;
+      const range = document.createRange();
+      range.setStart(n, i);
+      range.setEnd(n, i + wanted.length);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      return;
+    }
+    throw new Error(`not found: ${wanted}`);
+  }, text);
+}
+
 test('power demo: deleting from the conversation list asks first, and Cancel keeps it', async ({
   page,
 }) => {
@@ -328,6 +347,129 @@ test('power demo: ask your own question under a reply, inline or through the bra
   expect(errors).toEqual([]);
 });
 
+test('power demo: "Ask about this" on selected text branches at once, ready to type', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.goto('/demo');
+  await page.locator('.home-list .tree-row a').first().click();
+  const reply = page.locator('.msg-assistant').first();
+  const body = reply.locator('.msg-body');
+  await expect(body).toBeVisible();
+  const url = page.url();
+  const users = await page.locator('.msg-user').count();
+  const bar = page.locator('app-selection-ask');
+  await expect(bar).toHaveCount(0);
+
+  // Selecting words in a reply floats the action above the composer.
+  await selectText(body, 'a careful hamster in disguise');
+  await expect(bar.getByRole('button', { name: 'Ask about this' })).toBeVisible();
+  await bar.getByRole('button', { name: 'Ask about this' }).click();
+  // A new branch quoting it, opened with the composer focused, nothing sent yet.
+  await expect.poll(() => page.url()).not.toBe(url);
+  await expect(page.locator('.fork-divider.fork-current')).toContainText(/full path/i);
+  await expect(page.locator('.anchor-quote').last()).toHaveText('a careful hamster in disguise');
+  const composer = page.locator('#composer-input');
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveAttribute('placeholder', 'Ask your question…');
+  expect(await page.locator('.msg-user').count()).toBeLessThanOrEqual(users);
+  await expect(bar).toHaveCount(0);
+  await composer.fill('Why a hamster?');
+  await composer.press('Enter');
+  await expect(page.locator('.msg-user').last()).toContainText('Why a hamster?');
+  await expect(composer).toHaveAttribute('placeholder', 'Continue this thread…');
+
+  // Its gear: "Branch from here" with the quote filled in.
+  await page.goto(url);
+  await expect(body).toBeVisible();
+  await selectText(body, 'patient lemon');
+  await bar.getByRole('button', { name: /^More: Branch from here/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Branch from here' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue('patient lemon');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(page.url()).toBe(url);
+
+  // `b` on the focused message with a selection in it still opens the dialog with it.
+  await body.click();
+  await selectText(body, 'off-key');
+  await page.keyboard.press('b');
+  await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue('off-key');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(errors).toEqual([]);
+});
+
+test('power demo: the newest reply’s "Ask your own" is open, without taking focus', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.goto('/demo');
+  await page.locator('.home-list .tree-row a').first().click();
+  const replies = page.locator('.msg-assistant');
+  await expect(replies.first()).toBeVisible();
+  const newest = page.locator(`#${await replies.last().getAttribute('id')}`);
+  const older = page.locator(`#${await replies.first().getAttribute('id')}`);
+  const ask = newest.locator('.tangent-ask');
+  const field = ask.getByRole('textbox', { name: 'Ask your own question in a new branch' });
+  const composer = page.locator('#composer-input');
+
+  // Open from the start (three lines), marked as the newest, and nothing focused.
+  await expect(ask).toHaveClass(/is-expanded/);
+  await expect(ask).toHaveClass(/is-latest/);
+  await expect(field).toHaveAttribute('rows', '3');
+  // (The composer keeps the focus it takes on opening.)
+  await expect(field).not.toBeFocused();
+  await expect(composer).toHaveAttribute('placeholder', 'Continue this thread…');
+  // Older replies keep theirs folded.
+  await expect(older.locator('.tangent-ask')).not.toHaveClass(/is-expanded/);
+  await expect(older.locator('.tangent-ask')).not.toHaveClass(/is-latest/);
+
+  // Leaving it empty keeps it open; Shift+Enter is a new line, not a question.
+  await field.click();
+  await composer.click();
+  await expect(ask).toHaveClass(/is-expanded/);
+  await field.click();
+  await field.pressSequentially('Line one');
+  await field.press('Shift+Enter');
+  await field.pressSequentially('line two');
+  await expect(field).toHaveValue('Line one\nline two');
+  expect(page.url()).not.toMatch(/\/b\//);
+  await field.fill('');
+
+  // Folded by hand (its button, or Escape), it stays folded until the user moves on.
+  await ask.getByRole('button', { name: 'Fold' }).click();
+  await expect(ask).not.toHaveClass(/is-expanded/);
+  await expect(field).toBeFocused();
+  await composer.click();
+  await expect(ask).not.toHaveClass(/is-expanded/);
+  await older.locator('.msg-body').click();
+  await expect(page).toHaveURL(/[?&]m=/);
+  await expect(ask).not.toHaveClass(/is-expanded/);
+
+  // Into a branch and back: the newest reply's item is open again.
+  const here = page.url();
+  await page.locator('.fork-toggle').first().click();
+  await page.locator('.fork-list .fork-link').first().click();
+  await expect.poll(() => page.url()).not.toBe(here);
+  await page.goBack();
+  await expect.poll(() => page.url()).toBe(here);
+  await expect(ask).toHaveClass(/is-expanded/);
+
+  // An older reply's item: blurred empty, it folds; blurred with text, it stays open with it.
+  const olderAsk = older.locator('.tangent-ask');
+  const olderField = olderAsk.getByRole('textbox');
+  await olderField.click();
+  await expect(olderAsk).toHaveClass(/is-expanded/);
+  await composer.click();
+  await expect(olderAsk).not.toHaveClass(/is-expanded/);
+  await olderField.click();
+  await olderField.fill('Keep me');
+  await composer.click();
+  await expect(olderAsk).toHaveClass(/is-expanded/);
+  await expect(olderField).toHaveValue('Keep me');
+  expect(errors).toEqual([]);
+});
+
 test('Learn demo: ask your own side question under a reply', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto('/learn/demo/');
@@ -341,6 +483,34 @@ test('Learn demo: ask your own side question under a reply', async ({ page }) =>
   await expect.poll(() => page.url()).not.toBe(url);
   await expect(page).toHaveURL(/\/b\//);
   await expect(page.locator('.msg-user').last()).toContainText('Do owls ever whistle back?');
+  expect(errors).toEqual([]);
+});
+
+test('Learn demo: "Ask about this", the newest reply stands out, and the box continues the lesson', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.goto('/learn/demo/');
+  await page.locator('.lesson-row a').first().click();
+  const replies = page.locator('.msg-assistant');
+  await expect(replies.first()).toBeVisible();
+  const composer = page.locator('#composer-input');
+  await expect(composer).toHaveAttribute('placeholder', 'Continue this lesson…');
+  // The newest reply's "Ask your own" stands out (a one-line field: nothing grows).
+  await expect(replies.last().locator('.tangent-ask')).toHaveClass(/is-latest/);
+  await expect(replies.first().locator('.tangent-ask')).not.toHaveClass(/is-latest/);
+
+  const url = page.url();
+  await selectText(replies.first().locator('.msg-body'), 'a careful hamster in disguise');
+  await page.getByRole('button', { name: 'Ask about this' }).click();
+  await expect.poll(() => page.url()).not.toBe(url);
+  await expect(page.locator('.anchor-quote').last()).toHaveText('a careful hamster in disguise');
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveAttribute('placeholder', 'Ask your side question…');
+  await composer.fill('Why a hamster?');
+  await composer.press('Enter');
+  await expect(page.locator('.msg-user').last()).toContainText('Why a hamster?');
+  await expect(composer).toHaveAttribute('placeholder', 'Continue this side question…');
   expect(errors).toEqual([]);
 });
 
@@ -490,6 +660,49 @@ test('Canvas demo: the card text size re-lays the lanes out, and is remembered',
   await page.keyboard.press('-');
   await expect(zoom).not.toHaveText(zoomBefore);
   expect(await fontSize(card)).toBeCloseTo(cardBefore * 1.4, 1);
+  expect(errors).toEqual([]);
+});
+
+test('Canvas demo: "Ask about this" opens a lane to type in; only the selected lane’s ask is open', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.goto('/canvas/demo/');
+  await page.getByText('How do kittens learn to whistle?').first().click();
+  const lanes = page.locator('.lane');
+  await expect(lanes).toHaveCount(3);
+  const trunk = lanes.first();
+  await expect(trunk).toHaveClass(/is-selected/);
+  // The selected lane's last card has its "Ask your own" open; no other card does.
+  const lastCard = trunk.locator('.card-assistant').last();
+  await expect(lastCard.locator('.tangent-ask')).toHaveClass(/is-expanded/);
+  await expect(page.locator('.tangent-ask.is-expanded')).toHaveCount(1);
+  await expect(page.locator('.lane .composer textarea:focus')).toHaveCount(0);
+  await expect(trunk.locator('.composer textarea')).toHaveAttribute(
+    'placeholder',
+    'Continue this lane…',
+  );
+
+  // Select words in the first reply: "Ask about this" opens a path lane quoting them, its box focused.
+  await selectText(trunk.locator('.card-assistant .card-body').first(), 'a careful hamster');
+  const bar = page.locator('app-selection-ask');
+  await expect(bar.getByRole('button', { name: /^More: Branch from here/ })).toBeVisible();
+  await bar.getByRole('button', { name: 'Ask about this' }).click();
+  await expect(lanes).toHaveCount(4);
+  const lane = page.locator('.lane.is-selected');
+  await expect(lane.locator('.anchor')).toHaveText('a careful hamster');
+  await expect(lane.locator('.composer textarea')).toBeFocused();
+  await expect(lane.locator('.composer textarea')).toHaveAttribute('placeholder', 'Ask here…');
+  // The trunk is no longer selected: its open ask folds.
+  await expect(page.locator('.tangent-ask.is-expanded')).toHaveCount(0);
+
+  // The gear: the branch dialog with the quote filled in.
+  await selectText(trunk.locator('.card-assistant .card-body').first(), 'patient lemon');
+  await bar.getByRole('button', { name: /^More: Branch from here/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Branch from here' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('textbox', { name: /^Anchor quote/ })).toHaveValue('patient lemon');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect(errors).toEqual([]);
 });
 
