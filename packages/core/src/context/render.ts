@@ -11,6 +11,8 @@ import {
 
 export interface RenderOptions {
   supportsSystemPrompt: boolean;
+  /** Appended as the last system section (e.g. grounding instructions); folded like the rest. */
+  extraSystem?: string;
 }
 
 export const SUMMARY_HEADING = '## Summary of the earlier conversation';
@@ -57,6 +59,8 @@ export function renderPlan(plan: ContextPlan, options: RenderOptions): RenderedP
   if (messages[0]?.role === 'assistant')
     messages.unshift({ role: 'user', content: CONTINUATION_MESSAGE });
 
+  if (options.extraSystem && options.extraSystem.trim() !== '')
+    systemParts.push(options.extraSystem);
   const system = systemParts.length > 0 ? systemParts.join('\n\n') : null;
   if (options.supportsSystemPrompt || system === null) return { system, messages };
 
@@ -77,6 +81,7 @@ const SUMMARY_SYSTEM =
   'The summary replaces the conversation as context when it continues in a new thread, so it must stand on its own. ' +
   'Preserve key facts, decisions, conclusions, open questions and exact code identifiers, names and numbers. ' +
   'Bullet points are fine. Do not invent anything that is not in the conversation. ' +
+  'Keep cited sources as Markdown links next to the claims they support. ' +
   'Keep it under about 300 words and output only the summary.';
 
 /** Prompt used to generate a branch/compaction summary for `request`. */

@@ -241,6 +241,7 @@ export function resolveCapabilities(
     maxOutputTokens: m?.maxOutputTokens ?? config.maxOutputTokens ?? defaults.maxOutputTokens,
     supportsSystemPrompt: config.supportsSystemPrompt ?? defaults.supportsSystemPrompt,
     supportsTokenCount,
+    supportsWebSearch: config.options?.['webSearch'] === true,
   };
 }
 

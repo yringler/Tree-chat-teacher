@@ -69,6 +69,8 @@ export interface Settlement {
   feeBps: number;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  /** Web searches the call ran; null/absent keeps the stored count. */
+  webSearches?: number | null;
   now?: Date;
 }
 
@@ -83,7 +85,7 @@ export async function settleUsage(
       `UPDATE usage_events
        SET status = 'settled', cost_nanos = ?, charge_micros = ?,
            input_tokens = COALESCE(?, input_tokens), output_tokens = COALESCE(?, output_tokens),
-           settled_at = ?
+           web_searches = COALESCE(?, web_searches), settled_at = ?
        WHERE id = ? AND status = 'pending'`,
     )
     .bind(
@@ -91,6 +93,7 @@ export async function settleUsage(
       chargeMicros(s.costNanos, s.markupBps, s.feeBps),
       s.inputTokens ?? null,
       s.outputTokens ?? null,
+      s.webSearches ?? null,
       (s.now ?? new Date()).toISOString(),
       usageId,
     )

@@ -1,4 +1,5 @@
 import type {
+  Citation,
   GenerateRequest,
   LlmProvider,
   ModelInfo,
@@ -30,6 +31,8 @@ interface FakeOptions {
   delayMs: number;
   failWith: ProviderErrorCode | null;
   costUsd: number | null;
+  citations: Citation[];
+  webSearchCostUsd: number;
 }
 
 function readOptions(options: Record<string, unknown> | undefined): FakeOptions {
@@ -43,12 +46,27 @@ function readOptions(options: Record<string, unknown> | undefined): FakeOptions 
   const dm = o['delayMs'];
   const fw = o['failWith'];
   const cost = o['costUsd'];
+  const wsCost = o['webSearchCostUsd'];
+  const citations: Citation[] = [];
+  const rawCitations = o['citations'];
+  if (Array.isArray(rawCitations)) {
+    for (const c of rawCitations) {
+      if (!isRecord(c) || typeof c['url'] !== 'string') continue;
+      citations.push({
+        url: c['url'],
+        title: typeof c['title'] === 'string' ? c['title'] : null,
+        excerpt: typeof c['excerpt'] === 'string' ? c['excerpt'] : null,
+      });
+    }
+  }
   return {
     responses,
     chunkSize: typeof cs === 'number' && Number.isInteger(cs) && cs > 0 ? cs : 8,
     delayMs: typeof dm === 'number' && dm > 0 ? dm : 0,
     failWith: typeof fw === 'string' && ERROR_CODES.has(fw) ? (fw as ProviderErrorCode) : null,
     costUsd: typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? cost : null,
+    citations,
+    webSearchCostUsd: typeof wsCost === 'number' && Number.isFinite(wsCost) && wsCost >= 0 ? wsCost : 0,
   };
 }
 
@@ -77,6 +95,13 @@ function inputTokens(request: Input): number {
  *   `{type:'billing', generationId:'gen-fake-<uuid>'}` before the first delta and
  *   `{type:'billing', generationId, costUsd}` right before `done` (not on
  *   failure or abort). Every stream gets a fresh id;
+ * - webSearch: boolean — capability `supportsWebSearch`. When a request
+ *   carries `webSearch` (and the option is on), the fake "searches" if the
+ *   mode is `required` or `citations` is non-empty: it yields
+ *   `{type:'activity'}` before the first delta, `{type:'citations'}` (the
+ *   scripted `citations`, possibly empty) after the last, and adds
+ *   `webSearchCostUsd` (default 0) to `costUsd` with `webSearches: 1`;
+ * - citations: {url, title?, excerpt?}[] — scripted sources;
  * - maxContextTokens / maxOutputTokens via config.
  * Usage: inputTokens = ceil(total input chars / 4), outputTokens = ceil(reply chars / 4),
  * emitted once before `done`. countTokens returns the same inputTokens figure.
@@ -106,6 +131,11 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
       // Unique across provider instances, isolates and restarts (usage_events.generation_id is UNIQUE).
       const generationId = opts.costUsd === null ? null : `gen-fake-${crypto.randomUUID()}`;
       if (generationId !== null) yield { type: 'billing', generationId };
+      const searches =
+        request.webSearch !== undefined &&
+        config.options?.['webSearch'] === true &&
+        (request.webSearch.mode === 'required' || opts.citations.length > 0);
+      if (searches) yield { type: 'activity', kind: 'web_search' };
       const reply = replyFor(request);
       const chars = Array.from(reply);
       let first = true;
@@ -128,8 +158,14 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
         type: 'usage',
         usage: { inputTokens: inputTokens(request), outputTokens: Math.ceil(reply.length / 4) },
       };
+      if (searches) yield { type: 'citations', citations: opts.citations.map((c) => ({ ...c })) };
       if (generationId !== null && opts.costUsd !== null) {
-        yield { type: 'billing', generationId, costUsd: opts.costUsd };
+        yield {
+          type: 'billing',
+          generationId,
+          costUsd: opts.costUsd + (searches ? opts.webSearchCostUsd : 0),
+          ...(searches ? { webSearches: 1 } : {}),
+        };
       }
       yield { type: 'done', stopReason: 'end_turn' };
     });

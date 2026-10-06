@@ -3,6 +3,7 @@ import {
   HTTP_STATUS,
   KeyRequiredError,
   type BeginSendResult,
+  type GenerationOptions,
   type ChatService,
 } from '@tangent/core';
 import {
@@ -29,6 +30,8 @@ const encoder = new TextEncoder();
  */
 export interface SessionSendBody {
   content: string;
+  /** "Check sources": the reply must run a web search. */
+  ground?: 'required';
   account: AccountContext;
   sealedKeys?: string;
 }
@@ -92,7 +95,7 @@ export class TreeSession extends DurableObject<AppEnv> {
     const treeId = url.searchParams.get('treeId') ?? '';
     try {
       if (request.method === 'POST' && url.pathname === '/send') {
-        const { content, account, sealedKeys } = (await request.json()) as SessionSendBody;
+        const { content, ground, account, sealedKeys } = (await request.json()) as SessionSendBody;
         await this.recoverOnce(chatService(this.env, account), treeId);
         // Learn on credit never uses the user's own keys (the Worker doesn't send them either).
         const keys = usesUserKeys(account) ? await openKeys(sealedKeys, this.env) : null;
@@ -104,7 +107,9 @@ export class TreeSession extends DurableObject<AppEnv> {
           // The usage meter (built-in provider) settles or reconciles after the stream ends.
           defer: (p) => this.ctx.waitUntil(p),
         });
-        return await this.send(chat, url.searchParams.get('branchId') ?? '', content);
+        return await this.send(chat, url.searchParams.get('branchId') ?? '', content, {
+          ...(ground === 'required' ? { ground } : {}),
+        });
       }
       const chat = chatService(this.env, accountFromParams(url.searchParams));
       await this.recoverOnce(chat, treeId);
@@ -132,7 +137,12 @@ export class TreeSession extends DurableObject<AppEnv> {
     if (this.runs.size === 0) await chat.recoverInterrupted(treeId);
   }
 
-  private async send(chat: ChatService, branchId: string, content: string): Promise<Response> {
+  private async send(
+    chat: ChatService,
+    branchId: string,
+    content: string,
+    options: GenerationOptions,
+  ): Promise<Response> {
     const begin = this.sendLock.then(() => chat.beginSend(branchId, content));
     this.sendLock = begin.catch(() => undefined);
     const started: BeginSendResult = await begin;
@@ -153,7 +163,7 @@ export class TreeSession extends DurableObject<AppEnv> {
       },
     ]);
     // Detached: keeps running after the client disconnects (DOs stay alive while I/O is in flight).
-    run.finished = this.pump(chat, run, started);
+    run.finished = this.pump(chat, run, started, options);
     this.ctx.waitUntil(run.finished);
     return response;
   }
@@ -176,10 +186,15 @@ export class TreeSession extends DurableObject<AppEnv> {
     return Response.json(await deleted);
   }
 
-  private async pump(chat: ChatService, run: Run, begin: BeginSendResult): Promise<void> {
+  private async pump(
+    chat: ChatService,
+    run: Run,
+    begin: BeginSendResult,
+    options: GenerationOptions,
+  ): Promise<void> {
     const keepalive = setInterval(() => this.broadcastRaw(run, sseKeepAliveFrame()), KEEPALIVE_MS);
     try {
-      for await (const event of chat.runGeneration(begin, run.controller.signal)) {
+      for await (const event of chat.runGeneration(begin, run.controller.signal, options)) {
         if (event.type === 'delta')
           run.node = { ...run.node, content: run.node.content + event.text };
         if (event.type === 'done' || event.type === 'error') {

@@ -7,14 +7,17 @@ import type {
   SummaryRepository,
   TreeRepository,
 } from '@tangent/core';
-import type {
-  Branch,
-  ChatNode,
-  Share,
-  SummaryRecord,
-  TokenUsage,
-  Tree,
-  TreeSummary,
+import {
+  DEFAULT_GROUNDING_MODE,
+  type Branch,
+  type ChatNode,
+  type Citation,
+  type GroundingMode,
+  type Share,
+  type SummaryRecord,
+  type TokenUsage,
+  type Tree,
+  type TreeSummary,
 } from '@tangent/shared';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
@@ -35,9 +38,9 @@ export const SNAPSHOT_CHUNK_CHARS = 256_000;
 
 /** D1 rejects statements with more than 100 bound parameters. */
 const MAX_BOUND_PARAMS = 100;
-const NODE_COLUMNS = 14;
-const BRANCH_COLUMNS = 13;
-const NODE_ROWS_PER_INSERT = Math.floor(MAX_BOUND_PARAMS / NODE_COLUMNS); // 7
+const NODE_COLUMNS = 15;
+const BRANCH_COLUMNS = 14;
+const NODE_ROWS_PER_INSERT = Math.floor(MAX_BOUND_PARAMS / NODE_COLUMNS); // 6
 const BRANCH_ROWS_PER_INSERT = Math.floor(MAX_BOUND_PARAMS / BRANCH_COLUMNS); // 7
 
 /** Guards the recursive CTEs against a corrupted (cyclic) parent chain. */
@@ -83,6 +86,7 @@ function toBranch(r: BranchRow): Branch {
     isPrivate: r.isPrivate,
     providerId: r.providerId,
     model: r.model,
+    grounding: r.grounding,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -91,6 +95,33 @@ function toBranch(r: BranchRow): Branch {
 function toUsage(input: number | null, output: number | null): TokenUsage | null {
   if (input === null && output === null) return null;
   return { inputTokens: input ?? 0, outputTokens: output ?? 0 };
+}
+
+/** Stored JSON Citation[]; malformed or absent reads as null (no sources). */
+function parseSources(raw: string | null): Citation[] | null {
+  if (raw === null) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!Array.isArray(value)) return null;
+    const out: Citation[] = [];
+    for (const c of value) {
+      if (typeof c !== 'object' || c === null) continue;
+      const rec = c as Record<string, unknown>;
+      if (typeof rec['url'] !== 'string') continue;
+      out.push({
+        url: rec['url'],
+        title: typeof rec['title'] === 'string' ? rec['title'] : null,
+        excerpt: typeof rec['excerpt'] === 'string' ? rec['excerpt'] : null,
+      });
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function serializeSources(sources: Citation[] | null | undefined): string | null {
+  return sources ? JSON.stringify(sources) : null;
 }
 
 function toNode(r: NodeRow): ChatNode {
@@ -107,6 +138,7 @@ function toNode(r: NodeRow): ChatNode {
     providerId: r.providerId,
     model: r.model,
     usage: toUsage(r.inputTokens, r.outputTokens),
+    sources: parseSources(r.sources),
     createdAt: r.createdAt,
   };
 }
@@ -164,6 +196,7 @@ function nodeInsert(n: ChatNode): NodeInsert {
     model: n.model,
     inputTokens: n.usage?.inputTokens ?? null,
     outputTokens: n.usage?.outputTokens ?? null,
+    sources: serializeSources(n.sources),
     createdAt: n.createdAt,
   };
 }
@@ -181,6 +214,7 @@ function branchInsert(b: Branch): BranchInsert {
     isPrivate: b.isPrivate,
     providerId: b.providerId,
     model: b.model,
+    grounding: b.grounding ?? DEFAULT_GROUNDING_MODE,
     createdAt: b.createdAt,
     updatedAt: b.updatedAt,
   };
@@ -199,6 +233,7 @@ interface RawBranchRow {
   is_private: number;
   provider_id: string;
   model: string;
+  grounding: GroundingMode;
   created_at: string;
   updated_at: string;
 }
@@ -217,6 +252,7 @@ interface RawNodeRow {
   model: string | null;
   input_tokens: number | null;
   output_tokens: number | null;
+  sources: string | null;
   created_at: string;
 }
 
@@ -233,6 +269,7 @@ function rawToBranch(r: RawBranchRow): Branch {
     isPrivate: r.is_private !== 0,
     providerId: r.provider_id,
     model: r.model,
+    grounding: r.grounding,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -252,6 +289,7 @@ function rawToNode(r: RawNodeRow): ChatNode {
     providerId: r.provider_id,
     model: r.model,
     usage: toUsage(r.input_tokens, r.output_tokens),
+    sources: parseSources(r.sources),
     createdAt: r.created_at,
   };
 }
@@ -437,6 +475,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
         isPrivate: patch.isPrivate,
         providerId: patch.providerId,
         model: patch.model,
+        grounding: patch.grounding,
         updatedAt: patch.updatedAt,
       });
       if (Object.keys(set).length === 0) return treeRepo.getBranch(branchId);
@@ -540,6 +579,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
         set.inputTokens = patch.usage?.inputTokens ?? null;
         set.outputTokens = patch.usage?.outputTokens ?? null;
       }
+      if (patch.sources !== undefined) set.sources = serializeSources(patch.sources);
       if (Object.keys(set).length === 0) return;
       await db.update(nodes).set(set).where(eq(nodes.id, nodeId));
     },

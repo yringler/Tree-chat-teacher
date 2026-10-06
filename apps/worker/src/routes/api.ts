@@ -214,6 +214,12 @@ export function apiRoutes(): Hono<AppBindings> {
       assertGenerationAllowed(chat.deps.providers, branch.providerId, branch.model, {
         userKeys: !isMetered(account, branch.providerId),
       });
+      if (c.req.valid('json').ground === 'required') {
+        const provider = chat.deps.providers.get(branch.providerId);
+        if (!provider?.capabilities(branch.model).supportsWebSearch) {
+          throw new ValidationError("This branch's provider can't check sources");
+        }
+      }
       await assertCanSpend(c.env, account, branch.providerId);
       await enforceRateLimit(c, keys, 'chat', branch.providerId);
       // The Durable Object gets the still-sealed cookie value in the body (never

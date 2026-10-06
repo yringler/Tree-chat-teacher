@@ -12,6 +12,7 @@ import {
   type ProviderRegistry,
 } from '@tangent/shared';
 import { isAdminUserId } from './auth/admin.js';
+import { groundingAllowance, groundingSettings } from './billing/grounding.js';
 import { createUsageMeter, meteredRegistry } from './billing/meter.js';
 import { billingConfigured } from './billing/stripe.js';
 import { createD1Repositories } from './db/d1-repositories.js';
@@ -202,6 +203,7 @@ export function chatSettingsFor(env: AppEnv, account: AccountContext): ChatSetti
     summaryProviderId: summaryProviderId === BUILT_IN_PROVIDER_ID ? null : summaryProviderId,
     summaryModel: env.SUMMARY_MODEL?.trim() || null,
     autoTitle: env.AUTO_TITLE !== 'false',
+    grounding: groundingSettings(env, 'power'),
   };
 }
 
@@ -267,6 +269,7 @@ export function chatService(
       : registry,
     settings: chatSettingsFor(env, account),
     defaultSystemPrompt: defaultSystemPromptFor(env, account),
+    groundingAllowance: groundingAllowance(env, account),
   });
 }
 

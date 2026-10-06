@@ -568,3 +568,43 @@ describe('account settings', () => {
     expect(await repos.settings.getSettings(b)).toBeNull();
   });
 });
+
+describe('grounding columns', () => {
+  const sources = [{ url: 'https://example.org/a', title: 'A', excerpt: null }];
+
+  it('round-trips node sources (null, [] and a list) through insert, update and the ancestor path', async () => {
+    const { trunk } = await seedTree();
+    const n = makeNode(trunk, 0, null, { sources: [] });
+    await repos.trees.appendNodes([n], 'x');
+    expect((await repos.trees.getNode(n.id))?.sources).toEqual([]);
+    await repos.trees.updateNode(n.id, { sources });
+    expect((await repos.trees.getNode(n.id))?.sources).toEqual(sources);
+    expect((await repos.trees.getAncestorPath(n.id))[0]?.sources).toEqual(sources);
+    await repos.trees.updateNode(n.id, { sources: null });
+    expect((await repos.trees.getNode(n.id))?.sources).toBeNull();
+  });
+
+  it('reads malformed stored sources as null', async () => {
+    const { trunk } = await seedTree();
+    const n = makeNode(trunk, 0, null);
+    await repos.trees.appendNodes([n], 'x');
+    await env.DB.prepare('UPDATE nodes SET sources = ?1 WHERE id = ?2')
+      .bind('{not json', n.id)
+      .run();
+    expect((await repos.trees.getNode(n.id))?.sources).toBeNull();
+  });
+
+  it('stores, patches and returns the branch grounding setting (also via the chain CTE)', async () => {
+    const { tree, trunk } = await seedTree();
+    const b = makeBranch(tree, { parentBranchId: trunk.id, grounding: 'off' });
+    await repos.trees.createBranch(b);
+    expect((await repos.trees.getBranch(b.id))?.grounding).toBe('off');
+    expect((await repos.trees.updateBranch(b.id, { grounding: 'always' }))?.grounding).toBe(
+      'always',
+    );
+    expect((await repos.trees.getBranchChain(b.id)).map((x) => x.grounding)).toEqual([
+      'auto',
+      'always',
+    ]);
+  });
+});

@@ -55,6 +55,8 @@ class Run implements MeterRun {
   private costUsd: number | null = null;
   private inputTokens: number | null = null;
   private outputTokens: number | null = null;
+  /** Web searches seen (reported count, else 1 once a search started); null = none seen. */
+  private webSearches: number | null = null;
   private idWrite: Promise<void> = Promise.resolve();
   private finished = false;
 
@@ -88,6 +90,11 @@ class Run implements MeterRun {
         ) {
           this.costUsd = event.costUsd;
         }
+        if (typeof event.webSearches === 'number' && Number.isFinite(event.webSearches)) {
+          this.webSearches = Math.max(0, Math.floor(event.webSearches));
+        }
+      } else if (event.type === 'activity' || event.type === 'citations') {
+        this.webSearches ??= 1;
       } else if (event.type === 'usage') {
         const { inputTokens, outputTokens } = event.usage;
         if (typeof inputTokens === 'number' && Number.isFinite(inputTokens))
@@ -114,6 +121,7 @@ class Run implements MeterRun {
           feeBps: this.feeBps,
           inputTokens: this.inputTokens,
           outputTokens: this.outputTokens,
+          webSearches: this.webSearches,
         };
         this.defer(
           this.idWrite.then(() =>
@@ -139,6 +147,7 @@ class Run implements MeterRun {
       feeBps: this.feeBps,
       inputTokens: this.inputTokens,
       outputTokens: this.outputTokens,
+      webSearches: this.webSearches,
     });
   }
 

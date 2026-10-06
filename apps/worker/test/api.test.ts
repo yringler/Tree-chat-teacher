@@ -203,6 +203,28 @@ describe('owner API', () => {
     expect(replay.at(-1)?.type).toBe('done');
   });
 
+  it('Check sources: required search on a provider that can search, 400 on one that cannot', async () => {
+    const plain = await newTree('fake');
+    const refused = await call(`/api/branches/${plain.tree.trunkBranchId}/messages`, {
+      method: 'POST',
+      json: { content: 'Check your last answer against sources', ground: 'required' },
+    });
+    expect(refused.status).toBe(400);
+
+    const searchy = await newTree('slow');
+    const res = await call(`/api/branches/${searchy.tree.trunkBranchId}/messages`, {
+      method: 'POST',
+      json: { content: 'Check your last answer against sources', ground: 'required' },
+    });
+    expect(res.status).toBe(200);
+    const events = parseSse(await res.text());
+    expect(events).toContainEqual({ type: 'status', message: 'Checking sources…' });
+    const done = events.at(-1);
+    expect(done).toMatchObject({ type: 'done', node: { sources: [] } });
+    const after = await ok<TreeDetail>(call(`/api/trees/${searchy.tree.id}`));
+    expect(after.nodes.find((n) => n.role === 'assistant')?.sources).toEqual([]);
+  });
+
   it('validates input and 404s', async () => {
     const bad = await call('/api/trees', { method: 'POST', json: { title: '' } });
     expect(bad.status).toBe(400);

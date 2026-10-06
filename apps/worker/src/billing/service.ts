@@ -152,6 +152,7 @@ interface UsageRow {
   charge_micros: number | null;
   input_tokens: number | null;
   output_tokens: number | null;
+  web_searches: number | null;
 }
 
 function encodeCursor(createdAt: string, id: string): string {
@@ -182,7 +183,7 @@ export async function listUsage(
   );
   const after = cursor ? decodeCursor(cursor) : null;
   const columns =
-    'id, created_at, purpose, model, tree_id, status, charge_micros, input_tokens, output_tokens';
+    'id, created_at, purpose, model, tree_id, status, charge_micros, input_tokens, output_tokens, web_searches';
   const stmt = after
     ? env.DB.prepare(
         `SELECT ${columns} FROM usage_events
@@ -207,6 +208,7 @@ export async function listUsage(
       chargeMicros: r.charge_micros,
       inputTokens: r.input_tokens,
       outputTokens: r.output_tokens,
+      webSearches: r.web_searches ?? 0,
     })),
     nextCursor: results.length > size && last ? encodeCursor(last.created_at, last.id) : null,
   };

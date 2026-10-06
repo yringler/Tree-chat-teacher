@@ -110,6 +110,7 @@ describe('fake provider', () => {
       maxOutputTokens: 4096,
       supportsSystemPrompt: true,
       supportsTokenCount: true,
+      supportsWebSearch: false,
     });
     const p2 = createFakeProvider(
       {
@@ -126,6 +127,7 @@ describe('fake provider', () => {
       maxOutputTokens: 50,
       supportsSystemPrompt: false,
       supportsTokenCount: true,
+      supportsWebSearch: false,
     });
   });
 
@@ -165,5 +167,32 @@ describe('fake provider', () => {
     const p = createFakeProvider({ ...BASE, options: { costUsd: 'free' } }, { secrets: {} });
     const events = await collect(p.stream(req()));
     expect(events.some((e) => e.type === 'billing')).toBe(false);
+  });
+});
+
+describe('fake provider web search', () => {
+  const webSearch = { mode: 'auto', maxResults: 5, maxUses: 1, engine: 'exa' } as const;
+  const citations = [{ url: 'https://example.org/a', title: 'A', excerpt: 'x' }];
+
+  it('scripts activity, citations and the search cost when offered and it has citations', async () => {
+    const p = createFakeProvider(
+      { ...BASE, options: { webSearch: true, citations, costUsd: 0.001, webSearchCostUsd: 0.007 } },
+      { secrets: {} },
+    );
+    expect(p.capabilities('fake-1').supportsWebSearch).toBe(true);
+    const events = await collect(p.stream(req({ webSearch })));
+    expect(events[1]).toEqual({ type: 'activity', kind: 'web_search' });
+    expect(events).toContainEqual({ type: 'citations', citations });
+    const bill = events.filter((e) => e.type === 'billing').at(-1);
+    expect(bill).toMatchObject({ costUsd: 0.008, webSearches: 1 });
+  });
+
+  it('does not search when not offered, or in auto mode without scripted citations', async () => {
+    const withCites = createFakeProvider({ ...BASE, options: { webSearch: true, citations } }, { secrets: {} });
+    expect((await collect(withCites.stream(req()))).some((e) => e.type === 'citations')).toBe(false);
+    const none = createFakeProvider({ ...BASE, options: { webSearch: true } }, { secrets: {} });
+    expect((await collect(none.stream(req({ webSearch })))).some((e) => e.type === 'activity')).toBe(false);
+    const required = await collect(none.stream(req({ webSearch: { ...webSearch, mode: 'required' } })));
+    expect(required).toContainEqual({ type: 'citations', citations: [] });
   });
 });

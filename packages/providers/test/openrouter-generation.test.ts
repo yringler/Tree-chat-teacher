@@ -29,6 +29,7 @@ describe('fetchOpenRouterGeneration', () => {
           finish_reason: 'stop',
           model: 'deepseek/deepseek-v4-pro',
           is_byok: false,
+          num_search_results: 5,
         },
       }),
     );
@@ -37,6 +38,7 @@ describe('fetchOpenRouterGeneration', () => {
       inputTokens: 1200,
       outputTokens: 340,
       cancelled: false,
+      numSearchResults: 5,
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe(`https://openrouter.ai/api/v1/generation?id=${ID}`);
@@ -51,6 +53,7 @@ describe('fetchOpenRouterGeneration', () => {
       inputTokens: null,
       outputTokens: null,
       cancelled: true,
+      numSearchResults: null,
     });
   });
 

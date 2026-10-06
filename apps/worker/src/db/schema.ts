@@ -85,6 +85,9 @@ export const branches = sqliteTable(
     isPrivate: integer('is_private', { mode: 'boolean' }).notNull().default(false),
     providerId: text('provider_id').notNull(),
     model: text('model').notNull(),
+    grounding: text('grounding', { enum: ['off', 'auto', 'always'] })
+      .notNull()
+      .default('auto'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
@@ -115,6 +118,8 @@ export const nodes = sqliteTable(
     model: text('model'),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
+    /** JSON Citation[] of a grounded reply; null when it didn't search. */
+    sources: text('sources'),
     createdAt: text('created_at').notNull(),
   },
   (t) => [
@@ -396,6 +401,8 @@ export const usageEvents = sqliteTable(
     chargeMicros: integer('charge_micros'),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
+    /** Web searches the call ran (grounding); their cost is inside cost_nanos. */
+    webSearches: integer('web_searches').notNull().default(0),
     createdAt: text('created_at').notNull(),
     settledAt: text('settled_at'),
   },

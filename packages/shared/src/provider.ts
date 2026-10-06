@@ -1,5 +1,6 @@
 import type { ChatMessage } from './context-plan.js';
 import type { TokenUsage } from './domain.js';
+import type { Citation } from './grounding.js';
 
 /**
  * Provider abstraction. Implementations live in @tangent/providers and depend
@@ -17,6 +18,8 @@ export interface ProviderCapabilities {
   supportsSystemPrompt: boolean;
   /** True if `countTokens` is implemented and exact for this model. */
   supportsTokenCount: boolean;
+  /** True when the provider can run a web search for a reply (`GenerateRequest.webSearch`). */
+  supportsWebSearch: boolean;
 }
 
 export interface ModelInfo {
@@ -46,6 +49,20 @@ export interface GenerateRequest {
   signal: AbortSignal;
   /** Who/what the call is for; read by the Worker's usage meter, never sent upstream. */
   usageTag?: UsageTag;
+  /** Offer (or require) a web search; ignored unless `capabilities(model).supportsWebSearch`. */
+  webSearch?: WebSearchRequest;
+}
+
+/** A web search offered for one reply (OpenRouter's `openrouter:web_search` server tool). */
+export interface WebSearchRequest {
+  /** `auto`: the model decides whether to search; `required`: it must search. */
+  mode: 'auto' | 'required';
+  /** Results per search. */
+  maxResults: number;
+  /** Most searches in this reply. */
+  maxUses: number;
+  /** Search engine (OpenRouter: `exa`, `parallel`, `auto`, …). */
+  engine: string;
 }
 
 export type ProviderErrorCode =
@@ -80,12 +97,17 @@ export interface ProviderError {
  * - aborting `signal` ends the stream promptly with `error{code:'aborted'}`;
  * - `billing` (upstream generation id and/or reported cost in USD) may be
  *   yielded any number of times before the terminal event; later fields
- *   override earlier ones. Consumers that don't bill must ignore it.
+ *   override earlier ones. Consumers that don't bill must ignore it;
+ * - `citations` (sources a web search found and the reply cites) may be
+ *   yielded any number of times; each carries the full, deduplicated list so
+ *   far. `activity` reports that a web search started.
  */
 export type ProviderEvent =
   | { type: 'delta'; text: string }
   | { type: 'usage'; usage: Partial<TokenUsage> }
-  | { type: 'billing'; generationId?: string; costUsd?: number }
+  | { type: 'billing'; generationId?: string; costUsd?: number; webSearches?: number }
+  | { type: 'citations'; citations: Citation[] }
+  | { type: 'activity'; kind: 'web_search' }
   | { type: 'done'; stopReason: string | null }
   | { type: 'error'; error: ProviderError };
 

@@ -17,6 +17,12 @@ import type {
 } from './domain.js';
 import type { ProviderInfo } from './provider.js';
 import type { AccountMode, MembershipInfo } from './billing.js';
+import {
+  CITATIONS_MAX,
+  CITATION_EXCERPT_MAX,
+  type Citation,
+  type GroundingMode,
+} from './grounding.js';
 
 /**
  * HTTP API contract between the Angular app and the Worker.
@@ -196,6 +202,15 @@ export interface TreeDetail {
 
 const id = z.string().min(1).max(64);
 const contextMode = z.enum(['path', 'summary', 'independent']) satisfies z.ZodType<ContextMode>;
+const groundingMode = z.enum(['off', 'auto', 'always']) satisfies z.ZodType<GroundingMode>;
+const citationSchema = z.object({
+  url: z.string().max(2048),
+  title: z.string().max(500).nullable(),
+  excerpt: z
+    .string()
+    .max(CITATION_EXCERPT_MAX + 1)
+    .nullable(),
+}) satisfies z.ZodType<Citation>;
 /** Longest system prompt a tree or the account settings may hold. */
 export const MAX_SYSTEM_PROMPT_CHARS = 20_000;
 
@@ -259,6 +274,8 @@ export const createBranchRequestSchema = z.object({
   providerId: id.optional(),
   model: z.string().min(1).max(200).optional(),
   isPrivate: z.boolean().optional(),
+  /** Defaults to the parent branch's setting. */
+  grounding: groundingMode.optional(),
 });
 export type CreateBranchRequest = z.input<typeof createBranchRequestSchema>;
 
@@ -269,6 +286,7 @@ export const updateBranchRequestSchema = z.object({
   isPrivate: z.boolean().optional(),
   providerId: id.optional(),
   model: z.string().min(1).max(200).optional(),
+  grounding: groundingMode.optional(),
 });
 export type UpdateBranchRequest = z.infer<typeof updateBranchRequestSchema>;
 
@@ -285,6 +303,8 @@ export interface DeleteBranchResponse {
 
 export const sendMessageRequestSchema = z.object({
   content: z.string().min(1).max(200_000),
+  /** `required`: "Check sources", the reply must run a web search (400 if the provider can't). */
+  ground: z.enum(['required']).optional(),
 });
 export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
 
@@ -437,6 +457,7 @@ export const treeBackupSchema = z.object({
       isPrivate: z.boolean(),
       providerId: z.string().max(64),
       model: z.string().max(200),
+      grounding: groundingMode.optional(),
       createdAt: isoDate,
       updatedAt: isoDate,
     }),
@@ -455,6 +476,7 @@ export const treeBackupSchema = z.object({
       providerId: z.string().nullable(),
       model: z.string().nullable(),
       usage: z.object({ inputTokens: z.number(), outputTokens: z.number() }).nullable(),
+      sources: z.array(citationSchema).max(CITATIONS_MAX).nullable().optional(),
       createdAt: isoDate,
     }),
   ),

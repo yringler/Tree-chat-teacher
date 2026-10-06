@@ -74,7 +74,11 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
   const baseUrl = stripTrailingSlash(config.baseUrl ?? DEFAULT_BASE_URL);
   const doFetch = getFetch(env);
 
-  const capabilities = (model: string) => resolveCapabilities(config, model, DEFAULTS, true);
+  // Anthropic's own web_search tool is not wired up (docs/DEFERRED.md).
+  const capabilities = (model: string) => ({
+    ...resolveCapabilities(config, model, DEFAULTS, true),
+    supportsWebSearch: false,
+  });
 
   /** Request headers, or a missing-secret name. */
   const buildHeaders = (): { headers: Record<string, string>; secrets: string[] } | { missing: string } => {

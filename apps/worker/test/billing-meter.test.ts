@@ -46,6 +46,7 @@ function scriptedProvider(
       maxOutputTokens: 100,
       supportsSystemPrompt: true,
       supportsTokenCount: true,
+      supportsWebSearch: false,
     }),
     countTokens: () => Promise.resolve(42),
     async *stream(): AsyncIterable<ProviderEvent> {
@@ -439,5 +440,75 @@ describe('usage meter', () => {
     expect(account.billingAccountId).toBe(`u_${account.userId}`);
     expect(await h.rows()).toEqual([expect.objectContaining({ status: 'settled' })]);
     expect(await usageRows(env, account.id)).toEqual([]);
+  });
+});
+
+describe('usage meter web searches', () => {
+  it('records the reported search count; the search fee is inside the reported cost', async () => {
+    const h = harness();
+    await h.run(
+      [
+        { type: 'billing', generationId: uniq('gen-ws') },
+        { type: 'activity', kind: 'web_search' },
+        { type: 'delta', text: 'grounded' },
+        {
+          type: 'citations',
+          citations: [{ url: 'https://example.org', title: null, excerpt: null }],
+        },
+        { type: 'billing', costUsd: 0.008, webSearches: 1 },
+        { type: 'done', stopReason: 'stop' },
+      ],
+      { tag },
+    );
+    expect((await h.rows())[0]).toMatchObject({
+      status: 'settled',
+      web_searches: 1,
+      cost_nanos: 8_000_000,
+      charge_micros: chargeMicros(costUsdToNanos(0.008), 1000, 550),
+    });
+  });
+
+  it('counts one search when a search started but no count was reported', async () => {
+    const h = harness();
+    await h.run(
+      [
+        { type: 'activity', kind: 'web_search' },
+        { type: 'billing', costUsd: 0.008 },
+        { type: 'done', stopReason: 'stop' },
+      ],
+      { tag },
+    );
+    expect((await h.rows())[0]!.web_searches).toBe(1);
+  });
+
+  it('records no search for a plain reply', async () => {
+    const h = harness();
+    await h.run(
+      [
+        { type: 'billing', costUsd: COST },
+        { type: 'done', stopReason: 'stop' },
+      ],
+      { tag },
+    );
+    expect((await h.rows())[0]!.web_searches).toBe(0);
+  });
+
+  it('an aborted grounded run settles from /generation, search results counting as a search', async () => {
+    const h = harness();
+    const gen = uniq('gen-ws-aborted');
+    await scriptGeneration(gen, [{ costUsd: 0.0075, numSearchResults: 5 }]);
+    await h.run(
+      [
+        { type: 'billing', generationId: gen },
+        { type: 'error', error: { code: 'aborted', message: 'aborted', retryable: false } },
+      ],
+      { tag },
+    );
+    await h.settleBackground();
+    expect((await h.rows())[0]).toMatchObject({
+      status: 'settled',
+      cost_nanos: 7_500_000,
+      web_searches: 1,
+    });
   });
 });

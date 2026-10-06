@@ -132,6 +132,7 @@ describe('anthropic provider', () => {
       maxOutputTokens: 1000,
       supportsSystemPrompt: true,
       supportsTokenCount: true,
+      supportsWebSearch: false,
     });
     expect(provider.capabilities('claude-opus-5-5')).toMatchObject({ maxContextTokens: 200_000, maxOutputTokens: 8192 });
     const p2 = createAnthropicProvider({ ...CONFIG, maxOutputTokens: 64_000 }, { secrets: {} });

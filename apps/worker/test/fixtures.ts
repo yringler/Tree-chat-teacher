@@ -34,6 +34,7 @@ export function makeBranch(tree: Tree, overrides: Partial<Branch> = {}): Branch 
     isPrivate: false,
     providerId: 'fake',
     model: 'fake-model',
+    grounding: 'auto',
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -63,6 +64,7 @@ export function makeNode(
     providerId: null,
     model: null,
     usage: null,
+    sources: null,
     createdAt: '2026-01-01T00:00:01.000Z',
     ...overrides,
   };

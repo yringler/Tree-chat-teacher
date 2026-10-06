@@ -20,6 +20,8 @@
  */
 export const DEFAULT_ACCOUNT_ID = 'default';
 
+import type { Citation, GroundingMode } from './grounding.js';
+
 export type Role = 'user' | 'assistant' | 'system';
 export type NodeStatus = 'streaming' | 'complete' | 'error';
 
@@ -80,6 +82,8 @@ export interface Branch {
   isPrivate: boolean;
   providerId: string;
   model: string;
+  /** Web-search grounding for replies in this branch (power mode); absent = `auto`. */
+  grounding?: GroundingMode;
   createdAt: string;
   updatedAt: string;
 }
@@ -99,6 +103,11 @@ export interface ChatNode {
   providerId: string | null;
   model: string | null;
   usage: TokenUsage | null;
+  /**
+   * Assistant nodes: sources of a web search this reply ran (empty when it
+   * searched but cited nothing); absent or null when it didn't search.
+   */
+  sources?: Citation[] | null;
   createdAt: string;
 }
 

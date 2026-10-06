@@ -1,6 +1,7 @@
 import { DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
 import { parseProviderConfigs } from '@tangent/providers';
 import { DEFAULT_SYSTEM_PROMPT, type ModelInfo, type ProviderConfig } from '@tangent/shared';
+import { groundingSettings } from './billing/grounding.js';
 import type { AppEnv } from './env.js';
 
 /**
@@ -56,6 +57,8 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
     baseUrl: 'https://openrouter.ai/api/v1',
     apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
     defaultModel: smart,
+    // OpenRouter's web search server tool (grounding, see billing/grounding.ts).
+    options: { webSearch: true },
     models:
       smart === fast
         ? [{ id: smart, label: 'Smart' }]
@@ -136,6 +139,7 @@ export function simpleChatSettings(env: AppEnv): ChatSettings {
     maxInputTokens: simpleMaxInputTokens(env),
     reservedOutputTokens: SIMPLE_RESERVED_OUTPUT_TOKENS,
     autoTitle: true,
+    grounding: groundingSettings(env, 'simple'),
   };
 }
 
