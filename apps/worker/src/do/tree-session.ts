@@ -2,22 +2,31 @@ import {
   DomainError,
   HTTP_STATUS,
   KeyRequiredError,
+  PoolBlockedError,
+  poolBlock,
   type BeginSendResult,
-  type GenerationOptions,
   type ChatService,
 } from '@tangent/core';
 import {
   DEFAULT_ACCOUNT_ID,
   type ApiError,
   type ChatNode,
+  type FundingSource,
   type StreamEvent,
 } from '@tangent/shared';
 import { DurableObject } from 'cloudflare:workers';
 import { openKeys } from '../byok/keys.js';
 import { billingAccountIdFor } from '../auth/account.js';
-import { usesUserKeys, type AccountContext, type AppEnv } from '../env.js';
+import { releaseUndispatched } from '../billing/usage-store.js';
+import { isPoolFunded, usesUserKeys, type AccountContext, type AppEnv } from '../env.js';
+import { apiErrorBody } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
+import { poolBank } from '../pool/ids.js';
+import { poolBlockDetails, poolReserveRequest, type PoolParams } from '../pool/params.js';
+import { ceilingHoldMicros } from '../pool/pricing.js';
+import { classifyPoolExchange } from '../pool/tagging.js';
 import { chatService } from '../services.js';
+import { BUILT_IN_PROVIDER_ID } from '../simple-mode.js';
 
 const KEEPALIVE_MS = 15_000;
 const encoder = new TextEncoder();
@@ -44,12 +53,20 @@ export function accountParams(account: AccountContext): Record<string, string> {
     billingAccountId: account.billingAccountId,
     builtIn: account.builtIn ? '1' : '0',
     operatorKeys: account.operatorKeys ? '1' : '0',
+    funding: account.funding,
     ...(account.userId ? { userId: account.userId } : {}),
+    // One JSON param: the pool's parameters were resolved by the Worker (pool/params.ts).
+    ...(account.pool ? { pool: JSON.stringify(account.pool) } : {}),
   };
 }
 
-function accountFromParams(params: URLSearchParams): AccountContext {
+const FUNDING: ReadonlySet<string> = new Set<FundingSource>(['own-key', 'personal', 'pool']);
+
+/** The inverse of `accountParams`. */
+export function accountFromParams(params: URLSearchParams): AccountContext {
   const userId = params.get('userId') || null;
+  const funding = params.get('funding') ?? '';
+  const pool = params.get('pool');
   return {
     id: params.get('accountId') || DEFAULT_ACCOUNT_ID,
     mode: params.get('mode') === 'simple' ? 'simple' : 'power',
@@ -57,6 +74,8 @@ function accountFromParams(params: URLSearchParams): AccountContext {
     billingAccountId: params.get('billingAccountId') || billingAccountIdFor(userId),
     builtIn: params.get('builtIn') === '1',
     operatorKeys: params.get('operatorKeys') === '1',
+    funding: FUNDING.has(funding) ? (funding as FundingSource) : 'personal',
+    ...(pool ? { pool: JSON.parse(pool) as PoolParams } : {}),
   };
 }
 
@@ -75,7 +94,7 @@ interface Run {
  * reconnect with a snapshot, and serializes sends per tree.
  *
  * Internal protocol (called only by the Worker, never exposed; `&account`
- * is accountParams(), i.e. `accountId=&mode=&billingAccountId=&builtIn=&operatorKeys=[&userId=]`):
+ * is accountParams(), i.e. `accountId=&mode=&billingAccountId=&builtIn=&operatorKeys=&funding=[&userId=][&pool=]`):
  *   POST /send?treeId=&branchId=   body SessionSendBody → SSE
  *   GET  /stream?treeId=&nodeId=&account            → SSE (snapshot, then live)
  *   POST /cancel?treeId=&nodeId=&account            → 204
@@ -106,8 +125,12 @@ export class TreeSession extends DurableObject<AppEnv> {
           ...(keys?.state === 'ok' ? { apiKeys: keys.keys } : {}),
           // The usage meter (built-in provider) settles or reconciles after the stream ends.
           defer: (p) => this.ctx.waitUntil(p),
+          generating: true,
         });
-        return await this.send(chat, url.searchParams.get('branchId') ?? '', content, {
+        return await this.send(chat, account, {
+          treeId,
+          branchId: url.searchParams.get('branchId') ?? '',
+          content,
           ...(ground === 'required' ? { ground } : {}),
         });
       }
@@ -122,11 +145,11 @@ export class TreeSession extends DurableObject<AppEnv> {
       if (request.method === 'POST' && url.pathname === '/delete-branch') {
         return await this.deleteBranch(chat, url.searchParams.get('branchId') ?? '');
       }
-      return errorResponse('not_found', 'Unknown session route');
+      return errorResponse(new DomainError('not_found', 'Unknown session route'));
     } catch (err) {
-      if (err instanceof DomainError) return errorResponse(err.code, err.message);
+      if (err instanceof DomainError) return errorResponse(err);
       console.error('TreeSession error', err);
-      return errorResponse('internal', 'Internal error');
+      return errorResponse(new DomainError('internal', 'Internal error'));
     }
   }
 
@@ -137,15 +160,31 @@ export class TreeSession extends DurableObject<AppEnv> {
     if (this.runs.size === 0) await chat.recoverInterrupted(treeId);
   }
 
+  /**
+   * On the pool, the reply is reserved (at its ceiling hold) under the send
+   * lock before `beginSend` writes any node, so a refusal is a plain 402/429
+   * and the branch is untouched. The reservation is released whenever the
+   * reply never reaches the provider: `beginSend` fails, or the run ends
+   * without dispatching it.
+   */
   private async send(
     chat: ChatService,
-    branchId: string,
-    content: string,
-    options: GenerationOptions,
+    account: AccountContext,
+    target: { treeId: string; branchId: string; content: string; ground?: 'required' },
   ): Promise<Response> {
-    const begin = this.sendLock.then(() => chat.beginSend(branchId, content));
+    const begin = this.sendLock.then(async () => {
+      const reservationId = isPoolFunded(account)
+        ? await this.reserveReply(account.pool, account.userId, target)
+        : null;
+      try {
+        return { started: await chat.beginSend(target.branchId, target.content), reservationId };
+      } catch (err) {
+        if (reservationId) await this.release(reservationId);
+        throw err;
+      }
+    });
     this.sendLock = begin.catch(() => undefined);
-    const started: BeginSendResult = await begin;
+    const { started, reservationId } = await begin;
 
     const run: Run = {
       node: { ...started.assistantNode },
@@ -163,9 +202,41 @@ export class TreeSession extends DurableObject<AppEnv> {
       },
     ]);
     // Detached: keeps running after the client disconnects (DOs stay alive while I/O is in flight).
-    run.finished = this.pump(chat, run, started, options);
+    run.finished = this.pump(chat, account, run, started, reservationId, target.ground);
     this.ctx.waitUntil(run.finished);
     return response;
+  }
+
+  /** Reserves the reply's ceiling hold on the pool, or throws `PoolBlockedError`. */
+  private async reserveReply(
+    pool: PoolParams,
+    userId: string | null,
+    target: { treeId: string; branchId: string },
+  ): Promise<string> {
+    if (!userId) throw new PoolBlockedError(poolBlock('verify'));
+    if (!pool.price) throw new PoolBlockedError(poolBlock('unpriced'));
+    const result = await poolBank(this.env, pool.accountId).reserve(
+      poolReserveRequest(pool, userId, {
+        purpose: 'reply',
+        treeId: target.treeId,
+        branchId: target.branchId,
+        nodeId: null,
+        providerId: BUILT_IN_PROVIDER_ID,
+        holdMicros: ceilingHoldMicros(pool.price, pool.maxOutputTokens, pool.price.feeBps),
+        feeBps: pool.price.feeBps,
+      }),
+    );
+    if (!result.ok) throw new PoolBlockedError(poolBlockDetails(result));
+    return result.usageId;
+  }
+
+  /** Releases an undispatched reservation; a failure is left to PoolBank's expiry. */
+  private async release(reservationId: string): Promise<void> {
+    try {
+      await releaseUndispatched(this.env.DB, reservationId);
+    } catch (err) {
+      console.error('Releasing a pool reservation failed; expiry will', reservationId, err);
+    }
   }
 
   /**
@@ -186,24 +257,52 @@ export class TreeSession extends DurableObject<AppEnv> {
     return Response.json(await deleted);
   }
 
+  /**
+   * Runs the generation and broadcasts it. `account` is the one the send runs
+   * as (who pays); `reservationId` is the pool reservation of the reply, if
+   * any. A pool reply that completes has its exchange topic-tagged in the
+   * background (pool/tagging.ts): only its own user message is classified, so
+   * earlier messages of a branch paid some other way never reach the tagger.
+   */
   private async pump(
     chat: ChatService,
+    account: AccountContext,
     run: Run,
     begin: BeginSendResult,
-    options: GenerationOptions,
+    reservationId: string | null,
+    ground?: 'required',
   ): Promise<void> {
     const keepalive = setInterval(() => this.broadcastRaw(run, sseKeepAliveFrame()), KEEPALIVE_MS);
+    let completed = false;
     try {
+      const options = {
+        ...(reservationId ? { reservationId } : {}),
+        ...(ground ? { ground } : {}),
+      };
       for await (const event of chat.runGeneration(begin, run.controller.signal, options)) {
         if (event.type === 'delta')
           run.node = { ...run.node, content: run.node.content + event.text };
         if (event.type === 'done' || event.type === 'error') {
           if (event.node) run.node = event.node;
+          completed = event.type === 'done';
         }
         this.broadcastRaw(run, sseFrame(event));
       }
+      if (completed && reservationId && isPoolFunded(account)) {
+        const defer = (p: Promise<unknown>) => this.ctx.waitUntil(p);
+        defer(
+          classifyPoolExchange(this.env, account, {
+            treeId: begin.userNode.treeId,
+            branchId: begin.userNode.branchId,
+            poolExchangeUserMessage: begin.userNode.content,
+            defer,
+          }),
+        );
+      }
     } finally {
       clearInterval(keepalive);
+      // The reply never reached the provider (the meter settles a dispatched one).
+      if (reservationId) await this.release(reservationId);
       this.runs.delete(begin.assistantNode.id);
       for (const writer of run.subscribers) writer.close().catch(() => undefined);
       run.subscribers.clear();
@@ -217,7 +316,7 @@ export class TreeSession extends DurableObject<AppEnv> {
     // Not running here: serve the persisted final state.
     const repo = chat.deps.repos.trees;
     const node = await repo.getNode(nodeId);
-    if (!node) return errorResponse('not_found', 'Node not found');
+    if (!node) return errorResponse(new DomainError('not_found', 'Node not found'));
     let final = node;
     if (node.status === 'streaming') {
       await chat.recoverInterrupted(node.treeId);
@@ -270,8 +369,7 @@ function streamOf(text: string): ReadableStream<Uint8Array> {
   });
 }
 
-function errorResponse(code: ApiError['error']['code'], message: string): Response {
-  return Response.json({ error: { code, message } } satisfies ApiError, {
-    status: HTTP_STATUS[code],
-  });
+/** The Worker passes the status and body through (pool refusals carry `error.pool`). */
+function errorResponse(err: DomainError): Response {
+  return Response.json(apiErrorBody(err) satisfies ApiError, { status: HTTP_STATUS[err.code] });
 }

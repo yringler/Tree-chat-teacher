@@ -36,6 +36,19 @@ export type ContextMode = 'path' | 'summary' | 'independent';
 
 export const CONTEXT_MODES: readonly ContextMode[] = ['path', 'summary', 'independent'];
 
+/**
+ * Who pays for a branch's model calls in power mode (its provider id names
+ * only the endpoint):
+ * - `own-key`: the user's own key for that provider (bring-your-own-key);
+ * - `credit`: Tangent credit, i.e. the built-in endpoint on the operator's
+ *   key, metered and charged to the user's prepaid credit.
+ * Learn decides how to pay per request (its payment header), so it ignores a
+ * branch's funding and writes `own-key`, the value that never spends credit.
+ */
+export type BranchFunding = 'own-key' | 'credit';
+
+export const BRANCH_FUNDINGS: readonly BranchFunding[] = ['own-key', 'credit'];
+
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
@@ -80,10 +93,13 @@ export interface Branch {
   titleSource: TitleSource;
   /** Private branches (and everything below them) are excluded from shares/exports. */
   isPrivate: boolean;
+  /** The endpoint (`openrouter`, `anthropic`, …), the same in both apps. */
   providerId: string;
   model: string;
   /** Web-search grounding for replies in this branch (power mode); absent = `auto`. */
   grounding?: GroundingMode;
+  /** Who pays for the branch's calls in power mode; Learn pays per request. */
+  funding: BranchFunding;
   createdAt: string;
   updatedAt: string;
 }

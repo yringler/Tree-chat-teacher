@@ -167,7 +167,8 @@ hr {
   padding: 4px 12px;
 }
 
-.icon {
+.icon,
+.logo {
   display: inline-flex;
   flex: none;
 }
@@ -1090,6 +1091,13 @@ textarea:focus-visible {
   margin-top: 4px;
 }
 
+.membership-gate-free,
+.membership-gate-learn {
+  width: 100%;
+  justify-content: center;
+  margin-top: 8px;
+}
+
 .membership-gate-links {
   display: flex;
   justify-content: space-between;
@@ -1100,4 +1108,141 @@ textarea:focus-visible {
 .membership-gate-links .link-btn {
   font-family: inherit;
   font-size: inherit;
+}
+
+/* Read-only power branch: where the composer would be (billing/read-only-composer.ts) */
+
+.read-only-composer {
+  display: block;
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.read-only-panel {
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+}
+
+.read-only-text {
+  margin: 0 0 8px;
+}
+
+.read-only-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.read-only-panel .notice {
+  margin-bottom: 0;
+}
+
+.read-only-composer.is-compact .read-only-panel {
+  padding: 8px;
+  font-size: 0.85rem;
+}
+
+.read-only-composer.is-compact .btn {
+  min-height: 28px;
+  padding: 3px 9px;
+  font-size: 0.85rem;
+}
+
+/* Pool (the community pool: PoolMeter, PoolFundSection, ImpactFeed, PoolBlockNotice) */
+
+.pool-meter {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0;
+}
+
+.pool-meter p {
+  margin: 0;
+}
+
+.pool-meter-sessions {
+  font-size: 1.35rem;
+  font-weight: 650;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+
+.pool-meter-dollars,
+.pool-meter-week {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pool-section {
+  border-color: var(--accent);
+}
+
+.pool-impact {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.pool-impact p {
+  margin: 0;
+}
+
+.pool-impact-head {
+  font-weight: 600;
+}
+
+.pool-impact-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pool-impact-topics li {
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 0.85rem;
+}
+
+.pool-block {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+}
+
+.pool-block-empty {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.pool-block-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.pool-block-text p {
+  margin: 0 0 4px;
+}
+
+.pool-block-title {
+  font-weight: 600;
+}
+
+.pool-block-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
 }

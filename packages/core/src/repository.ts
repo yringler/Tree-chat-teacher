@@ -47,6 +47,7 @@ export interface TreeRepository {
         | 'providerId'
         | 'model'
         | 'grounding'
+        | 'funding'
         | 'updatedAt'
       >
     >,

@@ -18,6 +18,7 @@ function branch(id: string, parent: string | null, point: string | null, mode = 
     isPrivate: false,
     providerId: 'fake',
     model: 'm',
+    funding: 'own-key',
     createdAt: `2026-01-01T00:00:0${id.length}Z`,
     updatedAt: '2026-01-01T00:00:00Z',
   };

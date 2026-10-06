@@ -14,7 +14,7 @@ import {
   type AccountRequest,
 } from '../src/auth/account.js';
 import type { AppEnv } from '../src/env.js';
-import { providerConfigs, registryFor } from '../src/services.js';
+import { creditRegistryFor, providerConfigs, providersFor, registryFor } from '../src/services.js';
 
 const BASE = 'https://tangent.example.com';
 
@@ -78,6 +78,7 @@ describe('resolveAccount', () => {
       billingAccountId: DEV_SIMPLE_ACCOUNT_ID,
       builtIn: true,
       operatorKeys: true,
+      funding: 'personal',
     });
     expect(resolveAccount(withEnv(), dev, learn('own-key'))).toEqual({
       id: DEV_SIMPLE_ACCOUNT_ID,
@@ -86,6 +87,7 @@ describe('resolveAccount', () => {
       billingAccountId: DEV_SIMPLE_ACCOUNT_ID,
       builtIn: false,
       operatorKeys: false,
+      funding: 'own-key',
     });
   });
 
@@ -97,6 +99,7 @@ describe('resolveAccount', () => {
       billingAccountId: 'u_usr1',
       builtIn: true,
       operatorKeys: false,
+      funding: 'personal',
     });
     expect(resolveAccount(withEnv(), user('someone@example.org'), learn('own-key'))).toEqual({
       id: 'u_usr1',
@@ -105,6 +108,7 @@ describe('resolveAccount', () => {
       billingAccountId: 'u_usr1',
       builtIn: false,
       operatorKeys: false,
+      funding: 'own-key',
     });
   });
 
@@ -118,7 +122,7 @@ describe('resolveAccount', () => {
 
   it('Learn is on the built-in provider only when asked for and offered', () => {
     expect(resolveAccount(withEnv(), user('a@example.org'), learn('credit')).builtIn).toBe(true);
-    for (const off of [{ STRIPE_SECRET_KEY: '' }, { STRIPE_WEBHOOK_SECRET: '' }]) {
+    for (const off of [{ PAYMENT_PROVIDER: 'polar' }]) {
       expect(resolveAccount(withEnv(off), user('a@example.org'), learn('credit')).builtIn).toBe(
         false,
       );
@@ -137,12 +141,51 @@ describe('resolveAccount', () => {
     ).toBe(true);
   });
 
+  it('Learn on the pool: pool-funded while the pool is on, for signed-in users only', () => {
+    const pooled = resolveAccount(withEnv(), user('a@example.org'), learn('pool'));
+    expect(pooled).toMatchObject({ mode: 'simple', funding: 'pool', builtIn: true });
+    // Off, or the dev bypass (no user to cap): pool funding, but nothing to spend.
+    for (const [e, who] of [
+      [withEnv({ POOL_ENABLED: 'false' }), user('a@example.org')],
+      [withEnv(), dev],
+    ] as const) {
+      expect(resolveAccount(e, who, learn('pool'))).toMatchObject({
+        funding: 'pool',
+        builtIn: false,
+      });
+    }
+    // Credit is personal where it is offered, else the user's own key.
+    expect(resolveAccount(withEnv(), user('a@example.org'), learn('credit')).funding).toBe(
+      'personal',
+    );
+    expect(
+      resolveAccount(withEnv({ PAYMENT_PROVIDER: 'polar' }), user('a@example.org'), learn('credit'))
+        .funding,
+    ).toBe('own-key');
+    // PERSONAL_CREDIT_ENABLED offers credit before payments are configured.
+    expect(
+      resolveAccount(
+        withEnv({ PAYMENT_PROVIDER: 'polar', PERSONAL_CREDIT_ENABLED: 'true' }),
+        user('a@example.org'),
+        learn('credit'),
+      ),
+    ).toMatchObject({ funding: 'personal', builtIn: true });
+  });
+
+  it('power never uses the pool, whatever the payment header', () => {
+    const pool: AccountRequest = { mode: 'power', payment: 'pool' };
+    expect(resolveAccount(withEnv(), user('a@example.org'), pool)).toMatchObject({
+      mode: 'power',
+      funding: 'personal',
+    });
+  });
+
   it('power has the built-in provider whenever it is offered, whatever the payment header', () => {
     const credit: AccountRequest = { mode: 'power', payment: 'credit' };
     expect(resolveAccount(withEnv(), user('a@example.org'), power).builtIn).toBe(true);
     expect(resolveAccount(withEnv(), user('a@example.org'), credit).builtIn).toBe(true);
     expect(
-      resolveAccount(withEnv({ STRIPE_SECRET_KEY: '' }), user('a@example.org'), power).builtIn,
+      resolveAccount(withEnv({ PAYMENT_PROVIDER: 'polar' }), user('a@example.org'), power).builtIn,
     ).toBe(false);
     const realProvider = withEnv({ SIMPLE_PROVIDER: '', OPENROUTER_SIMPLE_API_KEY: '' });
     expect(resolveAccount(realProvider, user('a@example.org'), power).builtIn).toBe(false);
@@ -156,6 +199,9 @@ describe('resolveAccount', () => {
     expect(
       accountRequest(new Headers({ [MODE_HEADER]: 'Simple', [PAYMENT_HEADER]: 'free' })),
     ).toEqual({ mode: 'power', payment: 'own-key' });
+    expect(
+      accountRequest(new Headers({ [MODE_HEADER]: 'simple', [PAYMENT_HEADER]: 'pool' })),
+    ).toEqual({ mode: 'simple', payment: 'pool' });
   });
 });
 
@@ -176,7 +222,7 @@ describe('power provider configs', () => {
     expect(openrouter.models.length).toBeGreaterThan(2);
   });
 
-  it("the operator's PROVIDERS rule, and may not claim the built-in id", () => {
+  it("the operator's PROVIDERS rule, and may not claim the legacy built-in id", () => {
     expect(providerConfigs(withEnv()).some((c) => c.openModels)).toBe(false);
     const claim = JSON.stringify([
       { id: 'tangent', kind: 'fake', label: 'Mine', defaultModel: 'x', models: [] },
@@ -184,18 +230,28 @@ describe('power provider configs', () => {
     expect(() => providerConfigs(withEnv({ PROVIDERS: claim }))).toThrow(/reserved id "tangent"/);
   });
 
-  it('the built-in provider takes the operator key only, never a user key', () => {
+  it('Tangent credit takes the operator key only, never a user key, in a registry of its own', () => {
     const account = resolveAccount(
       withEnv(),
       { userId: 'usr2', email: 'b@example.org', devMode: false },
       { mode: 'power', payment: 'own-key' },
     );
-    const registry = registryFor(withEnv(), account, { tangent: 'sk-user', ant: 'sk-ant-good' });
-    expect(registry.list().find((p) => p.id === 'tangent')).toMatchObject({
-      available: true,
+    const keys = { openrouter: 'sk-user', tangent: 'sk-user', ant: 'sk-ant-good' };
+    const credit = creditRegistryFor(withEnv(), account)!;
+    expect(credit.list()).toEqual([
+      expect.objectContaining({ id: 'openrouter', available: true, acceptsUserKey: false }),
+    ]);
+    // The own-key registry never holds the operator's endpoint: only the configured providers.
+    const own = registryFor(withEnv(), account, keys);
+    expect(own.list().map((p) => p.id)).toEqual(['fake', 'slow', 'ant']);
+    expect(own.list().find((p) => p.id === 'ant')?.keySource).toBe('user');
+    expect(providersFor(withEnv(), account, keys).at(-1)).toMatchObject({
+      id: 'openrouter',
+      funding: 'credit',
       acceptsUserKey: false,
     });
-    expect(registry.list().find((p) => p.id === 'ant')?.keySource).toBe('user');
-    expect(registryFor(withEnv(), { ...account, builtIn: false }).get('tangent')).toBeUndefined();
+    expect(creditRegistryFor(withEnv(), { ...account, builtIn: false })).toBeNull();
+    // Learn has one registry for every funding; it never has a credit registry.
+    expect(creditRegistryFor(withEnv(), { ...account, mode: 'simple' })).toBeNull();
   });
 });

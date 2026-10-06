@@ -7,8 +7,9 @@ import {
   type GroundingPolicy,
   type GroundingSettings,
 } from '@tangent/core';
+import type { ProviderRoute } from '@tangent/shared';
 import { isMetered, type AccountContext, type AppEnv } from '../env.js';
-import { intVar } from './vars.js';
+import { intVar } from '../config.js';
 
 export const DEFAULT_GROUNDING_AUTO_DAILY_CAP = 40;
 /** OpenRouter accepts 1–25 results per search. */
@@ -57,16 +58,16 @@ export async function searchesToday(
 }
 
 /**
- * `ChatServiceDeps.groundingAllowance`: automatic searches on the metered
- * (built-in) provider stop at the daily cap; the user's own keys are theirs
+ * `ChatServiceDeps.groundingAllowance`: automatic searches on a metered
+ * route (Tangent credit) stop at the daily cap; the user's own keys are theirs
  * to spend. Checks ("Check sources") never consult it.
  */
 export function groundingAllowance(
   env: AppEnv,
   account: AccountContext,
-): (providerId: string) => Promise<boolean> {
-  return async (providerId) => {
-    if (!isMetered(account, providerId)) return true;
+): (route: ProviderRoute) => Promise<boolean> {
+  return async (route) => {
+    if (!isMetered(account, route.funding)) return true;
     const cap = groundingDailyCap(env);
     if (cap === 0) return true;
     return (await searchesToday(env, account.billingAccountId)) < cap;

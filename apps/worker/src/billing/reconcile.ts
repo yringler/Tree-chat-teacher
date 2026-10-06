@@ -2,7 +2,10 @@
 // evicted generations): OpenRouter's generation endpoint, with retries right
 // after the stream and a cron backstop (PLAN §2.4).
 import { fetchOpenRouterGeneration, type GenerationCost } from '@tangent/providers';
+import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
+import { expirePoolReservations, type ExpiryResult } from '../pool/expiry.js';
+import { poolBank } from '../pool/ids.js';
 import { costUsdToNanos } from './pricing.js';
 import { markUnresolved, settleUsage } from './usage-store.js';
 
@@ -17,6 +20,8 @@ export const CRON_NO_ID_AGE_MS = 10 * MINUTE;
 /** Give up (charge 0, `unresolved`, logged) after this long. */
 export const CRON_GIVE_UP_AGE_MS = 24 * 60 * MINUTE;
 const CRON_BATCH = 200;
+/** Pools the cron expires reservations for, at most, per run. */
+const CRON_POOL_LIMIT = 10;
 
 /**
  * The OpenRouter key simple mode spends: the secret named by
@@ -108,6 +113,7 @@ export async function reconcileGeneration(
         costNanos: costUsdToNanos(cost.costUsd),
         markupBps: target.markupBps,
         feeBps: target.feeBps,
+        reason: 'generation',
         inputTokens: target.inputTokens ?? cost.inputTokens,
         outputTokens: target.outputTokens ?? cost.outputTokens,
         webSearches: target.webSearches ?? searchesFrom(cost),
@@ -131,10 +137,12 @@ interface PendingRow {
 }
 
 /**
- * Cron backstop (`scheduled`, every 10 minutes) for pending usage rows older
- * than 2 minutes: with a generation id → settle from OpenRouter's reported
- * cost; without one after 10 minutes → settle at 0; still pending after
- * 24 hours → `unresolved` at 0, logged for manual review.
+ * Cron backstop (`scheduled`, every 10 minutes) for pending personal usage
+ * rows older than 2 minutes: with a generation id → settle from OpenRouter's
+ * reported cost; without one after 10 minutes → settle at 0; still pending
+ * after 24 hours → `unresolved` at 0, logged for manual review. Community pool
+ * rows are filtered out in SQL (a backlog of them never starves these) and
+ * expired by `reconcilePoolUsage` instead.
  */
 export async function reconcilePendingUsage(
   env: AppEnv,
@@ -143,7 +151,7 @@ export async function reconcilePendingUsage(
   const nowMs = now.getTime();
   const { results } = await env.DB.prepare(
     `SELECT id, generation_id, markup_bps, fee_bps, created_at, input_tokens, output_tokens
-     FROM usage_events WHERE status = 'pending' AND created_at < ?
+     FROM usage_events WHERE status = 'pending' AND funding <> 'pool' AND created_at < ?
      ORDER BY created_at LIMIT ?`,
   )
     .bind(new Date(nowMs - CRON_MIN_AGE_MS).toISOString(), CRON_BATCH)
@@ -158,10 +166,11 @@ export async function reconcilePendingUsage(
       if (row.generation_id) {
         const cost = key ? await lookup(row.generation_id, key) : null;
         if (cost) {
-          const changed = await settleUsage(env.DB, row.id, {
+          const { changed } = await settleUsage(env.DB, row.id, {
             costNanos: costUsdToNanos(cost.costUsd),
             markupBps: row.markup_bps,
             feeBps: row.fee_bps,
+            reason: 'generation',
             inputTokens: row.input_tokens ?? cost.inputTokens,
             outputTokens: row.output_tokens ?? cost.outputTokens,
             webSearches: searchesFrom(cost),
@@ -178,12 +187,66 @@ export async function reconcilePendingUsage(
           }
         }
       } else if (age > CRON_NO_ID_AGE_MS) {
-        const zero = { costNanos: 0, markupBps: row.markup_bps, feeBps: row.fee_bps, now };
-        if (await settleUsage(env.DB, row.id, zero)) settled++;
+        const zero = {
+          costNanos: 0,
+          markupBps: row.markup_bps,
+          feeBps: row.fee_bps,
+          reason: 'released' as const,
+          now,
+        };
+        if ((await settleUsage(env.DB, row.id, zero)).changed) settled++;
       }
     } catch (e) {
       console.error('Usage reconciliation failed for row', row.id, e);
     }
   }
   return { settled, unresolved };
+}
+
+/**
+ * Cron backstop for the community pool: expires stale reservations of every
+ * pool account with any (in case a PoolBank alarm was lost), then advances
+ * and verifies the configured pool's balance checkpoint. Limits, TTLs and the
+ * pool id come from `appConfig(env)`.
+ */
+export async function reconcilePoolUsage(
+  env: AppEnv,
+  now: Date = new Date(),
+): Promise<Record<string, ExpiryResult>> {
+  const pool = appConfig(env).pool;
+  const options = {
+    ttlMs: pool.reservationTtlMs,
+    giveUpMs: pool.giveUpMs,
+    batch: pool.expireBatch,
+  };
+  const out: Record<string, ExpiryResult> = {};
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT DISTINCT account_id FROM usage_events
+       WHERE status = 'pending' AND funding = 'pool' AND created_at < ? LIMIT ?`,
+    )
+      .bind(new Date(now.getTime() - options.ttlMs).toISOString(), CRON_POOL_LIMIT)
+      .all<{ account_id: string }>();
+    for (const { account_id: poolId } of results) {
+      try {
+        out[poolId] = await expirePoolReservations(env, poolId, now, options);
+      } catch (e) {
+        console.error('Pool expiry failed', poolId, e);
+      }
+    }
+  } catch (e) {
+    console.error('Pool expiry backstop failed', e);
+  }
+  if (appConfig(env).flags.poolEnabled) {
+    try {
+      await poolBank(env, pool.accountId).maintain({
+        poolId: pool.accountId,
+        giveUpMs: pool.giveUpMs,
+        now: now.getTime(),
+      });
+    } catch (e) {
+      console.error('Pool checkpoint maintenance failed', e);
+    }
+  }
+  return out;
 }

@@ -13,7 +13,7 @@ import { HomePage } from './home/home-page';
  *
  * `login` is only ever reached by a full page load (see AuthService); its
  * copy comes from route data through `withComponentInputBinding()`, as do
- * the shared billing page's home link and Stripe return path.
+ * the shared billing page's home link and its path.
  */
 export const routes: Routes = [
   { path: '', component: HomePage, title: BRAND },

@@ -27,7 +27,7 @@ const CODE = 'friends-of-tangent';
 /** The membership sold and required (vitest.config.ts leaves it off), with a waiver code. */
 const memberEnv: AppEnv = {
   ...env,
-  STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership',
+  ANNUAL_FEE_ENABLED: 'true',
   MEMBERSHIP_WAIVER_CODE: CODE,
 };
 
@@ -82,15 +82,18 @@ const redeem = (code: string) => ({
 });
 
 describe('membership', () => {
-  it('is not required without the price id, without billing, or in the dev bypass', async () => {
+  it('is not required unless sold, without billing, or in the dev bypass', async () => {
     expect(membershipRequired(env)).toBe(false);
-    expect(membershipRequired({ ...memberEnv, STRIPE_SECRET_KEY: '' })).toBe(false);
+    expect(
+      membershipRequired({ ...memberEnv, FAKE_PAYMENTS: JSON.stringify({ membership: false }) }),
+    ).toBe(false);
+    expect(membershipRequired({ ...memberEnv, PAYMENT_PROVIDER: 'polar' })).toBe(false);
     expect(membershipRequired(memberEnv)).toBe(true);
     const account = await member();
     expect(await membershipFor(env, account)).toEqual({
       required: false,
       status: 'inactive',
-      stripeStatus: null,
+      subscriptionStatus: null,
       periodEnd: null,
       cancelAtPeriodEnd: false,
       priceCents: 1000,
@@ -106,7 +109,7 @@ describe('membership', () => {
     expect(await membershipFor(memberEnv, account)).toMatchObject({
       required: true,
       status: 'inactive',
-      stripeStatus: null,
+      subscriptionStatus: null,
     });
     const err = await assertMember(memberEnv, account).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(MembershipRequiredError);
@@ -125,7 +128,7 @@ describe('membership', () => {
         expect(await membershipFor(memberEnv, a)).toEqual({
           required: true,
           status: 'active',
-          stripeStatus: status,
+          subscriptionStatus: status,
           periodEnd: new Date(periodEnd).toISOString(),
           cancelAtPeriodEnd: true,
           priceCents: 1000,
@@ -136,27 +139,27 @@ describe('membership', () => {
     }
   });
 
-  it('is inactive with a canceled, unpaid or incomplete row, or another plan', async () => {
+  it('is inactive with a canceled, unpaid or incomplete row, or another kind', async () => {
     const account = await member();
     await insertSubscription(env, account.userId!, 'incomplete');
     expect(await membershipFor(memberEnv, account)).toMatchObject({
       status: 'inactive',
-      stripeStatus: null,
+      subscriptionStatus: null,
     });
-    await insertSubscription(env, account.userId!, 'active', { plan: 'monthly-10' });
+    await insertSubscription(env, account.userId!, 'active', { kind: 'monthly-10' });
     await insertSubscription(env, account.userId!, 'unpaid', { periodEnd: 1 });
     await insertSubscription(env, account.userId!, 'canceled', { periodEnd: 2 });
     // The latest period wins among the inactive ones.
     expect(await membershipFor(memberEnv, account)).toMatchObject({
       status: 'inactive',
-      stripeStatus: 'canceled',
+      subscriptionStatus: 'canceled',
     });
     // A paid row wins over a later inactive one.
     await insertSubscription(env, account.userId!, 'past_due', { periodEnd: 0 });
     expect((await membershipFor(memberEnv, account)).status).toBe('active');
   });
 
-  it('is waived by the flag, which wins over Stripe', async () => {
+  it('is waived by the flag, which wins over the subscription', async () => {
     const account = await member();
     await insertSubscription(env, account.userId!, 'canceled');
     await env.DB.prepare('UPDATE auth_users SET membership_waived = 1 WHERE id = ?')
@@ -165,7 +168,7 @@ describe('membership', () => {
     expect(await membershipFor(memberEnv, account)).toMatchObject({
       required: true,
       status: 'waived',
-      stripeStatus: 'canceled',
+      subscriptionStatus: 'canceled',
     });
     await expect(assertMember(memberEnv, account)).resolves.toBeUndefined();
   });

@@ -8,9 +8,14 @@ import { apiError, notFound, onError } from './http/errors.js';
 import { landingRoutes } from './http/landing.js';
 import { adminAppRoutes, canvasAppRoutes, learnAppRoutes } from './http/learn-app.js';
 import { legalRoutes } from './http/legal.js';
+import { poolPageRoutes } from './http/pool-page.js';
+import { verifyPageRoutes } from './http/verify-page.js';
 import { adminRoutes } from './routes/admin.js';
 import { apiRoutes } from './routes/api.js';
 import { billingRoutes } from './routes/billing.js';
+import { featuredRoute } from './routes/featured.js';
+import { paymentWebhookRoute } from './routes/payment-webhooks.js';
+import { poolImpactRoutes, poolRoutes, poolStatusRoute } from './routes/pool.js';
 import { shareRoutes } from './routes/share.js';
 
 export interface AppOptions {
@@ -20,16 +25,26 @@ export interface AppOptions {
 /**
  * The HTTP app.
  * - `/api/auth/*` is Better Auth (sign-in, callbacks, session, passkeys).
- * - `/api/login-options` is public: what the login page should offer.
+ * - `/api/login-options` is public: what the login page should offer,
+ *   `/api/pool/status` the community pool's meter and `/api/pool/impact*`
+ *   its weekly impact snapshots (routes/pool.ts).
+ * - `POST /api/webhooks/:provider` is public too: payment provider webhooks,
+ *   verified by their signature (routes/payment-webhooks.ts).
+ * - `/api/featured*` is always 404: the featured-conversations wall is a stub
+ *   (routes/featured.ts).
  * - Every other `/api/*` route requires a session (auth/session.ts) and acts
  *   as the caller's account for the app named by the `x-tangent-mode` header
- *   (auth/account.ts); `/api/billing/*` is the billing API, and `/api/admin/*`
- *   the admin API (admins only, routes/admin.ts).
+ *   (auth/account.ts); `/api/billing/*` is the billing API, `/api/pool/*` the
+ *   community pool's (routes/pool.ts), and `/api/admin/*` the admin API
+ *   (admins only, routes/admin.ts).
  * - `/s/*` is public and read-only.
  * - `/learn`, `/learn/*` serve the simple app, `/canvas`, `/canvas/*` the
  *   canvas app and `/admin`, `/admin/*` the admin app, to admins only
  *   (http/learn-app.ts).
- * - `/privacy` and `/terms` are the public legal pages (http/legal.ts).
+ * - `/privacy` and `/terms` are the public legal pages (http/legal.ts), and
+ *   `/pool` explains the community pool (http/pool-page.ts).
+ * - `/verify` is the Turnstile interstitial after a first OAuth sign-in
+ *   (http/verify-page.ts).
  * - `/welcome`, and `/` for anonymous visitors, serve the landing page
  *   (http/landing.ts); `/` with a session cookie is the power app's index.
  * Everything else is served by Workers Static Assets before the Worker runs
@@ -58,16 +73,25 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
     return c.json(body);
   });
 
+  app.get('/api/pool/status', poolStatusRoute);
+  app.post('/api/webhooks/:provider', paymentWebhookRoute);
+  app.route('/api/pool/impact', poolImpactRoutes());
+  app.all('/api/featured', featuredRoute);
+  app.all('/api/featured/*', featuredRoute);
+
   app.use('/api/*', sessionMiddleware(options.auth));
   app.use('/api/*', accountMiddleware);
   app.route('/api/billing', billingRoutes());
   app.route('/api/admin', adminRoutes());
+  app.route('/api/pool', poolRoutes());
   app.route('/api', apiRoutes());
   app.route('/s', shareRoutes());
   app.route('/', learnAppRoutes());
   app.route('/', canvasAppRoutes());
   app.route('/', adminAppRoutes(options.auth));
   app.route('/', legalRoutes());
+  app.route('/', poolPageRoutes());
+  app.route('/', verifyPageRoutes(options.auth));
   app.route('/', landingRoutes());
   return app;
 }

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, ElementRef, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { AccountId, AuthService, DEMO_MODE, Icon, ModeSwitch } from '@tangent/web-shared';
+import { AccountId, AuthService, DEMO_MODE, Icon, Logo, ModeSwitch } from '@tangent/web-shared';
 import { BRAND, BRAND_SHORT } from '../brand';
 import { DEMO_EXIT_URL } from '../demo/demo-mode';
 import { AccountStore } from '../state/account-store';
@@ -8,16 +8,17 @@ import { UiStore } from '../state/ui-store';
 
 /**
  * Brand, the Power / Learn switch, how replies are paid for (the credit
- * balance, linking to billing, or "Your key") and the account menu.
+ * balance or the community pool, linking to billing, or "Your key") and the
+ * account menu.
  */
 @Component({
   selector: 'app-header',
-  imports: [RouterLink, Icon, ModeSwitch, AccountId],
+  imports: [RouterLink, Icon, Logo, ModeSwitch, AccountId],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="app-head">
       <a routerLink="/" class="brand" [attr.aria-label]="brand">
-        <app-icon name="tree" [size]="20" />
+        <app-logo [size]="22" />
         <span aria-hidden="true"
           >{{ brandShort }}<span class="hide-narrow">{{ brandRest }}</span></span
         >
@@ -37,6 +38,16 @@ import { UiStore } from '../state/ui-store';
         >
           Your key
         </button>
+      } @else if (account.poolLabel(); as pool) {
+        <a
+          routerLink="/billing"
+          class="balance-pill"
+          [class.balance-low]="account.poolLow()"
+          [attr.aria-label]="'Replies run on the community pool: ' + pool + '. Open billing'"
+          title="Community pool · Billing"
+        >
+          {{ pool }}
+        </a>
       } @else if (account.balanceLabel(); as balance) {
         <a
           routerLink="/billing"
@@ -73,7 +84,11 @@ import { UiStore } from '../state/ui-store';
                 How replies are paid for
               </button>
             }
-            @if (account.payment.builtInCredit() || account.membership()?.required) {
+            @if (
+              account.payment.builtInCredit() ||
+              account.membership()?.required ||
+              account.payment.poolAvailable()
+            ) {
               <a routerLink="/billing" class="menu-item" role="menuitem" (click)="close()">
                 {{ account.payment.builtInCredit() ? 'Billing and credit' : 'Billing' }}
               </a>

@@ -39,16 +39,19 @@ import { ReviewVerdict } from '../ui/review-verdict';
           <span class="muted small">{{ n.model }}</span>
         }
         <span class="msg-actions">
-          <button
-            type="button"
-            class="btn btn-ghost btn-sm"
-            (mousedown)="captureSelection()"
-            (click)="branch($event)"
-            title="Branch from here (b)"
-          >
-            <app-icon name="branch" [size]="14" /> Branch from here
-          </button>
-          @if (reviewable()) {
+          <!-- Without a route to generate on (no membership for own keys, no credit), no new branches or reviews. -->
+          @if (store.canGenerate()) {
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              (mousedown)="captureSelection()"
+              (click)="branch($event)"
+              title="Branch from here (b)"
+            >
+              <app-icon name="branch" [size]="14" /> Branch from here
+            </button>
+          }
+          @if (reviewable() && canReview()) {
             <button
               type="button"
               class="btn btn-ghost btn-sm"
@@ -127,11 +130,13 @@ import { ReviewVerdict } from '../ui/review-verdict';
               class="tangent"
               [class.is-followed]="followed().has(t.title)"
               [class.is-on]="followedOn().has(t.title)"
-              [disabled]="opening() !== null"
+              [disabled]="opening() !== null || (locked() && !followed().has(t.title))"
               [title]="
                 followed().has(t.title)
                   ? 'Open the branch that follows this'
-                  : 'Branch off and ask about this (keeps the conversation so far)'
+                  : locked()
+                    ? 'Following it needs a membership (this branch is on your own key)'
+                    : 'Branch off and ask about this (keeps the conversation so far)'
               "
               (click)="follow($event, t.title)"
             >
@@ -185,7 +190,7 @@ import { ReviewVerdict } from '../ui/review-verdict';
   host: { style: 'display: contents' },
 })
 export class MessageItem {
-  private readonly store = inject(TreeStore);
+  protected readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
   private readonly md = inject(MarkdownService);
   private readonly reviews = inject(ReviewStore);
@@ -262,6 +267,15 @@ export class MessageItem {
     return r?.phase === 'done' ? parseReview(r.text) : null;
   });
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
+  /** The message's branch can't generate (its funding needs the membership the user lacks). */
+  private readonly ownBranch = computed(
+    () => this.store.index()?.branches.get(this.node().branchId) ?? null,
+  );
+  protected readonly locked = computed(() => {
+    const b = this.ownBranch();
+    return !!b && this.store.routeLocked(b);
+  });
+  protected readonly canReview = computed(() => this.store.canReview(this.ownBranch()));
   protected readonly roleLabel = computed(() => {
     const r = this.node().role;
     return r === 'user' ? 'You' : r === 'assistant' ? 'Assistant' : 'System';
@@ -296,7 +310,7 @@ export class MessageItem {
 
   protected async follow(e: Event, title: string): Promise<void> {
     e.stopPropagation();
-    if (this.opening() !== null) return;
+    if (this.opening() !== null || (this.locked() && !this.followed().has(title))) return;
     this.opening.set(title);
     try {
       await this.store.followTangent(this.node().id, title);

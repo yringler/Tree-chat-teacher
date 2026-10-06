@@ -143,7 +143,10 @@ describe('openai-compatible provider', () => {
     );
     expect(await collect(provider.stream(req()))).toEqual([
       { type: 'delta', text: 'Partial' },
-      { type: 'error', error: { code: 'server', message: 'Provider disconnected unexpectedly', retryable: true } },
+      {
+        type: 'error',
+        error: { code: 'server', message: 'Provider disconnected unexpectedly', retryable: true, upstream: 'stream' },
+      },
     ]);
   });
 
@@ -201,9 +204,24 @@ describe('openai-compatible provider', () => {
   it('yields a config error when the configured key secret is missing', async () => {
     const { provider, calls } = setup(OPENAI, () => sseResponse(OPENAI_STREAM).response, {});
     expect(await collect(provider.stream(req()))).toEqual([
-      { type: 'error', error: { code: 'config', message: 'Missing secret OPENAI_API_KEY', retryable: false } },
+      {
+        type: 'error',
+        error: { code: 'config', message: 'Missing secret OPENAI_API_KEY', retryable: false, upstream: 'not_sent' },
+      },
     ]);
     expect(calls).toHaveLength(0);
+  });
+
+  it('marks a connection failure as never sent upstream', async () => {
+    const { provider } = setup(OPENAI, () => {
+      throw new TypeError('connection refused');
+    });
+    expect(await collect(provider.stream(req()))).toEqual([
+      {
+        type: 'error',
+        error: { code: 'network', message: 'Network error: connection refused', retryable: true, upstream: 'not_sent' },
+      },
+    ]);
   });
 
   it('folds the system prompt into the first user message when unsupported', async () => {
@@ -228,7 +246,7 @@ describe('openai-compatible provider', () => {
   ] as const)('maps HTTP %i to %s using {error:{message}}', async (status, code, retryable) => {
     const { provider } = setup(OPENAI, () => jsonResponse(status, { error: { message: `oops ${status}`, type: 'x' } }));
     expect(await collect(provider.stream(req()))).toEqual([
-      { type: 'error', error: { code, status, retryable, message: `oops ${status}` } },
+      { type: 'error', error: { code, status, retryable, message: `oops ${status}`, upstream: 'rejected' } },
     ]);
   });
 
@@ -403,14 +421,16 @@ describe('openai-compatible billing (OpenRouter)', () => {
     );
     expect(await collect(provider.stream(req()))).toEqual([
       { type: 'billing', generationId: GEN },
-      { type: 'error', error: { code: 'server', message: 'upstream died', retryable: true } },
+      { type: 'error', error: { code: 'server', message: 'upstream died', retryable: true, upstream: 'stream' } },
     ]);
   });
 
   it('yields no billing on an HTTP error', async () => {
     const { provider } = setup(OPENROUTER, () => withHeader(jsonResponse(500, { error: { message: 'boom' } }), GEN));
     const events = await collect(provider.stream(req()));
-    expect(events).toEqual([{ type: 'error', error: { code: 'server', status: 500, retryable: true, message: 'boom' } }]);
+    expect(events).toEqual([
+      { type: 'error', error: { code: 'server', status: 500, retryable: true, message: 'boom', upstream: 'rejected' } },
+    ]);
   });
 });
 

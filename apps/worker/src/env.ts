@@ -1,6 +1,6 @@
-import type { AccountMode } from '@tangent/shared';
+import type { AccountMode, BranchFunding, FundingSource } from '@tangent/shared';
 import type { Context } from 'hono';
-import { BUILT_IN_PROVIDER_ID } from './simple-mode.js';
+import type { PoolParams } from './pool/params.js';
 
 /**
  * Worker environment: generated bindings/vars (`Env`, from wrangler types)
@@ -42,10 +42,14 @@ export interface AppEnv extends Env {
    * var (OpenRouter's credit-purchase fee), then marked up.
    */
   OPENROUTER_SIMPLE_API_KEY?: string;
-  /** Stripe API key. Billing is enabled only when this and STRIPE_WEBHOOK_SECRET are set. */
-  STRIPE_SECRET_KEY?: string;
-  /** Signing secret of the webhook endpoint `/api/auth/stripe/webhook`. */
-  STRIPE_WEBHOOK_SECRET?: string;
+  /**
+   * Polar organization access token (`polar_oat_…`), for the `polar` payment
+   * provider (billing/providers/polar). Payments are on only when this and
+   * POLAR_WEBHOOK_SECRET are set. Sandbox and production tokens differ.
+   */
+  POLAR_ACCESS_TOKEN?: string;
+  /** Signing secret (`whsec_…`) of the Polar webhook endpoint `/api/webhooks/polar`. */
+  POLAR_WEBHOOK_SECRET?: string;
   /**
    * A code users redeem (`POST /api/billing/membership/waiver`) to have the
    * membership fee waived. Empty = no code redemption. If it leaks, change it
@@ -66,6 +70,12 @@ export interface AppEnv extends Env {
    * is empty. No longer in wrangler.jsonc; kept for one release.
    */
   MARKUP_PREPAID_BPS?: string;
+  /** Tests only ("true"): enables test-only RPC methods such as `PoolBank.expire(now)`. */
+  TEST_SEAMS?: string;
+  /** Tests only (with `PAYMENT_PROVIDER=fake`): the fake provider's options, JSON (billing/providers/fake.ts). */
+  FAKE_PAYMENTS?: string;
+  /** Tests only (with `TEST_SEAMS`): a pool notice version above the code's, as after a text change. */
+  POOL_NOTICE_VERSION?: string;
 }
 
 /**
@@ -102,15 +112,42 @@ export interface AccountContext {
    * co.) may be used. Every signed-in user is bring-your-own-key for those.
    */
   operatorKeys: boolean;
+  /**
+   * Who pays for the built-in provider's calls (auth/account.ts): `personal`
+   * (the ledger at `billingAccountId`), `pool` (the community pool; Learn
+   * only, `builtIn` when the pool is on) or `own-key` (Learn on the user's
+   * key, where `builtIn` is false). Power is always `personal`.
+   */
+  funding: FundingSource;
+  /**
+   * Pool funding only: what pool calls run with, resolved Worker-side from
+   * the config (pool/params.ts). The Durable Objects read it from here, never
+   * from their own env.
+   */
+  pool?: PoolParams;
+}
+
+/** True when the account's metered calls are paid by the community pool. */
+export function isPoolFunded(
+  account: AccountContext,
+): account is AccountContext & { funding: 'pool'; pool: PoolParams } {
+  return account.funding === 'pool' && account.builtIn && account.pool !== undefined;
 }
 
 /**
- * True when a call on `providerId` is metered and charged to the account's
- * credit: only the built-in provider, and only where the account has it on
- * the operator's key. Metering is per provider call, not per account.
+ * True when a call is metered: paid on the operator's key from the user's
+ * credit or the community pool, never on the user's own key. Decided by
+ * funding, never by the provider id (which names only the endpoint):
+ * - Learn: by the request's payment (`account.builtIn`: credit or the pool),
+ *   whatever the branch says; Learn ignores a branch's funding.
+ * - power: by the funding of the route the call is on (the branch's, or a
+ *   reviewer's), `credit`, and only where the server offers Tangent credit
+ *   (`account.builtIn`). Metering is per call, not per account: a power
+ *   account mixes its own keys with credit.
  */
-export function isMetered(account: AccountContext, providerId: string): boolean {
-  return account.builtIn && providerId === BUILT_IN_PROVIDER_ID;
+export function isMetered(account: AccountContext, funding: BranchFunding): boolean {
+  if (account.mode === 'simple') return account.builtIn;
+  return account.builtIn && funding === 'credit';
 }
 
 /**

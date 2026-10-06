@@ -11,3 +11,14 @@ export const MESSAGE_OVERHEAD_TOKENS = 4;
 
 export const estimateTokens: TokenEstimator = (text) =>
   text.length === 0 ? 0 : Math.ceil(text.length / CHARS_PER_TOKEN);
+
+const utf8 = new TextEncoder();
+
+/**
+ * Like `estimateTokens`, but counting UTF-8 bytes instead of characters, so a
+ * budget of N "tokens" is a hard bound of 3.5·N bytes and therefore of 3.5·N
+ * real tokens (byte-level BPE tokenizers never emit more tokens than bytes),
+ * whatever the script. Equal to `estimateTokens` for ASCII text.
+ */
+export const estimateTokensUtf8: TokenEstimator = (text) =>
+  text.length === 0 ? 0 : Math.ceil(utf8.encode(text).length / CHARS_PER_TOKEN);

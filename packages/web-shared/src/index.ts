@@ -12,10 +12,23 @@ export {
   errorMessage,
   isMembershipRequired,
   isPaymentRequired,
+  isPoolCapReached,
+  isPoolConsentRequired,
+  isPoolEmpty,
+  isPoolUnavailable,
   type ExportParams,
 } from './core/api-client';
 export { API_FETCH, API_HEADERS, defaultApiFetch } from './core/api-fetch';
+export {
+  backupFile,
+  MAX_BACKUP_BYTES,
+  readBackupFile,
+  SAVE_FILE,
+  type BackupFile,
+  type SaveFile,
+} from './core/backup-file';
 export { APP_PATHS, provideAppPaths, type AppPaths } from './core/app-paths';
+export { LEAVE_PAGE, type LeavePage } from './core/leave-page';
 export {
   AUTH_CLIENT,
   authErrorMessage,
@@ -23,12 +36,7 @@ export {
   type TangentAuthClient,
 } from './core/auth-client';
 export { AuthService, loginErrorMessage, type PasskeyInfo, type SocialProvider } from './core/auth';
-export {
-  absoluteUrl,
-  BillingClient,
-  BillingError,
-  type BillingSubscription,
-} from './core/billing-client';
+export { BillingClient, BillingError } from './core/billing-client';
 export {
   accountModeOf,
   APP_BASES,
@@ -59,6 +67,7 @@ export {
 
 // UI
 export { Icon, type IconName } from './ui/icon';
+export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';
 export { DEEP_BRANCH_DEPTH, SourcesList } from './ui/sources-list';
 export { ModeSwitch } from './ui/mode-switch';
@@ -72,13 +81,47 @@ export { BillingPage } from './billing/billing-page';
 export { BILLING_SUMMARY_LISTENER } from './billing/billing-listener';
 export { MembershipGate } from './billing/membership-gate';
 export { MembershipCodeForm } from './billing/membership-code-form';
+export { ReadOnlyComposer } from './billing/read-only-composer';
 export {
+  LearnCopy,
+  learnLessonHref,
+  lockedFundings,
+  readOnlyText,
+  routeLocked,
+  routeOpen,
+  type ReadOnlyText,
+} from './billing/read-only';
+export {
+  creditCanPay,
+  creditCarriesOn,
   creditFeeText,
   includedCreditText,
   membershipBlocks,
-  membershipCheckoutPaths,
   membershipPriceText,
   membershipStatusText,
   subscribeToMembership,
 } from './billing/membership';
-export { formatBps, formatCents, formatCharge, formatMicros } from './billing/format';
+export {
+  formatBps,
+  formatCents,
+  formatCharge,
+  formatMicros,
+  parseDollarsToCents,
+} from './billing/format';
+
+// The community pool: the meter, the billing page's section, the inline empty/cap states and the first-use check
+export { PoolMeter } from './pool/pool-meter';
+export { PoolSection } from './pool/pool-section';
+export { ImpactFeed, loadLatestImpact } from './pool/impact-feed';
+export { PoolBlockNotice } from './pool/pool-block-notice';
+export { PoolFirstUseDialog, poolVerifyHref } from './pool/pool-first-use-dialog';
+export {
+  poolBlockOf,
+  poolBlockText,
+  poolDollarsLabel,
+  poolWeekLabel,
+  sessionsLabel,
+  untilText,
+  type PoolBlock,
+  type PoolBlockText,
+} from './pool/pool-format';

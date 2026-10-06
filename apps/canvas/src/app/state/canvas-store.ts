@@ -10,6 +10,14 @@ import {
   type NavDirection,
   type TreeIndex,
 } from '@tangent/core/tree';
+import {
+  isModelAllowed,
+  parseRouteKey,
+  pickDefaultRoute,
+  providerRouteKey,
+  routeKey,
+  type BranchFunding,
+} from '@tangent/shared';
 import type {
   BillingSummary,
   Branch,
@@ -30,8 +38,13 @@ import type {
 import {
   ApiClient,
   ApiError,
+  creditCanPay,
+  creditCarriesOn,
   errorMessage,
+  lockedFundings,
   membershipBlocks,
+  routeLocked,
+  routeOpen,
   runStream,
   type StreamOutcome,
 } from '@tangent/web-shared';
@@ -52,6 +65,8 @@ export interface LiveReply {
 export interface BranchVariant {
   contextMode: ContextMode;
   providerId: string;
+  /** Who pays: the user's own key, or Tangent credit. */
+  funding: BranchFunding;
   model: string;
 }
 
@@ -94,9 +109,20 @@ function upsertById<T extends { id: string }>(list: readonly T[], items: readonl
   return out;
 }
 
-/** Short label of a model id: the part after the last `/` (OpenRouter ids), trimmed. */
-export function modelLabel(providers: readonly ProviderInfo[], providerId: string, model: string) {
-  const p = providers.find((x) => x.id === providerId);
+/**
+ * Short label of a model id: its listed label on the route's provider (or, for
+ * a reply, which records no funding, any entry of that provider), else the
+ * part after the last `/` (OpenRouter ids).
+ */
+export function modelLabel(
+  providers: readonly ProviderInfo[],
+  route: { providerId: string; funding?: BranchFunding },
+  model: string,
+) {
+  const key = routeKey(route);
+  const p =
+    providers.find((x) => providerRouteKey(x) === key) ??
+    providers.find((x) => x.id === route.providerId);
   const m = p?.models.find((x) => x.id === model);
   if (m) return m.label;
   const slash = model.lastIndexOf('/');
@@ -121,8 +147,14 @@ export class CanvasStore {
   readonly keyStatus = signal<KeyStatusResponse | null>(null);
   /** From `me`; a 402 `membership_required` marks it inactive. */
   readonly membership = signal<MembershipInfo | null>(null);
-  /** Credit balance and fees (`/api/billing`), loaded when the keys dialog opens. */
+  /**
+   * Credit balance and fees (`/api/billing`): read on startup wherever credit
+   * is offered (the default route needs the balance), again when the keys
+   * dialog opens and after a 402.
+   */
   readonly billing = signal<BillingSummary | null>(null);
+  /** The balance has been asked for once (read, or failed: then it counts as none). */
+  private readonly billingRead = signal(false);
   readonly trees = signal<TreeSummary[]>([]);
   readonly treesLoaded = signal(false);
 
@@ -192,15 +224,102 @@ export class CanvasStore {
     return idx && id ? branchPath(idx, id) : [];
   });
 
-  /** Generating needs the membership the user lacks: the shell shows a notice linking to `/billing`. */
-  readonly membershipBlocked = computed(() => membershipBlocks(this.membership()));
+  /** The server refused an own-key call for want of a membership (402 `membership_required`). */
+  private readonly noticeForced = signal(false);
 
-  readonly providerMap = computed(() => new Map(this.providers().map((p) => [p.id, p])));
-
-  /** First provider with an API key, falling back to the first configured. */
-  readonly defaultProvider = computed<ProviderInfo | null>(
-    () => this.providers().find((p) => p.available) ?? this.providers()[0] ?? null,
+  /**
+   * Without a membership, Canvas (power mode) can still run on Tangent credit
+   * the user holds (`creditCarriesOn`: offered, and the balance not known to be used up).
+   */
+  readonly creditCarriesOn = computed(() =>
+    creditCarriesOn(this.me()?.builtInCredit ?? false, this.billing()),
   );
+
+  /**
+   * The shell shows a notice linking to `/billing`: the membership is
+   * required and the user has none, and either no credit can carry on or the
+   * server just refused an own-key call.
+   */
+  readonly membershipBlocked = computed(
+    () => membershipBlocks(this.membership()) && (this.noticeForced() || !this.creditCarriesOn()),
+  );
+
+  /** The notice may be dismissed: credit the user holds can still pay. */
+  readonly membershipDismissible = computed(() => this.creditCarriesOn());
+
+  dismissMembershipNotice(): void {
+    this.noticeForced.set(false);
+  }
+
+  /**
+   * The fundings that need the membership in this account, from `me` (the
+   * server's rule: `['own-key']` where a membership is required).
+   */
+  readonly membershipNeededFor = signal<readonly BranchFunding[]>([]);
+
+  /** The fundings the user can't generate on right now (docs/DECISIONS.md "Read-only power"). */
+  readonly lockedFundings = computed(() =>
+    lockedFundings(this.membershipNeededFor(), this.membership()),
+  );
+
+  /**
+   * A lane (or any route) whose funding needs the membership the user lacks:
+   * read-only, its composer replaced by the notice (renew, copy to Learn).
+   */
+  routeLocked(route: { funding?: BranchFunding }): boolean {
+    return routeLocked(this.lockedFundings(), route);
+  }
+
+  /** Tangent credit, when a read-only lane could carry on with it (a non-member spends what is left). */
+  readonly creditRoute = computed<ProviderInfo | null>(() => {
+    const usable = !membershipBlocks(this.membership()) || this.creditCarriesOn();
+    return (
+      this.providers().find(
+        (p) => p.funding === 'credit' && routeOpen(p, this.lockedFundings(), usable),
+      ) ?? null
+    );
+  });
+
+  /**
+   * "Continue with Tangent credit" on a read-only lane: moves it onto credit,
+   * keeping its model where credit offers it, else on credit's default model.
+   */
+  async switchToCredit(branchId: string): Promise<boolean> {
+    const credit = this.creditRoute();
+    const branch = this.index()?.branches.get(branchId);
+    if (!credit || !branch) return false;
+    const model =
+      branch.providerId === credit.id && isModelAllowed(credit, branch.model)
+        ? branch.model
+        : credit.defaultModel;
+    const ok = await this.updateBranch(branch.id, {
+      providerId: credit.id,
+      funding: 'credit',
+      model,
+    });
+    if (ok) this.ui.notify(`“${branch.title}” now uses Tangent credit`);
+    return ok;
+  }
+
+  /** Providers by route (`routeKey`): the built-in endpoint is listed on the user's key and on Tangent credit. */
+  readonly providerMap = computed(
+    () => new Map(this.providers().map((p) => [providerRouteKey(p), p])),
+  );
+
+  /**
+   * The route a new conversation (and a lane with no parent route) starts on:
+   * `pickDefaultRoute`, the server's and the power app's rule for a new tree
+   * (docs/DECISIONS.md "Default route of a new tree"). Null until the
+   * providers and, where credit is offered, the balance have been read.
+   */
+  readonly defaultProvider = computed<ProviderInfo | null>(() => {
+    const builtInCredit = this.me()?.builtInCredit ?? false;
+    if (builtInCredit && !this.billingRead()) return null;
+    return pickDefaultRoute(this.providers(), {
+      creditCanPay: creditCanPay(builtInCredit, this.billing()),
+      ownKeyLocked: this.lockedFundings().has('own-key'),
+    });
+  });
 
   /** The lineage of the selected lane, when it is for its current leaf. */
   readonly selectedLineage = computed<Lineage | null>(() => {
@@ -240,9 +359,26 @@ export class CanvasStore {
   // Bootstrapping
 
   async init(me: MeResponse): Promise<void> {
+    this.applyMe(me);
+    // Where credit is offered, the balance decides whether a new conversation may start on
+    // it, and without a membership whether the notice shows on load.
+    const balance = me.builtInCredit ? this.refreshBilling() : null;
+    await Promise.all([this.refreshKeys(), this.loadTrees(), balance]);
+  }
+
+  private applyMe(me: MeResponse): void {
     this.me.set(me);
     this.membership.set(me.membership);
-    await Promise.all([this.refreshKeys(), this.loadTrees()]);
+    this.membershipNeededFor.set(me.membershipNeededFor ?? []);
+  }
+
+  /** Re-reads `me`: the membership and the fundings that need it, as the server sees them now. */
+  async refreshMe(): Promise<void> {
+    try {
+      this.applyMe(await this.api.me());
+    } catch (err) {
+      console.warn('me failed', err);
+    }
   }
 
   async refreshKeys(): Promise<void> {
@@ -264,6 +400,8 @@ export class CanvasStore {
       this.billing.set(await this.api.billing());
     } catch (err) {
       console.warn('billing summary failed', err);
+    } finally {
+      this.billingRead.set(true);
     }
   }
 
@@ -381,15 +519,18 @@ export class CanvasStore {
     }
   }
 
-  /** New tree from the home page: creates it, opens it, sends the first message. */
+  /**
+   * New tree from the home page: creates it, opens it, sends the first
+   * message. `route` is a `routeKey` (provider and funding), null for the default.
+   */
   async startConversation(
     content: string,
-    providerId: string | null,
+    route: string | null,
     model: string | null,
   ): Promise<void> {
     try {
       const detail = await this.api.createTree({
-        ...(providerId ? { providerId } : {}),
+        ...(route ? parseRouteKey(route) : {}),
         ...(model ? { model } : {}),
       });
       this.detail.set(detail);
@@ -441,7 +582,7 @@ export class CanvasStore {
     const created: Branch[] = [];
     const base = req.title.trim();
     for (const v of req.variants) {
-      const suffix = `${modelLabel(this.providers(), v.providerId, v.model)} · ${v.contextMode}`;
+      const suffix = `${modelLabel(this.providers(), v, v.model)} · ${v.contextMode}`;
       const title = several ? (base ? `${base} (${suffix})` : suffix) : base;
       const branch = await this.createBranch(
         {
@@ -449,6 +590,7 @@ export class CanvasStore {
           contextMode: v.contextMode,
           anchorQuote: req.anchorQuote,
           providerId: v.providerId,
+          funding: v.funding,
           model: v.model,
           isPrivate: req.isPrivate,
           ...(title ? { title } : {}),
@@ -636,8 +778,14 @@ export class CanvasStore {
   fail(err: unknown): void {
     console.error(err);
     if (err instanceof ApiError && err.code === 'membership_required') {
-      // The shell's notice explains it and links to the power app's /billing.
+      // The shell's notice explains it and links to the power app's /billing; own-key
+      // lanes turn read-only (the only funding the server asks the membership for), and
+      // `me` brings the rest.
       this.membership.update((m) => (m ? { ...m, required: true, status: 'inactive' } : m));
+      this.membershipNeededFor.update((f) => (f.includes('own-key') ? f : [...f, 'own-key']));
+      this.noticeForced.set(true);
+      void this.refreshMe();
+      void this.refreshBilling();
       return;
     }
     if (err instanceof ApiError && err.code === 'payment_required') {

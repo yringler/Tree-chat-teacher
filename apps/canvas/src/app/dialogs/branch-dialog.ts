@@ -8,7 +8,13 @@ import {
   signal,
 } from '@angular/core';
 import { plainText } from '@tangent/core';
-import { CONTEXT_MODES, type ContextMode } from '@tangent/shared';
+import {
+  CONTEXT_MODES,
+  parseRouteKey,
+  providerRouteKey,
+  routeKey,
+  type ContextMode,
+} from '@tangent/shared';
 import { Icon, Modal } from '@tangent/web-shared';
 import { MODE_LABEL } from '../canvas/lane';
 import { ModelField } from './model-field';
@@ -71,12 +77,12 @@ const MAX_VARIANTS = 6;
               </label>
               <label class="field">
                 <span class="sr-only">Provider of lane {{ i + 1 }}</span>
-                <select #ps [value]="v.providerId" (change)="setProvider(v.key, ps.value)">
-                  @for (p of store.providers(); track p.id) {
+                <select #ps [value]="routeOf(v)" (change)="setProvider(v.key, ps.value)">
+                  @for (p of store.providers(); track providerKey(p)) {
                     <option
-                      [value]="p.id"
+                      [value]="providerKey(p)"
                       [disabled]="!p.available"
-                      [selected]="p.id === v.providerId"
+                      [selected]="providerKey(p) === routeOf(v)"
                     >
                       {{ p.label
                       }}{{ p.available ? '' : p.acceptsUserKey ? ' — no key' : ' — unavailable' }}
@@ -85,7 +91,7 @@ const MAX_VARIANTS = 6;
                 </select>
               </label>
               <app-model-field
-                [provider]="store.providerMap().get(v.providerId) ?? null"
+                [provider]="store.providerMap().get(routeOf(v)) ?? null"
                 [label]="'Model of lane ' + (i + 1)"
                 [compact]="true"
                 [model]="v.model"
@@ -210,6 +216,7 @@ export class BranchDialog implements OnInit {
       key: ++this.seq,
       contextMode,
       providerId: p?.providerId ?? fallback?.id ?? '',
+      funding: p?.funding ?? fallback?.funding ?? 'own-key',
       model: p?.model ?? fallback?.defaultModel ?? '',
     };
   }
@@ -235,9 +242,13 @@ export class BranchDialog implements OnInit {
     if (mode) this.patch(key, { contextMode: mode });
   }
 
-  protected setProvider(key: number, providerId: string): void {
-    const p = this.store.providerMap().get(providerId);
-    this.patch(key, { providerId, model: p?.defaultModel ?? '' });
+  protected readonly providerKey = providerRouteKey;
+  protected readonly routeOf = routeKey;
+
+  /** `route` is a `routeKey`: the provider and who pays for it. */
+  protected setProvider(key: number, route: string): void {
+    const p = this.store.providerMap().get(route);
+    this.patch(key, { ...parseRouteKey(route), model: p?.defaultModel ?? '' });
   }
 
   protected setModel(key: number, model: string): void {
@@ -261,9 +272,10 @@ export class BranchDialog implements OnInit {
         anchorQuote: this.quote().trim() || null,
         title: this.title(),
         isPrivate: this.isPrivate(),
-        variants: this.variants().map(({ contextMode, providerId, model }) => ({
+        variants: this.variants().map(({ contextMode, providerId, funding, model }) => ({
           contextMode,
           providerId,
+          funding,
           model: model.trim(),
         })),
         firstMessage: this.firstMessage(),

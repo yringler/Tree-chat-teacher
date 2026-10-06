@@ -20,30 +20,34 @@ import { formatCents, formatCharge, formatMicros } from './format';
 import {
   creditFeeText,
   includedCreditText,
+  membershipBlocks,
   membershipPriceText,
   membershipStatusText,
 } from './membership';
 import { MembershipCodeForm } from './membership-code-form';
+import { PoolSection } from '../pool/pool-section';
 
 const PURPOSE_LABELS: Record<UsagePurpose, string> = {
   reply: 'Reply',
   summary: 'Summary',
   title: 'Title',
   review: 'Review',
+  tagging: 'Topic tag',
   other: 'Other',
 };
 
 /**
  * The billing page of both apps (`/learn/billing`, `/billing`): the yearly
  * membership, credit for the built-in provider (balance, top-ups, recent
- * usage) and the Stripe customer portal; each section only where it applies.
- * Stripe sends the browser back with `?checkout=success|cancel` (bound as
- * the `checkout` input when the router has component input binding,
+ * usage), the payment provider's billing portal, and the community pool's
+ * meter (PoolSection; nothing to buy there); each section only where it
+ * applies. The checkout sends the browser back with `?checkout=success|cancel`
+ * (bound as the `checkout` input when the router has component input binding,
  * otherwise read from the route). Styles: `.billing-*` in base.css.
  */
 @Component({
   selector: 'app-billing-page',
-  imports: [DatePipe, Icon, MembershipCodeForm, RouterLink],
+  imports: [DatePipe, Icon, MembershipCodeForm, PoolSection, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'billing-page', '(window:pageshow)': 'onPageShow($event)' },
   template: `
@@ -110,7 +114,7 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
                 · {{ included }}
               }
             </p>
-            @if (s.membership.status === 'inactive' || s.membership.stripeStatus) {
+            @if (s.membership.status === 'inactive' || s.membership.subscriptionStatus) {
               <div class="billing-actions">
                 @if (s.membership.status === 'inactive') {
                   <button
@@ -122,7 +126,7 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
                     {{ ctl.pending()?.kind === 'subscribe' ? 'Opening…' : 'Subscribe' }}
                   </button>
                 }
-                @if (s.membership.stripeStatus) {
+                @if (s.membership.subscriptionStatus) {
                   <button
                     type="button"
                     class="btn"
@@ -169,6 +173,11 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
               <p class="muted small">Adding credit is not available in the demo.</p>
             } @else if (s.topUpsEnabled === false) {
               <p class="muted small">One-time top-ups aren't available on this server right now.</p>
+            } @else if (membersOnly(s)) {
+              <p class="muted small billing-members-only">
+                Buying credit is for members: subscribe above to add more. Credit you already have
+                stays spendable.
+              </p>
             } @else {
               <div class="billing-presets" role="group" aria-label="Top-up amounts">
                 @for (cents of ctl.presets(); track cents) {
@@ -221,7 +230,7 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
             }
           </section>
 
-          @if (!(s.membership.required && s.membership.stripeStatus)) {
+          @if (!(s.membership.required && s.membership.subscriptionStatus)) {
             <section class="billing-section billing-actions" aria-labelledby="billing-manage-h">
               <h2 id="billing-manage-h" class="sr-only">Manage billing</h2>
               <button
@@ -239,7 +248,7 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
             </section>
           }
         } @else if (!s.membership.required) {
-          <p class="notice">There is nothing to pay for on this server.</p>
+          <p class="notice">Nothing on this server requires payment.</p>
         }
 
         @if (ctl.actionError(); as e) {
@@ -328,6 +337,8 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
     } @else {
       <p class="muted">Loading…</p>
     }
+
+    <app-pool-section />
   `,
 })
 export class BillingPage implements OnInit, OnDestroy {
@@ -336,8 +347,9 @@ export class BillingPage implements OnInit, OnDestroy {
   /** Label of the back link, e.g. "Lessons" or "Conversations". */
   readonly homeLabel = input('Home');
   /**
-   * The app's absolute path of this page (`/learn/billing`, `/billing`):
-   * Stripe Checkout and the portal send the browser back there.
+   * The app's absolute path of this page (`/learn/billing`, `/billing`). The
+   * server sends the payment provider's pages back here (it knows the app
+   * from the request), so this only documents where the page lives.
    */
   readonly billingPath = input('/billing');
   /** `?checkout=success|cancel` when the router binds query params to inputs. */
@@ -353,7 +365,6 @@ export class BillingPage implements OnInit, OnDestroy {
     billing: inject(BillingClient),
     navigate: (url) => location.assign(url),
     clearCheckoutParam: () => this.clearCheckoutParam(),
-    billingPath: () => this.billingPath(),
   });
 
   constructor() {
@@ -376,7 +387,7 @@ export class BillingPage implements OnInit, OnDestroy {
   }
 
   protected onPageShow(event: Event): void {
-    // Back from Stripe through the back/forward cache: the page never reloaded.
+    // Back from the checkout through the back/forward cache: the page never reloaded.
     if ((event as PageTransitionEvent).persisted) this.ctl.resetPending();
   }
 
@@ -390,6 +401,11 @@ export class BillingPage implements OnInit, OnDestroy {
 
   protected priceText(m: MembershipInfo): string {
     return membershipPriceText(m);
+  }
+
+  /** Buying credit needs the membership the user lacks (the server answers 402); spending doesn't. */
+  protected membersOnly(s: BillingSummary): boolean {
+    return membershipBlocks(s.membership);
   }
 
   /** The yearly credit is only promised where credit can be spent. */

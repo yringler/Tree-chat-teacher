@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  inject,
+  signal,
+} from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import type { MembershipInfo } from '@tangent/shared';
 import {
@@ -8,6 +15,7 @@ import {
   DEMO_MODE,
   Icon,
   MembershipGate,
+  PoolFirstUseDialog,
 } from '@tangent/web-shared';
 import { BRAND } from './brand';
 import { RouteSync } from './core/route-sync';
@@ -31,6 +39,7 @@ import { UiStore } from './state/ui-store';
     DeleteAccountDialog,
     Icon,
     MembershipGate,
+    PoolFirstUseDialog,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -62,12 +71,25 @@ import { UiStore } from './state/ui-store';
       @if (ui.accessOpen()) {
         <app-model-access-dialog />
       }
+      @if (ui.poolVerifyOpen()) {
+        <app-pool-first-use-dialog (closed)="ui.poolVerifyOpen.set(false)" />
+      } @else if (ui.poolConsentVersion(); as version) {
+        <app-pool-first-use-dialog
+          [consentVersion]="version"
+          [busy]="acknowledging()"
+          (closed)="ui.poolConsentVersion.set(null)"
+          (acknowledged)="acknowledgePoolNotice()"
+        />
+      }
       @if (gate(); as membership) {
         <app-membership-gate
           [membership]="membership"
           [appName]="brand"
           billingPath="/learn/billing"
+          needs="Buying credit needs one (Learn on your own key doesn't)"
+          [freeTier]="account.freeTierOffered()"
           (redeemed)="account.setMembership($event)"
+          (freeTierChosen)="account.useFreeTier()"
         />
       }
     }
@@ -117,10 +139,22 @@ export class App {
     return this.account.membershipBlocked() ? this.account.membership() : null;
   });
 
+  /** The pool notice's acknowledgment is being recorded. */
+  protected readonly acknowledging = signal(false);
+
   constructor() {
     if (this.loginPage) return;
     this.routeSync.start(inject(DestroyRef));
     void this.boot();
+  }
+
+  protected async acknowledgePoolNotice(): Promise<void> {
+    this.acknowledging.set(true);
+    try {
+      await this.lessons.acknowledgePoolNotice();
+    } finally {
+      this.acknowledging.set(false);
+    }
   }
 
   private async boot(): Promise<void> {
@@ -132,6 +166,7 @@ export class App {
       await Promise.all([
         this.lessons.init(),
         this.account.refreshBalance(),
+        this.account.refreshPool(),
         // The demo has no key cookie (and always runs on pretend credit).
         this.demo ? Promise.resolve() : this.account.refreshKey(),
       ]);

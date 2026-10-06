@@ -18,11 +18,22 @@
       @if (store.models().length > 1 && store.selectedBranch(); as b) {
         <app-model-toggle
           [models]="store.models()"
-          [value]="b.model"
+          [value]="account.poolModel()?.id ?? b.model"
           [disabled]="store.busy() || switching()"
+          [lockedHint]="account.poolModelHint()"
           (changed)="setModel(b.id, $event)"
         />
       }
+      <button
+        type="button"
+        class="icon-btn"
+        aria-label="Export this lesson"
+        title="Export (download a backup)"
+        [disabled]="store.exportingId() !== null"
+        (click)="exportLesson()"
+      >
+        <app-icon name="download" />
+      </button>
       <button
         type="button"
         class="icon-btn"
@@ -109,6 +120,22 @@
   }
 
   <div class="composer-dock">
+    @if (poolBlock(); as block) {
+      <app-pool-block-notice
+        [block]="block"
+        [creditOpen]="account.creditOnSale()"
+        [membershipOpen]="account.membershipOnSale()"
+        billingPath="/billing"
+        (dismissed)="store.dismissPoolBlock()"
+      />
+    }
+    @if (account.fundingChoice()) {
+      <app-funding-toggle
+        [value]="funding()"
+        [disabled]="store.busy()"
+        (changed)="chooseFunding($event)"
+      />
+    }
     <app-composer
       [placeholder]="placeholder()"
       [initial]="initialDraft()"

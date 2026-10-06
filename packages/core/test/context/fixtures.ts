@@ -62,6 +62,7 @@ export class Fixture {
       isPrivate: false,
       providerId: 'fake',
       model: 'fake-model',
+      funding: 'own-key',
       createdAt: TS,
       updatedAt: TS,
     };

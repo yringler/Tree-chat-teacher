@@ -2,6 +2,8 @@
 
 This is a summary of the research that preceded [PLAN.md](./PLAN.md). Every point was checked against official documentation or the npm registry.
 
+> **Payments moved to Polar (2026-10).** The Stripe sections below are historical; the research behind the move is in [polar-migration/01-polar-research.md](./polar-migration/01-polar-research.md).
+
 ## Workers runtime
 
 - **CPU vs wall clock.** CPU is limited to 10 ms per request on Free. On Paid the default is 30 s, configurable up to 5 min. Waiting on `fetch()` does not count as CPU. HTTP Workers have **no wall-clock limit while the client stays connected**, and subrequests have no time limit. — https://developers.cloudflare.com/workers/platform/limits/

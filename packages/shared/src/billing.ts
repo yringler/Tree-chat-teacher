@@ -2,13 +2,16 @@ import { z } from 'zod';
 import type { UsagePurpose } from './provider.js';
 
 /**
- * Billing contract: the yearly membership (required to generate in either app
- * once the operator sets it up) and prepaid credit for the built-in provider.
+ * Billing contract: the yearly membership (once the operator sets it up,
+ * required for power mode on the user's own keys, for buying prepaid credit
+ * and for the community pool's member caps; Learn on the user's own key or
+ * the pool's free caps, and spending credit already held, never need it) and
+ * prepaid credit for the built-in provider.
  * Credit and membership are per user and shared by both apps.
  *
  * Units: the ledger is integer micro-USD (`MICROS_PER_USD`); top-ups are whole
- * US cents. Every amount shown to users is pre-tax (Stripe Tax adds tax at
- * checkout).
+ * US cents. Every amount shown to users is pre-tax (the payment provider adds
+ * tax at checkout).
  */
 
 /**
@@ -27,9 +30,14 @@ export type AccountMode = 'power' | 'simple';
  *   sealed key cookie). Free; nothing is metered.
  * - `credit`: the built-in provider on the operator's key, metered and charged
  *   to the user's prepaid credit. Only offered when the server has billing and
- *   the operator key configured (`MeResponse.builtInCredit`).
+ *   the operator key configured (`MeResponse.builtInCredit`). A send (or a
+ *   context resolve) whose credit can't cover one call falls back to the
+ *   community pool where it is on; reviews never do.
+ * - `pool`: the community pool (pool.ts): one economical model, a locked
+ *   system prompt and capped output, within daily caps. The server decides
+ *   what a pool request may do; power mode never uses the pool.
  */
-export type LearnPayment = 'own-key' | 'credit';
+export type LearnPayment = 'own-key' | 'credit' | 'pool';
 
 /** Request header naming the app (`AccountMode`); absent = `power`. */
 export const MODE_HEADER = 'x-tangent-mode';
@@ -45,15 +53,27 @@ export const MAX_TOP_UP_CENTS = 50_000;
 /** Ledger units per US dollar. */
 export const MICROS_PER_USD = 1_000_000;
 
+/**
+ * `POST /api/billing/checkout`: credit for the buyer's own account. The
+ * purchase adds what was paid (pre-tax) minus the processing fee; the
+ * operator earns a markup on usage instead (`MARKUP_BPS`). Nobody buys credit
+ * for the community pool: Tangent funds it from its own revenue (pool.ts).
+ */
 export const createCheckoutRequestSchema = z.object({
   amountCents: z.number().int().min(MIN_TOP_UP_CENTS).max(MAX_TOP_UP_CENTS),
+  /** Deprecated: older clients send `personal`; anything else (`pool`) is refused with 400. */
+  target: z.literal('personal').optional(),
 });
-export type CreateCheckoutRequest = z.infer<typeof createCheckoutRequestSchema>;
+/** What a client sends. */
+export type CreateCheckoutRequest = z.input<typeof createCheckoutRequestSchema>;
 
-/** Stripe Checkout URL to send the browser to. */
+/** The payment provider's hosted page (checkout or billing portal) to send the browser to. */
 export interface CheckoutResponse {
   url: string;
 }
+
+/** `POST /api/billing/portal`: the billing portal to send the browser to. */
+export type PortalResponse = CheckoutResponse;
 
 export const membershipWaiverRequestSchema = z.object({
   code: z.string().trim().min(1).max(200),
@@ -61,34 +81,53 @@ export const membershipWaiverRequestSchema = z.object({
 /** `POST /api/billing/membership/waiver`: redeem the operator's code to waive the fee. */
 export type MembershipWaiverRequest = z.infer<typeof membershipWaiverRequestSchema>;
 
-/** The Better Auth Stripe plugin's plan name of the membership (`subscription.upgrade({ plan })`). */
-export const MEMBERSHIP_PLAN = 'membership';
+/**
+ * A subscription's status, normalised from the payment provider's own
+ * vocabulary (the server maps each provider's statuses onto these):
+ * - `trialing`, `active`: paid up (or in a trial);
+ * - `past_due`: a renewal failed and the provider is still retrying;
+ * - `unpaid`, `paused`, `incomplete`: not paid; `canceled`: ended.
+ */
+export const SUBSCRIPTION_STATUSES = [
+  'trialing',
+  'active',
+  'past_due',
+  'unpaid',
+  'paused',
+  'incomplete',
+  'canceled',
+] as const;
+export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
 /**
  * Where the user stands with the yearly membership:
  * - `active`: the membership subscription is `active`, `trialing` or
- *   `past_due` (Stripe is still retrying a failed renewal);
- * - `waived`: the operator waived the fee for this user (it wins over Stripe);
- * - `inactive`: neither; generating answers 402 `membership_required` while
- *   `required` is true. Reading, exporting and deleting stay open.
+ *   `past_due` (the payment provider is still retrying a failed renewal);
+ * - `waived`: the operator waived the fee for this user (it wins over the subscription);
+ * - `inactive`: neither; while `required` is true, power mode on the user's
+ *   own keys and buying credit answer 402 `membership_required`. Learn,
+ *   spending credit already held, reading, exporting and deleting stay open.
  */
 export type MembershipStatus = 'active' | 'waived' | 'inactive';
 
 export interface MembershipInfo {
   /**
-   * True when generating needs a membership: billing and the membership price
-   * are configured on the server. False in the local dev bypass and on
+   * True when the membership is required (power mode on own keys, buying credit): the annual fee is on
+   * (`ANNUAL_FEE_ENABLED`) and the payment provider sells the membership. False in the local dev bypass and on
    * servers without billing; the other fields then carry no meaning.
    */
   required: boolean;
   status: MembershipStatus;
-  /** Status of the membership subscription in Stripe (`active`, `past_due`, `canceled`, ...); null when none. */
-  stripeStatus: string | null;
+  /**
+   * The membership subscription's status, normalised from the payment
+   * provider's (`active`, `past_due`, `canceled`, ...); null when there is none.
+   */
+  subscriptionStatus: SubscriptionStatus | null;
   /** ISO timestamp of the current period's end; null when unknown. */
   periodEnd: string | null;
-  /** The subscription ends at `periodEnd` (cancelled in the Customer Portal). */
+  /** The subscription ends at `periodEnd` (cancelled in the billing portal). */
   cancelAtPeriodEnd: boolean;
-  /** Display price per year, pre-tax (Stripe Tax adds tax at checkout). */
+  /** Display price per year, pre-tax (tax is added at checkout). */
   priceCents: number;
   /**
    * Credit granted with each paid membership year; 0 when the server doesn't
@@ -106,7 +145,7 @@ export interface PurchaseInfo {
   kind: 'purchase' | 'subscription';
   /** Pre-tax amount paid. */
   grossMicros: number;
-  /** Stripe's payment processing fee, deducted from the credit. */
+  /** The payment provider's processing fee, deducted from the credit. */
   feeMicros: number;
   /** Credit added: `grossMicros - feeMicros`. */
   creditMicros: number;
@@ -115,7 +154,7 @@ export interface PurchaseInfo {
 
 /** `GET /api/billing`. */
 export interface BillingSummary {
-  /** False when Stripe isn't configured on the server (no top-ups, no spending). */
+  /** False when no payment provider is configured on the server (no top-ups, no spending). */
   enabled: boolean;
   /** The user's membership, as `MeResponse.membership`. */
   membership: MembershipInfo;
@@ -125,8 +164,8 @@ export interface BillingSummary {
    */
   builtInCredit: boolean;
   /**
-   * False when one-time top-ups can't be sold (no `STRIPE_CREDITS_PRODUCT_ID`),
-   * even though billing is enabled. Absent = assume they can.
+   * False when one-time top-ups can't be sold (the provider sells no credits
+   * product), even though billing is enabled. Absent = assume they can.
    */
   topUpsEnabled?: boolean;
   currency: 'usd';

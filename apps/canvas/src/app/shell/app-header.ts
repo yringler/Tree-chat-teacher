@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, ElementRef, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { AccountId, AuthService, DEMO_MODE, Icon, ModeSwitch } from '@tangent/web-shared';
+import { AccountId, AuthService, DEMO_MODE, Icon, Logo, ModeSwitch } from '@tangent/web-shared';
 import { BRAND, BRAND_SHORT, DEMO_EXIT_URL } from '../brand';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
@@ -8,12 +8,12 @@ import { UiStore } from '../state/ui-store';
 /** Brand, the Power / Learn / Canvas switch, the experimental mark, keys and the account menu. */
 @Component({
   selector: 'app-header',
-  imports: [RouterLink, Icon, ModeSwitch, AccountId],
+  imports: [RouterLink, Icon, Logo, ModeSwitch, AccountId],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="app-head">
       <a routerLink="/" class="brand" [attr.aria-label]="brand">
-        <app-icon name="tree" [size]="20" />
+        <app-logo [size]="22" />
         <span aria-hidden="true"
           >{{ brandShort }}<span class="hide-narrow">{{ brandRest }}</span></span
         >

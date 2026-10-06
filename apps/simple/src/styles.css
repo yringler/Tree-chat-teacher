@@ -216,10 +216,30 @@ body {
   gap: 10px;
 }
 
+.pool-card {
+  padding: 14px 18px;
+}
+
+.pool-card h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.pool-card p {
+  margin: 0;
+}
+
 .lessons {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.lessons-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .lesson-row {
@@ -548,6 +568,14 @@ button.crumb:hover {
   background: var(--bg);
 }
 
+/* The pool's inline state and the funding switch sit in the composer's column. */
+.composer-dock app-pool-block-notice,
+.composer-dock app-funding-toggle {
+  display: block;
+  max-width: var(--col);
+  margin: 0 auto 8px;
+}
+
 .composer-host {
   display: block;
   /* In a flex column (the new-lesson form) the auto margins would otherwise
@@ -705,6 +733,10 @@ button.crumb:hover {
 .access-option:has(input:checked) {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+.access-option:has(input:disabled) {
+  cursor: default;
 }
 
 .access-option > span {

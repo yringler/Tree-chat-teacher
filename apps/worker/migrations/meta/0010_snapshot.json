@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "18e23aac-7732-4a37-9c4f-9135d53206db",
+  "id": "03bfc8b5-5b6f-4f62-9f3f-a79afae328cb",
   "prevId": "7e150f2b-7461-4295-ab01-c084eaa216da",
   "tables": {
     "account_settings": {
@@ -862,14 +862,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "grounding": {
-          "name": "grounding",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'auto'"
-        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -973,6 +965,21 @@
           "autoincrement": false,
           "default": 0
         },
+        "margin_bps": {
+          "name": "margin_bps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "stripe_ref": {
           "name": "stripe_ref",
           "type": "text",
@@ -1007,6 +1014,22 @@
           "name": "credit_grants_account_idx",
           "columns": [
             "account_id"
+          ],
+          "isUnique": false
+        },
+        "credit_grants_user_idx": {
+          "name": "credit_grants_user_idx",
+          "columns": [
+            "user_id",
+            "kind"
+          ],
+          "isUnique": false
+        },
+        "credit_grants_account_created_idx": {
+          "name": "credit_grants_account_created_idx",
+          "columns": [
+            "account_id",
+            "created_at"
           ],
           "isUnique": false
         }
@@ -1106,13 +1129,6 @@
         "output_tokens": {
           "name": "output_tokens",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sources": {
-          "name": "sources",
-          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -1594,6 +1610,42 @@
           "notNull": false,
           "autoincrement": false
         },
+        "branch_id": {
+          "name": "branch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "funding": {
+          "name": "funding",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'personal'"
+        },
+        "ip_key": {
+          "name": "ip_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "tier": {
+          "name": "tier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "purpose": {
           "name": "purpose",
           "type": "text",
@@ -1665,6 +1717,21 @@
           "notNull": false,
           "autoincrement": false
         },
+        "overage_micros": {
+          "name": "overage_micros",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "settle_reason": {
+          "name": "settle_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "input_tokens": {
           "name": "input_tokens",
           "type": "integer",
@@ -1679,19 +1746,18 @@
           "notNull": false,
           "autoincrement": false
         },
-        "web_searches": {
-          "name": "web_searches",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
         "created_at": {
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "dispatched_at": {
+          "name": "dispatched_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "settled_at": {
@@ -1725,6 +1791,42 @@
           ],
           "isUnique": false,
           "where": "status = 'pending'"
+        },
+        "usage_events_account_status_idx": {
+          "name": "usage_events_account_status_idx",
+          "columns": [
+            "account_id",
+            "status",
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "usage_events_pool_user_idx": {
+          "name": "usage_events_pool_user_idx",
+          "columns": [
+            "account_id",
+            "user_id",
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "usage_events_pool_ip_idx": {
+          "name": "usage_events_pool_ip_idx",
+          "columns": [
+            "account_id",
+            "ip_key",
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "usage_events_pool_tier_idx": {
+          "name": "usage_events_pool_tier_idx",
+          "columns": [
+            "account_id",
+            "tier",
+            "created_at"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},

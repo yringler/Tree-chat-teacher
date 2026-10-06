@@ -35,6 +35,7 @@ export function makeBranch(tree: Tree, overrides: Partial<Branch> = {}): Branch 
     providerId: 'fake',
     model: 'fake-model',
     grounding: 'auto',
+    funding: 'own-key',
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,

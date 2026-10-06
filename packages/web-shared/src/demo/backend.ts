@@ -7,14 +7,16 @@ import {
   newId,
   systemClock,
   type BeginSendResult,
-  type GenerationOptions,
+  type RunGenerationOptions,
   type Clock,
 } from '@tangent/core';
 import { createMemoryRepositories, type MemoryState } from '@tangent/core/testing';
 import {
   createBranchRequestSchema,
   createTreeRequestSchema,
+  BUILT_IN_PROVIDER_ID,
   DEFAULT_SYSTEM_PROMPT,
+  LEGACY_BUILT_IN_PROVIDER_ID,
   MAX_TOP_UP_CENTS,
   MICROS_PER_USD,
   MIN_TOP_UP_CENTS,
@@ -27,6 +29,7 @@ import {
   type ApiErrorCode,
   type BillingSummary,
   type Branch,
+  type BranchFunding,
   type ChatNode,
   type GenerateRequest,
   type KeyStatusResponse,
@@ -34,6 +37,10 @@ import {
   type LoginOptionsResponse,
   type MeResponse,
   type MembershipInfo,
+  POOL_NOTICE_VERSION,
+  type PoolImpactWeeksResponse,
+  type PoolMeResponse,
+  type PoolStatusResponse,
   type ProviderEvent,
   type ProviderInfo,
   type ProviderRegistry,
@@ -75,11 +82,35 @@ const MARKUP_BPS = 1000;
 const DEMO_MEMBERSHIP: MembershipInfo = {
   required: false,
   status: 'inactive',
-  stripeStatus: null,
+  subscriptionStatus: null,
   periodEnd: null,
   cancelAtPeriodEnd: false,
   priceCents: 1000,
   includedCreditCents: 0,
+};
+/** The demos' pool: off, so no pool UI shows and nothing pretends to be funded. */
+export const DEMO_POOL_STATUS: PoolStatusResponse = {
+  enabled: false,
+  availableMicros: 0,
+  sessionsRemaining: 0,
+  model: { id: 'lorem', label: 'Simple' },
+  week: { start: '1970-01-05T00:00:00.000Z', exchanges: 0, learners: 0 },
+  revenueShareBps: 0,
+};
+const DEMO_POOL_ME: Omit<PoolMeResponse, 'personalAvailableMicros'> = {
+  available: false,
+  verified: true,
+  member: false,
+  suspended: false,
+  caps: {
+    requestsPerDay: 0,
+    spendMicrosPerDay: 0,
+    usedRequests: 0,
+    usedSpendMicros: 0,
+    resetAt: '1970-01-02T00:00:00.000Z',
+  },
+  consentVersion: null,
+  currentNoticeVersion: POOL_NOTICE_VERSION,
 };
 /** OpenRouter's credit-purchase fee, part of the cost the markup applies to (as in the Worker). */
 const OPENROUTER_FEE_BPS = 550;
@@ -123,7 +154,8 @@ interface Run {
 interface Saved {
   version: 1;
   trees: Tree[];
-  branches: Branch[];
+  /** Without `funding` in sessions saved before funding was split from the provider. */
+  branches: (Omit<Branch, 'funding'> & { funding?: BranchFunding })[];
   nodes: ChatNode[];
   summaries: SummaryRecord[];
   balanceMicros: number;
@@ -223,6 +255,11 @@ export class DemoBackend {
       repos: this.repos,
       accountId: DEMO_ACCOUNT_ID,
       providers: registry,
+      // Like the Worker: Learn pays per request, so its branches are written `own-key`,
+      // and imports are adapted to its provider, models, context and prompt.
+      ...(this.mode === 'simple'
+        ? { fixedFunding: 'own-key' as const, adaptImportsForLearn: true }
+        : {}),
       settings: {
         ...DEFAULT_CHAT_SETTINGS,
         maxInputTokens: 60_000,
@@ -298,6 +335,9 @@ export class DemoBackend {
         sharing: false,
         isAdmin: false,
         membership: { ...DEMO_MEMBERSHIP },
+        // Nothing needs a membership here, so nothing is ever read-only.
+        membershipNeededFor: [],
+        featuredConversations: false,
       } satisfies MeResponse);
     }
     if (method === 'GET' && path === '/api/login-options') {
@@ -325,6 +365,22 @@ export class DemoBackend {
     if (method === 'GET' && path === '/api/billing/usage') return json(this.usagePage(url));
     if (method === 'POST' && path === '/api/billing/checkout') {
       return apiError('bad_request', "Adding credit isn't available in the demo.");
+    }
+
+    // The community pool: off in the demos (it runs on pretend credit and funds nothing)
+    if (method === 'GET' && path === '/api/pool/status') return json(DEMO_POOL_STATUS);
+    if (method === 'GET' && path === '/api/pool/me') {
+      return json({
+        ...DEMO_POOL_ME,
+        personalAvailableMicros: this.balanceMicros - this.heldMicros,
+      } satisfies PoolMeResponse);
+    }
+    // No impact snapshots: the demos' pool funds nothing.
+    if (method === 'GET' && path === '/api/pool/impact/weeks') {
+      return json({ weeks: [] } satisfies PoolImpactWeeksResponse);
+    }
+    if (method === 'GET' && path === '/api/pool/impact') {
+      return apiError('not_found', 'Impact snapshot not found');
     }
 
     // Account settings (the default system prompt), kept with the session
@@ -360,6 +416,11 @@ export class DemoBackend {
 
     if (method === 'GET' && (id = seg(/^\/api\/trees\/([^/]+)\/backup$/))) {
       return json(await this.chat.exportBackup(id));
+    }
+    // "Create a copy in Learn" is offered only on a read-only power branch, which the
+    // demos never have (they require no membership): the two demos stay apart.
+    if (method === 'POST' && seg(/^\/api\/trees\/([^/]+)\/copy-to-learn$/)) {
+      return apiError('bad_request', "Copying to Learn isn't available in the demo.");
     }
     if (method === 'POST' && path === '/api/import') {
       const backup = treeBackupSchema.parse(body ?? {});
@@ -472,7 +533,11 @@ export class DemoBackend {
     );
   }
 
-  private async pump(run: Run, begin: BeginSendResult, options: GenerationOptions): Promise<void> {
+  private async pump(
+    run: Run,
+    begin: BeginSendResult,
+    options: RunGenerationOptions,
+  ): Promise<void> {
     try {
       for await (const event of this.chat.runGeneration(begin, run.controller.signal, options)) {
         if (event.type === 'delta')
@@ -702,13 +767,22 @@ export class DemoBackend {
       return false;
     }
     for (const t of saved.trees) this.state.trees.set(t.id, t);
-    for (const b of saved.branches) this.state.branches.set(b.id, b);
+    // Sessions saved before funding was split from the provider name the legacy `tangent`
+    // and no funding: the demo's provider, on its own key (as migration 0020 reads Learn).
+    for (const b of saved.branches)
+      this.state.branches.set(b.id, {
+        ...b,
+        providerId: currentProviderId(b.providerId),
+        funding: b.funding ?? 'own-key',
+      });
     for (const n of saved.nodes) {
+      const node =
+        n.providerId === null ? n : { ...n, providerId: currentProviderId(n.providerId) };
       this.state.nodes.set(
         n.id,
-        n.status === 'streaming'
-          ? { ...n, status: 'error', error: 'Interrupted before the reply finished' }
-          : n,
+        node.status === 'streaming'
+          ? { ...node, status: 'error', error: 'Interrupted before the reply finished' }
+          : node,
       );
     }
     for (const s of saved.summaries) {
@@ -723,6 +797,11 @@ export class DemoBackend {
     );
     return true;
   }
+}
+
+/** A provider id as stored now: the legacy `tangent` is the built-in endpoint. */
+function currentProviderId(id: string): string {
+  return id === LEGACY_BUILT_IN_PROVIDER_ID ? BUILT_IN_PROVIDER_ID : id;
 }
 
 function providerInfo(provider: LlmProvider): ProviderInfo {

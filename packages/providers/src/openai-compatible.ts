@@ -156,6 +156,11 @@ function codeForStreamError(err: Record<string, unknown>, message: string): Prov
  * 2xx response when the `x-generation-id` header is present (before any
  * delta), otherwise once for the first chunk whose `id` starts with `gen-`;
  * and `{type:'billing', costUsd}` when a chunk's `usage.cost` is a number.
+ *
+ * Error events say how far the call got (`ProviderError.upstream`): `not_sent`
+ * (missing key, connection failure), `rejected` (non-2xx response) or
+ * `stream` (failed after a 2xx response). The community pool releases a
+ * reservation in full only for the first two.
  */
 export function createOpenAiCompatibleProvider(config: ProviderConfig, env: ProviderEnv): LlmProvider {
   const baseUrl = stripTrailingSlash(config.baseUrl ?? DEFAULT_BASE_URL);
@@ -182,7 +187,8 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
     headers['content-type'] = 'application/json';
 
     return guardStream(request.signal, secrets, async function* () {
-      if (missing !== undefined) throw new ProviderFailure(missingSecretError(missing));
+      if (missing !== undefined)
+        throw new ProviderFailure({ ...missingSecretError(missing), upstream: 'not_sent' });
       const { signal } = request;
       const caps = capabilities(request.model);
 
@@ -225,10 +231,12 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
         );
       } catch (e) {
         if (signal.aborted) throw e;
-        throw new ProviderFailure(networkError(e, secrets));
+        throw new ProviderFailure({ ...networkError(e, secrets), upstream: 'not_sent' });
       }
-      if (!res.ok) throw new ProviderFailure(await errorFromResponse(res, signal, secrets));
-      if (!res.body) throw new ProviderFailure(providerError('network', 'Response has no body'));
+      if (!res.ok)
+        throw new ProviderFailure({ ...(await errorFromResponse(res, signal, secrets)), upstream: 'rejected' });
+      if (!res.body)
+        throw new ProviderFailure({ ...providerError('network', 'Response has no body'), upstream: 'stream' });
 
       const headerId = res.headers.get('x-generation-id')?.trim();
       let generationId: string | undefined = headerId || undefined;
@@ -248,7 +256,7 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
         try {
           chunk = JSON.parse(raw);
         } catch {
-          throw new ProviderFailure(providerError('unknown', 'Malformed chunk from provider'));
+          throw new ProviderFailure({ ...providerError('unknown', 'Malformed chunk from provider'), upstream: 'stream' });
         }
         if (!isRecord(chunk)) continue;
 
@@ -262,7 +270,10 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
         if (isRecord(err) || typeof err === 'string') {
           const errRec = isRecord(err) ? err : {};
           const message = typeof err === 'string' ? err : typeof errRec['message'] === 'string' ? errRec['message'] : 'Provider stream error';
-          yield { type: 'error', error: providerError(codeForStreamError(errRec, message), redact(message, secrets)) };
+          yield {
+            type: 'error',
+            error: { ...providerError(codeForStreamError(errRec, message), redact(message, secrets)), upstream: 'stream' },
+          };
           return;
         }
 

@@ -61,20 +61,24 @@ describe('daily cap on automatic searches', () => {
   });
 
   it('stops automatic searches on credit at the cap, never on own keys; 0 = no cap', async () => {
-    const account = simpleAccount();
+    const credit = { providerId: 'openrouter', funding: 'credit' } as const;
+    const ownKey = { providerId: 'openrouter', funding: 'own-key' } as const;
     const capped = { ...env, GROUNDING_AUTO_DAILY_CAP: '2' } as AppEnv;
-    const allow = groundingAllowance(capped, account);
-    expect(await allow('tangent')).toBe(true);
-    await searched(account.billingAccountId);
-    await searched(account.billingAccountId);
-    expect(await allow('tangent')).toBe(false);
-    expect(await allow('openrouter')).toBe(true);
-    expect(
-      await groundingAllowance(
-        { ...capped, GROUNDING_AUTO_DAILY_CAP: '0' } as AppEnv,
-        account,
-      )('tangent'),
-    ).toBe(true);
-    expect(await groundingAllowance(capped, powerAccount())('tangent')).toBe(true);
+
+    const learn = simpleAccount();
+    const allow = groundingAllowance(capped, learn);
+    expect(await allow(credit)).toBe(true);
+    await searched(learn.billingAccountId);
+    await searched(learn.billingAccountId);
+    expect(await allow(credit)).toBe(false);
+    const uncapped = { ...capped, GROUNDING_AUTO_DAILY_CAP: '0' } as AppEnv;
+    expect(await groundingAllowance(uncapped, learn)(credit)).toBe(true);
+
+    // Power: the cap applies to branches on Tangent credit, not to the user's own key.
+    const power = powerAccount();
+    await searched(power.billingAccountId);
+    await searched(power.billingAccountId);
+    expect(await groundingAllowance(capped, power)(credit)).toBe(false);
+    expect(await groundingAllowance(capped, power)(ownKey)).toBe(true);
   });
 });

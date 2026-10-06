@@ -129,7 +129,7 @@ export class Card {
     const n = this.node();
     if (n.role === 'user') return 'You';
     if (!n.model) return 'Assistant';
-    return modelLabel(this.store.providers(), n.providerId ?? '', n.model);
+    return modelLabel(this.store.providers(), { providerId: n.providerId ?? '' }, n.model);
   });
   private readonly live = computed(() => this.store.live().get(this.node().id) ?? null);
   protected readonly streaming = computed(() => this.node().status === 'streaming');

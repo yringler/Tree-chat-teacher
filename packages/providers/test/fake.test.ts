@@ -62,6 +62,19 @@ describe('fake provider', () => {
     ]);
   });
 
+  it('matches anyMessageResponses against every message, before responses', async () => {
+    const p = createFakeProvider(
+      {
+        ...BASE,
+        options: { anyMessageResponses: { first: 'from history' }, responses: { tangent: 'last only' } },
+      },
+      { secrets: {} },
+    );
+    expect(text(await collect(p.stream(req())))).toBe('from history');
+    const lastOnly = req({ messages: [{ role: 'user', content: 'What is a tangent?' }] });
+    expect(text(await collect(p.stream(lastOnly)))).toBe('last only');
+  });
+
   it('fails with the configured error after the first delta', async () => {
     const p = createFakeProvider({ ...BASE, options: { failWith: 'overloaded' } }, { secrets: {} });
     const events = await collect(p.stream(req()));
@@ -167,6 +180,20 @@ describe('fake provider', () => {
     const p = createFakeProvider({ ...BASE, options: { costUsd: 'free' } }, { secrets: {} });
     const events = await collect(p.stream(req()));
     expect(events.some((e) => e.type === 'billing')).toBe(false);
+  });
+
+  it('with echoRequest: replies with the model, output cap and system prompt it was sent', async () => {
+    const always = createFakeProvider({ ...BASE, options: { echoRequest: true } }, { secrets: {} });
+    expect(text(await collect(always.stream(req({ model: 'm', maxOutputTokens: 77 }))))).toBe(
+      'ECHO model=m maxOutputTokens=77 system="sys"',
+    );
+    // A string echoes only when the last user message contains it.
+    const marked = createFakeProvider({ ...BASE, options: { echoRequest: '[echo]' } }, { secrets: {} });
+    expect(text(await collect(marked.stream(req())))).toMatch(/^Fake reply/);
+    const echoed = await collect(
+      marked.stream(req({ system: null, messages: [{ role: 'user', content: 'hi [echo]' }] })),
+    );
+    expect(text(echoed)).toBe('ECHO model=fake-1 maxOutputTokens=none system=null');
   });
 });
 

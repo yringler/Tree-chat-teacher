@@ -1,8 +1,14 @@
 import { Injectable, signal } from '@angular/core';
+import { fromLegacyRoute, type BranchFunding } from '@tangent/shared';
 
-/** A provider + model pair, as stored in settings. */
+/**
+ * A provider + model pair, as stored in settings, with who pays for it
+ * (absent = the user's own key). Choices saved before funding was split from
+ * the provider name the legacy `tangent`: read as `openrouter` on credit.
+ */
 export interface ModelChoice {
   providerId: string;
+  funding?: BranchFunding;
   model: string;
 }
 
@@ -28,10 +34,12 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function parseChoice(v: unknown): ModelChoice | null {
   if (!isRecord(v)) return null;
-  const { providerId, model } = v;
-  return typeof providerId === 'string' && providerId && typeof model === 'string' && model
-    ? { providerId, model }
-    : null;
+  const { providerId, model, funding } = v;
+  if (typeof providerId !== 'string' || !providerId || typeof model !== 'string' || !model)
+    return null;
+  const choice: ModelChoice = { providerId, model };
+  if (funding === 'credit' || funding === 'own-key') choice.funding = funding;
+  return fromLegacyRoute(choice);
 }
 
 export function parseSettings(raw: string | null): AppSettings {

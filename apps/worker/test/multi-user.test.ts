@@ -15,8 +15,10 @@ import {
   type TreeSummary,
 } from '@tangent/shared';
 import { env } from 'cloudflare:workers';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { deleteUser } from '../src/auth/delete-account.js';
 import { grantCredit } from '../src/billing/ledger.js';
+import { rememberCustomer } from '../src/billing/payments/customers.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
 import { makeNode } from './fixtures.js';
@@ -139,14 +141,19 @@ describe('switching modes', () => {
     expect((await u.call(`/api/trees/${learnTree.id}`, { learn: 'own-key' })).status).toBe(200);
   });
 
-  it('new Learn trees use tangent and the built-in tutor prompt unless one is given', async () => {
+  it('new Learn trees use the built-in endpoint and the tutor prompt unless one is given', async () => {
     const u = await newUser();
     const plain = await json<TreeDetail>(
       await u.call('/api/trees', { method: 'POST', json: { title: 'A' }, learn: 'own-key' }),
       201,
     );
     expect(plain.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
-    expect(plain.branches[0]).toMatchObject({ providerId: 'tangent', model: 'smart' });
+    // Learn pays per request: its branches are written `own-key`, whatever the payment.
+    expect(plain.branches[0]).toMatchObject({
+      providerId: 'openrouter',
+      model: 'smart',
+      funding: 'own-key',
+    });
     const own = await json<TreeDetail>(
       await u.call('/api/trees', {
         method: 'POST',
@@ -156,9 +163,15 @@ describe('switching modes', () => {
       201,
     );
     expect(own.tree.systemPrompt).toBe('Be brief.');
-    // Power mode lists the configured providers, then `tangent` as the built-in (on credit).
+    expect(own.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
+    // Power mode lists the configured providers, then the built-in endpoint on Tangent credit.
     const providers = await json<ProviderInfo[]>(await u.call('/api/providers'));
-    expect(providers.map((p) => p.id)).toEqual(['fake', 'slow', 'ant', 'tangent']);
+    expect(providers.map((p) => `${p.id}:${p.funding}`)).toEqual([
+      'fake:own-key',
+      'slow:own-key',
+      'ant:own-key',
+      'openrouter:credit',
+    ]);
   });
 });
 
@@ -254,7 +267,7 @@ describe('account settings: the default system prompt', () => {
 describe('ownership across users', () => {
   for (const [label, learn, review] of [
     ['power', undefined, { providerId: 'fake', model: 'fake-1' }],
-    ['Learn', 'credit', { providerId: 'tangent', model: 'smart' }],
+    ['Learn', 'credit', { providerId: 'openrouter', model: 'smart' }],
   ] as const) {
     it(`every tree, branch, node and share route answers 404 for another user's data (${label})`, async () => {
       const a = await newUser();
@@ -342,7 +355,9 @@ describe('ownership across users', () => {
 
 describe('Learn mode on paid credit', () => {
   it('402 without credit; after a grant the send streams and is charged cost + fee + 10%', async () => {
-    const u = await newUser();
+    // With the pool off: a send on spent credit would otherwise move to the pool
+    // (pool-routing.test.ts); a review never does.
+    const u = await newUser(authEnv({ POOL_ENABLED: 'false' }));
     const { trunk, assistant } = await treeWithNodes(u, 'credit');
 
     for (const [path, init] of [
@@ -352,7 +367,7 @@ describe('Learn mode on paid credit', () => {
       ],
       [
         `/api/nodes/${assistant.id}/review`,
-        { method: 'POST', json: { providerId: 'tangent', model: 'smart' } },
+        { method: 'POST', json: { providerId: 'openrouter', model: 'smart' } },
       ],
       [`/api/branches/${trunk.id}/context?resolve=true`, {}],
     ] as [string, CallInit][]) {
@@ -369,7 +384,7 @@ describe('Learn mode on paid credit', () => {
       accountId: u.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
       note: 'test',
     });
     const res = await u.call(`/api/branches/${trunk.id}/messages`, {
@@ -397,13 +412,13 @@ describe('Learn mode on paid credit', () => {
         status: 'settled',
         cost_nanos: 1_234_000,
         charge_micros: charge,
-        provider_id: 'tangent',
+        provider_id: 'openrouter',
       });
     }
   });
 
   it('is hidden without billing: credit falls back to the own-key mode', async () => {
-    const e = authEnv({ STRIPE_SECRET_KEY: '' });
+    const e = authEnv({ PAYMENT_PROVIDER: 'polar' });
     const u = await newUser(e);
     expect(u.learn).toMatchObject({ mode: 'simple', operatorKeys: false, builtInCredit: false });
     const res = await u.call('/api/billing', { learn: 'credit' });
@@ -416,7 +431,7 @@ describe('Learn mode on paid credit', () => {
       accountId: u.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_500_000,
-      stripeRef: null,
+      providerRef: null,
     });
     for (const learn of [undefined, 'credit', 'own-key'] as const) {
       const summary = await json<BillingSummary>(
@@ -428,16 +443,24 @@ describe('Learn mode on paid credit', () => {
 });
 
 describe('power mode with the built-in provider (Tangent credit)', () => {
-  async function powerTree(u: User, providerId: string, model: string) {
-    return treeWithNodes(u, undefined, { providerId, model });
+  /** A route on Tangent credit: the built-in endpoint, paid from the user's credit. */
+  const CREDIT = { providerId: 'openrouter', funding: 'credit' } as const;
+
+  async function powerTree(
+    u: User,
+    route: { providerId: string; funding?: 'own-key' | 'credit' },
+    model: string,
+  ) {
+    return treeWithNodes(u, undefined, { ...route, model });
   }
 
-  it('lists `tangent` after the own providers, with open models, when it is offered', async () => {
+  it('lists the built-in endpoint on credit after the own providers, with open models, when it is offered', async () => {
     const u = await newUser();
     const providers = await json<ProviderInfo[]>(await u.call('/api/providers'));
-    expect(providers.map((p) => p.id)).toEqual(['fake', 'slow', 'ant', 'tangent']);
+    expect(providers.map((p) => p.id)).toEqual(['fake', 'slow', 'ant', 'openrouter']);
     expect(providers.at(-1)).toMatchObject({
-      id: 'tangent',
+      id: 'openrouter',
+      funding: 'credit',
       label: 'Tangent credit',
       available: true,
       acceptsUserKey: false,
@@ -447,11 +470,11 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
         { id: 'simple', label: 'Simple (suggested)' },
       ],
     });
-    expect(providers.filter((p) => p.openModels).map((p) => p.id)).toEqual(['tangent']);
+    expect(providers.filter((p) => p.openModels).map((p) => p.id)).toEqual(['openrouter']);
 
     // Not offered without billing, or without the operator's key.
     for (const e of [
-      authEnv({ STRIPE_SECRET_KEY: '' }),
+      authEnv({ PAYMENT_PROVIDER: 'polar' }),
       authEnv({ SIMPLE_PROVIDER: '', OPENROUTER_SIMPLE_API_KEY: '' }),
     ]) {
       const v = await newUser(e);
@@ -461,10 +484,10 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
     }
   });
 
-  it("meters sends on `tangent` to the user's ledger u_<userId>; BYOK sends are not metered", async () => {
+  it("meters sends on Tangent credit to the user's ledger u_<userId>; BYOK sends are not metered", async () => {
     const u = await newUser();
     const userId = u.power.accountId.slice(2);
-    const onTangent = await powerTree(u, 'tangent', 'smart');
+    const onTangent = await powerTree(u, CREDIT, 'smart');
     const send = (branchId: string) =>
       u.call(`/api/branches/${branchId}/messages`, {
         method: 'POST',
@@ -480,7 +503,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       accountId: `u_${userId}`,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
     const res = await send(onTangent.trunk.id);
     expect(res.status).toBe(200);
@@ -490,7 +513,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
     expect(await usageRows(u.power.accountId)).toBe(0);
 
     // A provider of the user's own (here the keyless fake) is never metered.
-    const own = await powerTree(u, 'fake', 'fake-1');
+    const own = await powerTree(u, { providerId: 'fake' }, 'fake-1');
     const free = await send(own.trunk.id);
     expect(free.status).toBe(200);
     expect(parseSse(await free.text()).at(-1)?.type).toBe('done');
@@ -500,26 +523,26 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
     expect(billing.balanceMicros).toBeLessThan(1_000_000);
   });
 
-  it('a review is metered iff the reviewer is the built-in provider', async () => {
+  it('a review is metered iff the reviewer is on Tangent credit', async () => {
     const u = await newUser();
     const userId = u.power.accountId.slice(2);
-    const { assistant } = await powerTree(u, 'fake', 'fake-1');
-    const review = (providerId: string, model: string) =>
+    const { assistant } = await powerTree(u, { providerId: 'fake' }, 'fake-1');
+    const review = (route: { providerId: string; funding?: 'own-key' | 'credit' }, model: string) =>
       u.call(`/api/nodes/${assistant.id}/review`, {
         method: 'POST',
-        json: { providerId, model },
+        json: { ...route, model },
       });
-    expect((await review('fake', 'fake-1')).status).toBe(200);
-    const onCredit = await review('tangent', 'smart');
+    expect((await review({ providerId: 'fake' }, 'fake-1')).status).toBe(200);
+    const onCredit = await review(CREDIT, 'smart');
     expect(onCredit.status).toBe(402);
     expect(await errorCode(onCredit)).toBe('payment_required');
     await grantCredit(env.DB, {
       accountId: `u_${userId}`,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
-    expect((await review('tangent', 'smart')).status).toBe(200);
+    expect((await review(CREDIT, 'smart')).status).toBe(200);
     expect(await usageRows(`u_${userId}`)).toBe(1);
   });
 
@@ -530,10 +553,10 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       accountId: ledger,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
-    const onTangent = await powerTree(u, 'tangent', 'smart');
-    const own = await powerTree(u, 'fake', 'fake-1');
+    const onTangent = await powerTree(u, CREDIT, 'smart');
+    const own = await powerTree(u, { providerId: 'fake' }, 'fake-1');
     const send = (branchId: string) =>
       u.call(`/api/branches/${branchId}/messages`, {
         method: 'POST',
@@ -562,9 +585,9 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
     expect(await usageRows(ledger)).toBe(rows);
   });
 
-  it("a review of a reply on `tangent` needs credit whoever reviews: its summaries run on the branch's provider", async () => {
+  it("a review of a reply on Tangent credit needs credit whoever reviews: its summaries run on the branch's route", async () => {
     const u = await newUser();
-    const { assistant } = await powerTree(u, 'tangent', 'smart');
+    const { assistant } = await powerTree(u, CREDIT, 'smart');
     const res = await u.call(`/api/nodes/${assistant.id}/review`, {
       method: 'POST',
       json: { providerId: 'fake', model: 'fake-1' },
@@ -579,9 +602,9 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       accountId: u.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
-    const power = await powerTree(u, 'tangent', 'smart');
+    const power = await powerTree(u, CREDIT, 'smart');
     const learn = await treeWithNodes(u, 'credit');
     const resolve = (branchId: string, init: CallInit = {}) =>
       u.call(`/api/branches/${branchId}/context?resolve=true`, init);
@@ -592,7 +615,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
     }
     expect(statuses).toEqual([200, 200, 200, 200, 200, 429]);
     // A power branch on the user's own provider has its own (cookie) bucket: none here.
-    const own = await powerTree(u, 'fake', 'fake-1');
+    const own = await powerTree(u, { providerId: 'fake' }, 'fake-1');
     expect((await resolve(own.trunk.id)).status).toBe(200);
   });
 
@@ -602,9 +625,9 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       accountId: u.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
     });
-    const open = await powerTree(u, 'tangent', 'vendor/any-model:free');
+    const open = await powerTree(u, CREDIT, 'vendor/any-model:free');
     const ok = await u.call(`/api/branches/${open.trunk.id}/messages`, {
       method: 'POST',
       json: { content: 'hi' },
@@ -616,16 +639,16 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       .first<{ model: string }>();
     expect(row?.model).toBe('vendor/any-model:free');
 
-    for (const [providerId, model] of [
-      ['tangent', 'not a model id'],
-      ['fake', 'vendor/any-model:free'],
-    ]) {
-      const t = await powerTree(u, providerId!, model!);
+    for (const [route, model] of [
+      [CREDIT, 'not a model id'],
+      [{ providerId: 'fake' }, 'vendor/any-model:free'],
+    ] as const) {
+      const t = await powerTree(u, route, model);
       const res = await u.call(`/api/branches/${t.trunk.id}/messages`, {
         method: 'POST',
         json: { content: 'hi' },
       });
-      expect(res.status, `${providerId} ${model}`).toBe(400);
+      expect(res.status, `${route.providerId} ${model}`).toBe(400);
       expect(await errorCode(res)).toBe('bad_request');
     }
   });
@@ -634,10 +657,11 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
 describe('membership', () => {
   const WAIVER = 'let-me-in';
   /** The membership sold and required, with a waiver code. */
-  const memberEnv = () =>
+  const memberEnv = (overrides: Partial<AppEnv> = {}) =>
     authEnv({
-      STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership',
+      ANNUAL_FEE_ENABLED: 'true',
       MEMBERSHIP_WAIVER_CODE: WAIVER,
+      ...overrides,
     });
 
   /** The three generating requests on `owner`'s tree (power on the keyless fake provider, or Learn). */
@@ -646,7 +670,7 @@ describe('membership', () => {
       ? await treeWithNodes(owner, learn)
       : await treeWithNodes(owner, undefined, { providerId: 'fake', model: 'fake-1' });
     const review = learn
-      ? { providerId: 'tangent', model: 'smart' }
+      ? { providerId: 'openrouter', model: 'smart' }
       : { providerId: 'fake', model: 'fake-1' };
     return {
       trunk,
@@ -664,7 +688,7 @@ describe('membership', () => {
       expect(me.membership).toEqual({
         required: false,
         status: 'inactive',
-        stripeStatus: null,
+        subscriptionStatus: null,
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
@@ -676,9 +700,22 @@ describe('membership', () => {
       expect(me.membership).toMatchObject({ required: true, status: 'inactive' });
   });
 
-  it('402 membership_required on the three generating routes, in both apps, before the credit check', async () => {
-    const u = await newUser(memberEnv());
-    for (const learn of [undefined, 'credit', 'own-key'] as const) {
+  it('402 membership_required on the three generating routes in power mode on own keys, before the credit check', async () => {
+    // With the pool off: with it on, a Learn send on credit without a balance moves to the
+    // pool's free tier instead (annual-fee.test.ts).
+    const u = await newUser(memberEnv({ POOL_ENABLED: 'false' }));
+    // Learn needs no membership: its own key (BYOK) is free, and credit is
+    // checked for its balance only (none here: 402 payment_required).
+    for (const learn of ['own-key', 'credit'] as const) {
+      const { requests } = await generating(u, learn);
+      for (const [path, init] of requests) {
+        const res = await u.call(path, { ...init, learn });
+        const text = await res.text();
+        expect(text, `${learn} ${path}`).not.toContain('membership_required');
+        if (learn === 'credit') expect(res.status, `${learn} ${path}`).toBe(402);
+      }
+    }
+    for (const learn of [undefined] as const) {
       const { trunk, requests } = await generating(u, learn);
       for (const [path, init] of requests) {
         const res = await u.call(path, { ...init, ...(learn ? { learn } : {}) });
@@ -711,11 +748,12 @@ describe('membership', () => {
   });
 
   it('a paid membership opens generating; credit is checked next', async () => {
-    const u = await newUser(memberEnv());
+    // With the pool off, so spent credit answers 402 (pool-routing.test.ts covers the fallback).
+    const u = await newUser(memberEnv({ POOL_ENABLED: 'false' }));
     await insertSubscription(env, u.power.accountId.slice(2), 'past_due');
     expect(
       (await json<MeResponse>(await u.call('/api/me', { learn: 'credit' }))).membership,
-    ).toMatchObject({ required: true, status: 'active', stripeStatus: 'past_due' });
+    ).toMatchObject({ required: true, status: 'active', subscriptionStatus: 'past_due' });
     const { requests } = await generating(u);
     const res = await u.call(...requests[0]!);
     expect(res.status).toBe(200);
@@ -753,11 +791,11 @@ describe('membership', () => {
 });
 
 describe("Learn mode on the user's own OpenRouter key", () => {
-  /** The real shape of `tangent`: OpenRouter-like, on the operator's OPENROUTER_SIMPLE_API_KEY. */
+  /** The real shape of the built-in provider: OpenRouter-like, on the operator's OPENROUTER_SIMPLE_API_KEY. */
   const ownKeyEnv = () =>
     authEnv({
       SIMPLE_PROVIDER: JSON.stringify({
-        id: 'tangent',
+        id: 'openrouter',
         kind: 'anthropic',
         label: 'Tangent',
         baseUrl: MOCK_UPSTREAM,
@@ -784,6 +822,22 @@ describe("Learn mode on the user's own OpenRouter key", () => {
     expect(await usageRows(u.learn.accountId)).toBe(0);
   });
 
+  it('asks for the OpenRouter key by name when a send has none (401 key_required)', async () => {
+    const u = await newUser(ownKeyEnv());
+    const { trunk } = await treeWithNodes(u, 'own-key');
+    const res = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+      learn: 'own-key',
+    });
+    expect(res.status).toBe(401);
+    // Not the provider's label ("Tangent"): Learn runs on the user's OpenRouter key.
+    expect(((await res.json()) as ApiError).error).toEqual({
+      code: 'key_required',
+      message: 'Add your OpenRouter API key to continue this conversation.',
+    });
+  });
+
   // Reviews stream from the Worker itself, so they run with this test's env
   // (the Durable Object always has the vitest.config.ts bindings). Sends use
   // the same registryFor.
@@ -794,7 +848,7 @@ describe("Learn mode on the user's own OpenRouter key", () => {
     const send = (learn: LearnPayment = 'own-key') =>
       u.call(`/api/nodes/${assistant.id}/review`, {
         method: 'POST',
-        json: { providerId: 'tangent', model: 'smart' },
+        json: { providerId: 'openrouter', model: 'smart' },
         learn,
       });
 
@@ -803,7 +857,7 @@ describe("Learn mode on the user's own OpenRouter key", () => {
       await u.call('/api/providers', { learn: 'own-key' }),
     );
     expect(providers).toEqual([
-      expect.objectContaining({ id: 'tangent', available: false, keySource: null }),
+      expect.objectContaining({ id: 'openrouter', available: false, keySource: null }),
     ]);
     const noKey = await send();
     expect(noKey.status).toBe(401);
@@ -961,21 +1015,7 @@ describe('account deletion', () => {
     return row?.n ?? 0;
   }
 
-  /** A real customer in the Stripe mock, linked to the user as the first checkout would. */
-  async function linkStripeCustomer(userId: string): Promise<string> {
-    const res = await fetch('https://api.stripe.com/v1/customers', {
-      method: 'POST',
-      headers: { authorization: 'Bearer sk_test_x' },
-      body: new URLSearchParams({ email: `${userId}@example.org` }),
-    });
-    const { id } = (await res.json()) as { id: string };
-    await env.DB.prepare('UPDATE auth_users SET stripe_customer_id = ?1 WHERE id = ?2')
-      .bind(id, userId)
-      .run();
-    return id;
-  }
-
-  it('deletes both accounts, their data, sign-in and Stripe customer; keeps the ledger and other users', async () => {
+  it('deletes both accounts, their data, sign-in and billing customer; keeps the ledger and other users', async () => {
     const a = await newUser();
     const other = await newUser();
     const userId = a.power.accountId.slice(2);
@@ -994,10 +1034,10 @@ describe('account deletion', () => {
       accountId: a.learn.accountId,
       kind: 'adjustment',
       amountMicros: 1_000_000,
-      stripeRef: null,
+      providerRef: null,
       note: 'test',
     });
-    const customerId = await linkStripeCustomer(userId);
+    await rememberCustomer(env.DB, 'fake', userId, 'cust_gone');
 
     // The confirmation must be the user's own email.
     const wrong = await a.call('/api/account', {
@@ -1058,10 +1098,9 @@ describe('account deletion', () => {
       ),
     ).toBe(1);
 
-    const calls = (await (
-      await fetch(`https://api.stripe.com/__mock/calls?path=/v1/customers/${customerId}`)
-    ).json()) as { method: string }[];
-    expect(calls.some((c) => c.method === 'DELETE')).toBe(true);
+    expect(
+      await count('SELECT COUNT(*) AS n FROM billing_customers WHERE user_id = ?1', userId),
+    ).toBe(0);
 
     // The share link is gone and the old session no longer signs anyone in.
     expect((await a.call(`/s/${share.token}`)).status).toBe(404);
@@ -1069,6 +1108,36 @@ describe('account deletion', () => {
 
     // Someone else's data is untouched.
     expect((await other.call(`/api/trees/${otherTree.tree.id}`)).status).toBe(200);
+  });
+
+  it('ends the subscription at the payment provider and forgets the billing rows', async () => {
+    const a = await newUser();
+    const userId = a.power.accountId.slice(2);
+    await insertSubscription(env, userId, 'active');
+    await rememberCustomer(env.DB, 'fake', userId, 'cust_del');
+    const deleted = await deleteUser(
+      { ...env, FAKE_PAYMENTS: JSON.stringify({ deleteResult: 'deleted' }) } as AppEnv,
+      userId,
+    );
+    expect(deleted.billingCustomerDeleted).toBe(true);
+    for (const table of ['billing_subscriptions', 'billing_customers'])
+      expect(
+        await count(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id = ?1`, userId),
+        table,
+      ).toBe(0);
+  });
+
+  it('keeps everything when the payment provider can’t end the subscription', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const a = await newUser();
+    const userId = a.power.accountId.slice(2);
+    const failing = { ...env, FAKE_PAYMENTS: JSON.stringify({ deleteResult: 'error' }) } as AppEnv;
+    await expect(deleteUser(failing, userId)).rejects.toMatchObject({
+      code: 'internal',
+      message: expect.stringContaining('payment provider'),
+    });
+    expect(await count('SELECT COUNT(*) AS n FROM auth_users WHERE id = ?1', userId)).toBe(1);
+    error.mockRestore();
   });
 
   it('signing up again with the same email starts from nothing', async () => {

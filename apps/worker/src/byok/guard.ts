@@ -1,5 +1,5 @@
 import { DomainError, KeyRequiredError, ValidationError } from '@tangent/core';
-import { isModelAllowed, type ProviderRegistry } from '@tangent/shared';
+import { isModelAllowed, type BranchFunding, type ProviderRegistry } from '@tangent/shared';
 import { createMiddleware } from 'hono/factory';
 import { isMetered, type AppBindings, type AppContext } from '../env.js';
 import { fingerprint } from './seal.js';
@@ -32,21 +32,27 @@ export const sameOriginOnly = createMiddleware<AppBindings>(async (c, next) => {
  * The branch's provider must have a key (the user's or the server's) and the
  * model must be allowed: one the provider config lists or, for an
  * `openModels` provider, any well-formed model id (`isModelAllowed`).
- * `userKeys: false` (the built-in provider on credit, which never uses the
- * user's key) reports a missing server key as a configuration problem rather
- * than asking for the user's key.
+ * `registry` is the one the route resolves in (`routeRegistryFor`); null is a
+ * route on Tangent credit where the server doesn't offer it. `userKeys: false`
+ * (a metered route, which never uses the user's key) reports a missing server
+ * key as a configuration problem rather than asking for the user's key.
+ * `keyLabel` names the key to ask for when it isn't the provider's label
+ * (Learn's provider is labelled Tangent but runs on the user's OpenRouter key).
  */
 export function assertGenerationAllowed(
-  registry: ProviderRegistry,
+  registry: ProviderRegistry | null,
   providerId: string,
   model: string,
-  opts: { userKeys?: boolean } = {},
+  opts: { userKeys?: boolean; keyLabel?: string | undefined } = {},
 ): void {
+  if (!registry) throw new ValidationError('Tangent credit is not offered on this server');
   const info = registry.list().find((p) => p.id === providerId);
   if (!info) throw new ValidationError(`Unknown provider "${providerId}"`);
   if (!info.available) {
     if ((opts.userKeys ?? true) && info.acceptsUserKey && info.keySource !== 'user') {
-      throw new KeyRequiredError(`Add your ${info.label} API key to continue this conversation.`);
+      throw new KeyRequiredError(
+        `Add your ${opts.keyLabel ?? info.label} API key to continue this conversation.`,
+      );
     }
     throw new ValidationError(`${info.label} is not configured on this server`);
   }
@@ -59,7 +65,7 @@ export function assertGenerationAllowed(
  * Rate limit on requests that spend a user's key. `chat`: per key cookie, the
  * bucket being a hash of the sealed value (never of the plaintext key);
  * power requests on server keys (dev bypass only) are not limited here.
- * A call on the built-in provider (`providerId` metered, see `isMetered`)
+ * A metered call (Tangent credit or the pool: its `funding`, see `isMetered`)
  * spends the operator's key, so its `chat` bucket is the user's ledger
  * (`billing:<billingAccountId>`), shared by both apps. `key`: saving a key
  * makes a verification call upstream, limited per account (a fresh cookie
@@ -71,14 +77,14 @@ export async function enforceRateLimit(
   c: AppContext,
   keys: UserKeys | null,
   scope: 'chat' | 'key',
-  providerId?: string,
+  funding?: BranchFunding,
 ): Promise<void> {
   const limiter = (scope === 'chat' ? c.env.CHAT_RATE_LIMITER : c.env.KEY_RATE_LIMITER) as
     RateLimit | undefined;
   if (!limiter || typeof limiter.limit !== 'function') return;
   let who: string;
   if (scope === 'key') who = `account:${c.var.accountId}`;
-  else if (providerId !== undefined && isMetered(c.var.account, providerId))
+  else if (funding !== undefined && isMetered(c.var.account, funding))
     who = `billing:${c.var.account.billingAccountId}`;
   else if (keys?.state === 'ok') who = `cookie:${await fingerprint(keys.sealed)}`;
   else return;

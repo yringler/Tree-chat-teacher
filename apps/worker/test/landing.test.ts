@@ -35,7 +35,7 @@ function fakeAssets() {
  * up as 404 `fallthrough`. Auth is configured unless `devBypass` is set (the
  * test pool's own env is the dev bypass).
  */
-function setup(options: { devBypass?: boolean } = {}) {
+function setup(options: { devBypass?: boolean; env?: Partial<AppEnv> } = {}) {
   const assets = fakeAssets();
   const app = new Hono<AppBindings>();
   app.route('/', landingRoutes());
@@ -45,6 +45,7 @@ function setup(options: { devBypass?: boolean } = {}) {
     ASSETS: assets.fetcher,
     BETTER_AUTH_SECRET: options.devBypass ? '' : SECRET,
     DEV_ALLOW_NO_AUTH: 'true',
+    ...options.env,
   } as AppEnv;
   const request = (path: string, init?: RequestInit) => app.request(`${ORIGIN}${path}`, init, e);
   return { request, seen: assets.seen };
@@ -92,6 +93,19 @@ describe('landingRoutes', () => {
     expect(html).toContain('<a class="btn primary" href="/learn/demo">Try the demo</a>');
     expect(html).toContain('<a class="btn" href="/learn/login">Start learning</a>');
     expect(html).toContain('<a href="/login">Power users: sign in</a>');
+  });
+
+  it('with the membership on: own keys stay free in Learn; power keys and buying credit need it', async () => {
+    const off = await (
+      await setup({ env: { ANNUAL_FEE_ENABLED: 'false' } }).request('/welcome')
+    ).text();
+    expect(off).not.toContain('membership');
+    const { request } = setup({ env: { ANNUAL_FEE_ENABLED: 'true' } });
+    const html = await (await request('/welcome')).text();
+    expect(html).toContain('Tangent charges nothing, with no membership needed');
+    expect(html).toContain('buying it needs a yearly membership; spending what you have');
+    expect(html).toContain('prepaid credit (buying it needs a membership)');
+    expect(html).toContain('Your own keys here need a yearly membership');
   });
 
   it('serves the landing page at / to an anonymous visitor, uncached', async () => {

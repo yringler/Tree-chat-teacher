@@ -10,7 +10,7 @@ import { SharesPage } from './shares/shares-page';
  * Selection is read from the URL by RouteSync.
  *
  * `/login` is only ever reached by a full page load (see AuthService).
- * `/billing` is where Stripe sends the browser back (`?checkout=`); the
+ * `/billing` is where the checkout sends the browser back (`?checkout=`); the
  * Worker's SPA fallback serves it on a full page load.
  */
 export const routes: Routes = [

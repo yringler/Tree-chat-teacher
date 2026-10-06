@@ -10,6 +10,8 @@ import {
 import {
   DEFAULT_GROUNDING_MODE,
   GROUNDING_MODES,
+  parseRouteKey,
+  routeKey,
   type Branch,
   type ContextMode,
   type GroundingMode,
@@ -88,8 +90,8 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
           <p class="muted small">This is the trunk: it has no parent context, mode or anchor.</p>
         }
 
-        @if (providerId()) {
-          <app-model-picker [(providerId)]="providerId" [(modelId)]="modelId" />
+        @if (route()) {
+          <app-model-picker [(route)]="route" [(modelId)]="modelId" />
         }
 
         <label class="field">
@@ -149,13 +151,19 @@ export class BranchSettings implements OnInit {
   protected readonly mode = signal<ContextMode>('path');
   protected readonly quote = signal('');
   protected readonly isPrivate = signal(false);
-  protected readonly providerId = signal('');
+  /** Provider and funding, as a `routeKey`. */
+  protected readonly route = signal('');
   protected readonly modelId = signal('');
   protected readonly saving = signal(false);
   protected readonly grounding = signal<GroundingMode>(DEFAULT_GROUNDING_MODE);
-  protected readonly canSearch = computed(
-    () => this.store.providers().find((p) => p.id === this.providerId())?.webSearch === true,
-  );
+  protected readonly canSearch = computed(() => {
+    const { providerId, funding } = parseRouteKey(this.route());
+    return this.store
+      .providers()
+      .some(
+        (p) => p.id === providerId && (p.funding ?? 'own-key') === funding && p.webSearch === true,
+      );
+  });
 
   protected asGrounding(value: string): GroundingMode {
     return (GROUNDING_MODES as readonly string[]).includes(value)
@@ -169,7 +177,7 @@ export class BranchSettings implements OnInit {
     this.mode.set(b.contextMode);
     this.quote.set(b.anchorQuote ?? '');
     this.isPrivate.set(b.isPrivate);
-    this.providerId.set(b.providerId);
+    this.route.set(routeKey(b));
     this.modelId.set(b.model);
     this.grounding.set(b.grounding ?? DEFAULT_GROUNDING_MODE);
   }
@@ -197,8 +205,10 @@ export class BranchSettings implements OnInit {
       req.grounding = this.grounding();
     }
     const model = this.modelId().trim();
-    if (this.providerId() !== b.providerId || model !== b.model) {
-      req.providerId = this.providerId();
+    if (this.route() !== routeKey(b) || model !== b.model) {
+      const { providerId, funding } = parseRouteKey(this.route());
+      req.providerId = providerId;
+      req.funding = funding;
       req.model = model;
     }
     if (Object.keys(req).length === 0) {

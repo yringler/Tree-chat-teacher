@@ -1,25 +1,40 @@
 import { DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
 import { parseProviderConfigs } from '@tangent/providers';
-import { DEFAULT_SYSTEM_PROMPT, type ModelInfo, type ProviderConfig } from '@tangent/shared';
+import {
+  BUILT_IN_PROVIDER_ID,
+  DEFAULT_SYSTEM_PROMPT,
+  LEGACY_BUILT_IN_PROVIDER_ID,
+  type ModelInfo,
+  type ProviderConfig,
+} from '@tangent/shared';
+import { appConfig } from './config.js';
 import { groundingSettings } from './billing/grounding.js';
 import type { AppEnv } from './env.js';
+import type { PoolParams } from './pool/params.js';
+
+export { DEFAULT_SIMPLE_MAX_INPUT_TOKENS } from './config.js';
 
 /**
- * The built-in provider, `tangent`: the operator's OpenRouter key, metered
- * per call and paid from the user's prepaid credit (PLAN §13). It is the only
- * provider in a Learn account's registry, so the generic provider checks
- * (`assertGenerationAllowed`, `/api/providers`, tree and branch validation)
- * apply unchanged; power lists it after the user's own providers, with any
- * OpenRouter model allowed (`builtInPowerConfig`). Learn also runs it on the
- * user's own OpenRouter key, unmetered (services.ts `registryFor`).
+ * The built-in provider: the endpoint `openrouter` (BUILT_IN_PROVIDER_ID in
+ * @tangent/shared) on the operator's OpenRouter key, metered per call and
+ * paid from the user's prepaid credit or the community pool (PLAN §13). Its
+ * provider id names only the endpoint; who pays is the funding (the request's
+ * payment in Learn, the branch's funding in power), never the id. It is the
+ * only provider config in a Learn account's registry, so the generic provider
+ * checks (`assertGenerationAllowed`, `/api/providers`, tree and branch
+ * validation) apply unchanged; power lists it after the user's own providers
+ * as "Tangent credit", with any OpenRouter model allowed
+ * (`builtInPowerConfig`), in a registry of its own. Learn also runs this
+ * config on the user's own OpenRouter key, unmetered (services.ts `registryFor`).
  */
 
-export const SIMPLE_PROVIDER_ID = 'tangent';
-/** The built-in provider's id in both modes (an alias that reads better outside Learn). */
-export const BUILT_IN_PROVIDER_ID = SIMPLE_PROVIDER_ID;
+export { BUILT_IN_PROVIDER_ID };
+/** Learn's provider id: the built-in endpoint (`openrouter`). */
+export const SIMPLE_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
 export const DEFAULT_SIMPLE_SMART_MODEL = 'deepseek/deepseek-v4-pro';
 export const DEFAULT_SIMPLE_FAST_MODEL = 'deepseek/deepseek-v4-flash';
-export const DEFAULT_SIMPLE_MAX_INPUT_TOKENS = 60_000;
+/** What Learn's own key is: the user's OpenRouter key (cookie entry LEARN_KEY_PROVIDER). */
+export const LEARN_KEY_LABEL = 'OpenRouter';
 /** Output cap per call; with the input cap it bounds the cost of any one request. */
 export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
 
@@ -32,11 +47,13 @@ function fastModel(env: AppEnv): string {
 }
 
 /**
- * The `tangent` provider as Learn uses it. `SIMPLE_PROVIDER` (one
- * ProviderConfig as JSON, id `tangent`) replaces it wholesale, e.g. a fake
- * provider in tests or the AI Gateway. The id is fixed because metering is
- * keyed on it. There is deliberately no fallback to OPENROUTER_API_KEY:
- * customer spend stays on its own key, which can carry a hard credit limit.
+ * The built-in provider's config, as Learn uses it. `SIMPLE_PROVIDER` (one
+ * ProviderConfig as JSON, id `openrouter`, or the legacy `tangent`, read as
+ * `openrouter`) replaces it wholesale, e.g. a fake provider in tests or the
+ * AI Gateway. The id is fixed so that a branch's provider id means the same
+ * endpoint in both apps. There is deliberately no fallback to
+ * OPENROUTER_API_KEY: customer spend stays on its own key, which can carry a
+ * hard credit limit.
  */
 export function simpleProviderConfig(env: AppEnv): ProviderConfig {
   const override = env.SIMPLE_PROVIDER?.trim();
@@ -44,9 +61,11 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
     const configs = parseProviderConfigs(override.startsWith('[') ? override : `[${override}]`);
     if (configs.length !== 1)
       throw new Error('Invalid SIMPLE_PROVIDER: expected exactly one provider config');
-    if (configs[0]!.id !== SIMPLE_PROVIDER_ID)
+    const config = configs[0]!;
+    if (config.id === LEGACY_BUILT_IN_PROVIDER_ID) return { ...config, id: SIMPLE_PROVIDER_ID };
+    if (config.id !== SIMPLE_PROVIDER_ID)
       throw new Error(`Invalid SIMPLE_PROVIDER: id must be "${SIMPLE_PROVIDER_ID}"`);
-    return configs[0]!;
+    return config;
   }
   const smart = smartModel(env);
   const fast = fastModel(env);
@@ -84,7 +103,7 @@ export function suggestedModels(env: AppEnv): ModelInfo[] {
 
 /** Learn's per-call input cap (`SIMPLE_MAX_INPUT_TOKENS`). */
 export function simpleMaxInputTokens(env: AppEnv): number {
-  return positiveInt(env.SIMPLE_MAX_INPUT_TOKENS, DEFAULT_SIMPLE_MAX_INPUT_TOKENS);
+  return appConfig(env).simple.maxInputTokens;
 }
 
 /**
@@ -124,11 +143,6 @@ export function simpleFastModel(
   return models.find((m) => m.id === wanted)?.id ?? models[1]?.id ?? config.defaultModel;
 }
 
-function positiveInt(raw: string | undefined, fallback: number): number {
-  const n = Number(raw?.trim());
-  return Number.isSafeInteger(n) && n > 0 ? n : fallback;
-}
-
 /** Chat settings for simple accounts: capped input, fixed output reserve, cheap summaries. */
 export function simpleChatSettings(env: AppEnv): ChatSettings {
   const config = simpleProviderConfig(env);
@@ -150,4 +164,100 @@ export function simpleChatSettings(env: AppEnv): ChatSettings {
  */
 export function simpleSystemPrompt(env: AppEnv): string {
   return env.SIMPLE_SYSTEM_PROMPT?.trim() || DEFAULT_SYSTEM_PROMPT;
+}
+
+/**
+ * The built-in provider as the community pool uses it: the simple config
+ * (same key, same SIMPLE_PROVIDER override) with the pool model as its only
+ * model, and one call's cost bounded by the pool's caps: the context window
+ * is the pool's input cap plus its output cap. On OpenRouter, routing is
+ * capped at the price table's price (`provider.max_price`, $/MTok), so an
+ * over-priced route fails upstream (released) instead of costing the operator.
+ * Other endpoints (OpenAI, Workers AI, local servers) get no `provider` field,
+ * which strict APIs reject; there the table must be the endpoint's own price.
+ */
+export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfig {
+  const base = simpleProviderConfig(env);
+  const listed = base.models.find((m) => m.id === pool.model);
+  const config: ProviderConfig = {
+    ...base,
+    models: [{ id: pool.model, label: listed?.label ?? 'Simple' }],
+    defaultModel: pool.model,
+    openModels: false,
+    maxContextTokens: pool.maxInputTokens + pool.maxOutputTokens,
+    maxOutputTokens: pool.maxOutputTokens,
+  };
+  if (base.kind !== 'openai-compatible' || !isOpenRouter(base.baseUrl) || !pool.price)
+    return config;
+  const extraBody = asRecord(base.options?.['extraBody']);
+  // Merged into the operator's own routing (e.g. `data_collection: 'deny'`),
+  // keeping a stricter `max_price` they set.
+  const routing = asRecord(extraBody['provider']);
+  const priorMax = asRecord(routing['max_price']);
+  return {
+    ...config,
+    options: {
+      ...base.options,
+      extraBody: {
+        ...extraBody,
+        provider: {
+          ...routing,
+          max_price: {
+            ...priorMax,
+            prompt: lowerPrice(priorMax['prompt'], pool.price.inMicrosPerMTok / 1_000_000),
+            completion: lowerPrice(priorMax['completion'], pool.price.outMicrosPerMTok / 1_000_000),
+          },
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Whether an openai-compatible base URL reaches OpenRouter: openrouter.ai
+ * itself, or the AI Gateway's OpenRouter route (`.../openrouter`). Unset means
+ * the provider's own default, api.openai.com.
+ */
+function isOpenRouter(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false;
+  try {
+    const url = new URL(baseUrl);
+    if (url.hostname === 'openrouter.ai') return true;
+    return (
+      url.hostname === 'gateway.ai.cloudflare.com' &&
+      url.pathname.replace(/\/+$/, '').endsWith('/openrouter')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** The operator's price cap when it is a stricter number, else the pool's. */
+function lowerPrice(prior: unknown, pool: number): number {
+  return typeof prior === 'number' && Number.isFinite(prior) && prior >= 0
+    ? Math.min(prior, pool)
+    : pool;
+}
+
+/**
+ * Chat settings of a pool generation: the pool's input and output caps, and
+ * summaries and titles on the pool model (so on the pool too).
+ */
+export function poolChatSettings(pool: PoolParams): ChatSettings {
+  return {
+    ...DEFAULT_CHAT_SETTINGS,
+    summaryProviderId: SIMPLE_PROVIDER_ID,
+    summaryModel: pool.model,
+    maxInputTokens: pool.maxInputTokens,
+    reservedOutputTokens: pool.maxOutputTokens,
+    autoTitle: true,
+    // No web search on the pool: its holds are priced from tokens alone (docs/DEFERRED.md).
+    grounding: { ...DEFAULT_CHAT_SETTINGS.grounding, policy: 'off' },
+  };
 }

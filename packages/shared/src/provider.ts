@@ -1,5 +1,5 @@
 import type { ChatMessage } from './context-plan.js';
-import type { TokenUsage } from './domain.js';
+import type { BranchFunding, TokenUsage } from './domain.js';
 import type { Citation } from './grounding.js';
 
 /**
@@ -30,15 +30,26 @@ export interface ModelInfo {
   maxOutputTokens?: number;
 }
 
-/** Why a provider call is made; recorded with its usage for billing. */
-export type UsagePurpose = 'reply' | 'summary' | 'title' | 'review' | 'other';
+/**
+ * Why a provider call is made; recorded with its usage for billing.
+ * `tagging` is the community pool's topic classifier (charged to the pool).
+ */
+export type UsagePurpose = 'reply' | 'summary' | 'title' | 'review' | 'tagging' | 'other';
 
 /** Attribution of one provider call (billing). Providers ignore it. */
 export interface UsageTag {
   purpose: UsagePurpose;
   treeId: string;
+  /** The branch the call serves (the one sent to, summarised for, titled or reviewed). */
+  branchId: string | null;
   /** The node the call produces or is about (reply/review); null for summaries and titles. */
   nodeId: string | null;
+  /**
+   * Community pool only: the pending usage row reserved for this call before
+   * it was assembled (the reply's ceiling hold). The meter shrinks that row's
+   * hold to the call's exact worst case instead of reserving a second time.
+   */
+  reservationId?: string;
 }
 
 export interface GenerateRequest {
@@ -77,12 +88,22 @@ export type ProviderErrorCode =
   | 'config'
   | 'unknown';
 
+/**
+ * How far a failed call got: `not_sent` (it failed before the request left,
+ * e.g. a missing key or a connection error), `rejected` (the upstream answered
+ * with a non-2xx status) or `stream` (it failed after a 2xx response, so the
+ * upstream may have billed for it). Absent when unknown, e.g. on abort.
+ */
+export type ProviderUpstream = 'not_sent' | 'rejected' | 'stream';
+
 export interface ProviderError {
   code: ProviderErrorCode;
   message: string;
   /** HTTP status, if the error came from an HTTP response. */
   status?: number;
   retryable: boolean;
+  /** Set by providers that know it (openai-compatible); read by the community pool's settlement. */
+  upstream?: ProviderUpstream;
 }
 
 /**
@@ -175,6 +196,14 @@ export interface ProviderInfo {
   keySource: 'user' | 'server' | null;
   /** True when replies can be grounded with web search ("Check sources"); absent = false. */
   webSearch?: boolean;
+  /**
+   * Who pays for calls through this entry. Power lists the built-in endpoint
+   * (`openrouter`) a second time with `credit` (Tangent credit, on the
+   * operator's key) after the user's own providers; a branch picks an entry by
+   * its provider id and funding. Absent = `own-key`; Learn's one entry has
+   * none, since Learn pays per request.
+   */
+  funding?: BranchFunding;
 }
 
 /**

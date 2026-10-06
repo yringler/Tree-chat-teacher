@@ -1,9 +1,23 @@
 import { escapeHtml } from '@tangent/render';
+import {
+  formatBps,
+  formatMicros,
+  POOL_AT_COST_TEXT,
+  POOL_EMPTY_TEXT,
+  poolSessionsHeadline,
+  poolWeekText,
+  type PoolImpactResponse,
+  type PoolStatusResponse,
+} from '@tangent/shared';
 import { Hono, type Context } from 'hono';
 import { authBaseUrl, authConfigured } from '../auth/auth.js';
+import { membershipRequired } from '../billing/membership.js';
 import type { AppBindings, AppEnv } from '../env.js';
+import { latestImpactForPage, renderImpactBlock } from './impact-block.js';
 import { copyrightNotice, legalInfo } from './legal-info.js';
 import { LEARN_APP_CSP, LEARN_COMMON_HEADERS } from './learn-app.js';
+import { cachedPoolStatus } from '../pool/status.js';
+import { waitUntilOf } from '../routes/pool.js';
 
 /**
  * Better Auth's session cookie (`cookiePrefix: 'tangent'` in auth/auth.ts),
@@ -63,6 +77,8 @@ h1{margin:0;font-size:clamp(2rem,7vw,3.1rem);line-height:1.1;letter-spacing:-.02
 .btn.primary:hover{filter:brightness(1.08)}
 .note{margin:14px 0 0;max-width:30rem;color:var(--muted);font-size:.88rem}
 .power{margin:18px 0 0;font-size:.92rem}
+.free{margin:18px 0 0;max-width:32rem;padding:12px 16px;border:1px solid var(--accent);border-radius:12px;background:var(--accent-soft);font-size:.95rem}
+.free strong{color:var(--accent)}
 .demo{position:relative;margin:0;padding:20px;border:1px solid var(--border);border-radius:16px;background:var(--bg-elev);box-shadow:var(--shadow);font-size:.9rem}
 .msg{margin:0 0 12px;padding:10px 14px;border-radius:12px;max-width:92%}
 .msg.you{margin-left:auto;background:var(--user-bg)}
@@ -92,6 +108,19 @@ h2{margin:0 0 8px;font-size:clamp(1.4rem,4vw,1.85rem);line-height:1.2;letter-spa
 .mode li{margin:0 0 6px}
 .mode li::marker{color:var(--accent)}
 .mode.learn{border-color:var(--accent);box-shadow:var(--shadow)}
+.pool{display:grid;gap:20px;padding:24px;border:1px solid var(--accent);border-radius:14px;background:var(--bg-elev);box-shadow:var(--shadow)}
+.pool .meter{margin:0;font-size:clamp(1.5rem,5vw,2rem);font-weight:700;line-height:1.2}
+.pool .meter small{display:block;margin-top:4px;color:var(--muted);font-size:1rem;font-weight:500}
+.pool .week{margin:0;color:var(--muted)}
+.pool .fee{margin:0;color:var(--muted);font-size:.88rem}
+.pool .ctas{margin:0}
+#pool+.sub{max-width:40rem}
+.impact{display:grid;gap:8px}
+.impact p{margin:0}
+.impact .head{font-weight:600}
+.impact .depth,.impact .note{color:var(--muted)}
+.impact .topics{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 0;padding:0;list-style:none}
+.impact .topics li{padding:4px 10px;border:1px solid var(--border);border-radius:999px;background:var(--accent-soft);font-size:.9rem}
 footer{padding:32px 0 48px;border-top:1px solid var(--border);color:var(--muted);font-size:.9rem}
 footer .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px}
 footer nav{display:flex;flex-wrap:wrap;gap:18px}
@@ -100,8 +129,9 @@ footer a{color:var(--muted)}
 `;
 
 /**
- * Brand mark: the app icon (apps/web/public/favicon.svg) in one colour. An
- * orb, a ray touching it at exactly one point, and the point it heads to.
+ * Brand mark: the app icon (apps/web/public/favicon.svg, the web-shared Logo)
+ * in one colour. An orb, a ray touching it at exactly one point, and the
+ * point it heads to.
  */
 export const MARK =
   '<svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">' +
@@ -137,6 +167,66 @@ export interface LandingPageOptions {
   operator: string;
   /** Share links are offered to everyone (DMCA_AGENT_REGISTERED); otherwise only export is advertised. */
   sharing: boolean;
+  /** The community pool's meter; absent when the pool is off or couldn't be read. */
+  pool?: PoolStatusResponse;
+  /** The pool's latest weekly impact snapshot; absent when there is none (or the pool is off). */
+  impact?: PoolImpactResponse;
+  /** The yearly membership is required for power mode on own keys and for buying credit (`membershipRequired`); own keys in Learn stay free. */
+  membership?: boolean;
+}
+
+/** Topics the landing page names at most; `/pool` lists them all. */
+const LANDING_IMPACT_TOPICS = 12;
+
+/** True when the pool is on and can cover at least one more learning session: only then is "free" promised. */
+function poolOpen(pool: PoolStatusResponse | undefined): pool is PoolStatusResponse {
+  return pool !== undefined && pool.sessionsRemaining > 0;
+}
+
+/**
+ * The pool section's intro: why the pool exists and, while a revenue share is
+ * committed (`POOL_REVENUE_SHARE_BPS` > 0), its percentage from the config.
+ * The details (what the share is of, the model, the limits) are on `/pool`.
+ */
+function poolIntroText(revenueShareBps: number): string {
+  const funded =
+    revenueShareBps > 0
+      ? `Tangent puts ${formatBps(revenueShareBps)} of what it earns into the community pool`
+      : 'Tangent adds free credit to the community pool';
+  return `Good AI tutoring costs money to run, so most of it sits behind a paywall. ${funded} so that anyone can learn here for free, within daily limits.`;
+}
+
+/**
+ * The community pool section: why it exists, where its credit comes from
+ * (Tangent's revenue share, in brief), the meter, this week's
+ * counts and the latest weekly impact snapshot when there is one. It is
+ * Tangent's own commitment: nothing here is for sale, and nothing asks the
+ * visitor to pay for anyone else (docs/DECISIONS.md, "Revenue-funded
+ * community pool"). The free sign-up button shows only while the pool has
+ * credit.
+ */
+function poolSection(pool: PoolStatusResponse, impact?: PoolImpactResponse): string {
+  const meter =
+    pool.sessionsRemaining > 0
+      ? `<p class="meter">${escapeHtml(poolSessionsHeadline(pool.sessionsRemaining))} left<small>${escapeHtml(formatMicros(pool.availableMicros))} in the pool</small></p>`
+      : `<p class="meter">${escapeHtml(POOL_EMPTY_TEXT)}<small>${escapeHtml(formatMicros(pool.availableMicros))} in the pool</small></p>`;
+  const ctas = poolOpen(pool)
+    ? '<a class="btn primary" href="/learn/login">Start learning free</a><a class="btn" href="/pool">How the pool works</a>'
+    : '<a class="btn" href="/pool">How the pool works</a>';
+  return `<section aria-labelledby="pool">
+<div class="wrap">
+<p class="eyebrow">The community pool</p>
+<h2 id="pool">Curiosity shouldn’t need a credit card</h2>
+<p class="sub">${escapeHtml(poolIntroText(pool.revenueShareBps))}</p>
+<div class="pool">
+${meter}
+<p class="week">${escapeHtml(poolWeekText(pool.week))}</p>
+${impact ? `${renderImpactBlock(impact, LANDING_IMPACT_TOPICS)}\n` : ''}<div class="ctas">${ctas}</div>
+<p class="fee">${escapeHtml(POOL_AT_COST_TEXT)}</p>
+</div>
+</div>
+</section>
+`;
 }
 
 const TITLE = 'Tangent: learn by following your curiosity, one branch at a time';
@@ -149,6 +239,10 @@ const DESCRIPTION =
  */
 export function renderLandingPage(opts: LandingPageOptions): string {
   const canonical = escapeHtml(opts.canonicalUrl);
+  const free = poolOpen(opts.pool);
+  const freeNote = poolOpen(opts.pool)
+    ? `<p class="free"><strong>Free to start.</strong> Signed-in learners can learn on the community pool: free credit Tangent ${opts.pool.revenueShareBps > 0 ? 'sets aside from its revenue' : 'provides'} so that anyone can learn here, within daily limits. <a href="#pool">How it works</a></p>\n`
+    : '';
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -179,9 +273,9 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <p class="lede">Tangent is for people who learn by going down rabbit holes. Ask anything and get a straight answer that explains how the thing actually works, then pick a tangent worth following. Every tangent opens its own branch, so you can wander as far as you like and step back into the main thread exactly where you left it.</p>
 <div class="ctas">
 <a class="btn primary" href="/learn/demo">Try the demo</a>
-<a class="btn" href="/learn/login">Start learning</a>
+<a class="btn" href="/learn/login">${free ? 'Start learning free' : 'Start learning'}</a>
 </div>
-<p class="note">The demo is free and runs in your browser. Nothing is sent to a model and the replies are playful nonsense, so you can explore branching without signing up.</p>
+${freeNote}<p class="note">The demo is free and runs in your browser. Nothing is sent to a model and the replies are playful nonsense, so you can explore branching without signing up.</p>
 <p class="power"><a href="/login">Power users: sign in</a> · <a href="/canvas/demo">Feeling brave? Try Canvas</a>, an experimental map of a whole conversation</p>
 </div>
 <figure class="demo" aria-label="Example: an answer, its tangents, and a side question branching off it">
@@ -208,11 +302,11 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <article class="card">${ICON_COMPASS}<h3>Answers first, tangents next</h3><p>Ask a question and get the answer, straight away and in real depth: the mechanism, not just the fact, and no quiz in between. Every answer ends with a few tangents worth following. One tap opens any of them as a branch of its own.</p></article>
 <article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. The side question opens its own branch, so detours never clutter the main thread, and every branch stays one click away. Choose <strong>Smart</strong> for hard topics or <strong>Simple</strong> for quick ones.</p></article>
 <article class="card">${ICON_EYE}<h3>See exactly what the model sees</h3><p>In power mode, decide how much each branch inherits: the full path, a summary, or a clean slate. The inspector shows the exact prompt before anything is sent.</p></article>
-<article class="card">${ICON_COIN}<h3>Your key, or pay as you go</h3><p>Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or use prepaid credit: each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up when you need to, and manage billing in Stripe.</p></article>
+<article class="card">${ICON_COIN}<h3>${opts.pool ? 'Free, your key, or pay as you go' : 'Your key, or pay as you go'}</h3><p>${opts.pool ? 'Learn free on the community pool, within daily limits, while it has credit. ' : ''}${opts.membership ? 'Paste your own OpenRouter key and Tangent charges nothing, with no membership needed: you pay OpenRouter directly. Or use prepaid credit (buying it needs a yearly membership; spending what you have needs none):' : 'Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or use prepaid credit:'} each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up when you need to, and manage billing in the secure billing portal.</p></article>
 </div>
 </div>
 </section>
-<section aria-labelledby="modes">
+${opts.pool ? poolSection(opts.pool, opts.impact) : ''}<section aria-labelledby="modes">
 <div class="wrap">
 <h2 id="modes">Two ways to use it</h2>
 <p class="sub">One sign-in, two levels of control. Switch between them at any time.</p>
@@ -225,13 +319,13 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <li>Tangents after every answer, each one a tap away</li>
 <li>Side questions with Ask about this</li>
 <li>Smart and Simple tiers, one toggle</li>
-<li>Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit</li>
+<li>${opts.membership ? 'Your own OpenRouter key at no charge from Tangent, no membership needed, or pay as you go from prepaid credit (buying it needs a membership)' : 'Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit'}</li>${opts.pool ? `\n<li>Or learn free on the community pool, within daily limits, on credit Tangent provides${opts.pool.revenueShareBps > 0 ? ' from its revenue' : ''}</li>` : ''}
 </ul>
-<a class="btn primary" href="/learn/login">Start learning</a>
+<a class="btn primary" href="/learn/login">${free ? 'Start learning free' : 'Start learning'}</a>
 </article>
 <article class="card mode">
 <h3>Power</h3>
-<p class="for">For tinkerers and the people who run Tangent.</p>
+<p class="for">For tinkerers and the people who run Tangent.${opts.membership ? ' Your own keys here need a yearly membership; prepaid credit you have works without one.' : ''}</p>
 <ul>
 <li>Bring your own API keys for any configured provider</li>
 <li>Every control: context modes, inspector, reviewer, system prompts</li>
@@ -247,7 +341,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <footer>
 <div class="wrap">
 <span>${escapeHtml(copyrightNotice(opts.operator))}</span>
-<nav aria-label="Footer"><a href="/learn/demo">Try the demo</a><a href="/learn/login">Sign in to Learn</a><a href="/login">Power sign in</a><a href="/welcome">About Tangent</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+<nav aria-label="Footer"><a href="/learn/demo">Try the demo</a><a href="/learn/login">Sign in to Learn</a><a href="/login">Power sign in</a><a href="/welcome">About Tangent</a><a href="/pool">Community pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
 </div>
 </footer>
 </body>
@@ -255,7 +349,8 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 `;
 }
 
-async function sha256Base64(text: string): Promise<string> {
+/** Base64 SHA-256 of `text`: a CSP source hash. */
+export async function sha256Base64(text: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   let bin = '';
   for (const b of new Uint8Array(digest)) bin += String.fromCharCode(b);
@@ -291,6 +386,17 @@ export function landingCsp(): Promise<string> {
   return styleCsp(LANDING_STYLE);
 }
 
+/** The pool meter while the pool is on; omitted when it is off or can't be read (the page still renders). */
+async function landingPool(c: Context<AppBindings>): Promise<PoolStatusResponse | undefined> {
+  try {
+    const status = await cachedPoolStatus(c.env, waitUntilOf(c));
+    return status.enabled ? status : undefined;
+  } catch (err) {
+    console.warn('Landing page: the pool meter could not be read', err);
+    return undefined;
+  }
+}
+
 /** The landing page; `headers` adds to (or overrides) the common ones. */
 async function landingResponse(
   c: Context<AppBindings>,
@@ -298,7 +404,11 @@ async function landingResponse(
 ): Promise<Response> {
   const canonicalUrl = new URL('/', authBaseUrl(c.env, c.req.raw)).toString();
   const { operator, sharing } = legalInfo(c.env, c.req.raw);
-  return new Response(renderLandingPage({ canonicalUrl, operator, sharing }), {
+  const pool = await landingPool(c);
+  const impact = pool ? await latestImpactForPage(c.env) : undefined;
+  const membership = membershipRequired(c.env);
+  const page = renderLandingPage({ canonicalUrl, operator, sharing, pool, impact, membership });
+  return new Response(page, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Security-Policy': await landingCsp(),

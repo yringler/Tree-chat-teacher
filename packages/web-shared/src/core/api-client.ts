@@ -1,5 +1,12 @@
 import { inject, Injectable } from '@angular/core';
 import type {
+  AdminCreditRequest,
+  AdminCreditResponse,
+  AdminPoolResponse,
+  AdminPoolTopic,
+  AdminPoolTopicDecision,
+  AdminPoolTopicsResponse,
+  AdminPoolUsageResponse,
   AdminStatusResponse,
   AdminUser,
   AdminUsersResponse,
@@ -8,6 +15,8 @@ import type {
   BillingSummary,
   Branch,
   CheckoutResponse,
+  CopyToLearnResponse,
+  CreateCheckoutRequest,
   ContextPlanResponse,
   CreateBranchRequest,
   CreateShareRequest,
@@ -18,13 +27,24 @@ import type {
   MembershipInfo,
   MembershipWaiverRequest,
   MeResponse,
+  PoolBlockDetails,
+  PoolConsentDetails,
+  PoolConsentRequest,
+  PoolConsentResponse,
+  PoolImpactResponse,
+  PoolImpactWeeksResponse,
+  PoolMeResponse,
+  PoolStatusResponse,
+  PortalResponse,
   ProviderInfo,
+  PoolTopicReviewStatus,
   ReviewRequest,
   SendMessageRequest,
   SettingsResponse,
   ShareScope,
   ShareSummary,
   Tree,
+  TreeBackup,
   TreeBackupInput,
   TreeDetail,
   TreeSummary,
@@ -37,12 +57,18 @@ import type {
 } from '@tangent/shared';
 import { API_FETCH, API_HEADERS, defaultApiFetch } from './api-fetch';
 
-/** Thrown for every non-2xx API response (and for network failures, with status 0). */
+/**
+ * Thrown for every non-2xx API response (and for network failures, with
+ * status 0). `pool` carries what a community pool refusal hit (`pool_*` codes);
+ * `consent` the pool notice version to acknowledge (`pool_consent_required`).
+ */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: ApiErrorCode | 'network',
     message: string,
+    readonly pool: PoolBlockDetails | null = null,
+    readonly consent: PoolConsentDetails | null = null,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -67,6 +93,10 @@ function isErrorBody(value: unknown): value is ApiErrorBody {
 }
 
 const enc = encodeURIComponent;
+
+/** What a 401 `unauthorized` (no session, or an expired one) says, whatever the server's text. */
+export const SESSION_EXPIRED_MESSAGE =
+  'Your session has expired. Reload the page to sign in again.';
 
 /** Error code for a non-2xx response without our JSON error body (e.g. a proxy page). */
 function fallbackCode(status: number): ApiErrorCode {
@@ -126,9 +156,68 @@ export class ApiClient {
     return this.json('GET', qs ? `/billing/usage?${qs}` : '/billing/usage');
   }
 
-  /** Starts a one-time credit top-up; resolves with the Stripe Checkout URL to send the browser to. */
+  /**
+   * Starts a one-time top-up of the caller's own credit; resolves with the
+   * payment provider's checkout URL to send the browser to.
+   */
   createCheckout(amountCents: number): Promise<CheckoutResponse> {
-    return this.json('POST', '/billing/checkout', { amountCents });
+    return this.json('POST', '/billing/checkout', {
+      amountCents,
+    } satisfies CreateCheckoutRequest);
+  }
+
+  /**
+   * Starts the yearly membership: resolves with the hosted checkout URL (or,
+   * for a user who already pays, the billing portal's). Both return to the
+   * calling app's billing page.
+   */
+  membershipCheckout(): Promise<CheckoutResponse> {
+    return this.json('POST', '/billing/membership/checkout');
+  }
+
+  /**
+   * The payment provider's billing portal (invoices, payment method, cancel),
+   * returning to the calling app's billing page. 404 `no_customer` while the
+   * provider has no customer for the user (nothing was ever paid).
+   */
+  billingPortal(): Promise<PortalResponse> {
+    return this.json('POST', '/billing/portal');
+  }
+
+  // The community pool
+
+  /** The pool meter (public; cached for a minute). */
+  poolStatus(): Promise<PoolStatusResponse> {
+    return this.json('GET', '/pool/status');
+  }
+
+  /** The caller's caps and use of the pool today. */
+  poolMe(): Promise<PoolMeResponse> {
+    return this.json('GET', '/pool/me');
+  }
+
+  /**
+   * A weekly impact snapshot of the pool (public): `week` (`YYYY-MM-DD`, its
+   * Monday) or the latest. 404 `not_found` when there is none yet.
+   */
+  poolImpact(week?: string): Promise<PoolImpactResponse> {
+    return this.json(
+      'GET',
+      week ? `/pool/impact?${new URLSearchParams({ week }).toString()}` : '/pool/impact',
+    );
+  }
+
+  /** The weeks with an impact snapshot, newest first (public). */
+  poolImpactWeeks(): Promise<PoolImpactWeeksResponse> {
+    return this.json('GET', '/pool/impact/weeks');
+  }
+
+  /**
+   * Acknowledges the pool notice at `version` (the one shown); a version that
+   * is no longer current is 409 `conflict`.
+   */
+  poolConsent(version: number): Promise<PoolConsentResponse> {
+    return this.json('POST', '/pool/consent', { version } satisfies PoolConsentRequest);
   }
 
   /**
@@ -263,6 +352,40 @@ export class ApiClient {
     return this.json('PATCH', `/admin/users/${enc(userId)}`, req);
   }
 
+  /** The community pool's balance, holds and overage breaker state. */
+  adminPool(): Promise<AdminPoolResponse> {
+    return this.json('GET', '/admin/pool');
+  }
+
+  /**
+   * Credits (or debits) a user's personal ledger or the pool without a payment:
+   * an adjustment, or a simulated purchase where DEV_PURCHASES_ENABLED allows
+   * it. Idempotent on `idempotencyKey`.
+   */
+  adminCredit(req: AdminCreditRequest): Promise<AdminCreditResponse> {
+    return this.json('POST', '/admin/credit', req);
+  }
+
+  /** Pool consumption per user over the last `days`, most spend first, and today's busiest networks. */
+  adminPoolUsage(days?: number): Promise<AdminPoolUsageResponse> {
+    return this.json('GET', days ? `/admin/pool/usage?days=${days}` : '/admin/pool/usage');
+  }
+
+  /** The impact feed's review queue (`pending`, the default) or the decided topics. */
+  adminPoolTopics(status?: PoolTopicReviewStatus): Promise<AdminPoolTopicsResponse> {
+    return this.json('GET', status ? `/admin/pool/topics?status=${status}` : '/admin/pool/topics');
+  }
+
+  /** Approves (named from the next weekly snapshot on) or rejects a queued topic. */
+  decideAdminPoolTopic(
+    topicId: string,
+    decision: AdminPoolTopicDecision['decision'],
+  ): Promise<AdminPoolTopic> {
+    return this.json('POST', `/admin/pool/topics/${enc(topicId)}`, {
+      decision,
+    } satisfies AdminPoolTopicDecision);
+  }
+
   adminUserShares(userId: string): Promise<ShareSummary[]> {
     return this.json('GET', `/admin/users/${enc(userId)}/shares`);
   }
@@ -288,8 +411,26 @@ export class ApiClient {
     return `${this.base}/trees/${enc(treeId)}/backup`;
   }
 
+  /**
+   * The JSON backup of one tree, fetched with this app's headers. Learn saves
+   * it from here: a plain link sends no mode header, so the server would look
+   * for the tree in the power account.
+   */
+  backup(treeId: string): Promise<TreeBackup> {
+    return this.json('GET', `/trees/${enc(treeId)}/backup`);
+  }
+
   importBackup(backup: TreeBackupInput): Promise<TreeDetail> {
     return this.json('POST', '/import', backup);
+  }
+
+  /**
+   * Copies one of the caller's power trees into their Learn account as a new
+   * lesson (adapted like any import into Learn); resolves with its id. Sent
+   * from the power apps (power mode); needs no membership and spends nothing.
+   */
+  copyToLearn(treeId: string): Promise<CopyToLearnResponse> {
+    return this.json('POST', `/trees/${enc(treeId)}/copy-to-learn`);
   }
 
   // Plumbing
@@ -318,13 +459,6 @@ export class ApiClient {
     } catch (err) {
       if (signal?.aborted) throw err;
       throw new ApiError(0, 'network', err instanceof Error ? err.message : 'Network error');
-    }
-    if (res.status === 401) {
-      throw new ApiError(
-        401,
-        'unauthorized',
-        'Your session has expired. Reload the page to sign in again.',
-      );
     }
     if (!res.ok) throw await this.toError(res);
     return res;
@@ -355,8 +489,18 @@ export class ApiClient {
     } catch {
       // Not JSON (e.g. a proxy error page).
     }
+    // Only a missing or expired session is "sign in again". Other 401s (no
+    // usable API key: `key_required`) keep their code and the server's message.
+    if (res.status === 401 && (!isErrorBody(parsed) || parsed.error.code === 'unauthorized'))
+      return new ApiError(401, 'unauthorized', SESSION_EXPIRED_MESSAGE);
     if (isErrorBody(parsed))
-      return new ApiError(res.status, parsed.error.code, parsed.error.message);
+      return new ApiError(
+        res.status,
+        parsed.error.code,
+        parsed.error.message,
+        parsed.error.pool ?? null,
+        parsed.error.consent ?? null,
+      );
     return new ApiError(res.status, fallbackCode(res.status), `${res.status} ${res.statusText}`);
   }
 }
@@ -364,6 +508,11 @@ export class ApiClient {
 export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+/** True for a 401 `unauthorized` ApiError: no session, or an expired one (not `key_required`). */
+export function isSessionExpired(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.code === 'unauthorized';
 }
 
 /** True for a 402 `payment_required` ApiError (out of credit for the built-in provider). */
@@ -374,4 +523,24 @@ export function isPaymentRequired(err: unknown): boolean {
 /** True for a 402 `membership_required` ApiError (generating needs the yearly membership). */
 export function isMembershipRequired(err: unknown): boolean {
   return err instanceof ApiError && err.code === 'membership_required';
+}
+
+/** True for a 402 `pool_empty`: the community pool can't cover a request right now. */
+export function isPoolEmpty(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.code === 'pool_empty';
+}
+
+/** True for a 429 `pool_cap_reached`: a daily pool cap or per-minute limit (`err.pool` says which). */
+export function isPoolCapReached(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.code === 'pool_cap_reached';
+}
+
+/** True for a 403 `pool_consent_required`: the current pool notice must be acknowledged first. */
+export function isPoolConsentRequired(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.code === 'pool_consent_required';
+}
+
+/** True for a 403 `pool_unavailable`: this request or account can't use the pool (`err.pool?.reason`). */
+export function isPoolUnavailable(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.code === 'pool_unavailable';
 }

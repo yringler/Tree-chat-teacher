@@ -9,24 +9,26 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { LearnPayment } from '@tangent/shared';
-import { creditFeeText, errorMessage, Icon, Modal } from '@tangent/web-shared';
+import { creditFeeText, errorMessage, Icon, Modal, PoolMeter } from '@tangent/web-shared';
 import { AccountStore } from '../state/account-store';
 import { UiStore } from '../state/ui-store';
 
 /**
  * How replies are paid for: the learner's own OpenRouter key (free here; they
- * pay OpenRouter) or Tangent credit (prepaid, on the built-in provider), which
- * is only offered when the server sells it. The key is read from the input only at submit time, posted once
+ * pay OpenRouter), Tangent credit (prepaid, on the built-in provider), which
+ * is only offered when the server sells it (while the membership is
+ * required, a non-member may spend credit they hold but not buy more; with
+ * none left they see it disabled, with a link to the billing page), or the community pool, while it is on. The key is read from the input only at submit time, posted once
  * and the field cleared: the server seals it into an HttpOnly cookie this
  * code can't read (the same cookie as power mode's OpenRouter key).
  */
 @Component({
   selector: 'app-model-access-dialog',
-  imports: [Modal, Icon, RouterLink],
+  imports: [Modal, Icon, PoolMeter, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="How replies are paid for" (closed)="close()">
-      @if (account.payment.builtInCredit()) {
+      @if (account.payment.builtInCredit() || account.payment.poolAvailable()) {
         <fieldset class="access-choice">
           <legend class="sr-only">Pay with</legend>
           <label class="access-option">
@@ -42,25 +44,53 @@ import { UiStore } from '../state/ui-store';
               <span class="muted small">Free here: you pay OpenRouter directly.</span>
             </span>
           </label>
-          <label class="access-option">
-            <input
-              type="radio"
-              name="payment"
-              value="credit"
-              [checked]="payment() === 'credit'"
-              (change)="choose('credit')"
-            />
-            <span>
-              <strong>Use Tangent credit</strong>
-              <span class="muted small">
-                @if (feeText(); as fee) {
-                  Prepaid credit: each reply costs {{ fee }}.
-                } @else {
-                  Prepaid credit, paid per reply.
-                }
+          @if (account.payment.builtInCredit()) {
+            <label class="access-option">
+              <input
+                type="radio"
+                name="payment"
+                value="credit"
+                [checked]="payment() === 'credit'"
+                [disabled]="!account.payment.creditUsable()"
+                (change)="choose('credit')"
+              />
+              <span>
+                <strong>Use Tangent credit</strong>
+                <span class="muted small">
+                  @if (!account.payment.creditUsable()) {
+                    Members only.
+                    <a routerLink="/billing" (click)="close()">Become a member</a> to buy prepaid
+                    credit.
+                  } @else if (!account.payment.member()) {
+                    {{ account.balanceText() }} left. Buying more credit needs a membership.
+                  } @else if (feeText(); as fee) {
+                    Prepaid credit: each reply costs {{ fee }}.
+                  } @else {
+                    Prepaid credit, paid per reply.
+                  }
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          }
+          @if (account.payment.poolAvailable()) {
+            <label class="access-option">
+              <input
+                type="radio"
+                name="payment"
+                value="pool"
+                [checked]="payment() === 'pool'"
+                (change)="choose('pool')"
+              />
+              <span>
+                <strong>Use the community pool</strong>
+                <span class="muted small">
+                  Free to you, within daily limits, on
+                  {{ account.poolStatus()?.model?.label ?? 'one economical model' }}. Free credit
+                  Tangent provides from its revenue.
+                </span>
+              </span>
+            </label>
+          }
         </fieldset>
       } @else {
         <p class="muted small">
@@ -69,12 +99,26 @@ import { UiStore } from '../state/ui-store';
         </p>
       }
 
-      @if (payment() === 'credit') {
+      @if (payment() === 'pool') {
+        @if (account.poolStatus(); as status) {
+          <app-pool-meter [status]="status" [compact]="true" />
+        }
+        <p class="small">
+          @if (poolUse(); as use) {
+            <span>{{ use }} · </span>
+          }
+          <a href="/pool" target="_blank" rel="noopener">How the pool works</a>
+        </p>
+      } @else if (payment() === 'credit') {
         <p class="small">
           @if (account.balanceLabel(); as balance) {
             <span>{{ balance }} available · </span>
           }
-          <a routerLink="/billing" (click)="close()">Add credit</a>
+          @if (account.payment.member()) {
+            <a routerLink="/billing" (click)="close()">Add credit</a>
+          } @else {
+            <a routerLink="/billing" (click)="close()">Become a member</a> to add more
+          }
         </p>
       } @else {
         @if (account.keyStatus(); as status) {
@@ -148,6 +192,11 @@ export class ModelAccessDialog {
     const b = this.account.billing();
     return b ? creditFeeText(b.markupBps, b.openRouterFeeBps) : null;
   });
+  /** "3 of 30 replies used today", once the learner's pool caps are loaded. */
+  protected readonly poolUse = computed(() => {
+    const caps = this.account.poolMe()?.caps;
+    return caps ? `${caps.usedRequests} of ${caps.requestsPerDay} replies used today` : null;
+  });
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
 
@@ -159,6 +208,7 @@ export class ModelAccessDialog {
     this.error.set(null);
     this.account.payment.choose(payment);
     if (payment === 'credit') void this.account.refreshBalance();
+    if (payment === 'pool') void this.account.switchToPool();
   }
 
   protected async save(): Promise<void> {

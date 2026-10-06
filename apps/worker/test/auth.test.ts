@@ -126,12 +126,15 @@ describe('fail closed', () => {
       membership: {
         required: false,
         status: 'inactive',
-        stripeStatus: null,
+        subscriptionStatus: null,
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
         includedCreditCents: 200,
       },
+      // The dev bypass requires no membership: nothing is ever read-only.
+      membershipNeededFor: [],
+      featuredConversations: false,
     } satisfies MeResponse);
 
     // Secret set: DEV_ALLOW_NO_AUTH=true is ignored and a session is required.
@@ -164,13 +167,15 @@ describe('fail closed', () => {
       membership: {
         required: false,
         status: 'inactive',
-        stripeStatus: null,
+        subscriptionStatus: null,
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
         includedCreditCents: 200,
       },
-    });
+      membershipNeededFor: [],
+      featuredConversations: false,
+    } satisfies MeResponse);
   });
 });
 
@@ -366,7 +371,14 @@ describe('social sign-in', () => {
       },
     );
   }
-  const googleEnv = () => authEnv({ GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret' });
+  /** Google configured; the pool (and so the first-sign-in interstitial) off unless overridden. */
+  const googleEnv = (overrides: Partial<AppEnv> = {}) =>
+    authEnv({
+      GOOGLE_CLIENT_ID: 'gid',
+      GOOGLE_CLIENT_SECRET: 'gsecret',
+      POOL_ENABLED: 'false',
+      ...overrides,
+    });
 
   it('the callback signs in a Google account, honouring remember me', async () => {
     const s = setup(googleEnv());
@@ -440,6 +452,163 @@ describe('social sign-in', () => {
       body: JSON.stringify({ provider: 'github', callbackURL: '/' }),
     });
     expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+});
+
+describe('Turnstile on first sign-in (docs/pool/PLAN.md §9, D4)', () => {
+  const poolOn = () =>
+    authEnv({ GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret', POOL_ENABLED: 'true' });
+
+  async function googleSignIn(s: ReturnType<typeof setup>, email: string) {
+    const start = await s.call('/api/auth/sign-in/social', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ORIGIN },
+      body: JSON.stringify({
+        provider: 'google',
+        callbackURL: '/learn/',
+        errorCallbackURL: '/login',
+      }),
+    });
+    const state = new URL(((await start.json()) as { url: string }).url).searchParams.get('state')!;
+    return s.call(
+      `/api/auth/callback/google?code=${encodeURIComponent(email)}&state=${encodeURIComponent(state)}`,
+      { headers: { cookie: `${cookieHeader(start)}; ${REMEMBER_COOKIE}=1` }, redirect: 'manual' },
+    );
+  }
+
+  function verified(email: string) {
+    return env.DB.prepare('SELECT pool_verified_at, pool_identity FROM auth_users WHERE email = ?')
+      .bind(email)
+      .first<{ pool_verified_at: string | null; pool_identity: string | null }>();
+  }
+
+  function postVerify(
+    s: ReturnType<typeof setup>,
+    cookie: string,
+    token: string,
+    next = '/learn/',
+  ) {
+    return s.call('/verify', {
+      method: 'POST',
+      headers: {
+        cookie,
+        'content-type': 'application/x-www-form-urlencoded',
+        origin: ORIGIN,
+        'sec-fetch-site': 'same-origin',
+      },
+      body: new URLSearchParams({ next, 'cf-turnstile-response': token }).toString(),
+      redirect: 'manual',
+    });
+  }
+
+  it('a magic-link sign-in records the Turnstile pass its request needed', async () => {
+    const s = setup(poolOn());
+    await signIn(s, 'magic-verified@example.org');
+    const row = await verified('magic-verified@example.org');
+    expect(row?.pool_verified_at).toBeTruthy();
+    expect(row?.pool_identity).toMatch(/^[0-9a-f]{64}$/);
+    // Signing in with Google later needs no second check.
+    const res = await googleSignIn(setup(poolOn()), 'magic-verified@example.org');
+    expect(res.headers.get('location')).toBe('/learn/');
+  });
+
+  it('a first Google sign-in passes through the interstitial, which records the pass', async () => {
+    const s = setup(poolOn());
+    const email = 'oauth-first@example.org';
+    const res = await googleSignIn(s, email);
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/verify?next=%2Flearn%2F');
+    expect(findSetCookie(res, SESSION_COOKIE)).toBeDefined();
+    expect((await verified(email))?.pool_verified_at).toBeNull();
+    const cookie = cookieHeader(res);
+
+    const page = await s.call('/verify?next=%2Flearn%2F', { headers: { cookie } });
+    expect(page.status).toBe(200);
+    const csp = page.headers.get('content-security-policy')!;
+    expect(csp).toContain('script-src https://challenges.cloudflare.com');
+    expect(csp).toContain('frame-src https://challenges.cloudflare.com');
+    expect(csp).toContain("form-action 'self'");
+    const html = await page.text();
+    expect(html).toContain(
+      'class="cf-turnstile" data-sitekey="site-key" data-action="pool-verify"',
+    );
+    expect(html).toContain('<input type="hidden" name="next" value="/learn/">');
+    expect(html).not.toMatch(/donat|tax[- ]?deductible/i);
+
+    const failed = await postVerify(s, cookie, 'not-a-pass');
+    expect(failed.status).toBe(400);
+    expect(await failed.text()).toContain('role="alert"');
+    expect((await verified(email))?.pool_verified_at).toBeNull();
+
+    const passed = await postVerify(s, cookie, 'pass');
+    expect(passed.status).toBe(303);
+    expect(passed.headers.get('location')).toBe('/learn/');
+    const row = await verified(email);
+    expect(row?.pool_verified_at).toBeTruthy();
+    expect(row?.pool_identity).toMatch(/^[0-9a-f]{64}$/);
+
+    // Verified: the page just continues, and the next Google sign-in goes straight to the app.
+    const again = await s.call('/verify?next=%2Flearn%2F', {
+      headers: { cookie },
+      redirect: 'manual',
+    });
+    expect(again.status).toBe(303);
+    expect(again.headers.get('location')).toBe('/learn/');
+    expect((await googleSignIn(setup(poolOn()), email)).headers.get('location')).toBe('/learn/');
+  });
+
+  it('no interstitial while the pool is off or Turnstile is not configured', async () => {
+    const off = await googleSignIn(
+      setup(
+        authEnv({
+          GOOGLE_CLIENT_ID: 'gid',
+          GOOGLE_CLIENT_SECRET: 'gsecret',
+          POOL_ENABLED: 'false',
+        }),
+      ),
+      'oauth-pool-off@example.org',
+    );
+    expect(off.headers.get('location')).toBe('/learn/');
+    const noKey = await googleSignIn(
+      setup(
+        authEnv({
+          GOOGLE_CLIENT_ID: 'gid',
+          GOOGLE_CLIENT_SECRET: 'gsecret',
+          POOL_ENABLED: 'true',
+          TURNSTILE_SITE_KEY: '',
+        }),
+      ),
+      'oauth-no-turnstile@example.org',
+    );
+    expect(noKey.headers.get('location')).toBe('/learn/');
+  });
+
+  it('continues only to same-origin paths, and only for a signed-in user', async () => {
+    const s = setup(poolOn());
+    const signedOut = await s.call('/verify?next=%2Flearn%2F', { redirect: 'manual' });
+    expect(signedOut.status).toBe(303);
+    expect(signedOut.headers.get('location')).toBe('/learn/');
+    for (const next of ['//evil.example/x', 'https://evil.example/', '/\\evil.example']) {
+      const res = await s.call(`/verify?next=${encodeURIComponent(next)}`, { redirect: 'manual' });
+      expect(res.headers.get('location'), next).toBe('/');
+    }
+    const res = await googleSignIn(s, 'oauth-cross-site@example.org');
+    const cookie = cookieHeader(res);
+    const page = await s.call('/verify?next=https%3A%2F%2Fevil.example%2F', {
+      headers: { cookie },
+    });
+    expect(await page.text()).toContain('name="next" value="/"');
+    const cross = await s.call('/verify', {
+      method: 'POST',
+      headers: {
+        cookie,
+        'content-type': 'application/x-www-form-urlencoded',
+        'sec-fetch-site': 'cross-site',
+      },
+      body: new URLSearchParams({ next: '/', 'cf-turnstile-response': 'pass' }).toString(),
+    });
+    expect(cross.status).toBe(403);
+    expect((await verified('oauth-cross-site@example.org'))?.pool_verified_at).toBeNull();
   });
 });
 

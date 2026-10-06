@@ -83,8 +83,17 @@ export const branches = sqliteTable(
     title: text('title').notNull(),
     titleSource: text('title_source', { enum: ['default', 'auto', 'user'] }).notNull(),
     isPrivate: integer('is_private', { mode: 'boolean' }).notNull().default(false),
+    /** The endpoint (`openrouter`, `anthropic`, …); the same in both modes. */
     providerId: text('provider_id').notNull(),
     model: text('model').notNull(),
+    /**
+     * Who pays for the branch's calls in power mode: `own-key` or `credit`
+     * (Tangent credit). Learn pays per request and writes `own-key`. Migration
+     * 0020 split it from `provider_id` (the legacy `tangent`).
+     */
+    funding: text('funding', { enum: ['own-key', 'credit'] })
+      .notNull()
+      .default('own-key'),
     grounding: text('grounding', { enum: ['off', 'auto', 'always'] })
       .notNull()
       .default('auto'),
@@ -213,11 +222,9 @@ export const authUsers = sqliteTable(
     image: text('image'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
-    /** Stripe customer (Better Auth Stripe plugin field); set lazily on the first checkout. */
-    stripeCustomerId: text('stripe_customer_id'),
     /**
      * The operator waived the membership fee (by hand, or the user redeemed
-     * MEMBERSHIP_WAIVER_CODE). Wins over the Stripe subscription; clear it to revoke.
+     * MEMBERSHIP_WAIVER_CODE). Wins over the membership subscription; clear it to revoke.
      */
     membershipWaived: integer('membership_waived', { mode: 'boolean' }).notNull().default(false),
     /** ISO timestamp of when the waiver was first granted; null when never waived. */
@@ -229,8 +236,31 @@ export const authUsers = sqliteTable(
      * endpoint can set it.
      */
     shareAllowed: integer('share_allowed', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * The operator suspended this user's community pool access (the admin
+     * page, `PATCH /api/admin/users/:userId`), or a lost dispute of their pool
+     * purchase did. Like the next two columns, not a Better Auth field, so no
+     * auth endpoint can set it.
+     */
+    poolSuspended: integer('pool_suspended', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * ISO timestamp of the user's first Cloudflare Turnstile pass (a magic-link
+     * sign-in, the interstitial after a first OAuth sign-in, or
+     * `POST /api/pool/verify`); null = the pool asks for one first.
+     */
+    poolVerifiedAt: text('pool_verified_at'),
+    /**
+     * SHA-256 of the user's normalised email (pool/identity.ts): one pool
+     * identity per mailbox, so `a.b+x@gmail.com` can't be a second free tier
+     * next to `ab@gmail.com`. Claimed at verification; null until then.
+     */
+    poolIdentity: text('pool_identity'),
   },
-  (t) => [index('auth_users_stripe_customer_idx').on(t.stripeCustomerId)],
+  (t) => [
+    uniqueIndex('auth_users_pool_identity_idx')
+      .on(t.poolIdentity)
+      .where(sql`${t.poolIdentity} IS NOT NULL`),
+  ],
 );
 
 export const authSessions = sqliteTable(
@@ -318,68 +348,121 @@ export const authRateLimits = sqliteTable('auth_rate_limits', {
   lastRequest: integer('last_request').notNull(),
 });
 
-/**
- * Better Auth Stripe plugin `subscription` model: the membership (plan `membership`).
- * `referenceId` is the Better Auth user id. Mapped as `subscription` in the
- * drizzleAdapter schema (src/auth/auth.ts).
- */
-export const authSubscriptions = sqliteTable(
-  'auth_subscriptions',
-  {
-    id: text('id').primaryKey(),
-    plan: text('plan').notNull(),
-    referenceId: text('reference_id').notNull(),
-    stripeCustomerId: text('stripe_customer_id'),
-    stripeSubscriptionId: text('stripe_subscription_id'),
-    status: text('status').notNull().default('incomplete'),
-    periodStart: integer('period_start', { mode: 'timestamp_ms' }),
-    periodEnd: integer('period_end', { mode: 'timestamp_ms' }),
-    trialStart: integer('trial_start', { mode: 'timestamp_ms' }),
-    trialEnd: integer('trial_end', { mode: 'timestamp_ms' }),
-    cancelAtPeriodEnd: integer('cancel_at_period_end', { mode: 'boolean' })
-      .notNull()
-      .default(false),
-    cancelAt: integer('cancel_at', { mode: 'timestamp_ms' }),
-    canceledAt: integer('canceled_at', { mode: 'timestamp_ms' }),
-    endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
-    seats: integer('seats'),
-    billingInterval: text('billing_interval'),
-    stripeScheduleId: text('stripe_schedule_id'),
-  },
-  (t) => [
-    index('auth_subscriptions_reference_idx').on(t.referenceId),
-    index('auth_subscriptions_stripe_sub_idx').on(t.stripeSubscriptionId),
-  ],
-);
-
-// ---- Billing (simple accounts; see src/billing/)
+// ---- Billing (see src/billing/ and, for the community pool, src/pool/)
 //
 // Ledger in integer micro-USD. Balance = Σ credit_grants.amount_micros
 // − Σ settled usage_events.charge_micros; pending usage holds `hold_micros`.
-// No cached balance column: every write is one idempotent statement.
+// No cached balance column: every write is one idempotent statement. Each
+// user's credit is the account `u_<userId>`; the community pool is one more
+// account (`POOL_ACCOUNT_ID`, default `pool`) in the same two tables.
 
-/** Credits (purchases, subscription invoices) and debits (refunds, manual adjustments). */
+/** Credits (purchases, membership credit, pool contributions) and debits (refunds, manual adjustments). */
 export const creditGrants = sqliteTable(
   'credit_grants',
   {
     id: text('id').primaryKey(),
     accountId: text('account_id').notNull(),
-    kind: text('kind', { enum: ['purchase', 'subscription', 'refund', 'adjustment'] }).notNull(),
-    /** Signed: refunds are negative. For purchases, the credit net of Stripe's fee. */
+    /** `contribution`: the pool's share of Tangent's revenue (pool/revenue-share.ts) or its reversal. */
+    kind: text('kind', {
+      enum: ['purchase', 'subscription', 'refund', 'adjustment', 'contribution'],
+    }).notNull(),
+    /** Signed: refunds are negative. For purchases, the credit net of the processing fee (older pool purchases: of the margin). */
     amountMicros: integer('amount_micros').notNull(),
-    /** Purchases: the pre-tax amount paid (`amount + fee`); null for refunds and adjustments. */
+    /**
+     * Purchases: the pre-tax amount paid (`amount + fee` for personal credit); refunds and
+     * disputes (since migration 0010): minus the refunded pre-tax amount, unclamped. Null for
+     * adjustments and older refunds.
+     */
     grossMicros: integer('gross_micros'),
-    /** Purchases: Stripe's actual processing fee, deducted from the credit. */
+    /** Purchases: the payment provider's actual processing fee (deducted from personal credit; recorded only for the pool). */
     feeMicros: integer('fee_micros').notNull().default(0),
-    /** Stripe object id (checkout session, invoice, refund); unique for idempotency. */
-    stripeRef: text('stripe_ref').unique(),
+    /** Older pool purchases: the margin taken, in bps (`amount = gross / (1 + margin)`); 0 otherwise, and since the pool moved to a per-call markup. */
+    marginBps: integer('margin_bps').notNull().default(0),
+    /** The buyer or beneficiary (Better Auth user id); null on rows before migration 0010 and pool adjustments. */
+    userId: text('user_id'),
+    /**
+     * Idempotency key, unique: a payment provider's namespaced object ref
+     * (`<provider>:<object>:<id>`, billing/payments/refs.ts), `admin:<key>`,
+     * `dev:<key>`, or a bare object id of the previous processor on rows from before migration 0015.
+     */
+    providerRef: text('provider_ref').unique(),
+    /**
+     * Refunds, disputes and their reinstatements (since migration 0018): the payment they
+     * take back from, so together they never take back more than it granted
+     * (billing/payments/apply.ts). Also a membership payment's revenue share taken back.
+     */
+    paymentRef: text('payment_ref'),
     note: text('note'),
     createdAt: text('created_at').notNull(),
   },
-  (t) => [index('credit_grants_account_idx').on(t.accountId)],
+  (t) => [
+    index('credit_grants_account_idx').on(t.accountId),
+    index('credit_grants_user_idx').on(t.userId, t.kind),
+    index('credit_grants_account_created_idx').on(t.accountId, t.createdAt),
+    index('credit_grants_payment_idx').on(t.paymentRef),
+  ],
 );
 
-/** One metered provider call. No FK to trees: billing history outlives deleted trees. */
+/**
+ * Who a user is at a payment provider: written from any payment event that
+ * carries both ids (billing/payments/customers.ts). It tells account deletion
+ * whether the provider holds a customer, and serves admin lookups. Keyed per
+ * provider, so a provider switch needs no schema change.
+ */
+export const billingCustomers = sqliteTable(
+  'billing_customers',
+  {
+    /** A `ProviderId` (billing/payments/port.ts). */
+    provider: text('provider').notNull(),
+    userId: text('user_id').notNull(),
+    /** The provider's own customer id. */
+    customerRef: text('customer_ref').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.provider, t.userId] }),
+    index('billing_customers_ref_idx').on(t.provider, t.customerRef),
+  ],
+);
+
+/**
+ * The membership subscription, as its provider last reported it: a snapshot
+ * upserted from `membership.changed` events (billing/payments/apply.ts),
+ * guarded by `version` so late or duplicate deliveries never roll it back.
+ */
+export const billingSubscriptions = sqliteTable(
+  'billing_subscriptions',
+  {
+    /** Namespaced provider ref, e.g. `polar:subscription:<id>`. */
+    ref: text('ref').primaryKey(),
+    provider: text('provider').notNull(),
+    /** The Better Auth user id. */
+    userId: text('user_id').notNull(),
+    /** What the subscription is for; only `membership` today. */
+    kind: text('kind').notNull(),
+    /** Normalised `SubscriptionStatus` (@tangent/shared). */
+    status: text('status').notNull(),
+    /** The provider's own status, for support; never sent to the apps. */
+    providerStatus: text('provider_status').notNull(),
+    /** ISO timestamp of the current period's end. */
+    currentPeriodEnd: text('current_period_end'),
+    cancelAtPeriodEnd: integer('cancel_at_period_end', { mode: 'boolean' })
+      .notNull()
+      .default(false),
+    endedAt: text('ended_at'),
+    /** Monotonic per subscription (an ISO timestamp from the provider); older snapshots are dropped. */
+    version: text('version').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [index('billing_subscriptions_user_idx').on(t.userId, t.kind)],
+);
+
+/**
+ * One metered provider call. No FK to trees: billing history outlives deleted
+ * trees. A row never changes once it leaves `pending`; for the pool, inserting
+ * the pending row is the reservation and settling it is the settlement (or,
+ * with `settle_reason = 'released'`, the refund of the reservation).
+ */
 export const usageEvents = sqliteTable(
   'usage_events',
   {
@@ -387,7 +470,21 @@ export const usageEvents = sqliteTable(
     accountId: text('account_id').notNull(),
     treeId: text('tree_id'),
     nodeId: text('node_id'),
-    purpose: text('purpose', { enum: ['reply', 'summary', 'title', 'review', 'other'] }).notNull(),
+    /** The branch the call served (rows since migration 0010). */
+    branchId: text('branch_id'),
+    /** Who made the call (rows since migration 0010). */
+    userId: text('user_id'),
+    /** `personal` (the user's credit) or `pool` (the community pool, `account_id` = the pool). */
+    funding: text('funding', { enum: ['personal', 'pool'] })
+      .notNull()
+      .default('personal'),
+    /** Pool rows: a daily-rotating keyed hash of the caller's network (pool/ids.ts `ipKey`). */
+    ipKey: text('ip_key'),
+    /** Pool rows: the caller's cap tier when the call was reserved. */
+    tier: text('tier', { enum: ['free', 'member'] }),
+    purpose: text('purpose', {
+      enum: ['reply', 'summary', 'title', 'review', 'tagging', 'other'],
+    }).notNull(),
     providerId: text('provider_id').notNull(),
     model: text('model').notNull(),
     /** Upstream (OpenRouter) generation id, once known. */
@@ -398,12 +495,21 @@ export const usageEvents = sqliteTable(
     /** OpenRouter's credit-purchase fee in force at the call (rows before 0004: 0). */
     feeBps: integer('fee_bps').notNull().default(0),
     costNanos: integer('cost_nanos'),
+    /** Pool rows: never more than `hold_micros` (the excess is `overage_micros`). */
     chargeMicros: integer('charge_micros'),
+    /** Pool rows: what the call cost beyond its hold, absorbed by the operator (feeds the breaker). */
+    overageMicros: integer('overage_micros').notNull().default(0),
+    /** How the row settled: `cost|generation|tokens|hold|released|unresolved` (rows since 0010). */
+    settleReason: text('settle_reason', {
+      enum: ['cost', 'generation', 'tokens', 'hold', 'released', 'unresolved'],
+    }),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
     /** Web searches the call ran (grounding); their cost is inside cost_nanos. */
     webSearches: integer('web_searches').notNull().default(0),
     createdAt: text('created_at').notNull(),
+    /** Pool rows: when the request was handed to the provider (null = never sent: released at 0). */
+    dispatchedAt: text('dispatched_at'),
     settledAt: text('settled_at'),
   },
   (t) => [
@@ -411,5 +517,156 @@ export const usageEvents = sqliteTable(
     index('usage_events_pending_idx')
       .on(t.createdAt)
       .where(sql`status = 'pending'`),
+    index('usage_events_account_status_idx').on(t.accountId, t.status, t.createdAt),
+    index('usage_events_pool_user_idx').on(t.accountId, t.userId, t.createdAt),
+    index('usage_events_pool_ip_idx').on(t.accountId, t.ipKey, t.createdAt),
+    index('usage_events_pool_tier_idx').on(t.accountId, t.tier, t.createdAt),
+    // The weekly impact job's tag retention: a branch's latest pool reply.
+    index('usage_events_branch_idx').on(t.branchId, t.createdAt),
+    // The pool's daily revenue share: personal charges settled in a UTC day (pool/revenue-share.ts).
+    index('usage_events_personal_settled_idx')
+      .on(t.settledAt)
+      .where(sql`funding = 'personal' AND status = 'settled'`),
   ],
+);
+
+// ---- Community pool identities (src/pool/identity.ts)
+//
+// A mailbox's pool identity (`auth_users.pool_identity`, a SHA-256 of the
+// normalised email) outlives the account that claimed it: deleting the
+// account and signing up again with the same mailbox must not lift a
+// suspension or reset the daily caps. These two tables hold only that hash
+// and user ids, and account deletion keeps them, like the ledger.
+
+/** Per mailbox: an operator suspension that survives the account's deletion. */
+export const poolIdentities = sqliteTable('pool_identities', {
+  identity: text('identity').primaryKey(),
+  /** Set with the holder's `pool_suspended` (admin PATCH, account deletion); cleared by an admin unsuspend. */
+  suspended: integer('suspended', { mode: 'boolean' }).notNull().default(false),
+});
+
+/** Every account that has held a pool identity, so the daily caps count the mailbox's usage. */
+export const poolIdentityHolders = sqliteTable(
+  'pool_identity_holders',
+  {
+    userId: text('user_id').primaryKey(),
+    identity: text('identity').notNull(),
+    claimedAt: text('claimed_at').notNull(),
+  },
+  (t) => [index('pool_identity_holders_identity_idx').on(t.identity)],
+);
+
+// ---- Community pool consent and topic tags (src/pool/consent.ts, src/pool/tagging.ts)
+
+/**
+ * Who acknowledged which version of the pool notice (packages/shared/src/pool.ts
+ * `POOL_NOTICE_TEXT`), and when. A pool request needs a row at the current
+ * version (`pool_consent_required`). Kept until the account is deleted.
+ */
+export const poolConsents = sqliteTable(
+  'pool_consents',
+  {
+    userId: text('user_id').notNull(),
+    noticeVersion: integer('notice_version').notNull(),
+    acknowledgedAt: text('acknowledged_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.noticeVersion] })],
+);
+
+/**
+ * One topic per pool-funded branch, from the classifier's reading of the pool
+ * exchange that first completed there (src/pool/taxonomy.ts leaf ids, or the
+ * sentinel `sensitive`). No user id, no tree id and no text: per-topic
+ * learners come from `usage_events`, joined on `branch_id`. Deleted 14 days
+ * after the branch's last pool use, or with the account.
+ */
+export const poolTopicTags = sqliteTable(
+  'pool_topic_tags',
+  {
+    branchId: text('branch_id').primaryKey(),
+    topicId: text('topic_id').notNull(),
+    /** The branch's depth in its tree when tagged: 0 = the trunk. */
+    branchDepth: integer('branch_depth').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [index('pool_topic_tags_topic_idx').on(t.topicId, t.createdAt)],
+);
+
+// ---- Community pool impact feed (src/pool/impact.ts, docs/pool/PLAN.md §S8b)
+
+/**
+ * One immutable public snapshot per ISO week (`week_start`: its Monday,
+ * `YYYY-MM-DD`), written by the weekly cron. Totals cover every funded pool
+ * reply of the week, sensitive and unnamed topics included.
+ */
+export const poolImpactSnapshots = sqliteTable('pool_impact_snapshots', {
+  weekStart: text('week_start').primaryKey(),
+  /** Pool replies settled above 0 in the week. */
+  exchanges: integer('exchanges').notNull(),
+  /** Distinct users of those replies. */
+  learners: integer('learners').notNull(),
+  /** Distinct topics touched (the sentinel `sensitive` counts as one). */
+  topics: integer('topics').notNull(),
+  /** Average branch depth of the tagged replies, × 1000. */
+  avgDepthMilli: integer('avg_depth_milli').notNull(),
+  maxDepth: integer('max_depth').notNull(),
+  /** The published topic with the greatest average depth; null when none is published. */
+  deepestTopicId: text('deepest_topic_id'),
+  createdAt: text('created_at').notNull(),
+});
+
+/** The topics a snapshot names: published ones only (threshold, not sensitive or blocked, approved). */
+export const poolImpactTopics = sqliteTable(
+  'pool_impact_topics',
+  {
+    weekStart: text('week_start').notNull(),
+    topicId: text('topic_id').notNull(),
+    learners: integer('learners').notNull(),
+    exchanges: integer('exchanges').notNull(),
+    avgDepthMilli: integer('avg_depth_milli').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.weekStart, t.topicId] })],
+);
+
+/**
+ * The admin review queue: a topic that first qualifies to be named is queued
+ * `pending`; only `approved` topics are ever published, from the next week on.
+ */
+export const poolTopicReviews = sqliteTable('pool_topic_reviews', {
+  topicId: text('topic_id').primaryKey(),
+  status: text('status', { enum: ['pending', 'approved', 'rejected'] }).notNull(),
+  /** The week (`YYYY-MM-DD`) it first qualified. */
+  firstSeenWeek: text('first_seen_week').notNull(),
+  decidedAt: text('decided_at'),
+  /** The admin's user id. */
+  decidedBy: text('decided_by'),
+});
+
+/**
+ * OpenRouter list prices of the priced models, refreshed daily by the price
+ * sync (pool/price-sync.ts). They replace the built-in placeholder prices of
+ * `DEFAULT_MODEL_PRICES`; an explicit `MODEL_PRICES` entry still wins.
+ */
+export const modelPrices = sqliteTable('model_prices', {
+  model: text('model').primaryKey(),
+  inMicrosPerMTok: integer('in_micros_per_mtok').notNull(),
+  outMicrosPerMTok: integer('out_micros_per_mtok').notNull(),
+  /** OpenRouter's `context_length`; null when not reported. */
+  contextTokens: integer('context_tokens'),
+  /** When a sync last confirmed the price (ISO). */
+  fetchedAt: text('fetched_at').notNull(),
+});
+
+/** Every price a sync first saw (append-only): one row per new or changed price. */
+export const modelPriceHistory = sqliteTable(
+  'model_price_history',
+  {
+    model: text('model').notNull(),
+    inMicrosPerMTok: integer('in_micros_per_mtok').notNull(),
+    outMicrosPerMTok: integer('out_micros_per_mtok').notNull(),
+    contextTokens: integer('context_tokens'),
+    /** ISO. */
+    recordedAt: text('recorded_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.model, t.recordedAt] })],
 );

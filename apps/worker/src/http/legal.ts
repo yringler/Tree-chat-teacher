@@ -8,7 +8,7 @@ import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
  * The public legal pages: `/privacy` (privacy policy) and `/terms` (terms of
  * service). Static, script-free documents styled like the landing page, so
  * they need no sign-in and work for app-store, OAuth-consent-screen and
- * Stripe "public details" links.
+ * payment-provider account review links.
  *
  * Who runs the service and how to reach them come from the LEGAL_* vars in
  * wrangler.jsonc. Everything else describes what this code base actually does
@@ -35,10 +35,13 @@ export const LEGAL_STYLE =
 .doc table{width:100%;border-collapse:collapse;font-size:.92rem}
 .doc th,.doc td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
 .doc code{font-size:.88em}
+.doc .weeks{display:flex;flex-wrap:wrap;gap:6px 16px;padding:0;list-style:none}
+.doc .weeks a[aria-current]{font-weight:700}
 @media (max-width:479px){.top nav a+a{display:inline}}
 `;
 
-function page(info: LegalInfo, path: string, title: string, body: string): string {
+/** A long-form public page (the legal pages, `/pool`) in the landing page's look. */
+export function page(info: LegalInfo, path: string, title: string, body: string): string {
   const canonical = escapeHtml(new URL(path, info.origin).toString());
   return `<!doctype html>
 <html lang="en">
@@ -61,7 +64,7 @@ ${body}
 <footer>
 <div class="wrap">
 <span>${escapeHtml(copyrightNotice(info.operator))}</span>
-<nav aria-label="Footer"><a href="/welcome">About Tangent</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+<nav aria-label="Footer"><a href="/welcome">About Tangent</a><a href="/pool">Community pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
 </div>
 </footer>
 </body>
@@ -83,7 +86,7 @@ export function renderPrivacyPage(info: LegalInfo): string {
     : "other users can't see them unless you publish a share link, which only accounts we have enabled it for can do.";
   const shareIntro = info.sharing
     ? ''
-    : '<p>Share links are not generally available: only accounts we have enabled them for can create them, and links from other accounts don\'t open. To show someone a conversation, export it as Markdown or HTML and send or host the file yourself; we don\'t host or see those copies.</p>\n';
+    : "<p>Share links are not generally available: only accounts we have enabled them for can create them, and links from other accounts don't open. To show someone a conversation, export it as Markdown or HTML and send or host the file yourself; we don't host or see those copies.</p>\n";
   return page(
     info,
     '/privacy',
@@ -105,7 +108,8 @@ export function renderPrivacyPage(info: LegalInfo): string {
 <tr><td>Sessions</td><td>For each signed-in browser: the IP address and browser user agent at sign-in, and when the session expires.</td><td>Security: to keep you signed in and to spot misuse.</td></tr>
 <tr><td>Your content</td><td>Conversations (messages, replies, branch titles, summaries), system prompts, settings, and share links you create.</td><td>This is the service. Stored in our database until you delete it.</td></tr>
 <tr><td>AI provider API keys</td><td>If you add your own key, it is encrypted into a cookie that only your browser holds. We never store it on our servers; it is decrypted in memory for each request and never logged.</td><td>To call the provider on your behalf.</td></tr>
-<tr><td>Billing (paid credit only)</td><td>Your Stripe customer id, credit purchases and refunds, membership status, and for each paid reply: the model, token counts, cost and time. Card numbers and billing addresses go to Stripe and never reach us.</td><td>To charge for what you use, show you your usage, and keep the records tax law requires.</td></tr>
+<tr><td>Billing (paid credit only)</td><td>Your customer id at our payment provider, credit purchases and refunds, membership status, and for each paid reply: the model, token counts, cost and time. Card numbers, billing addresses and tax details go to Polar, our merchant of record, and never reach us.</td><td>To charge for what you use, show you your usage, and keep the records tax law requires.</td></tr>
+<tr><td>Community pool (only if you use it)</td><td>That you acknowledged the pool notice: which version, and when. For each conversation branch the pool pays for: one topic from a fixed list (such as "Ancient Rome"), how deep the branch sits in its conversation, and the date. The topic is stored without any text from your messages and without your account id; sensitive topics (such as health, legal or money matters) are stored only as "sensitive". To pick the topic, the message of that pool exchange is sent once more to the pool's AI model, and only its one-word answer is kept. Our usage records of the pool (see Billing) could still connect a branch to your account while its topic is kept.</td><td>To show the notice again only when it changes, and to publish anonymous weekly counts of what the pool funds on the <a href="/pool">pool page</a> and the home page: exchanges, learners, topics and branch depth in total, and topics by name only when enough different learners touched them that week, never a sensitive one, and only after an administrator approved the topic.</td></tr>
 <tr><td>Technical logs</td><td>Errors and request metadata (time, path, status, IP address) kept by our hosting provider's logs for a short time. Rate-limit counters per IP address. Never message content or API keys.</td><td>Security, abuse prevention and fixing bugs.</td></tr>
 </tbody>
 </table>
@@ -123,7 +127,7 @@ export function renderPrivacyPage(info: LegalInfo): string {
 These providers handle your messages under their own terms and privacy policies, which may include keeping them for a period for abuse monitoring. Don't put information in a conversation that you wouldn't want an AI provider to process.</li>
 <li><strong>Resend</strong> (USA): sends sign-in link emails to your address.</li>
 <li><strong>Google and GitHub</strong>: only if you choose to sign in with them.</li>
-<li><strong>Stripe</strong> (USA): payments, tax calculation and invoices, under Stripe's own privacy policy.</li>
+<li><strong>Polar Software, Inc.</strong> (USA): our reseller and merchant of record for credit and the membership: checkout and payments (through its own payment processor, Stripe), tax, invoices, receipts, refunds and disputes, under Polar's own privacy policy. It receives your email, name and our user id for your account, and what you buy.</li>
 </ul>
 <p>We also disclose data when the law requires it, or to protect the rights and safety of users and the service. We never sell or rent personal data, and never share it for advertising.</p>
 <p>Because these providers are in the USA and elsewhere, your data may be processed outside your country. Where the law requires it, transfers rely on the providers' standard contractual clauses or equivalent safeguards.</p>
@@ -144,7 +148,9 @@ ${shareIntro}<p>When you create a share link, anyone who has the link can read w
 <ul>
 <li>Conversations, settings and share links: until you delete them or your account. Deleting is immediate in the app.</li>
 <li>Sessions: until they expire or you sign out. Sign-in links: 15 minutes.</li>
-<li>Payment records (credit purchases, refunds, usage charges): kept after your account is deleted, for as long as tax and accounting law requires (typically up to 7 years). They contain no message content, and nothing in them is linked to your email once your account is gone. Stripe keeps its own records under its policy.</li>
+<li>Community pool notice acknowledgments: until your account is deleted. Pool topics: until 14 days after the branch was last used on the pool, or until your account is deleted, whichever comes first.</li>
+<li>The weekly community pool snapshots (counts only, nothing about any one person): kept, so past weeks stay browsable.</li>
+<li>Payment records (credit purchases, refunds, usage charges): kept after your account is deleted, for as long as tax and accounting law requires (typically up to 7 years). They contain no message content, and nothing in them is linked to your email once your account is gone. Polar, as merchant of record, keeps its own order and tax records under its policy.</li>
 <li>Database recovery history: deleted data remains in our hosting provider's point-in-time recovery for up to 30 days, after which it is gone for good.</li>
 </ul>
 
@@ -152,7 +158,7 @@ ${shareIntro}<p>When you create a share link, anyone who has the link can read w
 <ul>
 <li><strong>Access and export:</strong> every conversation can be downloaded as a JSON backup, Markdown or HTML from the app. For anything else we hold about you, email ${contact}.</li>
 <li><strong>Correction:</strong> rename or delete anything in the app; your email comes from how you sign in.</li>
-<li><strong>Deletion:</strong> delete single conversations at any time, or your whole account from the account menu in any of the apps ("Delete account"). That deletes both your Power and Learn accounts (Canvas uses the Power account) with every conversation, share link and setting, your sign-in methods and sessions, and your Stripe customer record, which also cancels any monthly plan. Unused credit is forfeited. Payment records are kept as described above.</li>
+<li><strong>Deletion:</strong> delete single conversations at any time, or your whole account from the account menu in any of the apps ("Delete account"). That deletes both your Power and Learn accounts (Canvas uses the Power account) with every conversation, share link and setting, your sign-in methods and sessions, and your customer record at Polar (anonymised; Polar keeps the order records tax law requires), which also cancels your membership. Unused credit is forfeited. Payment records are kept as described above.</li>
 <li>Depending on where you live (for example the EEA, UK or California) you may also have the right to object to or restrict processing, to data portability, and to complain to your data protection authority. Email ${contact}; we answer within 30 days.</li>
 </ul>
 <p>We don't sell or share personal information as the California Consumer Privacy Act defines those terms, and we don't use it for profiling or automated decisions with legal effects.</p>
@@ -217,10 +223,12 @@ export function renderTermsPage(info: LegalInfo): string {
 
 <h2>7. Membership and paid credit</h2>
 <ul>
-<li>Prices for paid replies are the AI provider's cost (including its credit-purchase fee) plus a markup shown in the app. Stripe's processing fee comes out of each purchase, and tax is added at checkout.</li>
-<li>Credit is prepaid, is used up as you send messages, has no cash value and can't be transferred. It doesn't expire while your account exists. Deleting your account forfeits any credit left.</li>
+<li>Credit and the membership are sold through Polar Software, Inc., our reseller and merchant of record: you buy from Polar, which processes the payment, calculates and collects tax, issues invoices and receipts, and handles refunds and disputes. Polar's terms for buyers also apply to your purchase.</li>
+<li>Prices for paid replies are the AI provider's cost (including its credit-purchase fee) plus a markup shown in the app. Polar's processing fee comes out of each purchase, and tax is added at checkout.</li>
+<li>Credit is prepaid and is used up as you send messages. It has no cash value and can't be transferred, to another account or to the community pool. It doesn't expire while your account exists. Deleting your account forfeits any credit left.</li>
 <li>Where the service requires a membership to generate replies, it renews automatically each year until you cancel it under "Manage billing". Cancelling stops future renewals; the membership runs to the end of the paid year, and credit already granted stays usable.</li>
-<li>Purchases are not refundable except where the law requires, or where we decide otherwise. If you're a consumer in the EU or UK, you agree that credit is delivered right away and acknowledge that, once you start using it, you lose the 14-day right of withdrawal for the part used.</li>
+<li>Credit and the membership are not refundable, except where the law requires it or under Polar's terms for buyers: as merchant of record, Polar may refund a purchase (for example, to prevent a chargeback). Refunded credit is removed from your balance, and a refunded membership payment takes back the credit it included. If you're a consumer in the EU or UK, you agree that credit is delivered right away and acknowledge that, once you start using it, you lose the 14-day right of withdrawal for the part used.</li>
+<li>The <a href="/pool">community pool</a> is free credit we provide, at our discretion, that any signed-in learner may use within its limits. We fund it from our own revenue, as described on the pool page; pool credit isn't for sale. Replies from the pool cost you nothing. We may change the pool's funding, model, limits and availability, or end it, and it may be empty.</li>
 <li>We may change prices; changes apply to credit bought or membership periods starting after the change.</li>
 </ul>
 
@@ -253,7 +261,8 @@ export function renderTermsPage(info: LegalInfo): string {
   );
 }
 
-async function legalResponse(c: Context<AppBindings>, html: string): Promise<Response> {
+/** A public page styled by LEGAL_STYLE, cacheable for five minutes. */
+export async function legalResponse(c: Context<AppBindings>, html: string): Promise<Response> {
   return new Response(html, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',

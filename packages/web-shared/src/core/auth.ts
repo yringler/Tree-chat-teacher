@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import type { LoginOptionsResponse, MeResponse } from '@tangent/shared';
-import { ApiClient, ApiError } from './api-client';
+import { ApiClient, ApiError, isSessionExpired } from './api-client';
 import { API_FETCH, defaultApiFetch } from './api-fetch';
 import { AUTH_CLIENT, authErrorMessage as messageFor } from './auth-client';
 import { APP_PATHS } from './app-paths';
@@ -57,7 +57,7 @@ export class AuthService {
       if (!me.devMode) void this.hasSession().catch(() => undefined);
       return me;
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
+      if (isSessionExpired(err)) {
         location.replace(this.paths.login);
         return null;
       }

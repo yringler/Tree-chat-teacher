@@ -27,21 +27,26 @@ const ERROR_CODES: ReadonlySet<string> = new Set<ProviderErrorCode>([
 
 interface FakeOptions {
   responses: [string, string][];
+  anyMessageResponses: [string, string][];
   chunkSize: number;
   delayMs: number;
   failWith: ProviderErrorCode | null;
   costUsd: number | null;
   citations: Citation[];
   webSearchCostUsd: number;
+  echoRequest: boolean | string;
+}
+
+function readResponses(r: unknown): [string, string][] {
+  const out: [string, string][] = [];
+  if (isRecord(r)) {
+    for (const [k, v] of Object.entries(r)) if (typeof v === 'string') out.push([k, v]);
+  }
+  return out;
 }
 
 function readOptions(options: Record<string, unknown> | undefined): FakeOptions {
   const o = options ?? {};
-  const responses: [string, string][] = [];
-  const r = o['responses'];
-  if (isRecord(r)) {
-    for (const [k, v] of Object.entries(r)) if (typeof v === 'string') responses.push([k, v]);
-  }
   const cs = o['chunkSize'];
   const dm = o['delayMs'];
   const fw = o['failWith'];
@@ -59,18 +64,21 @@ function readOptions(options: Record<string, unknown> | undefined): FakeOptions 
       });
     }
   }
+  const echo = o['echoRequest'];
   return {
-    responses,
+    responses: readResponses(o['responses']),
+    anyMessageResponses: readResponses(o['anyMessageResponses']),
     chunkSize: typeof cs === 'number' && Number.isInteger(cs) && cs > 0 ? cs : 8,
     delayMs: typeof dm === 'number' && dm > 0 ? dm : 0,
     failWith: typeof fw === 'string' && ERROR_CODES.has(fw) ? (fw as ProviderErrorCode) : null,
     costUsd: typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? cost : null,
     citations,
     webSearchCostUsd: typeof wsCost === 'number' && Number.isFinite(wsCost) && wsCost >= 0 ? wsCost : 0,
+    echoRequest: echo === true || (typeof echo === 'string' && echo !== '') ? echo : false,
   };
 }
 
-type Input = Pick<GenerateRequest, 'model' | 'system' | 'messages'>;
+type Input = Pick<GenerateRequest, 'model' | 'system' | 'messages' | 'maxOutputTokens'>;
 
 function inputTokens(request: Input): number {
   let chars = request.system?.length ?? 0;
@@ -79,7 +87,9 @@ function inputTokens(request: Input): number {
 }
 
 /**
- * Deterministic provider for tests and keyless local dev.
+ * Deterministic provider for tests (worker tests configure it through
+ * `PROVIDERS` / `SIMPLE_PROVIDER`). It is a test seam, not a feature: it is
+ * never among the default providers, so no user is offered it.
  *
  * Reply text, unless overridden:
  *   `Fake reply (${model}) to ${messages.length} message(s): "${lastUser.slice(0, 80)}"`
@@ -88,9 +98,16 @@ function inputTokens(request: Input): number {
  * options (all optional):
  * - responses: Record<string, string> — if the last user message contains a
  *   key, reply with its value (first match in insertion order);
+ * - anyMessageResponses: Record<string, string> (tests only) — the same, but a
+ *   key found in ANY message of the request (any role) matches, and these are
+ *   checked before `responses`: lets a test see whether earlier history was sent;
  * - chunkSize: number (default 8) — characters per `delta`;
  * - delayMs: number (default 0) — await between deltas (to test abort);
  * - failWith: ProviderErrorCode — emit this error after the first delta;
+ * - echoRequest: true | string (tests only) — reply with what the request
+ *   asked for instead: `ECHO model=<model> maxOutputTokens=<n> system=<JSON
+ *   of the system prompt>`; a string echoes only when the last user message
+ *   contains it (so one config can serve other tests unchanged);
  * - costUsd: number — simulate OpenRouter billing: yield
  *   `{type:'billing', generationId:'gen-fake-<uuid>'}` before the first delta and
  *   `{type:'billing', generationId, costUsd}` right before `done` (not on
@@ -122,6 +139,12 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
         break;
       }
     }
+    const echo = opts.echoRequest;
+    if (echo === true || (typeof echo === 'string' && lastUser.includes(echo))) {
+      return `ECHO model=${request.model} maxOutputTokens=${request.maxOutputTokens ?? 'none'} system=${JSON.stringify(request.system)}`;
+    }
+    for (const [key, value] of opts.anyMessageResponses)
+      if (request.messages.some((m) => m.content.includes(key))) return value;
     for (const [key, value] of opts.responses) if (lastUser.includes(key)) return value;
     return `Fake reply (${request.model}) to ${request.messages.length} message(s): "${lastUser.slice(0, 80)}"`;
   };

@@ -35,7 +35,7 @@ function scriptedProvider(
   onEvent?: (index: number) => Promise<void>,
 ): LlmProvider & { calls: number } {
   const provider = {
-    id: 'tangent',
+    id: 'openrouter',
     kind: 'fake' as const,
     label: 'Tangent',
     calls: 0,
@@ -79,7 +79,7 @@ function registryOf(provider: LlmProvider): ProviderRegistry {
   };
 }
 
-const onlyTangent = (providerId: string) => providerId === 'tangent';
+const onlyBuiltIn = (providerId: string) => providerId === 'openrouter';
 
 function request(tag?: UsageTag, signal = new AbortController().signal): GenerateRequest {
   return {
@@ -115,9 +115,9 @@ function harness(account: AccountContext = simpleAccount()): Harness {
         (p) => deferred.push(p),
         opts.options ?? FAST,
       );
-      const registry = meteredRegistry(registryOf(scriptedProvider(script)), meter, onlyTangent);
+      const registry = meteredRegistry(registryOf(scriptedProvider(script)), meter, onlyBuiltIn);
       const out: ProviderEvent[] = [];
-      for await (const event of registry.get('tangent')!.stream(request(opts.tag))) {
+      for await (const event of registry.get('openrouter')!.stream(request(opts.tag))) {
         out.push(event);
         if (opts.stopAfter !== undefined && out.length >= opts.stopAfter) break;
       }
@@ -135,7 +135,12 @@ function harness(account: AccountContext = simpleAccount()): Harness {
 }
 
 const COST = 0.001234;
-const tag: UsageTag = { purpose: 'reply', treeId: 'tree_1', nodeId: 'node_1' };
+const tag: UsageTag = {
+  purpose: 'reply',
+  treeId: 'tree_1',
+  branchId: 'branch_1',
+  nodeId: 'node_1',
+};
 
 describe('usage meter', () => {
   it('settles cost × 1.055 (OpenRouter fee) × 1.10 inline (no subscription), with tokens, tag and generation id', async () => {
@@ -167,7 +172,7 @@ describe('usage meter', () => {
       tree_id: 'tree_1',
       node_id: 'node_1',
       purpose: 'reply',
-      provider_id: 'tangent',
+      provider_id: 'openrouter',
       model: 'smart',
       hold_micros: 20_000,
       markup_bps: 1000,
@@ -192,7 +197,13 @@ describe('usage meter', () => {
         { type: 'billing', generationId: uniq('gen'), costUsd: COST },
         { type: 'done', stopReason: 'stop' },
       ],
-      { env: { ...env, MARKUP_BPS: '500', STRIPE_MEMBERSHIP_PRICE_ID: 'price_test_membership' } },
+      {
+        env: {
+          ...env,
+          MARKUP_BPS: '500',
+          ANNUAL_FEE_ENABLED: 'true',
+        },
+      },
     );
     expect((await h.rows())[0]).toMatchObject({
       status: 'settled',
@@ -216,8 +227,8 @@ describe('usage meter', () => {
         if (i === 1) pendingSeen = await h.rows();
       },
     );
-    for await (const _ of meteredRegistry(registryOf(provider), meter, onlyTangent)
-      .get('tangent')!
+    for await (const _ of meteredRegistry(registryOf(provider), meter, onlyBuiltIn)
+      .get('openrouter')!
       .stream(request()))
       void _;
     expect(pendingSeen).toHaveLength(1);
@@ -317,7 +328,7 @@ describe('usage meter', () => {
     const custom = {
       ...env,
       SIMPLE_PROVIDER: JSON.stringify({
-        id: 'tangent',
+        id: 'openrouter',
         kind: 'openai-compatible',
         label: 'T',
         apiKeySecret: 'MY_OR_KEY',
@@ -359,8 +370,8 @@ describe('usage meter', () => {
     const broken = envWithFailingDb(env, /INSERT INTO usage_events/);
     const meter = createUsageMeter(broken, h.account, (p) => h.deferred.push(p), FAST);
     const events: ProviderEvent[] = [];
-    for await (const e of meteredRegistry(registryOf(provider), meter, onlyTangent)
-      .get('tangent')!
+    for await (const e of meteredRegistry(registryOf(provider), meter, onlyBuiltIn)
+      .get('openrouter')!
       .stream(request()))
       events.push(e);
     expect(events).toEqual([
@@ -403,15 +414,15 @@ describe('usage meter', () => {
     const registry = meteredRegistry(
       inner,
       createUsageMeter(env, simpleAccount(), () => undefined),
-      onlyTangent,
+      onlyBuiltIn,
     );
     expect(registry.list()).toEqual(inner.list());
-    expect(registry.defaultProviderId()).toBe('tangent');
+    expect(registry.defaultProviderId()).toBe('openrouter');
     expect(registry.get('nope')).toBeUndefined();
-    const wrapped = registry.get('tangent')!;
-    expect(registry.get('tangent')).toBe(wrapped);
+    const wrapped = registry.get('openrouter')!;
+    expect(registry.get('openrouter')).toBe(wrapped);
     expect([wrapped.id, wrapped.kind, wrapped.label, wrapped.defaultModel()]).toEqual([
-      'tangent',
+      'openrouter',
       'fake',
       'Tangent',
       'smart',
@@ -427,7 +438,7 @@ describe('usage meter', () => {
       createUsageMeter(env, simpleAccount(), () => undefined),
       () => false,
     );
-    expect(registry.get('tangent')).toBe(provider);
+    expect(registry.get('openrouter')).toBe(provider);
   });
 
   it("records a power account's calls on the user's ledger (u_<userId>)", async () => {

@@ -4,14 +4,19 @@ import { Router } from '@angular/router';
 import type {
   BillingSummary,
   Branch,
+  PoolBlockDetails,
+  PoolStatusResponse,
   ChatNode,
   CreateBranchRequest,
   ProviderInfo,
   StreamEvent,
+  TreeBackup,
+  TreeBackupInput,
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
-import { ApiClient, ApiError } from '@tangent/web-shared';
+import { POOL_NOTICE_VERSION } from '@tangent/shared';
+import { ApiClient, ApiError, SAVE_FILE } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
 import { LessonStore, OUT_OF_CREDIT_MESSAGE } from './lesson-store';
@@ -31,8 +36,9 @@ function branch(id: string, over: Partial<Branch> = {}): Branch {
     title: id,
     titleSource: 'default',
     isPrivate: false,
-    providerId: 'tangent',
+    providerId: 'openrouter',
     model: 'smart-model',
+    funding: 'own-key',
     createdAt: T,
     updatedAt: T,
     ...over,
@@ -100,7 +106,7 @@ function controlledStream(first: StreamEvent[]) {
 }
 
 const PROVIDER: ProviderInfo = {
-  id: 'tangent',
+  id: 'openrouter',
   kind: 'openai-compatible',
   label: 'Tangent',
   models: [
@@ -119,7 +125,7 @@ const BILLING: BillingSummary = {
   membership: {
     required: false,
     status: 'inactive',
-    stripeStatus: null,
+    subscriptionStatus: null,
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
@@ -161,12 +167,43 @@ function fakeApi() {
     cancelNode: vi.fn(async (_id: string) => undefined),
     billing: vi.fn(async () => BILLING),
     keyStatus: vi.fn(async () => ({ enabled: true, hasKey: false, providers: [] })),
+    poolStatus: vi.fn(async () => POOL_STATUS),
+    poolMe: vi.fn(async () => {
+      throw new Error('not needed');
+    }),
+    poolConsent: vi.fn(async (version: number) => ({
+      version,
+      acknowledgedAt: T,
+    })),
+    backup: vi.fn(async (_id: string): Promise<TreeBackup> => backupOf(detail())),
+    importBackup: vi.fn(async (_backup: TreeBackupInput) => detail()),
   };
 }
+
+function backupOf(d: TreeDetail): TreeBackup {
+  return {
+    format: 'tangent-tree-backup',
+    version: 1,
+    exportedAt: T,
+    tree: d.tree,
+    branches: d.branches,
+    nodes: d.nodes,
+  };
+}
+
+const POOL_STATUS: PoolStatusResponse = {
+  enabled: true,
+  availableMicros: 0,
+  sessionsRemaining: 0,
+  model: { id: 'fast-model', label: 'Simple' },
+  week: { start: T, exchanges: 0, learners: 0 },
+  revenueShareBps: 2000,
+};
 
 function setup() {
   const api = fakeApi();
   const router = { navigate: vi.fn(async (_commands: unknown[], _extras?: unknown) => true) };
+  const saveFile = vi.fn((_name: string, _blob: Blob) => undefined);
   const injector = Injector.create({
     providers: [
       { provide: LessonStore },
@@ -175,11 +212,12 @@ function setup() {
       { provide: PaymentStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: router },
+      { provide: SAVE_FILE, useValue: saveFile },
     ],
   });
   const store = injector.get(LessonStore);
   const ui = injector.get(UiStore);
-  return { store, ui, api, router, injector };
+  return { store, ui, api, router, injector, saveFile };
 }
 
 /** Opens lesson t1 at `branchId` and waits for it to load. */
@@ -414,13 +452,160 @@ describe('LessonStore', () => {
     expect(account.membershipBlocked()).toBe(true);
   });
 
+  it('402 pool_empty on send: the inline empty state, no toast, no navigation, message kept', async () => {
+    const s = setup();
+    await open(s, detail());
+    const empty: PoolBlockDetails = {
+      reason: 'empty',
+      limit: null,
+      resetAt: null,
+      member: false,
+      memberLimit: null,
+    };
+    s.api.sendMessage.mockRejectedValue(
+      new ApiError(402, 'pool_empty', 'The community pool is empty', empty),
+    );
+    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
+
+    expect(s.store.poolBlock()).toEqual({ kind: 'empty', details: empty, branchId: 'trunk' });
+    expect(s.ui.toasts()).toEqual([]);
+    expect(s.router.navigate).not.toHaveBeenCalled();
+    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
+    // Refused before anything was written: no message in the lesson.
+    expect(s.store.path()).toEqual([]);
+    expect(s.store.busy()).toBe(false);
+    // The meter is re-read, so the header shows the empty pool too.
+    await vi.waitFor(() => expect(s.api.poolStatus).toHaveBeenCalled());
+  });
+
+  it('429 pool_cap_reached on send: the inline cap state with its limit and reset', async () => {
+    const s = setup();
+    await open(s, detail());
+    const cap: PoolBlockDetails = {
+      reason: 'cap_requests',
+      limit: 30,
+      resetAt: '2026-01-02T00:00:00.000Z',
+      member: false,
+      memberLimit: 150,
+    };
+    s.api.sendMessage.mockRejectedValue(
+      new ApiError(429, 'pool_cap_reached', "You've reached today's pool limit", cap),
+    );
+    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
+
+    expect(s.store.poolBlock()).toEqual({ kind: 'cap', details: cap, branchId: 'trunk' });
+    expect(s.store.poolBlock()?.details).toMatchObject({ limit: 30, resetAt: cap.resetAt });
+    expect(s.ui.toasts()).toEqual([]);
+    expect(s.router.navigate).not.toHaveBeenCalled();
+    expect(s.store.unsentDraft()?.text).toBe('What is light?');
+
+    // Sending again clears the state; dismissing does too.
+    s.api.sendMessage.mockResolvedValue(stream([]));
+    await s.store.send('trunk', 'What is light?');
+    expect(s.store.poolBlock()).toBeNull();
+    s.store.poolBlock.set({ kind: 'cap', details: cap, branchId: 'trunk' });
+    s.store.dismissPoolBlock();
+    expect(s.store.poolBlock()).toBeNull();
+  });
+
+  it('403 pool_unavailable (verify) on send: opens the human check and keeps the message', async () => {
+    const s = setup();
+    await open(s, detail());
+    s.api.sendMessage.mockRejectedValue(
+      new ApiError(403, 'pool_unavailable', 'Complete the quick human check', {
+        reason: 'verify',
+        limit: null,
+        resetAt: null,
+        member: false,
+        memberLimit: null,
+      }),
+    );
+    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
+    expect(s.ui.poolVerifyOpen()).toBe(true);
+    expect(s.ui.toasts()).toEqual([]);
+    expect(s.store.poolBlock()).toBeNull();
+    expect(s.store.unsentDraft()?.text).toBe('What is light?');
+  });
+
+  it('403 pool_consent_required on send: opens the notice, then acknowledging records it and resends', async () => {
+    const s = setup();
+    await open(s, detail());
+    s.api.sendMessage.mockRejectedValueOnce(
+      new ApiError(403, 'pool_consent_required', 'Read the notice', null, {
+        currentVersion: POOL_NOTICE_VERSION,
+      }),
+    );
+    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
+    expect(s.ui.poolConsentVersion()).toBe(POOL_NOTICE_VERSION);
+    expect(s.ui.poolVerifyOpen()).toBe(false);
+    expect(s.ui.toasts()).toEqual([]);
+    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
+
+    s.api.sendMessage.mockResolvedValueOnce(stream([]));
+    await expect(s.store.acknowledgePoolNotice()).resolves.toBe(true);
+    expect(s.api.poolConsent).toHaveBeenCalledWith(POOL_NOTICE_VERSION);
+    expect(s.ui.poolConsentVersion()).toBeNull();
+    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(2));
+    expect(s.api.sendMessage.mock.calls[1]!.slice(0, 2)).toEqual([
+      'trunk',
+      { content: 'What is light?' },
+    ]);
+  });
+
+  it('a notice that changed meanwhile (409) keeps the dialog open and says to reload', async () => {
+    const s = setup();
+    await open(s, detail());
+    s.ui.poolConsentVersion.set(POOL_NOTICE_VERSION);
+    s.api.poolConsent.mockRejectedValueOnce(new ApiError(409, 'conflict', 'Changed'));
+    await expect(s.store.acknowledgePoolNotice()).resolves.toBe(false);
+    expect(s.ui.poolConsentVersion()).toBe(POOL_NOTICE_VERSION);
+    expect(s.ui.toasts().at(-1)?.text).toMatch(/Reload the page/);
+    expect(s.api.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('never acknowledges a newer notice version than the text this build shows', async () => {
+    const s = setup();
+    await open(s, detail());
+    const newer = POOL_NOTICE_VERSION + 1;
+    s.api.sendMessage.mockRejectedValueOnce(
+      new ApiError(403, 'pool_consent_required', 'Read the notice', null, {
+        currentVersion: newer,
+      }),
+    );
+    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
+    expect(s.ui.poolConsentVersion()).toBe(newer);
+
+    await expect(s.store.acknowledgePoolNotice()).resolves.toBe(false);
+    expect(s.api.poolConsent).not.toHaveBeenCalled();
+    expect(s.ui.poolConsentVersion()).toBe(newer);
+    expect(s.ui.toasts().at(-1)?.text).toMatch(/Reload the page/);
+    expect(s.api.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('other pool_unavailable reasons are reported as a toast', async () => {
+    const s = setup();
+    await open(s, detail());
+    s.api.sendMessage.mockRejectedValue(
+      new ApiError(403, 'pool_unavailable', 'Community pool access is suspended for this account'),
+    );
+    await s.store.send('trunk', 'What is light?');
+    expect(s.ui.poolVerifyOpen()).toBe(false);
+    expect(s.ui.toasts().at(-1)).toMatchObject({
+      kind: 'error',
+      text: 'Community pool access is suspended for this account',
+    });
+  });
+
   it('402 on the first message of a new lesson goes to billing too', async () => {
     const s = setup();
     await s.store.init();
     s.api.sendMessage.mockRejectedValue(new ApiError(402, 'payment_required', 'Too low'));
     await expect(s.store.startLesson('fast-model', '  Teach me fractions ')).resolves.toBe(true);
 
-    expect(s.api.createTree).toHaveBeenCalledWith({ providerId: 'tangent', model: 'fast-model' });
+    expect(s.api.createTree).toHaveBeenCalledWith({
+      providerId: 'openrouter',
+      model: 'fast-model',
+    });
     expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't1']);
     await vi.waitFor(() => expect(s.router.navigate).toHaveBeenLastCalledWith(['/billing']));
     expect(s.api.sendMessage).toHaveBeenCalledWith(
@@ -451,7 +636,7 @@ describe('LessonStore', () => {
       fromNodeId: 'a1',
       contextMode: 'path',
       anchorQuote: 'a wave',
-      providerId: 'tangent',
+      providerId: 'openrouter',
       model: 'fast-model',
     });
     expect(created?.id).toBe('side');
@@ -496,6 +681,79 @@ describe('LessonStore', () => {
     expect(s.api.deleteTree).toHaveBeenCalledWith('t1');
     expect(s.store.trees()).toEqual([]);
     expect(s.router.navigate).toHaveBeenCalledWith(['/']);
+  });
+  it('Export downloads the lesson as the same JSON backup as power mode, named after it', async () => {
+    const s = setup();
+    const d = detail([
+      userNode,
+      node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' }),
+    ]);
+    s.api.backup.mockResolvedValue(backupOf(d));
+    const pending = s.store.exportLesson('t1');
+    expect(s.store.exportingId()).toBe('t1');
+    // One export at a time.
+    await expect(s.store.exportLesson('t2')).resolves.toBe(false);
+    await expect(pending).resolves.toBe(true);
+    expect(s.store.exportingId()).toBeNull();
+    expect(s.api.backup).toHaveBeenCalledTimes(1);
+    expect(s.api.backup).toHaveBeenCalledWith('t1');
+    const [name, blob] = s.saveFile.mock.calls[0]!;
+    expect(name).toBe('photosynthesis.tangent.json');
+    expect(JSON.parse(await blob.text())).toEqual(backupOf(d));
+  });
+
+  it('a failed Export is a toast and saves nothing', async () => {
+    const s = setup();
+    s.api.backup.mockRejectedValue(new ApiError(404, 'not_found', 'Tree not found'));
+    await expect(s.store.exportLesson('t1')).resolves.toBe(false);
+    expect(s.saveFile).not.toHaveBeenCalled();
+    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Tree not found' });
+    expect(s.store.exportingId()).toBeNull();
+  });
+
+  it('Import sends the backup, lists the new lesson first and opens it', async () => {
+    const s = setup();
+    const imported = { ...detail(), tree: { ...detail().tree, id: 't9', title: 'Imported' } };
+    s.api.importBackup.mockResolvedValue(imported);
+    const file = new File([JSON.stringify(backupOf(detail()))], 'photosynthesis.tangent.json');
+    await expect(s.store.importLesson(file)).resolves.toBe(true);
+    expect(s.api.importBackup).toHaveBeenCalledWith(backupOf(detail()));
+    expect(s.store.trees().map((t) => t.id)).toEqual(['t9']);
+    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Imported “Imported”' });
+    expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't9']);
+    expect(s.store.importing()).toBe(false);
+  });
+
+  it('Import refuses a file that is not a usable backup before sending anything', async () => {
+    const s = setup();
+    for (const [file, text] of [
+      [new File(['# Notes'], 'notes.md'), /^notes\.md is not a JSON file\./],
+      [new File(['{"title":"x"}'], 'other.json'), /^other\.json is not a Tangent backup\.$/],
+      [new File([''], 'empty.json'), /^empty\.json is empty\.$/],
+    ] as const) {
+      await expect(s.store.importLesson(file)).resolves.toBe(false);
+      expect(s.ui.toasts().at(-1)).toMatchObject({
+        kind: 'error',
+        text: expect.stringMatching(text),
+      });
+    }
+    expect(s.api.importBackup).not.toHaveBeenCalled();
+    expect(s.router.navigate).not.toHaveBeenCalled();
+    expect(s.store.importing()).toBe(false);
+  });
+
+  it("the server's refusal of an import is a toast", async () => {
+    const s = setup();
+    s.api.importBackup.mockRejectedValue(
+      new ApiError(400, 'bad_request', 'Backup must contain exactly one trunk branch'),
+    );
+    const file = new File([JSON.stringify(backupOf(detail()))], 'lesson.json');
+    await expect(s.store.importLesson(file)).resolves.toBe(false);
+    expect(s.ui.toasts().at(-1)).toMatchObject({
+      kind: 'error',
+      text: 'Backup must contain exactly one trunk branch',
+    });
+    expect(s.store.trees()).toEqual([]);
   });
 
   describe('Check sources', () => {

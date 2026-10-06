@@ -12,6 +12,7 @@ import type { LoginOptionsResponse } from '@tangent/shared';
 import { APP_PATHS } from '../core/app-paths';
 import { AuthService, loginErrorMessage, type SocialProvider } from '../core/auth';
 import { Icon } from '../ui/icon';
+import { Logo } from '../ui/logo';
 import { Turnstile } from '../ui/turnstile';
 
 /**
@@ -24,14 +25,12 @@ import { Turnstile } from '../ui/turnstile';
  */
 @Component({
   selector: 'app-login-page',
-  imports: [Icon, Turnstile],
+  imports: [Icon, Logo, Turnstile],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main class="login">
       <section class="login-card" aria-labelledby="login-title">
-        <h1 id="login-title" class="login-brand">
-          <app-icon name="tree" [size]="22" /> {{ brand() }}
-        </h1>
+        <h1 id="login-title" class="login-brand"><app-logo [size]="26" /> {{ brand() }}</h1>
 
         @if (error(); as e) {
           <p class="notice notice-error" role="alert">{{ e }}</p>

@@ -7,9 +7,11 @@ import {
 } from '@tangent/core';
 import { payloadToMarkdown, renderViewerPage, viewerCsp } from '@tangent/render';
 import {
+  backupFileName,
   createBranchRequestSchema,
   createShareRequestSchema,
   createTreeRequestSchema,
+  exportFileStem,
   exportQuerySchema,
   reviewRequestSchema,
   sendMessageRequestSchema,
@@ -18,23 +20,37 @@ import {
   updateSettingsRequestSchema,
   updateShareRequestSchema,
   updateTreeRequestSchema,
+  type CopyToLearnResponse,
   type MeResponse,
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { z } from 'zod';
+import { ensureAccountRow, resolveAccount } from '../auth/account.js';
 import { isAdmin } from '../auth/admin.js';
 import { accountDeletionRoutes } from '../auth/delete-account.js';
-import { assertGenerationAllowed, enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
-import { assertMember, membershipFor } from '../billing/membership.js';
-import { assertCanSpend } from '../billing/service.js';
+import { sameOriginOnly } from '../byok/guard.js';
+import { assertCanGenerate, membershipNeededFor } from '../billing/gate.js';
+import { membershipFor } from '../billing/membership.js';
 import { readKeys, requireReadableKeys, type UserKeys } from '../byok/keys.js';
 import { accountParams, type SessionSendBody } from '../do/tree-session.js';
-import { isMetered, usesUserKeys, type AppBindings, type AppContext, type AppEnv } from '../env.js';
+import {
+  isPoolFunded,
+  usesUserKeys,
+  type AppBindings,
+  type AppContext,
+  type AppEnv,
+} from '../env.js';
 import { validateJson, validateQuery } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { purgeShare } from '../share/cache.js';
-import { builtInAvailable, canShare, chatService, registryFor, shareService } from '../services.js';
+import {
+  builtInAvailable,
+  canShare,
+  chatService,
+  providersFor,
+  shareService,
+} from '../services.js';
 import { keyRoutes } from './key.js';
 
 const REVIEW_KEEPALIVE_MS = 15_000;
@@ -49,16 +65,20 @@ const contextQuerySchema = z.object({
 
 /**
  * The caller's ChatService. `keys` are the user's own provider keys (unused
- * by Learn on credit); the usage meter of the built-in provider defers its
- * work to the request's `waitUntil`.
+ * by Learn on credit or the pool); the usage meter of the built-in provider
+ * defers its work to the request's `waitUntil`. `generating`: the service
+ * will call a model, so a pool-funded account gets the pool's restrictions;
+ * build it after `assertCanGenerate`, which settles who pays.
  */
 function chatOf(
   c: AppContext,
   keys: Extract<UserKeys, { state: 'ok' }> | null = null,
+  generating = false,
 ): ChatService {
   return chatService(c.env, c.var.account, {
     ...(keys ? { apiKeys: keys.keys } : {}),
     defer: (p) => c.executionCtx.waitUntil(p),
+    generating,
   });
 }
 
@@ -76,9 +96,12 @@ async function keysOf(c: AppContext): Promise<Extract<UserKeys, { state: 'ok' }>
  * and the account middleware (auth/account.ts). Every branch or node id is
  * resolved through the caller's account (`getOwnedBranch`/`getOwnedNode`)
  * before anything else happens, so another account's ids are 404. Routes that
- * generate check the membership (402 `membership_required`, when one is
- * required), then, for a call on the built-in provider, the credit (402
- * `payment_required`). Every other route stays open without a membership.
+ * generate pass `assertCanGenerate` (billing/gate.ts): who pays (a Learn send on
+ * spent credit moves to the community pool), the membership for power mode on
+ * the user's own keys (402 `membership_required`, when one is required; Learn
+ * and Tangent credit need none), then the
+ * credit (402 `payment_required`) or the pool's rules. Every other route stays
+ * open without a membership.
  */
 export function apiRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();
@@ -103,16 +126,18 @@ export function apiRoutes(): Hono<AppBindings> {
       sharing,
       isAdmin: isAdmin(c.env, identity),
       membership,
+      membershipNeededFor: membershipNeededFor(account, membership),
+      // The featured wall is a stub (routes/featured.ts): never offered.
+      featuredConversations: false,
     } satisfies MeResponse);
   });
 
+  // Power lists the built-in endpoint twice: on the user's key and as Tangent credit (`funding`).
   api.get('/providers', async (c) => {
-    if (!usesUserKeys(c.var.account)) return c.json(registryFor(c.env, c.var.account).list());
+    if (!usesUserKeys(c.var.account)) return c.json(providersFor(c.env, c.var.account));
     // An unreadable key cookie simply counts as no user keys here; /key/status clears it.
     const keys = await readKeys(c);
-    return c.json(
-      registryFor(c.env, c.var.account, keys.state === 'ok' ? keys.keys : undefined).list(),
-    );
+    return c.json(providersFor(c.env, c.var.account, keys.state === 'ok' ? keys.keys : undefined));
   });
 
   api.route('/key', keyRoutes());
@@ -128,9 +153,15 @@ export function apiRoutes(): Hono<AppBindings> {
   api.get('/trees', async (c) => c.json(await chatOf(c).listTrees()));
   // Without a system prompt in the request, the tree gets the account's saved
   // default, else the built-in one (defaultSystemPromptFor in services.ts).
-  api.post('/trees', validateJson(createTreeRequestSchema), async (c) =>
-    c.json(await chatOf(c).createTree(c.req.valid('json')), 201),
-  );
+  // A tree that names no provider starts on the default route, whose first choice is a
+  // provider the user has a key for: the key cookie is read for it (leniently: an
+  // unreadable cookie counts as no keys, since nothing is sent here).
+  api.post('/trees', validateJson(createTreeRequestSchema), async (c) => {
+    const req = c.req.valid('json');
+    const keys =
+      req.providerId === undefined && usesUserKeys(c.var.account) ? await readKeys(c) : null;
+    return c.json(await chatOf(c, keys?.state === 'ok' ? keys : null).createTree(req), 201);
+  });
   api.get('/trees/:treeId', async (c) =>
     c.json(await chatOf(c).getTreeDetail(c.req.param('treeId'))),
   );
@@ -144,12 +175,34 @@ export function apiRoutes(): Hono<AppBindings> {
   api.get('/trees/:treeId/backup', async (c) => {
     const backup = await chatOf(c).exportBackup(c.req.param('treeId'));
     return c.json(backup, 200, {
-      'Content-Disposition': `attachment; filename="${slug(backup.tree.title)}.tangent.json"`,
+      'Content-Disposition': `attachment; filename="${backupFileName(backup.tree.title)}"`,
     });
   });
   api.post('/import', validateJson(treeBackupSchema), async (c) =>
     c.json(await chatOf(c).importBackup(c.req.valid('json')), 201),
   );
+  // "Create a copy in Learn" (docs/DECISIONS.md "Read-only power without a
+  // membership"): the caller's power tree, exported by the power service (404
+  // for anyone else's), imported by the service of the same user's Learn
+  // account, so it is adapted like any import into Learn. Neither generates,
+  // so there is no gate: no membership, no credit, no model call. The power
+  // tree is only read.
+  api.post('/trees/:treeId/copy-to-learn', sameOriginOnly, async (c) => {
+    const { account, identity } = c.var;
+    if (account.mode !== 'power')
+      throw new DomainError('bad_request', 'Only a power conversation can be copied into Learn');
+    const backup = await chatOf(c).exportBackup(c.req.param('treeId'));
+    // Learn's account as Learn's own requests on the user's key resolve it: never on credit.
+    const learn = resolveAccount(c.env, identity, { mode: 'simple', payment: 'own-key' });
+    await ensureAccountRow(c.env.DB, learn);
+    const lesson = await chatService(c.env, learn, {
+      defer: (p) => c.executionCtx.waitUntil(p),
+    }).importBackup(backup);
+    return c.json(
+      { treeId: lesson.tree.id, title: lesson.tree.title } satisfies CopyToLearnResponse,
+      201,
+    );
+  });
 
   // ---- branches
   api.post('/branches', validateJson(createBranchRequestSchema), async (c) => {
@@ -182,14 +235,19 @@ export function apiRoutes(): Hono<AppBindings> {
     async (c) => {
       const q = c.req.valid('query');
       const keys = await keysOf(c);
-      const chat = chatOf(c, keys);
+      let chat = chatOf(c, keys);
       const branch = await chat.getOwnedBranch(c.req.param('branchId'));
       // resolve=true may generate summaries (billed on the built-in provider, which
-      // summarizes its own branches); a plain plan only counts tokens.
+      // summarizes its own branches, or on the pool); a plain plan only counts tokens.
       if (q.resolve) {
-        await assertMember(c.env, c.var.account);
-        await assertCanSpend(c.env, c.var.account, branch.providerId);
-        await enforceRateLimit(c, keys, 'chat', branch.providerId);
+        await assertCanGenerate(c, {
+          purpose: 'resolve',
+          providerId: branch.providerId,
+          funding: branch.funding,
+          model: null,
+          keys,
+        });
+        chat = chatOf(c, keys, true);
       }
       const res = await chat.planContext(branch.id, q.nodeId ?? null, {
         resolveSummaries: q.resolve,
@@ -206,26 +264,27 @@ export function apiRoutes(): Hono<AppBindings> {
     validateJson(sendMessageRequestSchema),
     async (c) => {
       const keys = await keysOf(c);
-      const { account } = c.var;
+      const req = c.req.valid('json');
       const chat = chatOf(c, keys);
       const branch = await chat.getOwnedBranch(c.req.param('branchId'));
-      // The route is the Durable Object's only way in, so this gate covers it.
-      await assertMember(c.env, account);
-      assertGenerationAllowed(chat.deps.providers, branch.providerId, branch.model, {
-        userKeys: !isMetered(account, branch.providerId),
+      // The route is the Durable Object's only way in, so this gate covers it. On the
+      // pool, the Durable Object reserves the reply before writing any node.
+      const account = await assertCanGenerate(c, {
+        purpose: 'send',
+        providerId: branch.providerId,
+        funding: branch.funding,
+        model: branch.model,
+        keys,
+        content: req.content,
       });
-      if (c.req.valid('json').ground === 'required') {
-        const provider = chat.deps.providers.get(branch.providerId);
-        if (!provider?.capabilities(branch.model).supportsWebSearch) {
-          throw new ValidationError("This branch's provider can't check sources");
-        }
+      // "Check sources" needs a provider that can search; the pool's holds don't cover a search.
+      if (req.ground === 'required' && (isPoolFunded(account) || !chat.canSearch(branch))) {
+        throw new ValidationError("This conversation's model can't check sources");
       }
-      await assertCanSpend(c.env, account, branch.providerId);
-      await enforceRateLimit(c, keys, 'chat', branch.providerId);
       // The Durable Object gets the still-sealed cookie value in the body (never
       // a header, which request logs may capture) and opens it itself.
       const body: SessionSendBody = {
-        ...c.req.valid('json'),
+        ...req,
         account,
         ...(keys ? { sealedKeys: keys.sealed } : {}),
       };
@@ -267,22 +326,23 @@ export function apiRoutes(): Hono<AppBindings> {
     async (c) => {
       const req = c.req.valid('json');
       const keys = await keysOf(c);
-      const chat = chatOf(c, keys);
+      let chat = chatOf(c, keys);
       const node = await chat.getOwnedNode(c.req.param('nodeId'));
-      await assertMember(c.env, c.var.account);
+      const branch = await chat.getOwnedBranch(node.branchId);
       // The client picks the reviewer model here, so the allowlist is what bounds it.
-      // The review is metered iff the reviewer is the built-in provider.
-      assertGenerationAllowed(chat.deps.providers, req.providerId, req.model, {
-        userKeys: !isMetered(c.var.account, req.providerId),
+      // The review is metered iff the reviewer is on Tangent credit (its funding). The
+      // context is resolved like a send on the node's branch, so missing summaries are
+      // generated on that branch's route: its credit is checked too. Never on the pool (403).
+      await assertCanGenerate(c, {
+        purpose: 'review',
+        providerId: req.providerId,
+        funding: req.funding ?? 'own-key',
+        model: req.model,
+        alsoSpendsOn: { providerId: branch.providerId, funding: branch.funding },
+        keys,
       });
-      await assertCanSpend(c.env, c.var.account, req.providerId);
-      // The context is resolved like a send on the node's branch, so missing summaries are
-      // generated on that branch's provider: its credit is checked too.
-      const { providerId: branchProviderId } = await chat.getOwnedBranch(node.branchId);
-      if (branchProviderId !== req.providerId)
-        await assertCanSpend(c.env, c.var.account, branchProviderId);
+      chat = chatOf(c, keys, true);
       const prepared = await chat.prepareReview(node.id, req);
-      await enforceRateLimit(c, keys, 'chat', req.providerId);
 
       const encoder = new TextEncoder();
       const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
@@ -366,7 +426,7 @@ export function apiRoutes(): Hono<AppBindings> {
           : 'Nothing to export',
       );
     }
-    const name = slug(result.payload.title);
+    const name = exportFileStem(result.payload.title);
     if (q.format === 'md') {
       return c.body(payloadToMarkdown(result.payload), 200, {
         'Content-Type': 'text/markdown; charset=utf-8',
@@ -389,15 +449,4 @@ function session(env: AppEnv, treeId: string) {
 
 function sessionUrl(path: string, params: Record<string, string>): string {
   return `https://tree-session${path}?${new URLSearchParams(params).toString()}`;
-}
-
-export function slug(title: string): string {
-  const s = title
-    .normalize('NFKD')
-    .replace(/[^\w\s-]/g, '')
-    .trim()
-    .replace(/[\s_]+/g, '-')
-    .toLowerCase()
-    .slice(0, 60);
-  return s || 'tangent-export';
 }

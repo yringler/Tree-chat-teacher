@@ -25,7 +25,7 @@ export {
 
 /**
  * Better Auth client stand-in: every call (sign-in, sign-out, session,
- * passkeys, Stripe plans) resolves with an error and touches no network.
+ * passkeys) resolves with an error and touches no network.
  */
 export function createDemoAuthClient(): TangentAuthClient {
   const result = async () => ({

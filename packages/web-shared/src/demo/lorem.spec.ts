@@ -23,7 +23,7 @@ function request(over: Partial<GenerateRequest> = {}): GenerateRequest {
     system: 'You are a tutor.',
     messages: [{ role: 'user', content: 'Why is the sky blue?' }],
     signal: new AbortController().signal,
-    usageTag: { purpose: 'reply', treeId: 't1', nodeId: 'n1' },
+    usageTag: { purpose: 'reply', treeId: 't1', branchId: 'b1', nodeId: 'n1' },
     ...over,
   };
 }
@@ -151,7 +151,9 @@ describe('createLoremProvider', () => {
       sleep: async (ms) => void delays.push(ms),
     });
     const title = await collect(
-      provider.stream(request({ usageTag: { purpose: 'title', treeId: 't1', nodeId: null } })),
+      provider.stream(
+        request({ usageTag: { purpose: 'title', treeId: 't1', branchId: 'b1', nodeId: null } }),
+      ),
     );
     const text = title.flatMap((e) => (e.type === 'delta' ? [e.text] : [])).join('');
     expect(text).toBe(loremTitle(seeded(2)));
@@ -189,7 +191,7 @@ describe('createLoremProvider', () => {
 
   it('describes itself as the tangent provider with Smart and Simple', () => {
     const p = createLoremProvider();
-    expect(p.id).toBe('tangent');
+    expect(p.id).toBe('openrouter');
     expect(p.models().map((m) => m.label)).toEqual(['Smart', 'Simple']);
     expect(p.defaultModel()).toBe(DEMO_SMART_MODEL);
     expect(p.kind).not.toBe('fake'); // the ChatService only auto-titles with real kinds

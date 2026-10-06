@@ -7,6 +7,7 @@ export * from './context/assemble.js';
 export * from './context/render.js';
 export * from './tree.js';
 export * from './share-projection.js';
+export * from './learn-import.js';
 export * from './services/chat-service.js';
 export * from './services/share-service.js';
 export * from './grounding/policy.js';

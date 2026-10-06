@@ -12,7 +12,7 @@ import {
   DEFAULT_CHAT_SETTINGS,
   type ChatServiceDeps,
   type ChatSettings,
-  type GenerationOptions,
+  type RunGenerationOptions,
 } from '../../src/services/chat-service.js';
 import { ShareService } from '../../src/services/share-service.js';
 import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
@@ -179,7 +179,7 @@ export async function send(
   chat: ChatService,
   branchId: string,
   content: string,
-  options: GenerationOptions = {},
+  options: RunGenerationOptions = {},
 ) {
   const begin = await chat.beginSend(branchId, content);
   const events = await collect(chat.runGeneration(begin, new AbortController().signal, options));

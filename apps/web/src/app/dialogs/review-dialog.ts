@@ -8,7 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { plainText } from '@tangent/core';
-import { parseReview } from '@tangent/shared';
+import { parseReview, parseRouteKey, routeKey, type BranchFunding } from '@tangent/shared';
 import { copyText } from '../core/selection';
 import { Icon, MarkdownService, Modal } from '@tangent/web-shared';
 import { ReviewStore } from '../state/review-store';
@@ -40,7 +40,7 @@ const EXCERPT_CHARS = 280;
         @if (review(); as r) {
           <div class="review-head">
             <span class="small"
-              >Reviewed by <strong>{{ labelOf(r.providerId, r.model) }}</strong></span
+              >Reviewed by <strong>{{ labelOf(r, r.model) }}</strong></span
             >
             <app-review-verdict
               [accuracy]="parsed().accuracy"
@@ -91,7 +91,7 @@ const EXCERPT_CHARS = 280;
                   (click)="switchBranch()"
                 >
                   <app-icon name="refresh" /> Continue this branch with
-                  {{ labelOf(r.providerId, r.model) }}
+                  {{ labelOf(r, r.model) }}
                 </button>
               }
               <button
@@ -100,7 +100,7 @@ const EXCERPT_CHARS = 280;
                 [disabled]="acting()"
                 (click)="branchWithReviewer()"
               >
-                <app-icon name="branch" /> Branch here with {{ labelOf(r.providerId, r.model) }}
+                <app-icon name="branch" /> Branch here with {{ labelOf(r, r.model) }}
               </button>
               <button type="button" class="icon-btn" aria-label="Copy review" (click)="copy()">
                 <app-icon name="copy" [size]="14" />
@@ -110,7 +110,7 @@ const EXCERPT_CHARS = 280;
 
           @if (choice(); as c) {
             <form class="form review-form" (submit)="$event.preventDefault(); run()">
-              <app-model-picker [(providerId)]="providerId" [(modelId)]="modelId" />
+              <app-model-picker [(route)]="route" [(modelId)]="modelId" />
               <div class="form-actions">
                 <button
                   type="button"
@@ -146,7 +146,8 @@ export class ReviewDialog implements OnInit {
 
   readonly nodeId = input.required<string>();
 
-  protected readonly providerId = signal('');
+  /** The reviewer's provider and funding, as a `routeKey`. */
+  protected readonly route = signal('');
   protected readonly modelId = signal('');
   protected readonly acting = signal(false);
 
@@ -171,7 +172,7 @@ export class ReviewDialog implements OnInit {
     this.md.render(this.parsed().body, this.review()?.phase !== 'running'),
   );
   protected readonly choice = computed(() =>
-    this.providerId() ? { providerId: this.providerId(), model: this.modelId().trim() } : null,
+    this.route() ? { ...parseRouteKey(this.route()), model: this.modelId().trim() } : null,
   );
   protected readonly excerpt = computed(() => {
     const text = plainText(this.node()?.content ?? '');
@@ -181,20 +182,20 @@ export class ReviewDialog implements OnInit {
   protected readonly sameModel = computed(() => {
     const r = this.review();
     const b = this.continueBranch();
-    return !!r && !!b && r.providerId === b.providerId && r.model === b.model;
+    return !!r && !!b && routeKey(r) === routeKey(b) && r.model === b.model;
   });
 
   ngOnInit(): void {
     const previous = this.review();
-    const start = previous ?? this.reviews.defaultReviewer(this.branch()?.providerId ?? null);
+    const start = previous ?? this.reviews.defaultReviewer(this.branch());
     if (start) {
-      this.providerId.set(start.providerId);
+      this.route.set(routeKey(start));
       this.modelId.set(start.model);
     }
   }
 
-  protected labelOf(providerId: string, model: string): string {
-    const p = this.store.providerMap().get(providerId);
+  protected labelOf(route: { providerId: string; funding?: BranchFunding }, model: string): string {
+    const p = this.store.providerOf(route);
     return p?.models.find((m) => m.id === model)?.label ?? model;
   }
 
@@ -207,7 +208,7 @@ export class ReviewDialog implements OnInit {
     const r = this.review();
     if (!r) return;
     this.ui.insertIntoComposer(
-      `A reviewer (${this.labelOf(r.providerId, r.model)}) checked your earlier answer and ` +
+      `A reviewer (${this.labelOf(r, r.model)}) checked your earlier answer and ` +
         `flagged the following. Please correct course where they are right:\n\n${this.parsed().body}`,
     );
     this.close();
@@ -218,10 +219,14 @@ export class ReviewDialog implements OnInit {
     const b = this.continueBranch();
     if (!r || !b) return;
     this.acting.set(true);
-    const ok = await this.store.updateBranch(b.id, { providerId: r.providerId, model: r.model });
+    const ok = await this.store.updateBranch(b.id, {
+      providerId: r.providerId,
+      funding: r.funding ?? 'own-key',
+      model: r.model,
+    });
     this.acting.set(false);
     if (ok) {
-      this.ui.notify(`“${b.title}” now uses ${this.labelOf(r.providerId, r.model)}`);
+      this.ui.notify(`“${b.title}” now uses ${this.labelOf(r, r.model)}`);
       if (b.id !== this.store.selectedBranchId()) this.store.go(b.id);
       this.close();
     }
@@ -235,6 +240,7 @@ export class ReviewDialog implements OnInit {
       fromNodeId: this.nodeId(),
       contextMode: 'path',
       providerId: r.providerId,
+      funding: r.funding ?? 'own-key',
       model: r.model,
     });
     this.acting.set(false);
