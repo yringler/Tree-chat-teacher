@@ -14,11 +14,16 @@ export function newEmail(tag: string): string {
 }
 
 /**
- * Signs `context` in as `email` the way a person does: requests a magic link
- * (the real endpoint, captcha included), reads it from the server log and opens
- * it in the browser. Returns the user id.
+ * Signs `context` in as `email` through the real magic-link flow: requests a
+ * link (the real endpoint, captcha included), reads it from the server log and
+ * follows it. The verify request goes through `context.request`, which shares
+ * the browser context's cookies, so the session cookie lands without opening a
+ * page (a page would follow the redirect into the whole app, ~0.5–1 s more).
+ * Returns the user id.
  */
 export async function signIn(context: BrowserContext, baseURL: string, email: string) {
+  // Only what the server logs from here on can hold this link.
+  const from = fs.statSync(LOG).size;
   const res = await context.request.post('/api/auth/sign-in/magic-link', {
     headers: { origin: baseURL, 'x-captcha-response': TURNSTILE_TEST_TOKEN },
     data: { email, callbackURL: '/', errorCallbackURL: '/login' },
@@ -28,21 +33,34 @@ export async function signIn(context: BrowserContext, baseURL: string, email: st
   await expect
     .poll(
       () => {
-        const log = fs.readFileSync(LOG, 'utf8');
+        const log = readFrom(LOG, from);
         const at = log.lastIndexOf(`[email] to=${email} `);
         if (at < 0) return undefined;
         link = /https?:\/\/\S+\/api\/auth\/magic-link\/verify\?\S+/.exec(log.slice(at))?.[0];
         return link;
       },
-      { message: `magic link for ${email} in ${LOG}` },
+      { message: `magic link for ${email} in ${LOG}`, intervals: [25, 50, 100] },
     )
     .toBeTruthy();
-  const page = await context.newPage();
-  await page.goto(link!);
-  await page.close();
+  const verify = await context.request.get(link!, { maxRedirects: 0 });
+  expect(verify.status(), `magic link verify for ${email}`).toBe(302);
+  expect(verify.headers()['location'] ?? '').not.toContain('/login');
   const me = await context.request.get('/api/me');
   expect(me.status()).toBe(200);
   return ((await me.json()) as { userId: string }).userId;
+}
+
+/** The text of `file` from byte `from` on. */
+function readFrom(file: string, from: number): string {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const size = fs.fstatSync(fd).size;
+    const buf = Buffer.alloc(Math.max(0, size - from));
+    fs.readSync(fd, buf, 0, buf.length, from);
+    return buf.toString('utf8');
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /** Headers for the API's same-origin writes. */
