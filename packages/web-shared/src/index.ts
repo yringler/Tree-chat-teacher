@@ -1,8 +1,8 @@
 /*
- * @tangent/web-shared: Angular code shared by the power app (apps/web) and
- * the simple app (apps/simple). Consumed as TS source (exports ./src/index.ts);
- * each app's Angular builder compiles it. Styles: src/styles/base.css
- * (`@tangent/web-shared/styles/base.css`).
+ * @tangent/web-shared: Angular code shared by the power app (apps/web), the
+ * simple app (apps/simple) and the canvas (apps/canvas). Consumed as TS
+ * source (exports ./src/index.ts); each app's Angular builder compiles it.
+ * Styles: src/styles/base.css (`@tangent/web-shared/styles/base.css`).
  */
 
 // Core services
@@ -48,6 +48,15 @@ export {
   type AppId,
 } from './core/demo';
 export { MarkdownService } from './core/markdown.service';
+export { deleteBranchQuestion, subtreeSize, type BranchNoun } from './core/delete-branch';
+export {
+  DEFAULT_TEXT_SIZE,
+  parseTextSize,
+  provideTextSize,
+  TEXT_SIZE_STEPS,
+  TEXT_SIZE_STORAGE_KEY,
+  TextSizeStore,
+} from './core/text-size-store';
 
 // Server-sent events
 export {
@@ -71,6 +80,7 @@ export {
 export { Icon, type IconName } from './ui/icon';
 export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';
+export { ModelSuggestions, suggestionText, type SuggestionText } from './ui/model-suggestions';
 export { DEEP_BRANCH_DEPTH, SourcesList } from './ui/sources-list';
 export { RelatedLinks, type LinkNoteEdit } from './ui/related-links';
 export { NodePicker, type LinkPick } from './ui/node-picker';
@@ -86,6 +96,15 @@ export {
   type PickerRow,
   type RelatedLink,
 } from './ui/links-view';
+export { TangentAsk } from './ui/tangent-ask';
+export { TextSizeMenu } from './ui/text-size-menu';
+export {
+  MAX_QUOTE,
+  PendingQuote,
+  SelectionAsk,
+  selectedMessageQuote,
+  type MessageQuote,
+} from './ui/selection-ask';
 export { ModeSwitch } from './ui/mode-switch';
 export { Turnstile } from './ui/turnstile';
 export { LoginPage } from './login/login-page';

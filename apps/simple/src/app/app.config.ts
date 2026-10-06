@@ -6,7 +6,12 @@ import {
 } from '@angular/core';
 import { provideRouter, withComponentInputBinding, withInMemoryScrolling } from '@angular/router';
 import type { BillingSummary } from '@tangent/shared';
-import { API_HEADERS, BILLING_SUMMARY_LISTENER, provideAppPaths } from '@tangent/web-shared';
+import {
+  API_HEADERS,
+  BILLING_SUMMARY_LISTENER,
+  provideAppPaths,
+  provideTextSize,
+} from '@tangent/web-shared';
 import { routes } from './app.routes';
 import { AccountStore } from './state/account-store';
 import { PaymentStore } from './state/payment-store';
@@ -17,6 +22,8 @@ export const appConfig: ApplicationConfig = {
     provideZonelessChangeDetection(),
     // `/learn/login` is only ever reached by a full page load (see AuthService).
     provideAppPaths({ home: '/learn/', login: '/learn/login' }),
+    // The lesson's text size ("Aa"), kept apart from the other apps'.
+    provideTextSize('tangent.learn.chatFontScale'),
     // Every API call acts as the learner's Learn account, paying as they chose.
     {
       provide: API_HEADERS,

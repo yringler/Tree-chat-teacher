@@ -14,7 +14,16 @@ import {
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import { describeEndpoint } from '@tangent/core/links';
-import { endpointTitle, Icon } from '@tangent/web-shared';
+import {
+  endpointTitle,
+  Icon,
+  PendingQuote,
+  SelectionAsk,
+  selectedMessageQuote,
+  TextSizeMenu,
+  TextSizeStore,
+  type MessageQuote,
+} from '@tangent/web-shared';
 import { BRAND } from '../brand';
 import { LayoutStore, MAX_ZOOM, MIN_ZOOM } from '../layout/layout-store';
 import { CanvasStore } from '../state/canvas-store';
@@ -26,12 +35,6 @@ import { LinkPopover } from './link-popover';
 import { Minimap } from './minimap';
 import { laneTitle, treeTitle } from './titles';
 
-interface PendingBranch {
-  nodeId: string;
-  quote: string;
-}
-
-const MAX_QUOTE = 10_000;
 /** Wheel without a modifier pans; with Ctrl or ⌘ (and a trackpad pinch) it zooms. */
 const WHEEL_ZOOM = 0.0015;
 /** The wheel has no "up": the transform animates again once it has been still this long. */
@@ -55,11 +58,24 @@ interface PendingTouch {
  */
 @Component({
   selector: 'app-canvas-page',
-  imports: [Icon, RouterLink, Connectors, CrossLinks, CrossLinkGlyphs, Lane, LinkPopover, Minimap],
+  imports: [
+    Icon,
+    RouterLink,
+    Connectors,
+    CrossLinks,
+    CrossLinkGlyphs,
+    Lane,
+    LinkPopover,
+    Minimap,
+    SelectionAsk,
+    TextSizeMenu,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './canvas-page.html',
   host: {
     class: 'page canvas-page',
+    // The cards' and lane composers' text size (styles.css); the lanes re-measure on a change.
+    '[style.--chat-font-scale]': 'textSize.scale()',
     '(document:selectionchange)': 'onSelectionChange()',
   },
 })
@@ -67,10 +83,16 @@ export class CanvasPage implements OnDestroy {
   protected readonly store = inject(CanvasStore);
   protected readonly ui = inject(UiStore);
   protected readonly geo = inject(LayoutStore);
+  protected readonly textSize = inject(TextSizeStore);
   private readonly title = inject(Title);
   private readonly viewport = viewChild<ElementRef<HTMLElement>>('viewport');
-  protected readonly pendingBranch = signal<PendingBranch | null>(null);
-  private clearTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * Text selected in a finished card: offers "Ask about this" (a `path` lane
+   * quoting it, ready to type) and, by its gear, the branch dialog with the
+   * quote filled in (variants, modes, models).
+   */
+  protected readonly selection = new PendingQuote(() => this.selectedQuote());
+  protected readonly asking = signal(false);
   private observer: ResizeObserver | null = null;
   private fitted = false;
   /** Active pointers, for drag-panning and two-finger pinch. */
@@ -143,7 +165,7 @@ export class CanvasPage implements OnDestroy {
       if (key === lastKey) return;
       lastKey = key;
       untracked(() => {
-        this.pendingBranch.set(null);
+        this.selection.clear();
         this.ui.expand(this.store.chain().map((b) => b.id));
         // A lane picked with the pointer is already in view, and the gesture
         // that picked it (a drag, a text selection) is still going: stay put.
@@ -174,7 +196,7 @@ export class CanvasPage implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    clearTimeout(this.clearTimer);
+    this.selection.destroy();
     clearTimeout(this.wheelTimer);
     this.dropPending();
     this.observer?.disconnect();
@@ -327,35 +349,51 @@ export class CanvasPage implements OnDestroy {
   protected onSelectionChange(): void {
     // A touch that started a text selection (long press, handles) is not a pan.
     if (this.pending.size > 0 && window.getSelection()?.isCollapsed === false) this.dropPending();
-    const found = this.selectedQuote();
-    clearTimeout(this.clearTimer);
-    if (found) {
-      this.pendingBranch.set(found);
+    this.selection.update();
+  }
+
+  /** "Ask about this": a `path` lane off the card, quoting the selection, its box focused. */
+  protected async askAbout(q: MessageQuote): Promise<void> {
+    if (this.selectionLocked()) {
+      this.moreAbout(q);
       return;
     }
-    if (this.pendingBranch()) this.clearTimer = setTimeout(() => this.pendingBranch.set(null), 400);
-  }
-
-  protected branchFromSelection(p: PendingBranch): void {
-    this.pendingBranch.set(null);
+    this.selection.clear();
     window.getSelection()?.removeAllRanges();
-    this.ui.branchDialog.set({ fromNodeId: p.nodeId, quote: p.quote });
+    this.asking.set(true);
+    try {
+      await this.store.createBranch({
+        fromNodeId: q.nodeId,
+        contextMode: 'path',
+        anchorQuote: q.quote,
+      });
+    } finally {
+      this.asking.set(false);
+    }
   }
 
-  private selectedQuote(): PendingBranch | null {
-    const container = this.viewport()?.nativeElement;
-    const sel = window.getSelection();
-    if (!container || !sel || sel.isCollapsed || sel.rangeCount === 0) return null;
-    const common = sel.getRangeAt(0).commonAncestorContainer;
-    if (!container.contains(common)) return null;
-    const el = (common instanceof Element ? common : common.parentElement)?.closest<HTMLElement>(
-      '[data-node-id]',
-    );
-    const nodeId = el?.dataset['nodeId'];
-    const node = nodeId ? this.store.index()?.nodes.get(nodeId) : undefined;
-    if (!node || node.status !== 'complete') return null;
-    const quote = sel.toString().trim().slice(0, MAX_QUOTE);
-    return quote ? { nodeId: node.id, quote } : null;
+  /** The gear: the branch dialog with the quote filled in. */
+  protected moreAbout(q: MessageQuote): void {
+    this.selection.clear();
+    window.getSelection()?.removeAllRanges();
+    this.ui.branchDialog.set({ fromNodeId: q.nodeId, quote: q.quote });
+  }
+
+  /**
+   * The selection's card is on a lane whose funding needs the membership:
+   * only the dialog can pick another route.
+   */
+  protected readonly selectionLocked = computed(() => {
+    const q = this.selection.value();
+    const node = q ? this.store.index()?.nodes.get(q.nodeId) : undefined;
+    const lane = node ? this.store.index()?.branches.get(node.branchId) : undefined;
+    return !!lane && this.store.routeLocked(lane);
+  });
+
+  private selectedQuote(): MessageQuote | null {
+    const found = selectedMessageQuote(this.viewport()?.nativeElement, window.getSelection());
+    const node = found ? this.store.index()?.nodes.get(found.nodeId) : undefined;
+    return node?.status === 'complete' ? found : null;
   }
 
   // ---- Links

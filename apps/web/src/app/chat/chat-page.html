@@ -12,7 +12,7 @@
   </div>
 } @else {
   <div class="chat-layout" [class.with-inspector]="ui.inspectorOpen()">
-    <section class="chat" aria-label="Conversation">
+    <section class="chat" aria-label="Conversation" [style.--chat-font-scale]="textSize.scale()">
       <app-chat-header />
 
       @if (picking(); as pick) {
@@ -86,6 +86,23 @@
       </div>
 
       <div class="composer-dock">
+        @if (selection.value(); as q) {
+          <!-- Floats above the composer, over the end of the messages. -->
+          <div class="selection-float">
+            <app-selection-ask
+              [label]="selectionLocked() ? 'Branch from this selection…' : 'Ask about this'"
+              [title]="
+                selectionLocked()
+                  ? 'Branch from here, quoting the selection (pick a route you can use)'
+                  : 'Branch off quoting the selection, keeping the conversation so far, and ask'
+              "
+              [moreLabel]="selectionLocked() ? null : 'More: Branch from here with this quote…'"
+              [busy]="asking()"
+              (ask)="askAbout(q)"
+              (more)="moreAbout(q)"
+            />
+          </div>
+        }
         @if (readOnly(); as ro) {
           <!-- This branch's funding needs the membership the user lacks: read it, renew, or copy it. -->
           <app-read-only-composer

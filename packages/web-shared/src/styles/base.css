@@ -307,6 +307,10 @@ hr {
   color: var(--fg);
 }
 
+.icon-btn.icon-btn-danger:hover:not(:disabled) {
+  color: var(--danger);
+}
+
 .icon-btn.is-on {
   background: var(--accent-soft);
   color: var(--accent);
@@ -523,6 +527,51 @@ textarea:focus-visible {
 .copy-row {
   display: flex;
   gap: 8px;
+}
+
+/* Suggested models under a model id field (ui/model-suggestions.ts) */
+.model-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+
+.model-chip {
+  max-width: 100%;
+  padding: 2px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.model-chip:hover {
+  background: var(--bg-hover);
+}
+
+.model-chip[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.model-chip-id {
+  color: var(--fg-muted);
+}
+
+.model-chip[aria-pressed='true'] .model-chip-id {
+  color: inherit;
+}
+
+/* Phones: the suggestions by name (the id is in the field and the tooltip). */
+@media (max-width: 560px) {
+  .model-chip-id {
+    display: none;
+  }
 }
 
 /* Account ID (account/account-id.ts) */
@@ -787,6 +836,204 @@ textarea:focus-visible {
   border-style: solid;
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+/*
+ * "Ask your own" (ui/tangent-ask.ts): the last item of the list, a tangent
+ * holding a field. One line until focused; expandable ones then grow to a
+ * few lines with their buttons underneath.
+ */
+.tangent-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0 6px;
+  cursor: text;
+}
+
+.tangent-ask > app-icon {
+  margin: 3px 0 0;
+}
+
+/* (Specific enough to undo the base input and textarea styles.) */
+.tangent-ask .tangent-ask-field {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+  line-height: inherit;
+  resize: none;
+}
+
+/* The item shows focus, not the bare field inside it. */
+.tangent-ask .tangent-ask-field:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.tangent-ask:focus-within,
+.tangent-ask:focus-within:hover {
+  border-color: var(--accent);
+  background: var(--bg-elev);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.tangent-ask.is-expanded {
+  padding-bottom: 6px;
+}
+
+.tangent-ask.is-disabled,
+.tangent-ask.is-disabled:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-elev);
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.tangent-ask-field:disabled {
+  cursor: inherit;
+}
+
+/* One line while folded: no scrollbar, whatever is typed. */
+.tangent-ask:not(.is-expanded) textarea.tangent-ask-field {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tangent-ask-actions {
+  display: flex;
+  flex-basis: 100%;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.tangent-ask-send {
+  width: 26px;
+  height: 22px;
+  color: var(--accent);
+}
+
+/* Its fold button sits on the left, away from Ask. */
+.tangent-ask-fold {
+  margin-right: auto;
+  width: 28px;
+  height: 28px;
+}
+
+/* The newest reply's item (TangentAsk `latest`): the natural place to ask next. */
+.tangent-ask.is-latest:not(.is-disabled),
+.tangent-ask.is-latest:not(.is-disabled):hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.tangent-ask.is-latest:focus-within,
+.tangent-ask.is-latest:not(.is-disabled):focus-within:hover {
+  background: var(--bg-elev);
+}
+
+/* "Ask about this" on text selected in a message (ui/selection-ask.ts); each app places the host. */
+.selection-ask {
+  display: inline-flex;
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+
+.selection-ask-main {
+  border-radius: 999px;
+}
+
+.selection-ask-main:has(+ .selection-ask-more) {
+  border-radius: 999px 0 0 999px;
+}
+
+.selection-ask-more {
+  padding: 6px 12px 6px 9px;
+  border-left: 0;
+  border-color: var(--accent);
+  border-radius: 0 999px 999px 0;
+  color: var(--accent);
+}
+
+/* Text size ("Aa": ui/text-size-menu.ts), a popover under its button */
+.text-size-wrap {
+  position: relative;
+}
+
+.text-size-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+
+.text-size-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 21;
+  min-width: 220px;
+  max-width: calc(100vw - 24px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  font-size: 0.9rem;
+}
+
+.text-size-btn {
+  font-weight: 600;
+  font-size: 0.92rem;
+  letter-spacing: -0.02em;
+}
+
+.text-size-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.text-size-steps .btn {
+  flex: none;
+  min-width: 44px;
+}
+
+.text-size-menu .btn[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.text-size-menu .btn[aria-disabled='true']:hover {
+  background: var(--bg-elev);
+}
+
+.text-size-menu .btn-ghost[aria-disabled='true']:hover {
+  background: transparent;
+}
+
+.text-size-glyph-sm {
+  font-size: 0.8rem;
+}
+
+.text-size-glyph-lg {
+  font-size: 1.05rem;
+}
+
+.text-size-value {
+  flex: 1;
+  text-align: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Sources: what a grounded reply was checked against, or "Check sources" (both apps). */

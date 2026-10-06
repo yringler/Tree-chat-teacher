@@ -45,6 +45,28 @@ body {
   white-space: nowrap;
 }
 
+/*
+ * Narrow screens: the logo alone stands for the brand (the link keeps its
+ * name) and the mode switch is tighter, so the account menu stays on screen.
+ */
+.brand-word {
+  display: none;
+}
+
+.app-head .mode-switch-opt {
+  padding: 2px 6px;
+}
+
+@media (min-width: 480px) {
+  .brand-word {
+    display: inline;
+  }
+
+  .app-head .mode-switch-opt {
+    padding: 2px 8px;
+  }
+}
+
 .spacer {
   flex: 1;
 }
@@ -289,6 +311,13 @@ body {
 
 .chat-page {
   overflow: hidden;
+  /*
+   * Text size of the lesson: ChatPage sets --chat-font-scale (TextSizeStore,
+   * 0.85–1.4). The messages and the composer take their base size from it, and
+   * their rem sizes are written against --chat-rem, so everything in a message
+   * scales together. The lesson header keeps plain rem sizes.
+   */
+  --chat-rem: calc(1rem * var(--chat-font-scale, 1));
 }
 
 .lesson-head {
@@ -306,13 +335,40 @@ body {
   gap: 6px;
 }
 
+.lesson-head-row {
+  flex-wrap: wrap;
+}
+
+/*
+ * Narrow screens: the title has the first row to itself (after Back), up to
+ * two lines, and the tools (Smart/Simple, Aa, export, delete) the second.
+ */
 .lesson-title {
-  flex: 1;
+  flex: 1 1 calc(100% - 48px);
   min-width: 0;
   font-size: 1rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.lesson-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+@media (min-width: 480px) {
+  .lesson-title {
+    flex: 1 1 0;
+    display: block;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .crumbs {
@@ -399,6 +455,7 @@ button.crumb:hover {
 .messages-inner {
   max-width: var(--col);
   margin: 0 auto;
+  font-size: calc(1em * var(--chat-font-scale, 1));
   padding: 16px var(--gutter) 28px;
   display: flex;
   flex-direction: column;
@@ -448,7 +505,7 @@ button.crumb:hover {
 
 .msg-role {
   font-weight: 600;
-  font-size: 0.82rem;
+  font-size: calc(0.82 * var(--chat-rem, 1rem));
   color: var(--fg-muted);
 }
 
@@ -474,7 +531,7 @@ button.crumb:hover {
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   background: var(--danger-soft);
-  font-size: 0.9rem;
+  font-size: calc(0.9 * var(--chat-rem, 1rem));
 }
 
 .cursor {
@@ -514,11 +571,41 @@ button.crumb:hover {
   border-radius: 999px;
   background: var(--bg-elev);
   color: var(--fg);
-  font-size: 0.85rem;
+  font-size: calc(0.85 * var(--chat-rem, 1rem));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+}
+
+/* A side question and its delete button (shown on hover or keyboard focus, always on touch). */
+.chip-row {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.chip-delete {
+  width: 24px;
+  height: 24px;
+  opacity: 0;
+}
+
+.chip-row:hover .chip-delete,
+.chip-delete:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .chip-delete {
+    opacity: 1;
+  }
+}
+
+.crumbs-delete {
+  width: 28px;
+  height: 28px;
 }
 
 .chip:hover {
@@ -595,7 +682,7 @@ app-related-links.connections {
   gap: 10px;
   margin: 8px 0 0;
   color: var(--fg-muted);
-  font-size: 0.82rem;
+  font-size: calc(0.82 * var(--chat-rem, 1rem));
 }
 
 .fork-line {
@@ -627,19 +714,36 @@ app-related-links.connections {
   border-left: 3px solid var(--accent);
   background: var(--accent-soft);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  font-size: 0.92rem;
+  font-size: calc(0.92 * var(--chat-rem, 1rem));
   white-space: pre-wrap;
+}
+
+/* Shared classes (base.css) used inside messages, on the lesson's text size. */
+.messages-inner .small {
+  font-size: calc(0.82 * var(--chat-rem));
+}
+
+.messages-inner .tangent {
+  font-size: calc(0.92 * var(--chat-rem));
+}
+
+.messages-inner .tangent-why {
+  font-size: calc(0.85 * var(--chat-rem));
+}
+
+.messages-inner .source-chip {
+  font-size: calc(0.8 * var(--chat-rem));
+}
+
+/* Buttons in a message (Side question, Check sources) go with its text. */
+.messages-inner .btn-sm {
+  font-size: calc(0.85 * var(--chat-rem));
 }
 
 .ask-bar {
   display: flex;
   justify-content: center;
   padding: 6px var(--gutter) 0;
-}
-
-.ask-btn {
-  border-radius: 999px;
-  box-shadow: var(--shadow);
 }
 
 .composer-dock {
@@ -689,7 +793,8 @@ app-related-links.connections {
   min-height: 40px;
   max-height: 280px;
   padding: 8px;
-  font-size: 1rem;
+  /* Typing matches what is read: the lesson's text size (1 outside a lesson). */
+  font-size: calc(1rem * var(--chat-font-scale, 1));
 }
 
 .composer textarea:focus-visible {

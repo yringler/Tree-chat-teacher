@@ -8,14 +8,25 @@ import {
   signal,
 } from '@angular/core';
 import { plainText } from '@tangent/core';
-import { parseRouteKey, providerRouteKey, routeKey, type ContextMode } from '@tangent/shared';
+import {
+  parseRouteKey,
+  providerRouteKey,
+  routeKey,
+  splitTangents,
+  type ContextMode,
+} from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore, type BranchDialogState } from '../state/ui-store';
 import { Modal } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
 import { ModePicker } from '../ui/mode-picker';
 
-/** "Branch from here": creates a branch off any message, then opens it with the composer focused. */
+/**
+ * "Branch from here": creates a branch off any message and opens it. With a
+ * starting message (or one carried from "Ask your own"), sends it as the
+ * first message; without, the composer is focused. Titles come after the
+ * first reply (auto-titling).
+ */
 @Component({
   selector: 'app-branch-dialog',
   imports: [Modal, ModePicker, ModelPicker],
@@ -46,14 +57,30 @@ import { ModePicker } from '../ui/mode-picker';
           <button type="button" class="link-btn small" (click)="quote.set('')">Remove quote</button>
         }
 
-        <app-mode-picker [(mode)]="mode" />
+        @if (carried(); as text) {
+          <div class="excerpt">
+            <span class="field-label">First message</span>
+            <p>{{ text }}</p>
+          </div>
+        } @else {
+          <label class="field">
+            <span class="field-label"
+              >Starting message
+              <span class="muted">(optional; sent as the branch’s first message)</span></span
+            >
+            <textarea
+              rows="3"
+              autofocus
+              [value]="message()"
+              (input)="message.set(m.value)"
+              (keydown)="onMessageKey($event)"
+              #m
+              placeholder="Ask something to start the branch, or leave empty to write it later"
+            ></textarea>
+          </label>
+        }
 
-        <label class="field">
-          <span class="field-label"
-            >Title <span class="muted">(optional; generated after the first reply)</span></span
-          >
-          <input type="text" maxlength="200" [value]="title()" (input)="title.set(t.value)" #t />
-        </label>
+        <app-mode-picker [(mode)]="mode" />
 
         @if (route()) {
           <app-model-picker [(route)]="route" [(modelId)]="modelId" />
@@ -67,7 +94,7 @@ import { ModePicker } from '../ui/mode-picker';
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
           <button type="submit" class="btn btn-primary" [disabled]="saving()">
-            {{ saving() ? 'Creating…' : 'Create branch' }}
+            {{ saving() ? 'Creating…' : firstMessage() ? 'Create and ask' : 'Create branch' }}
           </button>
         </div>
       </form>
@@ -83,7 +110,8 @@ export class BranchDialog implements OnInit {
     () => this.store.index()?.nodes.get(this.state().fromNodeId) ?? null,
   );
   protected readonly excerpt = computed(() => {
-    const text = plainText(this.source()?.content ?? '');
+    // A reply without its <tangents> block (never shown as text).
+    const text = plainText(splitTangents(this.source()?.content ?? '').body);
     return text.length > 280 ? `${text.slice(0, 280)}…` : text;
   });
   private readonly parent = computed(() => {
@@ -93,7 +121,11 @@ export class BranchDialog implements OnInit {
 
   protected readonly quote = signal('');
   protected readonly mode = signal<ContextMode>('path');
-  protected readonly title = signal('');
+  /** The starting message typed here. */
+  protected readonly message = signal('');
+  /** A first message written before the dialog opened; replaces the starting message field. */
+  protected readonly carried = computed(() => this.state().message?.trim() || null);
+  protected readonly firstMessage = computed(() => this.carried() ?? this.message().trim());
   /** Provider and funding, as a `routeKey`. */
   protected readonly route = signal('');
   protected readonly modelId = signal('');
@@ -115,23 +147,37 @@ export class BranchDialog implements OnInit {
     this.ui.branchDialog.set(null);
   }
 
+  /** Ctrl/Cmd+Enter creates the branch (Enter is a newline, as in the anchor quote). */
+  protected onMessageKey(e: KeyboardEvent): void {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) {
+      e.preventDefault();
+      void this.create();
+    }
+  }
+
   protected async create(): Promise<void> {
+    if (this.saving()) return;
     const p = this.parent();
     this.saving.set(true);
     const quote = this.quote().trim();
-    const title = this.title().trim();
     const changedModel = !p || routeKey(p) !== this.route() || p.model !== this.modelId().trim();
-    const branch = await this.store.createBranch({
+    const req = {
       fromNodeId: this.state().fromNodeId,
       contextMode: this.mode(),
       anchorQuote: quote || null,
-      ...(title ? { title } : {}),
       ...(changedModel && this.route()
         ? { ...parseRouteKey(this.route()), model: this.modelId().trim() }
         : {}),
       isPrivate: this.isPrivate(),
-    });
+    };
+    const first = this.firstMessage();
+    const branch = first
+      ? await this.store.startBranch(req, first)
+      : await this.store.createBranch(req);
     this.saving.set(false);
-    if (branch) this.close();
+    if (branch) {
+      this.state().onCreated?.();
+      this.close();
+    }
   }
 }

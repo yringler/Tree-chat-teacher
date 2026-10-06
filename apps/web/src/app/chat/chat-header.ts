@@ -2,7 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import type { Branch } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { DEMO_MODE, Icon } from '@tangent/web-shared';
+import { DEMO_MODE, Icon, TextSizeMenu } from '@tangent/web-shared';
+import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { ModeBadge } from '../ui/mode-badge';
 import { ExportMenu } from './export-menu';
 
@@ -15,7 +16,7 @@ interface Crumb {
 
 @Component({
   selector: 'app-chat-header',
-  imports: [Icon, ModeBadge, ExportMenu],
+  imports: [Icon, ModeBadge, ExportMenu, TextSizeMenu],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="chat-head">
@@ -64,6 +65,7 @@ interface Crumb {
           >
             <app-icon name="edit" /> <span class="hide-narrow">Tree</span>
           </button>
+          <app-text-size-menu [(open)]="ui.textSizeMenuOpen" [shortcuts]="true" />
           <button
             type="button"
             class="icon-btn"
@@ -152,6 +154,17 @@ interface Crumb {
           >
             <app-icon name="link" /> Link this branch…
           </button>
+          @if (b.parentBranchId) {
+            <button
+              type="button"
+              class="icon-btn icon-btn-danger"
+              [attr.aria-label]="'Delete ' + b.title"
+              title="Delete this branch"
+              (click)="remove(b.id)"
+            >
+              <app-icon name="trash" [size]="14" />
+            </button>
+          }
         }
       </div>
     </header>
@@ -200,6 +213,10 @@ export class ChatHeader {
     if (!id) return;
     this.ui.linkPick.set(null);
     this.ui.linkDialog.set({ fromNodeId: id });
+  }
+
+  protected async remove(branchId: string): Promise<void> {
+    await confirmDeleteBranch(this.store, branchId);
   }
 
   protected toParent(): void {

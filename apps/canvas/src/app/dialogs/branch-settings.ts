@@ -16,6 +16,7 @@ import {
 } from '@tangent/shared';
 import { Icon, Modal } from '@tangent/web-shared';
 import { MODE_LABEL } from '../canvas/lane';
+import { confirmDeleteLane } from '../canvas/delete-lane';
 import { laneTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore, type BranchSettingsState } from '../state/ui-store';
@@ -192,12 +193,8 @@ export class BranchSettings implements OnInit {
   protected async remove(): Promise<void> {
     const b = this.branch();
     if (!b) return;
-    const below = this.store.descendants(b.id).length;
-    const what =
-      below > 0 ? `“${laneTitle(b)}” and the ${below} lanes below it` : `“${laneTitle(b)}”`;
-    if (!confirm(`Delete ${what}? Their messages go too.`)) return;
     this.saving.set(true);
-    const ok = await this.store.deleteBranch(b.id);
+    const ok = await confirmDeleteLane(this.store, b.id);
     this.saving.set(false);
     if (ok) this.close();
   }

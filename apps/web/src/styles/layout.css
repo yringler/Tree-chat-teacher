@@ -437,6 +437,7 @@ app-root {
 .outline-row:hover .outline-actions,
 .outline-actions:focus-within,
 .tree-row:hover .row-actions,
+.fork-row:hover .row-actions,
 .row-actions:focus-within {
   opacity: 1;
 }
@@ -452,10 +453,6 @@ app-root {
 .row-actions .icon-btn {
   width: 22px;
   height: 22px;
-}
-
-.icon-btn.icon-btn-danger:hover:not(:disabled) {
-  color: var(--danger);
 }
 
 .outline-rename {

@@ -4,6 +4,13 @@ export interface BranchDialogState {
   fromNodeId: string;
   /** Text the user had selected inside the source message, if any. */
   quote: string | null;
+  /**
+   * The first message, already written ("Ask your own" under a reply, via its
+   * gear): the dialog sends it and asks for no starting message of its own.
+   */
+  message?: string;
+  /** Called once the branch exists (e.g. to clear the field the message came from). */
+  onCreated?: () => void;
 }
 
 /** "Link…" on a message: the dialog that picks the other end. */
@@ -73,6 +80,7 @@ export class UiStore {
   readonly treeSettingsOpen = signal(false);
   readonly shareDialogOpen = signal(false);
   readonly exportMenuOpen = signal(false);
+  readonly textSizeMenuOpen = signal(false);
   /** Keys & credit dialog; `provider` preselects the provider to enter a key for. */
   readonly keysDialog = signal<{ provider: string | null } | null>(null);
   readonly settingsOpen = signal(false);
@@ -185,9 +193,11 @@ export class UiStore {
       this.linkPick.set(null);
       return true;
     }
-    if (this.exportMenuOpen()) {
-      this.exportMenuOpen.set(false);
-      return true;
+    for (const s of [this.exportMenuOpen, this.textSizeMenuOpen]) {
+      if (s()) {
+        s.set(false);
+        return true;
+      }
     }
     if (this.drawerOpen()) {
       this.drawerOpen.set(false);

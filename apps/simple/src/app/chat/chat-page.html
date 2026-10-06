@@ -15,34 +15,37 @@
         <app-icon name="back" />
       </a>
       <h1 class="lesson-title" [attr.title]="lessonTitle()">{{ lessonTitle() }}</h1>
-      @if (store.models().length > 1 && store.selectedBranch(); as b) {
-        <app-model-toggle
-          [models]="store.models()"
-          [value]="account.poolModel()?.id ?? b.model"
-          [disabled]="store.busy() || switching()"
-          [lockedHint]="account.poolModelHint()"
-          (changed)="setModel(b.id, $event)"
-        />
-      }
-      <button
-        type="button"
-        class="icon-btn"
-        aria-label="Export this lesson"
-        title="Export (download a backup)"
-        [disabled]="store.exportingId() !== null"
-        (click)="exportLesson()"
-      >
-        <app-icon name="download" />
-      </button>
-      <button
-        type="button"
-        class="icon-btn"
-        aria-label="Delete this lesson"
-        title="Delete this lesson"
-        (click)="deleteLesson()"
-      >
-        <app-icon name="trash" />
-      </button>
+      <div class="lesson-tools">
+        @if (store.models().length > 1 && store.selectedBranch(); as b) {
+          <app-model-toggle
+            [models]="store.models()"
+            [value]="account.poolModel()?.id ?? b.model"
+            [disabled]="store.busy() || switching()"
+            [lockedHint]="account.poolModelHint()"
+            (changed)="setModel(b.id, $event)"
+          />
+        }
+        <app-text-size-menu heading="Lesson text size" />
+        <button
+          type="button"
+          class="icon-btn"
+          aria-label="Export this lesson"
+          title="Export (download a backup)"
+          [disabled]="store.exportingId() !== null"
+          (click)="exportLesson()"
+        >
+          <app-icon name="download" />
+        </button>
+        <button
+          type="button"
+          class="icon-btn"
+          aria-label="Delete this lesson"
+          title="Delete this lesson"
+          (click)="deleteLesson()"
+        >
+          <app-icon name="trash" />
+        </button>
+      </div>
     </div>
     @if (store.parentBranch(); as parent) {
       <nav class="crumbs" aria-label="Side question path">
@@ -54,6 +57,17 @@
             Back to the lesson
           }
         </button>
+        @if (store.selectedBranch(); as current) {
+          <button
+            type="button"
+            class="icon-btn icon-btn-danger crumbs-delete"
+            [attr.aria-label]="'Delete the side question ' + branchTitle(current)"
+            title="Delete this side question"
+            (click)="deleteSideQuestion(current.id)"
+          >
+            <app-icon name="trash" [size]="14" />
+          </button>
+        }
         <ol>
           @for (b of store.chain(); track b.id; let last = $last) {
             <li>
@@ -114,16 +128,12 @@
     </div>
   </div>
 
-  @if (pendingAsk(); as ask) {
+  @if (pendingAsk.value(); as ask) {
     <div class="ask-bar">
-      <button
-        type="button"
-        class="btn btn-primary ask-btn"
-        (mousedown)="$event.preventDefault()"
-        (click)="askAbout(ask.nodeId, ask.quote)"
-      >
-        <app-icon name="branch" /> Ask about this
-      </button>
+      <app-selection-ask
+        title="A side question about the selected words, keeping the lesson so far"
+        (ask)="askAbout(ask)"
+      />
     </div>
   }
 

@@ -5,6 +5,7 @@ import {
   effect,
   ElementRef,
   inject,
+  type OnDestroy,
   signal,
   untracked,
   viewChild,
@@ -13,7 +14,16 @@ import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import type { Branch, ChatNode, MembershipInfo } from '@tangent/shared';
 import { describeEndpoint } from '@tangent/core';
-import { endpointTitle, Icon, ReadOnlyComposer } from '@tangent/web-shared';
+import {
+  endpointTitle,
+  Icon,
+  PendingQuote,
+  ReadOnlyComposer,
+  SelectionAsk,
+  selectedMessageQuote,
+  TextSizeStore,
+  type MessageQuote,
+} from '@tangent/web-shared';
 import { Inspector } from '../inspector/inspector';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
@@ -41,18 +51,31 @@ interface Entry {
     Inspector,
     ReadOnlyComposer,
     RouterLink,
+    SelectionAsk,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './chat-page.html',
-  host: { class: 'page chat-page' },
+  host: {
+    class: 'page chat-page',
+    '(document:selectionchange)': 'selection.update()',
+  },
 })
-export class ChatPage {
+export class ChatPage implements OnDestroy {
   protected readonly store = inject(TreeStore);
   protected readonly ui = inject(UiStore);
+  /** The user's text size for the messages and composer (see chat.css). */
+  protected readonly textSize = inject(TextSizeStore);
   private readonly title = inject(Title);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   /** True while the view is scrolled to (near) the bottom: new text keeps it pinned. */
   private readonly pinned = signal(true);
+  /**
+   * Text selected in a finished message: offers "Ask about this" (a `path`
+   * branch quoting it, opened ready to type) and, by its gear, the full
+   * "Branch from here" dialog with the quote filled in.
+   */
+  protected readonly selection = new PendingQuote(() => this.quoteToAsk());
+  protected readonly asking = signal(false);
 
   protected readonly chainIds = computed<ReadonlySet<string>>(
     () => new Set(this.store.chain().map((b) => b.id)),
@@ -79,14 +102,29 @@ export class ChatPage {
     return (this.store.index()?.nodesByBranch.get(b.id)?.length ?? 0) === 0 ? b : null;
   });
 
+  /**
+   * The composer continues the open branch; asking about something new is a
+   * branch ("Ask your own question…" under the reply, "Ask about this" on a
+   * selection), so the box says what it does rather than inviting every question.
+   */
   protected readonly placeholder = computed(() => {
     const b = this.store.selectedBranch();
     if (!b) return 'Message…';
     if (this.store.path().length === 0) return 'Start the conversation…';
-    if (!b.parentBranchId) return 'Reply…';
-    // Default titles run to 50+ characters; a placeholder has one line.
-    const title = b.title.length > 32 ? `${b.title.slice(0, 31).trimEnd()}…` : b.title;
-    return `Reply in “${title}”…`;
+    // A new branch without messages: the next one starts it.
+    if (this.emptyBranch()) return 'Ask your question…';
+    return 'Continue this thread…';
+  });
+
+  /**
+   * The selection's message is on a route that needs the membership: only
+   * the dialog can pick another one.
+   */
+  protected readonly selectionLocked = computed(() => {
+    const q = this.selection.value();
+    const node = q ? this.store.index()?.nodes.get(q.nodeId) : undefined;
+    const branch = node ? this.store.index()?.branches.get(node.branchId) : undefined;
+    return !!branch && this.store.routeLocked(branch);
   });
 
   /** Pick mode, with what the message being linked from says (for the banner). */
@@ -132,6 +170,7 @@ export class ChatPage {
       const moved = branchId !== lastBranch || focus !== lastFocus;
       lastBranch = branchId;
       lastFocus = focus;
+      if (moved) this.selection.clear();
       if (moved || untracked(this.pinned)) {
         if (moved && !focus) this.pinned.set(true);
         requestAnimationFrame(() => this.scrollTo(moved ? focus : null));
@@ -145,6 +184,45 @@ export class ChatPage {
       if (live === undefined || !untracked(this.pinned)) return;
       requestAnimationFrame(() => this.scrollTo(null));
     });
+  }
+
+  ngOnDestroy(): void {
+    this.selection.destroy();
+  }
+
+  /** "Ask about this": a `path` branch quoting the selection, opened with the composer focused. */
+  protected async askAbout(q: MessageQuote): Promise<void> {
+    if (this.selectionLocked()) {
+      this.moreAbout(q);
+      return;
+    }
+    this.selection.clear();
+    window.getSelection()?.removeAllRanges();
+    this.asking.set(true);
+    try {
+      await this.store.createBranch({
+        fromNodeId: q.nodeId,
+        contextMode: 'path',
+        anchorQuote: q.quote,
+      });
+    } finally {
+      this.asking.set(false);
+    }
+  }
+
+  /** The gear: "Branch from here" with the quote filled in (mode, model, starting message…). */
+  protected moreAbout(q: MessageQuote): void {
+    this.selection.clear();
+    window.getSelection()?.removeAllRanges();
+    this.ui.branchDialog.set({ fromNodeId: q.nodeId, quote: q.quote });
+  }
+
+  /** The quote under the selection, when it lies in one finished message and branches can be made. */
+  private quoteToAsk(): MessageQuote | null {
+    if (!this.store.canGenerate() || this.ui.anyDialogOpen()) return null;
+    const found = selectedMessageQuote(this.scroller()?.nativeElement, window.getSelection());
+    const node = found ? this.store.index()?.nodes.get(found.nodeId) : undefined;
+    return node?.status === 'complete' ? found : null;
   }
 
   protected onScroll(el: HTMLElement): void {

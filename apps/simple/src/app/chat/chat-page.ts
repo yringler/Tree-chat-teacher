@@ -15,12 +15,22 @@ import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import { describeEndpoint } from '@tangent/core/links';
 import type { Branch, ChatNode } from '@tangent/shared';
-import { Icon, PoolBlockNotice } from '@tangent/web-shared';
+import {
+  Icon,
+  PendingQuote,
+  PoolBlockNotice,
+  SelectionAsk,
+  selectedMessageQuote,
+  TextSizeMenu,
+  TextSizeStore,
+  type MessageQuote,
+} from '@tangent/web-shared';
 import { BRAND } from '../brand';
 import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
 import { Composer } from './composer';
 import { connectionTitleOf } from './connections';
+import { confirmDeleteSideQuestion } from './delete-side-question';
 import { FundingToggle, type FundingOption } from './funding-toggle';
 import { MessageItem } from './message-item';
 import { ModelToggle } from './model-toggle';
@@ -32,13 +42,6 @@ interface Entry {
   /** Set on the first message of each side question: the branch it starts. */
   divider: Branch | null;
 }
-
-interface PendingAsk {
-  nodeId: string;
-  quote: string;
-}
-
-const MAX_QUOTE = 10_000;
 
 /** `/t/:treeId[/b/:branchId]`: the lesson, one branch at a time. */
 @Component({
@@ -52,25 +55,29 @@ const MAX_QUOTE = 10_000;
     PoolBlockNotice,
     RouterLink,
     NgTemplateOutlet,
+    SelectionAsk,
+    TextSizeMenu,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './chat-page.html',
   host: {
     class: 'page chat-page',
-    '(document:selectionchange)': 'onSelectionChange()',
+    // The learner's text size for the lesson's messages and composer (styles.css).
+    '[style.--chat-font-scale]': 'textSize.scale()',
+    '(document:selectionchange)': 'pendingAsk.update()',
   },
 })
 export class ChatPage implements OnDestroy {
   protected readonly store = inject(LessonStore);
   protected readonly account = inject(AccountStore);
+  protected readonly textSize = inject(TextSizeStore);
   private readonly title = inject(Title);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   /** True while the view is scrolled to (near) the bottom: new text keeps it pinned. */
   private readonly pinned = signal(true);
   protected readonly switching = signal(false);
-  /** Text selected inside one message: offers "Ask about this". */
-  protected readonly pendingAsk = signal<PendingAsk | null>(null);
-  private clearAskTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Text selected inside one finished message: offers "Ask about this". */
+  protected readonly pendingAsk = new PendingQuote(() => this.selectedQuote());
 
   protected readonly branchTitle = branchTitle;
   /** The lesson's title in the learner's words ("New lesson" until the first reply names it). */
@@ -117,11 +124,15 @@ export class ChatPage implements OnDestroy {
     return (this.store.index()?.nodesByBranch.get(b.id)?.length ?? 0) === 0 ? b : null;
   });
 
+  /**
+   * The message box continues what is open; a new question is a side question
+   * ("Ask your own question…" under the reply, "Ask about this" on a selection).
+   */
   protected readonly placeholder = computed(() => {
     const b = this.store.selectedBranch();
     if (!b || this.store.path().length === 0) return 'What do you want to learn?';
     if (b.parentBranchId && this.emptyBranch()) return 'Ask your side question…';
-    return 'Reply…';
+    return b.parentBranchId ? 'Continue this side question…' : 'Continue this lesson…';
   });
 
   /** The pool's refusal of a message in this branch (empty or a cap), shown above the composer. */
@@ -158,7 +169,7 @@ export class ChatPage implements OnDestroy {
       const moved = branchId !== lastBranch || focus !== lastFocus;
       lastBranch = branchId;
       lastFocus = focus;
-      if (moved) this.pendingAsk.set(null);
+      if (moved) this.pendingAsk.clear();
       if (moved || untracked(this.pinned)) {
         if (moved && !focus) this.pinned.set(true);
         requestAnimationFrame(() => this.scrollTo(moved ? focus : null));
@@ -175,29 +186,17 @@ export class ChatPage implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    clearTimeout(this.clearAskTimer);
+    this.pendingAsk.destroy();
   }
 
   protected onScroll(el: HTMLElement): void {
     this.pinned.set(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
   }
 
-  /** Maps the document selection to one finished message of this lesson, if it lies inside one. */
-  protected onSelectionChange(): void {
-    const found = this.selectedQuote();
-    clearTimeout(this.clearAskTimer);
-    if (found) {
-      this.pendingAsk.set(found);
-      return;
-    }
-    // Hide a little later: a tap on the button may collapse the selection first.
-    if (this.pendingAsk()) this.clearAskTimer = setTimeout(() => this.pendingAsk.set(null), 400);
-  }
-
-  protected async askAbout(nodeId: string, quote: string): Promise<void> {
-    this.pendingAsk.set(null);
+  protected async askAbout(q: MessageQuote): Promise<void> {
+    this.pendingAsk.clear();
     window.getSelection()?.removeAllRanges();
-    await this.store.askAbout(nodeId, quote);
+    await this.store.askAbout(q.nodeId, q.quote);
   }
 
   protected async setModel(branchId: string, model: string): Promise<void> {
@@ -229,6 +228,11 @@ export class ChatPage implements OnDestroy {
     void this.store.deleteLesson(d.tree.id);
   }
 
+  /** The open side question, with every side question below it (the lesson stays). */
+  protected deleteSideQuestion(branchId: string): void {
+    void confirmDeleteSideQuestion(this.store, branchId);
+  }
+
   protected send(content: string): void {
     const id = this.store.selectedBranchId();
     if (!id) return;
@@ -242,20 +246,11 @@ export class ChatPage implements OnDestroy {
     if (n) void this.store.cancel(n.id);
   }
 
-  private selectedQuote(): PendingAsk | null {
-    const container = this.scroller()?.nativeElement;
-    const sel = window.getSelection();
-    if (!container || !sel || sel.isCollapsed || sel.rangeCount === 0) return null;
-    const common = sel.getRangeAt(0).commonAncestorContainer;
-    if (!container.contains(common)) return null;
-    const el = (common instanceof Element ? common : common.parentElement)?.closest<HTMLElement>(
-      '[data-node-id]',
-    );
-    const nodeId = el?.dataset['nodeId'];
-    const node = nodeId ? this.store.index()?.nodes.get(nodeId) : undefined;
-    if (!node || node.status === 'streaming') return null;
-    const quote = sel.toString().trim().slice(0, MAX_QUOTE);
-    return quote ? { nodeId: node.id, quote } : null;
+  /** The document selection, when it lies inside one message of this lesson that isn't being written. */
+  private selectedQuote(): MessageQuote | null {
+    const found = selectedMessageQuote(this.scroller()?.nativeElement, window.getSelection());
+    const node = found ? this.store.index()?.nodes.get(found.nodeId) : undefined;
+    return node && node.status !== 'streaming' ? found : null;
   }
 
   private scrollTo(nodeId: string | null): void {

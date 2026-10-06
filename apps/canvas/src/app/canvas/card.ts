@@ -13,6 +13,7 @@ import {
   MarkdownService,
   RelatedLinks,
   relatedLinks,
+  TangentAsk,
   type LinkNoteEdit,
 } from '@tangent/web-shared';
 import { LayoutStore, type Point } from '../layout/layout-store';
@@ -43,7 +44,7 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
  */
 @Component({
   selector: 'app-card',
-  imports: [Icon, RelatedLinks],
+  imports: [Icon, RelatedLinks, TangentAsk],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -106,7 +107,7 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
         </div>
       }
 
-      @if (tangents().length > 0) {
+      @if (complete()) {
         <nav class="tangents" aria-label="Tangents worth following">
           <span class="tangents-label muted small">Where next?</span>
           @for (t of tangents(); track t.title) {
@@ -125,6 +126,19 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
               }
             </button>
           }
+          <!-- The user's own question, in a new lane like a tangent. -->
+          <app-tangent-ask
+            [(text)]="askText"
+            label="Ask your own question in a new lane"
+            settingsLabel="Lane settings: context, model, variants…"
+            [expandable]="true"
+            [busy]="asking()"
+            [latest]="latest()"
+            [disabled]="locked()"
+            disabledTitle="Asking needs a membership (this lane is on your own key)"
+            (ask)="ask($event)"
+            (settings)="askWithSettings($event)"
+          />
         </nav>
       }
 
@@ -227,11 +241,16 @@ export class Card {
       : { body: this.content(), tangents: [], partial: false },
   );
   protected readonly html = computed(() => this.md.render(this.split().body, !this.streaming()));
-  protected readonly tangents = computed(() =>
-    this.node().role === 'assistant' && this.node().status === 'complete'
-      ? this.split().tangents
-      : [],
+  /** A finished reply: offers its tangents and "Ask your own". */
+  protected readonly complete = computed(
+    () => this.node().role === 'assistant' && this.node().status === 'complete',
   );
+  protected readonly tangents = computed(() => (this.complete() ? this.split().tangents : []));
+  /** The card's lane can't generate (its funding needs the membership the user lacks). */
+  protected readonly locked = computed(() => {
+    const b = this.store.index()?.branches.get(this.node().branchId);
+    return !!b && this.store.routeLocked(b);
+  });
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
   protected readonly followed = computed<ReadonlySet<string>>(
     () => new Set(this.children().map((b) => b.title)),
@@ -260,6 +279,40 @@ export class Card {
   private press: { pointerId: number; x: number; y: number; moved: boolean } | null = null;
   /** The press was a drag: the click that may follow it isn't one. */
   private dragged = false;
+  /**
+   * The selected lane's last card, a finished reply: its "Ask your own"
+   * starts open (TangentAsk `latest`). Only the selected lane's, so the canvas
+   * never shows a field open in every lane.
+   */
+  protected readonly latest = computed(() => {
+    const n = this.node();
+    if (!this.complete() || n.branchId !== this.store.selectedBranchId()) return false;
+    return this.store.index()?.nodesByBranch.get(n.branchId)?.at(-1)?.id === n.id;
+  });
+
+  /** "Ask your own": the question being typed under the reply. */
+  protected readonly askText = signal('');
+  protected readonly asking = signal(false);
+
+  protected async ask(text: string): Promise<void> {
+    if (this.asking() || this.locked()) return;
+    this.asking.set(true);
+    try {
+      // Kept on failure, to try again.
+      if (await this.store.askFrom(this.node().id, text)) this.askText.set('');
+    } finally {
+      this.asking.set(false);
+    }
+  }
+
+  /** The gear: the branch dialog (variants and all), asking the question once the lanes exist. */
+  protected askWithSettings(text: string): void {
+    this.ui.branchDialog.set({
+      fromNodeId: this.node().id,
+      quote: null,
+      ...(text ? { message: text, onCreated: () => this.askText.set('') } : {}),
+    });
+  }
 
   protected branch(e: Event): void {
     e.stopPropagation();

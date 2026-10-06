@@ -11,12 +11,13 @@ import {
 } from '@angular/core';
 import { branchLeaf } from '@tangent/core/tree';
 import type { ChatNode } from '@tangent/shared';
-import { Icon, ReadOnlyComposer } from '@tangent/web-shared';
+import { Icon, ReadOnlyComposer, TextSizeStore } from '@tangent/web-shared';
 import type { LanePlacement } from '../layout/layout';
 import { LayoutStore } from '../layout/layout-store';
 import { CanvasStore, modelLabel, type Lineage } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 import { Card, type Lit } from './card';
+import { confirmDeleteLane } from './delete-lane';
 import { LaneComposer } from './lane-composer';
 import { laneTitle } from './titles';
 
@@ -81,6 +82,19 @@ export const MODE_LABEL = { path: 'full path', summary: 'summary', independent: 
         >
           <app-icon name="settings" [size]="15" />
         </button>
+        @if (parentId) {
+          <button
+            type="button"
+            class="icon-btn icon-btn-danger"
+            [attr.title]="
+              hasChildren() ? 'Delete this lane and the lanes below it' : 'Delete this lane'
+            "
+            [attr.aria-label]="'Delete the lane ' + laneTitle(b)"
+            (click)="remove($event)"
+          >
+            <app-icon name="trash" [size]="14" />
+          </button>
+        }
       </div>
       <div class="lane-meta">
         <span class="badge mode-{{ b.contextMode }}" [attr.title]="modeHelp()">
@@ -153,7 +167,8 @@ export const MODE_LABEL = { path: 'full path', summary: 'summary', independent: 
       } @else {
         <app-lane-composer
           [inputId]="'composer-' + b.id"
-          [placeholder]="nodes().length === 0 ? 'Ask here…' : 'Reply in this lane…'"
+          [laneId]="b.id"
+          [placeholder]="nodes().length === 0 ? 'Ask here…' : 'Continue this lane…'"
           [disabled]="busy()"
           [busy]="streaming() !== null"
           [selected]="selected"
@@ -179,6 +194,7 @@ export class Lane implements OnDestroy {
   private readonly ui = inject(UiStore);
   private readonly layout = inject(LayoutStore);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly textSize = inject(TextSizeStore);
   protected readonly laneTitle = laneTitle;
   protected readonly modeLabel = MODE_LABEL;
 
@@ -234,11 +250,18 @@ export class Lane implements OnDestroy {
 
   constructor() {
     // Re-measure whenever the lane's content changes shape: cards added or
-    // removed, folded, selected (compact cards open up) or the lineage toggled
-    // (badges). The arguments only make the effect depend on them; it must not
-    // re-run on every layout pass, and the ResizeObserver covers everything else.
+    // removed, folded, selected (compact cards open up), the lineage toggled
+    // (badges) or the text size changed (every card rewraps). The arguments
+    // only make the effect depend on them; it must not re-run on every layout
+    // pass, and the ResizeObserver covers everything else.
     afterRenderEffect(() =>
-      this.measure(this.nodes().length, this.collapsed(), this.isSelected(), this.lineageOn()),
+      this.measure(
+        this.nodes().length,
+        this.collapsed(),
+        this.isSelected(),
+        this.lineageOn(),
+        this.textSize.scale(),
+      ),
     );
   }
 
@@ -284,6 +307,12 @@ export class Lane implements OnDestroy {
     this.ui.branchSettings.set({ branchId: this.place().branch.id });
   }
 
+  /** The lane with every lane below it, after asking; the selection moves up if it was in there. */
+  protected remove(e: Event): void {
+    e.stopPropagation();
+    void confirmDeleteLane(this.store, this.place().branch.id);
+  }
+
   protected send(content: string): void {
     const b = this.place().branch;
     if (!this.isSelected()) this.store.go(b.id);
@@ -302,6 +331,7 @@ export class Lane implements OnDestroy {
     _collapsed: boolean,
     _selected: boolean,
     _lineage: boolean,
+    _textScale: number,
   ): void {
     const el = this.host.nativeElement;
     if (!this.observer) {

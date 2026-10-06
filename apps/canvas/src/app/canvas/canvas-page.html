@@ -88,6 +88,7 @@
         <span aria-hidden="true">+</span>
       </button>
     </div>
+    <app-text-size-menu heading="Card text size" />
     <button
       type="button"
       class="icon-btn"
@@ -148,16 +149,20 @@
         </button>
       </div>
     </div>
-  } @else if (pendingBranch(); as p) {
+  } @else if (selection.value(); as q) {
     <div class="float-bar">
-      <button
-        type="button"
-        class="btn btn-primary float-btn"
-        (mousedown)="$event.preventDefault()"
-        (click)="branchFromSelection(p)"
-      >
-        <app-icon name="branch" /> Branch from this selection
-      </button>
+      <app-selection-ask
+        [label]="selectionLocked() ? 'Branch from this selection…' : 'Ask about this'"
+        [title]="
+          selectionLocked()
+            ? 'Branch from here, quoting the selection (pick a route you can use)'
+            : 'A new lane quoting the selection, with the conversation so far: ask there'
+        "
+        [moreLabel]="selectionLocked() ? null : 'More: Branch from here with this quote…'"
+        [busy]="asking()"
+        (ask)="askAbout(q)"
+        (more)="moreAbout(q)"
+      />
     </div>
   }
 

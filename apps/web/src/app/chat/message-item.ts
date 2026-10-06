@@ -15,10 +15,12 @@ import {
   RelatedLinks,
   relatedLinks,
   SourcesList,
+  TangentAsk,
   type LinkNoteEdit,
   type RelatedLink,
 } from '@tangent/web-shared';
 import { copyText, selectionWithin } from '../core/selection';
+import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { ReviewStore } from '../state/review-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
@@ -28,7 +30,7 @@ import { ReviewVerdict } from '../ui/review-verdict';
 /** One message of the linear branch view. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, ModeBadge, RelatedLinks, ReviewVerdict, SourcesList],
+  imports: [Icon, ModeBadge, RelatedLinks, ReviewVerdict, SourcesList, TangentAsk],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -107,7 +109,8 @@ import { ReviewVerdict } from '../ui/review-verdict';
       @if (streaming() && liveStatus()) {
         <p class="msg-status muted small">{{ liveStatus() }}</p>
       }
-      <div #body class="msg-body md" [innerHTML]="html()"></div>
+      <!-- data-node-id: the chat page maps a text selection in here to this message ("Ask about this"). -->
+      <div #body class="msg-body md" [attr.data-node-id]="n.id" [innerHTML]="html()"></div>
       @if (streaming()) {
         <span class="cursor" aria-hidden="true"></span>
         <span class="sr-only">Generating…</span>
@@ -153,7 +156,7 @@ import { ReviewVerdict } from '../ui/review-verdict';
         (click)="$event.stopPropagation()"
       />
 
-      @if (tangents().length > 0) {
+      @if (tangents().length > 0 || canAsk()) {
         <nav class="tangents" aria-label="Tangents worth following">
           <span class="tangents-label muted small">Where next?</span>
           @for (t of tangents(); track t.title) {
@@ -179,6 +182,23 @@ import { ReviewVerdict } from '../ui/review-verdict';
               }
             </button>
           }
+          @if (canAsk()) {
+            <!-- The user's own question, branched off like a tangent. -->
+            <app-tangent-ask
+              [(text)]="askText"
+              label="Ask your own question in a new branch"
+              settingsLabel="Branch settings: context, model, quote…"
+              [expandable]="true"
+              [reveal]="true"
+              [busy]="asking()"
+              [latest]="latest()"
+              [disabled]="locked()"
+              disabledTitle="Asking needs a membership (this branch is on your own key)"
+              (ask)="ask($event)"
+              (settings)="askWithSettings($event)"
+              (click)="$event.stopPropagation()"
+            />
+          }
         </nav>
       }
 
@@ -197,7 +217,7 @@ import { ReviewVerdict } from '../ui/review-verdict';
           @if (forksOpen()) {
             <ul class="fork-list">
               @for (b of children(); track b.id) {
-                <li>
+                <li class="fork-row">
                   <button
                     type="button"
                     class="fork-link"
@@ -211,6 +231,18 @@ import { ReviewVerdict } from '../ui/review-verdict';
                     }
                     <span class="count">{{ countOf(b.id) }}</span>
                   </button>
+                  <!-- Delete without going through the outline (shown on hover or keyboard focus). -->
+                  <span class="row-actions">
+                    <button
+                      type="button"
+                      class="icon-btn icon-btn-danger"
+                      [attr.aria-label]="'Delete ' + b.title"
+                      title="Delete branch"
+                      (click)="remove($event, b)"
+                    >
+                      <app-icon name="trash" [size]="13" />
+                    </button>
+                  </span>
                 </li>
               }
             </ul>
@@ -406,6 +438,41 @@ export class MessageItem {
     }
   }
 
+  /** "Ask your own": offered wherever tangents are, while a branch can be generated on. */
+  protected readonly canAsk = computed(() => this.reviewable() && this.store.canGenerate());
+  protected readonly askText = signal('');
+  protected readonly asking = signal(false);
+  /** The open branch's newest reply: its "Ask your own" starts open (TangentAsk `latest`). */
+  protected readonly latest = computed(() => {
+    const n = this.node();
+    return (
+      n.role === 'assistant' &&
+      n.status === 'complete' &&
+      n.branchId === this.store.selectedBranchId() &&
+      this.store.path().at(-1)?.id === n.id
+    );
+  });
+
+  protected async ask(text: string): Promise<void> {
+    if (this.asking() || this.locked()) return;
+    this.asking.set(true);
+    try {
+      // Kept on failure, to try again.
+      if (await this.store.askFrom(this.node().id, text)) this.askText.set('');
+    } finally {
+      this.asking.set(false);
+    }
+  }
+
+  /** The gear: the branch dialog, sending the question once the branch is set up. */
+  protected askWithSettings(text: string): void {
+    this.ui.branchDialog.set({
+      fromNodeId: this.node().id,
+      quote: null,
+      ...(text ? { message: text, onCreated: () => this.askText.set('') } : {}),
+    });
+  }
+
   protected async copy(e: Event): Promise<void> {
     e.stopPropagation();
     if (await copyText(this.split().body)) {
@@ -413,6 +480,11 @@ export class MessageItem {
       this.ui.notify('Copied to clipboard');
       setTimeout(() => this.copied.set(false), 1500);
     }
+  }
+
+  protected async remove(e: Event, b: Branch): Promise<void> {
+    e.stopPropagation();
+    await confirmDeleteBranch(this.store, b.id);
   }
 
   protected jump(e: Event, b: Branch): void {
