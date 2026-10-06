@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, type APIRequestContext, type BrowserContext } from '@playwright/test';
@@ -6,6 +7,19 @@ import { expect, type APIRequestContext, type BrowserContext } from '@playwright
 const LOG = path.resolve(import.meta.dirname, '../.state/wrangler.log');
 /** The token Cloudflare's always-pass Turnstile test keys accept (serve.mjs). */
 const TURNSTILE_TEST_TOKEN = 'XXXX.DUMMY.TOKEN.XXXX';
+
+/**
+ * A client IP of its own for each sign-in. Better Auth rate-limits per IP
+ * (`cf-connecting-ip`, auth/auth.ts), and the magic-link plugin allows 5 a
+ * minute on requesting a link and on verifying one. Without this, every
+ * sign-in in the suite (and in reruns against a reused server) shares one
+ * budget and the sixth in a minute gets 429. The limit itself is covered by
+ * the worker tests (auth.test.ts).
+ */
+function clientIp(): string {
+  const [a, b, c] = crypto.randomBytes(3);
+  return `10.${a}.${b}.${c}`;
+}
 
 let seq = 0;
 /** A fresh address per call, so every test is a new user. */
@@ -24,8 +38,13 @@ export function newEmail(tag: string): string {
 export async function signIn(context: BrowserContext, baseURL: string, email: string) {
   // Only what the server logs from here on can hold this link.
   const from = fs.statSync(LOG).size;
+  const ip = clientIp();
   const res = await context.request.post('/api/auth/sign-in/magic-link', {
-    headers: { origin: baseURL, 'x-captcha-response': TURNSTILE_TEST_TOKEN },
+    headers: {
+      origin: baseURL,
+      'x-captcha-response': TURNSTILE_TEST_TOKEN,
+      'cf-connecting-ip': ip,
+    },
     data: { email, callbackURL: '/', errorCallbackURL: '/login' },
   });
   expect(res.status(), await res.text()).toBe(200);
@@ -42,7 +61,10 @@ export async function signIn(context: BrowserContext, baseURL: string, email: st
       { message: `magic link for ${email} in ${LOG}`, intervals: [25, 50, 100] },
     )
     .toBeTruthy();
-  const verify = await context.request.get(link!, { maxRedirects: 0 });
+  const verify = await context.request.get(link!, {
+    headers: { 'cf-connecting-ip': ip },
+    maxRedirects: 0,
+  });
   expect(verify.status(), `magic link verify for ${email}`).toBe(302);
   expect(verify.headers()['location'] ?? '').not.toContain('/login');
   const me = await context.request.get('/api/me');
