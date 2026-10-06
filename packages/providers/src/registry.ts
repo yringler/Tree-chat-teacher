@@ -287,6 +287,7 @@ export const DEFAULT_PROVIDER_CONFIGS: ProviderConfig[] = [
     baseUrl: 'https://openrouter.ai/api/v1',
     apiKeySecret: 'OPENROUTER_API_KEY',
     defaultModel: 'anthropic/claude-sonnet-5.5',
+    options: { webSearch: true },
     models: [
       { id: 'anthropic/claude-sonnet-5.5', label: 'Claude Sonnet 5.5 (OpenRouter)' },
       { id: 'openai/gpt-5', label: 'GPT-5 (OpenRouter)' },
@@ -392,6 +393,7 @@ export function createProviderRegistry(
         available,
         acceptsUserKey: acceptsUserKey(config),
         keySource,
+        webSearch: provider.capabilities(provider.defaultModel()).supportsWebSearch,
       })),
     defaultProviderId: () => defaultId,
   };

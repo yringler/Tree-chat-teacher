@@ -1,5 +1,8 @@
 import {
+  CHECK_SOURCES_INSTRUCTIONS,
   DEFAULT_ACCOUNT_ID,
+  DEFAULT_GROUNDING_MODE,
+  GROUNDING_INSTRUCTIONS,
   DEFAULT_BRANCH_TITLE_PREFIX,
   DEFAULT_TREE_TITLE,
   LEGACY_BUILT_IN_PROVIDER_ID,
@@ -16,6 +19,7 @@ import {
   type BranchFunding,
   type ChatMessage,
   type ChatNode,
+  type Citation,
   type ContextPlan,
   type ContextPlanResponse,
   type CreateBranchRequest,
@@ -41,6 +45,7 @@ import {
   type UpdateSettingsRequest,
   type UsageTag,
   type UpdateTreeRequest,
+  type WebSearchRequest,
 } from '@tangent/shared';
 import { assembleContext, summaryKeyString } from '../context/assemble.js';
 import {
@@ -53,6 +58,11 @@ import {
   type RenderOptions,
 } from '../context/render.js';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
+import {
+  decideGrounding,
+  type GroundingDecision,
+  type GroundingPolicy,
+} from '../grounding/policy.js';
 import { adaptBackupForLearn, type LearnImportTarget } from '../learn-import.js';
 import type { Repositories } from '../repository.js';
 import type { TokenEstimator } from '../tokens.js';
@@ -71,7 +81,33 @@ export interface ChatSettings {
   maxInputTokens: number | null;
   /** Generate a branch title after the first assistant reply. */
   autoTitle: boolean;
+  /** Web-search grounding of replies (docs/DECISIONS.md § Grounding). */
+  grounding: GroundingSettings;
 }
+
+export interface GroundingSettings {
+  /** Operator ceiling over the per-branch setting; see GroundingPolicy. */
+  policy: GroundingPolicy;
+  /** Results per search. */
+  maxResults: number;
+  /** Most searches per reply. */
+  maxUses: number;
+  /** Search engine passed to the provider (OpenRouter: `exa`, …). */
+  engine: string;
+  /**
+   * True when the per-branch setting is ignored and every branch counts as
+   * `auto` (Learn: the pedagogy is the operator's, not the learner's).
+   */
+  ignoreBranchSetting: boolean;
+}
+
+export const DEFAULT_GROUNDING_SETTINGS: GroundingSettings = {
+  policy: 'off',
+  maxResults: 5,
+  maxUses: 1,
+  engine: 'exa',
+  ignoreBranchSetting: false,
+};
 
 export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   summaryProviderId: null,
@@ -79,6 +115,7 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   reservedOutputTokens: 4096,
   maxInputTokens: null,
   autoTitle: true,
+  grounding: DEFAULT_GROUNDING_SETTINGS,
 };
 
 export { DEFAULT_TREE_TITLE, TRUNK_TITLE };
@@ -128,6 +165,12 @@ export interface ChatServiceDeps {
    */
   defaultSystemPrompt?: string | null;
   /**
+   * False once automatic web searches on `route` should stop (the Worker's
+   * daily cap on Tangent credit). Absent = always allowed. Explicit checks
+   * ignore it.
+   */
+  groundingAllowance?: (route: ProviderRoute) => Promise<boolean>;
+  /**
    * The one model every generation of this instance uses (replies, budgets,
    * summaries and titles without a configured summary model), whatever the
    * branch says; the branch row is not changed. The community pool sets it.
@@ -175,6 +218,8 @@ export interface RunGenerationOptions {
    * pool's ceiling hold), passed to the provider as `usageTag.reservationId`.
    */
   reservationId?: string;
+  /** `required`: "Check sources", the reply must search (when the provider can). */
+  ground?: 'required';
 }
 
 /** A validated review, ready to run (see `prepareReview`). */
@@ -298,6 +343,7 @@ export class ChatService {
       isPrivate: false,
       providerId: route.providerId,
       model,
+      grounding: DEFAULT_GROUNDING_MODE,
       funding: route.funding,
       createdAt: now,
       updatedAt: now,
@@ -388,6 +434,7 @@ export class ChatService {
       isPrivate: req.isPrivate ?? false,
       providerId: route.providerId,
       model,
+      grounding: req.grounding ?? parent.grounding ?? DEFAULT_GROUNDING_MODE,
       funding: route.funding,
       createdAt: now,
       updatedAt: now,
@@ -412,6 +459,7 @@ export class ChatService {
     if (req.contextMode !== undefined) patch.contextMode = req.contextMode;
     if (req.anchorQuote !== undefined) patch.anchorQuote = emptyToNull(req.anchorQuote?.trim());
     if (req.isPrivate !== undefined) patch.isPrivate = req.isPrivate;
+    if (req.grounding !== undefined) patch.grounding = req.grounding;
     if (req.providerId !== undefined || req.funding !== undefined || req.model !== undefined) {
       const route = this.requestedRoute(req, branch);
       const provider = this.requireProvider(route);
@@ -758,6 +806,11 @@ export class ChatService {
    * `status`), streams `delta`/`usage`, then persists the assistant node and
    * yields exactly one terminal `done` or `error`. Never throws. Persists
    * partial content on abort/error. Auto-titles the branch when enabled.
+   *
+   * Grounding: `decideGrounding` picks whether this reply is offered a web
+   * search (or must run one, for `options.ground`); the found sources are
+   * stored on the node (`sources`: null when it didn't search). A provider
+   * that rejects the search request before any text is retried once without.
    */
   async *runGeneration(
     begin: BeginSendResult,
@@ -768,6 +821,7 @@ export class ChatService {
     let branch = begin.branch;
     let content = '';
     const usage: Partial<TokenUsage> = {};
+    let sources: Citation[] | null = null;
     const finish = async (
       status: 'complete' | 'error',
       error: string | null,
@@ -776,8 +830,21 @@ export class ChatService {
         usage.inputTokens !== undefined || usage.outputTokens !== undefined
           ? { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0 }
           : null;
-      const node: ChatNode = { ...assistantNode, content, status, error, usage: finalUsage };
-      await this.repo.updateNode(assistantNode.id, { content, status, error, usage: finalUsage });
+      const node: ChatNode = {
+        ...assistantNode,
+        content,
+        status,
+        error,
+        usage: finalUsage,
+        sources,
+      };
+      await this.repo.updateNode(assistantNode.id, {
+        content,
+        status,
+        error,
+        usage: finalUsage,
+        sources,
+      });
       return node;
     };
 
@@ -799,41 +866,80 @@ export class ChatService {
       }
       const model = this.modelOf(branch);
       const caps = inputs.provider.capabilities(model);
-      const rendered = renderPlan(plan, this.renderOptions(caps.supportsSystemPrompt));
+      const grounding = await this.decideGrounding(inputs, plan, caps.supportsWebSearch, options);
       const { maxOutput } = this.budgetFor(inputs.provider, model);
 
       let terminal: { status: 'complete' } | { status: 'error'; message: string } | null = null;
-      for await (const event of inputs.provider.stream({
-        model,
-        system: rendered.system,
-        messages: rendered.messages,
-        maxOutputTokens: maxOutput,
-        signal,
-        usageTag: {
-          purpose: 'reply',
-          treeId: inputs.tree.id,
-          branchId: branch.id,
-          nodeId: assistantNode.id,
-          ...(options.reservationId ? { reservationId: options.reservationId } : {}),
-        },
-      })) {
-        if (event.type === 'delta') {
-          content += event.text;
-          yield { type: 'delta', nodeId: assistantNode.id, text: event.text };
-        } else if (event.type === 'usage') {
-          Object.assign(usage, stripUndefined(event.usage));
-          yield { type: 'usage', nodeId: assistantNode.id, usage: event.usage };
-        } else if (event.type === 'done') {
-          terminal = { status: 'complete' };
-        } else if (event.type === 'billing') {
-          // Metered by the Worker's registry wrapper; nothing to store here.
-          continue;
-        } else {
-          terminal = {
-            status: 'error',
-            message: event.error.code === 'aborted' ? 'Cancelled' : event.error.message,
-          };
+      let webSearch = this.webSearchRequest(grounding);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        let retryWithoutSearch = false;
+        const extraSystem =
+          webSearch === undefined
+            ? undefined
+            : webSearch.mode === 'required'
+              ? CHECK_SOURCES_INSTRUCTIONS
+              : GROUNDING_INSTRUCTIONS;
+        const rendered = renderPlan(plan, {
+          ...this.renderOptions(caps.supportsSystemPrompt),
+          ...(extraSystem !== undefined ? { extraSystem } : {}),
+        });
+        let searched = false;
+        let cited: Citation[] = [];
+        for await (const event of inputs.provider.stream({
+          model,
+          system: rendered.system,
+          messages: rendered.messages,
+          maxOutputTokens: maxOutput,
+          signal,
+          usageTag: {
+            purpose: 'reply',
+            treeId: inputs.tree.id,
+            branchId: branch.id,
+            nodeId: assistantNode.id,
+            ...(options.reservationId ? { reservationId: options.reservationId } : {}),
+          },
+          ...(webSearch !== undefined ? { webSearch } : {}),
+        })) {
+          if (event.type === 'delta') {
+            content += event.text;
+            yield { type: 'delta', nodeId: assistantNode.id, text: event.text };
+          } else if (event.type === 'usage') {
+            Object.assign(usage, stripUndefined(event.usage));
+            yield { type: 'usage', nodeId: assistantNode.id, usage: event.usage };
+          } else if (event.type === 'done') {
+            terminal = { status: 'complete' };
+          } else if (event.type === 'billing') {
+            // Metered by the Worker's registry wrapper; only the search count matters here.
+            if ((event.webSearches ?? 0) > 0) searched = true;
+          } else if (event.type === 'activity') {
+            if (!searched) yield { type: 'status', message: 'Checking sources…' };
+            searched = true;
+          } else if (event.type === 'citations') {
+            searched = true;
+            cited = event.citations;
+          } else if (
+            webSearch !== undefined &&
+            attempt === 0 &&
+            content === '' &&
+            event.error.code === 'invalid_request'
+          ) {
+            // The provider (or this model) refused the search tool: answer without it.
+            webSearch = undefined;
+            retryWithoutSearch = true;
+            yield {
+              type: 'status',
+              message: "Couldn't check sources; answering from the tutor's own knowledge.",
+            };
+            break;
+          } else {
+            terminal = {
+              status: 'error',
+              message: event.error.code === 'aborted' ? 'Cancelled' : event.error.message,
+            };
+          }
         }
+        if (searched) sources = cited;
+        if (!retryWithoutSearch) break;
       }
       terminal ??= { status: 'error', message: 'The provider stream ended unexpectedly' };
 
@@ -857,6 +963,59 @@ export class ChatService {
       }
       yield { type: 'error', nodeId: assistantNode.id, message, node };
     }
+  }
+
+  /** Whether replies on `branch` can run a web search ("Check sources"). */
+  canSearch(branch: Branch): boolean {
+    try {
+      return this.requireProvider(branch).capabilities(this.modelOf(branch)).supportsWebSearch;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Whether this reply is offered (or must run) a web search. */
+  private async decideGrounding(
+    inputs: PlanInputs,
+    plan: ContextPlan,
+    supported: boolean,
+    options: RunGenerationOptions,
+  ): Promise<GroundingDecision> {
+    const settings = this.deps.settings.grounding;
+    const lastUser = inputs.path.at(-1);
+    const input = {
+      policy: settings.policy,
+      branchMode: settings.ignoreBranchSetting
+        ? DEFAULT_GROUNDING_MODE
+        : (inputs.branch.grounding ?? DEFAULT_GROUNDING_MODE),
+      explicit: options.ground === 'required',
+      supported,
+      autoAllowed: true,
+      depth: Math.max(0, inputs.chain.length - 1),
+      userText: lastUser?.role === 'user' ? lastUser.content : '',
+      lossyContext:
+        plan.compaction !== null ||
+        plan.segments.some((s) => s.kind === 'summary' && s.status === 'ready'),
+    };
+    const decision = decideGrounding(input);
+    // Only an automatic search that would otherwise run consults the (I/O) cap.
+    if (decision.mode !== 'auto' || !this.deps.groundingAllowance) return decision;
+    let allowed: boolean;
+    try {
+      allowed = await this.deps.groundingAllowance({
+        providerId: inputs.branch.providerId,
+        funding: inputs.branch.funding,
+      });
+    } catch {
+      allowed = false;
+    }
+    return allowed ? decision : decideGrounding({ ...input, autoAllowed: false });
+  }
+
+  private webSearchRequest(decision: GroundingDecision): WebSearchRequest | undefined {
+    if (decision.mode === 'none') return undefined;
+    const { maxResults, maxUses, engine } = this.deps.settings.grounding;
+    return { mode: decision.mode, maxResults, maxUses, engine };
   }
 
   /** Titles a default-titled branch (and a default-titled tree, for the trunk). Best-effort. */
@@ -961,7 +1120,12 @@ export class ChatService {
       })) {
         if (event.type === 'delta') yield { type: 'delta', text: event.text };
         else if (event.type === 'usage') Object.assign(usage, stripUndefined(event.usage));
-        else if (event.type === 'billing') continue;
+        else if (
+          event.type === 'billing' ||
+          event.type === 'citations' ||
+          event.type === 'activity'
+        )
+          continue;
         else if (event.type === 'done') {
           const finalUsage =
             usage.inputTokens !== undefined || usage.outputTokens !== undefined

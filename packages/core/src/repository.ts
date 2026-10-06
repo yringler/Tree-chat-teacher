@@ -1,6 +1,7 @@
 import type {
   Branch,
   ChatNode,
+  Citation,
   Share,
   SummaryRecord,
   TokenUsage,
@@ -45,6 +46,7 @@ export interface TreeRepository {
         | 'isPrivate'
         | 'providerId'
         | 'model'
+        | 'grounding'
         | 'funding'
         | 'updatedAt'
       >
@@ -80,6 +82,7 @@ export interface TreeRepository {
       status: ChatNode['status'];
       error: string | null;
       usage: TokenUsage | null;
+      sources: Citation[] | null;
     }>,
   ): Promise<void>;
   /** Nodes left in `streaming` state (e.g. after a crash). */

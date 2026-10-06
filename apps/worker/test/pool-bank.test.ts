@@ -204,6 +204,7 @@ function providerOf(stream: (req: GenerateRequest) => AsyncIterable<ProviderEven
       maxOutputTokens: 2048,
       supportsSystemPrompt: true,
       supportsTokenCount: false,
+      supportsWebSearch: false,
     }),
     stream,
   };

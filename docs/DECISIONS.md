@@ -424,3 +424,35 @@ The pool's "supporter" tier (net credit purchases above $0) is gone. It was a th
 ## CI (2026-10)
 
 - **GitHub Actions runs every check; Workers Builds only builds and deploys.** `.github/workflows/ci.yml` runs on pull requests to `master` and pushes to it, in two parallel jobs: **Checks** (`pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`) and **End-to-end** (Chromium from `playwright install --with-deps`, then `pnpm e2e`, uploading the Playwright report and the Worker log on failure). Merging is gated by a branch rule on `master` requiring both jobs, so a deploy never waits on tests. Formatting isn't checked yet: the repository-wide `prettier --check` still fails on files that predate it.
+
+## Grounding (web search)
+
+The point of Tangent is to drill deeper and deeper; the deeper a learner goes, the further they leave what the model reliably knows. Grounding replies in a web search is therefore a requirement for a learning product, and the design is about when to pay for it. On the Learn models a search costs far more than a reply, so cost depends on how often we search, not on how much each search costs. Research in RESEARCH ("Web search").
+
+- **OpenRouter's web search, not a separate search provider (Brave, Exa direct).** OpenRouter folds the search fee into the cost it reports for the generation (`usage.cost`, `/generation` `total_cost`), so the existing meter and ledger bill it with no new provider, key, ledger entry or reconciliation path. A dedicated provider would be cheaper per search (Brave about $0.005 against Exa's about $0.007) but would add a second integration and its own metering. The owner chose the simpler route and the extra cost.
+- **The `openrouter:web_search` server tool, not the `web` plugin or the `:online` suffix.** The plugin runs one search on every request, and OpenRouter picks the query from the conversation; in a branch the last message is often just "why is that?". With the tool, the model writes the query and decides whether to search at all. If the beta tool doesn't hold up, falling back to the plugin is confined to `webSearchBody` in `openai-compatible.ts`.
+- **A free gate decides whether to offer the tool; the model decides whether to use it.** `decideGrounding` (`packages/core/src/grounding/policy.ts`) is a pure, deterministic score with no I/O and no model call:
+  - depth ≥ 2: +2; depth 1: +1;
+  - a specific fact (a year or date, a number with a unit, "how many", "who invented"…): +2;
+  - recency words: +2;
+  - sources asked for: +2;
+  - two or more named entities: +1;
+  - context summarized or compacted: +1;
+  - a purely conceptual "why / explain" question with none of the above: −1.
+
+  At 2 or more, the tool is offered. Depth weighs most because tangents are, by design, the deeper layers, edge cases and history where recall is thinnest.
+
+- **Rejected: a classifier call with the summary model.** It adds a reasoning model's latency to every turn, and its judgement is no better than the answering model's, which already has the whole context.
+- **Rejected: searching every turn.** Most turns are conceptual explanations a search doesn't improve, and a lesson would cost about 15× as much.
+- **At most one search per reply (`max_uses: 1`), and Exa is pinned (`GROUNDING_ENGINE=exa`).** This is the real cost bound. Pinning keeps the price predictable when a power user's model would otherwise switch to native search at a different price.
+- **"Check sources" forces a search (`ground: 'required'` on a send) and adds the check to the conversation.** On the branch's last reply the check is appended in place; on an earlier reply it opens a `path` branch, so later messages keep their place. A check is a turn like any other, so later context and child branches inherit its corrections; an ephemeral side panel would lose them. It always works on a provider that can search, whatever the branch setting or the daily cap.
+- **Citations are carried forward as Markdown links in the reply, with no KV cache and no raw result text in context.** The grounding instructions ask the model to cite each claim inline and to rely on facts already cited earlier in the conversation; summaries are told to keep the links. This is what stops follow-ups and child branches from searching again. A query cache would rarely hit when the model writes the queries, and would save only about $0.007 on a hit. Excerpts (300 characters) are stored on the node for the UI only.
+- **`nodes.sources` is null when the reply didn't search and `[]` when it searched but cited nothing.** The UI needs both, to show "From the tutor's own knowledge" or "Searched the web; no sources cited". Shares and exports carry URL and title only.
+- **Daily cap on automatic searches, on Tangent credit only (`GROUNDING_AUTO_DAILY_CAP`, default 40).** It is counted from `usage_events.web_searches` since 00:00 UTC; at about $0.008 a search to the user, the worst case is about $0.33 a day. Own keys are the user's own spend. The count is approximate: a row records its searches when it settles, so replies still in flight are not counted yet.
+- **Power gets a per-branch setting (`branches.grounding`: `off | auto | always`, default `auto`), inherited when branching.** Learn ignores it (`ignoreBranchSetting`): there the pedagogy is the operator's, as with the prompt.
+- **`GROUNDING` is the operator's ceiling over both apps:** `auto` / `always-offer` / `explicit` / `off`. An unknown value means `off`, so a typo fails cheap.
+- **Only OpenRouter-backed providers can search (`options.webSearch`, `ProviderCapabilities.supportsWebSearch`, `ProviderInfo.webSearch`).** It is set on the built-in provider and on power's default `openrouter` config; an operator's `PROVIDERS` entry opts in explicitly, and a hostname check would miss an AI Gateway URL. Anthropic's and OpenAI's native search are deferred.
+- **A provider that rejects the tool (4xx `invalid_request` before any text) is retried once without search,** with a status line saying so. A model without tool support then still answers.
+- **Summaries, titles and reviews never search.** Only replies go through the gate.
+- **No web search on the community pool.** A pool call's hold is its exact worst case priced from tokens, and a pool charge is clamped to the hold, so a search fee would land as operator-paid overage. The pool's chat settings turn grounding off, its meter strips `webSearch` from any request, and **Check sources** is refused (400) on pool-funded sends. Adding the search fee to the pool's worst case is in DEFERRED.
+- **The daily cap follows metering (`isMetered(account, funding)`):** Learn on credit and power branches funded by `credit`; own-key routes are uncapped.

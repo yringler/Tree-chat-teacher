@@ -1,16 +1,20 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   inject,
   input,
   type OnInit,
   signal,
 } from '@angular/core';
 import {
+  DEFAULT_GROUNDING_MODE,
+  GROUNDING_MODES,
   parseRouteKey,
   routeKey,
   type Branch,
   type ContextMode,
+  type GroundingMode,
   type UpdateBranchRequest,
 } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
@@ -90,6 +94,34 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
           <app-model-picker [(route)]="route" [(modelId)]="modelId" />
         }
 
+        <label class="field">
+          <span class="field-label">Check facts with web search</span>
+          <select
+            #g
+            [value]="grounding()"
+            [disabled]="!canSearch()"
+            (change)="grounding.set(asGrounding(g.value))"
+          >
+            <option value="auto" [selected]="grounding() === 'auto'">
+              When a reply likely needs it (deep tangents, specific facts)
+            </option>
+            <option value="always" [selected]="grounding() === 'always'">
+              Offer it on every reply
+            </option>
+            <option value="off" [selected]="grounding() === 'off'">
+              Off (Check sources still works)
+            </option>
+          </select>
+          <span class="muted small">
+            @if (canSearch()) {
+              The model decides whether to search, at most once per reply. A search costs about
+              $0.007 at OpenRouter. New branches inherit this setting.
+            } @else {
+              This provider can't search the web; use an OpenRouter model to check facts.
+            }
+          </span>
+        </label>
+
         <label class="check">
           <input type="checkbox" [checked]="isPrivate()" (change)="isPrivate.set(!isPrivate())" />
           Private (excluded from shares and exports, with everything below it)
@@ -123,6 +155,21 @@ export class BranchSettings implements OnInit {
   protected readonly route = signal('');
   protected readonly modelId = signal('');
   protected readonly saving = signal(false);
+  protected readonly grounding = signal<GroundingMode>(DEFAULT_GROUNDING_MODE);
+  protected readonly canSearch = computed(() => {
+    const { providerId, funding } = parseRouteKey(this.route());
+    return this.store
+      .providers()
+      .some(
+        (p) => p.id === providerId && (p.funding ?? 'own-key') === funding && p.webSearch === true,
+      );
+  });
+
+  protected asGrounding(value: string): GroundingMode {
+    return (GROUNDING_MODES as readonly string[]).includes(value)
+      ? (value as GroundingMode)
+      : DEFAULT_GROUNDING_MODE;
+  }
 
   ngOnInit(): void {
     const b = this.branch();
@@ -132,6 +179,7 @@ export class BranchSettings implements OnInit {
     this.isPrivate.set(b.isPrivate);
     this.route.set(routeKey(b));
     this.modelId.set(b.model);
+    this.grounding.set(b.grounding ?? DEFAULT_GROUNDING_MODE);
   }
 
   protected close(): void {
@@ -153,6 +201,9 @@ export class BranchSettings implements OnInit {
       if (quote !== b.anchorQuote) req.anchorQuote = quote;
     }
     if (this.isPrivate() !== b.isPrivate) req.isPrivate = this.isPrivate();
+    if (this.grounding() !== (b.grounding ?? DEFAULT_GROUNDING_MODE)) {
+      req.grounding = this.grounding();
+    }
     const model = this.modelId().trim();
     if (this.route() !== routeKey(b) || model !== b.model) {
       const { providerId, funding } = parseRouteKey(this.route());

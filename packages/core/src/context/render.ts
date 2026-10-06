@@ -12,6 +12,8 @@ import { MESSAGE_OVERHEAD_TOKENS, type TokenEstimator } from '../tokens.js';
 
 export interface RenderOptions {
   supportsSystemPrompt: boolean;
+  /** Appended as the last system section (e.g. grounding instructions); folded like the rest. */
+  extraSystem?: string;
   /**
    * Render anchor quotes as quoted user-turn text instead of system sections
    * (the community pool, whose system channel holds only its locked prompt
@@ -64,6 +66,8 @@ export function renderPlan(plan: ContextPlan, options: RenderOptions): RenderedP
   if (messages[0]?.role === 'assistant')
     messages.unshift({ role: 'user', content: CONTINUATION_MESSAGE });
 
+  if (options.extraSystem && options.extraSystem.trim() !== '')
+    systemParts.push(options.extraSystem);
   const system = systemParts.length > 0 ? systemParts.join('\n\n') : null;
   if (options.supportsSystemPrompt || system === null) return { system, messages };
 
@@ -96,6 +100,7 @@ const SUMMARY_SYSTEM =
   'The summary replaces the conversation as context when it continues in a new thread, so it must stand on its own. ' +
   'Preserve key facts, decisions, conclusions, open questions and exact code identifiers, names and numbers. ' +
   'Bullet points are fine. Do not invent anything that is not in the conversation. ' +
+  'Keep cited sources as Markdown links next to the claims they support. ' +
   'Keep it under about 300 words and output only the summary.';
 
 /** A hard bound on a summary prompt's size (see `buildSummaryPrompt`). */

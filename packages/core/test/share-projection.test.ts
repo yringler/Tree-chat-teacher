@@ -423,3 +423,31 @@ describe('plainTextExcerpt', () => {
     expect(r.ok && r.payload.description.length).toBe(200);
   });
 });
+describe('projectShare: sources', () => {
+  it('carries a grounded reply’s sources (URL and title only), and none for others', () => {
+    const t = new TreeBuilder('Trunk');
+    const [, reply] = t.exchange(
+      t.trunk,
+      'Who invented it?',
+      'Someone [example.org](https://example.org/a).',
+    );
+    reply.sources = [{ url: 'https://example.org/a', title: 'A', excerpt: 'not shared' }];
+    const [, plain] = t.exchange(t.trunk, 'And then?', 'Then more.');
+    plain.sources = [];
+    const r = projectShare({
+      tree: { title: 'T' },
+      branches: t.branches,
+      nodes: t.nodes,
+      scope: 'tree',
+      targetNodeId: null,
+      includeAncestors: false,
+      title: null,
+      now: NOW,
+    });
+    if (!r.ok) throw new Error(r.reason);
+    const messages = r.payload.branches[0]!.messages;
+    expect(messages[1]!.sources).toEqual([{ url: 'https://example.org/a', title: 'A' }]);
+    expect(messages[3]).not.toHaveProperty('sources');
+    expect(messages[0]).not.toHaveProperty('sources');
+  });
+});

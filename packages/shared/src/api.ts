@@ -19,6 +19,12 @@ import type {
 import type { ProviderInfo } from './provider.js';
 import { fromLegacyRoute } from './route.js';
 import type { AccountMode, MembershipInfo } from './billing.js';
+import {
+  CITATIONS_MAX,
+  CITATION_EXCERPT_MAX,
+  type Citation,
+  type GroundingMode,
+} from './grounding.js';
 import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
 
 /**
@@ -297,6 +303,15 @@ export interface TreeDetail {
 
 const id = z.string().min(1).max(64);
 const contextMode = z.enum(['path', 'summary', 'independent']) satisfies z.ZodType<ContextMode>;
+const groundingMode = z.enum(['off', 'auto', 'always']) satisfies z.ZodType<GroundingMode>;
+const citationSchema = z.object({
+  url: z.string().max(2048),
+  title: z.string().max(500).nullable(),
+  excerpt: z
+    .string()
+    .max(CITATION_EXCERPT_MAX + 1)
+    .nullable(),
+}) satisfies z.ZodType<Citation>;
 /** Who pays for a branch's calls in power mode (`Branch.funding`); Learn ignores it. */
 export const branchFundingSchema = z.enum(['own-key', 'credit']) satisfies z.ZodType<BranchFunding>;
 /** Longest system prompt a tree or the account settings may hold. */
@@ -372,6 +387,8 @@ export const createBranchRequestSchema = z
     funding: branchFundingSchema.optional(),
     model: z.string().min(1).max(200).optional(),
     isPrivate: z.boolean().optional(),
+    /** Defaults to the parent branch's setting. */
+    grounding: groundingMode.optional(),
   })
   .transform(fromLegacyRoute);
 export type CreateBranchRequest = z.input<typeof createBranchRequestSchema>;
@@ -386,6 +403,7 @@ export const updateBranchRequestSchema = z
     providerId: id.optional(),
     funding: branchFundingSchema.optional(),
     model: z.string().min(1).max(200).optional(),
+    grounding: groundingMode.optional(),
   })
   .transform(fromLegacyRoute);
 export type UpdateBranchRequest = z.infer<typeof updateBranchRequestSchema>;
@@ -403,6 +421,8 @@ export interface DeleteBranchResponse {
 
 export const sendMessageRequestSchema = z.object({
   content: z.string().min(1).max(200_000),
+  /** `required`: "Check sources", the reply must run a web search (400 if the provider can't). */
+  ground: z.enum(['required']).optional(),
 });
 export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
 
@@ -577,6 +597,7 @@ export const treeBackupSchema = z.object({
       isPrivate: z.boolean(),
       providerId: z.string().max(64),
       model: z.string().max(200),
+      grounding: groundingMode.optional(),
       /**
        * Absent in backups made before funding was split from the provider;
        * import reads a missing one as `own-key` (ChatService.importBackup).
@@ -600,6 +621,7 @@ export const treeBackupSchema = z.object({
       providerId: z.string().nullable(),
       model: z.string().nullable(),
       usage: z.object({ inputTokens: z.number(), outputTokens: z.number() }).nullable(),
+      sources: z.array(citationSchema).max(CITATIONS_MAX).nullable().optional(),
       createdAt: isoDate,
     }),
   ),

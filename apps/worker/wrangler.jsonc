@@ -140,6 +140,18 @@
     "SUMMARY_PROVIDER_ID": "",
     "SUMMARY_MODEL": "",
     "AUTO_TITLE": "true",
+    // ---- Grounding: web search through OpenRouter's server tool (docs/DECISIONS.md § Grounding). Applies to
+    // the built-in provider and OpenRouter on the user's own key; other providers can't search.
+    // "auto": offered on turns a free check picks (deep tangents, specific facts, sources asked), and the
+    // model decides whether to search. "always-offer": offered every turn. "explicit": only "Check sources".
+    // "off": never.
+    "GROUNDING": "auto",
+    // Results per search (OpenRouter's Exa fee covers up to 10, so this only trades result tokens for coverage).
+    "GROUNDING_MAX_RESULTS": "5",
+    // OpenRouter search engine: exa (predictable price), parallel, auto (native search where the model has it).
+    "GROUNDING_ENGINE": "exa",
+    // Automatic searches per user per UTC day on Tangent credit; "Check sources" is not capped. 0 = no cap.
+    "GROUNDING_AUTO_DAILY_CAP": "40",
     // ---- The built-in provider and billing. Anyone may sign up and use both apps. Once payments (Polar,
     // below) and OPENROUTER_SIMPLE_API_KEY are set, both apps offer the built-in provider `tangent` on
     // prepaid credit (per user, shared by both apps): Learn as "Use Tangent credit", power as the

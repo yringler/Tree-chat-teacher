@@ -1,10 +1,15 @@
-import type {
-  GenerateRequest,
-  LlmProvider,
-  ProviderConfig,
-  ProviderErrorCode,
-  ProviderEvent,
-  TokenUsage,
+import {
+  CITATIONS_MAX,
+  CITATION_EXCERPT_MAX,
+  isCitableUrl,
+  type Citation,
+  type GenerateRequest,
+  type LlmProvider,
+  type ProviderConfig,
+  type ProviderErrorCode,
+  type ProviderEvent,
+  type TokenUsage,
+  type WebSearchRequest,
 } from '@tangent/shared';
 import type { ProviderEnv } from './registry.js';
 import { parseSse } from './sse.js';
@@ -58,6 +63,59 @@ function readExtraBody(options: Record<string, unknown> | undefined): Record<str
   return out;
 }
 
+/** Body keys a web search sets; `extraBody` can't override them while one is requested. */
+const WEB_SEARCH_BODY_KEYS: readonly string[] = ['tools', 'tool_choice', 'plugins'];
+
+/** OpenRouter's web search server tool (https://openrouter.ai/docs/guides/features/server-tools/web-search). */
+function webSearchBody(ws: WebSearchRequest): Record<string, unknown> {
+  return {
+    tools: [
+      {
+        type: 'openrouter:web_search',
+        parameters: { engine: ws.engine, max_results: ws.maxResults, max_uses: ws.maxUses },
+      },
+    ],
+    tool_choice: ws.mode === 'required' ? 'required' : 'auto',
+  };
+}
+
+/**
+ * Adds the `url_citation` annotations in `raw` to `into` (deduplicated by
+ * URL, http(s) only, excerpt clipped). Returns true if anything was added.
+ */
+function collectCitations(raw: unknown, into: Map<string, Citation>): boolean {
+  if (!Array.isArray(raw)) return false;
+  let added = false;
+  for (const a of raw) {
+    if (!isRecord(a) || a['type'] !== 'url_citation') continue;
+    const c = a['url_citation'];
+    if (!isRecord(c) || typeof c['url'] !== 'string') continue;
+    const url = c['url'].trim();
+    if (!isCitableUrl(url) || into.has(url) || into.size >= CITATIONS_MAX) continue;
+    const title = typeof c['title'] === 'string' && c['title'].trim() ? c['title'].trim().slice(0, 500) : null;
+    const content = typeof c['content'] === 'string' ? c['content'].replace(/\s+/g, ' ').trim() : '';
+    const excerpt = content
+      ? content.length > CITATION_EXCERPT_MAX
+        ? `${content.slice(0, CITATION_EXCERPT_MAX - 1)}…`
+        : content
+      : null;
+    into.set(url, { url, title, excerpt });
+    added = true;
+  }
+  return added;
+}
+
+/** True when a streamed `tool_calls` delta names the web search tool. */
+function isWebSearchCall(raw: unknown): boolean {
+  if (!Array.isArray(raw)) return false;
+  return raw.some((t) => {
+    if (!isRecord(t)) return false;
+    const fn = t['function'];
+    const name = isRecord(fn) ? fn['name'] : t['type'];
+    return typeof name === 'string' && name.includes('web_search');
+  });
+}
+
 function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
@@ -85,6 +143,14 @@ function codeForStreamError(err: Record<string, unknown>, message: string): Prov
  * `{"reasoning": {"effort": "low"}}`); it cannot override `model`,
  * `messages`, `stream`, `max_tokens` or `max_completion_tokens` (it may
  * replace `stream_options`).
+ *
+ * Web search (OpenRouter, when `options.webSearch` is true and the request
+ * has `webSearch`): sends the `openrouter:web_search` server tool with
+ * `tool_choice` auto/required; `extraBody` can't override `tools`,
+ * `tool_choice` or `plugins` then. `url_citation` annotations (in
+ * `delta.annotations` or `message.annotations`) become `citations` events, a
+ * streamed web-search tool call an `activity` event, and
+ * `usage.server_tool_use.web_search_requests` a `billing.webSearches`.
  *
  * Billing (OpenRouter): yields `{type:'billing', generationId}` right after a
  * 2xx response when the `x-generation-id` header is present (before any
@@ -138,9 +204,14 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
           first.content = `${request.system}\n\n${first.content}`;
         }
       }
+      const webSearch = request.webSearch && caps.supportsWebSearch ? request.webSearch : null;
+      const extra = webSearch
+        ? Object.fromEntries(Object.entries(extraBody).filter(([k]) => !WEB_SEARCH_BODY_KEYS.includes(k)))
+        : extraBody;
       const body: Record<string, unknown> = {
         stream_options: { include_usage: true },
-        ...extraBody,
+        ...extra,
+        ...(webSearch ? webSearchBody(webSearch) : {}),
         model: request.model,
         messages,
         stream: true,
@@ -173,6 +244,8 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
 
       let finishReason: string | null = null;
       let sawFinish = false;
+      const citations = new Map<string, Citation>();
+      let searchReported = false;
       for await (const msg of parseSse(res.body, signal)) {
         const raw = msg.data.trim();
         if (raw === '[DONE]') {
@@ -211,6 +284,16 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
           if (isRecord(delta) && typeof delta['content'] === 'string' && delta['content'] !== '') {
             yield { type: 'delta', text: delta['content'] };
           }
+          if (webSearch) {
+            if (!searchReported && isRecord(delta) && isWebSearchCall(delta['tool_calls'])) {
+              searchReported = true;
+              yield { type: 'activity', kind: 'web_search' };
+            }
+            const message = choice['message'];
+            const fromDelta = isRecord(delta) && collectCitations(delta['annotations'], citations);
+            const fromMessage = isRecord(message) && collectCitations(message['annotations'], citations);
+            if (fromDelta || fromMessage) yield { type: 'citations', citations: [...citations.values()] };
+          }
           const fr = choice['finish_reason'];
           if (typeof fr === 'string') {
             finishReason = fr;
@@ -227,7 +310,15 @@ export function createOpenAiCompatibleProvider(config: ProviderConfig, env: Prov
           if (output !== undefined) u.outputTokens = output;
           if (Object.keys(u).length > 0) yield { type: 'usage', usage: u };
           const costUsd = num(usage['cost']);
-          if (costUsd !== undefined) yield { type: 'billing', costUsd };
+          const stu = usage['server_tool_use'];
+          const webSearches = isRecord(stu) ? num(stu['web_search_requests']) : undefined;
+          if (costUsd !== undefined || webSearches !== undefined) {
+            yield {
+              type: 'billing',
+              ...(costUsd !== undefined ? { costUsd } : {}),
+              ...(webSearches !== undefined ? { webSearches } : {}),
+            };
+          }
         }
       }
       // No [DONE]: fine if the model finished; otherwise guardStream reports truncation.

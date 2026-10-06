@@ -154,6 +154,12 @@ describe('provider registry', () => {
       'label',
       'models',
       'openModels',
+      'webSearch',
+    ]);
+    expect(reg.list().map((p) => [p.id, p.webSearch])).toEqual([
+      ['anthropic', false],
+      ['openai', false],
+      ['openrouter', true],
     ]);
   });
 

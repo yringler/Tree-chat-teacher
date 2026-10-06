@@ -426,12 +426,11 @@ async function collect(events: AsyncIterable<StreamEvent>): Promise<StreamEvent[
 
 describe('migrations 0020 and 0021 on a database at the 0019 schema', () => {
   beforeAll(async () => {
-    // The migration list is ordered by name, and 0020/0021 are the last two.
-    expect(ALL.map((m) => m.name).slice(-2)).toEqual([
-      '0020_branch_funding.sql',
-      '0021_retire_fake_provider.sql',
-    ]);
-    expect(BEFORE).toHaveLength(ALL.length - 2);
+    // The migration list is ordered by name; 0020/0021 come right after 0019 (later
+    // migrations, e.g. 0022_grounding, are applied with them, as in production).
+    const after = ALL.map((m) => m.name).filter((n) => n >= '0020_');
+    expect(after.slice(0, 2)).toEqual(['0020_branch_funding.sql', '0021_retire_fake_provider.sql']);
+    expect(BEFORE).toHaveLength(ALL.length - after.length);
     await applyD1Migrations(db, BEFORE);
     // Really the old schema: no funding column.
     const columns = await rows<{ name: string }>("SELECT name FROM pragma_table_info('branches')");
@@ -444,7 +443,8 @@ describe('migrations 0020 and 0021 on a database at the 0019 schema', () => {
   it('applies both, in order, recorded so they never run twice', async () => {
     const names = await applied();
     expect(names).toEqual(ALL.map((m) => m.name));
-    expect(names.slice(-2)).toEqual(['0020_branch_funding.sql', '0021_retire_fake_provider.sql']);
+    const after = names.filter((n) => n >= '0020_');
+    expect(after.slice(0, 2)).toEqual(['0020_branch_funding.sql', '0021_retire_fake_provider.sql']);
 
     // Applying the whole list again runs nothing (and so changes nothing).
     const before = await rows('SELECT id, provider_id, model, funding FROM branches ORDER BY id');

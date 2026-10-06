@@ -43,6 +43,7 @@ function entry(id: string): UsageEntry {
     chargeMicros: 420,
     inputTokens: 100,
     outputTokens: 50,
+    webSearches: 0,
   };
 }
 

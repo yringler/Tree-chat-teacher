@@ -10,3 +10,4 @@ export * from './share-projection.js';
 export * from './learn-import.js';
 export * from './services/chat-service.js';
 export * from './services/share-service.js';
+export * from './grounding/policy.js';

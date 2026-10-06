@@ -9,7 +9,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { parseReview, splitTangents, type Branch, type ChatNode } from '@tangent/shared';
-import { Icon, MarkdownService } from '@tangent/web-shared';
+import { Icon, MarkdownService, SourcesList } from '@tangent/web-shared';
 import { copyText, selectionWithin } from '../core/selection';
 import { ReviewStore } from '../state/review-store';
 import { TreeStore } from '../state/tree-store';
@@ -20,7 +20,7 @@ import { ReviewVerdict } from '../ui/review-verdict';
 /** One message of the linear branch view. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, ModeBadge, ReviewVerdict],
+  imports: [Icon, ModeBadge, ReviewVerdict, SourcesList],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -111,6 +111,15 @@ import { ReviewVerdict } from '../ui/review-verdict';
           >
         </div>
       }
+
+      <app-sources-list
+        [node]="n"
+        [depth]="depth()"
+        [canCheck]="canCheck()"
+        [checking]="checking()"
+        (check)="checkSources()"
+        (click)="$event.stopPropagation()"
+      />
 
       @if (tangents().length > 0) {
         <nav class="tangents" aria-label="Tangents worth following">
@@ -234,6 +243,22 @@ export class MessageItem {
         .map((b) => b.title),
     );
   });
+  protected readonly depth = computed(() => this.store.depthOf(this.node().branchId));
+  protected readonly canCheck = computed(
+    () => this.reviewable() && this.store.canCheckSources(this.node().branchId),
+  );
+  protected readonly checking = signal(false);
+
+  protected async checkSources(): Promise<void> {
+    if (this.checking() || this.store.busy()) return;
+    this.checking.set(true);
+    try {
+      await this.store.checkSources(this.node().id);
+    } finally {
+      this.checking.set(false);
+    }
+  }
+
   /** Title of the tangent whose branch is being created. */
   protected readonly opening = signal<string | null>(null);
   protected readonly review = computed(() => this.reviews.reviews().get(this.node().id) ?? null);

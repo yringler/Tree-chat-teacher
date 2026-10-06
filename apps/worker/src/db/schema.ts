@@ -94,6 +94,9 @@ export const branches = sqliteTable(
     funding: text('funding', { enum: ['own-key', 'credit'] })
       .notNull()
       .default('own-key'),
+    grounding: text('grounding', { enum: ['off', 'auto', 'always'] })
+      .notNull()
+      .default('auto'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
@@ -124,6 +127,8 @@ export const nodes = sqliteTable(
     model: text('model'),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
+    /** JSON Citation[] of a grounded reply; null when it didn't search. */
+    sources: text('sources'),
     createdAt: text('created_at').notNull(),
   },
   (t) => [
@@ -500,6 +505,8 @@ export const usageEvents = sqliteTable(
     }),
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
+    /** Web searches the call ran (grounding); their cost is inside cost_nanos. */
+    webSearches: integer('web_searches').notNull().default(0),
     createdAt: text('created_at').notNull(),
     /** Pool rows: when the request was handed to the provider (null = never sent: released at 0). */
     dispatchedAt: text('dispatched_at'),

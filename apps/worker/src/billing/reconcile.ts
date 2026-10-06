@@ -67,12 +67,21 @@ async function lookup(
   }
 }
 
+/**
+ * At least one search when OpenRouter reports search results for the
+ * generation (it reports results, not searches); null when unknown.
+ */
+function searchesFrom(cost: GenerationCost): number | null {
+  return cost.numSearchResults !== null && cost.numSearchResults > 0 ? 1 : null;
+}
+
 export interface ReconcileTarget {
   usageId: string;
   markupBps: number;
   feeBps: number;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  webSearches?: number | null;
 }
 
 /**
@@ -107,6 +116,7 @@ export async function reconcileGeneration(
         reason: 'generation',
         inputTokens: target.inputTokens ?? cost.inputTokens,
         outputTokens: target.outputTokens ?? cost.outputTokens,
+        webSearches: target.webSearches ?? searchesFrom(cost),
       });
       return true;
     } catch (e) {
@@ -163,6 +173,7 @@ export async function reconcilePendingUsage(
             reason: 'generation',
             inputTokens: row.input_tokens ?? cost.inputTokens,
             outputTokens: row.output_tokens ?? cost.outputTokens,
+            webSearches: searchesFrom(cost),
             now,
           });
           if (changed) settled++;

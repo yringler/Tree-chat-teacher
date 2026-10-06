@@ -160,6 +160,8 @@ export interface Settlement {
   requireUndispatched?: boolean;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  /** Web searches the call ran; null/absent keeps the stored count. */
+  webSearches?: number | null;
   now?: Date;
 }
 
@@ -193,7 +195,7 @@ export async function settleUsage(
                                  ELSE 0 END,
            settle_reason = ?3,
            input_tokens = COALESCE(?4, input_tokens), output_tokens = COALESCE(?5, output_tokens),
-           settled_at = ?6
+           settled_at = ?6, web_searches = COALESCE(?9, web_searches)
        WHERE id = ?7 AND status = 'pending' AND (?8 = 0 OR dispatched_at IS NULL)
        RETURNING overage_micros`,
     )
@@ -206,6 +208,7 @@ export async function settleUsage(
       (s.now ?? new Date()).toISOString(),
       usageId,
       s.requireUndispatched ? 1 : 0,
+      s.webSearches ?? null,
     )
     .first<{ overage_micros: number }>();
   return { changed: row !== null, clamped: (row?.overage_micros ?? 0) > 0 };

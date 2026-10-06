@@ -8,6 +8,7 @@ import {
   type ProviderConfig,
 } from '@tangent/shared';
 import { appConfig } from './config.js';
+import { groundingSettings } from './billing/grounding.js';
 import type { AppEnv } from './env.js';
 import type { PoolParams } from './pool/params.js';
 
@@ -75,6 +76,8 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
     baseUrl: 'https://openrouter.ai/api/v1',
     apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
     defaultModel: smart,
+    // OpenRouter's web search server tool (grounding, see billing/grounding.ts).
+    options: { webSearch: true },
     models:
       smart === fast
         ? [{ id: smart, label: 'Smart' }]
@@ -150,6 +153,7 @@ export function simpleChatSettings(env: AppEnv): ChatSettings {
     maxInputTokens: simpleMaxInputTokens(env),
     reservedOutputTokens: SIMPLE_RESERVED_OUTPUT_TOKENS,
     autoTitle: true,
+    grounding: groundingSettings(env, 'simple'),
   };
 }
 
@@ -253,5 +257,7 @@ export function poolChatSettings(pool: PoolParams): ChatSettings {
     maxInputTokens: pool.maxInputTokens,
     reservedOutputTokens: pool.maxOutputTokens,
     autoTitle: true,
+    // No web search on the pool: its holds are priced from tokens alone (docs/DEFERRED.md).
+    grounding: { ...DEFAULT_CHAT_SETTINGS.grounding, policy: 'off' },
   };
 }

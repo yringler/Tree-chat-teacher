@@ -45,4 +45,12 @@ export interface ShareMessage {
   role: 'user' | 'assistant';
   /** Markdown source. Rendered and sanitized by @tangent/render. */
   content: string;
+  /** Sources a grounded reply cited (web search); absent when it cited none. */
+  sources?: ShareSource[];
+}
+
+/** A cited source as shared: URL and title only (no excerpt). */
+export interface ShareSource {
+  url: string;
+  title: string | null;
 }

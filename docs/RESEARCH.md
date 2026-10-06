@@ -149,6 +149,20 @@ Research for the simple "Learn" app and its billing ([PLAN.md](./PLAN.md) §13).
 
   All three are reasoning models (`reasoning`, `include_reasoning` and `reasoning_effort` are supported). Reasoning tokens are billed and count toward `max_tokens`. — https://openrouter.ai/deepseek/deepseek-v4-pro · https://openrouter.ai/deepseek/deepseek-v4-flash · https://openrouter.ai/openai/gpt-oss-120b
 
+### Web search (grounding, checked 2026-10-05)
+
+- **Server tool `openrouter:web_search` (beta).** Request shape: `tools: [{ type: "openrouter:web_search", parameters: { engine, max_results (1–25), max_total_results, search_context_size, allowed_domains, excluded_domains, max_uses } }]`. The model decides whether to search and writes the query; OpenRouter runs the search and loops back to the model on its side. Usage reports `usage.server_tool_use.web_search_requests`. The model must support tool calling; `deepseek/deepseek-v4-flash` and `-pro` list `tools` and `tool_choice`. — https://openrouter.ai/docs/guides/features/server-tools/web-search · https://openrouter.ai/blog/announcements/agentic-web-tools/
+- **Plugin `web` (older), and `:online`.** Shape: `plugins: [{ id: "web", engine, max_results (default 5), search_prompt, include_domains, exclude_domains }]`. It runs exactly one search on every request, with the query picked by OpenRouter. Native search exists only for OpenAI, Anthropic, Google, Perplexity and xAI models, so DeepSeek always gets Exa. `web_search_options.search_context_size` applies only to native search. — https://openrouter.ai/docs/guides/features/web-search
+- **Price.** Exa is about $0.007 per search request, covering up to 10 results, then $0.001 per extra result; the results' prompt tokens are billed on top. Older pages said $4 per 1,000 results (so $0.02 for 5); the current guide prices per request. — https://openrouter.ai/docs/guides/features/web-search · https://exa.ai/docs/reference/pricing
+- **Citations.** `annotations: [{ type: "url_citation", url_citation: { url, title, content, start_index, end_index } }]` on the message, in the same shape for every model. The streaming reference does not say which chunk carries them; we read both `delta.annotations` and `message.annotations`. — https://openrouter.ai/docs/api/reference/streaming
+- **Cost reporting.** `usage.cost` is "the total amount charged to your account", and `GET /api/v1/generation` returns `total_cost` plus `num_search_results`, `web_search_engine` and `num_fetches`. So the search fee should be inside the cost we already bill, but neither page says so outright. — https://openrouter.ai/docs/guides/guides/usage-accounting · https://openrouter.ai/docs/api/api-reference/generations/get-generation
+- **Not yet verified with a real key** (to run before turning grounding on in production):
+  - the chunk shapes of annotations and of the search tool call;
+  - that `usage.cost` and `total_cost` include the search fee;
+  - whether `tool_choice: "required"` forces the server tool;
+  - whether an aborted stream still bills a search that already ran.
+- **Brave Search API (considered, not used).** $5 per 1,000 requests (Web and LLM Context endpoints), with $5 of free credit a month. It would need its own provider and metering. — https://brave.com/search/api/
+
 ### Cloudflare static assets for a second SPA
 
 - **SPA fallback serves the root `/index.html`** for every unmatched navigation, not the nearest one, so an app under `/learn/` can't rely on `not_found_handling`. `run_worker_first` accepts an array of patterns, including `!` exclusions. — https://developers.cloudflare.com/workers/static-assets/routing/single-page-application/

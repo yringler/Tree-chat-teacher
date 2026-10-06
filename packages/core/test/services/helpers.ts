@@ -1,4 +1,5 @@
 import type {
+  Citation,
   GenerateRequest,
   LlmProvider,
   ProviderEvent,
@@ -9,7 +10,9 @@ import type {
 import {
   ChatService,
   DEFAULT_CHAT_SETTINGS,
+  type ChatServiceDeps,
   type ChatSettings,
+  type RunGenerationOptions,
 } from '../../src/services/chat-service.js';
 import { ShareService } from '../../src/services/share-service.js';
 import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
@@ -25,6 +28,12 @@ export class ScriptedProvider implements LlmProvider {
   failNext: string | null = null;
   delayMs = 0;
   contextTokens = 200_000;
+  /** Capability `supportsWebSearch`. */
+  webSearch = false;
+  /** Sources a search "finds"; it searches when offered and this is non-empty, or when required. */
+  citations: Citation[] = [];
+  /** Reject a request carrying `webSearch` with invalid_request (before any delta). */
+  rejectSearch = false;
 
   constructor(readonly id = 'scripted') {}
 
@@ -40,6 +49,7 @@ export class ScriptedProvider implements LlmProvider {
       maxOutputTokens: 1000,
       supportsSystemPrompt: true,
       supportsTokenCount: false,
+      supportsWebSearch: this.webSearch,
     };
   }
 
@@ -60,7 +70,18 @@ export class ScriptedProvider implements LlmProvider {
         : kind === 'summary'
           ? `SUMMARY(${req.messages.length})`
           : `reply to: ${last.slice(0, 40)}`;
+    const searches =
+      req.webSearch !== undefined &&
+      (req.webSearch.mode === 'required' || this.citations.length > 0);
+    if (req.webSearch !== undefined && this.rejectSearch) {
+      yield {
+        type: 'error',
+        error: { code: 'invalid_request', message: 'tools unsupported', retryable: false },
+      };
+      return;
+    }
     yield { type: 'usage', usage: { inputTokens: 10 } };
+    if (searches) yield { type: 'activity', kind: 'web_search' };
     for (let i = 0; i < text.length; i += 5) {
       if (req.signal.aborted) {
         yield { type: 'error', error: { code: 'aborted', message: 'aborted', retryable: false } };
@@ -76,6 +97,10 @@ export class ScriptedProvider implements LlmProvider {
       }
     }
     yield { type: 'usage', usage: { outputTokens: 3 } };
+    if (searches) {
+      yield { type: 'citations', citations: this.citations };
+      yield { type: 'billing', costUsd: 0.008, webSearches: 1 };
+    }
     yield { type: 'done', stopReason: 'end_turn' };
   }
 
@@ -106,7 +131,10 @@ export function registryOf(...providers: LlmProvider[]): ProviderRegistry {
   };
 }
 
-export function setup(settings: Partial<ChatSettings> = {}) {
+export function setup(
+  settings: Partial<ChatSettings> = {},
+  deps: Pick<ChatServiceDeps, 'groundingAllowance'> = {},
+) {
   const repos = createMemoryRepositories();
   const provider = new ScriptedProvider();
   let t = Date.parse('2026-01-01T00:00:00Z');
@@ -119,6 +147,7 @@ export function setup(settings: Partial<ChatSettings> = {}) {
     settings: { ...DEFAULT_CHAT_SETTINGS, ...settings },
     clock,
     newId,
+    ...deps,
   });
   let tok = 0;
   const shares = new ShareService({
@@ -146,8 +175,13 @@ export async function collect(events: AsyncIterable<StreamEvent>): Promise<Strea
 }
 
 /** Sends a message and runs the generation to completion. */
-export async function send(chat: ChatService, branchId: string, content: string) {
+export async function send(
+  chat: ChatService,
+  branchId: string,
+  content: string,
+  options: RunGenerationOptions = {},
+) {
   const begin = await chat.beginSend(branchId, content);
-  const events = await collect(chat.runGeneration(begin, new AbortController().signal));
+  const events = await collect(chat.runGeneration(begin, new AbortController().signal, options));
   return { begin, events, last: events.at(-1)! };
 }

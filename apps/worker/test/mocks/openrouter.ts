@@ -12,13 +12,20 @@
 // - POST /__mock/generation { id, responses: [{ status, body? } | { costUsd, inputTokens?, outputTokens?, cancelled? }] }
 //   scripts <id>; a `costUsd` entry is shorthand for a 200 with that data. Any entry may add
 //   `delayMs`: the response is sent that much later (slow-upstream tests).
+//   `numSearchResults` becomes `num_search_results`.
 // - GET  /__mock/generation-calls?id=<id> → { count, authorizations }
 
 export const OPENROUTER_ORIGIN = 'https://openrouter.ai';
 
 export type ScriptedGeneration = (
   | { status: number; body?: unknown }
-  | { costUsd: number; inputTokens?: number; outputTokens?: number; cancelled?: boolean }
+  | {
+      costUsd: number;
+      inputTokens?: number;
+      outputTokens?: number;
+      cancelled?: boolean;
+      numSearchResults?: number;
+    }
 ) & { delayMs?: number };
 
 interface Script {
@@ -60,6 +67,7 @@ function render(id: string, entry: ScriptedGeneration | undefined): Response {
       finish_reason: entry.cancelled ? null : 'stop',
       model: 'deepseek/deepseek-v4-flash',
       is_byok: false,
+      num_search_results: entry.numSearchResults ?? 0,
     },
   });
 }

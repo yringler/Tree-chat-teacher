@@ -108,6 +108,21 @@ describe('landingRoutes', () => {
     expect(html).toContain('Your own keys here need a yearly membership');
   });
 
+  it('describes web-search grounding as the GROUNDING ceiling allows, never as always on', async () => {
+    const page = async (grounding: string) =>
+      (await setup({ env: { GROUNDING: grounding } }).request('/welcome')).text();
+    const auto = await page('auto');
+    expect(auto).toContain('Checked against the web when you go deep');
+    expect(auto).toContain('When a reply likely needs it');
+    expect(auto).toContain('<strong>Check sources</strong>');
+    const explicit = await page('explicit');
+    expect(explicit).toContain('Check any answer against the web');
+    expect(explicit).not.toContain('When a reply likely needs it');
+    for (const off of ['off', 'typo']) {
+      expect(await page(off)).not.toContain('Check sources');
+    }
+  });
+
   it('serves the landing page at / to an anonymous visitor, uncached', async () => {
     const { request, seen } = setup();
     const res = await request('/', { headers: { Cookie: 'theme=dark; tangent-remember=1' } });

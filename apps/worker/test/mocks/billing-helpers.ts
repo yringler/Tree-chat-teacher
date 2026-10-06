@@ -157,6 +157,7 @@ export interface UsageRow {
   charge_micros: number | null;
   input_tokens: number | null;
   output_tokens: number | null;
+  web_searches: number;
   created_at: string;
   settled_at: string | null;
   branch_id: string | null;

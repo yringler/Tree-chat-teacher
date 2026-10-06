@@ -34,7 +34,13 @@ import { assertCanGenerate, membershipNeededFor } from '../billing/gate.js';
 import { membershipFor } from '../billing/membership.js';
 import { readKeys, requireReadableKeys, type UserKeys } from '../byok/keys.js';
 import { accountParams, type SessionSendBody } from '../do/tree-session.js';
-import { usesUserKeys, type AppBindings, type AppContext, type AppEnv } from '../env.js';
+import {
+  isPoolFunded,
+  usesUserKeys,
+  type AppBindings,
+  type AppContext,
+  type AppEnv,
+} from '../env.js';
 import { validateJson, validateQuery } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { purgeShare } from '../share/cache.js';
@@ -259,7 +265,8 @@ export function apiRoutes(): Hono<AppBindings> {
     async (c) => {
       const keys = await keysOf(c);
       const req = c.req.valid('json');
-      const branch = await chatOf(c, keys).getOwnedBranch(c.req.param('branchId'));
+      const chat = chatOf(c, keys);
+      const branch = await chat.getOwnedBranch(c.req.param('branchId'));
       // The route is the Durable Object's only way in, so this gate covers it. On the
       // pool, the Durable Object reserves the reply before writing any node.
       const account = await assertCanGenerate(c, {
@@ -270,6 +277,10 @@ export function apiRoutes(): Hono<AppBindings> {
         keys,
         content: req.content,
       });
+      // "Check sources" needs a provider that can search; the pool's holds don't cover a search.
+      if (req.ground === 'required' && (isPoolFunded(account) || !chat.canSearch(branch))) {
+        throw new ValidationError("This conversation's model can't check sources");
+      }
       // The Durable Object gets the still-sealed cookie value in the body (never
       // a header, which request logs may capture) and opens it itself.
       const body: SessionSendBody = {

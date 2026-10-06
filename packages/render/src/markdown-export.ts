@@ -1,9 +1,12 @@
 import {
+  citationDomain,
+  isCitableUrl,
   splitTangents,
   tangentsAsMarkdown,
   type ShareBranch,
   type ShareMessage,
   type SharePayload,
+  type ShareSource,
 } from '@tangent/shared';
 
 const EXCERPT_MAX = 80;
@@ -27,12 +30,36 @@ function excerpt(markdown: string, max = EXCERPT_MAX): string {
     : text;
 }
 
+/** Text of a Markdown link: no brackets or newlines that would break it. */
+function linkText(text: string): string {
+  return text
+    .replace(/[[\]\\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** A "Sources" list of a grounded reply (http(s) links only), or '' without sources. */
+export function sourcesMarkdown(sources: readonly ShareSource[] | undefined): string {
+  const items = (sources ?? [])
+    .filter((s) => isCitableUrl(s.url))
+    .map((s) => {
+      // Parentheses and spaces would end the link destination early.
+      const url = s.url.replace(/[()\s]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+      return `- [${linkText(s.title ?? '') || citationDomain(s.url)}](${url})`;
+    });
+  return items.length === 0 ? '' : `**Sources**\n\n${items.join('\n')}`;
+}
+
 /**
  * A message as shared or exported: an assistant reply's `<tangents>` block
- * becomes a plain "Where next?" list (there are no buttons to follow it).
+ * becomes a plain "Where next?" list (there are no buttons to follow it),
+ * and a grounded reply ends with its "Sources".
  */
 export function messageMarkdown(m: ShareMessage): string {
-  return m.role === 'assistant' ? tangentsAsMarkdown(m.content) : m.content;
+  if (m.role !== 'assistant') return m.content;
+  const body = tangentsAsMarkdown(m.content);
+  const sources = sourcesMarkdown(m.sources);
+  return sources === '' ? body : `${body}\n\n${sources}`;
 }
 
 function renderMessages(messages: readonly ShareMessage[]): string[] {

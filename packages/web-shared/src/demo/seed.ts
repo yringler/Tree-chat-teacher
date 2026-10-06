@@ -154,6 +154,7 @@ export function seedDemoLesson(
       chargeMicros,
       inputTokens,
       outputTokens,
+      webSearches: 0,
     });
     return reply;
   };

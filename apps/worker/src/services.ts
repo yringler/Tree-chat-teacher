@@ -22,6 +22,7 @@ import {
   type ProviderRegistry,
 } from '@tangent/shared';
 import { isAdminUserId } from './auth/admin.js';
+import { groundingAllowance, groundingSettings } from './billing/grounding.js';
 import { defaultRouteFacts } from './billing/gate.js';
 import { createPoolUsageMeter, createUsageMeter, meteredRegistry } from './billing/meter.js';
 import { paymentsConfigured } from './billing/payments/index.js';
@@ -305,6 +306,7 @@ export function chatSettingsFor(
     summaryProviderId: summaryProviderId === LEGACY_BUILT_IN_PROVIDER_ID ? null : summaryProviderId,
     summaryModel: env.SUMMARY_MODEL?.trim() || null,
     autoTitle: env.AUTO_TITLE !== 'false',
+    grounding: groundingSettings(env, 'power'),
   };
 }
 
@@ -477,6 +479,7 @@ export function chatService(
           anchorQuoteMaxChars: pool.maxMessageChars,
         }
       : {}),
+    groundingAllowance: groundingAllowance(env, account),
   });
 }
 

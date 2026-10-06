@@ -9,6 +9,8 @@ export interface GenerationCost {
   inputTokens: number | null;
   outputTokens: number | null;
   cancelled: boolean;
+  /** `data.num_search_results`: web search results the generation fetched (grounding). */
+  numSearchResults: number | null;
 }
 
 function numOrNull(v: unknown): number | null {
@@ -76,5 +78,6 @@ export async function fetchOpenRouterGeneration(
     inputTokens: numOrNull(data['native_tokens_prompt']),
     outputTokens: numOrNull(data['native_tokens_completion']),
     cancelled: data['cancelled'] === true,
+    numSearchResults: numOrNull(data['num_search_results']),
   };
 }

@@ -448,7 +448,9 @@ export class BillingPage implements OnInit, OnDestroy {
   }
 
   protected purposeLabel(u: UsageEntry): string {
-    return PURPOSE_LABELS[u.purpose] ?? u.purpose;
+    const label = PURPOSE_LABELS[u.purpose] ?? u.purpose;
+    // The search fee is inside the call's charge (OpenRouter reports one cost).
+    return u.webSearches > 0 ? `${label} + web search` : label;
   }
 
   protected usageStatus(u: UsageEntry): string {

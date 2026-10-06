@@ -307,6 +307,7 @@ describe('openai-compatible provider', () => {
       maxOutputTokens: 8192,
       supportsSystemPrompt: true,
       supportsTokenCount: false,
+      supportsWebSearch: false,
     });
   });
 });
@@ -493,5 +494,74 @@ describe('openai-compatible options.extraBody', () => {
     expect(Object.keys(calls[0]!.body).sort()).toEqual(
       ['max_completion_tokens', 'messages', 'model', 'stream', 'stream_options'].sort(),
     );
+  });
+});
+
+describe('openai-compatible web search (OpenRouter)', () => {
+  const WS = { ...OPENROUTER, options: { webSearch: true } };
+  const webSearch = { mode: 'auto', maxResults: 5, maxUses: 1, engine: 'exa' } as const;
+  const annotation = (url: string, title: string, content = '') => ({
+    type: 'url_citation',
+    url_citation: { url, title, content, start_index: 0, end_index: 1 },
+  });
+  const STREAM = [
+    chunk({ role: 'assistant', content: '', tool_calls: [{ index: 0, id: 't1', type: 'function', function: { name: 'web_search', arguments: '{}' } }] }),
+    chunk({ content: 'Water boils at 100 °C [example.org](https://example.org/a).' }),
+    chunk({ content: '', annotations: [annotation('https://example.org/a', 'A', 'x'.repeat(400)), annotation('javascript:alert(1)', 'bad')] }),
+    chunk({ content: '', annotations: [annotation('https://example.org/a', 'A again'), annotation('https://b.example/', 'B')] }, 'stop'),
+    chunk({}, null, { usage: { prompt_tokens: 900, completion_tokens: 40, cost: 0.0075, server_tool_use: { web_search_requests: 1 } } }),
+    'data: [DONE]\n\n',
+  ];
+
+  it('reports the capability only with options.webSearch', () => {
+    const on = setup(WS, () => jsonResponse(500, {})).provider;
+    const off = setup(OPENROUTER, () => jsonResponse(500, {})).provider;
+    expect(on.capabilities('x').supportsWebSearch).toBe(true);
+    expect(off.capabilities('x').supportsWebSearch).toBe(false);
+  });
+
+  it('sends the server tool with auto tool_choice, and parses citations, activity and searches', async () => {
+    const { provider, calls } = setup(WS, () => sseResponse(STREAM).response);
+    const events = await collect(provider.stream(req({ webSearch })));
+    expect(calls[0]!.body['tools']).toEqual([
+      { type: 'openrouter:web_search', parameters: { engine: 'exa', max_results: 5, max_uses: 1 } },
+    ]);
+    expect(calls[0]!.body['tool_choice']).toBe('auto');
+    expect(events[0]).toEqual({ type: 'activity', kind: 'web_search' });
+    const cites = events.filter((e) => e.type === 'citations');
+    expect(cites).toHaveLength(2);
+    const last = cites.at(-1);
+    expect(last?.type === 'citations' && last.citations.map((c) => c.url)).toEqual([
+      'https://example.org/a',
+      'https://b.example/',
+    ]);
+    const first = last?.type === 'citations' ? last.citations[0] : undefined;
+    expect(first?.title).toBe('A');
+    expect(first?.excerpt?.length).toBe(300);
+    expect(events).toContainEqual({ type: 'billing', costUsd: 0.0075, webSearches: 1 });
+    expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'stop' });
+  });
+
+  it('requires the tool for mode required', async () => {
+    const { provider, calls } = setup(WS, () => sseResponse(OPENROUTER_STREAM).response);
+    await collect(provider.stream(req({ webSearch: { ...webSearch, mode: 'required' } })));
+    expect(calls[0]!.body['tool_choice']).toBe('required');
+  });
+
+  it('extraBody cannot override the tool while searching, but applies otherwise', async () => {
+    const config = { ...WS, options: { webSearch: true, extraBody: { tools: [], tool_choice: 'none', plugins: [{ id: 'web' }] } } };
+    const { provider, calls } = setup(config, () => sseResponse(OPENROUTER_STREAM).response);
+    await collect(provider.stream(req({ webSearch })));
+    expect(calls[0]!.body['tool_choice']).toBe('auto');
+    expect(calls[0]!.body['plugins']).toBeUndefined();
+    await collect(provider.stream(req()));
+    expect(calls[1]!.body['tool_choice']).toBe('none');
+  });
+
+  it('ignores webSearch (and annotations) when the capability is off', async () => {
+    const { provider, calls } = setup(OPENROUTER, () => sseResponse(STREAM).response);
+    const events = await collect(provider.stream(req({ webSearch })));
+    expect(calls[0]!.body['tools']).toBeUndefined();
+    expect(events.some((e) => e.type === 'citations' || e.type === 'activity')).toBe(false);
   });
 });

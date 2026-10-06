@@ -636,4 +636,28 @@ Specified in [pool/SPEC.md](pool/SPEC.md) and planned stage by stage in [pool/PL
 - **Consent and topic tagging:** the pool notice (`POOL_NOTICE_TEXT`, versioned by `POOL_NOTICE_VERSION` in `packages/shared/src/pool.ts`) must be acknowledged at its current version before any pool request (gate step 5: 403 `pool_consent_required` with `error.consent.currentVersion`; `POST /api/pool/consent`; Learn's `PoolFirstUseDialog` shows it and resends the message). After a pool reply completes on an untagged branch, `pool/tagging.ts` classifies that exchange's user message, and only it, on the pool model into a leaf of the taxonomy (`pool/taxonomy.ts`), charged to the pool through reserve/settle (`purpose: 'tagging'`, outside every cap); output that is not a leaf id is rejected, sensitive topics are stored as `sensitive`, and no text is stored. Migration `0012_pool_consent_tags`. Tests: `pool-impact-tagging.test.ts`.
 - **Weekly impact feed:** a Monday cron (`17 4 * * 1`; `src/cron.ts` dispatches on the schedule) runs `aggregatePoolImpact` (`pool/impact.ts`): one immutable snapshot of the ISO week just ended, from funded pool replies (settled above 0) joined to their branch's topic tag, with no roll-up to parents. A topic is named only with at least `IMPACT_MIN_DISTINCT_USERS` distinct learners (never below 3), not sensitive, not on `POOL_TOPIC_BLOCKLIST`, and approved in the admin review queue (`pool_topic_reviews`; a topic that first qualifies is queued `pending` and named from the next week after approval). The same run deletes tags 14 days after their branch's last pool reply. Public `GET /api/pool/impact?week=` and `/api/pool/impact/weeks`; the landing page, `/pool` (week selector) and the fund section (`ImpactFeed`) show it; the admin page's **Impact feed topics** decides the queue (`/api/admin/pool/topics`). No snapshot is written while `POOL_ENABLED` is off, and the public impact routes 404 then. The admin page's **Community pool** panel (`pool-page.ts`, `GET /api/admin/pool`) shows the pool's balance, holds and overage breaker state and tops it up through `POST /api/admin/credit`. Migration `0013_pool_impact`. Tests: `pool-impact-aggregate.test.ts`.
 - **Featured conversations:** a stub only. `FEATURED_CONVERSATIONS_ENABLED` (off) is in the config; `/api/featured/*` answers 404 whatever it says, `MeResponse.featuredConversations` is always false, and no table, column or UI exists (DEFERRED). Tests: `pool-featured.test.ts`, `packages/web-shared/src/pool/featured.spec.ts`.
+## 16. Grounding (web search)
 
+Added with migration `0010_grounding`. The decisions are in DECISIONS ("Grounding"), the research in RESEARCH ("Web search"), and operator setup in the README ("How Tangent checks facts").
+
+- **Flow:**
+  1. `ChatService.runGeneration` computes the branch depth (`chain.length - 1`) and whether the context was summarized, then calls `decideGrounding` (`packages/core/src/grounding/policy.ts`). It returns `none | auto | required`.
+  2. For `auto`/`required`, the request carries `GenerateRequest.webSearch` (`maxResults`, `maxUses` 1, `engine`). `GROUNDING_INSTRUCTIONS` (or `CHECK_SOURCES_INSTRUCTIONS`) is appended through `renderPlan`'s `extraSystem`.
+  3. The OpenAI-compatible provider sends the `openrouter:web_search` server tool and maps the stream: `url_citation` annotations become `citations` events, a search tool call becomes `activity` ("Checking sources…" status), and `server_tool_use` becomes `billing.webSearches`.
+  4. The reply's sources are stored in `nodes.sources` (JSON; null = didn't search).
+- **Check sources:** `POST /api/branches/:id/messages` with `ground: 'required'`. It is a 400 when the branch's provider can't search, and otherwise goes through the same gates as any send.
+- **Billing:**
+  - OpenRouter folds the search fee into the reported cost, so the meter bills it unchanged.
+  - `usage_events.web_searches` records the count: from the reported count, else 1 once a search started, else 1 when `/generation` reports search results.
+  - `GROUNDING_AUTO_DAILY_CAP` stops automatic searches on credit (`apps/worker/src/billing/grounding.ts`).
+- **Settings:**
+  - `GROUNDING`, `GROUNDING_MAX_RESULTS`, `GROUNDING_ENGINE` and `GROUNDING_AUTO_DAILY_CAP` (wrangler vars).
+  - `branches.grounding` (power, inherited when branching; Learn ignores it).
+  - `ProviderConfig.options.webSearch` (set on the built-in provider and the default `openrouter`).
+- **UI:**
+  - `SourcesList` (`packages/web-shared/src/ui/sources-list.ts`) under each finished reply in both apps: "Checked against N sources" with chips, or "From the tutor's own knowledge" with Check sources.
+  - The grounding select in power's branch settings.
+  - "+ web search" on billing usage rows.
+  - A Sources list in shares and exports (`sourcesMarkdown`).
+  - The in-browser demo simulates searches with example.org sources.
+- **Not verified against a live account:** the stream shapes and cost reporting above are from OpenRouter's docs; see RESEARCH for what to check with a real key.

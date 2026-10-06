@@ -200,6 +200,8 @@ export interface UsageEntry {
   chargeMicros: number | null;
   inputTokens: number | null;
   outputTokens: number | null;
+  /** Web searches the call ran (grounding); included in `chargeMicros`. */
+  webSearches: number;
 }
 
 /** `GET /api/billing/usage`, newest first. */

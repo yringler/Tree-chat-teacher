@@ -3,6 +3,7 @@ import {
   formatTangents,
   REVIEW_ACCURACY_LABEL,
   REVIEW_RECOMMENDATION_LABEL,
+  type Citation,
   type GenerateRequest,
   LlmProvider,
   ModelInfo,
@@ -348,7 +349,27 @@ const CAPABILITIES: ProviderCapabilities = {
   maxOutputTokens: 4096,
   supportsSystemPrompt: true,
   supportsTokenCount: false,
+  supportsWebSearch: true,
 };
+
+/** Pretend web search fee per search (USD), like OpenRouter's Exa search. */
+const FAKE_SEARCH_USD = 0.007;
+
+/** Pretend sources on example domains (never a real site). */
+function loremCitations(random: Random): Citation[] {
+  const hosts = ['example.org', 'example.com', 'example.net'];
+  return withRandom(random, () =>
+    Array.from({ length: between(random, 2, 4) }, (_, i) => {
+      const noun = pick(random, getNouns());
+      const adjective = pick(random, getAdjectives());
+      return {
+        url: `https://${hosts[i % hosts.length]}/lorem/${noun.replace(/\s+/g, '-')}-${i + 1}`,
+        title: capitalize(`${adjective} ${plural(noun)}`),
+        excerpt: sentence(),
+      };
+    }),
+  );
+}
 
 /** Rough token count (4 characters per token), like the fake provider. */
 function tokens(text: string): number {
@@ -405,6 +426,14 @@ export function createLoremProvider(options: LoremProviderOptions = {}): LlmProv
       // Titles and summaries are not streamed to anyone: no need to dawdle.
       const purpose = request.usageTag?.purpose ?? 'reply';
       const streamed = purpose === 'reply' || purpose === 'review';
+      // "The model decides": a required search always runs, an offered one most of the time.
+      const searched =
+        request.webSearch !== undefined &&
+        (request.webSearch.mode === 'required' || random() < 0.7);
+      if (searched) {
+        yield { type: 'activity', kind: 'web_search' };
+        await sleep(400, request.signal);
+      }
       for (const word of text.match(/\S+\s*/g) ?? []) {
         if (request.signal.aborted) {
           yield aborted();
@@ -419,7 +448,13 @@ export function createLoremProvider(options: LoremProviderOptions = {}): LlmProv
       }
       const outputTokens = tokens(text);
       yield { type: 'usage', usage: { inputTokens, outputTokens } };
-      yield { type: 'billing', costUsd: fakeCostUsd(request.model, inputTokens, outputTokens) };
+      if (searched) yield { type: 'citations', citations: loremCitations(random) };
+      yield {
+        type: 'billing',
+        costUsd:
+          fakeCostUsd(request.model, inputTokens, outputTokens) + (searched ? FAKE_SEARCH_USD : 0),
+        ...(searched ? { webSearches: 1 } : {}),
+      };
       yield { type: 'done', stopReason: 'end_turn' };
     } catch (err) {
       yield {

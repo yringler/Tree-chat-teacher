@@ -415,3 +415,25 @@ suite('plainText', () => {
     );
   });
 });
+
+suite('renderPlan extraSystem (grounding)', () => {
+  it('appends it as the last system section, and folds it when system prompts are unsupported', () => {
+    const p = plan([sys('Be kind.'), msg('branch', 'user', 'Hi')]);
+    expect(renderPlan(p, { ...WITH_SYSTEM, extraSystem: '## Checking facts' }).system).toBe(
+      'Be kind.\n\n## Checking facts',
+    );
+    const folded = renderPlan(p, { ...NO_SYSTEM, extraSystem: '## Checking facts' });
+    expect(folded.system).toBeNull();
+    expect(folded.messages[0]!.content).toBe('Be kind.\n\n## Checking facts\n\nHi');
+  });
+
+  it('asks summaries to keep cited links', () => {
+    const prompt = buildSummaryPrompt({
+      key: { anchorNodeId: 'n', sourceHash: 'h' },
+      purpose: 'branch',
+      transcript: [{ role: 'user', content: 'q' }],
+      focus: null,
+    } as unknown as SummaryRequest);
+    expect(prompt.system).toContain('Keep cited sources as Markdown links');
+  });
+});

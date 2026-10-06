@@ -111,6 +111,8 @@ abstract class ObservedRun implements MeterRun {
   protected inputTokens: number | null = null;
   protected outputTokens: number | null = null;
   protected upstream: ProviderUpstream | null = null;
+  /** Web searches seen (reported count, else 1 once a search started); null = none seen. */
+  protected webSearches: number | null = null;
   protected idWrite: Promise<void> = Promise.resolve();
   private finished = false;
 
@@ -149,6 +151,11 @@ abstract class ObservedRun implements MeterRun {
         ) {
           this.costUsd = event.costUsd;
         }
+        if (typeof event.webSearches === 'number' && Number.isFinite(event.webSearches)) {
+          this.webSearches = Math.max(0, Math.floor(event.webSearches));
+        }
+      } else if (event.type === 'activity' || event.type === 'citations') {
+        this.webSearches ??= 1;
       } else if (event.type === 'usage') {
         const { inputTokens, outputTokens } = event.usage;
         if (typeof inputTokens === 'number' && Number.isFinite(inputTokens))
@@ -183,6 +190,7 @@ abstract class ObservedRun implements MeterRun {
       feeBps: this.feeBps,
       inputTokens: this.inputTokens,
       outputTokens: this.outputTokens,
+      webSearches: this.webSearches,
     };
     return this.idWrite.then(() =>
       reconcileGeneration(this.env, target, generationId, {
@@ -199,6 +207,7 @@ abstract class ObservedRun implements MeterRun {
       feeBps: this.feeBps,
       inputTokens: s.inputTokens ?? this.inputTokens,
       outputTokens: s.outputTokens ?? this.outputTokens,
+      webSearches: s.webSearches ?? this.webSearches,
     };
     const result = await settleUsage(this.env.DB, this.usageId, settlement);
     if (result.clamped) {
@@ -403,8 +412,10 @@ export function createPoolUsageMeter(
         if (!result.ok) throw new PoolRefusedError(result);
         usageId = result.usageId;
       }
+      // No web search on the pool: its hold is priced from tokens alone (docs/DEFERRED.md).
+      const { webSearch: _noSearch, ...withoutSearch } = request;
       const upstream: GenerateRequest = {
-        ...request,
+        ...withoutSearch,
         maxOutputTokens: maxOutput,
         signal: AbortSignal.any([request.signal, AbortSignal.timeout(pool.callTimeoutMs)]),
       };
