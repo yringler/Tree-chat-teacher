@@ -6,6 +6,8 @@ import { appConfig } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { formatMicros } from '@tangent/shared';
 import { PRICING_STYLE } from '../src/http/pricing-page.js';
+import { uniq } from './mocks/billing-helpers.js';
+import { fundPool } from './pool-helpers.js';
 import { authEnv, ORIGIN } from './session-client.js';
 
 /** As deployed: the pool on with a 20% revenue share, credit sold (the fake provider), no membership. */
@@ -115,7 +117,7 @@ describe('/pricing', () => {
     expect(columns(html)).toEqual(['Free', 'Membership']);
     expect(html).toContain('<p class="price">$10<small> a year + tax</small>');
     expect(html).toContain(
-      `<li>${pool.caps.member.requestsPerDay} pool replies a day instead of ${pool.caps.free.requestsPerDay}</li>`,
+      `<li>${pool.caps.member.requestsPerDay} pool replies a day instead of ${pool.caps.free.requestsPerDay}<span class="while">While the pool has credit`,
     );
     expect(html).toContain('<li>$2 of credit included each year');
     expect(html).toContain('A yearly membership adds more room on the pool');
@@ -149,6 +151,22 @@ describe('/pricing', () => {
     const member = (await pricing({ ...MEMBERSHIP, FAKE_PAYMENTS: '{"topUps":false}' })).html;
     expect(columns(member)).toEqual(['Free', 'Membership']);
     expect(member).not.toMatch(/credit included|top up|Tangent’s \d+% markup/i);
+  });
+
+  it('says on each pool line of the cards that it lasts while the pool has credit, with the balance now', async () => {
+    const poolId = uniq('pool');
+    await fundPool(poolId, 12_340_000);
+    const funded = (await pricing({ ...MEMBERSHIP, POOL_ACCOUNT_ID: poolId })).html;
+    const pill = '<span class="while">While the pool has credit · currently $12.34</span></li>';
+    expect(funded.split(pill).length).toBe(3);
+    expect(funded).toMatch(
+      /free replies a day on the community pool<sup[^]*?<\/sup><span class="while">/,
+    );
+
+    const empty = (await pricing({ POOL_ACCOUNT_ID: uniq('pool') })).html;
+    expect(empty).toContain(
+      '<span class="while">While the pool has credit · empty right now</span></li>',
+    );
   });
 
   it('without the pool: no free replies are promised', async () => {
