@@ -13,7 +13,7 @@ function templateOf(type: object): string {
   return annotations?.[0]?.template ?? '';
 }
 
-describe('Learn copy rule (community pool)', () => {
+describe('Learn copy rule (open pool)', () => {
   it('funding the pool is a credit purchase: never "donate" or "tax-deductible"', () => {
     for (const type of [AppHeader, ModelAccessDialog, HomePage, FundingToggle, PaidBy])
       expect(templateOf(type)).not.toMatch(FORBIDDEN_POOL_COPY);
@@ -23,7 +23,7 @@ describe('Learn copy rule (community pool)', () => {
 
   it('offers the pool where learners choose how replies are paid for', () => {
     const t = templateOf(ModelAccessDialog);
-    expect(t).toContain('Use the community pool');
+    expect(t).toContain('Use the open pool');
     expect(t).toContain(`(change)="choose('pool')"`);
     expect(templateOf(HomePage)).toContain('<app-pool-meter [status]="status" />');
   });

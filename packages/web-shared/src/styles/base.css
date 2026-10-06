@@ -1713,7 +1713,7 @@ app-node-picker {
   font-size: 0.85rem;
 }
 
-/* Pool (the community pool: PoolMeter, PoolFundSection, ImpactFeed, PoolBlockNotice) */
+/* Pool (the open pool: PoolMeter, PoolFundSection, ImpactFeed, PoolBlockNotice) */
 
 .pool-meter {
   display: grid;

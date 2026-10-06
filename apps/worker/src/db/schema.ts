@@ -277,7 +277,7 @@ export const authUsers = sqliteTable(
      */
     shareAllowed: integer('share_allowed', { mode: 'boolean' }).notNull().default(false),
     /**
-     * The operator suspended this user's community pool access (the admin
+     * The operator suspended this user's open pool access (the admin
      * page, `PATCH /api/admin/users/:userId`), or a lost dispute of their pool
      * purchase did. Like the next two columns, not a Better Auth field, so no
      * auth endpoint can set it.
@@ -388,12 +388,12 @@ export const authRateLimits = sqliteTable('auth_rate_limits', {
   lastRequest: integer('last_request').notNull(),
 });
 
-// ---- Billing (see src/billing/ and, for the community pool, src/pool/)
+// ---- Billing (see src/billing/ and, for the open pool, src/pool/)
 //
 // Ledger in integer micro-USD. Balance = Σ credit_grants.amount_micros
 // − Σ settled usage_events.charge_micros; pending usage holds `hold_micros`.
 // No cached balance column: every write is one idempotent statement. Each
-// user's credit is the account `u_<userId>`; the community pool is one more
+// user's credit is the account `u_<userId>`; the open pool is one more
 // account (`POOL_ACCOUNT_ID`, default `pool`) in the same two tables.
 
 /** Credits (purchases, membership credit, pool contributions) and debits (refunds, manual adjustments). */
@@ -514,7 +514,7 @@ export const usageEvents = sqliteTable(
     branchId: text('branch_id'),
     /** Who made the call (rows since migration 0010). */
     userId: text('user_id'),
-    /** `personal` (the user's credit) or `pool` (the community pool, `account_id` = the pool). */
+    /** `personal` (the user's credit) or `pool` (the open pool, `account_id` = the pool). */
     funding: text('funding', { enum: ['personal', 'pool'] })
       .notNull()
       .default('personal'),
@@ -570,7 +570,7 @@ export const usageEvents = sqliteTable(
   ],
 );
 
-// ---- Community pool identities (src/pool/identity.ts)
+// ---- Open pool identities (src/pool/identity.ts)
 //
 // A mailbox's pool identity (`auth_users.pool_identity`, a SHA-256 of the
 // normalised email) outlives the account that claimed it: deleting the
@@ -596,7 +596,7 @@ export const poolIdentityHolders = sqliteTable(
   (t) => [index('pool_identity_holders_identity_idx').on(t.identity)],
 );
 
-// ---- Community pool consent and topic tags (src/pool/consent.ts, src/pool/tagging.ts)
+// ---- Open pool consent and topic tags (src/pool/consent.ts, src/pool/tagging.ts)
 
 /**
  * Who acknowledged which version of the pool notice (packages/shared/src/pool.ts
@@ -632,7 +632,7 @@ export const poolTopicTags = sqliteTable(
   (t) => [index('pool_topic_tags_topic_idx').on(t.topicId, t.createdAt)],
 );
 
-// ---- Community pool impact feed (src/pool/impact.ts, docs/pool/PLAN.md §S8b)
+// ---- Open pool impact feed (src/pool/impact.ts, docs/pool/PLAN.md §S8b)
 
 /**
  * One immutable public snapshot per ISO week (`week_start`: its Monday,

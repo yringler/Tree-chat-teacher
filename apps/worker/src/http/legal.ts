@@ -17,7 +17,7 @@ import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
  */
 
 /** Bump when either document changes in substance. */
-export const LEGAL_UPDATED = '5 October 2026';
+export const LEGAL_UPDATED = '6 October 2026';
 
 /** Extra rules for long-form text, on top of the landing page's stylesheet. Hashed for the CSP. */
 export const LEGAL_STYLE =
@@ -64,7 +64,7 @@ ${body}
 <footer>
 <div class="wrap">
 <span>${escapeHtml(copyrightNotice(info.operator))}</span>
-<nav aria-label="Footer"><a href="/welcome">About Tangent</a><a href="/pricing">Pricing</a><a href="/pool">Community pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+<nav aria-label="Footer"><a href="/welcome">About Tangent</a><a href="/pricing">Pricing</a><a href="/pool">Open pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
 </div>
 </footer>
 </body>
@@ -109,7 +109,7 @@ export function renderPrivacyPage(info: LegalInfo): string {
 <tr><td>Your content</td><td>Conversations (messages, replies, branch titles, summaries), system prompts, settings, and share links you create.</td><td>This is the service. Stored in our database until you delete it.</td></tr>
 <tr><td>AI provider API keys</td><td>If you add your own key, it is encrypted into a cookie that only your browser holds. We never store it on our servers; it is decrypted in memory for each request and never logged.</td><td>To call the provider on your behalf.</td></tr>
 <tr><td>Billing (paid credit only)</td><td>Your customer id at our payment provider, credit purchases and refunds, membership status, and for each paid reply: the model, token counts, cost and time. Card numbers, billing addresses and tax details go to Polar, our merchant of record, and never reach us.</td><td>To charge for what you use, show you your usage, and keep the records tax law requires.</td></tr>
-<tr><td>Community pool (only if you use it)</td><td>That you acknowledged the pool notice: which version, and when. For each conversation branch the pool pays for: one topic from a fixed list (such as "Ancient Rome"), how deep the branch sits in its conversation, and the date. The topic is stored without any text from your messages and without your account id; sensitive topics (such as health, legal or money matters) are stored only as "sensitive". To pick the topic, the message of that pool exchange is sent once more to the pool's AI model, and only its one-word answer is kept. Our usage records of the pool (see Billing) could still connect a branch to your account while its topic is kept.</td><td>To show the notice again only when it changes, and to publish anonymous weekly counts of what the pool funds on the <a href="/pool">pool page</a> and the home page: exchanges, learners, topics and branch depth in total, and topics by name only when enough different learners touched them that week, never a sensitive one, and only after an administrator approved the topic.</td></tr>
+<tr><td>Open pool (only if you use it)</td><td>That you acknowledged the pool notice: which version, and when. For each conversation branch the pool pays for: one topic from a fixed list (such as "Ancient Rome"), how deep the branch sits in its conversation, and the date. The topic is stored without any text from your messages and without your account id; sensitive topics (such as health, legal or money matters) are stored only as "sensitive". To pick the topic, the message of that pool exchange is sent once more to the pool's AI model, and only its one-word answer is kept. Our usage records of the pool (see Billing) could still connect a branch to your account while its topic is kept.</td><td>To show the notice again only when it changes, and to publish anonymous weekly counts of what the pool funds on the <a href="/pool">pool page</a> and the home page: exchanges, learners, topics and branch depth in total, and topics by name only when enough different learners touched them that week, never a sensitive one, and only after an administrator approved the topic.</td></tr>
 <tr><td>Technical logs</td><td>Errors and request metadata (time, path, status, IP address) kept by our hosting provider's logs for a short time. Rate-limit counters per IP address. Never message content or API keys.</td><td>Security, abuse prevention and fixing bugs.</td></tr>
 </tbody>
 </table>
@@ -148,8 +148,8 @@ ${shareIntro}<p>When you create a share link, anyone who has the link can read w
 <ul>
 <li>Conversations, settings and share links: until you delete them or your account. Deleting is immediate in the app.</li>
 <li>Sessions: until they expire or you sign out. Sign-in links: 15 minutes.</li>
-<li>Community pool notice acknowledgments: until your account is deleted. Pool topics: until 14 days after the branch was last used on the pool, or until your account is deleted, whichever comes first.</li>
-<li>The weekly community pool snapshots (counts only, nothing about any one person): kept, so past weeks stay browsable.</li>
+<li>Open pool notice acknowledgments: until your account is deleted. Pool topics: until 14 days after the branch was last used on the pool, or until your account is deleted, whichever comes first.</li>
+<li>The weekly open pool snapshots (counts only, nothing about any one person): kept, so past weeks stay browsable.</li>
 <li>Payment records (credit purchases, refunds, usage charges): kept after your account is deleted, for as long as tax and accounting law requires (typically up to 7 years). They contain no message content, and nothing in them is linked to your email once your account is gone. Polar, as merchant of record, keeps its own order and tax records under its policy.</li>
 <li>Database recovery history: deleted data remains in our hosting provider's point-in-time recovery for up to 30 days, after which it is gone for good.</li>
 </ul>
@@ -225,10 +225,10 @@ export function renderTermsPage(info: LegalInfo): string {
 <ul>
 <li>Credit and the membership are sold through Polar Software, Inc., our reseller and merchant of record: you buy from Polar, which processes the payment, calculates and collects tax, issues invoices and receipts, and handles refunds and disputes. Polar's terms for buyers also apply to your purchase.</li>
 <li>Prices for paid replies are the AI provider's cost (including its credit-purchase fee) plus a markup shown in the app. Polar's processing fee comes out of each purchase, and tax is added at checkout.</li>
-<li>Credit is prepaid and is used up as you send messages. It has no cash value and can't be transferred, to another account or to the community pool. It doesn't expire while your account exists. Deleting your account forfeits any credit left.</li>
+<li>Credit is prepaid and is used up as you send messages. It has no cash value and can't be transferred, to another account or to the open pool. It doesn't expire while your account exists. Deleting your account forfeits any credit left.</li>
 <li>Where the service requires a membership to generate replies, it renews automatically each year until you cancel it under "Manage billing". Cancelling stops future renewals; the membership runs to the end of the paid year, and credit already granted stays usable.</li>
 <li>Credit and the membership are not refundable, except where the law requires it or under Polar's terms for buyers: as merchant of record, Polar may refund a purchase (for example, to prevent a chargeback). Refunded credit is removed from your balance, and a refunded membership payment takes back the credit it included. If you're a consumer in the EU or UK, you agree that credit is delivered right away and acknowledge that, once you start using it, you lose the 14-day right of withdrawal for the part used.</li>
-<li>The <a href="/pool">community pool</a> is free credit we provide, at our discretion, that any signed-in learner may use within its limits. We fund it from our own revenue, as described on the pool page; pool credit isn't for sale. Replies from the pool cost you nothing. We may change the pool's funding, model, limits and availability, or end it, and it may be empty.</li>
+<li>The <a href="/pool">open pool</a> is free credit we provide, at our discretion, that any signed-in learner may use within its limits. We fund it from our own revenue, as described on the pool page; pool credit isn't for sale. Replies from the pool cost you nothing. We may change the pool's funding, model, limits and availability, or end it, and it may be empty.</li>
 <li>We may change prices; changes apply to credit bought or membership periods starting after the change.</li>
 </ul>
 

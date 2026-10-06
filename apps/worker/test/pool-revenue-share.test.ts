@@ -1,4 +1,4 @@
-// The community pool's revenue share (pool/revenue-share.ts): 20% (by
+// The open pool's revenue share (pool/revenue-share.ts): 20% (by
 // default) of each membership payment after its fee, taken back in
 // proportion by refunds, and of the markup on personal credit as it is used,
 // granted once per completed UTC day by the cron, catching up missed days.

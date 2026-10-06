@@ -9,7 +9,7 @@
 //   3. At the terminal event: settle inline when the cost is known; else, with a
 //      generation id, reconcile in the background via OpenRouter; else (the
 //      request never reached OpenRouter) settle at 0.
-// - the community pool (`createPoolUsageMeter`, docs/pool/PLAN.md §1.2):
+// - the open pool (`createPoolUsageMeter`, docs/pool/PLAN.md §1.2):
 //   1. Reserve the call's exact worst case through PoolBank (or shrink the
 //      reservation the reply already holds, `UsageTag.reservationId`); a
 //      refusal fails the call before anything is sent.
@@ -82,7 +82,7 @@ export interface UsageMeterOptions {
 /** A pool reservation was refused: the call is failed before anything is sent. */
 export class PoolRefusedError extends Error {
   constructor(readonly refusal: Pick<PoolRefusal, 'reason'> & Partial<PoolRefusal>) {
-    super(`The community pool refused the call (${refusal.reason})`);
+    super(`The open pool refused the call (${refusal.reason})`);
     this.name = 'PoolRefusedError';
   }
 }
@@ -93,7 +93,7 @@ export class PoolRefusedError extends Error {
  */
 export class PoolRequestTooLargeError extends Error {
   constructor(readonly inputBoundTokens: number) {
-    super(`The request is too large for the community pool (${inputBoundTokens} tokens)`);
+    super(`The request is too large for the open pool (${inputBoundTokens} tokens)`);
     this.name = 'PoolRequestTooLargeError';
   }
 }
@@ -353,7 +353,7 @@ export function createUsageMeter(
 }
 
 /**
- * The community pool's meter for `userId`'s calls. Holds are priced for
+ * The open pool's meter for `userId`'s calls. Holds are priced for
  * `pool.model` whatever `request.model` says, output is capped at
  * `pool.maxOutputTokens`, and each call is aborted after `pool.callTimeoutMs`.
  */
@@ -447,7 +447,7 @@ async function* meteredStream(
             e.refusal.reason === 'empty' || e.refusal.reason === 'unpriced'
               ? 'server'
               : 'rate_limit',
-          message: 'The community pool cannot cover this request right now.',
+          message: 'The open pool cannot cover this request right now.',
           retryable: false,
           upstream: 'not_sent',
         },
@@ -459,7 +459,7 @@ async function* meteredStream(
         type: 'error',
         error: {
           code: 'context_length',
-          message: 'This conversation is too long for the community pool.',
+          message: 'This conversation is too long for the open pool.',
           retryable: false,
           upstream: 'not_sent',
         },

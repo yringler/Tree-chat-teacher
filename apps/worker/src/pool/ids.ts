@@ -1,4 +1,4 @@
-// Identifiers of the community pool: its PoolBank instance, and the keyed,
+// Identifiers of the open pool: its PoolBank instance, and the keyed,
 // daily-rotating hash that stands in for a caller's network on pool rows.
 import type { AppEnv } from '../env.js';
 import type { PoolBank } from './pool-bank.js';

@@ -80,7 +80,7 @@ import { UiStore } from '../state/ui-store';
 
       @if (pool(); as status) {
         <section class="card pool-card" aria-labelledby="pool-title">
-          <h2 id="pool-title">Community pool</h2>
+          <h2 id="pool-title">Open pool</h2>
           <app-pool-meter [status]="status" />
           <p class="muted small">
             {{ funding(status) }} Any signed-in learner can use it, on {{ status.model.label }},
@@ -149,7 +149,7 @@ export class HomePage {
   protected readonly starting = signal(false);
   /** The learner's pick, else the provider's default ("Smart"). */
   protected readonly model = computed(() => this.pickedModel() ?? this.store.defaultModel());
-  /** The community pool's meter while the pool is on (never in the demo, where it is off). */
+  /** The open pool's meter while the pool is on (never in the demo, where it is off). */
   protected readonly pool = computed(() => {
     const status = this.account.poolStatus();
     return status?.enabled ? status : null;

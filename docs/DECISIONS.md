@@ -339,6 +339,17 @@ Owner decision, 2026-10-05; resolves D1 (docs/polar-migration/02-stripe-to-polar
 - **Legacy pool purchase rows are kept.** Their refunds and disputes still debit the pool through `debitPoolPurchase` (credit-equivalent, clamped), and they still count toward their buyer's supporter status.
 - **Terms §7:** the pool is operator-provided at our discretion, funded from our revenue as described on `/pool`, may change or end, and may be empty; credit has no cash value, can't be transferred (to another account or to the pool), and isn't refundable except where the law requires it or under Polar's buyer terms (Polar, as merchant of record, may refund).
 
+## The open pool: renamed, and Tangent keeps learning open (2026-10)
+
+Owner decision, 2026-10-06; closes the cosmetic rename left open in docs/polar-migration/05-pool-framing.md.
+
+- **The community pool is now the open pool** in every user-facing string (landing, `/pricing`, `/pool`, terms, privacy, the apps' meter, notices and API error messages) and in code comments. "Community" matched the "community access" Polar's acceptable use policy prohibits; "open" says anyone can use it without suggesting anyone pays in. Internal identifiers stay: `/pool`, `/api/pool/*`, the `pool` payment value, the `pool_*` error codes, `POOL_*` config, the `contribution` ledger kind. `POOL_NOTICE_TEXT` doesn't name the pool, so `POOL_NOTICE_VERSION` is unchanged.
+- **The motto is "Tangent keeps learning open."** The landing page, `/pricing` ("Why there's a free plan") and `/pool` ("Why it exists") tell the same three steps: Tangent earns from memberships and credit, sets aside its revenue share as the open pool, and anyone signed in learns free within daily limits while it has credit.
+- **Tangent is always the subject of the money.** No copy makes a member or buyer the one who gives, funds or supports: no "your membership keeps the free tier open", no per-member attribution, no "pay it forward" (it implies the reader pays for the next learner). The `/pool` members section no longer says part of each membership payment goes into the pool; the sources section says Tangent adds it.
+- **`FORBIDDEN_POOL_COPY` grows** to sponsor, crowdfund, patron, pledge, give back, pay it forward, helped, supporter and community. "Contribute" stays allowed: the pool notice uses it for topic tags.
+- **Every free promise names its condition.** `/pricing`'s pool lines carry "While the pool has credit", with the live balance from the cached meter (or "empty right now").
+- **The landing hero names this week's pool learners** ("N people learned free this week") only from 10 up, so a quiet week doesn't read as a weak signal.
+
 ## Two tiers: free and member (2026-10)
 
 The pool's "supporter" tier (net credit purchases above $0) is gone. It was a third concept next to the membership and personal credit, and it pulled against the membership: a $5 top-up earned the higher pool caps while a paying member without a top-up did not. There are now two tiers, decided by the membership alone.

@@ -139,7 +139,7 @@ describe('ApiClient billing', () => {
   });
 });
 
-describe('ApiClient community pool', () => {
+describe('ApiClient open pool', () => {
   let fetchMock: ReturnType<typeof vi.fn<(...args: FetchArgs) => Promise<Response>>>;
   const api = createApi();
 

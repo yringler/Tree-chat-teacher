@@ -124,7 +124,7 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  * low. Calls on the user's own keys never touch credit. Every other route
  * stays open without a membership: nobody is locked out of their data.
  *
- * Community pool (pool.ts; Learn only, PAYMENT_HEADER `pool`, or `credit`
+ * Open pool (pool.ts; Learn only, PAYMENT_HEADER `pool`, or `credit`
  * whose credit can't cover a call): the server pins the pool's model, system
  * prompt, output cap and context cap, whatever the tree or branch says.
  *
@@ -192,7 +192,7 @@ export type ApiErrorCode =
   | 'key_required'
   | 'provider_error'
   | 'internal'
-  /** 402: the community pool can't cover the request right now (`error.pool`). */
+  /** 402: the open pool can't cover the request right now (`error.pool`). */
   | 'pool_empty'
   /** 429: a daily pool cap or rate limit was reached (`error.pool` says which, and when it resets). */
   | 'pool_cap_reached'

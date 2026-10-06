@@ -84,7 +84,7 @@ export function accountRequest(headers: Headers): AccountRequest {
  * the local dev bypass only.
  *
  * Funding (`AccountContext.funding`): Learn's `credit` is `personal` where
- * credit is offered (else `own-key`, as above); `pool` is the community pool,
+ * credit is offered (else `own-key`, as above); `pool` is the open pool,
  * `builtIn` only while the pool is on (`poolAvailable`) and for a signed-in
  * user (the dev bypass has no user to cap); `own-key` otherwise. Power is
  * always `personal` and never uses the pool, whatever the header says. The
@@ -133,7 +133,7 @@ async function poolIpKey(env: AppEnv, ip: string | null, now = new Date()): Prom
 }
 
 /**
- * `account` as the community pool funds it: the pool's parameters resolved
+ * `account` as the open pool funds it: the pool's parameters resolved
  * from this request's env and the caller's network (`ip`), `builtIn` while
  * the pool is on and the caller is signed in. A no-op for power, and for an
  * account that is not pool-funded and not asked to become so (`toPool`).

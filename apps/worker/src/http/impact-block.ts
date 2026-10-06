@@ -9,7 +9,7 @@ import type { AppEnv } from '../env.js';
 import { readPoolImpact } from '../pool/impact.js';
 
 /**
- * The community pool's impact feed as the server-rendered pages show it (the
+ * The open pool's impact feed as the server-rendered pages show it (the
  * landing page and `/pool`): one weekly snapshot's headline, its branch-depth
  * line and the topics it names. Styled by `.impact` in LANDING_STYLE (which
  * LEGAL_STYLE extends). Aggregates only, as stored by pool/impact.ts.

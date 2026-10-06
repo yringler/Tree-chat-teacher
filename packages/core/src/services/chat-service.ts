@@ -180,16 +180,16 @@ export interface ChatServiceDeps {
   /**
    * The one model every generation of this instance uses (replies, budgets,
    * summaries and titles without a configured summary model), whatever the
-   * branch says; the branch row is not changed. The community pool sets it.
+   * branch says; the branch row is not changed. The open pool sets it.
    */
   pinnedModel?: string;
   /**
    * The system prompt every generation of this instance uses instead of the
-   * tree's own (the community pool's locked prompt). The tree is not changed.
+   * tree's own (the open pool's locked prompt). The tree is not changed.
    */
   systemPromptOverride?: string;
   /**
-   * Makes the input budget a hard bound (the community pool): context budgets
+   * Makes the input budget a hard bound (the open pool): context budgets
    * are measured with `estimateTokens` instead of the default chars/3.5, and
    * every summary prompt is clipped to the summary model's input budget,
    * measured the same way, so no request of this instance exceeds it.
@@ -197,7 +197,7 @@ export interface ChatServiceDeps {
   inputBound?: { estimateTokens: TokenEstimator };
   /**
    * The longest anchor quote generations of this instance use; longer ones
-   * are clipped (the community pool: the quote is client-set free text, so it
+   * are clipped (the open pool: the quote is client-set free text, so it
    * gets no more room than a message). Default: unlimited.
    */
   anchorQuoteMaxChars?: number;
@@ -221,7 +221,7 @@ export interface BeginSendResult {
 /** Options of `runGeneration`. */
 export interface RunGenerationOptions {
   /**
-   * A reservation the caller already made for the reply (the community
+   * A reservation the caller already made for the reply (the open
    * pool's ceiling hold), passed to the provider as `usageTag.reservationId`.
    */
   reservationId?: string;

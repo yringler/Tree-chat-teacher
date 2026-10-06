@@ -9,7 +9,7 @@ import {
 import { ApiError, isPoolCapReached, isPoolEmpty } from '../core/api-client';
 
 /*
- * The community pool as both apps word it: the meter and the inline empty and
+ * The open pool as both apps word it: the meter and the inline empty and
  * cap-reached states. Plain functions, so the specs check the exact copy.
  * The pool is free credit Tangent provides (`poolFundingText`); nothing here
  * offers it for sale, and nothing calls it a donation.
@@ -72,8 +72,8 @@ export interface PoolBlockText {
 
 function limitText(reason: PoolBlockDetails['reason'], limit: number): string {
   return reason === 'cap_spend'
-    ? `${formatMicros(limit)} of community-pool use`
-    : `${limit.toLocaleString('en-US')} community-pool ${limit === 1 ? 'reply' : 'replies'}`;
+    ? `${formatMicros(limit)} of open-pool use`
+    : `${limit.toLocaleString('en-US')} open-pool ${limit === 1 ? 'reply' : 'replies'}`;
 }
 
 /**
@@ -89,7 +89,7 @@ export function poolBlockText(block: PoolBlock, now: Date = new Date()): PoolBlo
   if (block.kind === 'empty') {
     return d.reason === 'unpriced'
       ? {
-          title: "The community pool is paused for a moment. It isn't taking replies right now.",
+          title: "The open pool is paused for a moment. It isn't taking replies right now.",
           detail: 'Try again later.',
           members: null,
         }
@@ -99,14 +99,14 @@ export function poolBlockText(block: PoolBlock, now: Date = new Date()): PoolBlo
   switch (d.reason) {
     case 'rate':
       return {
-        title: "You're sending messages faster than the community pool allows.",
+        title: "You're sending messages faster than the open pool allows.",
         detail: `Try again in ${d.resetAt ? untilText(d.resetAt, now) : 'a minute'}.`,
         members: null,
       };
     case 'cap_ip':
     case 'cap_global':
       return {
-        title: 'The community pool is busy today.',
+        title: 'The open pool is busy today.',
         detail: `It resets at ${reset}.`,
         // Each tier has its own everyone-together ceiling; a network's limit binds members too.
         members:
@@ -117,7 +117,7 @@ export function poolBlockText(block: PoolBlock, now: Date = new Date()): PoolBlo
     default: {
       const title =
         d.limit === null
-          ? "You've reached today's community-pool limit."
+          ? "You've reached today's open-pool limit."
           : `You've used today's ${limitText(d.reason, d.limit)}.`;
       const more =
         !d.member && d.memberLimit !== null && d.limit !== null && d.memberLimit > d.limit

@@ -1,7 +1,7 @@
 // The purchase interface (docs/pool/PLAN.md §S5): how credit is bought and,
 // once paid, what it credits. Credit is bought only for the buyer's own
 // ledger (`u_<userId>`), spent with the usage-time markup (MARKUP_BPS).
-// Nobody buys credit for the community pool: Tangent funds it from its own
+// Nobody buys credit for the open pool: Tangent funds it from its own
 // revenue (docs/polar-migration/05-pool-framing.md).
 //
 // A purchase is credited the pre-tax amount paid net of the payment

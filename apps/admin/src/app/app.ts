@@ -10,7 +10,7 @@ import { UsersPage } from './users-page';
  * The admin app, served under /admin/ to admins only (the Worker answers 404
  * to anyone else; ADMIN_USER_IDS). One page: who may publish share links
  * while DMCA_AGENT_REGISTERED is off, taking any share down, suspending a
- * user's community pool access, adding credit to a user, the pool's balance and overage breaker with
+ * user's open pool access, adding credit to a user, the pool's balance and overage breaker with
  * top-ups and corrections, who uses the pool most, and the review queue
  * of topics the pool's public impact feed may name.
  */

@@ -17,7 +17,7 @@ export { DEFAULT_SIMPLE_MAX_INPUT_TOKENS } from './config.js';
 /**
  * The built-in provider: the endpoint `openrouter` (BUILT_IN_PROVIDER_ID in
  * @tangent/shared) on the operator's OpenRouter key, metered per call and
- * paid from the user's prepaid credit or the community pool (PLAN §13). Its
+ * paid from the user's prepaid credit or the open pool (PLAN §13). Its
  * provider id names only the endpoint; who pays is the funding (the request's
  * payment in Learn, the branch's funding in power), never the id. It is the
  * only provider config in a Learn account's registry, so the generic provider
@@ -167,7 +167,7 @@ export function simpleSystemPrompt(env: AppEnv): string {
 }
 
 /**
- * The built-in provider as the community pool uses it: the simple config
+ * The built-in provider as the open pool uses it: the simple config
  * (same key, same SIMPLE_PROVIDER override) with the pool model as its only
  * model, and one call's cost bounded by the pool's caps: the context window
  * is the pool's input cap plus its output cap. On OpenRouter, routing is

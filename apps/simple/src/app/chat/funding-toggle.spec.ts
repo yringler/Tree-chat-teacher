@@ -10,7 +10,7 @@ function templateOf(type: object): string {
 }
 
 describe('FundingToggle', () => {
-  it('is a radiogroup of my credit and the community pool', () => {
+  it('is a radiogroup of my credit and the open pool', () => {
     expect(reflectComponentType(FundingToggle)?.selector).toBe('app-funding-toggle');
     const t = templateOf(FundingToggle);
     expect(t).toContain('role="radiogroup" aria-label="Pay for replies with"');
@@ -20,7 +20,7 @@ describe('FundingToggle', () => {
     expect(t).toContain('(click)="o.id !== value() && changed.emit(o.id)"');
     expect(FUNDING_OPTIONS.map((o) => [o.id, o.label])).toEqual([
       ['credit', 'My credit'],
-      ['pool', 'Community pool'],
+      ['pool', 'Open pool'],
     ]);
   });
 });

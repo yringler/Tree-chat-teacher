@@ -3,7 +3,7 @@ import { POOL_EMPTY_TEXT, type PoolStatusResponse } from '@tangent/shared';
 import { poolDollarsLabel, poolWeekLabel, sessionsLabel } from './pool-format';
 
 /**
- * The community pool meter (spec §8): about how many learning sessions the
+ * The open pool meter (spec §8): about how many learning sessions the
  * pool still covers, the dollars, and this week's learners and exchanges
  * (aggregate counts only). `compact` drops the week line. Styles: `.pool-*`
  * in base.css.
@@ -12,7 +12,7 @@ import { poolDollarsLabel, poolWeekLabel, sessionsLabel } from './pool-format';
   selector: 'app-pool-meter',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="pool-meter" role="group" aria-label="Community pool">
+    <div class="pool-meter" role="group" aria-label="Open pool">
       <p class="pool-meter-sessions">{{ headline() }}</p>
       <p class="pool-meter-dollars">{{ dollars() }}</p>
       @if (!compact()) {

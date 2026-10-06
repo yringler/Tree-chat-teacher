@@ -69,7 +69,7 @@ export function renderVerifyPage(opts: { siteKey: string; next: string; failed: 
 </header>
 <main class="wrap doc verify">
 <h1>One quick check</h1>
-<p>Before your first visit we check that you're a person, not a script. It keeps the community pool for learners.</p>
+<p>Before your first visit we check that you're a person, not a script. It keeps the open pool for learners.</p>
 ${opts.failed ? '<p class="error" role="alert">That check didn\'t go through. Please try again.</p>' : ''}
 <form method="post" action="${VERIFY_PAGE_PATH}">
 <input type="hidden" name="next" value="${escapeHtml(opts.next)}">

@@ -1,4 +1,4 @@
-// The community pool's weekly impact snapshot, its review queue and the
+// The open pool's weekly impact snapshot, its review queue and the
 // public feed (docs/pool/PLAN.md §S8b; spec §9 "Weekly aggregation",
 // "Moderation" and "UI").
 //

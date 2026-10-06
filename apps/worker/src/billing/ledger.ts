@@ -5,7 +5,7 @@
 //   held    = Σ pending usage_events.hold_micros
 //   pending = number of pending usage_events (metered calls in flight)
 //
-// The community pool is one more account in the same tables (pool/pool-bank.ts).
+// The open pool is one more account in the same tables (pool/pool-bank.ts).
 
 /**
  * - `purchase`: credit bought (net of the processing fee); `subscription`:

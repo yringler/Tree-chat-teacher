@@ -140,7 +140,7 @@ interface PendingRow {
  * Cron backstop (`scheduled`, every 10 minutes) for pending personal usage
  * rows older than 2 minutes: with a generation id → settle from OpenRouter's
  * reported cost; without one after 10 minutes → settle at 0; still pending
- * after 24 hours → `unresolved` at 0, logged for manual review. Community pool
+ * after 24 hours → `unresolved` at 0, logged for manual review. Open pool
  * rows are filtered out in SQL (a backlog of them never starves these) and
  * expired by `reconcilePoolUsage` instead.
  */
@@ -204,7 +204,7 @@ export async function reconcilePendingUsage(
 }
 
 /**
- * Cron backstop for the community pool: expires stale reservations of every
+ * Cron backstop for the open pool: expires stale reservations of every
  * pool account with any (in case a PoolBank alarm was lost), then advances
  * and verifies the configured pool's balance checkpoint. Limits, TTLs and the
  * pool id come from `appConfig(env)`.

@@ -1,5 +1,5 @@
 // The pool meter (docs/pool/PLAN.md §S6): what `GET /api/pool/status`, the
-// landing page and the apps show about the community pool. Aggregates only:
+// landing page and the apps show about the open pool. Aggregates only:
 // the balance, the sessions it covers and this week's counts, never a user.
 import type { PoolMeResponse, PoolStatusResponse } from '@tangent/shared';
 import { balanceStatement, getBalance, readBalance, type BalanceRow } from '../billing/ledger.js';

@@ -372,7 +372,7 @@ export class DemoBackend {
       return apiError('bad_request', "Adding credit isn't available in the demo.");
     }
 
-    // The community pool: off in the demos (it runs on pretend credit and funds nothing)
+    // The open pool: off in the demos (it runs on pretend credit and funds nothing)
     if (method === 'GET' && path === '/api/pool/status') return json(DEMO_POOL_STATUS);
     if (method === 'GET' && path === '/api/pool/me') {
       return json({

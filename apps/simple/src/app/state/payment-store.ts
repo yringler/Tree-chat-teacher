@@ -15,7 +15,7 @@ function stored(): LearnPayment | null {
 
 /**
  * How Learn pays for replies: the learner's own OpenRouter key, prepaid
- * credit, or the community pool. The choice is remembered in this browser
+ * credit, or the open pool. The choice is remembered in this browser
  * and sent with every API call (API_HEADERS, see app.config.ts), together
  * with the mode header that makes the server act as the learner's Learn
  * account. A choice the server doesn't offer falls back: credit, then the
@@ -33,7 +33,7 @@ function stored(): LearnPayment | null {
 export class PaymentStore {
   /** True when this server sells credit (from /api/me). */
   readonly builtInCredit = signal(false);
-  /** True when the community pool is on (from /api/pool/status). */
+  /** True when the open pool is on (from /api/pool/status). */
   readonly poolAvailable = signal(false);
   /**
    * Whether the learner's own OpenRouter key is saved (from /api/keys, via

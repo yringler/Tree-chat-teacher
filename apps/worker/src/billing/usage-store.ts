@@ -1,4 +1,4 @@
-// `usage_events` writes shared by the meter, reconciliation and the community
+// `usage_events` writes shared by the meter, reconciliation and the open
 // pool. Each one is a single conditional statement (`WHERE status = 'pending'`),
 // so a row settles at most once whoever gets there first (inline settle,
 // deferred reconcile, cron, the pool's expiry alarm), and a replay can never

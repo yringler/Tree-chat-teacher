@@ -165,7 +165,7 @@ async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
  * It manages who may publish share links while DMCA_AGENT_REGISTERED is off
  * (`auth_users.share_allowed`, see `canShare`), takes any share down
  * without its owner (a DMCA notice, docs/LEGAL.md §8), suspends a user's
- * community pool access (`auth_users.pool_suspended` and the user's pool
+ * open pool access (`auth_users.pool_suspended` and the user's pool
  * identity, checked by the pool gate on every pool request), reports who
  * consumes the pool, and credits a user's ledger or the pool without a payment
  * (`POST /credit`: adjustments, and simulated purchases where
@@ -270,7 +270,7 @@ export function adminRoutes(): Hono<AppBindings> {
     } satisfies AdminPoolResponse);
   });
 
-  // Who consumes the community pool, to spot outliers and account farms.
+  // Who consumes the open pool, to spot outliers and account farms.
   r.get('/pool/usage', validateQuery(adminPoolUsageQuerySchema), async (c) => {
     const { days, limit } = c.req.valid('query');
     const poolId = appConfig(c.env).pool.accountId;

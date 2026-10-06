@@ -13,7 +13,7 @@ export interface ProviderRoute {
 
 /**
  * The endpoint of the built-in provider: OpenRouter on the operator's key
- * (`OPENROUTER_SIMPLE_API_KEY`), which Tangent credit and the community pool
+ * (`OPENROUTER_SIMPLE_API_KEY`), which Tangent credit and the open pool
  * pay for, and the endpoint Learn runs on whoever pays. It is the same id as
  * the user's own OpenRouter (`LEARN_KEY_PROVIDER`): the funding, not the id,
  * says whose key a call uses.

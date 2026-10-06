@@ -83,7 +83,7 @@ export function formatDay(iso: string | null): string | null {
 export function membershipStatusText(m: MembershipInfo): string {
   if (m.status === 'waived') return 'Waived: the membership is free for you.';
   if (m.status === 'inactive')
-    return 'Not active. A membership unlocks power mode on your own keys, buying credit and higher community pool limits. Learn on your own key and credit you already have stay usable, and your conversations stay readable either way.';
+    return 'Not active. A membership unlocks power mode on your own keys, buying credit and higher open pool limits. Learn on your own key and credit you already have stay usable, and your conversations stay readable either way.';
   const until = formatDay(m.periodEnd);
   if (m.cancelAtPeriodEnd)
     return until ? `Active until ${until}. It won't renew.` : "Active. It won't renew.";

@@ -25,7 +25,7 @@ import { cachedPoolStatus, poolMe } from '../pool/status.js';
 import { TURNSTILE_ACTION, verifyTurnstile } from '../pool/turnstile.js';
 
 /**
- * Community pool API, mounted at /api/pool behind the session and account
+ * Open pool API, mounted at /api/pool behind the session and account
  * middleware (docs/pool/PLAN.md §S4). The contract is in
  * packages/shared/src/pool.ts and the route list in api.ts.
  *
@@ -54,7 +54,7 @@ export function poolRoutes(): Hono<AppBindings> {
   r.post('/verify', sameOriginOnly, validateJson(poolVerifyRequestSchema), async (c) => {
     const { userId, email } = c.var.identity;
     if (!userId || !email)
-      throw new DomainError('pool_unavailable', 'The community pool needs a signed-in account');
+      throw new DomainError('pool_unavailable', 'The open pool needs a signed-in account');
     const passed = await verifyTurnstile(
       c.env,
       c.req.valid('json').token,
@@ -70,10 +70,10 @@ export function poolRoutes(): Hono<AppBindings> {
   r.post('/consent', sameOriginOnly, validateJson(poolConsentRequestSchema), async (c) => {
     const { userId } = c.var.identity;
     if (!userId)
-      throw new DomainError('pool_unavailable', 'The community pool needs a signed-in account');
+      throw new DomainError('pool_unavailable', 'The open pool needs a signed-in account');
     const current = appConfig(c.env).pool.noticeVersion;
     if (c.req.valid('json').version !== current)
-      throw new ConflictError('The community pool notice has changed; read the current one');
+      throw new ConflictError('The open pool notice has changed; read the current one');
     return c.json((await recordConsent(c.env.DB, userId, current)) satisfies PoolConsentResponse);
   });
 

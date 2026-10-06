@@ -1,4 +1,4 @@
-// The community pool's revenue share (docs/polar-migration/05-pool-framing.md,
+// The open pool's revenue share (docs/polar-migration/05-pool-framing.md,
 // D1 resolved): nobody buys credit for the pool; Tangent adds
 // POOL_REVENUE_SHARE_BPS (default 20%) of what it earns to it, as an operator
 // expense, like a free tier. Two sources, both `contribution` grants on the

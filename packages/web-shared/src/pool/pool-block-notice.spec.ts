@@ -58,7 +58,7 @@ describe('poolBlockText', () => {
     const empty: PoolBlock = { kind: 'empty', details: details({ reason: 'empty' }) };
     // Only Tangent adds credit to the pool.
     expect(poolBlockText(empty, NOW)).toEqual({
-      title: 'The community pool is empty until Tangent adds more credit.',
+      title: 'The open pool is empty until Tangent adds more credit.',
       detail: null,
       members: null,
     });
@@ -66,7 +66,7 @@ describe('poolBlockText', () => {
 
   it('a daily reply cap: the cap, when it resets, and that members get more', () => {
     expect(poolBlockText(cap(), NOW)).toEqual({
-      title: "You've used today's 30 community-pool replies.",
+      title: "You've used today's 30 open-pool replies.",
       detail: 'The limit resets at 00:00 UTC (in 5 h).',
       members: 'Members get 150 a day.',
     });
@@ -76,7 +76,7 @@ describe('poolBlockText', () => {
     expect(
       poolBlockText(cap({ reason: 'cap_spend', limit: 100_000, memberLimit: 500_000 }), NOW),
     ).toEqual({
-      title: "You've used today's $0.10 of community-pool use.",
+      title: "You've used today's $0.10 of open-pool use.",
       detail: 'The limit resets at 00:00 UTC (in 5 h).',
       members: 'Members get $0.50 a day.',
     });
@@ -89,7 +89,7 @@ describe('poolBlockText', () => {
   it('the network and everyone-together ceilings read "busy today"', () => {
     for (const reason of ['cap_ip', 'cap_global'] as const)
       expect(poolBlockText(cap({ reason, memberLimit: null, member: true }), NOW)).toEqual({
-        title: 'The community pool is busy today.',
+        title: 'The open pool is busy today.',
         detail: 'It resets at 00:00 UTC (in 5 h).',
         members: null,
       });

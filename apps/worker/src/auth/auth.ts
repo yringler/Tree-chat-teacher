@@ -28,7 +28,7 @@ import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnst
  * added from the account dialog once signed in, then work as a sign-in method.
  *
  * Anyone may sign up; abuse is bounded by Turnstile and the rate limits on
- * magic links. While the community pool is on, Turnstile runs on every first
+ * magic links. While the open pool is on, Turnstile runs on every first
  * sign-in (docs/pool/PLAN.md §9, D4): a magic link can only be requested with
  * a Turnstile pass, so signing in with one records it
  * (`auth_users.pool_verified_at`); a first OAuth sign-in (or any OAuth
@@ -147,7 +147,7 @@ const NO_OAUTH_TOKENS = {
 };
 
 /**
- * Turnstile on first sign-in (see `createAuth`), while the community pool is
+ * Turnstile on first sign-in (see `createAuth`), while the open pool is
  * on. A magic link was requested with a Turnstile pass: the user is recorded
  * as verified. An OAuth callback
  * of a user with no pass on record is redirected through the interstitial,
