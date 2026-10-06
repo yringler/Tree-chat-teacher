@@ -6,6 +6,7 @@ import { DEMO_MODE, Icon } from '@tangent/web-shared';
 import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { ModeBadge } from '../ui/mode-badge';
 import { ExportMenu } from './export-menu';
+import { TextSizeMenu } from './text-size-menu';
 
 interface Crumb {
   branch: Branch;
@@ -16,7 +17,7 @@ interface Crumb {
 
 @Component({
   selector: 'app-chat-header',
-  imports: [Icon, ModeBadge, ExportMenu],
+  imports: [Icon, ModeBadge, ExportMenu, TextSizeMenu],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="chat-head">
@@ -65,6 +66,7 @@ interface Crumb {
           >
             <app-icon name="edit" /> <span class="hide-narrow">Tree</span>
           </button>
+          <app-text-size-menu />
           <button
             type="button"
             class="icon-btn"

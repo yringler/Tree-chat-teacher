@@ -48,6 +48,7 @@ export class UiStore {
   readonly treeSettingsOpen = signal(false);
   readonly shareDialogOpen = signal(false);
   readonly exportMenuOpen = signal(false);
+  readonly textSizeMenuOpen = signal(false);
   /** Keys & credit dialog; `provider` preselects the provider to enter a key for. */
   readonly keysDialog = signal<{ provider: string | null } | null>(null);
   readonly settingsOpen = signal(false);
@@ -128,9 +129,11 @@ export class UiStore {
         return true;
       }
     }
-    if (this.exportMenuOpen()) {
-      this.exportMenuOpen.set(false);
-      return true;
+    for (const s of [this.exportMenuOpen, this.textSizeMenuOpen]) {
+      if (s()) {
+        s.set(false);
+        return true;
+      }
     }
     if (this.drawerOpen()) {
       this.drawerOpen.set(false);

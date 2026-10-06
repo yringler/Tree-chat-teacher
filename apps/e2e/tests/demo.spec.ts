@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 /*
  * The in-browser demos (/demo, /learn/demo): no sign-in, no backend state, no
@@ -77,6 +77,52 @@ test('power demo: a branch is deleted from under its message, without the outlin
   await expect(forks).toHaveCount(1);
   await expect(toggle).toHaveText(/1 branch\b/);
   expect(page.url()).toBe(url);
+  expect(errors).toEqual([]);
+});
+
+test('power demo: the conversation text size scales the messages only, and is remembered', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  const fontSize = (l: Locator) => l.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  await page.goto('/demo');
+  await page.locator('.home-list .tree-row a').first().click();
+  const body = page.locator('.msg-body').first();
+  const composer = page.locator('#composer-input');
+  const title = page.locator('.tree-name');
+  await expect(body).toBeVisible();
+  const [bodyBefore, composerBefore, titleBefore] = [
+    await fontSize(body),
+    await fontSize(composer),
+    await fontSize(title),
+  ];
+
+  // "Aa" in the header: A+ twice is 125%. Messages and composer grow; the header doesn't.
+  await page.getByRole('button', { name: 'Text size' }).click();
+  const larger = page.getByRole('button', { name: 'Larger text' });
+  await larger.click();
+  await larger.click();
+  const value = page.locator('.text-size-value');
+  await expect(value).toHaveText('125%');
+  await expect.poll(() => fontSize(body)).toBeCloseTo(bodyBefore * 1.25, 1);
+  expect(await fontSize(composer)).toBeCloseTo(composerBefore * 1.25, 1);
+  expect(await fontSize(title)).toBe(titleBefore);
+  await page.keyboard.press('Escape');
+  await expect(value).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Text size' })).toBeFocused();
+
+  // Kept across a reload (the demo reseeds itself, under new ids).
+  await page.goto('/demo');
+  await page.locator('.home-list .tree-row a').first().click();
+  await expect(body).toBeVisible();
+  expect(await fontSize(body)).toBeCloseTo(bodyBefore * 1.25, 1);
+
+  // Shortcuts outside a field: - steps down, 0 resets (Esc first leaves the composer).
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('-');
+  await expect.poll(() => fontSize(body)).toBeCloseTo(bodyBefore * 1.12, 1);
+  await page.keyboard.press('0');
+  await expect.poll(() => fontSize(body)).toBeCloseTo(bodyBefore, 1);
   expect(errors).toEqual([]);
 });
 

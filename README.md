@@ -142,7 +142,7 @@ pnpm e2e         # Playwright end-to-end tests against wrangler dev (see below)
 
 **End-to-end tests** (`pnpm e2e`, in `apps/e2e`) drive Chromium through the built apps with [Playwright](https://playwright.dev), against `wrangler dev` on port 8790 (`E2E_PORT`). They are separate from `pnpm test`. `apps/e2e/serve.mjs` (Playwright's `webServer`) generates the Worker's config into the git-ignored `apps/e2e/.state/` (passed with `--env-file`, so your `apps/worker/.dev.vars` and local database are never read), migrates a fresh local database there, and starts `wrangler dev`, which builds every app first (about a minute). No model is called: power runs on the offline test provider, and the built-in provider is configured but never sent to. The suites:
 
-- `demo.spec.ts`: the power demo's Delete in the conversation list (Cancel keeps the conversation, OK removes it), Delete on a branch in a message's branch list (the same ask, without the outline), and the Learn demo's Export, then Import of a power-style backup (another provider and model, a custom prompt, a summary branch on credit), which comes back adapted to Learn; a file that isn't a backup is refused.
+- `demo.spec.ts`: the power demo's Delete in the conversation list (Cancel keeps the conversation, OK removes it), Delete on a branch in a message's branch list (the same ask, without the outline), the conversation text size (**Aa**: the messages and composer grow and the header doesn't, the size survives a reload, and the `-` / `0` shortcuts), and the Learn demo's Export, then Import of a power-style backup (another provider and model, a custom prompt, a summary branch on credit), which comes back adapted to Learn; a file that isn't a backup is refused.
 - `read-only-power.spec.ts`: with the membership required and cancelled, the own-key branch shows the read-only notice, the credit branch keeps its message box, **Renew membership** goes to `/billing`, **Create a copy in Learn** opens the copy at `/learn/t/<id>` and leaves the power conversation unchanged, and **Continue with Tangent credit** moves the branch onto credit.
 - `learn-key.spec.ts`: Learn on the learner's own key without one says which key is missing and opens **How replies are paid for**; the learner stays signed in.
 - `share-dialog.spec.ts`: the **Share…** dialog lists only the open conversation's links (a conversation without any says so), with the branch a path link ends in; a link created there joins the top of the list, and one revoked there shows as revoked at once and after reopening. The e2e server turns share links on for everyone (`DMCA_AGENT_REGISTERED`) for it.
@@ -529,8 +529,11 @@ This section describes the power app. The simple app at `/learn/` keeps only the
   | `b`               | Branch from here               |
   | `/`               | Focus the composer             |
   | `i`               | Context Inspector              |
+  | `+` / `-`         | Larger / smaller text          |
+  | `0`               | Reset the text size            |
   | `?`               | Show all shortcuts             |
 
+- **Text size:** **Aa** in the chat header makes the conversation's text smaller or larger (**A−** / **A+**, in steps from 85% to 140%, and **Reset to 100%**), or use `-`, `+` and `0` outside a text field (`Ctrl`/`Cmd` with `+`, `-` and `0` stay the browser's zoom). It applies to the messages (with their code, tables, tangents and sources) and to the composer; the sidebar, header and dialogs keep their size. The choice is saved in this browser.
 - **Tangents:** a reply that ends with suggested tangents shows them under the message (**Where next?**). Clicking one branches off in `path` mode, titles the branch after it and asks it as the first message; a tangent you already followed opens its branch.
 - **Settings** (sidebar): your **default system prompt** for new conversations (saved to your account; **Use default** starts from the built-in one) and the default reviewer model (saved in this browser).
 - **Private branches** (a branch setting) are left out of every share and export, together with everything below them.

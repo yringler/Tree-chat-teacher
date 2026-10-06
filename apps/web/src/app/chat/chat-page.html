@@ -12,7 +12,7 @@
   </div>
 } @else {
   <div class="chat-layout" [class.with-inspector]="ui.inspectorOpen()">
-    <section class="chat" aria-label="Conversation">
+    <section class="chat" aria-label="Conversation" [style.--chat-font-scale]="textSize.scale()">
       <app-chat-header />
 
       <div class="messages" #scroller (scroll)="onScroll(scroller)" tabindex="-1">

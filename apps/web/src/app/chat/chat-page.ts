@@ -14,6 +14,7 @@ import { RouterLink } from '@angular/router';
 import type { Branch, ChatNode, MembershipInfo } from '@tangent/shared';
 import { ReadOnlyComposer } from '@tangent/web-shared';
 import { Inspector } from '../inspector/inspector';
+import { TextSizeStore } from '../state/text-size-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ModeBadge } from '../ui/mode-badge';
@@ -39,6 +40,8 @@ interface Entry {
 export class ChatPage {
   protected readonly store = inject(TreeStore);
   protected readonly ui = inject(UiStore);
+  /** The user's text size for the messages and composer (see chat.css). */
+  protected readonly textSize = inject(TextSizeStore);
   private readonly title = inject(Title);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   /** True while the view is scrolled to (near) the bottom: new text keeps it pinned. */
