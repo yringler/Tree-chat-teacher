@@ -788,6 +788,87 @@ textarea:focus-visible {
   background: var(--accent-soft);
 }
 
+/*
+ * "Ask your own" (ui/tangent-ask.ts): the last item of the list, a tangent
+ * holding a field. One line until focused; expandable ones then grow to a
+ * few lines with their buttons underneath.
+ */
+.tangent-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0 6px;
+  cursor: text;
+}
+
+.tangent-ask > app-icon {
+  margin: 3px 0 0;
+}
+
+/* (Specific enough to undo the base input and textarea styles.) */
+.tangent-ask .tangent-ask-field {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+  line-height: inherit;
+  resize: none;
+}
+
+/* The item shows focus, not the bare field inside it. */
+.tangent-ask .tangent-ask-field:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.tangent-ask:focus-within,
+.tangent-ask:focus-within:hover {
+  border-color: var(--accent);
+  background: var(--bg-elev);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.tangent-ask.is-expanded {
+  padding-bottom: 6px;
+}
+
+.tangent-ask.is-disabled,
+.tangent-ask.is-disabled:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-elev);
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.tangent-ask-field:disabled {
+  cursor: inherit;
+}
+
+/* One line while folded: no scrollbar, whatever is typed. */
+.tangent-ask:not(.is-expanded) textarea.tangent-ask-field {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tangent-ask-actions {
+  display: flex;
+  flex-basis: 100%;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.tangent-ask-send {
+  width: 26px;
+  height: 22px;
+  color: var(--accent);
+}
+
 /* Sources: what a grounded reply was checked against, or "Check sources" (both apps). */
 .sources {
   display: flex;

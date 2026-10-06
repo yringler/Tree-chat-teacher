@@ -1,13 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { splitTangents, type ChatNode } from '@tangent/shared';
-import { Icon, MarkdownService, SourcesList } from '@tangent/web-shared';
+import { Icon, MarkdownService, SourcesList, TangentAsk } from '@tangent/web-shared';
 import { LessonStore } from '../state/lesson-store';
 import { branchTitle } from './titles';
 
 /** One message of the lesson; `data-node-id` lets the chat page map a text selection to it. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, SourcesList],
+  imports: [Icon, SourcesList, TangentAsk],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -59,7 +59,7 @@ import { branchTitle } from './titles';
         (check)="checkSources()"
       />
 
-      @if (tangents().length > 0) {
+      @if (askable()) {
         <nav class="tangents" aria-label="Tangents worth following">
           <span class="tangents-label muted small">Where next?</span>
           @for (t of tangents(); track t.title) {
@@ -79,6 +79,12 @@ import { branchTitle } from './titles';
               }
             </button>
           }
+          <app-tangent-ask
+            [(text)]="askText"
+            label="Ask your own question as a side question"
+            [busy]="asking()"
+            (ask)="ask($event)"
+          />
         </nav>
       }
 
@@ -180,6 +186,20 @@ export class MessageItem {
 
   /** Title of the tangent whose branch is being created. */
   protected readonly opening = signal<string | null>(null);
+  /** "Ask your own": the learner's question, sent in a new side question. */
+  protected readonly askText = signal('');
+  protected readonly asking = signal(false);
+
+  protected async ask(text: string): Promise<void> {
+    if (this.asking()) return;
+    this.asking.set(true);
+    try {
+      // Kept on failure, to try again.
+      if (await this.store.askFrom(this.node().id, text)) this.askText.set('');
+    } finally {
+      this.asking.set(false);
+    }
+  }
 
   protected async follow(title: string): Promise<void> {
     if (this.opening() !== null) return;

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { splitTangents, type ChatNode } from '@tangent/shared';
-import { Icon, MarkdownService } from '@tangent/web-shared';
+import { Icon, MarkdownService, TangentAsk } from '@tangent/web-shared';
 import { CanvasStore, modelLabel } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 import { laneTitle } from './titles';
@@ -11,7 +11,7 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
 /** One message on a lane; `data-node-id` lets the page map a text selection to it. */
 @Component({
   selector: 'app-card',
-  imports: [Icon],
+  imports: [Icon, TangentAsk],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -73,7 +73,7 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
         </div>
       }
 
-      @if (tangents().length > 0) {
+      @if (complete()) {
         <nav class="tangents" aria-label="Tangents worth following">
           <span class="tangents-label muted small">Where next?</span>
           @for (t of tangents(); track t.title) {
@@ -92,6 +92,18 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
               }
             </button>
           }
+          <!-- The user's own question, in a new lane like a tangent. -->
+          <app-tangent-ask
+            [(text)]="askText"
+            label="Ask your own question in a new lane"
+            settingsLabel="Lane settings: context, model, variants…"
+            [expandable]="true"
+            [busy]="asking()"
+            [disabled]="locked()"
+            disabledTitle="Asking needs a membership (this lane is on your own key)"
+            (ask)="ask($event)"
+            (settings)="askWithSettings($event)"
+          />
         </nav>
       }
 
@@ -145,16 +157,45 @@ export class Card {
       : { body: this.content(), tangents: [], partial: false },
   );
   protected readonly html = computed(() => this.md.render(this.split().body, !this.streaming()));
-  protected readonly tangents = computed(() =>
-    this.node().role === 'assistant' && this.node().status === 'complete'
-      ? this.split().tangents
-      : [],
+  /** A finished reply: offers its tangents and "Ask your own". */
+  protected readonly complete = computed(
+    () => this.node().role === 'assistant' && this.node().status === 'complete',
   );
+  protected readonly tangents = computed(() => (this.complete() ? this.split().tangents : []));
+  /** The card's lane can't generate (its funding needs the membership the user lacks). */
+  protected readonly locked = computed(() => {
+    const b = this.store.index()?.branches.get(this.node().branchId);
+    return !!b && this.store.routeLocked(b);
+  });
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
   protected readonly followed = computed<ReadonlySet<string>>(
     () => new Set(this.children().map((b) => b.title)),
   );
   protected readonly opening = signal<string | null>(null);
+
+  /** "Ask your own": the question being typed under the reply. */
+  protected readonly askText = signal('');
+  protected readonly asking = signal(false);
+
+  protected async ask(text: string): Promise<void> {
+    if (this.asking() || this.locked()) return;
+    this.asking.set(true);
+    try {
+      // Kept on failure, to try again.
+      if (await this.store.askFrom(this.node().id, text)) this.askText.set('');
+    } finally {
+      this.asking.set(false);
+    }
+  }
+
+  /** The gear: the branch dialog (variants and all), asking the question once the lanes exist. */
+  protected askWithSettings(text: string): void {
+    this.ui.branchDialog.set({
+      fromNodeId: this.node().id,
+      quote: null,
+      ...(text ? { message: text, onCreated: () => this.askText.set('') } : {}),
+    });
+  }
 
   protected branch(e: Event): void {
     e.stopPropagation();

@@ -5,6 +5,7 @@ import type {
   BillingSummary,
   Branch,
   ChatNode,
+  CreateBranchRequest,
   MeResponse,
   MembershipInfo,
   ProviderInfo,
@@ -604,5 +605,142 @@ describe('TreeStore routes (provider + funding)', () => {
       funding: 'credit',
       model: 'a/b',
     });
+  });
+});
+
+describe('TreeStore branching with a first message', () => {
+  const at = '2026-10-01T00:00:00.000Z';
+  const trunk: Branch = {
+    id: 'trunk',
+    treeId: 't1',
+    parentBranchId: null,
+    branchPointNodeId: null,
+    contextMode: 'path',
+    anchorQuote: null,
+    title: 'Main thread',
+    titleSource: 'default',
+    isPrivate: false,
+    providerId: 'openrouter',
+    model: 'a/b',
+    funding: 'own-key',
+    createdAt: at,
+    updatedAt: at,
+  };
+  const reply: ChatNode = {
+    id: 'a1',
+    treeId: 't1',
+    branchId: 'trunk',
+    parentId: null,
+    seq: 0,
+    role: 'assistant',
+    content: 'Light is a wave.',
+    status: 'complete',
+    error: null,
+    providerId: 'openrouter',
+    model: 'a/b',
+    usage: null,
+    createdAt: at,
+  };
+
+  function open() {
+    const s = setup();
+    const createBranch = vi.fn(async (req: CreateBranchRequest): Promise<Branch> => ({
+      ...trunk,
+      id: 'side',
+      parentBranchId: 'trunk',
+      branchPointNodeId: req.fromNodeId,
+      contextMode: req.contextMode ?? 'path',
+      title: req.title ?? 'Branch: Light is a wave.',
+      titleSource: req.title ? 'user' : 'default',
+    }));
+    const sendMessage = vi.fn(
+      async (_branchId: string, _req: unknown, _signal: AbortSignal) =>
+        new Response('', { headers: { 'content-type': 'text/event-stream' } }),
+    );
+    Object.assign(s.api, { createBranch, sendMessage, streamNode: vi.fn() });
+    s.store.detail.set({
+      tree: {
+        id: 't1',
+        accountId: 'p_1',
+        title: 'Light',
+        systemPrompt: null,
+        trunkBranchId: 'trunk',
+        createdAt: at,
+        updatedAt: at,
+      },
+      branches: [trunk],
+      nodes: [reply],
+    });
+    s.store.setRoute('t1', null, null);
+    const go = vi.spyOn(s.store, 'go');
+    return { ...s, createBranch, sendMessage, go };
+  }
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('"Ask your own" opens an untitled path branch (titled after its first reply) and asks the question', async () => {
+    const s = open();
+    const branch = await s.store.askFrom('a1', 'Why does it bend?');
+    expect(branch?.id).toBe('side');
+    expect(s.createBranch).toHaveBeenCalledWith({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: null,
+    });
+    expect(s.go).toHaveBeenCalledWith('side');
+    expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['side']);
+    await vi.waitFor(() =>
+      expect(s.sendMessage).toHaveBeenCalledWith(
+        'side',
+        { content: 'Why does it bend?' },
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  it('the branch dialog sends its starting message on the chosen settings', async () => {
+    const s = open();
+    await s.store.startBranch(
+      { fromNodeId: 'a1', contextMode: 'summary', anchorQuote: 'a wave', isPrivate: true },
+      'And particles?',
+    );
+    expect(s.createBranch).toHaveBeenCalledWith({
+      fromNodeId: 'a1',
+      contextMode: 'summary',
+      anchorQuote: 'a wave',
+      isPrivate: true,
+    });
+    await vi.waitFor(() =>
+      expect(s.sendMessage).toHaveBeenCalledWith(
+        'side',
+        { content: 'And particles?' },
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  it('a tangent is titled after itself and asked; followed again, it just opens', async () => {
+    const s = open();
+    await s.store.followTangent('a1', 'Waves in water');
+    expect(s.createBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ fromNodeId: 'a1', contextMode: 'path', title: 'Waves in water' }),
+    );
+    await vi.waitFor(() => expect(s.sendMessage).toHaveBeenCalledTimes(1));
+    await s.store.followTangent('a1', 'Waves in water');
+    expect(s.createBranch).toHaveBeenCalledTimes(1);
+    expect(s.sendMessage).toHaveBeenCalledTimes(1);
+    expect(s.go).toHaveBeenLastCalledWith('side', null);
+  });
+
+  it('a branch that cannot be created sends nothing (the caller keeps the text)', async () => {
+    const s = open();
+    s.createBranch.mockRejectedValueOnce(new ApiError(500, 'internal', 'Nope'));
+    await expect(s.store.askFrom('a1', 'Why?')).resolves.toBeNull();
+    expect(s.sendMessage).not.toHaveBeenCalled();
+    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
   });
 });

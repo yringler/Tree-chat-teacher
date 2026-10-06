@@ -652,6 +652,57 @@ describe('LessonStore', () => {
     expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1'], { queryParams: { m: 'a1' } });
   });
 
+  it('"Ask your own" opens an untitled side question on the current model and asks it', async () => {
+    const s = setup();
+    const done = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
+    await open(s, detail([userNode, done], [branch('trunk', { model: 'fast-model' })]));
+    const created = await s.store.askFrom('a1', 'Why does it bend?');
+
+    expect(s.api.createBranch).toHaveBeenCalledWith({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: null,
+      providerId: 'openrouter',
+      model: 'fast-model',
+    });
+    expect(created?.id).toBe('side');
+    expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't1', 'b', 'side'], { queryParams: {} });
+    await vi.waitFor(() =>
+      expect(s.api.sendMessage).toHaveBeenCalledWith(
+        'side',
+        { content: 'Why does it bend?' },
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  it('a tangent is followed under its title, asked as the first message; again, it just opens', async () => {
+    const s = setup();
+    const done = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
+    await open(s, detail([userNode, done]));
+    await s.store.followTangent('a1', 'Waves in water');
+    expect(s.api.createBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ fromNodeId: 'a1', contextMode: 'path', title: 'Waves in water' }),
+    );
+    await vi.waitFor(() =>
+      expect(s.api.sendMessage).toHaveBeenCalledWith(
+        'side',
+        { content: 'Waves in water' },
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  it('"Ask your own" that cannot branch sends nothing', async () => {
+    const s = setup();
+    const done = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
+    await open(s, detail([userNode, done]));
+    s.api.createBranch.mockRejectedValueOnce(new ApiError(500, 'internal', 'Nope'));
+    await expect(s.store.askFrom('a1', 'Why?')).resolves.toBeNull();
+    expect(s.api.sendMessage).not.toHaveBeenCalled();
+    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
+  });
+
   it('the Smart/Simple toggle updates the branch model', async () => {
     const s = setup();
     await open(s, detail());

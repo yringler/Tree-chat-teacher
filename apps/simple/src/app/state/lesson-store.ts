@@ -404,18 +404,35 @@ export class LessonStore {
       this.go(existing.id);
       return existing;
     }
+    return this.startSideQuestion(fromNodeId, title, title);
+  }
+
+  /**
+   * "Ask your own" under a reply: the learner's question as a side question,
+   * asked like a followed tangent. Untitled until the first reply names it.
+   */
+  askFrom(fromNodeId: string, content: string): Promise<Branch | null> {
+    return this.startSideQuestion(fromNodeId, null, content);
+  }
+
+  /** A side question from `fromNodeId` on the current model, opened, with `content` sent first. */
+  private async startSideQuestion(
+    fromNodeId: string,
+    title: string | null,
+    content: string,
+  ): Promise<Branch | null> {
     const current = this.selectedBranch();
     try {
       const branch = await this.api.createBranch({
         fromNodeId,
         contextMode: 'path',
         anchorQuote: null,
-        title,
+        ...(title ? { title } : {}),
         ...(current ? { providerId: current.providerId, model: current.model } : {}),
       });
       this.applyBranch(branch);
       this.go(branch.id);
-      void this.send(branch.id, title);
+      void this.send(branch.id, content);
       return branch;
     } catch (err) {
       this.fail(err);

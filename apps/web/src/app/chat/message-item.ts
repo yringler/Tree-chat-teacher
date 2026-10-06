@@ -9,7 +9,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { parseReview, splitTangents, type Branch, type ChatNode } from '@tangent/shared';
-import { Icon, MarkdownService, SourcesList } from '@tangent/web-shared';
+import { Icon, MarkdownService, SourcesList, TangentAsk } from '@tangent/web-shared';
 import { copyText, selectionWithin } from '../core/selection';
 import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { ReviewStore } from '../state/review-store';
@@ -21,7 +21,7 @@ import { ReviewVerdict } from '../ui/review-verdict';
 /** One message of the linear branch view. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, ModeBadge, ReviewVerdict, SourcesList],
+  imports: [Icon, ModeBadge, ReviewVerdict, SourcesList, TangentAsk],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -122,7 +122,7 @@ import { ReviewVerdict } from '../ui/review-verdict';
         (click)="$event.stopPropagation()"
       />
 
-      @if (tangents().length > 0) {
+      @if (tangents().length > 0 || canAsk()) {
         <nav class="tangents" aria-label="Tangents worth following">
           <span class="tangents-label muted small">Where next?</span>
           @for (t of tangents(); track t.title) {
@@ -147,6 +147,22 @@ import { ReviewVerdict } from '../ui/review-verdict';
                 <span class="tangent-why muted">{{ t.why }}</span>
               }
             </button>
+          }
+          @if (canAsk()) {
+            <!-- The user's own question, branched off like a tangent. -->
+            <app-tangent-ask
+              [(text)]="askText"
+              label="Ask your own question in a new branch"
+              settingsLabel="Branch settings: context, model, quote…"
+              [expandable]="true"
+              [reveal]="true"
+              [busy]="asking()"
+              [disabled]="locked()"
+              disabledTitle="Asking needs a membership (this branch is on your own key)"
+              (ask)="ask($event)"
+              (settings)="askWithSettings($event)"
+              (click)="$event.stopPropagation()"
+            />
           }
         </nav>
       }
@@ -330,6 +346,31 @@ export class MessageItem {
     } finally {
       this.opening.set(null);
     }
+  }
+
+  /** "Ask your own": offered wherever tangents are, while a branch can be generated on. */
+  protected readonly canAsk = computed(() => this.reviewable() && this.store.canGenerate());
+  protected readonly askText = signal('');
+  protected readonly asking = signal(false);
+
+  protected async ask(text: string): Promise<void> {
+    if (this.asking() || this.locked()) return;
+    this.asking.set(true);
+    try {
+      // Kept on failure, to try again.
+      if (await this.store.askFrom(this.node().id, text)) this.askText.set('');
+    } finally {
+      this.asking.set(false);
+    }
+  }
+
+  /** The gear: the branch dialog, sending the question once the branch is set up. */
+  protected askWithSettings(text: string): void {
+    this.ui.branchDialog.set({
+      fromNodeId: this.node().id,
+      quote: null,
+      ...(text ? { message: text, onCreated: () => this.askText.set('') } : {}),
+    });
   }
 
   protected async copy(e: Event): Promise<void> {

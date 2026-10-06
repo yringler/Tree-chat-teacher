@@ -6,6 +6,7 @@ import type {
   Branch,
   ChatNode,
   ContextPlanResponse,
+  CreateBranchRequest,
   MeResponse,
   ProviderInfo,
   StreamEvent,
@@ -214,6 +215,82 @@ describe('CanvasStore', () => {
     live.close();
     await expect(sending).resolves.toBe(true);
     expect(s.store.busyBranches().size).toBe(0);
+  });
+
+  /** createBranch answering lane `c<n>` off the requested message, titled as asked. */
+  function lanes(s: ReturnType<typeof setup>) {
+    let n = 0;
+    const createBranch = vi.fn(async (req: CreateBranchRequest) =>
+      branch(`c${++n}`, {
+        parentBranchId: 'trunk',
+        branchPointNodeId: req.fromNodeId,
+        contextMode: req.contextMode ?? 'path',
+        title: req.title ?? 'Branch: A wave.',
+        titleSource: req.title ? 'user' : 'default',
+      }),
+    );
+    Object.assign(s.api, { createBranch });
+    return createBranch;
+  }
+
+  it('"Ask your own" opens an untitled path lane and asks the question there', async () => {
+    const s = setup();
+    const createBranch = lanes(s);
+    const go = vi.spyOn(s.store, 'go');
+    const lane = await s.store.askFrom('a1', 'Why a wave?');
+    expect(lane?.id).toBe('c1');
+    expect(createBranch).toHaveBeenCalledWith({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: null,
+    });
+    expect(go).toHaveBeenCalledWith('c1');
+    await vi.waitFor(() =>
+      expect(s.api.sendMessage).toHaveBeenCalledWith(
+        'c1',
+        { content: 'Why a wave?' },
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  it('a fan-out asks every lane; one lane goes untitled, several are named by model and mode', async () => {
+    const s = setup();
+    const createBranch = lanes(s);
+    const variant = {
+      providerId: 'openrouter',
+      funding: 'credit' as const,
+      model: 'smart-model',
+    };
+    await s.store.fanOut({
+      fromNodeId: 'a1',
+      anchorQuote: null,
+      isPrivate: false,
+      variants: [{ ...variant, contextMode: 'path' }],
+      firstMessage: 'Why?',
+    });
+    expect(createBranch.mock.calls[0]![0]).not.toHaveProperty('title');
+
+    await s.store.fanOut({
+      fromNodeId: 'a1',
+      anchorQuote: null,
+      isPrivate: false,
+      variants: [
+        { ...variant, contextMode: 'path' },
+        { ...variant, contextMode: 'independent' },
+      ],
+      firstMessage: '  And how?  ',
+    });
+    expect(createBranch.mock.calls.slice(1).map(([req]) => req.title)).toEqual([
+      'smart-model · path',
+      'smart-model · independent',
+    ]);
+    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(3));
+    expect(s.api.sendMessage.mock.calls.map(([id, req]) => [id, req])).toEqual([
+      ['c1', { content: 'Why?' }],
+      ['c2', { content: 'And how?' }],
+      ['c3', { content: 'And how?' }],
+    ]);
   });
 
   it('a 402 membership_required raises the membership notice, payment_required links to /billing', async () => {

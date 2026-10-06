@@ -18,6 +18,13 @@ export interface BranchDialogState {
   fromNodeId: string;
   /** Text selected in the message, offered as the anchor quote. */
   quote: string | null;
+  /**
+   * The first message, already written ("Ask your own" under a reply, via its
+   * gear): sent to every new lane, in place of the dialog's own field.
+   */
+  message?: string;
+  /** Called once the lanes exist (e.g. to clear the field the message came from). */
+  onCreated?: () => void;
 }
 
 /** The branch settings dialog (title, context mode, model, private). */

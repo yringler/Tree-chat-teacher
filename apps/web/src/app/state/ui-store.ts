@@ -4,6 +4,13 @@ export interface BranchDialogState {
   fromNodeId: string;
   /** Text the user had selected inside the source message, if any. */
   quote: string | null;
+  /**
+   * The first message, already written ("Ask your own" under a reply, via its
+   * gear): the dialog sends it and asks for no starting message of its own.
+   */
+  message?: string;
+  /** Called once the branch exists (e.g. to clear the field the message came from). */
+  onCreated?: () => void;
 }
 
 /** An in-app link shown in a toast (e.g. "Add credit" → `/billing`). */

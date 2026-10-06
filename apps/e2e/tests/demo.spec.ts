@@ -126,6 +126,147 @@ test('power demo: the conversation text size scales the messages only, and is re
   expect(errors).toEqual([]);
 });
 
+test('power demo: ask your own question under a reply, inline or through the branch dialog', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.goto('/demo');
+  await page.locator('.home-list .tree-row a').first().click();
+  // The main thread's last reply (pinned by id: new branches add replies of their own).
+  const last = page.locator('.msg-assistant').last();
+  await expect(last).toBeVisible();
+  const reply = page.locator(`#${await last.getAttribute('id')}`);
+  const ask = reply.locator('.tangent-ask');
+  const noTitle = (dialog: Locator) =>
+    expect(dialog.getByRole('textbox', { name: /title/i })).toHaveCount(0);
+  const field = ask.getByRole('textbox', { name: 'Ask your own question in a new branch' });
+  // The last item of "Where next?", after the suggested tangents.
+  await expect(reply.locator('.tangents > :last-child .tangent-ask')).toBeVisible();
+  await expect(field).toHaveAttribute('placeholder', 'Ask your own question…');
+
+  // One click grows it; Escape folds it, typing in it is not a shortcut.
+  await field.click();
+  await expect(ask).toHaveClass(/is-expanded/);
+  await page.keyboard.press('Escape');
+  await expect(ask).not.toHaveClass(/is-expanded/);
+  await field.click();
+  await page.keyboard.type('b');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await field.fill('');
+
+  // Enter asks it in a new branch, opened at once.
+  const url = page.url();
+  await field.fill('Do owls ever whistle back?');
+  await field.press('Enter');
+  await expect.poll(() => page.url()).not.toBe(url);
+  await expect(page.locator('.msg-user').last()).toContainText('Do owls ever whistle back?');
+  await expect(page.locator('.fork-divider.fork-current')).toBeVisible();
+  // The field it came from is empty again.
+  await expect(field).toHaveValue('');
+  await expect(ask).not.toHaveClass(/is-expanded/);
+  await page.goBack();
+  await expect.poll(() => page.url()).toBe(url);
+
+  // The gear: the branch dialog without a starting message (or a title), carrying the question.
+  await field.click();
+  await field.fill('What do lemons applaud?');
+  await ask.getByRole('button', { name: /^Branch settings/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Branch from here' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('Starting message')).toHaveCount(0);
+  await noTitle(dialog);
+  await expect(dialog.locator('.excerpt').last()).toContainText('What do lemons applaud?');
+  // Cancelled, the question stays where it was typed.
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(field).toHaveValue('What do lemons applaud?');
+  await ask.getByRole('button', { name: /^Branch settings/ }).click();
+  await dialog.getByRole('radio', { name: /Independent/ }).check();
+  await dialog.getByRole('button', { name: 'Create and ask' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.msg-user').last()).toContainText('What do lemons applaud?');
+  await expect(page.locator('.fork-divider.fork-current')).toContainText(/independent/i);
+  await page.goBack();
+  await expect.poll(() => page.url()).toBe(url);
+  await expect(field).toHaveValue('');
+
+  // "Branch from here": a starting message instead of a title; Ctrl+Enter creates and asks.
+  await reply.getByRole('button', { name: 'Branch from here' }).click();
+  await expect(dialog).toBeVisible();
+  await noTitle(dialog);
+  const starting = dialog.getByRole('textbox', { name: /Starting message/ });
+  await expect(starting).toBeFocused();
+  await starting.fill('Can a melon hum?');
+  await starting.press('Control+Enter');
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.msg-user').last()).toContainText('Can a melon hum?');
+  expect(errors).toEqual([]);
+});
+
+test('Learn demo: ask your own side question under a reply', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/learn/demo/');
+  await page.locator('.lesson-row a').first().click();
+  const ask = page.locator('.msg-assistant').last().locator('.tangent-ask');
+  const field = ask.getByRole('textbox', { name: 'Ask your own question as a side question' });
+  await expect(field).toHaveAttribute('placeholder', 'Ask your own question…');
+  const url = page.url();
+  await field.fill('Do owls ever whistle back?');
+  await field.press('Enter');
+  await expect.poll(() => page.url()).not.toBe(url);
+  await expect(page).toHaveURL(/\/b\//);
+  await expect(page.locator('.msg-user').last()).toContainText('Do owls ever whistle back?');
+  expect(errors).toEqual([]);
+});
+
+test('Canvas demo: ask your own question in a new lane, inline or through the branch dialog', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.goto('/canvas/demo/');
+  await page.getByText('How do kittens learn to whistle?').first().click();
+  const lanes = page.locator('.lane');
+  await expect(lanes.first()).toBeVisible();
+  const before = await lanes.count();
+  // The main thread's last reply (pinned by id: new lanes add replies of their own).
+  const last = lanes.first().locator('.card-assistant').last();
+  await expect(last).toBeVisible();
+  const card = page.locator(`#${await last.getAttribute('id')}`);
+  const ask = card.locator('.tangent-ask');
+  const field = ask.getByRole('textbox', { name: 'Ask your own question in a new lane' });
+
+  await field.click();
+  await field.fill('Why do lemons applaud?');
+  await field.press('Enter');
+  await expect(lanes).toHaveCount(before + 1);
+  await expect(page.locator('.card-user', { hasText: 'Why do lemons applaud?' })).toBeVisible();
+  await expect(field).toHaveValue('');
+  // Back on the main thread (the canvas pans to the new lane).
+  await page.goBack();
+
+  // The gear: the lanes dialog without a starting message (or a title), asking the question.
+  await field.click();
+  await field.fill('And owls?');
+  await ask.getByRole('button', { name: /^Lane settings/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Branch from here' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('Starting message')).toHaveCount(0);
+  await expect(dialog.getByRole('textbox', { name: /title/i })).toHaveCount(0);
+  await expect(dialog.locator('.excerpt').last()).toContainText('And owls?');
+  await dialog.getByRole('button', { name: 'Open the lane and ask' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(lanes).toHaveCount(before + 2);
+  await expect(page.locator('.card-user', { hasText: 'And owls?' })).toBeVisible();
+  await expect(field).toHaveValue('');
+
+  // From the branch button: a starting message, still no title.
+  await page.goBack();
+  await card.locator('.card-branch').click();
+  await expect(dialog.getByRole('textbox', { name: /Starting message/ })).toBeVisible();
+  await expect(dialog.getByRole('textbox', { name: /title/i })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(errors).toEqual([]);
+});
+
 test('Learn demo: export a lesson, import a power-style backup, get a Learn lesson', async ({
   page,
 }, testInfo) => {
