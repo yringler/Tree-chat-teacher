@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
 import { defineConfig } from 'vitest/config';
+import { coverage } from '../../vitest.coverage.js';
 import { mockOpenRouter, OPENROUTER_ORIGIN } from './test/mocks/openrouter.js';
 import { mockPolar, POLAR_ORIGIN } from './test/mocks/polar.js';
 
@@ -175,6 +176,9 @@ export default defineConfig({
             // Test-only RPC methods (PoolBank.expire, PoolBank.status).
             TEST_SEAMS: 'true',
           },
+          // A second, empty database for test/migrations-upgrade.test.ts, which builds it at an
+          // older schema (a prefix of TEST_MIGRATIONS) and upgrades it; DB keeps every migration.
+          d1Databases: { DB: 'tangent-test', MIGRATION_DB: 'tangent-migration-test' },
           ratelimits: {
             CHAT_RATE_LIMITER: { namespace_id: '1002', simple: { limit: 5, period: 60 } },
             KEY_RATE_LIMITER: { namespace_id: '1003', simple: { limit: 1000, period: 60 } },
@@ -186,5 +190,7 @@ export default defineConfig({
   ],
   test: {
     setupFiles: ['./test/apply-migrations.ts'],
+    // workerd has no V8 coverage: Istanbul instruments the code instead.
+    coverage: coverage('istanbul'),
   },
 });

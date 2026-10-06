@@ -91,6 +91,7 @@ export {
   type ReadOnlyText,
 } from './billing/read-only';
 export {
+  creditCanPay,
   creditCarriesOn,
   creditFeeText,
   includedCreditText,

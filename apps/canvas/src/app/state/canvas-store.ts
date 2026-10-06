@@ -13,6 +13,7 @@ import {
 import {
   isModelAllowed,
   parseRouteKey,
+  pickDefaultRoute,
   providerRouteKey,
   routeKey,
   type BranchFunding,
@@ -37,6 +38,7 @@ import type {
 import {
   ApiClient,
   ApiError,
+  creditCanPay,
   creditCarriesOn,
   errorMessage,
   lockedFundings,
@@ -145,8 +147,14 @@ export class CanvasStore {
   readonly keyStatus = signal<KeyStatusResponse | null>(null);
   /** From `me`; a 402 `membership_required` marks it inactive. */
   readonly membership = signal<MembershipInfo | null>(null);
-  /** Credit balance and fees (`/api/billing`), loaded when the keys dialog opens. */
+  /**
+   * Credit balance and fees (`/api/billing`): read on startup wherever credit
+   * is offered (the default route needs the balance), again when the keys
+   * dialog opens and after a 402.
+   */
   readonly billing = signal<BillingSummary | null>(null);
+  /** The balance has been asked for once (read, or failed: then it counts as none). */
+  private readonly billingRead = signal(false);
   readonly trees = signal<TreeSummary[]>([]);
   readonly treesLoaded = signal(false);
 
@@ -298,10 +306,20 @@ export class CanvasStore {
     () => new Map(this.providers().map((p) => [providerRouteKey(p), p])),
   );
 
-  /** First provider with an API key, falling back to the first configured. */
-  readonly defaultProvider = computed<ProviderInfo | null>(
-    () => this.providers().find((p) => p.available) ?? this.providers()[0] ?? null,
-  );
+  /**
+   * The route a new conversation (and a lane with no parent route) starts on:
+   * `pickDefaultRoute`, the server's and the power app's rule for a new tree
+   * (docs/DECISIONS.md "Default route of a new tree"). Null until the
+   * providers and, where credit is offered, the balance have been read.
+   */
+  readonly defaultProvider = computed<ProviderInfo | null>(() => {
+    const builtInCredit = this.me()?.builtInCredit ?? false;
+    if (builtInCredit && !this.billingRead()) return null;
+    return pickDefaultRoute(this.providers(), {
+      creditCanPay: creditCanPay(builtInCredit, this.billing()),
+      ownKeyLocked: this.lockedFundings().has('own-key'),
+    });
+  });
 
   /** The lineage of the selected lane, when it is for its current leaf. */
   readonly selectedLineage = computed<Lineage | null>(() => {
@@ -342,9 +360,9 @@ export class CanvasStore {
 
   async init(me: MeResponse): Promise<void> {
     this.applyMe(me);
-    // Without a membership, the balance decides whether the notice shows on load.
-    const balance =
-      membershipBlocks(me.membership) && me.builtInCredit ? this.refreshBilling() : null;
+    // Where credit is offered, the balance decides whether a new conversation may start on
+    // it, and without a membership whether the notice shows on load.
+    const balance = me.builtInCredit ? this.refreshBilling() : null;
     await Promise.all([this.refreshKeys(), this.loadTrees(), balance]);
   }
 
@@ -382,6 +400,8 @@ export class CanvasStore {
       this.billing.set(await this.api.billing());
     } catch (err) {
       console.warn('billing summary failed', err);
+    } finally {
+      this.billingRead.set(true);
     }
   }
 

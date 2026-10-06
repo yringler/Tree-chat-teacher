@@ -78,7 +78,7 @@ import { ModelField } from '../dialogs/model-field';
               <app-icon name="plus" /> Open on the canvas
             </button>
           </div>
-          @if (store.providers().length > 0 && !store.defaultProvider()?.available) {
+          @if (store.defaultProvider()?.available === false) {
             <p class="notice">
               No provider has a key yet.
               <button type="button" class="link-btn" (click)="ui.keysOpen.set(true)">

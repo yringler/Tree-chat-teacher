@@ -12,6 +12,7 @@ import {
 import {
   BRANCH_FUNDINGS,
   type BranchFunding,
+  type DefaultRouteFacts,
   type MembershipInfo,
   type PoolBlockDetails,
   type ProviderRoute,
@@ -34,7 +35,7 @@ import { poolAdmitRequest, poolBlockDetails } from '../pool/params.js';
 import { poolAvailable, registryFor, routeRegistryFor } from '../services.js';
 import { LEARN_KEY_LABEL } from '../simple-mode.js';
 import { getBalance } from './ledger.js';
-import { assertMember } from './membership.js';
+import { assertMember, membershipFor } from './membership.js';
 import { assertCanSpend, usageHoldMicros } from './service.js';
 
 /** What a generating request is about to do. */
@@ -178,6 +179,37 @@ export function membershipNeededFor(
 ): BranchFunding[] {
   if (!membership.required) return [];
   return BRANCH_FUNDINGS.filter((funding) => needsMembership(account, { funding }));
+}
+
+/**
+ * What the default route of a new power tree needs to know beyond the
+ * provider lists (`pickDefaultRoute` in `@tangent/shared`, docs/DECISIONS.md
+ * "Default route of a new tree"), asked by `ChatService` only for a new tree
+ * that names no route, where credit is offered (`account.builtIn`):
+ * - `creditCanPay`: the available balance covers one call's hold, exactly
+ *   what `assertCanSpend` asks of a send, so a tree started on credit gets
+ *   its first reply rather than a 402;
+ * - `ownKeyLocked`: own keys need the membership the user lacks (what
+ *   `/api/me`'s `membershipNeededFor` and the membership tell the apps).
+ * Two queries (the balance, the membership), and none where credit isn't
+ * offered (credit can't pay; nothing else depends on the lock).
+ */
+export async function defaultRouteFacts(
+  env: AppEnv,
+  account: AccountContext,
+): Promise<DefaultRouteFacts> {
+  if (account.mode === 'simple' || !account.builtIn)
+    return { creditCanPay: false, ownKeyLocked: false };
+  const [{ balanceMicros, heldMicros }, membership] = await Promise.all([
+    getBalance(env.DB, account.billingAccountId),
+    membershipFor(env, account),
+  ]);
+  return {
+    creditCanPay: balanceMicros - heldMicros >= usageHoldMicros(env),
+    ownKeyLocked:
+      membership.status === 'inactive' &&
+      membershipNeededFor(account, membership).includes('own-key'),
+  };
 }
 
 /**

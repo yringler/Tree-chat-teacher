@@ -6,6 +6,7 @@ import {
   BUILT_IN_PROVIDER_ID,
   TRUNK_TITLE,
   createBranchRequestSchema,
+  pickDefaultRoute,
   createTreeRequestSchema,
   treeBackupSchema,
   updateBranchRequestSchema,
@@ -19,8 +20,10 @@ import {
   type ContextPlanResponse,
   type CreateBranchRequest,
   type CreateTreeRequest,
+  type DefaultRouteFacts,
   type DeleteBranchResponse,
   type LlmProvider,
+  type ProviderInfo,
   type ProviderRegistry,
   type ProviderRoute,
   type ReviewEvent,
@@ -109,6 +112,15 @@ export interface ChatServiceDeps {
    * default) and its models, `path` context, and the prompt a new tree gets.
    */
   adaptImportsForLearn?: boolean;
+  /**
+   * Power: what the default route of a new tree needs beyond the provider
+   * lists (`pickDefaultRoute`): whether Tangent credit can pay now and
+   * whether own keys need a membership the user lacks. Asked only for a new
+   * tree that names neither a provider nor a funding, where credit is
+   * offered. Absent: credit can't pay and nothing is locked, so a new tree
+   * never defaults onto credit.
+   */
+  defaultRouteFacts?: () => Promise<DefaultRouteFacts>;
   settings: ChatSettings;
   /**
    * Built-in system prompt of new trees, used when neither the request nor
@@ -253,13 +265,14 @@ export class ChatService {
   }
 
   /**
-   * Creates the tree and an empty trunk (provider/model default from the
-   * registry). Without a system prompt in the request, the tree gets the
+   * Creates the tree and an empty trunk (on the route the request names, else
+   * the default route, `defaultRoute`; the provider's default model unless
+   * one is named). Without a system prompt in the request, the tree gets the
    * account's saved default, else the built-in one (`deps.defaultSystemPrompt`).
    */
   async createTree(request: CreateTreeRequest): Promise<TreeDetail> {
     const req = createTreeRequestSchema.parse(request);
-    const route = this.requestedRoute(req, null);
+    const route = await this.newTreeRoute(req);
     const provider = this.requireProvider(route);
     const model = req.model ?? provider.defaultModel();
     const systemPrompt = emptyToNull(req.systemPrompt) ?? (await this.newTreeSystemPrompt());
@@ -1084,10 +1097,10 @@ export class ChatService {
    * The route a request names, completed from `base` (the parent branch, or
    * the branch being changed): nothing named keeps `base`'s route; a provider
    * without a funding is on the user's own key, so naming a provider never
-   * spends credit implicitly; a funding without a provider
-   * keeps `base`'s provider. Without a `base` (a new tree, a reviewer) and
-   * nothing named, the default route (`defaultRoute`). Learn's fixed funding
-   * always wins.
+   * spends credit implicitly; a funding without a provider keeps `base`'s
+   * provider. Without a `base` (a reviewer) a provider must be named; a new
+   * tree that names none gets the default route (`newTreeRoute`). Learn's
+   * fixed funding always wins.
    */
   private requestedRoute(
     req: { providerId?: string | undefined; funding?: BranchFunding | undefined },
@@ -1099,31 +1112,51 @@ export class ChatService {
     } else if (base) {
       route = { providerId: base.providerId, funding: req.funding ?? base.funding };
     } else {
-      route = this.defaultRoute(req.funding);
+      throw new ValidationError('Name a provider');
     }
+    return this.withFixedFunding(route);
+  }
+
+  private withFixedFunding(route: ProviderRoute): ProviderRoute {
     const fixed = this.deps.fixedFunding;
     return fixed === undefined ? route : { ...route, funding: fixed };
   }
 
+  /** The trunk route of a new tree: the one the request names, else the default route. */
+  private async newTreeRoute(req: {
+    providerId?: string | undefined;
+    funding?: BranchFunding | undefined;
+  }): Promise<ProviderRoute> {
+    if (req.providerId !== undefined) return this.requestedRoute(req, null);
+    return this.withFixedFunding(await this.defaultRoute(req.funding));
+  }
+
   /**
-   * The route of a new tree that names no provider: the first usable
-   * provider that isn't a test fake, the user's own before Tangent
-   * credit, else the own registry's default. Naming only a funding picks that
-   * registry's default provider.
+   * The route of a new tree that names no provider (docs/DECISIONS.md
+   * "Default route of a new tree"): `pickDefaultRoute` over the own-key
+   * providers and, where it is offered and nothing named a funding, Tangent
+   * credit, with what `deps.defaultRouteFacts` says about the balance and the
+   * membership (asked only then; without it, credit is never the default).
+   * Naming only `credit` picks the credit registry's default provider;
+   * naming only `own-key` leaves credit out.
    */
-  private defaultRoute(funding: BranchFunding | undefined): ProviderRoute {
+  private async defaultRoute(funding: BranchFunding | undefined): Promise<ProviderRoute> {
     const own = this.deps.providers;
     const credit = this.deps.fixedFunding === undefined ? this.deps.creditProviders : undefined;
     // Credit asked for where it isn't offered: `requireProvider` refuses the route.
     if (funding === 'credit') return { providerId: (credit ?? own).defaultProviderId(), funding };
-    if (funding === 'own-key' || !credit)
-      return { providerId: own.defaultProviderId(), funding: 'own-key' };
-    const usable = (r: ProviderRegistry) => r.list().find((p) => p.available && p.kind !== 'fake');
-    const mine = usable(own);
-    if (mine) return { providerId: mine.id, funding: 'own-key' };
-    const bought = usable(credit);
-    if (bought) return { providerId: bought.id, funding: 'credit' };
-    return { providerId: own.defaultProviderId(), funding: 'own-key' };
+    const withCredit = funding === undefined && credit !== undefined;
+    const entries: ProviderInfo[] = [
+      ...own.list().map((p) => ({ ...p, funding: 'own-key' as const })),
+      ...(withCredit ? credit.list().map((p) => ({ ...p, funding: 'credit' as const })) : []),
+    ];
+    const facts: DefaultRouteFacts = (withCredit && (await this.deps.defaultRouteFacts?.())) || {
+      creditCanPay: false,
+      ownKeyLocked: false,
+    };
+    const picked = pickDefaultRoute(entries, facts);
+    if (!picked) return { providerId: own.defaultProviderId(), funding: 'own-key' };
+    return { providerId: picked.id, funding: picked.funding ?? 'own-key' };
   }
 
   /** The provider of a route (a branch, or a requested route); Learn's routes all come from `providers`. */

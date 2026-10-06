@@ -13,6 +13,11 @@ export default tseslint.config(
       'apps/worker/migrations/**',
       '.claude/**',
       'apps/worker/site/**',
+      // Generated: coverage reports (pnpm coverage) and end-to-end runs (apps/e2e).
+      '**/coverage/**',
+      'apps/e2e/.state/**',
+      'apps/e2e/test-results/**',
+      'apps/e2e/playwright-report/**',
     ],
   },
   js.configs.recommended,

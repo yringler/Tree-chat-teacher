@@ -12,3 +12,7 @@ coverage/
 # directory present for wrangler and vitest-pool-workers before anything is built.
 apps/worker/site/*
 !apps/worker/site/.gitkeep
+# End-to-end runs (apps/e2e): the generated Worker config, local database and server log, and Playwright's output.
+apps/e2e/.state/
+apps/e2e/test-results/
+apps/e2e/playwright-report/

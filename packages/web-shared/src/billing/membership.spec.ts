@@ -3,6 +3,7 @@ import type { MembershipInfo } from '@tangent/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../core/api-client';
 import {
+  creditCanPay,
   creditCarriesOn,
   creditFeeText,
   formatDay,
@@ -46,6 +47,16 @@ describe('creditCarriesOn', () => {
     expect(creditCarriesOn(true, { availableMicros: 0 })).toBe(false);
     expect(creditCarriesOn(true, { availableMicros: -5 })).toBe(false);
     expect(creditCarriesOn(false, { availableMicros: 1_000_000 })).toBe(false);
+  });
+});
+
+describe('creditCanPay', () => {
+  it('is true only while credit is sold and a balance read is above zero (never on a guess)', () => {
+    expect(creditCanPay(true, { availableMicros: 1 })).toBe(true);
+    expect(creditCanPay(true, null)).toBe(false);
+    expect(creditCanPay(true, { availableMicros: 0 })).toBe(false);
+    expect(creditCanPay(true, { availableMicros: -5 })).toBe(false);
+    expect(creditCanPay(false, { availableMicros: 1_000_000 })).toBe(false);
   });
 });
 
