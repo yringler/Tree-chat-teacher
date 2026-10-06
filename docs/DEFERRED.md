@@ -100,3 +100,13 @@ Left out of the move to Polar (docs/polar-migration/). None blocks charging.
 - **No legacy webhook slot.** A future provider switch after launch needs `webhookProvider` to accept the old provider's webhooks and dispute polls (never checkouts) for its refund and chargeback window (`PAYMENT_PROVIDER_LEGACY`, 03-architecture.md §2.5).
 - **No email-change sync.** Polar customer emails are unique per organization; the app has no email-change flow today. If one is added, push it with `customers.updateExternal`.
 - **Polar API version bump.** The SDK pins API version `2026-10` in its import path; plan the move to `2027-01` before `2026-10` is deprecated (about April 2027).
+
+## Links between messages
+
+Left out of the first cut of links (DECISIONS "Links between messages").
+
+- **Links across trees.** Only two messages of one tree can be linked. Linking across trees needs rules for ownership (power and Learn are separate accounts), for deleting either tree and for backups that hold one end only.
+- **Links in shares and exports.** Shares and Markdown/HTML exports leave links out. Including them means projecting only links whose two ends are in the shared scope (and not private), deciding whether notes are published, and rendering them in the viewer page and in Markdown.
+- **No realtime.** Another open tab sees a new or removed link on its next load of the tree, as with branches. Pushing tree-structure changes would need a per-tree channel (the tree's Durable Object could broadcast them).
+- **Links don't reach the model.** A reply's context is still its path; a linked message is not sent. Injecting linked messages (or their summaries) into the context plan, and model-suggested links (`origin: 'ai'`), are the planned next steps.
+- **The second note on an existing pair is ignored.** `POST /api/links` for a pair already linked returns the existing link unchanged; the apps could offer to edit its note instead.

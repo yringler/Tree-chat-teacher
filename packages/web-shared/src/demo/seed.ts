@@ -1,12 +1,13 @@
 import type { MemoryState } from '@tangent/core/testing';
-import type { Branch, ChatNode, Tree, UsageEntry } from '@tangent/shared';
+import type { Branch, ChatNode, NodeLink, Tree, UsageEntry } from '@tangent/shared';
 import { formatTangents } from '@tangent/shared';
 import { DEMO_PROVIDER_ID, DEMO_SMART_MODEL } from './lorem';
 
 /*
  * The example lesson the demo starts with: a few turns on the main thread,
- * one side question ("Ask about this" on a quoted phrase) and one followed
- * tangent, so the first screen shows what a lesson looks like. Hand-written
+ * one side question ("Ask about this" on a quoted phrase), one followed
+ * tangent and a link from the main thread to that tangent, so the first
+ * screen shows what a lesson looks like. Hand-written
  * in the same playful nonsense the demo's tutor speaks, with the same
  * `<tangents>` block real replies end with.
  */
@@ -160,7 +161,7 @@ export function seedDemoLesson(
   };
 
   const firstReply = append(trunk, null, 0, FIRST_TURN);
-  append(trunk, firstReply.id, 2, SECOND_TURN);
+  const secondReply = append(trunk, firstReply.id, 2, SECOND_TURN);
 
   const side: Branch = {
     ...branchBase,
@@ -187,10 +188,28 @@ export function seedDemoLesson(
   };
   tangent.updatedAt = tangent.createdAt;
   append(tangent, firstReply.id, 0, TANGENT_TURN);
+  const tangentHead = nodes.find((n) => n.branchId === tangent.id && n.seq === 0);
 
-  tree.updatedAt = nodes.at(-1)?.createdAt ?? created;
+  const linked = at();
+  const links: NodeLink[] = tangentHead
+    ? [
+        {
+          id: newId(),
+          treeId: tree.id,
+          sourceNodeId: secondReply.id,
+          targetNodeId: tangentHead.id,
+          note: 'A made-up tune still needs practice to get catchy',
+          origin: 'user',
+          createdAt: linked,
+          updatedAt: linked,
+        },
+      ]
+    : [];
+
+  tree.updatedAt = links.at(-1)?.createdAt ?? nodes.at(-1)?.createdAt ?? created;
   state.trees.set(tree.id, tree);
   for (const b of [trunk, side, tangent]) state.branches.set(b.id, b);
   for (const n of nodes) state.nodes.set(n.id, n);
+  for (const l of links) state.links.set(l.id, l);
   return usage;
 }

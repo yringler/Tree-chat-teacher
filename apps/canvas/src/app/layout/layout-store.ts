@@ -1,6 +1,7 @@
 import { computed, inject, Injectable, signal, untracked } from '@angular/core';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
+import { crossLinkGeometry, type CrossLink } from './cross-links';
 import {
   DEFAULT_LAYOUT,
   layoutTree,
@@ -57,6 +58,20 @@ export class LayoutStore {
     const idx = this.store.index();
     if (!idx) return EMPTY_LAYOUT;
     return layoutTree(idx, this.measures(), this.ui.collapsed(), this.options);
+  });
+
+  /** The lines between linked messages, when shown (`ui.showLinks`). */
+  readonly crossLinks = computed<CrossLink[]>(() => {
+    const idx = this.store.index();
+    const links = this.store.links();
+    if (!idx || links.length === 0 || !this.ui.showLinks()) return [];
+    return crossLinkGeometry(
+      idx,
+      this.layout(),
+      links,
+      (branchId, nodeId) => this.cardOf(branchId, nodeId),
+      this.options.headAnchor,
+    );
   });
 
   readonly transform = computed(() => {
@@ -165,6 +180,20 @@ export class LayoutStore {
       x: v.width / 2 - worldX * zoom,
       y: card ? v.height / 2 - worldY * zoom : FIT_PADDING - worldY * zoom + 20,
     });
+  }
+
+  /** The world point under a point of the viewport (relative to its top left). */
+  toWorld(at: Point): Point {
+    const p = untracked(this.pan);
+    const z = untracked(this.zoom);
+    return { x: (at.x - p.x) / z, y: (at.y - p.y) / z };
+  }
+
+  /** Where a world point is in the viewport (relative to its top left). */
+  toScreen(world: Point): Point {
+    const p = this.pan();
+    const z = this.zoom();
+    return { x: p.x + world.x * z, y: p.y + world.y * z };
   }
 
   /** Centres the viewport on a world point (the minimap). */

@@ -22,7 +22,31 @@
         · <span class="live-count">{{ liveCount() }} writing</span>
       }
     </span>
+    @if (linkBack(); as back) {
+      <button
+        type="button"
+        class="btn btn-sm link-return"
+        [title]="'Back to where the link was followed from, in “' + back.label + '”'"
+        (click)="store.goBackFromLink()"
+      >
+        <app-icon name="back" [size]="14" />
+        <span class="link-return-label">Back to ‘{{ back.label }}’</span>
+      </button>
+    }
     <span class="spacer"></span>
+    @if (store.links().length > 0) {
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm"
+        [class.is-on]="ui.showLinks()"
+        [attr.aria-pressed]="ui.showLinks()"
+        title="Links: draw the lines between linked messages"
+        (click)="toggleLinks()"
+      >
+        <app-icon name="link" [size]="15" />
+        <span class="hide-narrow">Links</span>
+      </button>
+    }
     <button
       type="button"
       class="btn btn-ghost btn-sm"
@@ -97,13 +121,34 @@
   >
     <div class="world" [style.transform]="geo.transform()" [class.is-smooth]="!geo.dragging()">
       <app-connectors [layout]="geo.layout()" />
+      <app-cross-links />
       @for (l of geo.layout().lanes; track l.branch.id) {
         <app-lane [place]="l" [lineage]="lineage()" [lineageOn]="ui.lineage()" />
       }
+      <app-cross-link-glyphs />
     </div>
+    @if (ui.linkPopover(); as pop) {
+      <app-link-popover [linkId]="pop.linkId" />
+    }
   </div>
 
-  @if (pendingBranch(); as p) {
+  @if (ui.linkPick(); as pick) {
+    <div class="float-bar">
+      <div class="link-pick-banner" role="status">
+        <app-icon name="link" [size]="15" />
+        <span class="link-pick-text"
+          >Click the card that relates to “<span class="link-pick-source">{{ pickSource() }}</span
+          >”</span
+        >
+        <button type="button" class="btn btn-sm" (click)="searchInstead(pick.fromNodeId)">
+          <app-icon name="search" [size]="13" /> Search
+        </button>
+        <button type="button" class="btn btn-sm btn-ghost" (click)="ui.linkPick.set(null)">
+          Cancel (Esc)
+        </button>
+      </div>
+    </div>
+  } @else if (pendingBranch(); as p) {
     <div class="float-bar">
       <button
         type="button"

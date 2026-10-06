@@ -10,6 +10,8 @@ import type {
   BranchFunding,
   ChatNode,
   ContextMode,
+  LinkOrigin,
+  NodeLink,
   Share,
   ShareMode,
   ShareScope,
@@ -54,6 +56,10 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *   GET    /api/nodes/:nodeId/stream              -> text/event-stream of StreamEvent (reconnect)
  *   POST   /api/nodes/:nodeId/cancel              -> 204
  *   POST   /api/nodes/:nodeId/review ReviewRequest -> text/event-stream of ReviewEvent (review.ts)
+ *   POST   /api/links             CreateLinkRequest -> NodeLink (201 new; 200 with the existing link
+ *                                                when the two messages are already linked, either way round)
+ *   PATCH  /api/links/:linkId     UpdateLinkRequest -> NodeLink
+ *   DELETE /api/links/:linkId                    -> 204
  *   GET    /api/branches/:branchId/context?nodeId=&resolve=true|false -> ContextPlanResponse
  *   GET    /api/shares                            -> ShareSummary[]
  *   POST   /api/shares            CreateShareRequest -> ShareSummary
@@ -299,6 +305,8 @@ export interface TreeDetail {
   tree: Tree;
   branches: Branch[];
   nodes: ChatNode[];
+  /** Cross-links between the tree's messages (NodeLink). */
+  links: NodeLink[];
 }
 
 const id = z.string().min(1).max(64);
@@ -418,6 +426,36 @@ export interface DeleteBranchResponse {
   branchIds: string[];
   nodeIds: string[];
 }
+
+/** Most links one tree may hold (`POST /api/links` beyond it is 400). */
+export const MAX_LINKS_PER_TREE = 1000;
+/** Longest note a link may carry. */
+export const MAX_LINK_NOTE_CHARS = 500;
+
+const linkNote = z.string().trim().max(MAX_LINK_NOTE_CHARS);
+
+/**
+ * Links two messages of the same tree (400 for two trees, or a message to
+ * itself). A blank `note` is stored as null.
+ */
+export const createLinkRequestSchema = z
+  .object({
+    /** Where the link was made from (`NodeLink.sourceNodeId`). */
+    fromNodeId: id,
+    toNodeId: id,
+    note: linkNote.nullable().optional(),
+  })
+  .refine((v) => v.fromNodeId !== v.toNodeId, {
+    message: 'A message cannot be linked to itself',
+    path: ['toNodeId'],
+  });
+export type CreateLinkRequest = z.input<typeof createLinkRequestSchema>;
+
+/** A blank `note` is stored as null. */
+export const updateLinkRequestSchema = z.object({
+  note: linkNote.nullable(),
+});
+export type UpdateLinkRequest = z.infer<typeof updateLinkRequestSchema>;
 
 export const sendMessageRequestSchema = z.object({
   content: z.string().min(1).max(200_000),
@@ -540,6 +578,8 @@ export interface TreeBackup {
   tree: Tree;
   branches: Branch[];
   nodes: ChatNode[];
+  /** Absent in backups made before links existed. */
+  links?: NodeLink[];
 }
 
 /**
@@ -566,6 +606,7 @@ export function backupFileName(title: string): string {
 const isoDate = z.string().min(1).max(64);
 const role = z.enum(['user', 'assistant', 'system']);
 const nodeStatus = z.enum(['streaming', 'complete', 'error']);
+const linkOrigin = z.enum(['user', 'ai']) satisfies z.ZodType<LinkOrigin>;
 
 /** A parsed backup as accepted by import (owner fields optional). */
 export type TreeBackupInput = z.infer<typeof treeBackupSchema>;
@@ -625,6 +666,25 @@ export const treeBackupSchema = z.object({
       createdAt: isoDate,
     }),
   ),
+  /**
+   * Absent in backups made before links existed. Import drops a link whose
+   * ends aren't both in `nodes`, a self-link and a repeated pair.
+   */
+  links: z
+    .array(
+      z.object({
+        id,
+        treeId: id,
+        sourceNodeId: id,
+        targetNodeId: id,
+        note: z.string().max(MAX_LINK_NOTE_CHARS).nullable(),
+        origin: linkOrigin.optional(),
+        createdAt: isoDate,
+        updatedAt: isoDate,
+      }),
+    )
+    .max(MAX_LINKS_PER_TREE)
+    .optional(),
 });
 
 export type { ProviderInfo };

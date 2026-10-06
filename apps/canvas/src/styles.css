@@ -15,6 +15,9 @@
   --grid: #d9d9d3;
   --lane-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 6px 20px rgb(0 0 0 / 0.07);
   --lane-shadow-selected: 0 0 0 2px var(--accent), 0 10px 30px rgb(47 111 219 / 0.22);
+  /* Links between messages: a colour none of the context modes use. */
+  --xlink: #0f8577;
+  --xlink-soft: #dff3ef;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,6 +25,8 @@
     --grid: #262624;
     --lane-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.45);
     --lane-shadow-selected: 0 0 0 2px var(--accent), 0 10px 30px rgb(107 156 240 / 0.3);
+    --xlink: #4cc5b4;
+    --xlink-soft: #15302c;
   }
 }
 
@@ -423,6 +428,254 @@
   stroke-linecap: round;
 }
 
+/* Links between messages (cross-links): lines under the lanes, glyphs over them */
+
+.xlinks-host,
+.xlink-glyphs-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.xlink-glyphs-host {
+  z-index: 2;
+}
+
+.xlinks,
+.xlink-drag {
+  display: block;
+  overflow: visible;
+}
+
+.xlink-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.xlink-path {
+  fill: none;
+  stroke: var(--xlink);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  opacity: 0.45;
+}
+
+.xlink-path.is-on {
+  stroke-width: 2.6;
+  opacity: 0.95;
+}
+
+.xlink-path.is-folded {
+  opacity: 0.25;
+}
+
+.xlink-rubber {
+  fill: none;
+  stroke: var(--xlink);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  opacity: 0.6;
+}
+
+.xlink-rubber.is-over {
+  opacity: 1;
+}
+
+.xlink-rubber-end {
+  fill: var(--xlink);
+}
+
+.xlink-glyph {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1.5px solid var(--xlink);
+  border-radius: 50%;
+  background: var(--bg-elev);
+  color: var(--xlink);
+  box-shadow: var(--shadow);
+  opacity: 0.7;
+  transform: translate(-50%, -50%) scale(var(--glyph-scale, 1));
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.xlink-glyph:hover,
+.xlink-glyph:focus-visible,
+.xlink-glyph.is-on,
+.xlink-glyph[aria-expanded='true'] {
+  opacity: 1;
+}
+
+.xlink-glyph.has-note {
+  background: var(--xlink-soft);
+}
+
+.xlink-glyph[aria-expanded='true'] {
+  background: var(--xlink);
+  color: var(--bg-elev);
+}
+
+.xlink-glyph.is-folded:not(:hover, :focus-visible) {
+  opacity: 0.4;
+}
+
+/* The popover of a link, in viewport coordinates over the canvas. */
+
+.xlink-popover-host {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.xlink-popover {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 300px;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--xlink);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  font-size: 0.88rem;
+  cursor: auto;
+  user-select: text;
+  pointer-events: auto;
+}
+
+.xlink-popover.is-above {
+  transform: translateY(-100%);
+}
+
+.xlink-pop-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--xlink);
+}
+
+.xlink-pop-heading {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.xlink-pop-head .icon-btn {
+  width: 26px;
+  height: 26px;
+}
+
+.xlink-ends {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.xlink-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+}
+
+.xlink-end-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.xlink-crumbs {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xlink-title {
+  overflow-wrap: anywhere;
+}
+
+.xlink-note {
+  margin: 0;
+  font-style: italic;
+  white-space: pre-wrap;
+}
+
+.xlink-note-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.xlink-pop-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.xlink-remove {
+  color: var(--danger);
+}
+
+/* "Back to ‘…’" after following a link */
+
+.link-return {
+  min-width: 0;
+  max-width: 240px;
+}
+
+.link-return-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Pick mode: "Click the card that relates to …" */
+
+.link-pick-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(640px, calc(100% - 2 * var(--gutter)));
+  padding: 6px 8px 6px 14px;
+  border: 1px solid var(--xlink);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  font-size: 0.88rem;
+  pointer-events: auto;
+}
+
+.link-pick-banner > app-icon {
+  color: var(--xlink);
+}
+
+.link-pick-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-pick-source {
+  font-weight: 600;
+}
+
 /* Lanes */
 
 .lane {
@@ -639,6 +892,7 @@
 }
 
 .card {
+  position: relative;
   display: block;
   padding: 6px 12px 10px;
   border: 1px solid transparent;
@@ -705,6 +959,93 @@
   border-radius: var(--radius-sm);
   background: var(--danger-soft);
   font-size: 0.88rem;
+}
+
+/* Links on a card: its chips, the port on its right edge, pick mode. */
+
+.card app-related-links {
+  --related-accent: var(--xlink);
+  --related-chip-border: color-mix(in srgb, var(--xlink) 45%, var(--border-strong));
+  --related-max-width: 100%;
+}
+
+.card .related-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.card .related-label {
+  font-size: 0.74rem;
+}
+
+.card .related-links.is-compact .related-list {
+  margin: 0;
+}
+
+.card-port {
+  position: absolute;
+  top: 50%;
+  right: -10px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1.5px solid var(--xlink);
+  border-radius: 50%;
+  background: var(--bg-elev);
+  color: var(--xlink);
+  opacity: 0;
+  transform: translate(50%, -50%);
+  cursor: crosshair;
+  touch-action: none;
+  z-index: 1;
+}
+
+.card:hover .card-port,
+.card-port:focus-visible,
+.card-port.is-active {
+  opacity: 1;
+}
+
+.card-port:hover,
+.card-port.is-active {
+  background: var(--xlink);
+  color: var(--bg-elev);
+}
+
+.card.is-link-target {
+  border-color: var(--xlink);
+  box-shadow: 0 0 0 3px var(--xlink-soft);
+}
+
+.card-pick {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-elev) 70%, transparent);
+  color: var(--fg-muted);
+  font: inherit;
+  font-weight: 600;
+  z-index: 2;
+}
+
+.card-pick.is-open {
+  border-color: var(--xlink);
+  color: var(--xlink);
+  cursor: pointer;
+}
+
+.card-pick.is-open:hover,
+.card-pick.is-open:focus-visible {
+  background: color-mix(in srgb, var(--xlink-soft) 85%, transparent);
 }
 
 /* Lineage: what the selected lane sends. */
@@ -892,6 +1233,11 @@
 
 /* Dialogs */
 
+app-node-picker {
+  --picker-accent: var(--xlink);
+  --picker-active-bg: var(--xlink-soft);
+}
+
 .excerpt {
   padding: 8px 10px;
   border-radius: var(--radius-sm);
@@ -965,6 +1311,25 @@
 .legend-independent {
   border-top-color: var(--mode-independent);
   border-top-style: dotted;
+}
+
+.legend-xlink {
+  position: relative;
+  display: block;
+  height: 0;
+  border-top: 2px solid var(--xlink);
+}
+
+.legend-xlink-glyph {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  border: 1.5px solid var(--xlink);
+  border-radius: 50%;
+  background: var(--bg-elev);
 }
 
 .legend-card {

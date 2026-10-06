@@ -13,12 +13,14 @@ import {
 } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
+import { describeEndpoint } from '@tangent/core/links';
 import type { Branch, ChatNode } from '@tangent/shared';
 import { Icon, PoolBlockNotice } from '@tangent/web-shared';
 import { BRAND } from '../brand';
 import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
 import { Composer } from './composer';
+import { connectionTitleOf } from './connections';
 import { FundingToggle, type FundingOption } from './funding-toggle';
 import { MessageItem } from './message-item';
 import { ModelToggle } from './model-toggle';
@@ -75,6 +77,19 @@ export class ChatPage implements OnDestroy {
   protected readonly lessonTitle = computed(() => {
     const t = this.store.detail()?.tree.title;
     return t === undefined ? '' : lessonTitle(t);
+  });
+
+  /**
+   * "Back to …" after following a connection, while still on the branch it
+   * went to: named after the message it was followed from.
+   */
+  protected readonly linkReturn = computed<{ label: string } | null>(() => {
+    const back = this.store.linkReturn();
+    if (back && back.toBranchId !== this.store.selectedBranchId()) return null;
+    const idx = this.store.index();
+    const from = back && idx ? describeEndpoint(idx, back.nodeId, connectionTitleOf) : null;
+    if (!from) return null;
+    return { label: from.snippet || connectionTitleOf(from.branch) };
   });
 
   protected readonly chainIds = computed<ReadonlySet<string>>(

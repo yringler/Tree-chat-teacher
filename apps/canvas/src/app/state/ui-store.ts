@@ -1,4 +1,5 @@
 import { computed, Injectable, signal } from '@angular/core';
+import type { Point } from '../layout/layout-store';
 
 /** A link shown in a toast; `href` is a full page load (e.g. the power app's `/billing`). */
 export interface ToastLink {
@@ -23,6 +24,39 @@ export interface BranchDialogState {
 /** The branch settings dialog (title, context mode, model, private). */
 export interface BranchSettingsState {
   branchId: string;
+}
+
+/** "Search" for the other end of a new link: the picker dialog. */
+export interface LinkDialogState {
+  fromNodeId: string;
+}
+
+/**
+ * Pick mode (`r`, or a click on a card's link port): every card offers
+ * "Link here", and the next one clicked is linked to `fromNodeId`.
+ */
+export interface LinkPickState {
+  fromNodeId: string;
+}
+
+/** A link being dragged out of a card's port: a rubber band from the port to the pointer (world coordinates). */
+export interface LinkDragState {
+  fromNodeId: string;
+  from: Point;
+  to: Point;
+  /** The card under the pointer, where letting go would link to. */
+  overNodeId: string | null;
+}
+
+/** Where a link was followed from: the canvas bar's "Back to ‘…’" returns there. */
+export interface LinkReturn {
+  branchId: string;
+  /** The message the link was followed from (focused on the way back). */
+  nodeId: string | null;
+  /** The lane's title, for the pill. */
+  label: string;
+  /** Where the link went: the pill shows while that lane is selected. */
+  toBranchId: string;
 }
 
 const EXPERIMENTAL_KEY = 'tangent.canvas.experimental-ack';
@@ -56,6 +90,14 @@ export class UiStore {
   readonly collapsed = signal<ReadonlySet<string>>(new Set());
   /** Bumped to ask the selected lane's composer to take focus. */
   readonly composerFocus = signal(0);
+  /** The lines between linked messages (and their glyphs) are drawn. */
+  readonly showLinks = signal(true);
+  readonly linkDialog = signal<LinkDialogState | null>(null);
+  readonly linkPick = signal<LinkPickState | null>(null);
+  readonly linkDrag = signal<LinkDragState | null>(null);
+  /** The link whose glyph was clicked: its popover (ends, note, remove). */
+  readonly linkPopover = signal<{ linkId: string } | null>(null);
+  readonly linkReturn = signal<LinkReturn | null>(null);
   private toastSeq = 0;
 
   readonly anyDialogOpen = computed(
@@ -64,7 +106,8 @@ export class UiStore {
       this.branchDialog() !== null ||
       this.branchSettings() !== null ||
       this.helpOpen() ||
-      this.deleteAccountOpen(),
+      this.deleteAccountOpen() ||
+      this.linkDialog() !== null,
   );
 
   notify(text: string, kind: Toast['kind'] = 'info', link?: ToastLink): void {
@@ -93,6 +136,22 @@ export class UiStore {
     }
   }
 
+  /** Pick mode from `fromNodeId`; whatever else was linking from somewhere ends. */
+  startLinkPick(fromNodeId: string): void {
+    this.linkPopover.set(null);
+    this.linkDialog.set(null);
+    this.linkPick.set({ fromNodeId });
+  }
+
+  /** Every link interaction ends (another tree opened). */
+  clearLinkState(): void {
+    this.linkDialog.set(null);
+    this.linkPick.set(null);
+    this.linkDrag.set(null);
+    this.linkPopover.set(null);
+    this.linkReturn.set(null);
+  }
+
   toggleCollapsed(branchId: string): void {
     this.collapsed.update((set) => {
       const next = new Set(set);
@@ -116,12 +175,24 @@ export class UiStore {
 
   /** Escape: closes the top-most overlay. Returns true if something closed. */
   closeTop(): boolean {
+    if (this.linkDrag()) {
+      this.linkDrag.set(null);
+      return true;
+    }
+    if (this.linkPopover()) {
+      this.linkPopover.set(null);
+      return true;
+    }
     if (this.deleteAccountOpen()) {
       this.deleteAccountOpen.set(false);
       return true;
     }
     if (this.helpOpen()) {
       this.helpOpen.set(false);
+      return true;
+    }
+    if (this.linkDialog()) {
+      this.linkDialog.set(null);
       return true;
     }
     if (this.branchDialog()) {
@@ -138,6 +209,10 @@ export class UiStore {
     }
     if (this.menuOpen()) {
       this.menuOpen.set(false);
+      return true;
+    }
+    if (this.linkPick()) {
+      this.linkPick.set(null);
       return true;
     }
     return false;

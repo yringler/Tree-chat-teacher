@@ -1,6 +1,6 @@
 import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classes without the Angular CLI.
 import { Injector, type Provider } from '@angular/core';
-import type { BillingSummary, UsageListResponse } from '@tangent/shared';
+import type { BillingSummary, NodeLink, UsageListResponse } from '@tangent/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiClient,
@@ -452,6 +452,61 @@ describe('ApiClient headers', () => {
     await createApi([{ provide: API_FETCH, useValue: fetchMock }]).listTrees();
     expect(fetchMock.mock.calls[0]![1].headers).toEqual({
       accept: 'application/json, text/event-stream',
+    });
+  });
+});
+
+describe('ApiClient links', () => {
+  let fetchMock: ReturnType<typeof vi.fn<(...args: FetchArgs) => Promise<Response>>>;
+  const api = createApi();
+  const link: NodeLink = {
+    id: 'l/1',
+    treeId: 't',
+    sourceNodeId: 'a',
+    targetNodeId: 'b',
+    note: null,
+    origin: 'user',
+    createdAt: '2026-10-01T00:00:00.000Z',
+    updatedAt: '2026-10-01T00:00:00.000Z',
+  };
+
+  beforeEach(() => {
+    fetchMock = vi.fn<(...args: FetchArgs) => Promise<Response>>();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('createLink POSTs, updateLink PATCHes and deleteLink DELETEs /api/links', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(link, 201));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ...link, note: 'why' }));
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await expect(api.createLink({ fromNodeId: 'a', toNodeId: 'b' })).resolves.toEqual({
+      link,
+      created: true,
+    });
+    await expect(api.updateLink(link.id, { note: 'why' })).resolves.toMatchObject({ note: 'why' });
+    await expect(api.deleteLink(link.id)).resolves.toBeUndefined();
+    expect(
+      fetchMock.mock.calls.map(([url, init]) => [
+        url,
+        init.method,
+        init.body === undefined ? undefined : JSON.parse(String(init.body)),
+      ]),
+    ).toEqual([
+      ['/api/links', 'POST', { fromNodeId: 'a', toNodeId: 'b' }],
+      ['/api/links/l%2F1', 'PATCH', { note: 'why' }],
+      ['/api/links/l%2F1', 'DELETE', undefined],
+    ]);
+  });
+
+  it('createLink tells an existing pair (200) from a new link (201)', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(link, 200));
+    await expect(api.createLink({ fromNodeId: 'b', toNodeId: 'a' })).resolves.toEqual({
+      link,
+      created: false,
     });
   });
 });

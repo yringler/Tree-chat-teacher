@@ -9,6 +9,7 @@ import { payloadToMarkdown, renderViewerPage, viewerCsp } from '@tangent/render'
 import {
   backupFileName,
   createBranchRequestSchema,
+  createLinkRequestSchema,
   createShareRequestSchema,
   createTreeRequestSchema,
   exportFileStem,
@@ -17,6 +18,7 @@ import {
   sendMessageRequestSchema,
   treeBackupSchema,
   updateBranchRequestSchema,
+  updateLinkRequestSchema,
   updateSettingsRequestSchema,
   updateShareRequestSchema,
   updateTreeRequestSchema,
@@ -362,6 +364,20 @@ export function apiRoutes(): Hono<AppBindings> {
       return sseResponse(readable);
     },
   );
+
+  // ---- links (cross-references between two messages of a tree). Never
+  // generate, so no gate: read-only power branches can be linked too.
+  api.post('/links', validateJson(createLinkRequestSchema), async (c) => {
+    const { link, created } = await chatOf(c).createLink(c.req.valid('json'));
+    return c.json(link, created ? 201 : 200);
+  });
+  api.patch('/links/:linkId', validateJson(updateLinkRequestSchema), async (c) =>
+    c.json(await chatOf(c).updateLink(c.req.param('linkId'), c.req.valid('json'))),
+  );
+  api.delete('/links/:linkId', async (c) => {
+    await chatOf(c).deleteLink(c.req.param('linkId'));
+    return c.body(null, 204);
+  });
 
   // ---- shares
   // With sharing off (no DMCA agent registered) only admins and the users the operator

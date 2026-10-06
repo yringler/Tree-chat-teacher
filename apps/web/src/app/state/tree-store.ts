@@ -3,10 +3,13 @@ import { Router } from '@angular/router';
 import {
   branchChain,
   branchLeaf,
+  branchesWithLinks,
   branchPath,
   buildOutline,
   flattenOutline,
+  indexLinks,
   indexTree,
+  linkTarget,
   navigate,
   type NavDirection,
   type OutlineItem,
@@ -30,6 +33,7 @@ import type {
   KeyStatusResponse,
   MeResponse,
   MembershipInfo,
+  NodeLink,
   ProviderInfo,
   ShareScope,
   StreamEvent,
@@ -45,6 +49,7 @@ import {
   creditCanPay,
   creditCarriesOn,
   errorMessage,
+  isNotFound,
   lockedFundings,
   membershipBlocks,
   routeLocked,
@@ -131,6 +136,20 @@ export class TreeStore {
       console.error('indexTree failed', err);
       return null;
     }
+  });
+
+  /** The tree's links between messages, oldest first. */
+  readonly links = computed<readonly NodeLink[]>(() => this.detail()?.links ?? []);
+
+  /** Links by node id, each link under both of its ends. */
+  readonly linksByNode = computed<ReadonlyMap<string, readonly NodeLink[]>>(() =>
+    indexLinks(this.links()),
+  );
+
+  /** How many links touch each branch's messages (outline badges). */
+  readonly linkCounts = computed<ReadonlyMap<string, number>>(() => {
+    const idx = this.index();
+    return idx ? branchesWithLinks(idx, this.linksByNode()) : new Map<string, number>();
   });
 
   readonly outline = computed<OutlineItem | null>(() => {
@@ -409,6 +428,7 @@ export class TreeStore {
     this.focusedNodeId.set(focusNodeId);
     if (treeId !== this.selectedTreeId()) {
       this.selectedTreeId.set(treeId);
+      this.ui.clearLinkState();
       if (treeId) void this.loadTree(treeId);
       else {
         this.detail.set(null);
@@ -522,6 +542,7 @@ export class TreeStore {
       });
       this.detail.set(detail);
       this.selectedTreeId.set(detail.tree.id);
+      this.ui.clearLinkState();
       this.trees.update((list) => [this.summaryOf(detail), ...list]);
       await this.router.navigate(['/t', detail.tree.id]);
       void this.send(detail.tree.trunkBranchId, content);
@@ -731,6 +752,93 @@ export class TreeStore {
     }
   }
 
+  // Links between messages
+
+  /**
+   * Links two messages of the open tree (not a generating call: it stays
+   * available while power is read-only). Two messages already linked, either
+   * way round, keep their link. Opens the "N related" list at both ends.
+   */
+  async createLink(
+    fromNodeId: string,
+    toNodeId: string,
+    note: string | null = null,
+  ): Promise<NodeLink | null> {
+    try {
+      // The server says whether the pair was linked already (perhaps in another tab).
+      const { link, created } = await this.api.createLink({ fromNodeId, toNodeId, note });
+      this.applyLinks([link]);
+      this.ui.setRelatedOpen([fromNodeId, toNodeId], true);
+      this.ui.notify(created ? 'Messages linked' : 'Already linked');
+      return link;
+    } catch (err) {
+      this.fail(err);
+      return null;
+    }
+  }
+
+  /** The note on a link; null clears it. */
+  async updateLinkNote(linkId: string, note: string | null): Promise<boolean> {
+    try {
+      this.applyLinks([await this.api.updateLink(linkId, { note })]);
+      return true;
+    } catch (err) {
+      if (isNotFound(err)) this.dropGoneLink(linkId);
+      else this.fail(err);
+      return false;
+    }
+  }
+
+  /** Removes a link from both of its messages. The caller confirms first. */
+  async deleteLink(linkId: string): Promise<boolean> {
+    try {
+      await this.api.deleteLink(linkId);
+      this.dropLink(linkId);
+      this.ui.notify('Link removed');
+      return true;
+    } catch (err) {
+      // Removed elsewhere already (another tab, or Canvas): the same outcome.
+      if (isNotFound(err)) {
+        this.dropGoneLink(linkId);
+        return true;
+      }
+      this.fail(err);
+      return false;
+    }
+  }
+
+  private dropLink(linkId: string): void {
+    this.detail.update((d) => (d ? { ...d, links: d.links.filter((l) => l.id !== linkId) } : d));
+  }
+
+  /** A link the server no longer has (removed elsewhere): drop its chips here too. */
+  private dropGoneLink(linkId: string): void {
+    this.dropLink(linkId);
+    this.ui.notify('That link was already removed');
+  }
+
+  /**
+   * Opens a link's other end: its branch, focused on the message. Remembers
+   * where it was opened from (`fromNodeId`, else the focused message) for
+   * the header's "Back to ‘…’" pill; the browser's Back works as well.
+   */
+  openNode(nodeId: string, fromNodeId: string | null = null): boolean {
+    const idx = this.index();
+    const target = idx ? linkTarget(idx, nodeId) : null;
+    const here = this.selectedBranch();
+    if (!target || !here) return false;
+    this.ui.linkReturn.set({
+      branchId: here.id,
+      focusNodeId: fromNodeId ?? this.focusedInPath()?.id ?? null,
+      label: here.title,
+      toBranchId: target.branchId,
+      toNodeId: nodeId,
+    });
+    this.ui.setRelatedOpen([nodeId], true);
+    this.go(target.branchId, target.focusNodeId);
+    return true;
+  }
+
   // Messages and streams
 
   async send(
@@ -906,6 +1014,14 @@ export class TreeStore {
     );
   }
 
+  private applyLinks(links: NodeLink[]): void {
+    this.detail.update((d) => {
+      if (!d) return d;
+      const mine = links.filter((l) => l.treeId === d.tree.id);
+      return mine.length ? { ...d, links: upsertById(d.links, mine) } : d;
+    });
+  }
+
   private removeBranches(res: DeleteBranchResponse): void {
     const branchIds = new Set(res.branchIds);
     const nodeIds = new Set(res.nodeIds);
@@ -921,9 +1037,22 @@ export class TreeStore {
             ...d,
             branches: d.branches.filter((b) => !branchIds.has(b.id)),
             nodes: d.nodes.filter((n) => !nodeIds.has(n.id)),
+            // The server dropped the links touching them with them.
+            links: d.links.filter(
+              (l) => !nodeIds.has(l.sourceNodeId) && !nodeIds.has(l.targetNodeId),
+            ),
           }
         : d,
     );
+    // Linking from a message that is gone, or back to a branch that is.
+    for (const s of [this.ui.linkPick, this.ui.linkDialog]) {
+      const from = s()?.fromNodeId;
+      if (from !== undefined && nodeIds.has(from)) s.set(null);
+    }
+    const back = this.ui.linkReturn();
+    if (back && (branchIds.has(back.branchId) || branchIds.has(back.toBranchId))) {
+      this.ui.linkReturn.set(null);
+    }
     const d = this.detail();
     if (d && d.tree.id === res.treeId) {
       this.trees.update((list) =>

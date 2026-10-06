@@ -70,6 +70,14 @@
         </ol>
       </nav>
     }
+    @if (linkReturn(); as back) {
+      <div class="link-return">
+        <button type="button" class="btn btn-ghost btn-sm" (click)="store.goBackFromLink()">
+          <app-icon name="back" [size]="14" />
+          <span class="link-return-text">Back to “{{ back.label }}”</span>
+        </button>
+      </div>
+    }
   </header>
 
   <div class="messages" #scroller (scroll)="onScroll(scroller)" tabindex="-1">

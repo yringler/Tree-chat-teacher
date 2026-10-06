@@ -6,7 +6,10 @@ import type {
   Branch,
   ChatNode,
   ContextPlanResponse,
+  CreateLinkRequest,
+  DeleteBranchResponse,
   MeResponse,
+  NodeLink,
   ProviderInfo,
   StreamEvent,
   TreeDetail,
@@ -77,6 +80,7 @@ function detail(): TreeDetail {
       node('u2', { seq: 2, parentId: 'a1', branchId: 'b', role: 'user', content: 'And?' }),
       node('a2', { seq: 3, parentId: 'u2', branchId: 'b', content: 'A particle.' }),
     ],
+    links: [],
   };
 }
 
@@ -136,6 +140,32 @@ function fakeApi() {
     ),
     cancelNode: vi.fn(async (_id: string) => undefined),
     billing: vi.fn(async () => ({ availableMicros: 3_000_000 }) as BillingSummary),
+    createLink: vi.fn(async (req: CreateLinkRequest) => ({
+      link: link('l-new', req.fromNodeId, req.toNodeId, req.note ?? null),
+      created: true,
+    })),
+    updateLink: vi.fn(async (linkId: string, req: { note: string | null }) =>
+      link(linkId, 'u1', 'a2', req.note),
+    ),
+    deleteLink: vi.fn(async (_linkId: string) => undefined),
+    deleteBranch: vi.fn(async (branchId: string): Promise<DeleteBranchResponse> => ({
+      treeId: 't1',
+      branchIds: [branchId],
+      nodeIds: ['u2', 'a2'],
+    })),
+  };
+}
+
+function link(id: string, source: string, target: string, note: string | null = null): NodeLink {
+  return {
+    id,
+    treeId: 't1',
+    sourceNodeId: source,
+    targetNodeId: target,
+    note,
+    origin: 'user',
+    createdAt: T,
+    updatedAt: T,
   };
 }
 
@@ -273,6 +303,185 @@ describe('CanvasStore', () => {
     const unsold = setup();
     await unsold.store.init({ builtInCredit: false, membership: inactive } as MeResponse);
     expect(unsold.store.membershipBlocked()).toBe(true);
+  });
+});
+
+describe('CanvasStore links between messages', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** The store with links: trunk's reply a1 ↔ lane b's reply a2, and u1 ↔ a1 on the trunk. */
+  function linked() {
+    const s = setup();
+    s.store.detail.update((d) =>
+      d ? { ...d, links: [link('l1', 'a1', 'a2', 'Same idea'), link('l2', 'u1', 'a1')] } : d,
+    );
+    s.store.setRoute('t1', 'trunk', null);
+    return s;
+  }
+
+  it('indexes the links under both of their ends', () => {
+    const s = linked();
+    expect(s.store.links().map((l) => l.id)).toEqual(['l1', 'l2']);
+    expect(
+      s.store
+        .linksByNode()
+        .get('a1')
+        ?.map((l) => l.id),
+    ).toEqual(['l1', 'l2']);
+    expect(
+      s.store
+        .linksByNode()
+        .get('a2')
+        ?.map((l) => l.id),
+    ).toEqual(['l1']);
+    expect(s.store.linksByNode().has('u2')).toBe(false);
+  });
+
+  it('creates a link, adds it to the tree and says so', async () => {
+    const s = setup();
+    const created = await s.store.createLink('u2', 'u1', 'Why');
+    expect(s.api.createLink).toHaveBeenCalledWith({
+      fromNodeId: 'u2',
+      toNodeId: 'u1',
+      note: 'Why',
+    });
+    expect(created?.id).toBe('l-new');
+    expect(s.store.links().map((l) => l.id)).toEqual(['l-new']);
+    expect(s.ui.toasts().map((t) => t.text)).toEqual(['Messages linked']);
+  });
+
+  it('a pair already linked (either way round) keeps its one link', async () => {
+    const s = linked();
+    s.api.createLink.mockResolvedValueOnce({
+      link: link('l1', 'a1', 'a2', 'Same idea'),
+      created: false,
+    });
+    await s.store.createLink('a2', 'a1');
+    expect(s.store.links().map((l) => l.id)).toEqual(['l1', 'l2']);
+    expect(s.ui.toasts().map((t) => t.text)).toEqual(['Already linked']);
+  });
+
+  it('a refused link changes nothing and shows the error', async () => {
+    const s = linked();
+    s.api.createLink.mockRejectedValueOnce(new ApiError(400, 'bad_request', 'Too many links'));
+    await expect(s.store.createLink('u1', 'u2')).resolves.toBeNull();
+    expect(s.store.links()).toHaveLength(2);
+    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error' });
+  });
+
+  it('edits a note and removes a link (closing its popover)', async () => {
+    const s = linked();
+    await expect(s.store.updateLinkNote('l1', null)).resolves.toBe(true);
+    expect(s.api.updateLink).toHaveBeenCalledWith('l1', { note: null });
+    expect(s.store.links().find((l) => l.id === 'l1')?.note).toBeNull();
+
+    s.ui.linkPopover.set({ linkId: 'l1' });
+    await expect(s.store.deleteLink('l1')).resolves.toBe(true);
+    expect(s.api.deleteLink).toHaveBeenCalledWith('l1');
+    expect(s.store.links().map((l) => l.id)).toEqual(['l2']);
+    expect(s.ui.linkPopover()).toBeNull();
+    expect(s.ui.toasts().at(-1)?.text).toBe('Link removed');
+  });
+
+  it('a link already removed elsewhere (404) goes here too, popover and all', async () => {
+    const s = linked();
+    s.api.updateLink.mockRejectedValueOnce(new ApiError(404, 'not_found', 'Link not found'));
+    await expect(s.store.updateLinkNote('l2', 'Why')).resolves.toBe(false);
+    expect(s.store.links().map((l) => l.id)).toEqual(['l1']);
+
+    s.ui.linkPopover.set({ linkId: 'l1' });
+    s.api.deleteLink.mockRejectedValueOnce(new ApiError(404, 'not_found', 'Link not found'));
+    await expect(s.store.deleteLink('l1')).resolves.toBe(true);
+    expect(s.store.links()).toEqual([]);
+    expect(s.ui.linkPopover()).toBeNull();
+    expect(s.ui.toasts().map((t) => t.text)).toEqual([
+      'That link was already removed',
+      'That link was already removed',
+    ]);
+  });
+
+  it('deleting a lane drops the links touching its messages, and linking from them', async () => {
+    const s = linked();
+    s.ui.linkPick.set({ fromNodeId: 'a2' });
+    s.ui.linkPopover.set({ linkId: 'l1' });
+    s.ui.linkReturn.set({ branchId: 'trunk', nodeId: 'a1', label: 'trunk', toBranchId: 'b' });
+    await expect(s.store.deleteBranch('b')).resolves.toBe(true);
+    expect(s.store.links().map((l) => l.id)).toEqual(['l2']);
+    expect(s.store.linksByNode().has('a2')).toBe(false);
+    expect(s.ui.linkPick()).toBeNull();
+    expect(s.ui.linkPopover()).toBeNull();
+    expect(s.ui.linkReturn()).toBeNull();
+  });
+
+  it('a deleted lane leaves linking from elsewhere alone', async () => {
+    const s = linked();
+    s.ui.linkPick.set({ fromNodeId: 'u1' });
+    await s.store.deleteBranch('b');
+    expect(s.ui.linkPick()).toEqual({ fromNodeId: 'u1' });
+  });
+
+  it('openNode unfolds the lanes on the way, goes to the card and remembers the way back', () => {
+    const s = linked();
+    s.ui.toggleCollapsed('b');
+    s.ui.linkPopover.set({ linkId: 'l1' });
+    expect(s.store.openNode('a2', 'a1')).toBe(true);
+    expect(s.ui.collapsed().has('b')).toBe(false);
+    expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1', 'b', 'b'], {
+      queryParams: { m: 'a2' },
+      replaceUrl: false,
+    });
+    expect(s.ui.linkReturn()).toEqual({
+      branchId: 'trunk',
+      nodeId: 'a1',
+      label: 'trunk',
+      toBranchId: 'b',
+    });
+    expect(s.ui.linkPopover()).toBeNull();
+
+    // Arriving there keeps it; coming back to where it was followed from clears it.
+    s.store.setRoute('t1', 'b', 'a2');
+    expect(s.ui.linkReturn()).not.toBeNull();
+    s.store.goBackFromLink();
+    expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1', 'b', 'trunk'], {
+      queryParams: { m: 'a1' },
+      replaceUrl: false,
+    });
+    expect(s.ui.linkReturn()).toBeNull();
+  });
+
+  it('the way back leads to the lane of the message the link was followed from', () => {
+    const s = linked();
+    // The selected lane is the trunk, but the link was followed from a2's end (a glyph's popover).
+    expect(s.store.openNode('u1', 'a2')).toBe(true);
+    expect(s.ui.linkReturn()).toEqual({
+      branchId: 'b',
+      nodeId: 'a2',
+      label: 'b',
+      toBranchId: 'trunk',
+    });
+  });
+
+  it('openNode refuses a message that is not in the tree', () => {
+    const s = linked();
+    expect(s.store.openNode('nope')).toBe(false);
+    expect(s.router.navigate).not.toHaveBeenCalled();
+    expect(s.ui.linkReturn()).toBeNull();
+  });
+
+  it('opening another tree ends every link interaction', () => {
+    const s = linked();
+    s.ui.linkPick.set({ fromNodeId: 'u1' });
+    s.ui.linkReturn.set({ branchId: 'trunk', nodeId: null, label: 'trunk', toBranchId: 'b' });
+    s.store.setRoute('t2', null, null);
+    expect(s.ui.linkPick()).toBeNull();
+    expect(s.ui.linkReturn()).toBeNull();
   });
 });
 

@@ -7,12 +7,15 @@ import {
   DEFAULT_TREE_TITLE,
   LEGACY_BUILT_IN_PROVIDER_ID,
   BUILT_IN_PROVIDER_ID,
+  MAX_LINKS_PER_TREE,
   TRUNK_TITLE,
   createBranchRequestSchema,
+  createLinkRequestSchema,
   pickDefaultRoute,
   createTreeRequestSchema,
   treeBackupSchema,
   updateBranchRequestSchema,
+  updateLinkRequestSchema,
   updateSettingsRequestSchema,
   updateTreeRequestSchema,
   type Branch,
@@ -23,10 +26,12 @@ import {
   type ContextPlan,
   type ContextPlanResponse,
   type CreateBranchRequest,
+  type CreateLinkRequest,
   type CreateTreeRequest,
   type DefaultRouteFacts,
   type DeleteBranchResponse,
   type LlmProvider,
+  type NodeLink,
   type ProviderInfo,
   type ProviderRegistry,
   type ProviderRoute,
@@ -42,6 +47,7 @@ import {
   type TreeDetail,
   type TreeSummary,
   type UpdateBranchRequest,
+  type UpdateLinkRequest,
   type UpdateSettingsRequest,
   type UsageTag,
   type UpdateTreeRequest,
@@ -64,6 +70,7 @@ import {
   type GroundingPolicy,
 } from '../grounding/policy.js';
 import { adaptBackupForLearn, type LearnImportTarget } from '../learn-import.js';
+import { pairKey } from '../links.js';
 import type { Repositories } from '../repository.js';
 import type { TokenEstimator } from '../tokens.js';
 import { newId as defaultNewId, systemClock, type Clock } from '../util.js';
@@ -349,16 +356,17 @@ export class ChatService {
       updatedAt: now,
     };
     await this.repo.createTree(tree, trunk);
-    return { tree, branches: [trunk], nodes: [] };
+    return { tree, branches: [trunk], nodes: [], links: [] };
   }
 
   async getTreeDetail(treeId: string): Promise<TreeDetail> {
     const tree = await this.requireOwnedTree(treeId);
-    const [branches, nodes] = await Promise.all([
+    const [branches, nodes, links] = await Promise.all([
       this.repo.listBranches(treeId),
       this.repo.listNodes(treeId),
+      this.repo.listLinks(treeId),
     ]);
-    return { tree, branches, nodes };
+    return { tree, branches, nodes, links };
   }
 
   async updateTree(treeId: string, request: UpdateTreeRequest): Promise<Tree> {
@@ -476,9 +484,9 @@ export class ChatService {
 
   /**
    * Deletes a branch with every branch below it: child branches hang off
-   * its messages, so they cannot outlive it. Their messages, the summaries
-   * anchored on them and the shares targeting them go too. The trunk cannot
-   * be deleted (delete the tree instead).
+   * its messages, so they cannot outlive it. Their messages, the links
+   * touching them, the summaries anchored on them and the shares targeting
+   * them go too. The trunk cannot be deleted (delete the tree instead).
    *
    * Without `stopGenerations` it rejects with ConflictError while any of
    * those branches is generating. With it, the caller (the Worker's Durable
@@ -512,6 +520,72 @@ export class ChatService {
       .map((n) => n.id);
     await this.repo.deleteBranches(tree.id, branchIds, this.now());
     return { treeId: tree.id, branchIds, nodeIds };
+  }
+
+  // ---------------------------------------------------------------- links
+
+  /**
+   * Links two messages of the same tree (both must be this account's: 404
+   * otherwise). Linking a pair that is already linked, either way round,
+   * changes nothing and returns the existing link with `created: false`.
+   * Never generates, so read-only power branches can be linked too.
+   */
+  async createLink(request: CreateLinkRequest): Promise<{ link: NodeLink; created: boolean }> {
+    const req = createLinkRequestSchema.parse(request);
+    const from = await this.getOwnedNode(req.fromNodeId);
+    const to = await this.getOwnedNode(req.toNodeId);
+    if (from.treeId !== to.treeId) {
+      throw new ValidationError('Only messages of the same conversation can be linked');
+    }
+    const links = await this.repo.listLinks(from.treeId);
+    const key = pairKey(from.id, to.id);
+    const existing = links.find((l) => pairKey(l.sourceNodeId, l.targetNodeId) === key);
+    if (existing) return { link: existing, created: false };
+    if (links.length >= MAX_LINKS_PER_TREE) {
+      throw new ValidationError(
+        `A conversation can hold at most ${MAX_LINKS_PER_TREE} links; remove one first`,
+      );
+    }
+    const now = this.now();
+    return this.repo.createLink(
+      {
+        id: this.newId(),
+        treeId: from.treeId,
+        sourceNodeId: from.id,
+        targetNodeId: to.id,
+        note: emptyToNull(req.note),
+        origin: 'user',
+        createdAt: now,
+        updatedAt: now,
+      },
+      now,
+    );
+  }
+
+  /** Changes a link's note (blank = none). */
+  async updateLink(linkId: string, request: UpdateLinkRequest): Promise<NodeLink> {
+    const req = updateLinkRequestSchema.parse(request);
+    await this.requireOwnedLink(linkId);
+    const updated = await this.repo.updateLink(linkId, {
+      note: emptyToNull(req.note),
+      updatedAt: this.now(),
+    });
+    if (!updated) throw new NotFoundError('Link');
+    return updated;
+  }
+
+  async deleteLink(linkId: string): Promise<void> {
+    await this.requireOwnedLink(linkId);
+    if (!(await this.repo.deleteLink(linkId))) throw new NotFoundError('Link');
+  }
+
+  /** A link in a tree of this account; another account's link is reported as not found. */
+  private async requireOwnedLink(linkId: string): Promise<NodeLink> {
+    const link = await this.repo.getLink(linkId);
+    if (!link) throw new NotFoundError('Link');
+    const tree = await this.repo.getTree(link.treeId);
+    if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Link');
+    return link;
   }
 
   // -------------------------------------------------------------- context
@@ -1176,6 +1250,7 @@ export class ChatService {
       tree: detail.tree,
       branches: detail.branches,
       nodes: detail.nodes,
+      links: detail.links,
     };
   }
 
@@ -1233,8 +1308,9 @@ export class ChatService {
       status: n.status === 'streaming' ? 'error' : n.status,
       error: n.status === 'streaming' ? 'Interrupted before the reply finished' : n.error,
     }));
-    await this.repo.importTree(tree, branches, nodes);
-    return { tree, branches, nodes };
+    const links = importedLinks(data.links ?? [], nodeIds, treeId, this.newId);
+    await this.repo.importTree(tree, branches, nodes, links);
+    return { tree, branches, nodes, links };
   }
 
   // -------------------------------------------------------------- helpers
@@ -1357,6 +1433,40 @@ function importedRoute(
   const providerId =
     b.providerId === LEGACY_BUILT_IN_PROVIDER_ID ? BUILT_IN_PROVIDER_ID : b.providerId;
   return { providerId, funding: fixedFunding ?? b.funding ?? 'own-key' };
+}
+
+/**
+ * A backup's links under the restored node ids. A link whose ends aren't
+ * both in the backup, a self-link and a second link between the same pair
+ * are dropped rather than failing the import: they are only cross-references.
+ */
+function importedLinks(
+  links: NonNullable<TreeBackupInput['links']>,
+  nodeIds: ReadonlyMap<string, string>,
+  treeId: string,
+  newId: () => string,
+): NodeLink[] {
+  const out: NodeLink[] = [];
+  const pairs = new Set<string>();
+  for (const l of links) {
+    const source = nodeIds.get(l.sourceNodeId);
+    const target = nodeIds.get(l.targetNodeId);
+    if (!source || !target || source === target) continue;
+    const key = pairKey(source, target);
+    if (pairs.has(key)) continue;
+    pairs.add(key);
+    out.push({
+      id: newId(),
+      treeId,
+      sourceNodeId: source,
+      targetNodeId: target,
+      note: emptyToNull(l.note?.trim()),
+      origin: l.origin ?? 'user',
+      createdAt: l.createdAt,
+      updatedAt: l.updatedAt,
+    });
+  }
+  return out;
 }
 
 /** Streams a prompt to completion; returns null on provider error. */

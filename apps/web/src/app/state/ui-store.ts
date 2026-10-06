@@ -6,6 +6,31 @@ export interface BranchDialogState {
   quote: string | null;
 }
 
+/** "Link…" on a message: the dialog that picks the other end. */
+export interface LinkDialogState {
+  fromNodeId: string;
+}
+
+/**
+ * "Pick on the page instead": the next "Link here" clicked links `fromNodeId`
+ * to that message. Survives branch navigation; ends with the tree.
+ */
+export interface LinkPickState {
+  fromNodeId: string;
+}
+
+/** Where a link chip was opened from: the header's "Back to ‘…’" pill returns there. */
+export interface LinkReturn {
+  branchId: string;
+  /** The message whose chip was opened. */
+  focusNodeId: string | null;
+  /** The branch's title, for the pill. */
+  label: string;
+  /** Where the chip went: the pill shows while the view is still there. */
+  toBranchId: string;
+  toNodeId: string;
+}
+
 /** An in-app link shown in a toast (e.g. "Add credit" → `/billing`). */
 export interface ToastLink {
   label: string;
@@ -54,6 +79,11 @@ export class UiStore {
   readonly accountOpen = signal(false);
   /** Review dialog for one assistant message. */
   readonly reviewDialog = signal<{ nodeId: string } | null>(null);
+  readonly linkDialog = signal<LinkDialogState | null>(null);
+  readonly linkPick = signal<LinkPickState | null>(null);
+  readonly linkReturn = signal<LinkReturn | null>(null);
+  /** Messages whose "N related" list is open (by node id). */
+  readonly relatedOpen = signal<ReadonlySet<string>>(new Set());
   /** Text for the composer to insert; `seq` makes repeated inserts of the same text distinct. */
   readonly composerInsert = signal<{ seq: number; text: string } | null>(null);
   /** Outline items the user collapsed (by branch id). */
@@ -78,6 +108,24 @@ export class UiStore {
     });
   }
 
+  setRelatedOpen(nodeIds: readonly string[], open: boolean): void {
+    this.relatedOpen.update((set) => {
+      const next = new Set(set);
+      for (const id of nodeIds) {
+        if (open) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  /** Forgets the link dialog, pick mode and the return pill (another tree opened). */
+  clearLinkState(): void {
+    this.linkDialog.set(null);
+    this.linkPick.set(null);
+    this.linkReturn.set(null);
+  }
+
   focusComposer(): void {
     this.composerFocus.update((n) => n + 1);
   }
@@ -90,6 +138,7 @@ export class UiStore {
   anyDialogOpen(): boolean {
     return (
       this.branchDialog() !== null ||
+      this.linkDialog() !== null ||
       this.branchSettingsOpen() ||
       this.treeSettingsOpen() ||
       this.shareDialogOpen() ||
@@ -115,6 +164,10 @@ export class UiStore {
       this.reviewDialog.set(null);
       return true;
     }
+    if (this.linkDialog()) {
+      this.linkDialog.set(null);
+      return true;
+    }
     for (const s of [
       this.branchSettingsOpen,
       this.treeSettingsOpen,
@@ -127,6 +180,10 @@ export class UiStore {
         s.set(false);
         return true;
       }
+    }
+    if (this.linkPick()) {
+      this.linkPick.set(null);
+      return true;
     }
     if (this.exportMenuOpen()) {
       this.exportMenuOpen.set(false);

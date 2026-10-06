@@ -79,6 +79,15 @@ import { ModeBadge } from '../ui/mode-badge';
             @if (item().depth > 0) {
               <app-mode-badge [mode]="b.contextMode" />
             }
+            @if (linkCount(); as links) {
+              <span
+                class="outline-links"
+                [attr.aria-label]="links + (links === 1 ? ' link' : ' links')"
+                [title]="(links === 1 ? '1 link' : links + ' links') + ' to other messages'"
+              >
+                <app-icon name="link" [size]="12" />{{ links }}
+              </span>
+            }
             <span class="count" [attr.aria-label]="item().messageCount + ' messages'">{{
               item().messageCount
             }}</span>
@@ -130,6 +139,10 @@ export class OutlineItem {
   );
   protected readonly inChain = computed(() =>
     this.store.chain().some((b) => b.id === this.item().branch.id),
+  );
+  /** Links touching the branch's messages. */
+  protected readonly linkCount = computed(
+    () => this.store.linkCounts().get(this.item().branch.id) ?? 0,
   );
   protected readonly streaming = computed(() => {
     const id = this.item().branch.id;

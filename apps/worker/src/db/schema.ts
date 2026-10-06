@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  check,
   index,
   integer,
   primaryKey,
@@ -138,6 +139,45 @@ export const nodes = sqliteTable(
     index('nodes_streaming_idx')
       .on(t.treeId)
       .where(sql`status = 'streaming'`),
+  ],
+);
+
+/**
+ * Cross-links between two messages of one tree (NodeLink). Stored directed
+ * (`source` is where the link was made from), shown on both ends. `pair_key`
+ * is the unordered pair (`min|max` of the node ids, written by the
+ * repository), so a pair is linked at most once whichever way round. Both node
+ * FKs cascade, so a link goes with either of its messages; the indexes on them
+ * keep those cascades from scanning the table.
+ */
+export const nodeLinks = sqliteTable(
+  'node_links',
+  {
+    id: text('id').primaryKey(),
+    treeId: text('tree_id')
+      .notNull()
+      .references(() => trees.id, { onDelete: 'cascade' }),
+    sourceNodeId: text('source_node_id')
+      .notNull()
+      .references(() => nodes.id, { onDelete: 'cascade' }),
+    targetNodeId: text('target_node_id')
+      .notNull()
+      .references(() => nodes.id, { onDelete: 'cascade' }),
+    pairKey: text('pair_key').notNull(),
+    note: text('note'),
+    /** `ai` is reserved for suggested links; everything is `user` so far. */
+    origin: text('origin', { enum: ['user', 'ai'] })
+      .notNull()
+      .default('user'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('node_links_pair_uq').on(t.pairKey),
+    index('node_links_tree_idx').on(t.treeId),
+    index('node_links_source_idx').on(t.sourceNodeId),
+    index('node_links_target_idx').on(t.targetNodeId),
+    check('node_links_distinct_ends', sql`source_node_id <> target_node_id`),
   ],
 );
 

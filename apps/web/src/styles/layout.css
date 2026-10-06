@@ -168,6 +168,15 @@ app-root {
   display: inline-flex;
 }
 
+.outline-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .dot-key {
   width: 7px;
   height: 7px;

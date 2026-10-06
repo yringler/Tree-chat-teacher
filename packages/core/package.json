@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./tree": "./src/tree.ts",
+    "./links": "./src/links.ts",
     "./testing": "./src/testing/memory-repositories.ts"
   },
   "scripts": {

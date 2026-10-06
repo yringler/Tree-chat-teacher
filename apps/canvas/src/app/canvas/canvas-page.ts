@@ -13,15 +13,18 @@ import {
 } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
-import { Icon } from '@tangent/web-shared';
+import { describeEndpoint } from '@tangent/core/links';
+import { endpointTitle, Icon } from '@tangent/web-shared';
 import { BRAND } from '../brand';
 import { LayoutStore, MAX_ZOOM, MIN_ZOOM } from '../layout/layout-store';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 import { Connectors } from './connectors';
+import { CrossLinkGlyphs, CrossLinks } from './cross-links';
 import { Lane } from './lane';
+import { LinkPopover } from './link-popover';
 import { Minimap } from './minimap';
-import { treeTitle } from './titles';
+import { laneTitle, treeTitle } from './titles';
 
 interface PendingBranch {
   nodeId: string;
@@ -52,7 +55,7 @@ interface PendingTouch {
  */
 @Component({
   selector: 'app-canvas-page',
-  imports: [Icon, RouterLink, Connectors, Lane, Minimap],
+  imports: [Icon, RouterLink, Connectors, CrossLinks, CrossLinkGlyphs, Lane, LinkPopover, Minimap],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './canvas-page.html',
   host: {
@@ -89,6 +92,18 @@ export class CanvasPage implements OnDestroy {
   protected readonly lineage = computed(() =>
     this.ui.lineage() ? this.store.selectedLineage() : null,
   );
+  /** "Back to ‘…’", while the lane a link was followed to is still the selected one. */
+  protected readonly linkBack = computed(() => {
+    const back = this.ui.linkReturn();
+    return back && back.toBranchId === this.store.selectedBranchId() ? back : null;
+  });
+  /** What pick mode links from, as its chip would read. */
+  protected readonly pickSource = computed(() => {
+    const from = this.ui.linkPick()?.fromNodeId;
+    const idx = this.store.index();
+    const ep = from && idx ? describeEndpoint(idx, from, laneTitle) : null;
+    return ep ? endpointTitle(ep) : '';
+  });
 
   constructor() {
     effect(() => {
@@ -302,7 +317,7 @@ export class CanvasPage implements OnDestroy {
 
   protected onDoubleClick(e: MouseEvent): void {
     const target = e.target as HTMLElement | null;
-    if (target?.closest('.lane')) return;
+    if (target?.closest('.lane, .xlink-glyph')) return;
     this.geo.fitAll();
   }
 
@@ -341,6 +356,19 @@ export class CanvasPage implements OnDestroy {
     if (!node || node.status !== 'complete') return null;
     const quote = sel.toString().trim().slice(0, MAX_QUOTE);
     return quote ? { nodeId: node.id, quote } : null;
+  }
+
+  // ---- Links
+
+  protected toggleLinks(): void {
+    this.ui.linkPopover.set(null);
+    this.ui.showLinks.update((v) => !v);
+  }
+
+  /** Pick mode's "Search": the picker dialog instead of clicking a card. */
+  protected searchInstead(fromNodeId: string): void {
+    this.ui.linkPick.set(null);
+    this.ui.linkDialog.set({ fromNodeId });
   }
 
   protected deleteTree(): void {

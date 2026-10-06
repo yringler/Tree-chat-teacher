@@ -19,6 +19,7 @@ import type {
   CreateCheckoutRequest,
   ContextPlanResponse,
   CreateBranchRequest,
+  CreateLinkRequest,
   CreateShareRequest,
   CreateTreeRequest,
   DeleteAccountRequest,
@@ -27,6 +28,7 @@ import type {
   MembershipInfo,
   MembershipWaiverRequest,
   MeResponse,
+  NodeLink,
   PoolBlockDetails,
   PoolConsentDetails,
   PoolConsentRequest,
@@ -50,6 +52,7 @@ import type {
   TreeSummary,
   UpdateAdminUserRequest,
   UpdateBranchRequest,
+  UpdateLinkRequest,
   UpdateSettingsRequest,
   UpdateShareRequest,
   UpdateTreeRequest,
@@ -73,6 +76,12 @@ export class ApiError extends Error {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+/** `POST /api/links`: the link, and whether this call made it (201) or the pair was already linked (200). */
+export interface CreateLinkResult {
+  link: NodeLink;
+  created: boolean;
 }
 
 export interface ExportParams {
@@ -290,6 +299,22 @@ export class ApiClient {
     return this.json('GET', `/branches/${enc(branchId)}/context?${q.toString()}`);
   }
 
+  // Links
+
+  /** Resolves with the new link, or the existing one when the two messages are already linked. */
+  async createLink(req: CreateLinkRequest): Promise<CreateLinkResult> {
+    const { body, status } = await this.jsonWithStatus<NodeLink>('POST', '/links', req);
+    return { link: body, created: status === 201 };
+  }
+
+  updateLink(linkId: string, req: UpdateLinkRequest): Promise<NodeLink> {
+    return this.json('PATCH', `/links/${enc(linkId)}`, req);
+  }
+
+  deleteLink(linkId: string): Promise<void> {
+    return this.json('DELETE', `/links/${enc(linkId)}`);
+  }
+
   // Streaming
 
   /** POST a message; resolves with the open `text/event-stream` response. */
@@ -465,10 +490,19 @@ export class ApiClient {
   }
 
   private async json<T>(method: string, path: string, body?: unknown): Promise<T> {
+    return (await this.jsonWithStatus<T>(method, path, body)).body;
+  }
+
+  /** `json`, plus the status, for routes whose 2xx codes differ in meaning. */
+  private async jsonWithStatus<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<{ body: T; status: number }> {
     const res = await this.request(method, path, body);
-    if (res.status === 204) return undefined as T;
+    if (res.status === 204) return { body: undefined as T, status: res.status };
     const text = await res.text();
-    return (text ? JSON.parse(text) : undefined) as T;
+    return { body: (text ? JSON.parse(text) : undefined) as T, status: res.status };
   }
 
   private async stream(
@@ -513,6 +547,11 @@ export function errorMessage(err: unknown): string {
 /** True for a 401 `unauthorized` ApiError: no session, or an expired one (not `key_required`). */
 export function isSessionExpired(err: unknown): err is ApiError {
   return err instanceof ApiError && err.code === 'unauthorized';
+}
+
+/** True for a 404 ApiError: the thing asked for is gone (or was never the caller's). */
+export function isNotFound(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.status === 404;
 }
 
 /** True for a 402 `payment_required` ApiError (out of credit for the built-in provider). */

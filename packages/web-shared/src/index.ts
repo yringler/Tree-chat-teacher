@@ -11,11 +11,13 @@ export {
   ApiError,
   errorMessage,
   isMembershipRequired,
+  isNotFound,
   isPaymentRequired,
   isPoolCapReached,
   isPoolConsentRequired,
   isPoolEmpty,
   isPoolUnavailable,
+  type CreateLinkResult,
   type ExportParams,
 } from './core/api-client';
 export { API_FETCH, API_HEADERS, defaultApiFetch } from './core/api-fetch';
@@ -70,6 +72,20 @@ export { Icon, type IconName } from './ui/icon';
 export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';
 export { DEEP_BRANCH_DEPTH, SourcesList } from './ui/sources-list';
+export { RelatedLinks, type LinkNoteEdit } from './ui/related-links';
+export { NodePicker, type LinkPick } from './ui/node-picker';
+export {
+  CRUMB_SEPARATOR,
+  endpointCrumbs,
+  endpointTitle,
+  linkExclusions,
+  pickerRows,
+  relatedLabel,
+  relatedLinks,
+  type LinksByNode,
+  type PickerRow,
+  type RelatedLink,
+} from './ui/links-view';
 export { ModeSwitch } from './ui/mode-switch';
 export { Turnstile } from './ui/turnstile';
 export { LoginPage } from './login/login-page';

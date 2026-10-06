@@ -18,6 +18,7 @@ import {
   PoolFirstUseDialog,
 } from '@tangent/web-shared';
 import { BRAND } from './brand';
+import { ConnectDialog } from './chat/connect-dialog';
 import { RouteSync } from './core/route-sync';
 import { DEMO_SIGNUP_URL } from './demo/demo-mode';
 import { AppHeader } from './shell/app-header';
@@ -40,6 +41,7 @@ import { UiStore } from './state/ui-store';
     Icon,
     MembershipGate,
     PoolFirstUseDialog,
+    ConnectDialog,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -70,6 +72,9 @@ import { UiStore } from './state/ui-store';
       }
       @if (ui.accessOpen()) {
         <app-model-access-dialog />
+      }
+      @if (ui.linkDialog(); as sourceNodeId) {
+        <app-connect-dialog [sourceNodeId]="sourceNodeId" />
       }
       @if (ui.poolVerifyOpen()) {
         <app-pool-first-use-dialog (closed)="ui.poolVerifyOpen.set(false)" />

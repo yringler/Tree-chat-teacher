@@ -12,7 +12,8 @@ import {
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import type { Branch, ChatNode, MembershipInfo } from '@tangent/shared';
-import { ReadOnlyComposer } from '@tangent/web-shared';
+import { describeEndpoint } from '@tangent/core';
+import { endpointTitle, Icon, ReadOnlyComposer } from '@tangent/web-shared';
 import { Inspector } from '../inspector/inspector';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
@@ -31,7 +32,16 @@ interface Entry {
 /** `/t/:treeId[/b/:branchId]`: linear view of the selected branch path. */
 @Component({
   selector: 'app-chat-page',
-  imports: [ChatHeader, Composer, MessageItem, ModeBadge, Inspector, ReadOnlyComposer, RouterLink],
+  imports: [
+    ChatHeader,
+    Composer,
+    Icon,
+    MessageItem,
+    ModeBadge,
+    Inspector,
+    ReadOnlyComposer,
+    RouterLink,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './chat-page.html',
   host: { class: 'page chat-page' },
@@ -77,6 +87,19 @@ export class ChatPage {
     // Default titles run to 50+ characters; a placeholder has one line.
     const title = b.title.length > 32 ? `${b.title.slice(0, 31).trimEnd()}…` : b.title;
     return `Reply in “${title}”…`;
+  });
+
+  /** Pick mode, with what the message being linked from says (for the banner). */
+  protected readonly picking = computed(() => {
+    const pick = this.ui.linkPick();
+    const idx = this.store.index();
+    const from = pick && idx ? describeEndpoint(idx, pick.fromNodeId) : null;
+    if (!pick || !from) return null;
+    const title = endpointTitle(from);
+    return {
+      fromNodeId: pick.fromNodeId,
+      title: title.length > 60 ? `${title.slice(0, 59).trimEnd()}…` : title,
+    };
   });
 
   /**
@@ -126,6 +149,11 @@ export class ChatPage {
 
   protected onScroll(el: HTMLElement): void {
     this.pinned.set(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+  }
+
+  protected searchInstead(fromNodeId: string): void {
+    this.ui.linkPick.set(null);
+    this.ui.linkDialog.set({ fromNodeId });
   }
 
   protected send(content: string): void {

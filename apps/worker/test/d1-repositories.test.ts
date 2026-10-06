@@ -1,4 +1,4 @@
-import { ConflictError } from '@tangent/core';
+import { ConflictError, NotFoundError } from '@tangent/core';
 import { DEFAULT_ACCOUNT_ID, type Branch, type ChatNode, type Tree } from '@tangent/shared';
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
@@ -6,6 +6,7 @@ import { createD1Repositories, SNAPSHOT_CHUNK_CHARS } from '../src/db/d1-reposit
 import {
   makeBranch,
   makeChain,
+  makeLink,
   makeNode,
   makeShare,
   makeTree,
@@ -606,5 +607,150 @@ describe('grounding columns', () => {
       'auto',
       'always',
     ]);
+  });
+});
+
+describe('links', () => {
+  it('createLink / getLink / listLinks round-trip, bump the tree and dedupe the pair either way', async () => {
+    const { tree, t, a } = await seedMultiBranch();
+    const link = makeLink(t[3]!, a[1]!, { note: 'why' });
+    expect(await repos.trees.createLink(link, '2026-05-01T00:00:00.000Z')).toEqual({
+      link,
+      created: true,
+    });
+    expect(await repos.trees.getLink(link.id)).toEqual(link);
+    expect((await repos.trees.getTree(tree.id))?.updatedAt).toBe('2026-05-01T00:00:00.000Z');
+
+    const reversed = makeLink(a[1]!, t[3]!);
+    expect(await repos.trees.createLink(reversed, '2026-06-01T00:00:00.000Z')).toEqual({
+      link,
+      created: false,
+    });
+    expect(await repos.trees.getLink(reversed.id)).toBeNull();
+    expect((await repos.trees.getTree(tree.id))?.updatedAt).toBe('2026-05-01T00:00:00.000Z');
+
+    const later = makeLink(t[0]!, t[1]!, { createdAt: '2026-01-04T00:00:00.000Z' });
+    await repos.trees.createLink(later, 'x');
+    expect(await repos.trees.listLinks(tree.id)).toEqual([link, later]);
+    expect(await repos.trees.listLinks('missing')).toEqual([]);
+    expect(await repos.trees.getLink('missing')).toBeNull();
+  });
+
+  it('the table refuses a second row for a pair and a link to itself', async () => {
+    const { t } = await seedMultiBranch();
+    await repos.trees.createLink(makeLink(t[0]!, t[1]!), 'x');
+    const insert = (l: ReturnType<typeof makeLink>, pair: string) =>
+      env.DB.prepare(
+        `INSERT INTO node_links (id, tree_id, source_node_id, target_node_id, pair_key, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'x', 'x')`,
+      )
+        .bind(l.id, l.treeId, l.sourceNodeId, l.targetNodeId, pair)
+        .run();
+    const reversed = makeLink(t[1]!, t[0]!);
+    await expect(insert(reversed, [t[0]!.id, t[1]!.id].sort().join('|'))).rejects.toThrow(/UNIQUE/);
+    const self = makeLink(t[2]!, t[2]!);
+    await expect(insert(self, `${t[2]!.id}|${t[2]!.id}`)).rejects.toThrow(/CHECK/);
+    // Defaults: origin `user`, no note.
+    const fresh = makeLink(t[2]!, t[3]!);
+    await insert(fresh, [t[2]!.id, t[3]!.id].sort().join('|'));
+    expect(await repos.trees.getLink(fresh.id)).toMatchObject({ origin: 'user', note: null });
+  });
+
+  it('createLink to a message that no longer exists is NotFoundError, and writes nothing', async () => {
+    const { tree, t } = await seedMultiBranch();
+    const ghost = makeNode(makeBranch(tree), 0, null);
+    await expect(
+      repos.trees.createLink(makeLink(t[0]!, ghost), '2031-01-01T00:00:00.000Z'),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    expect(await repos.trees.listLinks(tree.id)).toEqual([]);
+    expect((await repos.trees.getTree(tree.id))?.updatedAt).not.toBe('2031-01-01T00:00:00.000Z');
+  });
+
+  it('updateLink patches the note; deleteLink removes it once', async () => {
+    const { t } = await seedMultiBranch();
+    const link = makeLink(t[0]!, t[2]!);
+    await repos.trees.createLink(link, 'x');
+    expect(await repos.trees.updateLink(link.id, { note: 'n', updatedAt: 'later' })).toEqual({
+      ...link,
+      note: 'n',
+      updatedAt: 'later',
+    });
+    expect(
+      await repos.trees.updateLink(link.id, { note: null, updatedAt: 'later2' }),
+    ).toMatchObject({ note: null });
+    expect(await repos.trees.updateLink('missing', { note: 'n', updatedAt: 'x' })).toBeNull();
+    expect(await repos.trees.deleteLink(link.id)).toBe(true);
+    expect(await repos.trees.deleteLink(link.id)).toBe(false);
+    expect(await repos.trees.getLink(link.id)).toBeNull();
+  });
+
+  it('deleteBranches drops the links touching the doomed nodes, at either end', async () => {
+    const { tree, b1, b2, t, a, c } = await seedMultiBranch();
+    const fromTrunk = makeLink(t[3]!, c[1]!);
+    const intoTrunk = makeLink(a[0]!, t[0]!);
+    const kept = makeLink(t[0]!, t[3]!);
+    for (const l of [fromTrunk, intoTrunk, kept]) await repos.trees.createLink(l, 'x');
+    await repos.trees.deleteBranches(tree.id, [b1.id, b2.id], 'y');
+    expect(await repos.trees.listLinks(tree.id)).toEqual([kept]);
+  });
+
+  it('deleteBranches over many branches stays under the parameter limit', async () => {
+    const { tree, trunk } = await seedTree();
+    const root = makeNode(trunk, 0, null);
+    await repos.trees.appendNodes([root], 'x');
+    const many = Array.from({ length: 60 }, () =>
+      makeBranch(tree, { parentBranchId: trunk.id, branchPointNodeId: root.id }),
+    );
+    for (const b of many) await repos.trees.createBranch(b);
+    const heads = many.map((b) => makeNode(b, 0, root.id));
+    await repos.trees.appendNodes(heads, 'x');
+    for (const h of heads.slice(0, 5)) await repos.trees.createLink(makeLink(root, h), 'x');
+    await repos.trees.deleteBranches(
+      tree.id,
+      many.map((b) => b.id),
+      'y',
+    );
+    expect(await repos.trees.listLinks(tree.id)).toEqual([]);
+    expect(await count('nodes', 'tree_id', tree.id)).toBe(1);
+  });
+
+  it('a link goes with its tree and, by FK cascade, with either message', async () => {
+    const { tree, t, a } = await seedMultiBranch();
+    const link = makeLink(t[3]!, a[1]!);
+    await repos.trees.createLink(link, 'x');
+    await env.DB.prepare('DELETE FROM nodes WHERE id = ?1').bind(a[1]!.id).run();
+    expect(await repos.trees.getLink(link.id)).toBeNull();
+
+    const other = makeLink(t[0]!, t[1]!);
+    await repos.trees.createLink(other, 'x');
+    expect(await repos.trees.deleteTree(tree.id)).toBe(true);
+    expect(await count('node_links', 'tree_id', tree.id)).toBe(0);
+  });
+
+  it('importTree inserts links in chunks under the parameter limit, atomically', async () => {
+    const tree = makeTree({ title: 'Linked' });
+    const trunk = makeTrunk(tree);
+    const nodesList = makeChain(trunk, 30, null);
+    const linksList = nodesList
+      .slice(1)
+      .map((n, i) => makeLink(nodesList[0]!, n, { note: `n${i}` }));
+    expect(linksList).toHaveLength(29);
+    await repos.trees.importTree(tree, [trunk], nodesList, linksList);
+    const stored = await repos.trees.listLinks(tree.id);
+    expect(new Set(stored.map((l) => l.id))).toEqual(new Set(linksList.map((l) => l.id)));
+    for (const l of linksList) expect(await repos.trees.getLink(l.id)).toEqual(l);
+
+    // A link to a node outside the import fails the whole import.
+    const broken = makeTree();
+    const brokenTrunk = makeTrunk(broken);
+    const brokenNodes = makeChain(brokenTrunk, 2, null);
+    await expect(
+      repos.trees.importTree(broken, [brokenTrunk], brokenNodes, [
+        makeLink(brokenNodes[0]!, brokenNodes[1]!),
+        makeLink(brokenNodes[0]!, makeNode(brokenTrunk, 9, null)),
+      ]),
+    ).rejects.toThrow();
+    expect(await repos.trees.getTree(broken.id)).toBeNull();
+    expect(await count('node_links', 'tree_id', broken.id)).toBe(0);
   });
 });

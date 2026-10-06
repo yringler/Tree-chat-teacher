@@ -2,6 +2,7 @@ import type {
   Branch,
   ChatNode,
   Citation,
+  NodeLink,
   Share,
   SummaryRecord,
   TokenUsage,
@@ -26,7 +27,7 @@ export interface TreeRepository {
     treeId: string,
     patch: Partial<Pick<Tree, 'title' | 'systemPrompt' | 'updatedAt'>>,
   ): Promise<Tree | null>;
-  /** Deletes the tree with all branches, nodes, summaries and shares. */
+  /** Deletes the tree with all branches, nodes, links, summaries and shares. */
   deleteTree(treeId: string): Promise<boolean>;
 
   getBranch(branchId: string): Promise<Branch | null>;
@@ -54,9 +55,10 @@ export interface TreeRepository {
   ): Promise<Branch | null>;
   /**
    * Atomically deletes the given branches of `treeId` with their nodes, the
-   * summaries anchored on those nodes, and the shares (with snapshots) whose
-   * target is one of those nodes; then bumps the tree's updatedAt. The caller
-   * passes a whole subtree (see ChatService.deleteBranch).
+   * links touching those nodes, the summaries anchored on them, and the
+   * shares (with snapshots) whose target is one of them; then bumps the
+   * tree's updatedAt. The caller passes a whole subtree (see
+   * ChatService.deleteBranch).
    */
   deleteBranches(
     treeId: string,
@@ -88,11 +90,31 @@ export interface TreeRepository {
   /** Nodes left in `streaming` state (e.g. after a crash). */
   listStreamingNodes(treeId: string): Promise<ChatNode[]>;
 
+  /** The tree's links, oldest first. */
+  listLinks(treeId: string): Promise<NodeLink[]>;
+  getLink(linkId: string): Promise<NodeLink | null>;
+  /**
+   * Inserts the link and bumps the tree's updatedAt, atomically. When its
+   * two nodes are already linked (either way round) nothing is written and
+   * the existing link is returned with `created: false`. Rejects with
+   * NotFoundError when either node doesn't exist (any more). The caller
+   * checks that both nodes belong to `link.treeId` and differ.
+   */
+  createLink(link: NodeLink, treeUpdatedAt: string): Promise<{ link: NodeLink; created: boolean }>;
+  updateLink(linkId: string, patch: Pick<NodeLink, 'note' | 'updatedAt'>): Promise<NodeLink | null>;
+  deleteLink(linkId: string): Promise<boolean>;
+
   /**
    * Imports a full tree (backup restore) atomically. Ids are expected to be
-   * fresh (the caller remaps them).
+   * fresh (the caller remaps them); links must join two distinct `nodes`,
+   * each pair at most once.
    */
-  importTree(tree: Tree, branches: Branch[], nodes: ChatNode[]): Promise<void>;
+  importTree(
+    tree: Tree,
+    branches: Branch[],
+    nodes: ChatNode[],
+    links?: readonly NodeLink[],
+  ): Promise<void>;
 }
 
 export interface SummaryRepository {

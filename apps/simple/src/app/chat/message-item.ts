@@ -1,13 +1,22 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { splitTangents, type ChatNode } from '@tangent/shared';
-import { Icon, MarkdownService, SourcesList } from '@tangent/web-shared';
+import {
+  Icon,
+  MarkdownService,
+  RelatedLinks,
+  relatedLinks,
+  SourcesList,
+  type LinkNoteEdit,
+} from '@tangent/web-shared';
 import { LessonStore } from '../state/lesson-store';
+import { UiStore } from '../state/ui-store';
+import { connectedLabel, connectionTitleOf, learnConnections } from './connections';
 import { branchTitle } from './titles';
 
 /** One message of the lesson; `data-node-id` lets the chat page map a text selection to it. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, SourcesList],
+  imports: [Icon, RelatedLinks, SourcesList],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -29,6 +38,14 @@ import { branchTitle } from './titles';
             (click)="store.askAbout(n.id, null)"
           >
             <app-icon name="branch" [size]="14" /> Side question
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm msg-connect"
+            title="Connect this message to another one of the lesson"
+            (click)="ui.linkDialog.set(n.id)"
+          >
+            <app-icon name="link" [size]="14" /> Connect
           </button>
         }
       </header>
@@ -102,14 +119,28 @@ import { branchTitle } from './titles';
           }
         </nav>
       }
+
+      <app-related-links
+        class="connections"
+        [entries]="connections()"
+        [canEdit]="true"
+        [collapsible]="false"
+        [label]="connectedLabel"
+        noun="connection"
+        (open)="store.openNode($event, n.id)"
+        (remove)="removeConnection($event)"
+        (editNote)="editNote($event)"
+      />
     </article>
   `,
   host: { class: 'msg-host' },
 })
 export class MessageItem {
   protected readonly store = inject(LessonStore);
+  protected readonly ui = inject(UiStore);
   private readonly md = inject(MarkdownService);
   protected readonly branchTitle = branchTitle;
+  protected readonly connectedLabel = connectedLabel;
 
   readonly node = input.required<ChatNode>();
   readonly ancestor = input(false);
@@ -176,6 +207,24 @@ export class MessageItem {
     } finally {
       this.checking.set(false);
     }
+  }
+
+  /** This message's connections to other messages, as chips (titles in Learn's words). */
+  protected readonly connections = computed(() => {
+    const idx = this.store.index();
+    if (!idx) return [];
+    return learnConnections(
+      relatedLinks(idx, this.store.linksByNode(), this.node().id, connectionTitleOf),
+    );
+  });
+
+  protected removeConnection(linkId: string): void {
+    if (!confirm('Remove this connection? Both messages stay as they are.')) return;
+    void this.store.deleteLink(linkId);
+  }
+
+  protected editNote(edit: LinkNoteEdit): void {
+    void this.store.updateLink(edit.linkId, edit.note);
   }
 
   /** Title of the tangent whose branch is being created. */

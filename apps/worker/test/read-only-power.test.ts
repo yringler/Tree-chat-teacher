@@ -12,6 +12,7 @@ import {
   type Branch,
   type CopyToLearnResponse,
   type MeResponse,
+  type NodeLink,
   type TreeBackup,
   type TreeDetail,
   type TreeSummary,
@@ -148,6 +149,25 @@ describe('a power user without a membership (the fee on)', () => {
           })
         ).status,
       ).toBe(200);
+
+      // Linking two messages never generates, so it stays open too.
+      const user = tree.nodes.find((n) => n.role === 'user')!;
+      const link = await json<NodeLink>(
+        await u.call('/api/links', {
+          method: 'POST',
+          json: { fromNodeId: user.id, toNodeId: reply.id, note: 'question and answer' },
+        }),
+        201,
+      );
+      expect(
+        (
+          await u.call(`/api/links/${link.id}`, {
+            method: 'PATCH',
+            json: { note: 'the answer' },
+          })
+        ).status,
+      ).toBe(200);
+      expect((await u.call(`/api/links/${link.id}`, { method: 'DELETE' })).status).toBe(204);
 
       // Generating on the user's own key: the membership, from the server.
       const send = await u.call(`/api/branches/${trunk.id}/messages`, {

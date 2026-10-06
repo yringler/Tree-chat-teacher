@@ -7,6 +7,7 @@ import type {
   ChatNode,
   MeResponse,
   MembershipInfo,
+  NodeLink,
   ProviderInfo,
   TreeDetail,
   UpdateBranchRequest,
@@ -58,15 +59,16 @@ function setup() {
     keyStatus: vi.fn(async () => ({ enabled: true, hasKey: false, providers: [] })),
     billing: vi.fn(async (): Promise<BillingSummary> => summary),
   };
+  const router = { navigate: vi.fn(async () => true) };
   const injector = Injector.create({
     providers: [
       { provide: TreeStore },
       { provide: UiStore },
       { provide: ApiClient, useValue: api },
-      { provide: Router, useValue: { navigate: vi.fn(async () => true) } },
+      { provide: Router, useValue: router },
     ],
   });
-  return { store: injector.get(TreeStore), ui: injector.get(UiStore), api };
+  return { store: injector.get(TreeStore), ui: injector.get(UiStore), api, router };
 }
 
 describe('TreeStore membership and credit', () => {
@@ -212,6 +214,7 @@ describe('TreeStore read-only power without a membership', () => {
           model: 'a/b',
         }),
       ],
+      links: [],
     };
   }
 
@@ -479,6 +482,7 @@ describe('TreeStore the default route of a new conversation (no keys)', () => {
         },
       ],
       nodes: [],
+      links: [],
     };
     const createTree = vi.fn(async () => created);
     const message = 'Add your OpenRouter API key to continue this conversation.';
@@ -604,5 +608,284 @@ describe('TreeStore routes (provider + funding)', () => {
       funding: 'credit',
       model: 'a/b',
     });
+  });
+});
+
+describe('TreeStore links between messages', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  const at = '2026-10-01T00:00:00.000Z';
+  const branch = (over: Partial<Branch>): Branch => ({
+    id: 'trunk',
+    treeId: 't1',
+    parentBranchId: null,
+    branchPointNodeId: null,
+    contextMode: 'path',
+    anchorQuote: null,
+    title: 'Main thread',
+    titleSource: 'default',
+    isPrivate: false,
+    providerId: 'openrouter',
+    model: 'a/b',
+    funding: 'own-key',
+    createdAt: at,
+    updatedAt: at,
+    ...over,
+  });
+  const node = (over: Partial<ChatNode>): ChatNode => ({
+    id: 'n1',
+    treeId: 't1',
+    branchId: 'trunk',
+    parentId: null,
+    seq: 0,
+    role: 'user',
+    content: 'Hi',
+    status: 'complete',
+    error: null,
+    providerId: null,
+    model: null,
+    usage: null,
+    createdAt: at,
+    ...over,
+  });
+  const link = (over: Partial<NodeLink>): NodeLink => ({
+    id: 'l1',
+    treeId: 't1',
+    sourceNodeId: 'n2',
+    targetNodeId: 'n3',
+    note: null,
+    origin: 'user',
+    createdAt: at,
+    updatedAt: at,
+    ...over,
+  });
+
+  /** Main thread n1 → n2; "Owls" off n2 (n3, n4), "Deeper" off n4 (n5); n2 linked to n3. */
+  function tree(): TreeDetail {
+    return {
+      tree: {
+        id: 't1',
+        accountId: 'p_1',
+        title: 'Primes',
+        systemPrompt: null,
+        trunkBranchId: 'trunk',
+        createdAt: at,
+        updatedAt: at,
+      },
+      branches: [
+        branch({}),
+        branch({ id: 'owls', parentBranchId: 'trunk', branchPointNodeId: 'n2', title: 'Owls' }),
+        branch({ id: 'deeper', parentBranchId: 'owls', branchPointNodeId: 'n4', title: 'Deeper' }),
+      ],
+      nodes: [
+        node({}),
+        node({ id: 'n2', parentId: 'n1', seq: 1, role: 'assistant', content: 'Hello' }),
+        node({ id: 'n3', branchId: 'owls', parentId: 'n2', content: 'Owls?' }),
+        node({ id: 'n4', branchId: 'owls', parentId: 'n3', seq: 1, role: 'assistant' }),
+        node({ id: 'n5', branchId: 'deeper', parentId: 'n4', content: 'Deeper?' }),
+      ],
+      links: [link({})],
+    };
+  }
+
+  function open() {
+    const s = setup();
+    const api = Object.assign(s.api, {
+      createLink: vi.fn(
+        async (req: { fromNodeId: string; toNodeId: string; note?: string | null }) => ({
+          link: link({
+            id: 'l2',
+            sourceNodeId: req.fromNodeId,
+            targetNodeId: req.toNodeId,
+            note: req.note ?? null,
+          }),
+          created: true,
+        }),
+      ),
+      updateLink: vi.fn(async (id: string, req: { note: string | null }) =>
+        link({ id, note: req.note }),
+      ),
+      deleteLink: vi.fn(async () => undefined),
+      deleteBranch: vi.fn(async () => ({
+        treeId: 't1',
+        branchIds: ['owls', 'deeper'],
+        nodeIds: ['n3', 'n4', 'n5'],
+      })),
+    });
+    s.store.detail.set(tree());
+    s.store.setRoute('t1', 'deeper', 'n5');
+    return { ...s, api };
+  }
+
+  it('indexes the links by both ends, and counts them per branch', () => {
+    const s = open();
+    expect(s.store.links()).toHaveLength(1);
+    expect(
+      s.store
+        .linksByNode()
+        .get('n2')
+        ?.map((l) => l.id),
+    ).toEqual(['l1']);
+    expect(
+      s.store
+        .linksByNode()
+        .get('n3')
+        ?.map((l) => l.id),
+    ).toEqual(['l1']);
+    expect([...s.store.linkCounts()]).toEqual([
+      ['trunk', 1],
+      ['owls', 1],
+    ]);
+  });
+
+  it('createLink adds the link, opens both ends and says so', async () => {
+    const s = open();
+    const made = await s.store.createLink('n5', 'n1', 'Same question');
+    expect(s.api.createLink).toHaveBeenCalledWith({
+      fromNodeId: 'n5',
+      toNodeId: 'n1',
+      note: 'Same question',
+    });
+    expect(made?.id).toBe('l2');
+    expect(s.store.links().map((l) => l.id)).toEqual(['l1', 'l2']);
+    expect(s.store.linksByNode().get('n1')?.[0]?.note).toBe('Same question');
+    expect([...s.ui.relatedOpen()]).toEqual(['n5', 'n1']);
+    expect(s.ui.toasts().at(-1)?.text).toBe('Messages linked');
+  });
+
+  it('createLink on two messages already linked (either way round) keeps the one link', async () => {
+    const s = open();
+    s.api.createLink.mockResolvedValueOnce({ link: link({}), created: false });
+    await s.store.createLink('n3', 'n2');
+    expect(s.store.links()).toEqual([link({})]);
+    expect(s.ui.toasts().at(-1)?.text).toBe('Already linked');
+  });
+
+  it('createLink trusts the server over a stale local index (linked in another tab)', async () => {
+    const s = open();
+    const elsewhere = link({ id: 'l9', sourceNodeId: 'n1', targetNodeId: 'n5' });
+    s.api.createLink.mockResolvedValueOnce({ link: elsewhere, created: false });
+    await s.store.createLink('n5', 'n1');
+    expect(s.store.links().map((l) => l.id)).toEqual(['l1', 'l9']);
+    expect(s.ui.toasts().at(-1)?.text).toBe('Already linked');
+  });
+
+  it('createLink failing toasts the error and changes nothing', async () => {
+    const s = open();
+    s.api.createLink.mockRejectedValueOnce(new ApiError(400, 'bad_request', 'Too many links'));
+    await expect(s.store.createLink('n5', 'n1')).resolves.toBeNull();
+    expect(s.store.links()).toHaveLength(1);
+    expect(s.ui.toasts().at(-1)).toEqual(
+      expect.objectContaining({ kind: 'error', text: 'Too many links' }),
+    );
+  });
+
+  it('updateLinkNote and deleteLink change the open tree', async () => {
+    const s = open();
+    await s.store.updateLinkNote('l1', 'Why owls');
+    expect(s.api.updateLink).toHaveBeenCalledWith('l1', { note: 'Why owls' });
+    expect(s.store.links()[0]?.note).toBe('Why owls');
+    await expect(s.store.deleteLink('l1')).resolves.toBe(true);
+    expect(s.api.deleteLink).toHaveBeenCalledWith('l1');
+    expect(s.store.links()).toEqual([]);
+    expect(s.store.linksByNode().size).toBe(0);
+    expect(s.ui.toasts().at(-1)?.text).toBe('Link removed');
+  });
+
+  it('a link already removed elsewhere (404) leaves both ends here too', async () => {
+    const s = open();
+    s.api.updateLink.mockRejectedValueOnce(new ApiError(404, 'not_found', 'Link not found'));
+    await expect(s.store.updateLinkNote('l1', 'Why owls')).resolves.toBe(false);
+    expect(s.store.links()).toEqual([]);
+    expect(s.ui.toasts().at(-1)).toEqual(
+      expect.objectContaining({ kind: 'info', text: 'That link was already removed' }),
+    );
+
+    const again = open();
+    again.api.deleteLink.mockRejectedValueOnce(new ApiError(404, 'not_found', 'Link not found'));
+    await expect(again.store.deleteLink('l1')).resolves.toBe(true);
+    expect(again.store.linksByNode().size).toBe(0);
+    expect(again.ui.toasts().at(-1)?.text).toBe('That link was already removed');
+  });
+
+  it('deleting a branch drops the links touching its messages, and pick mode from them', async () => {
+    const s = open();
+    s.store.detail.update((d) =>
+      d
+        ? {
+            ...d,
+            links: [
+              ...d.links,
+              link({ id: 'l2', sourceNodeId: 'n1', targetNodeId: 'n2' }),
+              link({ id: 'l3', sourceNodeId: 'n5', targetNodeId: 'n1' }),
+            ],
+          }
+        : d,
+    );
+    s.ui.linkPick.set({ fromNodeId: 'n5' });
+    s.ui.linkReturn.set({
+      branchId: 'deeper',
+      focusNodeId: 'n5',
+      label: 'Deeper',
+      toBranchId: 'trunk',
+      toNodeId: 'n1',
+    });
+    await expect(s.store.deleteBranch('owls')).resolves.toBe(true);
+    expect(s.store.links().map((l) => l.id)).toEqual(['l2']);
+    expect(s.ui.linkPick()).toBeNull();
+    expect(s.ui.linkReturn()).toBeNull();
+  });
+
+  it('openNode goes to the other end, focused, and remembers where it came from', () => {
+    const s = open();
+    expect(s.store.openNode('n2', 'n5')).toBe(true);
+    expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1', 'b', 'trunk'], {
+      queryParams: { m: 'n2' },
+      replaceUrl: false,
+    });
+    expect(s.ui.linkReturn()).toEqual({
+      branchId: 'deeper',
+      focusNodeId: 'n5',
+      label: 'Deeper',
+      toBranchId: 'trunk',
+      toNodeId: 'n2',
+    });
+    expect(s.ui.relatedOpen().has('n2')).toBe(true);
+    // Without the message it was opened from: the focused one.
+    s.store.setRoute('t1', 'owls', 'n4');
+    s.store.openNode('n2');
+    expect(s.ui.linkReturn()?.focusNodeId).toBe('n4');
+    // A message that isn't in the tree goes nowhere.
+    expect(s.store.openNode('gone')).toBe(false);
+  });
+
+  it('opening another tree ends pick mode and forgets the return pill', () => {
+    const s = open();
+    s.ui.linkPick.set({ fromNodeId: 'n5' });
+    s.ui.linkDialog.set({ fromNodeId: 'n5' });
+    s.store.openNode('n2', 'n5');
+    s.store.setRoute('t1', 'trunk', 'n2');
+    expect(s.ui.linkPick()).not.toBeNull();
+    s.store.setRoute('t2', null, null);
+    expect(s.ui.linkPick()).toBeNull();
+    expect(s.ui.linkDialog()).toBeNull();
+    expect(s.ui.linkReturn()).toBeNull();
+  });
+
+  it('Escape ends pick mode after closing dialogs', () => {
+    const s = open();
+    s.ui.linkPick.set({ fromNodeId: 'n5' });
+    s.ui.linkDialog.set({ fromNodeId: 'n5' });
+    expect(s.ui.anyDialogOpen()).toBe(true);
+    expect(s.ui.closeTop()).toBe(true);
+    expect(s.ui.linkDialog()).toBeNull();
+    expect(s.ui.linkPick()).not.toBeNull();
+    expect(s.ui.anyDialogOpen()).toBe(false);
+    expect(s.ui.closeTop()).toBe(true);
+    expect(s.ui.linkPick()).toBeNull();
   });
 });
