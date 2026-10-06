@@ -12,9 +12,8 @@ import {
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import type { Branch, ChatNode, MembershipInfo } from '@tangent/shared';
-import { ReadOnlyComposer } from '@tangent/web-shared';
+import { ReadOnlyComposer, TextSizeStore } from '@tangent/web-shared';
 import { Inspector } from '../inspector/inspector';
-import { TextSizeStore } from '../state/text-size-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ModeBadge } from '../ui/mode-badge';

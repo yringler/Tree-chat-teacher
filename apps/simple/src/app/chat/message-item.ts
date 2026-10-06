@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, signal } f
 import { splitTangents, type ChatNode } from '@tangent/shared';
 import { Icon, MarkdownService, SourcesList, TangentAsk } from '@tangent/web-shared';
 import { LessonStore } from '../state/lesson-store';
+import { confirmDeleteSideQuestion } from './delete-side-question';
 import { branchTitle } from './titles';
 
 /** One message of the lesson; `data-node-id` lets the chat page map a text selection to it. */
@@ -96,15 +97,27 @@ import { branchTitle } from './titles';
             {{ otherChildren().length === 1 ? 'side question' : 'side questions' }}
           </span>
           @for (b of otherChildren(); track b.id) {
-            <button
-              type="button"
-              class="chip"
-              [class.is-on]="chainIds().has(b.id)"
-              [title]="b.anchorQuote ?? branchTitle(b)"
-              (click)="store.go(b.id)"
-            >
-              {{ branchTitle(b) }}
-            </button>
+            <span class="chip-row">
+              <button
+                type="button"
+                class="chip"
+                [class.is-on]="chainIds().has(b.id)"
+                [title]="b.anchorQuote ?? branchTitle(b)"
+                (click)="store.go(b.id)"
+              >
+                {{ branchTitle(b) }}
+              </button>
+              <!-- Delete it from here (shown on hover or keyboard focus, always on touch). -->
+              <button
+                type="button"
+                class="icon-btn icon-btn-danger chip-delete"
+                [attr.aria-label]="'Delete the side question ' + branchTitle(b)"
+                title="Delete this side question"
+                (click)="remove(b.id)"
+              >
+                <app-icon name="trash" [size]="13" />
+              </button>
+            </span>
           }
         </nav>
       }
@@ -199,6 +212,10 @@ export class MessageItem {
     } finally {
       this.asking.set(false);
     }
+  }
+
+  protected async remove(branchId: string): Promise<void> {
+    await confirmDeleteSideQuestion(this.store, branchId);
   }
 
   protected async follow(title: string): Promise<void> {

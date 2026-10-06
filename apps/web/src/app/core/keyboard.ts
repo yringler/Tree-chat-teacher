@@ -1,5 +1,5 @@
 import { inject, Injectable } from '@angular/core';
-import { TextSizeStore } from '../state/text-size-store';
+import { TextSizeStore } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { selectionWithin } from './selection';

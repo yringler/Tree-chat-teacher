@@ -306,6 +306,10 @@ hr {
   color: var(--fg);
 }
 
+.icon-btn.icon-btn-danger:hover:not(:disabled) {
+  color: var(--danger);
+}
+
 .icon-btn.is-on {
   background: var(--accent-soft);
   color: var(--accent);
@@ -867,6 +871,80 @@ textarea:focus-visible {
   width: 26px;
   height: 22px;
   color: var(--accent);
+}
+
+/* Text size ("Aa": ui/text-size-menu.ts), a popover under its button */
+.text-size-wrap {
+  position: relative;
+}
+
+.text-size-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+
+.text-size-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 21;
+  min-width: 220px;
+  max-width: calc(100vw - 24px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  font-size: 0.9rem;
+}
+
+.text-size-btn {
+  font-weight: 600;
+  font-size: 0.92rem;
+  letter-spacing: -0.02em;
+}
+
+.text-size-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.text-size-steps .btn {
+  flex: none;
+  min-width: 44px;
+}
+
+.text-size-menu .btn[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.text-size-menu .btn[aria-disabled='true']:hover {
+  background: var(--bg-elev);
+}
+
+.text-size-menu .btn-ghost[aria-disabled='true']:hover {
+  background: transparent;
+}
+
+.text-size-glyph-sm {
+  font-size: 0.8rem;
+}
+
+.text-size-glyph-lg {
+  font-size: 1.05rem;
+}
+
+.text-size-value {
+  flex: 1;
+  text-align: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Sources: what a grounded reply was checked against, or "Check sources" (both apps). */

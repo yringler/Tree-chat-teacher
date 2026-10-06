@@ -353,6 +353,72 @@ describe('CanvasStore', () => {
   });
 });
 
+describe('CanvasStore deleting a lane', () => {
+  // detail(): trunk (u1 a1) and lane `b` from a1 (u2 a2); here also `c` below `b` and `d` off a1.
+  function tree(): TreeDetail {
+    const d = detail();
+    return {
+      ...d,
+      branches: [
+        ...d.branches,
+        branch('c', { parentBranchId: 'b', branchPointNodeId: 'a2' }),
+        branch('d', { parentBranchId: 'trunk', branchPointNodeId: 'a1' }),
+      ],
+      nodes: [
+        ...d.nodes,
+        node('u3', { seq: 4, parentId: 'a2', branchId: 'c', role: 'user' }),
+        node('u4', { seq: 2, parentId: 'a1', branchId: 'd', role: 'user' }),
+      ],
+    };
+  }
+
+  function open(selected: string) {
+    const s = setup();
+    s.store.detail.set(tree());
+    const deleteBranch = vi.fn(async (_id: string) => ({
+      treeId: 't1',
+      branchIds: ['b', 'c'],
+      nodeIds: ['u2', 'a2', 'u3'],
+    }));
+    Object.assign(s.api, { deleteBranch });
+    s.store.setRoute('t1', selected, null);
+    const go = vi.spyOn(s.store, 'go');
+    return { ...s, deleteBranch, go };
+  }
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('takes the lanes below with it; a selection in there moves to the fork', async () => {
+    const s = open('c');
+    await expect(s.store.deleteBranch('b')).resolves.toBe(true);
+    expect(s.deleteBranch).toHaveBeenCalledWith('b');
+    expect(s.go).toHaveBeenCalledWith('trunk', 'a1', true);
+    expect([...(s.store.index()?.branches.keys() ?? [])].sort()).toEqual(['d', 'trunk']);
+    expect(s.store.index()?.nodes.has('u3')).toBe(false);
+    expect(s.ui.toasts().at(-1)?.text).toBe('Deleted the lane and 1 below it');
+  });
+
+  it('a lane selected elsewhere stays selected', async () => {
+    const s = open('d');
+    await s.store.deleteBranch('b');
+    expect(s.go).not.toHaveBeenCalled();
+    expect(s.store.selectedBranchId()).toBe('d');
+  });
+
+  it('a refused delete changes nothing', async () => {
+    const s = open('b');
+    s.deleteBranch.mockRejectedValueOnce(new ApiError(409, 'conflict', 'Still writing'));
+    await expect(s.store.deleteBranch('b')).resolves.toBe(false);
+    expect(s.go).not.toHaveBeenCalled();
+    expect(s.store.index()?.branches.size).toBe(4);
+    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still writing' });
+  });
+});
+
 describe('CanvasStore read-only lanes without a membership', () => {
   const inactive = {
     required: true,

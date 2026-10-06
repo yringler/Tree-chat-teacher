@@ -4,14 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_TEXT_SIZE,
   parseTextSize,
+  provideTextSize,
   TEXT_SIZE_STEPS,
   TextSizeStore,
 } from './text-size-store';
 
 const KEY = 'tangent.chatFontScale';
 
-function create(): TextSizeStore {
-  return Injector.create({ providers: [{ provide: TextSizeStore }] }).get(TextSizeStore);
+function create(key = KEY): TextSizeStore {
+  return Injector.create({ providers: [{ provide: TextSizeStore }, provideTextSize(key)] }).get(
+    TextSizeStore,
+  );
 }
 
 describe('parseTextSize', () => {
@@ -86,6 +89,23 @@ describe('TextSizeStore', () => {
     expect(s.scale()).toBe(1);
     expect(storage.has(KEY)).toBe(false);
     expect(create().scale()).toBe(1);
+  });
+
+  it("keeps each app's size under its own key", () => {
+    const power = create();
+    const learn = create('tangent.learn.chatFontScale');
+    learn.increase();
+    expect(storage.get('tangent.learn.chatFontScale')).toBe('1.12');
+    expect(storage.has(KEY)).toBe(false);
+    expect(power.scale()).toBe(1);
+    expect(create('tangent.canvas.chatFontScale').scale()).toBe(1);
+    expect(create('tangent.learn.chatFontScale').scale()).toBe(1.12);
+  });
+
+  it('needs its key provided', () => {
+    expect(() =>
+      Injector.create({ providers: [{ provide: TextSizeStore }] }).get(TextSizeStore),
+    ).toThrow();
   });
 
   it('ignores a garbage value saved under the key', () => {

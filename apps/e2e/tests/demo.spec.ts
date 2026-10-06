@@ -126,6 +126,132 @@ test('power demo: the conversation text size scales the messages only, and is re
   expect(errors).toEqual([]);
 });
 
+test('power demo: the open branch is deleted from the chat header, back to where it started', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.goto('/demo');
+  await page.locator('.home-list .tree-row a').first().click();
+  await page.locator('.fork-toggle').first().click();
+  const fork = page.locator('.fork-list .fork-row').first();
+  const title = (await fork.locator('.outline-title').innerText()).trim();
+  const outline = page.locator('.outline .outline-title', { hasText: title });
+  await expect(outline).toHaveCount(1);
+  await fork.locator('.fork-link').click();
+  await expect(page).toHaveURL(/\/b\//);
+  const branchUrl = page.url();
+  const branchId = /\/b\/([^/?]+)/.exec(branchUrl)?.[1] ?? '';
+
+  // The trash beside "Parent message": Cancel stays, OK deletes.
+  const del = page.locator('.chat-head').getByRole('button', { name: `Delete ${title}` });
+  const asked: string[] = [];
+  page.once('dialog', async (d) => {
+    asked.push(d.message());
+    await d.dismiss();
+  });
+  await del.click();
+  await expect.poll(() => asked.length).toBe(1);
+  expect(asked[0]).toMatch(new RegExp(`^Delete “${title}” \\(\\d+ messages?\\)\\?`));
+  expect(asked[0]).toContain('This cannot be undone.');
+  expect(page.url()).toBe(branchUrl);
+
+  page.once('dialog', (d) => d.accept());
+  await del.click();
+  // On the parent, at the message the branch came from; the outline no longer lists it.
+  await expect.poll(() => page.url()).not.toContain(branchId);
+  await expect(page).toHaveURL(/[?&]m=/);
+  await expect(page.locator('.msg-focused')).toBeVisible();
+  await expect(outline).toHaveCount(0);
+  await expect(page.locator('.toast').filter({ hasText: 'Branch deleted' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('Learn demo: a side question is deleted from its chip, or from the header when open', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.goto('/learn/demo/');
+  await page.locator('.lesson-row a').first().click();
+  const chip = page.locator('.side-questions .chip', { hasText: 'Why the owl hums first' });
+  await expect(chip).toBeVisible();
+
+  const asked: string[] = [];
+  page.once('dialog', async (d) => {
+    asked.push(d.message());
+    await d.dismiss();
+  });
+  const del = page.getByRole('button', { name: 'Delete the side question Why the owl hums first' });
+  await del.click();
+  await expect.poll(() => asked.length).toBe(1);
+  expect(asked[0]).toBe(
+    'Delete “Why the owl hums first” (2 messages)? Replies still being written there are stopped. This cannot be undone.',
+  );
+  await expect(chip).toBeVisible();
+  page.once('dialog', (d) => d.accept());
+  await del.click();
+  await expect(chip).toHaveCount(0);
+  await expect(page.locator('.toast').filter({ hasText: 'Side question deleted' })).toBeVisible();
+
+  // The open side question (a followed tangent): from the header, back to the lesson.
+  const tangent = page.locator('.tangent.is-followed').first();
+  const name = (await tangent.locator('.tangent-title').innerText()).trim();
+  await tangent.click();
+  await expect(page).toHaveURL(/\/b\//);
+  page.once('dialog', (d) => d.accept());
+  await page
+    .locator('.crumbs')
+    .getByRole('button', { name: `Delete the side question ${name}` })
+    .click();
+  await expect(page).not.toHaveURL(/\/b\//);
+  await expect(page).toHaveURL(/[?&]m=/);
+  await expect(page.locator('.tangent', { hasText: name })).not.toHaveClass(/is-followed/);
+  expect(errors).toEqual([]);
+});
+
+test('Learn demo: the lesson text size scales the messages only, and is remembered', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  const fontSize = (l: Locator) => l.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  await page.goto('/learn/demo/');
+  await page.locator('.lesson-row a').first().click();
+  const body = page.locator('.msg-body').first();
+  const composer = page.locator('#composer-input');
+  const title = page.locator('.lesson-title');
+  await expect(body).toBeVisible();
+  const [bodyBefore, composerBefore, titleBefore] = [
+    await fontSize(body),
+    await fontSize(composer),
+    await fontSize(title),
+  ];
+
+  await page.getByRole('button', { name: 'Text size' }).click();
+  await expect(page.getByText('Lesson text size')).toBeVisible();
+  const larger = page.getByRole('button', { name: 'Larger text' });
+  await larger.click();
+  await larger.click();
+  await expect(page.locator('.text-size-value')).toHaveText('125%');
+  await expect.poll(() => fontSize(body)).toBeCloseTo(bodyBefore * 1.25, 1);
+  expect(await fontSize(composer)).toBeCloseTo(composerBefore * 1.25, 1);
+  expect(await fontSize(title)).toBe(titleBefore);
+  // Escape closes it (Learn has no text-size shortcuts) and hands focus back.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.text-size-value')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Text size' })).toBeFocused();
+
+  // Kept across a reload (the demo reseeds itself, under new ids), apart from power's.
+  await page.goto('/learn/demo/');
+  await page.locator('.lesson-row a').first().click();
+  await expect(body).toBeVisible();
+  expect(await fontSize(body)).toBeCloseTo(bodyBefore * 1.25, 1);
+  expect(await page.evaluate(() => localStorage.getItem('tangent.chatFontScale'))).toBeNull();
+
+  await page.getByRole('button', { name: 'Text size' }).click();
+  await page.getByRole('button', { name: 'Reset to 100%' }).click();
+  await expect.poll(() => fontSize(body)).toBeCloseTo(bodyBefore, 1);
+  expect(errors).toEqual([]);
+});
+
 test('power demo: ask your own question under a reply, inline or through the branch dialog', async ({
   page,
 }) => {
@@ -264,6 +390,106 @@ test('Canvas demo: ask your own question in a new lane, inline or through the br
   await expect(dialog.getByRole('textbox', { name: /Starting message/ })).toBeVisible();
   await expect(dialog.getByRole('textbox', { name: /title/i })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(errors).toEqual([]);
+});
+
+test('Canvas demo: a lane is deleted from its head, with the lanes below it', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/canvas/demo/');
+  await page.getByText('How do kittens learn to whistle?').first().click();
+  const lanes = page.locator('.lane');
+  await expect(lanes).toHaveCount(3);
+  const lane = page.locator('.lane', {
+    has: page.locator('.lane-title', { hasText: 'Why the owl hums first' }),
+  });
+  // Select it, so deleting it moves the selection back to the fork.
+  await lane.locator('.lane-title').click();
+  await expect(page).toHaveURL(/\/b\//);
+  const laneId = (await lane.getAttribute('data-branch-id')) ?? '';
+  expect(page.url()).toContain(laneId);
+  const del = lane.getByRole('button', { name: 'Delete the lane Why the owl hums first' });
+
+  const asked: string[] = [];
+  page.once('dialog', async (d) => {
+    asked.push(d.message());
+    await d.dismiss();
+  });
+  await del.click();
+  await expect.poll(() => asked.length).toBe(1);
+  expect(asked[0]).toMatch(/^Delete “Why the owl hums first” \(2 messages\)\? /);
+  expect(asked[0]).toContain('This cannot be undone.');
+  await expect(lanes).toHaveCount(3);
+
+  page.once('dialog', (d) => d.accept());
+  await del.click();
+  await expect(lanes).toHaveCount(2);
+  await expect.poll(() => page.url()).not.toContain(laneId);
+  await expect(page).toHaveURL(/[?&]m=/);
+  // The main thread has no delete of its own (the conversation's is in the bar).
+  await expect(lanes.first().getByRole('button', { name: /^Delete the lane/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('Canvas demo: the card text size re-lays the lanes out, and is remembered', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  const fontSize = (l: Locator) => l.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  const open = async () => {
+    await page.goto('/canvas/demo/');
+    await page.getByText('How do kittens learn to whistle?').first().click();
+    await expect(page.locator('.lane')).toHaveCount(3);
+  };
+  await open();
+  const card = page.locator('.card-body').first();
+  const composer = page.locator('.lane .composer textarea').first();
+  const title = page.locator('.canvas-title');
+  const lanes = page.locator('.lane');
+  // The two lanes forking from the first reply sit one above the other.
+  const gap = async () => {
+    const [a, b] = [await lanes.nth(1).boundingBox(), await lanes.nth(2).boundingBox()];
+    const [top, bottom] = (a?.y ?? 0) < (b?.y ?? 0) ? [a, b] : [b, a];
+    return (bottom?.y ?? 0) - ((top?.y ?? 0) + (top?.height ?? 0));
+  };
+  const heightOf = async (l: Locator) => (await l.boundingBox())?.height ?? 0;
+  // (Once the first layout has settled: lanes slide into place.)
+  await expect.poll(gap).toBeGreaterThan(0);
+  const [cardBefore, composerBefore, titleBefore, trunkBefore] = [
+    await fontSize(card),
+    await fontSize(composer),
+    await fontSize(title),
+    await heightOf(lanes.first()),
+  ];
+
+  await page.getByRole('button', { name: 'Text size' }).click();
+  await expect(page.getByText('Card text size')).toBeVisible();
+  const larger = page.getByRole('button', { name: 'Larger text' });
+  await larger.click();
+  await larger.click();
+  await larger.click();
+  await expect(page.locator('.text-size-value')).toHaveText('140%');
+  await expect.poll(() => fontSize(card)).toBeCloseTo(cardBefore * 1.4, 1);
+  expect(await fontSize(composer)).toBeCloseTo(composerBefore * 1.4, 1);
+  expect(await fontSize(title)).toBe(titleBefore);
+  // Taller cards: the lanes are measured again and laid out without overlapping.
+  await expect.poll(() => heightOf(lanes.first())).toBeGreaterThan(trunkBefore * 1.15);
+  await expect.poll(gap).toBeGreaterThan(0);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.text-size-value')).toBeHidden();
+
+  // Kept across a reload, under its own key; the canvas's +/-/0 still zoom.
+  await open();
+  await expect(card).toBeVisible();
+  expect(await fontSize(card)).toBeCloseTo(cardBefore * 1.4, 1);
+  expect(await page.evaluate(() => localStorage.getItem('tangent.canvas.chatFontScale'))).toBe(
+    '1.4',
+  );
+  const zoom = page.locator('.zoom-value');
+  const zoomBefore = await zoom.innerText();
+  await page.locator('.canvas-title').click();
+  await page.keyboard.press('-');
+  await expect(zoom).not.toHaveText(zoomBefore);
+  expect(await fontSize(card)).toBeCloseTo(cardBefore * 1.4, 1);
   expect(errors).toEqual([]);
 });
 

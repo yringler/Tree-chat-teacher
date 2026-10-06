@@ -744,3 +744,115 @@ describe('TreeStore branching with a first message', () => {
     expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
   });
 });
+
+describe('TreeStore deleting a branch', () => {
+  const at = '2026-10-01T00:00:00.000Z';
+  const base: Branch = {
+    id: 'trunk',
+    treeId: 't1',
+    parentBranchId: null,
+    branchPointNodeId: null,
+    contextMode: 'path',
+    anchorQuote: null,
+    title: 'Main thread',
+    titleSource: 'default',
+    isPrivate: false,
+    providerId: 'openrouter',
+    model: 'a/b',
+    funding: 'own-key',
+    createdAt: at,
+    updatedAt: at,
+  };
+  const msg = (id: string, branchId: string, parentId: string | null, seq: number): ChatNode => ({
+    id,
+    treeId: 't1',
+    branchId,
+    parentId,
+    seq,
+    role: seq % 2 === 0 ? 'user' : 'assistant',
+    content: id,
+    status: 'complete',
+    error: null,
+    providerId: 'openrouter',
+    model: 'a/b',
+    usage: null,
+    createdAt: at,
+  });
+  // trunk: u1 a1; `side` from a1 (u2 a2) with `deep` below it from a2 (u3); `other` from a1 (u4).
+  const branches: Branch[] = [
+    base,
+    { ...base, id: 'side', title: 'Side', parentBranchId: 'trunk', branchPointNodeId: 'a1' },
+    { ...base, id: 'deep', title: 'Deep', parentBranchId: 'side', branchPointNodeId: 'a2' },
+    { ...base, id: 'other', title: 'Other', parentBranchId: 'trunk', branchPointNodeId: 'a1' },
+  ];
+  const nodes: ChatNode[] = [
+    msg('u1', 'trunk', null, 0),
+    msg('a1', 'trunk', 'u1', 1),
+    msg('u2', 'side', 'a1', 2),
+    msg('a2', 'side', 'u2', 3),
+    msg('u3', 'deep', 'a2', 4),
+    msg('u4', 'other', 'a1', 6),
+  ];
+
+  function open(selected: string) {
+    const s = setup();
+    const deleteBranch = vi.fn(async (_id: string) => ({
+      treeId: 't1',
+      branchIds: ['side', 'deep'],
+      nodeIds: ['u2', 'a2', 'u3'],
+    }));
+    Object.assign(s.api, { deleteBranch });
+    s.store.detail.set({
+      tree: {
+        id: 't1',
+        accountId: 'p_1',
+        title: 'Light',
+        systemPrompt: null,
+        trunkBranchId: 'trunk',
+        createdAt: at,
+        updatedAt: at,
+      },
+      branches,
+      nodes,
+    });
+    s.store.setRoute('t1', selected, null);
+    const go = vi.spyOn(s.store, 'go');
+    return { ...s, deleteBranch, go };
+  }
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('deleting the branch the selection is in (or above it) moves to the message it came from', async () => {
+    const s = open('deep');
+    await expect(s.store.deleteBranch('side')).resolves.toBe(true);
+    expect(s.deleteBranch).toHaveBeenCalledWith('side');
+    expect(s.go).toHaveBeenCalledWith('trunk', 'a1', true);
+    const idx = s.store.index();
+    expect([...(idx?.branches.keys() ?? [])].sort()).toEqual(['other', 'trunk']);
+    expect(idx?.nodes.has('u3')).toBe(false);
+    expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['other']);
+    expect(s.ui.toasts().at(-1)?.text).toBe('Deleted the branch and 1 below it');
+  });
+
+  it('a selection elsewhere stays where it is', async () => {
+    const s = open('other');
+    await s.store.deleteBranch('side');
+    expect(s.go).not.toHaveBeenCalled();
+    expect(s.store.selectedBranchId()).toBe('other');
+    expect(s.store.index()?.branches.has('side')).toBe(false);
+  });
+
+  it('a refused delete leaves everything as it was', async () => {
+    const s = open('side');
+    s.deleteBranch.mockRejectedValueOnce(new ApiError(409, 'conflict', 'Still generating'));
+    await expect(s.store.deleteBranch('side')).resolves.toBe(false);
+    expect(s.go).not.toHaveBeenCalled();
+    expect(s.store.index()?.branches.size).toBe(4);
+    expect(s.store.selectedBranchId()).toBe('side');
+    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still generating' });
+  });
+});

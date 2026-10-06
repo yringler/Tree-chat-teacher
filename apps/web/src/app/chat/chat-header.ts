@@ -2,11 +2,10 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import type { Branch } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { DEMO_MODE, Icon } from '@tangent/web-shared';
+import { DEMO_MODE, Icon, TextSizeMenu } from '@tangent/web-shared';
 import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { ModeBadge } from '../ui/mode-badge';
 import { ExportMenu } from './export-menu';
-import { TextSizeMenu } from './text-size-menu';
 
 interface Crumb {
   branch: Branch;
@@ -66,7 +65,7 @@ interface Crumb {
           >
             <app-icon name="edit" /> <span class="hide-narrow">Tree</span>
           </button>
-          <app-text-size-menu />
+          <app-text-size-menu [(open)]="ui.textSizeMenuOpen" [shortcuts]="true" />
           <button
             type="button"
             class="icon-btn"

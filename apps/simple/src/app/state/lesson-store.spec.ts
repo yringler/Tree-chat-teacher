@@ -149,6 +149,11 @@ function fakeApi() {
     getTree: vi.fn(async (_id: string) => detail()),
     createTree: vi.fn(async (_req: unknown) => detail()),
     deleteTree: vi.fn(async (_id: string) => undefined),
+    deleteBranch: vi.fn(async (_id: string) => ({
+      treeId: 't1',
+      branchIds: ['side', 'deeper'],
+      nodeIds: ['u2', 'a2', 'u3'],
+    })),
     createBranch: vi.fn(async (req: CreateBranchRequest) =>
       branch('side', {
         parentBranchId: 'trunk',
@@ -712,6 +717,67 @@ describe('LessonStore', () => {
     // No request when the model is already selected.
     await s.store.setModel('trunk', 'fast-model');
     expect(s.api.updateBranch).toHaveBeenCalledTimes(1);
+  });
+
+  describe('deleting a side question', () => {
+    // trunk: u1 a1; `side` from a1 (u2 a2) with `deeper` from a2 (u3); `other` from a1 (u4).
+    const lesson = () =>
+      detail(
+        [
+          userNode,
+          node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' }),
+          node('u2', { seq: 2, parentId: 'a1', branchId: 'side', role: 'user' }),
+          node('a2', { seq: 3, parentId: 'u2', branchId: 'side' }),
+          node('u3', { seq: 4, parentId: 'a2', branchId: 'deeper', role: 'user' }),
+          node('u4', { seq: 2, parentId: 'a1', branchId: 'other', role: 'user' }),
+        ],
+        [
+          branch('trunk'),
+          branch('side', { parentBranchId: 'trunk', branchPointNodeId: 'a1' }),
+          branch('deeper', { parentBranchId: 'side', branchPointNodeId: 'a2' }),
+          branch('other', { parentBranchId: 'trunk', branchPointNodeId: 'a1' }),
+        ],
+      );
+
+    it('takes the side questions below with it, and leaves the open one for where it started', async () => {
+      const s = setup();
+      await open(s, lesson(), 'deeper');
+      s.store.unsentDraft.set({ branchId: 'deeper', text: 'kept?' });
+      await expect(s.store.deleteSideQuestion('side')).resolves.toBe(true);
+      expect(s.api.deleteBranch).toHaveBeenCalledWith('side');
+      expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1'], {
+        queryParams: { m: 'a1' },
+        replaceUrl: true,
+      });
+      const idx = s.store.index();
+      expect([...(idx?.branches.keys() ?? [])].sort()).toEqual(['other', 'trunk']);
+      expect(idx?.nodes.has('u3')).toBe(false);
+      expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['other']);
+      expect(s.store.unsentDraft()).toBeNull();
+      expect(s.ui.toasts().at(-1)?.text).toBe('Deleted the side question and 1 below it');
+    });
+
+    it('a side question open elsewhere stays open', async () => {
+      const s = setup();
+      await open(s, lesson(), 'other');
+      s.router.navigate.mockClear();
+      await s.store.deleteSideQuestion('side');
+      expect(s.router.navigate).not.toHaveBeenCalled();
+      expect(s.store.selectedBranchId()).toBe('other');
+    });
+
+    it('never deletes the lesson itself; a refusal changes nothing', async () => {
+      const s = setup();
+      await open(s, lesson(), 'side');
+      await expect(s.store.deleteSideQuestion('trunk')).resolves.toBe(false);
+      expect(s.api.deleteBranch).not.toHaveBeenCalled();
+      s.api.deleteBranch.mockRejectedValueOnce(new ApiError(409, 'conflict', 'Still writing'));
+      s.router.navigate.mockClear();
+      await expect(s.store.deleteSideQuestion('side')).resolves.toBe(false);
+      expect(s.router.navigate).not.toHaveBeenCalled();
+      expect(s.store.index()?.branches.size).toBe(4);
+      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still writing' });
+    });
   });
 
   it('deleting the open lesson returns home', async () => {

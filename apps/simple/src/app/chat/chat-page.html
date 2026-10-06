@@ -24,6 +24,7 @@
           (changed)="setModel(b.id, $event)"
         />
       }
+      <app-text-size-menu heading="Lesson text size" />
       <button
         type="button"
         class="icon-btn"
@@ -54,6 +55,17 @@
             Back to the lesson
           }
         </button>
+        @if (store.selectedBranch(); as current) {
+          <button
+            type="button"
+            class="icon-btn icon-btn-danger crumbs-delete"
+            [attr.aria-label]="'Delete the side question ' + branchTitle(current)"
+            title="Delete this side question"
+            (click)="deleteSideQuestion(current.id)"
+          >
+            <app-icon name="trash" [size]="14" />
+          </button>
+        }
         <ol>
           @for (b of store.chain(); track b.id; let last = $last) {
             <li>

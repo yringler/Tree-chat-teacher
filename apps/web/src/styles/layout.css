@@ -446,10 +446,6 @@ app-root {
   height: 22px;
 }
 
-.icon-btn.icon-btn-danger:hover:not(:disabled) {
-  color: var(--danger);
-}
-
 .outline-rename {
   flex: 1;
   min-width: 0;

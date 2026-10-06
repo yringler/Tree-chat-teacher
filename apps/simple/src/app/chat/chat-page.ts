@@ -14,11 +14,12 @@ import {
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import type { Branch, ChatNode } from '@tangent/shared';
-import { Icon, PoolBlockNotice } from '@tangent/web-shared';
+import { Icon, PoolBlockNotice, TextSizeMenu, TextSizeStore } from '@tangent/web-shared';
 import { BRAND } from '../brand';
 import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
 import { Composer } from './composer';
+import { confirmDeleteSideQuestion } from './delete-side-question';
 import { FundingToggle, type FundingOption } from './funding-toggle';
 import { MessageItem } from './message-item';
 import { ModelToggle } from './model-toggle';
@@ -50,17 +51,21 @@ const MAX_QUOTE = 10_000;
     PoolBlockNotice,
     RouterLink,
     NgTemplateOutlet,
+    TextSizeMenu,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './chat-page.html',
   host: {
     class: 'page chat-page',
+    // The learner's text size for the lesson's messages and composer (styles.css).
+    '[style.--chat-font-scale]': 'textSize.scale()',
     '(document:selectionchange)': 'onSelectionChange()',
   },
 })
 export class ChatPage implements OnDestroy {
   protected readonly store = inject(LessonStore);
   protected readonly account = inject(AccountStore);
+  protected readonly textSize = inject(TextSizeStore);
   private readonly title = inject(Title);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   /** True while the view is scrolled to (near) the bottom: new text keeps it pinned. */
@@ -212,6 +217,11 @@ export class ChatPage implements OnDestroy {
     if (!confirm(`Delete the lesson “${lessonTitle(d.tree.title)}” with all its side questions?`))
       return;
     void this.store.deleteLesson(d.tree.id);
+  }
+
+  /** The open side question, with every side question below it (the lesson stays). */
+  protected deleteSideQuestion(branchId: string): void {
+    void confirmDeleteSideQuestion(this.store, branchId);
   }
 
   protected send(content: string): void {

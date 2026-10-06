@@ -13,7 +13,7 @@ import {
 } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
-import { Icon } from '@tangent/web-shared';
+import { Icon, TextSizeMenu, TextSizeStore } from '@tangent/web-shared';
 import { BRAND } from '../brand';
 import { LayoutStore, MAX_ZOOM, MIN_ZOOM } from '../layout/layout-store';
 import { CanvasStore } from '../state/canvas-store';
@@ -52,11 +52,13 @@ interface PendingTouch {
  */
 @Component({
   selector: 'app-canvas-page',
-  imports: [Icon, RouterLink, Connectors, Lane, Minimap],
+  imports: [Icon, RouterLink, Connectors, Lane, Minimap, TextSizeMenu],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './canvas-page.html',
   host: {
     class: 'page canvas-page',
+    // The cards' and lane composers' text size (styles.css); the lanes re-measure on a change.
+    '[style.--chat-font-scale]': 'textSize.scale()',
     '(document:selectionchange)': 'onSelectionChange()',
   },
 })
@@ -64,6 +66,7 @@ export class CanvasPage implements OnDestroy {
   protected readonly store = inject(CanvasStore);
   protected readonly ui = inject(UiStore);
   protected readonly geo = inject(LayoutStore);
+  protected readonly textSize = inject(TextSizeStore);
   private readonly title = inject(Title);
   private readonly viewport = viewChild<ElementRef<HTMLElement>>('viewport');
   protected readonly pendingBranch = signal<PendingBranch | null>(null);
