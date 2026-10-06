@@ -209,7 +209,7 @@
     // pool) and spending credit already held stay open. "false" (default) = nobody needs one, whatever
     // is sold; any signed-in user may use power mode on own keys, the community pool (within its free
     // caps) and buy personal credit.
-    "ANNUAL_FEE_ENABLED": "false",
+    "ANNUAL_FEE_ENABLED": "true",
     // The membership's yearly price in US cents, for display only (Polar charges its product's price).
     "MEMBERSHIP_PRICE_CENTS": "1000",
     // Credit included with each paid membership year, in US cents (200 = $2.00); granted only while
