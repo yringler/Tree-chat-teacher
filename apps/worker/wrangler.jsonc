@@ -211,7 +211,7 @@
     // Learn user may learn from it on one economical model, at cost, within daily caps. Every value
     // below is read through src/config.ts; empty or malformed = the default named in the comment.
     // "true" turns the pool on. Off, nothing spends from it.
-    "POOL_ENABLED": "false",
+    "POOL_ENABLED": "true",
     // "true": personal credit (e.g. admin-granted) may be spent before payments are configured. With
     // payments configured it always may; empty or "false" = only then.
     "PERSONAL_CREDIT_ENABLED": "false",
