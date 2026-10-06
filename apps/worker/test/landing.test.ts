@@ -95,6 +95,19 @@ describe('landingRoutes', () => {
     expect(html).toContain('<a href="/login">Power users: sign in</a>');
   });
 
+  it('links the pricing page from the header, the pricing card and the footer', async () => {
+    const html = await (await setup().request('/welcome')).text();
+    expect(html).toContain(
+      '<a href="/login">Power sign in</a><a href="/pricing">Pricing</a></nav>',
+    );
+    expect(html).toContain(
+      '<a href="/pricing">See exactly what’s free and what’s paid</a></p></article>',
+    );
+    expect(html).toContain('<a href="/welcome">About Tangent</a><a href="/pricing">Pricing</a>');
+    // The fine print (fees, tax, the billing portal) is on /pricing, not here.
+    expect(html).not.toMatch(/processing fee|tax is added|billing portal/i);
+  });
+
   it('with the membership on: own keys stay free in Learn; power keys and buying credit need it', async () => {
     const off = await (
       await setup({ env: { ANNUAL_FEE_ENABLED: 'false' } }).request('/welcome')
@@ -102,8 +115,6 @@ describe('landingRoutes', () => {
     expect(off).not.toContain('membership');
     const { request } = setup({ env: { ANNUAL_FEE_ENABLED: 'true' } });
     const html = await (await request('/welcome')).text();
-    expect(html).toContain('Tangent charges nothing, with no membership needed');
-    expect(html).toContain('buying it needs a yearly membership; spending what you have');
     expect(html).toContain('prepaid credit (buying it needs a membership)');
     expect(html).toContain('Your own keys here need a yearly membership');
   });

@@ -43,7 +43,8 @@
     // only for admins, see ADMIN_USER_IDS). "/welcome" is the
     // landing page, and "/" (exact path) is too for anonymous visitors (src/http/landing.ts).
     // "/privacy" and "/terms" are the public legal pages (src/http/legal.ts), "/pool" the
-    // community pool's transparency page (src/http/pool-page.ts).
+    // community pool's transparency page (src/http/pool-page.ts), "/pricing" the pricing chart
+    // (src/http/pricing-page.ts).
     "run_worker_first": [
       "/api/*",
       "/s/*",
@@ -58,6 +59,7 @@
       "/privacy",
       "/terms",
       "/pool",
+      "/pricing",
       "/verify"
     ]
   },

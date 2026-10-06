@@ -64,7 +64,7 @@ ${body}
 <footer>
 <div class="wrap">
 <span>${escapeHtml(copyrightNotice(info.operator))}</span>
-<nav aria-label="Footer"><a href="/welcome">About Tangent</a><a href="/pool">Community pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+<nav aria-label="Footer"><a href="/welcome">About Tangent</a><a href="/pricing">Pricing</a><a href="/pool">Community pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
 </div>
 </footer>
 </body>
