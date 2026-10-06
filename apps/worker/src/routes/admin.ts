@@ -50,19 +50,25 @@ interface UserRow {
   share_allowed: number;
   pool_suspended: number;
   active_shares: number;
+  credit_balance: number;
 }
 
 /**
  * Columns of an AdminUser row. Active shares: of either of the user's accounts
  * (`p_<id>`, `u_<id>`), neither revoked nor expired at `?1` (an ISO timestamp,
- * compared as text like ShareService does).
+ * compared as text like ShareService does). Credit balance: the user's ledger
+ * (`u_<id>`, `billingAccountIdFor`) as ledger.ts sums it, holds not deducted.
  */
 const USER_COLUMNS = `u.id, u.email, u.name, u.created_at, u.share_allowed,
   (u.pool_suspended OR COALESCE((SELECT pi.suspended FROM pool_identities pi
     WHERE pi.identity = u.pool_identity), 0)) AS pool_suspended,
   (SELECT COUNT(*) FROM shares s
     WHERE s.account_id IN ('${POWER_ACCOUNT_PREFIX}' || u.id, '${SIMPLE_ACCOUNT_PREFIX}' || u.id)
-      AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > ?1)) AS active_shares`;
+      AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > ?1)) AS active_shares,
+  (SELECT COALESCE(SUM(g.amount_micros), 0) FROM credit_grants g
+    WHERE g.account_id = '${SIMPLE_ACCOUNT_PREFIX}' || u.id)
+  - (SELECT COALESCE(SUM(e.charge_micros), 0) FROM usage_events e
+    WHERE e.account_id = '${SIMPLE_ACCOUNT_PREFIX}' || u.id AND e.status = 'settled') AS credit_balance`;
 
 function toAdminUser(row: UserRow, admins: ReadonlySet<string>): AdminUser {
   return {
@@ -74,6 +80,7 @@ function toAdminUser(row: UserRow, admins: ReadonlySet<string>): AdminUser {
     isAdmin: admins.has(row.id),
     activeShares: row.active_shares,
     poolSuspended: row.pool_suspended === 1,
+    creditBalanceMicros: Number(row.credit_balance),
   };
 }
 

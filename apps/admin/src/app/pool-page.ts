@@ -1,17 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import {
-  ADMIN_CREDIT_MAX_CENTS,
-  type AdminCreditRequest,
-  type AdminCreditResponse,
-  type AdminPoolResponse,
-} from '@tangent/shared';
-import {
-  ApiClient,
-  errorMessage,
-  formatCents,
-  formatCharge,
-  parseDollarsToCents,
-} from '@tangent/web-shared';
+import type { AdminCreditRequest, AdminCreditResponse, AdminPoolResponse } from '@tangent/shared';
+import { ApiClient, errorMessage, formatCharge } from '@tangent/web-shared';
+import { signedCreditCents } from './credit-amount';
 
 /** What the pool credit form holds. */
 export interface PoolCreditForm {
@@ -31,18 +21,14 @@ export function poolCreditRequest(
   form: PoolCreditForm,
   idempotencyKey: string,
 ): AdminCreditRequest | string {
-  const text = form.amount.trim();
-  const negative = text.startsWith('-');
-  const cents = parseDollarsToCents(negative ? text.slice(1) : text);
-  if (cents === null || cents === 0) return 'Enter an amount in dollars, like 25 or -5.50.';
-  if (cents > ADMIN_CREDIT_MAX_CENTS)
-    return `At most ${formatCents(ADMIN_CREDIT_MAX_CENTS)} at a time.`;
+  const amountCents = signedCreditCents(form.amount);
+  if (typeof amountCents === 'string') return amountCents;
   const userId = form.userId.trim();
   const note = form.note.trim();
   return {
     target: 'pool',
     userId: userId === '' ? null : userId,
-    amountCents: negative ? -cents : cents,
+    amountCents,
     mode: 'adjustment',
     idempotencyKey,
     ...(note ? { note } : {}),
