@@ -787,6 +787,71 @@ textarea:focus-visible {
   background: var(--accent-soft);
 }
 
+/* Sources: what a grounded reply was checked against, or "Check sources" (both apps). */
+.sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 12px;
+}
+
+.sources-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.sources-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.source-chip {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  padding: 2px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--fg);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.source-chip:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.sources-none {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 10px 0 0;
+  color: var(--fg-muted);
+}
+
+/* Deep in a tangent the tutor is least reliable: don't let "unchecked" fade away. */
+.sources-none.is-deep {
+  color: var(--fg);
+}
+
+.sources-check > app-icon {
+  display: inline-flex;
+  vertical-align: -2px;
+}
+
 /* Billing page (BillingPage, both apps) */
 
 .billing-page {

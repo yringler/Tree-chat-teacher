@@ -616,3 +616,29 @@ Added after the initial build (migration `0003_billing`); the built-in provider 
 - **Calls to action:** "Try the demo" → `/learn/demo`, "Start learning" → `/learn/login`, "Power users: sign in" → `/login`.
 - **Demo:** `/learn/demo` is a route of the simple app that runs against an in-memory `ChatService`, with replies generated from random English sentences (`txtgen`). No sign-in, no model calls, no cost; state lives only in the browser tab (`sessionStorage`). `/demo` is the power app's demo on the same backend (`@tangent/web-shared/demo`); it has no shares, keys or exports, and the Power / Learn switch links the two demos. New conversations in both demos get the built-in prompt, and `/api/settings` works there in memory (kept with the session).
 - **Tests:** `apps/worker/test/landing.test.ts` (CSP hash against the inline style, cookie and dev-bypass routing, HEAD, fall-through).
+
+## 15. Grounding (web search)
+
+Added with migration `0010_grounding`. The decisions are in DECISIONS ("Grounding"), the research in RESEARCH ("Web search"), and operator setup in the README ("How Tangent checks facts").
+
+- **Flow:**
+  1. `ChatService.runGeneration` computes the branch depth (`chain.length - 1`) and whether the context was summarized, then calls `decideGrounding` (`packages/core/src/grounding/policy.ts`). It returns `none | auto | required`.
+  2. For `auto`/`required`, the request carries `GenerateRequest.webSearch` (`maxResults`, `maxUses` 1, `engine`). `GROUNDING_INSTRUCTIONS` (or `CHECK_SOURCES_INSTRUCTIONS`) is appended through `renderPlan`'s `extraSystem`.
+  3. The OpenAI-compatible provider sends the `openrouter:web_search` server tool and maps the stream: `url_citation` annotations become `citations` events, a search tool call becomes `activity` ("Checking sources…" status), and `server_tool_use` becomes `billing.webSearches`.
+  4. The reply's sources are stored in `nodes.sources` (JSON; null = didn't search).
+- **Check sources:** `POST /api/branches/:id/messages` with `ground: 'required'`. It is a 400 when the branch's provider can't search, and otherwise goes through the same gates as any send.
+- **Billing:**
+  - OpenRouter folds the search fee into the reported cost, so the meter bills it unchanged.
+  - `usage_events.web_searches` records the count: from the reported count, else 1 once a search started, else 1 when `/generation` reports search results.
+  - `GROUNDING_AUTO_DAILY_CAP` stops automatic searches on credit (`apps/worker/src/billing/grounding.ts`).
+- **Settings:**
+  - `GROUNDING`, `GROUNDING_MAX_RESULTS`, `GROUNDING_ENGINE` and `GROUNDING_AUTO_DAILY_CAP` (wrangler vars).
+  - `branches.grounding` (power, inherited when branching; Learn ignores it).
+  - `ProviderConfig.options.webSearch` (set on the built-in provider and the default `openrouter`).
+- **UI:**
+  - `SourcesList` (`packages/web-shared/src/ui/sources-list.ts`) under each finished reply in both apps: "Checked against N sources" with chips, or "From the tutor's own knowledge" with Check sources.
+  - The grounding select in power's branch settings.
+  - "+ web search" on billing usage rows.
+  - A Sources list in shares and exports (`sourcesMarkdown`).
+  - The in-browser demo simulates searches with example.org sources.
+- **Not verified against a live account:** the stream shapes and cost reporting above are from OpenRouter's docs; see RESEARCH for what to check with a real key.

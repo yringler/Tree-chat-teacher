@@ -399,6 +399,7 @@ export function createProviderRegistry(
         available,
         acceptsUserKey: acceptsUserKey(config),
         keySource,
+        webSearch: provider.capabilities(provider.defaultModel()).supportsWebSearch,
       })),
     defaultProviderId: () => defaultId,
   };

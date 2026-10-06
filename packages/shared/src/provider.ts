@@ -173,6 +173,8 @@ export interface ProviderInfo {
   acceptsUserKey: boolean;
   /** Where the key used for this provider comes from; null when it needs none or has none. */
   keySource: 'user' | 'server' | null;
+  /** True when replies can be grounded with web search ("Check sources"); absent = false. */
+  webSearch?: boolean;
 }
 
 /**

@@ -12,6 +12,19 @@ Left out of the server side of the membership (`apps/worker/src/billing/membersh
 - **Monthly-plan subscriptions from before the membership are not migrated.** They no longer grant credit or count as a membership; an operator who sold them cancels them in Stripe (the Customer Portal can't switch them to the membership, which has its own price and interval).
 - **The included credit isn't prorated or clawed back on cancellation.** It is granted per paid invoice and taken back only when that invoice is refunded.
 
+## Grounding (web search)
+
+Left out of the first cut of grounding (DECISIONS "Grounding").
+
+- **Not checked against a live OpenRouter key.** The request and stream shapes and the cost reporting come from OpenRouter's docs, not a real call (RESEARCH "Web search", "Not yet verified"). Before setting `GROUNDING=auto` in production, run one grounded and one aborted reply on a key with a low credit limit and compare `usage_events` with OpenRouter's activity page.
+- **Native search on direct providers.** Anthropic's `web_search` tool (about $10 per 1,000 searches) and OpenAI's Responses API search are not wired up; those providers report `supportsWebSearch: false`.
+- **No confidence trailer.** The model could flag low confidence at the end of an unsearched reply, to trigger a grounded follow-up only then. Not built, because it pays for the reply twice. Check sources covers the after-the-fact case at the learner's choice. Revisit with data on how often the gate's offer is used.
+- **Reviews don't search.** A review with sources would need the tool on the reviewer call and somewhere to show its citations.
+- **Canvas shows no sources and has no Check sources button.** The cards render the reply text, so inline citation links do show.
+- **The branch dialog (new branch) has no grounding select.** New branches inherit the parent's setting; branch settings change it afterwards.
+- **No `openrouter:web_fetch` for URLs the learner pastes.** It would let the tutor read one page for about $0.001 a fetch.
+- **The daily cap counts settled rows only.** Replies still in flight are not counted, so a burst of parallel sends can pass the cap by up to `USAGE_MAX_PENDING`.
+
 ## Power app and Canvas: membership and credit UI
 
 Left out of the front end of the unified billing (`apps/web`, `apps/canvas`). None blocks charging.

@@ -120,6 +120,9 @@ export function projectShare(input: ProjectShareInput): ProjectShareResult {
     // isVisible guarantees user/assistant.
     role: node.role === 'user' ? 'user' : 'assistant',
     content: node.content,
+    ...(node.sources && node.sources.length > 0
+      ? { sources: node.sources.map(({ url, title }) => ({ url, title })) }
+      : {}),
   });
   const contextMessages = context === null ? null : context.map(toMessage);
 

@@ -497,4 +497,51 @@ describe('LessonStore', () => {
     expect(s.store.trees()).toEqual([]);
     expect(s.router.navigate).toHaveBeenCalledWith(['/']);
   });
+
+  describe('Check sources', () => {
+    const done = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
+    const later = [
+      node('u2', { seq: 2, parentId: 'a1', role: 'user' }),
+      node('a2', { seq: 3, parentId: 'u2' }),
+    ];
+
+    it('is offered only on providers that can search', async () => {
+      const s = setup();
+      await open(s, detail([userNode, done]));
+      expect(s.store.canCheckSources('trunk')).toBe(false);
+      s.store.providers.set([{ ...PROVIDER, webSearch: true }]);
+      expect(s.store.canCheckSources('trunk')).toBe(true);
+      expect(s.store.depthOf('trunk')).toBe(0);
+    });
+
+    it('appends a required check after the branch\u2019s last reply, quoting the question', async () => {
+      const s = setup();
+      await open(s, detail([userNode, done]));
+      await s.store.checkSources('a1');
+      expect(s.api.createBranch).not.toHaveBeenCalled();
+      expect(s.api.sendMessage).toHaveBeenCalledWith(
+        'trunk',
+        { content: 'Check your last answer against sources: "What is light?"', ground: 'required' },
+        expect.any(AbortSignal),
+      );
+    });
+
+    it('checks an earlier reply in a side question', async () => {
+      const s = setup();
+      await open(s, detail([userNode, done, ...later]));
+      await s.store.checkSources('a1');
+      expect(s.api.createBranch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fromNodeId: 'a1',
+          title: 'Checking sources',
+          contextMode: 'path',
+        }),
+      );
+      expect(s.api.sendMessage).toHaveBeenCalledWith(
+        'side',
+        expect.objectContaining({ ground: 'required' }),
+        expect.any(AbortSignal),
+      );
+    });
+  });
 });

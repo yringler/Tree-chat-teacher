@@ -2,14 +2,15 @@ import { computed, inject, Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
 // The tree helpers only: the rest of @tangent/core (the ChatService) is for the lazy demo chunk.
 import { branchChain, branchPath, indexTree, type TreeIndex } from '@tangent/core/tree';
-import type {
-  Branch,
-  ChatNode,
-  ModelInfo,
-  ProviderInfo,
-  StreamEvent,
-  TreeDetail,
-  TreeSummary,
+import {
+  checkSourcesMessage,
+  type Branch,
+  type ChatNode,
+  type ModelInfo,
+  type ProviderInfo,
+  type StreamEvent,
+  type TreeDetail,
+  type TreeSummary,
 } from '@tangent/shared';
 import {
   ApiClient,
@@ -336,6 +337,52 @@ export class LessonStore {
     }
   }
 
+  /** Depth of a branch: 0 for the main thread, 1 for a side question of it, … */
+  depthOf(branchId: string): number {
+    const idx = this.index();
+    return idx ? Math.max(0, branchChain(idx, branchId).length - 1) : 0;
+  }
+
+  /** Whether replies in `branchId` can be checked against web sources. */
+  canCheckSources(branchId: string): boolean {
+    const branch = this.index()?.branches.get(branchId);
+    if (!branch) return false;
+    return this.providers().find((p) => p.id === branch.providerId)?.webSearch === true;
+  }
+
+  /**
+   * "Check sources" on a finished reply: asks the tutor to check it with a
+   * web search. On the branch's last reply the check is appended there; on an
+   * earlier one it opens a side question, so later messages keep their place.
+   */
+  async checkSources(nodeId: string): Promise<boolean> {
+    const idx = this.index();
+    const node = idx?.nodes.get(nodeId);
+    if (!idx || !node || node.role !== 'assistant') return false;
+    const parent = node.parentId ? idx.nodes.get(node.parentId) : undefined;
+    const content = checkSourcesMessage(parent?.role === 'user' ? parent.content : null);
+    const own = idx.nodesByBranch.get(node.branchId) ?? [];
+    if (own.at(-1)?.id === node.id) {
+      return this.send(node.branchId, content, { ground: 'required' });
+    }
+    const from = idx.branches.get(node.branchId);
+    try {
+      const branch = await this.api.createBranch({
+        fromNodeId: node.id,
+        contextMode: 'path',
+        anchorQuote: null,
+        title: 'Checking sources',
+        ...(from ? { providerId: from.providerId, model: from.model } : {}),
+      });
+      this.applyBranch(branch);
+      this.go(branch.id);
+      return await this.send(branch.id, content, { ground: 'required' });
+    } catch (err) {
+      this.fail(err);
+      return false;
+    }
+  }
+
   /** The Smart/Simple toggle. */
   async setModel(branchId: string, model: string): Promise<boolean> {
     const before = this.index()?.branches.get(branchId);
@@ -351,7 +398,11 @@ export class LessonStore {
 
   // Messages and replies
 
-  async send(branchId: string, content: string): Promise<boolean> {
+  async send(
+    branchId: string,
+    content: string,
+    options: { ground?: 'required' } = {},
+  ): Promise<boolean> {
     this.sendingBranchId.set(branchId);
     if (this.unsentDraft()?.branchId === branchId) this.unsentDraft.set(null);
     const ctrl = new AbortController();
@@ -359,7 +410,7 @@ export class LessonStore {
     try {
       const outcome = await runStream(
         {
-          open: (signal) => this.api.sendMessage(branchId, { content }, signal),
+          open: (signal) => this.api.sendMessage(branchId, { content, ...options }, signal),
           reconnect: (id, signal) => this.api.streamNode(id, signal),
         },
         (event) => {

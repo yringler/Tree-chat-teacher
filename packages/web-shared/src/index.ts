@@ -60,6 +60,7 @@ export {
 // UI
 export { Icon, type IconName } from './ui/icon';
 export { Modal } from './ui/modal';
+export { DEEP_BRANCH_DEPTH, SourcesList } from './ui/sources-list';
 export { ModeSwitch } from './ui/mode-switch';
 export { Turnstile } from './ui/turnstile';
 export { LoginPage } from './login/login-page';

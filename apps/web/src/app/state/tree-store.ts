@@ -12,23 +12,24 @@ import {
   type OutlineItem,
   type TreeIndex,
 } from '@tangent/core';
-import type {
-  BillingSummary,
-  Branch,
-  ChatNode,
-  CreateBranchRequest,
-  DeleteBranchResponse,
-  KeyStatusResponse,
-  MeResponse,
-  MembershipInfo,
-  ProviderInfo,
-  ShareScope,
-  StreamEvent,
-  TreeBackupInput,
-  TreeDetail,
-  TreeSummary,
-  UpdateBranchRequest,
-  UpdateTreeRequest,
+import {
+  checkSourcesMessage,
+  type BillingSummary,
+  type Branch,
+  type ChatNode,
+  type CreateBranchRequest,
+  type DeleteBranchResponse,
+  type KeyStatusResponse,
+  type MeResponse,
+  type MembershipInfo,
+  type ProviderInfo,
+  type ShareScope,
+  type StreamEvent,
+  type TreeBackupInput,
+  type TreeDetail,
+  type TreeSummary,
+  type UpdateBranchRequest,
+  type UpdateTreeRequest,
 } from '@tangent/shared';
 import {
   ApiClient,
@@ -478,6 +479,49 @@ export class TreeStore {
     }
   }
 
+  /** Depth of a branch: 0 for the main thread, 1 for a branch of it, … */
+  depthOf(branchId: string): number {
+    const idx = this.index();
+    return idx ? Math.max(0, branchChain(idx, branchId).length - 1) : 0;
+  }
+
+  /** Whether replies in `branchId` can be checked against web sources (its provider can search). */
+  canCheckSources(branchId: string): boolean {
+    const branch = this.index()?.branches.get(branchId);
+    if (!branch) return false;
+    return this.providers().find((p) => p.id === branch.providerId)?.webSearch === true;
+  }
+
+  /**
+   * "Check sources" on a finished reply: a web-searched check of it. After
+   * the branch's last reply it is appended there; on an earlier reply it
+   * opens a `path` branch, so later messages keep their place.
+   */
+  async checkSources(nodeId: string): Promise<boolean> {
+    const idx = this.index();
+    const node = idx?.nodes.get(nodeId);
+    if (!idx || !node || node.role !== 'assistant') return false;
+    const parent = node.parentId ? idx.nodes.get(node.parentId) : undefined;
+    const content = checkSourcesMessage(parent?.role === 'user' ? parent.content : null);
+    if ((idx.nodesByBranch.get(node.branchId) ?? []).at(-1)?.id === node.id) {
+      return this.send(node.branchId, content, { ground: 'required' });
+    }
+    try {
+      const branch = await this.api.createBranch({
+        fromNodeId: node.id,
+        contextMode: 'path',
+        anchorQuote: null,
+        title: 'Checking sources',
+      });
+      this.applyBranch(branch);
+      this.go(branch.id);
+      return await this.send(branch.id, content, { ground: 'required' });
+    } catch (err) {
+      this.fail(err);
+      return false;
+    }
+  }
+
   async updateBranch(branchId: string, req: UpdateBranchRequest): Promise<boolean> {
     try {
       this.applyBranch(await this.api.updateBranch(branchId, req));
@@ -515,14 +559,18 @@ export class TreeStore {
 
   // Messages and streams
 
-  async send(branchId: string, content: string): Promise<boolean> {
+  async send(
+    branchId: string,
+    content: string,
+    options: { ground?: 'required' } = {},
+  ): Promise<boolean> {
     this.sendingBranchId.set(branchId);
     const ctrl = new AbortController();
     let nodeId: string | null = null;
     try {
       const outcome = await runStream(
         {
-          open: (signal) => this.api.sendMessage(branchId, { content }, signal),
+          open: (signal) => this.api.sendMessage(branchId, { content, ...options }, signal),
           reconnect: (id, signal) => this.api.streamNode(id, signal),
         },
         (event) => {

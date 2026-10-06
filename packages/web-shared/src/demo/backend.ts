@@ -1,11 +1,13 @@
 import {
   ChatService,
   DEFAULT_CHAT_SETTINGS,
+  DEFAULT_GROUNDING_SETTINGS,
   DomainError,
   HTTP_STATUS,
   newId,
   systemClock,
   type BeginSendResult,
+  type GenerationOptions,
   type Clock,
 } from '@tangent/core';
 import { createMemoryRepositories, type MemoryState } from '@tangent/core/testing';
@@ -221,7 +223,16 @@ export class DemoBackend {
       repos: this.repos,
       accountId: DEMO_ACCOUNT_ID,
       providers: registry,
-      settings: { ...DEFAULT_CHAT_SETTINGS, maxInputTokens: 60_000 },
+      settings: {
+        ...DEFAULT_CHAT_SETTINGS,
+        maxInputTokens: 60_000,
+        // As deployed (GROUNDING=auto); the demo only has Learn's view of the setting.
+        grounding: {
+          ...DEFAULT_GROUNDING_SETTINGS,
+          policy: 'auto',
+          ignoreBranchSetting: this.mode === 'simple',
+        },
+      },
       // New conversations get the same built-in prompt as on the server (both modes).
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
       clock: this.clock,
@@ -402,7 +413,7 @@ export class DemoBackend {
     body: unknown,
     signal: AbortSignal | null,
   ): Promise<Response> {
-    const { content } = sendMessageRequestSchema.parse(body ?? {});
+    const { content, ground } = sendMessageRequestSchema.parse(body ?? {});
     await this.chat.getOwnedBranch(branchId);
     if (this.outOfCredit()) return apiError('payment_required', 'Add credit to keep learning');
     const begin = this.lock.then(() => this.chat.beginSend(branchId, content));
@@ -429,7 +440,7 @@ export class DemoBackend {
       signal,
     );
     // Detached, like the Durable Object: keeps going when the reader goes away.
-    run.finished = this.pump(run, started);
+    run.finished = this.pump(run, started, ground === 'required' ? { ground } : {});
     this.save();
     return response;
   }
@@ -461,9 +472,9 @@ export class DemoBackend {
     );
   }
 
-  private async pump(run: Run, begin: BeginSendResult): Promise<void> {
+  private async pump(run: Run, begin: BeginSendResult, options: GenerationOptions): Promise<void> {
     try {
-      for await (const event of this.chat.runGeneration(begin, run.controller.signal)) {
+      for await (const event of this.chat.runGeneration(begin, run.controller.signal, options)) {
         if (event.type === 'delta')
           run.node = { ...run.node, content: run.node.content + event.text };
         if ((event.type === 'done' || event.type === 'error') && event.node) run.node = event.node;
@@ -588,6 +599,7 @@ export class DemoBackend {
       chargeMicros: null,
       inputTokens: null,
       outputTokens: null,
+      webSearches: 0,
     };
     this.usage.unshift(entry);
     this.heldMicros += HOLD_MICROS;
@@ -597,8 +609,9 @@ export class DemoBackend {
         if (event.type === 'usage') {
           entry.inputTokens = event.usage.inputTokens ?? entry.inputTokens;
           entry.outputTokens = event.usage.outputTokens ?? entry.outputTokens;
-        } else if (event.type === 'billing' && event.costUsd !== undefined) {
-          costUsd = event.costUsd;
+        } else if (event.type === 'billing') {
+          if (event.costUsd !== undefined) costUsd = event.costUsd;
+          if (event.webSearches !== undefined) entry.webSearches = event.webSearches;
         }
         yield event;
       }
@@ -723,6 +736,7 @@ function providerInfo(provider: LlmProvider): ProviderInfo {
     available: true,
     acceptsUserKey: false,
     keySource: 'server',
+    webSearch: provider.capabilities(provider.defaultModel()).supportsWebSearch,
   };
 }
 

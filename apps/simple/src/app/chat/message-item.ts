@@ -1,13 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { splitTangents, type ChatNode } from '@tangent/shared';
-import { Icon, MarkdownService } from '@tangent/web-shared';
+import { Icon, MarkdownService, SourcesList } from '@tangent/web-shared';
 import { LessonStore } from '../state/lesson-store';
 import { branchTitle } from './titles';
 
 /** One message of the lesson; `data-node-id` lets the chat page map a text selection to it. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon],
+  imports: [Icon, SourcesList],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -50,6 +50,14 @@ import { branchTitle } from './titles';
           <span class="muted small">To try again, send your message again.</span>
         </div>
       }
+
+      <app-sources-list
+        [node]="n"
+        [depth]="depth()"
+        [canCheck]="canCheck()"
+        [checking]="checking()"
+        (check)="checkSources()"
+      />
 
       @if (tangents().length > 0) {
         <nav class="tangents" aria-label="Tangents worth following">
@@ -153,6 +161,23 @@ export class MessageItem {
     const followed = this.followed();
     return this.children().filter((b) => !followed.has(b.title));
   });
+  protected readonly depth = computed(() => this.store.depthOf(this.node().branchId));
+  /** A finished reply on a provider that can search, while nothing else is generating. */
+  protected readonly canCheck = computed(
+    () => this.askable() && this.store.canCheckSources(this.node().branchId),
+  );
+  protected readonly checking = signal(false);
+
+  protected async checkSources(): Promise<void> {
+    if (this.checking() || this.store.busy()) return;
+    this.checking.set(true);
+    try {
+      await this.store.checkSources(this.node().id);
+    } finally {
+      this.checking.set(false);
+    }
+  }
+
   /** Title of the tangent whose branch is being created. */
   protected readonly opening = signal<string | null>(null);
 

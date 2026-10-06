@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { payloadToMarkdown } from '../src/markdown-export.js';
+import { messageMarkdown, payloadToMarkdown, sourcesMarkdown } from '../src/markdown-export.js';
 import { samplePayload } from './fixture.js';
 
 describe('payloadToMarkdown', () => {
@@ -112,5 +112,39 @@ describe('tangents in shared replies', () => {
     expect(md).toContain('Forked from: “The answer.”');
     // Only assistant replies carry tangents; user text stays verbatim.
     expect(md).toContain('Q <tangents>\n- kept\n</tangents>');
+  });
+});
+
+describe('sources in exports', () => {
+  it('ends a grounded reply with a Sources list, after Where next?', () => {
+    const md = messageMarkdown({
+      key: 'm1',
+      role: 'assistant',
+      content: 'Body.\n\n<tangents>\n- Next — why\n</tangents>',
+      sources: [
+        { url: 'https://example.org/a', title: 'An [odd] title' },
+        { url: 'https://example.com/b (c)', title: null },
+        { url: 'javascript:alert(1)', title: 'Nope' },
+      ],
+    });
+    expect(md).toBe(
+      'Body.\n\n**Where next?**\n\n- **Next** — why\n\n**Sources**\n\n' +
+        '- [An odd title](https://example.org/a)\n- [example.com](https://example.com/b%20%28c%29)',
+    );
+  });
+
+  it('leaves replies without sources and user messages unchanged', () => {
+    expect(sourcesMarkdown(undefined)).toBe('');
+    expect(messageMarkdown({ key: 'm1', role: 'assistant', content: 'Hi', sources: [] })).toBe(
+      'Hi',
+    );
+    expect(
+      messageMarkdown({
+        key: 'm2',
+        role: 'user',
+        content: 'Q',
+        sources: [{ url: 'https://x.org', title: null }],
+      }),
+    ).toBe('Q');
   });
 });
