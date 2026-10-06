@@ -10,7 +10,7 @@ import { UsersPage } from './users-page';
  * The admin app, served under /admin/ to admins only (the Worker answers 404
  * to anyone else; ADMIN_USER_IDS). One page: who may publish share links
  * while DMCA_AGENT_REGISTERED is off, taking any share down, suspending a
- * user's open pool access, adding credit to a user, the pool's balance and overage breaker with
+ * user's open pool access, waiving a user's membership, adding credit to a user, the pool's balance and overage breaker with
  * top-ups and corrections, who uses the pool most, and the review queue
  * of topics the pool's public impact feed may name.
  */
@@ -51,6 +51,15 @@ import { UsersPage } from './users-page';
                 <strong>DMCA_AGENT_REGISTERED is off:</strong> only admins and the users marked “May
                 share” can publish share links, and only their links open. Turning a user off takes
                 their links down at once.
+              </span>
+            </p>
+          }
+          @if (!s.membershipRequired) {
+            <p class="notice" role="status">
+              <span>
+                <strong>The membership is not required</strong> (ANNUAL_FEE_ENABLED is off, or the
+                payment provider doesn't sell it): everyone may do what members do. A “Member”
+                waiver takes effect once it is required.
               </span>
             </p>
           }

@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
 import { makeNode } from './fixtures.js';
+import { insertSubscription } from './mocks/billing-helpers.js';
 import { authEnv, client } from './session-client.js';
 
 const ADMIN_INDEX = '<!doctype html><title>admin</title>';
@@ -166,19 +167,26 @@ describe('admin identity', () => {
     expect((await dev.call('/admin/', {}, e)).status).toBe(200);
     expect(await json<AdminStatusResponse>(await dev.call('/api/admin/status', {}, e))).toEqual({
       dmcaAgentRegistered: false,
+      membershipRequired: false,
     });
   });
 });
 
 describe('admin API', () => {
-  it('reports whether a DMCA agent is registered', async () => {
+  it('reports whether a DMCA agent is registered and the membership required', async () => {
     const { admin, e } = await setup();
     expect(await json<AdminStatusResponse>(await admin.call('/api/admin/status', {}, e))).toEqual({
       dmcaAgentRegistered: false,
+      membershipRequired: false,
     });
-    const on = { ...e, DMCA_AGENT_REGISTERED: 'true' } as AppEnv;
+    const on = {
+      ...e,
+      DMCA_AGENT_REGISTERED: 'true',
+      ANNUAL_FEE_ENABLED: 'true',
+    } as AppEnv;
     expect(await json<AdminStatusResponse>(await admin.call('/api/admin/status', {}, on))).toEqual({
       dmcaAgentRegistered: true,
+      membershipRequired: true,
     });
   });
 
@@ -193,6 +201,8 @@ describe('admin API', () => {
       shareAllowed: false,
       activeShares: 0,
       creditBalanceMicros: 0,
+      membershipWaived: false,
+      membershipPaid: false,
     });
 
     const found = await json<AdminUsersResponse>(
@@ -227,6 +237,46 @@ describe('admin API', () => {
       await asAdmin(`/api/admin/users?q=${encodeURIComponent(user.email)}`),
     );
     expect(found.users).toMatchObject([{ id: user.id, creditBalanceMicros: 12_500_000 }]);
+  });
+
+  it('waives a membership, keeping when it was first waived, and takes the waiver back', async () => {
+    const { e, user, asAdmin } = await setup();
+    const fee = { ...e, ANNUAL_FEE_ENABLED: 'true' } as AppEnv;
+    const status = async () =>
+      (await json<MeResponse>(await user.call('/api/me', {}, fee))).membership.status;
+    const waivedAt = async () =>
+      (
+        await env.DB.prepare('SELECT membership_waived_at AS at FROM auth_users WHERE id = ?')
+          .bind(user.id)
+          .first<{ at: string | null }>()
+      )?.at;
+    const patch = async (membershipWaived: boolean) =>
+      json<AdminUser>(
+        await asAdmin(`/api/admin/users/${user.id}`, {
+          method: 'PATCH',
+          json: { membershipWaived },
+        }),
+      );
+
+    expect(await status()).toBe('inactive');
+    expect(await patch(true)).toMatchObject({
+      id: user.id,
+      membershipWaived: true,
+      membershipPaid: false,
+    });
+    expect(await status()).toBe('waived');
+    const first = await waivedAt();
+    expect(first).toBeTruthy();
+    await patch(true);
+    expect(await waivedAt()).toBe(first);
+
+    expect(await patch(false)).toMatchObject({ membershipWaived: false });
+    expect(await status()).toBe('inactive');
+
+    // A paid membership is listed, and clearing a waiver leaves it.
+    await insertSubscription(env as unknown as AppEnv, user.id, 'active');
+    expect(await patch(false)).toMatchObject({ membershipWaived: false, membershipPaid: true });
+    expect(await status()).toBe('active');
   });
 
   it('pages with a cursor', async () => {

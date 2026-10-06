@@ -27,6 +27,8 @@ import {
 } from '../auth/account.js';
 import { adminOnly, adminUserIds } from '../auth/admin.js';
 import { getBalance, grantByRef, grantCredit } from '../billing/ledger.js';
+import { ACTIVE_STATUSES, membershipRequired } from '../billing/membership.js';
+import { MEMBERSHIP_KIND } from '../billing/payments/apply.js';
 import { centsToMicros } from '../billing/pricing.js';
 import { fulfilPurchase } from '../billing/purchases.js';
 import { sameOriginOnly } from '../byok/guard.js';
@@ -51,6 +53,8 @@ interface UserRow {
   pool_suspended: number;
   active_shares: number;
   credit_balance: number;
+  membership_waived: number;
+  membership_paid: number;
 }
 
 /**
@@ -58,8 +62,13 @@ interface UserRow {
  * (`p_<id>`, `u_<id>`), neither revoked nor expired at `?1` (an ISO timestamp,
  * compared as text like ShareService does). Credit balance: the user's ledger
  * (`u_<id>`, `billingAccountIdFor`) as ledger.ts sums it, holds not deducted.
+ * Paid membership: a membership subscription in a status that counts, as
+ * `membershipFor` reads it.
  */
-const USER_COLUMNS = `u.id, u.email, u.name, u.created_at, u.share_allowed,
+const USER_COLUMNS = `u.id, u.email, u.name, u.created_at, u.share_allowed, u.membership_waived,
+  EXISTS (SELECT 1 FROM billing_subscriptions bs
+    WHERE bs.user_id = u.id AND bs.kind = '${MEMBERSHIP_KIND}'
+      AND bs.status IN (${ACTIVE_STATUSES.map((s) => `'${s}'`).join(', ')})) AS membership_paid,
   (u.pool_suspended OR COALESCE((SELECT pi.suspended FROM pool_identities pi
     WHERE pi.identity = u.pool_identity), 0)) AS pool_suspended,
   (SELECT COUNT(*) FROM shares s
@@ -81,6 +90,8 @@ function toAdminUser(row: UserRow, admins: ReadonlySet<string>): AdminUser {
     activeShares: row.active_shares,
     poolSuspended: row.pool_suspended === 1,
     creditBalanceMicros: Number(row.credit_balance),
+    membershipWaived: row.membership_waived === 1,
+    membershipPaid: row.membership_paid === 1,
   };
 }
 
@@ -166,7 +177,8 @@ async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
  * (`auth_users.share_allowed`, see `canShare`), takes any share down
  * without its owner (a DMCA notice, docs/LEGAL.md §8), suspends a user's
  * open pool access (`auth_users.pool_suspended` and the user's pool
- * identity, checked by the pool gate on every pool request), reports who
+ * identity, checked by the pool gate on every pool request), waives a user's
+ * membership (`auth_users.membership_waived`, as the waiver code does), reports who
  * consumes the pool, and credits a user's ledger or the pool without a payment
  * (`POST /credit`: adjustments, and simulated purchases where
  * DEV_PURCHASES_ENABLED allows them), showing the pool's balance and overage
@@ -178,7 +190,10 @@ export function adminRoutes(): Hono<AppBindings> {
   r.use('*', adminOnly);
 
   r.get('/status', (c) =>
-    c.json({ dmcaAgentRegistered: sharingEnabled(c.env) } satisfies AdminStatusResponse),
+    c.json({
+      dmcaAgentRegistered: sharingEnabled(c.env),
+      membershipRequired: membershipRequired(c.env),
+    } satisfies AdminStatusResponse),
   );
 
   r.get('/users', validateQuery(adminUsersQuerySchema), async (c) => {
@@ -214,16 +229,17 @@ export function adminRoutes(): Hono<AppBindings> {
   });
 
   // Revoking the share permission takes the user's links down at once: /s/* checks it per
-  // request. A pool suspension applies from the user's next pool request (the gate reads it).
+  // request. A pool suspension applies from the user's next pool request (the gate reads it), and
+  // a membership waiver from the user's next request (membershipFor reads it each time).
   r.patch(
     '/users/:userId',
     sameOriginOnly,
     validateJson(updateAdminUserRequestSchema),
     async (c) => {
       const userId = c.req.param('userId');
-      const { shareAllowed, poolSuspended } = c.req.valid('json');
+      const { shareAllowed, poolSuspended, membershipWaived } = c.req.valid('json');
       const sets: string[] = [];
-      const params: number[] = [];
+      const params: (number | string)[] = [];
       if (shareAllowed !== undefined) {
         sets.push('share_allowed = ?');
         params.push(shareAllowed ? 1 : 0);
@@ -231,6 +247,17 @@ export function adminRoutes(): Hono<AppBindings> {
       if (poolSuspended !== undefined) {
         sets.push('pool_suspended = ?');
         params.push(poolSuspended ? 1 : 0);
+      }
+      if (membershipWaived !== undefined) {
+        // Keeps the time it was first waived, like redeeming the code (billing/membership.ts).
+        if (membershipWaived) {
+          sets.push(
+            'membership_waived_at = CASE WHEN membership_waived = 1 THEN membership_waived_at ELSE ? END',
+          );
+          params.push(new Date().toISOString());
+        }
+        sets.push('membership_waived = ?');
+        params.push(membershipWaived ? 1 : 0);
       }
       const db = c.env.DB;
       const [updated] = await db.batch([
@@ -243,6 +270,15 @@ export function adminRoutes(): Hono<AppBindings> {
       if (!updated!.meta.changes) throw new NotFoundError('User');
       if (poolSuspended !== undefined)
         console.log(JSON.stringify({ event: 'pool_suspension_set', userId, poolSuspended }));
+      if (membershipWaived !== undefined)
+        console.log(
+          JSON.stringify({
+            event: 'membership_waiver_set',
+            adminId: c.var.identity.userId,
+            userId,
+            membershipWaived,
+          }),
+        );
       return c.json((await getUser(c.env, userId)) satisfies AdminUser);
     },
   );

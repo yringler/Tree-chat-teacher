@@ -41,6 +41,14 @@ export interface AdminUser {
    * `AdminCreditResponse.balanceMicros`). Changed with `POST /api/admin/credit`.
    */
   creditBalanceMicros: number;
+  /**
+   * The operator waived the membership for this user (`auth_users.membership_waived`):
+   * a member whatever their subscription says, while the membership is required.
+   * Set here or by redeeming MEMBERSHIP_WAIVER_CODE.
+   */
+  membershipWaived: boolean;
+  /** The user has a paid membership subscription that counts (active, trialing or past due). */
+  membershipPaid: boolean;
 }
 
 /** `GET /api/admin/users`, newest sign-up first. */
@@ -50,15 +58,21 @@ export interface AdminUsersResponse {
   nextCursor: string | null;
 }
 
-/** Either field or both; omitted ones are left as they are. */
+/** Any of the fields; omitted ones are left as they are. */
 export const updateAdminUserRequestSchema = z
   .object({
     shareAllowed: z.boolean().optional(),
     poolSuspended: z.boolean().optional(),
+    /** Makes the user a member without a payment (or takes that back; a paid membership stays). */
+    membershipWaived: z.boolean().optional(),
   })
-  .refine((r) => r.shareAllowed !== undefined || r.poolSuspended !== undefined, {
-    message: 'Nothing to update',
-  });
+  .refine(
+    (r) =>
+      r.shareAllowed !== undefined ||
+      r.poolSuspended !== undefined ||
+      r.membershipWaived !== undefined,
+    { message: 'Nothing to update' },
+  );
 export type UpdateAdminUserRequest = z.infer<typeof updateAdminUserRequestSchema>;
 
 /** `GET /api/admin/status`: what the admin page explains the allowlist against. */
@@ -68,6 +82,11 @@ export interface AdminStatusResponse {
    * permission has no effect. False: only admins and allowed users may.
    */
   dmcaAgentRegistered: boolean;
+  /**
+   * The membership is required (ANNUAL_FEE_ENABLED and the payment provider
+   * sells it). False: nobody needs one, so a waiver changes nothing until it is.
+   */
+  membershipRequired: boolean;
 }
 
 /** `GET /api/admin/pool/usage`: the last `days` UTC days (today included), `limit` users. */

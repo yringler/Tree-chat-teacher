@@ -26,7 +26,7 @@ import { billingPageUrl, checkoutReturnUrl } from './service.js';
  * shouldn't be locked out meanwhile. `canceled`, `unpaid`, `paused` and
  * `incomplete` don't.
  */
-const ACTIVE_STATUSES: readonly SubscriptionStatus[] = ['active', 'trialing', 'past_due'];
+export const ACTIVE_STATUSES: readonly SubscriptionStatus[] = ['active', 'trialing', 'past_due'];
 
 /**
  * True when the membership is required (power mode on own keys, buying
