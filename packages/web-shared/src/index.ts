@@ -78,6 +78,7 @@ export {
 export { Icon, type IconName } from './ui/icon';
 export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';
+export { ModelSuggestions, suggestionText, type SuggestionText } from './ui/model-suggestions';
 export { DEEP_BRANCH_DEPTH, SourcesList } from './ui/sources-list';
 export { TangentAsk } from './ui/tangent-ask';
 export { TextSizeMenu } from './ui/text-size-menu';

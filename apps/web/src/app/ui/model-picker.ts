@@ -5,6 +5,7 @@ import {
   providerRouteKey,
   type ProviderInfo,
 } from '@tangent/shared';
+import { ModelSuggestions } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
 
 let uid = 0;
@@ -43,11 +44,13 @@ export function routeSuffix(p: ProviderInfo, locked: boolean): string {
  * who pays for it, so the built-in endpoint shows twice in power, as the
  * user's OpenRouter and as Tangent credit.
  * A provider with `openModels` (OpenRouter, Tangent credit) takes any model
- * id it serves: a text field whose datalist keeps the suggestions one click
- * away. Every other provider offers a select of its listed models.
+ * id it serves: a text field with its listed models as chips under it, all
+ * in view and one click away (ModelSuggestions). Every other provider offers
+ * a select of its listed models.
  */
 @Component({
   selector: 'app-model-picker',
+  imports: [ModelSuggestions],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="field-row">
@@ -69,14 +72,14 @@ export function routeSuffix(p: ProviderInfo, locked: boolean): string {
           }
         </select>
       </label>
-      <label class="field">
-        <span class="field-label">Model</span>
-        @if (open()) {
+      @if (open()) {
+        <!-- A div, not a label: the label would name the field after the chips too. -->
+        <div class="field">
+          <label class="field-label" [for]="id + '-m'">Model</label>
           <input
             #mi
             type="text"
             [id]="id + '-m'"
-            [attr.list]="id + '-ml'"
             [value]="modelId()"
             (input)="modelId.set(mi.value)"
             (change)="modelId.set(mi.value.trim())"
@@ -88,15 +91,18 @@ export function routeSuffix(p: ProviderInfo, locked: boolean): string {
             [attr.aria-invalid]="hint() ? 'true' : null"
             [attr.aria-describedby]="hint() ? id + '-h' : null"
           />
-          <datalist [id]="id + '-ml'">
-            @for (m of models(); track m.id) {
-              <option [value]="m.id">{{ m.label }}</option>
-            }
-          </datalist>
+          <app-model-suggestions
+            [models]="models()"
+            [value]="modelId()"
+            (picked)="modelId.set($event)"
+          />
           @if (hint(); as h) {
             <span class="field-error small" [id]="id + '-h'">{{ h }}</span>
           }
-        } @else {
+        </div>
+      } @else {
+        <label class="field">
+          <span class="field-label">Model</span>
           <select #ms [id]="id + '-m'" [value]="modelId()" (change)="modelId.set(ms.value)">
             @if (!modelKnown()) {
               <option [value]="modelId()">{{ modelId() || '—' }}</option>
@@ -105,8 +111,8 @@ export function routeSuffix(p: ProviderInfo, locked: boolean): string {
               <option [value]="m.id" [selected]="m.id === modelId()">{{ m.label }}</option>
             }
           </select>
-        }
-      </label>
+        </label>
+      }
     </div>
   `,
 })

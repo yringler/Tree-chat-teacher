@@ -940,14 +940,20 @@
 .variant-row {
   display: flex;
   gap: 6px;
-  align-items: center;
+  /* Top: an open model's field has its suggestions under it. */
+  align-items: flex-start;
 }
 
 .variant-row .field {
   flex: 1;
 }
 
-/* The model field's label is the flex item of whatever row holds it. */
+/* A lane's model column is narrow: its suggestions by name (the id is in the field and the tooltip). */
+.variant-row .model-chip-id {
+  display: none;
+}
+
+/* The model field's label (or div) is the flex item of whatever row holds it. */
 .model-field {
   display: contents;
 }
