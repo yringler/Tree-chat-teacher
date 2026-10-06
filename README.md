@@ -200,6 +200,78 @@ Workers Builds (the Worker's **Settings → Build**, connected to this repositor
 
 Runtime secrets and variables are unaffected: they live on the Worker, not in the build settings.
 
+Version URLs aren't generated for Workers with Durable Objects, so a non-production branch build only uploads a version nobody can open. Once the [sandbox Worker](#sandbox-worker) is set up, set this Worker's production branch to `production` and turn its non-production branch builds off.
+
+### Sandbox Worker
+
+A second Worker, `tangent-sandbox`, runs the same code on `sandbox.tangentailearning.com`, behind Cloudflare Access, on Polar's sandbox. It deploys every push to `master`. Production deploys from the `production` branch, so a release is a fast-forward of `production` to a `master` commit you have already checked in the sandbox.
+
+It is `env.sandbox` in `apps/worker/wrangler.jsonc`, deployed with `--env sandbox`. Wrangler deploys an environment as its own Worker (named `<name>-<env>`), with its own secrets, routes and Durable Object storage. The config gives it its own D1 database (`tangent-sandbox`), its own rate limit namespaces and its own Polar products. Its crons run too, against its own database, so the 10-minute billing reconcile and the pool's maintenance run there as in production. The browser apps carry no per-deployment config (they ask the Worker at runtime), so both Workers serve the same `pnpm build`.
+
+Why not Worker Previews of the production Worker: Cron Triggers only run on production, so a preview never reconciles billing or maintains the pool. Each preview also has its own hostname, while `PUBLIC_BASE_URL`, passkeys, the Google and GitHub callback URLs and the Polar webhook endpoint are each tied to one origin.
+
+**Keeping it in step.** Wrangler inherits most keys into an environment (`main`, compatibility settings, `build`, `assets`, `observability`, `triggers`, Durable Object `migrations`) but not `vars` or bindings. Every var and binding is therefore repeated under `env.sandbox`. **When you add a var or binding at the top level, add it to `env.sandbox` too.** `pnpm lint` runs `scripts/check-wrangler-envs.mjs`, which fails when:
+
+- a var or binding name is missing from `env.sandbox`, or exists only there;
+- the sandbox has no routes of its own, or uses production's D1 database, a production rate limit `namespace_id` or a production Polar product;
+- `POLAR_SERVER` isn't `"sandbox"`.
+
+The sandbox's values differ from production only in `PUBLIC_BASE_URL`, `EMAIL_FROM` and the Polar vars. Flip anything else there to try it before production, for example `ANNUAL_FEE_ENABLED` or `POOL_ENABLED`.
+
+**Setup** (once; commands from `apps/worker`):
+
+1. **Cloudflare Access** (_Zero Trust → Access → Applications_), before the first deploy:
+   - A **self-hosted** application for `sandbox.tangentailearning.com`, with an Allow policy for your own email(s).
+   - A second self-hosted application for `sandbox.tangentailearning.com/api/webhooks/polar`, with a **Bypass** policy that includes **Everyone**. The more specific path wins. Without it, Polar's webhook deliveries get Access's login redirect: checkouts succeed but nothing is credited, and Polar disables the endpoint after 10 failures. The webhook stays authenticated by its signature (`POLAR_WEBHOOK_SECRET`).
+2. **Deploy once.** This creates the Worker and its custom domain, and applies the migrations to `tangent-sandbox` first (the database already exists; its id is in `wrangler.jsonc`):
+   ```bash
+   pnpm run deploy:sandbox
+   ```
+   Until step 5, `/api/*` returns 500 (the Worker fails closed without `BETTER_AUTH_SECRET`).
+3. **Polar sandbox** (<https://sandbox.polar.sh>). Set up its organization as in [Membership, credit and billing](#membership-credit-and-billing) step 2: the private products, the customer portal toggles, a webhook endpoint `https://sandbox.tangentailearning.com/api/webhooks/polar` with the same events, and an organization access token. Put the product ids in `env.sandbox.vars` (`POLAR_CREDITS_PRODUCT_ID`, `POLAR_MEMBERSHIP_PRODUCT_ID`) and commit them; empty = nothing is sold.
+4. **Sign-in and the built-in provider.**
+   - **Google:** add `https://sandbox.tangentailearning.com/api/auth/callback/google` to the existing OAuth client's redirect URIs.
+   - **GitHub:** create a second OAuth app, with the callback `https://sandbox.tangentailearning.com/api/auth/callback/github`. An OAuth app has only one callback URL.
+   - **Turnstile:** add `sandbox.tangentailearning.com` to the widget's hostnames.
+   - **OpenRouter:** create a **separate key with a small credit limit**. Sandbox payments are fake money, but the credit they buy spends real OpenRouter dollars.
+5. **Secrets.** `sandbox.secrets.example` lists every secret and where it comes from:
+   ```bash
+   cp sandbox.secrets.example sandbox.secrets    # git-ignored; fill it in and delete the empty lines
+   npx wrangler secret bulk sandbox.secrets --env sandbox
+   rm sandbox.secrets
+   ```
+   `ADMIN_USER_IDS` is your user id in the sandbox's own database. Sign in there first, then run `npx wrangler secret put ADMIN_USER_IDS --env sandbox`.
+6. **Workers Builds for `tangent-sandbox`** (its **Settings → Build**, connected to this repository):
+
+   | Setting                      | Value                                              |
+   | ---------------------------- | -------------------------------------------------- |
+   | Root directory               | `/`                                                |
+   | Production branch            | `master`                                           |
+   | Build command                | `pnpm build`                                       |
+   | Deploy command               | `pnpm --filter @tangent/worker run deploy:sandbox` |
+   | Non-production branch builds | off                                                |
+
+   The deploy command applies new migrations to the sandbox database before it deploys. If that step fails with an authorization error, the build's API token can't edit D1: give it **D1 Edit**, or select a token that has it (**Settings → Build → API token**).
+
+7. **Production from `production`.** Create the branch, set it as the production branch of `tangent`'s Workers Builds, and turn that Worker's non-production branch builds off:
+   ```bash
+   git push origin master:production
+   ```
+8. **Verify:**
+   ```bash
+   curl -sI https://sandbox.tangentailearning.com/ | grep -i location           # Access's login page
+   curl -si -X POST https://sandbox.tangentailearning.com/api/webhooks/polar | head -1   # 403 (unsigned) from the Worker, not Access's 302
+   ```
+   Then sign in through Access and Tangent, and buy $5 of credit with the test card `4242 4242 4242 4242`.
+
+**Releasing.** Check the change in the sandbox, apply any new migrations to production (`pnpm db:migrate:remote`), then fast-forward `production`:
+
+```bash
+git push origin master:production    # or <commit>:production for an earlier master commit
+```
+
+Workers Builds deploys it. The push is refused unless it is a fast-forward, so production only ever runs commits that were on `master`.
+
 ### Sign-in (required)
 
 Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Google, GitHub, a magic link by email, or a passkey. The Worker **fails closed**: every `/api/*` request returns 500 until `BETTER_AUTH_SECRET` is set. Once it is, **anyone can sign up** with a verified email; Turnstile and the rate limits on magic links bound abuse.

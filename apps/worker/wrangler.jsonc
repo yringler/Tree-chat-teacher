@@ -286,6 +286,116 @@
     // Only a stub exists and it stays off: user-published content waits for DMCA_AGENT_REGISTERED.
     // Either way /api/featured/* is 404, nothing renders and nothing is collected for it.
     "FEATURED_CONVERSATIONS_ENABLED": "false"
+  },
+  // ---- The sandbox Worker (README "Sandbox Worker"): `wrangler deploy --env sandbox` deploys this
+  // same code as the separate Worker "tangent-sandbox" on sandbox.tangentailearning.com, behind
+  // Cloudflare Access, with Polar's sandbox and its own database, Durable Objects, rate limits and
+  // secrets (`wrangler secret put <NAME> --env sandbox`). Everything else (main, compatibility,
+  // build, assets, observability, crons, Durable Object migrations) is inherited from above.
+  // Wrangler does NOT inherit vars or bindings: each must be repeated here, and `pnpm lint`
+  // (scripts/check-wrangler-envs.mjs) fails when a var or binding name is missing here, or when
+  // this block reuses production's routes, database, rate limit namespaces or Polar products.
+  // The vars' meanings are documented above; values differ from production only where noted.
+  "env": {
+    "sandbox": {
+      "routes": [{ "pattern": "sandbox.tangentailearning.com", "custom_domain": true }],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "tangent-sandbox",
+          // Apply migrations with `pnpm db:migrate:sandbox` (`pnpm deploy:sandbox` does it first).
+          "database_id": "15fe7251-905c-4fa6-8563-60e4fb885c87",
+          "migrations_dir": "migrations"
+        }
+      ],
+      // Same classes; the sandbox Worker has its own namespaces and storage.
+      "durable_objects": {
+        "bindings": [
+          { "name": "TREE_SESSION", "class_name": "TreeSession" },
+          { "name": "POOL_BANK", "class_name": "PoolBank" }
+        ]
+      },
+      // namespace_id is per account: production's ids would share its counters.
+      "ratelimits": [
+        { "name": "SHARE_RATE_LIMITER", "namespace_id": "2001", "simple": { "limit": 120, "period": 60 } },
+        { "name": "CHAT_RATE_LIMITER", "namespace_id": "2002", "simple": { "limit": 30, "period": 60 } },
+        { "name": "KEY_RATE_LIMITER", "namespace_id": "2003", "simple": { "limit": 10, "period": 60 } }
+      ],
+      // Differ from production: PUBLIC_BASE_URL, EMAIL_FROM (same verified domain), POLAR_SERVER
+      // and the Polar product ids (the sandbox organization's; empty = nothing sold). The rest
+      // mirror production, so the sandbox behaves as production will; flip one here to try it.
+      "vars": {
+        "PUBLIC_BASE_URL": "https://sandbox.tangentailearning.com",
+        "EMAIL_PROVIDER": "resend",
+        "EMAIL_FROM": "Tangent Sandbox <login@email.tangentailearning.com>",
+        "LEGAL_OPERATOR": "Yehuda Ringler",
+        "LEGAL_CONTACT_EMAIL": "privacy@tangentailearning.com",
+        "LEGAL_JURISDICTION": "the Commonwealth of Pennsylvania, USA",
+        "DMCA_AGENT_REGISTERED": "false",
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAFLlFryv5vXul-MG",
+        "PROVIDERS": "",
+        "SUMMARY_PROVIDER_ID": "",
+        "SUMMARY_MODEL": "",
+        "AUTO_TITLE": "true",
+        "GROUNDING": "auto",
+        "GROUNDING_MAX_RESULTS": "5",
+        "GROUNDING_ENGINE": "exa",
+        "GROUNDING_AUTO_DAILY_CAP": "40",
+        "SIMPLE_SMART_MODEL": "deepseek/deepseek-v4-pro",
+        "SIMPLE_FAST_MODEL": "deepseek/deepseek-v4-flash",
+        "SIMPLE_PROVIDER": "",
+        "SIMPLE_MAX_INPUT_TOKENS": "60000",
+        "SIMPLE_SYSTEM_PROMPT": "",
+        "USAGE_HOLD_MICROS": "20000",
+        "USAGE_MAX_PENDING": "3",
+        "OPENROUTER_FEE_BPS": "550",
+        "MARKUP_BPS": "1000",
+        "PAYMENT_PROVIDER": "polar",
+        "POLAR_SERVER": "sandbox",
+        "POLAR_CREDITS_PRODUCT_ID": "",
+        "POLAR_MEMBERSHIP_PRODUCT_ID": "",
+        "POLAR_FEE_BPS": "500",
+        "POLAR_FEE_FIXED_CENTS": "50",
+        "ANNUAL_FEE_ENABLED": "false",
+        "MEMBERSHIP_PRICE_CENTS": "1000",
+        "MEMBERSHIP_CREDIT_CENTS": "200",
+        "POOL_ENABLED": "false",
+        "PERSONAL_CREDIT_ENABLED": "false",
+        "DEV_PURCHASES_ENABLED": "false",
+        "POOL_ACCOUNT_ID": "pool",
+        "POOL_MODEL": "",
+        "POOL_SYSTEM_PROMPT": "",
+        "POOL_REVENUE_SHARE_BPS": "2000",
+        "POOL_MAX_INPUT_TOKENS": "16000",
+        "POOL_MAX_OUTPUT_TOKENS": "1024",
+        "POOL_MAX_MESSAGE_CHARS": "4000",
+        "POOL_RESERVATION_TTL_MS": "600000",
+        "POOL_GIVE_UP_MS": "3600000",
+        "POOL_CALL_TIMEOUT_MS": "120000",
+        "POOL_EXPIRE_BATCH": "20",
+        "POOL_SESSION_ESTIMATE_MICROS": "20000",
+        "POOL_FREE_REQUESTS_PER_DAY": "30",
+        "POOL_FREE_SPEND_MICROS_PER_DAY": "100000",
+        "POOL_MEMBER_REQUESTS_PER_DAY": "150",
+        "POOL_MEMBER_SPEND_MICROS_PER_DAY": "500000",
+        "POOL_FREE_DAILY_GLOBAL_MICROS": "5000000",
+        "POOL_FREE_DAILY_GLOBAL_BPS": "2000",
+        "POOL_MEMBER_DAILY_GLOBAL_MICROS": "10000000",
+        "POOL_MEMBER_DAILY_GLOBAL_BPS": "4000",
+        "POOL_IP_REQUESTS_PER_DAY": "60",
+        "POOL_IP_SPEND_MICROS_PER_DAY": "300000",
+        "POOL_USER_PER_MINUTE": "6",
+        "POOL_IP_PER_MINUTE": "20",
+        "POOL_MIN_ACCOUNT_AGE_MS": "0",
+        "POOL_OVERAGE_WINDOW_MS": "86400000",
+        "POOL_OVERAGE_MAX_MICROS": "200000",
+        "MODEL_PRICES": "",
+        "IMPACT_MIN_DISTINCT_USERS": "5",
+        "POOL_TOPIC_BLOCKLIST": "",
+        "IMPACT_TAG_RETENTION_DAYS": "14",
+        "FEATURED_CONVERSATIONS_ENABLED": "false"
+      }
+    }
   }
   // Secrets (wrangler secret put): AI_GATEWAY_TOKEN,
   //   KEY_ENCRYPTION_SECRET (`openssl rand -base64 32`; enables bring-your-own-key, rotate to revoke all stored keys)

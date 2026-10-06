@@ -3,6 +3,8 @@ dist/
 .angular/
 .wrangler/
 .dev.vars
+# The sandbox Worker's secrets while you upload them (apps/worker/sandbox.secrets.example).
+apps/worker/sandbox.secrets
 *.log
 coverage/
 .DS_Store

@@ -14,7 +14,7 @@
     "coverage": "pnpm -r --workspace-concurrency=1 coverage && node scripts/coverage-summary.mjs",
     "e2e": "pnpm --filter @tangent/e2e e2e",
     "typecheck": "pnpm -r typecheck",
-    "lint": "eslint . && node scripts/check-provider-neutral.mjs",
+    "lint": "eslint . && node scripts/check-provider-neutral.mjs && node scripts/check-wrangler-envs.mjs",
     "format": "prettier --write ."
   },
   "devDependencies": {

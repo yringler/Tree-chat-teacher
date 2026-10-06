@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "wrangler dev --local-upstream localhost:8787",
     "deploy": "wrangler deploy",
+    "deploy:sandbox": "wrangler d1 migrations apply DB --env sandbox --remote && wrangler deploy --env sandbox",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "db:migrate:sandbox": "wrangler d1 migrations apply DB --env sandbox --remote",
     "cf-typegen": "wrangler types",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
