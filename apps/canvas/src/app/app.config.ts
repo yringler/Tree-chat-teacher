@@ -4,7 +4,7 @@ import {
   provideZonelessChangeDetection,
 } from '@angular/core';
 import { provideRouter, withComponentInputBinding, withInMemoryScrolling } from '@angular/router';
-import { provideAppPaths } from '@tangent/web-shared';
+import { provideAppPaths, provideTextSize } from '@tangent/web-shared';
 import { routes } from './app.routes';
 
 /**
@@ -18,6 +18,8 @@ export const appConfig: ApplicationConfig = {
     provideZonelessChangeDetection(),
     // `/canvas/login` is only ever reached by a full page load (see AuthService).
     provideAppPaths({ home: '/canvas/', login: '/canvas/login' }),
+    // The cards' text size ("Aa"), kept apart from the other apps'.
+    provideTextSize('tangent.canvas.chatFontScale'),
     provideRouter(
       routes,
       withComponentInputBinding(),

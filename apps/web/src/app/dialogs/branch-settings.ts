@@ -19,36 +19,28 @@ import {
 } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon, Modal } from '@tangent/web-shared';
+import { deleteBranchQuestion, Icon, Modal } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
 import { ModePicker } from '../ui/mode-picker';
 
 /**
  * Asks, then deletes a branch with every branch below it. Shared by the
- * settings dialog and the outline. Resolves true if it was deleted.
+ * settings dialog, the outline, the chat header (the open branch) and each
+ * message's branch list. Resolves true if it was deleted.
  */
 export async function confirmDeleteBranch(store: TreeStore, branchId: string): Promise<boolean> {
   const idx = store.index();
   const branch = idx?.branches.get(branchId);
-  if (!idx || !branch?.parentBranchId) return false;
-  let branches = 0;
-  let messages = 0;
-  const stack = [branch];
-  for (let b = stack.pop(); b; b = stack.pop()) {
-    branches++;
-    messages += idx.nodesByBranch.get(b.id)?.length ?? 0;
-    stack.push(...(idx.childBranches.get(b.id) ?? []));
-  }
-  const what =
-    branches > 1
-      ? `“${branch.title}” and the ${branches - 1} branch${branches === 2 ? '' : 'es'} below it (${messages} message${messages === 1 ? '' : 's'})`
-      : `“${branch.title}” (${messages} message${messages === 1 ? '' : 's'})`;
-  if (
-    !confirm(
-      `Delete ${what}? Replies still generating there are stopped, and shares of its messages stop working. This cannot be undone.`,
-    )
-  )
-    return false;
+  const question =
+    idx && branch
+      ? deleteBranchQuestion(idx, branchId, {
+          title: branch.title,
+          noun: { one: 'branch', many: 'branches' },
+          consequences:
+            'Replies still generating there are stopped, and shares of its messages stop working.',
+        })
+      : null;
+  if (!question || !confirm(question)) return false;
   return store.deleteBranch(branchId);
 }
 

@@ -73,8 +73,6 @@ export interface BranchVariant {
 export interface FanOutRequest {
   fromNodeId: string;
   anchorQuote: string | null;
-  /** Optional shared title; variants get the model and mode appended when there are several. */
-  title: string;
   isPrivate: boolean;
   variants: BranchVariant[];
   /** Sent to every new branch at once; empty = just create the branches. */
@@ -562,7 +560,7 @@ export class CanvasStore {
       this.applyBranch(branch);
       if (open) {
         this.go(branch.id);
-        this.ui.focusComposer();
+        this.ui.focusComposer(branch.id);
       }
       return branch;
     } catch (err) {
@@ -576,14 +574,14 @@ export class CanvasStore {
    * Every variant becomes a sibling lane off the same message (its own
    * context mode and model), and the first message, when given, is sent to
    * all of them in parallel. Resolves with the lanes that were created.
+   * Several lanes are told apart by their model and mode; a single one is
+   * titled after its first reply (auto-titling).
    */
   async fanOut(req: FanOutRequest): Promise<Branch[]> {
     const several = req.variants.length > 1;
     const created: Branch[] = [];
-    const base = req.title.trim();
     for (const v of req.variants) {
-      const suffix = `${modelLabel(this.providers(), v, v.model)} · ${v.contextMode}`;
-      const title = several ? (base ? `${base} (${suffix})` : suffix) : base;
+      const title = several ? `${modelLabel(this.providers(), v, v.model)} · ${v.contextMode}` : '';
       const branch = await this.createBranch(
         {
           fromNodeId: req.fromNodeId,
@@ -606,7 +604,7 @@ export class CanvasStore {
     if (message) {
       for (const b of created) void this.send(b.id, message);
     } else {
-      this.ui.focusComposer();
+      this.ui.focusComposer(first.id);
     }
     return created;
   }
@@ -622,13 +620,23 @@ export class CanvasStore {
       this.go(existing.id);
       return existing;
     }
-    const branch = await this.createBranch(
-      { fromNodeId, contextMode: 'path', anchorQuote: null, title },
-      false,
-    );
+    return this.startLane({ fromNodeId, contextMode: 'path', anchorQuote: null, title }, title);
+  }
+
+  /**
+   * "Ask your own" under a reply: the user's question in a new lane, asked
+   * like a followed tangent. Untitled until the first reply names it.
+   */
+  askFrom(fromNodeId: string, content: string): Promise<Branch | null> {
+    return this.startLane({ fromNodeId, contextMode: 'path', anchorQuote: null }, content);
+  }
+
+  /** Creates a lane, opens it and sends `content` as its first message. */
+  private async startLane(req: CreateBranchRequest, content: string): Promise<Branch | null> {
+    const branch = await this.createBranch(req, false);
     if (branch) {
       this.go(branch.id);
-      void this.send(branch.id, title);
+      void this.send(branch.id, content);
     }
     return branch;
   }

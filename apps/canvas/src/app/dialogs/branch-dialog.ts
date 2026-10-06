@@ -13,6 +13,7 @@ import {
   parseRouteKey,
   providerRouteKey,
   routeKey,
+  splitTangents,
   type ContextMode,
 } from '@tangent/shared';
 import { Icon, Modal } from '@tangent/web-shared';
@@ -30,8 +31,9 @@ const MAX_VARIANTS = 6;
 /**
  * "Branch from here", the canvas way: one new lane, or several *variants*
  * off the same message at once, each with its own context mode and model.
- * With a first message, every variant is asked in parallel and the lanes
- * stream side by side.
+ * With a starting message (or one carried from "Ask your own"), every
+ * variant is asked in parallel and the lanes stream side by side. Titles
+ * come after the first reply (several lanes: their model and mode).
  */
 @Component({
   selector: 'app-branch-dialog',
@@ -129,32 +131,32 @@ const MAX_VARIANTS = 6;
           </div>
         </fieldset>
 
-        <label class="field">
-          <span class="field-label"
-            >Ask all of them
-            <span class="muted">(optional; sent to every new lane at once)</span></span
-          >
-          <textarea
-            rows="2"
-            [value]="firstMessage()"
-            (input)="firstMessage.set(fm.value)"
-            #fm
-            placeholder="Leave empty to open the lanes and write in each yourself"
-          ></textarea>
-        </label>
-
-        <div class="field-row">
+        @if (carried(); as text) {
+          <div class="excerpt">
+            <span class="field-label">First message</span>
+            <p>{{ text }}</p>
+          </div>
+        } @else {
           <label class="field">
             <span class="field-label"
-              >Title <span class="muted">(optional; generated after the first reply)</span></span
+              >Starting message
+              <span class="muted">(optional; sent to every new lane at once)</span></span
             >
-            <input type="text" maxlength="200" [value]="title()" (input)="title.set(t.value)" #t />
+            <textarea
+              rows="2"
+              [value]="firstMessage()"
+              (input)="firstMessage.set(fm.value)"
+              (keydown)="onMessageKey($event)"
+              #fm
+              placeholder="Leave empty to open the lanes and write in each yourself"
+            ></textarea>
           </label>
-          <label class="check">
-            <input type="checkbox" [checked]="isPrivate()" (change)="isPrivate.set(!isPrivate())" />
-            Private (left out of shares and exports)
-          </label>
-        </div>
+        }
+
+        <label class="check">
+          <input type="checkbox" [checked]="isPrivate()" (change)="isPrivate.set(!isPrivate())" />
+          Private (left out of shares and exports)
+        </label>
 
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
@@ -162,10 +164,10 @@ const MAX_VARIANTS = 6;
             @if (saving()) {
               Opening…
             } @else if (variants().length === 1) {
-              {{ firstMessage().trim() ? 'Open the lane and ask' : 'Open the lane' }}
+              {{ message() ? 'Open the lane and ask' : 'Open the lane' }}
             } @else {
               {{
-                firstMessage().trim()
+                message()
                   ? 'Ask in ' + variants().length + ' lanes'
                   : 'Open ' + variants().length + ' lanes'
               }}
@@ -189,7 +191,8 @@ export class BranchDialog implements OnInit {
     () => this.store.index()?.nodes.get(this.state().fromNodeId) ?? null,
   );
   protected readonly excerpt = computed(() => {
-    const text = plainText(this.source()?.content ?? '');
+    // A reply without its <tangents> block (never shown as text).
+    const text = plainText(splitTangents(this.source()?.content ?? '').body);
     return text.length > 240 ? `${text.slice(0, 240)}…` : text;
   });
   private readonly parent = computed(() => {
@@ -198,8 +201,11 @@ export class BranchDialog implements OnInit {
   });
 
   protected readonly quote = signal('');
-  protected readonly title = signal('');
   protected readonly firstMessage = signal('');
+  /** A first message written before the dialog opened; replaces the starting message field. */
+  protected readonly carried = computed(() => this.state().message?.trim() || null);
+  /** What every new lane is asked first, if anything. */
+  protected readonly message = computed(() => this.carried() ?? this.firstMessage().trim());
   protected readonly isPrivate = signal(false);
   protected readonly saving = signal(false);
   protected readonly variants = signal<VariantRow[]>([]);
@@ -263,6 +269,14 @@ export class BranchDialog implements OnInit {
     this.ui.branchDialog.set(null);
   }
 
+  /** Ctrl/Cmd+Enter opens the lanes (Enter is a newline). */
+  protected onMessageKey(e: KeyboardEvent): void {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) {
+      e.preventDefault();
+      void this.create();
+    }
+  }
+
   protected async create(): Promise<void> {
     if (this.saving()) return;
     this.saving.set(true);
@@ -270,7 +284,6 @@ export class BranchDialog implements OnInit {
       const created = await this.store.fanOut({
         fromNodeId: this.state().fromNodeId,
         anchorQuote: this.quote().trim() || null,
-        title: this.title(),
         isPrivate: this.isPrivate(),
         variants: this.variants().map(({ contextMode, providerId, funding, model }) => ({
           contextMode,
@@ -278,9 +291,12 @@ export class BranchDialog implements OnInit {
           funding,
           model: model.trim(),
         })),
-        firstMessage: this.firstMessage(),
+        firstMessage: this.message(),
       });
-      if (created.length > 0) this.close();
+      if (created.length > 0) {
+        this.state().onCreated?.();
+        this.close();
+      }
     } finally {
       this.saving.set(false);
     }

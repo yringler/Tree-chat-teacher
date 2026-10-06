@@ -1,4 +1,5 @@
 import { inject, Injectable } from '@angular/core';
+import { TextSizeStore } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { selectionWithin } from './selection';
@@ -17,6 +18,8 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
   { keys: ['v'], label: 'Review up to the focused (or latest) reply' },
   { keys: ['/'], label: 'Focus the composer' },
   { keys: ['i'], label: 'Toggle the context inspector' },
+  { keys: ['+', '-'], label: 'Larger / smaller conversation text' },
+  { keys: ['0'], label: 'Reset the conversation text size' },
   { keys: ['?'], label: 'Show this help' },
   { keys: ['Esc'], label: 'Close dialogs and panels' },
 ];
@@ -33,6 +36,7 @@ function isTyping(target: EventTarget | null): boolean {
 export class Keyboard {
   private readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
+  private readonly textSize = inject(TextSizeStore);
 
   handle(e: KeyboardEvent): void {
     if (e.defaultPrevented || e.isComposing) return;
@@ -105,6 +109,17 @@ export class Keyboard {
         break;
       case 'i':
         if (onTree) this.ui.toggleInspector();
+        break;
+      // Text size: plain keys, so Ctrl/Cmd +/-/0 stay the browser's zoom. `=` is `+` unshifted.
+      case '+':
+      case '=':
+        if (onTree) this.textSize.increase();
+        break;
+      case '-':
+        if (onTree) this.textSize.decrease();
+        break;
+      case '0':
+        if (onTree) this.textSize.reset();
         break;
       default:
         return;

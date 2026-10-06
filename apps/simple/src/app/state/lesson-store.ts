@@ -8,6 +8,7 @@ import {
   POOL_NOTICE_VERSION,
   type Branch,
   type ChatNode,
+  type DeleteBranchResponse,
   type ModelInfo,
   type ProviderInfo,
   type StreamEvent,
@@ -404,22 +405,66 @@ export class LessonStore {
       this.go(existing.id);
       return existing;
     }
+    return this.startSideQuestion(fromNodeId, title, title);
+  }
+
+  /**
+   * "Ask your own" under a reply: the learner's question as a side question,
+   * asked like a followed tangent. Untitled until the first reply names it.
+   */
+  askFrom(fromNodeId: string, content: string): Promise<Branch | null> {
+    return this.startSideQuestion(fromNodeId, null, content);
+  }
+
+  /** A side question from `fromNodeId` on the current model, opened, with `content` sent first. */
+  private async startSideQuestion(
+    fromNodeId: string,
+    title: string | null,
+    content: string,
+  ): Promise<Branch | null> {
     const current = this.selectedBranch();
     try {
       const branch = await this.api.createBranch({
         fromNodeId,
         contextMode: 'path',
         anchorQuote: null,
-        title,
+        ...(title ? { title } : {}),
         ...(current ? { providerId: current.providerId, model: current.model } : {}),
       });
       this.applyBranch(branch);
       this.go(branch.id);
-      void this.send(branch.id, title);
+      void this.send(branch.id, content);
       return branch;
     } catch (err) {
       this.fail(err);
       return null;
+    }
+  }
+
+  /**
+   * Deletes a side question with every side question below it; the caller
+   * confirms first. Replies still generating there are stopped. When the
+   * open side question goes, the lesson moves to the message it started from.
+   */
+  async deleteSideQuestion(branchId: string): Promise<boolean> {
+    const doomed = this.index()?.branches.get(branchId);
+    if (!doomed?.parentBranchId) return false;
+    try {
+      const res = await this.api.deleteBranch(branchId);
+      const selected = this.selectedBranchId();
+      if (selected && res.branchIds.includes(selected)) {
+        this.go(doomed.parentBranchId, doomed.branchPointNodeId, true);
+      }
+      this.removeBranches(res);
+      this.ui.notify(
+        res.branchIds.length > 1
+          ? `Deleted the side question and ${res.branchIds.length - 1} below it`
+          : 'Side question deleted',
+      );
+      return true;
+    } catch (err) {
+      this.fail(err);
+      return false;
     }
   }
 
@@ -749,6 +794,40 @@ export class LessonStore {
     this.detail.update((d) =>
       d && d.tree.id === branch.treeId ? { ...d, branches: upsertById(d.branches, [branch]) } : d,
     );
+  }
+
+  /** Drops deleted branches and their messages, and stops following their replies. */
+  private removeBranches(res: DeleteBranchResponse): void {
+    const branchIds = new Set(res.branchIds);
+    const nodeIds = new Set(res.nodeIds);
+    for (const id of nodeIds) {
+      this.controllers.get(id)?.abort();
+      this.controllers.delete(id);
+      this.dropLive(id);
+    }
+    const draft = this.unsentDraft();
+    if (draft && branchIds.has(draft.branchId)) this.unsentDraft.set(null);
+    const block = this.poolBlock();
+    if (block && branchIds.has(block.branchId)) this.poolBlock.set(null);
+    this.detail.update((d) =>
+      d && d.tree.id === res.treeId
+        ? {
+            ...d,
+            branches: d.branches.filter((b) => !branchIds.has(b.id)),
+            nodes: d.nodes.filter((n) => !nodeIds.has(n.id)),
+          }
+        : d,
+    );
+    const d = this.detail();
+    if (d && d.tree.id === res.treeId) {
+      this.trees.update((list) =>
+        list.map((t) =>
+          t.id === res.treeId
+            ? { ...t, branchCount: d.branches.length, messageCount: d.nodes.length }
+            : t,
+        ),
+      );
+    }
   }
 
   private setLive(s: LiveReply): void {

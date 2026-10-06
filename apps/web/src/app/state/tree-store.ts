@@ -605,16 +605,29 @@ export class TreeStore {
       this.go(existing.id, this.firstNodeOf(existing.id)?.id ?? null);
       return existing;
     }
+    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null, title }, title);
+  }
+
+  /**
+   * "Ask your own" under a reply: the user's question, asked like a followed
+   * tangent (a `path` branch on the message's provider and model). Untitled:
+   * it reads "Branch: …" until the first reply names it (auto-titling).
+   */
+  askFrom(fromNodeId: string, content: string): Promise<Branch | null> {
+    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null }, content);
+  }
+
+  /**
+   * Creates a branch, opens it and sends `content` as its first message.
+   * Resolves once the branch exists (null if it could not be created); the
+   * reply streams on.
+   */
+  async startBranch(req: CreateBranchRequest, content: string): Promise<Branch | null> {
     try {
-      const branch = await this.api.createBranch({
-        fromNodeId,
-        contextMode: 'path',
-        anchorQuote: null,
-        title,
-      });
+      const branch = await this.api.createBranch(req);
       this.applyBranch(branch);
       this.go(branch.id);
-      void this.send(branch.id, title);
+      void this.send(branch.id, content);
       return branch;
     } catch (err) {
       this.fail(err);

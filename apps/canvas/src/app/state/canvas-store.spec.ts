@@ -6,6 +6,7 @@ import type {
   Branch,
   ChatNode,
   ContextPlanResponse,
+  CreateBranchRequest,
   MeResponse,
   ProviderInfo,
   StreamEvent,
@@ -216,6 +217,104 @@ describe('CanvasStore', () => {
     expect(s.store.busyBranches().size).toBe(0);
   });
 
+  /** createBranch answering lane `c<n>` off the requested message, titled as asked. */
+  function lanes(s: ReturnType<typeof setup>) {
+    let n = 0;
+    const createBranch = vi.fn(async (req: CreateBranchRequest) =>
+      branch(`c${++n}`, {
+        parentBranchId: 'trunk',
+        branchPointNodeId: req.fromNodeId,
+        contextMode: req.contextMode ?? 'path',
+        title: req.title ?? 'Branch: A wave.',
+        titleSource: req.title ? 'user' : 'default',
+      }),
+    );
+    Object.assign(s.api, { createBranch });
+    return createBranch;
+  }
+
+  it('"Ask about this" opens a path lane quoting the selection, its box asked to take focus', async () => {
+    const s = setup();
+    const createBranch = lanes(s);
+    const go = vi.spyOn(s.store, 'go');
+    const before = s.ui.composerFocus();
+    const lane = await s.store.createBranch({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: 'A wave',
+    });
+    expect(createBranch).toHaveBeenCalledWith({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: 'A wave',
+    });
+    expect(go).toHaveBeenCalledWith('c1');
+    // The new lane isn't on the canvas yet: the request names it, for its box to take once rendered.
+    expect(s.ui.composerFocus()).toBe(before + 1);
+    expect(s.ui.composerFocusLane).toBe(lane?.id);
+    expect(s.api.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('"Ask your own" opens an untitled path lane and asks the question there', async () => {
+    const s = setup();
+    const createBranch = lanes(s);
+    const go = vi.spyOn(s.store, 'go');
+    const lane = await s.store.askFrom('a1', 'Why a wave?');
+    expect(lane?.id).toBe('c1');
+    expect(createBranch).toHaveBeenCalledWith({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: null,
+    });
+    expect(go).toHaveBeenCalledWith('c1');
+    await vi.waitFor(() =>
+      expect(s.api.sendMessage).toHaveBeenCalledWith(
+        'c1',
+        { content: 'Why a wave?' },
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  it('a fan-out asks every lane; one lane goes untitled, several are named by model and mode', async () => {
+    const s = setup();
+    const createBranch = lanes(s);
+    const variant = {
+      providerId: 'openrouter',
+      funding: 'credit' as const,
+      model: 'smart-model',
+    };
+    await s.store.fanOut({
+      fromNodeId: 'a1',
+      anchorQuote: null,
+      isPrivate: false,
+      variants: [{ ...variant, contextMode: 'path' }],
+      firstMessage: 'Why?',
+    });
+    expect(createBranch.mock.calls[0]![0]).not.toHaveProperty('title');
+
+    await s.store.fanOut({
+      fromNodeId: 'a1',
+      anchorQuote: null,
+      isPrivate: false,
+      variants: [
+        { ...variant, contextMode: 'path' },
+        { ...variant, contextMode: 'independent' },
+      ],
+      firstMessage: '  And how?  ',
+    });
+    expect(createBranch.mock.calls.slice(1).map(([req]) => req.title)).toEqual([
+      'smart-model · path',
+      'smart-model · independent',
+    ]);
+    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(3));
+    expect(s.api.sendMessage.mock.calls.map(([id, req]) => [id, req])).toEqual([
+      ['c1', { content: 'Why?' }],
+      ['c2', { content: 'And how?' }],
+      ['c3', { content: 'And how?' }],
+    ]);
+  });
+
   it('a 402 membership_required raises the membership notice, payment_required links to /billing', async () => {
     vi.useFakeTimers();
     try {
@@ -273,6 +372,72 @@ describe('CanvasStore', () => {
     const unsold = setup();
     await unsold.store.init({ builtInCredit: false, membership: inactive } as MeResponse);
     expect(unsold.store.membershipBlocked()).toBe(true);
+  });
+});
+
+describe('CanvasStore deleting a lane', () => {
+  // detail(): trunk (u1 a1) and lane `b` from a1 (u2 a2); here also `c` below `b` and `d` off a1.
+  function tree(): TreeDetail {
+    const d = detail();
+    return {
+      ...d,
+      branches: [
+        ...d.branches,
+        branch('c', { parentBranchId: 'b', branchPointNodeId: 'a2' }),
+        branch('d', { parentBranchId: 'trunk', branchPointNodeId: 'a1' }),
+      ],
+      nodes: [
+        ...d.nodes,
+        node('u3', { seq: 4, parentId: 'a2', branchId: 'c', role: 'user' }),
+        node('u4', { seq: 2, parentId: 'a1', branchId: 'd', role: 'user' }),
+      ],
+    };
+  }
+
+  function open(selected: string) {
+    const s = setup();
+    s.store.detail.set(tree());
+    const deleteBranch = vi.fn(async (_id: string) => ({
+      treeId: 't1',
+      branchIds: ['b', 'c'],
+      nodeIds: ['u2', 'a2', 'u3'],
+    }));
+    Object.assign(s.api, { deleteBranch });
+    s.store.setRoute('t1', selected, null);
+    const go = vi.spyOn(s.store, 'go');
+    return { ...s, deleteBranch, go };
+  }
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('takes the lanes below with it; a selection in there moves to the fork', async () => {
+    const s = open('c');
+    await expect(s.store.deleteBranch('b')).resolves.toBe(true);
+    expect(s.deleteBranch).toHaveBeenCalledWith('b');
+    expect(s.go).toHaveBeenCalledWith('trunk', 'a1', true);
+    expect([...(s.store.index()?.branches.keys() ?? [])].sort()).toEqual(['d', 'trunk']);
+    expect(s.store.index()?.nodes.has('u3')).toBe(false);
+    expect(s.ui.toasts().at(-1)?.text).toBe('Deleted the lane and 1 below it');
+  });
+
+  it('a lane selected elsewhere stays selected', async () => {
+    const s = open('d');
+    await s.store.deleteBranch('b');
+    expect(s.go).not.toHaveBeenCalled();
+    expect(s.store.selectedBranchId()).toBe('d');
+  });
+
+  it('a refused delete changes nothing', async () => {
+    const s = open('b');
+    s.deleteBranch.mockRejectedValueOnce(new ApiError(409, 'conflict', 'Still writing'));
+    await expect(s.store.deleteBranch('b')).resolves.toBe(false);
+    expect(s.go).not.toHaveBeenCalled();
+    expect(s.store.index()?.branches.size).toBe(4);
+    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still writing' });
   });
 });
 

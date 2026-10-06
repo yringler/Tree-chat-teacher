@@ -1,13 +1,14 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { splitTangents, type ChatNode } from '@tangent/shared';
-import { Icon, MarkdownService, SourcesList } from '@tangent/web-shared';
+import { Icon, MarkdownService, SourcesList, TangentAsk } from '@tangent/web-shared';
 import { LessonStore } from '../state/lesson-store';
+import { confirmDeleteSideQuestion } from './delete-side-question';
 import { branchTitle } from './titles';
 
 /** One message of the lesson; `data-node-id` lets the chat page map a text selection to it. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, SourcesList],
+  imports: [Icon, SourcesList, TangentAsk],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -59,7 +60,7 @@ import { branchTitle } from './titles';
         (check)="checkSources()"
       />
 
-      @if (tangents().length > 0) {
+      @if (askable()) {
         <nav class="tangents" aria-label="Tangents worth following">
           <span class="tangents-label muted small">Where next?</span>
           @for (t of tangents(); track t.title) {
@@ -79,6 +80,13 @@ import { branchTitle } from './titles';
               }
             </button>
           }
+          <app-tangent-ask
+            [(text)]="askText"
+            label="Ask your own question as a side question"
+            [busy]="asking()"
+            [latest]="latest()"
+            (ask)="ask($event)"
+          />
         </nav>
       }
 
@@ -90,15 +98,27 @@ import { branchTitle } from './titles';
             {{ otherChildren().length === 1 ? 'side question' : 'side questions' }}
           </span>
           @for (b of otherChildren(); track b.id) {
-            <button
-              type="button"
-              class="chip"
-              [class.is-on]="chainIds().has(b.id)"
-              [title]="b.anchorQuote ?? branchTitle(b)"
-              (click)="store.go(b.id)"
-            >
-              {{ branchTitle(b) }}
-            </button>
+            <span class="chip-row">
+              <button
+                type="button"
+                class="chip"
+                [class.is-on]="chainIds().has(b.id)"
+                [title]="b.anchorQuote ?? branchTitle(b)"
+                (click)="store.go(b.id)"
+              >
+                {{ branchTitle(b) }}
+              </button>
+              <!-- Delete it from here (shown on hover or keyboard focus, always on touch). -->
+              <button
+                type="button"
+                class="icon-btn icon-btn-danger chip-delete"
+                [attr.aria-label]="'Delete the side question ' + branchTitle(b)"
+                title="Delete this side question"
+                (click)="remove(b.id)"
+              >
+                <app-icon name="trash" [size]="13" />
+              </button>
+            </span>
           }
         </nav>
       }
@@ -180,6 +200,33 @@ export class MessageItem {
 
   /** Title of the tangent whose branch is being created. */
   protected readonly opening = signal<string | null>(null);
+  /** "Ask your own": the learner's question, sent in a new side question. */
+  protected readonly askText = signal('');
+  protected readonly asking = signal(false);
+  /** The newest reply of what is open: its "Ask your own" stands out (TangentAsk `latest`). */
+  protected readonly latest = computed(() => {
+    const n = this.node();
+    return (
+      this.askable() &&
+      n.branchId === this.store.selectedBranchId() &&
+      this.store.path().at(-1)?.id === n.id
+    );
+  });
+
+  protected async ask(text: string): Promise<void> {
+    if (this.asking()) return;
+    this.asking.set(true);
+    try {
+      // Kept on failure, to try again.
+      if (await this.store.askFrom(this.node().id, text)) this.askText.set('');
+    } finally {
+      this.asking.set(false);
+    }
+  }
+
+  protected async remove(branchId: string): Promise<void> {
+    await confirmDeleteSideQuestion(this.store, branchId);
+  }
 
   protected async follow(title: string): Promise<void> {
     if (this.opening() !== null) return;

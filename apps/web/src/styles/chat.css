@@ -20,6 +20,13 @@
   flex-direction: column;
   min-height: 0;
   min-width: 0;
+  /*
+   * Text size of the conversation: ChatPage sets --chat-font-scale (TextSizeStore,
+   * 0.85–1.4). The messages and the composer take their base size from it, and
+   * their rem sizes are written against --chat-rem, so everything in a message
+   * scales together. The header (also inside .chat) keeps plain rem sizes.
+   */
+  --chat-rem: calc(1rem * var(--chat-font-scale, 1));
 }
 
 .chat-head {
@@ -125,6 +132,7 @@ button.crumb:hover {
 .messages-inner {
   max-width: 820px;
   margin: 0 auto;
+  font-size: calc(1em * var(--chat-font-scale, 1));
   padding: 20px 20px 32px;
   display: flex;
   flex-direction: column;
@@ -146,12 +154,12 @@ button.crumb:hover {
 
 .msg-system {
   border-color: var(--border);
-  font-size: 0.9rem;
+  font-size: calc(0.9 * var(--chat-rem, 1rem));
 }
 
 .msg-ancestor {
   opacity: 0.6;
-  font-size: 0.94rem;
+  font-size: calc(0.94 * var(--chat-rem, 1rem));
 }
 
 .msg-ancestor:hover,
@@ -178,7 +186,7 @@ button.crumb:hover {
 
 .msg-role {
   font-weight: 600;
-  font-size: 0.82rem;
+  font-size: calc(0.82 * var(--chat-rem, 1rem));
 }
 
 .msg-actions {
@@ -214,7 +222,7 @@ button.crumb:hover {
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   background: var(--danger-soft);
-  font-size: 0.88rem;
+  font-size: calc(0.88 * var(--chat-rem, 1rem));
 }
 
 .cursor {
@@ -237,6 +245,32 @@ button.crumb:hover {
 
 .md {
   overflow-wrap: anywhere;
+}
+
+/* Shared classes (base.css) used inside messages, on the conversation's text size. */
+.messages-inner .small {
+  font-size: calc(0.82 * var(--chat-rem));
+}
+
+.messages-inner .badge {
+  font-size: calc(0.7 * var(--chat-rem));
+}
+
+.messages-inner .tangent {
+  font-size: calc(0.92 * var(--chat-rem));
+}
+
+.messages-inner .tangent-why {
+  font-size: calc(0.85 * var(--chat-rem));
+}
+
+.messages-inner .source-chip {
+  font-size: calc(0.8 * var(--chat-rem));
+}
+
+/* Buttons in a message (Branch from here, Check sources) go with its text. */
+.messages-inner .btn-sm {
+  font-size: calc(0.85 * var(--chat-rem));
 }
 
 .md > :first-child {
@@ -334,7 +368,7 @@ button.crumb:hover {
   gap: 10px;
   margin: 10px 0 2px;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: calc(0.8 * var(--chat-rem, 1rem));
 }
 
 .fork-line {
@@ -369,7 +403,7 @@ button.crumb:hover {
   border-left: 3px solid var(--accent);
   background: var(--accent-soft);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  font-size: 0.9rem;
+  font-size: calc(0.9 * var(--chat-rem, 1rem));
   white-space: pre-wrap;
 }
 
@@ -388,7 +422,7 @@ button.crumb:hover {
   border-radius: 999px;
   background: var(--bg-elev);
   color: var(--fg-muted);
-  font-size: 0.78rem;
+  font-size: calc(0.78 * var(--chat-rem, 1rem));
   cursor: pointer;
 }
 
@@ -407,8 +441,17 @@ button.crumb:hover {
   gap: 2px;
 }
 
+.fork-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 446px;
+}
+
 .fork-link {
   display: flex;
+  flex: 1;
+  min-width: 0;
   align-items: center;
   gap: 6px;
   width: 100%;
@@ -419,7 +462,7 @@ button.crumb:hover {
   background: none;
   cursor: pointer;
   text-align: left;
-  font-size: 0.86rem;
+  font-size: calc(0.86 * var(--chat-rem, 1rem));
 }
 
 .fork-link:hover {
@@ -433,9 +476,23 @@ button.crumb:hover {
 /* Composer */
 
 .composer-dock {
+  position: relative;
   border-top: 1px solid var(--border);
   padding: 10px 20px 14px;
   background: var(--bg);
+}
+
+/* "Ask about this" on a selection: floats just above the composer, over the messages. */
+.selection-float {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  padding: 0 12px 10px;
+  pointer-events: none;
 }
 
 .composer-host {
@@ -461,6 +518,8 @@ button.crumb:hover {
 
 .composer textarea {
   flex: 1;
+  /* Typing matches what is read: the conversation's text size. */
+  font-size: calc(1em * var(--chat-font-scale, 1));
   border: 0;
   background: transparent;
   resize: none;
@@ -557,7 +616,7 @@ button.crumb:hover {
   background: var(--bg-elev);
   color: var(--fg-muted);
   font: inherit;
-  font-size: 0.78rem;
+  font-size: calc(0.78 * var(--chat-rem, 1rem));
   cursor: pointer;
 }
 

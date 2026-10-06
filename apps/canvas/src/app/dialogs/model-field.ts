@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input, model } from '@angular/core';
 import { isModelAllowed, type ProviderInfo } from '@tangent/shared';
+import { ModelSuggestions } from '@tangent/web-shared';
 
 let uid = 0;
 
@@ -18,21 +19,23 @@ export function modelHint(provider: ProviderInfo | null, model: string): string 
 
 /**
  * The model of one provider. A provider with `openModels` (OpenRouter,
- * Tangent credit) takes any model id it serves: a text field whose datalist
- * keeps the suggestions one click away. Others offer a select of their
- * listed models.
+ * Tangent credit) takes any model id it serves: a text field with its listed
+ * models as chips under it, all in view and one click away
+ * (ModelSuggestions). Others offer a select of their listed models.
  */
 @Component({
   selector: 'app-model-field',
+  imports: [ModelSuggestions],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <label class="field">
-      <span [class]="compact() ? 'sr-only' : 'field-label'">{{ label() }}</span>
-      @if (provider()?.openModels) {
+    @if (provider()?.openModels) {
+      <!-- A div, not a label: the label would name the field after the chips too. -->
+      <div class="field">
+        <label [class]="compact() ? 'sr-only' : 'field-label'" [for]="id">{{ label() }}</label>
         <input
           #mi
           type="text"
-          [attr.list]="id + '-l'"
+          [id]="id"
           [value]="model()"
           (input)="model.set(mi.value)"
           (change)="model.set(mi.value.trim())"
@@ -42,16 +45,21 @@ export function modelHint(provider: ProviderInfo | null, model: string): string 
           maxlength="200"
           placeholder="vendor/model-name"
           [attr.aria-invalid]="hint() ? 'true' : null"
+          [attr.aria-describedby]="hint() ? id + '-h' : null"
         />
-        <datalist [id]="id + '-l'">
-          @for (m of models(); track m.id) {
-            <option [value]="m.id">{{ m.label }}</option>
-          }
-        </datalist>
+        <app-model-suggestions
+          [models]="models()"
+          [value]="model()"
+          [label]="label() + ' suggestions'"
+          (picked)="model.set($event)"
+        />
         @if (hint(); as h) {
-          <span class="field-error small">{{ h }}</span>
+          <span class="field-error small" [id]="id + '-h'">{{ h }}</span>
         }
-      } @else {
+      </div>
+    } @else {
+      <label class="field">
+        <span [class]="compact() ? 'sr-only' : 'field-label'">{{ label() }}</span>
         <select #ms [value]="model()" (change)="model.set(ms.value)">
           @if (!known()) {
             <option [value]="model()">{{ model() || '—' }}</option>
@@ -60,8 +68,8 @@ export function modelHint(provider: ProviderInfo | null, model: string): string 
             <option [value]="m.id" [selected]="m.id === model()">{{ m.label }}</option>
           }
         </select>
-      }
-    </label>
+      </label>
+    }
   `,
   host: { class: 'model-field' },
 })
