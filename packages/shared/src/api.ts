@@ -102,7 +102,7 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *   GET    /api/admin/users?q=&cursor=           -> AdminUsersResponse (newest first, ADMIN_USERS_PAGE per page,
  *                                                q = email substring)
  *   PATCH  /api/admin/users/:userId UpdateAdminUserRequest -> AdminUser (same-origin only;
- *                                                share permission and/or pool suspension)
+ *                                                share permission, pool suspension and/or membership waiver)
  *   GET    /api/admin/pool/usage?days=&limit=    -> AdminPoolUsageResponse (per-user pool consumption,
  *                                                most spend first; today's busiest network keys)
  *   GET    /api/admin/pool                       -> AdminPoolResponse (the pool's balance, holds and

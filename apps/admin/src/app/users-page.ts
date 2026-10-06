@@ -46,7 +46,8 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
 
 /**
  * Users, newest first, searchable by email: the per-user "May share"
- * permission, the open pool suspension, the user's credit balance with a
+ * permission, the open pool suspension, the membership (a waiver makes the
+ * user a member without paying; a paid one is marked), the user's credit balance with a
  * form to add (or take back) credit, and, expanded, the user's shares with
  * Revoke (a takedown).
  */
@@ -77,6 +78,7 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
             <th scope="col">Active shares</th>
             <th scope="col">May share</th>
             <th scope="col">Pool suspended</th>
+            <th scope="col">Member</th>
             <th scope="col">Credit</th>
             <th scope="col"><span class="sr-only">Shares</span></th>
           </tr>
@@ -123,6 +125,22 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
                 </label>
               </td>
               <td class="admin-nowrap">
+                <label class="check" title="Waive the membership: a member without paying">
+                  <input
+                    type="checkbox"
+                    [checked]="u.membershipWaived"
+                    [disabled]="busy().has(u.id)"
+                    (change)="setMembershipWaived(u, $any($event.target))"
+                  />
+                  <span class="sr-only">{{ u.email }}'s membership is waived</span>
+                </label>
+                @if (u.membershipPaid) {
+                  <span class="badge badge-ok" title="Has a paid membership subscription"
+                    >paid</span
+                  >
+                }
+              </td>
+              <td class="admin-nowrap">
                 {{ money(u.creditBalanceMicros) }}
                 <button
                   type="button"
@@ -156,7 +174,7 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
             </tr>
             @if (creditFor() === u.id) {
               <tr [id]="'credit-' + u.id">
-                <td colspan="8" class="admin-shares">
+                <td colspan="9" class="admin-shares">
                   <form class="admin-search" (submit)="$event.preventDefault(); credit(u)">
                     <label class="field">
                       <span class="field-label">Amount ($, negative to debit)</span>
@@ -191,7 +209,7 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
             }
             @if (shares().has(u.id)) {
               <tr [id]="'shares-' + u.id">
-                <td colspan="8" class="admin-shares">
+                <td colspan="9" class="admin-shares">
                   @if (shares().get(u.id); as list) {
                     @if (list.length === 0) {
                       <p class="muted small">No shares.</p>
@@ -231,7 +249,7 @@ const EMPTY_CREDIT_FORM: UserCreditForm = { amount: '', note: '' };
           } @empty {
             @if (!loading()) {
               <tr>
-                <td colspan="8" class="muted">No users found.</td>
+                <td colspan="9" class="muted">No users found.</td>
               </tr>
             }
           }
@@ -312,6 +330,34 @@ export class UsersPage {
         this.replaceUser(await this.api.updateAdminUser(user.id, { poolSuspended: suspended }));
       } catch (err) {
         box.checked = user.poolSuspended;
+        throw err;
+      }
+    });
+  }
+
+  /**
+   * Waives the user's membership (a member without paying), or takes the
+   * waiver back; a paid membership is left as it is. Takes effect on the
+   * user's next request.
+   */
+  protected async setMembershipWaived(user: AdminUser, box: HTMLInputElement): Promise<void> {
+    const waived = box.checked;
+    if (
+      !waived &&
+      !user.membershipPaid &&
+      !confirm(
+        `${user.email} has no paid membership. Without the waiver, power mode on their own keys ` +
+          'and buying credit need one. Continue?',
+      )
+    ) {
+      box.checked = true;
+      return;
+    }
+    await this.run(user.id, async () => {
+      try {
+        this.replaceUser(await this.api.updateAdminUser(user.id, { membershipWaived: waived }));
+      } catch (err) {
+        box.checked = user.membershipWaived;
         throw err;
       }
     });

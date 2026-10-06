@@ -358,7 +358,7 @@ Use `--local` instead of `--remote` for the local database.
 
 #### Waiving the membership
 
-A user whose `auth_users.membership_waived` is `1` needs no membership, whatever its subscription says. Set it by hand, or give friends the code in the `MEMBERSHIP_WAIVER_CODE` secret: entering it on the billing page ("Have a code?", `POST /api/billing/membership/waiver`) sets the flag for that user (rate limited, compared in constant time). If the code leaks, change the secret (`npx wrangler secret put MEMBERSHIP_WAIVER_CODE`; set it empty to stop code redemption) and clear the flag of whoever shouldn't have it. Clearing it doesn't touch a paid membership.
+A user whose `auth_users.membership_waived` is `1` needs no membership, whatever its subscription says. Set or clear it on the [admin page](#admin) (**Member**), by hand, or give friends the code in the `MEMBERSHIP_WAIVER_CODE` secret: entering it on the billing page ("Have a code?", `POST /api/billing/membership/waiver`) sets the flag for that user (rate limited, compared in constant time). If the code leaks, change the secret (`npx wrangler secret put MEMBERSHIP_WAIVER_CODE`; set it empty to stop code redemption) and clear the flag of whoever shouldn't have it. Clearing it doesn't touch a paid membership.
 
 ```bash
 # Who has it, and since when
@@ -382,7 +382,7 @@ npx wrangler d1 execute DB --remote --command "UPDATE auth_users SET membership_
 
 These are out of scope for now:
 
-- Auto-recharge, free sign-up credit, promotion codes, trials, low-balance or membership-lapse emails, multi-currency (USD only), and admin UI for membership waivers (the SQL above). Personal credit adjustments are on the [admin page](#admin) (or the admin API above); simulated purchases only through the API.
+- Auto-recharge, free sign-up credit, promotion codes, trials, low-balance or membership-lapse emails, and multi-currency (USD only). Membership waivers and personal credit adjustments are on the [admin page](#admin) (or the admin API above); simulated purchases only through the API.
 - Metered (postpaid) billing. Usage stays on the internal ledger; nothing is mirrored into Polar's meters.
 
 ### Admin
@@ -392,6 +392,7 @@ The admin page at `/admin/` (`apps/admin`) is for you, the operator. It lists us
 - allow particular users to publish share links while `DMCA_AGENT_REGISTERED` is off (**May share**, stored in `auth_users.share_allowed`). The check runs on every view of a link, before the edge cache, so turning a user off takes their links down at once. Once `DMCA_AGENT_REGISTERED` is `"true"` everyone may share and the list has no effect; the page says which applies;
 - see a user's shares and **Revoke** any of them, which is how to act on a takedown notice without the owner;
 - see each user's credit balance (their own ledger, shared by both apps; pending holds not deducted) and add credit to it, or take it back with a negative amount (**Credit**): an `adjustment` with an optional note, no payment and no processing fee, idempotent per submit. A debit asks first and isn't clamped, so it can leave the balance below zero;
+- make a user a member without paying, or take that back (**Member**: the membership waiver, `auth_users.membership_waived`, as the [waiver code](#waiving-the-membership) sets it; `PATCH /api/admin/users/<id>` with `{"membershipWaived": true}`). It applies from the user's next request. A user with a paid membership is marked **paid**; clearing a waiver leaves that membership alone, and clearing it for a user without one asks first. While the membership isn't required (`ANNUAL_FEE_ENABLED` off) the page says so, and a waiver changes nothing until it is;
 - suspend or restore a user's open pool access (**Pool suspended**), and see who uses the pool most (**Open pool use**, below the users);
 - see the open pool's balance, what pending reservations hold, and whether the overage breaker has tripped (**Open pool**), and top up or correct the pool there (an adjustment);
 - review the topics the pool's public impact feed may name (**Impact feed topics**): approve or reject each topic the first time it qualifies.

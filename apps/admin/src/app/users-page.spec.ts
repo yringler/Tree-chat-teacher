@@ -52,3 +52,13 @@ describe('UsersPage (per-user credit)', () => {
     );
   });
 });
+
+describe('UsersPage (membership)', () => {
+  const t = templateOf(UsersPage);
+
+  it('toggles the waiver per user and marks a paid membership', () => {
+    expect(t).toContain('[checked]="u.membershipWaived"');
+    expect(t).toContain('setMembershipWaived(u, $any($event.target))');
+    expect(t).toContain('@if (u.membershipPaid)');
+  });
+});
