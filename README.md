@@ -142,7 +142,7 @@ pnpm e2e         # Playwright end-to-end tests against wrangler dev (see below)
 
 **End-to-end tests** (`pnpm e2e`, in `apps/e2e`) drive Chromium through the built apps with [Playwright](https://playwright.dev), against `wrangler dev` on port 8790 (`E2E_PORT`). They are separate from `pnpm test`. `apps/e2e/serve.mjs` (Playwright's `webServer`) generates the Worker's config into the git-ignored `apps/e2e/.state/` (passed with `--env-file`, so your `apps/worker/.dev.vars` and local database are never read), migrates a fresh local database there, and starts `wrangler dev`, which builds every app first (about a minute). No model is called: power runs on the offline test provider, and the built-in provider is configured but never sent to. The suites:
 
-- `demo.spec.ts`: the power demo's Delete in the conversation list (Cancel keeps the conversation, OK removes it), and the Learn demo's Export, then Import of a power-style backup (another provider and model, a custom prompt, a summary branch on credit), which comes back adapted to Learn; a file that isn't a backup is refused.
+- `demo.spec.ts`: the power demo's Delete in the conversation list (Cancel keeps the conversation, OK removes it), Delete on a branch in a message's branch list (the same ask, without the outline), and the Learn demo's Export, then Import of a power-style backup (another provider and model, a custom prompt, a summary branch on credit), which comes back adapted to Learn; a file that isn't a backup is refused.
 - `read-only-power.spec.ts`: with the membership required and cancelled, the own-key branch shows the read-only notice, the credit branch keeps its message box, **Renew membership** goes to `/billing`, **Create a copy in Learn** opens the copy at `/learn/t/<id>` and leaves the power conversation unchanged, and **Continue with Tangent credit** moves the branch onto credit.
 - `learn-key.spec.ts`: Learn on the learner's own key without one says which key is missing and opens **How replies are paid for**; the learner stays signed in.
 
@@ -516,6 +516,7 @@ This section describes the power app. The simple app at `/learn/` keeps only the
 - **Replying** in the composer appends to the end of the current branch.
 - **Branch from here** is available on any message. You can quote the text you highlighted, pick a mode, and choose a provider and model; by default a branch inherits its parent's.
 - **"N branches"** under a message lists its children. Breadcrumbs and **↩ Parent message** take you back to the exact branch point.
+- **Deleting a branch** (with everything below it, after a confirmation) works from the chat itself: the trash icon beside a branch in a message's **"N branches"** list, or beside **↩ Parent message** for the open branch. The outline and **Branch settings** offer the same.
 - **Keyboard shortcuts:**
 
   | Keys              | Action                         |

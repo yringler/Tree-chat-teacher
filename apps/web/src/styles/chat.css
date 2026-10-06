@@ -407,8 +407,17 @@ button.crumb:hover {
   gap: 2px;
 }
 
+.fork-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 446px;
+}
+
 .fork-link {
   display: flex;
+  flex: 1;
+  min-width: 0;
   align-items: center;
   gap: 6px;
   width: 100%;

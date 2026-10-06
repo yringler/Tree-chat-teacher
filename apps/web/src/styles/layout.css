@@ -428,6 +428,7 @@ app-root {
 .outline-row:hover .outline-actions,
 .outline-actions:focus-within,
 .tree-row:hover .row-actions,
+.fork-row:hover .row-actions,
 .row-actions:focus-within {
   opacity: 1;
 }

@@ -3,6 +3,7 @@ import type { Branch } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { DEMO_MODE, Icon } from '@tangent/web-shared';
+import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { ModeBadge } from '../ui/mode-badge';
 import { ExportMenu } from './export-menu';
 
@@ -128,6 +129,17 @@ interface Crumb {
               <app-icon name="back" /> Parent message
             </button>
           }
+          @if (b.parentBranchId) {
+            <button
+              type="button"
+              class="icon-btn icon-btn-danger"
+              [attr.aria-label]="'Delete ' + b.title"
+              title="Delete this branch"
+              (click)="remove(b.id)"
+            >
+              <app-icon name="trash" [size]="14" />
+            </button>
+          }
         }
       </div>
     </header>
@@ -146,6 +158,10 @@ export class ChatHeader {
       current: i === chain.length - 1,
     }));
   });
+
+  protected async remove(branchId: string): Promise<void> {
+    await confirmDeleteBranch(this.store, branchId);
+  }
 
   protected toParent(): void {
     const b = this.store.selectedBranch();

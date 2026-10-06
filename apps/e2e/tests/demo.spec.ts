@@ -45,6 +45,41 @@ test('power demo: deleting from the conversation list asks first, and Cancel kee
   expect(errors).toEqual([]);
 });
 
+test('power demo: a branch is deleted from under its message, without the outline', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.goto('/demo');
+  await page.locator('.home-list .tree-row a').first().click();
+  const toggle = page.locator('.fork-toggle').first();
+  await expect(toggle).toHaveText(/2 branches/);
+  await toggle.click();
+  const forks = page.locator('.fork-list .fork-row');
+  await expect(forks).toHaveCount(2);
+  const title = (await forks.first().locator('.outline-title').innerText()).trim();
+  const del = page.locator('.fork-list').getByRole('button', { name: `Delete ${title}` });
+
+  // Cancel: nothing changes.
+  const asked: string[] = [];
+  page.once('dialog', async (d) => {
+    asked.push(d.message());
+    await d.dismiss();
+  });
+  await del.click();
+  await expect.poll(() => asked.length).toBe(1);
+  expect(asked[0]).toContain(`Delete “${title}”`);
+  await expect(forks).toHaveCount(2);
+
+  // Confirm: the branch leaves the list, and the open branch stays where it was.
+  const url = page.url();
+  page.once('dialog', (d) => d.accept());
+  await del.click();
+  await expect(forks).toHaveCount(1);
+  await expect(toggle).toHaveText(/1 branch\b/);
+  expect(page.url()).toBe(url);
+  expect(errors).toEqual([]);
+});
+
 test('Learn demo: export a lesson, import a power-style backup, get a Learn lesson', async ({
   page,
 }, testInfo) => {

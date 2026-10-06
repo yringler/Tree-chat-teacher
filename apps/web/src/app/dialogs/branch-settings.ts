@@ -25,7 +25,8 @@ import { ModePicker } from '../ui/mode-picker';
 
 /**
  * Asks, then deletes a branch with every branch below it. Shared by the
- * settings dialog and the outline. Resolves true if it was deleted.
+ * settings dialog, the outline, the chat header (the open branch) and each
+ * message's branch list. Resolves true if it was deleted.
  */
 export async function confirmDeleteBranch(store: TreeStore, branchId: string): Promise<boolean> {
   const idx = store.index();

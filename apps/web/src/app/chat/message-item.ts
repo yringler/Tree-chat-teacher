@@ -11,6 +11,7 @@ import {
 import { parseReview, splitTangents, type Branch, type ChatNode } from '@tangent/shared';
 import { Icon, MarkdownService, SourcesList } from '@tangent/web-shared';
 import { copyText, selectionWithin } from '../core/selection';
+import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { ReviewStore } from '../state/review-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
@@ -165,7 +166,7 @@ import { ReviewVerdict } from '../ui/review-verdict';
           @if (forksOpen()) {
             <ul class="fork-list">
               @for (b of children(); track b.id) {
-                <li>
+                <li class="fork-row">
                   <button
                     type="button"
                     class="fork-link"
@@ -179,6 +180,18 @@ import { ReviewVerdict } from '../ui/review-verdict';
                     }
                     <span class="count">{{ countOf(b.id) }}</span>
                   </button>
+                  <!-- Delete without going through the outline (shown on hover or keyboard focus). -->
+                  <span class="row-actions">
+                    <button
+                      type="button"
+                      class="icon-btn icon-btn-danger"
+                      [attr.aria-label]="'Delete ' + b.title"
+                      title="Delete branch"
+                      (click)="remove($event, b)"
+                    >
+                      <app-icon name="trash" [size]="13" />
+                    </button>
+                  </span>
                 </li>
               }
             </ul>
@@ -326,6 +339,11 @@ export class MessageItem {
       this.ui.notify('Copied to clipboard');
       setTimeout(() => this.copied.set(false), 1500);
     }
+  }
+
+  protected async remove(e: Event, b: Branch): Promise<void> {
+    e.stopPropagation();
+    await confirmDeleteBranch(this.store, b.id);
   }
 
   protected jump(e: Event, b: Branch): void {
