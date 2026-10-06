@@ -5,7 +5,7 @@ import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ShareCard } from './share-card';
 
-/** `/shares`: every public link, with copy / open / edit / republish / revoke (ShareCard). */
+/** `/shares`: every public link, with copy / open / edit / republish / revoke / delete (ShareCard). */
 @Component({
   selector: 'app-shares-page',
   imports: [Icon, ShareCard],
@@ -42,5 +42,9 @@ export class SharesPage {
 
   protected replace(updated: ShareSummary): void {
     this.shares.update((list) => list.map((x) => (x.id === updated.id ? updated : x)));
+  }
+
+  protected drop(shareId: string): void {
+    this.shares.update((list) => list.filter((x) => x.id !== shareId));
   }
 }

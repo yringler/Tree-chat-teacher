@@ -839,6 +839,15 @@ export function createD1Repositories(d1: D1Database): Repositories {
       return shareRepo.getShare(shareId);
     },
 
+    async deleteShare(shareId) {
+      // Snapshots go via FK cascade.
+      const rows = await db
+        .delete(shares)
+        .where(eq(shares.id, shareId))
+        .returning({ id: shares.id });
+      return rows.length > 0;
+    },
+
     async getSnapshot(shareId) {
       const rows = await db
         .select({ data: shareSnapshots.data })

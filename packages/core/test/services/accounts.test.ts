@@ -55,6 +55,7 @@ describe('accounts', () => {
       NotFoundError,
     );
     await expect(otherShares.revoke(share.id)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(otherShares.delete(share.id)).rejects.toBeInstanceOf(NotFoundError);
     await expect(otherShares.republish(share.id)).rejects.toBeInstanceOf(NotFoundError);
     await expect(otherShares.update(share.id, { title: 'x' })).rejects.toBeInstanceOf(
       NotFoundError,

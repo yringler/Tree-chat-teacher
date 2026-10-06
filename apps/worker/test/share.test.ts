@@ -99,6 +99,22 @@ describe('public shares', () => {
     expect(listed.viewCount).toBeGreaterThanOrEqual(1);
   });
 
+  it('deleting a share takes its link down and removes it from the list', async () => {
+    const { detail } = await seed();
+    const share = await ok<ShareSummary>(
+      call('/api/shares', { method: 'POST', json: { treeId: detail.tree.id, scope: 'tree' } }),
+      201,
+    );
+    expect((await exports.default.fetch(`${BASE}/s/${share.token}`)).status).toBe(200);
+
+    expect((await call(`/api/shares/${share.id}`, { method: 'DELETE' })).status).toBe(204);
+    expect((await exports.default.fetch(`${BASE}/s/${share.token}`)).status).toBe(404);
+    expect((await exports.default.fetch(`${BASE}/s/${share.token}/data.json`)).status).toBe(404);
+    const list = await ok<ShareSummary[]>(call('/api/shares'));
+    expect(list.map((s) => s.id)).not.toContain(share.id);
+    expect((await call(`/api/shares/${share.id}`, { method: 'DELETE' })).status).toBe(404);
+  });
+
   it('live shares follow the tree; path and subtree scopes stay in scope', async () => {
     const { detail, trunk, sideMsg, root } = await seed();
     const live = await ok<ShareSummary>(
@@ -171,12 +187,13 @@ describe('sharing off (no DMCA agent registered)', () => {
       off,
       ctx,
     );
-    const out = new Response(await res.text(), res);
+    // A 204 (DELETE) must keep a null body.
+    const out = new Response(res.status === 204 ? null : await res.text(), res);
     await waitOnExecutionContext(ctx);
     return out;
   }
 
-  it('creates and serves nothing, but lets owners list, revoke and export', async () => {
+  it('creates and serves nothing, but lets owners list, revoke, delete and export', async () => {
     const { detail } = await seed();
     // A link made while sharing was on.
     const share = await ok<ShareSummary>(
@@ -198,10 +215,11 @@ describe('sharing off (no DMCA agent registered)', () => {
     expect(await page.text()).not.toContain('PUBLIC-ROOT');
     expect((await callOff(`/s/${share.token}/data.json`)).status).toBe(404);
 
-    // Owners can still see and revoke it, and download the conversation.
+    // Owners can still see, revoke and delete it, and download the conversation.
     const listed = (await (await callOff('/api/shares')).json()) as ShareSummary[];
     expect(listed.map((s) => s.id)).toContain(share.id);
     expect((await callOff(`/api/shares/${share.id}/revoke`, { method: 'POST' })).status).toBe(200);
+    expect((await callOff(`/api/shares/${share.id}`, { method: 'DELETE' })).status).toBe(204);
     const md = await callOff(`/api/export?treeId=${detail.tree.id}&format=md`);
     expect(md.status).toBe(200);
     expect(await md.text()).toContain('PUBLIC-ROOT');
