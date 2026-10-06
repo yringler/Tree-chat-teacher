@@ -15,7 +15,8 @@ export const DEFAULT_GROUNDING_AUTO_DAILY_CAP = 40;
 /** OpenRouter accepts 1–25 results per search. */
 const MAX_RESULTS_LIMIT = 25;
 
-function groundingPolicy(env: AppEnv): GroundingPolicy {
+/** The operator's `GROUNDING` ceiling; unset = `auto`, an unknown value = `off`. */
+export function groundingPolicy(env: AppEnv): GroundingPolicy {
   const raw = env.GROUNDING?.trim();
   if (!raw) return 'auto';
   return (GROUNDING_POLICIES as readonly string[]).includes(raw) ? (raw as GroundingPolicy) : 'off';

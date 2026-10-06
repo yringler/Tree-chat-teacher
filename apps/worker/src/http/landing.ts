@@ -9,8 +9,10 @@ import {
   type PoolImpactResponse,
   type PoolStatusResponse,
 } from '@tangent/shared';
+import type { GroundingPolicy } from '@tangent/core';
 import { Hono, type Context } from 'hono';
 import { authBaseUrl, authConfigured } from '../auth/auth.js';
+import { groundingPolicy } from '../billing/grounding.js';
 import { membershipRequired } from '../billing/membership.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { latestImpactForPage, renderImpactBlock } from './impact-block.js';
@@ -125,7 +127,7 @@ footer{padding:32px 0 48px;border-top:1px solid var(--border);color:var(--muted)
 footer .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px}
 footer nav{display:flex;flex-wrap:wrap;gap:18px}
 footer a{color:var(--muted)}
-@media (min-width:720px){.wrap{padding:0 32px}.hero{grid-template-columns:1.15fr 1fr;align-items:center;padding-top:56px;padding-bottom:80px}.grid.four{grid-template-columns:1fr 1fr}.grid.two{grid-template-columns:1fr 1fr}section{padding:72px 0}}
+@media (min-width:720px){.wrap{padding:0 32px}.hero{grid-template-columns:1.15fr 1fr;align-items:center;padding-top:56px;padding-bottom:80px}.grid.four{grid-template-columns:1fr 1fr}.grid.four>:last-child:nth-child(odd){grid-column:1/-1}.grid.two{grid-template-columns:1fr 1fr}section{padding:72px 0}}
 `;
 
 /**
@@ -156,6 +158,7 @@ const ICON_COMPASS = icon(
 const ICON_EYE = icon(
   '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
 );
+const ICON_CHECK = icon('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8 11l2 2 4-4"/>');
 const ICON_COIN = icon(
   '<circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.8 0-3 .9-3 2s1 1.7 3 2 3 .9 3 2-1.2 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6.5V8M12 16v1.5"/>',
 );
@@ -173,6 +176,8 @@ export interface LandingPageOptions {
   impact?: PoolImpactResponse;
   /** The yearly membership is required for power mode on own keys and for buying credit (`membershipRequired`); own keys in Learn stay free. */
   membership?: boolean;
+  /** The operator's `GROUNDING` ceiling; `off` (or absent) leaves web-search grounding off the page. */
+  grounding?: GroundingPolicy;
 }
 
 /** Topics the landing page names at most; `/pool` lists them all. */
@@ -229,6 +234,24 @@ ${impact ? `${renderImpactBlock(impact, LANDING_IMPACT_TOPICS)}\n` : ''}<div cla
 `;
 }
 
+/**
+ * The feature card on web-search grounding (docs/DECISIONS.md, "Grounding
+ * (web search)"), worded for the operator's ceiling: offered when a reply
+ * likely needs it and the model decides (`auto`, `always-offer`), or only on
+ * request (`explicit`). Never promises that every answer is checked, and,
+ * while the pool is shown, says that pool replies don't search.
+ */
+function groundingCard(policy: GroundingPolicy | undefined, pool: boolean): string {
+  if (policy === undefined || policy === 'off') return '';
+  const notPool = pool
+    ? ' Searching works on your own OpenRouter key or prepaid credit, not on the free community pool.'
+    : '';
+  if (policy === 'explicit') {
+    return `<article class="card">${ICON_CHECK}<h3>Check any answer against the web</h3><p>Not sure about a detail? <strong>Check sources</strong> under an answer has the tutor search the web, correct itself where it needs to, and cite what it found.${notPool}</p></article>`;
+  }
+  return `<article class="card">${ICON_CHECK}<h3>Checked against the web when you go deep</h3><p>The deeper the tangent, the likelier a tutor is to misremember a detail. When a reply likely needs it (a few branches down, a date or a figure, something recent, or you ask for sources), the tutor can search the web and cite what it found, with the sources listed under the answer. An answer from the tutor’s own knowledge says so, and <strong>Check sources</strong> checks it for you.${notPool}</p></article>`;
+}
+
 const TITLE = 'Tangent: learn by following your curiosity, one branch at a time';
 const DESCRIPTION =
   'Tangent answers your question straight, then offers tangents worth following. Each one opens its own branch, so you can go down any rabbit hole and come back to the main thread exactly where you left it.';
@@ -275,7 +298,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <a class="btn primary" href="/learn/demo">Try the demo</a>
 <a class="btn" href="/learn/login">${free ? 'Start learning free' : 'Start learning'}</a>
 </div>
-${freeNote}<p class="note">The demo is free and runs in your browser. Nothing is sent to a model and the replies are playful nonsense, so you can explore branching without signing up.</p>
+${freeNote}<p class="note">The demo is free and runs in your browser. Nothing is sent to a model and the replies (sources included) are playful nonsense, so you can explore branching without signing up.</p>
 <p class="power"><a href="/login">Power users: sign in</a> · <a href="/canvas/demo">Feeling brave? Try Canvas</a>, an experimental map of a whole conversation</p>
 </div>
 <figure class="demo" aria-label="Example: an answer, its tangents, and a side question branching off it">
@@ -303,7 +326,7 @@ ${freeNote}<p class="note">The demo is free and runs in your browser. Nothing is
 <article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. The side question opens its own branch, so detours never clutter the main thread, and every branch stays one click away. Choose <strong>Smart</strong> for hard topics or <strong>Simple</strong> for quick ones.</p></article>
 <article class="card">${ICON_EYE}<h3>See exactly what the model sees</h3><p>In power mode, decide how much each branch inherits: the full path, a summary, or a clean slate. The inspector shows the exact prompt before anything is sent.</p></article>
 <article class="card">${ICON_COIN}<h3>${opts.pool ? 'Free, your key, or pay as you go' : 'Your key, or pay as you go'}</h3><p>${opts.pool ? 'Learn free on the community pool, within daily limits, while it has credit. ' : ''}${opts.membership ? 'Paste your own OpenRouter key and Tangent charges nothing, with no membership needed: you pay OpenRouter directly. Or use prepaid credit (buying it needs a yearly membership; spending what you have needs none):' : 'Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or use prepaid credit:'} each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up when you need to, and manage billing in the secure billing portal.</p></article>
-</div>
+${groundingCard(opts.grounding, opts.pool !== undefined)}</div>
 </div>
 </section>
 ${opts.pool ? poolSection(opts.pool, opts.impact) : ''}<section aria-labelledby="modes">
@@ -407,7 +430,16 @@ async function landingResponse(
   const pool = await landingPool(c);
   const impact = pool ? await latestImpactForPage(c.env) : undefined;
   const membership = membershipRequired(c.env);
-  const page = renderLandingPage({ canonicalUrl, operator, sharing, pool, impact, membership });
+  const grounding = groundingPolicy(c.env);
+  const page = renderLandingPage({
+    canonicalUrl,
+    operator,
+    sharing,
+    pool,
+    impact,
+    membership,
+    grounding,
+  });
   return new Response(page, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
