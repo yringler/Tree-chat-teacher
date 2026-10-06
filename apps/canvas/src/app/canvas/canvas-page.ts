@@ -13,7 +13,9 @@ import {
 } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
+import { describeEndpoint } from '@tangent/core/links';
 import {
+  endpointTitle,
   Icon,
   PendingQuote,
   SelectionAsk,
@@ -27,9 +29,11 @@ import { LayoutStore, MAX_ZOOM, MIN_ZOOM } from '../layout/layout-store';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 import { Connectors } from './connectors';
+import { CrossLinkGlyphs, CrossLinks } from './cross-links';
 import { Lane } from './lane';
+import { LinkPopover } from './link-popover';
 import { Minimap } from './minimap';
-import { treeTitle } from './titles';
+import { laneTitle, treeTitle } from './titles';
 
 /** Wheel without a modifier pans; with Ctrl or ⌘ (and a trackpad pinch) it zooms. */
 const WHEEL_ZOOM = 0.0015;
@@ -54,7 +58,18 @@ interface PendingTouch {
  */
 @Component({
   selector: 'app-canvas-page',
-  imports: [Icon, RouterLink, Connectors, Lane, Minimap, SelectionAsk, TextSizeMenu],
+  imports: [
+    Icon,
+    RouterLink,
+    Connectors,
+    CrossLinks,
+    CrossLinkGlyphs,
+    Lane,
+    LinkPopover,
+    Minimap,
+    SelectionAsk,
+    TextSizeMenu,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './canvas-page.html',
   host: {
@@ -99,6 +114,18 @@ export class CanvasPage implements OnDestroy {
   protected readonly lineage = computed(() =>
     this.ui.lineage() ? this.store.selectedLineage() : null,
   );
+  /** "Back to ‘…’", while the lane a link was followed to is still the selected one. */
+  protected readonly linkBack = computed(() => {
+    const back = this.ui.linkReturn();
+    return back && back.toBranchId === this.store.selectedBranchId() ? back : null;
+  });
+  /** What pick mode links from, as its chip would read. */
+  protected readonly pickSource = computed(() => {
+    const from = this.ui.linkPick()?.fromNodeId;
+    const idx = this.store.index();
+    const ep = from && idx ? describeEndpoint(idx, from, laneTitle) : null;
+    return ep ? endpointTitle(ep) : '';
+  });
 
   constructor() {
     effect(() => {
@@ -312,7 +339,7 @@ export class CanvasPage implements OnDestroy {
 
   protected onDoubleClick(e: MouseEvent): void {
     const target = e.target as HTMLElement | null;
-    if (target?.closest('.lane')) return;
+    if (target?.closest('.lane, .xlink-glyph')) return;
     this.geo.fitAll();
   }
 
@@ -367,6 +394,19 @@ export class CanvasPage implements OnDestroy {
     const found = selectedMessageQuote(this.viewport()?.nativeElement, window.getSelection());
     const node = found ? this.store.index()?.nodes.get(found.nodeId) : undefined;
     return node?.status === 'complete' ? found : null;
+  }
+
+  // ---- Links
+
+  protected toggleLinks(): void {
+    this.ui.linkPopover.set(null);
+    this.ui.showLinks.update((v) => !v);
+  }
+
+  /** Pick mode's "Search": the picker dialog instead of clicking a card. */
+  protected searchInstead(fromNodeId: string): void {
+    this.ui.linkPick.set(null);
+    this.ui.linkDialog.set({ fromNodeId });
   }
 
   protected deleteTree(): void {

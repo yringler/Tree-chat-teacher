@@ -109,6 +109,7 @@ function detail(): TreeDetail {
       node({ id: 'n2', parentId: 'n1', seq: 1, role: 'assistant', content: 'A number…' }),
       node({ id: 'n3', branchId: 'side', parentId: 'n2', seq: 0, content: 'And twins?' }),
     ],
+    links: [],
   };
 }
 

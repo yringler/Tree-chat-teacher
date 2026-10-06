@@ -8,6 +8,8 @@ import type {
   PoolStatusResponse,
   ChatNode,
   CreateBranchRequest,
+  CreateLinkRequest,
+  NodeLink,
   ProviderInfo,
   StreamEvent,
   TreeBackup,
@@ -64,7 +66,29 @@ function node(id: string, over: Partial<ChatNode> = {}): ChatNode {
   };
 }
 
-function detail(nodes: ChatNode[] = [], branches: Branch[] = [branch('trunk')]): TreeDetail {
+function link(
+  id: string,
+  sourceNodeId: string,
+  targetNodeId: string,
+  note: string | null = null,
+): NodeLink {
+  return {
+    id,
+    treeId: 't1',
+    sourceNodeId,
+    targetNodeId,
+    note,
+    origin: 'user',
+    createdAt: T,
+    updatedAt: T,
+  };
+}
+
+function detail(
+  nodes: ChatNode[] = [],
+  branches: Branch[] = [branch('trunk')],
+  links: NodeLink[] = [],
+): TreeDetail {
   return {
     tree: {
       id: 't1',
@@ -77,6 +101,7 @@ function detail(nodes: ChatNode[] = [], branches: Branch[] = [branch('trunk')]):
     },
     branches,
     nodes,
+    links,
   };
 }
 
@@ -182,6 +207,14 @@ function fakeApi() {
     })),
     backup: vi.fn(async (_id: string): Promise<TreeBackup> => backupOf(detail())),
     importBackup: vi.fn(async (_backup: TreeBackupInput) => detail()),
+    createLink: vi.fn(async (req: CreateLinkRequest) => ({
+      link: link('l-new', req.fromNodeId, req.toNodeId, req.note ?? null),
+      created: true,
+    })),
+    updateLink: vi.fn(async (id: string, req: { note: string | null }) =>
+      link(id, 'a1', 'a2', req.note),
+    ),
+    deleteLink: vi.fn(async (_id: string) => undefined),
   };
 }
 
@@ -766,6 +799,28 @@ describe('LessonStore', () => {
       expect(s.store.selectedBranchId()).toBe('other');
     });
 
+    it('drops the connections touching its messages, and connecting from them', async () => {
+      const s = setup();
+      const d = lesson();
+      await open(
+        s,
+        { ...d, links: [link('l1', 'a1', 'a2'), link('l2', 'u3', 'u4'), link('l3', 'a1', 'u4')] },
+        'other',
+      );
+      s.ui.linkDialog.set('a2');
+      s.store.linkReturn.set({
+        branchId: 'side',
+        nodeId: 'a2',
+        toBranchId: 'other',
+        toNodeId: 'u4',
+      });
+      await expect(s.store.deleteSideQuestion('side')).resolves.toBe(true);
+      expect(s.store.links().map((l) => l.id)).toEqual(['l3']);
+      expect(s.store.linksByNode().has('a2')).toBe(false);
+      expect(s.ui.linkDialog()).toBeNull();
+      expect(s.store.linkReturn()).toBeNull();
+    });
+
     it('never deletes the lesson itself; a refusal changes nothing', async () => {
       const s = setup();
       await open(s, lesson(), 'side');
@@ -917,6 +972,188 @@ describe('LessonStore', () => {
         expect.objectContaining({ ground: 'required' }),
         expect.any(AbortSignal),
       );
+    });
+  });
+
+  describe('Connections', () => {
+    const trunkNodes = [
+      userNode,
+      node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' }),
+      node('u2', { seq: 2, parentId: 'a1', role: 'user' }),
+      node('a2', { seq: 3, parentId: 'u2', content: 'And a particle.' }),
+    ];
+    const side = branch('side', { parentBranchId: 'trunk', branchPointNodeId: 'a1' });
+    const sideNodes = [
+      node('s1', { branchId: 'side', parentId: 'a1', role: 'user', content: 'Why a wave?' }),
+      node('s2', { branchId: 'side', seq: 1, parentId: 's1', content: 'It interferes.' }),
+    ];
+    const lesson = (links: NodeLink[] = []) =>
+      detail([...trunkNodes, ...sideNodes], [branch('trunk'), side], links);
+
+    it('connects two messages: listed under both ends, with a toast', async () => {
+      const s = setup();
+      await open(s, lesson());
+      const created = await s.store.createLink('a1', 's2', 'Same idea');
+
+      expect(s.api.createLink).toHaveBeenCalledWith({
+        fromNodeId: 'a1',
+        toNodeId: 's2',
+        note: 'Same idea',
+      });
+      expect(created?.id).toBe('l-new');
+      expect(s.store.links().map((l) => l.id)).toEqual(['l-new']);
+      expect(
+        s.store
+          .linksByNode()
+          .get('a1')
+          ?.map((l) => l.id),
+      ).toEqual(['l-new']);
+      expect(
+        s.store
+          .linksByNode()
+          .get('s2')
+          ?.map((l) => l.id),
+      ).toEqual(['l-new']);
+      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Connected' });
+    });
+
+    it('an already connected pair answers with the existing connection, not a second one', async () => {
+      const s = setup();
+      await open(s, lesson([link('l1', 's2', 'a1')]));
+      s.api.createLink.mockResolvedValue({ link: link('l1', 's2', 'a1'), created: false });
+      await s.store.createLink('a1', 's2', null);
+      expect(s.store.links().map((l) => l.id)).toEqual(['l1']);
+      expect(s.ui.toasts().at(-1)).toMatchObject({ text: 'Already connected' });
+    });
+
+    it('a refused connection is a toast and changes nothing', async () => {
+      const s = setup();
+      await open(s, lesson());
+      s.api.createLink.mockRejectedValue(new ApiError(404, 'not_found', 'Node not found'));
+      await expect(s.store.createLink('a1', 'gone', null)).resolves.toBeNull();
+      expect(s.store.links()).toEqual([]);
+      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Node not found' });
+    });
+
+    it('a connection of another lesson (opened meanwhile) is not applied', async () => {
+      const s = setup();
+      await open(s, lesson());
+      s.api.createLink.mockResolvedValue({
+        link: { ...link('l-new', 'a1', 's2'), treeId: 't2' },
+        created: true,
+      });
+      await s.store.createLink('a1', 's2', null);
+      expect(s.store.links()).toEqual([]);
+    });
+
+    it('edits and clears a note', async () => {
+      const s = setup();
+      await open(s, lesson([link('l1', 'a1', 'a2', 'Old')]));
+      await expect(s.store.updateLink('l1', 'New')).resolves.toBe(true);
+      expect(s.api.updateLink).toHaveBeenCalledWith('l1', { note: 'New' });
+      expect(s.store.links()[0]?.note).toBe('New');
+      await s.store.updateLink('l1', null);
+      expect(s.store.links()[0]?.note).toBeNull();
+    });
+
+    it('removes a connection from both ends', async () => {
+      const s = setup();
+      await open(s, lesson([link('l1', 'a1', 's2'), link('l2', 'a2', 's1')]));
+      await expect(s.store.deleteLink('l1')).resolves.toBe(true);
+      expect(s.api.deleteLink).toHaveBeenCalledWith('l1');
+      expect(s.store.links().map((l) => l.id)).toEqual(['l2']);
+      expect(s.store.linksByNode().has('a1')).toBe(false);
+      expect(s.store.linksByNode().has('s2')).toBe(false);
+      expect(s.ui.toasts().at(-1)).toMatchObject({ text: 'Connection removed' });
+    });
+
+    it('a failed removal keeps the connection', async () => {
+      const s = setup();
+      await open(s, lesson([link('l1', 'a1', 's2')]));
+      s.api.deleteLink.mockRejectedValue(new ApiError(0, 'network', 'Network error'));
+      await expect(s.store.deleteLink('l1')).resolves.toBe(false);
+      expect(s.store.links().map((l) => l.id)).toEqual(['l1']);
+      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error' });
+    });
+
+    it('a connection already removed elsewhere (404) goes from both ends here too', async () => {
+      const s = setup();
+      await open(s, lesson([link('l1', 'a1', 's2'), link('l2', 'a2', 's1')]));
+      s.api.deleteLink.mockRejectedValue(new ApiError(404, 'not_found', 'Link not found'));
+      await expect(s.store.deleteLink('l1')).resolves.toBe(true);
+      expect(s.store.links().map((l) => l.id)).toEqual(['l2']);
+      expect(s.ui.toasts().at(-1)).toMatchObject({
+        kind: 'info',
+        text: 'That connection was already removed',
+      });
+
+      s.api.updateLink.mockRejectedValue(new ApiError(404, 'not_found', 'Link not found'));
+      await expect(s.store.updateLink('l2', 'Why')).resolves.toBe(false);
+      expect(s.store.links()).toEqual([]);
+    });
+
+    it('following a connection opens the other end and offers the way back', async () => {
+      const s = setup();
+      await open(s, lesson([link('l1', 'a1', 's2')]));
+      s.store.openNode('s2', 'a1');
+      expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1', 'b', 'side'], {
+        queryParams: { m: 's2' },
+      });
+      expect(s.store.linkReturn()).toEqual({
+        branchId: 'trunk',
+        nodeId: 'a1',
+        toBranchId: 'side',
+        toNodeId: 's2',
+      });
+
+      // The route follows; the way back stays offered there.
+      s.store.setRoute('t1', 'side', 's2');
+      expect(s.store.linkReturn()).not.toBeNull();
+
+      s.store.goBackFromLink();
+      expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1'], {
+        queryParams: { m: 'a1' },
+      });
+      expect(s.store.linkReturn()).toBeNull();
+    });
+
+    it("the browser's Back to where the connection was followed from drops the pill", async () => {
+      const s = setup();
+      await open(s, lesson([link('l1', 'a1', 's2')]));
+      s.store.openNode('s2', 'a1');
+      s.store.setRoute('t1', 'side', 's2');
+      // Learn messages don't put `?m=` in the URL, so Back lands on the bare lesson.
+      s.store.setRoute('t1', null, null);
+      expect(s.store.linkReturn()).toBeNull();
+    });
+
+    it('the way back stays offered on the branch the connection went to, and only there', async () => {
+      const s = setup();
+      await open(s, lesson([link('l1', 'a1', 's2')]));
+      s.store.openNode('s2', 'a1');
+      s.store.setRoute('t1', 'side', 's2');
+      // Sending there drops `?m=` (a replaced URL): still on the connection's branch.
+      s.store.setRoute('t1', 'side', null);
+      expect(s.store.linkReturn()).not.toBeNull();
+      s.store.setRoute('t1', null, 'a2');
+      expect(s.store.linkReturn()).toBeNull();
+    });
+
+    it('opening another lesson forgets the way back', async () => {
+      const s = setup();
+      await open(s, lesson([link('l1', 'a1', 's2')]));
+      s.store.openNode('s2', 'a1');
+      s.store.setRoute('t2', null, null);
+      expect(s.store.linkReturn()).toBeNull();
+    });
+
+    it('a connection to a message that is gone goes nowhere', async () => {
+      const s = setup();
+      await open(s, lesson());
+      s.router.navigate.mockClear();
+      s.store.openNode('gone', 'a1');
+      expect(s.router.navigate).not.toHaveBeenCalled();
+      expect(s.store.linkReturn()).toBeNull();
     });
   });
 });

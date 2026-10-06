@@ -89,6 +89,17 @@ interface Crumb {
         </div>
       </div>
       <div class="chat-head-row crumbs-row">
+        @if (linkReturn(); as back) {
+          <!-- After opening a link: back to the message it was opened from. -->
+          <button
+            type="button"
+            class="link-return"
+            [title]="'Back to the linked message in “' + back.label + '”'"
+            (click)="goBack()"
+          >
+            <app-icon name="back" [size]="13" /> Back to ‘{{ clip(back.label) }}’
+          </button>
+        }
         <nav aria-label="Branch path" class="crumbs">
           <ol>
             @for (c of crumbs(); track c.branch.id; let last = $last) {
@@ -130,6 +141,19 @@ interface Crumb {
               <app-icon name="back" /> Parent message
             </button>
           }
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            [disabled]="!firstNodeId()"
+            [title]="
+              firstNodeId()
+                ? 'Link this branch (its first message) to another message'
+                : 'The branch has no messages to link yet'
+            "
+            (click)="linkBranch()"
+          >
+            <app-icon name="link" /> Link this branch…
+          </button>
           @if (b.parentBranchId) {
             <button
               type="button"
@@ -159,6 +183,37 @@ export class ChatHeader {
       current: i === chain.length - 1,
     }));
   });
+
+  /** The return pill, while the view is still where the link went. */
+  protected readonly linkReturn = computed(() => {
+    const back = this.ui.linkReturn();
+    if (!back || back.toBranchId !== this.store.selectedBranchId()) return null;
+    return this.store.focusedNodeId() === back.focusNodeId ? null : back;
+  });
+
+  /** "Link this branch…" links its first message. */
+  protected readonly firstNodeId = computed(() => {
+    const b = this.store.selectedBranch();
+    return b ? (this.store.firstNodeOf(b.id)?.id ?? null) : null;
+  });
+
+  protected clip(title: string): string {
+    return title.length > 32 ? `${title.slice(0, 31).trimEnd()}…` : title;
+  }
+
+  protected goBack(): void {
+    const back = this.ui.linkReturn();
+    if (!back) return;
+    this.ui.linkReturn.set(null);
+    this.store.go(back.branchId, back.focusNodeId);
+  }
+
+  protected linkBranch(): void {
+    const id = this.firstNodeId();
+    if (!id) return;
+    this.ui.linkPick.set(null);
+    this.ui.linkDialog.set({ fromNodeId: id });
+  }
 
   protected async remove(branchId: string): Promise<void> {
     await confirmDeleteBranch(this.store, branchId);

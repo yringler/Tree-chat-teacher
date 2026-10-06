@@ -326,7 +326,8 @@ body {
 }
 
 .lesson-head-row,
-.crumbs {
+.crumbs,
+.link-return {
   max-width: var(--col);
   margin: 0 auto;
   display: flex;
@@ -414,6 +415,22 @@ button.crumb:hover {
   cursor: default;
 }
 
+/* "Back to …" after following a connection. */
+.link-return {
+  padding: 2px 0;
+}
+
+.link-return .btn {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.link-return-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (min-width: 640px) {
   .crumbs ol {
     display: flex;
@@ -494,6 +511,10 @@ button.crumb:hover {
 
 .msg-ask {
   margin-left: auto;
+  color: var(--fg-muted);
+}
+
+.msg-connect {
   color: var(--fg-muted);
 }
 
@@ -594,6 +615,65 @@ button.crumb:hover {
 .chip.is-on {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* Connections to other messages (RelatedLinks): listed like the side questions. */
+app-related-links.connections {
+  --related-chip-bg: var(--bg-elev);
+  --related-chip-border: var(--border-strong);
+  --related-max-width: 100%;
+}
+
+.connections .related-links {
+  margin-top: 10px;
+}
+
+.connections .related-chip {
+  border-radius: 14px;
+  font-size: 0.85rem;
+}
+
+.connections .related-chip:hover {
+  border-color: var(--accent);
+}
+
+/* The "Connect" sheet (ConnectDialog): full height, the list fills it. */
+.connect-sheet .modal {
+  height: min(720px, calc(100dvh - 32px));
+}
+
+.connect-sheet .modal-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.connect-sheet app-node-picker {
+  --picker-list-height: none;
+  flex: 1;
+}
+
+.connect-sheet .node-picker-list {
+  flex: 1;
+  min-height: 0;
+}
+
+.connect-from {
+  margin: 0 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connect-from-text {
+  color: var(--fg);
+}
+
+@media (max-width: 560px) {
+  .connect-sheet .modal {
+    height: 92dvh;
+  }
 }
 
 .fork-divider {

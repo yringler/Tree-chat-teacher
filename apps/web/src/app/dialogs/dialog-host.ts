@@ -5,6 +5,7 @@ import { AccountDialog } from './account-dialog';
 import { ApiKeys } from './api-keys';
 import { BranchDialog } from './branch-dialog';
 import { BranchSettings } from './branch-settings';
+import { LinkDialog } from './link-dialog';
 import { ReviewDialog } from './review-dialog';
 import { SettingsDialog } from './settings-dialog';
 import { ShareDialog } from './share-dialog';
@@ -19,6 +20,7 @@ import { TreeSettings } from './tree-settings';
     ApiKeys,
     BranchDialog,
     BranchSettings,
+    LinkDialog,
     TreeSettings,
     ShareDialog,
     ShortcutsHelp,
@@ -42,6 +44,9 @@ import { TreeSettings } from './tree-settings';
       }
       @if (ui.reviewDialog(); as review) {
         <app-review-dialog [nodeId]="review.nodeId" />
+      }
+      @if (ui.linkDialog(); as link) {
+        <app-link-dialog [state]="link" />
       }
     }
     @if (ui.settingsOpen()) {

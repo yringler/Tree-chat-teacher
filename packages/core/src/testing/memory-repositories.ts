@@ -1,5 +1,14 @@
-import type { Branch, ChatNode, Share, SummaryRecord, Tree, TreeSummary } from '@tangent/shared';
-import { ConflictError } from '../errors.js';
+import type {
+  Branch,
+  ChatNode,
+  NodeLink,
+  Share,
+  SummaryRecord,
+  Tree,
+  TreeSummary,
+} from '@tangent/shared';
+import { ConflictError, NotFoundError } from '../errors.js';
+import { pairKey } from '../links.js';
 import type { AccountSettings, Repositories, ShareWithTree } from '../repository.js';
 
 /**
@@ -12,6 +21,7 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
     trees: new Map(),
     branches: new Map(),
     nodes: new Map(),
+    links: new Map(),
     summaries: new Map(),
     shares: new Map(),
     snapshots: new Map(),
@@ -22,6 +32,12 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
     ...clone(s),
     treeTitle: state.trees.get(s.treeId)?.title ?? '',
   });
+  /** What the D1 adapter's FK cascades do: links go with either of their nodes. */
+  const dropLinksOf = (nodeIds: ReadonlySet<string>): void => {
+    for (const [id, l] of state.links) {
+      if (nodeIds.has(l.sourceNodeId) || nodeIds.has(l.targetNodeId)) state.links.delete(id);
+    }
+  };
 
   return {
     dump: () => state,
@@ -57,6 +73,7 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
         if (!state.trees.delete(treeId)) return false;
         for (const [id, b] of state.branches) if (b.treeId === treeId) state.branches.delete(id);
         for (const [id, n] of state.nodes) if (n.treeId === treeId) state.nodes.delete(id);
+        for (const [id, l] of state.links) if (l.treeId === treeId) state.links.delete(id);
         for (const [id, s] of state.summaries) if (s.treeId === treeId) state.summaries.delete(id);
         for (const [id, s] of state.shares) {
           if (s.treeId === treeId) {
@@ -103,6 +120,7 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
             state.nodes.delete(id);
           }
         }
+        dropLinksOf(nodeIds);
         for (const [key, s] of state.summaries) {
           if (nodeIds.has(s.anchorNodeId)) state.summaries.delete(key);
         }
@@ -158,10 +176,44 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
           .filter((n) => n.treeId === treeId && n.status === 'streaming')
           .map(clone);
       },
-      async importTree(tree, branches, nodes) {
+      async listLinks(treeId) {
+        return [...state.links.values()]
+          .filter((l) => l.treeId === treeId)
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+          .map(clone);
+      },
+      async getLink(linkId) {
+        const l = state.links.get(linkId);
+        return l ? clone(l) : null;
+      },
+      async createLink(link, treeUpdatedAt) {
+        const key = pairKey(link.sourceNodeId, link.targetNodeId);
+        const existing = [...state.links.values()].find(
+          (l) => pairKey(l.sourceNodeId, l.targetNodeId) === key,
+        );
+        if (existing) return { link: clone(existing), created: false };
+        if (!state.nodes.has(link.sourceNodeId) || !state.nodes.has(link.targetNodeId)) {
+          throw new NotFoundError('Node');
+        }
+        state.links.set(link.id, clone(link));
+        const t = state.trees.get(link.treeId);
+        if (t) t.updatedAt = treeUpdatedAt;
+        return { link: clone(link), created: true };
+      },
+      async updateLink(linkId, patch) {
+        const l = state.links.get(linkId);
+        if (!l) return null;
+        Object.assign(l, clone(patch));
+        return clone(l);
+      },
+      async deleteLink(linkId) {
+        return state.links.delete(linkId);
+      },
+      async importTree(tree, branches, nodes, links = []) {
         state.trees.set(tree.id, clone(tree));
         for (const b of branches) state.branches.set(b.id, clone(b));
         for (const n of nodes) state.nodes.set(n.id, clone(n));
+        for (const l of links) state.links.set(l.id, clone(l));
       },
     },
     summaries: {
@@ -227,6 +279,7 @@ export interface MemoryState {
   trees: Map<string, Tree>;
   branches: Map<string, Branch>;
   nodes: Map<string, ChatNode>;
+  links: Map<string, NodeLink>;
   summaries: Map<string, SummaryRecord>;
   shares: Map<string, Share>;
   snapshots: Map<string, string>;

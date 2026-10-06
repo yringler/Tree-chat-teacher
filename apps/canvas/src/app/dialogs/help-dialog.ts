@@ -23,6 +23,13 @@ import { UiStore } from '../state/ui-store';
         <dd>
           <strong>Independent.</strong> The cut marks a fresh start: only the quote comes along.
         </dd>
+        <dt>
+          <span class="legend-xlink"><span class="legend-xlink-glyph"></span></span>
+        </dt>
+        <dd>
+          <strong>Link.</strong> Two related messages you linked, anywhere on the map. Click the dot
+          halfway to go to either end, edit the note or remove it.
+        </dd>
         <dt><span class="legend-card legend-lit"></span></dt>
         <dd>
           <strong>Lit card.</strong> With Lineage on, the model would read this message as is.
@@ -35,7 +42,8 @@ import { UiStore } from '../state/ui-store';
       <p class="muted small">
         Every lane has its own message box and can stream at the same time as the others. The branch
         button on a card opens one lane, or several variants at once: the same question on different
-        models or with different context, answered side by side.
+        models or with different context, answered side by side. To link two messages, drag the port
+        on a card's right edge onto the other card, or click it (or press R) and pick one.
       </p>
       <h3 class="help-heading">Keyboard</h3>
       <table class="shortcuts">

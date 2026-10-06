@@ -13,7 +13,10 @@ import {
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import type { Branch, ChatNode, MembershipInfo } from '@tangent/shared';
+import { describeEndpoint } from '@tangent/core';
 import {
+  endpointTitle,
+  Icon,
   PendingQuote,
   ReadOnlyComposer,
   SelectionAsk,
@@ -42,6 +45,7 @@ interface Entry {
   imports: [
     ChatHeader,
     Composer,
+    Icon,
     MessageItem,
     ModeBadge,
     Inspector,
@@ -121,6 +125,19 @@ export class ChatPage implements OnDestroy {
     const node = q ? this.store.index()?.nodes.get(q.nodeId) : undefined;
     const branch = node ? this.store.index()?.branches.get(node.branchId) : undefined;
     return !!branch && this.store.routeLocked(branch);
+  });
+
+  /** Pick mode, with what the message being linked from says (for the banner). */
+  protected readonly picking = computed(() => {
+    const pick = this.ui.linkPick();
+    const idx = this.store.index();
+    const from = pick && idx ? describeEndpoint(idx, pick.fromNodeId) : null;
+    if (!pick || !from) return null;
+    const title = endpointTitle(from);
+    return {
+      fromNodeId: pick.fromNodeId,
+      title: title.length > 60 ? `${title.slice(0, 59).trimEnd()}…` : title,
+    };
   });
 
   /**
@@ -210,6 +227,11 @@ export class ChatPage implements OnDestroy {
 
   protected onScroll(el: HTMLElement): void {
     this.pinned.set(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+  }
+
+  protected searchInstead(fromNodeId: string): void {
+    this.ui.linkPick.set(null);
+    this.ui.linkDialog.set({ fromNodeId });
   }
 
   protected send(content: string): void {

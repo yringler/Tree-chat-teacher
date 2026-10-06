@@ -15,6 +15,10 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
   { keys: ['Alt+↓', ']'], label: 'First child lane' },
   { keys: ['b'], label: 'Branch from the latest message of the selected lane' },
   { keys: ['c'], label: 'Fold / unfold the lanes below the selected one' },
+  {
+    keys: ['r'],
+    label: 'Link the focused card (else the lane’s latest message) to another card',
+  },
   { keys: ['l'], label: 'Toggle the lineage view' },
   { keys: ['f', '0'], label: 'Fit the whole tree / go to the selected lane' },
   { keys: ['+', '−'], label: 'Zoom in / out' },
@@ -81,6 +85,18 @@ export class Keyboard {
         const leaf = selected ? branchLeaf(idx, selected) : null;
         if (leaf && leaf.status === 'complete')
           this.ui.branchDialog.set({ fromNodeId: leaf.id, quote: null });
+        break;
+      }
+      case 'r': {
+        // The focused card, else the selected lane's latest message.
+        const focused = this.store.focusedNodeId();
+        const from =
+          focused !== null && idx.nodes.has(focused)
+            ? focused
+            : selected
+              ? (branchLeaf(idx, selected)?.id ?? null)
+              : null;
+        if (from) this.ui.startLinkPick(from);
         break;
       }
       case 'c':

@@ -127,6 +127,27 @@ export interface ChatNode {
   createdAt: string;
 }
 
+/** Who made a link: the learner, or (reserved, not used yet) a model's suggestion. */
+export type LinkOrigin = 'user' | 'ai';
+
+/**
+ * A cross-link between two messages of the same tree ("this relates to
+ * that"), outside the branch structure. Stored directed (`source` is where it
+ * was made from) but shown on both ends; a pair of messages has at most one
+ * link, whichever way round. Linking a tangent links its first message.
+ */
+export interface NodeLink {
+  id: string;
+  treeId: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  /** Why the two relate, in the learner's words; null = no note. */
+  note: string | null;
+  origin: LinkOrigin;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** Cached generated summary. Key = (anchorNodeId, sourceHash, model). */
 export interface SummaryRecord {
   anchorNodeId: string;

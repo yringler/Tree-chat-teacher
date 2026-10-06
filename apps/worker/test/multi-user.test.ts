@@ -7,6 +7,7 @@ import {
   type LoginOptionsResponse,
   type MeResponse,
   type MembershipInfo,
+  type NodeLink,
   type ProviderInfo,
   type SettingsResponse,
   type ShareSummary,
@@ -282,6 +283,14 @@ describe('ownership across users', () => {
         }),
         201,
       );
+      const link = await json<NodeLink>(
+        await a.call('/api/links', {
+          method: 'POST',
+          json: { fromNodeId: user.id, toNodeId: assistant.id, note: 'mine' },
+          ...(learn ? { learn } : {}),
+        }),
+        201,
+      );
 
       const attempts: [string, CallInit][] = [
         [`/api/trees/${treeId}`, {}],
@@ -301,6 +310,9 @@ describe('ownership across users', () => {
         [`/api/shares/${share.id}`, { method: 'PATCH', json: { title: 'Mine now' } }],
         [`/api/shares/${share.id}/republish`, { method: 'POST' }],
         [`/api/shares/${share.id}/revoke`, { method: 'POST' }],
+        ['/api/links', { method: 'POST', json: { fromNodeId: user.id, toNodeId: assistant.id } }],
+        [`/api/links/${link.id}`, { method: 'PATCH', json: { note: 'Mine now' } }],
+        [`/api/links/${link.id}`, { method: 'DELETE' }],
         [`/api/trees/${treeId}`, { method: 'DELETE' }],
       ];
       // B tries in both modes: neither of B's accounts owns A's data.
@@ -326,6 +338,7 @@ describe('ownership across users', () => {
       expect(after.branches).toHaveLength(1);
       expect(after.branches[0]!.title).toBe(trunk.title);
       expect(after.nodes).toHaveLength(2);
+      expect(after.links).toEqual([link]);
       const aShares = await json<ShareSummary[]>(await a.call('/api/shares', opts));
       expect(aShares.find((s) => s.id === share.id)).toMatchObject({
         state: 'active',

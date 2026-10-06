@@ -473,6 +473,67 @@ button.crumb:hover {
   font-weight: 600;
 }
 
+/* Links between messages: chips, pick mode, the return pill */
+
+.msg app-related-links {
+  --related-accent: var(--accent);
+  --related-chip-bg: var(--bg-elev);
+  --related-chip-border: var(--border);
+  --related-note: var(--fg-muted);
+  --related-max-width: 520px;
+}
+
+app-link-dialog app-node-picker {
+  --picker-accent: var(--accent);
+  --picker-active-bg: var(--accent-soft);
+}
+
+.link-pick-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft);
+  font-size: 0.88rem;
+}
+
+.link-pick-banner > app-icon {
+  color: var(--accent);
+}
+
+.link-pick-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.msg-picking .msg-actions {
+  opacity: 1;
+}
+
+.link-return {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 260px;
+  padding: 2px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.link-return:hover {
+  background: var(--bg-hover);
+}
+
 /* Composer */
 
 .composer-dock {
@@ -600,6 +661,16 @@ button.crumb:hover {
 
   .msg-actions .btn .icon {
     font-size: 1rem;
+  }
+
+  /* Pick mode's one button keeps its label. */
+  .msg-actions .btn.link-here {
+    font-size: 0.8rem;
+    gap: 4px;
+  }
+
+  .link-pick-banner {
+    padding: 6px 8px;
   }
 }
 

@@ -15,6 +15,26 @@
     <section class="chat" aria-label="Conversation" [style.--chat-font-scale]="textSize.scale()">
       <app-chat-header />
 
+      @if (picking(); as pick) {
+        <!-- Pick mode: "Link here" on each message; survives moving between branches. -->
+        <div class="link-pick-banner" role="status">
+          <app-icon name="link" [size]="14" />
+          <span class="link-pick-text"
+            >Choose the message that relates to <q>{{ pick.title }}</q></span
+          >
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            (click)="searchInstead(pick.fromNodeId)"
+          >
+            Search instead
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm" (click)="ui.linkPick.set(null)">
+            Cancel (Esc)
+          </button>
+        </div>
+      }
+
       <div class="messages" #scroller (scroll)="onScroll(scroller)" tabindex="-1">
         <div class="messages-inner">
           @if (store.path().length === 0) {

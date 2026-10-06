@@ -9,7 +9,16 @@ import {
   viewChild,
 } from '@angular/core';
 import { parseReview, splitTangents, type Branch, type ChatNode } from '@tangent/shared';
-import { Icon, MarkdownService, SourcesList, TangentAsk } from '@tangent/web-shared';
+import {
+  Icon,
+  MarkdownService,
+  RelatedLinks,
+  relatedLinks,
+  SourcesList,
+  TangentAsk,
+  type LinkNoteEdit,
+  type RelatedLink,
+} from '@tangent/web-shared';
 import { copyText, selectionWithin } from '../core/selection';
 import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { ReviewStore } from '../state/review-store';
@@ -21,7 +30,7 @@ import { ReviewVerdict } from '../ui/review-verdict';
 /** One message of the linear branch view. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, ModeBadge, ReviewVerdict, SourcesList, TangentAsk],
+  imports: [Icon, ModeBadge, RelatedLinks, ReviewVerdict, SourcesList, TangentAsk],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -30,7 +39,9 @@ import { ReviewVerdict } from '../ui/review-verdict';
       [class.msg-ancestor]="ancestor()"
       [class.msg-focused]="focused()"
       [class.msg-error]="n.status === 'error'"
+      [class.msg-picking]="pickState() !== null"
       [attr.id]="'msg-' + n.id"
+      [attr.data-node-id]="n.id"
       [attr.aria-current]="focused() ? 'true' : null"
       (click)="onClick()"
     >
@@ -40,36 +51,58 @@ import { ReviewVerdict } from '../ui/review-verdict';
           <span class="muted small">{{ n.model }}</span>
         }
         <span class="msg-actions">
-          <!-- Without a route to generate on (no membership for own keys, no credit), no new branches or reviews. -->
-          @if (store.canGenerate()) {
+          @if (pickState(); as p) {
+            <!-- Pick mode ("Pick on the page instead"): this message can be the other end. -->
+            <button
+              type="button"
+              class="btn btn-primary btn-sm link-here"
+              [disabled]="p !== 'open'"
+              (click)="linkHere($event)"
+            >
+              <app-icon name="link" [size]="14" />
+              {{ pickLabels[p] }}
+            </button>
+          } @else {
+            <!-- Without a route to generate on (no membership for own keys, no credit), no new branches or reviews. -->
+            @if (store.canGenerate()) {
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                (mousedown)="captureSelection()"
+                (click)="branch($event)"
+                title="Branch from here (b)"
+              >
+                <app-icon name="branch" [size]="14" /> Branch from here
+              </button>
+            }
+            @if (reviewable() && canReview()) {
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                (click)="openReview($event)"
+                title="Have a stronger model check the conversation up to here (v)"
+              >
+                <app-icon name="review" [size]="14" /> Review
+              </button>
+            }
+            <!-- Not a generating call: links stay available while power is read-only. -->
             <button
               type="button"
               class="btn btn-ghost btn-sm"
-              (mousedown)="captureSelection()"
-              (click)="branch($event)"
-              title="Branch from here (b)"
+              (click)="openLinkDialog($event)"
+              title="Link to another message (l)"
             >
-              <app-icon name="branch" [size]="14" /> Branch from here
+              <app-icon name="link" [size]="14" /> Link…
             </button>
-          }
-          @if (reviewable() && canReview()) {
             <button
               type="button"
-              class="btn btn-ghost btn-sm"
-              (click)="openReview($event)"
-              title="Have a stronger model check the conversation up to here (v)"
+              class="icon-btn"
+              [attr.aria-label]="copied() ? 'Copied' : 'Copy message'"
+              (click)="copy($event)"
             >
-              <app-icon name="review" [size]="14" /> Review
+              <app-icon name="copy" [size]="14" />
             </button>
           }
-          <button
-            type="button"
-            class="icon-btn"
-            [attr.aria-label]="copied() ? 'Copied' : 'Copy message'"
-            (click)="copy($event)"
-          >
-            <app-icon name="copy" [size]="14" />
-          </button>
         </span>
       </header>
 
@@ -216,13 +249,23 @@ import { ReviewVerdict } from '../ui/review-verdict';
           }
         </div>
       }
+
+      <app-related-links
+        [entries]="related()"
+        [canEdit]="true"
+        [expanded]="relatedOpen()"
+        (expandedChange)="ui.setRelatedOpen([n.id], $event)"
+        (open)="store.openNode($event, n.id)"
+        (remove)="removeLink($event)"
+        (editNote)="editNote($event)"
+      />
     </article>
   `,
   host: { style: 'display: contents' },
 })
 export class MessageItem {
   protected readonly store = inject(TreeStore);
-  private readonly ui = inject(UiStore);
+  protected readonly ui = inject(UiStore);
   private readonly md = inject(MarkdownService);
   private readonly reviews = inject(ReviewStore);
 
@@ -307,6 +350,28 @@ export class MessageItem {
     return !!b && this.store.routeLocked(b);
   });
   protected readonly canReview = computed(() => this.store.canReview(this.ownBranch()));
+  /** The message's links, resolved to their other ends. */
+  protected readonly related = computed<RelatedLink[]>(() => {
+    const idx = this.store.index();
+    return idx ? relatedLinks(idx, this.store.linksByNode(), this.node().id) : [];
+  });
+  protected readonly relatedOpen = computed(() => this.ui.relatedOpen().has(this.node().id));
+  /**
+   * In pick mode, what "Link here" does on this message: `open` links it;
+   * the message linked from (`source`) and those already linked can't be picked.
+   */
+  protected readonly pickState = computed<'open' | 'source' | 'linked' | null>(() => {
+    const from = this.ui.linkPick()?.fromNodeId;
+    if (from === undefined) return null;
+    const id = this.node().id;
+    if (id === from) return 'source';
+    return this.related().some((r) => r.nodeId === from) ? 'linked' : 'open';
+  });
+  protected readonly pickLabels = {
+    open: 'Link here',
+    source: 'Linking from here',
+    linked: 'Already linked',
+  } as const;
   protected readonly roleLabel = computed(() => {
     const r = this.node().role;
     return r === 'user' ? 'You' : r === 'assistant' ? 'Assistant' : 'System';
@@ -337,6 +402,29 @@ export class MessageItem {
   protected openReview(e: Event): void {
     e.stopPropagation();
     this.ui.reviewDialog.set({ nodeId: this.node().id });
+  }
+
+  protected openLinkDialog(e: Event): void {
+    e.stopPropagation();
+    this.ui.linkDialog.set({ fromNodeId: this.node().id });
+  }
+
+  protected async linkHere(e: Event): Promise<void> {
+    e.stopPropagation();
+    const pick = this.ui.linkPick();
+    if (!pick || this.pickState() !== 'open') return;
+    this.ui.linkPick.set(null);
+    await this.store.createLink(pick.fromNodeId, this.node().id);
+  }
+
+  protected async removeLink(linkId: string): Promise<void> {
+    const title = this.related().find((r) => r.link.id === linkId)?.title ?? 'that message';
+    if (!confirm(`Remove the link to “${title}”? It goes from both messages.`)) return;
+    await this.store.deleteLink(linkId);
+  }
+
+  protected editNote(edit: LinkNoteEdit): void {
+    void this.store.updateLinkNote(edit.linkId, edit.note);
   }
 
   protected async follow(e: Event, title: string): Promise<void> {

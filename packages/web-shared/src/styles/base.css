@@ -1,7 +1,8 @@
 /*
  * @tangent/web-shared base styles: theme tokens, typography, buttons, forms,
  * notices, the modal shell (Modal), the login page (LoginPage, Turnstile),
- * the billing page (BillingPage) and the membership gate (MembershipGate).
+ * the billing page (BillingPage), the membership gate (MembershipGate) and
+ * links between messages (RelatedLinks, NodePicker).
  * Imported first by both apps' styles.css; app-specific CSS comes after it.
  */
 :root {
@@ -1098,6 +1099,321 @@ textarea:focus-visible {
 .sources-check > app-icon {
   display: inline-flex;
   vertical-align: -2px;
+}
+
+/*
+ * Links between messages: the chips under a message (RelatedLinks) and the
+ * picker that makes one (NodePicker), all three apps. Apps theme them
+ * through the custom properties on the hosts.
+ */
+app-related-links {
+  --related-accent: var(--accent);
+  --related-chip-bg: var(--bg-elev);
+  --related-chip-border: var(--border-strong);
+  --related-note: var(--fg-muted);
+  --related-max-width: 520px;
+  display: block;
+}
+
+.related-links {
+  margin-top: 8px;
+}
+
+.related-toggle,
+.related-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-muted);
+}
+
+.related-toggle {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--related-chip-bg);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.related-toggle:hover {
+  color: var(--fg);
+  border-color: var(--related-chip-border);
+}
+
+.related-toggle > app-icon:first-child,
+.related-label > app-icon {
+  color: var(--related-accent);
+}
+
+.related-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.related-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 2px 4px;
+  max-width: var(--related-max-width);
+}
+
+.related-chip {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--related-chip-border);
+  border-radius: var(--radius-sm);
+  background: var(--related-chip-bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.86rem;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.related-chip:hover {
+  border-color: var(--related-accent);
+  background: var(--bg-hover);
+}
+
+.related-chip > app-icon {
+  margin-top: 2px;
+  color: var(--related-accent);
+}
+
+.related-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.related-crumbs,
+.node-picker-crumbs {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.related-title {
+  overflow-wrap: anywhere;
+}
+
+.related-chip.is-tangent .related-title {
+  font-weight: 500;
+}
+
+.related-actions {
+  display: inline-flex;
+}
+
+.related-actions .icon-btn {
+  width: 28px;
+  height: 28px;
+}
+
+.related-note {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: 12px;
+  color: var(--related-note);
+  font-size: 0.82rem;
+  font-style: italic;
+  white-space: pre-wrap;
+}
+
+.related-note-form {
+  display: flex;
+  flex-direction: column;
+  flex-basis: 100%;
+  gap: 6px;
+}
+
+.related-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Compact (Canvas cards): one line of small chips, with small edit/remove buttons. */
+.related-links.is-compact .related-list {
+  flex-flow: row wrap;
+  gap: 4px;
+}
+
+.related-links.is-compact .related-item {
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+}
+
+.related-links.is-compact .related-chip {
+  align-items: center;
+  max-width: 220px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+}
+
+.related-links.is-compact .related-chip > app-icon {
+  margin-top: 0;
+}
+
+.related-links.is-compact .related-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.related-links.is-compact .related-actions .icon-btn {
+  width: 22px;
+  height: 22px;
+}
+
+app-node-picker {
+  --picker-accent: var(--accent);
+  --picker-active-bg: var(--accent-soft);
+  --picker-list-height: min(50dvh, 420px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.node-picker-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.node-picker-search > app-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--fg-muted);
+  pointer-events: none;
+}
+
+.node-picker-search > input {
+  padding-left: 30px;
+}
+
+.node-picker-list {
+  max-height: var(--picker-list-height);
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  list-style: none;
+}
+
+.node-picker-heading,
+.node-picker-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+  padding: 5px 8px 5px calc(8px + var(--depth, 0) * 14px);
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.node-picker-heading {
+  margin-top: 4px;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+.node-picker-heading > app-icon,
+.node-picker-option > app-icon {
+  align-self: center;
+}
+
+.node-picker-option {
+  cursor: pointer;
+}
+
+/* A branch's messages sit one step in from its heading. */
+.node-picker-option:not(.is-branch) {
+  padding-left: calc(22px + var(--depth, 0) * 14px);
+}
+
+.node-picker-option.is-branch {
+  font-weight: 600;
+}
+
+.node-picker-option.is-branch > app-icon {
+  color: var(--picker-accent);
+}
+
+.node-picker-option:hover {
+  background: var(--bg-hover);
+}
+
+.node-picker-option.is-active {
+  background: var(--picker-active-bg);
+  box-shadow: inset 2px 0 0 var(--picker-accent);
+}
+
+.node-picker-role {
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+
+.node-picker-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Search results: the breadcrumb on a line of its own. */
+.node-picker-option .node-picker-crumbs {
+  flex-basis: 100%;
+  font-weight: 400;
+}
+
+.node-picker-empty {
+  padding: 10px 8px;
+}
+
+.node-picker-chosen {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--picker-accent);
+  border-radius: var(--radius-sm);
+  background: var(--picker-active-bg);
+}
+
+.node-picker-chosen > app-icon {
+  margin-top: 3px;
+  color: var(--picker-accent);
+}
+
+.node-picker-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.node-picker-chosen .node-picker-title {
+  font-weight: 500;
+}
+
+.node-picker-actions {
+  align-items: center;
 }
 
 /* Billing page (BillingPage, both apps) */

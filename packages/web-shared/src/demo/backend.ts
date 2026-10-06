@@ -13,6 +13,7 @@ import {
 import { createMemoryRepositories, type MemoryState } from '@tangent/core/testing';
 import {
   createBranchRequestSchema,
+  createLinkRequestSchema,
   createTreeRequestSchema,
   BUILT_IN_PROVIDER_ID,
   DEFAULT_SYSTEM_PROMPT,
@@ -22,6 +23,7 @@ import {
   MIN_TOP_UP_CENTS,
   sendMessageRequestSchema,
   updateBranchRequestSchema,
+  updateLinkRequestSchema,
   updateSettingsRequestSchema,
   updateTreeRequestSchema,
   type ApiError,
@@ -37,6 +39,7 @@ import {
   type LoginOptionsResponse,
   type MeResponse,
   type MembershipInfo,
+  type NodeLink,
   POOL_NOTICE_VERSION,
   type PoolImpactWeeksResponse,
   type PoolMeResponse,
@@ -157,6 +160,8 @@ interface Saved {
   /** Without `funding` in sessions saved before funding was split from the provider. */
   branches: (Omit<Branch, 'funding'> & { funding?: BranchFunding })[];
   nodes: ChatNode[];
+  /** Absent in sessions saved before links existed. */
+  links?: NodeLink[];
   summaries: SummaryRecord[];
   balanceMicros: number;
   usage: UsageEntry[];
@@ -444,6 +449,23 @@ export class DemoBackend {
       const resolve = url.searchParams.get('resolve') === 'true';
       const res = await this.chat.planContext(id, nodeId, { resolveSummaries: resolve });
       return resolve ? this.saved(json(res)) : json(res);
+    }
+
+    // Links
+    if (method === 'POST' && path === '/api/links') {
+      const req = createLinkRequestSchema.parse(body ?? {});
+      const { link, created } = await this.chat.createLink(req);
+      return this.saved(json(link, created ? 201 : 200));
+    }
+    if ((id = seg(/^\/api\/links\/([^/]+)$/))) {
+      if (method === 'PATCH') {
+        const req = updateLinkRequestSchema.parse(body ?? {});
+        return this.saved(json(await this.chat.updateLink(id, req)));
+      }
+      if (method === 'DELETE') {
+        await this.chat.deleteLink(id);
+        return this.saved(noContent());
+      }
     }
 
     // Messages and generations
@@ -743,6 +765,7 @@ export class DemoBackend {
       trees: [...this.state.trees.values()],
       branches: [...this.state.branches.values()],
       nodes: [...this.state.nodes.values()],
+      links: [...this.state.links.values()],
       summaries: [...this.state.summaries.values()],
       balanceMicros: this.balanceMicros,
       usage: this.usage,
@@ -785,6 +808,7 @@ export class DemoBackend {
           : node,
       );
     }
+    for (const l of saved.links ?? []) this.state.links.set(l.id, l);
     for (const s of saved.summaries) {
       this.state.summaries.set(`${s.anchorNodeId}|${s.sourceHash}|${s.model}`, s);
     }

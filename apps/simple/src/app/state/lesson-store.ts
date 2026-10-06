@@ -1,6 +1,7 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
 // The tree helpers only: the rest of @tangent/core (the ChatService) is for the lazy demo chunk.
+import { indexLinks, linkTarget } from '@tangent/core/links';
 import { branchChain, branchPath, indexTree, type TreeIndex } from '@tangent/core/tree';
 import {
   checkSourcesMessage,
@@ -10,6 +11,7 @@ import {
   type ChatNode,
   type DeleteBranchResponse,
   type ModelInfo,
+  type NodeLink,
   type ProviderInfo,
   type StreamEvent,
   type TreeBackupInput,
@@ -22,6 +24,7 @@ import {
   backupFile,
   errorMessage,
   isMembershipRequired,
+  isNotFound,
   isPaymentRequired,
   isPoolConsentRequired,
   isPoolUnavailable,
@@ -60,6 +63,18 @@ export interface UnsentDraft {
  */
 export interface LessonPoolBlock extends PoolBlock {
   branchId: string;
+}
+
+/**
+ * Where a connection was followed from (`openNode`): the branch and the
+ * message whose chip was clicked, offered back as "Back to …" while the
+ * lesson stays on the branch the connection went to (`toBranchId`).
+ */
+export interface LinkReturn {
+  branchId: string;
+  nodeId: string;
+  toBranchId: string;
+  toNodeId: string;
 }
 
 /**
@@ -128,6 +143,8 @@ export class LessonStore {
   private readonly routeBranchId = signal<string | null>(null);
   /** Message to scroll to (e.g. the branch point after going back to the parent). */
   readonly focusedNodeId = signal<string | null>(null);
+  /** Where the latest followed connection came from ("Back to …"); cleared on the way back. */
+  readonly linkReturn = signal<LinkReturn | null>(null);
 
   // Replies
   readonly live = signal<ReadonlyMap<string, LiveReply>>(new Map());
@@ -148,6 +165,11 @@ export class LessonStore {
       return null;
     }
   });
+
+  /** The open lesson's connections between messages (NodeLink). */
+  readonly links = computed<readonly NodeLink[]>(() => this.detail()?.links ?? []);
+  /** Connections by message, each under both of its ends. */
+  readonly linksByNode = computed(() => indexLinks(this.links()));
 
   readonly selectedBranchId = computed<string | null>(() => {
     const idx = this.index();
@@ -250,7 +272,18 @@ export class LessonStore {
   setRoute(treeId: string | null, branchId: string | null, focusNodeId: string | null): void {
     this.routeBranchId.set(branchId);
     this.focusedNodeId.set(focusNodeId);
+    const back = this.linkReturn();
+    const branch = this.selectedBranchId();
+    if (
+      back &&
+      // Back where the connection was followed from (the pill or the browser's
+      // Back, which usually lands on a URL without `?m=`), or anywhere else.
+      ((back.nodeId === focusNodeId && back.branchId === branch) || back.toBranchId !== branch)
+    ) {
+      this.linkReturn.set(null);
+    }
     if (treeId !== this.selectedTreeId()) {
+      this.linkReturn.set(null);
       this.selectedTreeId.set(treeId);
       if (treeId) void this.loadTree(treeId);
       else {
@@ -275,6 +308,36 @@ export class LessonStore {
   goToParent(): void {
     const b = this.selectedBranch();
     if (b?.parentBranchId) this.go(b.parentBranchId, b.branchPointNodeId);
+  }
+
+  /**
+   * Follows a connection to `nodeId` (its branch, focused on it). With
+   * `fromNodeId`, the message the chip was under is offered back ("Back to …").
+   */
+  openNode(nodeId: string, fromNodeId: string | null = null): void {
+    const idx = this.index();
+    const target = idx && linkTarget(idx, nodeId);
+    if (!target) return;
+    const from = fromNodeId ? idx.nodes.get(fromNodeId) : undefined;
+    this.linkReturn.set(
+      from
+        ? {
+            branchId: this.selectedBranchId() ?? from.branchId,
+            nodeId: from.id,
+            toBranchId: target.branchId,
+            toNodeId: nodeId,
+          }
+        : null,
+    );
+    this.go(target.branchId, target.focusNodeId);
+  }
+
+  /** "Back to …": returns to where the latest connection was followed from. */
+  goBackFromLink(): void {
+    const back = this.linkReturn();
+    if (!back) return;
+    this.linkReturn.set(null);
+    this.go(back.branchId, back.nodeId);
   }
 
   childBranchesAt(nodeId: string): readonly Branch[] {
@@ -526,6 +589,70 @@ export class LessonStore {
       this.fail(err);
       return false;
     }
+  }
+
+  // Connections (links between messages)
+
+  /**
+   * Connects two messages of the open lesson, with an optional note. Asking
+   * for a pair that is already connected (either way round) answers with the
+   * existing connection.
+   */
+  async createLink(
+    fromNodeId: string,
+    toNodeId: string,
+    note: string | null,
+  ): Promise<NodeLink | null> {
+    try {
+      const { link, created } = await this.api.createLink({ fromNodeId, toNodeId, note });
+      this.applyLink(link);
+      this.ui.notify(created ? 'Connected' : 'Already connected');
+      return link;
+    } catch (err) {
+      this.fail(err);
+      return null;
+    }
+  }
+
+  /** Changes a connection's note (null clears it). */
+  async updateLink(linkId: string, note: string | null): Promise<boolean> {
+    try {
+      this.applyLink(await this.api.updateLink(linkId, { note }));
+      this.ui.notify('Note saved');
+      return true;
+    } catch (err) {
+      if (isNotFound(err)) this.dropGoneLink(linkId);
+      else this.fail(err);
+      return false;
+    }
+  }
+
+  /** Removes a connection; the caller confirms first. */
+  async deleteLink(linkId: string): Promise<boolean> {
+    try {
+      await this.api.deleteLink(linkId);
+      this.dropLink(linkId);
+      this.ui.notify('Connection removed');
+      return true;
+    } catch (err) {
+      // Removed elsewhere already (another tab): the same outcome.
+      if (isNotFound(err)) {
+        this.dropGoneLink(linkId);
+        return true;
+      }
+      this.fail(err);
+      return false;
+    }
+  }
+
+  private dropLink(linkId: string): void {
+    this.detail.update((d) => (d ? { ...d, links: d.links.filter((l) => l.id !== linkId) } : d));
+  }
+
+  /** A connection the server no longer has (removed elsewhere): drop it here too. */
+  private dropGoneLink(linkId: string): void {
+    this.dropLink(linkId);
+    this.ui.notify('That connection was already removed');
   }
 
   // Messages and replies
@@ -796,6 +923,12 @@ export class LessonStore {
     );
   }
 
+  private applyLink(link: NodeLink): void {
+    this.detail.update((d) =>
+      d && d.tree.id === link.treeId ? { ...d, links: upsertById(d.links, [link]) } : d,
+    );
+  }
+
   /** Drops deleted branches and their messages, and stops following their replies. */
   private removeBranches(res: DeleteBranchResponse): void {
     const branchIds = new Set(res.branchIds);
@@ -815,9 +948,20 @@ export class LessonStore {
             ...d,
             branches: d.branches.filter((b) => !branchIds.has(b.id)),
             nodes: d.nodes.filter((n) => !nodeIds.has(n.id)),
+            // The server dropped the connections touching them with them.
+            links: d.links.filter(
+              (l) => !nodeIds.has(l.sourceNodeId) && !nodeIds.has(l.targetNodeId),
+            ),
           }
         : d,
     );
+    // Connecting from a message that is gone, or back to a side question that is.
+    const from = this.ui.linkDialog();
+    if (from !== null && nodeIds.has(from)) this.ui.linkDialog.set(null);
+    const back = this.linkReturn();
+    if (back && (branchIds.has(back.branchId) || branchIds.has(back.toBranchId))) {
+      this.linkReturn.set(null);
+    }
     const d = this.detail();
     if (d && d.tree.id === res.treeId) {
       this.trees.update((list) =>

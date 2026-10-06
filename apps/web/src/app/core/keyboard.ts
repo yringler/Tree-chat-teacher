@@ -16,12 +16,13 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
   { keys: ['j', 'k'], label: 'Next / previous message' },
   { keys: ['b'], label: 'Branch from the focused message' },
   { keys: ['v'], label: 'Review up to the focused (or latest) reply' },
+  { keys: ['l'], label: 'Link the focused (or latest) message to another' },
   { keys: ['/'], label: 'Focus the composer' },
   { keys: ['i'], label: 'Toggle the context inspector' },
   { keys: ['+', '-'], label: 'Larger / smaller conversation text' },
   { keys: ['0'], label: 'Reset the conversation text size' },
   { keys: ['?'], label: 'Show this help' },
-  { keys: ['Esc'], label: 'Close dialogs and panels' },
+  { keys: ['Esc'], label: 'Close dialogs and panels, stop picking a message to link' },
 ];
 
 function isTyping(target: EventTarget | null): boolean {
@@ -102,6 +103,14 @@ export class Keyboard {
         if (!node || node.status !== 'complete') return;
         if (!this.store.canReview(this.store.index()?.branches.get(node.branchId) ?? null)) return;
         this.ui.reviewDialog.set({ nodeId: node.id });
+        break;
+      }
+      case 'l': {
+        // Not a generating call: available while power is read-only.
+        const node = this.store.focusedInPath() ?? this.store.leaf();
+        if (!node) return;
+        this.ui.linkPick.set(null);
+        this.ui.linkDialog.set({ fromNodeId: node.id });
         break;
       }
       case '/':

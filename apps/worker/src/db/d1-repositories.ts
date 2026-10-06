@@ -1,4 +1,4 @@
-import { ConflictError } from '@tangent/core';
+import { ConflictError, NotFoundError, pairKey } from '@tangent/core';
 import type {
   Repositories,
   SettingsRepository,
@@ -13,6 +13,7 @@ import {
   type ChatNode,
   type Citation,
   type GroundingMode,
+  type NodeLink,
   type Share,
   type SummaryRecord,
   type TokenUsage,
@@ -26,6 +27,7 @@ import * as schema from './schema.js';
 import {
   accountSettings,
   branches,
+  nodeLinks,
   nodes,
   shareSnapshots,
   shares,
@@ -40,8 +42,10 @@ export const SNAPSHOT_CHUNK_CHARS = 256_000;
 const MAX_BOUND_PARAMS = 100;
 const NODE_COLUMNS = 15;
 const BRANCH_COLUMNS = 15;
+const LINK_COLUMNS = 9;
 const NODE_ROWS_PER_INSERT = Math.floor(MAX_BOUND_PARAMS / NODE_COLUMNS); // 6
 const BRANCH_ROWS_PER_INSERT = Math.floor(MAX_BOUND_PARAMS / BRANCH_COLUMNS); // 6
+const LINK_ROWS_PER_INSERT = Math.floor(MAX_BOUND_PARAMS / LINK_COLUMNS); // 11
 
 /** Guards the recursive CTEs against a corrupted (cyclic) parent chain. */
 const MAX_CTE_DEPTH = 100_000;
@@ -54,6 +58,8 @@ type BranchRow = typeof branches.$inferSelect;
 type NodeRow = typeof nodes.$inferSelect;
 type NodeInsert = typeof nodes.$inferInsert;
 type BranchInsert = typeof branches.$inferInsert;
+type LinkRow = typeof nodeLinks.$inferSelect;
+type LinkInsert = typeof nodeLinks.$inferInsert;
 type ShareRow = typeof shares.$inferSelect;
 type SummaryRow = typeof summaries.$inferSelect;
 
@@ -141,6 +147,34 @@ function toNode(r: NodeRow): ChatNode {
     usage: toUsage(r.inputTokens, r.outputTokens),
     sources: parseSources(r.sources),
     createdAt: r.createdAt,
+  };
+}
+
+function toLink(r: LinkRow): NodeLink {
+  return {
+    id: r.id,
+    treeId: r.treeId,
+    sourceNodeId: r.sourceNodeId,
+    targetNodeId: r.targetNodeId,
+    note: r.note,
+    origin: r.origin,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
+}
+
+function linkInsert(l: NodeLink): LinkInsert {
+  // Every column is set explicitly so each row binds exactly LINK_COLUMNS params.
+  return {
+    id: l.id,
+    treeId: l.treeId,
+    sourceNodeId: l.sourceNodeId,
+    targetNodeId: l.targetNodeId,
+    pairKey: pairKey(l.sourceNodeId, l.targetNodeId),
+    note: l.note,
+    origin: l.origin,
+    createdAt: l.createdAt,
+    updatedAt: l.updatedAt,
   };
 }
 
@@ -327,6 +361,16 @@ function isUniqueViolation(err: unknown): boolean {
   return false;
 }
 
+function isForeignKeyViolation(err: unknown): boolean {
+  let cur: unknown = err;
+  for (let i = 0; i < 5 && cur instanceof Error; i++) {
+    if (/FOREIGN KEY constraint failed|SQLITE_CONSTRAINT_FOREIGNKEY/i.test(cur.message))
+      return true;
+    cur = cur.cause;
+  }
+  return false;
+}
+
 function definedOnly<T extends object>(patch: T): Partial<T> {
   const out: Partial<T> = {};
   for (const [k, v] of Object.entries(patch) as [keyof T, T[keyof T]][]) {
@@ -357,6 +401,12 @@ export function createD1Repositories(d1: D1Database): Repositories {
   function branchInserts(list: readonly Branch[]): Batch {
     return chunkArray(list, BRANCH_ROWS_PER_INSERT).map((chunk) =>
       db.insert(branches).values(chunk.map(branchInsert)),
+    );
+  }
+
+  function linkInserts(list: readonly NodeLink[]): Batch {
+    return chunkArray(list, LINK_ROWS_PER_INSERT).map((chunk) =>
+      db.insert(nodeLinks).values(chunk.map(linkInsert)),
     );
   }
 
@@ -429,7 +479,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
     },
 
     async deleteTree(treeId) {
-      // Branches, nodes, summaries, shares (and their snapshots) go via FK cascades.
+      // Branches, nodes, links, summaries, shares (and their snapshots) go via FK cascades.
       const rows = await db.delete(trees).where(eq(trees.id, treeId)).returning({ id: trees.id });
       return rows.length > 0;
     },
@@ -503,6 +553,10 @@ export function createD1Repositories(d1: D1Database): Repositories {
           .from(nodes)
           .where(and(eq(nodes.treeId, treeId), inArray(nodes.branchId, chunk)));
         items.push(
+          // The node FKs would cascade too; this keeps it explicit. One statement
+          // per end, so each binds the chunk once.
+          db.delete(nodeLinks).where(inArray(nodeLinks.sourceNodeId, doomedNodes)),
+          db.delete(nodeLinks).where(inArray(nodeLinks.targetNodeId, doomedNodes)),
           db.delete(summaries).where(inArray(summaries.anchorNodeId, doomedNodes)),
           // Snapshots go via FK cascade.
           db.delete(shares).where(inArray(shares.targetNodeId, doomedNodes)),
@@ -598,7 +652,65 @@ export function createD1Repositories(d1: D1Database): Repositories {
       return rows.map(toNode);
     },
 
-    async importTree(tree, branchList, nodeList) {
+    async listLinks(treeId) {
+      const rows = await db
+        .select()
+        .from(nodeLinks)
+        .where(eq(nodeLinks.treeId, treeId))
+        .orderBy(asc(nodeLinks.createdAt), asc(nodeLinks.id));
+      return rows.map(toLink);
+    },
+
+    async getLink(linkId) {
+      const row = await db.select().from(nodeLinks).where(eq(nodeLinks.id, linkId)).get();
+      return row ? toLink(row) : null;
+    },
+
+    async createLink(link, treeUpdatedAt) {
+      const key = pairKey(link.sourceNodeId, link.targetNodeId);
+      const existing = async (): Promise<NodeLink | null> => {
+        const row = await db.select().from(nodeLinks).where(eq(nodeLinks.pairKey, key)).get();
+        return row ? toLink(row) : null;
+      };
+      const found = await existing();
+      if (found) return { link: found, created: false };
+      try {
+        await runBatch(db, [
+          db.insert(nodeLinks).values(linkInsert(link)),
+          db.update(trees).set({ updatedAt: treeUpdatedAt }).where(eq(trees.id, link.treeId)),
+        ]);
+      } catch (err) {
+        // A concurrent request linked the same pair first.
+        if (isUniqueViolation(err)) {
+          const raced = await existing();
+          if (raced) return { link: raced, created: false };
+        }
+        // A message was deleted since the caller loaded it.
+        if (isForeignKeyViolation(err)) throw new NotFoundError('Node');
+        throw err;
+      }
+      return { link, created: true };
+    },
+
+    async updateLink(linkId, patch) {
+      const row = await db
+        .update(nodeLinks)
+        .set({ note: patch.note, updatedAt: patch.updatedAt })
+        .where(eq(nodeLinks.id, linkId))
+        .returning()
+        .get();
+      return row ? toLink(row) : null;
+    },
+
+    async deleteLink(linkId) {
+      const rows = await db
+        .delete(nodeLinks)
+        .where(eq(nodeLinks.id, linkId))
+        .returning({ id: nodeLinks.id });
+      return rows.length > 0;
+    },
+
+    async importTree(tree, branchList, nodeList, linkList = []) {
       await runBatch(db, [
         db.insert(trees).values({
           id: tree.id,
@@ -611,6 +723,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
         }),
         ...branchInserts(branchList),
         ...nodeInserts(nodeList),
+        ...linkInserts(linkList),
       ]);
     },
   };

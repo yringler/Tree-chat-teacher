@@ -1,4 +1,11 @@
-import { DEFAULT_ACCOUNT_ID, type Branch, type ChatNode, type Share, type Tree } from '@tangent/shared';
+import {
+  DEFAULT_ACCOUNT_ID,
+  type Branch,
+  type ChatNode,
+  type NodeLink,
+  type Share,
+  type Tree,
+} from '@tangent/shared';
 
 let counter = 0;
 /** Unique id per call so tests within a file never collide. */
@@ -106,6 +113,24 @@ export function makeShare(tree: Tree, overrides: Partial<Share> = {}): Share {
     publishedAt: '2026-01-02T00:00:00.000Z',
     version: 1,
     viewCount: 0,
+    ...overrides,
+  };
+}
+
+export function makeLink(
+  source: ChatNode,
+  target: ChatNode,
+  overrides: Partial<NodeLink> = {},
+): NodeLink {
+  return {
+    id: uid('ln'),
+    treeId: source.treeId,
+    sourceNodeId: source.id,
+    targetNodeId: target.id,
+    note: null,
+    origin: 'user',
+    createdAt: '2026-01-03T00:00:00.000Z',
+    updatedAt: '2026-01-03T00:00:00.000Z',
     ...overrides,
   };
 }

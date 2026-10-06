@@ -498,6 +498,107 @@ describe('power demo backend', () => {
   });
 });
 
+describe('demo backend links', () => {
+  /** A lesson with one exchange on the trunk and a branch off the reply with one of its own. */
+  async function lesson(api: ApiClient) {
+    const tree = await api.createTree({});
+    await events(
+      await api.sendMessage(
+        tree.tree.trunkBranchId,
+        { content: 'Hi' },
+        new AbortController().signal,
+      ),
+    );
+    const reply = (await api.getTree(tree.tree.id)).nodes.find((n) => n.role === 'assistant')!;
+    const branch = await api.createBranch({ fromNodeId: reply.id });
+    await events(
+      await api.sendMessage(branch.id, { content: 'Deeper' }, new AbortController().signal),
+    );
+    const detail = await api.getTree(tree.tree.id);
+    const deeper = detail.nodes.find((n) => n.branchId === branch.id && n.role === 'user')!;
+    return { detail, reply, branch, deeper };
+  }
+
+  it('seeds the example lesson with a link from the main thread to the followed tangent', async () => {
+    const { api } = setup();
+    const [tree] = await api.listTrees();
+    const detail = await api.getTree(tree!.id);
+    expect(detail.links).toHaveLength(1);
+    const link = detail.links[0]!;
+    const source = detail.nodes.find((n) => n.id === link.sourceNodeId)!;
+    const target = detail.nodes.find((n) => n.id === link.targetNodeId)!;
+    const tangent = detail.branches.find((b) => b.titleSource === 'user')!;
+    expect(source.branchId).toBe(detail.tree.trunkBranchId);
+    expect(target).toMatchObject({ branchId: tangent.id, seq: 0 });
+    expect(link).toMatchObject({ treeId: detail.tree.id, origin: 'user' });
+    expect(link.note).toBeTruthy();
+  });
+
+  it('creates (201, then 200 for the same pair), edits and deletes links', async () => {
+    const { backend, api } = setup({ seed: false });
+    const { detail, reply, deeper } = await lesson(api);
+    const post = (fromNodeId: string, toNodeId: string) =>
+      backend.fetch('/api/links', {
+        method: 'POST',
+        body: JSON.stringify({ fromNodeId, toNodeId, note: 'why' }),
+      });
+
+    const created = await post(reply.id, deeper.id);
+    expect(created.status).toBe(201);
+    const link = (await created.json()) as { id: string };
+    const again = await post(deeper.id, reply.id);
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual(link);
+    expect((await post(reply.id, reply.id)).status).toBe(400);
+    expect((await post(reply.id, 'gone')).status).toBe(404);
+
+    expect((await api.updateLink(link.id, { note: '  better  ' })).note).toBe('better');
+    expect((await api.getTree(detail.tree.id)).links).toMatchObject([
+      { id: link.id, note: 'better' },
+    ]);
+    await api.deleteLink(link.id);
+    expect((await api.getTree(detail.tree.id)).links).toEqual([]);
+    await expect(api.deleteLink(link.id)).rejects.toMatchObject({ status: 404, code: 'not_found' });
+    await expect(api.updateLink('gone', { note: null })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('drops the links of a deleted branch', async () => {
+    const { api } = setup({ seed: false });
+    const { detail, reply, branch, deeper } = await lesson(api);
+    const question = detail.nodes.find((n) => n.role === 'user' && n.branchId !== branch.id)!;
+    const { link: kept } = await api.createLink({ fromNodeId: question.id, toNodeId: reply.id });
+    await api.createLink({ fromNodeId: reply.id, toNodeId: deeper.id });
+    const res = await api.deleteBranch(branch.id);
+    expect(res.nodeIds).toContain(deeper.id);
+    expect((await api.getTree(detail.tree.id)).links).toEqual([kept]);
+  });
+
+  it('keeps links across a reload, and restores sessions saved before links existed', async () => {
+    const storage = memoryStorage();
+    const { api } = setup({ storage, seed: false });
+    const { detail, reply, deeper } = await lesson(api);
+    const { link, created } = await api.createLink({
+      fromNodeId: reply.id,
+      toNodeId: deeper.id,
+      note: 'n',
+    });
+    expect(created).toBe(true);
+    await until(() => storage.data.get('tangent.learn-demo.v1')?.includes(link.id) ?? false);
+
+    const { api: reloaded } = setup({ storage });
+    expect((await reloaded.getTree(detail.tree.id)).links).toEqual([link]);
+
+    const { links: _links, ...older } = JSON.parse(storage.data.get('tangent.learn-demo.v1')!) as {
+      links: unknown;
+    };
+    storage.data.set('tangent.learn-demo.v1', JSON.stringify(older));
+    const { api: old } = setup({ storage });
+    const restored = await old.getTree(detail.tree.id);
+    expect(restored.links).toEqual([]);
+    expect(restored.nodes).toHaveLength(4);
+  });
+});
+
 function memoryStorage(): DemoStorage & { data: Map<string, string> } {
   const data = new Map<string, string>();
   return {

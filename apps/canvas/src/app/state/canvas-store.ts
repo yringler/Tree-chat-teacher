@@ -1,5 +1,6 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import { indexLinks, linkTarget } from '@tangent/core/links';
 import {
   branchChain,
   branchLeaf,
@@ -29,6 +30,7 @@ import type {
   KeyStatusResponse,
   MeResponse,
   MembershipInfo,
+  NodeLink,
   ProviderInfo,
   StreamEvent,
   TreeDetail,
@@ -41,6 +43,7 @@ import {
   creditCanPay,
   creditCarriesOn,
   errorMessage,
+  isNotFound,
   lockedFundings,
   membershipBlocks,
   routeLocked,
@@ -48,6 +51,7 @@ import {
   runStream,
   type StreamOutcome,
 } from '@tangent/web-shared';
+import { laneTitle } from '../canvas/titles';
 import { UiStore } from './ui-store';
 
 /** Live state of a reply, kept apart from `detail` so deltas don't re-index the tree. */
@@ -192,6 +196,14 @@ export class CanvasStore {
       return null;
     }
   });
+
+  /** The tree's links between messages, oldest first. */
+  readonly links = computed<readonly NodeLink[]>(() => this.detail()?.links ?? []);
+
+  /** Links by node id, each link under both of its ends. */
+  readonly linksByNode = computed<ReadonlyMap<string, readonly NodeLink[]>>(() =>
+    indexLinks(this.links()),
+  );
 
   readonly selectedBranchId = computed<string | null>(() => {
     const idx = this.index();
@@ -440,8 +452,14 @@ export class CanvasStore {
   setRoute(treeId: string | null, branchId: string | null, focusNodeId: string | null): void {
     this.routeBranchId.set(branchId);
     this.focusedNodeId.set(focusNodeId);
+    const back = this.ui.linkReturn();
+    if (back && back.branchId === this.selectedBranchId() && back.nodeId === focusNodeId) {
+      // Back where the link was followed from (the pill or the browser's Back).
+      this.ui.linkReturn.set(null);
+    }
     if (treeId !== this.selectedTreeId()) {
       this.selectedTreeId.set(treeId);
+      this.ui.clearLinkState();
       this.lineages.set(new Map());
       this.lineageFailed.clear();
       if (treeId) void this.loadTree(treeId);
@@ -480,6 +498,42 @@ export class CanvasStore {
     if (!target) return false;
     this.go(target.branchId, target.focusNodeId);
     return true;
+  }
+
+  /**
+   * Follows a link to `nodeId`: unfolds the lanes on the way (a folded
+   * ancestor hides it), then selects its lane focused on the card. Remembers
+   * where it was followed from (`fromNodeId`, else the focused card, else
+   * the selected lane) for the canvas bar's "Back to ‘…’"; the browser's
+   * Back works as well.
+   */
+  openNode(nodeId: string, fromNodeId: string | null = null): boolean {
+    const idx = this.index();
+    const target = idx ? linkTarget(idx, nodeId) : null;
+    const here = this.selectedBranch();
+    if (!idx || !target || !here) return false;
+    this.ui.expand(branchChain(idx, target.branchId).map((b) => b.id));
+    const fromId = fromNodeId ?? this.focusedNodeId();
+    const from = fromId !== null ? idx.nodes.get(fromId) : undefined;
+    // Back to the lane of the message it was followed from (a link's other end may be anywhere).
+    const back = (from && idx.branches.get(from.branchId)) ?? here;
+    this.ui.linkReturn.set({
+      branchId: back.id,
+      nodeId: from?.id ?? null,
+      label: laneTitle(back),
+      toBranchId: target.branchId,
+    });
+    this.ui.linkPopover.set(null);
+    this.go(target.branchId, target.focusNodeId);
+    return true;
+  }
+
+  /** "Back to ‘…’": returns to where the latest link was followed from. */
+  goBackFromLink(): void {
+    const back = this.ui.linkReturn();
+    if (!back) return;
+    this.ui.linkReturn.set(null);
+    this.go(back.branchId, back.nodeId);
   }
 
   childBranchesAt(nodeId: string): readonly Branch[] {
@@ -533,6 +587,7 @@ export class CanvasStore {
       });
       this.detail.set(detail);
       this.selectedTreeId.set(detail.tree.id);
+      this.ui.clearLinkState();
       this.trees.update((list) => [summaryOf(detail), ...list]);
       await this.router.navigate(['/t', detail.tree.id]);
       void this.send(detail.tree.trunkBranchId, content);
@@ -673,6 +728,71 @@ export class CanvasStore {
       this.fail(err);
       return false;
     }
+  }
+
+  // Links between messages
+
+  /**
+   * Links two messages of the open tree (not a generating call: it stays
+   * available on read-only lanes). Two messages already linked, either way
+   * round, keep their link.
+   */
+  async createLink(
+    fromNodeId: string,
+    toNodeId: string,
+    note: string | null = null,
+  ): Promise<NodeLink | null> {
+    try {
+      // The server says whether the pair was linked already (perhaps in another tab).
+      const { link, created } = await this.api.createLink({ fromNodeId, toNodeId, note });
+      this.applyLinks([link]);
+      this.ui.notify(created ? 'Messages linked' : 'Already linked');
+      return link;
+    } catch (err) {
+      this.fail(err);
+      return null;
+    }
+  }
+
+  /** The note on a link; null clears it. */
+  async updateLinkNote(linkId: string, note: string | null): Promise<boolean> {
+    try {
+      this.applyLinks([await this.api.updateLink(linkId, { note })]);
+      return true;
+    } catch (err) {
+      if (isNotFound(err)) this.dropGoneLink(linkId);
+      else this.fail(err);
+      return false;
+    }
+  }
+
+  /** Removes a link from both of its messages. The caller confirms first. */
+  async deleteLink(linkId: string): Promise<boolean> {
+    try {
+      await this.api.deleteLink(linkId);
+      this.dropLink(linkId);
+      this.ui.notify('Link removed');
+      return true;
+    } catch (err) {
+      // Removed elsewhere already (another tab, or Power): the same outcome.
+      if (isNotFound(err)) {
+        this.dropGoneLink(linkId);
+        return true;
+      }
+      this.fail(err);
+      return false;
+    }
+  }
+
+  private dropLink(linkId: string): void {
+    this.detail.update((d) => (d ? { ...d, links: d.links.filter((l) => l.id !== linkId) } : d));
+    if (this.ui.linkPopover()?.linkId === linkId) this.ui.linkPopover.set(null);
+  }
+
+  /** A link the server no longer has (removed elsewhere): drop its line and chips here too. */
+  private dropGoneLink(linkId: string): void {
+    this.dropLink(linkId);
+    this.ui.notify('That link was already removed');
   }
 
   // Lineage
@@ -946,6 +1066,14 @@ export class CanvasStore {
     );
   }
 
+  private applyLinks(links: NodeLink[]): void {
+    this.detail.update((d) => {
+      if (!d) return d;
+      const mine = links.filter((l) => l.treeId === d.tree.id);
+      return mine.length ? { ...d, links: upsertById(d.links, mine) } : d;
+    });
+  }
+
   private removeBranches(res: DeleteBranchResponse): void {
     const branchIds = new Set(res.branchIds);
     const nodeIds = new Set(res.nodeIds);
@@ -961,9 +1089,14 @@ export class CanvasStore {
             ...d,
             branches: d.branches.filter((b) => !branchIds.has(b.id)),
             nodes: d.nodes.filter((n) => !nodeIds.has(n.id)),
+            // The server dropped the links touching them with them.
+            links: d.links.filter(
+              (l) => !nodeIds.has(l.sourceNodeId) && !nodeIds.has(l.targetNodeId),
+            ),
           }
         : d,
     );
+    this.dropLinkState(branchIds, nodeIds);
     const d = this.detail();
     if (d && d.tree.id === res.treeId) {
       this.trees.update((list) =>
@@ -973,6 +1106,20 @@ export class CanvasStore {
             : t,
         ),
       );
+    }
+  }
+
+  /** Linking from a message that is gone, its popover, or a way back to a lane that is. */
+  private dropLinkState(branchIds: ReadonlySet<string>, nodeIds: ReadonlySet<string>): void {
+    for (const s of [this.ui.linkPick, this.ui.linkDialog, this.ui.linkDrag]) {
+      const from = s()?.fromNodeId;
+      if (from !== undefined && nodeIds.has(from)) s.set(null);
+    }
+    const open = this.ui.linkPopover();
+    if (open && !this.links().some((l) => l.id === open.linkId)) this.ui.linkPopover.set(null);
+    const back = this.ui.linkReturn();
+    if (back && (branchIds.has(back.branchId) || branchIds.has(back.toBranchId))) {
+      this.ui.linkReturn.set(null);
     }
   }
 

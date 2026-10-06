@@ -11,11 +11,13 @@ export {
   ApiError,
   errorMessage,
   isMembershipRequired,
+  isNotFound,
   isPaymentRequired,
   isPoolCapReached,
   isPoolConsentRequired,
   isPoolEmpty,
   isPoolUnavailable,
+  type CreateLinkResult,
   type ExportParams,
 } from './core/api-client';
 export { API_FETCH, API_HEADERS, defaultApiFetch } from './core/api-fetch';
@@ -80,6 +82,20 @@ export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';
 export { ModelSuggestions, suggestionText, type SuggestionText } from './ui/model-suggestions';
 export { DEEP_BRANCH_DEPTH, SourcesList } from './ui/sources-list';
+export { RelatedLinks, type LinkNoteEdit } from './ui/related-links';
+export { NodePicker, type LinkPick } from './ui/node-picker';
+export {
+  CRUMB_SEPARATOR,
+  endpointCrumbs,
+  endpointTitle,
+  linkExclusions,
+  pickerRows,
+  relatedLabel,
+  relatedLinks,
+  type LinksByNode,
+  type PickerRow,
+  type RelatedLink,
+} from './ui/links-view';
 export { TangentAsk } from './ui/tangent-ask';
 export { TextSizeMenu } from './ui/text-size-menu';
 export {
