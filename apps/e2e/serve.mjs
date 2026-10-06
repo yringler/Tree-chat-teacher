@@ -46,7 +46,8 @@ const vars = {
   PERSONAL_CREDIT_ENABLED: 'false',
   DEV_PURCHASES_ENABLED: 'false',
   AUTO_TITLE: 'false',
-  DMCA_AGENT_REGISTERED: 'false',
+  // Share links for everyone, so the share dialog can be driven (share-dialog.spec.ts).
+  DMCA_AGENT_REGISTERED: 'true',
   // Power's one provider: the offline test provider, on the user's "own key" (it needs none).
   PROVIDERS: JSON.stringify([
     {

@@ -1,23 +1,14 @@
-import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
 import type { ShareSummary } from '@tangent/shared';
 import { ApiClient, Icon } from '@tangent/web-shared';
-import { copyText } from '../core/selection';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { ExpiryPicker } from '../ui/expiry-picker';
+import { ShareCard } from './share-card';
 
-const SCOPE_LABEL: Record<ShareSummary['scope'], string> = {
-  tree: 'Whole conversation',
-  subtree: 'Subtree',
-  path: 'Path',
-};
-
-/** `/shares`: every public link, with copy / open / edit / republish / revoke. */
+/** `/shares`: every public link, with copy / open / edit / republish / revoke (ShareCard). */
 @Component({
   selector: 'app-shares-page',
-  imports: [DatePipe, RouterLink, Icon, ExpiryPicker],
+  imports: [Icon, ShareCard],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './shares-page.html',
   host: { class: 'page' },
@@ -30,11 +21,6 @@ export class SharesPage {
   protected readonly shares = signal<ShareSummary[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
-  protected readonly busyId = signal<string | null>(null);
-  protected readonly editingId = signal<string | null>(null);
-  protected readonly editTitle = signal('');
-  protected readonly editExpires = signal<string | null>(null);
-  protected readonly scopeLabel = SCOPE_LABEL;
   /** Reachable only by URL then (the sidebar hides it); kept so old links can still be revoked. */
   protected readonly sharingOff = computed(() => this.store.me()?.sharing === false);
 
@@ -54,50 +40,7 @@ export class SharesPage {
     }
   }
 
-  protected async copy(s: ShareSummary): Promise<void> {
-    if (await copyText(s.url)) this.ui.notify('Link copied');
-  }
-
-  protected republish(s: ShareSummary): Promise<void> {
-    return this.act(s, () => this.api.republishShare(s.id), 'Snapshot republished');
-  }
-
-  protected revoke(s: ShareSummary): Promise<void> {
-    if (
-      !confirm(
-        `Revoke “${s.title ?? s.treeTitle}”? The link stops working immediately and cannot be re-enabled.`,
-      )
-    ) {
-      return Promise.resolve();
-    }
-    return this.act(s, () => this.api.revokeShare(s.id), 'Link revoked');
-  }
-
-  protected startEdit(s: ShareSummary): void {
-    this.editingId.set(s.id);
-    this.editTitle.set(s.title ?? '');
-    this.editExpires.set(s.expiresAt);
-  }
-
-  protected saveEdit(s: ShareSummary): Promise<void> {
-    const title = this.editTitle().trim() || null;
-    return this.act(
-      s,
-      () => this.api.updateShare(s.id, { title, expiresAt: this.editExpires() }),
-      'Share updated',
-    ).then(() => this.editingId.set(null));
-  }
-
-  private async act(s: ShareSummary, op: () => Promise<ShareSummary>, done: string): Promise<void> {
-    this.busyId.set(s.id);
-    try {
-      const updated = await op();
-      this.shares.update((list) => list.map((x) => (x.id === updated.id ? updated : x)));
-      this.ui.notify(done);
-    } catch (err) {
-      this.store.fail(err);
-    } finally {
-      this.busyId.set(null);
-    }
+  protected replace(updated: ShareSummary): void {
+    this.shares.update((list) => list.map((x) => (x.id === updated.id ? updated : x)));
   }
 }

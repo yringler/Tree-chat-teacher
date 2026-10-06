@@ -254,6 +254,41 @@
   border-top: 1px solid var(--border);
 }
 
+.share-url {
+  font: 0.78rem var(--mono);
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* The share dialog's list of this conversation's links: above the form, or below a new link. */
+.share-existing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.form + .share-existing {
+  margin: 14px 0 0;
+  padding: 14px 0 0;
+  border-bottom: 0;
+  border-top: 1px solid var(--border);
+}
+
+.share-existing h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.share-existing > p {
+  margin: 0;
+}
+
 @media (max-width: 1100px) {
   .chat-layout.with-inspector {
     grid-template-columns: minmax(0, 1fr);
