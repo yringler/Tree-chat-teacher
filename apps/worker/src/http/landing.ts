@@ -286,7 +286,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <body>
 <header class="wrap top">
 <a class="brand" href="/welcome">${MARK}Tangent</a>
-<nav aria-label="Account"><a href="/learn/login">Sign in to Learn</a><a href="/login">Power sign in</a></nav>
+<nav aria-label="Site"><a href="/learn/login">Sign in to Learn</a><a href="/login">Power sign in</a><a href="/pricing">Pricing</a></nav>
 </header>
 <main>
 <div class="wrap hero">
@@ -325,7 +325,7 @@ ${freeNote}<p class="note">The demo is free and runs in your browser. Nothing is
 <article class="card">${ICON_COMPASS}<h3>Answers first, tangents next</h3><p>Ask a question and get the answer, straight away and in real depth: the mechanism, not just the fact, and no quiz in between. Every answer ends with a few tangents worth following. One tap opens any of them as a branch of its own.</p></article>
 <article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. The side question opens its own branch, so detours never clutter the main thread, and every branch stays one click away. Choose <strong>Smart</strong> for hard topics or <strong>Simple</strong> for quick ones.</p></article>
 <article class="card">${ICON_EYE}<h3>See exactly what the model sees</h3><p>In power mode, decide how much each branch inherits: the full path, a summary, or a clean slate. The inspector shows the exact prompt before anything is sent.</p></article>
-<article class="card">${ICON_COIN}<h3>${opts.pool ? 'Free, your key, or pay as you go' : 'Your key, or pay as you go'}</h3><p>${opts.pool ? 'Learn free on the community pool, within daily limits, while it has credit. ' : ''}${opts.membership ? 'Paste your own OpenRouter key and Tangent charges nothing, with no membership needed: you pay OpenRouter directly. Or use prepaid credit (buying it needs a yearly membership; spending what you have needs none):' : 'Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or use prepaid credit:'} each reply costs the model's price, including the provider's credit-purchase fee, plus a small markup. Payment processing fees come out of each purchase, and tax is added at checkout. Top up when you need to, and manage billing in the secure billing portal.</p></article>
+<article class="card">${ICON_COIN}<h3>${opts.pool ? 'Free, your key, or pay as you go' : 'Your key, or pay as you go'}</h3><p>${opts.pool ? 'Learn free on the community pool, within daily limits, while it has credit. ' : ''}Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or top up prepaid credit and pay for each reply at cost, plus a small markup. <a href="/pricing">See exactly what’s free and what’s paid</a></p></article>
 ${groundingCard(opts.grounding, opts.pool !== undefined)}</div>
 </div>
 </section>
@@ -364,7 +364,7 @@ ${opts.pool ? poolSection(opts.pool, opts.impact) : ''}<section aria-labelledby=
 <footer>
 <div class="wrap">
 <span>${escapeHtml(copyrightNotice(opts.operator))}</span>
-<nav aria-label="Footer"><a href="/learn/demo">Try the demo</a><a href="/learn/login">Sign in to Learn</a><a href="/login">Power sign in</a><a href="/welcome">About Tangent</a><a href="/pool">Community pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+<nav aria-label="Footer"><a href="/learn/demo">Try the demo</a><a href="/learn/login">Sign in to Learn</a><a href="/login">Power sign in</a><a href="/welcome">About Tangent</a><a href="/pricing">Pricing</a><a href="/pool">Community pool</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
 </div>
 </footer>
 </body>

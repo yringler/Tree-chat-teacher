@@ -388,7 +388,14 @@ describe('copy rule', () => {
     const poolId = uniq('pool');
     await fundPool(poolId, 1_000_000);
     const e = poolEnv(poolId);
-    for (const path of ['/welcome', '/pool', '/terms', '/privacy', '/api/pool/status']) {
+    for (const path of [
+      '/welcome',
+      '/pool',
+      '/pricing',
+      '/terms',
+      '/privacy',
+      '/api/pool/status',
+    ]) {
       const text = await (await visitor(e)(path)).text();
       expect(text, path).not.toMatch(FORBIDDEN_POOL_COPY);
       expect(text, path).not.toMatch(/buy(ing)? (pool )?credit for the pool|fund(ing)? the pool/i);

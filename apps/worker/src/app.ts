@@ -9,6 +9,7 @@ import { landingRoutes } from './http/landing.js';
 import { adminAppRoutes, canvasAppRoutes, learnAppRoutes } from './http/learn-app.js';
 import { legalRoutes } from './http/legal.js';
 import { poolPageRoutes } from './http/pool-page.js';
+import { pricingPageRoutes } from './http/pricing-page.js';
 import { verifyPageRoutes } from './http/verify-page.js';
 import { adminRoutes } from './routes/admin.js';
 import { apiRoutes } from './routes/api.js';
@@ -42,7 +43,8 @@ export interface AppOptions {
  *   canvas app and `/admin`, `/admin/*` the admin app, to admins only
  *   (http/learn-app.ts).
  * - `/privacy` and `/terms` are the public legal pages (http/legal.ts), and
- *   `/pool` explains the community pool (http/pool-page.ts).
+ *   `/pool` explains the community pool (http/pool-page.ts) and `/pricing`
+ *   what each plan gets you (http/pricing-page.ts).
  * - `/verify` is the Turnstile interstitial after a first OAuth sign-in
  *   (http/verify-page.ts).
  * - `/welcome`, and `/` for anonymous visitors, serve the landing page
@@ -91,6 +93,7 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   app.route('/', adminAppRoutes(options.auth));
   app.route('/', legalRoutes());
   app.route('/', poolPageRoutes());
+  app.route('/', pricingPageRoutes());
   app.route('/', verifyPageRoutes(options.auth));
   app.route('/', landingRoutes());
   return app;
