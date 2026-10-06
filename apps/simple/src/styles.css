@@ -238,6 +238,15 @@ body {
   gap: 10px;
 }
 
+.start-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-left: auto;
+}
+
 .pool-card {
   padding: 14px 18px;
 }
@@ -930,7 +939,12 @@ app-related-links.connections {
   gap: 2px;
 }
 
-.key-pill {
+/* What replies are paid by (shell/paid-by.ts): opens the dialog above. */
+
+.pay-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 3px 12px;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
@@ -938,11 +952,68 @@ app-related-links.connections {
   color: var(--fg);
   font: inherit;
   font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.key-pill:hover {
+.pay-pill:hover {
   background: var(--bg-hover);
+}
+
+.pay-pill.balance-low {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.pay-pill.balance-low:hover {
+  filter: brightness(0.97);
+}
+
+/* Phones: the header pill keeps its name and drops the amount and chevron. */
+.app-head .pay-pill {
+  padding: 3px 8px;
+  font-size: 0.82rem;
+}
+
+.app-head .pay-pill app-icon {
+  display: none;
+}
+
+@media (min-width: 560px) {
+  .app-head .pay-pill {
+    padding: 3px 12px;
+    font-size: 0.88rem;
+  }
+
+  .app-head .pay-pill app-icon {
+    display: inline-flex;
+  }
+}
+
+.paid-by {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.paid-by .pay-pill {
+  gap: 10px;
+}
+
+.pay-detail {
+  color: var(--fg-muted);
+}
+
+.balance-low .pay-detail {
+  color: inherit;
+}
+
+.pay-change {
+  color: var(--accent);
+  font-size: 0.8rem;
 }
 
 /* Passkeys dialog */
