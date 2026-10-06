@@ -382,7 +382,7 @@ export function apiRoutes(): Hono<AppBindings> {
   // ---- shares
   // With sharing off (no DMCA agent registered) only admins and the users the operator
   // allowed publish (canShare): for anyone else create, edit and republish are 403.
-  // Listing and revoking stay open so owners can take old links down.
+  // Listing, revoking and deleting stay open so owners can take old links down.
   const sharingOn = createMiddleware<AppBindings>(async (c, next) => {
     if (!(await canShare(c.env, c.var.identity.userId))) {
       throw new DomainError(
@@ -417,6 +417,11 @@ export function apiRoutes(): Hono<AppBindings> {
     const s = await shareService(c.env, c.req.url, c.var.accountId).revoke(c.req.param('shareId'));
     c.executionCtx.waitUntil(purgeShare(s.token, [s.version - 1, s.version]));
     return c.json(s);
+  });
+  api.delete('/shares/:shareId', async (c) => {
+    const s = await shareService(c.env, c.req.url, c.var.accountId).delete(c.req.param('shareId'));
+    c.executionCtx.waitUntil(purgeShare(s.token, [s.version]));
+    return c.body(null, 204);
   });
 
   // ---- export (Markdown / self-contained HTML, built on the viewer renderer)

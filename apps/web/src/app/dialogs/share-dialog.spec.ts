@@ -121,11 +121,13 @@ interface DialogView {
   load(): Promise<void>;
   create(): Promise<void>;
   replace(s: ShareSummary): void;
+  drop(id: string): void;
   created(): ShareSummary | null;
 }
 interface CardView {
   revoke(): Promise<boolean>;
   republish(): Promise<boolean>;
+  remove(): Promise<boolean>;
 }
 
 function setup(list: ShareSummary[]) {
@@ -138,6 +140,7 @@ function setup(list: ShareSummary[]) {
       share(id, { ...list.find((s) => s.id === id), state: 'revoked', revokedAt: at }),
     ),
     republishShare: vi.fn(async (id: string) => share(id, { version: 2 })),
+    deleteShare: vi.fn(async (_id: string) => undefined),
   };
   const injector = Injector.create({
     providers: [
@@ -159,6 +162,7 @@ function setup(list: ShareSummary[]) {
     const c = runInInjectionContext(injector, () => new ShareCard());
     Object.defineProperty(c, 'share', { value: () => s });
     c.changed.subscribe((u) => dialog.replace(u));
+    c.deleted.subscribe((id) => dialog.drop(id));
     return c as unknown as CardView;
   };
   return { api, store, ui, open, card };
@@ -284,6 +288,31 @@ describe('Share dialog: this conversation’s existing links', () => {
     expect(s.api.revokeShare).toHaveBeenCalledWith('a');
     expect(d.rows()[0]!.share.state).toBe('revoked');
     expect(s.ui.toasts().map((t) => t.text)).toEqual(['Link revoked']);
+  });
+
+  it('deleting from a row asks first, then drops the share; a failure keeps it', async () => {
+    const s = setup([share('a', { title: 'Old link' }), share('b', { state: 'revoked' })]);
+    const d = s.open();
+    await vi.waitFor(() => expect(d.loading()).toBe(false));
+    const [a, b] = d.rows().map((r) => s.card(r.share, d));
+
+    confirm.mockReturnValueOnce(false);
+    expect(await a!.remove()).toBe(false);
+    expect(s.api.deleteShare).not.toHaveBeenCalled();
+
+    expect(await a!.remove()).toBe(true);
+    expect(confirm).toHaveBeenLastCalledWith(
+      'Delete “Old link”? The link stops working immediately. This cannot be undone.',
+    );
+    expect(s.api.deleteShare).toHaveBeenCalledWith('a');
+    expect(d.rows().map((r) => r.share.id)).toEqual(['b']);
+    expect(s.ui.toasts().map((t) => t.text)).toEqual(['Share deleted']);
+
+    s.api.deleteShare.mockRejectedValueOnce(new ApiError(500, 'internal', 'Nope'));
+    expect(await b!.remove()).toBe(false);
+    expect(confirm).toHaveBeenLastCalledWith('Delete “Primes”? This cannot be undone.');
+    expect(d.rows().map((r) => r.share.id)).toEqual(['b']);
+    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
   });
 
   it('republishing from a row swaps in the new version; a failure shows the error', async () => {
