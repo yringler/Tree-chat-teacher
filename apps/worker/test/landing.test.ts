@@ -115,8 +115,28 @@ describe('landingRoutes', () => {
     expect(off).not.toContain('membership');
     const { request } = setup({ env: { ANNUAL_FEE_ENABLED: 'true' } });
     const html = await (await request('/welcome')).text();
-    expect(html).toContain('prepaid credit (buying it needs a membership)');
-    expect(html).toContain('Your own keys here need a yearly membership');
+    expect(html).toContain(
+      'Or pay per reply from prepaid credit (buying credit needs a membership)',
+    );
+    expect(html).toContain('With a yearly membership, you can also buy prepaid credit');
+    expect(html).toContain('with nothing charged by Tangent and no membership needed');
+    expect(html).toContain('Using your own keys here needs a yearly membership');
+  });
+
+  it('offers prepaid credit only where it is sold, and names the own-key providers', async () => {
+    const sold = await (await setup({ env: { PROVIDERS: '' } }).request('/welcome')).text();
+    expect(sold).toContain(
+      'Or buy prepaid credit and pay for each reply at what it costs Tangent, plus 10%.',
+    );
+    expect(sold).toContain('<li>Or pay per reply from prepaid credit</li>');
+    expect(sold).toContain('<li>Your own API keys for Anthropic, OpenAI or OpenRouter</li>');
+    expect(sold).toContain('<li>Any OpenRouter model, on prepaid credit</li>');
+    // Polar without its secrets: no payments, so nothing to buy.
+    const unsold = await (
+      await setup({ env: { PAYMENT_PROVIDER: 'polar' } }).request('/welcome')
+    ).text();
+    expect(unsold).not.toMatch(/prepaid credit|pay as you go/i);
+    expect(unsold).toContain('<h3>Free, or on your own key</h3>');
   });
 
   it('describes web-search grounding as the GROUNDING ceiling allows, never as always on', async () => {
@@ -124,11 +144,11 @@ describe('landingRoutes', () => {
       (await setup({ env: { GROUNDING: grounding } }).request('/welcome')).text();
     const auto = await page('auto');
     expect(auto).toContain('Checked against the web when you go deep');
-    expect(auto).toContain('When a reply likely needs it');
+    expect(auto).toContain('So when a reply needs it');
     expect(auto).toContain('<strong>Check sources</strong>');
     const explicit = await page('explicit');
     expect(explicit).toContain('Check any answer against the web');
-    expect(explicit).not.toContain('When a reply likely needs it');
+    expect(explicit).not.toContain('So when a reply needs it');
     for (const off of ['off', 'typo']) {
       expect(await page(off)).not.toContain('Check sources');
     }

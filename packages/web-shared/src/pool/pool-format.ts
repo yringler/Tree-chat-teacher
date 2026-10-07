@@ -25,7 +25,7 @@ export function poolDollarsLabel(status: Pick<PoolStatusResponse, 'availableMicr
   return `${formatMicros(status.availableMicros)} in the pool`;
 }
 
-/** `12 learners on the pool this week · 340 exchanges funded this week`. */
+/** `This week: 12 learners, 340 free replies`. */
 export function poolWeekLabel(status: Pick<PoolStatusResponse, 'week'>): string {
   return poolWeekText(status.week);
 }

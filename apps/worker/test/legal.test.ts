@@ -88,7 +88,9 @@ describe('legal pages', () => {
     expect(await (await on('/terms')).text()).not.toContain(offNote);
     expect(await (await off('/terms')).text()).toContain(offNote);
 
-    expect(await (await on('/welcome')).text()).toContain('Read-only share links and Markdown');
+    expect(await (await on('/welcome')).text()).toContain(
+      'Read-only share links, and Markdown or HTML export',
+    );
     const landingOff = await (await off('/welcome')).text();
     expect(landingOff).not.toContain('share links');
     expect(landingOff).toContain('<li>Markdown or HTML export</li>');
