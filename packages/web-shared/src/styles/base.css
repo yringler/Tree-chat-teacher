@@ -4,6 +4,7 @@
  * the billing page (BillingPage) and links between messages (RelatedLinks, NodePicker).
  * Imported first by both apps' styles.css; app-specific CSS comes after it.
  */
+@import 'katex/dist/katex.min.css';
 :root {
   color-scheme: light dark;
   --bg: #fbfbfa;
@@ -1744,4 +1745,22 @@ app-node-picker {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* TeX math (renderMarkdown placeholders, typeset by TypesetMath / KaTeX) */
+.math-display {
+  display: block;
+  margin: 0.75em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.math-display > .katex-display {
+  margin: 0;
+}
+/* Untypeset source: while KaTeX loads, mid-stream, or invalid TeX. */
+.math:not(.math-done),
+.math-error {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  white-space: pre-wrap;
 }
