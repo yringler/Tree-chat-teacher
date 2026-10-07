@@ -1,23 +1,13 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  DestroyRef,
-  inject,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import type { MembershipInfo } from '@tangent/shared';
 import {
   ApiClient,
   APP_PATHS,
   AuthService,
   DEMO_MODE,
   Icon,
-  MembershipGate,
   PoolFirstUseDialog,
 } from '@tangent/web-shared';
-import { BRAND } from './brand';
 import { ConnectDialog } from './chat/connect-dialog';
 import { RouteSync } from './core/route-sync';
 import { DEMO_SIGNUP_URL } from './demo/demo-mode';
@@ -39,7 +29,6 @@ import { UiStore } from './state/ui-store';
     PasskeysDialog,
     DeleteAccountDialog,
     Icon,
-    MembershipGate,
     PoolFirstUseDialog,
     ConnectDialog,
   ],
@@ -48,7 +37,7 @@ import { UiStore } from './state/ui-store';
     @if (loginPage) {
       <router-outlet />
     } @else {
-      <div class="shell" [attr.inert]="gate() ? '' : null">
+      <div class="shell">
         <app-header />
         @if (demo) {
           <p class="demo-banner" role="note">
@@ -86,17 +75,6 @@ import { UiStore } from './state/ui-store';
           (acknowledged)="acknowledgePoolNotice()"
         />
       }
-      @if (gate(); as membership) {
-        <app-membership-gate
-          [membership]="membership"
-          [appName]="brand"
-          billingPath="/learn/billing"
-          needs="Using your own OpenRouter key needs one"
-          [alternative]="account.alternativeOffered()"
-          (redeemed)="account.setMembership($event)"
-          (alternativeChosen)="account.useAlternative()"
-        />
-      }
     }
 
     <div class="toasts" role="status" aria-live="polite">
@@ -122,7 +100,6 @@ export class App {
   /** `/learn/demo/`: an in-browser backend, no sign-in (see @tangent/web-shared/demo). */
   protected readonly demo = inject(DEMO_MODE);
   protected readonly signupUrl = DEMO_SIGNUP_URL;
-  protected readonly brand = BRAND;
   /** The signed-in caller is known. */
   protected readonly ready = this.account.me;
   /**
@@ -131,18 +108,6 @@ export class App {
    */
   protected readonly loginPage =
     !this.demo && location.pathname.replace(/\/+$/, '') === inject(APP_PATHS).login;
-
-  /**
-   * The membership to ask for while generating is blocked; never over the
-   * billing page (where the learner subscribes), the login page or the demo.
-   * Waits for the first navigation so it doesn't flash over `/billing`.
-   */
-  protected readonly gate = computed<MembershipInfo | null>(() => {
-    if (this.demo || this.loginPage) return null;
-    const url = this.routeSync.url();
-    if (!url || url === '/billing' || url.startsWith('/billing?')) return null;
-    return this.account.membershipBlocked() ? this.account.membership() : null;
-  });
 
   /** The pool notice's acknowledgment is being recorded. */
   protected readonly acknowledging = signal(false);

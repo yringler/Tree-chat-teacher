@@ -32,6 +32,7 @@ import { Composer } from './composer';
 import { connectionTitleOf } from './connections';
 import { confirmDeleteSideQuestion } from './delete-side-question';
 import { FundingToggle, type FundingOption } from './funding-toggle';
+import { KeyLockedNotice } from './key-locked-notice';
 import { MessageItem } from './message-item';
 import { ModelToggle } from './model-toggle';
 import { branchTitle, lessonTitle } from './titles';
@@ -57,6 +58,7 @@ interface Entry {
     NgTemplateOutlet,
     SelectionAsk,
     TextSizeMenu,
+    KeyLockedNotice,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './chat-page.html',

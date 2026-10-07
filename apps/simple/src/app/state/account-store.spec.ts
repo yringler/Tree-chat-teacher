@@ -167,13 +167,13 @@ describe('AccountStore membership', () => {
     expect(account.creditOnSale()).toBe(true);
 
     // Used up where top-ups aren't sold: credit can't pay, and with nothing else on offer the
-    // own key needs the membership: the gate shows, with no way out but subscribing.
+    // own key needs the membership: the locked-key notice offers only subscribing.
     account.applyBilling({ ...summary(membership(), 0), topUpsEnabled: false });
     expect(account.payment.creditUsable()).toBe(false);
     expect(account.creditOnSale()).toBe(false);
     expect(account.payment.payment()).toBe('own-key');
     expect(account.membershipBlocked()).toBe(true);
-    expect(account.alternativeOffered()).toBeNull();
+    expect(account.keyLockedWays()).toEqual({ pool: false, credit: false });
   });
 
   it('a non-member with a balance gets the funding toggle; without one, not', async () => {
@@ -216,37 +216,45 @@ describe('AccountStore membership', () => {
     expect(account.membershipBlocked()).toBe(false);
   });
 
-  it("the gate's way out moves replies off the own key: to the pool while it is on", async () => {
-    const { account } = setup(async () => summary(membership()));
+  it('a locked own key offers both ways out, and either one unlocks the composer', async () => {
+    const { account } = setup(async () => summary(membership(), 0));
     account.setMe(me(membership()));
     await account.refreshPool();
     account.payment.choose('own-key');
     expect(account.membershipBlocked()).toBe(true);
-    expect(account.alternativeOffered()).toBe('Continue on the open pool');
-    account.useAlternative();
+    // Credit with a zero balance still counts: anyone can buy it.
+    expect(account.keyLockedWays()).toEqual({ pool: true, credit: true });
+    account.continueOn('pool');
     expect(account.membershipBlocked()).toBe(false);
     expect(account.payment.payment()).toBe('pool');
-  });
 
-  it("the gate's way out moves replies off the own key: to credit while the pool is off", async () => {
-    const { account } = setup(async () => summary(membership(), 0), { ...POOL, enabled: false });
-    account.setMe(me(membership()));
-    await account.refreshPool();
     account.payment.choose('own-key');
     expect(account.membershipBlocked()).toBe(true);
-    expect(account.alternativeOffered()).toBe('Continue on Tangent credit');
-    account.useAlternative();
+    account.continueOn('credit');
     expect(account.membershipBlocked()).toBe(false);
     expect(account.payment.payment()).toBe('credit');
   });
 
-  it('offers no way out when neither the pool nor credit is on', async () => {
+  it('a lapsed member whose browser still chose the own key is locked; renewing unlocks it', async () => {
+    const lapsed = membership({ subscriptionStatus: 'canceled' });
+    const { account } = setup(async () => summary(lapsed));
+    account.setMe(me(lapsed));
+    await account.refreshPool();
+    account.payment.choose('own-key');
+    expect(account.payment.payment()).toBe('own-key');
+    expect(account.membershipBlocked()).toBe(true);
+    account.setMembership(membership({ status: 'active', subscriptionStatus: 'active' }));
+    expect(account.membershipBlocked()).toBe(false);
+    expect(account.payment.payment()).toBe('own-key');
+  });
+
+  it('offers only the membership when neither the pool nor credit is on', async () => {
     const { account } = setup(async () => summary(membership()), { ...POOL, enabled: false });
     account.setMe({ ...me(membership()), builtInCredit: false });
     await account.refreshPool();
     expect(account.payment.payment()).toBe('own-key');
     expect(account.membershipBlocked()).toBe(true);
-    expect(account.alternativeOffered()).toBeNull();
+    expect(account.keyLockedWays()).toEqual({ pool: false, credit: false });
   });
 
   it('keeps the last known state when billing cannot be read', async () => {
@@ -290,6 +298,17 @@ describe('AccountStore paidBy', () => {
     });
     await account.refreshKey();
     expect(account.paidBy()).toMatchObject({ detail: null, warn: false });
+  });
+
+  it('a locked own key asks for the membership, not for a key', async () => {
+    const { account, api } = setup(async () => summary(membership()));
+    account.setMe(me(membership()));
+    api.keyStatus.mockResolvedValueOnce({ enabled: true, hasKey: false, providers: [] });
+    account.payment.choose('own-key');
+    await account.refreshKey();
+    expect(account.membershipBlocked()).toBe(true);
+    expect(account.needsKey()).toBe(false);
+    expect(account.paidBy()).toMatchObject({ detail: 'needs a membership', warn: true });
   });
 });
 

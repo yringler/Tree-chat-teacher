@@ -25,9 +25,9 @@ function stored(): LearnPayment | null {
  * explicit pool choice outranks a saved key), then the own key. Credit
  * counts wherever it is sold and usable (`creditUsable`: anyone can buy it,
  * so an empty balance can be refilled). An explicit own-key choice stands
- * even without a membership: the shell then shows the membership gate
- * (`AccountStore.membershipBlocked`) instead of letting a send fail with a
- * 402. The server only honours `credit` and `pool` where it offers them
+ * even without a membership: the composer then gives way to the locked-key
+ * notice (`AccountStore.membershipBlocked`, `KeyLockedNotice`) instead of
+ * letting a send fail with a 402. The server only honours `credit` and `pool` where it offers them
  * (`MeResponse.builtInCredit`, `PoolStatusResponse.enabled`), so a stale
  * choice can never spend anything the learner didn't pick.
  *
@@ -74,7 +74,7 @@ export class PaymentStore {
 
   /**
    * What replies actually run on: the own key when chosen (a non-member then
-   * meets the membership gate); the pool when chosen and on; otherwise credit
+   * meets the locked-key notice); the pool when chosen and on; otherwise credit
    * if sold and usable (`creditUsable`), else a saved (or not yet known) own
    * key for a learner who may use it (so a key user who never picked never
    * lands on the pool, and a non-member never lands on their key unasked),

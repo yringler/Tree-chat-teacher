@@ -54,11 +54,13 @@ export class AccountStore {
   private readonly gateForced = signal(false);
 
   /**
-   * The shell shows the membership gate: the learner has no membership where
-   * one is required, and replies run on their own key (which needs one; the
-   * pool and Tangent credit don't), or the server just refused a reply with
-   * 402 `membership_required` (the membership may have lapsed since
-   * /api/me). Its way out (`alternativeOffered`) moves replies off the key.
+   * Replies can't run on the own key: the learner has no membership where one
+   * is required, and replies run on their own key (which needs one; the pool
+   * and Tangent credit don't), or the server just refused a reply with 402
+   * `membership_required` (the membership may have lapsed since /api/me).
+   * The lesson stays readable; `KeyLockedNotice` stands where the composer
+   * (and the new lesson's Start button) would be, with the ways out:
+   * subscribe, or `continueOn` the pool or credit (`keyLockedWays`).
    */
   readonly membershipBlocked = computed(
     () =>
@@ -68,26 +70,31 @@ export class AccountStore {
   );
 
   /**
-   * The gate's way out, carrying on without a membership: the open pool
-   * while it is on, else Tangent credit where it is sold (anyone can buy
-   * it); null when neither is on offer.
+   * The ways to carry on without a membership while the own key is locked:
+   * the open pool while it is on, and Tangent credit where it is sold (anyone
+   * can buy it). Both false offers only the membership.
    */
-  readonly alternativeOffered = computed(() => {
-    if (this.demo) return null;
-    if (this.payment.poolAvailable()) return 'Continue on the open pool';
-    if (this.payment.builtInCredit() && this.payment.creditUsable())
-      return 'Continue on Tangent credit';
-    return null;
-  });
+  readonly keyLockedWays = computed(() => ({
+    pool: !this.demo && this.payment.poolAvailable(),
+    credit: !this.demo && this.payment.builtInCredit() && this.payment.creditUsable(),
+  }));
 
   /** True when the learner's own OpenRouter key is stored in this browser. */
   readonly hasOwnKey = computed(
     () => this.keyStatus()?.providers.includes(LEARN_KEY_PROVIDER) ?? false,
   );
 
-  /** On the own-key choice without a key: replies can't run until one is added. */
+  /**
+   * On the own-key choice without a key: replies can't run until one is
+   * added. Not while the key is locked (`membershipBlocked`): the membership
+   * is what's missing then, and asking for a key would mislead.
+   */
   readonly needsKey = computed(
-    () => this.payment.payment() === 'own-key' && this.keyStatus() !== null && !this.hasOwnKey(),
+    () =>
+      this.payment.payment() === 'own-key' &&
+      this.keyStatus() !== null &&
+      !this.hasOwnKey() &&
+      !this.membershipBlocked(),
   );
 
   /** The available credit as money ("$1.20"); null until the billing summary is loaded. */
@@ -125,12 +132,13 @@ export class AccountStore {
       };
     }
     const missing = this.needsKey();
+    const locked = this.membershipBlocked();
     return {
       payment,
       label: 'Your OpenRouter key',
       short: 'Your key',
-      detail: missing ? 'no key saved' : null,
-      warn: missing,
+      detail: locked ? 'needs a membership' : missing ? 'no key saved' : null,
+      warn: missing || locked,
     };
   });
 
@@ -198,7 +206,7 @@ export class AccountStore {
     this.useMembership(summary.membership);
   }
 
-  /** A redeemed code (the gate's `redeemed`) or any other new membership state. */
+  /** A redeemed code (the billing page's code form) or any other new membership state. */
   setMembership(membership: MembershipInfo): void {
     this.useMembership(membership);
     this.billing.update((b) => (b ? { ...b, membership } : b));
@@ -216,20 +224,15 @@ export class AccountStore {
   }
 
   /**
-   * The gate's way out (`alternativeOffered`): closes the gate and moves
-   * replies off the learner's own key, to the open pool while it is on, else
-   * to Tangent credit (with an empty balance, the next send leads to the
-   * billing page to add some).
+   * A way out of the locked own key (`keyLockedWays`): replies move to the
+   * open pool or to Tangent credit, and the composer comes back (with a
+   * message the server refused, `LessonStore.unsentDraft`).
    */
-  useAlternative(): void {
+  continueOn(payment: 'pool' | 'credit'): void {
     this.gateForced.set(false);
-    if (this.payment.poolAvailable()) {
-      this.payment.choose('pool');
-      void this.switchToPool();
-    } else if (this.payment.builtInCredit()) {
-      this.payment.choose('credit');
-      void this.refreshBalance();
-    }
+    this.payment.choose(payment);
+    if (payment === 'pool') void this.switchToPool();
+    else void this.refreshBalance();
   }
 
   private useMembership(membership: MembershipInfo): void {

@@ -134,6 +134,7 @@ export {
   membershipBlocks,
   membershipPriceText,
   membershipStatusText,
+  MembershipSubscribe,
   subscribeToMembership,
 } from './billing/membership';
 export {
