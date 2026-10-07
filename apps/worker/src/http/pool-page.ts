@@ -18,9 +18,10 @@ import { poolModel } from '../pool/params.js';
 import { ceilingHoldMicros } from '../pool/pricing.js';
 import { poolContributions } from '../pool/revenue-share.js';
 import { weekStart } from '../pool/status.js';
+import { creditSold } from '../services.js';
 import { simpleProviderConfig } from '../simple-mode.js';
 import { renderImpactBlock } from './impact-block.js';
-import { roughWords } from './landing.js';
+import { joinList, roughWords } from './landing.js';
 import { legalInfo, type LegalInfo } from './legal-info.js';
 import { legalResponse, page } from './legal.js';
 
@@ -46,6 +47,8 @@ export interface PoolPageFacts {
   user: PoolDailyCaps;
   /** The yearly membership is sold and required here (`membershipRequired`): Tangent sells it. */
   membershipOffered: boolean;
+  /** Prepaid credit is sold here (`creditSold`): a learner can buy their own. */
+  creditSold: boolean;
   /** All learners together, per day. */
   global: PoolGlobalCap;
   ip: PoolDailyCaps;
@@ -82,6 +85,7 @@ export async function poolPageFacts(env: AppEnv): Promise<PoolPageFacts> {
     maxOutputTokens: pool.maxOutputTokens,
     user: pool.caps.user,
     membershipOffered: membershipRequired(env),
+    creditSold: creditSold(env),
     global: pool.caps.global,
     ip: pool.caps.ip,
     perMinute: pool.limits.userPerMinute,
@@ -158,6 +162,20 @@ export function renderPoolPage(
       ? `<p>So far Tangent’s revenue share has added ${escapeHtml(formatMicros(contributions.weekMicros))} to the pool this week (since Monday, UTC) and ${escapeHtml(formatMicros(contributions.monthMicros))} this month.</p>\n`
       : '';
   const contact = escapeHtml(info.contactEmail);
+  // What Tangent sells here, if anything; the pool comes out of what it earns.
+  const sold = joinList(
+    [f.membershipOffered && 'memberships', f.creditSold && 'credit'].filter(
+      (x): x is string => typeof x === 'string',
+    ),
+    'and',
+  );
+  const why = sold
+    ? `Tangent charges for ${sold} like any software business, and keeps a share of what it earns open for anyone who wants to learn. Paying for Tangent pays for Tangent; the pool is Tangent’s own decision, within daily limits and while it has credit.`
+    : 'Tangent keeps the pool open for anyone who wants to learn. It is Tangent’s own decision, within daily limits and while it has credit.';
+  const ownKey = `use your own OpenRouter key${f.membershipOffered ? ' (with a membership)' : ''}`;
+  const instead = f.creditSold
+    ? `buy credit for yourself instead, or ${ownKey}`
+    : `${ownKey} instead`;
   return page(
     info,
     '/pool',
@@ -167,7 +185,7 @@ export function renderPoolPage(
 <p><strong>The short version.</strong> ${escapeHtml(poolFundingText(f.revenueShareBps))} Any signed-in learner can use it in Tangent Learn, on one economical model, within daily limits.</p>
 </div>
 <h2>Why it exists</h2>
-<p>Good AI tutoring costs real money for every reply, so most of it sits behind a paywall. Tangent charges for ${f.membershipOffered ? 'memberships and credit' : 'credit'} like any software business, and keeps a share of what it earns open for anyone who wants to learn. Paying for Tangent pays for Tangent; the pool is Tangent’s own decision, within daily limits and while it has credit.</p>
+<p>Good AI tutoring costs real money for every reply, so most of it sits behind a paywall. ${why}</p>
 ${f.enabled ? '' : '<p class="updated">The open pool isn’t running on this server yet.</p>\n'}
 <h2>Where the credit comes from</h2>
 <p>${escapeHtml(sourcesText(f.revenueShareBps))}</p>
@@ -176,7 +194,7 @@ ${added}
 <ul>
 <li>Any signed-in learner can use the pool in Tangent Learn. When your own credit runs out, Learn uses the pool. When you have both, you choose with the <strong>Pay for replies with</strong> switch above the message box.</li>
 <li>The pool can never go below zero. Every reply sets aside its worst-case cost first, and is refused if the pool can't cover it.</li>
-<li>When it runs out, Learn says so: "${escapeHtml(POOL_EMPTY_TEXT)}" Your message is kept, and you can buy credit for yourself instead, or use your own OpenRouter key${f.membershipOffered ? ' (with a membership)' : ''}.</li>
+<li>When it runs out, Learn says so: "${escapeHtml(POOL_EMPTY_TEXT)}" Your message is kept, and you can ${instead}.</li>
 <li>The meter shows about how many learning sessions the pool still covers, counting ${escapeHtml(formatMicros(f.sessionEstimateMicros))} per session, next to the amount in dollars and how many learners and replies it paid for this week. Those are totals only; no one's name or questions are shown.</li>
 </ul>
 

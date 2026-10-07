@@ -133,6 +133,33 @@ describe('landingRoutes', () => {
     expect(html).not.toMatch(/buying credit needs a membership|Tangent charges nothing/i);
   });
 
+  it('calls the own key free only where no membership is needed for it', async () => {
+    const title = async (overrides: Partial<AppEnv>) => {
+      const html = await (await setup({ env: overrides }).request('/welcome')).text();
+      return /<article class="card">[^]*?<h3>([^<]*(?:own key|pay as you go)[^<]*)<\/h3>/.exec(
+        html,
+      )?.[1];
+    };
+    // A pool of its own, so no other test's cached meter (which says it's on) is read.
+    const noPool = {
+      POOL_ENABLED: 'false',
+      POOL_ACCOUNT_ID: `pool_${Math.random().toString(36).slice(2)}`,
+    };
+    const noTopUps = { FAKE_PAYMENTS: '{"topUps":false}' };
+    // The fee on, no pool, no credit for sale: the own key is the way, and it costs the membership.
+    expect(await title({ ANNUAL_FEE_ENABLED: 'true', ...noPool, ...noTopUps })).toBe(
+      'On your own key',
+    );
+    // No membership required: the own key costs nothing on Tangent's side.
+    expect(await title({ ANNUAL_FEE_ENABLED: 'false', ...noPool, ...noTopUps })).toBe(
+      'Free on your own key',
+    );
+    // The fee on, the pool on, no credit: "free" is the pool.
+    expect(await title({ ANNUAL_FEE_ENABLED: 'true', ...noTopUps })).toBe(
+      'Free, or on your own key',
+    );
+  });
+
   it('offers prepaid credit only where it is sold, and names the own-key providers', async () => {
     const sold = await (await setup({ env: DEFAULT_PROVIDERS }).request('/welcome')).text();
     expect(sold).toContain(

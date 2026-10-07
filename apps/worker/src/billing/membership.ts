@@ -1,6 +1,8 @@
 // The yearly membership (PLAN §2.3, §13): required for generating on the
 // user's own keys, in Learn and in power mode alike, once ANNUAL_FEE_ENABLED
-// is "true" and the payment provider sells it. Nothing else needs it: Tangent
+// is "true", the payment provider sells it and the server stores user keys
+// (KEY_ENCRYPTION_SECRET; without it there is nothing for the membership to
+// unlock, so it is neither required nor shown). Nothing else needs it: Tangent
 // credit is bought and spent without one (it carries the markup instead), and
 // the open pool has one set of caps for everyone (billing/gate.ts
 // `needsMembership`)
@@ -13,6 +15,7 @@
 import { DomainError, MembershipRequiredError } from '@tangent/core';
 import type { CheckoutResponse, MembershipInfo, SubscriptionStatus } from '@tangent/shared';
 import type { AccountContext, AppEnv } from '../env.js';
+import { keySecret } from '../byok/keys.js';
 import { builtInAvailable } from '../services.js';
 import { appConfig } from '../config.js';
 import { MEMBERSHIP_KIND } from './payments/apply.js';
@@ -31,12 +34,17 @@ export const ACTIVE_STATUSES: readonly SubscriptionStatus[] = ['active', 'triali
 /**
  * True when the membership is required (generating on the user's own keys,
  * in either app; see billing/gate.ts `needsMembership`): the annual fee is on
- * (`ANNUAL_FEE_ENABLED`) and the payment provider sells the membership.
- * Off, `MembershipInfo.required` is false, which hides every gate in the apps.
+ * (`ANNUAL_FEE_ENABLED`), the payment provider sells the membership, and the
+ * server can store user keys (`KEY_ENCRYPTION_SECRET`, `keySecret`). The
+ * membership's only job is unlocking own keys, so where users can't save one
+ * there is nothing to sell. Off, `MembershipInfo.required` is false and
+ * `membershipNeededFor` empty, which hides every gate in the apps, and the
+ * public pages (landing, pricing, pool) don't sell it.
  */
 export function membershipRequired(env: AppEnv): boolean {
   return (
     appConfig(env).flags.annualFeeEnabled &&
+    keySecret(env) !== null &&
     (paymentProvider(env)?.capabilities.membership ?? false)
   );
 }

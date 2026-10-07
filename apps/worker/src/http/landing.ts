@@ -303,7 +303,7 @@ function groundingCard(
  * The card on how replies are paid for: the open pool while it is on,
  * prepaid credit while it is sold (to anyone, no membership needed), and the
  * user's own OpenRouter key always (with the yearly membership, when one is
- * required).
+ * required, so the own key alone is "free" only where none is).
  */
 function payCard(opts: LandingPageOptions): string {
   const { pool, credit } = opts;
@@ -313,7 +313,9 @@ function payCard(opts: LandingPageOptions): string {
       : 'Free, or on your own key'
     : credit
       ? 'Your key, or pay as you go'
-      : 'Free on your own key';
+      : opts.membership
+        ? 'On your own key'
+        : 'Free on your own key';
   const parts: string[] = [];
   if (pool) parts.push('Learn free on the open pool, within daily limits, while it has credit.');
   parts.push(

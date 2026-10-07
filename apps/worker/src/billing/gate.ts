@@ -32,7 +32,7 @@ import { hasCurrentConsent } from '../pool/consent.js';
 import { claimPoolIdentity, identitySuspended, poolIdentity } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
 import { poolAdmitRequest, poolBlockDetails } from '../pool/params.js';
-import { poolAvailable, registryFor, routeRegistryFor } from '../services.js';
+import { creditSold, poolAvailable, registryFor, routeRegistryFor } from '../services.js';
 import { LEARN_KEY_LABEL } from '../simple-mode.js';
 import { getBalance } from './ledger.js';
 import { assertMember, membershipFor } from './membership.js';
@@ -190,23 +190,29 @@ export function membershipNeededFor(
  * - `creditCanPay`: the available balance covers one call's hold, exactly
  *   what `assertCanSpend` asks of a send, so a tree started on credit gets
  *   its first reply rather than a 402;
+ * - `creditBuyable`: more credit can be bought (`creditSold`: credit is
+ *   offered and the payment provider sells top-ups, what the top-up checkout
+ *   asks), so credit is a way forward even at a zero balance. Where credit
+ *   only comes from operator grants, an empty balance stays empty, and a
+ *   locked own key (which leads to the membership) is the better start;
  * - `ownKeyLocked`: own keys need the membership the user lacks (what
  *   `/api/me`'s `membershipNeededFor` and the membership tell the apps).
  * Two queries (the balance, the membership), and none where credit isn't
- * offered (credit can't pay; nothing else depends on the lock).
+ * offered (credit can neither pay nor be bought; nothing else depends on the lock).
  */
 export async function defaultRouteFacts(
   env: AppEnv,
   account: AccountContext,
 ): Promise<DefaultRouteFacts> {
   if (account.mode === 'simple' || !account.builtIn)
-    return { creditCanPay: false, ownKeyLocked: false };
+    return { creditCanPay: false, creditBuyable: false, ownKeyLocked: false };
   const [{ balanceMicros, heldMicros }, membership] = await Promise.all([
     getBalance(env.DB, account.billingAccountId),
     membershipFor(env, account),
   ]);
   return {
     creditCanPay: balanceMicros - heldMicros >= usageHoldMicros(env),
+    creditBuyable: creditSold(env),
     ownKeyLocked:
       membership.status === 'inactive' &&
       membershipNeededFor(account, membership).includes('own-key'),

@@ -156,6 +156,42 @@ describe('refund.succeeded before (or without) its payment', () => {
     expect(await balance(poolId)).toBe(0);
   });
 
+  it('with no included credit, still waits for the payment, so the pool share it adds is taken back', async () => {
+    const poolId = uniq('pool');
+    const shareEnv = {
+      ...env,
+      MEMBERSHIP_CREDIT_CENTS: '0',
+      POOL_ACCOUNT_ID: poolId,
+      POOL_REVENUE_SHARE_BPS: '2000',
+    } as AppEnv;
+    const userId = await newUser();
+    const payment = membershipPaid(userId, { netCents: 1000 });
+    const provider = createFakeProvider({ payments: [factsOf(payment)] });
+    const refund = refunded(payment.paymentRef, 1000);
+    // The share is all the payment will grant: the refund must not be acknowledged as nothing.
+    await expect(applyPaymentEvent(shareEnv, refund, { provider })).rejects.toBeInstanceOf(
+      RetryLaterError,
+    );
+    expect(await applyPaymentEvent(shareEnv, payment, { provider })).toBe('applied');
+    expect(await balance(poolId)).toBeGreaterThan(0);
+    expect(await applyPaymentEvent(shareEnv, refund, { provider })).toBe('applied');
+    expect(await balance(poolId)).toBe(0);
+    expect(await balance(`u_${userId}`)).toBe(0);
+    // Delivered again: nothing more to take back.
+    expect(await applyPaymentEvent(shareEnv, refund, { provider })).toBe('duplicate');
+    expect(await balance(poolId)).toBe(0);
+    // With the share off too, a membership payment grants nothing: no waiting.
+    const unshared = { ...shareEnv, POOL_REVENUE_SHARE_BPS: '0' } as AppEnv;
+    const other = membershipPaid(userId, { netCents: 1000 });
+    const quiet = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(
+      await applyPaymentEvent(unshared, refunded(other.paymentRef, 1000), {
+        provider: createFakeProvider({ payments: [factsOf(other)] }),
+      }),
+    ).toBe('skipped');
+    quiet.mockRestore();
+  });
+
   it('does nothing for a payment that granted nothing, or one the provider doesn’t know', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const userId = await newUser();

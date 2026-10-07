@@ -560,4 +560,29 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
     expect(tree.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'credit' });
     expect((await firstSend(u, tree)).status).toBe(200);
   });
+
+  it('own keys locked, credit offered but top-ups not sold: an empty balance starts on the own key; a granted one on credit', async () => {
+    const u = await newUser({
+      ...FEE_ON,
+      ...DEFAULTS,
+      ANNUAL_FEE_ENABLED: 'true',
+      ...CREDIT,
+      FAKE_PAYMENTS: JSON.stringify({ topUps: false }),
+    });
+    await insertSubscription(env, u.userId, 'canceled');
+    expect(u.me.builtInCredit).toBe(true);
+    expect(u.me.membershipNeededFor).toEqual(['own-key']);
+    // Credit that can neither pay nor be bought is a dead end; the locked own
+    // key at least leads to the membership.
+    const empty = await newTree(u);
+    expect(empty.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
+    expect((await json<ApiError>(await firstSend(u, empty), 402)).error.code).toBe(
+      'membership_required',
+    );
+    // Credit an operator granted can pay: credit again.
+    await grant(u);
+    const tree = await newTree(u);
+    expect(tree.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'credit' });
+    expect((await firstSend(u, tree)).status).toBe(200);
+  });
 });

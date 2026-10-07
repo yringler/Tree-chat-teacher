@@ -101,6 +101,33 @@ describe('ANNUAL_FEE_ENABLED', () => {
       }),
     ).toBe(false);
     expect(membershipRequired({ ...env, ...feeEnv(true), PAYMENT_PROVIDER: 'polar' })).toBe(false);
+    // And a server that stores user keys: the membership only unlocks own keys.
+    for (const secret of ['', '  ', undefined])
+      expect(membershipRequired({ ...env, ...feeEnv(true), KEY_ENCRYPTION_SECRET: secret })).toBe(
+        false,
+      );
+  });
+
+  describe('on and sold, but no user keys can be stored (KEY_ENCRYPTION_SECRET unset)', () => {
+    const noKeys: Partial<AppEnv> = { ...feeEnv(true), KEY_ENCRYPTION_SECRET: '' };
+
+    it('requires no membership: /api/me in both apps, and the pricing page sells none', async () => {
+      const u = await poolReadyUser({ env: noKeys });
+      for (const learn of [undefined, 'pool', 'own-key'] as const) {
+        const me = await json<MeResponse>(await u.client.call('/api/me', learn ? { learn } : {}));
+        expect(me.membership, learn).toMatchObject({ required: false, status: 'inactive' });
+        expect(me.membershipNeededFor, learn).toEqual([]);
+      }
+      const pricing = await (await u.client.call('/pricing')).text();
+      expect(pricing).toContain('<h1>');
+      expect(pricing).not.toMatch(
+        /<th scope="col">Your own key<\/th>|yearly membership|a year \+ tax/,
+      );
+      const sold = await (
+        await (await poolReadyUser({ env: feeEnv(true) })).client.call('/pricing')
+      ).text();
+      expect(sold).toContain('<th scope="col">Your own key</th>');
+    });
   });
 
   describe('off, with the membership price set', () => {
@@ -420,6 +447,43 @@ describe('ANNUAL_FEE_ENABLED', () => {
         (await json<MeResponse>(await u.client.call('/api/me', { learn: 'own-key' }))).membership,
       ).toMatchObject({ required: true, status: 'waived' });
       expect(await sendStatus(u, 'own-key')).toBe(200);
+    });
+
+    it('with no pool and no credit for sale, the membership is the only way to reply in Learn: own-key sends are 402 membership_required', async () => {
+      const u = await poolReadyUser({
+        env: { ...feeEnv(true), POOL_ENABLED: 'false', FAKE_PAYMENTS: '{"topUps":false}' },
+      });
+      const me = await json<MeResponse>(await u.client.call('/api/me', { learn: 'own-key' }));
+      expect(me.membership).toMatchObject({ required: true, status: 'inactive' });
+      expect(me.membershipNeededFor).toEqual(['own-key']);
+      const own = await treeWithNodes(u, 'own-key');
+      const send = await u.client.call(`/api/branches/${own.trunk.id}/messages`, {
+        method: 'POST',
+        json: { content: 'Hi' },
+        learn: 'own-key',
+      });
+      // Intended: no free or paid alternative here, so the membership is what unlocks Learn.
+      expect((await json<ApiError>(send, 402)).error.code).toBe('membership_required');
+      // Credit (none granted, none for sale) can't pay either.
+      expect(await sendStatus(u, 'credit')).toBe(402);
+    });
+
+    it('the fee on but the membership not sold: a Learn own-key send is never refused for it', async () => {
+      const u = await poolReadyUser({
+        env: { ...feeEnv(true), FAKE_PAYMENTS: JSON.stringify({ membership: false }) },
+      });
+      const me = await json<MeResponse>(await u.client.call('/api/me', { learn: 'own-key' }));
+      expect(me.membership).toMatchObject({ required: false });
+      expect(me.membershipNeededFor).toEqual([]);
+      const own = await treeWithNodes(u, 'own-key');
+      const send = await u.client.call(`/api/branches/${own.trunk.id}/messages`, {
+        method: 'POST',
+        json: { content: 'Hi' },
+        learn: 'own-key',
+      });
+      const body = await send.text();
+      expect(send.status, body).not.toBe(402);
+      expect(body).not.toContain('membership_required');
     });
 
     it("anyone may buy credit: a non-member's checkout opens, in either app", async () => {

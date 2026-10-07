@@ -126,6 +126,34 @@ describe('what each way to pay covers, by column', () => {
   });
 });
 
+describe('read-only power without a membership (the power-read note)', () => {
+  /** The note's text, up to its back link. */
+  const note = (html: string) => {
+    const start = html.indexOf('<li id="note-power-read">');
+    expect(start, 'the power-read note').toBeGreaterThan(-1);
+    return html.slice(start, html.indexOf('<a class="back"', start));
+  };
+  const NO_TOP_UPS: Partial<AppEnv> = { FAKE_PAYMENTS: '{"topUps":false}' };
+
+  it('offers a copy in Learn only where Learn can reply without a membership: the pool or credit', async () => {
+    expect(note(await page('/pricing', MEMBERSHIP))).toContain(
+      'and use <strong>Create a copy in Learn</strong> to continue a power-mode conversation there, on the open pool or on Tangent credit. Power mode on Tangent credit needs no membership.',
+    );
+    expect(note(await page('/pricing', { ...MEMBERSHIP, ...NO_TOP_UPS }))).toContain(
+      'to continue a power-mode conversation there, on the open pool.',
+    );
+    expect(note(await page('/pricing', { ...MEMBERSHIP, ...NO_POOL }))).toContain(
+      'to continue a power-mode conversation there, on Tangent credit.',
+    );
+    // The fee on, no pool and no credit: a copy in Learn would need the membership too.
+    const neither = note(await page('/pricing', { ...MEMBERSHIP, ...NO_POOL, ...NO_TOP_UPS }));
+    expect(neither).toContain(
+      'Without a membership, you can still open, read and export everything you made on your own keys. ',
+    );
+    expect(neither).not.toMatch(/Create a copy in Learn|open pool|Tangent credit/);
+  });
+});
+
 describe("Learn's tiers", () => {
   it('Smart and Simple, with the pool on Simple', async () => {
     const pricing = await page('/pricing');

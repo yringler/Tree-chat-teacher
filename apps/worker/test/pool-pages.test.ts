@@ -347,6 +347,24 @@ describe('/pool', () => {
     expect(html).toContain('Tangent charges for credit like any software business');
   });
 
+  it('offers buying credit only where it is sold, and names only what Tangent sells', async () => {
+    const page = async (overrides: Partial<AppEnv>) =>
+      (await visitor(poolEnv(uniq('pool'), overrides))('/pool')).text();
+    const noTopUps = { FAKE_PAYMENTS: '{"topUps":false}' };
+    const member = await page({ ANNUAL_FEE_ENABLED: 'true', ...noTopUps });
+    expect(member).toContain(
+      'Your message is kept, and you can use your own OpenRouter key (with a membership) instead.</li>',
+    );
+    expect(member).toContain('Tangent charges for memberships like any software business');
+    expect(member).not.toMatch(/buy credit|charges for[^.]*credit/);
+    const nothing = await page({ ANNUAL_FEE_ENABLED: 'false', ...noTopUps });
+    expect(nothing).toContain(
+      'Your message is kept, and you can use your own OpenRouter key instead.</li>',
+    );
+    expect(nothing).toContain('Tangent keeps the pool open for anyone who wants to learn.');
+    expect(nothing).not.toMatch(/buy credit|Tangent charges for|Paying for Tangent/);
+  });
+
   it('names the operator’s contact for questions or arrangements, and sells nothing', async () => {
     const e = poolEnv(uniq('pool'), {
       LEGAL_OPERATOR: 'Example Learning LLC',

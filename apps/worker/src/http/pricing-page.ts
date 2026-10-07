@@ -254,8 +254,20 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, string>> {
           ? ' Credit is separate: anyone can buy it, member or not.'
           : '';
     texts.membership = `${escapeHtml(formatCents(membership.priceCents))} a year plus tax. It renews every year until you cancel, and one membership covers your own keys in both Learn and power mode.${included} Cancel any time under <strong>Manage billing</strong>; your membership lasts until the end of the year you paid for.`;
+    // A copy in Learn can only get replies without a membership on the pool or on credit.
+    const learnOn =
+      pool && credit
+        ? 'the open pool or on Tangent credit'
+        : pool
+          ? 'the open pool'
+          : credit
+            ? 'Tangent credit'
+            : '';
+    const copy = learnOn
+      ? `, and use <strong>Create a copy in Learn</strong> to continue a power-mode conversation there, on ${learnOn}`
+      : '';
     texts['power-read'] =
-      `Without a membership, you can still open, read and export everything you made on your own keys, and use <strong>Create a copy in Learn</strong> to continue a power-mode conversation there.${credit ? ' Power mode on Tangent credit needs no membership.' : ''}`;
+      `Without a membership, you can still open, read and export everything you made on your own keys${copy}.${credit ? ' Power mode on Tangent credit needs no membership.' : ''}`;
   }
   if (searches) {
     const when =
