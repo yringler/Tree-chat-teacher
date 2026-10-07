@@ -20,6 +20,7 @@ import { poolContributions } from '../pool/revenue-share.js';
 import { weekStart } from '../pool/status.js';
 import { simpleProviderConfig } from '../simple-mode.js';
 import { renderImpactBlock } from './impact-block.js';
+import { roughWords } from './landing.js';
 import { legalInfo, type LegalInfo } from './legal-info.js';
 import { legalResponse, page } from './legal.js';
 
@@ -182,17 +183,17 @@ ${f.enabled ? '' : '<p class="updated">The open pool isn’t running on this ser
 ${added}
 <h2>How it works</h2>
 <ul>
-<li>Any signed-in learner can use the pool in Tangent Learn. When your own credit runs out, Learn uses the pool, and when you have both you choose with the switch above the message box.</li>
+<li>Any signed-in learner can use the pool in Tangent Learn. When your own credit runs out, Learn uses the pool. When you have both, you choose with the <strong>Pay for replies with</strong> switch above the message box.</li>
 <li>The pool can never go below zero. Every reply sets aside its worst-case cost first, and is refused if the pool can't cover it.</li>
-<li>When it runs out, Learn says so: "${escapeHtml(POOL_EMPTY_TEXT)}" Your message is kept, and you can buy credit for yourself or use your own OpenRouter key.</li>
-<li>The meter shows about how many learning sessions the pool still covers, counting ${escapeHtml(formatMicros(f.sessionEstimateMicros))} per session, next to the amount in dollars and how many learners and exchanges it funded this week. Those are totals only; no one's name or questions are shown.</li>
+<li>When it runs out, Learn says so: "${escapeHtml(POOL_EMPTY_TEXT)}" Your message is kept, and you can use your own OpenRouter key instead, or buy credit for yourself${f.membershipOffered ? ' (buying credit needs a membership)' : ''}.</li>
+<li>The meter shows about how many learning sessions the pool still covers, counting ${escapeHtml(formatMicros(f.sessionEstimateMicros))} per session, next to the amount in dollars and how many learners and replies it paid for this week. Those are totals only; no one's name or questions are shown.</li>
 </ul>
 
 <h2>What a reply costs</h2>
 <p>Each reply is paid from the pool at the AI provider's price (including the provider's credit-purchase fee), with no markup, and costs the learner nothing. Tangent earns nothing on the pool.</p>
 
 <h2>Which model pool learners get</h2>
-<p>Every reply on the pool uses ${model}, with a fixed teaching prompt, replies of at most ${f.maxOutputTokens.toLocaleString('en-US')} tokens and a capped amount of earlier conversation. Choosing another model or prompt isn't possible on the pool; that keeps it a learning tool and keeps each reply cheap. Reviews aren't available on the pool.</p>
+<p>Every reply on the pool uses ${model}, with a fixed teaching prompt, replies of at most ${f.maxOutputTokens.toLocaleString('en-US')} tokens (roughly ${roughWords(f.maxOutputTokens)} words) and a capped amount of earlier conversation. You can't choose another model or prompt on the pool: that keeps it a learning tool and keeps each reply cheap. Reviews and web search aren't available on the pool either.</p>
 
 <h2>Why there are limits</h2>
 <p>A shared pool only works if no one person or script can drain it. So the pool is good for learning and poor as a free general-purpose AI service:</p>
@@ -213,7 +214,7 @@ ${ceiling}
 <p>${escapeHtml(membersText(f.membershipOffered))}</p>
 
 <h2 id="impact">What the pool is funding</h2>
-<p>Every Monday, Tangent publishes what the pool funded the week before (Monday to Sunday, UTC): how many exchanges and learners, how many topics, and how deep learners went down their branches. These are totals only. No one's questions or name are ever shown, and a topic is named only when all of these hold:</p>
+<p>Every Monday, Tangent publishes what the pool paid for the week before (Monday to Sunday, UTC): how many replies and learners, how many topics, and how deep learners went down their branches. These are totals only. No one's questions or name are ever shown, and a topic is named only when all of these hold:</p>
 <ul>
 <li>at least ${f.minDistinctUsers.toLocaleString('en-US')} different learners explored it that week (fewer only count toward the totals);</li>
 <li>it isn't a sensitive subject: health, mental health, sexuality, legal matters, personal finances and religious doubt are counted but never named;</li>

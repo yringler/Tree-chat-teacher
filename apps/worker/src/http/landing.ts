@@ -16,12 +16,15 @@ import { Hono, type Context } from 'hono';
 import { authBaseUrl, authConfigured } from '../auth/auth.js';
 import { groundingPolicy } from '../billing/grounding.js';
 import { membershipRequired } from '../billing/membership.js';
+import { appConfig } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { latestImpactForPage, renderImpactBlock } from './impact-block.js';
 import { copyrightNotice, legalInfo } from './legal-info.js';
 import { LEARN_APP_CSP, LEARN_COMMON_HEADERS } from './learn-app.js';
 import { cachedPoolStatus } from '../pool/status.js';
 import { waitUntilOf } from '../routes/pool.js';
+import { creditSold, ownKeyProviders } from '../services.js';
+import { learnOffer } from '../simple-mode.js';
 
 /**
  * Better Auth's session cookie (`cookiePrefix: 'tangent'` in auth/auth.ts),
@@ -184,6 +187,26 @@ export interface LandingPageOptions {
   membership?: boolean;
   /** The operator's `GROUNDING` ceiling; `off` (or absent) leaves web-search grounding off the page. */
   grounding?: GroundingPolicy;
+  /**
+   * Prepaid credit is sold (`creditSold`), at this markup, on OpenRouter or
+   * another endpoint (`LearnOffer.openRouter`); absent = it isn't, and the page doesn't offer it.
+   */
+  credit?: { markupBps: number; openRouter: boolean };
+  /** Who power mode takes the user's own keys for (`ownKeyProviders` labels); empty = a generic phrase. */
+  providers?: readonly string[];
+  /** Learn's models, the default first (`LearnOffer.tiers` labels); fewer than two = no choice to describe. */
+  tiers?: readonly string[];
+}
+
+/** About how many English words `tokens` tokens make (¾ of a word each), to the nearest 50: `750` for 1,024. */
+export function roughWords(tokens: number): string {
+  return Math.max(50, Math.round((tokens * 0.75) / 50) * 50).toLocaleString('en-US');
+}
+
+/** `A`, `A or B`, `A, B or C` (or `and`). */
+export function joinList(items: readonly string[], word: 'and' | 'or'): string {
+  if (items.length <= 1) return items.join('');
+  return `${items.slice(0, -1).join(', ')} ${word} ${items[items.length - 1]}`;
 }
 
 /** Topics the landing page names at most; `/pool` lists them all. */
@@ -195,17 +218,11 @@ function poolOpen(pool: PoolStatusResponse | undefined): pool is PoolStatusRespo
 }
 
 /**
- * The pool section's intro: why the pool exists and, while a revenue share is
- * committed (`POOL_REVENUE_SHARE_BPS` > 0), its percentage from the config.
- * The details (what the share is of, the model, the limits) are on `/pool`.
+ * The pool section's intro: why the pool exists. The steps under it say how
+ * (with the revenue share's percentage from the config); the details (what
+ * the share is of, the model, the limits) are on `/pool`.
  */
-function poolIntroText(revenueShareBps: number): string {
-  const funded =
-    revenueShareBps > 0
-      ? `Tangent puts ${formatBps(revenueShareBps)} of what it earns into the open pool`
-      : 'Tangent adds free credit to the open pool';
-  return `Good AI tutoring costs money to run, so most of it sits behind a paywall. ${POOL_MOTTO} ${funded} so that anyone can learn here for free, within daily limits, while it has credit.`;
-}
+const POOL_INTRO = `Every AI reply costs real money, so good AI tutoring usually sits behind a paywall. ${POOL_MOTTO} Here’s how:`;
 
 /** How the pool comes about, as three numbered steps (`poolSteps`); the landing and pricing pages share it. */
 export function poolStepsHtml(revenueShareBps: number, memberships: boolean): string {
@@ -242,7 +259,7 @@ function poolSection(
 <div class="wrap">
 <p class="eyebrow">The open pool</p>
 <h2 id="pool">Curiosity shouldn’t need a credit card</h2>
-<p class="sub">${escapeHtml(poolIntroText(pool.revenueShareBps))}</p>
+<p class="sub">${escapeHtml(POOL_INTRO)}</p>
 <div class="pool">
 ${poolStepsHtml(pool.revenueShareBps, memberships)}
 ${meter}
@@ -262,20 +279,103 @@ ${impact ? `${renderImpactBlock(impact, LANDING_IMPACT_TOPICS)}\n` : ''}<div cla
  * request (`explicit`). Never promises that every answer is checked, and,
  * while the pool is shown, says that pool replies don't search.
  */
-function groundingCard(policy: GroundingPolicy | undefined, pool: boolean): string {
+function groundingCard(
+  policy: GroundingPolicy | undefined,
+  pool: boolean,
+  credit: boolean,
+): string {
   if (policy === undefined || policy === 'off') return '';
   const notPool = pool
-    ? ' Searching works on your own OpenRouter key or prepaid credit, not on the free open pool.'
+    ? ` Web search works on your own OpenRouter key${credit ? ' or prepaid credit' : ''}, not on the free open pool.`
     : '';
   if (policy === 'explicit') {
-    return `<article class="card">${ICON_CHECK}<h3>Check any answer against the web</h3><p>Not sure about a detail? <strong>Check sources</strong> under an answer has the tutor search the web, correct itself where it needs to, and cite what it found.${notPool}</p></article>`;
+    return `<article class="card">${ICON_CHECK}<h3>Check any answer against the web</h3><p>Not sure about a detail? Choose <strong>Check sources</strong> under an answer, and the tutor searches the web, rechecks what it said and cites what it found.${notPool}</p></article>`;
   }
-  return `<article class="card">${ICON_CHECK}<h3>Checked against the web when you go deep</h3><p>The deeper the tangent, the likelier a tutor is to misremember a detail. When a reply likely needs it (a few branches down, a date or a figure, something recent, or you ask for sources), the tutor can search the web and cite what it found, with the sources listed under the answer. An answer from the tutor’s own knowledge says so, and <strong>Check sources</strong> checks it for you.${notPool}</p></article>`;
+  return `<article class="card">${ICON_CHECK}<h3>Checked against the web when you go deep</h3><p>The further down a tangent you go, the likelier an AI is to get a detail wrong. So when a reply needs it (a specific date or figure, something recent, a few branches deep, or when you ask for sources), the tutor can search the web and list its sources under the answer. An answer from the tutor’s own knowledge says so, and <strong>Check sources</strong> has the tutor look it up.${notPool}</p></article>`;
 }
 
-const TITLE = 'Tangent: learn by following your curiosity, one branch at a time';
+/**
+ * The card on how replies are paid for: the open pool while it is on, the
+ * user's own OpenRouter key always, and prepaid credit only while it is sold
+ * (to members, when the membership is required).
+ */
+function payCard(opts: LandingPageOptions): string {
+  const { pool, credit } = opts;
+  const title = pool
+    ? credit
+      ? 'Free, your key, or pay as you go'
+      : 'Free, or on your own key'
+    : credit
+      ? 'Your key, or pay as you go'
+      : 'Free on your own key';
+  const parts: string[] = [];
+  if (pool) parts.push('Learn free on the open pool, within daily limits, while it has credit.');
+  parts.push(
+    `${pool ? 'Or use' : 'Use'} your own OpenRouter key: you pay OpenRouter directly, and Tangent charges nothing.`,
+  );
+  if (credit)
+    parts.push(
+      `${opts.membership ? 'With a yearly membership, you can also buy' : 'Or buy'} prepaid credit and pay for each reply at what it costs Tangent, plus ${escapeHtml(formatBps(credit.markupBps))}.`,
+    );
+  return `<article class="card">${ICON_COIN}<h3>${title}</h3><p>${parts.join(' ')} <a href="/pricing">See exactly what’s free and what’s paid</a></p></article>
+`;
+}
+
+/** The Learn card's list (HTML): what Learn does, then the ways to pay for it. */
+function learnItems(opts: LandingPageOptions): string[] {
+  const { pool, credit, membership } = opts;
+  const items = [
+    'Straight answers that explain how things work, ready the moment you sign in',
+    'Suggested tangents after each full answer, one tap away',
+    'Side questions about any phrase with <strong>Ask about this</strong>',
+  ];
+  const tiers = opts.tiers ?? [];
+  if (tiers.length >= 2) {
+    const choice =
+      tiers.length === 2 && tiers[0] === 'Smart' && tiers[1] === 'Simple'
+        ? 'Two tiers: Smart for deeper explanations, Simple for quicker, cheaper answers'
+        : `A choice of models: ${escapeHtml(joinList(tiers, 'and'))}`;
+    items.push(pool ? `${choice} (the free pool uses ${escapeHtml(pool.model.label)})` : choice);
+  }
+  if (pool)
+    items.push(
+      `Learn free on the open pool, within daily limits, on credit Tangent provides${pool.revenueShareBps > 0 ? ' from its earnings' : ''}`,
+    );
+  items.push(
+    `${pool ? 'Or use your' : 'Your'} own OpenRouter key, with nothing charged by Tangent${membership ? ' and no membership needed' : ''}`,
+  );
+  if (credit)
+    items.push(
+      `Or pay per reply from prepaid credit${membership ? ' (buying credit needs a membership)' : ''}`,
+    );
+  return items;
+}
+
+/** The Power card's list (HTML). */
+function powerItems(opts: LandingPageOptions): string[] {
+  const providers = opts.providers ?? [];
+  const items = [
+    providers.length
+      ? `Your own API keys for ${escapeHtml(joinList(providers, 'or'))}`
+      : 'Your own API keys for any provider this server offers',
+  ];
+  if (opts.credit)
+    items.push(
+      opts.credit.openRouter
+        ? 'Any OpenRouter model, on prepaid credit'
+        : 'Your choice of model, on prepaid credit',
+    );
+  items.push(
+    'Every control: context modes, the context inspector, a reviewer and system prompts',
+    opts.sharing ? 'Read-only share links, and Markdown or HTML export' : 'Markdown or HTML export',
+    'Self-host it on your own Cloudflare account',
+  );
+  return items;
+}
+
+const TITLE = 'Tangent: follow your curiosity, one branch at a time';
 const DESCRIPTION =
-  'Tangent answers your question straight, then offers tangents worth following. Each one opens its own branch, so you can go down any rabbit hole and come back to the main thread exactly where you left it.';
+  'An AI tutor for rabbit holes. Ask anything, get a straight answer, then follow any tangent in its own branch without losing the main thread.';
 
 /**
  * The landing page for anonymous visitors: one self-contained document, no
@@ -285,7 +385,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
   const canonical = escapeHtml(opts.canonicalUrl);
   const free = poolOpen(opts.pool);
   const freeNote = poolOpen(opts.pool)
-    ? `<p class="free"><strong>Free to start.</strong> ${escapeHtml(POOL_MOTTO)} ${opts.pool.revenueShareBps > 0 ? `It puts ${escapeHtml(formatBps(opts.pool.revenueShareBps))} of what it earns into the open pool` : 'It provides free credit in the open pool'}, so anyone signed in can learn here free, within daily limits.${opts.pool.week.learners >= HERO_LEARNERS_MIN ? ` ${opts.pool.week.learners.toLocaleString('en-US')} people learned free this week.` : ''} <a href="#pool">How it works</a></p>\n`
+    ? `<p class="free"><strong>No credit card needed.</strong> ${opts.pool.revenueShareBps > 0 ? `Tangent puts ${escapeHtml(formatBps(opts.pool.revenueShareBps))} of what it earns into the open pool` : 'Tangent provides free credit in the open pool'}, so anyone signed in can learn here free, within daily limits.${opts.pool.week.learners >= HERO_LEARNERS_MIN ? ` ${opts.pool.week.learners.toLocaleString('en-US')} people learned free this week.` : ''} <a href="#pool">How it works</a></p>\n`
     : '';
   return `<!doctype html>
 <html lang="en">
@@ -312,14 +412,14 @@ export function renderLandingPage(opts: LandingPageOptions): string {
 <main>
 <div class="wrap hero">
 <div>
-<p class="eyebrow">Curiosity-driven learning, branching conversations</p>
+<p class="eyebrow">An AI tutor built for rabbit holes</p>
 <h1>Follow every tangent. Never lose the thread.</h1>
-<p class="lede">Tangent is for people who learn by going down rabbit holes. Ask anything and get a straight answer that explains how the thing actually works, then pick a tangent worth following. Every tangent opens its own branch, so you can wander as far as you like and step back into the main thread exactly where you left it.</p>
+<p class="lede">Ask anything and get a straight answer that explains how it actually works. Then pick a tangent to follow. Each one opens in its own branch, so you can wander as far as you like and come back to the main thread right where you left it.</p>
 <div class="ctas">
 <a class="btn primary" href="/learn/demo">Try the demo</a>
 <a class="btn" href="/learn/login">${free ? 'Start learning free' : 'Start learning'}</a>
 </div>
-${freeNote}<p class="note">The demo is free and runs in your browser. Nothing is sent to a model and the replies (sources included) are playful nonsense, so you can explore branching without signing up.</p>
+${freeNote}<p class="note">The demo needs no sign-up and runs entirely in your browser. No AI is involved, so its replies and sources are playful nonsense: it’s there to show you how branching works.</p>
 <p class="power"><a href="/login">Power users: sign in</a> · <a href="/canvas/demo">Feeling brave? Try Canvas</a>, an experimental map of a whole conversation</p>
 </div>
 <figure class="demo" aria-label="Example: an answer, its tangents, and a side question branching off it">
@@ -334,47 +434,44 @@ ${freeNote}<p class="note">The demo is free and runs in your browser. Nothing is
 <div class="side">
 <span class="tag">Ask about this</span>
 <p>Why hexagonal?</p>
-<p>A side branch from a highlighted phrase. The main thread stays exactly as it was.</p>
+<p>A side question about a highlighted phrase. It opens in its own branch, and the main thread stays as it was.</p>
 </div>
 </figure>
 </div>
 <section aria-labelledby="features">
 <div class="wrap">
 <h2 id="features">Learning that follows your curiosity</h2>
-<p class="sub">Every lesson is a tree. Wander off as far as you like, and the conversation stays easy to follow.</p>
+<p class="sub">Every lesson is a tree of branches. Wander off as far as you like, and the conversation stays easy to follow.</p>
 <div class="grid four">
-<article class="card">${ICON_COMPASS}<h3>Answers first, tangents next</h3><p>Ask a question and get the answer, straight away and in real depth: the mechanism, not just the fact, and no quiz in between. Every answer ends with a few tangents worth following. One tap opens any of them as a branch of its own.</p></article>
-<article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. The side question opens its own branch, so detours never clutter the main thread, and every branch stays one click away. Choose <strong>Smart</strong> for hard topics or <strong>Simple</strong> for quick ones.</p></article>
-<article class="card">${ICON_EYE}<h3>See exactly what the model sees</h3><p>In power mode, decide how much each branch inherits: the full path, a summary, or a clean slate. The inspector shows the exact prompt before anything is sent.</p></article>
-<article class="card">${ICON_COIN}<h3>${opts.pool ? 'Free, your key, or pay as you go' : 'Your key, or pay as you go'}</h3><p>${opts.pool ? 'Learn free on the open pool, within daily limits, while it has credit. ' : ''}Paste your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly. Or top up prepaid credit and pay for each reply at cost, plus a small markup. <a href="/pricing">See exactly what’s free and what’s paid</a></p></article>
-${groundingCard(opts.grounding, opts.pool !== undefined)}</div>
+<article class="card">${ICON_COMPASS}<h3>Answers first, tangents next</h3><p>Ask a question and get the answer straight away, in real depth: how and why it works, not just the fact, and no quizzing. Full answers end with a few tangents worth following, and one tap opens any of them in its own branch.</p></article>
+<article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. Your side question opens in its own branch, so detours never clutter the main thread, and every branch stays one click away.</p></article>
+<article class="card">${ICON_EYE}<h3>See exactly what the model sees</h3><p>In power mode, choose how much each branch inherits: the whole conversation so far, a summary of it, or just the passage you branched from. The context inspector shows the exact prompt before it’s sent.</p></article>
+${payCard(opts)}
+${groundingCard(opts.grounding, opts.pool !== undefined, opts.credit !== undefined)}</div>
 </div>
 </section>
 ${opts.pool ? poolSection(opts.pool, opts.membership === true, opts.impact) : ''}<section aria-labelledby="modes">
 <div class="wrap">
 <h2 id="modes">Two ways to use it</h2>
-<p class="sub">One sign-in, two levels of control. Switch between them at any time.</p>
+<p class="sub">One sign-in, two levels of control. Switch between them any time; each keeps its own conversations.</p>
 <div class="grid two">
 <article class="card mode learn">
 <h3>Learn</h3>
 <p class="for">For students and the curious. Nothing to set up.</p>
 <ul>
-<li>Straight answers that explain the mechanism, ready the moment you sign in</li>
-<li>Tangents after every answer, each one a tap away</li>
-<li>Side questions with Ask about this</li>
-<li>Smart and Simple tiers, one toggle</li>
-<li>${opts.membership ? 'Your own OpenRouter key at no charge from Tangent, no membership needed, or pay as you go from prepaid credit (buying it needs a membership)' : 'Your own OpenRouter key at no charge from Tangent, or pay as you go from prepaid credit'}</li>${opts.pool ? `\n<li>Or learn free on the open pool, within daily limits, on credit Tangent provides${opts.pool.revenueShareBps > 0 ? ' from its revenue' : ''}</li>` : ''}
+${learnItems(opts)
+  .map((item) => `<li>${item}</li>`)
+  .join('\n')}
 </ul>
 <a class="btn primary" href="/learn/login">${free ? 'Start learning free' : 'Start learning'}</a>
 </article>
 <article class="card mode">
 <h3>Power</h3>
-<p class="for">For tinkerers and the people who run Tangent.${opts.membership ? ' Your own keys here need a yearly membership; prepaid credit you have works without one.' : ''}</p>
+<p class="for">For tinkerers and self-hosters.${opts.membership ? ' Using your own keys here needs a yearly membership; credit you already have works without one.' : ''}</p>
 <ul>
-<li>Bring your own API keys for any configured provider</li>
-<li>Every control: context modes, inspector, reviewer, system prompts</li>
-<li>${opts.sharing ? 'Read-only share links and Markdown or HTML export' : 'Markdown or HTML export'}</li>
-<li>Self-host it on your own Cloudflare account</li>
+${powerItems(opts)
+  .map((item) => `<li>${item}</li>`)
+  .join('\n')}
 </ul>
 <a class="btn" href="/login">Power sign in</a>
 </article>
@@ -451,7 +548,14 @@ async function landingResponse(
   const pool = await landingPool(c);
   const impact = pool ? await latestImpactForPage(c.env) : undefined;
   const membership = membershipRequired(c.env);
-  const grounding = groundingPolicy(c.env);
+  const offer = learnOffer(c.env);
+  // Learn can't search when its provider has no web search, whatever GROUNDING says.
+  const grounding = offer?.search ? groundingPolicy(c.env) : 'off';
+  const credit = creditSold(c.env)
+    ? { markupBps: appConfig(c.env).billing.markupBps, openRouter: offer?.openRouter ?? false }
+    : undefined;
+  const providers = ownKeyProviders(c.env).map((p) => p.label);
+  const tiers = offer?.tiers.map((t) => t.label) ?? [];
   const page = renderLandingPage({
     canonicalUrl,
     operator,
@@ -460,6 +564,9 @@ async function landingResponse(
     impact,
     membership,
     grounding,
+    credit,
+    providers,
+    tiers,
   });
   return new Response(page, {
     headers: {

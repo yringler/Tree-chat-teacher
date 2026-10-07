@@ -19,11 +19,9 @@ describe('the pool meter', () => {
   });
 
   it('counts this week in aggregate only', () => {
-    expect(poolWeekLabel(STATUS)).toBe(
-      '87 learners on the pool this week · 1,240 exchanges funded this week',
-    );
+    expect(poolWeekLabel(STATUS)).toBe('This week: 87 learners, 1,240 free replies');
     expect(poolWeekLabel({ week: { ...STATUS.week, learners: 1, exchanges: 1 } })).toBe(
-      '1 learner on the pool this week · 1 exchange funded this week',
+      'This week: 1 learner, 1 free reply',
     );
   });
 });

@@ -189,12 +189,12 @@ export function poolSessionsHeadline(sessions: number): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** `12 learners on the pool this week · 340 exchanges funded this week`: aggregate counts only. */
+/** `This week: 12 learners, 340 free replies`: aggregate counts only. */
 export function poolWeekText(week: { learners: number; exchanges: number }): string {
   const { learners, exchanges } = week;
   return (
-    `${learners.toLocaleString('en-US')} ${learners === 1 ? 'learner' : 'learners'} on the pool this week · ` +
-    `${exchanges.toLocaleString('en-US')} ${exchanges === 1 ? 'exchange' : 'exchanges'} funded this week`
+    `This week: ${learners.toLocaleString('en-US')} ${learners === 1 ? 'learner' : 'learners'}, ` +
+    `${exchanges.toLocaleString('en-US')} free ${exchanges === 1 ? 'reply' : 'replies'}`
   );
 }
 
@@ -207,7 +207,7 @@ export function poolWeekText(week: { learners: number; exchanges: number }): str
 export function poolFundingText(revenueShareBps: number): string {
   if (revenueShareBps <= 0) return 'The open pool is free credit Tangent provides.';
   const share = formatBps(revenueShareBps);
-  return `The open pool is free credit Tangent provides. Tangent puts ${share} of what it earns into it: ${share} of each membership payment after payment fees, and ${share} of its markup on credit as it's used.`;
+  return `The open pool is free credit Tangent provides. Tangent puts ${share} of what it earns into it: ${share} of each membership payment (after tax and payment fees) and ${share} of its markup on credit, as that credit is used.`;
 }
 
 /** The pool's motto: Tangent, not its customers, keeps learning open. */
@@ -224,15 +224,15 @@ export function poolSteps(revenueShareBps: number, memberships: boolean): [strin
       ? `It sets aside ${formatBps(revenueShareBps)} of what it earns as the open pool.`
       : 'It sets aside free credit as the open pool.';
   return [
-    `Tangent earns from ${memberships ? 'memberships and credit' : 'the credit people buy'}, like any software business.`,
+    `Tangent earns money from ${memberships ? 'memberships and credit' : 'the credit people buy'}, like any software business.`,
     setAside,
-    'Anyone signed in learns free on it, within daily limits, while it has credit.',
+    'Anyone signed in can learn free from the pool, within daily limits, while it has credit.',
   ];
 }
 
 /** What a pool reply costs the pool: its true cost, with no markup (Tangent funds the pool). */
 export const POOL_AT_COST_TEXT =
-  "Each reply is paid from the pool at the AI provider's price, with no markup, and costs the learner nothing.";
+  "Each pool reply is charged to the pool at the AI provider's price, with no markup, and costs the learner nothing.";
 
 /**
  * Words pool copy must never use: the pool is free credit Tangent provides,
@@ -324,15 +324,15 @@ function count(n: number, one: string, many: string): string {
 }
 
 /**
- * The feed's headline: `In the week of 28 September 2026 the pool funded
- * 1,240 exchanges for 40 learners across 87 topics.`
+ * The feed's headline: `In the week of 28 September 2026, the pool paid for
+ * 1,240 replies to 40 learners across 87 topics.`
  */
 export function poolImpactHeadline(
   impact: Pick<PoolImpactResponse, 'weekStart' | 'exchanges' | 'learners' | 'topics'>,
 ): string {
   return (
-    `In ${poolImpactWeekText(impact.weekStart)} the pool funded ` +
-    `${count(impact.exchanges, 'exchange', 'exchanges')} for ${count(impact.learners, 'learner', 'learners')} ` +
+    `In ${poolImpactWeekText(impact.weekStart)}, the pool paid for ` +
+    `${count(impact.exchanges, 'reply', 'replies')} to ${count(impact.learners, 'learner', 'learners')} ` +
     `across ${count(impact.topics, 'topic', 'topics')}.`
   );
 }
@@ -351,7 +351,7 @@ export function poolImpactDepthText(
 ): string {
   const base = `Learners went ${depth(impact.avgDepth)} ${impact.avgDepth === 1 ? 'branch' : 'branches'} deep on average, and ${count(impact.maxDepth, 'branch', 'branches')} at the deepest.`;
   if (!impact.deepest) return base;
-  return `${base} Deepest rabbit hole: ${impact.deepest.label} (${depth(impact.deepest.avgDepth)} on average).`;
+  return `${base} Deepest rabbit hole: ${impact.deepest.label} (${depth(impact.deepest.avgDepth)} ${impact.deepest.avgDepth === 1 ? 'branch' : 'branches'} deep on average).`;
 }
 
 /** A named topic's line: `Ancient Rome: 40 learners`. */

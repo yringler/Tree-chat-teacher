@@ -657,7 +657,7 @@ describe('the public feed', () => {
     };
     expect(html).toContain(`<h3>The week of ${label(w.key)}</h3>`);
     expect(html).toContain(
-      `In the week of ${label(w.key)} the pool funded 7 exchanges for 7 learners across 1 topic.`,
+      `In the week of ${label(w.key)}, the pool paid for 7 replies to 7 learners across 1 topic.`,
     );
     expect(html).toContain('<li>Machine learning and AI: 7 learners</li>');
     expect(html).toContain('Learners went 2 branches deep on average');
@@ -689,7 +689,7 @@ describe('the public feed', () => {
     const latest = await json<PoolImpactResponse>(await visitor()('/api/pool/impact'));
     const html = await (await visitor(authEnv({ POOL_ACCOUNT_ID: poolId }))('/welcome')).text();
     expect(html).toContain('<div class="impact">');
-    expect(html).toContain(`the pool funded ${latest.exchanges} exchanges`);
+    expect(html).toContain(`the pool paid for ${latest.exchanges} replies`);
     expect(html).toContain('<li>Machine learning and AI: 7 learners</li>');
     expect(html.indexOf('learning sessions left')).toBeLessThan(html.indexOf('class="impact"'));
     // Still one hashed stylesheet and no script.

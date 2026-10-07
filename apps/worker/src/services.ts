@@ -25,7 +25,7 @@ import { isAdminUserId } from './auth/admin.js';
 import { groundingAllowance, groundingSettings } from './billing/grounding.js';
 import { defaultRouteFacts } from './billing/gate.js';
 import { createPoolUsageMeter, createUsageMeter, meteredRegistry } from './billing/meter.js';
-import { paymentsConfigured } from './billing/payments/index.js';
+import { paymentProvider, paymentsConfigured } from './billing/payments/index.js';
 import { appConfig } from './config.js';
 import { createD1Repositories } from './db/d1-repositories.js';
 import { isPoolFunded, type AccountContext, type AppEnv } from './env.js';
@@ -66,6 +66,24 @@ export function providerConfigs(env: AppEnv): ProviderConfig[] {
       `Invalid provider config: PROVIDERS may not use the reserved id "${LEGACY_BUILT_IN_PROVIDER_ID}"`,
     );
   return configs;
+}
+
+/**
+ * The providers power mode takes the user's own keys for, as the public pages
+ * name them (`Anthropic`, `OpenAI`, `OpenRouter`), and whether each can search
+ * the web; empty when PROVIDERS is invalid, so a page can fall back to a
+ * generic phrase instead of failing.
+ */
+export function ownKeyProviders(env: AppEnv): { id: string; label: string; search: boolean }[] {
+  try {
+    return providerConfigs(env).map(({ id, label, options }) => ({
+      id,
+      label,
+      search: options?.['webSearch'] === true,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -164,6 +182,14 @@ export function personalCreditReady(env: AppEnv): boolean {
  */
 export function builtInAvailable(env: AppEnv): boolean {
   return personalCreditReady(env) && builtInProviderUsable(env);
+}
+
+/**
+ * True when prepaid credit is sold: the built-in provider is offered and the
+ * payment provider sells top-ups. The public pages offer credit only then.
+ */
+export function creditSold(env: AppEnv): boolean {
+  return builtInAvailable(env) && (paymentProvider(env)?.capabilities.topUps ?? false);
 }
 
 /**

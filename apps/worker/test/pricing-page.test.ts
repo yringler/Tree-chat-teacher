@@ -10,8 +10,20 @@ import { uniq } from './mocks/billing-helpers.js';
 import { fundPool } from './pool-helpers.js';
 import { authEnv, ORIGIN } from './session-client.js';
 
-/** As deployed: the pool on with a 20% revenue share, credit sold (the fake provider), no membership. */
-const DEPLOYED: Partial<AppEnv> = { POOL_REVENUE_SHARE_BPS: '2000' };
+/**
+ * As deployed: the pool on with a 20% revenue share and 1,024-token replies,
+ * credit sold (the fake payment provider), the default own-key and built-in
+ * providers, no membership.
+ */
+const DEPLOYED: Partial<AppEnv> = {
+  POOL_REVENUE_SHARE_BPS: '2000',
+  POOL_MAX_OUTPUT_TOKENS: '1024',
+  PROVIDERS: '',
+  // The real built-in provider (OpenRouter, with web search), not the test suite's fake,
+  // and the pool on its Simple model.
+  SIMPLE_PROVIDER: '',
+  POOL_MODEL: '',
+};
 
 /** The page as a visitor sees it, with `overrides` on the deployed env. */
 async function pricing(overrides: Partial<AppEnv> = {}): Promise<{ res: Response; html: string }> {
@@ -92,24 +104,29 @@ describe('/pricing', () => {
     // The notes: the pool's limits, at-cost pricing with both fees, top-ups and tax.
     expect(html).toContain('Tangent puts 20% of what it earns into it');
     expect(html).toContain(
-      `${pool.caps.free.requestsPerDay} replies and ${formatMicros(pool.caps.free.spendMicrosPerDay)} of AI cost a day, while the pool has credit`,
+      `While the pool has credit, each learner can use up to ${pool.caps.free.requestsPerDay} replies or ${formatMicros(pool.caps.free.spendMicrosPerDay)} of AI cost a day, whichever comes first.`,
     );
+    expect(html).toContain('are at most 1,024 tokens long (roughly 750 words)');
     expect(html).toContain('<a href="/pool">How the pool works, with every limit</a>');
     expect(html).toContain(
-      'Each reply costs what OpenRouter charges for it, plus OpenRouter’s 5.5% fee for buying credit, plus Tangent’s 10% markup.',
+      'You pay what each reply costs Tangent, plus Tangent’s 10% markup. Tangent’s cost is OpenRouter’s price plus the 5.5% fee OpenRouter charges on credit purchases. So for every 1¢ OpenRouter charges, you pay about 1.16¢.',
     );
     expect(html).toContain('Tangent puts 20% of its markup into the open pool as credit is used.');
-    // Why there's a free plan: Tangent's own policy, not tied to the reader's purchase.
+    // Why there's a free plan: Tangent's own policy, with its catch, not tied to the reader's purchase.
     expect(html).toContain('<h2 id="why">Why there’s a free plan</h2>');
-    expect(html).toContain('Tangent is a business: the credit people buy pays for it.');
     expect(html).toContain(
-      '<li>Tangent earns from the credit people buy, like any software business.</li>',
+      'Free replies come from the open pool: credit Tangent sets aside from what it earns. They use the Simple model, have daily limits, and are available only while the pool has credit.',
     );
-    expect(html).toContain('Top up between $5 and $500 at a time. Tax is added at checkout');
-    expect(html).toContain('Credit doesn’t expire while your account exists');
-    expect(html).toContain('<th scope="row">Any OpenRouter model, on Tangent credit</th>');
     expect(html).toContain(
-      '<th scope="row">What Tangent adds on your own key</th><td>Nothing</td><td>Nothing</td>',
+      '<li>Tangent earns money from the credit people buy, like any software business.</li>',
+    );
+    expect(html).toContain('Top up $5 to $500 at a time. Tax is added at checkout.');
+    expect(html).toContain('comes out of the credit you receive');
+    expect(html).toContain('Credit doesn’t expire while your account exists');
+    expect(html).toContain('<th scope="row">Any OpenRouter model, on prepaid credit</th>');
+    expect(html).toContain('<th scope="row">Your own Anthropic, OpenAI and OpenRouter keys</th>');
+    expect(html).toContain(
+      '<th scope="row">Tangent’s charge on your own key</th><td>Nothing</td><td>Nothing</td>',
     );
     // Nothing needs a membership (the pool's funding sentence still names membership payments).
     expect(html).not.toMatch(/needs? a membership|a year \+ tax|Membership</);
@@ -124,27 +141,41 @@ describe('/pricing', () => {
       `<li>${pool.caps.member.requestsPerDay} pool replies a day instead of ${pool.caps.free.requestsPerDay}<span class="while">While the pool has credit`,
     );
     expect(html).toContain('<li>$2 of credit included each year');
-    expect(html).toContain('A yearly membership adds more room on the pool');
-    expect(html).toContain('Tangent is a business: memberships and credit pay for it.');
+    // Paying as you go needs the membership here, so the headline doesn't promise it alone.
+    expect(html).toContain('<h1>Learn free. Go further for $10 a year.</h1>');
+    expect(html).not.toContain('Pay only for what you use');
     expect(html).toContain(
-      '<li>Tangent earns from memberships and credit, like any software business.</li>',
+      `A membership ($10 a year) raises your pool limit to ${pool.caps.member.requestsPerDay} replies a day, lets you buy prepaid credit and unlocks power mode on your own keys.`,
+    );
+    expect(html).toContain(
+      '<li>Tangent earns money from memberships and credit, like any software business.</li>',
+    );
+    // The membership lets you buy credit; what credit pays for isn't included in it.
+    expect(html).toContain(
+      '<th scope="row">The Smart tier, for deeper explanations</th><td>On your key<sup',
+    );
+    expect(html).toMatch(
+      /The Smart tier, for deeper explanations<\/th><td>[^]*?<\/td><td>With credit or your key<\/td>/,
+    );
+    expect(html).toMatch(
+      /Web search, with sources[^]*?<\/th><td>On your key<\/td><td>With credit or your key<\/td>/,
     );
     expect(html).not.toContain('No subscription');
     expect(html).not.toContain('Every power-mode control, on your own keys');
     expect(html).toContain(
-      'In power mode your own keys need a membership; in Learn they never do.',
+      'Your own keys never need a membership in Learn, but in power mode they do.',
     );
     expect(html).toContain(
-      'Buying credit needs a membership; credit you already have keeps working',
+      'Buying credit needs a membership, but credit you already have keeps working',
     );
     expect(html).toContain(
-      'stay listed, readable and exportable, and you can copy any of them into Learn',
+      'you can still open, read and export your power-mode conversations, and use <strong>Create a copy in Learn</strong>',
     );
     expect(html).toContain(
-      '<th scope="row">Your own API keys, for any provider offered here</th><td class="no">',
+      '<th scope="row">Your own Anthropic, OpenAI and OpenRouter keys</th><td class="no">',
     );
     expect(html).toContain('$2 a year included; top up from $5');
-    expect(html).toContain('Each paid year includes $2 of credit.');
+    expect(html).toContain('Each paid year comes with $2 of credit.');
   });
 
   it('without credit for sale: no paid column unless there is a membership, and no credit fine print', async () => {
@@ -153,7 +184,7 @@ describe('/pricing', () => {
     expect(columns(html)).toEqual(['Free']);
     expect(html).toContain('<div class="plans one">');
     expect(html).not.toMatch(/Pay as you go|top up|Prepaid credit|Tangent’s \d+% markup|Polar/i);
-    expect(html).toContain('<th scope="row">The Smart tier, for deeper answers</th>');
+    expect(html).toContain('<th scope="row">The Smart tier, for deeper explanations</th>');
 
     // A provider that sells the membership but no top-ups.
     const member = (await pricing({ ...MEMBERSHIP, FAKE_PAYMENTS: '{"topUps":false}' })).html;
@@ -191,9 +222,12 @@ describe('/pricing', () => {
 
   it('describes web search as the GROUNDING ceiling allows, and leaves it out when off', async () => {
     const auto = (await pricing({ GROUNDING: 'auto' })).html;
-    expect(auto).toContain('<th scope="row">Web search to check facts');
-    expect(auto).toContain('Offered when an answer likely needs it');
-    expect(auto).toContain('not on the open pool or on Anthropic or OpenAI keys');
+    expect(auto).toContain('<th scope="row">Web search, with sources');
+    expect(auto).toContain('When a reply probably needs checking');
+    expect(auto).toContain('On credit, automatic searches stop after 40 a day');
+    expect(auto).toContain(
+      'It isn’t available with Anthropic or OpenAI keys, and it’s off on the open pool.',
+    );
     const explicit = (await pricing({ GROUNDING: 'explicit' })).html;
     expect(explicit).toContain('<strong>Check sources</strong> under an answer');
     expect(explicit).toContain('<li>Web search to check any answer</li>');

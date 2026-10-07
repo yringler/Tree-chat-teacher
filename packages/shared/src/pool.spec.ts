@@ -16,6 +16,7 @@ import {
   poolImpactTopicText,
   poolImpactWeekText,
   poolSessionsText,
+  poolWeekText,
 } from './pool.js';
 
 describe('poolErrorCode', () => {
@@ -51,6 +52,13 @@ describe('poolBlockDetailsSchema', () => {
 });
 
 describe('pool copy', () => {
+  it("states the week's learners and free replies, singular where 1", () => {
+    expect(poolWeekText({ learners: 1240, exchanges: 3400 })).toBe(
+      'This week: 1,240 learners, 3,400 free replies',
+    );
+    expect(poolWeekText({ learners: 1, exchanges: 1 })).toBe('This week: 1 learner, 1 free reply');
+  });
+
   it('counts learning sessions, approximately', () => {
     expect(poolSessionsText(1240)).toBe('about 1,240 learning sessions');
     expect(poolSessionsText(1)).toBe('about 1 learning session');
@@ -61,7 +69,7 @@ describe('pool copy', () => {
 
   it("states Tangent's revenue share from the configured rate", () => {
     expect(poolFundingText(2000)).toBe(
-      "The open pool is free credit Tangent provides. Tangent puts 20% of what it earns into it: 20% of each membership payment after payment fees, and 20% of its markup on credit as it's used.",
+      'The open pool is free credit Tangent provides. Tangent puts 20% of what it earns into it: 20% of each membership payment (after tax and payment fees) and 20% of its markup on credit, as that credit is used.',
     );
     expect(poolFundingText(1250)).toContain('12.5% of each membership payment');
     expect(poolFundingText(0)).toBe('The open pool is free credit Tangent provides.');
@@ -120,16 +128,16 @@ describe('impact feed copy', () => {
     expect(poolImpactWeekText('2027-01-04')).toBe('the week of 4 January 2027');
   });
 
-  it('headlines the exchanges, learners and topics, singular where 1', () => {
+  it('headlines the replies, learners and topics, singular where 1', () => {
     expect(
       poolImpactHeadline({ weekStart: '2026-09-28', exchanges: 1240, learners: 87, topics: 31 }),
     ).toBe(
-      'In the week of 28 September 2026 the pool funded 1,240 exchanges for 87 learners across 31 topics.',
+      'In the week of 28 September 2026, the pool paid for 1,240 replies to 87 learners across 31 topics.',
     );
     expect(
       poolImpactHeadline({ weekStart: '2026-09-28', exchanges: 1, learners: 1, topics: 1 }),
     ).toBe(
-      'In the week of 28 September 2026 the pool funded 1 exchange for 1 learner across 1 topic.',
+      'In the week of 28 September 2026, the pool paid for 1 reply to 1 learner across 1 topic.',
     );
   });
 
@@ -144,7 +152,7 @@ describe('impact feed copy', () => {
         deepest: { id: 'history.ancient-rome', label: 'Ancient Rome', avgDepth: 2.25 },
       }),
     ).toBe(
-      'Learners went 1 branch deep on average, and 1 branch at the deepest. Deepest rabbit hole: Ancient Rome (2.3 on average).',
+      'Learners went 1 branch deep on average, and 1 branch at the deepest. Deepest rabbit hole: Ancient Rome (2.3 branches deep on average).',
     );
     expect(poolImpactTopicText({ label: 'Ancient Rome', learners: 40 })).toBe(
       'Ancient Rome: 40 learners',

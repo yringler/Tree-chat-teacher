@@ -34,7 +34,7 @@ function poolEnv(poolId: string, overrides: Partial<AppEnv> = {}): AppEnv {
 
 /** The public commitment, exactly as every page states it at 20%. */
 const COMMITMENT =
-  "The open pool is free credit Tangent provides. Tangent puts 20% of what it earns into it: 20% of each membership payment after payment fees, and 20% of its markup on credit as it's used.";
+  'The open pool is free credit Tangent provides. Tangent puts 20% of what it earns into it: 20% of each membership payment (after tax and payment fees) and 20% of its markup on credit, as that credit is used.';
 
 /** A settled pool row of `userId` (no pending rows: other suites' crons would expire them). */
 async function settledReply(
@@ -190,20 +190,20 @@ describe('the landing page’s pool meter', () => {
     );
     expect(html).toContain(`About ${sessions} learning sessions left`);
     expect(html).toContain('$2.46 in the pool');
-    expect(html).toContain('1 learner on the pool this week · 1 exchange funded this week');
+    expect(html).toContain('This week: 1 learner, 1 free reply');
     expect(html).toContain('<h2 id="pool">Curiosity shouldn’t need a credit card</h2>');
     expect(html).toContain(
-      '<p class="sub">Good AI tutoring costs money to run, so most of it sits behind a paywall. Tangent keeps learning open. Tangent puts 20% of what it earns into the open pool so that anyone can learn here for free, within daily limits, while it has credit.</p>',
+      '<p class="sub">Every AI reply costs real money, so good AI tutoring usually sits behind a paywall. Tangent keeps learning open. Here’s how:</p>',
     );
     // How the pool comes about, Tangent the subject of every money step.
     expect(html).toContain(
-      '<ol class="steps"><li>Tangent earns from the credit people buy, like any software business.</li><li>It sets aside 20% of what it earns as the open pool.</li><li>Anyone signed in learns free on it, within daily limits, while it has credit.</li></ol>',
+      '<ol class="steps"><li>Tangent earns money from the credit people buy, like any software business.</li><li>It sets aside 20% of what it earns as the open pool.</li><li>Anyone signed in can learn free from the pool, within daily limits, while it has credit.</li></ol>',
     );
     expect(html).toContain(
-      '<strong>Free to start.</strong> Tangent keeps learning open. It puts 20% of what it earns into the open pool, so anyone signed in can learn here free, within daily limits. <a href="#pool">',
+      '<strong>No credit card needed.</strong> Tangent puts 20% of what it earns into the open pool, so anyone signed in can learn here free, within daily limits. <a href="#pool">',
     );
     // Open pool: "free" in the hero, the CTAs and the pricing card.
-    expect(html).toContain('<p class="free"><strong>Free to start.</strong>');
+    expect(html).toContain('<p class="free"><strong>No credit card needed.</strong>');
     expect(html).toContain('<a class="btn" href="/learn/login">Start learning free</a>');
     expect(html).toContain(
       '<a class="btn primary" href="/learn/login">Start learning free</a>\n</article>',
@@ -217,12 +217,14 @@ describe('the landing page’s pool meter', () => {
       html.indexOf('aria-labelledby="modes"'),
     );
     expect(html).toContain(
-      'Each reply is paid from the pool at the AI provider&#39;s price, with no markup, and costs the learner nothing.',
+      'Each pool reply is charged to the pool at the AI provider&#39;s price, with no markup, and costs the learner nothing.',
     );
     expect(html).toContain('<a class="btn" href="/pool">How the pool works</a>');
     expect(html).toContain(
-      'Or learn free on the open pool, within daily limits, on credit Tangent provides from its revenue',
+      '<li>Learn free on the open pool, within daily limits, on credit Tangent provides from its earnings</li>',
     );
+    // The Learn card names the pool's model: Smart needs a key or credit.
+    expect(html).toContain('(the free pool uses Simple)');
     // Nothing to buy for the pool.
     expect(html).not.toContain('fund-pool');
     expect(html).not.toMatch(
@@ -254,18 +256,18 @@ describe('the landing page’s pool meter', () => {
     const at15 = await (
       await visitor(poolEnv(uniq('pool'), { POOL_REVENUE_SHARE_BPS: '1500' }))('/welcome')
     ).text();
-    expect(at15).toContain('Tangent puts 15% of what it earns into the open pool');
+    expect(at15).toContain('<li>It sets aside 15% of what it earns as the open pool.</li>');
     const unshared = uniq('pool');
     await fundPool(unshared, 1_000_000);
     const none = await (
       await visitor(poolEnv(unshared, { POOL_REVENUE_SHARE_BPS: '0' }))('/welcome')
     ).text();
-    expect(none).toContain('<p class="free"><strong>Free to start.</strong>');
-    expect(none).toContain('It provides free credit in the open pool, so anyone signed in');
+    expect(none).toContain('<p class="free"><strong>No credit card needed.</strong>');
+    expect(none).toContain('Tangent provides free credit in the open pool, so anyone signed in');
     expect(none).toContain('<li>It sets aside free credit as the open pool.</li>');
-    expect(none).toContain('Tangent adds free credit to the open pool so that anyone');
+    expect(none).toContain('on credit Tangent provides</li>');
     expect(none).not.toContain('of what it earns');
-    expect(none).not.toMatch(/from its revenue|part of what it earns/);
+    expect(none).not.toMatch(/from its (revenue|earnings)|part of what it earns/);
   });
 
   it('is left out while the pool is off, or when it can’t be read', async () => {
@@ -273,7 +275,7 @@ describe('the landing page’s pool meter', () => {
       await visitor(poolEnv(uniq('pool'), { POOL_ENABLED: 'false' }))('/welcome')
     ).text();
     expect(off).not.toContain('The open pool');
-    expect(off).not.toMatch(/learning free|Free to start|Free, your key/);
+    expect(off).not.toMatch(/learning free|No credit card needed|Free, your key/);
     expect(off).toContain('Follow every tangent');
 
     const broken = envWithFailingDb(poolEnv(uniq('pool')), /credit_grants|usage_events/);
@@ -303,7 +305,7 @@ describe('/pool', () => {
     const html = await (await visitor(e)('/pool')).text();
     expect(html).toContain('<code>simple</code>');
     expect(html).toContain(
-      `<strong>The short version.</strong> ${COMMITMENT.replace("it's", 'it&#39;s')} Any signed-in learner can use it in Tangent Learn`,
+      `<strong>The short version.</strong> ${COMMITMENT} Any signed-in learner can use it in Tangent Learn`,
     );
     expect(html).toContain(
       'Pool credit isn&#39;t sold. Tangent adds 20% of each membership payment, after tax and the payment provider&#39;s fee, when the payment comes in, and once a day 20% of the markup on the credit people used the day before (UTC).',
@@ -323,7 +325,9 @@ describe('/pool', () => {
     expect(html).not.toContain('the people who funded it');
     expect(html).toContain("can't start a new reply");
     expect(html).toContain('The open pool is empty until Tangent adds more credit.');
-    expect(html).toContain('you can buy credit for yourself or use your own OpenRouter key.');
+    expect(html).toContain(
+      'you can use your own OpenRouter key instead, or buy credit for yourself.</li>',
+    );
     expect(html).toContain('The pool is covered by the <a href="/terms">terms of service</a>');
     expect(html).not.toMatch(
       /anyone can add|fund the pool|Funding is a purchase|people fund it|A pool purchase|smallest pool purchase|credit for the pool instead|opens soon|% markup/i,
@@ -332,6 +336,7 @@ describe('/pool', () => {
       await visitor(poolEnv(uniq('pool'), { ANNUAL_FEE_ENABLED: 'true' }))('/pool')
     ).text();
     expect(sold).toContain('Anyone with a Tangent membership (yearly) is a member');
+    expect(sold).toContain('or buy credit for yourself (buying credit needs a membership).');
     // Tangent, not the member, puts money into the pool (the sources section says how).
     expect(sold).not.toContain('Part of every membership payment goes into the pool.');
     expect(sold).toContain('Tangent charges for memberships and credit like any software business');
