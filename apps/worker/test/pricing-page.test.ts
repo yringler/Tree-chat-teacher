@@ -12,12 +12,17 @@ import { authEnv, ORIGIN } from './session-client.js';
 
 /**
  * As deployed: the pool on with a 20% revenue share and 1,024-token replies,
- * credit sold (the fake provider), the default own-key providers, no membership.
+ * credit sold (the fake payment provider), the default own-key and built-in
+ * providers, no membership.
  */
 const DEPLOYED: Partial<AppEnv> = {
   POOL_REVENUE_SHARE_BPS: '2000',
   POOL_MAX_OUTPUT_TOKENS: '1024',
   PROVIDERS: '',
+  // The real built-in provider (OpenRouter, with web search), not the test suite's fake,
+  // and the pool on its Simple model.
+  SIMPLE_PROVIDER: '',
+  POOL_MODEL: '',
 };
 
 /** The page as a visitor sees it, with `overrides` on the deployed env. */
@@ -221,7 +226,7 @@ describe('/pricing', () => {
     expect(auto).toContain('When a reply probably needs checking');
     expect(auto).toContain('On credit, automatic searches stop after 40 a day');
     expect(auto).toContain(
-      'it isn’t available with Anthropic or OpenAI keys, and it’s off on the open pool.',
+      'It isn’t available with Anthropic or OpenAI keys, and it’s off on the open pool.',
     );
     const explicit = (await pricing({ GROUNDING: 'explicit' })).html;
     expect(explicit).toContain('<strong>Check sources</strong> under an answer');

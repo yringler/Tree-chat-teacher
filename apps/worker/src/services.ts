@@ -70,12 +70,17 @@ export function providerConfigs(env: AppEnv): ProviderConfig[] {
 
 /**
  * The providers power mode takes the user's own keys for, as the public pages
- * name them (`Anthropic`, `OpenAI`, `OpenRouter`); empty when PROVIDERS is
- * invalid, so a page can fall back to a generic phrase instead of failing.
+ * name them (`Anthropic`, `OpenAI`, `OpenRouter`), and whether each can search
+ * the web; empty when PROVIDERS is invalid, so a page can fall back to a
+ * generic phrase instead of failing.
  */
-export function ownKeyProviders(env: AppEnv): { id: string; label: string }[] {
+export function ownKeyProviders(env: AppEnv): { id: string; label: string; search: boolean }[] {
   try {
-    return providerConfigs(env).map(({ id, label }) => ({ id, label }));
+    return providerConfigs(env).map(({ id, label, options }) => ({
+      id,
+      label,
+      search: options?.['webSearch'] === true,
+    }));
   } catch {
     return [];
   }

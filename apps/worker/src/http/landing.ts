@@ -24,6 +24,7 @@ import { LEARN_APP_CSP, LEARN_COMMON_HEADERS } from './learn-app.js';
 import { cachedPoolStatus } from '../pool/status.js';
 import { waitUntilOf } from '../routes/pool.js';
 import { creditSold, ownKeyProviders } from '../services.js';
+import { learnOffer } from '../simple-mode.js';
 
 /**
  * Better Auth's session cookie (`cookiePrefix: 'tangent'` in auth/auth.ts),
@@ -186,10 +187,15 @@ export interface LandingPageOptions {
   membership?: boolean;
   /** The operator's `GROUNDING` ceiling; `off` (or absent) leaves web-search grounding off the page. */
   grounding?: GroundingPolicy;
-  /** Prepaid credit is sold (`creditSold`), at this markup; absent = it isn't, and the page doesn't offer it. */
-  credit?: { markupBps: number };
+  /**
+   * Prepaid credit is sold (`creditSold`), at this markup, on OpenRouter or
+   * another endpoint (`LearnOffer.openRouter`); absent = it isn't, and the page doesn't offer it.
+   */
+  credit?: { markupBps: number; openRouter: boolean };
   /** Who power mode takes the user's own keys for (`ownKeyProviders` labels); empty = a generic phrase. */
   providers?: readonly string[];
+  /** Learn's models, the default first (`LearnOffer.tiers` labels); fewer than two = no choice to describe. */
+  tiers?: readonly string[];
 }
 
 /** About how many English words `tokens` tokens make (¾ of a word each), to the nearest 50: `750` for 1,024. */
@@ -322,10 +328,15 @@ function learnItems(opts: LandingPageOptions): string[] {
     'Straight answers that explain how things work, ready the moment you sign in',
     'Suggested tangents after each full answer, one tap away',
     'Side questions about any phrase with <strong>Ask about this</strong>',
-    pool
-      ? `Two tiers: Smart for deeper explanations, Simple for quicker, cheaper answers (the free pool uses ${escapeHtml(pool.model.label)})`
-      : 'Two tiers: Smart for deeper explanations, Simple for quicker, cheaper answers',
   ];
+  const tiers = opts.tiers ?? [];
+  if (tiers.length >= 2) {
+    const choice =
+      tiers.length === 2 && tiers[0] === 'Smart' && tiers[1] === 'Simple'
+        ? 'Two tiers: Smart for deeper explanations, Simple for quicker, cheaper answers'
+        : `A choice of models: ${escapeHtml(joinList(tiers, 'and'))}`;
+    items.push(pool ? `${choice} (the free pool uses ${escapeHtml(pool.model.label)})` : choice);
+  }
   if (pool)
     items.push(
       `Learn free on the open pool, within daily limits, on credit Tangent provides${pool.revenueShareBps > 0 ? ' from its earnings' : ''}`,
@@ -348,7 +359,12 @@ function powerItems(opts: LandingPageOptions): string[] {
       ? `Your own API keys for ${escapeHtml(joinList(providers, 'or'))}`
       : 'Your own API keys for any provider this server offers',
   ];
-  if (opts.credit) items.push('Any OpenRouter model, on prepaid credit');
+  if (opts.credit)
+    items.push(
+      opts.credit.openRouter
+        ? 'Any OpenRouter model, on prepaid credit'
+        : 'Your choice of model, on prepaid credit',
+    );
   items.push(
     'Every control: context modes, the context inspector, a reviewer and system prompts',
     opts.sharing ? 'Read-only share links, and Markdown or HTML export' : 'Markdown or HTML export',
@@ -532,9 +548,14 @@ async function landingResponse(
   const pool = await landingPool(c);
   const impact = pool ? await latestImpactForPage(c.env) : undefined;
   const membership = membershipRequired(c.env);
-  const grounding = groundingPolicy(c.env);
-  const credit = creditSold(c.env) ? { markupBps: appConfig(c.env).billing.markupBps } : undefined;
+  const offer = learnOffer(c.env);
+  // Learn can't search when its provider has no web search, whatever GROUNDING says.
+  const grounding = offer?.search ? groundingPolicy(c.env) : 'off';
+  const credit = creditSold(c.env)
+    ? { markupBps: appConfig(c.env).billing.markupBps, openRouter: offer?.openRouter ?? false }
+    : undefined;
   const providers = ownKeyProviders(c.env).map((p) => p.label);
+  const tiers = offer?.tiers.map((t) => t.label) ?? [];
   const page = renderLandingPage({
     canonicalUrl,
     operator,
@@ -545,6 +566,7 @@ async function landingResponse(
     grounding,
     credit,
     providers,
+    tiers,
   });
   return new Response(page, {
     headers: {

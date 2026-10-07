@@ -19,7 +19,7 @@ import { poolModel } from '../pool/params.js';
 import { cachedPoolStatus } from '../pool/status.js';
 import { waitUntilOf } from '../routes/pool.js';
 import { creditSold, ownKeyProviders, poolAvailable } from '../services.js';
-import { simpleProviderConfig } from '../simple-mode.js';
+import { learnOffer, simpleProviderConfig, type LearnOffer } from '../simple-mode.js';
 import { joinList, LANDING_STYLE, MARK, poolStepsHtml, roughWords, styleCsp } from './landing.js';
 import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
 
@@ -41,6 +41,7 @@ import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
 export interface PricingFacts {
   /** The open pool, while Learn may spend from it (`poolAvailable`). */
   pool: {
+    modelId: string;
     modelLabel: string;
     revenueShareBps: number;
     maxOutputTokens: number;
@@ -53,16 +54,23 @@ export interface PricingFacts {
   credit: {
     markupBps: number;
     openRouterFeeBps: number;
+    /** The built-in provider is OpenRouter: credit takes any OpenRouter model, at OpenRouter's prices. */
+    openRouter: boolean;
     minTopUpCents: number;
     maxTopUpCents: number;
   } | null;
   /** The yearly membership, while it is required (`membershipRequired`). */
   membership: { priceCents: number; includedCreditCents: number } | null;
+  /** The `GROUNDING` ceiling, or `off` when Learn's provider can't search (`LearnOffer.search`). */
   grounding: GroundingPolicy;
+  /** A search costs about 1¢ (`LearnOffer.searchAboutOneCent`). */
+  searchAboutOneCent: boolean;
+  /** Learn's models, the default first (`LearnOffer.tiers`); fewer than two = no choice of tier. */
+  tiers: LearnOffer['tiers'];
   /** Automatic web searches a user may run per UTC day on credit (`GROUNDING_AUTO_DAILY_CAP`); 0 = no cap. */
   searchDailyCap: number;
-  /** Who power mode takes the user's own keys for (`ownKeyProviders`); empty when unknown. */
-  providers: { id: string; label: string }[];
+  /** Who power mode takes the user's own keys for, and which can search (`ownKeyProviders`); empty when unknown. */
+  providers: { id: string; label: string; search: boolean }[];
   /** Share links are offered to everyone (`LegalInfo.sharing`). */
   sharing: boolean;
 }
@@ -74,9 +82,11 @@ export function pricingFacts(
 ): PricingFacts {
   const config = appConfig(env);
   const poolId = poolModel(env);
+  const offer = learnOffer(env);
   return {
     pool: poolAvailable(env)
       ? {
+          modelId: poolId,
           modelLabel:
             simpleProviderConfig(env).models.find((m) => m.id === poolId)?.label ?? poolId,
           revenueShareBps: config.pool.revenueShareBps,
@@ -90,6 +100,7 @@ export function pricingFacts(
       ? {
           markupBps: config.billing.markupBps,
           openRouterFeeBps: config.billing.openRouterFeeBps,
+          openRouter: offer?.openRouter ?? false,
           minTopUpCents: MIN_TOP_UP_CENTS,
           maxTopUpCents: MAX_TOP_UP_CENTS,
         }
@@ -100,7 +111,9 @@ export function pricingFacts(
           includedCreditCents: membershipCreditCents(env),
         }
       : null,
-    grounding: groundingPolicy(env),
+    grounding: offer?.search ? groundingPolicy(env) : 'off',
+    searchAboutOneCent: offer?.searchAboutOneCent ?? false,
+    tiers: offer?.tiers ?? [],
     searchDailyCap: groundingDailyCap(env),
     providers: ownKeyProviders(env),
     sharing,
@@ -179,16 +192,26 @@ function footnotes(texts: Partial<Record<NoteId, string>>) {
 }
 
 /** The power-mode providers other than Learn's (OpenRouter), as `Anthropic and OpenAI`; '' when none or unknown. */
-function otherProviders(f: PricingFacts, word: 'and' | 'or'): string {
+function otherProviders(f: PricingFacts): string {
   return escapeHtml(
     joinList(
       f.providers.filter((p) => p.id !== LEARN_KEY_PROVIDER).map((p) => p.label),
-      word,
+      'and',
     ),
   );
 }
 
-/** What the reader pays per 1¢ of OpenRouter's price on credit: `1.16` for a 5.5% fee and a 10% markup. */
+/** The power-mode providers that can't search the web, as `Anthropic or OpenAI`; '' when every one can. */
+function nonSearchProviders(f: PricingFacts): string {
+  return escapeHtml(
+    joinList(
+      f.providers.filter((p) => !p.search).map((p) => p.label),
+      'or',
+    ),
+  );
+}
+
+/** What the reader pays per 1¢ of the provider's price on credit: `1.16` for a 5.5% fee and a 10% markup. */
 function perCent(credit: NonNullable<PricingFacts['credit']>): string {
   return (((10_000 + credit.openRouterFeeBps) * (10_000 + credit.markupBps)) / 1e8).toFixed(2);
 }
@@ -197,9 +220,9 @@ function perCent(credit: NonNullable<PricingFacts['credit']>): string {
 function noteTexts(f: PricingFacts): Partial<Record<NoteId, string>> {
   const { pool, credit, membership } = f;
   const searches = f.grounding !== 'off';
-  const others = otherProviders(f, 'and');
+  const others = otherProviders(f);
   const texts: Partial<Record<NoteId, string>> = {
-    'own-key': `With your own key, the AI provider bills you directly, at its own prices, and Tangent adds nothing. Learn takes an OpenRouter key${searches ? ', which is also what web search needs' : ''}${others ? `; power mode also takes ${others} keys` : ''}.${membership ? ' Your own keys never need a membership in Learn, but in power mode they do.' : ''}`,
+    'own-key': `With your own key, the AI provider bills you directly, at its own prices, and Tangent adds nothing. Learn takes an OpenRouter key${searches ? ', which also works for web search' : ''}${others ? `; power mode also takes ${others} keys` : ''}.${membership ? ' Your own keys never need a membership in Learn, but in power mode they do.' : ''}`,
   };
   if (pool) {
     const members = membership
@@ -212,7 +235,13 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, string>> {
       pool && pool.revenueShareBps > 0
         ? ` Tangent puts ${escapeHtml(formatBps(pool.revenueShareBps))} of its markup into the open pool as credit is used.`
         : '';
-    texts.credit = `You pay what each reply costs Tangent, plus Tangent’s ${escapeHtml(formatBps(credit.markupBps))} markup. Tangent’s cost is OpenRouter’s price plus the ${escapeHtml(formatBps(credit.openRouterFeeBps))} fee OpenRouter charges on credit purchases. So for every 1¢ OpenRouter charges, you pay about ${perCent(credit)}¢. Summaries and titles made on credit are charged the same way, and your billing page lists every charge.${share}`;
+    // Credit runs on the built-in provider: OpenRouter unless the operator points it elsewhere.
+    const via = credit.openRouter ? 'OpenRouter' : 'the AI provider';
+    const fee =
+      credit.openRouterFeeBps > 0
+        ? ` plus the ${escapeHtml(formatBps(credit.openRouterFeeBps))} fee ${via} charges on credit purchases`
+        : '';
+    texts.credit = `You pay what each reply costs Tangent, plus Tangent’s ${escapeHtml(formatBps(credit.markupBps))} markup. Tangent’s cost is ${via}’s price${fee}. So for every 1¢ ${via} charges, you pay about ${perCent(credit)}¢. Summaries and titles made on credit are charged the same way, and your billing page lists every charge.${share}`;
     texts['top-up'] =
       `Top up ${escapeHtml(formatCents(credit.minTopUpCents))} to ${escapeHtml(formatCents(credit.maxTopUpCents))} at a time. Tax is added at checkout. The payment processor’s fee (a percentage plus a fixed amount) comes out of the credit you receive, so larger top-ups lose a smaller share to it. Credit doesn’t expire while your account exists. It can’t be transferred, and it isn’t refundable, except where the law requires it or Polar’s terms for buyers allow it. Polar, our merchant of record, handles checkout, tax and receipts (<a href="/terms">terms</a>, section 7).${membership ? ' Buying credit needs a membership, but credit you already have keeps working without one.' : ''}`;
   }
@@ -234,12 +263,17 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, string>> {
       credit && f.grounding !== 'explicit' && f.searchDailyCap > 0
         ? ` On credit, automatic searches stop after ${f.searchDailyCap.toLocaleString('en-US')} a day; <strong>Check sources</strong> always works.`
         : '';
-    const where = others
-      ? ` Web search runs through OpenRouter, so it isn’t available with ${otherProviders(f, 'or')} keys${pool ? ', and it’s off on the open pool' : ''}.`
+    const unable = nonSearchProviders(f);
+    const where = unable
+      ? ` It isn’t available with ${unable} keys${pool ? ', and it’s off on the open pool' : ''}.`
       : pool
         ? ' It’s off on the open pool.'
         : '';
-    texts.search = `${when} A search adds about 1¢ to the cost of that reply.${cap}${where}`;
+    // About 1¢ is OpenRouter's Exa price with up to 10 results; other engines and more results differ.
+    const price = f.searchAboutOneCent
+      ? 'A search adds about 1¢ to the cost of that reply.'
+      : 'A search adds to the cost of that reply.';
+    texts.search = `${when} ${price}${cap}${where}`;
   }
   return texts;
 }
@@ -366,6 +400,10 @@ export function renderPricingPage(info: LegalInfo, f: PricingFacts): string {
   const notes = footnotes(noteTexts(f));
   const searches = f.grounding !== 'off';
   const paidName = membership ? 'Membership' : credit ? 'Pay as you go' : null;
+  // Learn's deeper tier, when it has a choice of models, and whether the pool runs it.
+  const top = f.tiers.length >= 2 ? f.tiers[0]! : null;
+  const poolHasTop = top !== null && pool?.modelId === top.id;
+  const anyModel = credit?.openRouter ? 'any OpenRouter model' : 'your choice of model';
 
   // Built top to bottom, so the notes number in reading order.
   const freeCard = `<article class="plan${pool ? ' featured' : ''}">
@@ -388,7 +426,7 @@ ${membership ? '' : '<li>Every power-mode control, on your own keys</li>\n'}<li>
 <ul>
 <li>Everything in Free</li>
 ${pool ? `<li>${pool.member.requestsPerDay.toLocaleString('en-US')} pool replies a day instead of ${pool.free.requestsPerDay.toLocaleString('en-US')}${whilePoolHasCredit(pool.availableMicros)}</li>\n` : ''}<li>Power mode on your own API keys</li>
-${credit ? `<li>Buy prepaid credit for the Smart tier${searches ? ', web search' : ''} and any OpenRouter model${notes.ref('credit')}</li>\n` : ''}${credit && membership.includedCreditCents > 0 ? `<li>${escapeHtml(formatCents(membership.includedCreditCents))} of credit included each year${notes.ref('top-up')}</li>\n` : ''}</ul>
+${credit ? `<li>Buy prepaid credit for ${escapeHtml(joinList([top ? `the ${top.label} tier` : 'Learn', ...(searches ? ['web search'] : []), anyModel], 'and'))}${notes.ref('credit')}</li>\n` : ''}${credit && membership.includedCreditCents > 0 ? `<li>${escapeHtml(formatCents(membership.includedCreditCents))} of credit included each year${notes.ref('top-up')}</li>\n` : ''}</ul>
 <a class="btn" href="/learn/login">Sign in to join</a>
 </article>`;
   } else if (credit) {
@@ -398,7 +436,7 @@ ${credit ? `<li>Buy prepaid credit for the Smart tier${searches ? ', web search'
 <p class="for">Prepaid credit: no key to manage, no subscription.</p>
 <ul>
 <li>Everything in Free</li>
-<li>The Smart tier in Learn, and any OpenRouter model in power mode</li>
+<li>${top ? `The ${escapeHtml(top.label)} tier in Learn` : 'Learn on credit'}, and ${anyModel} in power mode</li>
 ${searches ? `<li>${f.grounding === 'explicit' ? 'Web search to check any answer' : 'Web search when an answer needs it'}</li>\n` : ''}<li>Top up from ${escapeHtml(formatCents(credit.minTopUpCents))}; credit doesn’t expire${notes.ref('top-up')}</li>
 </ul>
 <a class="btn" href="/learn/login">Sign in to add credit</a>
@@ -420,11 +458,12 @@ ${searches ? `<li>${f.grounding === 'explicit' ? 'Web search to check any answer
       free: perDay(pool.free),
       paid: perDay(membership ? pool.member : pool.free),
     });
-  learn.push({
-    label: 'The Smart tier, for deeper explanations',
-    free: `On your key${notes.ref('own-key')}`,
-    paid: onCredit,
-  });
+  if (top)
+    learn.push({
+      label: `The ${escapeHtml(top.label)} tier${top.label === 'Smart' ? ', for deeper explanations' : ''}`,
+      free: `${poolHasTop ? 'On the open pool or your key' : 'On your key'}${notes.ref('own-key')}`,
+      paid: poolHasTop ? true : onCredit,
+    });
   if (searches)
     learn.push({
       label: `Web search, with sources${notes.ref('search')}`,
@@ -452,7 +491,11 @@ ${searches ? `<li>${f.grounding === 'explicit' ? 'Web search to check any answer
     },
   ];
   if (credit)
-    power.push({ label: 'Any OpenRouter model, on prepaid credit', free: false, paid: true });
+    power.push({
+      label: `${anyModel.charAt(0).toUpperCase()}${anyModel.slice(1)}, on prepaid credit`,
+      free: false,
+      paid: true,
+    });
   power.push({
     label: f.sharing
       ? 'Read-only share links, Markdown and HTML export'

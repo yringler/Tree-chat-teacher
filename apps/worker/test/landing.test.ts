@@ -8,6 +8,8 @@ import { LEARN_APP_CSP } from '../src/http/learn-app.js';
 const ORIGIN = 'https://tangent.example.com';
 const POWER_INDEX = '<!doctype html><title>power</title>';
 const SECRET = 'test-secret-test-secret-test-secret';
+/** The default own-key and built-in providers (OpenRouter, with web search), as deployed. */
+const DEFAULT_PROVIDERS: Partial<AppEnv> = { PROVIDERS: '', SIMPLE_PROVIDER: '' };
 
 /** Stand-in for Workers Static Assets: every path is the power app's index.html. */
 function fakeAssets() {
@@ -124,7 +126,7 @@ describe('landingRoutes', () => {
   });
 
   it('offers prepaid credit only where it is sold, and names the own-key providers', async () => {
-    const sold = await (await setup({ env: { PROVIDERS: '' } }).request('/welcome')).text();
+    const sold = await (await setup({ env: DEFAULT_PROVIDERS }).request('/welcome')).text();
     expect(sold).toContain(
       'Or buy prepaid credit and pay for each reply at what it costs Tangent, plus 10%.',
     );
@@ -141,7 +143,9 @@ describe('landingRoutes', () => {
 
   it('describes web-search grounding as the GROUNDING ceiling allows, never as always on', async () => {
     const page = async (grounding: string) =>
-      (await setup({ env: { GROUNDING: grounding } }).request('/welcome')).text();
+      (
+        await setup({ env: { ...DEFAULT_PROVIDERS, GROUNDING: grounding } }).request('/welcome')
+      ).text();
     const auto = await page('auto');
     expect(auto).toContain('Checked against the web when you go deep');
     expect(auto).toContain('So when a reply needs it');

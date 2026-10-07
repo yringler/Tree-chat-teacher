@@ -218,7 +218,7 @@ export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfi
  * itself, or the AI Gateway's OpenRouter route (`.../openrouter`). Unset means
  * the provider's own default, api.openai.com.
  */
-function isOpenRouter(baseUrl: string | undefined): boolean {
+export function isOpenRouter(baseUrl: string | undefined): boolean {
   if (!baseUrl) return false;
   try {
     const url = new URL(baseUrl);
@@ -259,5 +259,42 @@ export function poolChatSettings(pool: PoolParams): ChatSettings {
     autoTitle: true,
     // No web search on the pool: its holds are priced from tokens alone (docs/DEFERRED.md).
     grounding: { ...DEFAULT_CHAT_SETTINGS.grounding, policy: 'off' },
+  };
+}
+
+/**
+ * What Learn offers, as the public pages (landing, pricing) describe it, read
+ * from the built-in provider's config: its models (Learn's tiers, the default
+ * first), whether it is OpenRouter (so credit takes "any OpenRouter model"),
+ * whether its replies can search the web, and whether a search costs about
+ * 1¢ (OpenRouter's Exa price covers up to 10 results; other engines and more
+ * results cost differently). Null when SIMPLE_PROVIDER is invalid, so a page
+ * falls back to wording that claims none of these.
+ */
+export interface LearnOffer {
+  tiers: { id: string; label: string }[];
+  openRouter: boolean;
+  search: boolean;
+  searchAboutOneCent: boolean;
+}
+
+export function learnOffer(env: AppEnv): LearnOffer | null {
+  let config: ProviderConfig;
+  try {
+    config = simpleProviderConfig(env);
+  } catch {
+    return null;
+  }
+  const isDefault = (id: string) => (id === config.defaultModel ? 0 : 1);
+  const tiers = [...config.models]
+    .sort((a, b) => isDefault(a.id) - isDefault(b.id))
+    .map(({ id, label }) => ({ id, label }));
+  const openRouter = config.kind === 'openai-compatible' && isOpenRouter(config.baseUrl);
+  const grounding = groundingSettings(env, 'simple');
+  return {
+    tiers,
+    openRouter,
+    search: config.options?.['webSearch'] === true,
+    searchAboutOneCent: openRouter && grounding.engine === 'exa' && grounding.maxResults <= 10,
   };
 }
