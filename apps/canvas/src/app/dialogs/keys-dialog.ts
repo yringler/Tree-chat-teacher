@@ -4,12 +4,14 @@ import {
   computed,
   type ElementRef,
   inject,
+  type OnDestroy,
   type OnInit,
   signal,
   viewChild,
 } from '@angular/core';
-import { LEARN_KEY_PROVIDER, type ProviderInfo } from '@tangent/shared';
-import { formatMicros, Icon, Modal } from '@tangent/web-shared';
+import { LEARN_KEY_PROVIDER, routeKey, type Branch, type ProviderInfo } from '@tangent/shared';
+import { formatMicros, Icon, KeyMissingNotice, Modal } from '@tangent/web-shared';
+import { laneTitle } from '../canvas/titles';
 import { feeSentence } from '../core/credit';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
@@ -21,13 +23,28 @@ import { UiStore } from '../state/ui-store';
  * same cookie serves the power app. Where the server offers the built-in
  * provider, a row shows the user's credit and links to the power app's
  * `/billing` to add more.
+ *
+ * Opened by a send the server refused for want of the lane's own key
+ * (`CanvasStore.blockedSends`), it says so on top and offers to carry the
+ * lane on with Tangent credit; that, or saving the key, sends the message.
  */
 @Component({
   selector: 'app-keys-dialog',
-  imports: [Modal, Icon],
+  imports: [Modal, Icon, KeyMissingNotice],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal [heading]="credit() ? 'Keys & credit' : 'API keys'" (closed)="close()">
+      @if (store.blockedBranch(); as b) {
+        <app-key-missing-notice
+          [branchTitle]="laneTitle(b)"
+          [providerLabel]="providerLabelOf(b)"
+          [credit]="store.creditRoute() !== null"
+          [balance]="balance()"
+          [keyForm]="enabled()"
+          [busy]="switching()"
+          (useCredit)="useCredit()"
+        />
+      }
       @if (store.keyStatus(); as status) {
         @if (!status.enabled) {
           <p class="notice">
@@ -139,13 +156,16 @@ import { UiStore } from '../state/ui-store';
     </app-modal>
   `,
 })
-export class KeysDialog implements OnInit {
+export class KeysDialog implements OnInit, OnDestroy {
   protected readonly store = inject(CanvasStore);
   private readonly ui = inject(UiStore);
 
   private readonly keyInput = viewChild<ElementRef<HTMLInputElement>>('keyInput');
   protected readonly provider = signal('');
   protected readonly busy = signal(false);
+  /** "Continue on Tangent credit" is moving the lane. */
+  protected readonly switching = signal(false);
+  protected readonly laneTitle = laneTitle;
 
   protected readonly learnKey = LEARN_KEY_PROVIDER;
   protected readonly usd = formatMicros;
@@ -162,11 +182,16 @@ export class KeysDialog implements OnInit {
   protected readonly providerLabel = computed(
     () => this.keyProviders().find((p) => p.id === this.provider())?.label ?? 'the provider',
   );
+  /** The credit available, for the refused send's notice. */
+  protected readonly balance = computed(() => {
+    const b = this.store.billing();
+    return b ? formatMicros(b.availableMicros) : null;
+  });
 
   ngOnInit(): void {
     if (this.credit()) void this.store.refreshBilling();
     const list = this.keyProviders();
-    const wanted = this.store.selectedBranch()?.providerId ?? null;
+    const wanted = (this.store.blockedBranch() ?? this.store.selectedBranch())?.providerId ?? null;
     const pick =
       list.find((p) => p.id === wanted && !p.available) ??
       list.find((p) => !p.available) ??
@@ -175,8 +200,28 @@ export class KeysDialog implements OnInit {
     this.provider.set(pick?.id ?? '');
   }
 
+  /** However it closes: nothing waits on it any more (the text stays in its lane's box). */
+  ngOnDestroy(): void {
+    this.store.dropBlockedSends();
+  }
+
   protected close(): void {
     this.ui.keysOpen.set(false);
+  }
+
+  /** The lane's provider as the provider list labels it. */
+  protected providerLabelOf(b: Branch): string {
+    return this.store.providerMap().get(routeKey(b))?.label ?? b.providerId;
+  }
+
+  protected async useCredit(): Promise<void> {
+    if (this.switching()) return;
+    this.switching.set(true);
+    try {
+      await this.store.resumeOnCredit();
+    } finally {
+      this.switching.set(false);
+    }
   }
 
   protected async save(): Promise<void> {
@@ -188,7 +233,10 @@ export class KeysDialog implements OnInit {
     this.busy.set(true);
     const ok = await this.store.saveKey(this.provider(), apiKey);
     this.busy.set(false);
-    if (ok) this.ui.notify(`${this.providerLabel()} key saved`);
+    if (ok) {
+      this.ui.notify(`${this.providerLabel()} key saved`);
+      this.store.resumeAfterKey(this.provider());
+    }
   }
 
   protected async forget(provider?: string): Promise<void> {

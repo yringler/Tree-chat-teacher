@@ -68,7 +68,11 @@ export class Composer {
   /** No Send button (the host form has its own). */
   readonly hideSend = input(false);
   readonly autofocus = input(false);
-  /** False: keep the text after sending (the host navigates away on success). */
+  /**
+   * True: the text goes once the message is in the lesson (`UiStore.markSent`,
+   * on the reply's start), never before, so a refused send keeps it. False:
+   * it stays (the host navigates away on success).
+   */
   readonly clearOnSend = input(true);
   /** Draft to start from (e.g. a message the server refused). */
   readonly initial = input('');
@@ -93,6 +97,21 @@ export class Composer {
       this.text.set(initial);
       this.draft.emit(initial);
       queueMicrotask(() => this.autosize(this.box().nativeElement));
+    });
+    // The message reached the server: let it go, unless it was edited since.
+    let lastSent = untracked(() => this.ui.composerSent())?.seq ?? 0;
+    effect(() => {
+      const sent = this.ui.composerSent();
+      if (!sent || sent.seq === lastSent) return;
+      lastSent = sent.seq;
+      if (!untracked(this.clearOnSend) || untracked(this.text).trim() !== sent.text) return;
+      this.text.set('');
+      this.draft.emit('');
+      queueMicrotask(() => {
+        const box = this.box().nativeElement;
+        box.value = '';
+        this.autosize(box);
+      });
     });
     effect(() => {
       const n = this.ui.composerFocus();
@@ -130,13 +149,8 @@ export class Composer {
   protected submit(): void {
     const content = this.text().trim();
     if (!content || this.disabled() || this.busy()) return;
+    // Kept until the message is in the lesson (see `markSent` above).
     this.send.emit(content);
-    if (!this.clearOnSend()) return;
-    this.text.set('');
-    this.draft.emit('');
-    const box = this.box().nativeElement;
-    box.value = '';
-    this.autosize(box);
   }
 
   private autosize(box: HTMLTextAreaElement): void {

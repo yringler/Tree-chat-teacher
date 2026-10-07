@@ -18,6 +18,7 @@ import {
   PoolMeter,
 } from '@tangent/web-shared';
 import { AccountStore } from '../state/account-store';
+import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
 
 /**
@@ -30,6 +31,10 @@ import { UiStore } from '../state/ui-store';
  * time, posted once and the field cleared: the server seals it into an
  * HttpOnly cookie this code can't read (the same cookie as power mode's
  * OpenRouter key).
+ *
+ * Opened by a message refused for want of the own key, it says so; saving a
+ * key, or picking Tangent credit or the pool, then sends it (and closes).
+ * Closed otherwise, the message stays in the composer.
  */
 @Component({
   selector: 'app-model-access-dialog',
@@ -37,6 +42,12 @@ import { UiStore } from '../state/ui-store';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="How replies are paid for" (closed)="close()">
+      @if (waiting()) {
+        <p class="notice" role="status">
+          Your message wasn’t sent: replies run on your own OpenRouter key, and none is saved in
+          this browser. Save your key below, or pick another way to pay, and it is sent.
+        </p>
+      }
       @if (account.payment.builtInCredit() || account.payment.poolAvailable()) {
         <fieldset class="access-choice">
           <legend class="sr-only">Pay with</legend>
@@ -204,7 +215,10 @@ import { UiStore } from '../state/ui-store';
 })
 export class ModelAccessDialog {
   protected readonly account = inject(AccountStore);
+  private readonly lessons = inject(LessonStore);
   private readonly ui = inject(UiStore);
+  /** A message refused for want of the own key waits for a way to pay. */
+  protected readonly waiting = computed(() => this.lessons.unsentDraft()?.needsKey ?? false);
   private readonly keyInput = viewChild<ElementRef<HTMLInputElement>>('keyInput');
 
   protected readonly payment = this.account.payment.payment;
@@ -240,6 +254,8 @@ export class ModelAccessDialog {
     this.account.payment.choose(payment);
     if (payment === 'credit') void this.account.refreshBalance();
     if (payment === 'pool') void this.account.switchToPool();
+    // A way that needs no key: the refused message goes now.
+    if (payment !== 'own-key' && this.lessons.resumeUnsent()) this.close();
   }
 
   protected async save(): Promise<void> {
@@ -250,6 +266,7 @@ export class ModelAccessDialog {
     await this.run(async () => {
       await this.account.saveKey(apiKey);
       this.ui.notify('Your OpenRouter key is saved');
+      if (this.payment() === 'own-key' && this.lessons.resumeUnsent()) this.close();
     });
   }
 

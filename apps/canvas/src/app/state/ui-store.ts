@@ -111,6 +111,12 @@ export class UiStore {
    * the request once it renders (LaneComposer).
    */
   composerFocusLane: string | null = null;
+  /**
+   * A lane's message reached the server (its reply started): the lane's box,
+   * still holding exactly that text, lets it go. Until then the text stays,
+   * so a refused or failed send never loses it.
+   */
+  readonly composerSent = signal<{ seq: number; laneId: string; text: string } | null>(null);
   private toastSeq = 0;
 
   readonly anyDialogOpen = computed(
@@ -140,6 +146,10 @@ export class UiStore {
   focusComposer(laneId: string | null = null): void {
     this.composerFocusLane = laneId;
     this.composerFocus.update((n) => n + 1);
+  }
+
+  markSent(laneId: string, text: string): void {
+    this.composerSent.update((cur) => ({ seq: (cur?.seq ?? 0) + 1, laneId, text }));
   }
 
   acknowledgeExperimental(): void {

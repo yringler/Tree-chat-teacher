@@ -14,7 +14,12 @@ import {
 import { UiStore } from '../state/ui-store';
 import { Icon } from '@tangent/web-shared';
 
-/** Message box. Enter sends, Shift+Enter inserts a newline. */
+/**
+ * Message box. Enter sends, Shift+Enter inserts a newline. The text stays
+ * until the message is in the tree (`UiStore.markSent`, on the reply's
+ * start), so a send the server refuses (no key, no credit, a network
+ * failure…) leaves it where it was typed.
+ */
 @Component({
   selector: 'app-composer',
   imports: [Icon],
@@ -63,6 +68,8 @@ export class Composer {
   /** Show the Stop button instead of Send. */
   readonly busy = input(false);
   readonly autofocus = input(false);
+  /** Draft to start from when the box is empty (a message that couldn't be sent, `TreeStore.unsentDrafts`). */
+  readonly initial = input('');
   readonly send = output<string>();
   readonly stop = output();
 
@@ -80,6 +87,20 @@ export class Composer {
         this.lastFocusRequest = n;
         queueMicrotask(() => this.box().nativeElement.focus());
       }
+    });
+    // A message handed back (it couldn't be sent) fills an empty box.
+    effect(() => {
+      const initial = this.initial();
+      if (!initial || untracked(this.text)) return;
+      this.setText(initial);
+    });
+    // The message reached the server: let it go, unless it was edited since.
+    let lastSent = untracked(() => this.ui.composerSent())?.seq ?? 0;
+    effect(() => {
+      const sent = this.ui.composerSent();
+      if (!sent || sent.seq === lastSent) return;
+      lastSent = sent.seq;
+      if (untracked(this.text).trim() === sent.text) this.setText('');
     });
     // Text handed over from elsewhere (e.g. a review's corrections) is appended to the draft.
     let lastInsert = untracked(() => this.ui.composerInsert())?.seq ?? 0;
@@ -123,14 +144,21 @@ export class Composer {
     }
   }
 
+  /** Kept until the message is in the tree (see `markSent` above). */
   protected submit(): void {
     const content = this.text().trim();
     if (!content || this.disabled() || this.busy()) return;
     this.send.emit(content);
-    this.text.set('');
-    const box = this.box().nativeElement;
-    box.value = '';
-    this.autosize(box);
+  }
+
+  private setText(text: string): void {
+    this.text.set(text);
+    // After the view exists (an effect's first run can come before it).
+    queueMicrotask(() => {
+      const box = this.box().nativeElement;
+      box.value = text;
+      this.autosize(box);
+    });
   }
 
   private autosize(box: HTMLTextAreaElement): void {

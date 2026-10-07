@@ -38,6 +38,7 @@ import type {
   UpdateBranchRequest,
 } from '@tangent/shared';
 import {
+  addBlockedSend,
   ApiClient,
   ApiError,
   creditBuyable,
@@ -45,12 +46,14 @@ import {
   creditCarriesOn,
   errorMessage,
   isNotFound,
+  keyMissing,
   learnCopyWay,
   lockedFundings,
   membershipBlocks,
   routeLocked,
   routeOpen,
   runStream,
+  type BlockedSend,
   type LearnCopyWay,
   type StreamOutcome,
 } from '@tangent/web-shared';
@@ -328,6 +331,80 @@ export class CanvasStore {
     });
     if (ok) this.ui.notify(`“${branch.title}” now uses Tangent credit`);
     return ok;
+  }
+
+  /**
+   * Messages the server refused for want of their lane's own API key (401
+   * `key_required`, before anything was written; a fan-out can leave several),
+   * while the keys dialog asks how to carry on: Tangent credit
+   * (`resumeOnCredit`) or the key (`resumeAfterKey`) sends them; closing the
+   * dialog just forgets them: the text stays in the lanes' boxes (`unsentDrafts`).
+   */
+  readonly blockedSends = signal<readonly BlockedSend[]>([]);
+  /**
+   * Messages that didn't reach the tree (any error before the reply started),
+   * by lane: the lane's box takes the text back when empty
+   * (`LaneComposer.initial`), so one sent from elsewhere (a tangent, a
+   * fan-out, "Ask your own") is not lost either. Dropped when the lane sends again.
+   */
+  readonly unsentDrafts = signal<ReadonlyMap<string, string>>(new Map());
+
+  /** The lane of the latest blocked send, while one waits (the keys dialog's notice). */
+  readonly blockedBranch = computed<Branch | null>(() => {
+    const s = this.blockedSends().at(-1);
+    return (s && this.index()?.branches.get(s.branchId)) || null;
+  });
+
+  /** A lane on the user's own key with none saved in this browser (`keyMissing`). */
+  keyMissing(route: { providerId: string; funding?: BranchFunding }): boolean {
+    return keyMissing(this.providerMap().get(routeKey(route)));
+  }
+
+  /**
+   * "Continue on Tangent credit" in the keys dialog: moves every waiting lane
+   * onto credit (`switchToCredit`), closes the dialog and sends their messages.
+   */
+  async resumeOnCredit(): Promise<boolean> {
+    const waiting = this.blockedSends();
+    if (waiting.length === 0) return false;
+    let all = true;
+    for (const s of waiting) {
+      if (!(await this.switchToCredit(s.branchId))) {
+        all = false;
+        continue;
+      }
+      this.blockedSends.update((list) => list.filter((w) => w !== s));
+      void this.send(s.branchId, s.content);
+    }
+    if (all) this.ui.keysOpen.set(false);
+    return all;
+  }
+
+  /** A key was saved for `provider`: the waiting messages of lanes on it are sent. */
+  resumeAfterKey(provider: string): void {
+    const branches = this.index()?.branches;
+    const ready = this.blockedSends().filter((s) => {
+      const b = branches?.get(s.branchId);
+      return !!b && b.providerId === provider && b.funding === 'own-key' && !this.keyMissing(b);
+    });
+    if (ready.length === 0) return;
+    this.blockedSends.update((list) => list.filter((s) => !ready.includes(s)));
+    for (const s of ready) void this.send(s.branchId, s.content);
+    if (this.blockedSends().length === 0) this.ui.keysOpen.set(false);
+  }
+
+  /** The keys dialog closed with messages still waiting: nothing is sent (their text stays, `unsentDrafts`). */
+  dropBlockedSends(): void {
+    if (this.blockedSends().length > 0) this.blockedSends.set([]);
+  }
+
+  private setUnsentDraft(branchId: string, text: string | null): void {
+    const cur = this.unsentDrafts();
+    if (text === null ? !cur.has(branchId) : cur.get(branchId) === text) return;
+    const next = new Map(cur);
+    if (text === null) next.delete(branchId);
+    else next.set(branchId, text);
+    this.unsentDrafts.set(next);
   }
 
   /** Providers by route (`routeKey`): the built-in endpoint is listed on the user's key and on Tangent credit. */
@@ -893,6 +970,10 @@ export class CanvasStore {
 
   async send(branchId: string, content: string): Promise<boolean> {
     this.markSending(branchId, true);
+    if (this.blockedSends().some((s) => s.branchId === branchId)) {
+      this.blockedSends.update((list) => list.filter((s) => s.branchId !== branchId));
+    }
+    this.setUnsentDraft(branchId, null);
     const ctrl = new AbortController();
     let nodeId: string | null = null;
     try {
@@ -906,6 +987,8 @@ export class CanvasStore {
             nodeId = event.assistantNode.id;
             this.controllers.set(nodeId, ctrl);
             this.markSending(branchId, false);
+            // In the tree now: the lane's box may let the text go.
+            this.ui.markSent(branchId, content);
           }
           this.apply(event, nodeId);
         },
@@ -917,6 +1000,14 @@ export class CanvasStore {
       this.finish(nodeId, outcome);
       return true;
     } catch (err) {
+      if (nodeId === null) {
+        // Refused before anything was written: the text goes back to the lane's box
+        // and, for want of the key, waits for the keys dialog to carry it on.
+        this.setUnsentDraft(branchId, content);
+        if (err instanceof ApiError && err.code === 'key_required') {
+          this.blockedSends.update((list) => addBlockedSend(list, { branchId, content }));
+        }
+      }
       this.fail(err);
       return false;
     } finally {
@@ -1121,6 +1212,10 @@ export class CanvasStore {
       this.dropLive(id);
     }
     for (const id of branchIds) this.dropLineage(id);
+    if (this.blockedSends().some((s) => branchIds.has(s.branchId))) {
+      this.blockedSends.update((list) => list.filter((s) => !branchIds.has(s.branchId)));
+    }
+    for (const id of branchIds) this.setUnsentDraft(id, null);
     this.detail.update((d) =>
       d && d.tree.id === res.treeId
         ? {

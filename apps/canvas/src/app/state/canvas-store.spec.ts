@@ -614,6 +614,53 @@ describe('CanvasStore read-only lanes without a membership', () => {
     });
     expect(s.store.routeLocked(s.store.detail()!.branches[0]!)).toBe(false);
   });
+
+  it('a lane on the own key with no key here: a refused send waits for credit, and keeps its text', async () => {
+    const s = setup();
+    const noKey: ProviderInfo = {
+      ...credit,
+      label: 'OpenRouter',
+      available: false,
+      acceptsUserKey: true,
+      keySource: null,
+      funding: 'own-key',
+    };
+    s.api.providers.mockResolvedValue([noKey, credit]);
+    await s.store.init({
+      builtInCredit: true,
+      membership: { ...inactive, status: 'active' },
+      membershipNeededFor: ['own-key'],
+    } as MeResponse);
+    s.store.detail.set(ownKeyTrunk());
+    expect(s.store.keyMissing(s.store.detail()!.branches[0]!)).toBe(true);
+    const updateBranch = vi.fn(async (id: string, req: object) => ({
+      ...ownKeyTrunk().branches.find((b) => b.id === id)!,
+      ...req,
+    }));
+    (s.api as unknown as { updateBranch: typeof updateBranch }).updateBranch = updateBranch;
+    s.api.sendMessage.mockRejectedValueOnce(new ApiError(401, 'key_required', 'Add your key'));
+
+    await expect(s.store.send('trunk', 'Why green?')).resolves.toBe(false);
+    expect(s.ui.keysOpen()).toBe(true);
+    expect(s.store.blockedBranch()?.id).toBe('trunk');
+    expect(s.store.unsentDrafts().get('trunk')).toBe('Why green?');
+    expect(s.ui.composerSent()).toBeNull();
+
+    await expect(s.store.resumeOnCredit()).resolves.toBe(true);
+    expect(updateBranch).toHaveBeenCalledWith('trunk', {
+      providerId: 'openrouter',
+      funding: 'credit',
+      model: 'smart-model',
+    });
+    expect(s.api.sendMessage).toHaveBeenLastCalledWith(
+      'trunk',
+      { content: 'Why green?' },
+      expect.any(AbortSignal),
+    );
+    expect(s.store.blockedSends()).toEqual([]);
+    expect(s.store.unsentDrafts().has('trunk')).toBe(false);
+    expect(s.ui.keysOpen()).toBe(false);
+  });
 });
 
 describe('CanvasStore the default route of a new conversation', () => {

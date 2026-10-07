@@ -51,10 +51,19 @@ export interface LiveReply {
   reconnecting: boolean;
 }
 
-/** A message the server refused to take (e.g. out of credit), offered back to the composer. */
+/**
+ * A message that didn't reach the lesson (refused, e.g. out of credit or for
+ * want of the own key, or a failed request), offered back to the composer.
+ */
 export interface UnsentDraft {
   branchId: string;
   text: string;
+  /**
+   * Refused for want of the learner's own key (401 `key_required`): once
+   * "How replies are paid for" is settled (a key saved, credit or the pool
+   * picked), it is sent (`resumeUnsent`).
+   */
+  needsKey?: boolean;
 }
 
 /**
@@ -678,6 +687,8 @@ export class LessonStore {
             nodeId = event.assistantNode.id;
             this.controllers.set(nodeId, ctrl);
             this.sendingBranchId.set(null);
+            // In the lesson now: the composer may let the text go.
+            this.ui.markSent(content);
           }
           this.apply(event, nodeId);
         },
@@ -697,14 +708,12 @@ export class LessonStore {
         void this.account.refreshPool();
         return false;
       }
-      if (
-        isPaymentRequired(err) ||
-        isMembershipRequired(err) ||
-        isPoolUnavailable(err) ||
-        isPoolConsentRequired(err) ||
-        (err instanceof ApiError && err.code === 'key_required')
-      ) {
-        this.unsentDraft.set({ branchId, text: content });
+      if (nodeId === null && !options.ground) {
+        // Any refusal or failure before the reply started (out of credit, no key or
+        // membership, the pool's checks, a network error…): nothing was written, so
+        // the text goes back to the composer ("Check sources" asks no typed text).
+        const needsKey = err instanceof ApiError && err.code === 'key_required';
+        this.unsentDraft.set({ branchId, text: content, ...(needsKey ? { needsKey } : {}) });
       }
       this.fail(err);
       return false;
@@ -747,6 +756,18 @@ export class LessonStore {
     void this.account.refreshPool();
     const draft = this.unsentDraft();
     if (draft) void this.send(draft.branchId, draft.text);
+    return true;
+  }
+
+  /**
+   * "How replies are paid for" was settled (a key saved, credit or the pool
+   * picked) while a message refused for want of the own key waits
+   * (`UnsentDraft.needsKey`): sends it. False when none waits.
+   */
+  resumeUnsent(): boolean {
+    const draft = this.unsentDraft();
+    if (!draft?.needsKey) return false;
+    void this.send(draft.branchId, draft.text);
     return true;
   }
 
