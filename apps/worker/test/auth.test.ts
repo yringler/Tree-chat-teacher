@@ -130,7 +130,7 @@ describe('fail closed', () => {
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
-        includedCreditCents: 200,
+        includedCreditCents: 0,
       },
       // The dev bypass requires no membership: nothing is ever read-only.
       membershipNeededFor: [],
@@ -171,7 +171,7 @@ describe('fail closed', () => {
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
-        includedCreditCents: 200,
+        includedCreditCents: 0,
       },
       membershipNeededFor: [],
       featuredConversations: false,

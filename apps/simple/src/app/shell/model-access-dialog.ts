@@ -9,18 +9,27 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { LearnPayment } from '@tangent/shared';
-import { creditFeeText, errorMessage, Icon, Modal, PoolMeter } from '@tangent/web-shared';
+import {
+  creditFeeText,
+  errorMessage,
+  formatCents,
+  Icon,
+  Modal,
+  PoolMeter,
+} from '@tangent/web-shared';
 import { AccountStore } from '../state/account-store';
 import { UiStore } from '../state/ui-store';
 
 /**
- * How replies are paid for: the learner's own OpenRouter key (free here; they
- * pay OpenRouter), Tangent credit (prepaid, on the built-in provider), which
- * is only offered when the server sells it (while the membership is
- * required, a non-member may spend credit they hold but not buy more; with
- * none left they see it disabled, with a link to the billing page), or the open pool, while it is on. The key is read from the input only at submit time, posted once
- * and the field cleared: the server seals it into an HttpOnly cookie this
- * code can't read (the same cookie as power mode's OpenRouter key).
+ * How replies are paid for: the learner's own OpenRouter key (they pay
+ * OpenRouter directly; where the membership is required, it needs one, so a
+ * non-member sees it disabled with a link to the billing page), Tangent
+ * credit (prepaid, on the built-in provider: the model's price plus the
+ * markup, open to anyone, offered only when the server sells it), or the
+ * open pool, while it is on. The key is read from the input only at submit
+ * time, posted once and the field cleared: the server seals it into an
+ * HttpOnly cookie this code can't read (the same cookie as power mode's
+ * OpenRouter key).
  */
 @Component({
   selector: 'app-model-access-dialog',
@@ -37,11 +46,22 @@ import { UiStore } from '../state/ui-store';
               name="payment"
               value="own-key"
               [checked]="payment() === 'own-key'"
+              [disabled]="ownKeyLocked()"
               (change)="choose('own-key')"
             />
             <span>
               <strong>Use my own OpenRouter key</strong>
-              <span class="muted small">Free here: you pay OpenRouter directly.</span>
+              <span class="muted small">
+                @if (ownKeyLocked()) {
+                  Needs a membership ({{ price() }}/year): covers Tangent while OpenRouter bills you
+                  directly.
+                  <a routerLink="/billing" (click)="close()">Become a member</a>
+                } @else if (membershipRequired()) {
+                  You pay OpenRouter directly; your membership covers Tangent.
+                } @else {
+                  Free here: you pay OpenRouter directly.
+                }
+              </span>
             </span>
           </label>
           @if (account.payment.builtInCredit()) {
@@ -58,11 +78,7 @@ import { UiStore } from '../state/ui-store';
                 <strong>Use Tangent credit</strong>
                 <span class="muted small">
                   @if (!account.payment.creditUsable()) {
-                    Members only.
-                    <a routerLink="/billing" (click)="close()">Become a member</a> to buy prepaid
-                    credit.
-                  } @else if (!account.payment.member()) {
-                    {{ account.balanceText() }} left. Buying more credit needs a membership.
+                    No credit left, and top-ups aren't available right now.
                   } @else if (feeText(); as fee) {
                     Prepaid credit: each reply costs {{ fee }}.
                   } @else {
@@ -94,8 +110,17 @@ import { UiStore } from '../state/ui-store';
         </fieldset>
       } @else {
         <p class="muted small">
-          Replies run on your own OpenRouter key: you pay OpenRouter directly, and Tangent charges
-          nothing.
+          @if (ownKeyLocked()) {
+            Replies run on your own OpenRouter key, which needs a membership ({{ price() }}/year):
+            it covers Tangent while OpenRouter bills you directly.
+            <a routerLink="/billing" (click)="close()">Become a member</a>
+          } @else if (membershipRequired()) {
+            Replies run on your own OpenRouter key: you pay OpenRouter directly, and your membership
+            covers Tangent.
+          } @else {
+            Replies run on your own OpenRouter key: you pay OpenRouter directly, and Tangent charges
+            nothing.
+          }
         </p>
       }
 
@@ -114,11 +139,7 @@ import { UiStore } from '../state/ui-store';
           @if (account.balanceLabel(); as balance) {
             <span>{{ balance }} available · </span>
           }
-          @if (account.payment.member()) {
-            <a routerLink="/billing" (click)="close()">Add credit</a>
-          } @else {
-            <a routerLink="/billing" (click)="close()">Become a member</a> to add more
-          }
+          <a routerLink="/billing" (click)="close()">Add credit</a>
         </p>
       } @else {
         @if (account.keyStatus(); as status) {
@@ -187,6 +208,16 @@ export class ModelAccessDialog {
   private readonly keyInput = viewChild<ElementRef<HTMLInputElement>>('keyInput');
 
   protected readonly payment = this.account.payment.payment;
+  /** The membership is required here (the fee is on). */
+  protected readonly membershipRequired = computed(
+    () => this.account.membership()?.required ?? false,
+  );
+  /** The own key needs a membership the learner lacks: the option is disabled. */
+  protected readonly ownKeyLocked = computed(() => !this.account.payment.member());
+  /** The membership's yearly price, e.g. "$10". */
+  protected readonly price = computed(() =>
+    formatCents(this.account.membership()?.priceCents ?? 0),
+  );
   /** "the model's OpenRouter price + 5.5% OpenRouter fee + 10%", once billing is loaded. */
   protected readonly feeText = computed(() => {
     const b = this.account.billing();

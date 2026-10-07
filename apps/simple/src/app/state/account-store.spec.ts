@@ -21,7 +21,7 @@ function membership(overrides: Partial<MembershipInfo> = {}): MembershipInfo {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
-    includedCreditCents: 200,
+    includedCreditCents: 0,
     ...overrides,
   };
 }
@@ -54,8 +54,8 @@ function me(m: MembershipInfo): MeResponse {
     sharing: false,
     isAdmin: false,
     membership: m,
-    // Learn never needs the membership to generate.
-    membershipNeededFor: [],
+    // Where the membership is required, the own key needs it in Learn too.
+    membershipNeededFor: m.required ? ['own-key'] : [],
     featuredConversations: false,
   };
 }
@@ -72,7 +72,6 @@ const POOL: PoolStatusResponse = {
 const POOL_ME: PoolMeResponse = {
   available: true,
   verified: true,
-  member: false,
   suspended: false,
   caps: {
     requestsPerDay: 30,
@@ -110,15 +109,18 @@ function setup(
 }
 
 describe('AccountStore membership', () => {
-  it('/api/me alone never blocks Learn: the gate waits for a 402 membership_required', () => {
+  it('shows the gate to a non-member only while replies run on their own key', () => {
     const { account } = setup(async () => summary(membership()));
     expect(account.membershipBlocked()).toBe(false);
     account.setMe(me(membership()));
+    // Credit is the default where it is sold, and needs no membership.
+    expect(account.payment.payment()).toBe('credit');
     expect(account.membershipBlocked()).toBe(false);
-    expect(account.membershipOnSale()).toBe(true);
-    account.membershipRequired();
+    account.payment.choose('own-key');
     expect(account.membershipBlocked()).toBe(true);
     account.setMe(me(membership({ status: 'active' })));
+    expect(account.membershipBlocked()).toBe(false);
+    account.setMe(me(membership({ status: 'waived' })));
     expect(account.membershipBlocked()).toBe(false);
     account.setMe(me(membership({ required: false })));
     expect(account.membershipBlocked()).toBe(false);
@@ -127,12 +129,24 @@ describe('AccountStore membership', () => {
   it('a redeemed code unblocks and updates the billing summary too', async () => {
     const { account } = setup(async () => summary(membership()));
     account.setMe(me(membership()));
-    account.membershipRequired();
+    account.payment.choose('own-key');
     await account.refreshBalance();
     expect(account.membershipBlocked()).toBe(true);
     account.setMembership(membership({ status: 'waived' }));
     expect(account.membershipBlocked()).toBe(false);
     expect(account.billing()?.membership.status).toBe('waived');
+  });
+
+  it('a non-member buys and spends credit as anyone does, even with nothing left', async () => {
+    const { account } = setup(async () => summary(membership(), 0));
+    account.setMe(me(membership()));
+    await account.refreshBalance();
+    expect(account.payment.member()).toBe(false);
+    expect(account.payment.creditUsable()).toBe(true);
+    expect(account.payment.payment()).toBe('credit');
+    expect(account.creditOnSale()).toBe(true);
+    expect(account.membershipBlocked()).toBe(false);
+    expect(account.balanceLabel()).toBe('$0.00');
   });
 
   it('refreshBalance (and the billing page) carry the membership with the balance', async () => {
@@ -143,101 +157,96 @@ describe('AccountStore membership', () => {
     expect(account.balanceLabel()).toBe('$3.00');
     expect(account.creditOnSale()).toBe(true);
 
-    // The membership lapsed: the credit left stays spendable, but buying more needs one.
+    // The membership lapsed: credit, bought or spent, doesn't care.
     account.applyBilling(summary(membership(), 1_000_000));
+    expect(account.payment.member()).toBe(false);
     expect(account.membershipBlocked()).toBe(false);
     expect(account.payment.creditUsable()).toBe(true);
     expect(account.payment.payment()).toBe('credit');
-    expect(account.balanceLabel()).toBe('$1.00');
     expect(account.balanceText()).toBe('$1.00');
-    expect(account.creditOnSale()).toBe(false);
+    expect(account.creditOnSale()).toBe(true);
 
-    // Used up: credit is no longer usable, so replies leave it.
-    account.applyBilling(summary(membership(), 0));
+    // Used up where top-ups aren't sold: credit can't pay, and with nothing else on offer the
+    // own key needs the membership: the gate shows, with no way out but subscribing.
+    account.applyBilling({ ...summary(membership(), 0), topUpsEnabled: false });
     expect(account.payment.creditUsable()).toBe(false);
+    expect(account.creditOnSale()).toBe(false);
     expect(account.payment.payment()).toBe('own-key');
-    expect(account.balanceLabel()).toBeNull();
+    expect(account.membershipBlocked()).toBe(true);
+    expect(account.alternativeOffered()).toBeNull();
   });
 
   it('a non-member with a balance gets the funding toggle; without one, not', async () => {
     const { account } = setup(async () => summary(membership(), 500_000));
     account.setMe(me(membership()));
     await account.refreshPool();
-    expect(account.fundingChoice()).toBe(false);
     await account.refreshBalance();
-    expect(account.payment.creditUsable()).toBe(true);
     expect(account.payment.payment()).toBe('credit');
     expect(account.fundingChoice()).toBe(true);
-    expect(account.creditOnSale()).toBe(false);
     account.applyBilling(summary(membership(), 0));
     account.poolMe.set({ ...POOL_ME, personalAvailableMicros: 0 });
     expect(account.fundingChoice()).toBe(false);
-    expect(account.payment.payment()).toBe('own-key');
+    // Still on credit: anyone can buy more.
+    expect(account.payment.payment()).toBe('credit');
   });
 
   it('a 402 membership_required blocks at once, then re-reads the real state', async () => {
     const { account, api } = setup(async () => summary(membership({ status: 'inactive' })));
     account.setMe(me(membership({ status: 'active' })));
-    expect(account.payment.payment()).toBe('credit');
+    account.payment.choose('own-key');
+    expect(account.membershipBlocked()).toBe(false);
     account.membershipRequired();
     expect(account.membershipBlocked()).toBe(true);
-    expect(account.payment.payment()).not.toBe('credit');
     await vi.waitFor(() => expect(api.billing).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(account.billing()).not.toBeNull());
     expect(account.membershipBlocked()).toBe(true);
   });
 
-  it('a non-member without a balance defaults to a saved key, else the pool, and never to credit', async () => {
+  it('a non-member with a saved key who never picked lands on credit or the pool, not the key', async () => {
     const { account } = setup(async () => summary(membership()));
     account.setMe(me(membership()));
     await account.refreshPool();
-    // The key status is not known yet: the own key, never credit.
-    expect(account.payment.payment()).toBe('own-key');
     await account.refreshKey();
     expect(account.hasOwnKey()).toBe(true);
-    expect(account.payment.payment()).toBe('own-key');
+    expect(account.payment.payment()).toBe('credit');
     expect(account.membershipBlocked()).toBe(false);
-    // Without a saved key: the pool.
-    account.payment.hasOwnKey.set(false);
+    // Where credit isn't sold: the pool.
+    account.setMe({ ...me(membership()), builtInCredit: false });
     expect(account.payment.payment()).toBe('pool');
-    // A stale credit choice still never lands on credit, and the funding toggle stays hidden.
-    account.payment.choose('credit');
-    expect(account.payment.payment()).toBe('pool');
-    expect(account.fundingChoice()).toBe(false);
-    expect(account.creditOnSale()).toBe(false);
-    expect(account.membershipOnSale()).toBe(true);
+    expect(account.membershipBlocked()).toBe(false);
   });
 
-  it("the gate's way out moves replies off credit: to the pool while it is on", async () => {
+  it("the gate's way out moves replies off the own key: to the pool while it is on", async () => {
     const { account } = setup(async () => summary(membership()));
-    account.setMe(me(membership({ status: 'active' })));
+    account.setMe(me(membership()));
     await account.refreshPool();
-    account.payment.choose('credit');
-    expect(account.payment.payment()).toBe('credit');
-    account.membershipRequired();
+    account.payment.choose('own-key');
     expect(account.membershipBlocked()).toBe(true);
-    expect(account.freeTierOffered()).toBe('Continue free on the open pool');
-    account.useFreeTier();
+    expect(account.alternativeOffered()).toBe('Continue on the open pool');
+    account.useAlternative();
     expect(account.membershipBlocked()).toBe(false);
     expect(account.payment.payment()).toBe('pool');
-    // Members choose credit freely again.
-    account.setMembership(membership({ status: 'active' }));
-    expect(account.membershipOnSale()).toBe(false);
-    account.payment.choose('credit');
+  });
+
+  it("the gate's way out moves replies off the own key: to credit while the pool is off", async () => {
+    const { account } = setup(async () => summary(membership(), 0), { ...POOL, enabled: false });
+    account.setMe(me(membership()));
+    await account.refreshPool();
+    account.payment.choose('own-key');
+    expect(account.membershipBlocked()).toBe(true);
+    expect(account.alternativeOffered()).toBe('Continue on Tangent credit');
+    account.useAlternative();
+    expect(account.membershipBlocked()).toBe(false);
     expect(account.payment.payment()).toBe('credit');
   });
 
-  it("the gate's way out moves replies off credit: to the own key while the pool is off", async () => {
+  it('offers no way out when neither the pool nor credit is on', async () => {
     const { account } = setup(async () => summary(membership()), { ...POOL, enabled: false });
-    account.setMe(me(membership({ status: 'active' })));
+    account.setMe({ ...me(membership()), builtInCredit: false });
     await account.refreshPool();
-    account.payment.choose('credit');
-    account.membershipRequired();
-    expect(account.membershipBlocked()).toBe(true);
-    expect(account.freeTierOffered()).toBe('Continue with my own OpenRouter key');
-    account.useFreeTier();
-    expect(account.membershipBlocked()).toBe(false);
     expect(account.payment.payment()).toBe('own-key');
+    expect(account.membershipBlocked()).toBe(true);
+    expect(account.alternativeOffered()).toBeNull();
   });
 
   it('keeps the last known state when billing cannot be read', async () => {

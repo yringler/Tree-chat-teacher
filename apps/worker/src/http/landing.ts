@@ -1,6 +1,7 @@
 import { escapeHtml } from '@tangent/render';
 import {
   formatBps,
+  formatCents,
   formatMicros,
   POOL_AT_COST_TEXT,
   POOL_EMPTY_TEXT,
@@ -183,8 +184,12 @@ export interface LandingPageOptions {
   pool?: PoolStatusResponse;
   /** The pool's latest weekly impact snapshot; absent when there is none (or the pool is off). */
   impact?: PoolImpactResponse;
-  /** The yearly membership is required for power mode on own keys and for buying credit (`membershipRequired`); own keys in Learn stay free. */
-  membership?: boolean;
+  /**
+   * The yearly membership, at this price, while it is required
+   * (`membershipRequired`): own keys need it, in Learn and power mode alike;
+   * credit and the open pool never do. Absent = nothing needs one.
+   */
+  membership?: { priceCents: number };
   /** The operator's `GROUNDING` ceiling; `off` (or absent) leaves web-search grounding off the page. */
   grounding?: GroundingPolicy;
   /**
@@ -295,9 +300,10 @@ function groundingCard(
 }
 
 /**
- * The card on how replies are paid for: the open pool while it is on, the
- * user's own OpenRouter key always, and prepaid credit only while it is sold
- * (to members, when the membership is required).
+ * The card on how replies are paid for: the open pool while it is on,
+ * prepaid credit while it is sold (to anyone, no membership needed), and the
+ * user's own OpenRouter key always (with the yearly membership, when one is
+ * required).
  */
 function payCard(opts: LandingPageOptions): string {
   const { pool, credit } = opts;
@@ -311,11 +317,11 @@ function payCard(opts: LandingPageOptions): string {
   const parts: string[] = [];
   if (pool) parts.push('Learn free on the open pool, within daily limits, while it has credit.');
   parts.push(
-    `${pool ? 'Or use' : 'Use'} your own OpenRouter key: you pay OpenRouter directly, and Tangent charges nothing.`,
+    `${pool ? 'Or use' : 'Use'} your own OpenRouter key: you pay OpenRouter directly, and ${opts.membership ? `a ${escapeHtml(formatCents(opts.membership.priceCents))} yearly membership covers Tangent` : 'Tangent charges nothing'}.`,
   );
   if (credit)
     parts.push(
-      `${opts.membership ? 'With a yearly membership, you can also buy' : 'Or buy'} prepaid credit and pay for each reply at what it costs Tangent, plus ${escapeHtml(formatBps(credit.markupBps))}.`,
+      `Or buy prepaid credit and pay for each reply at what it costs Tangent, plus ${escapeHtml(formatBps(credit.markupBps))}${opts.membership ? ', with no membership needed' : ''}.`,
     );
   return `<article class="card">${ICON_COIN}<h3>${title}</h3><p>${parts.join(' ')} <a href="/pricing">See exactly what’s free and what’s paid</a></p></article>
 `;
@@ -342,12 +348,10 @@ function learnItems(opts: LandingPageOptions): string[] {
       `Learn free on the open pool, within daily limits, on credit Tangent provides${pool.revenueShareBps > 0 ? ' from its earnings' : ''}`,
     );
   items.push(
-    `${pool ? 'Or use your' : 'Your'} own OpenRouter key, with nothing charged by Tangent${membership ? ' and no membership needed' : ''}`,
+    `${pool ? 'Or use your' : 'Your'} own OpenRouter key, ${membership ? `with a ${escapeHtml(formatCents(membership.priceCents))} yearly membership and nothing charged per reply` : 'with nothing charged by Tangent'}`,
   );
   if (credit)
-    items.push(
-      `Or pay per reply from prepaid credit${membership ? ' (buying credit needs a membership)' : ''}`,
-    );
+    items.push(`Or pay per reply from prepaid credit${membership ? ', no membership needed' : ''}`);
   return items;
 }
 
@@ -450,7 +454,7 @@ ${payCard(opts)}
 ${groundingCard(opts.grounding, opts.pool !== undefined, opts.credit !== undefined)}</div>
 </div>
 </section>
-${opts.pool ? poolSection(opts.pool, opts.membership === true, opts.impact) : ''}<section aria-labelledby="modes">
+${opts.pool ? poolSection(opts.pool, opts.membership !== undefined, opts.impact) : ''}<section aria-labelledby="modes">
 <div class="wrap">
 <h2 id="modes">Two ways to use it</h2>
 <p class="sub">One sign-in, two levels of control. Switch between them any time; each keeps its own conversations.</p>
@@ -467,7 +471,7 @@ ${learnItems(opts)
 </article>
 <article class="card mode">
 <h3>Power</h3>
-<p class="for">For tinkerers and self-hosters.${opts.membership ? ' Using your own keys here needs a yearly membership; credit you already have works without one.' : ''}</p>
+<p class="for">For tinkerers and self-hosters.${opts.membership ? ` Your own keys need the ${escapeHtml(formatCents(opts.membership.priceCents))} yearly membership, here as in Learn${opts.credit ? '; prepaid credit needs none' : ''}.` : ''}</p>
 <ul>
 ${powerItems(opts)
   .map((item) => `<li>${item}</li>`)
@@ -547,7 +551,9 @@ async function landingResponse(
   const { operator, sharing } = legalInfo(c.env, c.req.raw);
   const pool = await landingPool(c);
   const impact = pool ? await latestImpactForPage(c.env) : undefined;
-  const membership = membershipRequired(c.env);
+  const membership = membershipRequired(c.env)
+    ? { priceCents: appConfig(c.env).billing.membershipPriceCents }
+    : undefined;
   const offer = learnOffer(c.env);
   // Learn can't search when its provider has no web search, whatever GROUNDING says.
   const grounding = offer?.search ? groundingPolicy(c.env) : 'off';

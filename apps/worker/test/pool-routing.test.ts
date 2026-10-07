@@ -11,6 +11,7 @@ import {
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { grantCredit } from '../src/billing/ledger.js';
+import type { PoolCaps } from '../src/config.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import { accountFromParams, accountParams } from '../src/do/tree-session.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
@@ -413,11 +414,11 @@ describe('pool refusals', () => {
   it('a pool emptied after the gate: 402 `pool_empty` with details, and no node written', async () => {
     const u = await poolReadyUser({ funds: CEILING });
     const { detail, trunk } = await createTree(u, 'pool');
-    // Someone else reserves the whole pool first (the free tier's ceiling lifted).
+    // Someone else reserves the whole pool first (the global ceiling lifted).
     const params = await resolvePoolParams(env, null);
-    const caps = {
+    const caps: PoolCaps = {
       ...params.caps,
-      globalFree: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 1e9 },
+      global: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 1e9 },
     };
     const taken = await poolBank(env, u.poolId).reserve(
       poolReserveRequest({ ...params, accountId: u.poolId, caps }, uniq('user'), {
@@ -437,15 +438,15 @@ describe('pool refusals', () => {
     expect(((await res.json()) as ApiError).error).toEqual({
       code: 'pool_empty',
       message: expect.any(String) as unknown,
-      pool: { reason: 'empty', limit: null, resetAt: null, member: false, memberLimit: null },
+      pool: { reason: 'empty', limit: null, resetAt: null },
     });
     expect(await nodeCount(u, detail.tree.id)).toBe(0);
     // Only the other reservation exists.
     expect((await rows(u.poolId)).map((r) => r.status)).toEqual(['pending']);
   });
 
-  it("a user's daily cap: 429 `pool_cap_reached` with the limit, the reset and the member cap", async () => {
-    const u = await poolReadyUser({ env: { POOL_FREE_REQUESTS_PER_DAY: '1' } });
+  it("a user's daily cap: 429 `pool_cap_reached` with the limit and the reset", async () => {
+    const u = await poolReadyUser({ env: { POOL_REQUESTS_PER_DAY: '1' } });
     const { detail, trunk } = await createTree(u, 'pool');
     const first = await send(u, trunk.id, 'Hi', { learn: 'pool' });
     expect(first.status).toBe(200);
@@ -454,22 +455,21 @@ describe('pool refusals', () => {
     expect(res.status).toBe(429);
     const error = ((await res.json()) as ApiError).error;
     expect(error.code).toBe('pool_cap_reached');
-    expect(error.pool).toMatchObject({
+    expect(error.pool).toEqual({
       reason: 'cap_requests',
       limit: 1,
-      member: false,
-      memberLimit: 6,
+      resetAt: expect.any(String),
     });
     expect(Date.parse(error.pool!.resetAt!)).toBeGreaterThan(Date.now());
     expect(await nodeCount(u, detail.tree.id)).toBe(2);
   });
 
   it('a refused summary reservation: the send completes without the summary', async () => {
-    // Enough for the reply's ceiling hold, not for a summary besides; the free tier's daily
+    // Enough for the reply's ceiling hold, not for a summary besides; the pool's daily
     // ceiling at 100% of the balance so that only the balance binds.
     const u = await poolReadyUser({
       funds: CEILING + 500,
-      env: { POOL_FREE_DAILY_GLOBAL_BPS: '10000' },
+      env: { POOL_DAILY_GLOBAL_BPS: '10000' },
     });
     const { assistant } = await treeWithNodes(u, 'pool');
     const side = await summaryBranch(u, 'pool', assistant.id);

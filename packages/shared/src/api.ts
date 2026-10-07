@@ -118,8 +118,8 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *
  * Generating routes (messages, review, context?resolve=true) answer 402
  * `membership_required` when the membership is required, the user has none
- * (`MembershipInfo`) and the request is power mode on the user's own keys
- * (Learn, and Tangent credit in either app, need no membership), then 402 `payment_required` when a call on the
+ * (`MembershipInfo`) and the request runs on the user's own keys, in either
+ * app (the open pool and Tangent credit need no membership), then 402 `payment_required` when a call on the
  * built-in provider (`tangent`, on credit) finds the available credit too
  * low. Calls on the user's own keys never touch credit. Every other route
  * stays open without a membership: nobody is locked out of their data.
@@ -186,7 +186,7 @@ export type ApiErrorCode =
   | 'rate_limited'
   /** 402: a call on the built-in provider needs more credit (or billing isn't configured). */
   | 'payment_required'
-  /** 402: power mode on own keys (or buying credit) needs the yearly membership (`MembershipInfo.required`), and the user has none. */
+  /** 402: generating on own keys needs the yearly membership (`MembershipInfo.required`), and the user has none. */
   | 'membership_required'
   /** 401: no usable API key for the provider (missing, tampered, expired or rotated key cookie). */
   | 'key_required'
@@ -245,21 +245,21 @@ export interface MeResponse {
   isAdmin: boolean;
   /**
    * The user's membership, so the apps can gate generating at startup:
-   * `required && status === 'inactive'` means power mode on the user's own
-   * keys and buying credit answer 402 `membership_required` (Learn, and
-   * spending credit already held, don't).
+   * `required && status === 'inactive'` means generating on the user's own
+   * keys answers 402 `membership_required` (the open pool and Tangent
+   * credit don't).
    */
   membership: MembershipInfo;
   /**
    * The fundings on which generating in this account needs the membership,
    * whether or not the user has one: the Worker's own rule
    * (`needsMembership` in billing/gate.ts) asked of each funding.
-   * `['own-key']` in power mode where the membership is required (the user's
-   * own keys; Tangent credit already held stays spendable); empty in Learn
-   * and wherever no membership is required (the fee off, a server without
-   * billing, the dev bypass). A power branch on one of these fundings is
-   * read-only while `membership.status` is `inactive` (docs/DECISIONS.md
-   * "Read-only power without a membership").
+   * `['own-key']` in either app where the membership is required (the user's
+   * own keys; Tangent credit needs none); empty wherever no membership is
+   * required (the fee off, a server without billing, the dev bypass). A
+   * branch or lesson on one of these fundings is read-only while
+   * `membership.status` is `inactive` (docs/DECISIONS.md "Read-only power
+   * without a membership").
    */
   membershipNeededFor: BranchFunding[];
   /**

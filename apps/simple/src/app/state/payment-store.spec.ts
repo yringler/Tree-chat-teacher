@@ -106,52 +106,51 @@ describe('PaymentStore', () => {
     expect(q.payment()).toBe('credit');
   });
 
-  it('credit is usable for a member, or for anyone with a balance left', () => {
+  it('credit is usable by anyone where top-ups are sold, membership or not, with no balance', () => {
     const p = create();
     p.builtInCredit.set(true);
-    expect(p.creditUsable()).toBe(true);
     p.member.set(false);
-    expect(p.creditUsable()).toBe(false);
-    expect(p.payment()).toBe('own-key');
-    p.creditAvailableMicros.set(250_000);
+    p.creditAvailableMicros.set(0);
     expect(p.creditUsable()).toBe(true);
     expect(p.payment()).toBe('credit');
-    p.creditAvailableMicros.set(0);
+    // With top-ups off, only a balance left can pay.
+    p.topUpsEnabled.set(false);
     expect(p.creditUsable()).toBe(false);
-    expect(p.payment()).toBe('own-key');
-    // A member with nothing left may still pick credit (and buy more).
-    p.member.set(true);
+    p.creditAvailableMicros.set(250_000);
     expect(p.creditUsable()).toBe(true);
     expect(p.payment()).toBe('credit');
   });
 
-  it('a non-member with no balance never lands on credit: a saved key first, else the pool', () => {
+  it('a non-member never lands on their own key unasked: credit, else the pool', () => {
+    const p = create();
+    p.poolAvailable.set(true);
+    p.hasOwnKey.set(true);
+    p.member.set(false);
+    // Credit not sold, a saved key: the pool, not a 402 on the key.
+    expect(p.payment()).toBe('pool');
+    // The key status not known yet: the pool too.
+    p.hasOwnKey.set(null);
+    expect(p.payment()).toBe('pool');
+    p.builtInCredit.set(true);
+    expect(p.payment()).toBe('credit');
+    // Nothing else on offer: the own key (the shell shows the membership gate).
+    p.builtInCredit.set(false);
+    p.poolAvailable.set(false);
+    expect(p.payment()).toBe('own-key');
+    // A member with a saved key, no choice made, credit not sold: the key.
+    p.poolAvailable.set(true);
+    p.hasOwnKey.set(true);
+    p.member.set(true);
+    expect(p.payment()).toBe('own-key');
+  });
+
+  it('an explicit own-key choice stands for a non-member (the gate explains, rather than a 402)', () => {
     const p = create();
     p.builtInCredit.set(true);
     p.poolAvailable.set(true);
     p.member.set(false);
-    // The key status not known yet: the own key.
-    expect(p.payment()).toBe('own-key');
-    p.hasOwnKey.set(true);
-    expect(p.payment()).toBe('own-key');
-    p.hasOwnKey.set(false);
-    expect(p.payment()).toBe('pool');
-    // Even a stored credit choice falls back.
-    p.choose('credit');
-    expect(p.payment()).toBe('pool');
-    p.poolAvailable.set(false);
-    expect(p.payment()).toBe('own-key');
-    // An explicit own key or pool choice applies as for anyone.
-    p.poolAvailable.set(true);
-    p.hasOwnKey.set(true);
-    p.choose('pool');
-    expect(p.payment()).toBe('pool');
     p.choose('own-key');
     expect(p.payment()).toBe('own-key');
-    // A member is back on credit when it is chosen.
-    p.member.set(true);
-    p.choose('credit');
-    expect(p.payment()).toBe('credit');
   });
 
   it('round-trips each stored choice', () => {

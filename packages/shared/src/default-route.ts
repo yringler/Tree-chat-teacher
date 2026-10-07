@@ -37,8 +37,8 @@ export interface DefaultRouteFacts {
 
 /**
  * The default route of a new tree: the first of
- * 1. while own keys need a membership the user lacks, Tangent credit that can pay
- *    (so the new tree can get a reply);
+ * 1. while own keys need a membership the user lacks, Tangent credit, whatever
+ *    the balance: anyone can buy credit, and a locked own key can't reply at all;
  * 2. an own-key provider the user can use (a saved key, or a server key in the
  *    dev bypass), in the configured order;
  * 3. Tangent credit, when it can pay;
@@ -48,7 +48,7 @@ export interface DefaultRouteFacts {
  *    unlocks every model and is the key Learn uses, so the first send asks for it;
  * 6. the first configured own-key provider (a self-hosted list without OpenRouter),
  *    else whatever is configured first.
- * Credit is never picked when it can't pay, nor is a test provider while a real one is usable;
+ * Credit is otherwise never picked when it can't pay, nor is a test provider while a real one is usable;
  * the rest ask for a key on the first send (401 `key_required`). Null only for an
  * empty list (or credit alone, unable to pay). Entries without a funding are own-key.
  */
@@ -58,10 +58,9 @@ export function pickDefaultRoute<P extends DefaultRouteCandidate>(
 ): P | null {
   const own = entries.filter((p) => p.funding !== 'credit');
   const real = (p: P) => p.kind !== 'fake';
-  const credit = facts.creditCanPay
-    ? entries.find((p) => p.funding === 'credit' && p.available && real(p))
-    : undefined;
-  if (facts.ownKeyLocked && credit) return credit;
+  const offered = entries.find((p) => p.funding === 'credit' && p.available && real(p));
+  if (facts.ownKeyLocked && offered) return offered;
+  const credit = facts.creditCanPay ? offered : undefined;
   return (
     own.find((p) => p.available && real(p)) ??
     credit ??

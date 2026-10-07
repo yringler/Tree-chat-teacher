@@ -91,10 +91,10 @@ import { UiStore } from './state/ui-store';
           [membership]="membership"
           [appName]="brand"
           billingPath="/learn/billing"
-          needs="Buying credit needs one (Learn on your own key doesn't)"
-          [freeTier]="account.freeTierOffered()"
+          needs="Using your own OpenRouter key needs one"
+          [alternative]="account.alternativeOffered()"
           (redeemed)="account.setMembership($event)"
-          (freeTierChosen)="account.useFreeTier()"
+          (alternativeChosen)="account.useAlternative()"
         />
       }
     }

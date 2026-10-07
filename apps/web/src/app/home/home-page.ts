@@ -11,7 +11,7 @@ import { RouterLink } from '@angular/router';
 import { Composer } from '../chat/composer';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { APP_BASES, Icon, readOnlyText } from '@tangent/web-shared';
+import { Icon, readOnlyText } from '@tangent/web-shared';
 import { providerRouteKey, type TreeSummary } from '@tangent/shared';
 import { confirmDeleteTree } from '../dialogs/tree-settings';
 import { ImportButton } from '../ui/import-button';
@@ -46,16 +46,15 @@ import { ModelPicker } from '../ui/model-picker';
           summary, or a clean slate as context.
         </p>
         @if (readOnly(); as text) {
-          <!-- Nothing to generate on: own keys need the membership the user lacks, and no credit is left. -->
+          <!-- Nothing to generate on: own keys need the membership the user lacks, and no credit is sold. -->
           <div class="read-only-panel home-read-only" role="region" aria-labelledby="home-ro-lead">
             <p class="read-only-text">
               <strong id="home-ro-lead">{{ text.lead }}</strong>
-              {{ text.act }} to start new conversations here, or use Learn, free on your own key.
-              Your conversations below stay readable.
+              {{ text.act }} to start new conversations on your own keys. Your conversations below
+              stay readable.
             </p>
             <div class="read-only-actions">
               <a class="btn btn-primary" routerLink="/billing">{{ text.renew }}</a>
-              <a class="btn" [href]="learnHref">Open Learn</a>
             </div>
           </div>
         } @else {
@@ -114,12 +113,12 @@ export class HomePage {
   protected readonly route = signal('');
   protected readonly modelId = signal('');
   protected readonly starting = signal(false);
-  protected readonly learnHref = APP_BASES.simple;
 
   /**
    * Power is read-only throughout: every route's funding needs the
-   * membership the user lacks (and no Tangent credit is left), so a new
-   * conversation could never get a reply. The notice's words, or null.
+   * membership the user lacks and Tangent credit can't pay (not sold, or no
+   * top-ups and none left), so a new conversation could never get a reply.
+   * The notice's words, or null.
    */
   protected readonly readOnly = computed(() => {
     const m = this.store.membership();

@@ -164,7 +164,7 @@ A membership reconcile against `subscriptions.list` is not needed: webhooks are 
 | `MAX_TOP_UP_CENTS` | 50 000 | Unchanged (Polar's custom-price bounds are $0.50–$999,999.99) |
 | `POOL_MIN_PURCHASE_CENTS` / `POOL_MARGIN_BPS` | 1000 / 800 | Not enough for Polar's fees; see D4 |
 | `MEMBERSHIP_PRICE_CENTS` (display) | 1000 | Unchanged; the Polar product price must match |
-| `MEMBERSHIP_CREDIT_CENTS` | 200 | Unchanged |
+| `MEMBERSHIP_CREDIT_CENTS` | 200 | Unchanged (later set to 0 by default: docs/DECISIONS.md, "One membership rule: own keys") |
 | "plus tax" copy | Stripe Tax on exclusive prices | Keep `tax_behavior:'exclusive'` on both products, so "plus tax" stays true. Polar computes the tax. |
 | README worked example (2.9 % + 30¢ + 0.5 % Stripe Tax) | — | Rewrite with Polar's 5 % + 50¢ (+1.5 % international) and a pointer to https://polar.sh/docs/merchant-of-record/fees.md |
 

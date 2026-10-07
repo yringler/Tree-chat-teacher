@@ -61,16 +61,19 @@ describe('pickDefaultRoute (the default route of a new tree)', () => {
     expect(pick([...selfHosted(), credit], false)).toBe('anthropic@own-key');
   });
 
-  it('own keys needing a membership the user lacks: credit wins when it can pay', () => {
+  it('own keys needing a membership the user lacks: credit wins whatever the balance', () => {
     // Even over a saved key: replies on it would be refused.
     expect(pick([...defaults(['openrouter']), credit], true, true)).toBe('openrouter@credit');
     expect(pick([...defaults(), credit], true, true)).toBe('openrouter@credit');
-    // Credit can't pay either: nothing can generate (the apps show the notice); the
-    // usual own-key order, never credit.
-    expect(pick([...defaults(['openai']), credit], false, true)).toBe('openai@own-key');
-    expect(pick([...defaults(), credit], false, true)).toBe('openrouter@own-key');
-    expect(pick([...selfHosted(), credit], false, true)).toBe('anthropic@own-key');
+    // An empty balance too: anyone can buy credit, and a locked own key can't reply at all.
+    expect(pick([...defaults(['openai']), credit], false, true)).toBe('openrouter@credit');
+    expect(pick([...defaults(), credit], false, true)).toBe('openrouter@credit');
+    expect(pick([...selfHosted(), credit], false, true)).toBe('openrouter@credit');
+    // Credit not offered, or unusable: the usual own-key order.
     expect(pick(defaults(), true, true)).toBe('openrouter@own-key');
+    expect(pick([...selfHosted(), { ...credit, available: false }], false, true)).toBe(
+      'anthropic@own-key',
+    );
   });
 
   it('test providers (`fake`): never over a usable real route, never on credit, and only as configured', () => {

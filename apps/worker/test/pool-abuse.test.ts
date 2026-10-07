@@ -1,5 +1,5 @@
-// Abuse controls of the open pool (docs/pool/PLAN.md §S4): daily caps,
-// the member tier, per-minute rate limits per user and per network, the
+// Abuse controls of the open pool (docs/pool/PLAN.md §S4): daily caps (the
+// same for everyone), per-minute rate limits per user and per network, the
 // per-network and global daily ceilings, the account gates (suspension,
 // Turnstile, one identity per mailbox, account age), the consumption report,
 // and the absence of an OpenAI-compatible endpoint. HTTP end to end, each
@@ -10,6 +10,7 @@ import type {
   ApiError,
   LearnPayment,
   PoolBlockDetails,
+  PoolMeResponse,
   StreamEvent,
   TreeDetail,
 } from '@tangent/shared';
@@ -30,9 +31,8 @@ const PARAMS = await resolvePoolParams(env, null);
 const PRICE = PARAMS.price!;
 /** The reply's ceiling hold on a test pool (POOL_MAX_OUTPUT_TOKENS 2048 in vitest.config.ts). */
 const CEILING = ceilingHoldMicros(PRICE, 2048, PRICE.feeBps);
-/** POOL_FREE_REQUESTS_PER_DAY and POOL_MEMBER_REQUESTS_PER_DAY in vitest.config.ts. */
-const FREE_REPLIES = 3;
-const MEMBER_REPLIES = 6;
+/** POOL_REQUESTS_PER_DAY in vitest.config.ts. */
+const DAILY_REPLIES = 3;
 
 type User = Awaited<ReturnType<typeof poolReadyUser>>;
 
@@ -136,25 +136,23 @@ async function purchase(
 }
 
 describe('daily caps', () => {
-  it('the free tier stops at POOL_FREE_REQUESTS_PER_DAY: 429 `pool_cap_reached`, reset at 00:00 UTC', async () => {
+  it('a learner stops at POOL_REQUESTS_PER_DAY: 429 `pool_cap_reached`, reset at 00:00 UTC', async () => {
     const u = await poolReadyUser();
     const { treeId, branchId } = await newTree(u);
-    for (let i = 0; i < FREE_REPLIES; i++) await sendOk(u, branchId, `Q${i}`);
+    for (let i = 0; i < DAILY_REPLIES; i++) await sendOk(u, branchId, `Q${i}`);
     const pool = await refused(await send(u, branchId, 'One more'), 429, 'pool_cap_reached');
     expect(pool).toEqual({
       reason: 'cap_requests',
-      limit: FREE_REPLIES,
+      limit: DAILY_REPLIES,
       resetAt: nextUtcMidnight(),
-      member: false,
-      memberLimit: MEMBER_REPLIES,
     });
-    expect(await nodeCount(u, treeId)).toBe(2 * FREE_REPLIES);
+    expect(await nodeCount(u, treeId)).toBe(2 * DAILY_REPLIES);
   });
 
   it('the daily spend cap counts settled charges and pending holds', async () => {
     // Room for one reply's ceiling hold; the reply's charge then leaves less than another.
     const u = await poolReadyUser({
-      env: { POOL_FREE_SPEND_MICROS_PER_DAY: String(CEILING + 1_000) },
+      env: { POOL_SPEND_MICROS_PER_DAY: String(CEILING + 1_000) },
     });
     const { branchId } = await newTree(u);
     await sendOk(u, branchId);
@@ -163,55 +161,42 @@ describe('daily caps', () => {
       reason: 'cap_spend',
       limit: CEILING + 1_000,
       resetAt: nextUtcMidnight(),
-      member: false,
     });
   });
 });
 
-describe('member escalation', () => {
+describe('the same caps for everyone', () => {
   const FEE = { ANNUAL_FEE_ENABLED: 'true' };
 
-  it('a membership lifts the caps; a lapsed one drops them again', async () => {
-    const u = await poolReadyUser({ env: FEE });
+  /** Uses up `u`'s replies for the day, then returns the refusal of one more. */
+  async function capped(u: User): Promise<PoolBlockDetails> {
     const { branchId } = await newTree(u);
-    for (let i = 0; i < FREE_REPLIES; i++) await sendOk(u, branchId, `Q${i}`);
-    expect((await refused(await send(u, branchId), 429, 'pool_cap_reached')).member).toBe(false);
+    for (let i = 0; i < DAILY_REPLIES; i++) await sendOk(u, branchId, `Q${i}`);
+    return refused(await send(u, branchId), 429, 'pool_cap_reached');
+  }
 
-    const ref = await insertSubscription(env, u.userId, 'active');
-    for (let i = FREE_REPLIES; i < MEMBER_REPLIES; i++) await sendOk(u, branchId, `Q${i}`);
-    expect(await refused(await send(u, branchId), 429, 'pool_cap_reached')).toMatchObject({
-      reason: 'cap_requests',
-      limit: MEMBER_REPLIES,
-      member: true,
-    });
-
-    // Canceled: the free caps apply again (already used up).
-    await env.DB.prepare(`UPDATE billing_subscriptions SET status = 'canceled' WHERE ref = ?`)
-      .bind(ref)
-      .run();
-    expect(await refused(await send(u, branchId), 429, 'pool_cap_reached')).toMatchObject({
-      limit: FREE_REPLIES,
-      member: false,
-    });
+  it('a member gets exactly the caps a non-member gets', async () => {
+    const member = await poolReadyUser({ env: FEE });
+    await insertSubscription(env, member.userId, 'active');
+    const other = await poolReadyUser({ env: FEE, poolId: member.poolId });
+    const expected = { reason: 'cap_requests', limit: DAILY_REPLIES, resetAt: nextUtcMidnight() };
+    expect(await capped(member)).toEqual(expected);
+    expect(await capped(other)).toEqual(expected);
+    // /api/pool/me says the same.
+    const caps = async (u: User) =>
+      (await json<PoolMeResponse>(await u.client.call('/api/pool/me', { learn: 'pool' }))).caps;
+    expect(await caps(member)).toEqual(await caps(other));
   });
 
-  it('buying credit is not a membership: a credit buyer keeps the free caps', async () => {
+  it('a credit buyer keeps the same caps', async () => {
     const u = await poolReadyUser({ env: FEE });
     const { branchId } = await newTree(u);
-    for (let i = 0; i < FREE_REPLIES; i++) await sendOk(u, branchId, `Q${i}`);
+    for (let i = 0; i < DAILY_REPLIES; i++) await sendOk(u, branchId, `Q${i}`);
     await purchase(u.userId, { grossMicros: 10_000_000, accountId: u.poolId });
-    expect(await refused(await send(u, branchId), 429, 'pool_cap_reached')).toMatchObject({
+    expect(await refused(await send(u, branchId), 429, 'pool_cap_reached')).toEqual({
       reason: 'cap_requests',
-      member: false,
-    });
-  });
-
-  it('with the fee off nobody is a member, whatever they hold', async () => {
-    const u = await poolReadyUser({ env: { POOL_FREE_REQUESTS_PER_DAY: '0' } });
-    await insertSubscription(env, u.userId, 'active');
-    const { branchId } = await newTree(u);
-    expect(await refused(await send(u, branchId), 429, 'pool_cap_reached')).toMatchObject({
-      member: false,
+      limit: DAILY_REPLIES,
+      resetAt: nextUtcMidnight(),
     });
   });
 });
@@ -224,7 +209,7 @@ describe('rate limits', { timeout: 40_000 }, () => {
     await sendOk(u, branchId, 'One');
     await sendOk(u, branchId, 'Two');
     const pool = await refused(await send(u, branchId, 'Three'), 429, 'pool_cap_reached');
-    expect(pool).toMatchObject({ reason: 'rate', limit: 2, member: false });
+    expect(pool).toMatchObject({ reason: 'rate', limit: 2 });
     const reset = Date.parse(pool.resetAt!);
     expect(reset % 60_000).toBe(0);
     expect(reset - Date.now()).toBeLessThanOrEqual(60_000);
@@ -308,9 +293,9 @@ describe('daily ceilings beyond the user', () => {
     ).toMatchObject({ reason: 'cap_ip', limit: 2, resetAt: nextUtcMidnight() });
   });
 
-  it("the free tier's global ceiling refuses with `cap_global`; members aren't counted against it", async () => {
+  it('the global ceiling refuses with `cap_global`, members included', async () => {
     const caps = {
-      POOL_FREE_DAILY_GLOBAL_MICROS: String(CEILING + 100),
+      POOL_DAILY_GLOBAL_MICROS: String(CEILING + 100),
       ANNUAL_FEE_ENABLED: 'true',
     };
     const a = await poolReadyUser({ env: caps });
@@ -318,10 +303,10 @@ describe('daily ceilings beyond the user', () => {
     const s = await poolReadyUser({ env: caps, poolId: a.poolId });
     await insertSubscription(env, s.userId, 'active');
     await sendOk(a, (await newTree(a)).branchId);
-    expect(
-      await refused(await send(b, (await newTree(b)).branchId), 429, 'pool_cap_reached'),
-    ).toMatchObject({ reason: 'cap_global', limit: CEILING + 100, member: false });
-    await sendOk(s, (await newTree(s)).branchId);
+    for (const u of [b, s])
+      expect(
+        await refused(await send(u, (await newTree(u)).branchId), 429, 'pool_cap_reached'),
+      ).toEqual({ reason: 'cap_global', limit: CEILING + 100, resetAt: nextUtcMidnight() });
   });
 });
 
@@ -348,8 +333,6 @@ describe('account gates', () => {
       reason: 'suspended',
       limit: null,
       resetAt: null,
-      member: false,
-      memberLimit: null,
     });
     expect(await nodeCount(u, treeId)).toBe(0);
     // Only the pool is off: the same user still has their trees and other funding.
@@ -521,7 +504,7 @@ describe('account gates', () => {
     const tag = Math.random().toString(36).slice(2, 8);
     const first = await poolReadyUser({ email: `ab${tag}@gmail.com`, ip: freshIp() });
     const { branchId } = await newTree(first);
-    for (let i = 0; i < FREE_REPLIES; i++) await sendOk(first, branchId, `Q${i}`);
+    for (let i = 0; i < DAILY_REPLIES; i++) await sendOk(first, branchId, `Q${i}`);
     const deleted = await first.client.call('/api/account', {
       method: 'DELETE',
       json: { confirmEmail: `ab${tag}@gmail.com` },
@@ -535,7 +518,7 @@ describe('account gates', () => {
     });
     expect(
       await refused(await send(again, (await newTree(again)).branchId), 429, 'pool_cap_reached'),
-    ).toMatchObject({ reason: 'cap_requests', limit: FREE_REPLIES, resetAt: nextUtcMidnight() });
+    ).toMatchObject({ reason: 'cap_requests', limit: DAILY_REPLIES, resetAt: nextUtcMidnight() });
     // Another mailbox on the same pool is unaffected.
     const other = await poolReadyUser({ poolId: first.poolId, ip: freshIp() });
     await sendOk(other, (await newTree(other)).branchId);

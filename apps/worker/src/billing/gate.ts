@@ -60,9 +60,8 @@ export interface GenerateCheck {
  * Who pays for a generating request, decided by the server. A Learn send or
  * context resolve on personal credit moves to the open pool when the pool
  * is on and the caller can't cover one more call
- * (`available < USAGE_HOLD_MICROS`). Spending credit needs no membership, so a
- * lapsed member (or anyone holding credit) keeps spending it until it runs
- * short. A review never moves, and keeps its 402 `payment_required`; nor does
+ * (`available < USAGE_HOLD_MICROS`). Credit needs no membership, to buy or to
+ * spend, so anyone holding it keeps spending it until it runs short. A review never moves, and keeps its 402 `payment_required`; nor does
  * a send while the pool is off.
  */
 export async function resolveFunding(
@@ -141,21 +140,21 @@ export async function assertPoolAccess(
 }
 
 /**
- * True when this request needs the membership (once the fee is on): power
- * mode on any call that isn't metered, that is on the user's own keys (by
- * funding, never by provider id). A review counts both its reviewer
- * (`funding`) and its branch's summaries (`alsoSpendsOn`), so any own-key call
- * in it needs the membership; a context resolve checks the branch's funding. Learn never needs it (its own key and
- * the pool are free), and spending Tangent credit never does in either app:
- * credit already paid for stays spendable after a membership lapses. Buying
- * credit is the other members-only thing (`startTopUpCheckout`).
- * See docs/DECISIONS.md "Two tiers".
+ * True when this request needs the membership (once the fee is on): any call
+ * that isn't metered, that is on the user's own keys (by funding, never by
+ * provider id), in either app. In Learn that is a request paid with the
+ * user's key (`isMetered` by the request's payment, whatever `funding`
+ * says); in power, a review counts both its reviewer (`funding`) and its
+ * branch's summaries (`alsoSpendsOn`), so any own-key call in it needs the
+ * membership, and a context resolve checks the branch's funding. Tangent
+ * credit never needs it, to buy (`startTopUpCheckout`) or to spend, in either
+ * app (it carries the markup instead), and neither does the open pool, which
+ * returns before this is asked. See docs/DECISIONS.md "One membership rule: own keys".
  */
 export function needsMembership(
   account: AccountContext,
   check: Pick<GenerateCheck, 'funding' | 'alsoSpendsOn'>,
 ): boolean {
-  if (account.mode === 'simple') return false;
   const fundings = [check.funding, check.alsoSpendsOn?.funding].filter(
     (f): f is BranchFunding => f !== undefined,
   );
@@ -164,19 +163,22 @@ export function needsMembership(
 
 /**
  * The fundings on which generating in `account` needs the membership,
- * whatever the user holds: `needsMembership` asked of each funding, and
- * nothing at all where no membership is required (`membership.required`
- * false: the fee off, a server without billing, the dev bypass). Power gets
+ * whatever the user holds, and nothing at all where no membership is required
+ * (`membership.required` false: the fee off, a server without billing, the
+ * dev bypass). Power: `needsMembership` asked of each funding, so
  * `['own-key']` (plus `credit` where credit isn't offered, which the gate also
- * asks the membership for first); Learn gets none. `/api/me` sends it as
- * `MeResponse.membershipNeededFor`, so the apps show a branch read-only by
- * the server's rule rather than a copy of it.
+ * asks the membership for first). Learn: `['own-key']`, whichever payment this
+ * request carries, since Learn picks its payment per request rather than per
+ * branch and only its own-key requests need the membership. `/api/me` sends
+ * it as `MeResponse.membershipNeededFor`, so the apps show a branch or lesson
+ * read-only by the server's rule rather than a copy of it.
  */
 export function membershipNeededFor(
   account: AccountContext,
   membership: Pick<MembershipInfo, 'required'>,
 ): BranchFunding[] {
   if (!membership.required) return [];
+  if (account.mode === 'simple') return ['own-key'];
   return BRANCH_FUNDINGS.filter((funding) => needsMembership(account, { funding }));
 }
 
@@ -213,13 +215,13 @@ export async function defaultRouteFacts(
 
 /**
  * Checks that the caller may generate, in order: who pays (`resolveFunding`);
- * then either the pool's own rules, which need no membership (the free tier: no reviews, the
+ * then either the pool's own rules, which need no membership (no reviews, the
  * message length, the account gates of `assertPoolAccess`, the acknowledgment
  * of the current pool notice (403 `pool_consent_required`, gate step 5), and
  * for a context resolve PoolBank's rate check; a reply itself is reserved, or refused with
  * 402/429, by the tree's Durable Object before any node is written) or the
- * existing checks: the membership where `needsMembership` says so (power mode
- * on the user's own keys; Learn and Tangent credit need none), allowed
+ * existing checks: the membership where `needsMembership` says so (the
+ * user's own keys, in Learn or power; Tangent credit needs none), allowed
  * model, credit, rate limit. Sets `c.var.account` to the account that will
  * pay, so the caller must build its ChatService after this.
  */

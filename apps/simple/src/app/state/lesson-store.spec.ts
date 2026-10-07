@@ -154,7 +154,7 @@ const BILLING: BillingSummary = {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
-    includedCreditCents: 200,
+    includedCreditCents: 0,
   },
   builtInCredit: true,
   currency: 'usd',
@@ -497,8 +497,6 @@ describe('LessonStore', () => {
       reason: 'empty',
       limit: null,
       resetAt: null,
-      member: false,
-      memberLimit: null,
     };
     s.api.sendMessage.mockRejectedValue(
       new ApiError(402, 'pool_empty', 'The open pool is empty', empty),
@@ -523,8 +521,6 @@ describe('LessonStore', () => {
       reason: 'cap_requests',
       limit: 30,
       resetAt: '2026-01-02T00:00:00.000Z',
-      member: false,
-      memberLimit: 150,
     };
     s.api.sendMessage.mockRejectedValue(
       new ApiError(429, 'pool_cap_reached', "You've reached today's pool limit", cap),
@@ -554,8 +550,6 @@ describe('LessonStore', () => {
         reason: 'verify',
         limit: null,
         resetAt: null,
-        member: false,
-        memberLimit: null,
       }),
     );
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);

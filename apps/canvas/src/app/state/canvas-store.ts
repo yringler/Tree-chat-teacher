@@ -238,8 +238,9 @@ export class CanvasStore {
   private readonly noticeForced = signal(false);
 
   /**
-   * Without a membership, Canvas (power mode) can still run on Tangent credit
-   * the user holds (`creditCarriesOn`: offered, and the balance not known to be used up).
+   * Tangent credit can pay, membership or not, so Canvas (power mode) runs on
+   * it without one (`creditCarriesOn`: offered, and either top-ups are sold,
+   * so anyone can buy more, or the balance isn't known to be used up).
    */
   readonly creditCarriesOn = computed(() =>
     creditCarriesOn(this.me()?.builtInCredit ?? false, this.billing()),
@@ -254,7 +255,7 @@ export class CanvasStore {
     () => membershipBlocks(this.membership()) && (this.noticeForced() || !this.creditCarriesOn()),
   );
 
-  /** The notice may be dismissed: credit the user holds can still pay. */
+  /** The notice may be dismissed: Tangent credit can still pay (it needs no membership). */
   readonly membershipDismissible = computed(() => this.creditCarriesOn());
 
   dismissMembershipNotice(): void {
@@ -280,15 +281,14 @@ export class CanvasStore {
     return routeLocked(this.lockedFundings(), route);
   }
 
-  /** Tangent credit, when a read-only lane could carry on with it (a non-member spends what is left). */
-  readonly creditRoute = computed<ProviderInfo | null>(() => {
-    const usable = !membershipBlocks(this.membership()) || this.creditCarriesOn();
-    return (
+  /** Tangent credit, when a read-only lane could carry on with it (anyone can buy it). */
+  readonly creditRoute = computed<ProviderInfo | null>(
+    () =>
       this.providers().find(
-        (p) => p.funding === 'credit' && routeOpen(p, this.lockedFundings(), usable),
-      ) ?? null
-    );
-  });
+        (p) =>
+          p.funding === 'credit' && routeOpen(p, this.lockedFundings(), this.creditCarriesOn()),
+      ) ?? null,
+  );
 
   /**
    * "Continue with Tangent credit" on a read-only lane: moves it onto credit,
@@ -319,15 +319,18 @@ export class CanvasStore {
   /**
    * The route a new conversation (and a lane with no parent route) starts on:
    * `pickDefaultRoute`, the server's and the power app's rule for a new tree
-   * (docs/DECISIONS.md "Default route of a new tree"). Null until the
-   * providers and, where credit is offered, the balance have been read.
+   * (docs/DECISIONS.md "Default route of a new tree"). While own keys need a
+   * membership the user lacks, credit comes first whatever the balance: a
+   * first send there asks for credit, which beats a locked own key. Null until the providers and,
+   * where credit is offered, the balance have been read.
    */
   readonly defaultProvider = computed<ProviderInfo | null>(() => {
     const builtInCredit = this.me()?.builtInCredit ?? false;
     if (builtInCredit && !this.billingRead()) return null;
+    const ownKeyLocked = this.lockedFundings().has('own-key');
     return pickDefaultRoute(this.providers(), {
       creditCanPay: creditCanPay(builtInCredit, this.billing()),
-      ownKeyLocked: this.lockedFundings().has('own-key'),
+      ownKeyLocked,
     });
   });
 
@@ -370,8 +373,8 @@ export class CanvasStore {
 
   async init(me: MeResponse): Promise<void> {
     this.applyMe(me);
-    // Where credit is offered, the balance decides whether a new conversation may start on
-    // it, and without a membership whether the notice shows on load.
+    // Where credit is offered, the balance (and whether top-ups are sold) decides whether a
+    // new conversation may start on it, and without a membership whether the notice shows on load.
     const balance = me.builtInCredit ? this.refreshBilling() : null;
     await Promise.all([this.refreshKeys(), this.loadTrees(), balance]);
   }

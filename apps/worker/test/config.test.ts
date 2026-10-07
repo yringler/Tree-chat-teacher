@@ -68,16 +68,15 @@ describe('appConfig', () => {
       callTimeoutMs: 120_000,
       expireBatch: 20,
       sessionEstimateMicros: 20_000,
-      caps: {
-        free: { requestsPerDay: 30, spendMicrosPerDay: 100_000 },
-        member: { requestsPerDay: 150, spendMicrosPerDay: 500_000 },
-        globalFree: { spendMicrosPerDay: 5_000_000, bpsOfMorningBalance: 2_000 },
-        globalMember: { spendMicrosPerDay: 10_000_000, bpsOfMorningBalance: 4_000 },
-        ip: { requestsPerDay: 60, spendMicrosPerDay: 300_000 },
-      },
       limits: { userPerMinute: 6, ipPerMinute: 20 },
       minAccountAgeMs: 0,
       overage: { windowMs: 86_400_000, maxMicros: 200_000 },
+    });
+    // One set of caps for everyone: no member tier.
+    expect(c.pool.caps).toEqual({
+      user: { requestsPerDay: 30, spendMicrosPerDay: 100_000 },
+      global: { spendMicrosPerDay: 5_000_000, bpsOfMorningBalance: 2_000 },
+      ip: { requestsPerDay: 60, spendMicrosPerDay: 300_000 },
     });
     expect(c.impact).toEqual({
       minDistinctUsers: 5,
@@ -92,7 +91,8 @@ describe('appConfig', () => {
       markupBps: 1000,
       openRouterFeeBps: 550,
       membershipPriceCents: 1000,
-      membershipCreditCentsRaw: 200,
+      // The membership includes no credit by default.
+      membershipCreditCentsRaw: 0,
     });
   });
 
@@ -104,8 +104,10 @@ describe('appConfig', () => {
       DEV_PURCHASES_ENABLED: 'true',
       FEATURED_CONVERSATIONS_ENABLED: 'true',
       POOL_ACCOUNT_ID: 'pool-x',
-      POOL_FREE_REQUESTS_PER_DAY: '9',
-      POOL_MEMBER_REQUESTS_PER_DAY: '12',
+      POOL_REQUESTS_PER_DAY: '9',
+      POOL_SPEND_MICROS_PER_DAY: '12',
+      POOL_DAILY_GLOBAL_MICROS: '700',
+      POOL_DAILY_GLOBAL_BPS: '50',
       POOL_TOPIC_BLOCKLIST: ' a.b , ,c ',
       POOL_SYSTEM_PROMPT: 'Teach.',
     });
@@ -119,14 +121,14 @@ describe('appConfig', () => {
       featuredConversationsEnabled: true,
     });
     expect(c.pool.accountId).toBe('pool-x');
-    expect(c.pool.caps.free.requestsPerDay).toBe(9);
-    expect(c.pool.caps.member.requestsPerDay).toBe(12);
+    expect(c.pool.caps.user).toEqual({ requestsPerDay: 9, spendMicrosPerDay: 12 });
+    expect(c.pool.caps.global).toEqual({ spendMicrosPerDay: 700, bpsOfMorningBalance: 50 });
     expect(c.impact.topicBlocklist).toEqual(['a.b', 'c']);
     expect(c.pool.systemPrompt).toBe('Teach.');
-    expect(Object.isFrozen(c.pool.caps.free)).toBe(true);
-    expect(
-      appConfig(blank({ POOL_FREE_REQUESTS_PER_DAY: 'lots' })).pool.caps.free.requestsPerDay,
-    ).toBe(30);
+    expect(Object.isFrozen(c.pool.caps.user)).toBe(true);
+    expect(appConfig(blank({ POOL_REQUESTS_PER_DAY: 'lots' })).pool.caps.user.requestsPerDay).toBe(
+      30,
+    );
   });
 
   it('falls back to the Learn prompt, then the built-in one, for the locked pool prompt', () => {

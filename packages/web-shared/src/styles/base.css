@@ -1654,8 +1654,7 @@ app-node-picker {
   margin-top: 4px;
 }
 
-.membership-gate-free,
-.membership-gate-learn {
+.membership-gate-alt {
   width: 100%;
   justify-content: center;
   margin-top: 8px;

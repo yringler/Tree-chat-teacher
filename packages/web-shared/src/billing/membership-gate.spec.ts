@@ -19,7 +19,7 @@ const WAIVED: MembershipInfo = {
   periodEnd: null,
   cancelAtPeriodEnd: false,
   priceCents: 1000,
-  includedCreditCents: 200,
+  includedCreditCents: 0,
 };
 
 /** Template of a JIT-compiled component (the decorator's metadata). */
@@ -43,7 +43,8 @@ describe('MembershipGate', () => {
     const t = templateOf(MembershipGate);
     expect(t).toContain('role="dialog"');
     expect(t).toContain('aria-modal="true"');
-    expect(t).toContain('Tangent is {{ price() }} a year');
+    expect(t).toContain('Your own keys: {{ price() }} a year');
+    expect(t).toContain('is what lets you use your own API keys');
     expect(t).toContain('(click)="sub.subscribe()"');
     expect(t).toContain('<app-membership-code-form (redeemed)="redeemed.emit($event)" />');
     expect(t).toContain('[href]="billingPath()"');
@@ -51,19 +52,18 @@ describe('MembershipGate', () => {
     expect(t).not.toContain('aria-label="Close"');
   });
 
-  it('says what needs the membership (power mode by default) and labels the way out', () => {
+  it('says what needs the membership (own keys) and labels the way out', () => {
     const t = templateOf(MembershipGate);
-    expect(t).toContain('{{ needs() }}');
+    expect(t).toContain("{{ needs() }}; Tangent credit doesn't");
     expect(t).not.toContain('New replies need one');
-    expect(t).toContain('@if (freeTier(); as label)');
-    expect(t).toContain('(click)="freeTierChosen.emit()"');
+    expect(t).toContain('@if (alternative(); as label)');
+    expect(t).toContain('(click)="alternativeChosen.emit()"');
   });
 
-  it('offers Learn as a way out when given its address', () => {
+  it('no longer sends anyone to Learn as a free way out: own keys need the membership there too', () => {
     const t = templateOf(MembershipGate);
-    expect(t).toContain('@if (learnHref(); as href)');
-    expect(t).toContain('[href]="href"');
-    expect(t).toContain('Use Learn instead (free with your own key)');
+    expect(t).not.toContain('learnHref');
+    expect(t).not.toMatch(/free with your own key/i);
   });
 });
 
@@ -114,5 +114,11 @@ describe('BillingPage', () => {
     expect(t).toContain('Each call costs {{ feeText(s) }}.');
     expect(t).toContain('(click)="ctl.subscribe()"');
     expect(t).toContain('<app-membership-code-form (redeemed)="onRedeemed($event)" />');
+  });
+
+  it('sells top-ups to everyone: buying credit needs no membership', () => {
+    const t = templateOf(BillingPage);
+    expect(t).toContain('(click)="ctl.topUp(cents)"');
+    expect(t).not.toMatch(/for members|members only|membersOnly/i);
   });
 });

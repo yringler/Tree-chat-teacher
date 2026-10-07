@@ -346,8 +346,8 @@ export class UsersPage {
       !waived &&
       !user.membershipPaid &&
       !confirm(
-        `${user.email} has no paid membership. Without the waiver, power mode on their own keys ` +
-          'and buying credit need one. Continue?',
+        `${user.email} has no paid membership. Without the waiver, generating on their own ` +
+          'API keys (in Learn and power mode) needs one. Continue?',
       )
     ) {
       box.checked = true;

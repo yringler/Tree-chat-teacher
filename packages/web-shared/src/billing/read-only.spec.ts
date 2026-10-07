@@ -27,7 +27,7 @@ function membership(over: Partial<MembershipInfo> = {}): MembershipInfo {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
-    includedCreditCents: 200,
+    includedCreditCents: 0,
     ...over,
   };
 }
@@ -105,7 +105,7 @@ describe('readOnlyText', () => {
     expect(t.lead).toBe('Replies on your own API keys need a membership.');
     expect(t.renew).toBe('Become a member');
     expect(t.body).toBe(
-      'Become a member to continue this conversation, or create a copy in Learn. You can also continue it with your Tangent credit.',
+      'Become a member to continue this conversation, or create a copy in Learn. You can also continue it on Tangent credit, which needs no membership.',
     );
   });
 });

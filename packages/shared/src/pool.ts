@@ -19,7 +19,7 @@ export type FundingSource = 'own-key' | 'personal' | 'pool';
  * - `empty`: the pool can't cover the request right now;
  * - `cap_requests` / `cap_spend`: the user's daily replies or spend;
  * - `cap_ip`: the daily cap of the user's network;
- * - `cap_global`: the free tier's daily ceiling, all users together;
+ * - `cap_global`: the pool's daily ceiling, all users together;
  * - `rate`: too many requests this minute;
  * - `unpriced`: the pool can't price its model right now;
  * - `suspended`, `verify`, `duplicate_identity`, `too_new`: the account may not
@@ -47,10 +47,6 @@ export const poolBlockDetailsSchema = z.object({
   limit: z.number().int().nullable(),
   /** When the cap resets (the next 00:00 UTC, ISO); null when no cap applies. */
   resetAt: z.string().nullable(),
-  /** Whether the user has the member caps. */
-  member: z.boolean(),
-  /** The same cap for members, for "members get more"; null when it doesn't differ. */
-  memberLimit: z.number().int().nullable(),
 });
 export type PoolBlockDetails = z.infer<typeof poolBlockDetailsSchema>;
 
@@ -124,8 +120,6 @@ export interface PoolMeResponse {
   available: boolean;
   /** A Turnstile pass is on record (otherwise the first pool use asks for one). */
   verified: boolean;
-  /** Net purchases above $0: the higher caps. */
-  member: boolean;
   suspended: boolean;
   caps: {
     requestsPerDay: number;

@@ -17,7 +17,7 @@ import {
 import { isMetered, type AccountContext, type AppEnv } from '../env.js';
 import { builtInAvailable, personalCreditReady } from '../services.js';
 import { getBalance } from './ledger.js';
-import { assertMember, membershipFor } from './membership.js';
+import { membershipFor } from './membership.js';
 import { buyerFor, rememberCustomer } from './payments/customers.js';
 import { paymentProvider, paymentsConfigured } from './payments/index.js';
 import { appConfig } from '../config.js';
@@ -239,8 +239,10 @@ export function billingPageUrl(baseUrl: string, account: AccountContext): string
 
 /**
  * Opens the payment provider's hosted checkout for a top-up of the user's
- * own credit, in either mode. The provider carries the ledger to credit and
- * the buyer to its webhook (billing/payments/apply.ts).
+ * own credit, in either mode. Anyone signed in may buy credit, member or not
+ * (the membership is only for the user's own keys; credit carries the
+ * markup instead). The provider carries the ledger to credit and the buyer to
+ * its webhook (billing/payments/apply.ts).
  */
 export async function startTopUpCheckout(
   env: AppEnv,
@@ -260,8 +262,6 @@ export async function startTopUpCheckout(
   }
   const provider = paymentProvider(env);
   if (!provider?.capabilities.topUps) throw notConfigured();
-  // Buying credit is a membership benefit while the fee is on (spending what is held is not).
-  await assertMember(env, account);
   const buyer = await buyerFor(env.DB, provider.id, userId);
   if (!buyer) throw new DomainError('unauthorized', 'Sign in to add credit');
   // The user's ledger, whichever app the top-up was bought from.

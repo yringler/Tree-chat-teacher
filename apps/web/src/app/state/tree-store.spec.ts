@@ -27,7 +27,7 @@ function membership(over: Partial<MembershipInfo> = {}): MembershipInfo {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
-    includedCreditCents: 500,
+    includedCreditCents: 0,
     ...over,
   };
 }
@@ -51,6 +51,10 @@ function me(over: Partial<MeResponse> = {}): MeResponse {
 }
 
 const summary = { availableMicros: 2_500_000 } as BillingSummary;
+/** An empty balance where top-ups are sold: anyone can buy more. */
+const empty = { availableMicros: 0, topUpsEnabled: true } as BillingSummary;
+/** An empty balance where top-ups aren't sold: credit can't pay. */
+const spent = { availableMicros: 0, topUpsEnabled: false } as BillingSummary;
 
 function setup() {
   const api = {
@@ -269,7 +273,7 @@ describe('TreeStore read-only power without a membership', () => {
     expect(s.store.canGenerate()).toBe(true);
 
     const t = setup();
-    t.api.billing.mockResolvedValue({ availableMicros: 0 } as BillingSummary);
+    t.api.billing.mockResolvedValue(spent);
     t.store.membership.set(inactive());
     t.store.membershipNeededFor.set(['own-key']);
     expect(t.store.canGenerate()).toBe(true); // providers not read yet
@@ -294,9 +298,22 @@ describe('TreeStore read-only power without a membership', () => {
     expect(s.store.canReview(s.store.selectedBranch())).toBe(true);
   });
 
-  it('with no credit left either, power is read-only throughout', async () => {
+  it('a non-member with an empty balance carries on on credit where top-ups are sold (they can buy)', async () => {
     const s = setup();
-    s.api.billing.mockResolvedValue({ availableMicros: 0 } as BillingSummary);
+    s.api.billing.mockResolvedValue(empty);
+    await open(s, inactive({ subscriptionStatus: null }));
+    expect(s.store.creditCarriesOn()).toBe(true);
+    expect(s.store.readOnly()).toBe(true);
+    expect(s.store.openRoutes()).toEqual([credit]);
+    expect(s.store.canGenerate()).toBe(true);
+    expect(s.store.creditRoute()).toBe(credit);
+    // Credit, which can be bought, beats an own key the membership locks.
+    expect(s.store.defaultProvider()).toBe(credit);
+  });
+
+  it('where credit can be neither bought nor spent, power is read-only throughout', async () => {
+    const s = setup();
+    s.api.billing.mockResolvedValue(spent);
     await open(s, inactive());
     expect(s.store.readOnly()).toBe(true);
     expect(s.store.openRoutes()).toEqual([]);
@@ -377,7 +394,7 @@ describe('TreeStore read-only power without a membership', () => {
 
   it('a lapsed member out of credit on a credit branch: a 402 payment_required toasts to /billing, nothing turns read-only', async () => {
     const s = setup();
-    s.api.billing.mockResolvedValue({ availableMicros: 0 } as BillingSummary);
+    s.api.billing.mockResolvedValue(empty);
     await open(s, inactive());
     s.store.setRoute('t1', 'side', null);
     expect(s.store.readOnly()).toBe(false);
@@ -401,11 +418,24 @@ describe('TreeStore read-only power without a membership', () => {
     await vi.waitFor(() => expect(s.api.billing.mock.calls.length).toBeGreaterThan(callsBefore));
   });
 
-  it('offers no switch to credit without credit left', async () => {
+  it('offers no switch to credit where it can be neither bought nor spent', async () => {
     const s = setup();
-    s.api.billing.mockResolvedValue({ availableMicros: 0 } as BillingSummary);
+    s.api.billing.mockResolvedValue(spent);
     await open(s, inactive());
     await expect(s.store.switchToCredit('trunk')).resolves.toBe(false);
+  });
+
+  it('offers the switch to credit with an empty balance where top-ups are sold', async () => {
+    const s = setup();
+    s.api.billing.mockResolvedValue(empty);
+    await open(s, inactive());
+    const updateBranch = vi.fn(async (id: string, req: UpdateBranchRequest) => ({
+      ...tree().branches.find((b) => b.id === id)!,
+      ...req,
+    }));
+    (s.api as unknown as { updateBranch: typeof updateBranch }).updateBranch = updateBranch;
+    await expect(s.store.switchToCredit('trunk')).resolves.toBe(true);
+    expect(s.store.readOnly()).toBe(false);
   });
 });
 
@@ -508,9 +538,10 @@ describe('TreeStore the default route of a new conversation (no keys)', () => {
   it('credit offered: Tangent credit only while the balance read is above zero', async () => {
     const zero = setup();
     zero.api.providers.mockResolvedValue([...defaults, credit]);
-    zero.api.billing.mockResolvedValue({ availableMicros: 0 } as BillingSummary);
+    zero.api.billing.mockResolvedValue(empty);
     await zero.store.init(me());
-    // A member could buy more, but an empty balance would answer the first send with a 402.
+    // Anyone could buy more, but for a member whose own keys are open, an empty balance would
+    // answer the first send with a 402 for nothing.
     expect(zero.store.openRoutes()).toEqual([credit]);
     expect(routeOf(zero.store.defaultProvider())).toBe('openrouter');
 
@@ -542,7 +573,7 @@ describe('TreeStore the default route of a new conversation (no keys)', () => {
     expect(s.store.defaultProvider()).toBe(credit);
   });
 
-  it('a provider with a key comes first; own keys locked by the membership hand it to credit that can pay', async () => {
+  it('a provider with a key comes first; own keys locked by the membership hand it to credit', async () => {
     const keyed = { ...defaults[1]!, available: true, keySource: 'user' as const };
     const list = [defaults[0]!, keyed, defaults[2]!, credit];
     const member = setup();
@@ -555,13 +586,22 @@ describe('TreeStore the default route of a new conversation (no keys)', () => {
     await lapsed.store.init(me({ membership: membership({ status: 'inactive' }) }));
     expect(lapsed.store.defaultProvider()).toBe(credit);
 
-    // Nothing can generate: the home page shows the notice; the default stays off credit.
+    // An empty balance, but top-ups are sold: still credit (anyone can buy), not a locked key.
+    const buyer = setup();
+    buyer.api.providers.mockResolvedValue(list);
+    buyer.api.billing.mockResolvedValue(empty);
+    await buyer.store.init(me({ membership: membership({ status: 'inactive' }) }));
+    expect(buyer.store.canGenerate()).toBe(true);
+    expect(buyer.store.defaultProvider()).toBe(credit);
+
+    // Nothing can generate (top-ups off, nothing left): the home page shows the notice
+    // instead of the picker. Credit stays the default; the locked key can't reply either.
     const stuck = setup();
     stuck.api.providers.mockResolvedValue(list);
-    stuck.api.billing.mockResolvedValue({ availableMicros: 0 } as BillingSummary);
+    stuck.api.billing.mockResolvedValue(spent);
     await stuck.store.init(me({ membership: membership({ status: 'inactive' }) }));
     expect(stuck.store.canGenerate()).toBe(false);
-    expect(stuck.store.defaultProvider()).toBe(keyed);
+    expect(stuck.store.defaultProvider()).toBe(credit);
   });
 
   it('never a test provider over a usable route', async () => {

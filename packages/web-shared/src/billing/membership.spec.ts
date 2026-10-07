@@ -41,12 +41,17 @@ describe('membershipBlocks', () => {
 });
 
 describe('creditCarriesOn', () => {
-  it('is true while credit is sold and the balance is not known to be used up', () => {
+  it('is true wherever credit is sold: anyone can buy more, so an empty balance carries on', () => {
     expect(creditCarriesOn(true, { availableMicros: 1 })).toBe(true);
     expect(creditCarriesOn(true, null)).toBe(true);
-    expect(creditCarriesOn(true, { availableMicros: 0 })).toBe(false);
-    expect(creditCarriesOn(true, { availableMicros: -5 })).toBe(false);
+    expect(creditCarriesOn(true, { availableMicros: 0 })).toBe(true);
+    expect(creditCarriesOn(true, { availableMicros: -5, topUpsEnabled: true })).toBe(true);
     expect(creditCarriesOn(false, { availableMicros: 1_000_000 })).toBe(false);
+  });
+
+  it('with top-ups off, only a balance left carries on', () => {
+    expect(creditCarriesOn(true, { availableMicros: 1, topUpsEnabled: false })).toBe(true);
+    expect(creditCarriesOn(true, { availableMicros: 0, topUpsEnabled: false })).toBe(false);
   });
 });
 
@@ -89,9 +94,12 @@ describe('membership copy', () => {
     expect(membershipStatusText(membership({ status: 'waived' }))).toMatch(/^Waived/);
     expect(membershipStatusText(membership())).toMatch(/^Not active/);
     expect(membershipStatusText(membership())).toMatch(
-      /power mode on your own keys, buying credit/,
+      /lets you use your own API keys, in Learn and power mode/,
     );
-    expect(membershipStatusText(membership())).toMatch(/credit you already have stay usable/);
+    expect(membershipStatusText(membership())).toMatch(
+      /The open pool and Tangent credit don't need one/,
+    );
+    expect(membershipStatusText(membership())).not.toMatch(/buying credit|pool limits/i);
   });
 
   it('spells out the price of a call on credit', () => {

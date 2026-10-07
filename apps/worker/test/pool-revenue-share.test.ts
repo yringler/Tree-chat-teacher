@@ -16,7 +16,11 @@ import {
 import { grantDetailsFor, insertUser, uniq } from './mocks/billing-helpers.js';
 import { membershipPaid, paid, refunded } from './mocks/payment-events.js';
 
-const env = rawEnv as unknown as AppEnv;
+/**
+ * The test env with $2 of credit included per paid membership year: deployments include
+ * none (MEMBERSHIP_CREDIT_CENTS 0, as vitest.config.ts has it), but the mechanism stays.
+ */
+const env = { ...(rawEnv as unknown as AppEnv), MEMBERSHIP_CREDIT_CENTS: '200' } as AppEnv;
 const noProvider = { provider: null };
 const balance = async (accountId: string) => (await getBalance(env.DB, accountId)).balanceMicros;
 

@@ -18,13 +18,18 @@ function stored(): LearnPayment | null {
  * credit, or the open pool. The choice is remembered in this browser
  * and sent with every API call (API_HEADERS, see app.config.ts), together
  * with the mode header that makes the server act as the learner's Learn
- * account. A choice the server doesn't offer falls back: credit, then the
- * own key if one is saved, then the pool (only an explicit pool choice
- * outranks a saved key), then the own key. Credit counts only while it is
- * usable (`creditUsable`): for a member, or for anyone with a balance left
- * (spending credit needs no membership; buying it does). The server only honours `credit` and `pool` where
- * it offers them (`MeResponse.builtInCredit`, `PoolStatusResponse.enabled`),
- * so a stale choice can never spend anything the learner didn't pick.
+ * account. The own key needs the yearly membership where it is required
+ * (`member`); credit and the pool never do. A choice the server doesn't
+ * offer falls back: credit, then the own key if one is saved (or its status
+ * isn't known yet) and the learner may use it, then the pool (only an
+ * explicit pool choice outranks a saved key), then the own key. Credit
+ * counts wherever it is sold and usable (`creditUsable`: anyone can buy it,
+ * so an empty balance can be refilled). An explicit own-key choice stands
+ * even without a membership: the shell then shows the membership gate
+ * (`AccountStore.membershipBlocked`) instead of letting a send fail with a
+ * 402. The server only honours `credit` and `pool` where it offers them
+ * (`MeResponse.builtInCredit`, `PoolStatusResponse.enabled`), so a stale
+ * choice can never spend anything the learner didn't pick.
  *
  * Kept free of ApiClient: ApiClient reads `headers()`, so injecting it here
  * would be circular.
@@ -43,27 +48,37 @@ export class PaymentStore {
   readonly hasOwnKey = signal<boolean | null>(null);
   /**
    * False when the membership is required and the learner has none (from
-   * AccountStore): they can't buy credit then, only spend what they hold.
+   * AccountStore): replies on their own key are blocked then (402
+   * `membership_required`). Credit and the pool don't care.
    */
   readonly member = signal(true);
   /** The learner's available credit (from the billing summary, via AccountStore); null until known. */
   readonly creditAvailableMicros = signal<number | null>(null);
   /**
-   * Credit can pay for replies: the learner is a member (or none is
-   * required), who can always buy more, or has a balance left to spend.
+   * False when the server sells no one-time top-ups (the billing summary's
+   * `topUpsEnabled === false`, via AccountStore); true until known.
    */
-  readonly creditUsable = computed(() => this.member() || (this.creditAvailableMicros() ?? 0) > 0);
+  readonly topUpsEnabled = signal(true);
+  /**
+   * Credit can pay for replies: anyone can buy it (no membership needed), so
+   * it is usable wherever top-ups are sold, and otherwise while a balance is
+   * left. (Whether credit is sold at all is `builtInCredit`.)
+   */
+  readonly creditUsable = computed(
+    () => this.topUpsEnabled() || (this.creditAvailableMicros() ?? 0) > 0,
+  );
   /** The learner's explicit choice; null until they pick one (credit is the default where sold). */
   private readonly chosen = signal<LearnPayment | null>(stored());
   /** The demo always runs on its pretend credit, whatever this browser chose for real. */
   private readonly demo = inject(DEMO_MODE, { optional: true }) ?? false;
 
   /**
-   * What replies actually run on: the own key when chosen; the pool when
-   * chosen and on; otherwise credit if sold and usable (`creditUsable`),
-   * else a saved (or not yet known) own key (so a key
-   * user who never picked never lands on the pool), else the pool, else the
-   * own key.
+   * What replies actually run on: the own key when chosen (a non-member then
+   * meets the membership gate); the pool when chosen and on; otherwise credit
+   * if sold and usable (`creditUsable`), else a saved (or not yet known) own
+   * key for a learner who may use it (so a key user who never picked never
+   * lands on the pool, and a non-member never lands on their key unasked),
+   * else the pool, else the own key.
    */
   readonly payment = computed<LearnPayment>(() => {
     if (this.demo) return 'credit';
@@ -73,7 +88,7 @@ export class PaymentStore {
     if (chosen === 'own-key') return 'own-key';
     if (chosen === 'pool' && pool) return 'pool';
     if (credit) return 'credit';
-    if (this.hasOwnKey() !== false) return 'own-key';
+    if (this.member() && this.hasOwnKey() !== false) return 'own-key';
     return pool ? 'pool' : 'own-key';
   });
 

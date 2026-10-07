@@ -29,7 +29,7 @@ import {
   type BalanceCheckpoint,
   type BalanceRow,
 } from '../billing/ledger.js';
-import { insertPendingUsageStatement, type PoolTier } from '../billing/usage-store.js';
+import { insertPendingUsageStatement } from '../billing/usage-store.js';
 import type { PoolCaps, PoolOverage, PoolRateLimits } from '../config.js';
 import type { AppEnv } from '../env.js';
 import {
@@ -76,7 +76,8 @@ const VERIFY_EVERY_MS = DAY_MS;
  * (the overage breaker is tripped), `rate` (replies only: the caller's or
  * their network's requests this minute), the caller's daily caps
  * (`cap_requests`, `cap_spend`), the network's (`cap_ip`), `empty` (the pool
- * can't cover the hold), then the free tier's global ceiling (`cap_global`).
+ * can't cover the hold), then the pool's global ceiling (`cap_global`). The
+ * caps are the same for every caller: there is no member tier.
  */
 export type PoolRefusalReason = Extract<
   PoolBlockReason,
@@ -96,8 +97,6 @@ export interface PoolReserveRequest {
   userId: string;
   /** The caller's network key (pool/ids.ts `ipKey`); null = no per-network caps. */
   ipKey: string | null;
-  /** The caller holds a membership, resolved Worker-side (`PoolParams.member`): the member tier. */
-  member: boolean;
   purpose: UsagePurpose;
   treeId: string | null;
   branchId: string | null;
@@ -139,9 +138,6 @@ export interface PoolRefusal {
   resetAt: string | null;
   /** The cap that was hit (replies or requests a minute, or micro-USD); null for `empty` and `unpriced`. */
   limit: number | null;
-  member: boolean;
-  /** The same cap for members (`cap_requests`, `cap_spend` only), for "members get more". */
-  memberLimit: number | null;
 }
 
 /** `debit`: take up to `requestedMicros` from the pool, keyed on `refId`. */
@@ -177,7 +173,7 @@ export interface PoolDebitResult {
   shortfallMicros: number;
 }
 
-export type PoolReserveResult = { ok: true; usageId: string; tier: PoolTier } | PoolRefusal;
+export type PoolReserveResult = { ok: true; usageId: string } | PoolRefusal;
 export type PoolAdmitResult = { ok: true } | PoolRefusal;
 
 export interface PoolMaintainResult {
@@ -250,20 +246,13 @@ export function userDayUsageStatement(
 function refusal(
   req: { poolId: string; userId: string; purpose?: UsagePurpose; holdMicros?: number },
   reason: PoolRefusalReason,
-  fields: {
-    resetAt?: string | null;
-    limit?: number | null;
-    member?: boolean;
-    memberLimit?: number | null;
-  } = {},
+  fields: { resetAt?: string | null; limit?: number | null } = {},
 ): PoolRefusal {
   const refused: PoolRefusal = {
     ok: false,
     reason,
     resetAt: fields.resetAt ?? null,
     limit: fields.limit ?? null,
-    member: fields.member ?? false,
-    memberLimit: fields.memberLimit ?? null,
   };
   console.log(
     JSON.stringify({
@@ -306,20 +295,13 @@ export class PoolBank extends DurableObject<AppEnv> {
     const day = dayStart(now).toISOString();
     const resetAt = dayResetAt(now);
 
-    const refuse = (
-      reason: PoolRefusalReason,
-      member: boolean,
-      limit: number | null = null,
-      memberLimit: number | null = null,
-    ): PoolRefusal =>
+    const refuse = (reason: PoolRefusalReason, limit: number | null = null): PoolRefusal =>
       refusal(req, reason, {
         resetAt: reason !== 'empty' && reason !== 'unpriced' ? resetAt : null,
         limit,
-        member,
-        memberLimit,
       });
 
-    if (await this.breakerTripped(req.poolId, req.overage, now)) return refuse('unpriced', false);
+    if (await this.breakerTripped(req.poolId, req.overage, now)) return refuse('unpriced');
     // Only replies count toward the per-minute limits: a reply's summaries, its title and
     // topic tagging ride on the reply that was admitted.
     if (req.purpose === 'reply') {
@@ -355,15 +337,13 @@ export class PoolBank extends DurableObject<AppEnv> {
            WHERE account_id = ?1 AND ip_key = ?2 AND created_at >= ?3`,
         )
         .bind(req.poolId, req.ipKey ?? '', day),
-      // Each tier's spend today, all users together (tagging counts toward no one's caps).
+      // The pool's spend today, all users together (tagging counts toward no one's caps).
+      // Every row on the pool counts, whatever its `tier`: rows from before the member
+      // tier was retired carry 'free' or 'member', newer ones null.
       db
         .prepare(
-          `SELECT
-             COALESCE(SUM(CASE WHEN tier = 'free' THEN ${SPEND_EXPR} END), 0) AS free,
-             COALESCE(SUM(CASE WHEN tier = 'member' THEN ${SPEND_EXPR} END), 0) AS member
-           FROM usage_events
-           WHERE account_id = ?1 AND tier IN ('free', 'member') AND purpose <> 'tagging'
-             AND created_at >= ?2`,
+          `SELECT COALESCE(SUM(${SPEND_EXPR}), 0) AS spend FROM usage_events
+           WHERE account_id = ?1 AND purpose <> 'tagging' AND created_at >= ?2`,
         )
         .bind(req.poolId, day),
     ];
@@ -375,43 +355,35 @@ export class PoolBank extends DurableObject<AppEnv> {
     const added = Number((addedRes!.results[0] as { added?: number })?.added ?? 0);
     const user = userRes!.results[0] as DayRow | undefined;
     const ip = ipRes!.results[0] as DayRow | undefined;
-    const tierSpend = globalRes!.results[0] as { free?: number; member?: number } | undefined;
-    const member = req.member;
-    const tier: PoolTier = member ? 'member' : 'free';
-    const caps = member ? req.caps.member : req.caps.free;
+    const spent = Number((globalRes!.results[0] as { spend?: number } | undefined)?.spend ?? 0);
+    const caps = req.caps.user;
     const hold = req.holdMicros;
 
     // Topic tagging is charged to the pool but counts toward no one's caps.
     if (req.purpose !== 'tagging') {
       const reply = req.purpose === 'reply';
       if (reply && Number(user?.requests ?? 0) >= caps.requestsPerDay)
-        return refuse('cap_requests', member, caps.requestsPerDay, req.caps.member.requestsPerDay);
+        return refuse('cap_requests', caps.requestsPerDay);
       if (Number(user?.spend ?? 0) + hold > caps.spendMicrosPerDay)
-        return refuse(
-          'cap_spend',
-          member,
-          caps.spendMicrosPerDay,
-          req.caps.member.spendMicrosPerDay,
-        );
+        return refuse('cap_spend', caps.spendMicrosPerDay);
       if (req.ipKey !== null) {
         const ipCaps = req.caps.ip;
         if (reply && Number(ip?.requests ?? 0) >= ipCaps.requestsPerDay)
-          return refuse('cap_ip', member, ipCaps.requestsPerDay);
+          return refuse('cap_ip', ipCaps.requestsPerDay);
         if (Number(ip?.spend ?? 0) + hold > ipCaps.spendMicrosPerDay)
-          return refuse('cap_ip', member, ipCaps.spendMicrosPerDay);
+          return refuse('cap_ip', ipCaps.spendMicrosPerDay);
       }
     }
     // An empty pool says so (the first-class empty state), rather than "busy today".
-    if (available < hold) return refuse('empty', member);
+    if (available < hold) return refuse('empty');
     if (req.purpose !== 'tagging') {
-      // Each tier has its own ceiling for all its users together, a share of the day's base:
-      // the balance at 00:00 UTC plus what was added since (so funding helps the same day).
-      const g = member ? req.caps.globalMember : req.caps.globalFree;
+      // One ceiling for all users together, a share of the day's base: the balance at
+      // 00:00 UTC plus what was added since (so funding helps the same day).
+      const g = req.caps.global;
       const base = Math.max(0, morning) + Math.max(0, added);
       const share = Math.floor((base * g.bpsOfMorningBalance) / 10_000);
       const ceiling = Math.min(g.spendMicrosPerDay, share);
-      const spent = Number((member ? tierSpend?.member : tierSpend?.free) ?? 0);
-      if (spent + hold > ceiling) return refuse('cap_global', member, ceiling);
+      if (spent + hold > ceiling) return refuse('cap_global', ceiling);
     }
 
     const usageId = crypto.randomUUID();
@@ -424,7 +396,6 @@ export class PoolBank extends DurableObject<AppEnv> {
       userId: req.userId,
       funding: 'pool',
       ipKey: req.ipKey,
-      tier,
       purpose: req.purpose,
       providerId: req.providerId,
       model: req.model,
@@ -435,7 +406,7 @@ export class PoolBank extends DurableObject<AppEnv> {
       createdAt: now.toISOString(),
     }).run();
     await this.ensureAlarmBy(Date.now() + req.expiry.ttlMs);
-    return { ok: true, usageId, tier };
+    return { ok: true, usageId };
   }
 
   /**

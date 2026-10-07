@@ -103,7 +103,7 @@ export class PoolBlockedError extends DomainError {
 
 /** A refusal with no cap involved (`empty`, `unpriced`, or an account that may not use the pool). */
 export function poolBlock(reason: PoolBlockDetails['reason']): PoolBlockDetails {
-  return { reason, limit: null, resetAt: null, member: false, memberLimit: null };
+  return { reason, limit: null, resetAt: null };
 }
 
 /**

@@ -10,7 +10,7 @@ import {
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import { membershipRequired } from '../billing/membership.js';
-import { appConfig, type PoolGlobalCap } from '../config.js';
+import { appConfig, type PoolDailyCaps, type PoolGlobalCap } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { poolImpactWeeks, readPoolImpact } from '../pool/impact.js';
 import { modelPrice } from '../pool/model-prices.js';
@@ -42,13 +42,13 @@ export interface PoolPageFacts {
   revenueShareBps: number;
   sessionEstimateMicros: number;
   maxOutputTokens: number;
-  free: { requestsPerDay: number; spendMicrosPerDay: number };
-  member: { requestsPerDay: number; spendMicrosPerDay: number };
-  /** The yearly membership is sold and required here (`membershipRequired`): members exist. */
+  /** Each learner's daily caps: the same for everyone, member or not. */
+  user: PoolDailyCaps;
+  /** The yearly membership is sold and required here (`membershipRequired`): Tangent sells it. */
   membershipOffered: boolean;
-  globalFree: PoolGlobalCap;
-  globalMember: PoolGlobalCap;
-  ip: { requestsPerDay: number; spendMicrosPerDay: number };
+  /** All learners together, per day. */
+  global: PoolGlobalCap;
+  ip: PoolDailyCaps;
   perMinute: number;
   /** The reply's ceiling hold: the part of a daily spend cap that can't start one more reply. */
   ceilingHoldMicros: number | null;
@@ -80,11 +80,9 @@ export async function poolPageFacts(env: AppEnv): Promise<PoolPageFacts> {
     revenueShareBps: pool.revenueShareBps,
     sessionEstimateMicros: pool.sessionEstimateMicros,
     maxOutputTokens: pool.maxOutputTokens,
-    free: pool.caps.free,
-    member: pool.caps.member,
+    user: pool.caps.user,
     membershipOffered: membershipRequired(env),
-    globalFree: pool.caps.globalFree,
-    globalMember: pool.caps.globalMember,
+    global: pool.caps.global,
     ip: pool.caps.ip,
     perMinute: pool.limits.userPerMinute,
     ceilingHoldMicros: price
@@ -129,13 +127,6 @@ function feedSection(feed: PoolPageFeed | null): string {
 function smallMoney(micros: number): string {
   if (micros >= 10_000) return formatMicros(micros);
   return `${Number((micros / 10_000).toFixed(1))}¢`;
-}
-
-/** Who is a member (billing/membership.ts `isMember`): a paid or waived yearly membership. */
-function membersText(offered: boolean): string {
-  if (!offered)
-    return 'There is no membership here right now, so every learner gets the free limits.';
-  return 'Anyone with a Tangent membership (yearly) is a member, and gets the higher limits above. Paid accounts are much harder to farm than free ones, so they get more room.';
 }
 
 /** Where the pool's credit comes from, in detail (the summary states the commitment). */
@@ -185,7 +176,7 @@ ${added}
 <ul>
 <li>Any signed-in learner can use the pool in Tangent Learn. When your own credit runs out, Learn uses the pool. When you have both, you choose with the <strong>Pay for replies with</strong> switch above the message box.</li>
 <li>The pool can never go below zero. Every reply sets aside its worst-case cost first, and is refused if the pool can't cover it.</li>
-<li>When it runs out, Learn says so: "${escapeHtml(POOL_EMPTY_TEXT)}" Your message is kept, and you can use your own OpenRouter key instead, or buy credit for yourself${f.membershipOffered ? ' (buying credit needs a membership)' : ''}.</li>
+<li>When it runs out, Learn says so: "${escapeHtml(POOL_EMPTY_TEXT)}" Your message is kept, and you can buy credit for yourself instead, or use your own OpenRouter key${f.membershipOffered ? ' (with a membership)' : ''}.</li>
 <li>The meter shows about how many learning sessions the pool still covers, counting ${escapeHtml(formatMicros(f.sessionEstimateMicros))} per session, next to the amount in dollars and how many learners and replies it paid for this week. Those are totals only; no one's name or questions are shown.</li>
 </ul>
 
@@ -200,19 +191,15 @@ ${added}
 <table>
 <thead><tr><th>Limit</th><th>Value</th></tr></thead>
 <tbody>
-<tr><td>Replies per learner per day</td><td>${f.free.requestsPerDay.toLocaleString('en-US')} (members: ${f.member.requestsPerDay.toLocaleString('en-US')})</td></tr>
-<tr><td>Spending per learner per day</td><td>${escapeHtml(formatMicros(f.free.spendMicrosPerDay))} (members: ${escapeHtml(formatMicros(f.member.spendMicrosPerDay))})</td></tr>
+<tr><td>Replies per learner per day</td><td>${f.user.requestsPerDay.toLocaleString('en-US')}</td></tr>
+<tr><td>Spending per learner per day</td><td>${escapeHtml(formatMicros(f.user.spendMicrosPerDay))}</td></tr>
 <tr><td>Replies per minute</td><td>${f.perMinute.toLocaleString('en-US')}</td></tr>
 <tr><td>Per network per day</td><td>${f.ip.requestsPerDay.toLocaleString('en-US')} replies, ${escapeHtml(formatMicros(f.ip.spendMicrosPerDay))}</td></tr>
-<tr><td>All non-members together, per day</td><td>${globalCapText(f.globalFree)}</td></tr>
-<tr><td>All members together, per day</td><td>${globalCapText(f.globalMember)}</td></tr>
+<tr><td>All learners together, per day</td><td>${globalCapText(f.global)}</td></tr>
 </tbody>
 </table>
-<p>Daily limits reset at 00:00 UTC. The last two keep a busy day from emptying the pool before later learners that day get to use it; credit added during the day counts toward them straight away. Using the pool needs a signed-in account that passed a quick human check, and one account per email address.</p>
+<p>The limits are the same for everyone: a membership or credit of your own doesn’t change them. Daily limits reset at 00:00 UTC. The last one keeps a busy day from emptying the pool before later learners that day get to use it; credit added during the day counts toward it straight away. Using the pool needs a signed-in account that passed a quick human check, and one account per email address.</p>
 ${ceiling}
-<h2>Members</h2>
-<p>${escapeHtml(membersText(f.membershipOffered))}</p>
-
 <h2 id="impact">What the pool is funding</h2>
 <p>Every Monday, Tangent publishes what the pool paid for the week before (Monday to Sunday, UTC): how many replies and learners, how many topics, and how deep learners went down their branches. These are totals only. No one's questions or name are ever shown, and a topic is named only when all of these hold:</p>
 <ul>

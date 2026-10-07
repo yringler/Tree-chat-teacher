@@ -110,7 +110,7 @@ describe('landingRoutes', () => {
     expect(html).not.toMatch(/processing fee|tax is added|billing portal/i);
   });
 
-  it('with the membership on: own keys stay free in Learn; power keys and buying credit need it', async () => {
+  it('with the membership on: own keys need it in Learn and power mode; credit never does', async () => {
     const off = await (
       await setup({ env: { ANNUAL_FEE_ENABLED: 'false' } }).request('/welcome')
     ).text();
@@ -118,11 +118,19 @@ describe('landingRoutes', () => {
     const { request } = setup({ env: { ANNUAL_FEE_ENABLED: 'true' } });
     const html = await (await request('/welcome')).text();
     expect(html).toContain(
-      'Or pay per reply from prepaid credit (buying credit needs a membership)',
+      'Or use your own OpenRouter key: you pay OpenRouter directly, and a $10 yearly membership covers Tangent.',
     );
-    expect(html).toContain('With a yearly membership, you can also buy prepaid credit');
-    expect(html).toContain('with nothing charged by Tangent and no membership needed');
-    expect(html).toContain('Using your own keys here needs a yearly membership');
+    expect(html).toContain(
+      'Or buy prepaid credit and pay for each reply at what it costs Tangent, plus 10%, with no membership needed.',
+    );
+    expect(html).toContain(
+      '<li>Or use your own OpenRouter key, with a $10 yearly membership and nothing charged per reply</li>',
+    );
+    expect(html).toContain('<li>Or pay per reply from prepaid credit, no membership needed</li>');
+    expect(html).toContain(
+      'Your own keys need the $10 yearly membership, here as in Learn; prepaid credit needs none.',
+    );
+    expect(html).not.toMatch(/buying credit needs a membership|Tangent charges nothing/i);
   });
 
   it('offers prepaid credit only where it is sold, and names the own-key providers', async () => {

@@ -11,8 +11,8 @@ let uid = 0;
  * needs a membership the user lacks, see `lockedFundings`): says why, links
  * to the billing page to renew (or become a member), copies the conversation
  * into Learn and opens it there, and, when `credit` is set, offers to carry
- * the branch on with Tangent credit (`useCredit`, the app switches the
- * branch). The power app and Canvas (`compact`) show it; styles:
+ * the branch on with Tangent credit, which anyone can buy (`useCredit`, the
+ * app switches the branch). The power app and Canvas (`compact`) show it; styles:
  * `.read-only-composer` in base.css.
  */
 @Component({
@@ -56,7 +56,7 @@ export class ReadOnlyComposer {
   readonly treeId = input.required<string>();
   /** The power app's billing page (absolute: Canvas links across apps). */
   readonly billingHref = input('/billing');
-  /** The branch could carry on with Tangent credit the user holds: offer it. */
+  /** Tangent credit is sold here, so the branch can carry on with it: offer it. */
   readonly credit = input(false);
   /** Smaller, for a Canvas lane. */
   readonly compact = input(false);

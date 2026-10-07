@@ -65,11 +65,9 @@ describe('pool copy rule', () => {
           reason,
           limit: 30,
           resetAt: '2026-10-06T00:00:00.000Z',
-          member: false,
-          memberLimit: 150,
         },
       });
-      texts.push(t.title, t.detail ?? '', t.members ?? '');
+      texts.push(t.title, t.detail ?? '');
     }
     for (const text of texts) expect(text).not.toMatch(FORBIDDEN_POOL_COPY);
   });

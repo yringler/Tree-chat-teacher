@@ -211,11 +211,11 @@ export default defineConfig({
             POLAR_CREDITS_PRODUCT_ID: '',
             POLAR_MEMBERSHIP_PRODUCT_ID: '',
             // No membership required by default (tests that need one pass ANNUAL_FEE_ENABLED: 'true' in
-            // an env override), so the other suites generate freely. The fee is off as deployed; the
-            // price and credit are the defaults.
+            // an env override), so the other suites generate freely. The price and the included credit
+            // (none) are the defaults; tests of the included credit set MEMBERSHIP_CREDIT_CENTS.
             ANNUAL_FEE_ENABLED: 'false',
             MEMBERSHIP_PRICE_CENTS: '1000',
-            MEMBERSHIP_CREDIT_CENTS: '200',
+            MEMBERSHIP_CREDIT_CENTS: '0',
             MEMBERSHIP_WAIVER_CODE: '',
             MARKUP_BPS: '1000',
             // The open pool, on (wrangler.jsonc ships it off). Pool tests isolate themselves with a
@@ -237,10 +237,8 @@ export default defineConfig({
               simple: { in: 1_000_000, out: 1_000_000, context: 8_192 },
             }),
             POOL_MAX_OUTPUT_TOKENS: '2048',
-            POOL_FREE_REQUESTS_PER_DAY: '3',
-            POOL_FREE_SPEND_MICROS_PER_DAY: '1000000',
-            POOL_MEMBER_REQUESTS_PER_DAY: '6',
-            POOL_MEMBER_SPEND_MICROS_PER_DAY: '5000000',
+            POOL_REQUESTS_PER_DAY: '3',
+            POOL_SPEND_MICROS_PER_DAY: '1000000',
             POOL_USER_PER_MINUTE: '100',
             POOL_IP_PER_MINUTE: '100',
             // Generation lookups made inside Durable Objects (PoolBank's expiry) reach the

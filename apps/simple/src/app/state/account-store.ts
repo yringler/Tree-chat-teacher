@@ -27,8 +27,9 @@ export interface PaidBy {
 }
 
 /**
- * The signed-in caller, their membership, how they pay (own key, credit or
- * the open pool), their credit balance and the pool's meter.
+ * The signed-in caller, their membership (needed only for replies on their
+ * own key), how they pay (own key, credit or the open pool), their credit
+ * balance and the pool's meter.
  */
 @Injectable({ providedIn: 'root' })
 export class AccountStore {
@@ -53,28 +54,31 @@ export class AccountStore {
   private readonly gateForced = signal(false);
 
   /**
-   * The shell shows the membership gate. No Learn reply needs a membership
-   * (the learner's own key, the pool and credit they hold are all open to
-   * non-members; only buying credit and power mode on own keys need one), so
-   * this is a safeguard: it shows only if the server ever refuses a reply
-   * with 402 `membership_required` while the learner has none, and its way
-   * out moves replies off credit.
+   * The shell shows the membership gate: the learner has no membership where
+   * one is required, and replies run on their own key (which needs one; the
+   * pool and Tangent credit don't), or the server just refused a reply with
+   * 402 `membership_required` (the membership may have lapsed since
+   * /api/me). Its way out (`alternativeOffered`) moves replies off the key.
    */
   readonly membershipBlocked = computed(
-    () => this.gateForced() && membershipBlocks(this.membership()),
+    () =>
+      !this.demo &&
+      membershipBlocks(this.membership()) &&
+      (this.payment.payment() === 'own-key' || this.gateForced()),
   );
 
   /**
-   * The gate's way out, continuing on the free tier without a membership:
-   * the open pool while it is on, else the learner's own key.
+   * The gate's way out, carrying on without a membership: the open pool
+   * while it is on, else Tangent credit where it is sold (anyone can buy
+   * it); null when neither is on offer.
    */
-  readonly freeTierOffered = computed(() =>
-    this.demo
-      ? null
-      : this.payment.poolAvailable()
-        ? 'Continue free on the open pool'
-        : 'Continue with my own OpenRouter key',
-  );
+  readonly alternativeOffered = computed(() => {
+    if (this.demo) return null;
+    if (this.payment.poolAvailable()) return 'Continue on the open pool';
+    if (this.payment.builtInCredit() && this.payment.creditUsable())
+      return 'Continue on Tangent credit';
+    return null;
+  });
 
   /** True when the learner's own OpenRouter key is stored in this browser. */
   readonly hasOwnKey = computed(
@@ -154,33 +158,24 @@ export class AccountStore {
 
   /**
    * The composer's funding toggle: both the learner's own credit (offered and
-   * not used up) and the pool can pay, so the learner picks. Hidden while
+   * a balance left) and the pool can pay, so the learner picks. Hidden while
    * replies run on the own key: the toggle picks between the funded sources.
+   * Membership plays no part: neither credit nor the pool needs one.
    */
   readonly fundingChoice = computed(() => {
     if (this.demo || !this.payment.builtInCredit() || !this.payment.poolAvailable()) return false;
-    // Credit a non-member still holds can pay; with none left, only a member's can.
-    if (!this.payment.creditUsable()) return false;
     if (this.payment.payment() === 'own-key') return false;
     const own = this.poolMe()?.personalAvailableMicros ?? this.billing()?.availableMicros ?? 0;
     return own > 0;
   });
 
   /**
-   * Personal credit can be bought now: credit is offered, the provider sells
-   * top-ups and the learner may buy (a member, or no membership required;
-   * spending what they hold needs neither).
+   * Personal credit can be bought now: credit is offered and the provider
+   * sells top-ups. Anyone may buy, member or not.
    */
   readonly creditOnSale = computed(
-    () =>
-      !this.demo &&
-      this.payment.builtInCredit() &&
-      this.payment.member() &&
-      this.billing()?.topUpsEnabled !== false,
+    () => !this.demo && this.payment.builtInCredit() && this.billing()?.topUpsEnabled !== false,
   );
-
-  /** The membership is sold here and the learner has none: the pool notice offers it. */
-  readonly membershipOnSale = computed(() => !this.demo && membershipBlocks(this.membership()));
 
   /** True when the available credit is used up (the pill turns into a warning). */
   readonly lowBalance = computed(() => {
@@ -199,6 +194,7 @@ export class AccountStore {
   applyBilling(summary: BillingSummary): void {
     this.billing.set(summary);
     this.payment.creditAvailableMicros.set(summary.availableMicros);
+    this.payment.topUpsEnabled.set(summary.topUpsEnabled !== false);
     this.useMembership(summary.membership);
   }
 
@@ -220,17 +216,19 @@ export class AccountStore {
   }
 
   /**
-   * The gate's way out (`freeTierOffered`): closes the gate and moves replies
-   * off credit, to the open pool while it is on, else to the learner's
-   * own key (the composer then asks for one if none is saved).
+   * The gate's way out (`alternativeOffered`): closes the gate and moves
+   * replies off the learner's own key, to the open pool while it is on, else
+   * to Tangent credit (with an empty balance, the next send leads to the
+   * billing page to add some).
    */
-  useFreeTier(): void {
+  useAlternative(): void {
     this.gateForced.set(false);
     if (this.payment.poolAvailable()) {
       this.payment.choose('pool');
       void this.switchToPool();
-    } else {
-      this.payment.choose('own-key');
+    } else if (this.payment.builtInCredit()) {
+      this.payment.choose('credit');
+      void this.refreshBalance();
     }
   }
 

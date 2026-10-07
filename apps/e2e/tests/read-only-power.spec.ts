@@ -121,23 +121,21 @@ test('a cancelled membership: own-key branches read-only, credit carries on, cop
   });
 });
 
-test('a new conversation starts on Tangent credit only while it can pay; with nothing to pay, the notice', async ({
+test('without a membership, a new conversation starts on Tangent credit, which anyone can buy', async ({
   context,
   page,
   baseURL,
 }) => {
-  // Never a member, so own keys need the membership; no credit yet.
+  // Never a member, so own keys need the membership; no credit yet, but top-ups are sold.
   const userId = await signIn(context, baseURL!, newEmail('default-route'));
   await page.goto('/');
-  const notice = page.locator('.home-read-only');
-  await expect(notice).toContainText('Replies on your own API keys need a membership.');
-  await expect(notice.getByRole('link', { name: 'Open Learn' })).toBeVisible();
-  await expect(page.locator('#composer-input')).toHaveCount(0);
+  await expect(page.locator('#composer-input')).toBeVisible();
+  await expect(page.locator('.home-read-only')).toHaveCount(0);
+  await expect(page.getByLabel('Provider')).toHaveValue('openrouter@credit');
 
-  // With credit bought, the new-conversation box is back, on Tangent credit.
+  // With credit bought, still on Tangent credit.
   await paymentWebhook(context.request, [topUp(userId, 500)]);
   await page.reload();
   await expect(page.locator('#composer-input')).toBeVisible();
-  await expect(notice).toHaveCount(0);
   await expect(page.getByLabel('Provider')).toHaveValue('openrouter@credit');
 });

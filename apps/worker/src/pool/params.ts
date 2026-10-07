@@ -38,8 +38,6 @@ export interface PoolParams {
   ipKey: string | null;
   /** The pool notice version the caller must have acknowledged (pool/consent.ts). */
   noticeVersion: number;
-  /** The caller holds a membership (billing/membership.ts `isMember`): the member tier's caps. */
-  member: boolean;
 }
 
 /** The pool model: `POOL_MODEL`, else the simple provider's fast model. */
@@ -48,14 +46,11 @@ export function poolModel(env: AppEnv): string {
 }
 
 /**
- * Resolves the pool parameters of a request from `env` (the price: `modelPrice`);
- * `member` is the caller's membership, resolved by `withPoolParams`.
+ * Resolves the pool parameters of a request from `env` (the price: `modelPrice`).
+ * The caps are the same for every caller: nothing here depends on who asks
+ * but their network (`ipKey`).
  */
-export async function resolvePoolParams(
-  env: AppEnv,
-  ipKey: string | null,
-  member = false,
-): Promise<PoolParams> {
+export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Promise<PoolParams> {
   const config = appConfig(env);
   const pool = config.pool;
   const model = poolModel(env);
@@ -77,7 +72,6 @@ export async function resolvePoolParams(
     overage: pool.overage,
     ipKey,
     noticeVersion: pool.noticeVersion,
-    member,
   };
 }
 
@@ -103,7 +97,6 @@ export function poolReserveRequest(
     poolId: pool.accountId,
     userId,
     ipKey: pool.ipKey,
-    member: pool.member,
     model: pool.model,
     ...call,
     caps: pool.caps,
@@ -126,6 +119,6 @@ export function poolAdmitRequest(pool: PoolParams, userId: string): PoolAdmitReq
 
 /** What a refused reservation tells the client (`ApiError.error.pool`). */
 export function poolBlockDetails(refusal: PoolRefusal): PoolBlockDetails {
-  const { reason, limit, resetAt, member, memberLimit } = refusal;
-  return { reason, limit, resetAt, member, memberLimit };
+  const { reason, limit, resetAt } = refusal;
+  return { reason, limit, resetAt };
 }

@@ -379,7 +379,7 @@ describe('CanvasStore', () => {
     }
   });
 
-  it('without a membership, the notice shows on load only when no credit can carry on', async () => {
+  it('without a membership, the notice shows on load only when credit can neither be bought nor spent', async () => {
     const inactive = {
       required: true,
       status: 'inactive',
@@ -393,8 +393,21 @@ describe('CanvasStore', () => {
     await withCredit.store.init({ builtInCredit: true, membership: inactive } as MeResponse);
     expect(withCredit.store.membershipBlocked()).toBe(false);
 
+    // An empty balance where top-ups are sold: anyone can buy more, so credit carries on.
+    const empty = setup();
+    empty.api.billing.mockResolvedValue({
+      availableMicros: 0,
+      topUpsEnabled: true,
+    } as BillingSummary);
+    await empty.store.init({ builtInCredit: true, membership: inactive } as MeResponse);
+    expect(empty.store.creditCarriesOn()).toBe(true);
+    expect(empty.store.membershipBlocked()).toBe(false);
+
     const used = setup();
-    used.api.billing.mockResolvedValue({ availableMicros: 0 } as BillingSummary);
+    used.api.billing.mockResolvedValue({
+      availableMicros: 0,
+      topUpsEnabled: false,
+    } as BillingSummary);
     await used.store.init({ builtInCredit: true, membership: inactive } as MeResponse);
     expect(used.store.membershipBlocked()).toBe(true);
     expect(used.store.membershipDismissible()).toBe(false);
@@ -637,6 +650,14 @@ describe('CanvasStore the default route of a new conversation', () => {
       membershipNeededFor: ['own-key'],
     });
     expect(key(lapsed.store.defaultProvider())).toBe('openrouter@credit');
+    // An empty balance, but top-ups are sold: still credit (anyone can buy), not a locked key.
+    const buyer = await start(
+      keyed,
+      { membership: { ...member, status: 'inactive' }, membershipNeededFor: ['own-key'] },
+      { availableMicros: 0, topUpsEnabled: true } as BillingSummary,
+    );
+    expect(key(buyer.store.defaultProvider())).toBe('openrouter@credit');
+    expect(buyer.store.creditRoute()?.funding).toBe('credit');
   });
 
   it('decides nothing before the balance is read', async () => {

@@ -13,9 +13,9 @@ import { membershipBlocks } from './membership';
  * Read-only power without a membership (docs/DECISIONS.md "Read-only power
  * without a membership"), as the power app and Canvas show it. The rule is
  * the server's: `MeResponse.membershipNeededFor` names the fundings that need
- * the membership (power on the user's own keys), and the membership says
- * whether the user has one. A branch on such a funding is read-only while
- * they don't; a branch on Tangent credit keeps going. The server's 402
+ * the membership (the user's own keys), and the membership says whether the
+ * user has one. A branch on such a funding is read-only while they don't; a
+ * branch on Tangent credit keeps going (anyone may buy credit). The server's 402
  * `membership_required` stays the gate. Framework-light (signals only) so the
  * specs run without a DOM.
  */
@@ -42,8 +42,8 @@ export function routeLocked(
 
 /**
  * A provider entry a power user can generate on now: it has a key, its
- * funding isn't locked, and for Tangent credit, `creditUsable` (a member may
- * buy more; anyone else only spends what is left, see `creditCarriesOn`).
+ * funding isn't locked, and for Tangent credit, `creditUsable` (sold here:
+ * anyone may buy more where top-ups are on, see `creditCarriesOn`).
  */
 export function routeOpen(
   p: ProviderInfo,
@@ -70,7 +70,7 @@ export interface ReadOnlyText {
  * What the notice that replaces the composer of a read-only branch says. A
  * user who had a membership (a subscription on record) is asked to renew it;
  * one who never had one, to become a member. `credit`: the branch can carry
- * on with Tangent credit the user still holds.
+ * on with Tangent credit instead, which needs no membership.
  */
 export function readOnlyText(
   m: Pick<MembershipInfo, 'subscriptionStatus'>,
@@ -82,7 +82,7 @@ export function readOnlyText(
     : 'Replies on your own API keys need a membership.';
   const act = ended ? 'Renew your membership' : 'Become a member';
   let body = `${act} to continue this conversation, or create a copy in Learn.`;
-  if (credit) body += ' You can also continue it with your Tangent credit.';
+  if (credit) body += ' You can also continue it on Tangent credit, which needs no membership.';
   return { lead, body, act, renew: ended ? 'Renew membership' : 'Become a member' };
 }
 

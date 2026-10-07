@@ -63,11 +63,25 @@ function row(html: string, label: string): string {
 
 describe('the pricing headline', () => {
   it.each([
-    ['pool, credit and a membership', MEMBERSHIP, 'Learn free. Go further for $10 a year.'],
+    [
+      'pool, credit and a membership',
+      MEMBERSHIP,
+      'Learn free, pay for what you use, or bring your own key.',
+    ],
     [
       'a membership without the pool',
       { ...MEMBERSHIP, ...NO_POOL },
-      'Free on your own key. Go further for $10 a year.',
+      'Pay for what you use, or bring your own key.',
+    ],
+    [
+      'the pool and a membership, no credit',
+      { ...MEMBERSHIP, FAKE_PAYMENTS: '{"topUps":false}' },
+      'Learn free, or bring your own key for $10 a year.',
+    ],
+    [
+      'only a membership',
+      { ...MEMBERSHIP, ...NO_POOL, FAKE_PAYMENTS: '{"topUps":false}' },
+      'Bring your own key for $10 a year.',
     ],
     ['pool and credit, no membership', {}, 'Learn free. Pay only for what you use.'],
     ['pool, nothing sold', NO_CREDIT, 'Learn free, or on your own key.'],
@@ -78,20 +92,25 @@ describe('the pricing headline', () => {
     expect(html).toContain(`<h1>${h1}</h1>`);
   });
 
-  it('never promises pay-as-you-go alone while buying credit needs a membership', async () => {
+  it('never says own keys are free while they need a membership; credit never needs one', async () => {
     for (const env of [MEMBERSHIP, { ...MEMBERSHIP, ...NO_POOL }]) {
       const html = await page('/pricing', env);
-      expect(html).not.toMatch(/Pay only for what you use|No subscription/);
-      expect(html).toContain('Buying credit needs a membership');
+      expect(html).not.toMatch(
+        /Pay only for what you use|nothing to cancel|Tangent charges nothing|Free on your own key/,
+      );
+      expect(html).not.toContain('Buying credit needs a membership');
+      expect(html).toContain('Buying and spending credit never needs a membership.');
     }
   });
 });
 
-describe('what credit pays for, by paid column', () => {
-  it('the membership only lets you buy credit: those rows say so, never "Included"', async () => {
+describe('what each way to pay covers, by column', () => {
+  it('with a membership: credit and your own key each cover the Smart tier and search; Free does not', async () => {
     const html = await page('/pricing', MEMBERSHIP);
-    expect(row(html, 'The Smart tier')).toMatch(/<td>With credit or your key<\/td>$/);
-    expect(row(html, 'Web search, with sources')).toMatch(/<td>With credit or your key<\/td>$/);
+    for (const label of ['The Smart tier', 'Web search, with sources'])
+      expect(row(html, label)).toMatch(
+        /<td class="no">[^]*<\/td><td class="yes">[^]*<\/td><td class="yes">[^]*<\/td>$/,
+      );
   });
 
   it('pay as you go is the credit itself: included', async () => {
@@ -102,19 +121,19 @@ describe('what credit pays for, by paid column', () => {
 
   it('a membership that sells no credit: only your own key', async () => {
     const html = await page('/pricing', { ...MEMBERSHIP, FAKE_PAYMENTS: '{"topUps":false}' });
-    expect(row(html, 'The Smart tier')).toMatch(/<td>On your key<\/td>$/);
-    expect(html).not.toMatch(/Buy prepaid credit|With credit/);
+    expect(row(html, 'The Smart tier')).toMatch(/<td class="no">[^]*<td class="yes">[^]*<\/td>$/);
+    expect(html).not.toMatch(/prepaid credit|Pay as you go/);
   });
 });
 
 describe("Learn's tiers", () => {
   it('Smart and Simple, with the pool on Simple', async () => {
-    const pricing = await page('/pricing', MEMBERSHIP);
+    const pricing = await page('/pricing');
     expect(row(pricing, 'The Smart tier, for deeper explanations')).toContain(
-      '<td>On your key<sup',
+      '<td>On your key</td>',
     );
     expect(pricing).toContain(
-      'Buy prepaid credit for the Smart tier, web search and any OpenRouter model',
+      '<li>The Smart tier in Learn, and any OpenRouter model in power mode</li>',
     );
     const landing = await page('/welcome');
     expect(landing).toContain(
@@ -127,8 +146,11 @@ describe("Learn's tiers", () => {
     const env = { ...MEMBERSHIP, POOL_MODEL: SMART, POOL_ACCOUNT_ID: uniq('pool') };
     const pricing = await page('/pricing', env);
     const smart = row(pricing, 'The Smart tier');
-    expect(smart).toContain('<td>On the open pool or your key<sup');
+    // Own keys need the membership here, so Free has Smart on the pool only.
+    expect(smart).toContain('<td>On the open pool</td>');
     expect(smart).toMatch(/<td class="yes">/);
+    const noFee = await page('/pricing', { ...env, ANNUAL_FEE_ENABLED: 'false' });
+    expect(row(noFee, 'The Smart tier')).toContain('<td>On the open pool or your key</td>');
     expect(await page('/welcome', env)).toContain('(the free pool uses Smart)</li>');
   });
 
