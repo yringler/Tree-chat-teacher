@@ -29,6 +29,12 @@ export interface DefaultRouteFacts {
    */
   creditCanPay: boolean;
   /**
+   * More Tangent credit can be bought here: it is offered and the payment
+   * provider sells top-ups. False where credit only comes from operator
+   * grants, so an empty balance stays empty.
+   */
+  creditBuyable: boolean;
+  /**
    * The user's own keys need a membership they lack: `membershipNeededFor`
    * has `own-key` and the membership is inactive (read-only power).
    */
@@ -37,8 +43,10 @@ export interface DefaultRouteFacts {
 
 /**
  * The default route of a new tree: the first of
- * 1. while own keys need a membership the user lacks, Tangent credit, whatever
- *    the balance: anyone can buy credit, and a locked own key can't reply at all;
+ * 1. while own keys need a membership the user lacks, Tangent credit that can pay
+ *    or can be bought (`creditBuyable`, whatever the balance: anyone can buy it,
+ *    and a locked own key can't reply at all). Credit that can do neither is a
+ *    dead end; the locked own key at least leads to the membership;
  * 2. an own-key provider the user can use (a saved key, or a server key in the
  *    dev bypass), in the configured order;
  * 3. Tangent credit, when it can pay;
@@ -59,7 +67,7 @@ export function pickDefaultRoute<P extends DefaultRouteCandidate>(
   const own = entries.filter((p) => p.funding !== 'credit');
   const real = (p: P) => p.kind !== 'fake';
   const offered = entries.find((p) => p.funding === 'credit' && p.available && real(p));
-  if (facts.ownKeyLocked && offered) return offered;
+  if (facts.ownKeyLocked && offered && (facts.creditCanPay || facts.creditBuyable)) return offered;
   const credit = facts.creditCanPay ? offered : undefined;
   return (
     own.find((p) => p.available && real(p)) ??
