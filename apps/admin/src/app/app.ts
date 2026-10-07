@@ -58,8 +58,8 @@ import { UsersPage } from './users-page';
             <p class="notice" role="status">
               <span>
                 <strong>The membership is not required</strong> (ANNUAL_FEE_ENABLED is off, or the
-                payment provider doesn't sell it): everyone may do what members do. A “Member”
-                waiver takes effect once it is required.
+                payment provider doesn't sell it): everyone may generate on their own keys. A
+                “Member” waiver takes effect once it is required.
               </span>
             </p>
           }

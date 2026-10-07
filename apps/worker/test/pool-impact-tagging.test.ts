@@ -399,7 +399,7 @@ describe('request-time topic tagging', () => {
       branch_depth: 1,
     });
 
-    // The free tier's 3 replies a day (vitest.config.ts) still fit after 2 classifications:
+    // The pool's 3 replies a day (vitest.config.ts) still fit after 2 classifications:
     // tagging counts toward no one's caps. The caps' spend leaves tagging out too.
     await taggingSettled(u.poolId, 2);
     const { branchId: third } = await newTree(u);

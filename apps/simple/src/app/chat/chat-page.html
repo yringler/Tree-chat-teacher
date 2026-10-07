@@ -142,26 +142,30 @@
       <app-pool-block-notice
         [block]="block"
         [creditOpen]="account.creditOnSale()"
-        [membershipOpen]="account.membershipOnSale()"
         billingPath="/billing"
         (dismissed)="store.dismissPoolBlock()"
       />
     }
-    @if (account.fundingChoice()) {
-      <app-funding-toggle
-        [value]="funding()"
+    @if (account.membershipBlocked()) {
+      <!-- The own key needs a membership the learner lacks: the ways out, not a composer. -->
+      <app-key-locked-notice />
+    } @else {
+      @if (account.fundingChoice()) {
+        <app-funding-toggle
+          [value]="funding()"
+          [disabled]="store.busy()"
+          (changed)="chooseFunding($event)"
+        />
+      }
+      <app-composer
+        [placeholder]="placeholder()"
+        [initial]="initialDraft()"
         [disabled]="store.busy()"
-        (changed)="chooseFunding($event)"
+        [busy]="store.streamingNode() !== null"
+        (send)="send($event)"
+        (stop)="stop()"
       />
     }
-    <app-composer
-      [placeholder]="placeholder()"
-      [initial]="initialDraft()"
-      [disabled]="store.busy()"
-      [busy]="store.streamingNode() !== null"
-      (send)="send($event)"
-      (stop)="stop()"
-    />
   </div>
 }
 

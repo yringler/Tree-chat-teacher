@@ -11,6 +11,7 @@ import { ApiClient, ApiError } from '../core/api-client';
 import { LEAVE_PAGE } from '../core/leave-page';
 import {
   LearnCopy,
+  learnCopyWay,
   learnLessonHref,
   lockedFundings,
   readOnlyText,
@@ -27,7 +28,7 @@ function membership(over: Partial<MembershipInfo> = {}): MembershipInfo {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
-    includedCreditCents: 200,
+    includedCreditCents: 0,
     ...over,
   };
 }
@@ -91,22 +92,37 @@ describe('routeOpen', () => {
 });
 
 describe('readOnlyText', () => {
-  it('asks a lapsed member to renew', () => {
+  it('asks a lapsed member to renew, and offers no copy in Learn where Learn could not reply', () => {
     expect(readOnlyText(membership())).toEqual({
       lead: 'Your membership has ended.',
-      body: 'Renew your membership to continue this conversation, or create a copy in Learn.',
+      body: 'Renew your membership to continue this conversation.',
       act: 'Renew your membership',
       renew: 'Renew membership',
     });
   });
 
+  it('offers the copy in Learn on the open pool while it is on', () => {
+    expect(readOnlyText(membership(), false, 'pool').body).toBe(
+      'Renew your membership to continue this conversation, or create a copy to continue it in Learn on the open pool.',
+    );
+  });
+
   it('asks someone who never had one to become a member, and mentions credit when it can carry on', () => {
-    const t = readOnlyText(membership({ subscriptionStatus: null }), true);
+    const t = readOnlyText(membership({ subscriptionStatus: null }), true, 'credit');
     expect(t.lead).toBe('Replies on your own API keys need a membership.');
     expect(t.renew).toBe('Become a member');
     expect(t.body).toBe(
-      'Become a member to continue this conversation, or create a copy in Learn. You can also continue it with your Tangent credit.',
+      'Become a member to continue this conversation, or create a copy to continue it in Learn on Tangent credit. You can also continue it on Tangent credit, which needs no membership.',
     );
+  });
+});
+
+describe('learnCopyWay', () => {
+  it('is the pool while it is on, else credit where it carries on, else nothing', () => {
+    expect(learnCopyWay(true, true)).toBe('pool');
+    expect(learnCopyWay(true, false)).toBe('pool');
+    expect(learnCopyWay(false, true)).toBe('credit');
+    expect(learnCopyWay(false, false)).toBeNull();
   });
 });
 
@@ -155,11 +171,12 @@ describe('ReadOnlyComposer', () => {
     expect(reflectComponentType(ReadOnlyComposer)?.selector).toBe('app-read-only-composer');
   });
 
-  it('explains, links to the billing page to renew, copies to Learn and offers credit when asked', () => {
+  it('explains, links to the billing page to renew, copies to Learn when it can reply and offers credit when asked', () => {
     const t = templateOf(ReadOnlyComposer);
     expect(t).toContain('{{ text().lead }}');
     expect(t).toContain('{{ text().body }}');
     expect(t).toContain('[href]="billingHref()">{{ text().renew }}</a>');
+    expect(t).toContain('@if (learn())');
     expect(t).toContain('(click)="copier.copy(treeId())"');
     expect(t).toContain("{{ copier.pending() ? 'Copying…' : 'Create a copy in Learn' }}");
     expect(t).toContain('@if (credit())');

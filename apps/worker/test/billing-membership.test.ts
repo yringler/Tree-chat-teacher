@@ -97,7 +97,7 @@ describe('membership', () => {
       periodEnd: null,
       cancelAtPeriodEnd: false,
       priceCents: 1000,
-      includedCreditCents: 200,
+      includedCreditCents: 0,
     });
     expect((await membershipFor(memberEnv, devPowerAccount())).required).toBe(false);
     await expect(assertMember(env, account)).resolves.toBeUndefined();
@@ -132,7 +132,7 @@ describe('membership', () => {
           periodEnd: new Date(periodEnd).toISOString(),
           cancelAtPeriodEnd: true,
           priceCents: 1000,
-          includedCreditCents: 200,
+          includedCreditCents: 0,
         });
         await expect(assertMember(memberEnv, a)).resolves.toBeUndefined();
       }
@@ -174,8 +174,15 @@ describe('membership', () => {
   });
 
   it('includes no credit when the built-in provider is not offered', async () => {
+    // None by default; MEMBERSHIP_CREDIT_CENTS sets some, unless there is nothing to spend it on.
+    expect((await membershipFor(memberEnv, await member())).includedCreditCents).toBe(0);
     const info = await membershipFor(
-      { ...memberEnv, SIMPLE_PROVIDER: '', OPENROUTER_SIMPLE_API_KEY: '' } as AppEnv,
+      {
+        ...memberEnv,
+        MEMBERSHIP_CREDIT_CENTS: '350',
+        SIMPLE_PROVIDER: '',
+        OPENROUTER_SIMPLE_API_KEY: '',
+      } as AppEnv,
       await member(),
     );
     expect(info.includedCreditCents).toBe(0);

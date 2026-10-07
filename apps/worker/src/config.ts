@@ -31,7 +31,8 @@ export const DEFAULT_MARKUP_BPS = 1000;
 /** OpenRouter's fee on credit purchases (5.5%; higher for top-ups under ~$15, see README). */
 export const DEFAULT_OPENROUTER_FEE_BPS = 550;
 export const DEFAULT_MEMBERSHIP_PRICE_CENTS = 1000;
-export const DEFAULT_MEMBERSHIP_CREDIT_CENTS = 200;
+/** The membership includes no credit (the mechanism stays, `MEMBERSHIP_CREDIT_CENTS`). */
+export const DEFAULT_MEMBERSHIP_CREDIT_CENTS = 0;
 export const DEFAULT_SIMPLE_MAX_INPUT_TOKENS = 60_000;
 
 /** The open pool's ledger account id (`POOL_ACCOUNT_ID`). */
@@ -79,7 +80,7 @@ export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   },
 };
 
-export interface PoolTierCaps {
+export interface PoolDailyCaps {
   /** Pool replies per UTC day. */
   requestsPerDay: number;
   /** Pool spend (settled charges plus pending holds) per UTC day, micro-USD. */
@@ -91,20 +92,18 @@ export interface PoolGlobalCap {
   bpsOfMorningBalance: number;
 }
 
+/** The pool's caps: one set for everyone, member or not, paying or not. */
 export interface PoolCaps {
-  free: PoolTierCaps;
-  /** Members: a paid or waived membership (billing/membership.ts `isMember`). */
-  member: PoolTierCaps;
+  /** Per user (and every account that held their pool identity). */
+  user: PoolDailyCaps;
   /**
-   * The free tier's spend per UTC day, all users together: the lower of the
-   * two. The share is of the day's base, the pool's balance at 00:00 UTC
-   * plus what was added to it since.
+   * The pool's spend per UTC day, all users together: the lower of the two.
+   * The share is of the day's base, the pool's balance at 00:00 UTC plus
+   * what was added to it since.
    */
-  globalFree: PoolGlobalCap;
-  /** The member tier's own ceiling, all members together (same form as `globalFree`). */
-  globalMember: PoolGlobalCap;
+  global: PoolGlobalCap;
   /** Per network (IPv4 address or IPv6 /64), all users together. */
-  ip: PoolTierCaps;
+  ip: PoolDailyCaps;
 }
 
 export interface PoolRateLimits {
@@ -155,10 +154,11 @@ export interface AppConfig {
   flags: {
     poolEnabled: boolean;
     /**
-     * The yearly membership fee is charged and required for power mode on
-     * the user's own keys and for buying credit (`ANNUAL_FEE_ENABLED`, default
-     * off; Learn and spending credit already held never need it). Off, the membership code paths stay
-     * but nothing requires a membership, whatever the payment provider offers.
+     * The yearly membership fee is charged and required for generating on the
+     * user's own keys, in Learn and power mode alike (`ANNUAL_FEE_ENABLED`,
+     * default off; Tangent credit, bought or spent, and the open pool never
+     * need it). Off, the membership code paths stay but nothing requires a
+     * membership, whatever the payment provider offers.
      */
     annualFeeEnabled: boolean;
     /**
@@ -347,21 +347,13 @@ function parse(env: AppEnv): AppConfig {
       expireBatch: positiveInt(env.POOL_EXPIRE_BATCH, 20),
       sessionEstimateMicros: positiveInt(env.POOL_SESSION_ESTIMATE_MICROS, 20_000),
       caps: {
-        free: {
-          requestsPerDay: intVar(env.POOL_FREE_REQUESTS_PER_DAY, 30),
-          spendMicrosPerDay: intVar(env.POOL_FREE_SPEND_MICROS_PER_DAY, 100_000),
+        user: {
+          requestsPerDay: intVar(env.POOL_REQUESTS_PER_DAY, 30),
+          spendMicrosPerDay: intVar(env.POOL_SPEND_MICROS_PER_DAY, 100_000),
         },
-        member: {
-          requestsPerDay: intVar(env.POOL_MEMBER_REQUESTS_PER_DAY, 150),
-          spendMicrosPerDay: intVar(env.POOL_MEMBER_SPEND_MICROS_PER_DAY, 500_000),
-        },
-        globalFree: {
-          spendMicrosPerDay: intVar(env.POOL_FREE_DAILY_GLOBAL_MICROS, 5_000_000),
-          bpsOfMorningBalance: intVar(env.POOL_FREE_DAILY_GLOBAL_BPS, 2_000),
-        },
-        globalMember: {
-          spendMicrosPerDay: intVar(env.POOL_MEMBER_DAILY_GLOBAL_MICROS, 10_000_000),
-          bpsOfMorningBalance: intVar(env.POOL_MEMBER_DAILY_GLOBAL_BPS, 4_000),
+        global: {
+          spendMicrosPerDay: intVar(env.POOL_DAILY_GLOBAL_MICROS, 5_000_000),
+          bpsOfMorningBalance: intVar(env.POOL_DAILY_GLOBAL_BPS, 2_000),
         },
         ip: {
           requestsPerDay: intVar(env.POOL_IP_REQUESTS_PER_DAY, 60),

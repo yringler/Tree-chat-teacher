@@ -30,7 +30,10 @@ describe('PaymentStore', () => {
     expect(p.payment()).toBe('own-key');
     expect(p.headers()).toEqual({ 'x-tangent-mode': 'simple', 'x-tangent-payment': 'own-key' });
     p.builtInCredit.set(true);
-    // Credit is the default where it is offered.
+    // A member whose key status isn't known yet stays on the key...
+    expect(p.payment()).toBe('own-key');
+    // ... and one known to hold no key goes on credit, which anyone can buy.
+    p.hasOwnKey.set(false);
     expect(p.headers()).toEqual({ 'x-tangent-mode': 'simple', 'x-tangent-payment': 'credit' });
   });
 
@@ -45,6 +48,7 @@ describe('PaymentStore', () => {
     again.builtInCredit.set(true);
     expect(again.payment()).toBe('own-key');
     again.choose('credit');
+    expect(again.payment()).toBe('credit');
     again.builtInCredit.set(false);
     expect(again.payment()).toBe('own-key');
   });
@@ -59,30 +63,81 @@ describe('PaymentStore', () => {
     storage.set('tangent.learn.payment', 'free');
     const q = create();
     q.builtInCredit.set(true);
+    q.hasOwnKey.set(false);
     expect(q.payment()).toBe('credit');
   });
 
-  it('falls back: credit if sold, else a saved or unknown key, else the pool if on, else the own key', () => {
+  it('defaults to what can reply right away: credit with a balance, a member’s key, the pool, credit to buy, the own key', () => {
     const p = create();
-    // Nothing chosen, credit not sold, the key status not known yet: the own key.
+    p.builtInCredit.set(true);
     p.poolAvailable.set(true);
+    p.creditAvailableMicros.set(0);
+    // 2. A member's saved key (or one whose status isn't known yet) beats an empty balance.
     expect(p.payment()).toBe('own-key');
-    // ... and known to hold no key: the pool.
+    p.hasOwnKey.set(true);
+    expect(p.payment()).toBe('own-key');
+    // 1. Credit with a balance beats the key.
+    p.creditAvailableMicros.set(1);
+    expect(p.payment()).toBe('credit');
+    // 3. No key, no balance: the pool while it is on.
+    p.creditAvailableMicros.set(0);
     p.hasOwnKey.set(false);
     expect(p.payment()).toBe('pool');
-    p.builtInCredit.set(true);
-    expect(p.payment()).toBe('credit');
-    // The pool chosen but switched off: credit, then the own key.
-    p.choose('pool');
-    expect(p.payment()).toBe('pool');
+    // 4. The pool off: credit, where it can be bought.
     p.poolAvailable.set(false);
     expect(p.payment()).toBe('credit');
+    // 5. Credit that can't be bought (top-ups off, nothing left), or not sold: the own key.
+    p.topUpsEnabled.set(false);
+    expect(p.payment()).toBe('own-key');
+    p.topUpsEnabled.set(true);
     p.builtInCredit.set(false);
     expect(p.payment()).toBe('own-key');
-    // The own key, once chosen, stays.
+  });
+
+  it('a new non-member: the pool while it is on, unless a balance is left; else credit to buy', () => {
+    const p = create();
+    p.member.set(false);
+    p.hasOwnKey.set(false);
+    p.builtInCredit.set(true);
     p.poolAvailable.set(true);
-    p.choose('own-key');
+    p.creditAvailableMicros.set(0);
+    expect(p.payment()).toBe('pool');
+    p.creditAvailableMicros.set(250_000);
+    expect(p.payment()).toBe('credit');
+    // The pool off, nothing left, top-ups sold: credit (anyone can buy it).
+    p.poolAvailable.set(false);
+    p.creditAvailableMicros.set(0);
+    expect(p.payment()).toBe('credit');
+  });
+
+  it('a member with a saved key: the key while no credit is left, credit with a balance', () => {
+    const p = create();
+    p.hasOwnKey.set(true);
+    p.builtInCredit.set(true);
+    p.poolAvailable.set(true);
+    p.creditAvailableMicros.set(0);
     expect(p.payment()).toBe('own-key');
+    p.creditAvailableMicros.set(1_000_000);
+    expect(p.payment()).toBe('credit');
+  });
+
+  it('before the balance is read: a member keeps the key; between the pool and credit, credit', () => {
+    // The server moves a credit send it can't pay onto the pool while the pool is on, so an
+    // unknown balance never picks the pool over credit the learner may hold.
+    const p = create();
+    p.member.set(false);
+    p.builtInCredit.set(true);
+    p.poolAvailable.set(true);
+    expect(p.creditAvailableMicros()).toBeNull();
+    expect(p.payment()).toBe('credit');
+    p.creditAvailableMicros.set(0);
+    expect(p.payment()).toBe('pool');
+    // A member with a saved key is never moved off it on a guess.
+    const q = create();
+    q.builtInCredit.set(true);
+    q.poolAvailable.set(true);
+    q.hasOwnKey.set(true);
+    expect(q.payment()).toBe('own-key');
   });
 
   it('a saved key with no choice made stays on the key where credit is not sold', () => {
@@ -97,59 +152,102 @@ describe('PaymentStore', () => {
     // Only an explicit pool choice outranks the saved key.
     p.choose('pool');
     expect(p.payment()).toBe('pool');
-    // Where credit is sold it stays the default, as before the pool.
-    storage.clear();
-    const q = create();
-    q.builtInCredit.set(true);
-    q.poolAvailable.set(true);
-    q.hasOwnKey.set(true);
-    expect(q.payment()).toBe('credit');
   });
 
-  it('credit is usable for a member, or for anyone with a balance left', () => {
+  it('credit is usable by anyone where top-ups are sold, membership or not, with no balance', () => {
     const p = create();
     p.builtInCredit.set(true);
-    expect(p.creditUsable()).toBe(true);
     p.member.set(false);
+    p.creditAvailableMicros.set(0);
+    expect(p.creditUsable()).toBe(true);
+    expect(p.payment()).toBe('credit');
+    // With top-ups off, only a balance left can pay.
+    p.topUpsEnabled.set(false);
     expect(p.creditUsable()).toBe(false);
-    expect(p.payment()).toBe('own-key');
     p.creditAvailableMicros.set(250_000);
     expect(p.creditUsable()).toBe(true);
     expect(p.payment()).toBe('credit');
-    p.creditAvailableMicros.set(0);
-    expect(p.creditUsable()).toBe(false);
-    expect(p.payment()).toBe('own-key');
-    // A member with nothing left may still pick credit (and buy more).
-    p.member.set(true);
-    expect(p.creditUsable()).toBe(true);
-    expect(p.payment()).toBe('credit');
   });
 
-  it('a non-member with no balance never lands on credit: a saved key first, else the pool', () => {
+  it('a non-member never lands on their own key unasked: the pool, else credit', () => {
+    const p = create();
+    p.poolAvailable.set(true);
+    p.hasOwnKey.set(true);
+    p.member.set(false);
+    // Credit not sold, a saved key: the pool, not a 402 on the key.
+    expect(p.payment()).toBe('pool');
+    // The key status not known yet: the pool too.
+    p.hasOwnKey.set(null);
+    expect(p.payment()).toBe('pool');
+    // Credit sold but nothing left: still the pool; with the pool off, credit.
+    p.builtInCredit.set(true);
+    p.creditAvailableMicros.set(0);
+    expect(p.payment()).toBe('pool');
+    p.poolAvailable.set(false);
+    expect(p.payment()).toBe('credit');
+    // Nothing else on offer: the own key (the composer gives way to the locked-key notice).
+    p.builtInCredit.set(false);
+    expect(p.payment()).toBe('own-key');
+    // A member with a saved key, no choice made, credit not sold: the key.
+    p.poolAvailable.set(true);
+    p.hasOwnKey.set(true);
+    p.member.set(true);
+    expect(p.payment()).toBe('own-key');
+  });
+
+  it('an explicit own-key choice stands for a non-member (the locked-key notice explains, rather than a 402)', () => {
     const p = create();
     p.builtInCredit.set(true);
     p.poolAvailable.set(true);
     p.member.set(false);
-    // The key status not known yet: the own key.
+    p.choose('own-key');
     expect(p.payment()).toBe('own-key');
+  });
+
+  it('an explicit pool choice applies for a non-member, even with credit left, while the pool is on', () => {
+    const p = create();
+    p.member.set(false);
     p.hasOwnKey.set(true);
-    expect(p.payment()).toBe('own-key');
-    p.hasOwnKey.set(false);
+    p.builtInCredit.set(true);
+    p.creditAvailableMicros.set(1_000_000);
+    p.poolAvailable.set(true);
+    expect(p.payment()).toBe('credit');
+    p.choose('pool');
     expect(p.payment()).toBe('pool');
-    // Even a stored credit choice falls back.
-    p.choose('credit');
+    // The pool switched off: back to the default (credit with its balance).
+    p.poolAvailable.set(false);
+    expect(p.payment()).toBe('credit');
+  });
+
+  it("a stored credit choice falls back when credit isn't usable", () => {
+    storage.set('tangent.learn.payment', 'credit');
+    const p = create();
+    p.member.set(false);
+    p.builtInCredit.set(true);
+    p.poolAvailable.set(true);
+    p.creditAvailableMicros.set(0);
+    // Top-ups sold: an empty balance can be refilled, so the choice stands.
+    expect(p.payment()).toBe('credit');
+    // Top-ups off and nothing left: the pool while it is on, else the own key.
+    p.topUpsEnabled.set(false);
     expect(p.payment()).toBe('pool');
     p.poolAvailable.set(false);
     expect(p.payment()).toBe('own-key');
-    // An explicit own key or pool choice applies as for anyone.
-    p.poolAvailable.set(true);
+    // Credit no longer sold: the same.
+    p.topUpsEnabled.set(true);
+    p.builtInCredit.set(false);
+    expect(p.payment()).toBe('own-key');
+  });
+
+  it('a member is back on credit when chosen', () => {
+    const p = create();
     p.hasOwnKey.set(true);
-    p.choose('pool');
-    expect(p.payment()).toBe('pool');
+    p.builtInCredit.set(true);
+    p.poolAvailable.set(true);
+    p.creditAvailableMicros.set(0);
     p.choose('own-key');
     expect(p.payment()).toBe('own-key');
-    // A member is back on credit when it is chosen.
-    p.member.set(true);
+    // Chosen with nothing left: credit all the same (top-ups are sold, so it can be bought).
     p.choose('credit');
     expect(p.payment()).toBe('credit');
   });

@@ -520,7 +520,11 @@ export const usageEvents = sqliteTable(
       .default('personal'),
     /** Pool rows: a daily-rotating keyed hash of the caller's network (pool/ids.ts `ipKey`). */
     ipKey: text('ip_key'),
-    /** Pool rows: the caller's cap tier when the call was reserved. */
+    /**
+     * Pool rows reserved while the pool had a member tier: the caller's cap
+     * tier then. Null since: the pool has one set of caps for everyone, and
+     * nothing reads it (its global ceiling counts every pool row).
+     */
     tier: text('tier', { enum: ['free', 'member'] }),
     purpose: text('purpose', {
       enum: ['reply', 'summary', 'title', 'review', 'tagging', 'other'],

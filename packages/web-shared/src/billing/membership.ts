@@ -4,38 +4,55 @@ import { ApiError } from '../core/api-client';
 import { formatBps, formatCents } from './format';
 
 /*
- * The yearly membership as both apps show it: the gate, the billing page's
+ * The yearly membership as the apps show it: the locked-key notices, the billing page's
  * Membership section and the code form. Framework-light (signals only) so
  * the specs run without a DOM.
  */
 
 /**
- * True when the membership is required and the user has none: power mode on
- * their own keys and buying credit are blocked until they subscribe or redeem
- * a code (spending credit they already hold is not).
+ * True when the membership is required and the user has none: generating on
+ * their own API keys (Learn, power mode, Canvas) is blocked until they
+ * subscribe or redeem a code. Tangent credit (buying and spending) and the
+ * open pool never are.
  */
 export function membershipBlocks(m: MembershipInfo | null | undefined): boolean {
   return !!m && m.required && m.status === 'inactive';
 }
 
 /**
- * Power mode without a membership can still run on Tangent credit the user
- * already holds: true while credit is offered (`builtInCredit`) and the
- * balance isn't known to be used up (`billing` null = not loaded yet, so the
- * panel never flashes while it loads). The power apps show their membership
- * panel on load only when this is false.
+ * Without a membership, generating can still run on Tangent credit, which
+ * anyone can buy: true while credit is offered (`builtInCredit`) and either
+ * top-ups are sold (an empty balance can be refilled) or the balance isn't
+ * known to be used up (`billing` null = not loaded yet, so the panel never
+ * flashes while it loads). The power apps show their membership panel on
+ * load only when this is false.
  */
 export function creditCarriesOn(
   builtInCredit: boolean,
-  billing: Pick<BillingSummary, 'availableMicros'> | null,
+  billing: Pick<BillingSummary, 'availableMicros' | 'topUpsEnabled'> | null,
 ): boolean {
-  return builtInCredit && (billing === null || billing.availableMicros > 0);
+  return creditBuyable(builtInCredit, billing) || creditCanPay(builtInCredit, billing);
+}
+
+/**
+ * More Tangent credit can be bought here: credit is offered and top-ups are
+ * sold, read as `creditCarriesOn` reads them (only a summary saying
+ * `topUpsEnabled: false` turns them off, so a summary not read yet counts as
+ * selling). False where credit only comes from operator grants: an empty
+ * balance then stays empty. `DefaultRouteFacts.creditBuyable` for the power
+ * apps' default route.
+ */
+export function creditBuyable(
+  builtInCredit: boolean,
+  billing: Pick<BillingSummary, 'topUpsEnabled'> | null,
+): boolean {
+  return builtInCredit && billing?.topUpsEnabled !== false;
 }
 
 /**
  * Tangent credit can pay for a reply as far as the client knows: offered,
- * and a balance read and above zero. Unlike `creditCarriesOn`, a balance not
- * read yet doesn't count: the default route of a new tree
+ * and a balance read and above zero. Unlike `creditCarriesOn`, neither a
+ * balance not read yet nor one that could be bought counts: the default route of a new tree
  * (`pickDefaultRoute`) never starts on credit on a guess, since an empty
  * balance would answer its first send with a 402.
  */
@@ -64,7 +81,10 @@ export function membershipPriceText(m: Pick<MembershipInfo, 'priceCents'>): stri
   return `${formatCents(m.priceCents)} / year plus tax`;
 }
 
-/** The yearly credit gift, or null when the server promises none. */
+/**
+ * The yearly credit gift, or null when the server promises none (the
+ * membership includes no credit today: the server sends 0, so nothing shows).
+ */
 export function includedCreditText(m: Pick<MembershipInfo, 'includedCreditCents'>): string | null {
   return m.includedCreditCents > 0
     ? `Includes ${formatCents(m.includedCreditCents)} of credit each year.`
@@ -83,7 +103,7 @@ export function formatDay(iso: string | null): string | null {
 export function membershipStatusText(m: MembershipInfo): string {
   if (m.status === 'waived') return 'Waived: the membership is free for you.';
   if (m.status === 'inactive')
-    return 'Not active. A membership unlocks power mode on your own keys, buying credit and higher open pool limits. Learn on your own key and credit you already have stay usable, and your conversations stay readable either way.';
+    return "Not active. A membership lets you use your own API keys, in Learn and power mode, with your provider billing you directly. The open pool and Tangent credit don't need one, and your conversations stay readable either way.";
   const until = formatDay(m.periodEnd);
   if (m.cancelAtPeriodEnd)
     return until ? `Active until ${until}. It won't renew.` : "Active. It won't renew.";
@@ -151,7 +171,10 @@ export class WaiverForm {
   }
 }
 
-/** The gate's Subscribe button: opens the secure checkout, or says why it couldn't. */
+/**
+ * A notice's Subscribe button (Learn's `KeyLockedNotice`): opens the secure
+ * checkout, or says why it couldn't.
+ */
 export class MembershipSubscribe {
   /** Stays true on success: the page is leaving for the checkout (no double clicks meanwhile). */
   readonly pending = signal(false);

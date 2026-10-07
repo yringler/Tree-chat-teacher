@@ -40,15 +40,18 @@ import type {
 import {
   ApiClient,
   ApiError,
+  creditBuyable,
   creditCanPay,
   creditCarriesOn,
   errorMessage,
   isNotFound,
+  learnCopyWay,
   lockedFundings,
   membershipBlocks,
   routeLocked,
   routeOpen,
   runStream,
+  type LearnCopyWay,
   type StreamOutcome,
 } from '@tangent/web-shared';
 import { laneTitle } from '../canvas/titles';
@@ -157,6 +160,12 @@ export class CanvasStore {
   readonly billing = signal<BillingSummary | null>(null);
   /** The balance has been asked for once (read, or failed: then it counts as none). */
   private readonly billingRead = signal(false);
+  /**
+   * The open pool is on (`GET /api/pool/status`, read on startup): Learn can
+   * then reply without a membership or credit. False until read, or when it
+   * can't be.
+   */
+  readonly poolOn = signal(false);
   readonly trees = signal<TreeSummary[]>([]);
   readonly treesLoaded = signal(false);
 
@@ -238,11 +247,22 @@ export class CanvasStore {
   private readonly noticeForced = signal(false);
 
   /**
-   * Without a membership, Canvas (power mode) can still run on Tangent credit
-   * the user holds (`creditCarriesOn`: offered, and the balance not known to be used up).
+   * Tangent credit can pay, membership or not, so Canvas (power mode) runs on
+   * it without one (`creditCarriesOn`: offered, and either top-ups are sold,
+   * so anyone can buy more, or the balance isn't known to be used up).
    */
   readonly creditCarriesOn = computed(() =>
     creditCarriesOn(this.me()?.builtInCredit ?? false, this.billing()),
+  );
+
+  /**
+   * How a copy in Learn of a read-only conversation would get replies without
+   * a membership (`learnCopyWay`): the open pool while it is on, else Tangent
+   * credit while it carries on; null when neither, and the read-only notice
+   * then offers no copy.
+   */
+  readonly learnCopyWay = computed<LearnCopyWay | null>(() =>
+    learnCopyWay(this.poolOn(), this.creditCarriesOn()),
   );
 
   /**
@@ -254,7 +274,7 @@ export class CanvasStore {
     () => membershipBlocks(this.membership()) && (this.noticeForced() || !this.creditCarriesOn()),
   );
 
-  /** The notice may be dismissed: credit the user holds can still pay. */
+  /** The notice may be dismissed: Tangent credit can still pay (it needs no membership). */
   readonly membershipDismissible = computed(() => this.creditCarriesOn());
 
   dismissMembershipNotice(): void {
@@ -280,15 +300,14 @@ export class CanvasStore {
     return routeLocked(this.lockedFundings(), route);
   }
 
-  /** Tangent credit, when a read-only lane could carry on with it (a non-member spends what is left). */
-  readonly creditRoute = computed<ProviderInfo | null>(() => {
-    const usable = !membershipBlocks(this.membership()) || this.creditCarriesOn();
-    return (
+  /** Tangent credit, when a read-only lane could carry on with it (anyone can buy it). */
+  readonly creditRoute = computed<ProviderInfo | null>(
+    () =>
       this.providers().find(
-        (p) => p.funding === 'credit' && routeOpen(p, this.lockedFundings(), usable),
-      ) ?? null
-    );
-  });
+        (p) =>
+          p.funding === 'credit' && routeOpen(p, this.lockedFundings(), this.creditCarriesOn()),
+      ) ?? null,
+  );
 
   /**
    * "Continue with Tangent credit" on a read-only lane: moves it onto credit,
@@ -319,15 +338,22 @@ export class CanvasStore {
   /**
    * The route a new conversation (and a lane with no parent route) starts on:
    * `pickDefaultRoute`, the server's and the power app's rule for a new tree
-   * (docs/DECISIONS.md "Default route of a new tree"). Null until the
-   * providers and, where credit is offered, the balance have been read.
+   * (docs/DECISIONS.md "Default route of a new tree"). While own keys need a
+   * membership the user lacks, credit comes first if it can pay or be bought
+   * (`creditBuyable`: offered and top-ups sold), whatever the balance: a first
+   * send there asks for credit, which beats a locked own key. Credit that can
+   * do neither leaves the locked own key, which at least leads to the
+   * membership. Null until the providers and, where credit is offered, the
+   * balance have been read.
    */
   readonly defaultProvider = computed<ProviderInfo | null>(() => {
     const builtInCredit = this.me()?.builtInCredit ?? false;
     if (builtInCredit && !this.billingRead()) return null;
+    const ownKeyLocked = this.lockedFundings().has('own-key');
     return pickDefaultRoute(this.providers(), {
       creditCanPay: creditCanPay(builtInCredit, this.billing()),
-      ownKeyLocked: this.lockedFundings().has('own-key'),
+      creditBuyable: creditBuyable(builtInCredit, this.billing()),
+      ownKeyLocked,
     });
   });
 
@@ -370,10 +396,10 @@ export class CanvasStore {
 
   async init(me: MeResponse): Promise<void> {
     this.applyMe(me);
-    // Where credit is offered, the balance decides whether a new conversation may start on
-    // it, and without a membership whether the notice shows on load.
+    // Where credit is offered, the balance (and whether top-ups are sold) decides whether a
+    // new conversation may start on it, and without a membership whether the notice shows on load.
     const balance = me.builtInCredit ? this.refreshBilling() : null;
-    await Promise.all([this.refreshKeys(), this.loadTrees(), balance]);
+    await Promise.all([this.refreshKeys(), this.loadTrees(), balance, this.refreshPool()]);
   }
 
   private applyMe(me: MeResponse): void {
@@ -402,6 +428,18 @@ export class CanvasStore {
         (e: unknown) => this.fail(e),
       ),
     ]);
+  }
+
+  /**
+   * Whether the open pool is on (`/api/pool/status` is public). Quiet on
+   * failure: no copy in Learn is offered on its account.
+   */
+  async refreshPool(): Promise<void> {
+    try {
+      this.poolOn.set((await this.api.poolStatus()).enabled);
+    } catch (err) {
+      console.warn('pool status failed', err);
+    }
   }
 
   /** Credit balance and fees. Quiet on failure: the keys dialog then shows no balance. */

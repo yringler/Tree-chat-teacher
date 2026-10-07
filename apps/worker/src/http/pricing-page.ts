@@ -13,7 +13,7 @@ import type { GroundingPolicy } from '@tangent/core';
 import { Hono, type Context } from 'hono';
 import { groundingDailyCap, groundingPolicy } from '../billing/grounding.js';
 import { membershipCreditCents, membershipRequired } from '../billing/membership.js';
-import { appConfig, type PoolTierCaps } from '../config.js';
+import { appConfig, type PoolDailyCaps } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { poolModel } from '../pool/params.js';
 import { cachedPoolStatus } from '../pool/status.js';
@@ -24,17 +24,20 @@ import { joinList, LANDING_STYLE, MARK, poolStepsHtml, roughWords, styleCsp } fr
 import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
 
 /**
- * `/pricing`: what each plan gets you, as a pricing chart. Plan cards up top
- * say it in a line or two, a comparison table spells it out row by row, and
- * numbered notes under the table carry the fine print (fees, tax, limits,
+ * `/pricing`: what each way to pay gets you, as a pricing chart. Plan cards up
+ * top say it in a line or two, a comparison table spells it out row by row,
+ * and numbered notes under the table carry the fine print (fees, tax, limits,
  * what needs a membership). Static and script-free like the landing page, and
  * every number but the pool's balance comes from the config, so it describes
- * what this deployment actually sells: the free plan always; the paid column is the membership
- * when one is required (`membershipRequired`), else pay-as-you-go credit when
- * credit is sold, else absent. The open pool is free credit Tangent
- * provides; nothing here offers it for sale or calls it a donation. Each pool
- * line on the plan cards says the replies last only while the pool has
- * credit, with its balance from the landing page's cached meter.
+ * what this deployment actually sells, one column each: Free always (the open
+ * pool, and the user's own keys while no membership is required); Pay as you
+ * go while credit is sold (`creditSold`), which anyone may buy, member or not;
+ * Your own key while the membership is required (`membershipRequired`), which
+ * own keys need in Learn and power mode alike. The open pool has the same
+ * limits for everyone, so every column shows the same pool line. The pool is
+ * free credit Tangent provides; nothing here offers it for sale or calls it a
+ * donation. Each pool line on the plan cards says the replies last only while
+ * the pool has credit, with its balance from the landing page's cached meter.
  */
 
 /** Everything the page states, resolved from the config (one place, for the tests too). */
@@ -45,8 +48,8 @@ export interface PricingFacts {
     modelLabel: string;
     revenueShareBps: number;
     maxOutputTokens: number;
-    free: PoolTierCaps;
-    member: PoolTierCaps;
+    /** Each learner's daily caps, the same for everyone. */
+    caps: PoolDailyCaps;
     /** What the pool can spend right now (the meter's `availableMicros`); null when it couldn't be read. */
     availableMicros: number | null;
   } | null;
@@ -59,7 +62,7 @@ export interface PricingFacts {
     minTopUpCents: number;
     maxTopUpCents: number;
   } | null;
-  /** The yearly membership, while it is required (`membershipRequired`). */
+  /** The yearly membership, while it is required (`membershipRequired`): what own keys need. */
   membership: { priceCents: number; includedCreditCents: number } | null;
   /** The `GROUNDING` ceiling, or `off` when Learn's provider can't search (`LearnOffer.search`). */
   grounding: GroundingPolicy;
@@ -91,8 +94,7 @@ export function pricingFacts(
             simpleProviderConfig(env).models.find((m) => m.id === poolId)?.label ?? poolId,
           revenueShareBps: config.pool.revenueShareBps,
           maxOutputTokens: config.pool.maxOutputTokens,
-          free: config.pool.caps.free,
-          member: config.pool.caps.member,
+          caps: config.pool.caps.user,
           availableMicros: poolAvailableMicros,
         }
       : null,
@@ -161,6 +163,8 @@ sup.fn a{font-weight:600;text-decoration:none}
 .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 @media (max-width:479px){.chart th,.chart td{padding:8px 10px}.chart thead th,.chart td{width:24%}}
 @media (min-width:720px){.plans.two{grid-template-columns:1fr 1fr}.plans.one{max-width:30rem}}
+@media (min-width:960px){.plans.three{grid-template-columns:1fr 1fr 1fr}}
+@media (min-width:720px) and (max-width:959px){.plans.three{grid-template-columns:1fr 1fr}}
 `;
 
 type NoteId = 'pool' | 'own-key' | 'credit' | 'top-up' | 'membership' | 'power-read' | 'search';
@@ -222,13 +226,10 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, string>> {
   const searches = f.grounding !== 'off';
   const others = otherProviders(f);
   const texts: Partial<Record<NoteId, string>> = {
-    'own-key': `With your own key, the AI provider bills you directly, at its own prices, and Tangent adds nothing. Learn takes an OpenRouter key${searches ? ', which also works for web search' : ''}${others ? `; power mode also takes ${others} keys` : ''}.${membership ? ' Your own keys never need a membership in Learn, but in power mode they do.' : ''}`,
+    'own-key': `With your own key, the AI provider bills you directly, at its own prices, and Tangent adds nothing to that bill. Learn takes an OpenRouter key${searches ? ', which also works for web search' : ''}${others ? `; power mode also takes ${others} keys` : ''}.${membership ? ' Your own keys need the membership, in Learn and in power mode alike.' : ''}`,
   };
   if (pool) {
-    const members = membership
-      ? ` (members: ${pool.member.requestsPerDay.toLocaleString('en-US')} replies or ${escapeHtml(formatMicros(pool.member.spendMicrosPerDay))})`
-      : '';
-    texts.pool = `${escapeHtml(poolFundingText(pool.revenueShareBps))} Pool replies use the ${escapeHtml(pool.modelLabel)} model, are at most ${pool.maxOutputTokens.toLocaleString('en-US')} tokens long (roughly ${roughWords(pool.maxOutputTokens)} words) and don’t search the web. While the pool has credit, each learner can use up to ${pool.free.requestsPerDay.toLocaleString('en-US')} replies or ${escapeHtml(formatMicros(pool.free.spendMicrosPerDay))} of AI cost a day, whichever comes first${members}. Limits reset at 00:00 UTC. You need to be signed in and pass a quick check that you’re human, with one account per email address. <a href="/pool">How the pool works, with every limit</a>.`;
+    texts.pool = `${escapeHtml(poolFundingText(pool.revenueShareBps))} Pool replies use the ${escapeHtml(pool.modelLabel)} model, are at most ${pool.maxOutputTokens.toLocaleString('en-US')} tokens long (roughly ${roughWords(pool.maxOutputTokens)} words) and don’t search the web. While the pool has credit, each learner can use up to ${pool.caps.requestsPerDay.toLocaleString('en-US')} replies or ${escapeHtml(formatMicros(pool.caps.spendMicrosPerDay))} of AI cost a day, whichever comes first. The limits are the same for everyone, whatever else they pay for, and reset at 00:00 UTC. You need to be signed in and pass a quick check that you’re human, with one account per email address. <a href="/pool">How the pool works, with every limit</a>.`;
   }
   if (credit) {
     const share =
@@ -243,16 +244,30 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, string>> {
         : '';
     texts.credit = `You pay what each reply costs Tangent, plus Tangent’s ${escapeHtml(formatBps(credit.markupBps))} markup. Tangent’s cost is ${via}’s price${fee}. So for every 1¢ ${via} charges, you pay about ${perCent(credit)}¢. Summaries and titles made on credit are charged the same way, and your billing page lists every charge.${share}`;
     texts['top-up'] =
-      `Top up ${escapeHtml(formatCents(credit.minTopUpCents))} to ${escapeHtml(formatCents(credit.maxTopUpCents))} at a time. Tax is added at checkout. The payment processor’s fee (a percentage plus a fixed amount) comes out of the credit you receive, so larger top-ups lose a smaller share to it. Credit doesn’t expire while your account exists. It can’t be transferred, and it isn’t refundable, except where the law requires it or Polar’s terms for buyers allow it. Polar, our merchant of record, handles checkout, tax and receipts (<a href="/terms">terms</a>, section 7).${membership ? ' Buying credit needs a membership, but credit you already have keeps working without one.' : ''}`;
+      `Top up ${escapeHtml(formatCents(credit.minTopUpCents))} to ${escapeHtml(formatCents(credit.maxTopUpCents))} at a time. Tax is added at checkout. The payment processor’s fee (a percentage plus a fixed amount) comes out of the credit you receive, so larger top-ups lose a smaller share to it. Credit doesn’t expire while your account exists. It can’t be transferred, and it isn’t refundable, except where the law requires it or Polar’s terms for buyers allow it. Polar, our merchant of record, handles checkout, tax and receipts (<a href="/terms">terms</a>, section 7).${membership ? ' Buying and spending credit never needs a membership.' : ''}`;
   }
   if (membership) {
     const included =
       credit && membership.includedCreditCents > 0
         ? ` Each paid year comes with ${escapeHtml(formatCents(membership.includedCreditCents))} of credit.`
-        : '';
-    texts.membership = `${escapeHtml(formatCents(membership.priceCents))} a year plus tax. It renews every year until you cancel, and one membership covers both Learn and power mode.${included} Cancel any time under <strong>Manage billing</strong>; your membership lasts until the end of the year you paid for.`;
+        : credit
+          ? ' Credit is separate: anyone can buy it, member or not.'
+          : '';
+    texts.membership = `${escapeHtml(formatCents(membership.priceCents))} a year plus tax. It renews every year until you cancel, and one membership covers your own keys in both Learn and power mode.${included} Cancel any time under <strong>Manage billing</strong>; your membership lasts until the end of the year you paid for.`;
+    // A copy in Learn can only get replies without a membership on the pool or on credit.
+    const learnOn =
+      pool && credit
+        ? 'the open pool or on Tangent credit'
+        : pool
+          ? 'the open pool'
+          : credit
+            ? 'Tangent credit'
+            : '';
+    const copy = learnOn
+      ? `, and use <strong>Create a copy in Learn</strong> to continue a power-mode conversation there, on ${learnOn}`
+      : '';
     texts['power-read'] =
-      `Without a membership, you can still open, read and export your power-mode conversations, and use <strong>Create a copy in Learn</strong> to continue any of them there.${credit ? ' Credit you already have keeps working in power mode too.' : ''}`;
+      `Without a membership, you can still open, read and export everything you made on your own keys${copy}.${credit ? ' Power mode on Tangent credit needs no membership.' : ''}`;
   }
   if (searches) {
     const when =
@@ -281,12 +296,6 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, string>> {
 /** A chart cell: included, not included, or a short phrase (HTML). */
 type Cell = boolean | string;
 
-interface Row {
-  label: string;
-  free: Cell;
-  paid: Cell;
-}
-
 const CHECK =
   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" ' +
   'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
@@ -312,7 +321,7 @@ function whilePoolHasCredit(availableMicros: number | null): string {
   return `<span class="while">While the pool has credit${now}</span>`;
 }
 
-function perDay(caps: PoolTierCaps): string {
+function perDay(caps: PoolDailyCaps): string {
   return `${caps.requestsPerDay.toLocaleString('en-US')} a day`;
 }
 
@@ -343,11 +352,29 @@ const DESCRIPTION = 'What you can do on Tangent for free, and exactly what payin
 
 /** The headline, for whichever ways to pay this deployment offers. */
 function headline(f: PricingFacts): string {
-  if (f.membership)
-    return `${f.pool ? 'Learn free.' : 'Free on your own key.'} Go further for ${escapeHtml(formatCents(f.membership.priceCents))} a year.`;
+  if (f.membership) {
+    const price = escapeHtml(formatCents(f.membership.priceCents));
+    if (f.credit)
+      return f.pool
+        ? 'Learn free, pay for what you use, or bring your own key.'
+        : 'Pay for what you use, or bring your own key.';
+    return f.pool
+      ? `Learn free, or bring your own key for ${price} a year.`
+      : `Bring your own key for ${price} a year.`;
+  }
   if (f.pool)
     return f.credit ? 'Learn free. Pay only for what you use.' : 'Learn free, or on your own key.';
   return f.credit ? 'Pay only for what you use.' : 'Free on your own key.';
+}
+
+/**
+ * The yearly AI spend above which the membership costs less than the markup
+ * on credit (the membership's price over the markup: $100 for $10 and 10%);
+ * null unless both are offered and the markup is above 0.
+ */
+export function breakEvenCents(f: PricingFacts): number | null {
+  if (!f.credit || !f.membership || f.credit.markupBps <= 0) return null;
+  return Math.round((f.membership.priceCents * 10_000) / f.credit.markupBps);
 }
 
 /** The friendly overview: the ways to pay, no fine print. */
@@ -356,50 +383,46 @@ function lede(f: PricingFacts): string {
   const parts: string[] = [];
   if (pool)
     parts.push(
-      `Anyone signed in can learn free on the open pool: up to ${pool.free.requestsPerDay.toLocaleString('en-US')} replies a day, while the pool has credit.`,
+      `Anyone signed in can learn free on the open pool: up to ${pool.caps.requestsPerDay.toLocaleString('en-US')} replies a day, the same limits for everyone, while the pool has credit.`,
     );
-  parts.push(
-    pool
-      ? 'You can also use your own OpenRouter key, and Tangent charges nothing for it.'
-      : 'Bring your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly.',
-  );
-  if (credit && !membership)
+  if (credit)
     parts.push(
-      `Or buy prepaid credit and pay for each reply at what it costs Tangent, plus ${escapeHtml(formatBps(credit.markupBps))}.`,
+      `${pool ? 'Want more, or power mode? Buy' : 'Buy'} prepaid credit${membership ? ', with no subscription' : ''}: you pay for each reply at what it costs Tangent, plus ${escapeHtml(formatBps(credit.markupBps))}.`,
     );
-  if (membership) {
-    const perks = [
-      ...(pool
-        ? [
-            `raises your pool limit to ${pool.member.requestsPerDay.toLocaleString('en-US')} replies a day`,
-          ]
-        : []),
-      ...(credit ? ['lets you buy prepaid credit'] : []),
-      'unlocks power mode on your own keys',
-    ];
+  if (membership)
     parts.push(
-      `A membership (${escapeHtml(formatCents(membership.priceCents))} a year) ${joinList(perks, 'and')}.`,
+      `${pool || credit ? 'Prefer your own API key?' : 'Bring your own API key:'} Your AI provider bills you directly, and a ${escapeHtml(formatCents(membership.priceCents))} yearly membership covers Tangent itself.`,
     );
-  } else parts.push('No subscription, nothing to cancel.');
+  else
+    parts.push(
+      pool || credit
+        ? 'You can also use your own OpenRouter key, and Tangent charges nothing for it.'
+        : 'Bring your own OpenRouter key and Tangent charges nothing: you pay OpenRouter directly.',
+    );
+  const breakEven = breakEvenCents(f);
+  if (breakEven !== null)
+    parts.push(
+      `A rule of thumb: if you’d spend less than about ${escapeHtml(formatCents(breakEven))} a year on AI, credit costs you less; if more, your own key does.`,
+    );
+  if (!membership) parts.push('No subscription, nothing to cancel.');
   return parts.join(' ');
 }
 
-/** The membership card's one-line summary: what it adds over Free. */
-function membershipFor(f: PricingFacts): string {
-  const adds = [
-    ...(f.pool ? ['more free replies'] : []),
-    ...(f.credit ? ['prepaid credit'] : []),
-    'power mode on your own keys',
-  ];
-  const text = joinList(adds, 'and');
-  return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
-}
+/** The pricing chart's columns, left to right: Free, then each way to pay this deployment offers. */
+type Column = 'free' | 'credit' | 'key';
+
+/** One row of the chart: a cell per column (a column the deployment doesn't offer is skipped). */
+type Row = { label: string } & Record<Column, Cell>;
 
 export function renderPricingPage(info: LegalInfo, f: PricingFacts): string {
   const { pool, credit, membership } = f;
   const notes = footnotes(noteTexts(f));
   const searches = f.grounding !== 'off';
-  const paidName = membership ? 'Membership' : credit ? 'Pay as you go' : null;
+  const columns: { id: Column; name: string }[] = [
+    { id: 'free', name: 'Free' },
+    ...(credit ? [{ id: 'credit' as const, name: 'Pay as you go' }] : []),
+    ...(membership ? [{ id: 'key' as const, name: 'Your own key' }] : []),
+  ];
   // Learn's deeper tier, when it has a choice of models, and whether the pool runs it.
   const top = f.tiers.length >= 2 ? f.tiers[0]! : null;
   const poolHasTop = top !== null && pool?.modelId === top.id;
@@ -409,73 +432,89 @@ export function renderPricingPage(info: LegalInfo, f: PricingFacts): string {
   const freeCard = `<article class="plan${pool ? ' featured' : ''}">
 <h3>Free</h3>
 <p class="price">$0</p>
-<p class="for">${pool ? 'Learn every day on the open pool.' : 'Learn on your own OpenRouter key.'}</p>
+<p class="for">${pool ? 'Learn every day on the open pool.' : membership ? 'See how Tangent works in the demo.' : 'Learn on your own OpenRouter key.'}</p>
 <ul>
-${pool ? `<li>${pool.free.requestsPerDay.toLocaleString('en-US')} free replies a day on the open pool${notes.ref('pool')}${whilePoolHasCredit(pool.availableMicros)}</li>\n` : ''}<li>Your own OpenRouter key in Learn, with nothing added by Tangent${notes.ref('own-key')}</li>
-${membership ? '' : '<li>Every power-mode control, on your own keys</li>\n'}<li>The demo, with no sign-up</li>
+${pool ? `<li>${pool.caps.requestsPerDay.toLocaleString('en-US')} free replies a day on the open pool${notes.ref('pool')}${whilePoolHasCredit(pool.availableMicros)}</li>\n` : ''}${membership ? '' : `<li>Your own OpenRouter key in Learn, with nothing added by Tangent${notes.ref('own-key')}</li>\n<li>Every power-mode control, on your own keys</li>\n`}<li>The demo, with no sign-up</li>
 </ul>
 <a class="btn${pool ? ' primary' : ''}" href="/learn/login">${pool ? 'Start learning free' : 'Start learning'}</a>
 </article>`;
 
-  let paidCard = '';
-  if (membership) {
-    paidCard = `<article class="plan">
-<h3>Membership</h3>
-<p class="price">${escapeHtml(formatCents(membership.priceCents))}<small> a year + tax</small>${notes.ref('membership')}</p>
-<p class="for">${membershipFor(f)}</p>
-<ul>
-<li>Everything in Free</li>
-${pool ? `<li>${pool.member.requestsPerDay.toLocaleString('en-US')} pool replies a day instead of ${pool.free.requestsPerDay.toLocaleString('en-US')}${whilePoolHasCredit(pool.availableMicros)}</li>\n` : ''}<li>Power mode on your own API keys</li>
-${credit ? `<li>Buy prepaid credit for ${escapeHtml(joinList([top ? `the ${top.label} tier` : 'Learn', ...(searches ? ['web search'] : []), anyModel], 'and'))}${notes.ref('credit')}</li>\n` : ''}${credit && membership.includedCreditCents > 0 ? `<li>${escapeHtml(formatCents(membership.includedCreditCents))} of credit included each year${notes.ref('top-up')}</li>\n` : ''}</ul>
-<a class="btn" href="/learn/login">Sign in to join</a>
-</article>`;
-  } else if (credit) {
-    paidCard = `<article class="plan">
+  const creditCard = credit
+    ? `<article class="plan">
 <h3>Pay as you go</h3>
 <p class="price">At cost<small> + ${escapeHtml(formatBps(credit.markupBps))} a reply</small>${notes.ref('credit')}</p>
-<p class="for">Prepaid credit: no key to manage, no subscription.</p>
+<p class="for">Prepaid credit: no key to manage, no subscription${membership ? ', no membership' : ''}.</p>
 <ul>
 <li>Everything in Free</li>
 <li>${top ? `The ${escapeHtml(top.label)} tier in Learn` : 'Learn on credit'}, and ${anyModel} in power mode</li>
 ${searches ? `<li>${f.grounding === 'explicit' ? 'Web search to check any answer' : 'Web search when an answer needs it'}</li>\n` : ''}<li>Top up from ${escapeHtml(formatCents(credit.minTopUpCents))}; credit doesn’t expire${notes.ref('top-up')}</li>
 </ul>
 <a class="btn" href="/learn/login">Sign in to add credit</a>
-</article>`;
-  }
+</article>`
+    : '';
 
-  // A membership only lets you buy credit: what credit pays for isn't "included".
-  const onCredit: Cell = credit ? (membership ? 'With credit or your key' : true) : 'On your key';
+  const keyCard = membership
+    ? `<article class="plan">
+<h3>Your own key</h3>
+<p class="price">${escapeHtml(formatCents(membership.priceCents))}<small> a year + tax</small>${notes.ref('membership')}</p>
+<p class="for">Your AI provider bills you directly; a yearly membership covers Tangent.</p>
+<ul>
+<li>Everything in Free</li>
+<li>Learn and power mode on your own API keys${notes.ref('own-key')}</li>
+<li>Nothing added to your AI provider’s bill</li>
+${credit && membership.includedCreditCents > 0 ? `<li>${escapeHtml(formatCents(membership.includedCreditCents))} of credit included each year${notes.ref('top-up')}</li>\n` : ''}</ul>
+<a class="btn" href="/learn/login">Sign in to join</a>
+</article>`
+    : '';
+
+  // Own keys are free while no membership is required: Free (and Pay as you go, which has
+  // everything in Free) has them. Otherwise only the own-key column does.
+  const keysFree = membership === null;
   const learn: Row[] = [
     {
       label: 'Straight answers, tangents and “Ask about this” side questions',
       free: true,
-      paid: true,
+      credit: true,
+      key: true,
     },
   ];
   if (pool)
+    // The same limits for everyone, whatever else they pay for.
     learn.push({
       label: `Free replies on the open pool${notes.ref('pool')}`,
-      free: perDay(pool.free),
-      paid: perDay(membership ? pool.member : pool.free),
+      free: perDay(pool.caps),
+      credit: perDay(pool.caps),
+      key: perDay(pool.caps),
     });
-  if (top)
+  learn.push({
+    label: `Your own OpenRouter key${notes.ref('own-key')}`,
+    free: keysFree,
+    credit: keysFree,
+    key: true,
+  });
+  if (top) {
+    const onPool = poolHasTop ? 'On the open pool' : '';
     learn.push({
       label: `The ${escapeHtml(top.label)} tier${top.label === 'Smart' ? ', for deeper explanations' : ''}`,
-      free: `${poolHasTop ? 'On the open pool or your key' : 'On your key'}${notes.ref('own-key')}`,
-      paid: poolHasTop ? true : onCredit,
+      free: keysFree ? `${onPool ? `${onPool} or your key` : 'On your key'}` : onPool || false,
+      credit: true,
+      key: true,
     });
+  }
   if (searches)
     learn.push({
       label: `Web search, with sources${notes.ref('search')}`,
-      free: 'On your key',
-      paid: onCredit,
+      free: keysFree ? 'On your key' : false,
+      credit: true,
+      key: true,
     });
 
   const power: Row[] = [
     {
       label: 'Every control: context modes, inspector, reviewer, system prompts',
-      free: membership ? `Read and export${notes.ref('power-read')}` : 'On your keys',
-      paid: true,
+      free: keysFree ? 'On your keys' : `Read and export${notes.ref('power-read')}`,
+      credit: true,
+      key: true,
     },
     {
       label: f.providers.length
@@ -486,34 +525,44 @@ ${searches ? `<li>${f.grounding === 'explicit' ? 'Web search to check any answer
             ),
           )} keys`
         : 'Your own API keys',
-      free: !membership,
-      paid: true,
+      free: keysFree,
+      credit: keysFree,
+      key: true,
     },
   ];
   if (credit)
     power.push({
       label: `${anyModel.charAt(0).toUpperCase()}${anyModel.slice(1)}, on prepaid credit`,
       free: false,
-      paid: true,
+      credit: true,
+      // Credit is anyone's to buy: the membership neither includes it nor is needed for it.
+      key: 'Bought separately',
     });
   power.push({
     label: f.sharing
       ? 'Read-only share links, Markdown and HTML export'
       : 'Markdown and HTML export',
     free: true,
-    paid: true,
+    credit: true,
+    key: true,
   });
 
   const cost: Row[] = [
-    { label: 'Tangent’s charge on your own key', free: 'Nothing', paid: 'Nothing' },
     {
       label: 'Price',
       free: '$0',
-      paid: membership
+      credit: credit
+        ? `At cost + ${escapeHtml(formatBps(credit.markupBps))}${notes.ref('credit')}`
+        : '',
+      key: membership
         ? `${escapeHtml(formatCents(membership.priceCents))} a year${notes.ref('membership')}`
-        : credit
-          ? `At cost + ${escapeHtml(formatBps(credit.markupBps))}${notes.ref('credit')}`
-          : '',
+        : '',
+    },
+    {
+      label: 'Tangent’s charge on your own key',
+      free: keysFree ? 'Nothing' : false,
+      credit: keysFree ? 'Nothing' : false,
+      key: 'Nothing per reply',
     },
   ];
   if (credit) {
@@ -521,25 +570,26 @@ ${searches ? `<li>${f.grounding === 'explicit' ? 'Web search to check any answer
     cost.push({
       label: 'Prepaid credit',
       free: false,
-      paid:
+      credit: topUp,
+      key:
         membership && membership.includedCreditCents > 0
-          ? `${escapeHtml(formatCents(membership.includedCreditCents))} a year included; ${topUp.charAt(0).toLowerCase()}${topUp.slice(1)}`
-          : topUp,
+          ? `${escapeHtml(formatCents(membership.includedCreditCents))} a year included`
+          : 'Bought separately',
     });
   }
 
   const group = (title: string, rows: Row[]): string =>
-    `<tr class="group"><th scope="colgroup" colspan="${paidName ? 3 : 2}">${title}</th></tr>\n` +
+    `<tr class="group"><th scope="colgroup" colspan="${columns.length + 1}">${title}</th></tr>\n` +
     rows
       .map(
         (r) =>
-          `<tr><th scope="row">${r.label}</th>${cell(r.free)}${paidName ? cell(r.paid) : ''}</tr>`,
+          `<tr><th scope="row">${r.label}</th>${columns.map((col) => cell(r[col.id])).join('')}</tr>`,
       )
       .join('\n');
   const chart = `<div class="chart">
 <table>
 <caption class="sr-only">What each plan includes</caption>
-<thead><tr><td></td><th scope="col">Free</th>${paidName ? `<th scope="col">${paidName}</th>` : ''}</tr></thead>
+<thead><tr><td></td>${columns.map((col) => `<th scope="col">${col.name}</th>`).join('')}</tr></thead>
 <tbody>
 ${group('Learn', learn)}
 ${group('Power mode', power)}
@@ -547,6 +597,7 @@ ${group('Cost', cost)}
 </tbody>
 </table>
 </div>`;
+  const plans = [freeCard, creditCard, keyCard].filter((card) => card !== '');
 
   const canonical = escapeHtml(new URL('/pricing', info.origin).toString());
   return `<!doctype html>
@@ -573,9 +624,8 @@ ${group('Cost', cost)}
 </div>
 <div class="wrap">
 <h2 class="sr-only">Plans</h2>
-<div class="plans ${paidCard ? 'two' : 'one'}">
-${freeCard}
-${paidCard}
+<div class="plans ${['one', 'two', 'three'][plans.length - 1]}">
+${plans.join('\n')}
 </div>
 </div>
 ${pool ? whyFreeSection(pool, membership !== null) : ''}<section aria-labelledby="compare">

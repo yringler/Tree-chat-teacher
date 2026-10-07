@@ -48,8 +48,6 @@ export function poolBlockOf(err: unknown): PoolBlock | null {
     reason: kind === 'empty' ? 'empty' : 'cap_requests',
     limit: null,
     resetAt: null,
-    member: false,
-    memberLimit: null,
   };
   return { kind, details };
 }
@@ -63,11 +61,10 @@ export function untilText(resetAt: string, now: Date): string {
   return `${Math.round(minutes / 60)} h`;
 }
 
-/** The words of an inline pool state: a headline and, for caps, a line about members. */
+/** The words of an inline pool state: a headline and, mostly, when or how to try again. */
 export interface PoolBlockText {
   title: string;
   detail: string | null;
-  members: string | null;
 }
 
 function limitText(reason: PoolBlockDetails['reason'], limit: number): string {
@@ -79,9 +76,9 @@ function limitText(reason: PoolBlockDetails['reason'], limit: number): string {
 /**
  * What the chat says when the pool refused a message (spec §8):
  * - empty: `POOL_EMPTY_TEXT` (Tangent refills it);
- * - a daily cap: the cap, when it resets, and that members get more;
- * - the network's or everyone's daily ceiling: "busy today" (and, for the
- *   free tier's ceiling, that members have their own);
+ * - a daily cap: the cap and when it resets (one set of caps for everyone,
+ *   paying or not, so there is no higher tier to point to);
+ * - the network's or everyone's daily ceiling: "busy today";
  * - per-minute: try again in a minute.
  */
 export function poolBlockText(block: PoolBlock, now: Date = new Date()): PoolBlockText {
@@ -91,9 +88,8 @@ export function poolBlockText(block: PoolBlock, now: Date = new Date()): PoolBlo
       ? {
           title: "The open pool is paused for a moment. It isn't taking replies right now.",
           detail: 'Try again later.',
-          members: null,
         }
-      : { title: POOL_EMPTY_TEXT, detail: null, members: null };
+      : { title: POOL_EMPTY_TEXT, detail: null };
   }
   const reset = d.resetAt ? `00:00 UTC (in ${untilText(d.resetAt, now)})` : '00:00 UTC';
   switch (d.reason) {
@@ -101,29 +97,19 @@ export function poolBlockText(block: PoolBlock, now: Date = new Date()): PoolBlo
       return {
         title: "You're sending messages faster than the open pool allows.",
         detail: `Try again in ${d.resetAt ? untilText(d.resetAt, now) : 'a minute'}.`,
-        members: null,
       };
     case 'cap_ip':
     case 'cap_global':
       return {
         title: 'The open pool is busy today.',
         detail: `It resets at ${reset}.`,
-        // Each tier has its own everyone-together ceiling; a network's limit binds members too.
-        members:
-          d.reason === 'cap_global' && !d.member
-            ? 'Members have a separate daily allowance.'
-            : null,
       };
     default: {
       const title =
         d.limit === null
           ? "You've reached today's open-pool limit."
           : `You've used today's ${limitText(d.reason, d.limit)}.`;
-      const more =
-        !d.member && d.memberLimit !== null && d.limit !== null && d.memberLimit > d.limit
-          ? `Members get ${d.reason === 'cap_spend' ? formatMicros(d.memberLimit) : d.memberLimit.toLocaleString('en-US')} a day.`
-          : null;
-      return { title, detail: `The limit resets at ${reset}.`, members: more };
+      return { title, detail: `The limit resets at ${reset}.` };
     }
   }
 }

@@ -46,15 +46,17 @@ import type {
 import {
   ApiClient,
   ApiError,
+  creditBuyable,
   creditCanPay,
   creditCarriesOn,
   errorMessage,
   isNotFound,
+  learnCopyWay,
   lockedFundings,
-  membershipBlocks,
   routeLocked,
   routeOpen,
   runStream,
+  type LearnCopyWay,
   type StreamOutcome,
 } from '@tangent/web-shared';
 import { UiStore } from './ui-store';
@@ -107,6 +109,12 @@ export class TreeStore {
   readonly billing = signal<BillingSummary | null>(null);
   /** The balance has been asked for once (read, or failed: then it counts as none). */
   private readonly billingRead = signal(false);
+  /**
+   * The open pool is on (`GET /api/pool/status`, read on startup): Learn can
+   * then reply without a membership or credit. False until read, or when it
+   * can't be.
+   */
+  readonly poolOn = signal(false);
   readonly trees = signal<TreeSummary[]>([]);
   readonly treesLoaded = signal(false);
 
@@ -235,16 +243,23 @@ export class TreeStore {
   );
 
   /**
-   * Without a membership, power mode can still run on Tangent credit the user
-   * holds (`creditCarriesOn`: offered, and the balance not known to be used up).
+   * Tangent credit can pay for replies, membership or not (`creditCarriesOn`:
+   * offered, and either top-ups are sold, so anyone can buy more, or the
+   * balance isn't known to be used up). Without a membership, power mode
+   * runs on it.
    */
   readonly creditCarriesOn = computed(() =>
     creditCarriesOn(this.me()?.builtInCredit ?? false, this.billing()),
   );
 
-  /** Tangent credit can pay for replies: a member may buy more; anyone else spends what is left. */
-  private readonly creditUsable = computed(
-    () => !membershipBlocks(this.membership()) || this.creditCarriesOn(),
+  /**
+   * How a copy in Learn of a read-only conversation would get replies without
+   * a membership (`learnCopyWay`): the open pool while it is on, else Tangent
+   * credit while it carries on; null when neither, and the read-only notice
+   * then offers no copy.
+   */
+  readonly learnCopyWay = computed<LearnCopyWay | null>(() =>
+    learnCopyWay(this.poolOn(), this.creditCarriesOn()),
   );
 
   /** A route (branch, reviewer, provider entry) whose funding needs the membership the user lacks. */
@@ -254,14 +269,15 @@ export class TreeStore {
 
   /** Provider entries the user can generate on now (see `routeOpen`). */
   readonly openRoutes = computed(() =>
-    this.providers().filter((p) => routeOpen(p, this.lockedFundings(), this.creditUsable())),
+    this.providers().filter((p) => routeOpen(p, this.lockedFundings(), this.creditCarriesOn())),
   );
 
   /**
    * Something can still generate: new conversations, new branches and reviews
    * are offered. False only when the membership locks something and no other
-   * route is open (a non-member with their own keys and no credit left):
-   * power is then read-only throughout. A missing key alone never hides
+   * route is open (a non-member with their own keys, where Tangent credit
+   * isn't sold, or top-ups are off and none is left): power is then
+   * read-only throughout. A missing key alone never hides
    * anything (sending asks for it), nor does a provider list not read yet.
    */
   readonly canGenerate = computed(
@@ -278,7 +294,7 @@ export class TreeStore {
     return !!b && this.routeLocked(b);
   });
 
-  /** Tangent credit, when a read-only branch could carry on with it. */
+  /** Tangent credit, when a read-only branch could carry on with it (anyone can buy it). */
   readonly creditRoute = computed<ProviderInfo | null>(
     () => this.openRoutes().find((p) => p.funding === 'credit') ?? null,
   );
@@ -307,17 +323,23 @@ export class TreeStore {
    * off a locked one: `pickDefaultRoute`, the server's rule for a new tree
    * (docs/DECISIONS.md "Default route of a new tree"). A provider with a key
    * first; else Tangent credit while the balance can pay; else the user's own
-   * OpenRouter (the first send asks for its key); credit first while own keys
-   * need a membership the user lacks. Null until the provider list and, where
-   * credit is offered, the balance have been read, so it never starts on a guess.
+   * OpenRouter (the first send asks for its key). While own keys need a
+   * membership the user lacks, credit comes first if it can pay or be bought
+   * (`creditBuyable`: offered and top-ups sold), whatever the balance: a first
+   * send there asks for credit, which beats a locked own key. Credit that can
+   * do neither leaves the locked own key, which at least leads to the
+   * membership. Null until the provider list and, where credit is offered,
+   * the balance have been read, so it never starts on a guess.
    */
   readonly defaultProvider = computed<ProviderInfo | null>(() => {
     if (!this.providersLoaded()) return null;
     const builtInCredit = this.me()?.builtInCredit ?? false;
     if (builtInCredit && !this.billingRead()) return null;
+    const ownKeyLocked = this.lockedFundings().has('own-key');
     return pickDefaultRoute(this.providers(), {
       creditCanPay: creditCanPay(builtInCredit, this.billing()),
-      ownKeyLocked: this.lockedFundings().has('own-key'),
+      creditBuyable: creditBuyable(builtInCredit, this.billing()),
+      ownKeyLocked,
     });
   });
 
@@ -326,10 +348,10 @@ export class TreeStore {
   /** `me`: the signed-in caller, already fetched by the sign-in check (AuthService.requireUser). */
   async init(me: MeResponse): Promise<void> {
     this.applyMe(me);
-    // Where credit is offered, the balance decides whether a new conversation may start on
-    // it, and without a membership whether Tangent credit can carry on.
+    // Where credit is offered, the balance (and whether top-ups are sold) decides whether a
+    // new conversation may start on it, and whether Tangent credit can carry on.
     const balance = me.builtInCredit ? this.refreshBilling() : null;
-    await Promise.all([this.refreshKeys(), this.loadTrees(), balance]);
+    await Promise.all([this.refreshKeys(), this.loadTrees(), balance, this.refreshPool()]);
   }
 
   private applyMe(me: MeResponse): void {
@@ -389,6 +411,18 @@ export class TreeStore {
       this.fail(err);
     } finally {
       await this.refreshKeys();
+    }
+  }
+
+  /**
+   * Whether the open pool is on (`/api/pool/status` is public). Quiet on
+   * failure: no copy in Learn is offered on its account.
+   */
+  async refreshPool(): Promise<void> {
+    try {
+      this.poolOn.set((await this.api.poolStatus()).enabled);
+    } catch (err) {
+      console.warn('pool status failed', err);
     }
   }
 

@@ -40,9 +40,9 @@ import { UiStore } from './state/ui-store';
         @if (!demo && store.membershipBlocked()) {
           <p class="banner banner-membership" role="alert">
             <span>
-              <strong>Membership needed.</strong> Canvas runs in power mode, where your own keys
-              need the yearly membership; Tangent credit you already have still works. Your
-              conversations stay readable, and Learn on your own key stays free.
+              <strong>Membership needed.</strong> Using your own API keys needs the yearly
+              membership; your provider bills you directly. Tangent credit needs none: anyone can
+              buy it. Your conversations stay readable.
             </span>
             <a class="banner-cta" href="/billing">Subscribe or enter a code</a>
             @if (store.membershipDismissible()) {

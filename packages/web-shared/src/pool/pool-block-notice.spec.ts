@@ -20,8 +20,6 @@ function details(over: Partial<PoolBlockDetails> = {}): PoolBlockDetails {
     reason: 'cap_requests',
     limit: 30,
     resetAt: RESET,
-    member: false,
-    memberLimit: 150,
     ...over,
   };
 }
@@ -33,7 +31,7 @@ const cap = (over: Partial<PoolBlockDetails> = {}): PoolBlock => ({
 
 describe('poolBlockOf', () => {
   it('turns 402 pool_empty and 429 pool_cap_reached into the inline states', () => {
-    const empty = details({ reason: 'empty', limit: null, resetAt: null, memberLimit: null });
+    const empty = details({ reason: 'empty', limit: null, resetAt: null });
     expect(poolBlockOf(new ApiError(402, 'pool_empty', 'Empty', empty))).toEqual({
       kind: 'empty',
       details: empty,
@@ -60,44 +58,36 @@ describe('poolBlockText', () => {
     expect(poolBlockText(empty, NOW)).toEqual({
       title: 'The open pool is empty until Tangent adds more credit.',
       detail: null,
-      members: null,
     });
   });
 
-  it('a daily reply cap: the cap, when it resets, and that members get more', () => {
+  it('a daily reply cap: the cap and when it resets, with no higher tier to sell', () => {
     expect(poolBlockText(cap(), NOW)).toEqual({
       title: "You've used today's 30 open-pool replies.",
       detail: 'The limit resets at 00:00 UTC (in 5 h).',
-      members: 'Members get 150 a day.',
     });
   });
 
   it('a daily spend cap is stated in dollars', () => {
-    expect(
-      poolBlockText(cap({ reason: 'cap_spend', limit: 100_000, memberLimit: 500_000 }), NOW),
-    ).toEqual({
+    expect(poolBlockText(cap({ reason: 'cap_spend', limit: 100_000 }), NOW)).toEqual({
       title: "You've used today's $0.10 of open-pool use.",
       detail: 'The limit resets at 00:00 UTC (in 5 h).',
-      members: 'Members get $0.50 a day.',
     });
   });
 
-  it('a member is not told about members', () => {
-    expect(poolBlockText(cap({ member: true, limit: 150 }), NOW).members).toBeNull();
+  it('no cap notice mentions members: one set of caps for everyone', () => {
+    for (const reason of ['cap_requests', 'cap_spend', 'cap_ip', 'cap_global', 'rate'] as const) {
+      const t = poolBlockText(cap({ reason }), NOW);
+      expect(`${t.title} ${t.detail ?? ''}`).not.toMatch(/member/i);
+    }
   });
 
   it('the network and everyone-together ceilings read "busy today"', () => {
     for (const reason of ['cap_ip', 'cap_global'] as const)
-      expect(poolBlockText(cap({ reason, memberLimit: null, member: true }), NOW)).toEqual({
+      expect(poolBlockText(cap({ reason }), NOW)).toEqual({
         title: 'The open pool is busy today.',
         detail: 'It resets at 00:00 UTC (in 5 h).',
-        members: null,
       });
-    // The everyone-together ceiling is per tier: a non-member hears that members have their own.
-    expect(poolBlockText(cap({ reason: 'cap_global', memberLimit: null }), NOW).members).toBe(
-      'Members have a separate daily allowance.',
-    );
-    expect(poolBlockText(cap({ reason: 'cap_ip', memberLimit: null }), NOW).members).toBeNull();
   });
 
   it('the per-minute limit: try again shortly', () => {
@@ -124,16 +114,22 @@ describe('PoolBlockNotice', () => {
     const t = templateOf(PoolBlockNotice);
     expect(t).toContain('role="status"');
     expect(t).toContain('{{ text().title }}');
-    expect(t).toContain('{{ members }}');
     expect(t).toContain(
       '@if (creditOpen()) {\n              <a class="btn btn-sm" [routerLink]="billingPath()">Buy personal credits</a>',
     );
     expect(t).toContain('<a class="btn btn-sm" href="/pool">How the pool works</a>');
+    // A daily cap offers credit too (it has no daily cap); a rate limit clears in a minute.
+    expect(t).toContain(
+      "@else if (block().kind === 'cap' && block().details.reason !== 'rate' && creditOpen()) {",
+    );
     // Nobody buys credit for the pool: no pool purchase link, no promise of one.
     expect(t).not.toContain('fund-pool');
     expect(t).not.toMatch(/fund the pool|credit for the pool|opens soon/i);
-    expect(t).toContain('} @else if (text().members && membershipOpen()) {');
-    expect(t).toContain('Become a member');
+    // One set of caps for everyone: no member upsell on a cap.
+    expect(t).not.toMatch(/member/i);
+    expect(reflectComponentType(PoolBlockNotice)?.inputs.map((i) => i.propName)).not.toContain(
+      'membershipOpen',
+    );
     expect(t).toContain('aria-label="Dismiss"');
   });
 });

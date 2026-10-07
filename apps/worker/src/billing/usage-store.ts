@@ -7,7 +7,6 @@ import type { UsagePurpose } from '@tangent/shared';
 import { chargeMicros } from './pricing.js';
 
 export type UsageFunding = 'personal' | 'pool';
-export type PoolTier = 'free' | 'member';
 
 /**
  * How a row settled. `cost`: the cost the stream reported; `generation`: from
@@ -29,7 +28,6 @@ export interface PendingUsageRow {
   funding?: UsageFunding;
   /** Pool rows only. */
   ipKey?: string | null;
-  tier?: PoolTier | null;
   purpose: UsagePurpose;
   providerId: string;
   model: string;
@@ -47,9 +45,9 @@ export function insertPendingUsageStatement(
   return db
     .prepare(
       `INSERT INTO usage_events
-         (id, account_id, tree_id, node_id, branch_id, user_id, funding, ip_key, tier, purpose,
+         (id, account_id, tree_id, node_id, branch_id, user_id, funding, ip_key, purpose,
           provider_id, model, status, hold_micros, markup_bps, fee_bps, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
     )
     .bind(
       row.id,
@@ -60,7 +58,6 @@ export function insertPendingUsageStatement(
       row.userId ?? null,
       row.funding ?? 'personal',
       row.ipKey ?? null,
-      row.tier ?? null,
       row.purpose,
       row.providerId,
       row.model,

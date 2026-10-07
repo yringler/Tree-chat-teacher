@@ -158,10 +158,10 @@
     // below) and OPENROUTER_SIMPLE_API_KEY are set, both apps offer the built-in provider (OpenRouter on
     // the operator's key) on prepaid credit (per user, shared by both apps): Learn as "Use Tangent
     // credit", power as the provider "Tangent credit" with any OpenRouter model. Otherwise everyone
-    // brings their own key. With ANNUAL_FEE_ENABLED "true" and POLAR_MEMBERSHIP_PRODUCT_ID set, power
-    // mode (and Canvas) on the user's own keys and buying credit need the yearly membership (waivable
-    // per user, see MEMBERSHIP_WAIVER_CODE below and the README); Learn and spending credit already
-    // held never do (src/billing/gate.ts `needsMembership`).
+    // brings their own key. With ANNUAL_FEE_ENABLED "true" and POLAR_MEMBERSHIP_PRODUCT_ID set,
+    // generating on the user's own keys needs the yearly membership, in Learn and power mode (and
+    // Canvas) alike (waivable per user, see MEMBERSHIP_WAIVER_CODE below and the README); Tangent
+    // credit, bought or spent, and the open pool never do (src/billing/gate.ts `needsMembership`).
     // The suggested OpenRouter models: Learn's Smart / Simple tiers, listed first in power.
     "SIMPLE_SMART_MODEL": "deepseek/deepseek-v4-pro",
     "SIMPLE_FAST_MODEL": "deepseek/deepseek-v4-flash",
@@ -196,25 +196,25 @@
     // USD price, tax exclusive). Empty = no top-ups.
     "POLAR_CREDITS_PRODUCT_ID": "1458ace2-00b3-4710-991e-8d8e04ed4385",
     // The Polar yearly product of the membership ($10, tax exclusive). Empty = no membership is sold
-    // (nothing needs one); set = required for power mode (and Canvas) on own keys and for buying credit
-    // while ANNUAL_FEE_ENABLED is "true".
+    // (nothing needs one); set = required for generating on own keys, in Learn and power mode (and
+    // Canvas), while ANNUAL_FEE_ENABLED is "true".
     "POLAR_MEMBERSHIP_PRODUCT_ID": "21924899-92dc-4d9e-b319-75796649f4e7",
     // Polar's fee as an estimate, used only when an order reports no usable fee (then logged as
     // `fee_estimated`): bps of the total charged plus fixed cents. Defaults: Starter, 5% + 50¢.
     "POLAR_FEE_BPS": "500",
     "POLAR_FEE_FIXED_CENTS": "50",
-    // "true" charges the yearly membership fee: with the membership product above set, power mode (and
-    // Canvas) on the user's own keys and buying credit need a membership, and members get the pool's
-    // higher caps. Without one, own-key power branches and Canvas lanes are read-only; Learn (own key or
-    // pool) and spending credit already held stay open. "false" (default) = nobody needs one, whatever
-    // is sold; any signed-in user may use power mode on own keys, the open pool (within its free
-    // caps) and buy personal credit.
+    // "true" charges the yearly membership fee: with the membership product above set, generating on
+    // the user's own keys needs a membership, in Learn and power mode (and Canvas) alike. Without one,
+    // own-key power branches, Canvas lanes and Learn on the user's key are read-only; Tangent credit
+    // (buying and spending it) and the open pool stay open to everyone, and the pool's caps are the
+    // same for members. "false" (default) = nobody needs one, whatever is sold; any signed-in user
+    // may generate on their own keys in both apps.
     "ANNUAL_FEE_ENABLED": "true",
     // The membership's yearly price in US cents, for display only (Polar charges its product's price).
     "MEMBERSHIP_PRICE_CENTS": "1000",
     // Credit included with each paid membership year, in US cents (200 = $2.00); granted only while
-    // the built-in provider is offered. 0 = none.
-    "MEMBERSHIP_CREDIT_CENTS": "200",
+    // the built-in provider is offered. 0 (the default) = none: the membership includes no credit.
+    "MEMBERSHIP_CREDIT_CENTS": "0",
     // ---- The open credit pool (docs/pool/SPEC.md, src/config.ts). Tangent funds it from its own
     // revenue (POOL_REVENUE_SHARE_BPS) and admin adjustments; nobody buys credit for it. Any signed-in
     // Learn user may learn from it on one economical model, at cost, within daily caps. Every value
@@ -252,21 +252,14 @@
     "POOL_EXPIRE_BATCH": "20",
     // Micro-USD one "learning session" is shown as on the pool meter (20000 = $0.02).
     "POOL_SESSION_ESTIMATE_MICROS": "20000",
-    // Daily caps per user (UTC day): replies and spend in micro-USD, for the free and member tiers.
-    "POOL_FREE_REQUESTS_PER_DAY": "30",
-    "POOL_FREE_SPEND_MICROS_PER_DAY": "100000",
-    "POOL_MEMBER_REQUESTS_PER_DAY": "150",
-    "POOL_MEMBER_SPEND_MICROS_PER_DAY": "500000",
-    // A member has a paid or waived yearly membership; with ANNUAL_FEE_ENABLED off, everyone is free tier.
-    // What the free tier may spend from the pool per UTC day, all users together: the lower of
-    // this many micro-USD and this share (bps) of the pool's balance at 00:00 UTC plus what was
-    // added to it since.
-    "POOL_FREE_DAILY_GLOBAL_MICROS": "5000000",
-    "POOL_FREE_DAILY_GLOBAL_BPS": "2000",
-    // The same ceiling for all members together, so paid accounts cannot
-    // turn a farm of accounts into an unbounded drain.
-    "POOL_MEMBER_DAILY_GLOBAL_MICROS": "10000000",
-    "POOL_MEMBER_DAILY_GLOBAL_BPS": "4000",
+    // Daily caps per user (UTC day): replies and spend in micro-USD. The same for everyone, member or
+    // not, paying or not.
+    "POOL_REQUESTS_PER_DAY": "30",
+    "POOL_SPEND_MICROS_PER_DAY": "100000",
+    // What the pool may spend per UTC day, all users together: the lower of this many micro-USD and
+    // this share (bps) of the pool's balance at 00:00 UTC plus what was added to it since.
+    "POOL_DAILY_GLOBAL_MICROS": "5000000",
+    "POOL_DAILY_GLOBAL_BPS": "2000",
     // Daily caps per network (IPv4 address or IPv6 /64), all users together.
     "POOL_IP_REQUESTS_PER_DAY": "60",
     "POOL_IP_SPEND_MICROS_PER_DAY": "300000",

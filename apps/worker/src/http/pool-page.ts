@@ -10,7 +10,7 @@ import {
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import { membershipRequired } from '../billing/membership.js';
-import { appConfig, type PoolGlobalCap } from '../config.js';
+import { appConfig, type PoolDailyCaps, type PoolGlobalCap } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { poolImpactWeeks, readPoolImpact } from '../pool/impact.js';
 import { modelPrice } from '../pool/model-prices.js';
@@ -18,9 +18,10 @@ import { poolModel } from '../pool/params.js';
 import { ceilingHoldMicros } from '../pool/pricing.js';
 import { poolContributions } from '../pool/revenue-share.js';
 import { weekStart } from '../pool/status.js';
+import { creditSold } from '../services.js';
 import { simpleProviderConfig } from '../simple-mode.js';
 import { renderImpactBlock } from './impact-block.js';
-import { roughWords } from './landing.js';
+import { joinList, roughWords } from './landing.js';
 import { legalInfo, type LegalInfo } from './legal-info.js';
 import { legalResponse, page } from './legal.js';
 
@@ -42,13 +43,15 @@ export interface PoolPageFacts {
   revenueShareBps: number;
   sessionEstimateMicros: number;
   maxOutputTokens: number;
-  free: { requestsPerDay: number; spendMicrosPerDay: number };
-  member: { requestsPerDay: number; spendMicrosPerDay: number };
-  /** The yearly membership is sold and required here (`membershipRequired`): members exist. */
+  /** Each learner's daily caps: the same for everyone, member or not. */
+  user: PoolDailyCaps;
+  /** The yearly membership is sold and required here (`membershipRequired`): Tangent sells it. */
   membershipOffered: boolean;
-  globalFree: PoolGlobalCap;
-  globalMember: PoolGlobalCap;
-  ip: { requestsPerDay: number; spendMicrosPerDay: number };
+  /** Prepaid credit is sold here (`creditSold`): a learner can buy their own. */
+  creditSold: boolean;
+  /** All learners together, per day. */
+  global: PoolGlobalCap;
+  ip: PoolDailyCaps;
   perMinute: number;
   /** The reply's ceiling hold: the part of a daily spend cap that can't start one more reply. */
   ceilingHoldMicros: number | null;
@@ -80,11 +83,10 @@ export async function poolPageFacts(env: AppEnv): Promise<PoolPageFacts> {
     revenueShareBps: pool.revenueShareBps,
     sessionEstimateMicros: pool.sessionEstimateMicros,
     maxOutputTokens: pool.maxOutputTokens,
-    free: pool.caps.free,
-    member: pool.caps.member,
+    user: pool.caps.user,
     membershipOffered: membershipRequired(env),
-    globalFree: pool.caps.globalFree,
-    globalMember: pool.caps.globalMember,
+    creditSold: creditSold(env),
+    global: pool.caps.global,
     ip: pool.caps.ip,
     perMinute: pool.limits.userPerMinute,
     ceilingHoldMicros: price
@@ -131,13 +133,6 @@ function smallMoney(micros: number): string {
   return `${Number((micros / 10_000).toFixed(1))}¢`;
 }
 
-/** Who is a member (billing/membership.ts `isMember`): a paid or waived yearly membership. */
-function membersText(offered: boolean): string {
-  if (!offered)
-    return 'There is no membership here right now, so every learner gets the free limits.';
-  return 'Anyone with a Tangent membership (yearly) is a member, and gets the higher limits above. Paid accounts are much harder to farm than free ones, so they get more room.';
-}
-
 /** Where the pool's credit comes from, in detail (the summary states the commitment). */
 function sourcesText(revenueShareBps: number): string {
   if (revenueShareBps <= 0) return "Pool credit isn't sold. Tangent adds it, at its discretion.";
@@ -167,6 +162,20 @@ export function renderPoolPage(
       ? `<p>So far Tangent’s revenue share has added ${escapeHtml(formatMicros(contributions.weekMicros))} to the pool this week (since Monday, UTC) and ${escapeHtml(formatMicros(contributions.monthMicros))} this month.</p>\n`
       : '';
   const contact = escapeHtml(info.contactEmail);
+  // What Tangent sells here, if anything; the pool comes out of what it earns.
+  const sold = joinList(
+    [f.membershipOffered && 'memberships', f.creditSold && 'credit'].filter(
+      (x): x is string => typeof x === 'string',
+    ),
+    'and',
+  );
+  const why = sold
+    ? `Tangent charges for ${sold} like any software business, and keeps a share of what it earns open for anyone who wants to learn. Paying for Tangent pays for Tangent; the pool is Tangent’s own decision, within daily limits and while it has credit.`
+    : 'Tangent keeps the pool open for anyone who wants to learn. It is Tangent’s own decision, within daily limits and while it has credit.';
+  const ownKey = `use your own OpenRouter key${f.membershipOffered ? ' (with a membership)' : ''}`;
+  const instead = f.creditSold
+    ? `buy credit for yourself instead, or ${ownKey}`
+    : `${ownKey} instead`;
   return page(
     info,
     '/pool',
@@ -176,7 +185,7 @@ export function renderPoolPage(
 <p><strong>The short version.</strong> ${escapeHtml(poolFundingText(f.revenueShareBps))} Any signed-in learner can use it in Tangent Learn, on one economical model, within daily limits.</p>
 </div>
 <h2>Why it exists</h2>
-<p>Good AI tutoring costs real money for every reply, so most of it sits behind a paywall. Tangent charges for ${f.membershipOffered ? 'memberships and credit' : 'credit'} like any software business, and keeps a share of what it earns open for anyone who wants to learn. Paying for Tangent pays for Tangent; the pool is Tangent’s own decision, within daily limits and while it has credit.</p>
+<p>Good AI tutoring costs real money for every reply, so most of it sits behind a paywall. ${why}</p>
 ${f.enabled ? '' : '<p class="updated">The open pool isn’t running on this server yet.</p>\n'}
 <h2>Where the credit comes from</h2>
 <p>${escapeHtml(sourcesText(f.revenueShareBps))}</p>
@@ -185,7 +194,7 @@ ${added}
 <ul>
 <li>Any signed-in learner can use the pool in Tangent Learn. When your own credit runs out, Learn uses the pool. When you have both, you choose with the <strong>Pay for replies with</strong> switch above the message box.</li>
 <li>The pool can never go below zero. Every reply sets aside its worst-case cost first, and is refused if the pool can't cover it.</li>
-<li>When it runs out, Learn says so: "${escapeHtml(POOL_EMPTY_TEXT)}" Your message is kept, and you can use your own OpenRouter key instead, or buy credit for yourself${f.membershipOffered ? ' (buying credit needs a membership)' : ''}.</li>
+<li>When it runs out, Learn says so: "${escapeHtml(POOL_EMPTY_TEXT)}" Your message is kept, and you can ${instead}.</li>
 <li>The meter shows about how many learning sessions the pool still covers, counting ${escapeHtml(formatMicros(f.sessionEstimateMicros))} per session, next to the amount in dollars and how many learners and replies it paid for this week. Those are totals only; no one's name or questions are shown.</li>
 </ul>
 
@@ -200,19 +209,15 @@ ${added}
 <table>
 <thead><tr><th>Limit</th><th>Value</th></tr></thead>
 <tbody>
-<tr><td>Replies per learner per day</td><td>${f.free.requestsPerDay.toLocaleString('en-US')} (members: ${f.member.requestsPerDay.toLocaleString('en-US')})</td></tr>
-<tr><td>Spending per learner per day</td><td>${escapeHtml(formatMicros(f.free.spendMicrosPerDay))} (members: ${escapeHtml(formatMicros(f.member.spendMicrosPerDay))})</td></tr>
+<tr><td>Replies per learner per day</td><td>${f.user.requestsPerDay.toLocaleString('en-US')}</td></tr>
+<tr><td>Spending per learner per day</td><td>${escapeHtml(formatMicros(f.user.spendMicrosPerDay))}</td></tr>
 <tr><td>Replies per minute</td><td>${f.perMinute.toLocaleString('en-US')}</td></tr>
 <tr><td>Per network per day</td><td>${f.ip.requestsPerDay.toLocaleString('en-US')} replies, ${escapeHtml(formatMicros(f.ip.spendMicrosPerDay))}</td></tr>
-<tr><td>All non-members together, per day</td><td>${globalCapText(f.globalFree)}</td></tr>
-<tr><td>All members together, per day</td><td>${globalCapText(f.globalMember)}</td></tr>
+<tr><td>All learners together, per day</td><td>${globalCapText(f.global)}</td></tr>
 </tbody>
 </table>
-<p>Daily limits reset at 00:00 UTC. The last two keep a busy day from emptying the pool before later learners that day get to use it; credit added during the day counts toward them straight away. Using the pool needs a signed-in account that passed a quick human check, and one account per email address.</p>
+<p>The limits are the same for everyone: a membership or credit of your own doesn’t change them. Daily limits reset at 00:00 UTC. The last one keeps a busy day from emptying the pool before later learners that day get to use it; credit added during the day counts toward it straight away. Using the pool needs a signed-in account that passed a quick human check, and one account per email address.</p>
 ${ceiling}
-<h2>Members</h2>
-<p>${escapeHtml(membersText(f.membershipOffered))}</p>
-
 <h2 id="impact">What the pool is funding</h2>
 <p>Every Monday, Tangent publishes what the pool paid for the week before (Monday to Sunday, UTC): how many replies and learners, how many topics, and how deep learners went down their branches. These are totals only. No one's questions or name are ever shown, and a topic is named only when all of these hold:</p>
 <ul>

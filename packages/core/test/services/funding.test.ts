@@ -107,7 +107,11 @@ describe('ChatService routes (provider + funding)', () => {
       providerId: 'openrouter',
       funding: 'own-key',
     });
-    const facts = vi.fn(async () => ({ creditCanPay: true, ownKeyLocked: false }));
+    const facts = vi.fn(async () => ({
+      creditCanPay: true,
+      creditBuyable: false,
+      ownKeyLocked: false,
+    }));
     const noKeys = new ChatService({
       repos: createMemoryRepositories(),
       providers: unavailable(registryOf(new ScriptedProvider('ant'))),
@@ -138,7 +142,7 @@ describe('ChatService routes (provider + funding)', () => {
         ...(facts ? { defaultRouteFacts: async () => facts } : {}),
         settings: DEFAULT_CHAT_SETTINGS,
       });
-    const zero = { creditCanPay: false, ownKeyLocked: false };
+    const zero = { creditCanPay: false, creditBuyable: false, ownKeyLocked: false };
     const ant = () => new ScriptedProvider('ant');
     const openrouter = () => new ScriptedProvider('openrouter');
     // Zero balance (or nothing known about it): the user's own OpenRouter, asked for on the first send.
@@ -156,7 +160,11 @@ describe('ChatService routes (provider + funding)', () => {
       repos: createMemoryRepositories(),
       providers: registryOf(ant()),
       creditProviders: registryOf(openrouter()),
-      defaultRouteFacts: async () => ({ creditCanPay: true, ownKeyLocked: true }),
+      defaultRouteFacts: async () => ({
+        creditCanPay: true,
+        creditBuyable: false,
+        ownKeyLocked: true,
+      }),
       settings: DEFAULT_CHAT_SETTINGS,
     });
     expect((await locked.createTree({})).branches[0]).toMatchObject({
@@ -175,7 +183,11 @@ describe('ChatService routes (provider + funding)', () => {
       repos: createMemoryRepositories(),
       providers: unavailable(registryOf(new ScriptedProvider('ant'), new ScriptedProvider('oai'))),
       creditProviders: unavailable(registryOf(new ScriptedProvider('openrouter'))),
-      defaultRouteFacts: async () => ({ creditCanPay: true, ownKeyLocked: false }),
+      defaultRouteFacts: async () => ({
+        creditCanPay: true,
+        creditBuyable: false,
+        ownKeyLocked: false,
+      }),
       settings: DEFAULT_CHAT_SETTINGS,
     });
     // Sending then asks for the key (the Worker's gate); credit is never picked implicitly.
@@ -191,7 +203,11 @@ describe('ChatService routes (provider + funding)', () => {
   });
 
   it('Learn (fixed funding) ignores credit and the facts: its one provider, own-key', async () => {
-    const facts = vi.fn(async () => ({ creditCanPay: true, ownKeyLocked: true }));
+    const facts = vi.fn(async () => ({
+      creditCanPay: true,
+      creditBuyable: false,
+      ownKeyLocked: true,
+    }));
     const learn = new ChatService({
       repos: createMemoryRepositories(),
       providers: unavailable(registryOf(new ScriptedProvider('openrouter'))),

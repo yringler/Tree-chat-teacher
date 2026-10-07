@@ -1392,6 +1392,7 @@ export class ChatService {
     ];
     const facts: DefaultRouteFacts = (withCredit && (await this.deps.defaultRouteFacts?.())) || {
       creditCanPay: false,
+      creditBuyable: false,
       ownKeyLocked: false,
     };
     const picked = pickDefaultRoute(entries, facts);

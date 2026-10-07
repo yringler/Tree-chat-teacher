@@ -14,6 +14,7 @@ import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
 import { simpleProviderConfig } from '../src/simple-mode.js';
 import { makeNode } from './fixtures.js';
+import { insertSubscription } from './mocks/billing-helpers.js';
 import { poolReadyUser } from './pool-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
 
@@ -314,7 +315,7 @@ describe('funding matrix: the same party pays with the same key as before the sp
     expect(await usageRows(`u_${userId}`)).toBe(2);
   });
 
-  it('the membership gates power on own keys only; Learn never needs it', async () => {
+  it('the membership gates own keys in both apps; credit never needs it', async () => {
     const e = matrixEnv({ ANNUAL_FEE_ENABLED: 'true', POOL_ENABLED: 'false' });
     const { c, userId } = await signedIn(e);
     await grant(`u_${userId}`);
@@ -330,6 +331,17 @@ describe('funding matrix: the same party pays with the same key as before the sp
       reply: 'key=OPERATOR',
     });
     const learn = await replyOn(c, { providerId: 'openrouter' }, 'own-key');
+    expect(await reviewWith(c, learn.assistant.id, OWN, { learn: 'own-key' })).toMatchObject({
+      status: 402,
+      code: 'membership_required',
+    });
+    // Learn on credit: the operator's key, no membership.
+    expect(await reviewWith(c, learn.assistant.id, OWN, { learn: 'credit' })).toMatchObject({
+      status: 200,
+      reply: 'key=OPERATOR',
+    });
+    // A member's Learn own-key review runs on their key.
+    await insertSubscription(env, userId, 'active');
     expect(await reviewWith(c, learn.assistant.id, OWN, { learn: 'own-key' })).toMatchObject({
       status: 200,
       reply: 'key=USER-0123456789',

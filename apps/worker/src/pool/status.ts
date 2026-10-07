@@ -3,7 +3,6 @@
 // the balance, the sessions it covers and this week's counts, never a user.
 import type { PoolMeResponse, PoolStatusResponse } from '@tangent/shared';
 import { balanceStatement, getBalance, readBalance, type BalanceRow } from '../billing/ledger.js';
-import { isMember } from '../billing/membership.js';
 import { appConfig } from '../config.js';
 import type { AccountContext, AppEnv } from '../env.js';
 import { poolAvailable } from '../services.js';
@@ -108,7 +107,7 @@ export async function poolMe(
   const pool = appConfig(env).pool;
   const userId = account.userId;
   const day = dayStart(now).toISOString();
-  const [personal, row, usage, member, consent] = await Promise.all([
+  const [personal, row, usage, consent] = await Promise.all([
     getBalance(env.DB, account.billingAccountId),
     userId
       ? env.DB.prepare(
@@ -120,14 +119,13 @@ export async function poolMe(
           .first<PoolAccountRow>()
       : null,
     userId ? userDayUsageStatement(env.DB, pool.accountId, userId, day).first<DayRow>() : null,
-    isMember(env, account),
     userId ? consentVersion(env.DB, userId) : null,
   ]);
-  const caps = member ? pool.caps.member : pool.caps.free;
+  // The same caps for everyone, member or not.
+  const caps = pool.caps.user;
   return {
     available: poolAvailable(env) && userId !== null,
     verified: !!row?.pool_verified_at,
-    member,
     suspended: !!row?.pool_suspended || !!row?.identity_suspended,
     caps: {
       requestsPerDay: caps.requestsPerDay,

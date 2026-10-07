@@ -39,3 +39,19 @@ describe('Learn copy rule (open pool)', () => {
     }
   });
 });
+
+describe('Learn copy rule (membership)', () => {
+  it('the own key needs a membership where one is required: a non-member sees it disabled', () => {
+    const t = templateOf(ModelAccessDialog);
+    expect(t).toContain('[disabled]="ownKeyLocked()"');
+    expect(t).toMatch(
+      /Needs a membership \(\{\{ price\(\) \}\}\/year\): covers Tangent while OpenRouter bills you\s+directly\./,
+    );
+  });
+
+  it('credit has no member conditions: anyone can buy it', () => {
+    const t = templateOf(ModelAccessDialog);
+    expect(t).toContain('<a routerLink="/billing" (click)="close()">Add credit</a>');
+    expect(t).not.toMatch(/Members only|Buying more credit|to add more|to buy prepaid/);
+  });
+});

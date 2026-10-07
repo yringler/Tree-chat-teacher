@@ -115,9 +115,11 @@ describe('a power user without a membership (the fee on)', () => {
         subscriptionStatus: who === 'lapsed member' ? 'canceled' : null,
       });
       expect(me.membershipNeededFor).toEqual(['own-key']);
-      // Learn needs none, member or not.
-      const learn = await json<MeResponse>(await u.call('/api/me', { learn: 'own-key' }));
-      expect(learn.membershipNeededFor).toEqual([]);
+      // Learn: its own key needs it too, whichever payment the request carries.
+      for (const payment of ['own-key', 'credit', 'pool'] as const) {
+        const learn = await json<MeResponse>(await u.call('/api/me', { learn: payment }));
+        expect(learn.membershipNeededFor, payment).toEqual(['own-key']);
+      }
 
       const tree = await powerTree(u);
       const trunk = tree.branches.find((b) => b.parentBranchId === null)!;
@@ -540,7 +542,7 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
     });
   });
 
-  it('own keys locked by a lapsed membership: credit that can pay wins, even over a saved key', async () => {
+  it('own keys locked by a lapsed membership: credit wins, even over a saved key and with no balance', async () => {
     const u = await newUser({ ...FEE_ON, ...DEFAULTS, ANNUAL_FEE_ENABLED: 'true', ...CREDIT });
     await insertSubscription(env, u.userId, 'canceled');
     const saved = await u.call('/api/key', {
@@ -548,12 +550,36 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
       json: { provider: 'openai', apiKey: 'sk-openai-0123456789abcdef' },
     });
     expect(saved.status, await saved.text()).toBe(204);
-    // No credit left either: nothing can generate (the app shows the notice instead of the
-    // new-conversation box); the server's fallback stays off credit.
-    expect((await newTree(u)).branches[0]).toMatchObject({
-      providerId: 'openai',
-      funding: 'own-key',
+    // No credit yet: still credit, which anyone can buy (the first send asks for it),
+    // rather than a locked own key that can't reply at all.
+    const empty = await newTree(u);
+    expect(empty.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'credit' });
+    expect((await firstSend(u, empty)).status).toBe(402);
+    await grant(u);
+    const tree = await newTree(u);
+    expect(tree.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'credit' });
+    expect((await firstSend(u, tree)).status).toBe(200);
+  });
+
+  it('own keys locked, credit offered but top-ups not sold: an empty balance starts on the own key; a granted one on credit', async () => {
+    const u = await newUser({
+      ...FEE_ON,
+      ...DEFAULTS,
+      ANNUAL_FEE_ENABLED: 'true',
+      ...CREDIT,
+      FAKE_PAYMENTS: JSON.stringify({ topUps: false }),
     });
+    await insertSubscription(env, u.userId, 'canceled');
+    expect(u.me.builtInCredit).toBe(true);
+    expect(u.me.membershipNeededFor).toEqual(['own-key']);
+    // Credit that can neither pay nor be bought is a dead end; the locked own
+    // key at least leads to the membership.
+    const empty = await newTree(u);
+    expect(empty.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
+    expect((await json<ApiError>(await firstSend(u, empty), 402)).error.code).toBe(
+      'membership_required',
+    );
+    // Credit an operator granted can pay: credit again.
     await grant(u);
     const tree = await newTree(u);
     expect(tree.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'credit' });

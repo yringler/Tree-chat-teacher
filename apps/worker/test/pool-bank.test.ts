@@ -42,10 +42,8 @@ const FAST: UsageMeterOptions = { retryDelaysMs: [5, 5], settleRetryDelaysMs: [5
 
 /** Caps that never bind, unless a test lowers one. */
 const OPEN_CAPS: PoolCaps = {
-  free: { requestsPerDay: 1_000_000, spendMicrosPerDay: 1e12 },
-  member: { requestsPerDay: 1_000_000, spendMicrosPerDay: 1e12 },
-  globalFree: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 1e9 },
-  globalMember: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 1e9 },
+  user: { requestsPerDay: 1_000_000, spendMicrosPerDay: 1e12 },
+  global: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 1e9 },
   ip: { requestsPerDay: 1_000_000, spendMicrosPerDay: 1e12 },
 };
 const NO_BREAKER = { windowMs: DAY, maxMicros: 1e12 };
@@ -74,7 +72,7 @@ async function fund(poolId: string, micros: number, createdAt = LONG_AGO): Promi
     .run();
 }
 
-/** A pool purchase by `userId` (makes them a member). */
+/** A credit purchase by `userId` (it changes nothing about their pool caps). */
 async function purchase(userId: string, grossMicros = 5_000_000): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO credit_grants (id, account_id, kind, amount_micros, gross_micros, user_id, provider_ref, created_at)
@@ -103,7 +101,6 @@ function request(poolId: string, overrides: Partial<PoolReserveRequest> = {}): P
     poolId,
     userId: uniq('user'),
     ipKey: null,
-    member: false,
     purpose: 'reply',
     treeId: 'tree_1',
     branchId: 'branch_1',
@@ -326,12 +323,12 @@ describe('PoolBank: the never-negative invariant (spec test)', () => {
 });
 
 describe('PoolBank: caps inside reserve', () => {
-  it('refuses a free user past their daily replies, with the reset and the member cap', async () => {
+  it('refuses a user past their daily replies, with the reset and the cap', async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 1_000_000);
     const userId = uniq('user');
-    const caps: PoolCaps = { ...OPEN_CAPS, free: { requestsPerDay: 2, spendMicrosPerDay: 1e12 } };
+    const caps: PoolCaps = { ...OPEN_CAPS, user: { requestsPerDay: 2, spendMicrosPerDay: 1e12 } };
     await reserved(poolId, { userId, caps });
     await reserved(poolId, { userId, caps });
     // Summaries and tagging don't count as replies.
@@ -340,13 +337,11 @@ describe('PoolBank: caps inside reserve', () => {
     const refused = await reserve(poolId, { userId, caps });
     const tomorrow = new Date();
     tomorrow.setUTCHours(24, 0, 0, 0);
-    expect(refused).toMatchObject({
+    expect(refused).toEqual({
       ok: false,
       reason: 'cap_requests',
       resetAt: tomorrow.toISOString(),
       limit: 2,
-      member: false,
-      memberLimit: 1_000_000,
     });
     // A released reply (nothing was sent) gives the request back.
     const reply = (await poolRows(poolId)).find((r) => r.purpose === 'reply')!;
@@ -366,7 +361,7 @@ describe('PoolBank: caps inside reserve', () => {
     const userId = uniq('user');
     const caps: PoolCaps = {
       ...OPEN_CAPS,
-      free: { requestsPerDay: 100, spendMicrosPerDay: 5_000 },
+      user: { requestsPerDay: 100, spendMicrosPerDay: 5_000 },
     };
     const first = await reserved(poolId, { userId, caps });
     expect(await reserve(poolId, { userId, caps })).toMatchObject({
@@ -407,32 +402,29 @@ describe('PoolBank: caps inside reserve', () => {
     });
   });
 
-  it("caps the free tier's spend at a share of the day's base; members and tagging are not counted", async () => {
+  it("caps everyone's spend together at a share of the day's base; tagging is not counted", async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
     await fund(poolId, 900_000, new Date().toISOString()); // added today: in the day's base too
     const caps: PoolCaps = {
       ...OPEN_CAPS,
-      globalFree: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 },
+      global: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 },
     };
-    // Free-tier tagging holds count toward no one's caps, the global ceiling included.
+    // Tagging holds count toward no one's caps, the global ceiling included.
     await reserved(poolId, { caps, purpose: 'tagging' });
     await reserved(poolId, { caps, purpose: 'tagging' });
-    for (let i = 0; i < 3; i++) await reserved(poolId, { caps }); // 9_000 of a 10_000 ceiling
+    // 9_000 of a 10_000 ceiling, by three different users.
+    for (let i = 0; i < 3; i++) await reserved(poolId, { caps });
     expect(await reserve(poolId, { caps })).toMatchObject({
       ok: false,
       reason: 'cap_global',
       limit: 10_000,
     });
-    expect(await reserve(poolId, { caps, member: true })).toMatchObject({
-      ok: true,
-      tier: 'member',
-    });
     // The fixed ceiling binds when it is lower.
     const low: PoolCaps = {
       ...OPEN_CAPS,
-      globalFree: { spendMicrosPerDay: 9_500, bpsOfMorningBalance: 10_000 },
+      global: { spendMicrosPerDay: 9_500, bpsOfMorningBalance: 10_000 },
     };
     expect(await reserve(poolId, { caps: low })).toMatchObject({
       ok: false,
@@ -441,15 +433,15 @@ describe('PoolBank: caps inside reserve', () => {
     });
   });
 
-  it('a pool empty at 00:00 UTC and funded later that day serves the free tier at once', async () => {
+  it('a pool empty at 00:00 UTC and funded later that day serves learners at once', async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 1_000_000, new Date().toISOString());
     const caps: PoolCaps = {
       ...OPEN_CAPS,
-      globalFree: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 2_000 },
+      global: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 2_000 },
     };
-    expect(await reserve(poolId, { caps })).toMatchObject({ ok: true, tier: 'free' });
+    expect(await reserve(poolId, { caps })).toMatchObject({ ok: true });
     // 20% of the $1 added today.
     expect(await reserve(poolId, { caps, holdMicros: 200_000 })).toMatchObject({
       ok: false,
@@ -458,66 +450,58 @@ describe('PoolBank: caps inside reserve', () => {
     });
   });
 
-  it('caps all members together at their own share of the day; the free tier is apart', async () => {
+  it("counts rows from the retired member tier toward today's one ceiling", async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 1_000_000);
     const caps: PoolCaps = {
       ...OPEN_CAPS,
-      globalFree: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 }, // 10_000
-      globalMember: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 }, // 10_000
+      global: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 }, // 10_000
     };
-    const farm = [uniq('user'), uniq('user'), uniq('user'), uniq('user')];
-    for (const userId of farm.slice(0, 3)) await reserved(poolId, { caps, userId, member: true }); // 9_000
-    expect(await reserve(poolId, { caps, userId: farm[3]!, member: true })).toMatchObject({
+    // Rows reserved while the pool had tiers carry 'free' or 'member'; newer ones none.
+    for (const tier of ['free', 'member'] as const) {
+      const id = await reserved(poolId, { caps });
+      await env.DB.prepare('UPDATE usage_events SET tier = ? WHERE id = ?').bind(tier, id).run();
+    }
+    await reserved(poolId, { caps }); // 9_000
+    expect(await reserve(poolId, { caps })).toMatchObject({
       ok: false,
       reason: 'cap_global',
-      member: true,
       limit: 10_000,
     });
-    // Members' spend leaves the free tier's ceiling alone.
-    expect(await reserve(poolId, { caps })).toMatchObject({ ok: true, tier: 'free' });
   });
 
-  it('takes the tier from the request: a membership switches tiers, a purchase does not', async () => {
+  it('applies the same caps whatever the caller holds: buying credit changes nothing', async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 1_000_000);
     const userId = uniq('user');
-    const caps: PoolCaps = {
-      ...OPEN_CAPS,
-      free: { requestsPerDay: 1, spendMicrosPerDay: 1e12 },
-      member: { requestsPerDay: 3, spendMicrosPerDay: 1e12 },
-    };
-    expect(await reserve(poolId, { userId, caps })).toMatchObject({ ok: true, tier: 'free' });
+    const caps: PoolCaps = { ...OPEN_CAPS, user: { requestsPerDay: 1, spendMicrosPerDay: 1e12 } };
+    expect(await reserve(poolId, { userId, caps })).toMatchObject({ ok: true });
+    expect(await reserve(poolId, { userId, caps })).toEqual({
+      ok: false,
+      reason: 'cap_requests',
+      limit: 1,
+      resetAt: expect.any(String),
+    });
+    await purchase(userId);
     expect(await reserve(poolId, { userId, caps })).toMatchObject({
       ok: false,
       reason: 'cap_requests',
-      member: false,
       limit: 1,
-      memberLimit: 3,
     });
-    // Buying credit is not a membership.
-    await purchase(userId);
-    expect(await reserve(poolId, { userId, caps })).toMatchObject({ ok: false, member: false });
-    expect(await reserve(poolId, { userId, caps, member: true })).toMatchObject({
-      ok: true,
-      tier: 'member',
-    });
-    const rows = await poolRows(poolId);
-    expect(rows.map((r) => r.tier)).toEqual(['free', 'member']);
+    // New rows carry no tier.
+    expect((await poolRows(poolId)).map((r) => r.tier)).toEqual([null]);
   });
 
   it('refuses what the pool cannot cover as empty, and records the reservation row', async () => {
     quiet();
     const poolId = uniq('pool');
-    expect(await reserve(poolId)).toMatchObject({
+    expect(await reserve(poolId)).toEqual({
       ok: false,
       reason: 'empty',
       resetAt: null,
       limit: null,
-      member: false,
-      memberLimit: null,
     });
     await fund(poolId, 3_000);
     const userId = uniq('user');
@@ -527,7 +511,7 @@ describe('PoolBank: caps inside reserve', () => {
       funding: 'pool',
       user_id: userId,
       ip_key: 'ipk',
-      tier: 'free',
+      tier: null,
       tree_id: 'tree_1',
       branch_id: 'branch_1',
       node_id: 'node_9',
@@ -1175,14 +1159,14 @@ describe('PoolBank: balance checkpoint', () => {
       await getBalance(env.DB, poolId),
     );
 
-    // Reservations read the checkpoint plus newer rows: 48_000 available (a member, so the
-    // free tier's share of the morning balance doesn't bind first).
+    // Reservations read the checkpoint plus newer rows: 48_000 available (the open caps'
+    // global share of the morning balance doesn't bind first).
     const userId = uniq('user');
-    expect(await reserve(poolId, { userId, member: true, holdMicros: 48_001 })).toMatchObject({
+    expect(await reserve(poolId, { userId, holdMicros: 48_001 })).toMatchObject({
       ok: false,
       reason: 'empty',
     });
-    expect((await reserve(poolId, { userId, member: true, holdMicros: 48_000 })).ok).toBe(true);
+    expect((await reserve(poolId, { userId, holdMicros: 48_000 })).ok).toBe(true);
     // Verified once a day: a second run neither advances nor re-verifies.
     expect(await stub.maintain({ poolId, giveUpMs: GIVE_UP, now })).toMatchObject({
       advanced: false,

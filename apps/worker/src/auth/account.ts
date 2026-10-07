@@ -8,7 +8,6 @@ import {
 } from '@tangent/shared';
 import { createMiddleware } from 'hono/factory';
 import type { AccountContext, AppBindings, AppEnv, Identity } from '../env.js';
-import { isMember } from '../billing/membership.js';
 import { ipKey, utcDay } from '../pool/ids.js';
 import { resolvePoolParams } from '../pool/params.js';
 import { builtInAvailable, poolAvailable } from '../services.js';
@@ -151,7 +150,7 @@ export async function withPoolParams(
     ...account,
     funding: 'pool',
     builtIn,
-    pool: await resolvePoolParams(env, await poolIpKey(env, ip), await isMember(env, account)),
+    pool: await resolvePoolParams(env, await poolIpKey(env, ip)),
   };
 }
 

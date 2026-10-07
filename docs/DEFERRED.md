@@ -6,12 +6,12 @@ Known gaps and follow-ups that were consciously left out of a change. Each entry
 
 Left out of the server side of the membership (`apps/worker/src/billing/membership.ts`). None blocks charging for it.
 
-- **Turning the annual fee off doesn't touch existing subscriptions.** With `ANNUAL_FEE_ENABLED` off nothing requires the membership and the billing page hides it, but Polar keeps renewing subscriptions bought while it was on (each renewal still grants its included credit), and their holders can only cancel through Polar's billing portal (Polar's own emails link to it). Cancelling them in bulk, or keeping a "Manage billing" link for subscribers while the fee is off, is not done.
+- **Turning the annual fee off doesn't touch existing subscriptions.** With `ANNUAL_FEE_ENABLED` off nothing requires the membership and the billing page hides it, but Polar keeps renewing subscriptions bought while it was on (each renewal still grants its included credit, if `MEMBERSHIP_CREDIT_CENTS` is above 0), and their holders can only cancel through Polar's billing portal (Polar's own emails link to it). Cancelling them in bulk, or keeping a "Manage billing" link for subscribers while the fee is off, is not done.
 
 - **No email when a membership lapses or a renewal fails.** Polar's own customer emails (receipts, failed payments, renewals) cover it; the app only shows the status on the billing page. Sending our own needs a reaction to `membership.changed` in `billing/payments/apply.ts` and a template in `src/email/`.
 - **Waivers can't be filtered on the admin page.** Its **Member** column sets and clears `auth_users.membership_waived` per user, but listing everyone who has one is still the SQL in the README ("Waiving the membership"). A filter needs a query parameter on `GET /api/admin/users`.
 - **One waiver code, not per-person codes.** A leaked code is changed for everyone; whoever redeemed it keeps the flag until it is cleared by hand. Per-person or single-use codes need a codes table.
-- **The included credit isn't prorated or clawed back on cancellation.** It is granted per paid membership order and taken back only when that order is refunded.
+- **The included credit isn't prorated or clawed back on cancellation.** It is granted per paid membership order and taken back only when that order is refunded. Moot while `MEMBERSHIP_CREDIT_CENTS` is 0, the default since DECISIONS "One membership rule: own keys".
 
 ## Community credit pool
 

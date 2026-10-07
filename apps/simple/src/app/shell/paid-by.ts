@@ -85,10 +85,9 @@ export class PaidBy {
   protected readonly demo = inject(DEMO_MODE);
 
   /** The header pill's name: "Credit", "Pool", "Your key" or "Add your key". */
-  protected readonly headerName = computed(() => {
-    const p = this.account.paidBy();
-    return p.payment === 'own-key' && p.warn ? 'Add your key' : p.short;
-  });
+  protected readonly headerName = computed(() =>
+    this.account.needsKey() ? 'Add your key' : this.account.paidBy().short,
+  );
 
   /** The header pill's amount (hidden on narrow screens): the credit or the pool's dollars. */
   protected readonly headerAmount = computed(() => {

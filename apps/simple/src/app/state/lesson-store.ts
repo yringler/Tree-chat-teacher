@@ -106,7 +106,7 @@ function upsertById<T extends { id: string }>(list: readonly T[], items: readonl
  * asks the server to cancel (the stream then ends with an `error` event),
  * and replies still running when a lesson is opened are re-attached.
  * A 402 `payment_required` (out of credit) sends the learner to the billing
- * page; a 402 `membership_required` shows the membership gate. The open
+ * page; a 402 `membership_required` locks the own key (`KeyLockedNotice`). The open
  * pool's refusals are states, not errors: empty (402 `pool_empty`) and cap
  * reached (429 `pool_cap_reached`) show inline in the chat (`poolBlock`),
  * and a first pool message without a human check on record opens the check.
@@ -760,7 +760,8 @@ export class LessonStore {
   }
 
   /**
-   * Reports an error. No membership (402 membership_required) shows the gate;
+   * Reports an error. No membership (402 membership_required) locks the own
+   * key (the composer gives way to `KeyLockedNotice`, the message is kept);
    * out of credit (402 payment_required) goes to the billing page; a missing
    * or unreadable own key (401 key_required) opens the payment dialog; a pool
    * account without a human check on record (403 pool_unavailable, `verify`)

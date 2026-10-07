@@ -29,8 +29,8 @@ import { TURNSTILE_ACTION, verifyTurnstile } from '../pool/turnstile.js';
  * middleware (docs/pool/PLAN.md §S4). The contract is in
  * packages/shared/src/pool.ts and the route list in api.ts.
  *
- * `GET /me`: the caller's caps and use today, their verification, member
- * tier and own credit (the Learn app's pool pill and funding toggle).
+ * `GET /me`: the caller's caps (the same for everyone) and use today, their
+ * verification and own credit (the Learn app's pool pill and funding toggle).
  *
  * `POST /verify`: the first-pool-use Turnstile check, for accounts with no
  * pass on record (signed up before the check at sign-in). Records

@@ -151,11 +151,10 @@ describe('GET /api/pool/me', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
     const me = (await res.json()) as PoolMeResponse;
-    const caps = appConfig(client.env).pool.caps.free;
+    const caps = appConfig(client.env).pool.caps.user;
     expect(me).toEqual({
       available: true,
       verified: true,
-      member: false,
       suspended: false,
       caps: {
         requestsPerDay: caps.requestsPerDay,
@@ -300,8 +299,8 @@ describe('/pool', () => {
     expect(html).not.toContain('<script');
   });
 
-  it('states this deployment’s model, revenue share, at-cost replies, caps and member rule', async () => {
-    const e = poolEnv(uniq('pool'), { POOL_FREE_REQUESTS_PER_DAY: '30' });
+  it('states this deployment’s model, revenue share, at-cost replies and caps, the same for everyone', async () => {
+    const e = poolEnv(uniq('pool'), { POOL_REQUESTS_PER_DAY: '30' });
     const html = await (await visitor(e)('/pool')).text();
     expect(html).toContain('<code>simple</code>');
     expect(html).toContain(
@@ -318,15 +317,17 @@ describe('/pool', () => {
       'with no markup, and costs the learner nothing. Tangent earns nothing on the pool.',
     );
     expect(html).not.toContain('÷');
-    expect(html).toContain('<td>Replies per learner per day</td><td>30 (members: 6)</td>');
-    expect(html).toContain('every learner gets the free limits.');
+    expect(html).toContain('<td>Replies per learner per day</td><td>30</td>');
+    expect(html).toContain('<td>All learners together, per day</td>');
+    expect(html).toContain('The limits are the same for everyone');
+    expect(html).not.toMatch(/members:|All members together|<h2>Members<\/h2>/);
     expect(html).not.toMatch(/thank-you|funding Tangent|keeping Tangent running/);
     expect(html).toContain('before later learners that day get to use it');
     expect(html).not.toContain('the people who funded it');
     expect(html).toContain("can't start a new reply");
     expect(html).toContain('The open pool is empty until Tangent adds more credit.');
     expect(html).toContain(
-      'you can use your own OpenRouter key instead, or buy credit for yourself.</li>',
+      'you can buy credit for yourself instead, or use your own OpenRouter key.</li>',
     );
     expect(html).toContain('The pool is covered by the <a href="/terms">terms of service</a>');
     expect(html).not.toMatch(
@@ -335,12 +336,33 @@ describe('/pool', () => {
     const sold = await (
       await visitor(poolEnv(uniq('pool'), { ANNUAL_FEE_ENABLED: 'true' }))('/pool')
     ).text();
-    expect(sold).toContain('Anyone with a Tangent membership (yearly) is a member');
-    expect(sold).toContain('or buy credit for yourself (buying credit needs a membership).');
+    // Members get the same limits; the membership is only for learning on your own key.
+    expect(sold).not.toMatch(/members:|higher limits|<h2>Members<\/h2>/);
+    expect(sold).toContain(
+      'you can buy credit for yourself instead, or use your own OpenRouter key (with a membership).</li>',
+    );
     // Tangent, not the member, puts money into the pool (the sources section says how).
     expect(sold).not.toContain('Part of every membership payment goes into the pool.');
     expect(sold).toContain('Tangent charges for memberships and credit like any software business');
     expect(html).toContain('Tangent charges for credit like any software business');
+  });
+
+  it('offers buying credit only where it is sold, and names only what Tangent sells', async () => {
+    const page = async (overrides: Partial<AppEnv>) =>
+      (await visitor(poolEnv(uniq('pool'), overrides))('/pool')).text();
+    const noTopUps = { FAKE_PAYMENTS: '{"topUps":false}' };
+    const member = await page({ ANNUAL_FEE_ENABLED: 'true', ...noTopUps });
+    expect(member).toContain(
+      'Your message is kept, and you can use your own OpenRouter key (with a membership) instead.</li>',
+    );
+    expect(member).toContain('Tangent charges for memberships like any software business');
+    expect(member).not.toMatch(/buy credit|charges for[^.]*credit/);
+    const nothing = await page({ ANNUAL_FEE_ENABLED: 'false', ...noTopUps });
+    expect(nothing).toContain(
+      'Your message is kept, and you can use your own OpenRouter key instead.</li>',
+    );
+    expect(nothing).toContain('Tangent keeps the pool open for anyone who wants to learn.');
+    expect(nothing).not.toMatch(/buy credit|Tangent charges for|Paying for Tangent/);
   });
 
   it('names the operator’s contact for questions or arrangements, and sells nothing', async () => {

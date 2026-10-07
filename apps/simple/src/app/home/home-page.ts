@@ -6,6 +6,7 @@ import { Icon, PoolMeter } from '@tangent/web-shared';
 import { Composer } from '../chat/composer';
 import { lessonTitle } from '../chat/titles';
 import { ModelToggle } from '../chat/model-toggle';
+import { KeyLockedNotice } from '../chat/key-locked-notice';
 import { AccountStore } from '../state/account-store';
 import { ImportLessonButton } from './import-lesson-button';
 import { PaidBy } from '../shell/paid-by';
@@ -24,6 +25,7 @@ import { UiStore } from '../state/ui-store';
     ImportLessonButton,
     PaidBy,
     DatePipe,
+    KeyLockedNotice,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -58,23 +60,28 @@ import { UiStore } from '../state/ui-store';
             (draft)="topic.set($event)"
             (send)="start()"
           />
-          <div class="new-lesson-actions">
-            @if (store.models().length > 1) {
-              <app-model-toggle
-                [models]="store.models()"
-                [value]="account.poolModel()?.id ?? model()"
-                [disabled]="starting()"
-                [lockedHint]="account.poolModelHint()"
-                (changed)="pickedModel.set($event)"
-              />
-            }
-            <div class="start-group">
-              <app-paid-by />
-              <button type="submit" class="btn btn-primary" [disabled]="starting()">
-                <app-icon name="plus" /> Start lesson
-              </button>
+          @if (account.membershipBlocked()) {
+            <!-- The own key needs a membership the learner lacks: the ways out, not Start. -->
+            <app-key-locked-notice />
+          } @else {
+            <div class="new-lesson-actions">
+              @if (store.models().length > 1) {
+                <app-model-toggle
+                  [models]="store.models()"
+                  [value]="account.poolModel()?.id ?? model()"
+                  [disabled]="starting()"
+                  [lockedHint]="account.poolModelHint()"
+                  (changed)="pickedModel.set($event)"
+                />
+              }
+              <div class="start-group">
+                <app-paid-by />
+                <button type="submit" class="btn btn-primary" [disabled]="starting()">
+                  <app-icon name="plus" /> Start lesson
+                </button>
+              </div>
             </div>
-          </div>
+          }
         </form>
       </section>
 
@@ -161,7 +168,8 @@ export class HomePage {
   }
 
   protected async start(): Promise<void> {
-    if (this.starting()) return;
+    // Enter in the topic box while the own key is locked: the notice offers the ways out.
+    if (this.starting() || this.account.membershipBlocked()) return;
     this.starting.set(true);
     try {
       await this.store.startLesson(this.model(), this.topic());
