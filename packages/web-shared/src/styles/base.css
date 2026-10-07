@@ -1,8 +1,7 @@
 /*
  * @tangent/web-shared base styles: theme tokens, typography, buttons, forms,
  * notices, the modal shell (Modal), the login page (LoginPage, Turnstile),
- * the billing page (BillingPage), the membership gate (MembershipGate) and
- * links between messages (RelatedLinks, NodePicker).
+ * the billing page (BillingPage) and links between messages (RelatedLinks, NodePicker).
  * Imported first by both apps' styles.css; app-specific CSS comes after it.
  */
 :root {
@@ -1608,68 +1607,6 @@ app-node-picker {
 
 .membership-code-form .field {
   flex: 1 1 180px;
-}
-
-/* Membership gate (MembershipGate): over the app, below toasts */
-
-.membership-gate {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  overflow-y: auto;
-  background: rgb(0 0 0 / 0.45);
-}
-
-.membership-gate-panel {
-  width: min(440px, 100%);
-  padding: 24px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--bg-elev);
-  box-shadow: var(--shadow);
-}
-
-.membership-gate-brand {
-  margin: 0;
-  color: var(--fg-muted);
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.membership-gate-title {
-  margin: 4px 0 8px;
-  font-size: 1.4rem;
-}
-
-.membership-gate-desc p {
-  margin: 0 0 8px;
-}
-
-.membership-gate-subscribe {
-  width: 100%;
-  justify-content: center;
-  margin-top: 4px;
-}
-
-.membership-gate-alt {
-  width: 100%;
-  justify-content: center;
-  margin-top: 8px;
-}
-
-.membership-gate-links {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 16px 0 0;
-}
-
-.membership-gate-links .link-btn {
-  font-family: inherit;
-  font-size: inherit;
 }
 
 /* Read-only power branch: where the composer would be (billing/read-only-composer.ts) */

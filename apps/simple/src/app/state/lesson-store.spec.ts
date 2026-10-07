@@ -468,7 +468,7 @@ describe('LessonStore', () => {
     await vi.waitFor(() => expect(s.api.keyStatus).toHaveBeenCalled());
   });
 
-  it('402 membership_required on send: blocks with the gate, no toast, keeps the message', async () => {
+  it('402 membership_required on send: locks the own key, no toast, keeps the message', async () => {
     const s = setup();
     const account = s.injector.get(AccountStore);
     account.setMembership({ ...BILLING.membership, required: true, status: 'active' });

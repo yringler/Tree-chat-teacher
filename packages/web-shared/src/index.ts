@@ -111,22 +111,24 @@ export { LoginPage } from './login/login-page';
 export { AccountId } from './account/account-id';
 export { DeleteAccount } from './account/delete-account';
 
-// Billing: the shared billing page, the membership gate and their helpers
+// Billing: the shared billing page, the read-only notice and their helpers
 export { BillingPage } from './billing/billing-page';
 export { BILLING_SUMMARY_LISTENER } from './billing/billing-listener';
-export { MembershipGate } from './billing/membership-gate';
 export { MembershipCodeForm } from './billing/membership-code-form';
 export { ReadOnlyComposer } from './billing/read-only-composer';
 export {
   LearnCopy,
+  learnCopyWay,
   learnLessonHref,
   lockedFundings,
   readOnlyText,
   routeLocked,
   routeOpen,
+  type LearnCopyWay,
   type ReadOnlyText,
 } from './billing/read-only';
 export {
+  creditBuyable,
   creditCanPay,
   creditCarriesOn,
   creditFeeText,

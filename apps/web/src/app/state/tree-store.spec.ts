@@ -9,6 +9,7 @@ import type {
   MeResponse,
   MembershipInfo,
   NodeLink,
+  PoolStatusResponse,
   ProviderInfo,
   TreeDetail,
   UpdateBranchRequest,
@@ -63,6 +64,7 @@ function setup() {
     listTrees: vi.fn(async () => []),
     keyStatus: vi.fn(async () => ({ enabled: true, hasKey: false, providers: [] })),
     billing: vi.fn(async (): Promise<BillingSummary> => summary),
+    poolStatus: vi.fn(async () => ({ enabled: false }) as PoolStatusResponse),
   };
   const router = { navigate: vi.fn(async () => true) };
   const injector = Injector.create({
@@ -322,6 +324,32 @@ describe('TreeStore read-only power without a membership', () => {
     // A credit branch isn't read-only: its sends get the usual 402 payment_required.
     s.store.setRoute('t1', 'side', null);
     expect(s.store.readOnly()).toBe(false);
+  });
+
+  it('offers a copy in Learn only where Learn can reply: on the pool while it is on, else on credit', async () => {
+    const s = setup();
+    await open(s, inactive());
+    expect(s.api.poolStatus).toHaveBeenCalledTimes(1);
+    expect(s.store.poolOn()).toBe(false);
+    expect(s.store.learnCopyWay()).toBe('credit');
+
+    const pool = setup();
+    pool.api.poolStatus.mockResolvedValue({ enabled: true } as PoolStatusResponse);
+    await open(pool, inactive());
+    expect(pool.store.poolOn()).toBe(true);
+    expect(pool.store.learnCopyWay()).toBe('pool');
+
+    // Neither the pool nor credit that can pay or be bought: no copy (it could only be read).
+    const stuck = setup();
+    stuck.api.billing.mockResolvedValue(spent);
+    await open(stuck, inactive());
+    expect(stuck.store.learnCopyWay()).toBeNull();
+    // Nor where credit isn't offered at all, or the pool status can't be read.
+    const none = setup();
+    none.api.poolStatus.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
+    await open(none, inactive(), { builtInCredit: false });
+    expect(none.store.poolOn()).toBe(false);
+    expect(none.store.learnCopyWay()).toBeNull();
   });
 
   it('never read-only where no membership is required (the fee off, a server without billing)', async () => {
@@ -594,14 +622,53 @@ describe('TreeStore the default route of a new conversation (no keys)', () => {
     expect(buyer.store.canGenerate()).toBe(true);
     expect(buyer.store.defaultProvider()).toBe(credit);
 
+    // A balance left where top-ups aren't sold: credit can pay, so still credit.
+    const holder = setup();
+    holder.api.providers.mockResolvedValue(list);
+    holder.api.billing.mockResolvedValue({
+      availableMicros: 1_000_000,
+      topUpsEnabled: false,
+    } as BillingSummary);
+    await holder.store.init(me({ membership: membership({ status: 'inactive' }) }));
+    expect(holder.store.canGenerate()).toBe(true);
+    expect(holder.store.defaultProvider()).toBe(credit);
+
     // Nothing can generate (top-ups off, nothing left): the home page shows the notice
-    // instead of the picker. Credit stays the default; the locked key can't reply either.
+    // instead of the picker. Credit that can neither pay nor be bought is a dead end: the
+    // locked own key stays the default, which at least leads to the membership.
     const stuck = setup();
     stuck.api.providers.mockResolvedValue(list);
     stuck.api.billing.mockResolvedValue(spent);
     await stuck.store.init(me({ membership: membership({ status: 'inactive' }) }));
     expect(stuck.store.canGenerate()).toBe(false);
-    expect(stuck.store.defaultProvider()).toBe(credit);
+    expect(stuck.store.defaultProvider()).toBe(keyed);
+  });
+
+  it('a non-member with no key saved: credit only where it can pay or be bought', async () => {
+    const lapsed = me({ membership: membership({ status: 'inactive' }) });
+    // Credit offered, top-ups not sold, nothing left: the own OpenRouter route, not credit.
+    const stuck = setup();
+    stuck.api.providers.mockResolvedValue([...defaults, credit]);
+    stuck.api.billing.mockResolvedValue(spent);
+    await stuck.store.init(lapsed);
+    expect(routeOf(stuck.store.defaultProvider())).toBe('openrouter');
+
+    // Top-ups sold: credit, whatever the balance.
+    const buyer = setup();
+    buyer.api.providers.mockResolvedValue([...defaults, credit]);
+    buyer.api.billing.mockResolvedValue(empty);
+    await buyer.store.init(lapsed);
+    expect(buyer.store.defaultProvider()).toBe(credit);
+
+    // Top-ups off, but a balance left: credit.
+    const holder = setup();
+    holder.api.providers.mockResolvedValue([...defaults, credit]);
+    holder.api.billing.mockResolvedValue({
+      availableMicros: 1,
+      topUpsEnabled: false,
+    } as BillingSummary);
+    await holder.store.init(lapsed);
+    expect(holder.store.defaultProvider()).toBe(credit);
   });
 
   it('never a test provider over a usable route', async () => {

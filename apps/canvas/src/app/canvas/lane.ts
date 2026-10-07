@@ -161,6 +161,7 @@ export const MODE_LABEL = { path: 'full path', summary: 'summary', independent: 
           [membership]="membership"
           [treeId]="b.treeId"
           [credit]="store.creditRoute() !== null"
+          [learn]="store.learnCopyWay()"
           (useCredit)="store.switchToCredit(b.id)"
           (pointerdown)="$event.stopPropagation()"
         />

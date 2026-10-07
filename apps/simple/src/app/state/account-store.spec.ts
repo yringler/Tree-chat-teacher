@@ -109,7 +109,7 @@ function setup(
 }
 
 describe('AccountStore membership', () => {
-  it('shows the gate to a non-member only while replies run on their own key', () => {
+  it('shows the locked-key notice to a non-member only while replies run on their own key', () => {
     const { account } = setup(async () => summary(membership()));
     expect(account.membershipBlocked()).toBe(false);
     account.setMe(me(membership()));
@@ -180,14 +180,41 @@ describe('AccountStore membership', () => {
     const { account } = setup(async () => summary(membership(), 500_000));
     account.setMe(me(membership()));
     await account.refreshPool();
+    // fundingChoice is false before billing loads: the toggle waits for the balance the
+    // default payment goes by, even where the pool's own read already names one.
+    expect(account.billing()).toBeNull();
+    expect(account.fundingChoice()).toBe(false);
     await account.refreshBalance();
     expect(account.payment.payment()).toBe('credit');
     expect(account.fundingChoice()).toBe(true);
     account.applyBilling(summary(membership(), 0));
     account.poolMe.set({ ...POOL_ME, personalAvailableMicros: 0 });
     expect(account.fundingChoice()).toBe(false);
-    // Still on credit: anyone can buy more.
+    // Nothing left: the pool, which is on, replies right away (credit stays on sale).
+    expect(account.payment.payment()).toBe('pool');
+    expect(account.creditOnSale()).toBe(true);
+    expect(account.membershipBlocked()).toBe(false);
+  });
+
+  it('a 402 membership_required received while paying with credit leaves payment on credit', async () => {
+    const { account, api } = setup(async () => summary(membership(), 1_000_000));
+    account.setMe(me(membership({ status: 'active' })));
+    account.payment.choose('credit');
     expect(account.payment.payment()).toBe('credit');
+    // The server only refuses own-key calls so; one that arrives once replies run on credit
+    // (the default moved while it was in flight) locks nothing here.
+    account.membershipRequired();
+    expect(account.payment.payment()).toBe('credit');
+    expect(account.membershipBlocked()).toBe(false);
+    expect(account.paidBy()).toMatchObject({ payment: 'credit', label: 'Tangent credit' });
+    expect(account.paidBy().detail).not.toBe('needs a membership');
+    await vi.waitFor(() => expect(api.billing).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(account.billing()).not.toBeNull());
+    expect(account.payment.payment()).toBe('credit');
+    expect(account.membershipBlocked()).toBe(false);
+    // Back on the own key, the refusal (and the membership re-read) locks it.
+    account.payment.choose('own-key');
+    expect(account.membershipBlocked()).toBe(true);
   });
 
   it('a 402 membership_required blocks at once, then re-reads the real state', async () => {
@@ -257,6 +284,59 @@ describe('AccountStore membership', () => {
     expect(account.keyLockedWays()).toEqual({ pool: false, credit: false });
   });
 
+  it('with the fee off (or keys the server cannot store) the own key is open to everyone', async () => {
+    const off = membership({ required: false });
+    const { account } = setup(async () => summary(off, 0), { ...POOL, enabled: false });
+    account.setMe(me(off));
+    await account.refreshPool();
+    await account.refreshKey();
+    await account.refreshBalance();
+    expect(account.payment.member()).toBe(true);
+    // A saved key, no balance: replies run on the key, which nothing locks.
+    expect(account.payment.payment()).toBe('own-key');
+    expect(account.membershipBlocked()).toBe(false);
+    expect(account.paidBy()).toEqual({
+      payment: 'own-key',
+      label: 'Your OpenRouter key',
+      short: 'Your key',
+      detail: null,
+      warn: false,
+    });
+    // Chosen explicitly, too.
+    account.payment.choose('own-key');
+    expect(account.membershipBlocked()).toBe(false);
+    expect(account.paidBy().detail).not.toBe('needs a membership');
+  });
+
+  it('a billing summary that cannot be read defaults nothing to locked', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // A non-member, credit sold, the pool off: credit (anyone can buy it), not the locked key.
+    const s = setup(async () => Promise.reject(new Error('offline')), { ...POOL, enabled: false });
+    s.account.setMe(me(membership()));
+    await s.account.refreshPool();
+    await s.account.refreshKey();
+    await s.account.refreshBalance();
+    expect(s.account.billing()).toBeNull();
+    expect(s.account.payment.payment()).toBe('credit');
+    expect(s.account.membershipBlocked()).toBe(false);
+    // The pool on: credit still, which the server moves to the pool if it can't pay.
+    const t = setup(async () => Promise.reject(new Error('offline')));
+    t.account.setMe(me(membership()));
+    await t.account.refreshPool();
+    await t.account.refreshBalance();
+    expect(t.account.payment.payment()).toBe('credit');
+    expect(t.account.membershipBlocked()).toBe(false);
+    expect(t.account.fundingChoice()).toBe(false);
+    // A member keeps their key, unlocked.
+    const u = setup(async () => Promise.reject(new Error('offline')));
+    u.account.setMe(me(membership({ status: 'active' })));
+    await u.account.refreshKey();
+    await u.account.refreshBalance();
+    expect(u.account.payment.payment()).toBe('own-key');
+    expect(u.account.membershipBlocked()).toBe(false);
+    vi.restoreAllMocks();
+  });
+
   it('keeps the last known state when billing cannot be read', async () => {
     const { account } = setup(async () => Promise.reject(new Error('offline')));
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -269,8 +349,11 @@ describe('AccountStore membership', () => {
 
 describe('AccountStore paidBy', () => {
   it('names credit with its balance, and warns once it is used up', async () => {
-    const { account } = setup(async () => summary(membership({ required: false }), 1_200_000));
+    const { account, api } = setup(async () => summary(membership({ required: false }), 1_200_000));
+    api.keyStatus.mockResolvedValueOnce({ enabled: true, hasKey: false, providers: [] });
     account.setMe(me(membership({ required: false })));
+    // No key saved and the pool not on: credit, which can be bought, before the balance is read.
+    await account.refreshKey();
     expect(account.paidBy()).toMatchObject({ label: 'Tangent credit', detail: null, warn: false });
     await account.refreshBalance();
     expect(account.paidBy()).toEqual({
@@ -317,9 +400,10 @@ describe('AccountStore open pool', () => {
     const { account, api } = setup(async () => summary(membership()));
     account.setMe(me(membership({ required: false })));
     await account.refreshPool();
+    await account.refreshBalance();
     expect(account.payment.poolAvailable()).toBe(true);
     expect(api.poolMe).toHaveBeenCalled();
-    // Credit is chosen (the default) and offered: no pool pill, no model lock.
+    // Credit with a balance is the default: no pool pill, no model lock.
     expect(account.paidBy().payment).toBe('credit');
     expect(account.poolModelHint()).toBeNull();
     account.payment.choose('pool');
@@ -340,6 +424,9 @@ describe('AccountStore open pool', () => {
     account.setMe(me(membership({ required: false })));
     expect(account.fundingChoice()).toBe(false);
     await account.refreshPool();
+    // Not before the billing summary is read.
+    expect(account.fundingChoice()).toBe(false);
+    await account.refreshBalance();
     expect(account.fundingChoice()).toBe(true);
     account.poolMe.set({ ...POOL_ME, personalAvailableMicros: 0 });
     expect(account.fundingChoice()).toBe(false);
@@ -349,6 +436,7 @@ describe('AccountStore open pool', () => {
     const { account } = setup(async () => summary(membership()));
     account.setMe(me(membership({ required: false })));
     await account.refreshPool();
+    await account.refreshBalance();
     expect(account.fundingChoice()).toBe(true);
     account.payment.choose('own-key');
     expect(account.fundingChoice()).toBe(false);

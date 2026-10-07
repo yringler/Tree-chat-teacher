@@ -54,6 +54,20 @@ export function routeOpen(
   return p.funding !== 'credit' || creditUsable;
 }
 
+/**
+ * How a copy in Learn can get replies for a user without a membership: on
+ * the open pool while it is on, else on Tangent credit where it carries on
+ * (`creditCarriesOn`: the credit is per user, shared by both apps). Learn's
+ * own key is locked just the same, so with neither a copy could only be read.
+ */
+export type LearnCopyWay = 'pool' | 'credit';
+
+/** How a copy in Learn carries on (`LearnCopyWay`); null when it can't, and no copy is offered. */
+export function learnCopyWay(poolOn: boolean, creditCarriesOn: boolean): LearnCopyWay | null {
+  if (poolOn) return 'pool';
+  return creditCarriesOn ? 'credit' : null;
+}
+
 /** The read-only notice's words. */
 export interface ReadOnlyText {
   /** The first sentence, in bold. */
@@ -70,18 +84,24 @@ export interface ReadOnlyText {
  * What the notice that replaces the composer of a read-only branch says. A
  * user who had a membership (a subscription on record) is asked to renew it;
  * one who never had one, to become a member. `credit`: the branch can carry
- * on with Tangent credit instead, which needs no membership.
+ * on with Tangent credit instead, which needs no membership. `learn`: a copy
+ * in Learn can get replies there (`learnCopyWay`), so the notice offers one;
+ * null leaves the copy out.
  */
 export function readOnlyText(
   m: Pick<MembershipInfo, 'subscriptionStatus'>,
   credit = false,
+  learn: LearnCopyWay | null = null,
 ): ReadOnlyText {
   const ended = m.subscriptionStatus !== null;
   const lead = ended
     ? 'Your membership has ended.'
     : 'Replies on your own API keys need a membership.';
   const act = ended ? 'Renew your membership' : 'Become a member';
-  let body = `${act} to continue this conversation, or create a copy in Learn.`;
+  const where = learn === 'pool' ? 'on the open pool' : 'on Tangent credit';
+  let body = learn
+    ? `${act} to continue this conversation, or create a copy to continue it in Learn ${where}.`
+    : `${act} to continue this conversation.`;
   if (credit) body += ' You can also continue it on Tangent credit, which needs no membership.';
   return { lead, body, act, renew: ended ? 'Renew membership' : 'Become a member' };
 }

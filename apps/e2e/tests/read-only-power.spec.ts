@@ -75,6 +75,8 @@ test('a cancelled membership: own-key branches read-only, credit carries on, cop
   const notice = page.locator('app-read-only-composer');
   await expect(notice).toBeVisible();
   await expect(notice).toContainText('Your membership has ended.');
+  // The pool is off here, so a copy in Learn would carry on on Tangent credit, which is sold.
+  await expect(notice).toContainText('create a copy to continue it in Learn on Tangent credit.');
   await expect(page.locator('#composer-input')).toHaveCount(0);
   await expect(page.getByText('What is a prime number?', { exact: true })).toBeVisible();
   const renew = notice.getByRole('link', { name: 'Renew membership' });

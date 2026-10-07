@@ -54,10 +54,12 @@ export class AccountStore {
   private readonly gateForced = signal(false);
 
   /**
-   * Replies can't run on the own key: the learner has no membership where one
-   * is required, and replies run on their own key (which needs one; the pool
-   * and Tangent credit don't), or the server just refused a reply with 402
-   * `membership_required` (the membership may have lapsed since /api/me).
+   * Replies can't run on the own key: replies run on the learner's own key
+   * (which needs a membership where one is required; the pool and Tangent
+   * credit don't), and either the learner has none or the server just refused
+   * a reply with 402 `membership_required` (the membership may have lapsed
+   * since /api/me). The server only sends that for own-key calls, so a refusal
+   * that arrives once replies run on credit or the pool locks nothing.
    * The lesson stays readable; `KeyLockedNotice` stands where the composer
    * (and the new lesson's Start button) would be, with the ways out:
    * subscribe, or `continueOn` the pool or credit (`keyLockedWays`).
@@ -65,8 +67,8 @@ export class AccountStore {
   readonly membershipBlocked = computed(
     () =>
       !this.demo &&
-      membershipBlocks(this.membership()) &&
-      (this.payment.payment() === 'own-key' || this.gateForced()),
+      this.payment.payment() === 'own-key' &&
+      (membershipBlocks(this.membership()) || this.gateForced()),
   );
 
   /**
@@ -168,11 +170,13 @@ export class AccountStore {
    * The composer's funding toggle: both the learner's own credit (offered and
    * a balance left) and the pool can pay, so the learner picks. Hidden while
    * replies run on the own key: the toggle picks between the funded sources.
-   * Membership plays no part: neither credit nor the pool needs one.
+   * Hidden too until the billing summary is read, so it shows with the
+   * balance the default payment goes by (`PaymentStore.payment`), not ahead
+   * of it. Membership plays no part: neither credit nor the pool needs one.
    */
   readonly fundingChoice = computed(() => {
     if (this.demo || !this.payment.builtInCredit() || !this.payment.poolAvailable()) return false;
-    if (this.payment.payment() === 'own-key') return false;
+    if (this.billing() === null || this.payment.payment() === 'own-key') return false;
     const own = this.poolMe()?.personalAvailableMicros ?? this.billing()?.availableMicros ?? 0;
     return own > 0;
   });
@@ -213,8 +217,10 @@ export class AccountStore {
   }
 
   /**
-   * The server answered 402 `membership_required`: block now (the membership
-   * may have lapsed since /api/me), then re-read the real state.
+   * The server answered 402 `membership_required` to an own-key call: block
+   * now (the membership may have lapsed since /api/me), then re-read the real
+   * state. Replies that have moved to credit or the pool since stay there
+   * (`membershipBlocked` locks only the own key).
    */
   membershipRequired(): void {
     const current = this.membership();

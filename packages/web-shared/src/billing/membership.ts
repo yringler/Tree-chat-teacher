@@ -4,7 +4,7 @@ import { ApiError } from '../core/api-client';
 import { formatBps, formatCents } from './format';
 
 /*
- * The yearly membership as both apps show it: the gate, the billing page's
+ * The yearly membership as the apps show it: the locked-key notices, the billing page's
  * Membership section and the code form. Framework-light (signals only) so
  * the specs run without a DOM.
  */
@@ -31,10 +31,22 @@ export function creditCarriesOn(
   builtInCredit: boolean,
   billing: Pick<BillingSummary, 'availableMicros' | 'topUpsEnabled'> | null,
 ): boolean {
-  return (
-    builtInCredit &&
-    (billing === null || billing.topUpsEnabled !== false || billing.availableMicros > 0)
-  );
+  return creditBuyable(builtInCredit, billing) || creditCanPay(builtInCredit, billing);
+}
+
+/**
+ * More Tangent credit can be bought here: credit is offered and top-ups are
+ * sold, read as `creditCarriesOn` reads them (only a summary saying
+ * `topUpsEnabled: false` turns them off, so a summary not read yet counts as
+ * selling). False where credit only comes from operator grants: an empty
+ * balance then stays empty. `DefaultRouteFacts.creditBuyable` for the power
+ * apps' default route.
+ */
+export function creditBuyable(
+  builtInCredit: boolean,
+  billing: Pick<BillingSummary, 'topUpsEnabled'> | null,
+): boolean {
+  return builtInCredit && billing?.topUpsEnabled !== false;
 }
 
 /**
@@ -159,7 +171,10 @@ export class WaiverForm {
   }
 }
 
-/** The gate's Subscribe button: opens the secure checkout, or says why it couldn't. */
+/**
+ * A notice's Subscribe button (Learn's `KeyLockedNotice`): opens the secure
+ * checkout, or says why it couldn't.
+ */
 export class MembershipSubscribe {
   /** Stays true on success: the page is leaving for the checkout (no double clicks meanwhile). */
   readonly pending = signal(false);

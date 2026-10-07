@@ -46,14 +46,17 @@ import type {
 import {
   ApiClient,
   ApiError,
+  creditBuyable,
   creditCanPay,
   creditCarriesOn,
   errorMessage,
   isNotFound,
+  learnCopyWay,
   lockedFundings,
   routeLocked,
   routeOpen,
   runStream,
+  type LearnCopyWay,
   type StreamOutcome,
 } from '@tangent/web-shared';
 import { UiStore } from './ui-store';
@@ -106,6 +109,12 @@ export class TreeStore {
   readonly billing = signal<BillingSummary | null>(null);
   /** The balance has been asked for once (read, or failed: then it counts as none). */
   private readonly billingRead = signal(false);
+  /**
+   * The open pool is on (`GET /api/pool/status`, read on startup): Learn can
+   * then reply without a membership or credit. False until read, or when it
+   * can't be.
+   */
+  readonly poolOn = signal(false);
   readonly trees = signal<TreeSummary[]>([]);
   readonly treesLoaded = signal(false);
 
@@ -243,6 +252,16 @@ export class TreeStore {
     creditCarriesOn(this.me()?.builtInCredit ?? false, this.billing()),
   );
 
+  /**
+   * How a copy in Learn of a read-only conversation would get replies without
+   * a membership (`learnCopyWay`): the open pool while it is on, else Tangent
+   * credit while it carries on; null when neither, and the read-only notice
+   * then offers no copy.
+   */
+  readonly learnCopyWay = computed<LearnCopyWay | null>(() =>
+    learnCopyWay(this.poolOn(), this.creditCarriesOn()),
+  );
+
   /** A route (branch, reviewer, provider entry) whose funding needs the membership the user lacks. */
   routeLocked(route: { funding?: BranchFunding }): boolean {
     return routeLocked(this.lockedFundings(), route);
@@ -304,11 +323,13 @@ export class TreeStore {
    * off a locked one: `pickDefaultRoute`, the server's rule for a new tree
    * (docs/DECISIONS.md "Default route of a new tree"). A provider with a key
    * first; else Tangent credit while the balance can pay; else the user's own
-   * OpenRouter (the first send asks for its key); credit first, whatever the
-   * balance, while own keys need a membership the user lacks: a first send
-   * there asks for credit, which beats a locked own key. Null until the provider list and,
-   * where credit is offered, the balance have been read, so it never starts
-   * on a guess.
+   * OpenRouter (the first send asks for its key). While own keys need a
+   * membership the user lacks, credit comes first if it can pay or be bought
+   * (`creditBuyable`: offered and top-ups sold), whatever the balance: a first
+   * send there asks for credit, which beats a locked own key. Credit that can
+   * do neither leaves the locked own key, which at least leads to the
+   * membership. Null until the provider list and, where credit is offered,
+   * the balance have been read, so it never starts on a guess.
    */
   readonly defaultProvider = computed<ProviderInfo | null>(() => {
     if (!this.providersLoaded()) return null;
@@ -317,6 +338,7 @@ export class TreeStore {
     const ownKeyLocked = this.lockedFundings().has('own-key');
     return pickDefaultRoute(this.providers(), {
       creditCanPay: creditCanPay(builtInCredit, this.billing()),
+      creditBuyable: creditBuyable(builtInCredit, this.billing()),
       ownKeyLocked,
     });
   });
@@ -329,7 +351,7 @@ export class TreeStore {
     // Where credit is offered, the balance (and whether top-ups are sold) decides whether a
     // new conversation may start on it, and whether Tangent credit can carry on.
     const balance = me.builtInCredit ? this.refreshBilling() : null;
-    await Promise.all([this.refreshKeys(), this.loadTrees(), balance]);
+    await Promise.all([this.refreshKeys(), this.loadTrees(), balance, this.refreshPool()]);
   }
 
   private applyMe(me: MeResponse): void {
@@ -389,6 +411,18 @@ export class TreeStore {
       this.fail(err);
     } finally {
       await this.refreshKeys();
+    }
+  }
+
+  /**
+   * Whether the open pool is on (`/api/pool/status` is public). Quiet on
+   * failure: no copy in Learn is offered on its account.
+   */
+  async refreshPool(): Promise<void> {
+    try {
+      this.poolOn.set((await this.api.poolStatus()).enabled);
+    } catch (err) {
+      console.warn('pool status failed', err);
     }
   }
 

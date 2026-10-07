@@ -12,7 +12,7 @@ export const appConfig: ApplicationConfig = {
     provideAppPaths({ home: '/', login: '/login' }),
     // The conversation's text size ("Aa"), kept under the key it always had.
     provideTextSize('tangent.chatFontScale'),
-    // The billing page's summaries keep the keys dialog's balance and the membership gate current.
+    // The billing page's summaries keep the keys dialog's balance and read-only power current.
     {
       provide: BILLING_SUMMARY_LISTENER,
       useFactory: () => {

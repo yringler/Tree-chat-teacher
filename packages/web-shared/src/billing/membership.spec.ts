@@ -3,6 +3,7 @@ import type { MembershipInfo } from '@tangent/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../core/api-client';
 import {
+  creditBuyable,
   creditCanPay,
   creditCarriesOn,
   creditFeeText,
@@ -52,6 +53,17 @@ describe('creditCarriesOn', () => {
   it('with top-ups off, only a balance left carries on', () => {
     expect(creditCarriesOn(true, { availableMicros: 1, topUpsEnabled: false })).toBe(true);
     expect(creditCarriesOn(true, { availableMicros: 0, topUpsEnabled: false })).toBe(false);
+  });
+});
+
+describe('creditBuyable', () => {
+  it('is true while credit is offered and top-ups are sold, whatever the balance', () => {
+    expect(creditBuyable(true, { topUpsEnabled: true })).toBe(true);
+    expect(creditBuyable(true, {})).toBe(true);
+    // Read as creditCarriesOn reads it: a summary not read yet counts as selling.
+    expect(creditBuyable(true, null)).toBe(true);
+    expect(creditBuyable(true, { topUpsEnabled: false })).toBe(false);
+    expect(creditBuyable(false, { topUpsEnabled: true })).toBe(false);
   });
 });
 

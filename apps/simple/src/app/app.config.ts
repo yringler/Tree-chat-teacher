@@ -32,7 +32,7 @@ export const appConfig: ApplicationConfig = {
         return () => payment.headers();
       },
     },
-    // The billing page's summaries keep the header pill and the membership gate current.
+    // The billing page's summaries keep the header pill and the locked-key notice current.
     {
       provide: BILLING_SUMMARY_LISTENER,
       useFactory: () => {
