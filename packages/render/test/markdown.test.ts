@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { escapeHtml, renderMarkdown } from '../src/markdown.js';
+import { renderMathMl } from '../src/math-mathml.js';
 
 /** Markup that must never appear in rendered output. */
 function expectInert(html: string): void {
@@ -25,6 +26,7 @@ function expectInert(html: string): void {
   const tags = [...html.matchAll(/<\/?([a-zA-Z][\w-]*)/g)].map((m) => m[1]?.toLowerCase());
   const allowed = new Set([
     'p',
+    'div',
     'a',
     'em',
     'strong',
@@ -86,6 +88,9 @@ const XSS_CORPUS = [
   '<div style="background:url(javascript:alert(1))">x</div>',
   '<!-- <script>alert(1)</script> -->',
   '<details open ontoggle=alert(1)>',
+  '\\(<script>alert(1)</script>\\)',
+  '$$<img src=x onerror=alert(1)>$$',
+  '\\[\n</span><script>alert(1)</script>\n\\]',
 ];
 
 describe('renderMarkdown: XSS corpus', () => {
@@ -190,6 +195,132 @@ describe('renderMarkdown: basics', () => {
 
   it('does not use typographer replacements or soft breaks', () => {
     expect(renderMarkdown('"a" -- b\nc')).toBe('<p>&quot;a&quot; -- b\nc</p>\n');
+  });
+});
+
+/** Math placeholders, as the Angular apps receive them. */
+const inline = (tex: string): string => `<span class="math math-inline">${tex}</span>`;
+const display = (tex: string): string => `<div class="math math-display">${tex}</div>\n`;
+
+describe('renderMarkdown: math', () => {
+  it('keeps TeX backslashes that Markdown escapes would eat', () => {
+    // The bug: `\[` -> `[`, `\\` -> `\`, so nothing downstream saw math.
+    const src = String.raw`\[
+\begin{aligned}
+z_{1,1} &= 0.41 \\[4pt]
+z_{1,2} &= 0.55
+\end{aligned}
+\]`;
+    expect(renderMarkdown(src)).toBe(
+      display(String.raw`\begin{aligned}
+z_{1,1} &amp;= 0.41 \\[4pt]
+z_{1,2} &amp;= 0.55
+\end{aligned}`),
+    );
+  });
+
+  it('parses inline math in both delimiters', () => {
+    expect(renderMarkdown(String.raw`a \(x_1\) b $w^2$ e`)).toBe(
+      `<p>a ${inline('x_1')} b ${inline('w^2')} e</p>\n`,
+    );
+  });
+
+  it('parses display math on its own lines in both delimiters', () => {
+    expect(renderMarkdown('Text:\n\\[y\\]\n$$z$$\nafter')).toBe(
+      `<p>Text:</p>\n${display('y')}${display('z')}<p>after</p>\n`,
+    );
+  });
+
+  it('does not let emphasis or escapes touch math', () => {
+    expect(renderMarkdown(String.raw`\(a_i * b_j * c\_k \{x\}\)`)).toBe(
+      `<p>${inline(String.raw`a_i * b_j * c\_k \{x\}`)}</p>\n`,
+    );
+  });
+
+  it('takes display blocks whose lines look like Markdown', () => {
+    const html = renderMarkdown('Text:\n$$\n- a\n= b\n1. c\n$$\nafter');
+    expect(html).toBe(`<p>Text:</p>\n${display('- a\n= b\n1. c')}<p>after</p>\n`);
+  });
+
+  it('finds display blocks inside list items', () => {
+    expect(renderMarkdown('- item\n  \\[\n  x\n  \\]\n- next')).toBe(
+      `<ul>\n<li>item${display('x')}</li>\n<li>next</li>\n</ul>\n`,
+    );
+  });
+
+  it('leaves math in code alone', () => {
+    expect(renderMarkdown('`\\(x\\)` and `$y$`')).toBe(
+      '<p><code>\\(x\\)</code> and <code>$y$</code></p>\n',
+    );
+    expect(renderMarkdown('```\n$$x$$\n```')).toBe(
+      '<pre><code class="hljs">$$x$$\n</code></pre>\n',
+    );
+  });
+
+  it('does not treat prices as math', () => {
+    for (const src of [
+      'costs $5 and $10',
+      'between $5-$10',
+      'US$5 or $ 5$',
+      'a $10/year fee, $20/year',
+      'escaped \\$x\\$',
+    ])
+      expect(renderMarkdown(src)).not.toContain('class="math');
+    expect(renderMarkdown('costs $5 and $10, so $x$ is')).toBe(
+      `<p>costs $5 and $10, so ${inline('x')} is</p>\n`,
+    );
+  });
+
+  it('renders unclosed math (still streaming) as text', () => {
+    expect(renderMarkdown('\\[\n\\frac{a}{b}')).not.toContain('class="math');
+    expect(renderMarkdown('see \\(x')).toBe('<p>see (x</p>\n');
+  });
+
+  it('does not end inline math at an escaped closer', () => {
+    expect(renderMarkdown(String.raw`\(a \\ b\) and \(\$5\)`)).toBe(
+      `<p>${inline(String.raw`a \\ b`)} and ${inline(String.raw`\$5`)}</p>\n`,
+    );
+  });
+
+  it('passes TeX to a custom renderer', () => {
+    const html = renderMarkdown('\\(x\\)\n\n$$y$$', {
+      math: (tex, displayMode) => `[${displayMode ? 'D' : 'I'}:${tex}]`,
+    });
+    expect(html).toBe(`<p>${inline('[I:x]')}</p>\n${display('[D:y]')}`);
+  });
+});
+
+describe('renderMathMl', () => {
+  it('renders MathML with the TeX source as an annotation', () => {
+    const html = renderMathMl('x^2', false);
+    expect(html).toContain('<math xmlns="http://www.w3.org/1998/Math/MathML">');
+    expect(html).toContain('<msup><mi>x</mi><mn>2</mn></msup>');
+    expect(html).toContain('<annotation encoding="application/x-tex">x^2</annotation>');
+    expect(html).not.toContain('style=');
+    expect(renderMathMl('x', true)).toContain('display="block"');
+  });
+
+  it('falls back to the escaped source for invalid TeX', () => {
+    expect(renderMathMl('\\frac{<b>', false)).toBe(
+      '<code class="math-error">\\frac{&lt;b&gt;</code>',
+    );
+  });
+
+  it('keeps untrusted commands inert', () => {
+    for (const tex of [
+      '\\href{javascript:alert(1)}{x}',
+      '\\url{javascript:alert(1)}',
+      '\\includegraphics{https://evil.example/x.png}',
+      '\\htmlClass{x}{y}',
+      '\\htmlStyle{color:red}{y}',
+      '\\htmlData{onclick=alert(1)}{y}',
+      '\\text{<script>alert(1)</script>}',
+    ]) {
+      const html = renderMarkdown(`\\(${tex}\\)`, { math: renderMathMl });
+      expect(html).not.toMatch(/<(?:script|a|img)\b/i);
+      // Attributes only: the TeX source is (escaped) annotation text.
+      expect(html).not.toMatch(/<[^>]*\s(?:href|src|style|on\w+)=/i);
+    }
   });
 });
 
