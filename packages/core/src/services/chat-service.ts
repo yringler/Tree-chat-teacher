@@ -27,6 +27,7 @@ import {
   updateLinkRequestSchema,
   updateSettingsRequestSchema,
   updateTreeRequestSchema,
+  isProviderAvailable,
   type Branch,
   type BranchFunding,
   type CandidateEvent,
@@ -910,12 +911,14 @@ export class ChatService {
 
   private summaryTarget(branch: Branch): { provider: LlmProvider; model: string } {
     const { summaryProviderId, summaryModel } = this.deps.settings;
-    if (summaryProviderId) {
-      // A configured summary provider is an own-key route (never credit, in power).
-      const provider = this.deps.providers.get(summaryProviderId);
+    const providers = this.deps.providers;
+    // A configured summary provider is an own-key route (never credit, in power).
+    if (summaryProviderId && isProviderAvailable(providers, summaryProviderId)) {
+      const provider = providers.get(summaryProviderId);
       if (provider) return { provider, model: summaryModel ?? provider.defaultModel() };
     }
-    // No (usable) summary provider configured: summarize on the branch's own route and model.
+    // No summary provider configured, or not one this user has a key for:
+    // summarize on the branch's own route and model.
     return { provider: this.requireProvider(branch), model: this.modelOf(branch) };
   }
 

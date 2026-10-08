@@ -386,8 +386,8 @@ function keySourceOf(config: ProviderConfig, env: ProviderEnv): ProviderInfo['ke
  * A provider is `available` when its kind needs no key (fake), the caller
  * supplied a key for it (`env.apiKeys`) or its apiKeySecret resolves to a
  * non-empty secret. Unavailable providers are
- * still listed (so the UI can explain), but `get` returns an instance whose
- * stream yields error{code:'config'}.
+ * still listed (so the UI can explain), and `get` returns an instance whose
+ * stream yields error{code:'config'}; `isProviderAvailable` tells them apart.
  */
 export function createProviderRegistry(
   configs: readonly ProviderConfig[],

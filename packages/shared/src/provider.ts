@@ -332,8 +332,19 @@ export function isModelAllowed(
 
 /** Looks up configured provider instances. Implemented in @tangent/providers. */
 export interface ProviderRegistry {
+  /**
+   * The provider configured as `providerId`; undefined when none is. One that
+   * can't be used here (no key) is still returned, and its calls fail with a
+   * `config` error that says why: a caller with another route to fall back on
+   * asks `isProviderAvailable` first.
+   */
   get(providerId: string): LlmProvider | undefined;
   list(): ProviderInfo[];
   /** First available provider (API key present), else the first configured. */
   defaultProviderId(): string;
+}
+
+/** Whether `registry` has `providerId` configured with what it needs to make calls (a key). */
+export function isProviderAvailable(registry: ProviderRegistry, providerId: string): boolean {
+  return registry.list().some((p) => p.id === providerId && p.available);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ProviderConfig } from '@tangent/shared';
+import { isProviderAvailable, type ProviderConfig } from '@tangent/shared';
 import {
   DEFAULT_PROVIDER_CONFIGS,
   PROVIDER_FACTORIES,
@@ -79,6 +79,12 @@ describe('provider registry', () => {
     expect(reg.list().find((p) => p.id === 'openrouter')?.available).toBe(true);
     expect(reg.list().find((p) => p.id === 'anthropic')?.available).toBe(false);
     expect(reg.defaultProviderId()).toBe('openrouter');
+    // `get` returns the keyless one too (its calls explain the missing key).
+    expect(reg.get('anthropic')).toBeDefined();
+    expect(isProviderAvailable(reg, 'anthropic')).toBe(false);
+    expect(isProviderAvailable(reg, 'openrouter')).toBe(true);
+    expect(isProviderAvailable(reg, 'fake')).toBe(true);
+    expect(isProviderAvailable(reg, 'nope')).toBe(false);
     // With nothing else available, a configured test provider is the default.
     expect(
       createProviderRegistry([...DEFAULT_PROVIDER_CONFIGS, FAKE], {
