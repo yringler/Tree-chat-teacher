@@ -4,6 +4,7 @@ import { AccountId, AuthService, DEMO_MODE, Icon, Logo, ModeSwitch } from '@tang
 import { BRAND, BRAND_SHORT } from '../brand';
 import { DEMO_EXIT_URL } from '../demo/demo-mode';
 import { AccountStore } from '../state/account-store';
+import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
 import { PaidBy } from './paid-by';
 
@@ -94,6 +95,7 @@ import { PaidBy } from './paid-by';
 })
 export class AppHeader {
   protected readonly account = inject(AccountStore);
+  private readonly lessons = inject(LessonStore);
   protected readonly ui = inject(UiStore);
   private readonly auth = inject(AuthService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -137,6 +139,7 @@ export class AppHeader {
       location.assign(DEMO_EXIT_URL);
       return;
     }
+    this.lessons.forgetUnsent();
     try {
       await this.auth.signOut();
     } catch (err) {

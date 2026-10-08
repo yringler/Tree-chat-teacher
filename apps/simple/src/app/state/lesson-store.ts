@@ -59,8 +59,8 @@ export interface LiveReply {
 /**
  * A message that didn't reach the lesson (refused, e.g. out of credit or for
  * want of the own key, or a failed request), offered back to the composer
- * of its branch. Kept for the tab (`UNSENT_STORAGE_KEY`): a top-up (checkout)
- * and the human check leave the page and come back to it.
+ * of its branch. Kept for the tab and its user (`UNSENT_STORAGE_KEY`):
+ * a top-up (checkout) and the human check leave the page and come back to it.
  */
 export interface UnsentDraft {
   treeId: string;
@@ -79,12 +79,17 @@ export interface UnsentDraft {
 /** Where the unsent message waits in sessionStorage (this tab only, like the page it left). */
 const UNSENT_STORAGE_KEY = 'tangent.learn.unsent';
 
-function storedDraft(): UnsentDraft | null {
+/** The message `userId` left unsent in this tab; one left by anyone else is dropped. */
+function storedDraft(userId: string): UnsentDraft | null {
   try {
     const raw = sessionStorage.getItem(UNSENT_STORAGE_KEY);
     const d: unknown = raw ? JSON.parse(raw) : null;
     if (typeof d !== 'object' || d === null) return null;
-    const { treeId, branchId, text, ground, needsKey } = d as Record<string, unknown>;
+    const { owner, treeId, branchId, text, ground, needsKey } = d as Record<string, unknown>;
+    if (owner !== userId) {
+      storeDraft(null, null);
+      return null;
+    }
     if (typeof treeId !== 'string' || typeof branchId !== 'string' || typeof text !== 'string')
       return null;
     return {
@@ -99,9 +104,10 @@ function storedDraft(): UnsentDraft | null {
   }
 }
 
-function storeDraft(d: UnsentDraft | null): void {
+/** Keeps `d` for the tab as `owner`'s (no one signed in: for this page only). */
+function storeDraft(d: UnsentDraft | null, owner: string | null): void {
   try {
-    if (d) sessionStorage.setItem(UNSENT_STORAGE_KEY, JSON.stringify(d));
+    if (d && owner) sessionStorage.setItem(UNSENT_STORAGE_KEY, JSON.stringify({ ...d, owner }));
     else sessionStorage.removeItem(UNSENT_STORAGE_KEY);
   } catch {
     // Storage unavailable: the message waits for this page only.
@@ -216,7 +222,12 @@ export class LessonStore {
   readonly live = signal<ReadonlyMap<string, LiveReply>>(new Map());
   /** Branches whose POST is in flight (before `start` arrives). */
   readonly sending = signal<ReadonlySet<string>>(new Set());
-  readonly unsentDraft = signal<UnsentDraft | null>(storedDraft());
+  readonly unsentDraft = signal<UnsentDraft | null>(null);
+  /** The text the open branch's composer takes back: only what the learner typed. */
+  readonly composerDraft = computed(() => {
+    const d = this.unsentDraft();
+    return d && !d.ground && d.branchId === this.selectedBranchId() ? d.text : '';
+  });
   readonly poolBlock = signal<LessonPoolBlock | null>(null);
   /** The Compare sheet is open (its answers stream): the composer waits. */
   readonly comparing = signal(false);
@@ -290,7 +301,10 @@ export class LessonStore {
 
   // Loading
 
+  /** After `AccountStore.setMe`: whose message left unsent in this tab is offered back. */
   async init(): Promise<void> {
+    const userId = this.account.me()?.userId;
+    if (userId && !this.unsentDraft()) this.unsentDraft.set(storedDraft(userId));
     await Promise.all([this.loadProviders(), this.loadTrees()]);
   }
 
@@ -936,12 +950,20 @@ export class LessonStore {
   ): void {
     const treeId = this.index()?.branches.get(branchId)?.treeId ?? this.selectedTreeId();
     if (!treeId) return;
+    // A "Check sources" request never takes the place of a message the learner typed.
+    const typed = this.unsentDraft();
+    if (options.ground && typed && !typed.ground) return;
     this.setUnsent({ treeId, branchId, text, ...options, ...(needsKey ? { needsKey } : {}) });
+  }
+
+  /** Signing out: the message left unsent isn't the next person's to see. */
+  forgetUnsent(): void {
+    this.setUnsent(null);
   }
 
   private setUnsent(d: UnsentDraft | null): void {
     this.unsentDraft.set(d);
-    storeDraft(d);
+    storeDraft(d, this.account.me()?.userId ?? null);
   }
 
   /** Stop: the server cancels the generation and the stream ends with an `error` event. */
