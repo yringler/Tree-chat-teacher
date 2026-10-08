@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { coalesced } from './coalesced';
 
 describe('coalesced', () => {
@@ -34,6 +34,36 @@ describe('coalesced', () => {
     expect(g.runs()).toBe(2);
     g.gates.shift()?.();
     await second;
+  });
+
+  it('a run that hangs is left to itself after 20 s: later calls run again', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(0);
+      const g = gated();
+      void g.refresh();
+      vi.setSystemTime(19_000);
+      void g.refresh();
+      expect(g.runs()).toBe(1);
+      // The first read never answers.
+      vi.setSystemTime(21_000);
+      const fresh = g.refresh();
+      expect(g.runs()).toBe(2);
+      // The new batch is the one later calls join, and it ends on its own.
+      void g.refresh();
+      expect(g.runs()).toBe(2);
+      g.gates[1]?.();
+      await vi.waitFor(() => expect(g.runs()).toBe(3));
+      g.gates[2]?.();
+      await fresh;
+      // The hung run answering at last starts nothing more.
+      g.gates[0]?.();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(g.runs()).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a run that throws ends the batch; the next call starts afresh', async () => {

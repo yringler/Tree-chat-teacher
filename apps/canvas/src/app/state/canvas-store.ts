@@ -571,6 +571,12 @@ export class CanvasStore {
     if (seq === this.treesSeq) this.trees.set(list);
   }
 
+  /** A change made here (created, deleted, renamed): a read sent before it would undo it. */
+  private editTrees(change: (list: TreeSummary[]) => TreeSummary[]): void {
+    this.treesSeq++;
+    this.trees.update(change);
+  }
+
   // Routing (the URL is the source of truth for the selection)
 
   setRoute(treeId: string | null, branchId: string | null, focusNodeId: string | null): void {
@@ -722,7 +728,7 @@ export class CanvasStore {
       this.showDetail(detail);
       this.selectedTreeId.set(detail.tree.id);
       this.ui.clearLinkState();
-      this.trees.update((list) => [summaryOf(detail), ...list]);
+      this.editTrees((list) => [summaryOf(detail), ...list]);
       await this.router.navigate(['/t', detail.tree.id]);
       void this.send(detail.tree.trunkBranchId, content);
     } catch (err) {
@@ -734,7 +740,7 @@ export class CanvasStore {
     try {
       await this.api.deleteTree(treeId);
       this.stopTreeStreams(treeId);
-      this.trees.update((list) => list.filter((t) => t.id !== treeId));
+      this.editTrees((list) => list.filter((t) => t.id !== treeId));
       if (this.selectedTreeId() === treeId) await this.router.navigate(['/']);
       this.ui.notify('Conversation deleted');
     } catch (err) {
@@ -1277,7 +1283,7 @@ export class CanvasStore {
     this.dropLinkState(branchIds, nodeIds);
     const d = this.detail();
     if (d && d.tree.id === res.treeId) {
-      this.trees.update((list) =>
+      this.editTrees((list) =>
         list.map((t) =>
           t.id === res.treeId
             ? { ...t, branchCount: d.branches.length, messageCount: d.nodes.length }

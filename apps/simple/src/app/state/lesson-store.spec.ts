@@ -12,6 +12,7 @@ import type {
   ChatNode,
   CreateBranchRequest,
   CreateLinkRequest,
+  MeResponse,
   NodeLink,
   ProviderInfo,
   StreamEvent,
@@ -1450,8 +1451,20 @@ describe('LessonStore a refused message across leaving the page', () => {
   const reply = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
   const lesson = () => detail([userNode, reply]);
 
+  /** A new page (a new store) signed in as `userId`, booted as the app boots it. */
+  async function page(userId: string) {
+    const s = setup();
+    s.injector.get(AccountStore).setMe({
+      userId,
+      builtInCredit: true,
+      membership: { ...BILLING.membership, required: false },
+    } as MeResponse);
+    await s.store.init();
+    return s;
+  }
+
   it('a message refused for want of credit is back in its lesson after the checkout', async () => {
-    const before = setup();
+    const before = await page('u1');
     await open(before, lesson());
     before.api.sendMessage.mockRejectedValue(
       new ApiError(402, 'payment_required', 'Your balance is too low'),
@@ -1460,7 +1473,7 @@ describe('LessonStore a refused message across leaving the page', () => {
     expect(before.router.navigate).toHaveBeenCalledWith(['/billing']);
 
     // Checkout is a full-page redirect: a new page, a new store.
-    const after = setup();
+    const after = await page('u1');
     expect(after.store.unsentDraft()).toEqual({
       treeId: 't1',
       branchId: 'trunk',
@@ -1470,7 +1483,28 @@ describe('LessonStore a refused message across leaving the page', () => {
     after.api.sendMessage.mockResolvedValue(stream([]));
     await after.store.send('trunk', 'Why does it bend?');
     expect(after.store.unsentDraft()).toBeNull();
-    expect(setup().store.unsentDraft()).toBeNull();
+    expect((await page('u1')).store.unsentDraft()).toBeNull();
+  });
+
+  it('is never offered to someone else signed in on the tab, and goes with sign-out', async () => {
+    const first = await page('u1');
+    await open(first, lesson());
+    first.api.sendMessage.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
+    await first.store.send('trunk', 'Private question');
+    expect(tab.size).toBe(1);
+
+    const other = await page('u2');
+    expect(other.store.unsentDraft()).toBeNull();
+    expect(tab.size).toBe(0);
+
+    const again = await page('u1');
+    await open(again, lesson());
+    again.api.sendMessage.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
+    await again.store.send('trunk', 'Private question');
+    expect(tab.size).toBe(1);
+    again.store.forgetUnsent();
+    expect(again.store.unsentDraft()).toBeNull();
+    expect(tab.size).toBe(0);
   });
 
   it('a "Check sources" request the pool refuses is not kept as the learner’s message', async () => {
@@ -1503,6 +1537,43 @@ describe('LessonStore a refused message across leaving the page', () => {
     expect(s.store.resumeUnsent()).toBe(true);
     await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(2));
     expect(s.api.sendMessage.mock.calls[1]![1]).toMatchObject({ ground: 'required' });
+  });
+
+  it('a refused "Check sources" never takes the place of the learner’s own message', async () => {
+    const s = setup();
+    await open(s, lesson());
+    s.api.sendMessage.mockRejectedValue(new ApiError(401, 'key_required', 'Add your key'));
+    await s.store.send('trunk', 'Why does it bend?');
+    await s.store.checkSources('a1');
+    expect(s.store.unsentDraft()).toEqual({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'Why does it bend?',
+      needsKey: true,
+    });
+    s.api.sendMessage.mockResolvedValue(stream([]));
+    expect(s.store.resumeUnsent()).toBe(true);
+    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(3));
+    expect(s.api.sendMessage.mock.calls[2]!.slice(0, 2)).toEqual([
+      'trunk',
+      { content: 'Why does it bend?' },
+    ]);
+  });
+
+  it('the composer takes back only text the learner typed, in its own branch', async () => {
+    const s = setup();
+    await open(s, lesson());
+    s.store.unsentDraft.set({ treeId: 't1', branchId: 'trunk', text: 'Typed' });
+    expect(s.store.composerDraft()).toBe('Typed');
+    s.store.unsentDraft.set({ treeId: 't1', branchId: 'side', text: 'Elsewhere' });
+    expect(s.store.composerDraft()).toBe('');
+    s.store.unsentDraft.set({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'Check your last answer against sources',
+      ground: 'required',
+    });
+    expect(s.store.composerDraft()).toBe('');
   });
 
   it('acknowledging the pool notice resends the message with its options', async () => {
@@ -1576,6 +1647,25 @@ describe('LessonStore refreshing after replies', () => {
     await vi.waitFor(() => expect(s.store.detail()?.tree.title).toBe('Light and waves'));
     expect(reads).toHaveLength(2);
     expect(s.api.billing).toHaveBeenCalledTimes(2);
+  });
+
+  it('a read sent before a delete or a new lesson does not undo them', async () => {
+    const s = setup();
+    const reads: ((list: TreeSummary[]) => void)[] = [];
+    s.api.listTrees.mockImplementation(() => new Promise<TreeSummary[]>((r) => reads.push(r)));
+    s.api.createTree.mockResolvedValue({ ...detail(), tree: { ...detail().tree, id: 't2' } });
+    s.store.trees.set([summaryOf('Light')]);
+    const before = s.store.loadTrees();
+    await s.store.deleteLesson('t1');
+    reads[0]!([summaryOf('Light')]);
+    await before;
+    expect(s.store.trees()).toEqual([]);
+
+    const again = s.store.loadTrees();
+    await s.store.startLesson(null, '');
+    reads[1]!([]);
+    await again;
+    expect(s.store.trees().map((t) => t.id)).toEqual(['t2']);
   });
 
   it('a failed refresh after a reply is quiet', async () => {

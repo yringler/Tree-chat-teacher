@@ -177,10 +177,7 @@ export class ChatPage implements OnDestroy {
    * missing key…), offered back in its branch, also after a top-up or the
    * human check (kept for the tab).
    */
-  protected readonly initialDraft = computed(() => {
-    const d = this.store.unsentDraft();
-    return d && !d.ground && d.branchId === this.store.selectedBranchId() ? d.text : '';
-  });
+  protected readonly initialDraft = this.store.composerDraft;
 
   constructor() {
     effect(() => {
