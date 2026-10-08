@@ -228,12 +228,7 @@ describe('POST /api/trees/:id/copy-to-learn', () => {
     await insertSubscription(env, u.userId, 'canceled');
     const learnId = `u_${u.userId}`;
     const tree = await powerTree(u);
-    // The user never opened Learn: its account row doesn't exist yet.
-    const accountRow = () =>
-      env.DB.prepare('SELECT mode, user_id FROM accounts WHERE id = ?')
-        .bind(learnId)
-        .first<{ mode: string; user_id: string }>();
-    expect(await accountRow()).toBeNull();
+    // The user never opened Learn.
     const before = await snapshot(u, tree.tree.id);
     const balanceBefore = await getBalance(env.DB, learnId);
     expect(balanceBefore.balanceMicros).toBe(0);
@@ -241,7 +236,6 @@ describe('POST /api/trees/:id/copy-to-learn', () => {
     const res = await json<CopyToLearnResponse>(await copy(u, tree.tree.id), 201);
     expect(res.title).toBe('Primes');
     expect(res.treeId).not.toBe(tree.tree.id);
-    expect(await accountRow()).toEqual({ mode: 'simple', user_id: u.userId });
 
     // The lesson, in Learn: adapted like any import into Learn.
     const lesson = await json<TreeDetail>(

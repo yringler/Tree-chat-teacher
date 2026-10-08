@@ -66,7 +66,7 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 
 ## Accounts (multi-user)
 
-- **Trees and shares carry `account_id`.** It references an `accounts` table seeded with a single `default` account in migration 0001. Existing rows backfill via the column default, so there is no data rewrite.
+- **Trees and shares carry `account_id`.** It references an `accounts` table seeded with a single `default` account in migration 0001. Existing rows backfill via the column default, so there is no data rewrite. (Removed before launch, 2026-10-08: nothing read the `accounts` table, so it is gone from the schema; an account is its id.)
 - **Branches, nodes and summaries inherit ownership through `tree_id`.** They have no column of their own, so per-user data is a matter of filtering by tree.
 - **One place decides the acting account:** `resolveAccount(env, identity, request)` in `apps/worker/src/auth/account.ts` (rewritten by _Open sign-up and the mode switch_ below).
   - Every signed-in user → `p_<userId>` in `power` mode, or `u_<userId>` in `simple` mode, whichever app the request comes from. The ids derive from the Better Auth user id (stable, unlike email), so resolving them needs no lookup and can't race.

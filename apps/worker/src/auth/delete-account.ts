@@ -111,7 +111,6 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
          (SELECT branch_id FROM usage_events WHERE user_id = ?1 AND branch_id IS NOT NULL)`,
     ).bind(userId),
     env.DB.prepare('DELETE FROM pool_consents WHERE user_id = ?1').bind(userId),
-    env.DB.prepare('DELETE FROM accounts WHERE user_id = ?1 OR id IN (?2, ?3)').bind(userId, p, u),
     env.DB.prepare('DELETE FROM auth_users WHERE id = ?1').bind(userId),
   ]);
 

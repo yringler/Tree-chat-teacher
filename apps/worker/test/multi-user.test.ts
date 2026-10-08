@@ -113,16 +113,6 @@ describe('open sign-up', () => {
       expect(u.learn.accountId).toBe(`u_${u.power.accountId.slice(2)}`);
     }
     expect(a.power.accountId).not.toBe(b.power.accountId);
-
-    const rows = await env.DB.prepare(
-      'SELECT a.id, a.mode, u.email FROM accounts a JOIN auth_users u ON u.id = a.user_id WHERE a.user_id = ?1 ORDER BY a.mode',
-    )
-      .bind(a.power.accountId.slice(2))
-      .all<{ id: string; mode: string; email: string }>();
-    expect(rows.results).toEqual([
-      { id: a.power.accountId, mode: 'power', email: a.power.email },
-      { id: a.learn.accountId, mode: 'simple', email: a.power.email },
-    ]);
   });
 });
 
@@ -1190,7 +1180,6 @@ describe('account deletion', () => {
       ['trees', 'account_id'],
       ['shares', 'account_id'],
       ['account_settings', 'account_id'],
-      ['accounts', 'id'],
     ] as const) {
       expect(
         await count(`SELECT COUNT(*) AS n FROM ${table} WHERE ${column} IN (?1, ?2)`, ...ids),

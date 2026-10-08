@@ -26,13 +26,6 @@ import {
 const BASE = 'https://tangent.example.com';
 
 describe('accounts (dev bypass: the default account)', () => {
-  it('migration seeds the built-in default account', async () => {
-    const row = await env.DB.prepare('SELECT id, name FROM accounts WHERE id = ?1')
-      .bind(DEFAULT_ACCOUNT_ID)
-      .first<{ id: string; name: string }>();
-    expect(row).toEqual({ id: DEFAULT_ACCOUNT_ID, name: 'Default account' });
-  });
-
   it('/api/me reports the account and new rows are stamped with it', async () => {
     const me = (await (await exports.default.fetch(`${BASE}/api/me`)).json()) as MeResponse;
     expect(me.accountId).toBe(DEFAULT_ACCOUNT_ID);

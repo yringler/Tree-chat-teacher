@@ -37,7 +37,7 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { createMiddleware } from 'hono/factory';
 import { z } from 'zod';
-import { ensureAccountRow, resolveAccount } from '../auth/account.js';
+import { resolveAccount } from '../auth/account.js';
 import { isAdmin } from '../auth/admin.js';
 import { accountDeletionRoutes } from '../auth/delete-account.js';
 import { enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
@@ -278,7 +278,6 @@ export function apiRoutes(): Hono<AppBindings> {
     const backup = await chatOf(c).exportBackup(c.req.param('treeId'));
     // Learn's account as Learn's own requests on the user's key resolve it: never on credit.
     const learn = resolveAccount(c.env, identity, { mode: 'simple', payment: 'own-key' });
-    await ensureAccountRow(c.env.DB, learn);
     const lesson = await chatService(c.env, learn, {
       defer: (p) => c.executionCtx.waitUntil(p),
     }).importBackup(backup);
