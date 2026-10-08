@@ -48,7 +48,9 @@ const vars = {
   AUTO_TITLE: 'false',
   // Share links for everyone, so the share dialog can be driven (share-dialog.spec.ts).
   DMCA_AGENT_REGISTERED: 'true',
-  // Power's one provider: the offline test provider, on the user's "own key" (it needs none).
+  // Power's providers on the user's "own key": the offline test provider (it needs
+  // none), and one that needs a key the tests never save (missing-key-power.spec.ts:
+  // a conversation on it, opened in a browser without its key). It points nowhere.
   PROVIDERS: JSON.stringify([
     {
       id: 'fake',
@@ -58,11 +60,21 @@ const vars = {
       models: [{ id: 'fake-1', label: 'Fake 1' }],
       options: { chunkSize: 8 },
     },
+    {
+      id: 'keyed',
+      kind: 'openai-compatible',
+      label: 'Keyed',
+      baseUrl: 'http://127.0.0.1:9/v1',
+      // Never set: without it a keyless baseUrl would count as a local server, needing no key.
+      apiKeySecret: 'KEYED_API_KEY',
+      defaultModel: 'keyed-1',
+      models: [{ id: 'keyed-1', label: 'Keyed 1' }],
+    },
   ]),
   // The built-in provider (Learn, and power's Tangent credit). It must need a key, so
   // Learn on the user's own key asks for one (a fake needs none). It points nowhere:
-  // the tests never send on it (an own-key send without a key is refused before any
-  // call, and no test sends on credit).
+  // an own-key send without a key is refused before any call, and a send on credit
+  // (missing-key-power.spec.ts) gets its message written and its reply fails at once.
   SIMPLE_PROVIDER: JSON.stringify({
     id: 'openrouter',
     kind: 'openai-compatible',
