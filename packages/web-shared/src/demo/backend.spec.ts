@@ -132,8 +132,9 @@ describe('demo backend', () => {
     const stored = after.nodes.find((n) => n.id === start.assistantNode.id)!;
     expect(stored).toMatchObject({ status: 'complete', content: text, model: 'smart' });
     expect(stored.usage?.outputTokens).toBeGreaterThan(0);
-    // Auto-titled after the first reply, like production.
+    // Auto-titled after the first reply, like production, and `done` says so.
     expect(after.tree.title).not.toBe('New conversation');
+    expect(done.tree).toEqual({ title: after.tree.title, updatedAt: after.tree.updatedAt });
     expect((await api.listTrees())[0]!.title).toBe(after.tree.title);
 
     const billing = await api.billing();
@@ -236,6 +237,11 @@ describe('demo backend', () => {
       await api.streamNode(start.assistantNode.id, new AbortController().signal),
     );
     expect(replay.map((e) => e.type)).toEqual(['snapshot', 'done']);
+    // The trunk's first reply replays with the tree's (auto-given) title.
+    const titled = (await api.getTree(tree.tree.id)).tree;
+    expect(replay.at(-1)).toMatchObject({
+      tree: { title: titled.title, updatedAt: titled.updatedAt },
+    });
   });
 
   it('answers unknown routes with a JSON 404 in the API error shape', async () => {

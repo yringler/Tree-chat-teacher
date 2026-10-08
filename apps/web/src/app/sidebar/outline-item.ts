@@ -144,11 +144,10 @@ export class OutlineItem {
   protected readonly linkCount = computed(
     () => this.store.linkCounts().get(this.item().branch.id) ?? 0,
   );
-  protected readonly streaming = computed(() => {
-    const id = this.item().branch.id;
-    for (const s of this.store.live().values()) if (s.branchId === id) return true;
-    return false;
-  });
+  /** Reads the set of generating branches, which deltas don't change. */
+  protected readonly streaming = computed(() =>
+    this.store.live.branchIds().has(this.item().branch.id),
+  );
 
   protected readonly editing = signal(false);
   private readonly titleInput = viewChild<ElementRef<HTMLInputElement>>('titleInput');

@@ -228,7 +228,7 @@ export class Card {
     if (!n.model) return 'Assistant';
     return modelLabel(this.store.providers(), { providerId: n.providerId ?? '' }, n.model);
   });
-  private readonly live = computed(() => this.store.live().get(this.node().id) ?? null);
+  private readonly live = computed(() => this.store.live.get(this.node().id));
   protected readonly streaming = computed(() => this.node().status === 'streaming');
   protected readonly liveStatus = computed(() => {
     const l = this.live();

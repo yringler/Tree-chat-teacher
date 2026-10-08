@@ -586,21 +586,7 @@ export class DemoBackend {
     if (run) return this.subscribe(run, [{ type: 'snapshot', node: run.node }], signal);
 
     // Not running: replay the stored final state.
-    let final = node;
-    if (node.status === 'streaming') {
-      await this.chat.recoverInterrupted(node.treeId);
-      final = (await this.repos.trees.getNode(node.id)) ?? node;
-    }
-    const branch = await this.repos.trees.getBranch(final.branchId);
-    const events: StreamEvent[] = [{ type: 'snapshot', node: final }];
-    if (final.status === 'complete' && branch) events.push({ type: 'done', node: final, branch });
-    else
-      events.push({
-        type: 'error',
-        nodeId: final.id,
-        message: final.error ?? 'Generation failed',
-        node: final,
-      });
+    const events = await this.chat.replayFinished(node);
     const text = events.map(sseFrame).join('');
     return sseResponse(
       new ReadableStream({

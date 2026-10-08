@@ -48,6 +48,7 @@ export {
   type AppId,
 } from './core/demo';
 export { MarkdownService } from './core/markdown.service';
+export { patchTreeSummary } from './core/tree-list';
 export { deleteBranchQuestion, subtreeSize, type BranchNoun } from './core/delete-branch';
 export {
   DEFAULT_TEXT_SIZE,
@@ -68,6 +69,7 @@ export {
   SseParser,
   type SseFrame,
 } from './sse/sse-parser';
+export { LiveReplies, type LiveReply, type LiveReplyPatch } from './sse/live-replies';
 export {
   defaultSleep,
   runStream,

@@ -338,16 +338,66 @@ describe('ChatService sending', () => {
     const { chat, repos } = setup();
     const { tree } = await chat.createTree({});
     const root = await send(chat, tree.trunkBranchId, 'q');
-    expect((await repos.trees.getTree(tree.id))?.title).toBe('Scripted Title');
+    const titled = await repos.trees.getTree(tree.id);
+    expect(titled?.title).toBe('Scripted Title');
+    // The trunk's first reply brings the tree's new title (the clients' list entry needs no re-read).
+    expect(root.last).toMatchObject({
+      type: 'done',
+      tree: { title: 'Scripted Title', updatedAt: titled?.updatedAt },
+    });
     const b = await chat.createBranch({ fromNodeId: root.begin.assistantNode.id });
     const { last } = await send(chat, b.id, 'side');
     expect(last).toMatchObject({
       type: 'done',
       branch: { title: 'Scripted Title', titleSource: 'auto' },
     });
+    // A branch's title is not the tree's.
+    expect(last).not.toHaveProperty('tree');
     // Only after the first reply.
     const again = await send(chat, b.id, 'more');
     expect(again.last.type).toBe('done');
+    const trunkAgain = await send(chat, tree.trunkBranchId, 'q2');
+    expect(trunkAgain.last.type).toBe('done');
+    expect(trunkAgain.last).not.toHaveProperty('tree');
+  });
+
+  it('a titled tree, or a trunk reply without auto-titling, brings no tree title', async () => {
+    const named = setup();
+    const { tree } = await named.chat.createTree({ title: 'Mine' });
+    const { last } = await send(named.chat, tree.trunkBranchId, 'q');
+    expect(last.type).toBe('done');
+    expect(last).not.toHaveProperty('tree');
+
+    const off = setup({ autoTitle: false });
+    const other = await off.chat.createTree({});
+    const reply = await send(off.chat, other.tree.trunkBranchId, 'q');
+    expect(reply.last).not.toHaveProperty('tree');
+  });
+
+  it('replays a finished reply: done with the tree title for the trunk’s first reply, else error', async () => {
+    const { chat, repos } = setup();
+    const { tree } = await chat.createTree({});
+    const root = await send(chat, tree.trunkBranchId, 'q');
+    const first = await repos.trees.getNode(root.begin.assistantNode.id);
+    const replay = await chat.replayFinished(first!);
+    expect(replay.map((e) => e.type)).toEqual(['snapshot', 'done']);
+    expect(replay[1]).toMatchObject({ tree: { title: 'Scripted Title' } });
+
+    const later = await send(chat, tree.trunkBranchId, 'again');
+    const second = await repos.trees.getNode(later.begin.assistantNode.id);
+    const [, done] = await chat.replayFinished(second!);
+    expect(done).toMatchObject({ type: 'done', node: { id: second!.id } });
+    expect(done).not.toHaveProperty('tree');
+
+    // Still marked streaming but not running: interrupted.
+    const begin = await chat.beginSend(tree.trunkBranchId, 'cut');
+    const [snapshot, error] = await chat.replayFinished(begin.assistantNode);
+    expect(snapshot).toMatchObject({ type: 'snapshot', node: { status: 'error' } });
+    expect(error).toMatchObject({
+      type: 'error',
+      nodeId: begin.assistantNode.id,
+      message: 'Interrupted before the reply finished',
+    });
   });
 
   it('recovers interrupted streaming nodes', async () => {

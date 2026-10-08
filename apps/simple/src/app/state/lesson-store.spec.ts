@@ -293,6 +293,15 @@ describe('LessonStore', () => {
   it('applies start, status, delta and done events to the open lesson', async () => {
     const s = setup();
     await open(s, detail());
+    const listed = (id: string, updatedAt: string): TreeSummary => ({
+      id,
+      title: id === 't1' ? 'New lesson' : id,
+      createdAt: T,
+      updatedAt,
+      branchCount: 1,
+      messageCount: 0,
+    });
+    s.store.trees.set([listed('t0', '2026-01-02T00:00:00.000Z'), listed('t1', T)]);
     const live = controlledStream([
       { type: 'start', userNode, assistantNode: replyNode, branch: branch('trunk') },
       { type: 'status', message: 'Thinking…' },
@@ -303,7 +312,7 @@ describe('LessonStore', () => {
     // The composer keeps the text until the message is in the lesson.
     expect(s.ui.composerSent()).toBeNull();
 
-    await vi.waitFor(() => expect(s.store.live().get('a1')?.status).toBe('Thinking…'));
+    await vi.waitFor(() => expect(s.store.live.get('a1')?.status).toBe('Thinking…'));
     expect(s.ui.composerSent()).toEqual({ seq: 1, text: 'What is light?' });
     expect(s.store.streamingNode()?.id).toBe('a1');
     expect(s.store.sendingBranchId()).toBeNull();
@@ -312,14 +321,15 @@ describe('LessonStore', () => {
       { type: 'delta', nodeId: 'a1', text: 'Light is ' },
       { type: 'delta', nodeId: 'a1', text: 'a wave.' },
     ]);
-    await vi.waitFor(() => expect(s.store.live().get('a1')?.content).toBe('Light is a wave.'));
-    expect(s.store.live().get('a1')?.status).toBeNull();
+    await vi.waitFor(() => expect(s.store.live.get('a1')?.content).toBe('Light is a wave.'));
+    expect(s.store.live.get('a1')?.status).toBeNull();
 
     live.push([
       {
         type: 'done',
         node: { ...replyNode, status: 'complete', content: 'Light is a wave.' },
         branch: branch('trunk', { title: 'Light' }),
+        tree: { title: 'Light and waves', updatedAt: '2026-01-03T00:00:00.000Z' },
       },
     ]);
     live.close();
@@ -335,11 +345,21 @@ describe('LessonStore', () => {
       ['a1', 'complete', 'Light is a wave.'],
     ]);
     expect(s.store.selectedBranch()?.title).toBe('Light');
-    expect(s.store.live().size).toBe(0);
+    expect(s.store.live.all().size).toBe(0);
     expect(s.store.busy()).toBe(false);
-    // The balance and the lesson list are refreshed after a reply.
+    // The balance is refreshed after a reply; the list entry (and the open lesson) take the
+    // new title from `done`, and the list isn't read again.
     await vi.waitFor(() => expect(s.api.billing).toHaveBeenCalled());
-    expect(s.api.listTrees).toHaveBeenCalled();
+    expect(s.store.detail()?.tree.title).toBe('Light and waves');
+    expect(s.store.trees()).toEqual([
+      {
+        ...listed('t1', '2026-01-03T00:00:00.000Z'),
+        title: 'Light and waves',
+        messageCount: 2,
+      },
+      listed('t0', '2026-01-02T00:00:00.000Z'),
+    ]);
+    expect(s.api.listTrees).not.toHaveBeenCalled();
   });
 
   it('Stop cancels on the server; the closing error event ends the reply', async () => {
@@ -362,7 +382,7 @@ describe('LessonStore', () => {
       live.close();
     });
     const sending = s.store.send('trunk', 'What is light?');
-    await vi.waitFor(() => expect(s.store.live().get('a1')?.content).toBe('Li'));
+    await vi.waitFor(() => expect(s.store.live.get('a1')?.content).toBe('Li'));
 
     await s.store.cancel('a1');
     await expect(sending).resolves.toBe(true);
@@ -397,7 +417,7 @@ describe('LessonStore', () => {
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(true);
     expect(s.api.streamNode).toHaveBeenCalledWith('a1', expect.any(AbortSignal));
     expect(s.store.index()?.nodes.get('a1')?.content).toBe('Light is fast.');
-    expect(s.store.live().size).toBe(0);
+    expect(s.store.live.all().size).toBe(0);
   });
 
   it('marks the reply failed when the connection cannot be recovered', async () => {
@@ -428,7 +448,7 @@ describe('LessonStore', () => {
     await open(s, detail([userNode, replyNode]));
     await vi.waitFor(() => expect(s.store.index()?.nodes.get('a1')?.content).toBe('Half done.'));
     expect(s.api.streamNode).toHaveBeenCalledWith('a1', expect.any(AbortSignal));
-    expect(s.store.live().size).toBe(0);
+    expect(s.store.live.all().size).toBe(0);
   });
 
   it('402 on send: offers billing with a toast and keeps the message', async () => {

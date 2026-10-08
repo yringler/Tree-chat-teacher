@@ -500,6 +500,12 @@ export interface KeyStatusResponse {
  *
  * Order: `start` → (`status`)* → (`delta` | `usage`)* → exactly one of `done` | `error`.
  * A reconnect (`GET /api/nodes/:id/stream`) starts with `snapshot` instead of `start`.
+ *
+ * `done.tree` is the tree's title (and `updatedAt`) when the reply may have
+ * changed it: auto-titling the tree on the trunk's first reply, or a replay
+ * of that reply's final state. Clients update their copy and their list
+ * entry from it instead of re-reading `GET /api/trees`. Optional: an older
+ * server doesn't send it, and the client then keeps the title it has.
  */
 export type StreamEvent =
   | { type: 'start'; userNode: ChatNode; assistantNode: ChatNode; branch: Branch }
@@ -507,8 +513,11 @@ export type StreamEvent =
   | { type: 'status'; message: string }
   | { type: 'delta'; nodeId: string; text: string }
   | { type: 'usage'; nodeId: string; usage: Partial<TokenUsage> }
-  | { type: 'done'; node: ChatNode; branch: Branch }
+  | { type: 'done'; node: ChatNode; branch: Branch; tree?: TreeTitle }
   | { type: 'error'; nodeId: string | null; message: string; node: ChatNode | null };
+
+/** A tree's title as of a `done` event (see `StreamEvent`). */
+export type TreeTitle = Pick<Tree, 'title' | 'updatedAt'>;
 
 export interface ContextPlanResponse {
   plan: ContextPlan;

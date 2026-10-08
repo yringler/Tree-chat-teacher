@@ -181,7 +181,7 @@ export class ChatPage implements OnDestroy {
     // Keep the view pinned to the bottom while a reply streams in.
     effect(() => {
       const s = this.store.streamingNode();
-      const live = s ? this.store.live().get(s.id)?.content : undefined;
+      const live = s ? this.store.live.get(s.id)?.content : undefined;
       if (live === undefined || !untracked(this.pinned)) return;
       requestAnimationFrame(() => this.scrollTo(null));
     });

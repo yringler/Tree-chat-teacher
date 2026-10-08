@@ -286,7 +286,7 @@ export class MessageItem {
   protected readonly copied = signal(false);
   private pendingQuote: string | null = null;
 
-  private readonly live = computed(() => this.store.live().get(this.node().id) ?? null);
+  private readonly live = computed(() => this.store.live.get(this.node().id));
   protected readonly streaming = computed(() => this.node().status === 'streaming');
   protected readonly liveStatus = computed(() => {
     const l = this.live();

@@ -217,6 +217,16 @@ describe('owner API', () => {
       await (await call(`/api/nodes/${start.assistantNode.id}/stream`)).text(),
     );
     expect(replay.at(-1)?.type).toBe('done');
+    // Replayed from storage, the trunk's first reply brings the tree's title (which
+    // auto-titling may have changed after the live stream was lost).
+    const stored = parseSse(
+      await (await call(`/api/nodes/${start.assistantNode.id}/stream`)).text(),
+    );
+    const tree = await ok<TreeDetail>(call(`/api/trees/${detail.tree.id}`));
+    expect(stored.map((e) => e.type)).toEqual(['snapshot', 'done']);
+    expect(stored.at(-1)).toMatchObject({
+      tree: { title: tree.tree.title, updatedAt: tree.tree.updatedAt },
+    });
   });
 
   it('Check sources: required search on a provider that can search, 400 on one that cannot', async () => {

@@ -35,6 +35,7 @@ import type {
   StreamEvent,
   TreeDetail,
   TreeSummary,
+  TreeTitle,
   UpdateBranchRequest,
 } from '@tangent/shared';
 import {
@@ -48,8 +49,10 @@ import {
   isNotFound,
   keyMissing,
   learnCopyWay,
+  LiveReplies,
   lockedFundings,
   membershipBlocks,
+  patchTreeSummary,
   routeLocked,
   routeOpen,
   runStream,
@@ -59,17 +62,6 @@ import {
 } from '@tangent/web-shared';
 import { laneTitle } from '../canvas/titles';
 import { UiStore } from './ui-store';
-
-/** Live state of a reply, kept apart from `detail` so deltas don't re-index the tree. */
-export interface LiveReply {
-  nodeId: string;
-  treeId: string;
-  branchId: string;
-  content: string;
-  /** Latest `status` event (e.g. "Summarizing parent context…"). */
-  status: string | null;
-  reconnecting: boolean;
-}
 
 /** One branch to create in a fan-out: the same message asked N ways. */
 export interface BranchVariant {
@@ -181,7 +173,8 @@ export class CanvasStore {
   readonly focusedNodeId = signal<string | null>(null);
 
   // Replies
-  readonly live = signal<ReadonlyMap<string, LiveReply>>(new Map());
+  /** Replies generating, apart from `detail` so deltas don't re-index the tree (`LiveReplies`). */
+  readonly live = new LiveReplies();
   /** Branches whose POST is in flight (before `start` arrives). */
   readonly sending = signal<ReadonlySet<string>>(new Set());
   /** Bumped whenever a generation finishes; the lineage refreshes on it. */
@@ -455,14 +448,15 @@ export class CanvasStore {
   });
 
   /**
-   * Branch ids with a reply generating or a send in flight. Every delta
-   * replaces `live`, so the set is compared by content: readers are only
-   * notified when a lane starts or stops being busy, not once per frame.
+   * Branch ids with a reply generating or a send in flight. Deltas don't
+   * reach it (`live.branchIds` only changes when a reply starts or ends),
+   * and the set is compared by content, so readers only see a lane start
+   * or stop being busy.
    */
   readonly busyBranches = computed<ReadonlySet<string>>(
     () => {
       const set = new Set(this.sending());
-      for (const l of this.live().values()) set.add(l.branchId);
+      for (const id of this.live.branchIds()) set.add(id);
       for (const id of this.streamingBranches()) set.add(id);
       return set;
     },
@@ -994,7 +988,7 @@ export class CanvasStore {
         },
         {
           signal: ctrl.signal,
-          onReconnect: () => nodeId && this.patchLive(nodeId, { reconnecting: true }),
+          onReconnect: () => nodeId && this.live.patch(nodeId, { reconnecting: true }),
         },
       );
       this.finish(nodeId, outcome);
@@ -1077,7 +1071,7 @@ export class CanvasStore {
         continue;
       const ctrl = new AbortController();
       this.controllers.set(n.id, ctrl);
-      this.setLive({
+      this.live.set({
         nodeId: n.id,
         treeId: n.treeId,
         branchId: n.branchId,
@@ -1100,7 +1094,9 @@ export class CanvasStore {
       case 'start':
         this.applyNodes([event.userNode, event.assistantNode]);
         this.applyBranch(event.branch);
-        this.setLive({
+        // The send touched the tree (`updatedAt`) and added messages: as `GET /api/trees` would say.
+        this.patchSummary(event.userNode.treeId, { updatedAt: event.userNode.createdAt });
+        this.live.set({
           nodeId: event.assistantNode.id,
           treeId: event.assistantNode.treeId,
           branchId: event.assistantNode.branchId,
@@ -1110,16 +1106,16 @@ export class CanvasStore {
         });
         break;
       case 'snapshot':
-        this.patchLive(event.node.id, { content: event.node.content, reconnecting: false });
+        this.live.patch(event.node.id, { content: event.node.content, reconnecting: false });
         if (event.node.status !== 'streaming') this.applyNodes([event.node]);
         break;
       case 'status':
-        if (streamNodeId) this.patchLive(streamNodeId, { status: event.message });
+        if (streamNodeId) this.live.patch(streamNodeId, { status: event.message });
         break;
       case 'delta': {
-        const s = this.live().get(event.nodeId);
+        const s = this.live.peek(event.nodeId);
         if (s)
-          this.patchLive(event.nodeId, {
+          this.live.patch(event.nodeId, {
             content: s.content + event.text,
             status: null,
             reconnecting: false,
@@ -1131,12 +1127,13 @@ export class CanvasStore {
       case 'done':
         this.applyNodes([event.node]);
         this.applyBranch(event.branch);
-        this.dropLive(event.node.id);
+        if (event.tree) this.applyTreeTitle(event.node.treeId, event.tree);
+        this.live.drop(event.node.id);
         break;
       case 'error':
         if (event.node) this.applyNodes([event.node]);
         else if (event.nodeId) this.markError(event.nodeId, event.message);
-        if (event.nodeId) this.dropLive(event.nodeId);
+        if (event.nodeId) this.live.drop(event.nodeId);
         break;
     }
   }
@@ -1149,23 +1146,33 @@ export class CanvasStore {
       );
       if (nodeId) {
         this.markError(nodeId, 'Connection lost. Reload to see the final reply.');
-        this.dropLive(nodeId);
+        this.live.drop(nodeId);
       }
     }
     this.completions.update((n) => n + 1);
-    void this.refreshAfterCompletion();
   }
 
-  /** Titles can change after the first reply (auto-titling): refresh the list and the tree title. */
-  private async refreshAfterCompletion(): Promise<void> {
-    await this.loadTrees();
+  /** A reply auto-titled the tree (its `done` event says so): the open tree and its list entry. */
+  private applyTreeTitle(treeId: string, tree: TreeTitle): void {
+    this.detail.update((d) =>
+      d && d.tree.id === treeId ? { ...d, tree: { ...d.tree, ...tree } } : d,
+    );
+    this.patchSummary(treeId, tree);
+  }
+
+  /**
+   * Brings the tree's list entry up to date without re-reading the list:
+   * `patch`, and the counts when it is the open tree.
+   */
+  private patchSummary(treeId: string, patch: Partial<TreeSummary>): void {
     const d = this.detail();
-    const summary = d && this.trees().find((t) => t.id === d.tree.id);
-    if (d && summary && summary.title !== d.tree.title) {
-      this.detail.update((cur) =>
-        cur ? { ...cur, tree: { ...cur.tree, title: summary.title } } : cur,
-      );
-    }
+    const counts =
+      d && d.tree.id === treeId
+        ? { branchCount: d.branches.length, messageCount: d.nodes.length }
+        : {};
+    const next = { ...counts, ...patch };
+    if (Object.keys(next).length > 0)
+      this.trees.update((list) => patchTreeSummary(list, treeId, next));
   }
 
   private markError(nodeId: string, message: string): void {
@@ -1176,7 +1183,7 @@ export class CanvasStore {
           ...node,
           status: 'error',
           error: message,
-          content: this.live().get(nodeId)?.content ?? node.content,
+          content: this.live.peek(nodeId)?.content ?? node.content,
         },
       ]);
   }
@@ -1209,7 +1216,7 @@ export class CanvasStore {
     for (const id of nodeIds) {
       this.controllers.get(id)?.abort();
       this.controllers.delete(id);
-      this.dropLive(id);
+      this.live.drop(id);
     }
     for (const id of branchIds) this.dropLineage(id);
     if (this.blockedSends().some((s) => branchIds.has(s.branchId))) {
@@ -1230,16 +1237,7 @@ export class CanvasStore {
         : d,
     );
     this.dropLinkState(branchIds, nodeIds);
-    const d = this.detail();
-    if (d && d.tree.id === res.treeId) {
-      this.trees.update((list) =>
-        list.map((t) =>
-          t.id === res.treeId
-            ? { ...t, branchCount: d.branches.length, messageCount: d.nodes.length }
-            : t,
-        ),
-      );
-    }
+    this.patchSummary(res.treeId, {});
   }
 
   /** Linking from a message that is gone, its popover, or a way back to a lane that is. */
@@ -1254,24 +1252,6 @@ export class CanvasStore {
     if (back && (branchIds.has(back.branchId) || branchIds.has(back.toBranchId))) {
       this.ui.linkReturn.set(null);
     }
-  }
-
-  private setLive(s: LiveReply): void {
-    this.live.update((m) => new Map(m).set(s.nodeId, s));
-  }
-
-  private patchLive(nodeId: string, patch: Partial<LiveReply>): void {
-    const cur = this.live().get(nodeId);
-    if (cur) this.setLive({ ...cur, ...patch });
-  }
-
-  private dropLive(nodeId: string): void {
-    if (!this.live().has(nodeId)) return;
-    this.live.update((m) => {
-      const next = new Map(m);
-      next.delete(nodeId);
-      return next;
-    });
   }
 }
 

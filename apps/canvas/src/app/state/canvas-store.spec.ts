@@ -229,12 +229,12 @@ describe('CanvasStore', () => {
     ]);
     s.api.sendMessage.mockResolvedValue(live.response);
     const sending = s.store.send('b', 'Which one?');
-    await vi.waitFor(() => expect(s.store.live().get('a3')).toBeDefined());
+    await vi.waitFor(() => expect(s.store.live.get('a3')).not.toBeNull());
 
     const busy = s.store.busyBranches();
     expect([...busy]).toEqual(['b']);
     live.push([{ type: 'delta', nodeId: 'a3', text: 'Both.' }]);
-    await vi.waitFor(() => expect(s.store.live().get('a3')?.content).toBe('Both.'));
+    await vi.waitFor(() => expect(s.store.live.get('a3')?.content).toBe('Both.'));
     expect(s.store.busyBranches()).toBe(busy);
 
     live.push([
@@ -247,6 +247,44 @@ describe('CanvasStore', () => {
     live.close();
     await expect(sending).resolves.toBe(true);
     expect(s.store.busyBranches().size).toBe(0);
+  });
+
+  it('takes a new tree title from `done` into the open tree and its list entry, without re-reading the list', async () => {
+    const s = setup();
+    const at = '2026-01-02T00:00:00.000Z';
+    const titled = '2026-01-02T00:00:03.000Z';
+    const listed = (id: string, updatedAt: string): TreeSummary => ({
+      id,
+      title: id,
+      createdAt: T,
+      updatedAt,
+      branchCount: 2,
+      messageCount: 4,
+    });
+    s.store.trees.set([listed('t0', '2026-01-01T12:00:00.000Z'), listed('t1', T)]);
+    const userNode = node('u3', { seq: 2, parentId: 'a1', role: 'user', createdAt: at });
+    const reply = node('a3', { seq: 3, parentId: 'u3', status: 'streaming', createdAt: at });
+    s.api.sendMessage.mockResolvedValue(
+      new Response(
+        sse([
+          { type: 'start', userNode, assistantNode: reply, branch: branch('trunk') },
+          {
+            type: 'done',
+            node: { ...reply, status: 'complete', content: 'Both.' },
+            branch: branch('trunk'),
+            tree: { title: 'Light', updatedAt: titled },
+          },
+        ]),
+        { headers: { 'content-type': 'text/event-stream' } },
+      ),
+    );
+    await expect(s.store.send('trunk', 'Which one?')).resolves.toBe(true);
+    expect(s.store.detail()?.tree.title).toBe('Light');
+    expect(s.store.trees()).toEqual([
+      { ...listed('t1', titled), title: 'Light', messageCount: 6 },
+      listed('t0', '2026-01-01T12:00:00.000Z'),
+    ]);
+    expect(s.api.listTrees).not.toHaveBeenCalled();
   });
 
   /** createBranch answering lane `c<n>` off the requested message, titled as asked. */

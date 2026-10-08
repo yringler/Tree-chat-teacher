@@ -46,6 +46,7 @@ import {
   type TreeBackupInput,
   type TreeDetail,
   type TreeSummary,
+  type TreeTitle,
   type UpdateBranchRequest,
   type UpdateLinkRequest,
   type UpdateSettingsRequest,
@@ -1023,10 +1024,12 @@ export class ChatService {
         return;
       }
       const node = await finish('complete', null);
-      if (this.deps.settings.autoTitle && node.seq === 1) {
-        branch = (await this.autoTitle(inputs.tree, branch, userNode, node)) ?? branch;
-      }
-      yield { type: 'done', node, branch };
+      const titled =
+        this.deps.settings.autoTitle && node.seq === 1
+          ? await this.autoTitle(inputs.tree, branch, userNode, node)
+          : null;
+      if (titled?.branch) branch = titled.branch;
+      yield { type: 'done', node, branch, ...(titled?.tree ? { tree: titled.tree } : {}) };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Generation failed';
       let node: ChatNode | null;
@@ -1092,13 +1095,17 @@ export class ChatService {
     return { mode: decision.mode, maxResults, maxUses, engine };
   }
 
-  /** Titles a default-titled branch (and a default-titled tree, for the trunk). Best-effort. */
+  /**
+   * Titles a default-titled branch (and a default-titled tree, for the trunk).
+   * Best-effort. Returns what it renamed: the updated branch, or the tree's
+   * new title (for the `done` event).
+   */
   private async autoTitle(
     tree: Tree,
     branch: Branch,
     userNode: ChatNode,
     assistantNode: ChatNode,
-  ): Promise<Branch | null> {
+  ): Promise<{ branch?: Branch; tree?: TreeTitle } | null> {
     const isTrunk = branch.parentBranchId === null;
     const titleBranch = branch.titleSource === 'default' && !isTrunk;
     const titleTree = isTrunk && tree.title === DEFAULT_TREE_TITLE;
@@ -1122,15 +1129,16 @@ export class ChatService {
       const title = raw ? cleanTitle(raw) : null;
       if (!title) return null;
       const now = this.now();
-      if (titleTree) await this.repo.updateTree(tree.id, { title, updatedAt: now });
-      if (titleBranch) {
-        return await this.repo.updateBranch(branch.id, {
-          title,
-          titleSource: 'auto',
-          updatedAt: now,
-        });
+      if (titleTree) {
+        const updated = await this.repo.updateTree(tree.id, { title, updatedAt: now });
+        return updated ? { tree: { title: updated.title, updatedAt: updated.updatedAt } } : null;
       }
-      return null;
+      const updated = await this.repo.updateBranch(branch.id, {
+        title,
+        titleSource: 'auto',
+        updatedAt: now,
+      });
+      return updated ? { branch: updated } : null;
     } catch {
       return null;
     }
@@ -1237,6 +1245,42 @@ export class ChatService {
       });
     }
     return stale.length;
+  }
+
+  /**
+   * What a reconnect to a reply that is no longer running replays from the
+   * stored state: a `snapshot`, then `done` or `error`. A reply still marked
+   * streaming was interrupted, and is marked so first. The trunk's first
+   * reply's `done` carries the tree's title, which auto-titling may have
+   * changed after the client lost the live stream.
+   */
+  async replayFinished(node: ChatNode): Promise<StreamEvent[]> {
+    let final = node;
+    if (node.status === 'streaming') {
+      await this.recoverInterrupted(node.treeId);
+      final = (await this.repo.getNode(node.id)) ?? node;
+    }
+    const branch = await this.repo.getBranch(final.branchId);
+    const snapshot: StreamEvent = { type: 'snapshot', node: final };
+    if (final.status === 'complete' && branch) {
+      const tree =
+        branch.parentBranchId === null && final.seq === 1
+          ? await this.repo.getTree(final.treeId)
+          : null;
+      return [
+        snapshot,
+        {
+          type: 'done',
+          node: final,
+          branch,
+          ...(tree ? { tree: { title: tree.title, updatedAt: tree.updatedAt } } : {}),
+        },
+      ];
+    }
+    return [
+      snapshot,
+      { type: 'error', nodeId: final.id, message: final.error ?? 'Generation failed', node: final },
+    ];
   }
 
   // --------------------------------------------------------------- backup

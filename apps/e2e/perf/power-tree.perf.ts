@@ -354,6 +354,25 @@ interface StreamStats {
   frameGaps: number[];
 }
 
+/**
+ * Records the API paths the in-page demo backend serves (it parses each
+ * request with `new URL(path, 'http://demo.invalid')`): /demo has no network
+ * requests to watch. Idempotent; each call starts a new log.
+ */
+function trackApiPaths(): void {
+  const w = window as unknown as { __apiPaths?: string[]; __apiTracked?: boolean };
+  w.__apiPaths = [];
+  if (w.__apiTracked) return;
+  w.__apiTracked = true;
+  window.URL = new Proxy(URL, {
+    construct(target, args: ConstructorParameters<typeof URL>, newTarget) {
+      const url = Reflect.construct(target, args, newTarget) as URL;
+      if (args[1] === 'http://demo.invalid') w.__apiPaths?.push(url.pathname);
+      return url;
+    },
+  });
+}
+
 /** Watches the message list while a reply streams in (installed just before sending). */
 function watchStream(before: number): void {
   const w = window as unknown as {
@@ -456,6 +475,7 @@ test('send and stream a reply: shallow vs deep path branch', async () => {
         const el = document.querySelector('.messages');
         if (el) el.scrollTop = el.scrollHeight;
       });
+      await page.evaluate(trackApiPaths);
       const end = await probe.begin();
       await page.evaluate(watchStream, before);
       await page.evaluate(typeAndSend, `Perf question ${i} in ${b.title}: tell me more.`);
@@ -465,6 +485,11 @@ test('send and stream a reply: shallow vs deep path branch', async () => {
       const prof = await end();
       const s = await page.evaluate(
         () => (window as unknown as { __stream: StreamStats }).__stream,
+      );
+      // Requests the client made because of the reply (a list refresh would follow `done`).
+      await settle(page, 200);
+      const apiPaths = await page.evaluate(
+        () => (window as unknown as { __apiPaths: string[] }).__apiPaths,
       );
       const longTasks = await page.evaluate(
         (t) =>
@@ -482,6 +507,7 @@ test('send and stream a reply: shallow vs deep path branch', async () => {
         streamMs: round((s.tDone ?? NaN) - s.tSent),
         chunks: s.streamingBodyBatches,
         otherBodyMutations: s.otherBodyMutations,
+        treesRequests: apiPaths.filter((p) => p === '/api/trees').length,
         outlineMutations: s.outlineMutations,
         finalChars: s.finalChars,
         scriptMs: round(scriptMs),

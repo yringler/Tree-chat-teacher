@@ -17,6 +17,7 @@ import {
   type TreeBackupInput,
   type TreeDetail,
   type TreeSummary,
+  type TreeTitle,
 } from '@tangent/shared';
 import {
   ApiClient,
@@ -28,6 +29,8 @@ import {
   isPaymentRequired,
   isPoolConsentRequired,
   isPoolUnavailable,
+  LiveReplies,
+  patchTreeSummary,
   poolBlockOf,
   readBackupFile,
   runStream,
@@ -39,17 +42,6 @@ import {
 import { lessonTitle } from '../chat/titles';
 import { AccountStore } from './account-store';
 import { UiStore } from './ui-store';
-
-/** Live state of a reply, kept apart from `detail` so deltas don't re-index the tree. */
-export interface LiveReply {
-  nodeId: string;
-  treeId: string;
-  branchId: string;
-  content: string;
-  /** Latest `status` event (e.g. "Summarizing…"). */
-  status: string | null;
-  reconnecting: boolean;
-}
 
 /**
  * A message that didn't reach the lesson (refused, e.g. out of credit or for
@@ -156,7 +148,8 @@ export class LessonStore {
   readonly linkReturn = signal<LinkReturn | null>(null);
 
   // Replies
-  readonly live = signal<ReadonlyMap<string, LiveReply>>(new Map());
+  /** Replies generating, apart from `detail` so deltas don't re-index the tree (`LiveReplies`). */
+  readonly live = new LiveReplies();
   /** Branch whose POST is in flight (before `start` arrives). */
   readonly sendingBranchId = signal<string | null>(null);
   readonly unsentDraft = signal<UnsentDraft | null>(null);
@@ -694,7 +687,7 @@ export class LessonStore {
         },
         {
           signal: ctrl.signal,
-          onReconnect: () => nodeId && this.patchLive(nodeId, { reconnecting: true }),
+          onReconnect: () => nodeId && this.live.patch(nodeId, { reconnecting: true }),
         },
       );
       this.finish(nodeId, outcome);
@@ -825,7 +818,7 @@ export class LessonStore {
         continue;
       const ctrl = new AbortController();
       this.controllers.set(n.id, ctrl);
-      this.setLive({
+      this.live.set({
         nodeId: n.id,
         treeId: n.treeId,
         branchId: n.branchId,
@@ -848,7 +841,9 @@ export class LessonStore {
       case 'start':
         this.applyNodes([event.userNode, event.assistantNode]);
         this.applyBranch(event.branch);
-        this.setLive({
+        // The send touched the lesson (`updatedAt`) and added messages: as `GET /api/trees` would say.
+        this.patchSummary(event.userNode.treeId, { updatedAt: event.userNode.createdAt });
+        this.live.set({
           nodeId: event.assistantNode.id,
           treeId: event.assistantNode.treeId,
           branchId: event.assistantNode.branchId,
@@ -858,16 +853,16 @@ export class LessonStore {
         });
         break;
       case 'snapshot':
-        this.patchLive(event.node.id, { content: event.node.content, reconnecting: false });
+        this.live.patch(event.node.id, { content: event.node.content, reconnecting: false });
         if (event.node.status !== 'streaming') this.applyNodes([event.node]);
         break;
       case 'status':
-        if (streamNodeId) this.patchLive(streamNodeId, { status: event.message });
+        if (streamNodeId) this.live.patch(streamNodeId, { status: event.message });
         break;
       case 'delta': {
-        const s = this.live().get(event.nodeId);
+        const s = this.live.peek(event.nodeId);
         if (s)
-          this.patchLive(event.nodeId, {
+          this.live.patch(event.nodeId, {
             content: s.content + event.text,
             status: null,
             reconnecting: false,
@@ -879,12 +874,13 @@ export class LessonStore {
       case 'done':
         this.applyNodes([event.node]);
         this.applyBranch(event.branch);
-        this.dropLive(event.node.id);
+        if (event.tree) this.applyTreeTitle(event.node.treeId, event.tree);
+        this.live.drop(event.node.id);
         break;
       case 'error':
         if (event.node) this.applyNodes([event.node]);
         else if (event.nodeId) this.markError(event.nodeId, event.message);
-        if (event.nodeId) this.dropLive(event.nodeId);
+        if (event.nodeId) this.live.drop(event.nodeId);
         break;
     }
   }
@@ -898,24 +894,34 @@ export class LessonStore {
       if (nodeId) {
         // Unblock the composer; the server answers a racing send with 409 if it is still generating.
         this.markError(nodeId, 'Connection lost. Reload to see the final reply.');
-        this.dropLive(nodeId);
+        this.live.drop(nodeId);
       }
     }
     void this.account.refreshBalance();
     if (this.account.payment.poolAvailable()) void this.account.refreshPool();
-    void this.refreshAfterCompletion();
   }
 
-  /** Lessons are titled after the first reply: refresh the list and the open lesson's title. */
-  private async refreshAfterCompletion(): Promise<void> {
-    await this.loadTrees();
+  /** Lessons are titled after the first reply (its `done` event says so): the open lesson and its list entry. */
+  private applyTreeTitle(treeId: string, tree: TreeTitle): void {
+    this.detail.update((d) =>
+      d && d.tree.id === treeId ? { ...d, tree: { ...d.tree, ...tree } } : d,
+    );
+    this.patchSummary(treeId, tree);
+  }
+
+  /**
+   * Brings the lesson's list entry up to date without re-reading the list:
+   * `patch`, and the counts when it is the open lesson.
+   */
+  private patchSummary(treeId: string, patch: Partial<TreeSummary>): void {
     const d = this.detail();
-    const summary = d && this.trees().find((t) => t.id === d.tree.id);
-    if (d && summary && summary.title !== d.tree.title) {
-      this.detail.update((cur) =>
-        cur ? { ...cur, tree: { ...cur.tree, title: summary.title } } : cur,
-      );
-    }
+    const counts =
+      d && d.tree.id === treeId
+        ? { branchCount: d.branches.length, messageCount: d.nodes.length }
+        : {};
+    const next = { ...counts, ...patch };
+    if (Object.keys(next).length > 0)
+      this.trees.update((list) => patchTreeSummary(list, treeId, next));
   }
 
   private markError(nodeId: string, message: string): void {
@@ -926,7 +932,7 @@ export class LessonStore {
           ...node,
           status: 'error',
           error: message,
-          content: this.live().get(nodeId)?.content ?? node.content,
+          content: this.live.peek(nodeId)?.content ?? node.content,
         },
       ]);
   }
@@ -958,7 +964,7 @@ export class LessonStore {
     for (const id of nodeIds) {
       this.controllers.get(id)?.abort();
       this.controllers.delete(id);
-      this.dropLive(id);
+      this.live.drop(id);
     }
     const draft = this.unsentDraft();
     if (draft && branchIds.has(draft.branchId)) this.unsentDraft.set(null);
@@ -984,34 +990,7 @@ export class LessonStore {
     if (back && (branchIds.has(back.branchId) || branchIds.has(back.toBranchId))) {
       this.linkReturn.set(null);
     }
-    const d = this.detail();
-    if (d && d.tree.id === res.treeId) {
-      this.trees.update((list) =>
-        list.map((t) =>
-          t.id === res.treeId
-            ? { ...t, branchCount: d.branches.length, messageCount: d.nodes.length }
-            : t,
-        ),
-      );
-    }
-  }
-
-  private setLive(s: LiveReply): void {
-    this.live.update((m) => new Map(m).set(s.nodeId, s));
-  }
-
-  private patchLive(nodeId: string, patch: Partial<LiveReply>): void {
-    const cur = this.live().get(nodeId);
-    if (cur) this.setLive({ ...cur, ...patch });
-  }
-
-  private dropLive(nodeId: string): void {
-    if (!this.live().has(nodeId)) return;
-    this.live.update((m) => {
-      const next = new Map(m);
-      next.delete(nodeId);
-      return next;
-    });
+    this.patchSummary(res.treeId, {});
   }
 }
 

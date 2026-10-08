@@ -40,6 +40,7 @@ import type {
   TreeBackupInput,
   TreeDetail,
   TreeSummary,
+  TreeTitle,
   UpdateBranchRequest,
   UpdateTreeRequest,
 } from '@tangent/shared';
@@ -54,7 +55,9 @@ import {
   isNotFound,
   keyMissing,
   learnCopyWay,
+  LiveReplies,
   lockedFundings,
+  patchTreeSummary,
   routeLocked,
   routeOpen,
   runStream,
@@ -63,17 +66,6 @@ import {
   type StreamOutcome,
 } from '@tangent/web-shared';
 import { UiStore } from './ui-store';
-
-/** Live state of a generation, kept apart from `detail` so deltas don't re-index the tree. */
-export interface LiveStream {
-  nodeId: string;
-  treeId: string;
-  branchId: string;
-  content: string;
-  /** Latest `status` event (e.g. "Summarizing parent context…"). */
-  status: string | null;
-  reconnecting: boolean;
-}
 
 function upsertById<T extends { id: string }>(list: readonly T[], items: readonly T[]): T[] {
   const out = [...list];
@@ -130,7 +122,8 @@ export class TreeStore {
   readonly focusedNodeId = signal<string | null>(null);
 
   // Streams
-  readonly live = signal<ReadonlyMap<string, LiveStream>>(new Map());
+  /** Replies generating, apart from `detail` so deltas don't re-index the tree (`LiveReplies`). */
+  readonly live = new LiveReplies();
   /** Branch whose POST is in flight (before `start` arrives). */
   readonly sendingBranchId = signal<string | null>(null);
   /** Bumped whenever a generation finishes; the inspector refreshes on it. */
@@ -999,7 +992,7 @@ export class TreeStore {
         },
         {
           signal: ctrl.signal,
-          onReconnect: () => nodeId && this.patchLive(nodeId, { reconnecting: true }),
+          onReconnect: () => nodeId && this.live.patch(nodeId, { reconnecting: true }),
         },
       );
       this.finish(nodeId, outcome);
@@ -1048,7 +1041,7 @@ export class TreeStore {
         continue;
       const ctrl = new AbortController();
       this.controllers.set(n.id, ctrl);
-      this.setLive({
+      this.live.set({
         nodeId: n.id,
         treeId: n.treeId,
         branchId: n.branchId,
@@ -1071,7 +1064,9 @@ export class TreeStore {
       case 'start':
         this.applyNodes([event.userNode, event.assistantNode]);
         this.applyBranch(event.branch);
-        this.setLive({
+        // The send touched the tree (`updatedAt`) and added messages: as `GET /api/trees` would say.
+        this.patchSummary(event.userNode.treeId, { updatedAt: event.userNode.createdAt });
+        this.live.set({
           nodeId: event.assistantNode.id,
           treeId: event.assistantNode.treeId,
           branchId: event.assistantNode.branchId,
@@ -1081,16 +1076,16 @@ export class TreeStore {
         });
         break;
       case 'snapshot':
-        this.patchLive(event.node.id, { content: event.node.content, reconnecting: false });
+        this.live.patch(event.node.id, { content: event.node.content, reconnecting: false });
         if (event.node.status !== 'streaming') this.applyNodes([event.node]);
         break;
       case 'status':
-        if (streamNodeId) this.patchLive(streamNodeId, { status: event.message });
+        if (streamNodeId) this.live.patch(streamNodeId, { status: event.message });
         break;
       case 'delta': {
-        const s = this.live().get(event.nodeId);
+        const s = this.live.peek(event.nodeId);
         if (s)
-          this.patchLive(event.nodeId, {
+          this.live.patch(event.nodeId, {
             content: s.content + event.text,
             status: null,
             reconnecting: false,
@@ -1102,12 +1097,13 @@ export class TreeStore {
       case 'done':
         this.applyNodes([event.node]);
         this.applyBranch(event.branch);
-        this.dropLive(event.node.id);
+        if (event.tree) this.applyTreeTitle(event.node.treeId, event.tree);
+        this.live.drop(event.node.id);
         break;
       case 'error': {
         if (event.node) this.applyNodes([event.node]);
         else if (event.nodeId) this.markError(event.nodeId, event.message);
-        if (event.nodeId) this.dropLive(event.nodeId);
+        if (event.nodeId) this.live.drop(event.nodeId);
         break;
       }
     }
@@ -1122,23 +1118,33 @@ export class TreeStore {
       if (nodeId) {
         // Unblock the composer; the server rejects a racing send with 409 if it is still generating.
         this.markError(nodeId, 'Connection lost. Reload to see the final reply.');
-        this.dropLive(nodeId);
+        this.live.drop(nodeId);
       }
     }
     this.completions.update((n) => n + 1);
-    void this.refreshAfterCompletion();
   }
 
-  /** Titles can change after the first reply (auto-titling): refresh the list and the tree title. */
-  private async refreshAfterCompletion(): Promise<void> {
-    await this.loadTrees();
+  /** A reply auto-titled the tree (its `done` event says so): the open tree and its list entry. */
+  private applyTreeTitle(treeId: string, tree: TreeTitle): void {
+    this.detail.update((d) =>
+      d && d.tree.id === treeId ? { ...d, tree: { ...d.tree, ...tree } } : d,
+    );
+    this.patchSummary(treeId, tree);
+  }
+
+  /**
+   * Brings the tree's list entry up to date without re-reading the list:
+   * `patch`, and the counts when it is the open tree.
+   */
+  private patchSummary(treeId: string, patch: Partial<TreeSummary>): void {
     const d = this.detail();
-    const summary = d && this.trees().find((t) => t.id === d.tree.id);
-    if (d && summary && summary.title !== d.tree.title) {
-      this.detail.update((cur) =>
-        cur ? { ...cur, tree: { ...cur.tree, title: summary.title } } : cur,
-      );
-    }
+    const counts =
+      d && d.tree.id === treeId
+        ? { branchCount: d.branches.length, messageCount: d.nodes.length }
+        : {};
+    const next = { ...counts, ...patch };
+    if (Object.keys(next).length > 0)
+      this.trees.update((list) => patchTreeSummary(list, treeId, next));
   }
 
   private markError(nodeId: string, message: string): void {
@@ -1149,7 +1155,7 @@ export class TreeStore {
           ...node,
           status: 'error',
           error: message,
-          content: this.live().get(nodeId)?.content ?? node.content,
+          content: this.live.peek(nodeId)?.content ?? node.content,
         },
       ]);
   }
@@ -1183,7 +1189,7 @@ export class TreeStore {
     for (const id of nodeIds) {
       this.controllers.get(id)?.abort();
       this.controllers.delete(id);
-      this.dropLive(id);
+      this.live.drop(id);
     }
     this.detail.update((d) =>
       d && d.tree.id === res.treeId
@@ -1211,34 +1217,7 @@ export class TreeStore {
     if (back && (branchIds.has(back.branchId) || branchIds.has(back.toBranchId))) {
       this.ui.linkReturn.set(null);
     }
-    const d = this.detail();
-    if (d && d.tree.id === res.treeId) {
-      this.trees.update((list) =>
-        list.map((t) =>
-          t.id === res.treeId
-            ? { ...t, branchCount: d.branches.length, messageCount: d.nodes.length }
-            : t,
-        ),
-      );
-    }
-  }
-
-  private setLive(s: LiveStream): void {
-    this.live.update((m) => new Map(m).set(s.nodeId, s));
-  }
-
-  private patchLive(nodeId: string, patch: Partial<LiveStream>): void {
-    const cur = this.live().get(nodeId);
-    if (cur) this.setLive({ ...cur, ...patch });
-  }
-
-  private dropLive(nodeId: string): void {
-    if (!this.live().has(nodeId)) return;
-    this.live.update((m) => {
-      const next = new Map(m);
-      next.delete(nodeId);
-      return next;
-    });
+    this.patchSummary(res.treeId, {});
   }
 
   private summaryOf(d: TreeDetail): TreeSummary {

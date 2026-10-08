@@ -1,5 +1,5 @@
 import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classes without the Angular CLI.
-import { Injector } from '@angular/core';
+import { computed, Injector } from '@angular/core';
 import { Router } from '@angular/router';
 import type {
   BillingSummary,
@@ -13,6 +13,7 @@ import type {
   ProviderInfo,
   StreamEvent,
   TreeDetail,
+  TreeSummary,
   UpdateBranchRequest,
 } from '@tangent/shared';
 import { providerRouteKey } from '@tangent/shared';
@@ -1414,5 +1415,206 @@ describe('TreeStore links between messages', () => {
     expect(s.ui.anyDialogOpen()).toBe(false);
     expect(s.ui.closeTop()).toBe(true);
     expect(s.ui.linkPick()).toBeNull();
+  });
+});
+
+describe('TreeStore streams', () => {
+  const at = '2026-10-01T00:00:00.000Z';
+  const later = '2026-10-02T00:00:00.000Z';
+  const branch = (over: Partial<Branch>): Branch => ({
+    id: 'trunk',
+    treeId: 't1',
+    parentBranchId: null,
+    branchPointNodeId: null,
+    contextMode: 'path',
+    anchorQuote: null,
+    title: 'Main thread',
+    titleSource: 'default',
+    isPrivate: false,
+    providerId: 'openrouter',
+    model: 'a/b',
+    funding: 'own-key',
+    createdAt: at,
+    updatedAt: at,
+    ...over,
+  });
+  const node = (over: Partial<ChatNode>): ChatNode => ({
+    id: 'n1',
+    treeId: 't1',
+    branchId: 'trunk',
+    parentId: null,
+    seq: 0,
+    role: 'user',
+    content: 'Hi',
+    status: 'complete',
+    error: null,
+    providerId: null,
+    model: null,
+    usage: null,
+    createdAt: at,
+    ...over,
+  });
+  const trunk = branch({});
+  const side = branch({ id: 'side', parentBranchId: 'trunk', branchPointNodeId: 'n2' });
+  const userNode = node({ id: 'u3', parentId: 'n2', seq: 2, content: 'Why?', createdAt: later });
+  const reply = node({
+    id: 'a3',
+    parentId: 'u3',
+    seq: 3,
+    role: 'assistant',
+    content: '',
+    status: 'streaming',
+    createdAt: later,
+  });
+  const listed = (id: string, updatedAt: string): TreeSummary => ({
+    id,
+    title: id === 't1' ? 'New conversation' : id,
+    createdAt: at,
+    updatedAt,
+    branchCount: 2,
+    messageCount: 2,
+  });
+
+  const sse = (events: StreamEvent[]): string =>
+    events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+  const stream = (events: StreamEvent[]): Response =>
+    new Response(sse(events), { headers: { 'content-type': 'text/event-stream' } });
+
+  /** A stream response the test drives: `push` more events, then `close`. */
+  function controlledStream(first: StreamEvent[]) {
+    const enc = new TextEncoder();
+    let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        ctrl = c;
+        c.enqueue(enc.encode(sse(first)));
+      },
+    });
+    return {
+      response: new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+      push: (events: StreamEvent[]) => ctrl.enqueue(enc.encode(sse(events))),
+      close: () => ctrl.close(),
+    };
+  }
+
+  function open() {
+    const s = setup();
+    const sendMessage = vi.fn(
+      async (_b: string, _req: unknown, _signal: AbortSignal): Promise<Response> => stream([]),
+    );
+    Object.assign(s.api, { sendMessage, streamNode: vi.fn() });
+    s.store.detail.set({
+      tree: {
+        id: 't1',
+        accountId: 'p_1',
+        title: 'New conversation',
+        systemPrompt: null,
+        trunkBranchId: 'trunk',
+        createdAt: at,
+        updatedAt: at,
+      },
+      branches: [trunk, side],
+      nodes: [
+        node({}),
+        node({ id: 'n2', parentId: 'n1', seq: 1, role: 'assistant', content: 'Hello' }),
+      ],
+      links: [],
+    });
+    s.store.setRoute('t1', null, null);
+    s.store.trees.set([listed('t0', '2026-10-01T12:00:00.000Z'), listed('t1', at)]);
+    return { ...s, sendMessage };
+  }
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('a delta only reaches its own reply: other messages and outline rows are not re-evaluated', async () => {
+    const s = open();
+    const live = controlledStream([
+      { type: 'start', userNode, assistantNode: reply, branch: trunk },
+    ]);
+    s.sendMessage.mockResolvedValue(live.response);
+    const sending = s.store.send('trunk', 'Why?');
+    await vi.waitFor(() => expect(s.store.live.get('a3')).not.toBeNull());
+
+    // The same reads as MessageItem's `live` and OutlineItem's `streaming`.
+    const runs = { reply: 0, otherMessage: 0, trunkRow: 0, sideRow: 0 };
+    const replyLive = computed(() => (runs.reply++, s.store.live.get('a3')?.content));
+    const otherLive = computed(() => (runs.otherMessage++, s.store.live.get('n2')));
+    const trunkRow = computed(() => (runs.trunkRow++, s.store.live.branchIds().has('trunk')));
+    const sideRow = computed(() => (runs.sideRow++, s.store.live.branchIds().has('side')));
+    expect([replyLive(), otherLive(), trunkRow(), sideRow()]).toEqual(['', null, true, false]);
+
+    live.push([
+      { type: 'delta', nodeId: 'a3', text: 'Because ' },
+      { type: 'delta', nodeId: 'a3', text: 'it is.' },
+    ]);
+    await vi.waitFor(() => expect(replyLive()).toBe('Because it is.'));
+    expect([otherLive(), trunkRow(), sideRow()]).toEqual([null, true, false]);
+    expect(runs.reply).toBeGreaterThan(1);
+    expect(runs).toMatchObject({ otherMessage: 1, trunkRow: 1, sideRow: 1 });
+
+    live.push([
+      {
+        type: 'done',
+        node: { ...reply, status: 'complete', content: 'Because it is.' },
+        branch: trunk,
+      },
+    ]);
+    live.close();
+    await expect(sending).resolves.toBe(true);
+    // The end of the reply does reach them.
+    expect([replyLive(), otherLive(), trunkRow(), sideRow()]).toEqual([
+      undefined,
+      null,
+      false,
+      false,
+    ]);
+    expect(s.store.completions()).toBe(1);
+  });
+
+  it('the reply that titles the tree brings the title in `done`: the list is patched, not re-read', async () => {
+    const s = open();
+    const titled = '2026-10-02T00:00:05.000Z';
+    s.sendMessage.mockImplementation(async () =>
+      stream([
+        { type: 'start', userNode, assistantNode: reply, branch: trunk },
+        { type: 'delta', nodeId: 'a3', text: 'Because.' },
+        {
+          type: 'done',
+          node: { ...reply, status: 'complete', content: 'Because.' },
+          branch: trunk,
+          tree: { title: 'Why things are', updatedAt: titled },
+        },
+      ]),
+    );
+    await expect(s.store.send('trunk', 'Why?')).resolves.toBe(true);
+    expect(s.store.detail()?.tree).toMatchObject({ title: 'Why things are', updatedAt: titled });
+    // First now (the most recently updated), with the new title and the two new messages.
+    expect(s.store.trees()).toEqual([
+      { ...listed('t1', titled), title: 'Why things are', messageCount: 4 },
+      listed('t0', '2026-10-01T12:00:00.000Z'),
+    ]);
+    expect(s.api.listTrees).not.toHaveBeenCalled();
+  });
+
+  it('a reply that brings no title (a later one, or an older server) keeps the title', async () => {
+    const s = open();
+    s.sendMessage.mockImplementation(async () =>
+      stream([
+        { type: 'start', userNode, assistantNode: reply, branch: trunk },
+        { type: 'done', node: { ...reply, status: 'complete', content: 'Yes.' }, branch: trunk },
+      ]),
+    );
+    await s.store.send('trunk', 'Why?');
+    expect(s.store.detail()?.tree.title).toBe('New conversation');
+    expect(s.store.trees().map((t) => [t.id, t.title, t.updatedAt, t.messageCount])).toEqual([
+      ['t1', 'New conversation', later, 4],
+      ['t0', 't0', '2026-10-01T12:00:00.000Z', 2],
+    ]);
+    expect(s.api.listTrees).not.toHaveBeenCalled();
   });
 });

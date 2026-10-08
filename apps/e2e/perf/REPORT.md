@@ -204,6 +204,17 @@ Each doubling of the length roughly quadruples the total (≈ N²/2c). The block
   - Keep `live`, the stream metadata (node, branch, status), changing only on `start`, `status`, `done` and `error`.
   - Give the outline a `streamingBranchIds` computed with set equality, derived from the metadata only.
   - After this, a delta reaches one view and the scroll effect.
+- **Status: fixed** (`LiveReplies` in `packages/web-shared/src/sse/live-replies.ts`, used by all three apps: one signal per reply, and a `branchIds` set that only changes when a reply starts or ends). Same harness, production build, median of 3 streams:
+
+  |                                                     | 63 branches, before → after | 255 branches, before → after |
+  | --------------------------------------------------- | --------------------------- | ---------------------------- |
+  | Shallow branch, script per chunk                    | 2.6 → 2.0 ms                | 4.3 → 2.2 ms                 |
+  | Deep branch, script per chunk                       | 2.9 → 2.1 ms                | 4.3 → 2.4 ms                 |
+  | `detectChangesInView` self time per stream, shallow | 22 → 2.4 ms                 | 175 → 4.5 ms                 |
+  | `detectChangesInView` self time per stream, deep    | 88 → 3.7 ms                 | 251 → 7.2 ms                 |
+  | `OutlineItem.streaming` self time per stream        | 2–5 ms → 0                  | 16–18 ms → 0                 |
+
+  Per-chunk cost no longer grows with the tree. What is left per chunk is issue 1 (Markdown and the sanitizer) and issue 6 (`scrollTo`).
 
 #### 3. The outline renders every branch and is rebuilt as all-new objects on every `detail` change, so cost grows linearly with the branch count
 
@@ -228,7 +239,7 @@ Each doubling of the length roughly quadruples the total (≈ N²/2c). The block
 - **Where**
   - `packages/web-shared/src/demo/backend.ts:754-775`: `JSON.stringify` of all trees, branches and nodes, then a synchronous `sessionStorage.setItem`. It is called for every mutating request (`saved()`), at each send (`:526`) and at the end of each stream (`:579`).
   - `packages/core/src/testing/memory-repositories.ts:159`: `appendNodes` builds a `Set` of every node in the account on every send.
-  - `memory-repositories.ts:45-56`: `listTrees` counts all branches and nodes per tree. It runs after every reply via `refreshAfterCompletion` (`tree-store.ts:1133-1134`).
+  - `memory-repositories.ts:45-56`: `listTrees` counts all branches and nodes per tree. It ran after every reply via `refreshAfterCompletion` (`tree-store.ts:1133-1134`); it no longer does (see the suspicion below).
 - **Evidence**
   - Session size: 240 KB (63 branches) → 894 KB (255 branches).
   - Create branch: about 11 ms (`setItem` + `save`) of 47–59 ms at d5, and 41–46 ms of 100–115 ms at d7.
@@ -271,7 +282,7 @@ Each doubling of the length roughly quadruples the total (≈ N²/2c). The block
 
 - **KaTeX re-typesets every formula of a streaming reply on every delta.** The new `innerHTML` replaces the `.math-done` elements (`packages/web-shared/src/ui/math.ts:20-45`, triggered from `:58-63`), so each delta typesets every formula again. That makes it quadratic in the number of formulas, with each KaTeX render costing about a millisecond. The lorem replies contain no math, so this is untested. The block-incremental fix for issue 1 also solves it.
 - **The Markdown cache is FIFO with 300 entries and no refresh on hit** (`packages/web-shared/src/core/markdown.service.ts:10-30`). In trees with more than 300 messages, frequently used messages are evicted in insertion order and re-rendered when revisited. The d7 tree (784 messages) showed no drift in switch time across 100 switches, so the impact is small today. An LRU (delete and re-insert on hit) would be cheap.
-- **`refreshAfterCompletion` refetches the whole conversation list after every reply** (`tree-store.ts:1133-1142`). In production that is a `/api/trees` round trip, with server-side counts, per reply and per tab. Server-side cost was not measured.
+- **`refreshAfterCompletion` refetches the whole conversation list after every reply** (`tree-store.ts:1133-1142`). In production that is a `/api/trees` round trip, with server-side counts, per reply and per tab. Server-side cost was not measured. **Fixed:** `done` now carries the tree's new title when auto-titling changed it (`done.tree`), the clients patch their list entry locally, and the stream scenario sees no `/api/trees` request after a reply (`treesRequests`: 1 per reply before, 0 after).
 - **`upsertById` does a linear `findIndex` per item** (`tree-store.ts:78-86`), and every stream `start`/`done` re-indexes the whole tree. Measured at 0.1–0.4 ms in Node (up to 9 ms at 9860 messages). Fine for now.
 - **Links were not seeded.** `MessageItem.related` (`message-item.ts:361`) and `linkCounts` are recomputed for every message on each `index` change; many links could add up.
 
