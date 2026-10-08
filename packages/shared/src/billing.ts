@@ -56,13 +56,14 @@ export const MICROS_PER_USD = 1_000_000;
  * `POST /api/billing/checkout`: credit for the buyer's own account. The
  * purchase adds what was paid (pre-tax) minus the processing fee; the
  * operator earns a markup on usage instead (`MARKUP_BPS`). Nobody buys credit
- * for the open pool: Tangent funds it from its own revenue (pool.ts).
+ * for the open pool (`POOL_FUNDING_TEXT`, pool.ts), so a body naming any other
+ * field, such as a `target`, is refused.
  */
-export const createCheckoutRequestSchema = z.object({
-  amountCents: z.number().int().min(MIN_TOP_UP_CENTS).max(MAX_TOP_UP_CENTS),
-  /** Deprecated: older clients send `personal`; anything else (`pool`) is refused with 400. */
-  target: z.literal('personal').optional(),
-});
+export const createCheckoutRequestSchema = z
+  .object({
+    amountCents: z.number().int().min(MIN_TOP_UP_CENTS).max(MAX_TOP_UP_CENTS),
+  })
+  .strict();
 /** What a client sends. */
 export type CreateCheckoutRequest = z.input<typeof createCheckoutRequestSchema>;
 

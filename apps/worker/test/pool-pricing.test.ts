@@ -94,9 +94,9 @@ describe('pool pricing', () => {
     expect(chargeFromTokensMicros(FLASH, 1000, 500, 550, 500)).toBe(
       chargeMicros(300_000, 500, 550),
     );
-    // A row reserved before the pool went at-cost: 300 µ$ × 1.055 × 1.05 = 332.325 → 333
+    // A credit row: 300 µ$ × 1.055 × 1.05 = 332.325 → 333
     expect(chargeFromTokensMicros(FLASH, 1000, 500, 550, 500)).toBe(333);
-    // Since: 300 µ$ × 1.055 = 316.5 → 317
+    // A pool row, at cost: 300 µ$ × 1.055 = 316.5 → 317
     expect(chargeFromTokensMicros(FLASH, 1000, 500, 550, 0)).toBe(317);
     expect(chargeFromTokensMicros(FLASH, 1000, 500, 0, 0)).toBe(300);
   });

@@ -1001,28 +1001,6 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     });
   });
 
-  it('charges a row reserved before the pool went at-cost its stored markup', async () => {
-    quiet();
-    const poolId = uniq('pool');
-    await fund(poolId, 100_000);
-    const stub = poolBank(env, poolId);
-    const found = await reserved(poolId, { holdMicros: 5_000, feeBps: 550 });
-    await env.DB.prepare('UPDATE usage_events SET markup_bps = 500 WHERE id = ?').bind(found).run();
-    await markDispatched(env.DB, found);
-    const gen = uniq('gen-ok');
-    await setGenerationId(env.DB, found, gen);
-    await scriptGeneration(gen, [{ costUsd: 0.002, inputTokens: 10, outputTokens: 20 }]);
-    await stub.expire(Date.now() + TTL + 1_000);
-    // settle = cost × (1 + fee) × (1 + markup): 2_000 µ$ × 1.055 × 1.05 = 2_215.5 → 2_216.
-    expect(await usageRow(env, found)).toMatchObject({
-      status: 'settled',
-      settle_reason: 'generation',
-      markup_bps: 500,
-      fee_bps: 550,
-      charge_micros: 2_216,
-    });
-  });
-
   it('runs from the alarm and re-arms while expired rows remain', async () => {
     quiet();
     const poolId = uniq('pool');

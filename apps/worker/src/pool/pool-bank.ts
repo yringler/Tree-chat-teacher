@@ -328,8 +328,6 @@ export class PoolBank extends DurableObject<AppEnv> {
         )
         .bind(req.poolId, req.ipKey ?? '', day),
       // The pool's spend today, all users together.
-      // Every row on the pool counts, whatever its `tier`: rows from before the member
-      // tier was retired carry 'free' or 'member', newer ones null.
       db
         .prepare(
           `SELECT COALESCE(SUM(${SPEND_EXPR}), 0) AS spend FROM usage_events

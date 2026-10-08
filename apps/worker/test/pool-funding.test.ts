@@ -120,7 +120,7 @@ describe('fulfilPurchase', () => {
 });
 
 describe('POST /api/billing/checkout', () => {
-  it('opens personal top-ups only: `target: "pool"` is refused', async () => {
+  it('opens personal top-ups only: a body with a `target` is refused', async () => {
     const { client, userId } = await poolReadyUser({ funds: 0 });
     const checkout = (amountCents: number, target?: string) =>
       client.call('/api/billing/checkout', {
@@ -128,20 +128,15 @@ describe('POST /api/billing/checkout', () => {
         json: { amountCents, ...(target ? { target } : {}) },
         learn: 'pool',
       });
-    await json<ApiError>(await checkout(1000, 'pool'), 400);
-    await json<ApiError>(await checkout(1000, 'charity'), 400);
-    for (const target of [undefined, 'personal']) {
-      const personal = decodeFakeUrl(
-        (await json<CheckoutResponse>(await checkout(500, target))).url,
-      );
-      expect(personal.input).toMatchObject({
-        buyer: { userId },
-        amountCents: 500,
-        successUrl: `${ORIGIN}/learn/billing?checkout=success`,
-        cancelUrl: `${ORIGIN}/learn/billing?checkout=cancel`,
-      });
-      expect(personal.input).not.toHaveProperty('target');
-    }
+    for (const target of ['pool', 'personal', 'charity'])
+      await json<ApiError>(await checkout(1000, target), 400);
+    const personal = decodeFakeUrl((await json<CheckoutResponse>(await checkout(500))).url);
+    expect(personal.input).toMatchObject({
+      buyer: { userId },
+      amountCents: 500,
+      successUrl: `${ORIGIN}/learn/billing?checkout=success`,
+      cancelUrl: `${ORIGIN}/learn/billing?checkout=cancel`,
+    });
   });
 });
 
