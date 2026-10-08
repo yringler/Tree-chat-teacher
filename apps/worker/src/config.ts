@@ -32,7 +32,7 @@ export {
 // ---- Defaults
 
 export const DEFAULT_USAGE_HOLD_MICROS = 20_000;
-export const DEFAULT_USAGE_MAX_PENDING = 3;
+export const DEFAULT_USAGE_MAX_PENDING = 6;
 export const DEFAULT_MARKUP_BPS = 1000;
 /** OpenRouter's fee on credit purchases (5.5%; higher for top-ups under ~$15, see README). */
 export const DEFAULT_OPENROUTER_FEE_BPS = 550;

@@ -14,6 +14,7 @@ import {
 } from '../src/pool/model-prices.js';
 import { resolvePoolParams } from '../src/pool/params.js';
 import { envWithFailingDb } from './mocks/billing-helpers.js';
+import { ON_DEMAND_MODEL } from './mocks/openrouter.js';
 
 const FLASH = 'deepseek/deepseek-v4-flash';
 const PRO = 'deepseek/deepseek-v4-pro';
@@ -222,6 +223,19 @@ describe('syncModelPrices', () => {
     expect(await historyOf(PRO)).toEqual([{ inp: 600_000, out: 2_400_000, at: T0.toISOString() }]);
   });
 
+  it('prices a credit model the store does not know yet by syncing once, on demand', async () => {
+    // The default built-in provider is OpenRouter; its model list is the mock's.
+    const openRouter = { ...env, SIMPLE_PROVIDER: '' } as AppEnv;
+    expect(await storedPrice(env.DB, ON_DEMAND_MODEL)).toBeNull();
+    expect(await creditPrice(openRouter, ON_DEMAND_MODEL)).toEqual({
+      inMicrosPerMTok: 1_000_000,
+      outMicrosPerMTok: 2_000_000,
+      contextTokens: 32_000,
+    });
+    // Not on another endpoint, which the sync can't list.
+    expect(await creditPrice(env, 'vendor/elsewhere')).toBeNull();
+  });
+
   it("stores every other listed model's price for credit, without history, and holds back a collapse", async () => {
     const other = 'someone/else';
     await syncModelPrices(
@@ -252,6 +266,11 @@ describe('syncModelPrices', () => {
       listing([{ id: other, prompt: '0.00001', completion: '0.002' }]).fetchImpl,
     );
     expect((await storedPrice(env.DB, other))?.inMicrosPerMTok).toBe(1_000_000_000);
+    // Logged once for all the models held back, not a line each.
+    const anomalies = error.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes('"event":"price_sync_anomaly"'),
+    );
+    expect(anomalies).toEqual([[JSON.stringify({ event: 'price_sync_anomaly', models: [other] })]]);
   });
 
   it('confirms an unchanged price without a new history row; a change adds one and is logged', async () => {

@@ -50,11 +50,27 @@ export function inputBoundTokens(request: InputOf): number {
 }
 
 /**
- * The system, summary and anchor sections a pool prompt's input limit makes
- * room for (`renderOverheadBytes`): a chain of quoted tangents this deep. A
- * deeper one can outgrow the limit, and is refused like any request over it.
+ * The system, summary and anchor sections a prompt's allowance makes room
+ * for (`renderOverheadBytes`): a chain of quoted tangents this deep. A deeper
+ * one can outgrow the pool's limit, and is refused like any request over it.
  */
-const POOL_PROMPT_SECTIONS = 32;
+const PROMPT_SECTIONS = 32;
+
+/**
+ * What rendering adds to a prompt outside its context budget, in UTF-8 bytes
+ * (an upper bound on tokens too): headings, anchor tags, the continuation
+ * message and per-reply instructions (`renderOverheadBytes` for
+ * `PROMPT_SECTIONS`), and the framing of each message added that way (an
+ * anchor quote per section, the continuation message, the folded system text
+ * and the reply instructions) and of the request.
+ */
+export function renderAllowanceBytes(): number {
+  return (
+    renderOverheadBytes(PROMPT_SECTIONS) +
+    TOKENS_PER_MESSAGE * (PROMPT_SECTIONS + 3) +
+    TOKENS_PER_REQUEST
+  );
+}
 
 /**
  * The most input tokens a pool request may have (`exceedsInputLimit`
@@ -62,19 +78,15 @@ const POOL_PROMPT_SECTIONS = 32;
  * (`ceilingHoldMicros`) bounds every pool call. The pool's context budget,
  * `maxInputTokens` (`POOL_MAX_INPUT_TOKENS`), is measured in UTF-8 bytes / 3.5
  * (core's `estimateTokensUtf8`), so a prompt within it holds at most
- * 3.5 × `maxInputTokens` bytes of segment text and framing; rendering adds
- * headings, tags, the continuation message and per-reply instructions
- * outside the budget, and each message added that way its framing. At most
- * the price entry's context window.
+ * 3.5 × `maxInputTokens` bytes of segment text and framing, plus what
+ * rendering adds outside the budget (`renderAllowanceBytes`). At most the
+ * price entry's context window.
  */
 export function poolInputLimitTokens(price: ModelPrice, maxInputTokens: number): number {
-  const rendered =
-    renderOverheadBytes(POOL_PROMPT_SECTIONS) +
-    // An anchor quote per section, the continuation message, the folded system
-    // text and the reply instructions can each be a message of their own.
-    TOKENS_PER_MESSAGE * (POOL_PROMPT_SECTIONS + 3) +
-    TOKENS_PER_REQUEST;
-  return Math.min(price.contextTokens, Math.ceil(maxInputTokens * CHARS_PER_TOKEN) + rendered);
+  return Math.min(
+    price.contextTokens,
+    Math.ceil(maxInputTokens * CHARS_PER_TOKEN) + renderAllowanceBytes(),
+  );
 }
 
 /** Whether a request's input bound exceeds `limitTokens` (the pool refuses it). */

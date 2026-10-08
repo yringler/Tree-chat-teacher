@@ -72,6 +72,9 @@ function render(id: string, entry: ScriptedGeneration | undefined): Response {
   });
 }
 
+/** The one model `GET /api/v1/models` lists. */
+export const ON_DEMAND_MODEL = 'vendor/listed-model';
+
 export async function mockOpenRouter(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === '/__mock/generation' && request.method === 'POST') {
@@ -99,6 +102,19 @@ export async function mockOpenRouter(request: Request): Promise<Response> {
     const entry = s.responses.length > 1 ? s.responses.shift() : s.responses[0];
     if (entry?.delayMs) await new Promise((r) => setTimeout(r, entry.delayMs));
     return render(id, entry);
+  }
+  // The public model list the price sync reads (pool/model-prices.ts): one model no
+  // price table configures, for the on-demand sync of an unknown credit model.
+  if (url.pathname === '/api/v1/models' && request.method === 'GET') {
+    return Response.json({
+      data: [
+        {
+          id: ON_DEMAND_MODEL,
+          pricing: { prompt: '0.000001', completion: '0.000002' },
+          context_length: 32_000,
+        },
+      ],
+    });
   }
   return Response.json({ error: { code: 404, message: 'Not found' } }, { status: 404 });
 }

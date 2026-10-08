@@ -935,6 +935,25 @@ export class ChatService {
   }
 
   /**
+   * The input budget and output cap a reply on `route` and `model` runs
+   * with, under `limits` (`budgetFor`): what a reply's cost is bounded by
+   * before its prompt exists (the Worker holds Tangent credit for it).
+   */
+  async routeBudget(
+    route: Pick<Branch, 'providerId' | 'funding'>,
+    model: string,
+    limits: GenerationLimits = {},
+  ): Promise<{ maxInputTokens: number; maxOutputTokens: number }> {
+    const { maxInputTokens, maxOutput } = await this.budgetFor(
+      this.requireProvider(route),
+      this.deps.pinnedModel ?? model,
+      limits.maxOutputTokens,
+      limits.maxInputTokens,
+    );
+    return { maxInputTokens, maxOutputTokens: maxOutput };
+  }
+
+  /**
    * What bounds a reply's input on an owned branch's route and model (for
    * power's input limit setting): the model's window and output limit, and
    * the settings' input cap. `budgetFor` works the budget out from these.

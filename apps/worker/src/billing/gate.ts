@@ -31,13 +31,12 @@ import {
 import { hasCurrentConsent } from '../pool/consent.js';
 import { claimPoolIdentity, identitySuspended, poolIdentity } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
-import { creditPrice } from '../pool/model-prices.js';
 import { poolAdmitRequest, poolBlockDetails } from '../pool/params.js';
 import { creditSold, poolAvailable, registryFor, routeRegistryFor } from '../services.js';
 import { LEARN_KEY_LABEL } from '../simple-mode.js';
 import { getBalance } from './ledger.js';
 import { assertMember, membershipFor } from './membership.js';
-import { assertCanSpend, unpricedOnCredit, usageHoldMicros } from './service.js';
+import { assertCanSpend, requireCreditPrice, usageHoldMicros } from './service.js';
 
 /** What a generating request is about to do. */
 export interface GenerateCheck {
@@ -295,9 +294,8 @@ export async function assertCanGenerate(
   }
   await assertCanSpend(c.env, account, check.funding);
   // A credit call is held at its model's price: one without a known price can't run on credit.
-  if (check.model !== null && isMetered(account, check.funding)) {
-    if (!(await creditPrice(c.env, check.model))) throw unpricedOnCredit(check.model);
-  }
+  if (check.model !== null && isMetered(account, check.funding))
+    await requireCreditPrice(c.env, check.model);
   if (check.alsoSpendsOn !== undefined && check.alsoSpendsOn.funding !== check.funding)
     await assertCanSpend(c.env, account, check.alsoSpendsOn.funding);
   await enforceRateLimit(c, check.keys, 'chat', check.funding);

@@ -2,8 +2,16 @@
 // history and credit top-ups (PLAN §2.3–2.6, §13), sold through the payment provider's port
 // (billing/payments). The membership is in membership.ts. Credit is per user: every ledger read and
 // write goes to `AccountContext.billingAccountId`, the same in both modes.
-import { DomainError, PaymentRequiredError, ValidationError } from '@tangent/core';
 import {
+  CHARS_PER_TOKEN,
+  DomainError,
+  estimateTokens,
+  MESSAGE_OVERHEAD_TOKENS,
+  PaymentRequiredError,
+  ValidationError,
+} from '@tangent/core';
+import {
+  formatMicros,
   MAX_TOP_UP_CENTS,
   MIN_TOP_UP_CENTS,
   type BillingSummary,
@@ -16,7 +24,8 @@ import {
 } from '@tangent/shared';
 import type { ModelPrice } from '../config.js';
 import { isMetered, type AccountContext, type AppEnv } from '../env.js';
-import { chargeFromTokensMicros, inputBoundTokens, type InputOf } from '../pool/pricing.js';
+import { creditPrice } from '../pool/model-prices.js';
+import { chargeFromTokensMicros, renderAllowanceBytes, type InputOf } from '../pool/pricing.js';
 import { builtInAvailable, personalCreditReady } from '../services.js';
 import { getBalance } from './ledger.js';
 import { membershipFor } from './membership.js';
@@ -46,22 +55,47 @@ export function usageMaxPending(env: AppEnv): number {
 }
 
 /**
- * What a credit call on a model at `price` holds: its worst case, `request`'s
- * input bound (pool/pricing.ts `inputBoundTokens`, in UTF-8 bytes) at the most
- * an input token can cost plus `maxOutputTokens` out, with the fee and the
- * markup, rounded up; never below `USAGE_HOLD_MICROS`. Web searches are not
- * priced in: the floor covers one.
+ * The input tokens of `request` as credit holds count them: core's estimate
+ * (chars / 3.5, `estimateTokens`) with message framing, the measure credit's
+ * input budget is in, so a reply's prompt is within the budget its
+ * reservation was priced on (`replyInputTokens`). An estimate, not a hard
+ * bound like the pool's bytes: the charge is the reported cost, and what an
+ * estimate misses (dense scripts, a route dearer than the list price) is the
+ * overdraft a hold allows.
+ */
+export function estimatedInputTokens(request: InputOf): number {
+  const messages = request.messages.map((m) => m.content);
+  if (request.turnInstructions) messages.push(request.turnInstructions);
+  let tokens = request.system === null ? 0 : estimateTokens(request.system);
+  for (const text of messages) tokens += estimateTokens(text) + MESSAGE_OVERHEAD_TOKENS;
+  return tokens;
+}
+
+/**
+ * The input a reply with an input budget of `maxInputTokens` can send, in
+ * `estimatedInputTokens`' measure: the budget plus what rendering adds
+ * outside it (headings, anchor tags, per-reply instructions, framing).
+ */
+export function replyInputTokens(maxInputTokens: number): number {
+  return maxInputTokens + Math.ceil(renderAllowanceBytes() / CHARS_PER_TOKEN);
+}
+
+/**
+ * What a credit call on a model at `price` holds: its worst case,
+ * `inputTokens` at the most an input token can cost plus `maxOutputTokens`
+ * out, with the fee and the markup, rounded up; never below
+ * `USAGE_HOLD_MICROS`. Web searches are not priced in: the floor covers one.
  */
 export function creditHoldMicros(
   env: AppEnv,
   price: ModelPrice,
-  request: InputOf,
+  inputTokens: number,
   maxOutputTokens: number,
   rates: { markupBps: number; feeBps: number },
 ): number {
   const worst = chargeFromTokensMicros(
     price,
-    inputBoundTokens(request),
+    inputTokens,
     maxOutputTokens,
     rates.feeBps,
     rates.markupBps,
@@ -69,21 +103,65 @@ export function creditHoldMicros(
   return Math.max(usageHoldMicros(env), worst);
 }
 
+/** The markup and OpenRouter fee a credit call is charged at now. */
+export function creditRates(env: AppEnv): { markupBps: number; feeBps: number } {
+  return { markupBps: markupFor(env), feeBps: openRouterFeeBps(env) };
+}
+
 const TOO_MANY_PENDING =
   'Too many replies are still running on Tangent credit. Wait for one to finish and try again.';
 
-/** The error of a model that can't run on credit because its price isn't known. */
+/** The error of a model that can't run on credit because OpenRouter lists no price for it. */
 export function unpricedOnCredit(model: string): DomainError {
   return new DomainError(
     'bad_request',
-    `${model} can't run on Tangent credit: its price isn't known yet. Pick another model.`,
+    `${model} can't run on Tangent credit: it has no known price. Pick another model.`,
+  );
+}
+
+/** The 402 of a call whose hold the available credit can't cover, naming what it needs. */
+export function creditNeeded(holdMicros: number): PaymentRequiredError {
+  // Rounded up to the cent, so the amount shown is always enough.
+  const cents = Math.ceil(holdMicros / 10_000);
+  return new PaymentRequiredError(
+    `This reply needs about ${formatMicros(cents * 10_000)} of Tangent credit available. Add credit to keep going.`,
+  );
+}
+
+/**
+ * The price a credit call on `model` is held at (`creditPrice`), or a
+ * thrown 400 when there is none.
+ */
+export async function requireCreditPrice(env: AppEnv, model: string): Promise<ModelPrice> {
+  const price = await creditPrice(env, model);
+  if (!price) throw unpricedOnCredit(model);
+  return price;
+}
+
+/**
+ * The hold of a reply on `model` before its prompt exists: its input budget
+ * (`replyInputTokens`) and output cap at the model's price.
+ */
+export async function replyHoldMicros(
+  env: AppEnv,
+  model: string,
+  budget: { maxInputTokens: number; maxOutputTokens: number },
+): Promise<number> {
+  const price = await requireCreditPrice(env, model);
+  return creditHoldMicros(
+    env,
+    price,
+    replyInputTokens(budget.maxInputTokens),
+    budget.maxOutputTokens,
+    creditRates(env),
   );
 }
 
 /**
  * Why a credit reservation of `holdMicros` was refused: 402 when the
- * available balance can't cover it, else 429 `rate_limited` (too many calls
- * in flight). Read after the refusal, so a race can only change which.
+ * available balance can't cover it (`creditNeeded`), else 429
+ * `rate_limited` (too many calls in flight). Read after the refusal, so a
+ * race can only change which.
  */
 export async function creditRefusal(
   env: AppEnv,
@@ -91,25 +169,41 @@ export async function creditRefusal(
   holdMicros: number,
 ): Promise<DomainError> {
   const { balanceMicros, heldMicros } = await getBalance(env.DB, billingAccountId);
-  if (balanceMicros - heldMicros < holdMicros) return new PaymentRequiredError();
+  if (balanceMicros - heldMicros < holdMicros) return creditNeeded(holdMicros);
   return new DomainError('rate_limited', TOO_MANY_PENDING);
 }
 
 /**
+ * The early check of a reply, review or compare answer that streams from the
+ * Worker (where nothing can be reserved before the 200): 402 naming what it
+ * needs when the available credit can't cover `holdMicros`. A read, so the
+ * meter's reservation is still what stops a race.
+ */
+export async function assertCreditCovers(
+  env: AppEnv,
+  account: AccountContext,
+  holdMicros: number,
+): Promise<void> {
+  const { balanceMicros, heldMicros } = await getBalance(env.DB, account.billingAccountId);
+  if (balanceMicros - heldMicros < holdMicros) throw creditNeeded(holdMicros);
+}
+
+/**
  * Reserves a credit reply before its nodes are written (the tree's Durable
- * Object, under its send lock): a pending row of `USAGE_HOLD_MICROS`, taken
+ * Object, under its send lock): a pending row holding `holdMicros` (the
+ * reply's worst case before its prompt exists, `replyHoldMicros`), taken
  * only while the balance covers it and fewer than `USAGE_MAX_PENDING` calls
  * are in flight, in one statement, so sends racing on several trees can't
- * all pass. The meter then holds the reply at its own worst case
+ * all pass. The meter then sets the hold to the call's own worst case
  * (`repriceReservation`). Resolves the row's id; throws 402 or 429.
  */
 export async function reserveCreditReply(
   env: AppEnv,
   account: AccountContext,
   target: { treeId: string; branchId: string; providerId: string; model: string },
+  holdMicros: number,
 ): Promise<string> {
   const id = crypto.randomUUID();
-  const holdMicros = usageHoldMicros(env);
   const reserved = await reservePersonalUsage(
     env.DB,
     {
@@ -123,8 +217,7 @@ export async function reserveCreditReply(
       providerId: target.providerId,
       model: target.model,
       holdMicros,
-      markupBps: markupFor(env),
-      feeBps: openRouterFeeBps(env),
+      ...creditRates(env),
       createdAt: new Date().toISOString(),
     },
     usageMaxPending(env),

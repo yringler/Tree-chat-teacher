@@ -183,6 +183,24 @@ export function poolConfigProblem(env: AppEnv): string | null {
   });
 }
 
+/**
+ * `poolConfigProblem` at the price pool holds are actually priced at
+ * (`modelPrice`: the synced price unless `MODEL_PRICES` pins one), which
+ * `resolvePoolParams` refuses on: what the pool's own reports read
+ * (pool/status.ts `poolUsable`), so they never say "on" while every reply is
+ * refused.
+ */
+export async function poolPriceProblem(env: AppEnv): Promise<string | null> {
+  const config = appConfig(env);
+  const model = poolModel(env);
+  const entry = await modelPrice(env, model);
+  if (!entry) return null;
+  return reportCeilingProblem(config.pool, model, {
+    ...entry,
+    feeBps: entry.feeBps ?? config.billing.openRouterFeeBps,
+  });
+}
+
 /** One call to reserve for on the pool (see `poolReserveRequest`). */
 export interface PoolCall {
   purpose: UsagePurpose;

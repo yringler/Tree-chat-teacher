@@ -20,7 +20,7 @@ import {
   simpleProviderConfig,
 } from '../simple-mode.js';
 import { consentVersion } from './consent.js';
-import { poolModel, poolRequest } from './params.js';
+import { poolModel, poolPriceProblem, poolRequest } from './params.js';
 import { dayResetAt, dayStart, userDayUsageStatement, type DayRow } from './pool-bank.js';
 
 /** How long the meter is cached at the edge (`caches.default`) and by browsers. */
@@ -72,6 +72,15 @@ export function poolModelInfo(env: AppEnv): PoolModelInfo {
 }
 
 /**
+ * Whether the pool can serve a reply now: `poolAvailable`, and its model's
+ * live price (`poolPriceProblem`) leaves a reply's ceiling hold within the
+ * daily caps. What the meter and `/api/pool/me` report.
+ */
+export async function poolUsable(env: AppEnv): Promise<boolean> {
+  return poolAvailable(env) && (await poolPriceProblem(env)) === null;
+}
+
+/**
  * The pool meter, read from D1. "Exchanges funded" are pool replies settled
  * at a charge above 0 since Monday 00:00 UTC (released and free ones never
  * reached the model, or cost nothing); "learners" the distinct users of those.
@@ -81,7 +90,7 @@ export async function poolStatus(env: AppEnv, now = new Date()): Promise<PoolSta
   const pool = config.pool;
   const week = weekStart(now).toISOString();
   const base: PoolStatusResponse = {
-    enabled: poolAvailable(env),
+    enabled: await poolUsable(env),
     availableMicros: 0,
     sessionsRemaining: 0,
     model: poolModelInfo(env),
@@ -149,7 +158,7 @@ export async function poolMe(
   const pool = appConfig(env).pool;
   const userId = account.userId;
   const day = dayStart(now).toISOString();
-  const [personal, row, usage, consent] = await Promise.all([
+  const [personal, row, usage, consent, usable] = await Promise.all([
     getBalance(env.DB, account.billingAccountId),
     userId
       ? env.DB.prepare(
@@ -162,11 +171,12 @@ export async function poolMe(
       : null,
     userId ? userDayUsageStatement(env.DB, pool.accountId, userId, day).first<DayRow>() : null,
     userId ? consentVersion(env.DB, userId) : null,
+    poolUsable(env),
   ]);
   // The same caps for everyone, member or not.
   const caps = pool.caps.user;
   return {
-    available: poolAvailable(env) && userId !== null,
+    available: usable && userId !== null,
     verified: !!row?.pool_verified_at,
     suspended: !!row?.pool_suspended || !!row?.identity_suspended,
     caps: {

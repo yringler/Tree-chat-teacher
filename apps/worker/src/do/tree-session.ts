@@ -26,7 +26,7 @@ import { openKeys } from '../byok/keys.js';
 import { billingAccountIdFor } from '../auth/account.js';
 import { reserveCreditReply } from '../billing/service.js';
 import { releaseUndispatched } from '../billing/usage-store.js';
-import { isMetered, isPoolFunded, usesUserKeys, type AccountContext, type AppEnv } from '../env.js';
+import { isPoolFunded, usesUserKeys, type AccountContext, type AppEnv } from '../env.js';
 import { apiErrorBody } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { poolBank } from '../pool/ids.js';
@@ -56,6 +56,16 @@ export interface SessionSendBody extends GenerationLimits {
   // GenerationLimits: power's reply length and input limit, as the Worker clamped them.
   account: AccountContext;
   sealedKeys?: string;
+  /** A reply on Tangent credit: what to reserve before any node is written. */
+  creditReply?: CreditReplyHold;
+}
+
+/** The reservation of a reply on Tangent credit, as the Worker priced it (routes/api.ts). */
+export interface CreditReplyHold {
+  providerId: string;
+  model: string;
+  /** The reply's worst case before its prompt exists (`replyHoldMicros`). */
+  holdMicros: number;
 }
 
 /**
@@ -94,12 +104,13 @@ interface HeldEntry {
 
 const CANDIDATE_PREFIX = 'candidate:';
 
-/** What a send writes and generates (with power's limits). */
+/** What a send writes and generates (with power's limits), and its credit reservation if any. */
 interface SendTarget extends GenerationLimits {
   treeId: string;
   branchId: string;
   content: string;
   ground?: 'required';
+  creditReply?: CreditReplyHold;
 }
 
 /** The account as query parameters, for the internal routes without a body. */
@@ -183,7 +194,7 @@ export class TreeSession extends DurableObject<AppEnv> {
     try {
       if (request.method === 'POST' && url.pathname === '/send') {
         const body = (await request.json()) as SessionSendBody;
-        const { content, ground, account } = body;
+        const { content, ground, account, creditReply } = body;
         await this.recoverOnce(chatService(this.env, account), treeId);
         const chat = await this.generatingChat(body);
         return await this.send(chat, account, {
@@ -191,6 +202,7 @@ export class TreeSession extends DurableObject<AppEnv> {
           branchId: url.searchParams.get('branchId') ?? '',
           content,
           ...(ground === 'required' ? { ground } : {}),
+          ...(creditReply ? { creditReply } : {}),
           ...pickGenerationLimits(body),
         });
       }
@@ -258,7 +270,7 @@ export class TreeSession extends DurableObject<AppEnv> {
 
   /**
    * On the pool or on Tangent credit, the reply is reserved (the pool's
-   * ceiling hold, credit's least hold) under the send lock before `beginSend`
+   * ceiling hold, credit's worst case as the Worker priced it) under the send lock before `beginSend`
    * writes any node, so a refusal is a plain 402/429 and the branch is
    * untouched. The reservation is released whenever the reply never reaches
    * the provider: `beginSend` fails, or the run ends without dispatching it.
@@ -269,9 +281,12 @@ export class TreeSession extends DurableObject<AppEnv> {
     target: SendTarget,
   ): Promise<Response> {
     const begin = this.sendLock.then(async () => {
+      const credit = target.creditReply;
       const reservationId = isPoolFunded(account)
         ? await this.reserveReply(account.pool, account.userId, target)
-        : await this.reserveCreditReply(chat, account, target);
+        : credit
+          ? await reserveCreditReply(this.env, account, { ...target, ...credit }, credit.holdMicros)
+          : null;
       try {
         return { started: await chat.beginSend(target.branchId, target.content), reservationId };
       } catch (err) {
@@ -324,25 +339,6 @@ export class TreeSession extends DurableObject<AppEnv> {
     );
     if (!result.ok) throw new PoolBlockedError(poolBlockDetails(result));
     return result.usageId;
-  }
-
-  /**
-   * Reserves a reply on Tangent credit (`reserveCreditReply`), or throws
-   * 402/429; null when the branch's reply isn't paid with credit.
-   */
-  private async reserveCreditReply(
-    chat: ChatService,
-    account: AccountContext,
-    target: { treeId: string; branchId: string },
-  ): Promise<string | null> {
-    if (!account.builtIn) return null;
-    const branch = await chat.getOwnedBranch(target.branchId);
-    if (!isMetered(account, branch.funding)) return null;
-    return reserveCreditReply(this.env, account, {
-      ...target,
-      providerId: branch.providerId,
-      model: branch.model,
-    });
   }
 
   /**
