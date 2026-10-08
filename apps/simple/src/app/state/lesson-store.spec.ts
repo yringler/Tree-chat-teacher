@@ -1407,6 +1407,64 @@ describe('LessonStore deleting a lesson with a reply generating', () => {
   });
 });
 
+describe('LessonStore refreshing after replies', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** A whole exchange on the trunk, streamed at once. */
+  function exchange(i: number): Response {
+    const ask = node(`u-${i}`, { seq: 10 + 2 * i, role: 'user', content: 'Why?' });
+    const reply = node(`r-${i}`, { seq: 11 + 2 * i, parentId: `u-${i}`, content: 'Because.' });
+    return stream([
+      {
+        type: 'start',
+        userNode: ask,
+        assistantNode: { ...reply, status: 'streaming' },
+        branch: branch('trunk'),
+      },
+      { type: 'done', node: reply, branch: branch('trunk') },
+    ]);
+  }
+
+  const summaryOf = (title: string): TreeSummary => ({
+    id: 't1',
+    title,
+    createdAt: T,
+    updatedAt: T,
+    branchCount: 1,
+    messageCount: 2,
+  });
+
+  it('replies finishing together share one refresh of the lessons and the balance, plus one more', async () => {
+    const s = setup();
+    await open(s, detail());
+    let i = 0;
+    s.api.sendMessage.mockImplementation(async () => exchange(i++));
+    const reads: ((list: TreeSummary[]) => void)[] = [];
+    s.api.listTrees.mockImplementation(() => new Promise<TreeSummary[]>((r) => reads.push(r)));
+    s.api.billing.mockClear();
+    await Promise.all(Array.from({ length: 6 }, () => s.store.send('trunk', 'Why?')));
+    expect(reads).toHaveLength(1);
+    expect(s.api.billing).toHaveBeenCalledTimes(1);
+    reads[0]!([summaryOf('Light')]);
+    await vi.waitFor(() => expect(reads).toHaveLength(2));
+    reads[1]!([summaryOf('Light and waves')]);
+    await vi.waitFor(() => expect(s.store.detail()?.tree.title).toBe('Light and waves'));
+    expect(reads).toHaveLength(2);
+    expect(s.api.billing).toHaveBeenCalledTimes(2);
+  });
+
+  it('a failed refresh after a reply is quiet', async () => {
+    const s = setup();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await open(s, detail());
+    s.api.sendMessage.mockImplementation(async () => exchange(0));
+    s.api.listTrees.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
+    await s.store.send('trunk', 'Why?');
+    await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
+    expect(s.ui.toasts()).toEqual([]);
+  });
+});
+
 describe('LessonStore sends on two branches at once', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);

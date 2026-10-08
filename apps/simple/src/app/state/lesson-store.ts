@@ -24,6 +24,7 @@ import {
 import {
   ApiClient,
   ApiError,
+  coalesced,
   backupFile,
   CompareRun,
   errorMessage,
@@ -184,6 +185,7 @@ export class LessonStore {
   readonly comparing = signal(false);
   private readonly controllers = new Map<string, AbortController>();
   private detailSeq = 0;
+  private treesSeq = 0;
 
   readonly index = computed<TreeIndex | null>(() => {
     const d = this.detail();
@@ -265,12 +267,19 @@ export class LessonStore {
 
   async loadTrees(): Promise<void> {
     try {
-      this.trees.set(await this.api.listTrees());
+      await this.readTrees();
     } catch (err) {
       this.fail(err);
     } finally {
       this.treesLoaded.set(true);
     }
+  }
+
+  /** Reads the list; a read answering after one started later is dropped. */
+  private async readTrees(): Promise<void> {
+    const seq = ++this.treesSeq;
+    const list = await this.api.listTrees();
+    if (seq === this.treesSeq) this.trees.set(list);
   }
 
   async loadTree(treeId: string, force = false): Promise<void> {
@@ -990,14 +999,29 @@ export class LessonStore {
         this.dropLive(nodeId);
       }
     }
-    void this.account.refreshBalance();
-    if (this.account.payment.poolAvailable()) void this.account.refreshPool();
     void this.refreshAfterCompletion();
   }
 
-  /** Lessons are titled after the first reply: refresh the list and the open lesson's title. */
-  private async refreshAfterCompletion(): Promise<void> {
-    await this.loadTrees();
+  /**
+   * After a reply: the balance, the pool meter while the pool is offered, and
+   * the lessons, titled after the first reply (the list and the open
+   * lesson's title). Replies finishing together share one refresh, plus one
+   * more if asked meanwhile. Quiet on failure: the next reply refreshes again.
+   */
+  private readonly refreshAfterCompletion = coalesced(async () => {
+    const lessons = this.readTrees().then(
+      () => true,
+      (err: unknown) => {
+        console.warn('lesson list refresh failed', err);
+        return false;
+      },
+    );
+    const [listed] = await Promise.all([
+      lessons,
+      this.account.refreshBalance(),
+      this.account.payment.poolAvailable() ? this.account.refreshPool() : null,
+    ]);
+    if (!listed) return;
     const d = this.detail();
     const summary = d && this.trees().find((t) => t.id === d.tree.id);
     if (d && summary && summary.title !== d.tree.title) {
@@ -1005,7 +1029,7 @@ export class LessonStore {
         cur ? { ...cur, tree: { ...cur.tree, title: summary.title } } : cur,
       );
     }
-  }
+  });
 
   private markError(nodeId: string, message: string): void {
     const node = this.index()?.nodes.get(nodeId);

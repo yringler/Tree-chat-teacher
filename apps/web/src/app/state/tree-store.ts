@@ -48,6 +48,7 @@ import {
   addBlockedSend,
   ApiClient,
   ApiError,
+  coalesced,
   creditBuyable,
   creditCanPay,
   creditCarriesOn,
@@ -157,6 +158,7 @@ export class TreeStore {
   readonly unsentDrafts = signal<ReadonlyMap<string, string>>(new Map());
   private readonly controllers = new Map<string, AbortController>();
   private detailSeq = 0;
+  private treesSeq = 0;
 
   readonly index = computed<TreeIndex | null>(() => {
     const d = this.detail();
@@ -481,12 +483,19 @@ export class TreeStore {
 
   async loadTrees(): Promise<void> {
     try {
-      this.trees.set(await this.api.listTrees());
+      await this.readTrees();
     } catch (err) {
       this.fail(err);
     } finally {
       this.treesLoaded.set(true);
     }
+  }
+
+  /** Reads the list; a read answering after one started later is dropped. */
+  private async readTrees(): Promise<void> {
+    const seq = ++this.treesSeq;
+    const list = await this.api.listTrees();
+    if (seq === this.treesSeq) this.trees.set(list);
   }
 
   // Routing (URL is the source of truth for selection)
@@ -1165,9 +1174,19 @@ export class TreeStore {
     void this.refreshAfterCompletion();
   }
 
-  /** Titles can change after the first reply (auto-titling): refresh the list and the tree title. */
-  private async refreshAfterCompletion(): Promise<void> {
-    await this.loadTrees();
+  /**
+   * Titles can change after the first reply (auto-titling): refresh the list
+   * and the tree title. Replies finishing together (a fan-out) share one
+   * refresh, plus one more if asked meanwhile. Quiet on failure: the next
+   * reply refreshes again.
+   */
+  private readonly refreshAfterCompletion = coalesced(async () => {
+    try {
+      await this.readTrees();
+    } catch (err) {
+      console.warn('tree list refresh failed', err);
+      return;
+    }
     const d = this.detail();
     const summary = d && this.trees().find((t) => t.id === d.tree.id);
     if (d && summary && summary.title !== d.tree.title) {
@@ -1175,7 +1194,7 @@ export class TreeStore {
         cur ? { ...cur, tree: { ...cur.tree, title: summary.title } } : cur,
       );
     }
-  }
+  });
 
   private markError(nodeId: string, message: string): void {
     const node = this.index()?.nodes.get(nodeId);

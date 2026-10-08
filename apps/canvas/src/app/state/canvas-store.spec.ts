@@ -1007,6 +1007,63 @@ describe('CanvasStore links between messages', () => {
   });
 });
 
+describe('CanvasStore refreshing the list after replies', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** A whole exchange in lane `b`, streamed at once. */
+  function exchange(i: number): Response {
+    const userNode = node(`u-${i}`, {
+      seq: 10 + 2 * i,
+      parentId: 'a2',
+      branchId: 'b',
+      role: 'user',
+    });
+    const reply = node(`r-${i}`, { seq: 11 + 2 * i, parentId: `u-${i}`, branchId: 'b' });
+    const lane = branch('b', { parentBranchId: 'trunk', branchPointNodeId: 'a1' });
+    return new Response(
+      sse([
+        { type: 'start', userNode, assistantNode: { ...reply, status: 'streaming' }, branch: lane },
+        { type: 'done', node: reply, branch: lane },
+      ]),
+      { headers: { 'content-type': 'text/event-stream' } },
+    );
+  }
+
+  const summaryOf = (title: string): TreeSummary => ({
+    id: 't1',
+    title,
+    createdAt: T,
+    updatedAt: T,
+    branchCount: 2,
+    messageCount: 4,
+  });
+
+  it('a six-lane fan-out finishing reads the list twice at most; the latest answer stays', async () => {
+    const s = setup();
+    let i = 0;
+    s.api.sendMessage.mockImplementation(async () => exchange(i++));
+    const reads: ((list: TreeSummary[]) => void)[] = [];
+    s.api.listTrees.mockImplementation(() => new Promise<TreeSummary[]>((r) => reads.push(r)));
+    await Promise.all(Array.from({ length: 6 }, () => s.store.send('b', 'Why?')));
+    expect(reads).toHaveLength(1);
+    reads[0]!([summaryOf('Light')]);
+    await vi.waitFor(() => expect(reads).toHaveLength(2));
+    reads[1]!([summaryOf('Light and waves')]);
+    await vi.waitFor(() => expect(s.store.detail()?.tree.title).toBe('Light and waves'));
+    expect(reads).toHaveLength(2);
+  });
+
+  it('a failed refresh after a reply is quiet', async () => {
+    const s = setup();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    s.api.sendMessage.mockImplementation(async () => exchange(0));
+    s.api.listTrees.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
+    await s.store.send('b', 'Why?');
+    await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
+    expect(s.ui.toasts()).toEqual([]);
+  });
+});
+
 describe('CanvasStore deleting a tree with a reply generating', () => {
   afterEach(() => vi.restoreAllMocks());
 

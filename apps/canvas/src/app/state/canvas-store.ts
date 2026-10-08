@@ -41,6 +41,7 @@ import {
   addBlockedSend,
   ApiClient,
   ApiError,
+  coalesced,
   creditBuyable,
   creditCanPay,
   creditCarriesOn,
@@ -188,6 +189,7 @@ export class CanvasStore {
   readonly completions = signal(0);
   private readonly controllers = new Map<string, AbortController>();
   private detailSeq = 0;
+  private treesSeq = 0;
 
   // Lineage (one plan per lane, cached by leaf)
   readonly lineages = signal<ReadonlyMap<string, Lineage>>(new Map());
@@ -554,12 +556,19 @@ export class CanvasStore {
 
   async loadTrees(): Promise<void> {
     try {
-      this.trees.set(await this.api.listTrees());
+      await this.readTrees();
     } catch (err) {
       this.fail(err);
     } finally {
       this.treesLoaded.set(true);
     }
+  }
+
+  /** Reads the list; a read answering after one started later is dropped. */
+  private async readTrees(): Promise<void> {
+    const seq = ++this.treesSeq;
+    const list = await this.api.listTrees();
+    if (seq === this.treesSeq) this.trees.set(list);
   }
 
   // Routing (the URL is the source of truth for the selection)
@@ -1172,9 +1181,19 @@ export class CanvasStore {
     void this.refreshAfterCompletion();
   }
 
-  /** Titles can change after the first reply (auto-titling): refresh the list and the tree title. */
-  private async refreshAfterCompletion(): Promise<void> {
-    await this.loadTrees();
+  /**
+   * Titles can change after the first reply (auto-titling): refresh the list
+   * and the tree title. Replies finishing together (a fan-out) share one
+   * refresh, plus one more if asked meanwhile. Quiet on failure: the next
+   * reply refreshes again.
+   */
+  private readonly refreshAfterCompletion = coalesced(async () => {
+    try {
+      await this.readTrees();
+    } catch (err) {
+      console.warn('tree list refresh failed', err);
+      return;
+    }
     const d = this.detail();
     const summary = d && this.trees().find((t) => t.id === d.tree.id);
     if (d && summary && summary.title !== d.tree.title) {
@@ -1182,7 +1201,7 @@ export class CanvasStore {
         cur ? { ...cur, tree: { ...cur.tree, title: summary.title } } : cur,
       );
     }
-  }
+  });
 
   private markError(nodeId: string, message: string): void {
     const node = this.index()?.nodes.get(nodeId);

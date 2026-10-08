@@ -1607,7 +1607,13 @@ function smallTree(id: string): TreeDetail {
     nodes: [
       node({}),
       node({ id: `${id}-a1`, parentId: `${id}-u1`, seq: 1, role: 'assistant', content: 'A wave.' }),
-      node({ id: `${id}-u2`, branchId: `${id}-side`, parentId: `${id}-a1`, seq: 2, content: 'And?' }),
+      node({
+        id: `${id}-u2`,
+        branchId: `${id}-side`,
+        parentId: `${id}-a1`,
+        seq: 2,
+        content: 'And?',
+      }),
       node({
         id: `${id}-a2`,
         branchId: `${id}-side`,
@@ -1744,6 +1750,81 @@ describe('TreeStore deleting a tree with a reply generating', () => {
   });
 });
 
+describe('TreeStore refreshing the list after replies', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function finished(s: ReturnType<typeof setup>, n: number) {
+    const tree = smallTree('X');
+    const branch = tree.branches[0]!;
+    for (let i = 0; i < n; i++) {
+      const assistantNode: ChatNode = {
+        ...tree.nodes[1]!,
+        id: `done-${i}`,
+        parentId: `ask-${i}`,
+        seq: 10 + 2 * i,
+      };
+      const userNode: ChatNode = { ...tree.nodes[0]!, id: `ask-${i}`, seq: 9 + 2 * i };
+      s.store.applyCommitted({ userNode, assistantNode, branch });
+    }
+  }
+
+  const summaryOf = (title: string) => ({
+    id: 'X',
+    title,
+    createdAt: '2026-10-01T00:00:00.000Z',
+    updatedAt: '2026-10-01T00:00:00.000Z',
+    branchCount: 2,
+    messageCount: 4,
+  });
+
+  it('six replies finishing together read the list twice at most, and the latest answer stays', async () => {
+    const s = setup();
+    s.store.detail.set(smallTree('X'));
+    s.store.setRoute('X', null, null);
+    const reads: ReturnType<typeof deferred<ReturnType<typeof summaryOf>[]>>[] = [];
+    s.api.listTrees.mockImplementation(() => {
+      const d = deferred<ReturnType<typeof summaryOf>[]>();
+      reads.push(d);
+      return d.promise;
+    });
+    finished(s, 6);
+    expect(reads).toHaveLength(1);
+    reads[0]!.resolve([summaryOf('Light')]);
+    await vi.waitFor(() => expect(reads).toHaveLength(2));
+    reads[1]!.resolve([summaryOf('Light and waves')]);
+    await vi.waitFor(() => expect(s.store.detail()?.tree.title).toBe('Light and waves'));
+    expect(reads).toHaveLength(2);
+    expect(s.store.trees().map((t) => t.title)).toEqual(['Light and waves']);
+  });
+
+  it('an older read answering last does not overwrite a newer one', async () => {
+    const s = setup();
+    const reads: ReturnType<typeof deferred<ReturnType<typeof summaryOf>[]>>[] = [];
+    s.api.listTrees.mockImplementation(() => {
+      const d = deferred<ReturnType<typeof summaryOf>[]>();
+      reads.push(d);
+      return d.promise;
+    });
+    const first = s.store.loadTrees();
+    const second = s.store.loadTrees();
+    reads[1]!.resolve([summaryOf('New')]);
+    await second;
+    reads[0]!.resolve([summaryOf('Old')]);
+    await first;
+    expect(s.store.trees().map((t) => t.title)).toEqual(['New']);
+  });
+
+  it('a failed refresh after a reply is quiet', async () => {
+    const s = setup();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    s.store.detail.set(smallTree('X'));
+    s.api.listTrees.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
+    finished(s, 1);
+    await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
+    expect(s.ui.toasts()).toEqual([]);
+  });
+});
+
 describe('TreeStore Check sources', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -1757,14 +1838,12 @@ describe('TreeStore Check sources', () => {
     const sendMessage = vi.fn(async (_b: string, _req: unknown, _signal: AbortSignal) =>
       emptyStream(),
     );
-    const createBranch = vi.fn(
-      async (req: CreateBranchRequest): Promise<Branch> => ({
-        ...smallTree('X').branches[1]!,
-        id: 'X-check',
-        branchPointNodeId: req.fromNodeId,
-        title: req.title ?? 'Branch',
-      }),
-    );
+    const createBranch = vi.fn(async (req: CreateBranchRequest): Promise<Branch> => ({
+      ...smallTree('X').branches[1]!,
+      id: 'X-check',
+      branchPointNodeId: req.fromNodeId,
+      title: req.title ?? 'Branch',
+    }));
     Object.assign(s.api, { sendMessage, createBranch, streamNode: vi.fn() });
     s.store.detail.set(smallTree('X'));
     s.store.setRoute('X', 'X-side', null);
@@ -1787,7 +1866,11 @@ describe('TreeStore Check sources', () => {
     const s = openSide();
     await s.store.checkSources('X-a1');
     expect(s.createBranch).toHaveBeenCalledWith(
-      expect.objectContaining({ fromNodeId: 'X-a1', contextMode: 'path', title: 'Checking sources' }),
+      expect.objectContaining({
+        fromNodeId: 'X-a1',
+        contextMode: 'path',
+        title: 'Checking sources',
+      }),
     );
     expect(s.go).toHaveBeenCalledWith('X-check');
     expect(s.sendMessage).toHaveBeenCalledTimes(1);
