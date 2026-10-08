@@ -8,8 +8,11 @@ import type {
 } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { getBalance, grantCredit } from '../src/billing/ledger.js';
 import { createUsageMeter, meteredRegistry, type UsageMeterOptions } from '../src/billing/meter.js';
 import { chargeMicros, costUsdToNanos } from '../src/billing/pricing.js';
+import { usageHoldMicros } from '../src/billing/service.js';
+import { costFromTokensNanos } from '../src/pool/pricing.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import {
   envWithFailingDb,
@@ -103,7 +106,14 @@ interface Harness {
   settleBackground(): Promise<void>;
 }
 
-function harness(account: AccountContext = simpleAccount()): Harness {
+/** A meter harness on `account`, funded so each call's hold is covered. */
+async function harness(account: AccountContext = simpleAccount()): Promise<Harness> {
+  await grantCredit(env.DB, {
+    accountId: account.billingAccountId,
+    kind: 'adjustment',
+    amountMicros: 1_000_000,
+    providerRef: `test-funds:${account.billingAccountId}`,
+  });
   const deferred: Promise<unknown>[] = [];
   return {
     account,
@@ -144,7 +154,7 @@ const tag: UsageTag = {
 
 describe('usage meter', () => {
   it('settles cost × 1.055 (OpenRouter fee) × 1.10 inline (no subscription), with tokens, tag and generation id', async () => {
-    const h = harness();
+    const h = await harness();
     const gen = uniq('gen');
     const events = await h.run(
       [
@@ -190,7 +200,7 @@ describe('usage meter', () => {
   it('settles at MARKUP_BPS, the same with a membership (no plan discounts)', async () => {
     const account = simpleAccount();
     await insertSubscription(env, account.userId!, 'active');
-    const h = harness(account);
+    const h = await harness(account);
     await h.run(
       [
         { type: 'delta', text: 'x' },
@@ -214,7 +224,7 @@ describe('usage meter', () => {
   });
 
   it('holds while the stream is in flight', async () => {
-    const h = harness();
+    const h = await harness();
     let pendingSeen: UsageRow[] = [];
     const meter = createUsageMeter(env, h.account, (p) => h.deferred.push(p), FAST);
     const provider = scriptedProvider(
@@ -245,7 +255,7 @@ describe('usage meter', () => {
   });
 
   it('settles at 0 when the call never reached the upstream (no generation id)', async () => {
-    const h = harness();
+    const h = await harness();
     const events = await h.run([
       { type: 'error', error: { code: 'network', message: 'connect failed', retryable: true } },
     ]);
@@ -258,7 +268,7 @@ describe('usage meter', () => {
   });
 
   it('reconciles an aborted run via /api/v1/generation (404, then 200)', async () => {
-    const h = harness();
+    const h = await harness();
     const gen = uniq('gen-aborted');
     await scriptGeneration(gen, [
       { status: 404 },
@@ -289,7 +299,7 @@ describe('usage meter', () => {
   });
 
   it('records OPENROUTER_FEE_BPS on the row and reconciles an aborted run at it', async () => {
-    const h = harness();
+    const h = await harness();
     const gen = uniq('gen-fee');
     await scriptGeneration(gen, [{ costUsd: 0.001 }]);
     const custom = { ...env, OPENROUTER_FEE_BPS: '800' } as AppEnv;
@@ -310,7 +320,7 @@ describe('usage meter', () => {
   });
 
   it('leaves the row pending for the cron when the generation never shows up', async () => {
-    const h = harness();
+    const h = await harness();
     const gen = uniq('gen-missing');
     await h.run([
       { type: 'billing', generationId: gen },
@@ -322,7 +332,7 @@ describe('usage meter', () => {
   });
 
   it('uses the key named by SIMPLE_PROVIDER.apiKeySecret', async () => {
-    const h = harness();
+    const h = await harness();
     const gen = uniq('gen-key');
     await scriptGeneration(gen, [{ costUsd: 0.001 }]);
     const custom = {
@@ -350,7 +360,7 @@ describe('usage meter', () => {
   });
 
   it('finishes when the consumer stops reading early', async () => {
-    const h = harness();
+    const h = await harness();
     await h.run(
       [
         { type: 'delta', text: 'a' },
@@ -365,7 +375,7 @@ describe('usage meter', () => {
   });
 
   it('fails as an event (no upstream call) when the pending row cannot be written', async () => {
-    const h = harness();
+    const h = await harness();
     const provider = scriptedProvider([{ type: 'done', stopReason: null }]);
     const broken = envWithFailingDb(env, /INSERT INTO usage_events/);
     const meter = createUsageMeter(broken, h.account, (p) => h.deferred.push(p), FAST);
@@ -382,7 +392,7 @@ describe('usage meter', () => {
   });
 
   it('never throws into the stream when settling fails; the row stays pending', async () => {
-    const h = harness();
+    const h = await harness();
     const broken = envWithFailingDb(env, /^\s*UPDATE/);
     const events = await h.run(
       [
@@ -443,7 +453,7 @@ describe('usage meter', () => {
 
   it("records a power account's calls on the user's ledger (u_<userId>)", async () => {
     const account = powerAccount();
-    const h = harness(account);
+    const h = await harness(account);
     await h.run([
       { type: 'billing', costUsd: COST },
       { type: 'done', stopReason: 'stop' },
@@ -454,9 +464,98 @@ describe('usage meter', () => {
   });
 });
 
+describe('usage meter holds on credit', () => {
+  /** `smart` at about o1-pro's list price: $150 in, $600 out per million tokens. */
+  const pricey = {
+    ...env,
+    MODEL_PRICES: JSON.stringify({
+      smart: { in: 150_000_000, out: 600_000_000, context: 200_000 },
+    }),
+  } as AppEnv;
+  const reply = [
+    { type: 'billing', costUsd: COST },
+    { type: 'done', stopReason: 'stop' },
+  ] satisfies ProviderEvent[];
+
+  it("holds a pricey model's call at its own worst case, not the flat hold", async () => {
+    const h = await harness();
+    let held: UsageRow[] = [];
+    const meter = createUsageMeter(pricey, h.account, (p) => h.deferred.push(p), FAST);
+    const provider = scriptedProvider(reply, async (i) => {
+      if (i === 0) held = await h.rows();
+    });
+    for await (const _ of meteredRegistry(registryOf(provider), meter, onlyBuiltIn)
+      .get('openrouter')!
+      .stream(request()))
+      void _;
+    // 'hi' is 2 bytes, + 4 for the message and 16 for the request: 22 tokens in, 100 out,
+    // with the fee and the markup.
+    const worst = chargeMicros(
+      costFromTokensNanos(
+        { inMicrosPerMTok: 150_000_000, outMicrosPerMTok: 600_000_000, contextTokens: 200_000 },
+        22,
+        100,
+      ),
+      1000,
+      550,
+    );
+    expect(worst).toBeGreaterThan(usageHoldMicros(env));
+    expect(held).toEqual([expect.objectContaining({ status: 'pending', hold_micros: worst })]);
+  });
+
+  it('refuses the call, sending nothing, when the balance cannot cover its hold', async () => {
+    const h = await harness();
+    // Spend all but the flat hold: enough for a cheap model, not for this one.
+    const { balanceMicros } = await getBalance(env.DB, h.account.billingAccountId);
+    await grantCredit(env.DB, {
+      accountId: h.account.billingAccountId,
+      kind: 'adjustment',
+      amountMicros: usageHoldMicros(env) - balanceMicros,
+      providerRef: null,
+    });
+    const provider = scriptedProvider(reply);
+    const meter = createUsageMeter(pricey, h.account, (p) => h.deferred.push(p), FAST);
+    const events: ProviderEvent[] = [];
+    for await (const e of meteredRegistry(registryOf(provider), meter, onlyBuiltIn)
+      .get('openrouter')!
+      .stream(request()))
+      events.push(e);
+    expect(events).toEqual([
+      {
+        type: 'error',
+        error: {
+          code: 'rate_limit',
+          message: 'Not enough Tangent credit for this request.',
+          retryable: false,
+          upstream: 'not_sent',
+        },
+      },
+    ]);
+    expect(provider.calls).toBe(0);
+    expect(await h.rows()).toEqual([]);
+  });
+
+  it('refuses a model without a known price: it could cost anything', async () => {
+    const h = await harness();
+    const unpriced = { ...env, MODEL_PRICES: '' } as AppEnv;
+    const provider = scriptedProvider(reply);
+    const meter = createUsageMeter(unpriced, h.account, (p) => h.deferred.push(p), FAST);
+    const events: ProviderEvent[] = [];
+    for await (const e of meteredRegistry(registryOf(provider), meter, onlyBuiltIn)
+      .get('openrouter')!
+      .stream(request()))
+      events.push(e);
+    expect(events).toMatchObject([
+      { type: 'error', error: { message: expect.stringContaining("price isn't known") } },
+    ]);
+    expect(provider.calls).toBe(0);
+    expect(await h.rows()).toEqual([]);
+  });
+});
+
 describe('usage meter web searches', () => {
   it('records the reported search count; the search fee is inside the reported cost', async () => {
-    const h = harness();
+    const h = await harness();
     await h.run(
       [
         { type: 'billing', generationId: uniq('gen-ws') },
@@ -480,7 +579,7 @@ describe('usage meter web searches', () => {
   });
 
   it('counts one search when a search started but no count was reported', async () => {
-    const h = harness();
+    const h = await harness();
     await h.run(
       [
         { type: 'activity', kind: 'web_search' },
@@ -493,7 +592,7 @@ describe('usage meter web searches', () => {
   });
 
   it('records no search for a plain reply', async () => {
-    const h = harness();
+    const h = await harness();
     await h.run(
       [
         { type: 'billing', costUsd: COST },
@@ -505,7 +604,7 @@ describe('usage meter web searches', () => {
   });
 
   it('an aborted grounded run settles from /generation, search results counting as a search', async () => {
-    const h = harness();
+    const h = await harness();
     const gen = uniq('gen-ws-aborted');
     await scriptGeneration(gen, [{ costUsd: 0.0075, numSearchResults: 5 }]);
     await h.run(
@@ -539,7 +638,7 @@ describe('the call log', () => {
   it('logs each call once: tier, served provider, cached and reasoning tokens, cost, finish reason', async () => {
     const log = vi.spyOn(console, 'log');
     const warn = vi.spyOn(console, 'warn');
-    const h = harness();
+    const h = await harness();
     await h.run(
       [
         { type: 'billing', generationId: uniq('gen') },
@@ -587,7 +686,7 @@ describe('the call log', () => {
   it('warns about a reply cut off at its cap', async () => {
     const log = vi.spyOn(console, 'log');
     const warn = vi.spyOn(console, 'warn');
-    const h = harness();
+    const h = await harness();
     await h.run(
       [
         { type: 'delta', text: 'Half an' },
@@ -605,7 +704,7 @@ describe('the call log', () => {
 
   it('logs nothing for a call never sent upstream', async () => {
     const log = vi.spyOn(console, 'log');
-    const h = harness();
+    const h = await harness();
     await h.run([{ type: 'done', stopReason: 'stop' }], {
       env: envWithFailingDb(env, /INSERT INTO usage_events/),
     });

@@ -238,8 +238,11 @@ export default defineConfig({
             // a pool of their own, so membership payments elsewhere never touch the shared `pool`.
             POOL_REVENUE_SHARE_BPS: '0',
             POOL_MODEL: 'simple',
+            // `smart` (Max) is priced too, low, so a credit call on it holds USAGE_HOLD_MICROS like
+            // any cheap model (a model without a price can't run on credit).
             MODEL_PRICES: JSON.stringify({
               simple: { in: 1_000_000, out: 1_000_000, context: 1_048_576 },
+              smart: { in: 10_000, out: 10_000, context: 1_048_576 },
             }),
             POOL_MAX_OUTPUT_TOKENS: '2048',
             POOL_REQUESTS_PER_DAY: '3',

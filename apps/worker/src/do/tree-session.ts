@@ -24,8 +24,9 @@ import {
 import { DurableObject } from 'cloudflare:workers';
 import { openKeys } from '../byok/keys.js';
 import { billingAccountIdFor } from '../auth/account.js';
+import { reserveCreditReply } from '../billing/service.js';
 import { releaseUndispatched } from '../billing/usage-store.js';
-import { isPoolFunded, usesUserKeys, type AccountContext, type AppEnv } from '../env.js';
+import { isMetered, isPoolFunded, usesUserKeys, type AccountContext, type AppEnv } from '../env.js';
 import { apiErrorBody } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { poolBank } from '../pool/ids.js';
@@ -249,11 +250,11 @@ export class TreeSession extends DurableObject<AppEnv> {
   }
 
   /**
-   * On the pool, the reply is reserved (at its ceiling hold) under the send
-   * lock before `beginSend` writes any node, so a refusal is a plain 402/429
-   * and the branch is untouched. The reservation is released whenever the
-   * reply never reaches the provider: `beginSend` fails, or the run ends
-   * without dispatching it.
+   * On the pool or on Tangent credit, the reply is reserved (the pool's
+   * ceiling hold, credit's least hold) under the send lock before `beginSend`
+   * writes any node, so a refusal is a plain 402/429 and the branch is
+   * untouched. The reservation is released whenever the reply never reaches
+   * the provider: `beginSend` fails, or the run ends without dispatching it.
    */
   private async send(
     chat: ChatService,
@@ -263,7 +264,7 @@ export class TreeSession extends DurableObject<AppEnv> {
     const begin = this.sendLock.then(async () => {
       const reservationId = isPoolFunded(account)
         ? await this.reserveReply(account.pool, account.userId, target)
-        : null;
+        : await this.reserveCreditReply(chat, account, target);
       try {
         return { started: await chat.beginSend(target.branchId, target.content), reservationId };
       } catch (err) {
@@ -318,12 +319,34 @@ export class TreeSession extends DurableObject<AppEnv> {
     return result.usageId;
   }
 
-  /** Releases an undispatched reservation; a failure is left to PoolBank's expiry. */
+  /**
+   * Reserves a reply on Tangent credit (`reserveCreditReply`), or throws
+   * 402/429; null when the branch's reply isn't paid with credit.
+   */
+  private async reserveCreditReply(
+    chat: ChatService,
+    account: AccountContext,
+    target: { treeId: string; branchId: string },
+  ): Promise<string | null> {
+    if (!account.builtIn) return null;
+    const branch = await chat.getOwnedBranch(target.branchId);
+    if (!isMetered(account, branch.funding)) return null;
+    return reserveCreditReply(this.env, account, {
+      ...target,
+      providerId: branch.providerId,
+      model: branch.model,
+    });
+  }
+
+  /**
+   * Releases an undispatched reservation; a failure is left to the backstops
+   * (PoolBank's expiry, the reconcile cron).
+   */
   private async release(reservationId: string): Promise<void> {
     try {
       await releaseUndispatched(this.env.DB, reservationId);
     } catch (err) {
-      console.error('Releasing a pool reservation failed; expiry will', reservationId, err);
+      console.error('Releasing a reservation failed; the backstops will', reservationId, err);
     }
   }
 

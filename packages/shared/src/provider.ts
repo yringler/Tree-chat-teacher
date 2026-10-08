@@ -102,8 +102,8 @@ export interface UsageTag {
   /** The node the call produces or is about (reply/review); null for summaries and titles. */
   nodeId: string | null;
   /**
-   * Open pool only: the pending usage row reserved for this call before
-   * it was assembled (the reply's ceiling hold). The meter shrinks that row's
+   * The pending usage row reserved for this call before it was assembled (a
+   * reply on the open pool or on Tangent credit). The meter sets that row's
    * hold to the call's exact worst case instead of reserving a second time.
    */
   reservationId?: string;

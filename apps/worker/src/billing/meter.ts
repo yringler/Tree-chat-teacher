@@ -3,8 +3,13 @@
 // provider. Who pays is the meter's funding:
 //
 // - personal (`createUsageMeter`): the user's ledger (`AccountContext.billingAccountId`).
-//   1. Before the upstream call: insert a pending row holding USAGE_HOLD_MICROS
-//      at the markup and OpenRouter fee in force now (awaited; no row, no call).
+//   1. Before the upstream call: hold the call's worst case at its model's
+//      price (`creditHoldMicros`; a model without a known price is refused) at
+//      the markup and OpenRouter fee in force now: a pending row inserted only
+//      while the balance covers it (and, for a call a user starts, fewer than
+//      USAGE_MAX_PENDING are in flight), in one statement, or, for a reply
+//      reserved before its nodes were written (`UsageTag.reservationId`), that
+//      row repriced and stamped dispatched. Awaited; no row, no call.
 //   2. Tap `billing` (generation id, reported cost) and `usage` (tokens).
 //   3. At the terminal event: settle inline when the cost is known; else, with a
 //      generation id, reconcile in the background via OpenRouter; else (the
@@ -39,10 +44,13 @@ import {
   type ProviderRegistry,
   type ProviderUpstream,
   type ProviderUsage,
+  type UsagePurpose,
   type UsageTag,
 } from '@tangent/shared';
+import { PaymentRequiredError } from '@tangent/core';
 import type { AccountContext, AppEnv } from '../env.js';
 import { poolBank } from '../pool/ids.js';
+import { creditPrice } from '../pool/model-prices.js';
 import { poolReserveRequest, type PoolParams } from '../pool/params.js';
 import type { PoolRefusal } from '../pool/pool-bank.js';
 import {
@@ -54,10 +62,18 @@ import {
 import { poolSettlement, type PoolSettlement } from '../pool/settle-policy.js';
 import { costUsdToNanos } from './pricing.js';
 import { reconcileGeneration, RECONCILE_RETRY_DELAYS_MS } from './reconcile.js';
-import { markupFor, openRouterFeeBps, usageHoldMicros } from './service.js';
 import {
-  insertPendingUsage,
+  creditHoldMicros,
+  creditRefusal,
+  markupFor,
+  openRouterFeeBps,
+  unpricedOnCredit,
+  usageMaxPending,
+} from './service.js';
+import {
   markDispatched,
+  repriceReservation,
+  reservePersonalUsage,
   setGenerationId,
   settleUsage,
   shrinkHold,
@@ -73,6 +89,8 @@ export interface UsageMeter {
     providerId: string;
     model: string;
     request: GenerateRequest;
+    /** The provider's output cap for `model`: the call's when the request sets none. */
+    maxOutputTokens: number;
   }): Promise<MeterRun>;
 }
 
@@ -96,6 +114,14 @@ export interface UsageMeterOptions {
   fetchImpl?: typeof fetch;
   /** Backoff for a failed inline settle (default 1, 5, 15 s); the cron covers the rest. */
   settleRetryDelaysMs?: readonly number[];
+}
+
+/** Tangent credit can't cover the call (or its model has no price): it is failed before anything is sent. */
+export class CreditRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CreditRefusedError';
+  }
 }
 
 /** A pool reservation was refused: the call is failed before anything is sent. */
@@ -268,6 +294,24 @@ abstract class ObservedRun implements MeterRun {
 }
 
 class PersonalRun extends ObservedRun {
+  constructor(
+    env: AppEnv,
+    usageId: string,
+    markupBps: number,
+    feeBps: number,
+    defer: (p: Promise<unknown>) => void,
+    options: UsageMeterOptions,
+    request: GenerateRequest,
+    /** The row was reserved before the reply's nodes were written: stamp it, so no release takes it. */
+    private readonly reserved: boolean,
+  ) {
+    super(env, usageId, markupBps, feeBps, defer, options, request);
+  }
+
+  override dispatch(): Promise<boolean> {
+    return this.reserved ? markDispatched(this.env.DB, this.usageId) : Promise.resolve(true);
+  }
+
   protected async settleRun(): Promise<void> {
     if (this.costUsd !== null) {
       await this.settleOrDefer({ costNanos: costUsdToNanos(this.costUsd), reason: 'cost' });
@@ -349,6 +393,9 @@ class PoolRun extends ObservedRun {
   }
 }
 
+/** Calls made for another one (a reply's summaries and title): no slot of their own. */
+const RIDES_ON_A_CALL: ReadonlySet<UsagePurpose> = new Set(['summary', 'title', 'tagging']);
+
 /** `defer` keeps background work alive (`ctx.waitUntil` in the DO / Worker). */
 export function createUsageMeter(
   env: AppEnv,
@@ -358,27 +405,56 @@ export function createUsageMeter(
 ): UsageMeter {
   return {
     funding: 'personal',
-    async begin({ tag, providerId, model, request }) {
-      const markupBps = markupFor(env);
-      const feeBps = openRouterFeeBps(env);
+    async begin({ tag, providerId, model, request, maxOutputTokens }) {
+      const price = await creditPrice(env, model);
+      if (!price) throw new CreditRefusedError(unpricedOnCredit(model).message);
+      const rates = { markupBps: markupFor(env), feeBps: openRouterFeeBps(env) };
+      // The hold bounds the output: a request without a cap gets the provider's.
+      const upstream = { ...request, maxOutputTokens: request.maxOutputTokens ?? maxOutputTokens };
+      const holdMicros = creditHoldMicros(env, price, request, upstream.maxOutputTokens, rates);
+      const run = (usageId: string, r: typeof rates, reserved: boolean) =>
+        new PersonalRun(env, usageId, r.markupBps, r.feeBps, defer, options, upstream, reserved);
+      if (tag?.reservationId) {
+        const claimed = await repriceReservation(
+          env.DB,
+          tag.reservationId,
+          account.billingAccountId,
+          holdMicros,
+        );
+        if (claimed) return run(tag.reservationId, claimed, true);
+        // Already used (a reply retried without its web search), or too dear for the balance:
+        // reserved afresh below, where a refusal says which.
+      }
       const usageId = crypto.randomUUID();
-      await insertPendingUsage(env.DB, {
-        id: usageId,
-        accountId: account.billingAccountId,
-        treeId: tag?.treeId ?? null,
-        nodeId: tag?.nodeId ?? null,
-        branchId: tag?.branchId ?? null,
-        userId: account.userId,
-        funding: 'personal',
-        purpose: tag?.purpose ?? 'other',
-        providerId,
-        model,
-        holdMicros: usageHoldMicros(env),
-        markupBps,
-        feeBps,
-        createdAt: new Date().toISOString(),
-      });
-      return new PersonalRun(env, usageId, markupBps, feeBps, defer, options, request);
+      const purpose = tag?.purpose ?? 'other';
+      const reserved = await reservePersonalUsage(
+        env.DB,
+        {
+          id: usageId,
+          accountId: account.billingAccountId,
+          treeId: tag?.treeId ?? null,
+          nodeId: tag?.nodeId ?? null,
+          branchId: tag?.branchId ?? null,
+          userId: account.userId,
+          purpose,
+          providerId,
+          model,
+          holdMicros,
+          ...rates,
+          createdAt: new Date().toISOString(),
+        },
+        // A reply's summaries and title, and a reserved reply's retry, ride on its admission.
+        tag?.reservationId || RIDES_ON_A_CALL.has(purpose) ? null : usageMaxPending(env),
+      );
+      if (!reserved) {
+        const refusal = await creditRefusal(env, account.billingAccountId, holdMicros);
+        throw new CreditRefusedError(
+          refusal instanceof PaymentRequiredError
+            ? 'Not enough Tangent credit for this request.'
+            : refusal.message,
+        );
+      }
+      return run(usageId, rates, false);
     },
   };
 }
@@ -532,9 +608,17 @@ async function* meteredStream(
       providerId: provider.id,
       model: request.model,
       request,
+      maxOutputTokens: provider.capabilities(request.model).maxOutputTokens,
     });
   } catch (e) {
     // No row, no upstream call: the provider contract is "never throw", so fail as an event.
+    if (e instanceof CreditRefusedError) {
+      yield {
+        type: 'error',
+        error: { code: 'rate_limit', message: e.message, retryable: false, upstream: 'not_sent' },
+      };
+      return;
+    }
     if (e instanceof PoolRefusedError) {
       yield {
         type: 'error',

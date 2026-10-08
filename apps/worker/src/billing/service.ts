@@ -14,28 +14,123 @@ import {
   type UsageListResponse,
   type UsagePurpose,
 } from '@tangent/shared';
+import type { ModelPrice } from '../config.js';
 import { isMetered, type AccountContext, type AppEnv } from '../env.js';
+import { chargeFromTokensMicros, inputBoundTokens, type InputOf } from '../pool/pricing.js';
 import { builtInAvailable, personalCreditReady } from '../services.js';
 import { getBalance } from './ledger.js';
 import { membershipFor } from './membership.js';
 import { buyerFor, rememberCustomer } from './payments/customers.js';
 import { paymentProvider, paymentsConfigured } from './payments/index.js';
+import { reservePersonalUsage } from './usage-store.js';
 import { appConfig } from '../config.js';
 
 const MAX_USAGE_PAGE = 100;
 
-/** Per-call hold and minimum available balance (`USAGE_HOLD_MICROS`). */
+/**
+ * The least a credit call holds, and the available balance a send needs to
+ * start (`USAGE_HOLD_MICROS`); a call on a pricier model holds its own worst
+ * case (`creditHoldMicros`).
+ */
 export function usageHoldMicros(env: AppEnv): number {
   return appConfig(env).billing.usageHoldMicros;
 }
 
 /**
- * Metered calls a user may have in flight at once (`USAGE_MAX_PENDING`). The
- * hold doesn't follow the model's price, so this is what bounds an overdraft:
- * at most this many calls, each within the built-in provider's token caps.
+ * Credit calls a user may start and have in flight at once
+ * (`USAGE_MAX_PENDING`): replies, reviews and compare candidates. The
+ * summaries and titles of one ride on it, bounded by the balance alone.
  */
-function usageMaxPending(env: AppEnv): number {
+export function usageMaxPending(env: AppEnv): number {
   return appConfig(env).billing.usageMaxPending;
+}
+
+/**
+ * What a credit call on a model at `price` holds: its worst case, `request`'s
+ * input bound (pool/pricing.ts `inputBoundTokens`, in UTF-8 bytes) at the most
+ * an input token can cost plus `maxOutputTokens` out, with the fee and the
+ * markup, rounded up; never below `USAGE_HOLD_MICROS`. Web searches are not
+ * priced in: the floor covers one.
+ */
+export function creditHoldMicros(
+  env: AppEnv,
+  price: ModelPrice,
+  request: InputOf,
+  maxOutputTokens: number,
+  rates: { markupBps: number; feeBps: number },
+): number {
+  const worst = chargeFromTokensMicros(
+    price,
+    inputBoundTokens(request),
+    maxOutputTokens,
+    rates.feeBps,
+    rates.markupBps,
+  );
+  return Math.max(usageHoldMicros(env), worst);
+}
+
+const TOO_MANY_PENDING =
+  'Too many replies are still running on Tangent credit. Wait for one to finish and try again.';
+
+/** The error of a model that can't run on credit because its price isn't known. */
+export function unpricedOnCredit(model: string): DomainError {
+  return new DomainError(
+    'bad_request',
+    `${model} can't run on Tangent credit: its price isn't known yet. Pick another model.`,
+  );
+}
+
+/**
+ * Why a credit reservation of `holdMicros` was refused: 402 when the
+ * available balance can't cover it, else 429 `rate_limited` (too many calls
+ * in flight). Read after the refusal, so a race can only change which.
+ */
+export async function creditRefusal(
+  env: AppEnv,
+  billingAccountId: string,
+  holdMicros: number,
+): Promise<DomainError> {
+  const { balanceMicros, heldMicros } = await getBalance(env.DB, billingAccountId);
+  if (balanceMicros - heldMicros < holdMicros) return new PaymentRequiredError();
+  return new DomainError('rate_limited', TOO_MANY_PENDING);
+}
+
+/**
+ * Reserves a credit reply before its nodes are written (the tree's Durable
+ * Object, under its send lock): a pending row of `USAGE_HOLD_MICROS`, taken
+ * only while the balance covers it and fewer than `USAGE_MAX_PENDING` calls
+ * are in flight, in one statement, so sends racing on several trees can't
+ * all pass. The meter then holds the reply at its own worst case
+ * (`repriceReservation`). Resolves the row's id; throws 402 or 429.
+ */
+export async function reserveCreditReply(
+  env: AppEnv,
+  account: AccountContext,
+  target: { treeId: string; branchId: string; providerId: string; model: string },
+): Promise<string> {
+  const id = crypto.randomUUID();
+  const holdMicros = usageHoldMicros(env);
+  const reserved = await reservePersonalUsage(
+    env.DB,
+    {
+      id,
+      accountId: account.billingAccountId,
+      treeId: target.treeId,
+      nodeId: null,
+      branchId: target.branchId,
+      userId: account.userId,
+      purpose: 'reply',
+      providerId: target.providerId,
+      model: target.model,
+      holdMicros,
+      markupBps: markupFor(env),
+      feeBps: openRouterFeeBps(env),
+      createdAt: new Date().toISOString(),
+    },
+    usageMaxPending(env),
+  );
+  if (!reserved) throw await creditRefusal(env, account.billingAccountId, holdMicros);
+  return id;
 }
 
 /** OpenRouter's credit-purchase fee in bps (`OPENROUTER_FEE_BPS`), part of the provider cost. */
@@ -57,12 +152,14 @@ function notConfigured(): DomainError {
 }
 
 /**
- * Throws `PaymentRequiredError` (402) when a call on a route of `funding` is
- * metered (Tangent credit, see `isMetered`) and the user's credit can't start
- * it: available = balance − pending holds must cover one more hold. Then
- * 429 `rate_limited` when `USAGE_MAX_PENDING` metered calls are already in
- * flight (pending usage rows), which bounds how far the balance can go
- * negative. A no-op for every call on the user's own keys, in either mode.
+ * The early check of a request on a route of `funding`, before anything is
+ * written or streamed: when it is metered (Tangent credit, see `isMetered`),
+ * 402 `payment_required` unless the available balance (balance − pending
+ * holds) covers one more `USAGE_HOLD_MICROS`, then 429 `rate_limited` when
+ * `USAGE_MAX_PENDING` credit calls are in flight. It is a read, so requests
+ * racing past it are stopped by the reservation each call takes in one
+ * statement (`reserveCreditReply`, the meter's `reservePersonalUsage`). A
+ * no-op for every call on the user's own keys, in either mode.
  */
 export async function assertCanSpend(
   env: AppEnv,
@@ -76,11 +173,7 @@ export async function assertCanSpend(
     account.billingAccountId,
   );
   if (balanceMicros - heldMicros < usageHoldMicros(env)) throw new PaymentRequiredError();
-  if (pendingCalls >= usageMaxPending(env))
-    throw new DomainError(
-      'rate_limited',
-      'Too many replies are still running on Tangent credit. Wait for one to finish and try again.',
-    );
+  if (pendingCalls >= usageMaxPending(env)) throw new DomainError('rate_limited', TOO_MANY_PENDING);
 }
 
 interface PurchaseRow {
