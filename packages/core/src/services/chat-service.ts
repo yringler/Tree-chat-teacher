@@ -160,7 +160,6 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
 };
 
 export { DEFAULT_TREE_TITLE, TRUNK_TITLE };
-const MAX_RESOLVE_ROUNDS = 4;
 const TITLE_TIMEOUT_MS = 15_000;
 
 export interface ChatServiceDeps {
@@ -922,7 +921,13 @@ export class ChatService {
 
   /**
    * Plan → (cache lookup | generate) missing summaries → re-plan, until the
-   * plan is complete, nothing changes, or MAX_RESOLVE_ROUNDS is reached.
+   * plan is complete or nothing changes. Summaries nest (a summary-mode
+   * branch summarizes a context that holds its parent's summary, and a
+   * compaction can hold any of them), so they resolve inner-first, a level
+   * per round: a round that only found cached summaries is free (each finds
+   * one it hadn't, so there are no more of them than cached summaries), and the
+   * rounds that generate are bounded by the levels there can be, one per
+   * branch of the chain and one compaction.
    * Yields human-readable status messages; returns the final plan.
    */
   private async *resolvePlan(
@@ -958,7 +963,8 @@ export class ChatService {
       });
 
     let current = plan();
-    for (let round = 0; round < MAX_RESOLVE_ROUNDS; round++) {
+    const maxGeneratingRounds = inputs.chain.length + 1;
+    for (let generatingRounds = 0; ; ) {
       // 1. Cache lookups for every pending summary we haven't looked up yet.
       // Requests can name inner summaries that have no segment of their own
       // (nested summary modes), so check both.
@@ -988,6 +994,8 @@ export class ChatService {
         continue;
       }
       if (!generate || current.pendingSummaries.length === 0) return current;
+      if (generatingRounds === maxGeneratingRounds) return current;
+      generatingRounds++;
 
       // 2. Generate what is still missing.
       for (const request of current.pendingSummaries) {
@@ -1021,7 +1029,6 @@ export class ChatService {
       current = plan();
       if (current.complete) return current;
     }
-    return current;
   }
 
   private async generateSummary(
@@ -1156,12 +1163,7 @@ export class ChatService {
         step = await steps.next();
       }
       const plan = step.value;
-      if (plan.segments.some((s) => s.kind === 'summary' && s.status === 'failed')) {
-        yield {
-          type: 'status',
-          message: 'A summary could not be generated; sending without it.',
-        };
-      }
+      if (missesSummary(plan)) yield { type: 'status', message: SUMMARY_MISSING_STATUS };
       const model = this.modelOf(branch);
       const caps = inputs.provider.capabilities(model);
       const grounding = await this.decideGrounding(inputs, plan, caps.supportsWebSearch, options);
@@ -1581,9 +1583,7 @@ export class ChatService {
         step = await steps.next();
       }
       const plan = step.value;
-      if (plan.segments.some((s) => s.kind === 'summary' && s.status === 'failed')) {
-        yield { type: 'status', message: 'A summary could not be generated; sending without it.' };
-      }
+      if (missesSummary(plan)) yield { type: 'status', message: SUMMARY_MISSING_STATUS };
       const model = this.modelOf(inputs.branch);
       const caps = inputs.provider.capabilities(model);
       const grounding = await this.decideGrounding(inputs, plan, caps.supportsWebSearch, {});
@@ -1989,6 +1989,13 @@ async function collectText(
     else if (event.type === 'error') return null;
   }
   return text;
+}
+
+const SUMMARY_MISSING_STATUS = 'A summary could not be generated; sending without it.';
+
+/** Whether a resolved plan leaves out a summary (it failed, or is still pending). */
+function missesSummary(plan: ContextPlan): boolean {
+  return plan.segments.some((s) => s.kind === 'summary' && s.status !== 'ready');
 }
 
 /** For providers without a system prompt: fold it into the first user message. */
