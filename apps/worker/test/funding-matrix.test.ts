@@ -43,8 +43,8 @@ const env = rawEnv as unknown as AppEnv;
 const MOCK_UPSTREAM = 'https://llm.test';
 const USER_KEY = 'sk-ant-goodUSER-0123456789';
 const MODELS = [
-  { id: 'smart', label: 'Smart' },
-  { id: 'simple', label: 'Simple' },
+  { id: 'smart', label: 'Max', tier: 'max' },
+  { id: 'simple', label: 'Normal', tier: 'normal' },
 ];
 
 /** An OpenRouter-like endpoint on the mock upstream, keyed by `secret` (or a user key). */

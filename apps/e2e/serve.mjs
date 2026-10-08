@@ -81,10 +81,11 @@ const vars = {
     label: 'Tangent',
     baseUrl: 'http://127.0.0.1:9/v1',
     apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
-    defaultModel: 'smart',
+    // Learn's tiers (ids kept from when they were Smart and Simple): Normal is the default.
+    defaultModel: 'simple',
     models: [
-      { id: 'smart', label: 'Smart' },
-      { id: 'simple', label: 'Simple' },
+      { id: 'simple', label: 'Normal', tier: 'normal' },
+      { id: 'smart', label: 'Max', tier: 'max' },
     ],
   }),
   OPENROUTER_SIMPLE_API_KEY: 'sk-or-e2e-unused',

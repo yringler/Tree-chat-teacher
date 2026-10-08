@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import { providerConfigs, registryFor } from '../src/services.js';
-import { DEFAULT_SIMPLE_SMART_MODEL } from '../src/simple-mode.js';
+import { DEFAULT_SIMPLE_NORMAL_MODEL } from '../src/simple-mode.js';
 
 /*
  * The offline fake provider is no longer one of power's defaults
@@ -99,8 +99,8 @@ describe('the offline fake provider is retired', () => {
         node.model,
       ]),
     ).toEqual([
-      ['openrouter', DEFAULT_SIMPLE_SMART_MODEL, 'own-key', 'fake', 'fake-1'],
-      ['openrouter', DEFAULT_SIMPLE_SMART_MODEL, 'own-key', 'fake', 'fake-1'],
+      ['openrouter', DEFAULT_SIMPLE_NORMAL_MODEL, 'own-key', 'fake', 'fake-1'],
+      ['openrouter', DEFAULT_SIMPLE_NORMAL_MODEL, 'own-key', 'fake', 'fake-1'],
       ['anthropic', 'claude-opus-5-5', 'own-key', 'anthropic', 'claude-opus-5-5'],
     ]);
 
@@ -108,6 +108,6 @@ describe('the offline fake provider is retired', () => {
     const openrouter = registryFor(defaults, powerUser)
       .list()
       .find((p) => p.id === 'openrouter')!;
-    expect(isModelAllowed(openrouter, DEFAULT_SIMPLE_SMART_MODEL)).toBe(true);
+    expect(isModelAllowed(openrouter, DEFAULT_SIMPLE_NORMAL_MODEL)).toBe(true);
   });
 });

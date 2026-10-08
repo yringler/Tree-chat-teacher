@@ -409,8 +409,8 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
       apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
       defaultModel: 'smart',
       models: [
-        { id: 'smart', label: 'Smart' },
-        { id: 'simple', label: 'Simple' },
+        { id: 'smart', label: 'Max', tier: 'max' },
+        { id: 'simple', label: 'Normal', tier: 'normal' },
       ],
     }),
     OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR',

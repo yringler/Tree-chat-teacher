@@ -5,24 +5,40 @@ import {
   inject,
   type OnInit,
   signal,
+  type WritableSignal,
 } from '@angular/core';
 import {
   MAX_SYSTEM_PROMPT_CHARS,
+  maxUsageNote,
+  type ModelTier,
   parseRouteKey,
   providerRouteKey,
   routeKey,
+  TIER_LABELS,
+  TIERS,
 } from '@tangent/shared';
 import { ReviewStore } from '../state/review-store';
-import { SettingsStore } from '../state/settings-store';
+import { type ModelChoice, SettingsStore } from '../state/settings-store';
+import { TierStore } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ApiClient, errorMessage, Modal } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
 
+/** One tier in the "Normal & Max" section: the suggested model, or the user's own pick. */
+interface TierRow {
+  tier: ModelTier;
+  label: string;
+  suggested: WritableSignal<boolean>;
+  /** The pick's provider and funding, as a `routeKey`. */
+  route: WritableSignal<string>;
+  modelId: WritableSignal<string>;
+}
+
 /**
  * App-wide preferences, one section per feature. The default system prompt
- * is saved to the account (server-side, `/api/settings`); the reviewer is
- * saved in this browser.
+ * is saved to the account (server-side, `/api/settings`); the reviewer and
+ * the models of Normal and Max are saved in this browser.
  */
 @Component({
   selector: 'app-settings-dialog',
@@ -106,6 +122,34 @@ import { ModelPicker } from '../ui/model-picker';
           }
         </fieldset>
 
+        <fieldset class="settings-section">
+          <legend>Normal &amp; Max</legend>
+          <p class="muted small">
+            The Normal | Max switch under the message box uses these, and Compare asks both. Each
+            tier keeps who pays for the branch where it can.
+            @if (maxSuggested()) {
+              {{ maxNote() }}
+            }
+          </p>
+          @for (row of tierRows; track row.tier) {
+            <div class="tier-setting">
+              <label class="check">
+                <input
+                  type="checkbox"
+                  [checked]="row.suggested()"
+                  (change)="setSuggested(row, !row.suggested())"
+                />
+                {{ row.label }}: use the suggested model
+              </label>
+              @if (row.suggested()) {
+                <p class="small indent">Now: {{ suggestion(row.tier) }}</p>
+              } @else {
+                <app-model-picker [(route)]="row.route" [(modelId)]="row.modelId" />
+              }
+            </div>
+          }
+        </fieldset>
+
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
           <button type="submit" class="btn btn-primary" [disabled]="saving()">
@@ -121,7 +165,22 @@ export class SettingsDialog implements OnInit {
   private readonly settings = inject(SettingsStore);
   private readonly reviews = inject(ReviewStore);
   private readonly store = inject(TreeStore);
+  private readonly tiers = inject(TierStore);
   private readonly ui = inject(UiStore);
+
+  protected readonly tierRows: readonly TierRow[] = TIERS.map((tier) => ({
+    tier,
+    label: TIER_LABELS[tier],
+    suggested: signal(true),
+    route: signal(''),
+    modelId: signal(''),
+  }));
+  protected readonly maxSuggested = computed(() =>
+    this.tierRows.every((row) => row.tier !== 'max' || row.suggested()),
+  );
+  protected readonly maxNote = computed(() =>
+    maxUsageNote(this.tiers.usageFactor(this.store.selectedBranch())),
+  );
 
   protected readonly custom = signal(false);
   /** The reviewer's provider and funding, as a `routeKey`. */
@@ -152,7 +211,43 @@ export class SettingsDialog implements OnInit {
       this.route.set(routeKey(saved));
       this.modelId.set(saved.model);
     }
+    const tiers = this.settings.settings().tiers;
+    for (const row of this.tierRows) {
+      const own = tiers[row.tier];
+      row.suggested.set(own === null);
+      if (own) this.pick(row, own);
+    }
     void this.loadPrompt();
+  }
+
+  /** What a suggested tier is now, for the open branch: "model (provider)". */
+  protected suggestion(tier: ModelTier): string {
+    const c = this.tiers.suggested(tier, this.store.selectedBranch());
+    if (!c) return 'none (no provider lists one)';
+    const provider = this.store.providerOf(c)?.label ?? c.providerId;
+    return `${this.tiers.modelLabel(c)} (${provider})`;
+  }
+
+  /** Unticking "suggested" starts the picker on the tier's model now. */
+  protected setSuggested(row: TierRow, suggested: boolean): void {
+    if (!suggested && !row.route()) {
+      const start = this.tiers.choice(row.tier, this.store.selectedBranch());
+      if (start) this.pick(row, start);
+    }
+    row.suggested.set(suggested);
+  }
+
+  private pick(row: TierRow, choice: ModelChoice): void {
+    row.route.set(routeKey(choice));
+    row.modelId.set(choice.model);
+  }
+
+  /** A row's saved value: null while suggested, or when the pick is incomplete. */
+  private tierChoice(row: TierRow): ModelChoice | null {
+    const model = row.modelId().trim();
+    return row.suggested() || !row.route() || !model
+      ? null
+      : { ...parseRouteKey(row.route()), model };
   }
 
   private async loadPrompt(): Promise<void> {
@@ -191,7 +286,8 @@ export class SettingsDialog implements OnInit {
       this.custom() && this.route() && this.modelId().trim()
         ? { ...parseRouteKey(this.route()), model: this.modelId().trim() }
         : null;
-    this.settings.update({ reviewer });
+    const [normal, max] = this.tierRows.map((row) => this.tierChoice(row));
+    this.settings.update({ reviewer, tiers: { normal: normal ?? null, max: max ?? null } });
     const prompt = this.promptToSave();
     if (this.promptLoaded() && prompt !== this.savedPrompt()) {
       this.saving.set(true);

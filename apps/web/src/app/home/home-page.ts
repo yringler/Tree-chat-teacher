@@ -9,10 +9,19 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Composer } from '../chat/composer';
+import { sameChoice, TierStore, tierOptions } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon, readOnlyText } from '@tangent/web-shared';
-import { providerRouteKey, type TreeSummary } from '@tangent/shared';
+import { Icon, readOnlyText, Segmented } from '@tangent/web-shared';
+import {
+  maxUsageNote,
+  parseRouteKey,
+  providerRouteKey,
+  routeKey,
+  TIERS,
+  type ModelTier,
+  type TreeSummary,
+} from '@tangent/shared';
 import { confirmDeleteTree } from '../dialogs/tree-settings';
 import { ImportButton } from '../ui/import-button';
 import { ModelPicker } from '../ui/model-picker';
@@ -23,7 +32,7 @@ import { ModelPicker } from '../ui/model-picker';
  */
 @Component({
   selector: 'app-home-page',
-  imports: [Composer, ModelPicker, RouterLink, Icon, ImportButton, DatePipe],
+  imports: [Composer, ModelPicker, RouterLink, Icon, ImportButton, DatePipe, Segmented],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="page-head">
@@ -59,6 +68,21 @@ import { ModelPicker } from '../ui/model-picker';
           </div>
         } @else {
           @if (route() !== '') {
+            @if (tiers.available(null)) {
+              <!-- Normal | Max fills in the picker below; any other model can still be picked there. -->
+              <div class="home-tiers">
+                <app-segmented
+                  label="Model tier"
+                  [options]="tierOptions()"
+                  [value]="tier()"
+                  [disabled]="starting()"
+                  (changed)="pickTier($event)"
+                />
+                @if (tier() === 'max') {
+                  <span class="tier-note">{{ maxNote() }}</span>
+                }
+              </div>
+            }
             <app-model-picker [(route)]="route" [(modelId)]="modelId" />
           }
           <app-composer
@@ -109,6 +133,7 @@ import { ModelPicker } from '../ui/model-picker';
 export class HomePage {
   protected readonly store = inject(TreeStore);
   protected readonly ui = inject(UiStore);
+  protected readonly tiers = inject(TierStore);
   /** The picked provider and funding, as a `routeKey`. */
   protected readonly route = signal('');
   protected readonly modelId = signal('');
@@ -126,6 +151,23 @@ export class HomePage {
     if (this.store.canGenerate()) return null;
     return readOnlyText(m);
   });
+
+  /** The tier the picker is on; null = another model. */
+  protected readonly tier = computed<ModelTier | null>(() => {
+    const route = this.route();
+    if (!route) return null;
+    const picked = { ...parseRouteKey(route), model: this.modelId().trim() };
+    return (
+      TIERS.find((t) => {
+        const c = this.tiers.choice(t, null);
+        return !!c && sameChoice(c, picked);
+      }) ?? null
+    );
+  });
+
+  protected readonly maxNote = computed(() => maxUsageNote(this.tiers.usageFactor(null)));
+
+  protected readonly tierOptions = computed(() => tierOptions(this.maxNote()));
 
   constructor() {
     effect(() => {
@@ -148,6 +190,15 @@ export class HomePage {
     } finally {
       this.starting.set(false);
     }
+  }
+
+  /** Normal | Max: the picker takes that tier's provider and model. */
+  protected pickTier(id: string): void {
+    const tier = TIERS.find((t) => t === id);
+    const c = tier ? this.tiers.choice(tier, null) : null;
+    if (!c) return;
+    this.route.set(routeKey(c));
+    this.modelId.set(c.model);
   }
 
   protected remove(t: TreeSummary): void {

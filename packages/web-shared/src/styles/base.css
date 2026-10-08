@@ -698,6 +698,165 @@ textarea:focus-visible {
   }
 }
 
+/* Segmented control (ui/segmented.ts; Learn's Normal / Max toggle) */
+
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  flex: none;
+}
+
+.segment {
+  padding: 3px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--fg-muted);
+  font-size: 0.86rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.segment.is-on {
+  background: var(--bg-elev);
+  color: var(--fg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+
+.segment:disabled {
+  cursor: default;
+}
+
+/* "Max uses about 3× as much as Normal." under a Normal / Max switch */
+.tier-note {
+  margin: 0 0 6px;
+  color: var(--fg-muted);
+  font-size: 0.82rem;
+}
+
+/* Compare (ui/compare.ts) in its sheet: tabs below 900px, side by side above. */
+.compare-sheet .modal {
+  width: min(1100px, 100%);
+  height: min(780px, calc(100dvh - 32px));
+}
+
+.compare-sheet .modal-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+@media (max-width: 560px) {
+  .compare-sheet .modal {
+    height: 92dvh;
+  }
+}
+
+.compare {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.compare-question {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.compare-note {
+  margin: 0;
+}
+
+.compare-tabs {
+  display: flex;
+}
+
+.compare-panes {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  min-height: 0;
+}
+
+.compare-pane {
+  display: none;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+}
+
+.compare-pane[data-active='true'] {
+  display: flex;
+}
+
+.compare-pane-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.compare-pane-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.compare-status,
+.compare-error {
+  margin-left: auto;
+}
+
+.compare-error {
+  color: var(--danger);
+}
+
+.compare-body {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 14px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.compare-pane-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--border);
+}
+
+@media (min-width: 900px) {
+  .compare-tabs {
+    display: none;
+  }
+
+  .compare-panes {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .compare-pane {
+    display: flex;
+  }
+}
+
 /* Intro line (home page, login page) */
 
 .lead {

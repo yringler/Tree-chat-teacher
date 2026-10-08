@@ -169,6 +169,13 @@
       "when": 1791255843827,
       "tag": "0023_node_links",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1791370000000,
+      "tag": "0024_learn_tiers",
+      "breakpoints": true
     }
   ]
 }

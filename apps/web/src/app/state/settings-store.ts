@@ -1,5 +1,5 @@
 import { Injectable, signal } from '@angular/core';
-import { fromLegacyRoute, type BranchFunding } from '@tangent/shared';
+import { fromLegacyRoute, type BranchFunding, type ModelTier } from '@tangent/shared';
 
 /**
  * A provider + model pair, as stored in settings, with who pays for it
@@ -20,10 +20,16 @@ export interface ModelChoice {
 export interface AppSettings {
   /** Default model for "Review up to here"; null = the branch's provider default. */
   reviewer: ModelChoice | null;
+  /**
+   * What the Normal | Max switch (route bar, home page) and Compare use for
+   * each tier; null = the suggested model of the tier (TierStore `choice`).
+   */
+  tiers: Readonly<Record<ModelTier, ModelChoice | null>>;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   reviewer: null,
+  tiers: { normal: null, max: null },
 };
 
 const STORAGE_KEY = 'tangent.settings';
@@ -51,7 +57,13 @@ export function parseSettings(raw: string | null): AppSettings {
     return DEFAULT_SETTINGS;
   }
   if (!isRecord(value)) return DEFAULT_SETTINGS;
-  return { ...DEFAULT_SETTINGS, reviewer: parseChoice(value['reviewer']) };
+  // Settings saved before the tiers existed have none: both suggested.
+  const tiers = isRecord(value['tiers']) ? value['tiers'] : {};
+  return {
+    ...DEFAULT_SETTINGS,
+    reviewer: parseChoice(value['reviewer']),
+    tiers: { normal: parseChoice(tiers['normal']), max: parseChoice(tiers['max']) },
+  };
 }
 
 /**

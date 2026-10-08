@@ -7,7 +7,7 @@ import { appConfig } from '../config.js';
 import type { AccountContext, AppEnv } from '../env.js';
 import { poolAvailable } from '../services.js';
 import { getCached, putCached } from '../share/cache.js';
-import { simpleProviderConfig } from '../simple-mode.js';
+import { POOL_MODEL_LABEL, simpleProviderConfig } from '../simple-mode.js';
 import { consentVersion } from './consent.js';
 import { poolModel } from './params.js';
 import { dayResetAt, dayStart, userDayUsageStatement, type DayRow } from './pool-bank.js';
@@ -22,10 +22,15 @@ export function weekStart(now: Date): Date {
   return new Date(day.getTime() - sinceMonday * 24 * 60 * 60_000);
 }
 
-/** The pool model and its label in the simple provider's list (`Simple`), else its id. */
+/**
+ * The pool model and its label in the simple provider's list (a tier, when
+ * the pool runs one), else `POOL_MODEL_LABEL` (the default pool model, Learn's
+ * background model, is no tier).
+ */
 function poolModelInfo(env: AppEnv): { id: string; label: string } {
   const id = poolModel(env);
-  const label = simpleProviderConfig(env).models.find((m) => m.id === id)?.label ?? id;
+  const label =
+    simpleProviderConfig(env).models.find((m) => m.id === id)?.label ?? POOL_MODEL_LABEL;
   return { id, label };
 }
 

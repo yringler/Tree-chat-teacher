@@ -4,18 +4,21 @@ import { suggestionText } from './model-suggestions';
 
 describe('suggestionText', () => {
   it('names a suggested model by its label without the note, and adds the id', () => {
-    expect(suggestionText({ id: 'deepseek/deepseek-v4-pro', label: 'Smart (suggested)' })).toEqual({
-      name: 'Smart',
-      id: 'deepseek-v4-pro',
-    });
     expect(
-      suggestionText({ id: 'deepseek/deepseek-v4-flash', label: 'Simple (suggested)' }),
-    ).toEqual({ name: 'Simple', id: 'deepseek-v4-flash' });
+      suggestionText({
+        id: 'deepseek/deepseek-v4-pro',
+        label: 'Normal (suggested)',
+        tier: 'normal',
+      }),
+    ).toEqual({ name: 'Normal', id: 'deepseek-v4-pro' });
+    expect(
+      suggestionText({ id: 'anthropic/claude-sonnet-5.5', label: 'Max (suggested)', tier: 'max' }),
+    ).toEqual({ name: 'Max', id: 'claude-sonnet-5.5' });
   });
 
   it('leaves out an id that only repeats the name', () => {
-    expect(suggestionText({ id: 'smart', label: 'Smart (suggested)' })).toEqual({
-      name: 'Smart',
+    expect(suggestionText({ id: 'max', label: 'Max (suggested)' })).toEqual({
+      name: 'Max',
       id: null,
     });
     expect(

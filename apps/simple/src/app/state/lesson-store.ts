@@ -7,8 +7,11 @@ import {
   checkSourcesMessage,
   BUILT_IN_PROVIDER_ID,
   POOL_NOTICE_VERSION,
+  TIER_LABELS,
+  tierModel,
   type Branch,
   type ChatNode,
+  type CommitCandidateResponse,
   type DeleteBranchResponse,
   type ModelInfo,
   type NodeLink,
@@ -22,6 +25,7 @@ import {
   ApiClient,
   ApiError,
   backupFile,
+  CompareRun,
   errorMessage,
   isMembershipRequired,
   isNotFound,
@@ -94,6 +98,21 @@ export interface LinkReturn {
 const LEARN_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
 
 export const OUT_OF_CREDIT_MESSAGE = 'Add credit to keep learning';
+/** A Compare pick the server no longer accepts (409 the lesson moved on, 410 expired). */
+export const COMPARE_OUT_OF_DATE_MESSAGE =
+  'That comparison is out of date. Your question is still in the box.';
+/**
+ * Refusals that end a Compare outright, as they would a send: no key (401),
+ * no credit or membership (402), the pool's checks (403).
+ */
+export const COMPARE_BLOCKING_STATUSES: ReadonlySet<number> = new Set([401, 402, 403]);
+/** Commit refusals that mean the comparison no longer fits the lesson (gone, moved on, expired). */
+const COMPARE_GONE_STATUSES: ReadonlySet<number> = new Set([404, 409, 410]);
+/**
+ * How a Compare pick ended (`commitCompare`): only `failed` leaves the
+ * answers worth keeping on screen, for another try.
+ */
+export type CompareCommitOutcome = 'kept' | 'out-of-date' | 'refused' | 'failed';
 /** The pool notice changed since this page loaded: its copy of the text is stale. */
 export const STALE_POOL_NOTICE_MESSAGE =
   'The open pool notice has changed. Reload the page to read the new one.';
@@ -129,7 +148,7 @@ export class LessonStore {
   private readonly account = inject(AccountStore);
   private readonly saveFile = inject(SAVE_FILE);
 
-  // Providers (simple accounts: one provider with "Smart" and "Simple" models)
+  // Providers (Learn accounts: one provider with a Normal and a Max model, `ModelInfo.tier`)
   readonly providers = signal<ProviderInfo[]>([]);
   readonly provider = computed<ProviderInfo | null>(
     () => this.providers().find((p) => p.id === LEARN_PROVIDER_ID) ?? this.providers()[0] ?? null,
@@ -161,6 +180,8 @@ export class LessonStore {
   readonly sendingBranchId = signal<string | null>(null);
   readonly unsentDraft = signal<UnsentDraft | null>(null);
   readonly poolBlock = signal<LessonPoolBlock | null>(null);
+  /** The Compare sheet is open (its answers stream): the composer waits. */
+  readonly comparing = signal(false);
   private readonly controllers = new Map<string, AbortController>();
   private detailSeq = 0;
 
@@ -224,7 +245,9 @@ export class LessonStore {
   readonly busy = computed(() => {
     const sending = this.sendingBranchId();
     return (
-      this.streamingNode() !== null || (sending !== null && sending === this.selectedBranchId())
+      this.comparing() ||
+      this.streamingNode() !== null ||
+      (sending !== null && sending === this.selectedBranchId())
     );
   });
 
@@ -587,7 +610,7 @@ export class LessonStore {
     }
   }
 
-  /** The Smart/Simple toggle. */
+  /** The Normal/Max toggle. */
   async setModel(branchId: string, model: string): Promise<boolean> {
     const before = this.index()?.branches.get(branchId);
     if (before?.model === model) return true;
@@ -721,6 +744,62 @@ export class LessonStore {
       if (this.sendingBranchId() === branchId) this.sendingBranchId.set(null);
       if (nodeId) this.controllers.delete(nodeId);
     }
+  }
+
+  // Compare (Normal and Max answer the same question; one is kept)
+
+  /**
+   * A Compare of `content` in `branchId`: Normal, then Max (CompareRun
+   * staggers them). Null unless the provider lists both tiers.
+   */
+  newCompare(branchId: string, content: string): CompareRun | null {
+    const models = this.models();
+    const normal = tierModel(models, 'normal');
+    const max = tierModel(models, 'max');
+    if (!normal || !max) return null;
+    return new CompareRun(this.api, branchId, content, [
+      { id: 'normal', label: TIER_LABELS.normal, request: { content, model: normal.id } },
+      { id: 'max', label: TIER_LABELS.max, request: { content, model: max.id } },
+    ]);
+  }
+
+  /**
+   * Keeps answer `id` of a Compare: the question and that answer join the
+   * lesson as if sent (the branch keeps its own model), the composer lets the
+   * question go, and the lesson list is refreshed (a first reply titles it).
+   * A comparison the server no longer takes (404, 409, 410) says so and
+   * keeps the question (`out-of-date`); a refusal a send would also get (401,
+   * 402, 403) is reported like a send's (`refused`); anything else (a network
+   * failure, a 5xx, a 429) is reported and `failed`: both answers are still
+   * held, so the pick can be tried again.
+   */
+  async commitCompare(run: CompareRun, id: string): Promise<CompareCommitOutcome> {
+    let res: CommitCandidateResponse;
+    try {
+      res = await run.commit(id);
+    } catch (err) {
+      if (err instanceof ApiError && COMPARE_GONE_STATUSES.has(err.status)) {
+        this.ui.notify(COMPARE_OUT_OF_DATE_MESSAGE, 'error');
+        return 'out-of-date';
+      }
+      this.fail(err);
+      return err instanceof ApiError && COMPARE_BLOCKING_STATUSES.has(err.status)
+        ? 'refused'
+        : 'failed';
+    }
+    const { userNode, assistantNode, branch } = res;
+    this.apply({ type: 'start', userNode, assistantNode, branch }, null);
+    this.apply({ type: 'done', node: assistantNode, branch }, assistantNode.id);
+    if (this.unsentDraft()?.branchId === run.branchId) this.unsentDraft.set(null);
+    if (this.poolBlock()?.branchId === run.branchId) this.poolBlock.set(null);
+    this.ui.markSent(run.question);
+    this.finish(assistantNode.id, { kind: 'done' });
+    return 'kept';
+  }
+
+  /** A Compare refused before any answer (no credit, no key, the pool…): reported like a send's. */
+  compareRefused(err: ApiError): void {
+    this.fail(err);
   }
 
   dismissPoolBlock(): void {

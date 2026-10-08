@@ -241,7 +241,7 @@ describe('TreeStore read-only power without a membership', () => {
   const credit: ProviderInfo = {
     ...ownKey,
     label: 'Tangent credit',
-    models: [{ id: 'smart/model', label: 'Smart' }],
+    models: [{ id: 'smart/model', label: 'Max' }],
     defaultModel: 'smart/model',
     acceptsUserKey: false,
     keySource: 'server',
@@ -1414,5 +1414,93 @@ describe('TreeStore links between messages', () => {
     expect(s.ui.anyDialogOpen()).toBe(false);
     expect(s.ui.closeTop()).toBe(true);
     expect(s.ui.linkPick()).toBeNull();
+  });
+});
+
+describe('TreeStore a committed Compare pick', () => {
+  const at = '2026-10-01T00:00:00.000Z';
+  const trunk: Branch = {
+    id: 'trunk',
+    treeId: 't1',
+    parentBranchId: null,
+    branchPointNodeId: null,
+    contextMode: 'path',
+    anchorQuote: null,
+    title: 'Main thread',
+    titleSource: 'default',
+    isPrivate: false,
+    providerId: 'openrouter',
+    model: 'normal/model',
+    funding: 'credit',
+    createdAt: at,
+    updatedAt: at,
+  };
+  const msg = (id: string, parentId: string | null, seq: number, model: string): ChatNode => ({
+    id,
+    treeId: 't1',
+    branchId: 'trunk',
+    parentId,
+    seq,
+    role: seq % 2 === 0 ? 'user' : 'assistant',
+    content: id,
+    status: 'complete',
+    error: null,
+    providerId: 'openrouter',
+    model,
+    usage: null,
+    createdAt: at,
+  });
+
+  function open() {
+    const s = setup();
+    s.store.detail.set({
+      tree: {
+        id: 't1',
+        accountId: 'p_1',
+        title: 'Light',
+        systemPrompt: null,
+        trunkBranchId: 'trunk',
+        createdAt: at,
+        updatedAt: at,
+      },
+      branches: [trunk],
+      nodes: [msg('u1', null, 0, 'normal/model'), msg('a1', 'u1', 1, 'normal/model')],
+      links: [],
+    });
+    s.store.setRoute('t1', 'trunk', null);
+    return s;
+  }
+
+  it('adds the question and the kept answer as a finished reply, leaving the branch on its route', async () => {
+    const s = open();
+    const completions = s.store.completions();
+    s.api.listTrees.mockClear();
+    const branch = { ...trunk, title: 'Light and waves', updatedAt: '2026-10-02T00:00:00.000Z' };
+    s.store.applyCommitted({
+      userNode: msg('u2', 'a1', 2, 'max/model'),
+      assistantNode: { ...msg('a2', 'u2', 3, 'max/model'), content: 'The kept answer' },
+      branch,
+    });
+    expect(s.store.path().map((n) => n.id)).toEqual(['u1', 'a1', 'u2', 'a2']);
+    expect(s.store.leaf()).toMatchObject({ id: 'a2', model: 'max/model', status: 'complete' });
+    expect(s.store.selectedBranch()).toEqual(branch);
+    expect(s.store.selectedBranch()?.model).toBe('normal/model');
+    expect(s.store.live().size).toBe(0);
+    expect(s.store.busy()).toBe(false);
+    // Like a finished send: the inspector refreshes and the list re-reads titles.
+    expect(s.store.completions()).toBe(completions + 1);
+    await Promise.resolve();
+    expect(s.api.listTrees).toHaveBeenCalled();
+  });
+
+  it("lets go of a message of that branch that couldn't be sent", () => {
+    const s = open();
+    s.store.unsentDrafts.set(new Map([['trunk', 'Why?']]));
+    s.store.applyCommitted({
+      userNode: msg('u2', 'a1', 2, 'max/model'),
+      assistantNode: msg('a2', 'u2', 3, 'max/model'),
+      branch: trunk,
+    });
+    expect(s.store.unsentDrafts().has('trunk')).toBe(false);
   });
 });

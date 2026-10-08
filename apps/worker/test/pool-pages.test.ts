@@ -222,8 +222,8 @@ describe('the landing page’s pool meter', () => {
     expect(html).toContain(
       '<li>Learn free on the open pool, within daily limits, on credit Tangent provides from its earnings</li>',
     );
-    // The Learn card names the pool's model: Smart needs a key or credit.
-    expect(html).toContain('(the free pool uses Simple)');
+    // The Learn card names the pool's model (the fake's Normal): Max needs a key or credit.
+    expect(html).toContain('(the free pool uses Normal)');
     // Nothing to buy for the pool.
     expect(html).not.toContain('fund-pool');
     expect(html).not.toMatch(

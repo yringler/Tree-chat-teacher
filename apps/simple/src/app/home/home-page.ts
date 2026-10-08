@@ -1,7 +1,14 @@
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { poolFundingText, type PoolStatusResponse, type TreeSummary } from '@tangent/shared';
+import {
+  maxUsageNote,
+  poolFundingText,
+  tierModel,
+  tierOf,
+  type PoolStatusResponse,
+  type TreeSummary,
+} from '@tangent/shared';
 import { Icon, PoolMeter } from '@tangent/web-shared';
 import { Composer } from '../chat/composer';
 import { lessonTitle } from '../chat/titles';
@@ -81,6 +88,9 @@ import { UiStore } from '../state/ui-store';
                 </button>
               </div>
             </div>
+            @if (maxNote(); as note) {
+              <p class="tier-note" role="status">{{ note }}</p>
+            }
           }
         </form>
       </section>
@@ -154,8 +164,14 @@ export class HomePage {
   protected readonly topic = signal('');
   protected readonly pickedModel = signal<string | null>(null);
   protected readonly starting = signal(false);
-  /** The learner's pick, else the provider's default ("Smart"). */
+  /** The learner's pick, else the provider's default (Normal). */
   protected readonly model = computed(() => this.pickedModel() ?? this.store.defaultModel());
+  /** "Max uses about 3× as much as Normal." while Max is picked (not on the pool, which picks for them). */
+  protected readonly maxNote = computed(() => {
+    const models = this.store.models();
+    if (this.account.poolModel() || tierOf(models, this.model()) !== 'max') return null;
+    return maxUsageNote(tierModel(models, 'max')?.usageFactor);
+  });
   /** The open pool's meter while the pool is on (never in the demo, where it is off). */
   protected readonly pool = computed(() => {
     const status = this.account.poolStatus();

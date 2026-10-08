@@ -9,6 +9,7 @@ import {
   poolSessionsHeadline,
   poolSteps,
   poolWeekText,
+  type ModelTier,
   type PoolImpactResponse,
   type PoolStatusResponse,
 } from '@tangent/shared';
@@ -199,8 +200,8 @@ export interface LandingPageOptions {
   credit?: { markupBps: number; openRouter: boolean };
   /** Who power mode takes the user's own keys for (`ownKeyProviders` labels); empty = a generic phrase. */
   providers?: readonly string[];
-  /** Learn's models, the default first (`LearnOffer.tiers` labels); fewer than two = no choice to describe. */
-  tiers?: readonly string[];
+  /** Learn's models, Normal then Max (`LearnOffer.tiers`); fewer than two = no choice to describe. */
+  tiers?: readonly { label: string; tier?: ModelTier }[];
 }
 
 /** About how many English words `tokens` tokens make (¾ of a word each), to the nearest 50: `750` for 1,024. */
@@ -340,9 +341,14 @@ function learnItems(opts: LandingPageOptions): string[] {
   const tiers = opts.tiers ?? [];
   if (tiers.length >= 2) {
     const choice =
-      tiers.length === 2 && tiers[0] === 'Smart' && tiers[1] === 'Simple'
-        ? 'Two tiers: Smart for deeper explanations, Simple for quicker, cheaper answers'
-        : `A choice of models: ${escapeHtml(joinList(tiers, 'and'))}`;
+      tiers.length === 2 && tiers[0]?.tier === 'normal' && tiers[1]?.tier === 'max'
+        ? `Two tiers: ${escapeHtml(tiers[0].label)} for everyday learning, ${escapeHtml(tiers[1].label)} for the hardest questions`
+        : `A choice of models: ${escapeHtml(
+            joinList(
+              tiers.map((t) => t.label),
+              'and',
+            ),
+          )}`;
     items.push(pool ? `${choice} (the free pool uses ${escapeHtml(pool.model.label)})` : choice);
   }
   if (pool)
@@ -563,7 +569,7 @@ async function landingResponse(
     ? { markupBps: appConfig(c.env).billing.markupBps, openRouter: offer?.openRouter ?? false }
     : undefined;
   const providers = ownKeyProviders(c.env).map((p) => p.label);
-  const tiers = offer?.tiers.map((t) => t.label) ?? [];
+  const tiers = offer?.tiers ?? [];
   const page = renderLandingPage({
     canonicalUrl,
     operator,

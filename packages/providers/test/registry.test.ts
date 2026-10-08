@@ -225,8 +225,33 @@ describe('provider registry', () => {
       ]);
     });
 
+    it('accepts a model tier and surfaces it in list()', () => {
+      const tiered = {
+        ...valid,
+        models: [
+          { id: 'm1', label: 'M1', tier: 'normal' },
+          { id: 'm2', label: 'M2', tier: 'max' },
+          { id: 'm3', label: 'M3' },
+        ],
+      };
+      const configs = parseProviderConfigs(JSON.stringify([tiered]));
+      expect(configs[0]!.models).toEqual(tiered.models);
+      const reg = createProviderRegistry(configs, { secrets: {} });
+      expect(reg.list()[0]!.models.map((m) => m.tier)).toEqual(['normal', 'max', undefined]);
+    });
+
     it.each([
       ['not json', '{', /not valid JSON/],
+      [
+        'bad tier',
+        JSON.stringify([{ ...valid, models: [{ id: 'm1', label: 'M1', tier: 'smart' }] }]),
+        /models\[0\]\.tier must be "normal" or "max"/,
+      ],
+      [
+        'configured usageFactor',
+        JSON.stringify([{ ...valid, models: [{ id: 'm1', label: 'M1', usageFactor: 3 }] }]),
+        /models\[0\]\.usageFactor is not a known field/,
+      ],
       [
         'openModels not a boolean',
         JSON.stringify([{ ...valid, openModels: 'yes' }]),

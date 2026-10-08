@@ -246,9 +246,11 @@ describe('resolvePoolParams', () => {
     });
   });
 
-  it('defaults the model to the simple provider fast model; an unpriced model has no price', async () => {
+  it("defaults the model to Learn's background model; an unpriced model has no price", async () => {
     const noModel = { ...env, POOL_MODEL: '' } as AppEnv;
-    expect(poolModel(noModel)).toBe('simple'); // the fake config's second model
+    // SIMPLE_FAST_MODEL when the fake config lists it, else that config's default.
+    expect(poolModel({ ...noModel, SIMPLE_FAST_MODEL: 'simple' } as AppEnv)).toBe('simple');
+    expect(poolModel(noModel)).toBe('smart');
     expect(
       (await resolvePoolParams({ ...env, POOL_MODEL: 'smart' } as AppEnv, null)).price,
     ).toBeNull();

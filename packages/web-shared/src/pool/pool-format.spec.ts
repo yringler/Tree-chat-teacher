@@ -6,7 +6,7 @@ const STATUS: PoolStatusResponse = {
   enabled: true,
   availableMicros: 2_468_000,
   sessionsRemaining: 123,
-  model: { id: 'm', label: 'Simple' },
+  model: { id: 'm', label: 'Lite' },
   week: { start: '2026-10-05T00:00:00.000Z', exchanges: 1240, learners: 87 },
   revenueShareBps: 2000,
 };

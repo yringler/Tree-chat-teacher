@@ -15,7 +15,8 @@ import { UiStore } from '../state/ui-store';
 import { Icon } from '@tangent/web-shared';
 
 /**
- * Message box. Enter sends, Shift+Enter inserts a newline. The text stays
+ * Message box. Enter sends, Shift+Enter inserts a newline; Compare (when
+ * offered) asks Normal and Max instead. The text stays
  * until the message is in the tree (`UiStore.markSent`, on the reply's
  * start), so a send the server refuses (no key, no credit, a network
  * failure…) leaves it where it was typed.
@@ -47,6 +48,18 @@ import { Icon } from '@tangent/web-shared';
           <app-icon name="stop" /> Stop
         </button>
       } @else {
+        @if (canCompare()) {
+          <button
+            type="button"
+            class="btn btn-ghost"
+            [disabled]="disabled() || !text().trim()"
+            title="Answer with Normal and Max, then keep one (uses both)"
+            aria-label="Compare Normal and Max"
+            (click)="compareNow()"
+          >
+            <app-icon name="compare" /><span class="hide-narrow"> Compare</span>
+          </button>
+        }
         <button
           type="submit"
           class="btn btn-primary"
@@ -70,8 +83,12 @@ export class Composer {
   readonly autofocus = input(false);
   /** Draft to start from when the box is empty (a message that couldn't be sent, `TreeStore.unsentDrafts`). */
   readonly initial = input('');
+  /** Offer Compare beside Send (Normal and Max both answer; one is kept). */
+  readonly canCompare = input(false);
   readonly send = output<string>();
   readonly stop = output();
+  /** Compare the message: the text stays until the picked answer is in the tree. */
+  readonly compare = output<string>();
 
   protected readonly text = signal('');
   private readonly box = viewChild.required<ElementRef<HTMLTextAreaElement>>('box');
@@ -149,6 +166,12 @@ export class Composer {
     const content = this.text().trim();
     if (!content || this.disabled() || this.busy()) return;
     this.send.emit(content);
+  }
+
+  protected compareNow(): void {
+    const content = this.text().trim();
+    if (!content || this.disabled() || this.busy()) return;
+    this.compare.emit(content);
   }
 
   private setText(text: string): void {

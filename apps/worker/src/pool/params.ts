@@ -40,7 +40,7 @@ export interface PoolParams {
   noticeVersion: number;
 }
 
-/** The pool model: `POOL_MODEL`, else the simple provider's fast model. */
+/** The pool model: `POOL_MODEL`, else Learn's background model (`simpleFastModel`, SIMPLE_FAST_MODEL). */
 export function poolModel(env: AppEnv): string {
   return appConfig(env).pool.model ?? simpleFastModel(env, simpleProviderConfig(env));
 }

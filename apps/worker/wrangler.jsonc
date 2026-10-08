@@ -162,8 +162,11 @@
     // generating on the user's own keys needs the yearly membership, in Learn and power mode (and
     // Canvas) alike (waivable per user, see MEMBERSHIP_WAIVER_CODE below and the README); Tangent
     // credit, bought or spent, and the open pool never do (src/billing/gate.ts `needsMembership`).
-    // The suggested OpenRouter models: Learn's Smart / Simple tiers, listed first in power.
-    "SIMPLE_SMART_MODEL": "deepseek/deepseek-v4-pro",
+    // The suggested OpenRouter models: Learn's Normal (the default) / Max tiers, listed first in power.
+    // The old SIMPLE_SMART_MODEL is still read as a fallback for Normal (never for Max).
+    "SIMPLE_NORMAL_MODEL": "deepseek/deepseek-v4-pro",
+    "SIMPLE_MAX_MODEL": "anthropic/claude-sonnet-5.5",
+    // Summaries, titles and the open pool's default model (not a tier).
     "SIMPLE_FAST_MODEL": "deepseek/deepseek-v4-flash",
     // Full ProviderConfig JSON (id "openrouter"; legacy "tangent" is read as it) for the built-in provider;
     // empty = OpenRouter with the models above.

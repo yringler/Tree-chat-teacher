@@ -572,7 +572,7 @@ describe('poolProviderConfig', () => {
       baseUrl,
       apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
       defaultModel: 'simple',
-      models: [{ id: 'simple', label: 'Simple' }],
+      models: [{ id: 'simple', label: 'Normal', tier: 'normal' }],
       options: { extraBody: { transforms: [], provider } },
     }),
   });

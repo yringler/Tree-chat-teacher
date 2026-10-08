@@ -4,10 +4,12 @@ import {
   projectShare,
   ValidationError,
   type ChatService,
+  type HeldCandidate,
 } from '@tangent/core';
 import { payloadToMarkdown, renderViewerPage, viewerCsp } from '@tangent/render';
 import {
   backupFileName,
+  candidateRequestSchema,
   createBranchRequestSchema,
   createLinkRequestSchema,
   createShareRequestSchema,
@@ -22,6 +24,7 @@ import {
   updateSettingsRequestSchema,
   updateShareRequestSchema,
   updateTreeRequestSchema,
+  type CandidateEvent,
   type CopyToLearnResponse,
   type MeResponse,
 } from '@tangent/shared';
@@ -35,7 +38,13 @@ import { sameOriginOnly } from '../byok/guard.js';
 import { assertCanGenerate, membershipNeededFor } from '../billing/gate.js';
 import { membershipFor } from '../billing/membership.js';
 import { readKeys, requireReadableKeys, type UserKeys } from '../byok/keys.js';
-import { accountParams, type SessionSendBody } from '../do/tree-session.js';
+import {
+  accountParams,
+  type SessionCommitBody,
+  type SessionHoldBody,
+  type SessionHoldResponse,
+  type SessionSendBody,
+} from '../do/tree-session.js';
 import {
   isPoolFunded,
   usesUserKeys,
@@ -53,8 +62,10 @@ import {
   providersFor,
   shareService,
 } from '../services.js';
+import { withUsageFactors } from '../tiers.js';
 import { keyRoutes } from './key.js';
 
+/** Keepalive of the streams served straight from the Worker (reviews, compare candidates). */
 const REVIEW_KEEPALIVE_MS = 15_000;
 
 const contextQuerySchema = z.object({
@@ -135,11 +146,12 @@ export function apiRoutes(): Hono<AppBindings> {
   });
 
   // Power lists the built-in endpoint twice: on the user's key and as Tangent credit (`funding`).
+  // The Max model of each entry listing both tiers carries its `usageFactor` (tiers.ts).
   api.get('/providers', async (c) => {
-    if (!usesUserKeys(c.var.account)) return c.json(providersFor(c.env, c.var.account));
     // An unreadable key cookie simply counts as no user keys here; /key/status clears it.
-    const keys = await readKeys(c);
-    return c.json(providersFor(c.env, c.var.account, keys.state === 'ok' ? keys.keys : undefined));
+    const keys = usesUserKeys(c.var.account) ? await readKeys(c) : null;
+    const apiKeys = keys?.state === 'ok' ? keys.keys : undefined;
+    return c.json(await withUsageFactors(c.env, providersFor(c.env, c.var.account, apiKeys)));
   });
 
   api.route('/key', keyRoutes());
@@ -364,6 +376,111 @@ export function apiRoutes(): Hono<AppBindings> {
       return sseResponse(readable);
     },
   );
+
+  // ---- compare (shared/compare.ts): each candidate streams straight from the
+  // Worker, like a review, and nothing enters the tree until the user picks one.
+  // A finished candidate is held by the tree's Durable Object (for
+  // CANDIDATE_TTL_MS), which also appends the picked one, under its send lock.
+  api.post(
+    '/branches/:branchId/candidates',
+    sameOriginOnly,
+    validateJson(candidateRequestSchema),
+    async (c) => {
+      const req = c.req.valid('json');
+      const keys = await keysOf(c);
+      let chat = chatOf(c, keys);
+      const branch = await chat.getOwnedBranch(c.req.param('branchId'));
+      // The route as ChatService resolves it (`requestedRoute`): absent = the branch's,
+      // and Learn's fixed funding (the branch's) always wins.
+      const learn = c.var.account.mode === 'simple';
+      const route = req.providerId
+        ? { providerId: req.providerId, funding: req.funding ?? ('own-key' as const) }
+        : { providerId: branch.providerId, funding: req.funding ?? branch.funding };
+      if (learn && route.providerId !== branch.providerId)
+        throw new ValidationError("Compare runs on the lesson's own provider");
+      if (learn) route.funding = branch.funding;
+      // The client picks the model, so the allowlist is what bounds it (Learn: its tiers).
+      // The context is resolved like a send on the branch, so missing summaries are
+      // generated on the branch's route: its credit is checked too. Never on the pool (403).
+      await assertCanGenerate(c, {
+        purpose: 'compare',
+        ...route,
+        model: req.model,
+        alsoSpendsOn: { providerId: branch.providerId, funding: branch.funding },
+        keys,
+        content: req.content,
+      });
+      chat = chatOf(c, keys, true);
+      const prepared = await chat.prepareCandidate(branch.id, req);
+      const accountId = c.var.account.id;
+
+      /** The wire `done`: the candidate, once the Durable Object holds it for the commit. */
+      const hold = async (candidate: HeldCandidate): Promise<CandidateEvent> => {
+        try {
+          const res = await session(c.env, branch.treeId).fetch(
+            sessionUrl('/hold-candidate', { treeId: branch.treeId }),
+            {
+              method: 'POST',
+              body: JSON.stringify({ candidate, accountId } satisfies SessionHoldBody),
+            },
+          );
+          if (!res.ok) throw new Error(`hold-candidate answered ${res.status}`);
+          const { expiresAt } = (await res.json()) as SessionHoldResponse;
+          return {
+            type: 'done',
+            candidateId: candidate.id,
+            providerId: candidate.providerId,
+            funding: candidate.funding,
+            model: candidate.model,
+            usage: candidate.usage,
+            sources: candidate.sources,
+            expiresAt,
+          };
+        } catch (err) {
+          console.error('Holding a compare candidate failed', err);
+          return { type: 'error', message: 'This answer could not be kept; try again.' };
+        }
+      };
+
+      const encoder = new TextEncoder();
+      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+      const writer = writable.getWriter();
+      const signal = c.req.raw.signal;
+      const write = (frame: string) => writer.write(encoder.encode(frame)).catch(() => undefined);
+      const pump = async () => {
+        const keepalive = setInterval(() => void write(sseKeepAliveFrame()), REVIEW_KEEPALIVE_MS);
+        try {
+          for await (const event of chat.runCandidate(prepared, signal)) {
+            await write(sseFrame(event.type === 'done' ? await hold(event.candidate) : event));
+          }
+        } finally {
+          clearInterval(keepalive);
+          await writer.close().catch(() => undefined);
+        }
+      };
+      c.executionCtx.waitUntil(pump());
+      return sseResponse(readable);
+    },
+  );
+  // Appends the picked candidate (the server's copy, so the model and usage are
+  // real). It may auto-title the branch, a model call, so the user's keys ride
+  // along sealed, as for a send. 403 on the open pool, where compare is refused.
+  api.post('/branches/:branchId/candidates/:candidateId/commit', sameOriginOnly, async (c) => {
+    const branch = await chatOf(c).getOwnedBranch(c.req.param('branchId'));
+    if (c.var.account.funding === 'pool')
+      throw new DomainError('pool_unavailable', "Compare isn't available on the open pool");
+    const keys = await keysOf(c);
+    const body: SessionCommitBody = {
+      candidateId: c.req.param('candidateId'),
+      branchId: branch.id,
+      account: c.var.account,
+      ...(keys ? { sealedKeys: keys.sealed } : {}),
+    };
+    return session(c.env, branch.treeId).fetch(
+      sessionUrl('/commit-candidate', { treeId: branch.treeId }),
+      { method: 'POST', body: JSON.stringify(body) },
+    );
+  });
 
   // ---- links (cross-references between two messages of a tree). Never
   // generate, so no gate: read-only power branches can be linked too.

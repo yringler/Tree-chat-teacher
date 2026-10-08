@@ -62,10 +62,12 @@ export interface ModelPrice {
 }
 
 /**
- * Placeholder prices of the default pool models (OpenRouter list prices when
- * the pool was planned). The daily price sync (pool/model-prices.ts) replaces
- * them with OpenRouter's current list prices; `MODEL_PRICES` overrides or
- * extends them, and an override also wins over the synced price.
+ * Placeholder prices of the default pool models and of Learn's tiers, Normal
+ * and Max, which the Max usage note compares (tiers.ts `withUsageFactors`):
+ * OpenRouter list prices when they were added. The daily price sync
+ * (pool/model-prices.ts) replaces them with OpenRouter's current list prices;
+ * `MODEL_PRICES` overrides or extends them, and an override also wins over
+ * the synced price.
  */
 export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   'deepseek/deepseek-v4-flash': {
@@ -74,9 +76,14 @@ export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
     contextTokens: 131_072,
   },
   'deepseek/deepseek-v4-pro': {
-    inMicrosPerMTok: 500_000,
-    outMicrosPerMTok: 2_000_000,
-    contextTokens: 131_072,
+    inMicrosPerMTok: 955_260,
+    outMicrosPerMTok: 1_910_520,
+    contextTokens: 1_048_576,
+  },
+  'anthropic/claude-sonnet-5.5': {
+    inMicrosPerMTok: 2_000_000,
+    outMicrosPerMTok: 10_000_000,
+    contextTokens: 1_000_000,
   },
 };
 

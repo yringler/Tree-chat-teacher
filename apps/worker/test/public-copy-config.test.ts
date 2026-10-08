@@ -7,20 +7,23 @@ import type { AppEnv } from '../src/env.js';
 import { uniq } from './mocks/billing-helpers.js';
 import { authEnv, ORIGIN } from './session-client.js';
 
-const SMART = 'deepseek/deepseek-v4-pro';
+const NORMAL = 'deepseek/deepseek-v4-pro';
+const MAX = 'anthropic/claude-sonnet-5.5';
 const FAST = 'deepseek/deepseek-v4-flash';
 
 /**
  * As deployed: the real built-in provider (OpenRouter, with web search) with
- * the Smart and Simple tiers, the default own-key providers, the pool on its
- * Simple model, automatic search, credit sold (the fake payment provider).
+ * the Normal and Max tiers, the default own-key providers, the pool on its
+ * default model (the background model, "Lite"), automatic search, credit sold
+ * (the fake payment provider).
  */
 const BASE: Partial<AppEnv> = {
   POOL_REVENUE_SHARE_BPS: '2000',
   POOL_MAX_OUTPUT_TOKENS: '1024',
   PROVIDERS: '',
   SIMPLE_PROVIDER: '',
-  SIMPLE_SMART_MODEL: SMART,
+  SIMPLE_NORMAL_MODEL: NORMAL,
+  SIMPLE_MAX_MODEL: MAX,
   SIMPLE_FAST_MODEL: FAST,
   POOL_MODEL: '',
   GROUNDING: 'auto',
@@ -39,7 +42,7 @@ async function page(path: string, overrides: Partial<AppEnv> = {}): Promise<stri
 /** A built-in provider config (SIMPLE_PROVIDER) on the operator's key. */
 function builtIn(config: {
   baseUrl: string;
-  models: { id: string; label: string }[];
+  models: { id: string; label: string; tier?: 'normal' | 'max' }[];
   webSearch?: boolean;
 }): string {
   return JSON.stringify({
@@ -105,9 +108,9 @@ describe('the pricing headline', () => {
 });
 
 describe('what each way to pay covers, by column', () => {
-  it('with a membership: credit and your own key each cover the Smart tier and search; Free does not', async () => {
+  it('with a membership: credit and your own key each cover the Max tier and search; Free does not', async () => {
     const html = await page('/pricing', MEMBERSHIP);
-    for (const label of ['The Smart tier', 'Web search, with sources'])
+    for (const label of ['The Max tier', 'Web search, with sources'])
       expect(row(html, label)).toMatch(
         /<td class="no">[^]*<\/td><td class="yes">[^]*<\/td><td class="yes">[^]*<\/td>$/,
       );
@@ -115,13 +118,13 @@ describe('what each way to pay covers, by column', () => {
 
   it('pay as you go is the credit itself: included', async () => {
     const html = await page('/pricing');
-    expect(row(html, 'The Smart tier')).toMatch(/<td class="yes">[^]*Included<\/span><\/td>$/);
+    expect(row(html, 'The Max tier')).toMatch(/<td class="yes">[^]*Included<\/span><\/td>$/);
     expect(row(html, 'Web search, with sources')).toMatch(/<td class="yes">/);
   });
 
   it('a membership that sells no credit: only your own key', async () => {
     const html = await page('/pricing', { ...MEMBERSHIP, FAKE_PAYMENTS: '{"topUps":false}' });
-    expect(row(html, 'The Smart tier')).toMatch(/<td class="no">[^]*<td class="yes">[^]*<\/td>$/);
+    expect(row(html, 'The Max tier')).toMatch(/<td class="no">[^]*<td class="yes">[^]*<\/td>$/);
     expect(html).not.toMatch(/prepaid credit|Pay as you go/);
   });
 });
@@ -155,37 +158,38 @@ describe('read-only power without a membership (the power-read note)', () => {
 });
 
 describe("Learn's tiers", () => {
-  it('Smart and Simple, with the pool on Simple', async () => {
+  it('Normal and Max, with the pool on Lite', async () => {
     const pricing = await page('/pricing');
-    expect(row(pricing, 'The Smart tier, for deeper explanations')).toContain(
+    expect(row(pricing, 'The Max tier, for the hardest questions')).toContain(
       '<td>On your key</td>',
     );
     expect(pricing).toContain(
-      '<li>The Smart tier in Learn, and any OpenRouter model in power mode</li>',
+      '<li>The Max tier in Learn, and any OpenRouter model in power mode</li>',
     );
     const landing = await page('/welcome');
     expect(landing).toContain(
-      '<li>Two tiers: Smart for deeper explanations, Simple for quicker, cheaper answers (the free pool uses Simple)</li>',
+      '<li>Two tiers: Normal for everyday learning, Max for the hardest questions (the free pool uses Lite)</li>',
     );
   });
 
-  it('the pool on the Smart model: Smart is free on the pool', async () => {
+  it('the pool on the Max model: Max is free on the pool', async () => {
     // Its own pool account: the landing page's pool status is cached per account.
-    const env = { ...MEMBERSHIP, POOL_MODEL: SMART, POOL_ACCOUNT_ID: uniq('pool') };
+    const env = { ...MEMBERSHIP, POOL_MODEL: MAX, POOL_ACCOUNT_ID: uniq('pool') };
     const pricing = await page('/pricing', env);
-    const smart = row(pricing, 'The Smart tier');
-    // Own keys need the membership here, so Free has Smart on the pool only.
-    expect(smart).toContain('<td>On the open pool</td>');
-    expect(smart).toMatch(/<td class="yes">/);
+    const max = row(pricing, 'The Max tier');
+    // Own keys need the membership here, so Free has Max on the pool only.
+    expect(max).toContain('<td>On the open pool</td>');
+    expect(max).toMatch(/<td class="yes">/);
     const noFee = await page('/pricing', { ...env, ANNUAL_FEE_ENABLED: 'false' });
-    expect(row(noFee, 'The Smart tier')).toContain('<td>On the open pool or your key</td>');
-    expect(await page('/welcome', env)).toContain('(the free pool uses Smart)</li>');
+    expect(row(noFee, 'The Max tier')).toContain('<td>On the open pool or your key</td>');
+    expect(await page('/welcome', env)).toContain('(the free pool uses Max)</li>');
   });
 
   it('one model: no tier to choose, so no tier is named', async () => {
-    const env = { SIMPLE_FAST_MODEL: SMART };
+    const env = { SIMPLE_MAX_MODEL: NORMAL };
     const pricing = await page('/pricing', env);
-    expect(pricing).not.toContain('<th scope="row">The Smart tier');
+    expect(pricing).not.toContain('<th scope="row">The Max tier');
+    expect(pricing).not.toContain('<th scope="row">The Normal tier');
     expect(pricing).toContain('<li>Learn on credit, and any OpenRouter model in power mode</li>');
     const landing = await page('/welcome', env);
     expect(landing).not.toMatch(/Two tiers|A choice of models/);
@@ -196,8 +200,8 @@ describe("Learn's tiers", () => {
       SIMPLE_PROVIDER: builtIn({
         baseUrl: 'https://openrouter.ai/api/v1',
         models: [
-          { id: 'a/deep', label: 'Deep' },
-          { id: 'a/quick', label: 'Quick' },
+          { id: 'a/quick', label: 'Quick', tier: 'normal' },
+          { id: 'a/deep', label: 'Deep', tier: 'max' },
         ],
         webSearch: true,
       }),
@@ -205,12 +209,49 @@ describe("Learn's tiers", () => {
       POOL_ACCOUNT_ID: uniq('pool'),
     };
     const pricing = await page('/pricing', env);
-    expect(pricing).toContain('<th scope="row">The Deep tier</th>');
+    expect(pricing).toContain('<th scope="row">The Deep tier, for the hardest questions</th>');
     expect(pricing).toContain(
       '<li>The Deep tier in Learn, and any OpenRouter model in power mode</li>',
     );
     expect(await page('/welcome', env)).toContain(
-      '<li>A choice of models: Deep and Quick (the free pool uses Quick)</li>',
+      '<li>Two tiers: Quick for everyday learning, Deep for the hardest questions (the free pool uses Quick)</li>',
+    );
+  });
+
+  it('a pre-tier override names no Max (its second model was the cheaper one)', async () => {
+    const env = {
+      SIMPLE_PROVIDER: builtIn({
+        baseUrl: 'https://openrouter.ai/api/v1',
+        models: [
+          { id: 'a/smart', label: 'Smart' },
+          { id: 'a/simple', label: 'Simple' },
+        ],
+      }),
+      POOL_ACCOUNT_ID: uniq('pool'),
+    };
+    const pricing = await page('/pricing', env);
+    expect(pricing).not.toContain('<th scope="row">The Simple tier');
+    expect(await page('/welcome', env)).not.toContain('Two tiers');
+  });
+
+  it('more models than the two tiers: a choice of models', async () => {
+    const env = {
+      SIMPLE_PROVIDER: builtIn({
+        baseUrl: 'https://openrouter.ai/api/v1',
+        models: [
+          { id: 'a/quick', label: 'Quick', tier: 'normal' },
+          { id: 'a/deep', label: 'Deep', tier: 'max' },
+          { id: 'a/other', label: 'Other' },
+        ],
+      }),
+      POOL_MODEL: 'a/quick',
+      POOL_ACCOUNT_ID: uniq('pool'),
+    };
+    expect(await page('/pricing', env)).toContain(
+      '<th scope="row">The Deep tier, for the hardest questions</th>',
+    );
+    expect(await page('/welcome', env)).toContain(
+      '<li>A choice of models: Quick, Deep and Other (the free pool uses Quick)</li>',
     );
   });
 });
@@ -220,8 +261,8 @@ describe('credit on another endpoint than OpenRouter', () => {
     SIMPLE_PROVIDER: builtIn({
       baseUrl: 'https://api.openai.com/v1',
       models: [
-        { id: 'gpt-5', label: 'Smart' },
-        { id: 'gpt-5-mini', label: 'Simple' },
+        { id: 'gpt-5-mini', label: 'Normal' },
+        { id: 'gpt-5', label: 'Max' },
       ],
     }),
     POOL_MODEL: 'gpt-5-mini',

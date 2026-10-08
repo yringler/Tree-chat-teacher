@@ -14,7 +14,11 @@ import {
 import { Icon } from '@tangent/web-shared';
 import { UiStore } from '../state/ui-store';
 
-/** Message box. Enter sends, Shift+Enter inserts a newline; Stop replaces Send while a reply streams. */
+/**
+ * Message box. Enter sends, Shift+Enter inserts a newline; Stop replaces Send
+ * while a reply streams. With `canCompare`, a Compare button beside Send asks
+ * Normal and Max both (the host opens the Compare dialog).
+ */
 @Component({
   selector: 'app-composer',
   imports: [Icon],
@@ -43,6 +47,18 @@ import { UiStore } from '../state/ui-store';
           <app-icon name="stop" /> Stop
         </button>
       } @else if (!hideSend()) {
+        @if (canCompare()) {
+          <button
+            type="button"
+            class="btn btn-ghost"
+            [disabled]="disabled() || !text().trim()"
+            title="Ask Normal and Max, then keep one answer (uses both)"
+            aria-label="Compare Normal and Max"
+            (click)="compare.emit(text().trim())"
+          >
+            <app-icon name="compare" /> <span class="hide-narrow">Compare</span>
+          </button>
+        }
         <button
           type="submit"
           class="btn btn-primary"
@@ -76,7 +92,14 @@ export class Composer {
   readonly clearOnSend = input(true);
   /** Draft to start from (e.g. a message the server refused). */
   readonly initial = input('');
+  /** Offer Compare beside Send (both tiers listed, not on the open pool). */
+  readonly canCompare = input(false);
   readonly send = output<string>();
+  /**
+   * Compare the text on Normal and Max. Like Send, the text stays until the
+   * picked answer is in the lesson (`UiStore.markSent`).
+   */
+  readonly compare = output<string>();
   readonly stop = output();
   /** Every edit, for hosts that read the draft themselves. */
   readonly draft = output<string>();

@@ -1,6 +1,7 @@
 import {
   parseReview,
   splitTangents,
+  usageFactorOf,
   type GenerateRequest,
   type ProviderEvent,
 } from '@tangent/shared';
@@ -9,6 +10,7 @@ import {
   createLoremProvider,
   DEMO_SIMPLE_MODEL,
   DEMO_SMART_MODEL,
+  DEMO_MODEL_PRICES,
   loremTangents,
   loremReply,
   loremReview,
@@ -62,7 +64,7 @@ describe('lorem text', () => {
     expect(new Set(titles).size).toBe(titles.length);
   });
 
-  it('writes longer replies for Smart than for Simple', () => {
+  it('writes longer replies for Max (`smart`) than for Normal (`simple`)', () => {
     let smart = 0;
     let simple = 0;
     for (let seed = 1; seed <= 30; seed++) {
@@ -189,11 +191,22 @@ describe('createLoremProvider', () => {
     expect(events.at(-1)).toMatchObject({ type: 'error', error: { code: 'aborted' } });
   });
 
-  it('describes itself as the tangent provider with Smart and Simple', () => {
+  it('describes itself as the tangent provider with Normal (the default) and Max', () => {
     const p = createLoremProvider();
     expect(p.id).toBe('openrouter');
-    expect(p.models().map((m) => m.label)).toEqual(['Smart', 'Simple']);
-    expect(p.defaultModel()).toBe(DEMO_SMART_MODEL);
+    expect(p.models()).toEqual([
+      { id: DEMO_SIMPLE_MODEL, label: 'Normal', tier: 'normal' },
+      { id: DEMO_SMART_MODEL, label: 'Max', tier: 'max' },
+    ]);
+    expect(p.defaultModel()).toBe(DEMO_SIMPLE_MODEL);
     expect(p.kind).not.toBe('fake'); // the ChatService only auto-titles with real kinds
+  });
+
+  it('prices Max at about 3× Normal', () => {
+    const factor = usageFactorOf(
+      DEMO_MODEL_PRICES[DEMO_SIMPLE_MODEL]!,
+      DEMO_MODEL_PRICES[DEMO_SMART_MODEL]!,
+    );
+    expect(factor).toBe(3);
   });
 });

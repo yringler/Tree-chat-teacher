@@ -14,7 +14,9 @@ import type {
   ApiErrorCode,
   BillingSummary,
   Branch,
+  CandidateRequest,
   CheckoutResponse,
+  CommitCandidateResponse,
   CopyToLearnResponse,
   CreateCheckoutRequest,
   ContextPlanResponse,
@@ -334,6 +336,23 @@ export class ApiClient {
   /** Review the conversation up to an assistant reply; resolves with the open event stream. */
   reviewNode(nodeId: string, req: ReviewRequest, signal: AbortSignal): Promise<Response> {
     return this.stream('POST', `/nodes/${enc(nodeId)}/review`, req, signal);
+  }
+
+  /**
+   * Compare: one model's candidate answer to `req.content` at the branch's
+   * leaf; resolves with the open event stream (CandidateEvent). Nothing is
+   * stored until `commitCandidate`.
+   */
+  streamCandidate(branchId: string, req: CandidateRequest, signal: AbortSignal): Promise<Response> {
+    return this.stream('POST', `/branches/${enc(branchId)}/candidates`, req, signal);
+  }
+
+  /**
+   * Keeps one finished candidate: appends the question and that answer to the
+   * branch. 404 unknown, 409 the branch moved on, 410 expired, 403 on the pool.
+   */
+  commitCandidate(branchId: string, candidateId: string): Promise<CommitCandidateResponse> {
+    return this.json('POST', `/branches/${enc(branchId)}/candidates/${enc(candidateId)}/commit`);
   }
 
   // Shares

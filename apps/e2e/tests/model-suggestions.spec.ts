@@ -4,10 +4,11 @@ import { membership, newEmail, paymentWebhook, sameOrigin, signIn, topUp } from 
 /*
  * The model of an open-models route (Tangent credit here; OpenRouter on the
  * user's own key works the same) is a free-text id with every suggested model
- * as a chip under it, against the real Worker: serve.mjs lists Smart (`smart`)
- * and Simple (`simple`) as the built-in provider's models. A `<datalist>`
- * filtered its options by the field's text, so with the smart id in it only
- * Smart was offered.
+ * as a chip under it, against the real Worker: serve.mjs lists Normal
+ * (`simple`, the default) and Max (`smart`) as the built-in provider's models,
+ * labelled "Normal (suggested)" and "Max (suggested)" on Tangent credit; the
+ * chips drop the note. A `<datalist>` filtered its options by the field's
+ * text, so with the default id in it only that model was offered.
  */
 
 interface TreeDetail {
@@ -37,30 +38,30 @@ async function setUp(page: Page, baseURL: string) {
   return tree.id;
 }
 
-/** Both suggestions shown with the smart id in the field; Simple sets the id. */
-async function pickSimple(scope: Locator, field: Locator) {
+/** Both suggestions shown with the default (Normal) id in the field; Max sets its id. */
+async function pickMax(scope: Locator, field: Locator) {
   const suggestions = scope.getByRole('group', { name: /suggest/i });
-  const smart = suggestions.getByRole('button', { name: 'Smart' });
-  const simple = suggestions.getByRole('button', { name: 'Simple' });
-  await expect(field).toHaveValue('smart');
-  await expect(smart).toBeVisible();
-  await expect(simple).toBeVisible();
-  await expect(smart).toHaveAttribute('aria-pressed', 'true');
-  await expect(simple).toHaveAttribute('aria-pressed', 'false');
-
-  await simple.click();
+  const normal = suggestions.getByRole('button', { name: 'Normal' });
+  const max = suggestions.getByRole('button', { name: 'Max' });
   await expect(field).toHaveValue('simple');
-  await expect(simple).toHaveAttribute('aria-pressed', 'true');
-  await expect(smart).toHaveAttribute('aria-pressed', 'false');
+  await expect(normal).toBeVisible();
+  await expect(max).toBeVisible();
+  await expect(normal).toHaveAttribute('aria-pressed', 'true');
+  await expect(max).toHaveAttribute('aria-pressed', 'false');
+
+  await max.click();
+  await expect(field).toHaveValue('smart');
+  await expect(max).toHaveAttribute('aria-pressed', 'true');
+  await expect(normal).toHaveAttribute('aria-pressed', 'false');
 
   // Any other id may be typed: both suggestions stay, neither pressed.
   await field.fill('vendor/other-model');
-  await expect(smart).toBeVisible();
-  await expect(simple).toHaveAttribute('aria-pressed', 'false');
+  await expect(normal).toBeVisible();
+  await expect(max).toHaveAttribute('aria-pressed', 'false');
   // Keyboard: the chips are buttons.
-  await simple.focus();
+  await max.focus();
   await scope.page().keyboard.press('Enter');
-  await expect(field).toHaveValue('simple');
+  await expect(field).toHaveValue('smart');
 }
 
 async function creditModels(page: Page, treeId: string): Promise<string[]> {
@@ -84,10 +85,10 @@ test('every suggested model stays in view under the model id, in power and Canva
   await dialog
     .getByRole('combobox', { name: 'Provider' })
     .selectOption({ label: 'Tangent credit' });
-  await pickSimple(dialog, dialog.getByRole('textbox', { name: 'Model' }));
+  await pickMax(dialog, dialog.getByRole('textbox', { name: 'Model' }));
   await dialog.getByRole('button', { name: 'Create branch' }).click();
   await expect(dialog).toHaveCount(0);
-  expect(await creditModels(page, treeId)).toEqual(['simple']);
+  expect(await creditModels(page, treeId)).toEqual(['smart']);
 
   // Canvas: the lanes dialog of the same conversation.
   await page.goto(`/canvas/t/${treeId}`);
@@ -98,8 +99,8 @@ test('every suggested model stays in view under the model id, in power and Canva
   await dialog
     .getByRole('combobox', { name: 'Provider of lane 1' })
     .selectOption({ label: 'Tangent credit' });
-  await pickSimple(dialog, dialog.getByRole('textbox', { name: 'Model of lane 1' }));
+  await pickMax(dialog, dialog.getByRole('textbox', { name: 'Model of lane 1' }));
   await dialog.getByRole('button', { name: 'Open the lane' }).click();
   await expect(dialog).toHaveCount(0);
-  expect(await creditModels(page, treeId)).toEqual(['simple', 'simple']);
+  expect(await creditModels(page, treeId)).toEqual(['smart', 'smart']);
 });

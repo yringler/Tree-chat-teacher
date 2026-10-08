@@ -15,6 +15,8 @@ import { envWithFailingDb } from './mocks/billing-helpers.js';
 
 const FLASH = 'deepseek/deepseek-v4-flash';
 const PRO = 'deepseek/deepseek-v4-pro';
+/** Learn's Max tier: priced (and so tracked) for the Max usage note, not for the pool. */
+const SONNET = 'anthropic/claude-sonnet-5.5';
 
 /**
  * The deployed price setup: no `MODEL_PRICES`, so the built-in placeholders
@@ -136,7 +138,12 @@ describe('syncModelPrices', () => {
     ]);
     const result = await syncModelPrices(env, T0, fetchImpl);
     expect(urls).toEqual([OPENROUTER_MODELS_URL]);
-    expect(result).toEqual({ changed: [FLASH, PRO], unchanged: [], missing: [], anomalies: [] });
+    expect(result).toEqual({
+      changed: [FLASH, PRO],
+      unchanged: [],
+      missing: [SONNET],
+      anomalies: [],
+    });
     expect(await storedPrice(env.DB, FLASH)).toEqual({
       inMicrosPerMTok: 270_000,
       outMicrosPerMTok: 1_100_000,
@@ -204,7 +211,12 @@ describe('syncModelPrices', () => {
       T1,
       listing([{ id: PRO, prompt: '-1', completion: '-1' }]).fetchImpl,
     );
-    expect(result).toEqual({ changed: [], unchanged: [], missing: [FLASH, PRO], anomalies: [] });
+    expect(result).toEqual({
+      changed: [],
+      unchanged: [],
+      missing: [FLASH, PRO, SONNET],
+      anomalies: [],
+    });
     expect((await storedPrice(env.DB, FLASH))?.outMicrosPerMTok).toBe(2_000_000);
     expect((await storedPrice(env.DB, PRO))?.outMicrosPerMTok).toBe(2_000_000);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('"event":"price_sync_missing"'));

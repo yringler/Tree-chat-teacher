@@ -20,7 +20,7 @@ const DEPLOYED: Partial<AppEnv> = {
   POOL_MAX_OUTPUT_TOKENS: '1024',
   PROVIDERS: '',
   // The real built-in provider (OpenRouter, with web search), not the test suite's fake,
-  // and the pool on its Simple model.
+  // and the pool on its default model (the background model, labelled Lite).
   SIMPLE_PROVIDER: '',
   POOL_MODEL: '',
 };
@@ -122,7 +122,7 @@ describe('/pricing', () => {
     // Why there's a free plan: Tangent's own policy, with its catch, not tied to the reader's purchase.
     expect(html).toContain('<h2 id="why">Why there’s a free plan</h2>');
     expect(html).toContain(
-      'Free replies come from the open pool: credit Tangent sets aside from what it earns. They use the Simple model, have daily limits, and are available only while the pool has credit.',
+      'Free replies come from the open pool: credit Tangent sets aside from what it earns. They use the Lite model, have daily limits, and are available only while the pool has credit.',
     );
     expect(html).toContain(
       '<li>Tangent earns money from the credit people buy, like any software business.</li>',
@@ -204,7 +204,7 @@ describe('/pricing', () => {
     expect(columns(html)).toEqual(['Free']);
     expect(html).toContain('<div class="plans one">');
     expect(html).not.toMatch(/Pay as you go|top up|Prepaid credit|Tangent’s \d+% markup|Polar/i);
-    expect(html).toContain('<th scope="row">The Smart tier, for deeper explanations</th>');
+    expect(html).toContain('<th scope="row">The Max tier, for the hardest questions</th>');
 
     // A provider that sells the membership but no top-ups.
     const member = (await pricing({ ...MEMBERSHIP, FAKE_PAYMENTS: '{"topUps":false}' })).html;

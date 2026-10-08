@@ -108,7 +108,7 @@ test('missing own key: "Continue on Tangent credit" moves the branch onto credit
   expect(patch.postDataJSON()).toEqual({
     providerId: 'openrouter',
     funding: 'credit',
-    model: 'smart',
+    model: 'simple',
   });
   expect(sent.request().postDataJSON()).toEqual({ content: MESSAGE });
   expect(sends).toEqual([MESSAGE, MESSAGE]);
@@ -124,7 +124,7 @@ test('missing own key: "Continue on Tangent credit" moves the branch onto credit
   expect(after.branches.find((b) => b.id === t.trunk)).toMatchObject({
     providerId: 'openrouter',
     funding: 'credit',
-    model: 'smart',
+    model: 'simple',
   });
   expect(after.nodes.filter((n) => n.role === 'user').map((n) => n.content)).toEqual([MESSAGE]);
 });

@@ -22,12 +22,29 @@ export interface ProviderCapabilities {
   supportsWebSearch: boolean;
 }
 
+/**
+ * A model's place in the two-tier offer: `normal` (the everyday default) or
+ * `max` (a stronger, pricier model). Labels live in `TIER_LABELS` (tiers.ts).
+ */
+export type ModelTier = 'normal' | 'max';
+
 export interface ModelInfo {
   id: string;
   label: string;
   /** Overrides the provider-level capability defaults for this model. */
   maxContextTokens?: number;
   maxOutputTokens?: number;
+  /**
+   * The tier this model is (Learn's Normal/Max, power's suggested pair).
+   * Clients key on this, never on `label`. Absent = not a tier.
+   */
+  tier?: ModelTier;
+  /**
+   * Max only: about how many Normal replies' worth of usage one Max reply is
+   * (a whole number >= 1, from list prices; set by the server, never read
+   * from config). Absent = unknown.
+   */
+  usageFactor?: number;
 }
 
 /**

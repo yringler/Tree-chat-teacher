@@ -15,7 +15,7 @@ import { assertGenerationAllowed } from '../src/byok/guard.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import { chatService, routeRegistryFor } from '../src/services.js';
-import { DEFAULT_SIMPLE_SMART_MODEL } from '../src/simple-mode.js';
+import { DEFAULT_SIMPLE_NORMAL_MODEL } from '../src/simple-mode.js';
 
 const env = rawEnv as unknown as AppEnv & {
   TEST_MIGRATIONS: D1Migration[];
@@ -479,8 +479,8 @@ describe('migrations 0020 and 0021 on a database at the 0019 schema', () => {
         // No account row: unreachable, the same safe value.
         b_orphan_trunk: ['openrouter', 'simple', 'own-key'],
         // The retired fake: OpenRouter's default model on the user's own key, never credit.
-        b_power_fake: ['openrouter', DEFAULT_SIMPLE_SMART_MODEL, 'own-key'],
-        b_learn_fake: ['openrouter', DEFAULT_SIMPLE_SMART_MODEL, 'own-key'],
+        b_power_fake: ['openrouter', DEFAULT_SIMPLE_NORMAL_MODEL, 'own-key'],
+        b_learn_fake: ['openrouter', DEFAULT_SIMPLE_NORMAL_MODEL, 'own-key'],
       },
     );
     // Nothing else about a branch changes.
@@ -675,14 +675,14 @@ describe('migrations 0020 and 0021 on a database at the 0019 schema', () => {
       assertGenerationAllowed(
         routeRegistryFor(defaults, signedIn, 'own-key'),
         'openrouter',
-        DEFAULT_SIMPLE_SMART_MODEL,
+        DEFAULT_SIMPLE_NORMAL_MODEL,
       ),
     ).toThrow(KeyRequiredError);
     expect(() =>
       assertGenerationAllowed(
         routeRegistryFor(defaults, signedIn, 'own-key', { openrouter: 'sk-or-user' }),
         'openrouter',
-        DEFAULT_SIMPLE_SMART_MODEL,
+        DEFAULT_SIMPLE_NORMAL_MODEL,
       ),
     ).not.toThrow();
   });

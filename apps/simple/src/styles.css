@@ -284,38 +284,6 @@ body {
   min-width: 0;
 }
 
-/* Smart / Simple */
-
-.segmented {
-  display: inline-flex;
-  padding: 2px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  background: var(--bg-sunken);
-  flex: none;
-}
-
-.segment {
-  padding: 3px 12px;
-  border: 0;
-  border-radius: 999px;
-  background: none;
-  color: var(--fg-muted);
-  font-size: 0.86rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.segment.is-on {
-  background: var(--bg-elev);
-  color: var(--fg);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
-}
-
-.segment:disabled {
-  cursor: default;
-}
-
 /* Lesson (chat) */
 
 .chat-page {
@@ -350,7 +318,7 @@ body {
 
 /*
  * Narrow screens: the title has the first row to itself (after Back), up to
- * two lines, and the tools (Smart/Simple, Aa, export, delete) the second.
+ * two lines, and the tools (Normal/Max, Aa, export, delete) the second.
  */
 .lesson-title {
   flex: 1 1 calc(100% - 48px);
@@ -369,6 +337,12 @@ body {
   align-items: center;
   gap: 6px;
   margin-left: auto;
+}
+
+/* ModelToggle on the open pool, whose model is no tier: the reason, in the switch's place. */
+.model-locked {
+  line-height: 1.3;
+  max-width: 14em;
 }
 
 @media (min-width: 480px) {
@@ -685,6 +659,12 @@ app-related-links.connections {
   }
 }
 
+/* The "Compare answers" sheet (CompareDialog; the panes are base.css `.compare*`). */
+.compare-foot {
+  margin: 8px 0 0;
+  flex: none;
+}
+
 .fork-divider {
   display: flex;
   align-items: center;
@@ -767,6 +747,13 @@ app-related-links.connections {
   display: block;
   max-width: var(--col);
   margin: 0 auto 8px;
+}
+
+/* "Max uses about 3× as much as Normal." while the open branch is on Max. */
+.composer-dock .tier-note {
+  display: block;
+  max-width: var(--col);
+  margin: 0 auto 6px;
 }
 
 .composer-host {

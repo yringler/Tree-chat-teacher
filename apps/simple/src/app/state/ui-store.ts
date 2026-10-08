@@ -21,6 +21,11 @@ export class UiStore {
   readonly poolConsentVersion = signal<number | null>(null);
   /** The "Connect" sheet (ConnectDialog): the message a connection is made from; null = closed. */
   readonly linkDialog = signal<string | null>(null);
+  /**
+   * The Compare sheet (CompareDialog): the question to ask Normal and Max in
+   * `branchId`; null = closed. The question stays in the composer meanwhile.
+   */
+  readonly compare = signal<{ branchId: string; content: string } | null>(null);
   /** Bumped to ask the composer to take focus. */
   readonly composerFocus = signal(0);
   /**
@@ -65,6 +70,10 @@ export class UiStore {
     }
     if (this.poolConsentVersion() !== null) {
       this.poolConsentVersion.set(null);
+      return true;
+    }
+    if (this.compare() !== null) {
+      this.compare.set(null);
       return true;
     }
     if (this.linkDialog() !== null) {

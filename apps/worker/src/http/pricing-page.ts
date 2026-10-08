@@ -19,7 +19,12 @@ import { poolModel } from '../pool/params.js';
 import { cachedPoolStatus } from '../pool/status.js';
 import { waitUntilOf } from '../routes/pool.js';
 import { creditSold, ownKeyProviders, poolAvailable } from '../services.js';
-import { learnOffer, simpleProviderConfig, type LearnOffer } from '../simple-mode.js';
+import {
+  learnOffer,
+  POOL_MODEL_LABEL,
+  simpleProviderConfig,
+  type LearnOffer,
+} from '../simple-mode.js';
 import { joinList, LANDING_STYLE, MARK, poolStepsHtml, roughWords, styleCsp } from './landing.js';
 import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
 
@@ -68,7 +73,7 @@ export interface PricingFacts {
   grounding: GroundingPolicy;
   /** A search costs about 1¢ (`LearnOffer.searchAboutOneCent`). */
   searchAboutOneCent: boolean;
-  /** Learn's models, the default first (`LearnOffer.tiers`); fewer than two = no choice of tier. */
+  /** Learn's models, Normal then Max (`LearnOffer.tiers`); fewer than two = no choice of tier. */
   tiers: LearnOffer['tiers'];
   /** Automatic web searches a user may run per UTC day on credit (`GROUNDING_AUTO_DAILY_CAP`); 0 = no cap. */
   searchDailyCap: number;
@@ -91,7 +96,8 @@ export function pricingFacts(
       ? {
           modelId: poolId,
           modelLabel:
-            simpleProviderConfig(env).models.find((m) => m.id === poolId)?.label ?? poolId,
+            simpleProviderConfig(env).models.find((m) => m.id === poolId)?.label ??
+            POOL_MODEL_LABEL,
           revenueShareBps: config.pool.revenueShareBps,
           maxOutputTokens: config.pool.maxOutputTokens,
           caps: config.pool.caps.user,
@@ -423,8 +429,8 @@ export function renderPricingPage(info: LegalInfo, f: PricingFacts): string {
     ...(credit ? [{ id: 'credit' as const, name: 'Pay as you go' }] : []),
     ...(membership ? [{ id: 'key' as const, name: 'Your own key' }] : []),
   ];
-  // Learn's deeper tier, when it has a choice of models, and whether the pool runs it.
-  const top = f.tiers.length >= 2 ? f.tiers[0]! : null;
+  // Learn's Max tier, when it has a choice of models, and whether the pool runs it.
+  const top = f.tiers.length >= 2 ? (f.tiers.find((t) => t.tier === 'max') ?? null) : null;
   const poolHasTop = top !== null && pool?.modelId === top.id;
   const anyModel = credit?.openRouter ? 'any OpenRouter model' : 'your choice of model';
 
@@ -495,7 +501,7 @@ ${credit && membership.includedCreditCents > 0 ? `<li>${escapeHtml(formatCents(m
   if (top) {
     const onPool = poolHasTop ? 'On the open pool' : '';
     learn.push({
-      label: `The ${escapeHtml(top.label)} tier${top.label === 'Smart' ? ', for deeper explanations' : ''}`,
+      label: `The ${escapeHtml(top.label)} tier${top.tier === 'max' ? ', for the hardest questions' : ''}`,
       free: keysFree ? `${onPool ? `${onPool} or your key` : 'On your key'}` : onPool || false,
       credit: true,
       key: true,

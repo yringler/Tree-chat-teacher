@@ -20,9 +20,12 @@ import {
   updateTreeRequestSchema,
   type Branch,
   type BranchFunding,
+  type CandidateEvent,
+  type CandidateRequest,
   type ChatMessage,
   type ChatNode,
   type Citation,
+  type CommitCandidateResponse,
   type ContextPlan,
   type ContextPlanResponse,
   type CreateBranchRequest,
@@ -32,6 +35,7 @@ import {
   type DeleteBranchResponse,
   type LlmProvider,
   type NodeLink,
+  type ProviderCapabilities,
   type ProviderInfo,
   type ProviderRegistry,
   type ProviderRoute,
@@ -237,11 +241,68 @@ export interface PreparedReview {
   model: string;
 }
 
+/**
+ * A validated compare candidate, ready to run (see `prepareCandidate`): the
+ * question, answered as the next reply after `parentId` (the branch's leaf,
+ * or its branch point when empty) on the given route and model.
+ */
+export interface PreparedCandidate {
+  id: string;
+  branch: Branch;
+  parentId: string | null;
+  content: string;
+  providerId: string;
+  funding: BranchFunding;
+  model: string;
+}
+
+/**
+ * A finished candidate, held (by the Worker, outside the tree) until the user
+ * commits it or it expires. `question` is the user's message, `content` the
+ * answer; `commitCandidate` appends both.
+ */
+export interface HeldCandidate {
+  id: string;
+  treeId: string;
+  branchId: string;
+  parentId: string | null;
+  question: string;
+  content: string;
+  providerId: string;
+  funding: BranchFunding;
+  model: string;
+  usage: TokenUsage | null;
+  sources: Citation[] | null;
+  createdAt: string;
+}
+
+/** `runCandidate`'s events: the wire CandidateEvent, but `done` carries the whole candidate. */
+export type CandidateRunEvent =
+  Exclude<CandidateEvent, { type: 'done' }> | { type: 'done'; candidate: HeldCandidate };
+
+/** What `streamReply` has received so far (updated as it streams). */
+interface ReplyState {
+  content: string;
+  usage: Partial<TokenUsage>;
+  /** Sources of a web search the reply ran; null when it didn't search. */
+  sources: Citation[] | null;
+}
+
+type ReplyEvent = Extract<StreamEvent, { type: 'status' | 'delta' | 'usage' }>;
+type ReplyTerminal = { status: 'complete' } | { status: 'error'; message: string };
+
 interface PlanInputs {
   tree: Tree;
   chain: Branch[];
   path: ChatNode[];
   branch: Branch;
+  /**
+   * The branch whose route summaries run on (without a summary provider):
+   * `branch`, except for a compare candidate, where it is the stored branch,
+   * so both candidates resolve the same summaries (cached once, on the
+   * branch's model rather than each candidate's).
+   */
+  summaryBranch: Branch;
   targetNodeId: string | null;
   provider: LlmProvider;
 }
@@ -633,18 +694,38 @@ export class ChatService {
   /**
    * Loads everything needed to plan a reply in an owned branch. A `nodeId`
    * must belong to that branch (and hence to the same owned tree).
+   *
+   * `extra` plans a reply that is not in the tree (a compare candidate):
+   * `tail` is an unsaved user node appended after its parent (with `nodeId`
+   * null) and becomes the target; `route` replaces the branch's route and
+   * model in memory, so the budget, provider and grounding allowance follow
+   * it; summaries stay on the stored branch's route (`summaryBranch`). The
+   * branch row is not changed.
    */
-  private async loadPlanInputs(branchId: string, nodeId: string | null): Promise<PlanInputs> {
+  private async loadPlanInputs(
+    branchId: string,
+    nodeId: string | null,
+    extra: { tail?: ChatNode; route?: ProviderRoute & { model: string } } = {},
+  ): Promise<PlanInputs> {
     const owned = await this.requireOwnedBranch(branchId);
     // The only way into the context's system prompt (the `tree-system-prompt` segment).
     const override = this.deps.systemPromptOverride;
     const tree = override === undefined ? owned.tree : { ...owned.tree, systemPrompt: override };
     const clip = (b: Branch): Branch => clipAnchorQuote(b, this.deps.anchorQuoteMaxChars);
-    const branch = clip(owned.branch);
-    const chain = (await this.repo.getBranchChain(branchId)).map(clip);
+    const route = extra.route;
+    const routed = (b: Branch): Branch =>
+      route && b.id === branchId
+        ? { ...b, providerId: route.providerId, funding: route.funding, model: route.model }
+        : b;
+    const stored = clip(owned.branch);
+    const branch = routed(stored);
+    const chain = (await this.repo.getBranchChain(branchId)).map((b) => routed(clip(b)));
 
+    const tail = extra.tail;
     let path: ChatNode[];
-    if (nodeId) {
+    if (tail) {
+      path = [...(tail.parentId ? await this.repo.getAncestorPath(tail.parentId) : []), tail];
+    } else if (nodeId) {
       const node = await this.repo.getNode(nodeId);
       if (!node || node.branchId !== branchId)
         throw new ValidationError('Node is not in this branch');
@@ -661,7 +742,15 @@ export class ChatService {
       path = path.map((n) => (n.role === 'system' ? { ...n, role: 'user' } : n));
     }
     const provider = this.requireProvider(branch);
-    return { tree, chain, path, branch, targetNodeId: nodeId, provider };
+    return {
+      tree,
+      chain,
+      path,
+      branch,
+      summaryBranch: stored,
+      targetNodeId: tail?.id ?? nodeId,
+      provider,
+    };
   }
 
   /** With a locked system prompt, anchor quotes stay out of the system channel. */
@@ -713,7 +802,9 @@ export class ChatService {
   ): AsyncGenerator<string, ContextPlan> {
     const summaries = new Map<string, string>();
     const failed = new Set<string>();
-    const { provider: summaryProvider, model: summaryModel } = this.summaryTarget(inputs.branch);
+    const { provider: summaryProvider, model: summaryModel } = this.summaryTarget(
+      inputs.summaryBranch,
+    );
     const { maxInputTokens } = this.budgetFor(inputs.provider, this.modelOf(inputs.branch));
     const lookedUp = new Set<string>();
 
@@ -893,17 +984,13 @@ export class ChatService {
   ): AsyncIterable<StreamEvent> {
     const { assistantNode, userNode } = begin;
     let branch = begin.branch;
-    let content = '';
-    const usage: Partial<TokenUsage> = {};
-    let sources: Citation[] | null = null;
+    const state: ReplyState = { content: '', usage: {}, sources: null };
     const finish = async (
       status: 'complete' | 'error',
       error: string | null,
     ): Promise<ChatNode> => {
-      const finalUsage: TokenUsage | null =
-        usage.inputTokens !== undefined || usage.outputTokens !== undefined
-          ? { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0 }
-          : null;
+      const { content, sources } = state;
+      const finalUsage = finalTokenUsage(state.usage);
       const node: ChatNode = {
         ...assistantNode,
         content,
@@ -941,30 +1028,13 @@ export class ChatService {
       const model = this.modelOf(branch);
       const caps = inputs.provider.capabilities(model);
       const grounding = await this.decideGrounding(inputs, plan, caps.supportsWebSearch, options);
-      const { maxOutput } = this.budgetFor(inputs.provider, model);
-
-      let terminal: { status: 'complete' } | { status: 'error'; message: string } | null = null;
-      let webSearch = this.webSearchRequest(grounding);
-      for (let attempt = 0; attempt < 2; attempt++) {
-        let retryWithoutSearch = false;
-        const extraSystem =
-          webSearch === undefined
-            ? undefined
-            : webSearch.mode === 'required'
-              ? CHECK_SOURCES_INSTRUCTIONS
-              : GROUNDING_INSTRUCTIONS;
-        const rendered = renderPlan(plan, {
-          ...this.renderOptions(caps.supportsSystemPrompt),
-          ...(extraSystem !== undefined ? { extraSystem } : {}),
-        });
-        let searched = false;
-        let cited: Citation[] = [];
-        for await (const event of inputs.provider.stream({
+      const terminal = yield* this.streamReply(
+        {
+          provider: inputs.provider,
+          plan,
           model,
-          system: rendered.system,
-          messages: rendered.messages,
-          maxOutputTokens: maxOutput,
-          signal,
+          caps,
+          grounding,
           usageTag: {
             purpose: 'reply',
             treeId: inputs.tree.id,
@@ -972,50 +1042,11 @@ export class ChatService {
             nodeId: assistantNode.id,
             ...(options.reservationId ? { reservationId: options.reservationId } : {}),
           },
-          ...(webSearch !== undefined ? { webSearch } : {}),
-        })) {
-          if (event.type === 'delta') {
-            content += event.text;
-            yield { type: 'delta', nodeId: assistantNode.id, text: event.text };
-          } else if (event.type === 'usage') {
-            Object.assign(usage, stripUndefined(event.usage));
-            yield { type: 'usage', nodeId: assistantNode.id, usage: event.usage };
-          } else if (event.type === 'done') {
-            terminal = { status: 'complete' };
-          } else if (event.type === 'billing') {
-            // Metered by the Worker's registry wrapper; only the search count matters here.
-            if ((event.webSearches ?? 0) > 0) searched = true;
-          } else if (event.type === 'activity') {
-            if (!searched) yield { type: 'status', message: 'Checking sources…' };
-            searched = true;
-          } else if (event.type === 'citations') {
-            searched = true;
-            cited = event.citations;
-          } else if (
-            webSearch !== undefined &&
-            attempt === 0 &&
-            content === '' &&
-            event.error.code === 'invalid_request'
-          ) {
-            // The provider (or this model) refused the search tool: answer without it.
-            webSearch = undefined;
-            retryWithoutSearch = true;
-            yield {
-              type: 'status',
-              message: "Couldn't check sources; answering from the tutor's own knowledge.",
-            };
-            break;
-          } else {
-            terminal = {
-              status: 'error',
-              message: event.error.code === 'aborted' ? 'Cancelled' : event.error.message,
-            };
-          }
-        }
-        if (searched) sources = cited;
-        if (!retryWithoutSearch) break;
-      }
-      terminal ??= { status: 'error', message: 'The provider stream ended unexpectedly' };
+          nodeId: assistantNode.id,
+        },
+        state,
+        signal,
+      );
 
       if (terminal.status === 'error') {
         const node = await finish('error', terminal.message);
@@ -1037,6 +1068,100 @@ export class ChatService {
       }
       yield { type: 'error', nodeId: assistantNode.id, message, node };
     }
+  }
+
+  /**
+   * Streams one reply to a planned context: renders it (with the grounding
+   * instructions when a search is offered), yields `delta`/`usage` for
+   * `target.nodeId` and `status` messages, and accumulates the text, usage
+   * and found sources into `state` as they arrive (so a caller that fails
+   * midway still has the partial reply). A provider that rejects the search
+   * request before any text is retried once without it. Returns the outcome;
+   * persists nothing.
+   */
+  private async *streamReply(
+    target: {
+      provider: LlmProvider;
+      plan: ContextPlan;
+      model: string;
+      caps: ProviderCapabilities;
+      grounding: GroundingDecision;
+      usageTag: UsageTag;
+      /** The node the `delta`/`usage` events are for. */
+      nodeId: string;
+    },
+    state: ReplyState,
+    signal: AbortSignal,
+  ): AsyncGenerator<ReplyEvent, ReplyTerminal> {
+    const { provider, plan, model, caps, nodeId } = target;
+    const { maxOutput } = this.budgetFor(provider, model);
+    let terminal: ReplyTerminal | null = null;
+    let webSearch = this.webSearchRequest(target.grounding);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let retryWithoutSearch = false;
+      const extraSystem =
+        webSearch === undefined
+          ? undefined
+          : webSearch.mode === 'required'
+            ? CHECK_SOURCES_INSTRUCTIONS
+            : GROUNDING_INSTRUCTIONS;
+      const rendered = renderPlan(plan, {
+        ...this.renderOptions(caps.supportsSystemPrompt),
+        ...(extraSystem !== undefined ? { extraSystem } : {}),
+      });
+      let searched = false;
+      let cited: Citation[] = [];
+      for await (const event of provider.stream({
+        model,
+        system: rendered.system,
+        messages: rendered.messages,
+        maxOutputTokens: maxOutput,
+        signal,
+        usageTag: target.usageTag,
+        ...(webSearch !== undefined ? { webSearch } : {}),
+      })) {
+        if (event.type === 'delta') {
+          state.content += event.text;
+          yield { type: 'delta', nodeId, text: event.text };
+        } else if (event.type === 'usage') {
+          Object.assign(state.usage, stripUndefined(event.usage));
+          yield { type: 'usage', nodeId, usage: event.usage };
+        } else if (event.type === 'done') {
+          terminal = { status: 'complete' };
+        } else if (event.type === 'billing') {
+          // Metered by the Worker's registry wrapper; only the search count matters here.
+          if ((event.webSearches ?? 0) > 0) searched = true;
+        } else if (event.type === 'activity') {
+          if (!searched) yield { type: 'status', message: 'Checking sources…' };
+          searched = true;
+        } else if (event.type === 'citations') {
+          searched = true;
+          cited = event.citations;
+        } else if (
+          webSearch !== undefined &&
+          attempt === 0 &&
+          state.content === '' &&
+          event.error.code === 'invalid_request'
+        ) {
+          // The provider (or this model) refused the search tool: answer without it.
+          webSearch = undefined;
+          retryWithoutSearch = true;
+          yield {
+            type: 'status',
+            message: "Couldn't check sources; answering from the tutor's own knowledge.",
+          };
+          break;
+        } else {
+          terminal = {
+            status: 'error',
+            message: event.error.code === 'aborted' ? 'Cancelled' : event.error.message,
+          };
+        }
+      }
+      if (searched) state.sources = cited;
+      if (!retryWithoutSearch) break;
+    }
+    return terminal ?? { status: 'error', message: 'The provider stream ended unexpectedly' };
   }
 
   /** Whether replies on `branch` can run a web search ("Check sources"). */
@@ -1201,16 +1326,12 @@ export class ChatService {
         )
           continue;
         else if (event.type === 'done') {
-          const finalUsage =
-            usage.inputTokens !== undefined || usage.outputTokens !== undefined
-              ? { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0 }
-              : null;
           yield {
             type: 'done',
             providerId: review.providerId,
             funding: review.funding,
             model: review.model,
-            usage: finalUsage,
+            usage: finalTokenUsage(usage),
           };
           return;
         } else {
@@ -1224,6 +1345,218 @@ export class ChatService {
       yield { type: 'error', message: 'The provider stream ended unexpectedly' };
     } catch (err) {
       yield { type: 'error', message: err instanceof Error ? err.message : 'Review failed' };
+    }
+  }
+
+  // ------------------------------------------------------------- compare
+
+  /**
+   * Validates a compare candidate before any stream opens, so bad requests
+   * fail as plain HTTP errors: the question must not be empty and no reply
+   * may be streaming in the branch. A request without a provider runs on the
+   * branch's route (Learn's fixed funding applies). The candidate answers
+   * after the branch's current leaf.
+   */
+  async prepareCandidate(branchId: string, request: CandidateRequest): Promise<PreparedCandidate> {
+    const branch = await this.getOwnedBranch(branchId);
+    if (!request.content.trim()) throw new ValidationError('Message is empty');
+    const leaf = (await this.repo.listBranchNodes(branchId)).at(-1);
+    if (leaf?.status === 'streaming') {
+      throw new ConflictError('A reply is still being generated in this branch');
+    }
+    const route = this.requestedRoute(request, branch);
+    this.requireProvider(route);
+    return {
+      id: this.newId(),
+      branch,
+      parentId: leaf?.id ?? branch.branchPointNodeId,
+      content: request.content,
+      ...route,
+      model: request.model,
+    };
+  }
+
+  /**
+   * Streams a candidate reply: the context is planned as if the question had
+   * been sent (summaries resolved and cached like a normal send) on the
+   * candidate's route and model, and the reply streams exactly as
+   * `runGeneration` would stream it (grounding included), metered as a
+   * `reply` with no node. Nothing is persisted: `done` carries the finished
+   * candidate for the caller to hold. Never throws; ends with exactly one
+   * `done` or `error`.
+   */
+  async *runCandidate(
+    prepared: PreparedCandidate,
+    signal: AbortSignal,
+  ): AsyncIterable<CandidateRunEvent> {
+    try {
+      const branchId = prepared.branch.id;
+      const parent = prepared.parentId ? await this.repo.getNode(prepared.parentId) : null;
+      const question: ChatNode = {
+        id: `${prepared.id}:q`,
+        treeId: prepared.branch.treeId,
+        branchId,
+        parentId: prepared.parentId,
+        seq: parent?.branchId === branchId ? parent.seq + 1 : 0,
+        role: 'user',
+        content: prepared.content,
+        status: 'complete',
+        error: null,
+        providerId: null,
+        model: null,
+        usage: null,
+        createdAt: this.now(),
+      };
+      const inputs = await this.loadPlanInputs(branchId, null, {
+        tail: question,
+        route: {
+          providerId: prepared.providerId,
+          funding: prepared.funding,
+          model: prepared.model,
+        },
+      });
+      const steps = this.resolvePlan(inputs, true, signal);
+      let step = await steps.next();
+      while (!step.done) {
+        yield { type: 'status', message: step.value };
+        step = await steps.next();
+      }
+      const plan = step.value;
+      if (plan.segments.some((s) => s.kind === 'summary' && s.status === 'failed')) {
+        yield { type: 'status', message: 'A summary could not be generated; sending without it.' };
+      }
+      const model = this.modelOf(inputs.branch);
+      const caps = inputs.provider.capabilities(model);
+      const grounding = await this.decideGrounding(inputs, plan, caps.supportsWebSearch, {});
+      const state: ReplyState = { content: '', usage: {}, sources: null };
+      const reply = this.streamReply(
+        {
+          provider: inputs.provider,
+          plan,
+          model,
+          caps,
+          grounding,
+          usageTag: { purpose: 'reply', treeId: inputs.tree.id, branchId, nodeId: null },
+          nodeId: question.id,
+        },
+        state,
+        signal,
+      );
+      let next = await reply.next();
+      while (!next.done) {
+        const event = next.value;
+        // Usage is accumulated into `state` and reported once, with `done`.
+        if (event.type === 'delta') yield { type: 'delta', text: event.text };
+        else if (event.type === 'status') yield event;
+        next = await reply.next();
+      }
+      const terminal = next.value;
+      if (terminal.status === 'error') {
+        yield { type: 'error', message: terminal.message };
+        return;
+      }
+      yield {
+        type: 'done',
+        candidate: {
+          id: prepared.id,
+          treeId: inputs.tree.id,
+          branchId,
+          parentId: prepared.parentId,
+          question: prepared.content,
+          content: state.content,
+          providerId: prepared.providerId,
+          funding: prepared.funding,
+          model,
+          usage: finalTokenUsage(state.usage),
+          sources: state.sources,
+          createdAt: this.now(),
+        },
+      };
+    } catch (err) {
+      yield { type: 'error', message: err instanceof Error ? err.message : 'Generation failed' };
+    }
+  }
+
+  /**
+   * Appends a held candidate to its branch as a normal exchange: the question
+   * and a complete reply with the candidate's model, provider, usage and
+   * sources. The branch's own route and model are not changed. Rejects with
+   * ConflictError when the branch moved on since the candidate was asked (its
+   * leaf is no longer the candidate's parent) or a reply is streaming.
+   * Auto-titles the branch after its first exchange, like a send
+   * (`appendCandidate`, then `titleCommitted`).
+   */
+  async commitCandidate(held: HeldCandidate): Promise<CommitCandidateResponse> {
+    const result = await this.appendCandidate(held);
+    return { ...result, branch: await this.titleCommitted(result) };
+  }
+
+  /**
+   * The append half of `commitCandidate`, with no model call: a caller that
+   * serializes commits with sends (the Durable Object's send lock) holds the
+   * lock for this only, and auto-titles after releasing it.
+   */
+  async appendCandidate(held: HeldCandidate): Promise<CommitCandidateResponse> {
+    const owned = await this.requireOwnedBranch(held.branchId);
+    const branch = owned.branch;
+    if (branch.treeId !== held.treeId) throw new NotFoundError('Branch');
+    const leaf = (await this.repo.listBranchNodes(branch.id)).at(-1);
+    if (leaf?.status === 'streaming') {
+      throw new ConflictError('A reply is still being generated in this branch');
+    }
+    if ((leaf?.id ?? branch.branchPointNodeId) !== held.parentId) {
+      throw new ConflictError('The conversation moved on since you compared; ask again');
+    }
+    const now = this.now();
+    const seq = leaf ? leaf.seq + 1 : 0;
+    const userNode: ChatNode = {
+      id: this.newId(),
+      treeId: branch.treeId,
+      branchId: branch.id,
+      parentId: held.parentId,
+      seq,
+      role: 'user',
+      content: held.question,
+      status: 'complete',
+      error: null,
+      providerId: null,
+      model: null,
+      usage: null,
+      createdAt: now,
+    };
+    const assistantNode: ChatNode = {
+      id: this.newId(),
+      treeId: branch.treeId,
+      branchId: branch.id,
+      parentId: userNode.id,
+      seq: seq + 1,
+      role: 'assistant',
+      content: held.content,
+      status: 'complete',
+      error: null,
+      providerId: held.providerId,
+      model: held.model,
+      usage: held.usage,
+      sources: held.sources,
+      createdAt: now,
+    };
+    await this.repo.appendNodes([userNode, assistantNode], now);
+    return { userNode, assistantNode, branch };
+  }
+
+  /**
+   * Auto-titles the branch (and the tree, for the trunk) after a committed
+   * first exchange, like a send; best-effort, never throws (the exchange is
+   * already in the tree). Returns the branch as it now is.
+   */
+  async titleCommitted(committed: CommitCandidateResponse): Promise<Branch> {
+    const { userNode, assistantNode, branch } = committed;
+    if (!this.deps.settings.autoTitle || assistantNode.seq !== 1) return branch;
+    try {
+      const owned = await this.requireOwnedBranch(branch.id);
+      return (await this.autoTitle(owned.tree, owned.branch, userNode, assistantNode)) ?? branch;
+    } catch {
+      return branch;
     }
   }
 
@@ -1506,6 +1839,13 @@ function foldSystem(prompt: { system: string | null; messages: ChatMessage[] }) 
 
 function emptyToNull(value: string | null | undefined): string | null {
   return value === undefined || value === null || value.trim() === '' ? null : value;
+}
+
+/** Accumulated usage as stored: null when the provider reported none. */
+function finalTokenUsage(usage: Partial<TokenUsage>): TokenUsage | null {
+  return usage.inputTokens !== undefined || usage.outputTokens !== undefined
+    ? { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0 }
+    : null;
 }
 
 function stripUndefined(usage: Partial<TokenUsage>): Partial<TokenUsage> {

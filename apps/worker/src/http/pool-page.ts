@@ -19,7 +19,7 @@ import { ceilingHoldMicros } from '../pool/pricing.js';
 import { poolContributions } from '../pool/revenue-share.js';
 import { weekStart } from '../pool/status.js';
 import { creditSold } from '../services.js';
-import { simpleProviderConfig } from '../simple-mode.js';
+import { POOL_MODEL_LABEL, simpleProviderConfig } from '../simple-mode.js';
 import { renderImpactBlock } from './impact-block.js';
 import { joinList, roughWords } from './landing.js';
 import { legalInfo, type LegalInfo } from './legal-info.js';
@@ -79,7 +79,10 @@ export async function poolPageFacts(env: AppEnv): Promise<PoolPageFacts> {
   const price = await modelPrice(env, id);
   return {
     enabled: config.flags.poolEnabled,
-    model: { id, label: simpleProviderConfig(env).models.find((m) => m.id === id)?.label ?? id },
+    model: {
+      id,
+      label: simpleProviderConfig(env).models.find((m) => m.id === id)?.label ?? POOL_MODEL_LABEL,
+    },
     revenueShareBps: pool.revenueShareBps,
     sessionEstimateMicros: pool.sessionEstimateMicros,
     maxOutputTokens: pool.maxOutputTokens,

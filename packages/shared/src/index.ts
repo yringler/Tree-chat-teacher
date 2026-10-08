@@ -6,6 +6,8 @@ export * from './default-route.js';
 export * from './share.js';
 export * from './api.js';
 export * from './review.js';
+export * from './compare.js';
+export * from './tiers.js';
 export * from './billing.js';
 export * from './money.js';
 export * from './pool.js';

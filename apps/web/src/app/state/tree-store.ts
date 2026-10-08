@@ -28,6 +28,7 @@ import type {
   BillingSummary,
   Branch,
   ChatNode,
+  CommitCandidateResponse,
   CreateBranchRequest,
   DeleteBranchResponse,
   KeyStatusResponse,
@@ -497,6 +498,8 @@ export class TreeStore {
     if (treeId !== this.selectedTreeId()) {
       this.selectedTreeId.set(treeId);
       this.ui.clearLinkState();
+      // A comparison belongs to a branch of the tree left behind (Back while it was open).
+      this.ui.compareDialog.set(null);
       if (treeId) void this.loadTree(treeId);
       else {
         this.detail.set(null);
@@ -1022,6 +1025,19 @@ export class TreeStore {
       if (this.sendingBranchId() === branchId) this.sendingBranchId.set(null);
       if (nodeId) this.controllers.delete(nodeId);
     }
+  }
+
+  /**
+   * A Compare pick the server committed (`POST …/candidates/:id/commit`): the
+   * question and the kept answer join the tree as a finished send's `start`
+   * and `done` would add them, and the same refresh follows (auto-titling).
+   */
+  applyCommitted(result: CommitCandidateResponse): void {
+    const { userNode, assistantNode, branch } = result;
+    this.setUnsentDraft(branch.id, null);
+    this.apply({ type: 'start', userNode, assistantNode, branch }, null);
+    this.apply({ type: 'done', node: assistantNode, branch }, assistantNode.id);
+    this.finish(assistantNode.id, { kind: 'done' });
   }
 
   private setUnsentDraft(branchId: string, text: string | null): void {

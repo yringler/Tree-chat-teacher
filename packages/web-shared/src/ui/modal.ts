@@ -51,11 +51,17 @@ export class Modal implements OnDestroy {
   constructor() {
     afterNextRender(() => {
       const el = this.host.nativeElement;
+      // The first usable control: not disabled, nor hidden by the layout (e.g.
+      // Compare's tab bar on a wide screen); else the Close button.
+      const usable = (c: HTMLElement) =>
+        !c.matches(':disabled') && (typeof c.checkVisibility !== 'function' || c.checkVisibility());
+      const controls = el.querySelectorAll<HTMLElement>(
+        '.modal-body input, .modal-body textarea, .modal-body select, .modal-body button',
+      );
       const target =
         el.querySelector<HTMLElement>('[autofocus]') ??
-        el.querySelector<HTMLElement>(
-          '.modal-body input, .modal-body textarea, .modal-body select, .modal-body button',
-        );
+        Array.from(controls).find(usable) ??
+        el.querySelector<HTMLElement>('.modal-head button');
       target?.focus();
     });
   }

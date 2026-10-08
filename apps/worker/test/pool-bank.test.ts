@@ -194,7 +194,7 @@ function providerOf(stream: (req: GenerateRequest) => AsyncIterable<ProviderEven
     id: 'openrouter',
     kind: 'fake',
     label: 'Tangent',
-    models: () => [{ id: 'simple', label: 'Simple' }],
+    models: () => [{ id: 'simple', label: 'Normal', tier: 'normal' }],
     defaultModel: () => 'simple',
     capabilities: () => ({
       maxContextTokens: 8192,

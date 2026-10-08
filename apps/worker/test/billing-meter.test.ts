@@ -39,7 +39,7 @@ function scriptedProvider(
     kind: 'fake' as const,
     label: 'Tangent',
     calls: 0,
-    models: () => [{ id: 'smart', label: 'Smart' }],
+    models: () => [{ id: 'smart', label: 'Max', tier: 'max' }],
     defaultModel: () => 'smart',
     capabilities: () => ({
       maxContextTokens: 1000,

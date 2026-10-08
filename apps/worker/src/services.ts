@@ -87,9 +87,9 @@ export function ownKeyProviders(env: AppEnv): { id: string; label: string; searc
 }
 
 /**
- * The default `openrouter` config with the suggested models (Learn's Smart and
- * Simple) first, the smart one as its default, and any model id allowed: the
- * easy way to use the suggested defaults on one's own OpenRouter key.
+ * The default `openrouter` config with the suggested models (Learn's Normal and
+ * Max, tagged with their tier) first, Normal as its default, and any model id
+ * allowed: the easy way to use the suggested defaults on one's own OpenRouter key.
  */
 function openrouterWithSuggestions(env: AppEnv, config: ProviderConfig): ProviderConfig {
   const suggested = suggestedModels(env);

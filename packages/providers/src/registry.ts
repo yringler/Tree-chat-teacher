@@ -1,7 +1,9 @@
 import {
   OPEN_MODEL_ID_PATTERN,
+  TIERS,
   type LlmProvider,
   type ModelInfo,
+  type ModelTier,
   type ProviderConfig,
   type ProviderError,
   type ProviderInfo,
@@ -64,8 +66,9 @@ const MODEL_KEYS: ReadonlySet<string> = new Set([
   'label',
   'maxContextTokens',
   'maxOutputTokens',
+  // `usageFactor` is computed by the server from prices, never configured.
+  'tier',
 ]);
-
 class ConfigError extends Error {
   constructor(path: string, problem: string) {
     super(`Invalid provider config: ${path} ${problem}`);
@@ -136,6 +139,12 @@ function parseModel(v: unknown, path: string): ModelInfo {
   if (ctx !== undefined) m.maxContextTokens = ctx;
   const out = optPositiveInt(v, 'maxOutputTokens', path);
   if (out !== undefined) m.maxOutputTokens = out;
+  const tier = v['tier'];
+  if (tier !== undefined) {
+    if (typeof tier !== 'string' || !(TIERS as readonly string[]).includes(tier))
+      throw new ConfigError(`${path}.tier`, 'must be "normal" or "max"');
+    m.tier = tier as ModelTier;
+  }
   return m;
 }
 

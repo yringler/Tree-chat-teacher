@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StreamEvent } from '@tangent/shared';
 import {
+  parseCandidateEvent,
   parseReviewEvent,
   parseStreamEvent,
   readSseEvents,
@@ -131,6 +132,40 @@ describe('review events', () => {
     const body = new Response(text).body!;
     const types: string[] = [];
     for await (const e of readSseEvents(body, parseReviewEvent)) types.push(e.type);
+    expect(types).toEqual(['status', 'delta', 'done']);
+  });
+});
+
+describe('candidate events', () => {
+  it('parses candidate frames and rejects chat-only types', () => {
+    const done = {
+      type: 'done',
+      candidateId: 'c1',
+      providerId: 'p',
+      funding: 'own-key',
+      model: 'm',
+      usage: null,
+      sources: null,
+      expiresAt: '2026-01-01T00:30:00.000Z',
+    };
+    expect(parseCandidateEvent({ event: 'done', data: JSON.stringify(done), id: null })).toEqual(
+      done,
+    );
+    expect(
+      parseCandidateEvent({ event: 'error', data: '{"type":"error","message":"x"}', id: null }),
+    ).toEqual({ type: 'error', message: 'x' });
+    expect(parseCandidateEvent({ event: 'start', data: '{"type":"start"}', id: null })).toBeNull();
+    expect(parseCandidateEvent({ event: 'usage', data: '{"type":"usage"}', id: null })).toBeNull();
+  });
+
+  it('reads a candidate stream', async () => {
+    const text =
+      'event: status\ndata: {"type":"status","message":"Summarizing…"}\n\n' +
+      'event: delta\ndata: {"type":"delta","text":"ok"}\n\n' +
+      'event: done\ndata: {"type":"done","candidateId":"c1","providerId":"p","funding":"own-key","model":"m","usage":null,"sources":null,"expiresAt":"x"}\n\n';
+    const types: string[] = [];
+    for await (const e of readSseEvents(new Response(text).body!, parseCandidateEvent))
+      types.push(e.type);
     expect(types).toEqual(['status', 'delta', 'done']);
   });
 });

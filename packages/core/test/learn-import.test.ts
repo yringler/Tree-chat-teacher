@@ -6,8 +6,8 @@ const AT = '2026-01-01T00:00:00.000Z';
 
 const TARGET: LearnImportTarget = {
   providerId: 'openrouter',
-  models: ['smart', 'simple'],
-  defaultModel: 'smart',
+  models: ['normal', 'max'],
+  defaultModel: 'normal',
   systemPrompt: 'TUTOR',
 };
 
@@ -25,7 +25,7 @@ function branch(id: string, over: Partial<BackupBranch> = {}): BackupBranch {
     titleSource: 'user',
     isPrivate: false,
     providerId: 'openrouter',
-    model: 'smart',
+    model: 'normal',
     funding: 'own-key',
     createdAt: AT,
     updatedAt: AT,
@@ -56,11 +56,11 @@ function powerBackup(): TreeBackupInput {
         model: 'vendor-large',
         titleSource: 'default',
       }),
-      branch('simple', { model: 'simple', anchorQuote: 'a prime', isPrivate: true }),
-      branch('credit', { model: 'smart', funding: 'credit', contextMode: 'summary' }),
+      branch('max', { model: 'max', anchorQuote: 'a prime', isPrivate: true }),
+      branch('credit', { model: 'normal', funding: 'credit', contextMode: 'summary' }),
       branch('open', { model: 'vendor/other-model', contextMode: 'independent' }),
-      branch('legacy', { providerId: 'tangent', model: 'simple', funding: undefined }),
-      branch('elsewhere', { providerId: 'openai', model: 'smart' }),
+      branch('legacy', { providerId: 'tangent', model: 'max', funding: undefined }),
+      branch('elsewhere', { providerId: 'openai', model: 'normal' }),
     ],
     nodes: [
       {
@@ -103,18 +103,18 @@ const routes = (b: TreeBackupInput) =>
 describe('adaptBackupForLearn', () => {
   it("moves branches Learn can't run onto its provider's default model and keeps its own models", () => {
     expect(routes(adaptBackupForLearn(powerBackup(), TARGET))).toEqual([
-      // Another provider: Learn's provider, Smart.
-      ['trunk', 'openrouter', 'smart', 'path', 'own-key'],
+      // Another provider: Learn's provider, Normal.
+      ['trunk', 'openrouter', 'normal', 'path', 'own-key'],
       // Already on one of Learn's models: kept.
-      ['simple', 'openrouter', 'simple', 'path', 'own-key'],
+      ['max', 'openrouter', 'max', 'path', 'own-key'],
       // On credit in power: kept model, but own-key (Learn pays per request).
-      ['credit', 'openrouter', 'smart', 'path', 'own-key'],
-      // A model Learn doesn't offer (power's open models): Smart.
-      ['open', 'openrouter', 'smart', 'path', 'own-key'],
+      ['credit', 'openrouter', 'normal', 'path', 'own-key'],
+      // A model Learn doesn't offer (power's open models): Normal.
+      ['open', 'openrouter', 'normal', 'path', 'own-key'],
       // The legacy built-in id is the built-in endpoint.
-      ['legacy', 'openrouter', 'simple', 'path', 'own-key'],
-      // A model id Learn offers, but on another provider: Smart on Learn's.
-      ['elsewhere', 'openrouter', 'smart', 'path', 'own-key'],
+      ['legacy', 'openrouter', 'max', 'path', 'own-key'],
+      // A model id Learn offers, but on another provider: Normal on Learn's.
+      ['elsewhere', 'openrouter', 'normal', 'path', 'own-key'],
     ]);
   });
 
@@ -161,7 +161,7 @@ describe('adaptBackupForLearn', () => {
       tree: { ...powerBackup().tree, systemPrompt: 'TUTOR' },
       branches: [
         branch('trunk', { parentBranchId: null, branchPointNodeId: null }),
-        branch('side', { model: 'simple', anchorQuote: 'two divisors' }),
+        branch('side', { model: 'max', anchorQuote: 'two divisors' }),
       ],
     };
     expect(adaptBackupForLearn(learn, TARGET)).toEqual(learn);
