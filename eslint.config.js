@@ -35,6 +35,30 @@ export default tseslint.config(
       'no-undef': 'off',
     },
   },
+  // Promise mistakes need type information: an un-awaited call loses its error, and an async
+  // callback where a void one is expected (an event handler, ngOnInit) runs unawaited.
+  {
+    files: ['**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        projectService: {
+          // Tool configs no tsconfig includes: they run in Node, outside the packages' builds.
+          allowDefaultProject: [
+            'vitest.coverage.ts',
+            'packages/*/vitest.config.ts',
+            'apps/worker/vitest.config.ts',
+            'apps/worker/drizzle.config.ts',
+          ],
+        },
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/await-thenable': 'error',
+    },
+  },
   // Payment boundaries (docs/polar-migration/03-architecture.md §2.7): the
   // Polar SDK is imported only by its adapter (and its tests), and adapters
   // translate without reaching into the ledger, purchases, the domain

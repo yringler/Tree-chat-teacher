@@ -139,7 +139,7 @@ Checks:
 ```bash
 pnpm test        # Vitest in every package; the worker suite runs inside workerd with real D1 + Durable Objects
 pnpm typecheck   # tsc everywhere (+ Angular strict templates)
-pnpm lint        # ESLint (typescript-eslint strict)
+pnpm lint        # ESLint (typescript-eslint strict, plus the type-aware promise rules)
 pnpm format:check # Prettier (`pnpm format` rewrites); .prettierignore skips vendored and generated files
 pnpm coverage    # the same tests with coverage, then a lines/branches table per package
 pnpm e2e         # Playwright end-to-end tests against wrangler dev (see below)
