@@ -16,7 +16,7 @@ import { accruePoolUsageShare } from './pool/revenue-share.js';
 export const CRON_FREQUENT = '*/10 * * * *';
 /** Mondays 04:17 UTC: the pool's impact snapshot of the ISO week just ended, and tag retention. */
 export const CRON_WEEKLY = '17 4 * * 1';
-/** Daily 03:23 UTC: OpenRouter's list prices of the priced models (pool/model-prices.ts). */
+/** Daily 03:23 UTC: OpenRouter's list prices and model windows (pool/model-prices.ts). */
 export const CRON_DAILY = '23 3 * * *';
 
 /** The jobs, by name (the tests swap them for spies). */
@@ -30,7 +30,7 @@ export interface CronJobs {
 }
 
 export const CRON_JOBS: CronJobs = {
-  reconcile: (env) => reconcilePendingUsage(env),
+  reconcile: (env, now) => reconcilePendingUsage(env, now),
   poolExpiry: (env, now) => reconcilePoolUsage(env, now),
   poolImpact: (env, now) => aggregatePoolImpact(env, now),
   paymentDisputes: (env, now) => pollDisputes(env, now),
