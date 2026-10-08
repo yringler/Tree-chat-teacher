@@ -7,7 +7,8 @@ import type {
   PoolMeResponse,
   PoolStatusResponse,
 } from '@tangent/shared';
-import { ApiClient, DEMO_MODE } from '@tangent/web-shared';
+import { API_FETCH, ApiClient, DEMO_MODE } from '@tangent/web-shared';
+import { createDemoFetch } from '@tangent/web-shared/demo';
 import { describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
 import { PaymentStore } from './payment-store';
@@ -522,5 +523,32 @@ describe('AccountStore open pool', () => {
     expect(account.payment.poolAvailable()).toBe(false);
     expect(api.poolMe).not.toHaveBeenCalled();
     expect(account.poolMe()).toBeNull();
+  });
+});
+
+describe('AccountStore in the demo', () => {
+  it("the demo backend's data offers no membership lock, pool, funding toggle or top-ups", async () => {
+    const injector = Injector.create({
+      providers: [
+        { provide: AccountStore },
+        { provide: PaymentStore },
+        { provide: UiStore },
+        { provide: ApiClient },
+        { provide: DEMO_MODE, useValue: true },
+        { provide: API_FETCH, useValue: createDemoFetch({ mode: 'simple', storage: null }) },
+      ],
+    });
+    const account = injector.get(AccountStore);
+    const api = injector.get(ApiClient);
+    account.setMe(await api.me());
+    await account.refreshBalance();
+    await account.refreshPool();
+
+    expect(account.payment.payment()).toBe('credit');
+    expect(account.membershipBlocked()).toBe(false);
+    expect(account.payment.poolAvailable()).toBe(false);
+    expect(account.poolMe()).toBeNull();
+    expect(account.fundingChoice()).toBe(false);
+    expect(account.creditOnSale()).toBe(false);
   });
 });

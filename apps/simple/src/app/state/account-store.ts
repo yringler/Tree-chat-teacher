@@ -10,7 +10,7 @@ import {
   type PoolMeResponse,
   type PoolStatusResponse,
 } from '@tangent/shared';
-import { ApiClient, DEMO_MODE, formatMicros, membershipBlocks } from '@tangent/web-shared';
+import { ApiClient, formatMicros, membershipBlocks } from '@tangent/web-shared';
 import { PaymentStore } from './payment-store';
 import { UiStore } from './ui-store';
 
@@ -49,7 +49,6 @@ export class AccountStore {
   readonly poolStatus = signal<PoolStatusResponse | null>(null);
   /** The learner's caps and use of the pool today; null until loaded, or while the pool is off. */
   readonly poolMe = signal<PoolMeResponse | null>(null);
-  private readonly demo = inject(DEMO_MODE, { optional: true }) ?? false;
 
   /** The server refused a reply for want of a membership (402 `membership_required`). */
   private readonly gateForced = signal(false);
@@ -67,7 +66,6 @@ export class AccountStore {
    */
   readonly membershipBlocked = computed(
     () =>
-      !this.demo &&
       this.payment.payment() === 'own-key' &&
       (membershipBlocks(this.membership()) || this.gateForced()),
   );
@@ -78,8 +76,8 @@ export class AccountStore {
    * can buy it). Both false offers only the membership.
    */
   readonly keyLockedWays = computed(() => ({
-    pool: !this.demo && this.payment.poolAvailable(),
-    credit: !this.demo && this.payment.builtInCredit() && this.payment.creditUsable(),
+    pool: this.payment.poolAvailable(),
+    credit: this.payment.builtInCredit() && this.payment.creditUsable(),
   }));
 
   /** True when the learner's own OpenRouter key is stored in this browser. */
@@ -182,7 +180,7 @@ export class AccountStore {
    * of it. Membership plays no part: neither credit nor the pool needs one.
    */
   readonly fundingChoice = computed(() => {
-    if (this.demo || !this.payment.builtInCredit() || !this.payment.poolAvailable()) return false;
+    if (!this.payment.builtInCredit() || !this.payment.poolAvailable()) return false;
     if (this.billing() === null || this.payment.payment() === 'own-key') return false;
     const own = this.poolMe()?.personalAvailableMicros ?? this.billing()?.availableMicros ?? 0;
     return own > 0;
@@ -193,7 +191,7 @@ export class AccountStore {
    * sells top-ups. Anyone may buy, member or not.
    */
   readonly creditOnSale = computed(
-    () => !this.demo && this.payment.builtInCredit() && this.billing()?.topUpsEnabled !== false,
+    () => this.payment.builtInCredit() && this.billing()?.topUpsEnabled !== false,
   );
 
   /** True when the available credit is used up (the pill turns into a warning). */
@@ -275,7 +273,7 @@ export class AccountStore {
       const status = await this.api.poolStatus();
       this.poolStatus.set(status);
       this.payment.poolAvailable.set(status.enabled);
-      this.poolMe.set(status.enabled && !this.demo ? await this.api.poolMe() : null);
+      this.poolMe.set(status.enabled ? await this.api.poolMe() : null);
     } catch (err) {
       console.warn('Could not load the open pool', err);
     }
