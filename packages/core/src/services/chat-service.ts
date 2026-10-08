@@ -11,7 +11,11 @@ import {
   TRUNK_TITLE,
   DEFAULT_REPLY_OUTPUT_TOKENS,
   REASONING_REPLY_OUTPUT_TOKENS,
+  REPLY_CUT_OFF_ERROR,
+  REPLY_EMPTY_ERROR,
+  REPLY_THINKING_ONLY_ERROR,
   auxOutputTokens,
+  isLengthStop,
   replyOutputTokens,
   createBranchRequestSchema,
   createLinkRequestSchema,
@@ -43,6 +47,7 @@ import {
   type ProviderInfo,
   type ProviderRegistry,
   type ProviderRoute,
+  type ReasoningEffort,
   type ReviewEvent,
   type ReviewRequest,
   type SettingsResponse,
@@ -91,6 +96,12 @@ export interface ChatSettings {
   summaryProviderId: string | null;
   summaryModel: string | null;
   /**
+   * Reasoning effort of summaries and titles (`GenerateRequest.reasoning`):
+   * short outputs that need little thinking. null = the summary model's own
+   * (its configured `ModelInfo.effort`, else the model's default).
+   */
+  summaryEffort: ReasoningEffort | null;
+  /**
    * A reply's output cap (also reserved when computing the input budget) on a
    * model that doesn't reason. Default DEFAULT_REPLY_OUTPUT_TOKENS (4096).
    */
@@ -136,6 +147,7 @@ export const DEFAULT_GROUNDING_SETTINGS: GroundingSettings = {
 export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   summaryProviderId: null,
   summaryModel: null,
+  summaryEffort: null,
   reservedOutputTokens: DEFAULT_REPLY_OUTPUT_TOKENS,
   reasoningOutputTokens: REASONING_REPLY_OUTPUT_TOKENS,
   maxInputTokens: null,
@@ -946,6 +958,7 @@ export class ChatService {
       prompt,
       signal ?? new AbortController().signal,
       { purpose: 'summary', ...target, nodeId: null },
+      this.deps.settings.summaryEffort,
     );
     return text?.trim() ? text.trim() : null;
   }
@@ -1116,7 +1129,9 @@ export class ChatService {
    * and found sources into `state` as they arrive (so a caller that fails
    * midway still has the partial reply). A provider that rejects the search
    * request before any text is retried once without it. Returns the outcome;
-   * persists nothing.
+   * persists nothing. A reply cut off at its output cap, or one without any
+   * text, is an error outcome (`replyOutcome`), so a caller stores it as an
+   * `error` node that keeps the partial text, never as a complete answer.
    */
   private async *streamReply(
     target: {
@@ -1168,7 +1183,7 @@ export class ChatService {
           Object.assign(state.usage, stripUndefined(event.usage));
           yield { type: 'usage', nodeId, usage: event.usage };
         } else if (event.type === 'done') {
-          terminal = { status: 'complete' };
+          terminal = replyOutcome(state.content, event.stopReason);
         } else if (event.type === 'billing') {
           // Metered by the Worker's registry wrapper; only the search count matters here.
           if ((event.webSearches ?? 0) > 0) searched = true;
@@ -1284,6 +1299,7 @@ export class ChatService {
         buildTitlePrompt(messages),
         AbortSignal.timeout(TITLE_TIMEOUT_MS),
         { purpose: 'title', treeId: tree.id, branchId: branch.id, nodeId: null },
+        this.deps.settings.summaryEffort,
       );
       const title = raw ? cleanTitle(raw) : null;
       if (!title) return null;
@@ -1851,6 +1867,7 @@ async function collectText(
   prompt: { system: string | null; messages: ChatMessage[] },
   signal: AbortSignal,
   usageTag: UsageTag,
+  effort: ReasoningEffort | null,
 ): Promise<string | null> {
   let text = '';
   for await (const event of provider.stream({
@@ -1860,6 +1877,7 @@ async function collectText(
     maxOutputTokens: auxOutputTokens(provider.capabilities(model)),
     signal,
     usageTag,
+    ...(effort !== null ? { reasoning: effort } : {}),
   })) {
     if (event.type === 'delta') text += event.text;
     else if (event.type === 'billing') continue;
@@ -1883,6 +1901,20 @@ function emptyToNull(value: string | null | undefined): string | null {
 }
 
 /** Accumulated usage as stored: null when the provider reported none. */
+/**
+ * The outcome of a reply the provider finished with `stopReason`: complete,
+ * unless it stopped at its output cap (`isLengthStop`; with no text at all, a
+ * reasoning model thought until the cap) or wrote nothing. Those are errors
+ * with fixed messages (stop-reason.ts) the apps recognize.
+ */
+function replyOutcome(content: string, stopReason: string | null): ReplyTerminal {
+  const empty = content.trim() === '';
+  if (isLengthStop(stopReason))
+    return { status: 'error', message: empty ? REPLY_THINKING_ONLY_ERROR : REPLY_CUT_OFF_ERROR };
+  if (empty) return { status: 'error', message: REPLY_EMPTY_ERROR };
+  return { status: 'complete' };
+}
+
 function finalTokenUsage(usage: Partial<TokenUsage>): TokenUsage | null {
   return usage.inputTokens !== undefined || usage.outputTokens !== undefined
     ? { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0 }

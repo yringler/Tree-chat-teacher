@@ -53,6 +53,38 @@ export interface ModelInfo {
   usageFactor?: number;
   /** Whether the model reasons (thinks before answering); absent = `isReasoningModel(id)`. */
   reasoning?: boolean;
+  /**
+   * The reasoning effort to ask this model for (`GenerateRequest.reasoning`
+   * overrides it per call); absent = send none, the model's own default.
+   * Sent on OpenRouter only. Server-side config: not listed to clients.
+   */
+  effort?: ReasoningEffort;
+  /**
+   * OpenRouter only: the upstream providers to try first, in order (slugs such
+   * as `deepseek`), sent as `provider: {order, allow_fallbacks: true}`. Pinning
+   * keeps a model's prompt cache, which each upstream keeps for itself, and
+   * its price. Absent or empty = OpenRouter's own routing. Server-side config:
+   * not listed to clients.
+   */
+  providerOrder?: string[];
+}
+
+/**
+ * How hard a reasoning model thinks: `none` asks it not to (OpenRouter
+ * `reasoning: {enabled: false}`), `low` and `high` are OpenRouter's
+ * `reasoning.effort`. There is deliberately no `max` (nor `xhigh`): at its
+ * top effort a model is far more verbose, and in Artificial Analysis'
+ * measurements it almost never admits it doesn't know, the worst trade for
+ * a learning app.
+ */
+export type ReasoningEffort = 'none' | 'low' | 'high';
+
+/** Every `ReasoningEffort`, lowest first. */
+export const REASONING_EFFORTS: readonly ReasoningEffort[] = ['none', 'low', 'high'];
+
+/** Whether `value` is a `ReasoningEffort`. */
+export function isReasoningEffort(value: unknown): value is ReasoningEffort {
+  return typeof value === 'string' && (REASONING_EFFORTS as readonly string[]).includes(value);
 }
 
 /**
@@ -88,11 +120,14 @@ export interface GenerateRequest {
   /** Offer (or require) a web search; ignored unless `capabilities(model).supportsWebSearch`. */
   webSearch?: WebSearchRequest;
   /**
-   * `off`: ask a reasoning model not to think, for short structured answers
-   * whose output cap thinking would use up (the pool's topic classifier).
-   * Sent only where the endpoint takes it (OpenRouter); elsewhere ignored.
+   * The reasoning effort of this call, overriding the model's configured
+   * `ModelInfo.effort`: e.g. `none` for short structured answers whose output
+   * cap thinking would use up (the pool's topic classifier), or the
+   * background effort of summaries and titles. Absent = the model's
+   * `effort`, else none sent. Sent only where the endpoint takes it
+   * (OpenRouter); elsewhere ignored.
    */
-  reasoning?: 'off';
+  reasoning?: ReasoningEffort;
 }
 
 /** A web search offered for one reply (OpenRouter's `openrouter:web_search` server tool). */
@@ -146,6 +181,8 @@ export interface ProviderUsage extends TokenUsage {
   cacheReadTokens: number;
   /** Input tokens written to the prompt cache; included in `inputTokens`. */
   cacheWriteTokens: number;
+  /** Output tokens spent thinking; included in `outputTokens`. */
+  reasoningTokens: number;
 }
 
 /**
@@ -158,9 +195,13 @@ export interface ProviderUsage extends TokenUsage {
  * - `usage` may be yielded more than once; later values override earlier ones
  *   field by field (providers report cumulative numbers);
  * - aborting `signal` ends the stream promptly with `error{code:'aborted'}`;
- * - `billing` (upstream generation id and/or reported cost in USD) may be
- *   yielded any number of times before the terminal event; later fields
- *   override earlier ones. Consumers that don't bill must ignore it;
+ * - `billing` (upstream generation id, reported cost in USD, and the upstream
+ *   provider that served the call, `servedBy`, e.g. OpenRouter's `DeepSeek`)
+ *   may be yielded any number of times before the terminal event; later
+ *   fields override earlier ones. Consumers that don't bill must ignore it;
+ * - `done.stopReason` is the upstream's own finish reason (`stop`, `length`,
+ *   `end_turn`, `max_tokens`, …); `isLengthStop` (stop-reason.ts) tells a
+ *   reply cut off at its output cap;
  * - `citations` (sources a web search found and the reply cites) may be
  *   yielded any number of times; each carries the full, deduplicated list so
  *   far. `activity` reports that a web search started.
@@ -168,7 +209,13 @@ export interface ProviderUsage extends TokenUsage {
 export type ProviderEvent =
   | { type: 'delta'; text: string }
   | { type: 'usage'; usage: Partial<ProviderUsage> }
-  | { type: 'billing'; generationId?: string; costUsd?: number; webSearches?: number }
+  | {
+      type: 'billing';
+      generationId?: string;
+      costUsd?: number;
+      webSearches?: number;
+      servedBy?: string;
+    }
   | { type: 'citations'; citations: Citation[] }
   | { type: 'activity'; kind: 'web_search' }
   | { type: 'done'; stopReason: string | null }

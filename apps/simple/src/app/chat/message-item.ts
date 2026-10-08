@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
-import { splitTangents, type ChatNode } from '@tangent/shared';
+import { CONTINUE_MESSAGE, isCutOffReply, splitTangents, type ChatNode } from '@tangent/shared';
 import {
   Icon,
   MarkdownService,
@@ -61,7 +61,20 @@ import { branchTitle } from './titles';
         <span class="cursor" aria-hidden="true"></span>
         <span class="sr-only">Writing…</span>
       }
-      @if (n.status === 'error') {
+      @if (cutOff()) {
+        <!-- Ended at its length limit: what it said is kept, but it isn't a whole answer. -->
+        <div class="msg-error-box msg-cut-off" role="alert">
+          <strong>Cut off.</strong>
+          <span>{{ n.error }}</span>
+          @if (canContinue()) {
+            <button type="button" class="btn btn-sm msg-continue" (click)="continueReply()">
+              Continue
+            </button>
+          } @else {
+            <span class="muted small">To get the rest, ask the tutor to continue.</span>
+          }
+        </div>
+      } @else if (n.status === 'error') {
         <div class="msg-error-box" role="alert">
           <strong>{{ n.error === 'cancelled' ? 'Stopped.' : 'The reply failed.' }}</strong>
           @if (n.error && n.error !== 'cancelled') {
@@ -188,6 +201,24 @@ export class MessageItem {
   protected readonly askable = computed(
     () => this.node().role === 'assistant' && this.node().status === 'complete',
   );
+  /** A reply cut off at its length limit (stored as an error that keeps its text). */
+  protected readonly cutOff = computed(() => isCutOffReply(this.node()));
+  /** "Continue" is offered on the open branch's last message, while nothing is generating. */
+  protected readonly canContinue = computed(() => {
+    const n = this.node();
+    return (
+      this.cutOff() &&
+      n.branchId === this.store.selectedBranchId() &&
+      this.store.path().at(-1)?.id === n.id &&
+      !this.store.busy()
+    );
+  });
+
+  /** Asks the tutor to go on from where the cut-off reply ended (it is in the context). */
+  protected continueReply(): void {
+    if (!this.canContinue()) return;
+    void this.store.send(this.node().branchId, CONTINUE_MESSAGE);
+  }
   /** The tutor's suggested tangents, offered once the reply is complete. */
   protected readonly tangents = computed(() => (this.askable() ? this.split().tangents : []));
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));

@@ -168,6 +168,21 @@
     "SIMPLE_MAX_MODEL": "anthropic/claude-sonnet-5.5",
     // Summaries, titles and the open pool's default model (not a tier).
     "SIMPLE_FAST_MODEL": "deepseek/deepseek-v4-flash",
+    // How each tier asks its model (src/config.ts `TierRequestConfig`); empty = the model's defaults.
+    // *_EFFORT: "none" (thinking off), "low" or "high", sent as OpenRouter's `reasoning`; empty = none
+    // sent. Never "max" (refused). *_REPLY_TOKENS: a reply's output cap, thinking and answer together,
+    // at most 16384; empty = 16384 on a reasoning model, else 4096. *_PROVIDER_ORDER: OpenRouter
+    // provider slugs to try first, comma-separated (e.g. "deepseek"), with fallbacks allowed; one
+    // provider keeps the prompt cache warm (each keeps its own). Empty = OpenRouter's routing.
+    // Ignored with SIMPLE_PROVIDER, whose models carry their own `effort` / `providerOrder`.
+    "SIMPLE_NORMAL_EFFORT": "",
+    "SIMPLE_NORMAL_REPLY_TOKENS": "",
+    "SIMPLE_NORMAL_PROVIDER_ORDER": "",
+    "SIMPLE_MAX_EFFORT": "",
+    "SIMPLE_MAX_REPLY_TOKENS": "",
+    "SIMPLE_MAX_PROVIDER_ORDER": "",
+    // The effort of summaries and titles, in Learn and on the open pool; empty = their model's own.
+    "SIMPLE_FAST_EFFORT": "",
     // Full ProviderConfig JSON (id "openrouter"; legacy "tangent" is read as it) for the built-in provider;
     // empty = OpenRouter with the models above.
     "SIMPLE_PROVIDER": "",
@@ -234,6 +249,11 @@
     "POOL_ACCOUNT_ID": "pool",
     // The one model pool replies use; empty = SIMPLE_FAST_MODEL. It must have an entry in the price table.
     "POOL_MODEL": "",
+    // The pool model's effort and provider pinning, like SIMPLE_NORMAL_EFFORT / _PROVIDER_ORDER above
+    // (its reply cap is POOL_MAX_OUTPUT_TOKENS). Empty = none sent / OpenRouter's routing; pinning
+    // keeps the pool's `max_price` routing.
+    "POOL_EFFORT": "",
+    "POOL_PROVIDER_ORDER": "",
     // The locked system prompt of pool replies; empty = SIMPLE_SYSTEM_PROMPT, else the built-in prompt.
     "POOL_SYSTEM_PROMPT": "",
     // The share of Tangent's revenue added to the pool, in bps (2000 = 20%; at most 10000; "0" = none):

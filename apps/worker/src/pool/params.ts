@@ -2,7 +2,7 @@
 // `appConfig(env)` and handed to the meter and to PoolBank as arguments, so
 // the Durable Objects read no pool config of their own (a per-request env,
 // e.g. a test's, then applies everywhere).
-import type { PoolBlockDetails, UsagePurpose } from '@tangent/shared';
+import type { PoolBlockDetails, ReasoningEffort, UsagePurpose } from '@tangent/shared';
 import {
   appConfig,
   type ModelPrice,
@@ -25,6 +25,12 @@ export interface PoolParams {
   systemPrompt: string;
   maxInputTokens: number;
   maxOutputTokens: number;
+  /** The pool model's reasoning effort (`POOL_EFFORT`); null = its default. */
+  effort: ReasoningEffort | null;
+  /** OpenRouter providers pinned for the pool model (`POOL_PROVIDER_ORDER`). */
+  providerOrder: readonly string[];
+  /** The effort of the pool's summaries and titles (`SIMPLE_FAST_EFFORT`); null = `effort`. */
+  summaryEffort: ReasoningEffort | null;
   /** The longest message a pool send accepts (`POOL_MAX_MESSAGE_CHARS`). */
   maxMessageChars: number;
   ttlMs: number;
@@ -62,6 +68,9 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
     systemPrompt: pool.systemPrompt,
     maxInputTokens: pool.maxInputTokens,
     maxOutputTokens: pool.maxOutputTokens,
+    effort: pool.effort,
+    providerOrder: pool.providerOrder,
+    summaryEffort: config.simple.backgroundEffort,
     maxMessageChars: pool.maxMessageChars,
     ttlMs: pool.reservationTtlMs,
     giveUpMs: pool.giveUpMs,

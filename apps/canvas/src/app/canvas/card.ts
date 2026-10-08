@@ -7,7 +7,7 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { splitTangents, type ChatNode } from '@tangent/shared';
+import { isCutOffReply, splitTangents, type ChatNode } from '@tangent/shared';
 import {
   Icon,
   MarkdownService,
@@ -101,7 +101,9 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
       }
       @if (n.status === 'error') {
         <div class="card-error" role="alert">
-          <strong>{{ n.error === 'cancelled' ? 'Stopped.' : 'The reply failed.' }}</strong>
+          <strong>{{
+            cutOff() ? 'Cut off.' : n.error === 'cancelled' ? 'Stopped.' : 'The reply failed.'
+          }}</strong>
           @if (n.error && n.error !== 'cancelled') {
             <span>{{ n.error }}</span>
           }
@@ -243,6 +245,8 @@ export class Card {
   );
   protected readonly html = computed(() => this.md.render(this.split().body, !this.streaming()));
   /** A finished reply: offers its tangents and "Ask your own". */
+  /** A reply cut off at its length limit (it keeps its text, but isn't a whole answer). */
+  protected readonly cutOff = computed(() => isCutOffReply(this.node()));
   protected readonly complete = computed(
     () => this.node().role === 'assistant' && this.node().status === 'complete',
   );

@@ -112,7 +112,7 @@ export async function classifyPoolExchange(
       maxOutputTokens: impact.classifierMaxOutputTokens,
       // A topic id is a few tokens; thinking would use up the cap first and
       // leave the reply empty (the pool model, Flash, reasons by default).
-      reasoning: 'off',
+      reasoning: 'none',
       // Nobody waits on the classifier; the pool meter bounds the call with
       // `pool.callTimeoutMs`, like every pool call.
       signal: new AbortController().signal,

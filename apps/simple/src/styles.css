@@ -517,6 +517,16 @@ button.crumb:hover {
   font-size: calc(0.9 * var(--chat-rem, 1rem));
 }
 
+/* A reply cut off at its length limit: a warning, not a failure; "Continue" asks for the rest. */
+.msg-cut-off {
+  background: var(--warn-soft);
+}
+
+.msg-continue {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
 .cursor {
   display: inline-block;
   width: 8px;

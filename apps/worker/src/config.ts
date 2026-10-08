@@ -8,7 +8,13 @@
 // registry (the pool's default model, whether the built-in provider is
 // offered) is resolved by its caller, so this module imports nothing from
 // services.ts or simple-mode.ts.
-import { DEFAULT_SYSTEM_PROMPT, POOL_NOTICE_VERSION } from '@tangent/shared';
+import {
+  BUILT_IN_MAX_OUTPUT_TOKENS,
+  DEFAULT_SYSTEM_PROMPT,
+  isReasoningEffort,
+  POOL_NOTICE_VERSION,
+  type ReasoningEffort,
+} from '@tangent/shared';
 import { z } from 'zod';
 import type { AppEnv } from './env.js';
 
@@ -69,9 +75,9 @@ export interface ModelPrice {
 }
 
 /**
- * Placeholder prices of the default pool models and of Learn's tiers, Normal
- * and Max, which the Max usage note compares (tiers.ts `withUsageFactors`):
- * OpenRouter list prices when they were added. The daily price sync
+ * Placeholder prices of the default pool models, of Learn's tiers, Normal
+ * and Max, which the Max usage note compares (tiers.ts `withUsageFactors`),
+ * and of a fallback candidate: OpenRouter list prices when they were added. The daily price sync
  * (pool/model-prices.ts) replaces them with OpenRouter's current list prices;
  * `MODEL_PRICES` overrides or extends them, and an override also wins over
  * the synced price.
@@ -91,6 +97,14 @@ export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
     inMicrosPerMTok: 2_000_000,
     outMicrosPerMTok: 10_000_000,
     contextTokens: 1_000_000,
+  },
+  // A fallback candidate, no default: priced so the pool (`POOL_MODEL`) or a
+  // tier can be moved to it by config alone (docs/DECISIONS.md "Hosted tier config").
+  'minimax/minimax-m3': {
+    inMicrosPerMTok: 300_000,
+    outMicrosPerMTok: 1_200_000,
+    contextTokens: 1_000_000,
+    cacheReadMicrosPerMTok: 60_000,
   },
 };
 
@@ -132,10 +146,34 @@ export interface PoolOverage {
   maxMicros: number;
 }
 
+/**
+ * How one hosted tier asks its model (`SIMPLE_NORMAL_*`, `SIMPLE_MAX_*`,
+ * `POOL_*`); the tier's model is resolved by the caller (simple-mode.ts,
+ * pool/params.ts). Every default is today's behaviour: no effort sent, the
+ * default output cap, OpenRouter's own routing.
+ */
+export interface TierRequestConfig {
+  /** `*_EFFORT`: `none`, `low` or `high` (never `max`); null = send none, the model's default. */
+  effort: ReasoningEffort | null;
+  /**
+   * `SIMPLE_*_REPLY_TOKENS`: the reply's output cap (thinking and answer
+   * together), at most BUILT_IN_MAX_OUTPUT_TOKENS (16,384); null = the default
+   * for the model's kind (16,384 on a reasoning model, 4,096 otherwise). The
+   * pool's is `POOL_MAX_OUTPUT_TOKENS` (`PoolConfig.maxOutputTokens`).
+   */
+  maxOutputTokens: number | null;
+  /** `*_PROVIDER_ORDER`: OpenRouter provider slugs to pin, comma-separated; empty = none. */
+  providerOrder: readonly string[];
+}
+
 export interface PoolConfig {
   accountId: string;
   /** `POOL_MODEL`; null = the simple provider's fast model, resolved by the caller. */
   model: string | null;
+  /** `POOL_EFFORT` (null = the model's default). */
+  effort: ReasoningEffort | null;
+  /** `POOL_PROVIDER_ORDER`. */
+  providerOrder: readonly string[];
   systemPrompt: string;
   /**
    * `POOL_REVENUE_SHARE_BPS` (at most 10,000): the share of each membership
@@ -206,7 +244,17 @@ export interface AppConfig {
     /** Before the built-in-provider check (`membershipCreditCents`). */
     membershipCreditCentsRaw: number;
   };
-  simple: { maxInputTokens: number };
+  simple: {
+    maxInputTokens: number;
+    /** Learn's tiers' request settings (their models: `SIMPLE_NORMAL_MODEL`, `SIMPLE_MAX_MODEL`). */
+    normal: TierRequestConfig;
+    max: TierRequestConfig;
+    /**
+     * `SIMPLE_FAST_EFFORT`: the effort of summaries and titles, in Learn and on
+     * the open pool (null = their model's own).
+     */
+    backgroundEffort: ReasoningEffort | null;
+  };
   pool: PoolConfig;
   impact: {
     minDistinctUsers: number;
@@ -302,6 +350,34 @@ function parsePrices(raw: string | undefined): {
   return { prices, overrides: Object.keys(overrides) };
 }
 
+/**
+ * `*_EFFORT`: `none`, `low` or `high` (any case); empty gives null (the
+ * model's default). `max` and `xhigh` are refused like any other value
+ * (logged, null): Tangent never asks for a model's top effort.
+ */
+export function effortVar(name: string, raw: string | undefined): ReasoningEffort | null {
+  const s = raw?.trim().toLowerCase();
+  if (!s) return null;
+  if (isReasoningEffort(s)) return s;
+  console.error(`Invalid ${name}=${s}: expected none, low or high; sending no effort`);
+  return null;
+}
+
+/** `SIMPLE_*_REPLY_TOKENS`: a positive cap up to BUILT_IN_MAX_OUTPUT_TOKENS; empty or invalid gives null. */
+function replyTokensVar(name: string, raw: string | undefined): number | null {
+  const n = positiveInt(raw, 0);
+  if (n === 0) return null;
+  return clamped(name, n, Math.min(n, BUILT_IN_MAX_OUTPUT_TOKENS));
+}
+
+function tierRequest(env: AppEnv, prefix: 'SIMPLE_NORMAL' | 'SIMPLE_MAX'): TierRequestConfig {
+  return {
+    effort: effortVar(`${prefix}_EFFORT`, env[`${prefix}_EFFORT`]),
+    maxOutputTokens: replyTokensVar(`${prefix}_REPLY_TOKENS`, env[`${prefix}_REPLY_TOKENS`]),
+    providerOrder: list(env[`${prefix}_PROVIDER_ORDER`]),
+  };
+}
+
 function list(raw: string | undefined): string[] {
   return (raw ?? '')
     .split(',')
@@ -343,10 +419,15 @@ function parse(env: AppEnv): AppConfig {
     },
     simple: {
       maxInputTokens: positiveInt(env.SIMPLE_MAX_INPUT_TOKENS, DEFAULT_SIMPLE_MAX_INPUT_TOKENS),
+      normal: tierRequest(env, 'SIMPLE_NORMAL'),
+      max: tierRequest(env, 'SIMPLE_MAX'),
+      backgroundEffort: effortVar('SIMPLE_FAST_EFFORT', env.SIMPLE_FAST_EFFORT),
     },
     pool: {
       accountId: env.POOL_ACCOUNT_ID?.trim() || DEFAULT_POOL_ACCOUNT_ID,
       model: env.POOL_MODEL?.trim() || null,
+      effort: effortVar('POOL_EFFORT', env.POOL_EFFORT),
+      providerOrder: list(env.POOL_PROVIDER_ORDER),
       systemPrompt:
         env.POOL_SYSTEM_PROMPT?.trim() || env.SIMPLE_SYSTEM_PROMPT?.trim() || DEFAULT_SYSTEM_PROMPT,
       revenueShareBps: Math.min(

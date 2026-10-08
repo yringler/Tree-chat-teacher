@@ -18,6 +18,8 @@ const FLASH = 'deepseek/deepseek-v4-flash';
 const PRO = 'deepseek/deepseek-v4-pro';
 /** Learn's Max tier: priced (and so tracked) for the Max usage note, not for the pool. */
 const SONNET = 'anthropic/claude-sonnet-5.5';
+/** The fallback candidate: priced (and so tracked) though no default. */
+const MINIMAX = 'minimax/minimax-m3';
 
 /**
  * The deployed price setup: no `MODEL_PRICES`, so the built-in placeholders
@@ -203,7 +205,7 @@ describe('syncModelPrices', () => {
     expect(result).toEqual({
       changed: [FLASH, PRO],
       unchanged: [],
-      missing: [SONNET],
+      missing: [SONNET, MINIMAX],
       anomalies: [],
     });
     expect(await storedPrice(env.DB, FLASH)).toEqual({
@@ -278,7 +280,7 @@ describe('syncModelPrices', () => {
     expect(result).toEqual({
       changed: [],
       unchanged: [],
-      missing: [FLASH, PRO, SONNET],
+      missing: [FLASH, PRO, SONNET, MINIMAX],
       anomalies: [],
     });
     expect((await storedPrice(env.DB, FLASH))?.outMicrosPerMTok).toBe(2_000_000);

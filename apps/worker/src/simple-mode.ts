@@ -11,7 +11,7 @@ import {
   type ModelTier,
   type ProviderConfig,
 } from '@tangent/shared';
-import { appConfig } from './config.js';
+import { appConfig, type TierRequestConfig } from './config.js';
 import { groundingSettings } from './billing/grounding.js';
 import type { AppEnv } from './env.js';
 import type { PoolParams } from './pool/params.js';
@@ -88,6 +88,11 @@ function fastModel(env: AppEnv): string {
  * id means the same endpoint in both apps. There is deliberately no fallback
  * to OPENROUTER_API_KEY: customer spend stays on its own key, which can carry
  * a hard credit limit.
+ *
+ * The default config's tier models carry their tier's request settings
+ * (`SIMPLE_NORMAL_EFFORT`, `_REPLY_TOKENS`, `_PROVIDER_ORDER`, and Max's), so
+ * a tier is a model plus how it is asked, whoever pays (credit or the
+ * learner's own key); an override's models carry their own.
  */
 export function simpleProviderConfig(env: AppEnv): ProviderConfig {
   const override = env.SIMPLE_PROVIDER?.trim();
@@ -110,7 +115,26 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
     defaultModel: normalModel(env),
     // OpenRouter's web search server tool (grounding, see billing/grounding.ts).
     options: { webSearch: true },
-    models: tierModels(env, (tier) => TIER_LABELS[tier]),
+    models: tierModels(env, (tier) => TIER_LABELS[tier]).map((m) =>
+      m.tier ? withRequestConfig(m, appConfig(env).simple[m.tier]) : m,
+    ),
+  };
+}
+
+/**
+ * `model` with a hosted tier's request settings (only those set): its effort,
+ * its reply cap as the model's `maxOutputTokens` (a reply's default cap stays
+ * below it, ChatService `budgetFor`), and its pinned providers.
+ */
+export function withRequestConfig(
+  model: ModelInfo,
+  request: Omit<TierRequestConfig, 'maxOutputTokens'> & { maxOutputTokens?: number | null },
+): ModelInfo {
+  return {
+    ...model,
+    ...(request.effort !== null ? { effort: request.effort } : {}),
+    ...(request.maxOutputTokens != null ? { maxOutputTokens: request.maxOutputTokens } : {}),
+    ...(request.providerOrder.length > 0 ? { providerOrder: [...request.providerOrder] } : {}),
   };
 }
 
@@ -199,6 +223,7 @@ export function simpleChatSettings(env: AppEnv): ChatSettings {
     ...DEFAULT_CHAT_SETTINGS,
     summaryProviderId: config.id,
     summaryModel: simpleFastModel(env, config),
+    summaryEffort: appConfig(env).simple.backgroundEffort,
     maxInputTokens: simpleMaxInputTokens(env),
     reservedOutputTokens: SIMPLE_RESERVED_OUTPUT_TOKENS,
     reasoningOutputTokens: SIMPLE_MAX_OUTPUT_TOKENS,
@@ -225,13 +250,21 @@ export function simpleSystemPrompt(env: AppEnv): string {
  * over-priced route fails upstream (released) instead of costing the operator.
  * Other endpoints (OpenAI, Workers AI, local servers) get no `provider` field,
  * which strict APIs reject; there the table must be the endpoint's own price.
+ * The pool model carries the pool's own effort and pinned providers
+ * (`POOL_EFFORT`, `POOL_PROVIDER_ORDER`), never a tier's, even when a tier
+ * runs the same model; pinning merges with `max_price` (openai-compatible.ts).
  */
 export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfig {
   const base = simpleProviderConfig(env);
   const listed = base.models.find((m) => m.id === pool.model);
   const config: ProviderConfig = {
     ...base,
-    models: [{ id: pool.model, label: listed?.label ?? POOL_MODEL_LABEL }],
+    models: [
+      withRequestConfig(
+        { id: pool.model, label: listed?.label ?? POOL_MODEL_LABEL },
+        { effort: pool.effort, providerOrder: pool.providerOrder },
+      ),
+    ],
     defaultModel: pool.model,
     openModels: false,
     maxContextTokens: pool.maxInputTokens + pool.maxOutputTokens,
@@ -304,6 +337,7 @@ export function poolChatSettings(pool: PoolParams): ChatSettings {
     ...DEFAULT_CHAT_SETTINGS,
     summaryProviderId: SIMPLE_PROVIDER_ID,
     summaryModel: pool.model,
+    summaryEffort: pool.summaryEffort,
     maxInputTokens: pool.maxInputTokens,
     reservedOutputTokens: pool.maxOutputTokens,
     reasoningOutputTokens: pool.maxOutputTokens,

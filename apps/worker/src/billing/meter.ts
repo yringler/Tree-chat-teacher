@@ -23,13 +23,23 @@
 // Once the row exists nothing here throws into the chat stream: failed writes
 // are retried in the background and the cron (reconcile.ts) and, for the pool,
 // PoolBank's expiry alarm are the backstops.
-import type {
-  GenerateRequest,
-  LlmProvider,
-  ProviderEvent,
-  ProviderRegistry,
-  ProviderUpstream,
-  UsageTag,
+//
+// Every metered call also logs one line at its end (`event: 'llm_call'`, a
+// warning when its output cap cut it off): the model, its tier, the effort
+// asked for, the upstream that served it, the tokens (cached and reasoning
+// shares too), the reported cost and the finish reason, so cache hit rates and
+// how often a tier's cap ends replies can be read from the Worker's logs. The
+// charge never comes from this line: it is the reported (or looked-up) cost,
+// as above.
+import {
+  isLengthStop,
+  type GenerateRequest,
+  type LlmProvider,
+  type ProviderEvent,
+  type ProviderRegistry,
+  type ProviderUpstream,
+  type ProviderUsage,
+  type UsageTag,
 } from '@tangent/shared';
 import type { AccountContext, AppEnv } from '../env.js';
 import { poolBank } from '../pool/ids.js';
@@ -50,6 +60,8 @@ import {
 } from './usage-store.js';
 
 export interface UsageMeter {
+  /** Who pays: the user's credit or the open pool (logged with each call). */
+  readonly funding: 'personal' | 'pool';
   /** Records (or claims) the pending row, awaited, before the upstream call starts. */
   begin(info: {
     tag: UsageTag | undefined;
@@ -60,6 +72,8 @@ export interface UsageMeter {
 }
 
 export interface MeterRun {
+  /** The call's `usage_events` row. */
+  readonly usageId: string;
   /** The request to send upstream (the pool applies its output cap and timeout). */
   readonly request: GenerateRequest;
   /** Called right before the upstream call; false = don't make it (the row is gone). */
@@ -121,7 +135,7 @@ abstract class ObservedRun implements MeterRun {
 
   constructor(
     protected readonly env: AppEnv,
-    protected readonly usageId: string,
+    readonly usageId: string,
     protected readonly markupBps: number,
     protected readonly feeBps: number,
     protected readonly defer: (p: Promise<unknown>) => void,
@@ -337,6 +351,7 @@ export function createUsageMeter(
   options: UsageMeterOptions = {},
 ): UsageMeter {
   return {
+    funding: 'personal',
     async begin({ tag, providerId, model, request }) {
       const markupBps = markupFor(env);
       const feeBps = openRouterFeeBps(env);
@@ -375,6 +390,7 @@ export function createPoolUsageMeter(
   options: UsageMeterOptions = {},
 ): UsageMeter {
   return {
+    funding: 'pool',
     async begin({ tag, providerId, request }) {
       const price = pool.price;
       if (!price) throw new PoolRefusedError({ reason: 'unpriced' });
@@ -434,6 +450,69 @@ export function createPoolUsageMeter(
   };
 }
 
+/** What one metered call's log line reports (`event: 'llm_call'`). */
+class CallLog {
+  private servedBy: string | null = null;
+  private costUsd: number | null = null;
+  private readonly usage: Partial<ProviderUsage> = {};
+  private stopReason: string | null = null;
+  private error: string | null = null;
+
+  constructor(
+    private readonly provider: LlmProvider,
+    private readonly request: GenerateRequest,
+    private readonly funding: UsageMeter['funding'],
+  ) {}
+
+  observe(event: ProviderEvent): void {
+    if (event.type === 'billing') {
+      if (event.servedBy !== undefined) this.servedBy = event.servedBy;
+      if (event.costUsd !== undefined) this.costUsd = event.costUsd;
+    } else if (event.type === 'usage') {
+      for (const [k, v] of Object.entries(event.usage) as [keyof ProviderUsage, number][])
+        if (typeof v === 'number') this.usage[k] = v;
+    } else if (event.type === 'done') {
+      this.stopReason = event.stopReason;
+    } else if (event.type === 'error') {
+      this.error = event.error.code;
+    }
+  }
+
+  write(usageId: string): void {
+    try {
+      const { request } = this;
+      const listed = this.provider.models().find((m) => m.id === request.model);
+      const truncated = isLengthStop(this.stopReason);
+      const line = JSON.stringify({
+        event: 'llm_call',
+        usageId,
+        funding: this.funding,
+        purpose: request.usageTag?.purpose ?? 'other',
+        providerId: this.provider.id,
+        model: request.model,
+        tier: listed?.tier ?? null,
+        effort: request.reasoning ?? listed?.effort ?? null,
+        providerOrder: listed?.providerOrder ?? null,
+        servedBy: this.servedBy,
+        maxOutputTokens: request.maxOutputTokens ?? null,
+        inputTokens: this.usage.inputTokens ?? null,
+        cacheReadTokens: this.usage.cacheReadTokens ?? null,
+        cacheWriteTokens: this.usage.cacheWriteTokens ?? null,
+        outputTokens: this.usage.outputTokens ?? null,
+        reasoningTokens: this.usage.reasoningTokens ?? null,
+        costUsd: this.costUsd,
+        finishReason: this.stopReason,
+        truncated,
+        error: this.error,
+      });
+      if (truncated) console.warn(line);
+      else console.log(line);
+    } catch (e) {
+      console.error('Logging the call failed', usageId, e);
+    }
+  }
+}
+
 async function* meteredStream(
   provider: LlmProvider,
   request: GenerateRequest,
@@ -489,6 +568,8 @@ async function* meteredStream(
     return;
   }
   let finished = false;
+  /** Set once the call is sent upstream: only those are logged. */
+  let log: CallLog | null = null;
   try {
     let dispatched = false;
     try {
@@ -511,8 +592,10 @@ async function* meteredStream(
       };
       return;
     }
+    log = new CallLog(provider, run.request, meter.funding);
     for await (const event of provider.stream(run.request)) {
       run.observe(event);
+      log.observe(event);
       if (event.type === 'done' || event.type === 'error') {
         finished = true;
         await run.finish();
@@ -524,6 +607,7 @@ async function* meteredStream(
   } finally {
     // The consumer stopped early, the provider ended without a terminal event, or dispatch failed.
     if (!finished) await run.finish();
+    log?.write(run.usageId);
   }
 }
 

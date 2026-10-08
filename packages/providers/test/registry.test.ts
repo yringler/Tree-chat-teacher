@@ -219,6 +219,35 @@ describe('provider registry', () => {
       ).toThrow(/reasoning must be a boolean/);
     });
 
+    it('accepts a model effort and provider order; rejects max and malformed ones', () => {
+      const tuned = {
+        ...valid,
+        models: [{ id: 'm1', label: 'M1', effort: 'low', providerOrder: ['deepseek'] }],
+      };
+      expect(parseProviderConfigs(JSON.stringify([tuned]))).toEqual([tuned]);
+      const parse = (model: Record<string, unknown>) => () =>
+        parseProviderConfigs(
+          JSON.stringify([{ ...valid, models: [{ id: 'm1', label: 'M1', ...model }] }]),
+        );
+      expect(parse({ effort: 'max' })).toThrow(/effort must be one of "none", "low", "high"/);
+      expect(parse({ effort: 'medium' })).toThrow(/effort must be one of/);
+      expect(parse({ providerOrder: 'deepseek' })).toThrow(/providerOrder must be an array/);
+      expect(parse({ providerOrder: [''] })).toThrow(/providerOrder must be an array/);
+    });
+
+    it('never lists a model effort or provider order to clients', () => {
+      const config = {
+        ...valid,
+        models: [
+          { id: 'm1', label: 'M1', effort: 'high', providerOrder: ['deepseek'], tier: 'normal' },
+        ],
+      } as ProviderConfig;
+      const reg = createProviderRegistry([config], { secrets: {} });
+      expect(reg.list()[0]!.models).toEqual([{ id: 'm1', label: 'M1', tier: 'normal' }]);
+      // The provider itself keeps them (it sends them; the meter logs them).
+      expect(reg.get(config.id)!.models()[0]).toMatchObject({ effort: 'high' });
+    });
+
     it('defaults defaultModel to the first model', () => {
       const { defaultModel: _d, ...rest } = valid;
       expect(parseProviderConfigs(JSON.stringify([rest]))[0]!.defaultModel).toBe('m1');
