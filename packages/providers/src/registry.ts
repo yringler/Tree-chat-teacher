@@ -303,6 +303,7 @@ export const DEFAULT_PROVIDER_CONFIGS: ProviderConfig[] = [
     label: 'Anthropic',
     apiKeySecret: 'ANTHROPIC_API_KEY',
     defaultModel: 'claude-opus-5-5',
+    options: { webSearch: true },
     models: [
       { id: 'claude-opus-5-5', label: 'Claude Opus 5.5' },
       { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },

@@ -216,7 +216,7 @@ function otherProviders(f: PricingFacts): string {
   );
 }
 
-/** The power-mode providers that can't search the web, as `Anthropic or OpenAI`; '' when every one can. */
+/** The power-mode providers that can't search the web, as `OpenAI` or `OpenAI or Mistral`; '' when every one can. */
 function nonSearchProviders(f: PricingFacts): string {
   return escapeHtml(
     joinList(
