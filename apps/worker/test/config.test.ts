@@ -294,7 +294,7 @@ describe('resolvePoolParams', () => {
     expect(poolModel({ ...noModel, SIMPLE_FAST_MODEL: 'simple' } as AppEnv)).toBe('simple');
     expect(poolModel(noModel)).toBe('smart');
     expect(
-      (await resolvePoolParams({ ...env, POOL_MODEL: 'smart' } as AppEnv, null)).price,
+      (await resolvePoolParams({ ...env, POOL_MODEL: 'vendor/unpriced' } as AppEnv, null)).price,
     ).toBeNull();
   });
 });

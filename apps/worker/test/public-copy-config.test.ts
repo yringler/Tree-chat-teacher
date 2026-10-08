@@ -200,6 +200,10 @@ describe("Learn's tiers", () => {
       POOL_MODEL: MAX,
       POOL_EFFORT: '',
       POOL_MAX_OUTPUT_TOKENS: '16384',
+      // A Max reply's ceiling hold is about $0.33, above the default per-network cap: caps that
+      // admit one, or the pool reports itself off.
+      POOL_SPEND_MICROS_PER_DAY: '5000000',
+      POOL_IP_SPEND_MICROS_PER_DAY: '5000000',
       POOL_ACCOUNT_ID: uniq('pool'),
     };
     const pricing = await page('/pricing', env);
@@ -219,9 +223,7 @@ describe("Learn's tiers", () => {
       POOL_ACCOUNT_ID: uniq('pool'),
     };
     expect(await page('/welcome', same)).toContain('(the free pool uses Normal)</li>');
-    expect(await page('/pricing', same)).toContain(
-      'They use the Normal model, have daily limits',
-    );
+    expect(await page('/pricing', same)).toContain('They use the Normal model, have daily limits');
     const more = {
       POOL_EFFORT: 'high',
       POOL_MAX_OUTPUT_TOKENS: '32000',
