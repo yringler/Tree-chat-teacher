@@ -83,10 +83,14 @@ export const DEMO_MODELS: readonly ModelInfo[] = [
   { id: DEMO_SMART_MODEL, label: 'Max', tier: 'max' },
 ];
 
-/** Pretend list prices (micro-dollars per million tokens), Max about 3× Normal. */
+/**
+ * Pretend list prices (micro-dollars per million tokens): the default tiers'
+ * real prices (V4.1 Flash and Sonnet 5.5), so the demo's Max note says what
+ * the app's does, about 14× Normal.
+ */
 export const DEMO_MODEL_PRICES: Readonly<Record<string, TokenPrice>> = {
-  [DEMO_SIMPLE_MODEL]: { inMicrosPerMTok: 200_000, outMicrosPerMTok: 10_000_000 },
-  [DEMO_SMART_MODEL]: { inMicrosPerMTok: 500_000, outMicrosPerMTok: 25_000_000 },
+  [DEMO_SIMPLE_MODEL]: { inMicrosPerMTok: 150_000, outMicrosPerMTok: 600_000 },
+  [DEMO_SMART_MODEL]: { inMicrosPerMTok: 2_000_000, outMicrosPerMTok: 10_000_000 },
 };
 
 /** A small deterministic RNG (mulberry32), for tests and reproducible demos. */

@@ -12,16 +12,22 @@ import {
 } from './tiers.js';
 
 const PRO = { inMicrosPerMTok: 955_260, outMicrosPerMTok: 1_910_520 };
+const FLASH = { inMicrosPerMTok: 150_000, outMicrosPerMTok: 600_000 };
 const SONNET = { inMicrosPerMTok: 2_000_000, outMicrosPerMTok: 10_000_000 };
 
 describe('tiers', () => {
   it('names both tiers, Normal first', () => {
     expect(TIERS).toEqual(['normal', 'max']);
     expect(TIERS.map((t) => TIER_LABELS[t])).toEqual(['Normal', 'Max']);
-    expect(MAX_USAGE_FACTOR_FALLBACK).toBe(3);
+  });
+
+  it("falls back to the default models' factor", () => {
+    expect(MAX_USAGE_FACTOR_FALLBACK).toBe(usageFactorOf(FLASH, SONNET));
   });
 
   it('usageFactorOf weighs input 10:1 and rounds to a whole number >= 1', () => {
+    // (10·2 + 10) / (10·0.15 + 0.6) = 30 / 2.1 ≈ 14.3
+    expect(usageFactorOf(FLASH, SONNET)).toBe(14);
     expect(usageFactorOf(PRO, SONNET)).toBe(3);
     expect(usageFactorOf(PRO, PRO)).toBe(1);
     // A cheaper "Max" never reads as less than Normal.
@@ -55,10 +61,14 @@ describe('tiers', () => {
 
   it('words the usage notes from the factor, vaguely when it is unknown or small', () => {
     expect(maxUsageNote(3)).toBe('Max uses about 3× as much as Normal.');
+    expect(maxUsageNote(14)).toBe('Max uses about 14× as much as Normal.');
     expect(maxUsageNote(1)).toBe('Max uses more than Normal.');
     expect(maxUsageNote(undefined)).toBe('Max uses more than Normal.');
     expect(compareUsageNote(3)).toBe(
       'Both models answer, so comparing uses about 4× a Normal reply. Only the answer you pick is kept.',
+    );
+    expect(compareUsageNote(14)).toBe(
+      'Both models answer, so comparing uses about 15× a Normal reply. Only the answer you pick is kept.',
     );
     for (const factor of [1, undefined])
       expect(compareUsageNote(factor)).toBe(

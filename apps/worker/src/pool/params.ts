@@ -5,6 +5,9 @@
 import type { PoolBlockDetails, ReasoningEffort, UsagePurpose } from '@tangent/shared';
 import {
   appConfig,
+  backgroundEffort,
+  DEFAULT_TIER_REQUESTS,
+  withTierDefaults,
   type ModelPrice,
   type PoolCaps,
   type PoolOverage,
@@ -25,11 +28,11 @@ export interface PoolParams {
   systemPrompt: string;
   maxInputTokens: number;
   maxOutputTokens: number;
-  /** The pool model's reasoning effort (`POOL_EFFORT`); null = its default. */
+  /** The pool model's reasoning effort (`POOL_EFFORT`, else the default model's); null = its default. */
   effort: ReasoningEffort | null;
-  /** OpenRouter providers pinned for the pool model (`POOL_PROVIDER_ORDER`). */
+  /** OpenRouter providers pinned for the pool model (`POOL_PROVIDER_ORDER`, else the default model's). */
   providerOrder: readonly string[];
-  /** The effort of the pool's summaries and titles (`SIMPLE_FAST_EFFORT`); null = `effort`. */
+  /** The effort of the pool's summaries and titles (`backgroundEffort`); null = `effort`. */
   summaryEffort: ReasoningEffort | null;
   /** The longest message a pool send accepts (`POOL_MAX_MESSAGE_CHARS`). */
   maxMessageChars: number;
@@ -61,6 +64,11 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
   const pool = config.pool;
   const model = poolModel(env);
   const entry = await modelPrice(env, model);
+  const request = withTierDefaults(
+    { effort: pool.effort, maxOutputTokens: null, providerOrder: pool.providerOrder },
+    DEFAULT_TIER_REQUESTS.pool,
+    model,
+  );
   return {
     accountId: pool.accountId,
     model,
@@ -68,9 +76,9 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
     systemPrompt: pool.systemPrompt,
     maxInputTokens: pool.maxInputTokens,
     maxOutputTokens: pool.maxOutputTokens,
-    effort: pool.effort,
-    providerOrder: pool.providerOrder,
-    summaryEffort: config.simple.backgroundEffort,
+    effort: request.effort,
+    providerOrder: request.providerOrder,
+    summaryEffort: backgroundEffort(env, model),
     maxMessageChars: pool.maxMessageChars,
     ttlMs: pool.reservationTtlMs,
     giveUpMs: pool.giveUpMs,

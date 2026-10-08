@@ -161,8 +161,9 @@ export class AccountStore {
   });
 
   /**
-   * Why the Normal/Max switch is locked, or null when it isn't. The pool's
-   * model is usually neither tier ("Lite"), so no segment is on then.
+   * Why the Normal/Max switch is locked, or null when it isn't. By default the
+   * pool runs Normal's model ("The open pool uses Normal."); one that is
+   * neither tier ("Lite") leaves no segment on.
    */
   readonly poolModelHint = computed(() => {
     const model = this.poolModel();

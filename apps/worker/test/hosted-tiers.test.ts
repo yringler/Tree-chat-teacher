@@ -1,14 +1,19 @@
 // How each hosted tier asks its model (docs/DECISIONS.md "Hosted tier
 // config"): the `*_EFFORT`, `*_REPLY_TOKENS` and `*_PROVIDER_ORDER` vars of
 // Learn's Normal and Max, the open pool and the background calls, and the
-// request each one sends upstream. Every default is the behaviour before
-// them: no effort, the default caps, no pinning.
+// request each one sends upstream. An empty var is the default model's
+// evaluated setting while the tier runs that model (docs/DECISIONS.md "Hosted
+// models from the eval"), else the model's own: no effort, the default caps,
+// no pinning.
 import { createProviderRegistry } from '@tangent/providers';
 import type { GenerateRequest, ProviderConfig } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appConfig, effortVar } from '../src/config.js';
+// @ts-expect-error -- `?raw` is a Vite import; the worker tsconfig has no vite/client types.
+import wranglerText from '../wrangler.jsonc?raw';
+import { appConfig, DEFAULT_TIER_REQUESTS, effortVar } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
+import { modelPrice } from '../src/pool/model-prices.js';
 import { resolvePoolParams } from '../src/pool/params.js';
 import {
   builtInPowerConfig,
@@ -21,6 +26,7 @@ import {
   simpleProviderConfig,
   suggestedModels,
 } from '../src/simple-mode.js';
+import { withUsageFactors } from '../src/tiers.js';
 import { uniq } from './mocks/billing-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
@@ -50,6 +56,31 @@ const deployed = (overrides: Partial<AppEnv> = {}) =>
     ...Object.fromEntries(TIER_VARS.map((k) => [k, ''])),
     ...overrides,
   }) as AppEnv;
+
+/** A var as wrangler.jsonc deploys it (the test env overrides several, e.g. the pool's). */
+function wranglerVar(name: string): string {
+  const m = new RegExp(`"${name}"\\s*:\\s*("(?:[^"\\\\]|\\\\.)*")`).exec(wranglerText as string);
+  if (!m) throw new Error(`${name} is not in wrangler.jsonc`);
+  return JSON.parse(m[1]!) as string;
+}
+
+/** `deployed()` with wrangler.jsonc's model, tier, pool and price vars. */
+const asShipped = () =>
+  deployed(
+    Object.fromEntries(
+      [
+        ...TIER_VARS,
+        'SIMPLE_NORMAL_MODEL',
+        'SIMPLE_MAX_MODEL',
+        'SIMPLE_FAST_MODEL',
+        'SIMPLE_NORMAL_REPLY_TOKENS',
+        'SIMPLE_MAX_REPLY_TOKENS',
+        'POOL_MODEL',
+        'POOL_MAX_OUTPUT_TOKENS',
+        'MODEL_PRICES',
+      ].map((k) => [k, wranglerVar(k)]),
+    ),
+  );
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -82,14 +113,86 @@ async function sentBody(
   return body;
 }
 
+/** V4.1 Flash's pinned providers. */
+const PINNED = ['streamlake/fp8', 'deepinfra/fp8'];
+
 describe('tier config vars', () => {
-  it('default to the behaviour before them', () => {
+  it('parse empty as unset; the default models fill it in later', () => {
     const c = appConfig(deployed());
     const none = { effort: null, maxOutputTokens: null, providerOrder: [] };
     expect(c.simple.normal).toEqual(none);
     expect(c.simple.max).toEqual(none);
     expect(c.simple.backgroundEffort).toBeNull();
     expect(c.pool).toMatchObject({ effort: null, providerOrder: [] });
+    // What an empty var means on each default model (wrangler.jsonc sets the same).
+    expect(DEFAULT_TIER_REQUESTS).toEqual({
+      normal: {
+        model: 'deepseek/deepseek-v4.1-flash',
+        request: { effort: 'high', maxOutputTokens: 16_384, providerOrder: PINNED },
+      },
+      max: {
+        model: 'anthropic/claude-sonnet-5.5',
+        request: { effort: null, maxOutputTokens: 16_384, providerOrder: [] },
+      },
+      pool: {
+        model: 'deepseek/deepseek-v4.1-flash',
+        request: { effort: 'low', maxOutputTokens: null, providerOrder: PINNED },
+      },
+    });
+  });
+
+  it('wrangler.jsonc ships the same models and settings as the code defaults', async () => {
+    const live = asShipped();
+    expect(wranglerVar('SIMPLE_NORMAL_PROVIDER_ORDER')).toBe('streamlake/fp8,deepinfra/fp8');
+    expect(simpleProviderConfig(live).models).toEqual(simpleProviderConfig(deployed()).models);
+    expect(simpleChatSettings(live).summaryModel).toBe(DEFAULT_SIMPLE_FAST_MODEL);
+    expect(simpleChatSettings(live).summaryEffort).toBe('low');
+    const [pool, defaults] = await Promise.all([
+      resolvePoolParams(live, null),
+      resolvePoolParams(deployed(), null),
+    ]);
+    expect(pool).toMatchObject({
+      model: defaults.model,
+      effort: defaults.effort,
+      providerOrder: defaults.providerOrder,
+      summaryEffort: defaults.summaryEffort,
+      maxOutputTokens: 8192,
+    });
+    expect(pool.model).toBe('deepseek/deepseek-v4.1-flash');
+  });
+
+  it("wrangler.jsonc pins V4.1 Flash's price, so the daily sync can't move it", async () => {
+    const live = asShipped();
+    expect(appConfig(live).priceOverrides).toEqual(['deepseek/deepseek-v4.1-flash']);
+    // The entry is the built-in one: $0.15 / $0.60, cache read $0.003, 1M context.
+    expect(appConfig(live).prices['deepseek/deepseek-v4.1-flash']).toEqual(
+      appConfig(deployed()).prices['deepseek/deepseek-v4.1-flash'],
+    );
+    expect(await modelPrice(live, 'deepseek/deepseek-v4.1-flash')).toEqual({
+      inMicrosPerMTok: 150_000,
+      outMicrosPerMTok: 600_000,
+      contextTokens: 1_048_576,
+      cacheReadMicrosPerMTok: 3_000,
+    });
+    // The Max note as deployed: about 14×.
+    const [info] = await withUsageFactors(live, [
+      {
+        id: 'openrouter',
+        kind: 'openai-compatible',
+        label: 'Tangent',
+        models: simpleProviderConfig(live).models.map(({ id, label, tier }) => ({
+          id,
+          label,
+          ...(tier ? { tier } : {}),
+        })),
+        defaultModel: DEFAULT_SIMPLE_NORMAL_MODEL,
+        openModels: false,
+        available: true,
+        acceptsUserKey: true,
+        keySource: 'server',
+      },
+    ]);
+    expect(info!.models[1]).toMatchObject({ tier: 'max', usageFactor: 14 });
   });
 
   it('parse efforts, reply caps and provider orders', () => {
@@ -157,7 +260,14 @@ describe("Learn's tiers with request settings", () => {
         maxOutputTokens: 12_000,
         providerOrder: ['deepseek'],
       },
-      { id: DEFAULT_SIMPLE_MAX_MODEL, label: 'Max', tier: 'max', effort: 'low' },
+      // An empty reply cap is still the default model's.
+      {
+        id: DEFAULT_SIMPLE_MAX_MODEL,
+        label: 'Max',
+        tier: 'max',
+        effort: 'low',
+        maxOutputTokens: 16_384,
+      },
     ]);
     // Power's suggestions and Tangent credit don't take them (the user picks there).
     expect(suggestedModels(tuned()).every((m) => !('effort' in m))).toBe(true);
@@ -193,16 +303,41 @@ describe("Learn's tiers with request settings", () => {
 
   it('give summaries and titles the background effort', () => {
     expect(simpleChatSettings(tuned()).summaryEffort).toBe('none');
-    expect(simpleChatSettings(deployed()).summaryEffort).toBeNull();
+    expect(simpleChatSettings(deployed()).summaryEffort).toBe('low');
   });
 
-  it('change nothing by default', async () => {
+  it('ask the default models as evaluated by default', async () => {
     const config = simpleProviderConfig(deployed());
     expect(config.models).toEqual([
-      { id: DEFAULT_SIMPLE_NORMAL_MODEL, label: 'Normal', tier: 'normal' },
-      { id: DEFAULT_SIMPLE_MAX_MODEL, label: 'Max', tier: 'max' },
+      {
+        id: DEFAULT_SIMPLE_NORMAL_MODEL,
+        label: 'Normal',
+        tier: 'normal',
+        effort: 'high',
+        maxOutputTokens: 16_384,
+        providerOrder: PINNED,
+      },
+      { id: DEFAULT_SIMPLE_MAX_MODEL, label: 'Max', tier: 'max', maxOutputTokens: 16_384 },
     ]);
-    const body = await sentBody(config, { model: DEFAULT_SIMPLE_NORMAL_MODEL });
+    const normal = await sentBody(config, { model: DEFAULT_SIMPLE_NORMAL_MODEL });
+    expect(normal).toMatchObject({
+      reasoning: { effort: 'high' },
+      provider: { order: PINNED, allow_fallbacks: true },
+    });
+    const max = await sentBody(config, { model: DEFAULT_SIMPLE_MAX_MODEL });
+    expect(max).not.toHaveProperty('reasoning');
+    expect(max).not.toHaveProperty('provider');
+  });
+
+  it("ask another model with its own defaults: the default model's settings stay with it", async () => {
+    const config = simpleProviderConfig(
+      deployed({ SIMPLE_NORMAL_MODEL: 'minimax/minimax-m3', SIMPLE_MAX_MODEL: 'x/other-max' }),
+    );
+    expect(config.models).toEqual([
+      { id: 'minimax/minimax-m3', label: 'Normal', tier: 'normal' },
+      { id: 'x/other-max', label: 'Max', tier: 'max' },
+    ]);
+    const body = await sentBody(config, { model: 'minimax/minimax-m3' });
     expect(body).not.toHaveProperty('reasoning');
     expect(body).not.toHaveProperty('provider');
   });
@@ -244,8 +379,22 @@ describe('the open pool with request settings', () => {
     expect(poolChatSettings(pool).summaryEffort).toBe('none');
   });
 
-  it('keeps only max_price by default', async () => {
+  it('asks the default pool model at low effort on its pinned providers, within max_price', async () => {
     const e = deployed();
+    const pool = await resolvePoolParams(e, null);
+    expect(pool.model).toBe('deepseek/deepseek-v4.1-flash');
+    const body = await sentBody(poolProviderConfig(e, pool), { model: pool.model });
+    expect(body['reasoning']).toEqual({ effort: 'low' });
+    // Both pinned providers charge at most $0.15 / $0.60 per MTok, so max_price admits them.
+    expect(body['provider']).toEqual({
+      order: PINNED,
+      allow_fallbacks: true,
+      max_price: { prompt: 0.15, completion: 0.6 },
+    });
+  });
+
+  it('keeps only max_price on another model by default', async () => {
+    const e = deployed({ POOL_MODEL: 'minimax/minimax-m3' });
     const pool = await resolvePoolParams(e, null);
     const body = await sentBody(poolProviderConfig(e, pool), { model: pool.model });
     expect(body).not.toHaveProperty('reasoning');

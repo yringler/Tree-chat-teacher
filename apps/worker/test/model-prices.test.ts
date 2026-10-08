@@ -16,14 +16,17 @@ import { envWithFailingDb } from './mocks/billing-helpers.js';
 
 const FLASH = 'deepseek/deepseek-v4-flash';
 const PRO = 'deepseek/deepseek-v4-pro';
+/** Normal's and the pool's default model, priced like the others (and so tracked). */
+const V41 = 'deepseek/deepseek-v4.1-flash';
 /** Learn's Max tier: priced (and so tracked) for the Max usage note, not for the pool. */
 const SONNET = 'anthropic/claude-sonnet-5.5';
 /** The fallback candidate: priced (and so tracked) though no default. */
 const MINIMAX = 'minimax/minimax-m3';
 
 /**
- * The deployed price setup: no `MODEL_PRICES`, so the built-in placeholders
- * (FLASH and PRO) are what the sync refreshes; the pool runs on FLASH.
+ * The price setup without `MODEL_PRICES`, so the built-in placeholders
+ * (V4.1 Flash, FLASH, PRO and the rest) are what the sync refreshes; the pool
+ * runs on FLASH here.
  */
 const env = { ...rawEnv, MODEL_PRICES: '', POOL_MODEL: FLASH } as unknown as AppEnv;
 
@@ -205,7 +208,7 @@ describe('syncModelPrices', () => {
     expect(result).toEqual({
       changed: [FLASH, PRO],
       unchanged: [],
-      missing: [SONNET, MINIMAX],
+      missing: [V41, SONNET, MINIMAX],
       anomalies: [],
     });
     expect(await storedPrice(env.DB, FLASH)).toEqual({
@@ -280,7 +283,7 @@ describe('syncModelPrices', () => {
     expect(result).toEqual({
       changed: [],
       unchanged: [],
-      missing: [FLASH, PRO, SONNET, MINIMAX],
+      missing: [V41, FLASH, PRO, SONNET, MINIMAX],
       anomalies: [],
     });
     expect((await storedPrice(env.DB, FLASH))?.outMicrosPerMTok).toBe(2_000_000);
@@ -387,6 +390,37 @@ describe('modelPrice', () => {
       contextTokens: 1000,
       feeBps: 0,
     });
+  });
+
+  it("keeps V4.1 Flash at its MODEL_PRICES entry: OpenRouter's model-level price is no route's", async () => {
+    // OpenRouter's model-level list price ($0.0356 in, $1.00 out): the cheapest input of any
+    // endpoint with a dearer one's output. As the pool's max_price it admits only fp4 endpoints.
+    const modelLevel = { id: V41, prompt: '0.0000000356', completion: '0.000001' };
+    await sync([modelLevel]);
+    // A drop of less than 10×, so without an entry the sync replaces the placeholder ...
+    expect(await modelPrice(env, V41)).toMatchObject({
+      inMicrosPerMTok: 35_600,
+      outMicrosPerMTok: 1_000_000,
+    });
+    // ... but an entry, as wrangler.jsonc ships, wins over it: the pinned providers' price.
+    const pinned = {
+      ...env,
+      MODEL_PRICES: JSON.stringify({
+        [V41]: { in: 150_000, out: 600_000, context: 1_048_576, cacheRead: 3_000 },
+      }),
+    } as AppEnv;
+    expect(await modelPrice(pinned, V41)).toEqual(DEFAULT_MODEL_PRICES[V41]);
+    // Its daily sync still records the list price, and warns that the entry's output is below it.
+    warn.mockClear();
+    await syncModelPrices(pinned, T1, listing([modelLevel]).fetchImpl);
+    expect((await storedPrice(env.DB, V41))?.outMicrosPerMTok).toBe(1_000_000);
+    expect(
+      warn.mock.calls.some(
+        (c: unknown[]) =>
+          String(c[0]).includes('price_override_below_list') && String(c[0]).includes(V41),
+      ),
+    ).toBe(true);
+    expect(await modelPrice(pinned, V41)).toEqual(DEFAULT_MODEL_PRICES[V41]);
   });
 
   it('gives explicit-cache (Anthropic) models the cache-write premium unless configured', async () => {

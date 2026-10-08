@@ -730,7 +730,7 @@ textarea:focus-visible {
   cursor: default;
 }
 
-/* "Max uses about 3× as much as Normal." under a Normal / Max switch */
+/* "Max uses about 14× as much as Normal." under a Normal / Max switch */
 .tier-note {
   margin: 0 0 6px;
   color: var(--fg-muted);

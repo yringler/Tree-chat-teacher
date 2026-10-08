@@ -2,7 +2,7 @@ import type { ModelInfo, ModelTier } from './provider.js';
 
 /**
  * Normal and Max: the two model tiers both apps offer. Normal is the everyday
- * default; Max is a stronger model that costs several times as much. A model
+ * default; Max is a stronger model that costs many times as much. A model
  * says which tier it is through `ModelInfo.tier`, so clients never match on
  * labels, and every user-facing word about tiers comes from this file so the
  * Worker's pages, Learn and power phrase it the same way.
@@ -14,8 +14,13 @@ export const TIERS: readonly ModelTier[] = ['normal', 'max'];
 /** What each tier is called in the UI. */
 export const TIER_LABELS: Readonly<Record<ModelTier, string>> = { normal: 'Normal', max: 'Max' };
 
-/** `usageFactor` to assume when a tier's list price is unknown. */
-export const MAX_USAGE_FACTOR_FALLBACK = 3;
+/**
+ * `usageFactor` to assume when a tier's list price is unknown: the factor of
+ * the default models' built-in prices (DeepSeek V4.1 Flash at $0.15 / $0.60
+ * per MTok against Claude Sonnet 5.5 at $2 / $10, about 14.3), which the
+ * Worker's tests check against its price table.
+ */
+export const MAX_USAGE_FACTOR_FALLBACK = 14;
 
 /** A model's list price, in micro-dollars per million tokens. */
 export interface TokenPrice {

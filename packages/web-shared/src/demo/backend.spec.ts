@@ -70,7 +70,7 @@ describe('demo backend', () => {
     // Normal first (the default), then Max with its usage factor from the pretend prices.
     expect(provider!.models).toEqual([
       { id: 'simple', label: 'Normal', tier: 'normal' },
-      { id: 'smart', label: 'Max', tier: 'max', usageFactor: 3 },
+      { id: 'smart', label: 'Max', tier: 'max', usageFactor: 14 },
     ]);
   });
 
