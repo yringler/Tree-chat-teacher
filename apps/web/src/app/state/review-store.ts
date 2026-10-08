@@ -12,7 +12,7 @@ import {
   parseReviewEvent,
   readSseEvents,
 } from '@tangent/web-shared';
-import { type ModelChoice, SettingsStore } from './settings-store';
+import { generationLimits, type ModelChoice, SettingsStore } from './settings-store';
 import { TreeStore } from './tree-store';
 import { UiStore } from './ui-store';
 
@@ -94,7 +94,12 @@ export class ReviewStore {
     });
     let finished = false;
     try {
-      const res = await this.api.reviewNode(nodeId, choice, ctrl.signal);
+      // The reply length and input limit, as a send carries them.
+      const res = await this.api.reviewNode(
+        nodeId,
+        { ...choice, ...generationLimits(this.settings.settings()) },
+        ctrl.signal,
+      );
       if (!res.body) throw new Error('Empty review stream');
       for await (const event of readSseEvents(res.body, parseReviewEvent)) {
         if (!current()) return;

@@ -276,11 +276,24 @@ export interface RunGenerationOptions {
   inputOverflow?: InputOverflow;
 }
 
-/** A send's own limits (power's settings), as a send or a context preview passes them. */
+/**
+ * A generation's own limits (power's settings), as a send, a context preview,
+ * a compare candidate or a review passes them.
+ */
 export type GenerationLimits = Pick<
   RunGenerationOptions,
   'maxOutputTokens' | 'maxInputTokens' | 'inputOverflow'
 >;
+
+/** Only the limits of `value` (e.g. a request that carries other fields too). */
+export function pickGenerationLimits(value: GenerationLimits): GenerationLimits {
+  const { maxOutputTokens, maxInputTokens, inputOverflow } = value;
+  return {
+    ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+    ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
+    ...(inputOverflow !== undefined ? { inputOverflow } : {}),
+  };
+}
 
 /** What bounds a reply's input on a branch's route (`inputBudget`). */
 export interface BranchInputBudget {
@@ -301,6 +314,11 @@ export interface PreparedReview {
   providerId: string;
   funding: BranchFunding;
   model: string;
+  /**
+   * Power's limits, as the caller clamped them: the input limit bounds the
+   * conversation the reviewer reads, the output cap the review.
+   */
+  limits: GenerationLimits;
 }
 
 /**
@@ -316,6 +334,8 @@ export interface PreparedCandidate {
   providerId: string;
   funding: BranchFunding;
   model: string;
+  /** Power's limits, as the caller clamped them (as for a send's `RunGenerationOptions`). */
+  limits: GenerationLimits;
 }
 
 /**
@@ -1380,26 +1400,34 @@ export class ChatService {
    * opens, so bad requests fail as plain HTTP errors. Only finished
    * assistant replies can be reviewed.
    */
-  async prepareReview(nodeId: string, request: ReviewRequest): Promise<PreparedReview> {
+  async prepareReview(
+    nodeId: string,
+    request: ReviewRequest,
+    limits: GenerationLimits = {},
+  ): Promise<PreparedReview> {
     const node = await this.getOwnedNode(nodeId);
     if (node.role !== 'assistant')
       throw new ValidationError('Only assistant replies can be reviewed');
     if (node.status !== 'complete') throw new ValidationError('That reply has not finished');
     const route = this.requestedRoute(request, null);
     this.requireProvider(route);
-    return { node, ...route, model: request.model };
+    return { node, ...route, model: request.model, limits: pickGenerationLimits(limits) };
   }
 
   /**
    * Streams a review. The reviewer gets the context exactly as the branch's
    * model rendered it for this reply (summaries resolved and cached like a
    * normal send), followed by the reply itself. Nothing is persisted.
+   * Power's input limit (`review.limits`) bounds that context like a send's
+   * (on the branch's model, whose reply it is), and its output cap the review.
    * Never throws; ends with exactly one `done` or `error`.
    */
   async *runReview(review: PreparedReview, signal: AbortSignal): AsyncIterable<ReviewEvent> {
     try {
       const inputs = await this.loadPlanInputs(review.node.branchId, review.node.id);
-      const steps = this.resolvePlan(inputs, true, signal);
+      // The output cap is the review's, not a reply's on the branch's model.
+      const { maxOutputTokens: reviewOutput, ...contextLimits } = review.limits;
+      const steps = this.resolvePlan(inputs, true, signal, contextLimits);
       let step = await steps.next();
       while (!step.done) {
         yield { type: 'status', message: step.value };
@@ -1412,7 +1440,7 @@ export class ChatService {
       const rendered = reviewer.capabilities(review.model).supportsSystemPrompt
         ? prompt
         : foldSystem(prompt);
-      const { maxOutput } = this.budgetFor(reviewer, review.model);
+      const { maxOutput } = this.budgetFor(reviewer, review.model, reviewOutput);
       yield { type: 'status', message: 'Reviewing…' };
 
       const usage: Partial<TokenUsage> = {};
@@ -1469,7 +1497,11 @@ export class ChatService {
    * branch's route (Learn's fixed funding applies). The candidate answers
    * after the branch's current leaf.
    */
-  async prepareCandidate(branchId: string, request: CandidateRequest): Promise<PreparedCandidate> {
+  async prepareCandidate(
+    branchId: string,
+    request: CandidateRequest,
+    limits: GenerationLimits = {},
+  ): Promise<PreparedCandidate> {
     const branch = await this.getOwnedBranch(branchId);
     if (!request.content.trim()) throw new ValidationError('Message is empty');
     const leaf = (await this.repo.listBranchNodes(branchId)).at(-1);
@@ -1485,6 +1517,7 @@ export class ChatService {
       content: request.content,
       ...route,
       model: request.model,
+      limits: pickGenerationLimits(limits),
     };
   }
 
@@ -1492,7 +1525,8 @@ export class ChatService {
    * Streams a candidate reply: the context is planned as if the question had
    * been sent (summaries resolved and cached like a normal send) on the
    * candidate's route and model, and the reply streams exactly as
-   * `runGeneration` would stream it (grounding included), metered as a
+   * `runGeneration` would stream it (grounding included) with the
+   * candidate's limits (power's, as a send takes them), metered as a
    * `reply` with no node. Nothing is persisted: `done` carries the finished
    * candidate for the caller to hold. Never throws; ends with exactly one
    * `done` or `error`.
@@ -1527,7 +1561,7 @@ export class ChatService {
           model: prepared.model,
         },
       });
-      const steps = this.resolvePlan(inputs, true, signal);
+      const steps = this.resolvePlan(inputs, true, signal, prepared.limits);
       let step = await steps.next();
       while (!step.done) {
         yield { type: 'status', message: step.value };
@@ -1550,6 +1584,9 @@ export class ChatService {
           grounding,
           usageTag: { purpose: 'reply', treeId: inputs.tree.id, branchId, nodeId: null },
           nodeId: question.id,
+          ...(prepared.limits.maxOutputTokens !== undefined
+            ? { maxOutputTokens: prepared.limits.maxOutputTokens }
+            : {}),
         },
         state,
         signal,

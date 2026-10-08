@@ -1,13 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
-import { membership, newEmail, paymentWebhook, sameOrigin, signIn } from './helpers';
+import { membership, newEmail, paymentWebhook, sameOrigin, signIn, topUp } from './helpers';
 
 /*
  * Power's input limit (Settings → Input limit), against the real Worker: on
  * the user's own key (the offline fake provider, a 200,000-token window), the
  * setting shows the model's default and the chosen limit in words and pages
  * as it is edited, is kept in the browser, rides along with every send and
- * with the Context panel's preview, and its over-limit choice decides whether
- * the oldest messages are summarized or dropped.
+ * with the Context panel's preview, Compare's candidates and reviews, and its
+ * over-limit choice decides whether the oldest messages are summarized or
+ * dropped.
  */
 
 interface TreeDetail {
@@ -37,7 +38,8 @@ test('the input limit shows its size live, persists, and shapes sends and the Co
   const userId = await signIn(context, baseURL!, newEmail('input-limit'));
   const request = context.request;
   const headers = sameOrigin(baseURL!);
-  await paymentWebhook(request, [membership(userId, 'active', 1)]);
+  // Credit too, so Compare can resolve its tiers (on Tangent credit; that provider points nowhere).
+  await paymentWebhook(request, [membership(userId, 'active', 1), topUp(userId, 500)]);
   const created = await request.post('/api/trees', {
     headers,
     data: { title: 'Long talk', providerId: 'fake', model: 'fake-1' },
@@ -156,4 +158,32 @@ test('the input limit shows its size live, persists, and shapes sends and the Co
   await expect(
     page.getByText(/Fake reply \(fake-1\) to \d+ message\(s\): "One more\?"/),
   ).toBeVisible();
+
+  // Compare's candidates carry the settings too, on the tiers' own route (credit here).
+  await composer.fill('Compare this?');
+  const compared = page.waitForRequest(
+    (r) => r.method() === 'POST' && r.url().endsWith(`/api/branches/${t.trunkBranchId}/candidates`),
+  );
+  await page.getByRole('button', { name: 'Compare Normal and Max' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Compare answers' });
+  await expect(sheet).toBeVisible();
+  expect((await compared).postDataJSON()).toMatchObject({
+    content: 'Compare this?',
+    funding: 'credit',
+    maxInputTokens: 3000,
+  });
+  await sheet.getByRole('button', { name: 'Close' }).first().click();
+  await expect(sheet).toHaveCount(0);
+
+  // So does a review, which reads the conversation under the same limit.
+  await page.getByText(/Fake reply \(fake-1\) to \d+ message\(s\): "One more\?"/).hover();
+  await page.getByRole('button', { name: 'Review', exact: true }).last().click();
+  const reviewDialog = page.getByRole('dialog', { name: 'Review up to here' });
+  await expect(reviewDialog).toBeVisible();
+  const reviewed = page.waitForRequest(
+    (r) => r.method() === 'POST' && /\/api\/nodes\/[^/]+\/review$/.test(r.url()),
+  );
+  await reviewDialog.getByRole('button', { name: 'Review', exact: true }).click();
+  expect((await reviewed).postDataJSON()).toMatchObject({ maxInputTokens: 3000 });
+  await expect(reviewDialog.getByText(/input · \d+ output tokens/)).toBeVisible();
 });

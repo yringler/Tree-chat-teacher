@@ -605,7 +605,7 @@ export class DemoBackend {
   ): Promise<Response> {
     const req = reviewRequestSchema.parse(body ?? {});
     if (this.outOfCredit()) return apiError('payment_required', 'Add credit to keep learning');
-    const prepared = await this.chat.prepareReview(nodeId, req);
+    const prepared = await this.chat.prepareReview(nodeId, req, this.powerLimits(req));
     const controller = new AbortController();
     signal?.addEventListener('abort', () => controller.abort(), { once: true });
     const chat = this.chat;
@@ -635,7 +635,7 @@ export class DemoBackend {
   ): Promise<Response> {
     const req = candidateRequestSchema.parse(body ?? {});
     if (this.outOfCredit()) return apiError('payment_required', 'Add credit to keep learning');
-    const prepared = await this.chat.prepareCandidate(branchId, req);
+    const prepared = await this.chat.prepareCandidate(branchId, req, this.powerLimits(req));
     const controller = new AbortController();
     signal?.addEventListener('abort', () => controller.abort(), { once: true });
     const events = this.chat.runCandidate(prepared, controller.signal)[Symbol.asyncIterator]();

@@ -4,11 +4,15 @@ import type {
   StreamEvent,
   TreeDetail,
 } from '@tangent/shared';
+import { ChatService } from '@tangent/core';
 import { env as rawEnv, exports } from 'cloudflare:workers';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { grantCredit } from '../src/billing/ledger.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import { generationLimits, serverInputCap } from '../src/input-limit.js';
 import { simpleMaxInputTokens } from '../src/simple-mode.js';
+import { uniq } from './mocks/billing-helpers.js';
+import { authEnv, client } from './session-client.js';
 
 /**
  * Power's input limit (`SendMessageRequest.maxInputTokens`, `.inputOverflow`):
@@ -211,5 +215,156 @@ describe('GET /api/branches/:id/input-budget', () => {
       serverMaxInputTokens: CREDIT_CAP,
       price: { inputUsdPerMTok: 1, cacheReadUsdPerMTok: null },
     });
+  });
+});
+
+describe('Compare candidates and reviews take the limits like a send', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function frames(text: string): { type: string; message?: string; text?: string }[] {
+    return text
+      .split('\n\n')
+      .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
+      .filter((l): l is string => !!l)
+      .map((l) => JSON.parse(l.slice(5).trim()) as { type: string; message?: string });
+  }
+  const compacting = (evs: { type: string; message?: string }[]) =>
+    evs.some((e) => e.type === 'status' && /Compacting/.test(e.message ?? ''));
+
+  /** A power branch on the own key with three long exchanges (the fake: a 200,000 window). */
+  async function longBranch(): Promise<{ branchId: string; replyId: string }> {
+    const long = 'x'.repeat(7000); // 2,000 tokens at 3.5 chars a token
+    const res = await call('/api/trees', { json: { title: 'Limit', providerId: 'fake' } });
+    expect(res.status).toBe(201);
+    const { tree } = (await res.json()) as TreeDetail;
+    const branchId = tree.trunkBranchId;
+    for (const n of [1, 2, 3]) {
+      const sent = await call(`/api/branches/${branchId}/messages`, {
+        json: { content: `${n} ${long}` },
+      });
+      expect(sent.status).toBe(200);
+      await sent.text();
+    }
+    const detail = (await (await call(`/api/trees/${tree.id}`)).json()) as TreeDetail;
+    const replies = detail.nodes.filter((n) => n.role === 'assistant');
+    const replyId = replies.sort((a, b) => a.seq - b.seq).at(-1)!.id;
+    return { branchId, replyId };
+  }
+
+  it('a candidate on the own key: compacts or drops over the limit', async () => {
+    const { branchId } = await longBranch();
+    const ask = async (extra: Record<string, unknown>) => {
+      const res = await call(`/api/branches/${branchId}/candidates`, {
+        json: { content: 'Q', providerId: 'fake', model: 'fake-1', ...extra },
+      });
+      const text = await res.text();
+      expect(res.status, text).toBe(200);
+      return frames(text);
+    };
+    expect(compacting(await ask({}))).toBe(false);
+    expect(compacting(await ask({ maxInputTokens: 3000, inputOverflow: 'truncate' }))).toBe(false);
+    expect(compacting(await ask({ maxInputTokens: 3000 }))).toBe(true);
+  });
+
+  it('a review on the own key: compacts what the reviewer reads over the limit', async () => {
+    const { replyId } = await longBranch();
+    const review = async (extra: Record<string, unknown>) => {
+      const res = await call(`/api/nodes/${replyId}/review`, {
+        json: { providerId: 'fake', model: 'fake-1', ...extra },
+      });
+      const text = await res.text();
+      expect(res.status, text).toBe(200);
+      return frames(text);
+    };
+    expect(compacting(await review({}))).toBe(false);
+    // Room for the system prompt (about 1,000), a summary (1,024) and the reviewed
+    // exchange (about 2,000), not for the whole path (about 7,000).
+    expect(compacting(await review({ maxInputTokens: 5000, inputOverflow: 'truncate' }))).toBe(
+      false,
+    );
+    expect(compacting(await review({ maxInputTokens: 5000 }))).toBe(true);
+  });
+
+  it('rejects limits out of range on both', async () => {
+    const { branchId, replyId } = await longBranch();
+    for (const extra of [
+      { maxInputTokens: 999 },
+      { maxOutputTokens: 10 },
+      { inputOverflow: 'x' },
+    ]) {
+      const c = await call(`/api/branches/${branchId}/candidates`, {
+        json: { content: 'Q', providerId: 'fake', model: 'fake-1', ...extra },
+      });
+      expect(c.status, JSON.stringify(extra)).toBe(400);
+      await c.text();
+      const r = await call(`/api/nodes/${replyId}/review`, {
+        json: { providerId: 'fake', model: 'fake-1', ...extra },
+      });
+      expect(r.status, JSON.stringify(extra)).toBe(400);
+      await r.text();
+    }
+  });
+
+  it('clamps them on the route that runs: credit at the server cap, own key as asked, Learn none', async () => {
+    // The dev bypass's credit (its ledger is `default_simple`), so the credit routes pass the gate.
+    await grantCredit(env.DB, {
+      accountId: 'default_simple',
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      providerRef: null,
+    });
+    const candidates = vi.spyOn(ChatService.prototype, 'prepareCandidate');
+    const reviews = vi.spyOn(ChatService.prototype, 'prepareReview');
+    const { branchId, replyId } = await longBranch();
+    const asked = { maxInputTokens: 200_000, maxOutputTokens: 2000, inputOverflow: 'truncate' };
+
+    // The candidate's own route decides, not the branch's (here own key).
+    for (const [route, want] of [
+      [{ providerId: 'fake', model: 'fake-1' }, asked],
+      [
+        { providerId: 'openrouter', funding: 'credit', model: 'simple' },
+        { ...asked, maxInputTokens: CREDIT_CAP },
+      ],
+    ] as const) {
+      const res = await call(`/api/branches/${branchId}/candidates`, {
+        json: { content: 'Q', ...route, ...asked },
+      });
+      await res.text();
+      expect(candidates.mock.calls.at(-1)?.[2], JSON.stringify(route)).toEqual(want);
+    }
+    // A credit reviewer of an own-key reply: the reviewer reads, so its cap applies,
+    // with or without a setting.
+    for (const [extra, want] of [
+      [asked, { ...asked, maxInputTokens: CREDIT_CAP }],
+      [{}, { maxInputTokens: CREDIT_CAP }],
+    ] as const) {
+      const res = await call(`/api/nodes/${replyId}/review`, {
+        json: { providerId: 'openrouter', funding: 'credit', model: 'simple', ...extra },
+      });
+      await res.text();
+      expect(reviews.mock.calls.at(-1)?.[2]).toEqual(want);
+    }
+
+    // Learn sends none and takes none.
+    const c = client(authEnv());
+    await c.signIn(`limits-${uniq('u')}@example.org`);
+    const me = (await (await c.call('/api/me')).json()) as { userId: string };
+    await grantCredit(env.DB, {
+      accountId: `u_${me.userId}`,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      providerRef: null,
+    });
+    const lesson = (await (
+      await c.call('/api/trees', { method: 'POST', json: { title: 'L' }, learn: 'credit' })
+    ).json()) as TreeDetail;
+    const res = await c.call(`/api/branches/${lesson.tree.trunkBranchId}/candidates`, {
+      method: 'POST',
+      json: { content: 'Q', model: 'simple', ...asked },
+      learn: 'credit',
+    });
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(candidates.mock.calls.at(-1)?.[2]).toEqual({});
   });
 });

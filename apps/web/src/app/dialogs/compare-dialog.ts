@@ -22,6 +22,7 @@ import {
   MarkdownService,
   Modal,
 } from '@tangent/web-shared';
+import { generationLimits, SettingsStore } from '../state/settings-store';
 import { TierStore } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
@@ -66,6 +67,7 @@ export class CompareDialog implements OnInit {
   private readonly api = inject(ApiClient);
   private readonly store = inject(TreeStore);
   private readonly tiers = inject(TierStore);
+  private readonly settings = inject(SettingsStore);
   private readonly ui = inject(UiStore);
   private readonly md = inject(MarkdownService);
 
@@ -108,6 +110,7 @@ export class CompareDialog implements OnInit {
     const branch = this.store.index()?.branches.get(this.branchId()) ?? null;
     if (!branch || !this.tiers.available(branch)) return;
     const specs: CompareSpec[] = [];
+    const limits = generationLimits(this.settings.settings());
     for (const tier of TIERS) {
       const choice = this.tiers.choice(tier, branch);
       if (!choice) return;
@@ -120,6 +123,8 @@ export class CompareDialog implements OnInit {
           providerId: choice.providerId,
           funding: choice.funding ?? 'own-key',
           model: choice.model,
+          // The reply length and input limit, as a send carries them.
+          ...limits,
         },
       });
     }

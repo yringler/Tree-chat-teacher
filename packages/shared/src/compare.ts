@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Branch, BranchFunding, ChatNode, TokenUsage } from './domain.js';
+import { generationLimitsShape } from './api.js';
 import type { Citation } from './grounding.js';
 import { fromLegacyRoute } from './route.js';
 
@@ -36,6 +37,8 @@ export const candidateRequestSchema = z
       BranchFunding | undefined
     >,
     model: z.string().min(1).max(200),
+    /** Power's reply length and input limit, as on a send (Learn sends none). */
+    ...generationLimitsShape,
   })
   .transform(fromLegacyRoute);
 export type CandidateRequest = z.infer<typeof candidateRequestSchema>;

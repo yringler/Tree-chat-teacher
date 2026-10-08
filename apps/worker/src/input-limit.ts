@@ -1,7 +1,8 @@
 // Power's input limit and reply length (@tangent/shared input-limit.ts,
-// output-tokens.ts), as a send or a Context preview runs with them: the
-// user's settings, sent with each request, clamped here and in ChatService
-// `budgetFor` (never above the model's window less the reply). On Tangent
+// output-tokens.ts), as a send, a Context preview, a compare candidate or a
+// review runs with them: the user's settings, sent with each request, clamped
+// here and in ChatService `budgetFor` (never above the model's window less
+// the reply). On Tangent
 // credit the input is also capped at Learn's SIMPLE_MAX_INPUT_TOKENS, with
 // or without a setting, so one credit call costs at most what Learn's does.
 // Learn ignores the settings: its own caps apply (simple-mode.ts).
@@ -47,16 +48,6 @@ export function generationLimits(
       : {}),
     ...(Number.isFinite(input) ? { maxInputTokens: input } : {}),
     ...(requested.inputOverflow === 'truncate' ? { inputOverflow: 'truncate' as const } : {}),
-  };
-}
-
-/** Only the limits of `value` (a request body that carries them). */
-export function pickLimits(value: GenerationLimits): GenerationLimits {
-  const { maxOutputTokens, maxInputTokens, inputOverflow } = value;
-  return {
-    ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
-    ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
-    ...(inputOverflow !== undefined ? { inputOverflow } : {}),
   };
 }
 

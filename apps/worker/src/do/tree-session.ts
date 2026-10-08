@@ -5,6 +5,7 @@ import {
   KeyRequiredError,
   NotFoundError,
   PoolBlockedError,
+  pickGenerationLimits,
   poolBlock,
   type BeginSendResult,
   type ChatService,
@@ -31,7 +32,6 @@ import { poolBank } from '../pool/ids.js';
 import { poolBlockDetails, poolReserveRequest, type PoolParams } from '../pool/params.js';
 import { ceilingHoldMicros } from '../pool/pricing.js';
 import { classifyPoolExchange } from '../pool/tagging.js';
-import { pickLimits } from '../input-limit.js';
 import { chatService } from '../services.js';
 import { BUILT_IN_PROVIDER_ID } from '../simple-mode.js';
 
@@ -184,7 +184,7 @@ export class TreeSession extends DurableObject<AppEnv> {
           branchId: url.searchParams.get('branchId') ?? '',
           content,
           ...(ground === 'required' ? { ground } : {}),
-          ...pickLimits(body),
+          ...pickGenerationLimits(body),
         });
       }
       if (request.method === 'POST' && url.pathname === '/hold-candidate') {
@@ -416,7 +416,7 @@ export class TreeSession extends DurableObject<AppEnv> {
       const options = {
         ...(reservationId ? { reservationId } : {}),
         ...(ground ? { ground } : {}),
-        ...pickLimits(limits),
+        ...pickGenerationLimits(limits),
       };
       for await (const event of chat.runGeneration(begin, run.controller.signal, options)) {
         if (event.type === 'delta')

@@ -374,7 +374,14 @@ export function apiRoutes(): Hono<AppBindings> {
         keys,
       });
       chat = chatOf(c, keys, true);
-      const prepared = await chat.prepareReview(node.id, req);
+      // Power's reply length and input limit, clamped like a send's on the reviewer's
+      // route (it is the one that reads the conversation): Tangent credit's input cap
+      // applies with or without a setting; Learn takes none (input-limit.ts).
+      const prepared = await chat.prepareReview(
+        node.id,
+        req,
+        generationLimits(c.env, c.var.account, req.funding ?? 'own-key', req),
+      );
 
       const encoder = new TextEncoder();
       const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
@@ -429,7 +436,13 @@ export function apiRoutes(): Hono<AppBindings> {
         content: req.content,
       });
       chat = chatOf(c, keys, true);
-      const prepared = await chat.prepareCandidate(branch.id, req);
+      // Power's reply length and input limit, clamped like a send's on the candidate's
+      // route; Learn takes none (input-limit.ts).
+      const prepared = await chat.prepareCandidate(
+        branch.id,
+        req,
+        generationLimits(c.env, c.var.account, route.funding, req),
+      );
       const accountId = c.var.account.id;
 
       /** The wire `done`: the candidate, once the Durable Object holds it for the commit. */

@@ -106,4 +106,79 @@ describe('input limit', () => {
       maxInputTokens: 50_000,
     });
   });
+
+  /** Runs a stream to its end. */
+  async function drain(events: AsyncIterable<unknown>): Promise<void> {
+    for await (const e of events) void e;
+  }
+
+  it('bounds a compare candidate like a send, and caps its reply', async () => {
+    const s = await conversation();
+    const ask = async (limits: Parameters<typeof s.chat.prepareCandidate>[2]) => {
+      s.provider.calls.length = 0;
+      const prepared = await s.chat.prepareCandidate(
+        s.branchId,
+        // The request's own fields are not read: only the caller's (clamped) limits.
+        { content: 'And now?', model: 'm1', maxInputTokens: 1000 },
+        limits,
+      );
+      await drain(s.chat.runCandidate(prepared, new AbortController().signal));
+      return {
+        chat: s.provider.chatCalls().at(-1),
+        summaries: s.provider.summaryCalls(),
+      };
+    };
+    const plain = await ask(undefined);
+    expect(chars(plain.chat)).toBeGreaterThan(30_000);
+    expect(plain.chat!.maxOutputTokens).toBe(4096);
+
+    const compact = await ask({ maxInputTokens: 6000, maxOutputTokens: 1000 });
+    expect(compact.summaries).toHaveLength(1);
+    expect(summarized(compact.chat)).toBe(true);
+    expect(chars(compact.chat)).toBeLessThan(6000 * 3.5);
+    expect(compact.chat!.maxOutputTokens).toBe(1000);
+    expect(compact.chat!.messages.at(-1)!.content).toBe('And now?');
+
+    const dropped = await ask({ maxInputTokens: 6000, inputOverflow: 'truncate' });
+    expect(dropped.summaries).toEqual([]);
+    expect(summarized(dropped.chat)).toBe(false);
+    expect(chars(dropped.chat)).toBeLessThan(6000 * 3.5);
+  });
+
+  it('bounds what a reviewer reads, and caps the review', async () => {
+    const s = await conversation();
+    const leaf = (
+      await s.chat.getTreeDetail((await s.chat.getOwnedBranch(s.branchId)).treeId)
+    ).nodes
+      .filter((n) => n.role === 'assistant')
+      .at(-1)!;
+    const review = async (limits: Parameters<typeof s.chat.prepareReview>[2]) => {
+      s.provider.calls.length = 0;
+      const prepared = await s.chat.prepareReview(
+        leaf.id,
+        { providerId: 'scripted', model: 'm1' },
+        limits,
+      );
+      await drain(s.chat.runReview(prepared, new AbortController().signal));
+      return {
+        call: s.provider.calls.at(-1),
+        summaries: s.provider.summaryCalls(),
+      };
+    };
+    const plain = await review(undefined);
+    expect(chars(plain.call)).toBeGreaterThan(30_000);
+    expect(plain.summaries).toEqual([]);
+
+    const compact = await review({ maxInputTokens: 6000, maxOutputTokens: 1000 });
+    expect(compact.summaries).toHaveLength(1);
+    expect(summarized(compact.call)).toBe(true);
+    // The review prompt wraps the context in a few lines of its own.
+    expect(chars(compact.call)).toBeLessThan(6000 * 3.5 + 1000);
+    expect(compact.call!.maxOutputTokens).toBe(1000);
+
+    const dropped = await review({ maxInputTokens: 6000, inputOverflow: 'truncate' });
+    expect(dropped.summaries).toEqual([]);
+    expect(summarized(dropped.call)).toBe(false);
+    expect(chars(dropped.call)).toBeLessThan(6000 * 3.5 + 1000);
+  });
 });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { generationLimitsShape } from './api.js';
 import type { BranchFunding, TokenUsage } from './domain.js';
 import { fromLegacyRoute } from './route.js';
 
@@ -22,6 +23,11 @@ export const reviewRequestSchema = z
       BranchFunding | undefined
     >,
     model: z.string().min(1).max(200),
+    /**
+     * Power's reply length (the review's cap) and input limit (what of the
+     * conversation the reviewer reads), as on a send (Learn sends none).
+     */
+    ...generationLimitsShape,
   })
   .transform(fromLegacyRoute);
 export type ReviewRequest = z.infer<typeof reviewRequestSchema>;
