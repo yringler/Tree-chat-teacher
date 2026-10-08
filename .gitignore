@@ -12,6 +12,8 @@ coverage/
 # directory present for wrangler and vitest-pool-workers before anything is built.
 apps/worker/site/*
 !apps/worker/site/.gitkeep
+# The CI deploy's Wrangler config (scripts/deploy-config.mjs).
+apps/worker/wrangler.deploy.json
 # End-to-end runs (apps/e2e): the generated Worker config, local database and server log, and Playwright's output.
 apps/e2e/.state/
 apps/e2e/test-results/

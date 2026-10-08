@@ -95,8 +95,8 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Runs wrangler.jsonc's build.command (the root `pnpm build`) and bundles the Worker, as the
-      # deploy below does, so a broken build stops here, before any migration. No secrets yet.
+      # Runs wrangler.jsonc's build.command (the root `pnpm build`) and bundles the Worker, so a
+      # broken build stops here, before any migration. No secrets in this or any build step.
       - name: Build
         run: pnpm --filter @tangent/worker exec wrangler deploy --dry-run
       # If wrangler ever skipped build.command, apps/worker/site would hold only .gitkeep, and that
@@ -109,16 +109,19 @@ jobs:
               exit 1
             fi
           done
+      # wrangler.jsonc without build.command, so the steps holding the token run no build: the
+      # deploy uploads the site checked above.
+      - name: Write the deploy config
+        run: node scripts/deploy-config.mjs
       # Before the deploy, so new code never meets an old schema. Until the deploy finishes, the
       # running code meets the new schema: migrations expand first and contract in a later release.
       - name: Apply D1 migrations
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm --filter @tangent/worker exec wrangler d1 migrations apply DB --remote
-      # wrangler runs build.command again before it uploads.
+        run: pnpm --filter @tangent/worker exec wrangler d1 migrations apply DB --remote --config wrangler.deploy.json
       - name: Deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm --filter @tangent/worker exec wrangler deploy
+        run: pnpm --filter @tangent/worker exec wrangler deploy --config wrangler.deploy.json

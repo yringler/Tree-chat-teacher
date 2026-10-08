@@ -197,8 +197,9 @@ All commands run from `apps/worker` (use `npx wrangler …` or `pnpm exec wrangl
 
 1. It stops at once if the `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID` secret is missing.
 2. `wrangler deploy --dry-run` runs `build.command` (the root `pnpm build`) and bundles the Worker, then a check fails the job unless `apps/worker/site/` holds all four apps' `index.html`. A deploy without the build would serve an empty assets directory, and every app page and asset would 404.
-3. `wrangler d1 migrations apply DB --remote` applies the new migrations in `apps/worker/migrations`.
-4. `wrangler deploy` builds again and deploys the Worker with its static assets.
+3. `scripts/deploy-config.mjs` writes `apps/worker/wrangler.deploy.json`, a copy of `wrangler.jsonc` without `build`, so the two steps that hold the API token run no build: the token never meets the apps' build toolchain, and the upload is the site just checked.
+4. `wrangler d1 migrations apply DB --remote` applies the new migrations in `apps/worker/migrations`.
+5. `wrangler deploy` deploys the Worker with those static assets.
 
 Deploys never overlap, and none is cancelled midway: a newer one waits for the running one.
 
