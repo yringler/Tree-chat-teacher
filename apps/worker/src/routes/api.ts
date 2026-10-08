@@ -17,6 +17,7 @@ import {
   createTreeRequestSchema,
   exportFileStem,
   exportQuerySchema,
+  MAX_BACKUP_BYTES,
   reviewRequestSchema,
   sendMessageRequestSchema,
   treeBackupSchema,
@@ -30,12 +31,13 @@ import {
   type MeResponse,
 } from '@tangent/shared';
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { createMiddleware } from 'hono/factory';
 import { z } from 'zod';
 import { ensureAccountRow, resolveAccount } from '../auth/account.js';
 import { isAdmin } from '../auth/admin.js';
 import { accountDeletionRoutes } from '../auth/delete-account.js';
-import { sameOriginOnly } from '../byok/guard.js';
+import { enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
 import { assertCanGenerate, membershipNeededFor } from '../billing/gate.js';
 import { membershipFor } from '../billing/membership.js';
 import { readKeys, requireReadableKeys, type UserKeys } from '../byok/keys.js';
@@ -185,9 +187,14 @@ export function apiRoutes(): Hono<AppBindings> {
   api.patch('/trees/:treeId', validateJson(updateTreeRequestSchema), async (c) =>
     c.json(await chatOf(c).updateTree(c.req.param('treeId'), c.req.valid('json'))),
   );
+  // Through the tree's Durable Object: it stops the tree's generations first and
+  // drops what it holds for the tree (Compare candidates).
   api.delete('/trees/:treeId', async (c) => {
-    await chatOf(c).deleteTree(c.req.param('treeId'));
-    return c.body(null, 204);
+    const treeId = c.req.param('treeId');
+    return session(c.env, treeId).fetch(
+      sessionUrl('/delete-tree', { treeId, ...accountParams(c.var.account) }),
+      { method: 'POST' },
+    );
   });
   api.get('/trees/:treeId/backup', async (c) => {
     const backup = await chatOf(c).exportBackup(c.req.param('treeId'));
@@ -195,8 +202,25 @@ export function apiRoutes(): Hono<AppBindings> {
       'Content-Disposition': `attachment; filename="${backupFileName(backup.tree.title)}"`,
     });
   });
-  api.post('/import', validateJson(treeBackupSchema), async (c) =>
-    c.json(await chatOf(c).importBackup(c.req.valid('json')), 201),
+  // Each import writes a whole tree: rate limited per account, and the size cap is
+  // checked on the bytes as they arrive, before the JSON is parsed.
+  const importLimited = createMiddleware<AppBindings>(async (c, next) => {
+    await enforceRateLimit(c, null, 'import');
+    await next();
+  });
+  api.post(
+    '/import',
+    importLimited,
+    bodyLimit({
+      maxSize: MAX_BACKUP_BYTES,
+      onError: () => {
+        throw new ValidationError(
+          `This backup is too large to import (the limit is ${MAX_BACKUP_BYTES / (1024 * 1024)} MB)`,
+        );
+      },
+    }),
+    validateJson(treeBackupSchema),
+    async (c) => c.json(await chatOf(c).importBackup(c.req.valid('json')), 201),
   );
   // "Create a copy in Learn" (docs/DECISIONS.md "Read-only power without a
   // membership"): the caller's power tree, exported by the power service (404
@@ -204,7 +228,7 @@ export function apiRoutes(): Hono<AppBindings> {
   // account, so it is adapted like any import into Learn. Neither generates,
   // so there is no gate: no membership, no credit, no model call. The power
   // tree is only read.
-  api.post('/trees/:treeId/copy-to-learn', sameOriginOnly, async (c) => {
+  api.post('/trees/:treeId/copy-to-learn', importLimited, async (c) => {
     const { account, identity } = c.var;
     if (account.mode !== 'power')
       throw new DomainError('bad_request', 'Only a power conversation can be copied into Learn');
@@ -282,50 +306,45 @@ export function apiRoutes(): Hono<AppBindings> {
   });
 
   // ---- messages (delegated to the tree's Durable Object)
-  api.post(
-    '/branches/:branchId/messages',
-    sameOriginOnly,
-    validateJson(sendMessageRequestSchema),
-    async (c) => {
-      const keys = await keysOf(c);
-      const req = c.req.valid('json');
-      const chat = chatOf(c, keys);
-      const branch = await chat.getOwnedBranch(c.req.param('branchId'));
-      // The route is the Durable Object's only way in, so this gate covers it. On the
-      // pool, the Durable Object reserves the reply before writing any node.
-      const account = await assertCanGenerate(c, {
-        purpose: 'send',
-        providerId: branch.providerId,
-        funding: branch.funding,
-        model: branch.model,
-        keys,
-        content: req.content,
-      });
-      // "Check sources" needs a provider that can search; the pool's holds don't cover a search.
-      if (req.ground === 'required' && (isPoolFunded(account) || !chat.canSearch(branch))) {
-        throw new ValidationError("This conversation's model can't check sources");
-      }
-      // The Durable Object gets the still-sealed cookie value in the body (never
-      // a header, which request logs may capture) and opens it itself. The output
-      // cap and the input limit are power's settings, clamped on Tangent credit:
-      // Learn's replies keep its own (input-limit.ts).
-      const { maxOutputTokens, maxInputTokens, inputOverflow, ...rest } = req;
-      const body: SessionSendBody = {
-        ...rest,
-        ...generationLimits(c.env, account, branch.funding, {
-          maxOutputTokens,
-          maxInputTokens,
-          inputOverflow,
-        }),
-        account,
-        ...(keys ? { sealedKeys: keys.sealed } : {}),
-      };
-      return session(c.env, branch.treeId).fetch(
-        sessionUrl('/send', { treeId: branch.treeId, branchId: branch.id }),
-        { method: 'POST', body: JSON.stringify(body) },
-      );
-    },
-  );
+  api.post('/branches/:branchId/messages', validateJson(sendMessageRequestSchema), async (c) => {
+    const keys = await keysOf(c);
+    const req = c.req.valid('json');
+    const chat = chatOf(c, keys);
+    const branch = await chat.getOwnedBranch(c.req.param('branchId'));
+    // The route is the Durable Object's only way in, so this gate covers it. On the
+    // pool, the Durable Object reserves the reply before writing any node.
+    const account = await assertCanGenerate(c, {
+      purpose: 'send',
+      providerId: branch.providerId,
+      funding: branch.funding,
+      model: branch.model,
+      keys,
+      content: req.content,
+    });
+    // "Check sources" needs a provider that can search; the pool's holds don't cover a search.
+    if (req.ground === 'required' && (isPoolFunded(account) || !chat.canSearch(branch))) {
+      throw new ValidationError("This conversation's model can't check sources");
+    }
+    // The Durable Object gets the still-sealed cookie value in the body (never
+    // a header, which request logs may capture) and opens it itself. The output
+    // cap and the input limit are power's settings, clamped on Tangent credit:
+    // Learn's replies keep its own (input-limit.ts).
+    const { maxOutputTokens, maxInputTokens, inputOverflow, ...rest } = req;
+    const body: SessionSendBody = {
+      ...rest,
+      ...generationLimits(c.env, account, branch.funding, {
+        maxOutputTokens,
+        maxInputTokens,
+        inputOverflow,
+      }),
+      account,
+      ...(keys ? { sealedKeys: keys.sealed } : {}),
+    };
+    return session(c.env, branch.treeId).fetch(
+      sessionUrl('/send', { treeId: branch.treeId, branchId: branch.id }),
+      { method: 'POST', body: JSON.stringify(body) },
+    );
+  });
   api.get('/nodes/:nodeId/stream', async (c) => {
     const node = await chatOf(c).getOwnedNode(c.req.param('nodeId'));
     return session(c.env, node.treeId).fetch(
@@ -351,152 +370,142 @@ export function apiRoutes(): Hono<AppBindings> {
   // ---- reviews: streamed straight from the Worker. Nothing is persisted, so
   // there is no Durable Object run to reconnect to; a dropped client aborts
   // the upstream request (stops billing) through the request signal.
-  api.post(
-    '/nodes/:nodeId/review',
-    sameOriginOnly,
-    validateJson(reviewRequestSchema),
-    async (c) => {
-      const req = c.req.valid('json');
-      const keys = await keysOf(c);
-      let chat = chatOf(c, keys);
-      const node = await chat.getOwnedNode(c.req.param('nodeId'));
-      const branch = await chat.getOwnedBranch(node.branchId);
-      // The client picks the reviewer model here, so the allowlist is what bounds it.
-      // The review is metered iff the reviewer is on Tangent credit (its funding). The
-      // context is resolved like a send on the node's branch, so missing summaries are
-      // generated on that branch's route: its credit is checked too. Never on the pool (403).
-      await assertCanGenerate(c, {
-        purpose: 'review',
-        providerId: req.providerId,
-        funding: req.funding ?? 'own-key',
-        model: req.model,
-        alsoSpendsOn: { providerId: branch.providerId, funding: branch.funding },
-        keys,
-      });
-      chat = chatOf(c, keys, true);
-      // Power's reply length and input limit, clamped like a send's on the reviewer's
-      // route (it is the one that reads the conversation): Tangent credit's input cap
-      // applies with or without a setting; Learn takes none (input-limit.ts).
-      const prepared = await chat.prepareReview(
-        node.id,
-        req,
-        generationLimits(c.env, c.var.account, req.funding ?? 'own-key', req),
-      );
+  api.post('/nodes/:nodeId/review', validateJson(reviewRequestSchema), async (c) => {
+    const req = c.req.valid('json');
+    const keys = await keysOf(c);
+    let chat = chatOf(c, keys);
+    const node = await chat.getOwnedNode(c.req.param('nodeId'));
+    const branch = await chat.getOwnedBranch(node.branchId);
+    // The client picks the reviewer model here, so the allowlist is what bounds it.
+    // The review is metered iff the reviewer is on Tangent credit (its funding). The
+    // context is resolved like a send on the node's branch, so missing summaries are
+    // generated on that branch's route: its credit is checked too. Never on the pool (403).
+    await assertCanGenerate(c, {
+      purpose: 'review',
+      providerId: req.providerId,
+      funding: req.funding ?? 'own-key',
+      model: req.model,
+      alsoSpendsOn: { providerId: branch.providerId, funding: branch.funding },
+      keys,
+    });
+    chat = chatOf(c, keys, true);
+    // Power's reply length and input limit, clamped like a send's on the reviewer's
+    // route (it is the one that reads the conversation): Tangent credit's input cap
+    // applies with or without a setting; Learn takes none (input-limit.ts).
+    const prepared = await chat.prepareReview(
+      node.id,
+      req,
+      generationLimits(c.env, c.var.account, req.funding ?? 'own-key', req),
+    );
 
-      const encoder = new TextEncoder();
-      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-      const writer = writable.getWriter();
-      const signal = c.req.raw.signal;
-      const write = (frame: string) => writer.write(encoder.encode(frame)).catch(() => undefined);
-      const pump = async () => {
-        const keepalive = setInterval(() => void write(sseKeepAliveFrame()), REVIEW_KEEPALIVE_MS);
-        try {
-          for await (const event of chat.runReview(prepared, signal)) await write(sseFrame(event));
-        } finally {
-          clearInterval(keepalive);
-          await writer.close().catch(() => undefined);
-        }
-      };
-      c.executionCtx.waitUntil(pump());
-      return sseResponse(readable);
-    },
-  );
+    const encoder = new TextEncoder();
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = writable.getWriter();
+    const signal = c.req.raw.signal;
+    const write = (frame: string) => writer.write(encoder.encode(frame)).catch(() => undefined);
+    const pump = async () => {
+      const keepalive = setInterval(() => void write(sseKeepAliveFrame()), REVIEW_KEEPALIVE_MS);
+      try {
+        for await (const event of chat.runReview(prepared, signal)) await write(sseFrame(event));
+      } finally {
+        clearInterval(keepalive);
+        await writer.close().catch(() => undefined);
+      }
+    };
+    c.executionCtx.waitUntil(pump());
+    return sseResponse(readable);
+  });
 
   // ---- compare (shared/compare.ts): each candidate streams straight from the
   // Worker, like a review, and nothing enters the tree until the user picks one.
   // A finished candidate is held by the tree's Durable Object (for
   // CANDIDATE_TTL_MS), which also appends the picked one, under its send lock.
-  api.post(
-    '/branches/:branchId/candidates',
-    sameOriginOnly,
-    validateJson(candidateRequestSchema),
-    async (c) => {
-      const req = c.req.valid('json');
-      const keys = await keysOf(c);
-      let chat = chatOf(c, keys);
-      const branch = await chat.getOwnedBranch(c.req.param('branchId'));
-      // The route as ChatService resolves it (`requestedRoute`): absent = the branch's,
-      // and Learn's fixed funding (the branch's) always wins.
-      const learn = c.var.account.mode === 'simple';
-      const route = req.providerId
-        ? { providerId: req.providerId, funding: req.funding ?? ('own-key' as const) }
-        : { providerId: branch.providerId, funding: req.funding ?? branch.funding };
-      if (learn && route.providerId !== branch.providerId)
-        throw new ValidationError("Compare runs on the lesson's own provider");
-      if (learn) route.funding = branch.funding;
-      // The client picks the model, so the allowlist is what bounds it (Learn: its tiers).
-      // The context is resolved like a send on the branch, so missing summaries are
-      // generated on the branch's route: its credit is checked too. Never on the pool (403).
-      await assertCanGenerate(c, {
-        purpose: 'compare',
-        ...route,
-        model: req.model,
-        alsoSpendsOn: { providerId: branch.providerId, funding: branch.funding },
-        keys,
-        content: req.content,
-      });
-      chat = chatOf(c, keys, true);
-      // Power's reply length and input limit, clamped like a send's on the candidate's
-      // route; Learn takes none (input-limit.ts).
-      const prepared = await chat.prepareCandidate(
-        branch.id,
-        req,
-        generationLimits(c.env, c.var.account, route.funding, req),
-      );
-      const accountId = c.var.account.id;
+  api.post('/branches/:branchId/candidates', validateJson(candidateRequestSchema), async (c) => {
+    const req = c.req.valid('json');
+    const keys = await keysOf(c);
+    let chat = chatOf(c, keys);
+    const branch = await chat.getOwnedBranch(c.req.param('branchId'));
+    // The route as ChatService resolves it (`requestedRoute`): absent = the branch's,
+    // and Learn's fixed funding (the branch's) always wins.
+    const learn = c.var.account.mode === 'simple';
+    const route = req.providerId
+      ? { providerId: req.providerId, funding: req.funding ?? ('own-key' as const) }
+      : { providerId: branch.providerId, funding: req.funding ?? branch.funding };
+    if (learn && route.providerId !== branch.providerId)
+      throw new ValidationError("Compare runs on the lesson's own provider");
+    if (learn) route.funding = branch.funding;
+    // The client picks the model, so the allowlist is what bounds it (Learn: its tiers).
+    // The context is resolved like a send on the branch, so missing summaries are
+    // generated on the branch's route: its credit is checked too. Never on the pool (403).
+    await assertCanGenerate(c, {
+      purpose: 'compare',
+      ...route,
+      model: req.model,
+      alsoSpendsOn: { providerId: branch.providerId, funding: branch.funding },
+      keys,
+      content: req.content,
+    });
+    chat = chatOf(c, keys, true);
+    // Power's reply length and input limit, clamped like a send's on the candidate's
+    // route; Learn takes none (input-limit.ts).
+    const prepared = await chat.prepareCandidate(
+      branch.id,
+      req,
+      generationLimits(c.env, c.var.account, route.funding, req),
+    );
+    const accountId = c.var.account.id;
 
-      /** The wire `done`: the candidate, once the Durable Object holds it for the commit. */
-      const hold = async (candidate: HeldCandidate): Promise<CandidateEvent> => {
-        try {
-          const res = await session(c.env, branch.treeId).fetch(
-            sessionUrl('/hold-candidate', { treeId: branch.treeId }),
-            {
-              method: 'POST',
-              body: JSON.stringify({ candidate, accountId } satisfies SessionHoldBody),
-            },
-          );
-          if (!res.ok) throw new Error(`hold-candidate answered ${res.status}`);
-          const { expiresAt } = (await res.json()) as SessionHoldResponse;
-          return {
-            type: 'done',
-            candidateId: candidate.id,
-            providerId: candidate.providerId,
-            funding: candidate.funding,
-            model: candidate.model,
-            usage: candidate.usage,
-            sources: candidate.sources,
-            expiresAt,
-          };
-        } catch (err) {
-          console.error('Holding a compare candidate failed', err);
-          return { type: 'error', message: 'This answer could not be kept; try again.' };
-        }
-      };
+    /** The wire `done`: the candidate, once the Durable Object holds it for the commit. */
+    const hold = async (candidate: HeldCandidate): Promise<CandidateEvent> => {
+      try {
+        const res = await session(c.env, branch.treeId).fetch(
+          sessionUrl('/hold-candidate', { treeId: branch.treeId }),
+          {
+            method: 'POST',
+            body: JSON.stringify({ candidate, accountId } satisfies SessionHoldBody),
+          },
+        );
+        if (!res.ok) throw new Error(`hold-candidate answered ${res.status}`);
+        const { expiresAt } = (await res.json()) as SessionHoldResponse;
+        return {
+          type: 'done',
+          candidateId: candidate.id,
+          providerId: candidate.providerId,
+          funding: candidate.funding,
+          model: candidate.model,
+          usage: candidate.usage,
+          sources: candidate.sources,
+          expiresAt,
+        };
+      } catch (err) {
+        console.error('Holding a compare candidate failed', err);
+        return { type: 'error', message: 'This answer could not be kept; try again.' };
+      }
+    };
 
-      const encoder = new TextEncoder();
-      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-      const writer = writable.getWriter();
-      const signal = c.req.raw.signal;
-      const write = (frame: string) => writer.write(encoder.encode(frame)).catch(() => undefined);
-      const pump = async () => {
-        const keepalive = setInterval(() => void write(sseKeepAliveFrame()), REVIEW_KEEPALIVE_MS);
-        try {
-          for await (const event of chat.runCandidate(prepared, signal)) {
-            await write(sseFrame(event.type === 'done' ? await hold(event.candidate) : event));
-          }
-        } finally {
-          clearInterval(keepalive);
-          await writer.close().catch(() => undefined);
+    const encoder = new TextEncoder();
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = writable.getWriter();
+    const signal = c.req.raw.signal;
+    const write = (frame: string) => writer.write(encoder.encode(frame)).catch(() => undefined);
+    const pump = async () => {
+      const keepalive = setInterval(() => void write(sseKeepAliveFrame()), REVIEW_KEEPALIVE_MS);
+      try {
+        for await (const event of chat.runCandidate(prepared, signal)) {
+          await write(sseFrame(event.type === 'done' ? await hold(event.candidate) : event));
         }
-      };
-      c.executionCtx.waitUntil(pump());
-      return sseResponse(readable);
-    },
-  );
+      } finally {
+        clearInterval(keepalive);
+        await writer.close().catch(() => undefined);
+      }
+    };
+    c.executionCtx.waitUntil(pump());
+    return sseResponse(readable);
+  });
   // Appends the picked candidate (the server's copy, so the model and usage are
   // real). It may auto-title the branch, a model call, so the user's keys ride
   // along sealed, as for a send. 403 on the open pool, where compare is refused.
-  api.post('/branches/:branchId/candidates/:candidateId/commit', sameOriginOnly, async (c) => {
+  api.post('/branches/:branchId/candidates/:candidateId/commit', async (c) => {
     const branch = await chatOf(c).getOwnedBranch(c.req.param('branchId'));
     if (c.var.account.funding === 'pool')
       throw new DomainError('pool_unavailable', "Compare isn't available on the open pool");

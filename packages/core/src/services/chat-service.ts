@@ -168,6 +168,7 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
 
 export { DEFAULT_TREE_TITLE, TRUNK_TITLE };
 const TITLE_TIMEOUT_MS = 15_000;
+const INTERRUPTED = { status: 'error', error: 'Interrupted before the reply finished' } as const;
 
 export interface ChatServiceDeps {
   repos: Repositories;
@@ -550,8 +551,17 @@ export class ChatService {
     return tree;
   }
 
-  async deleteTree(treeId: string): Promise<void> {
+  /**
+   * Deletes a tree with everything in it. `stopGenerations` (the Worker's
+   * Durable Object, which owns generations) runs once the tree is known to be
+   * this account's, to stop its runs before their nodes go.
+   */
+  async deleteTree(
+    treeId: string,
+    options: { stopGenerations?: () => Promise<void> } = {},
+  ): Promise<void> {
     await this.requireOwnedTree(treeId);
+    await options.stopGenerations?.();
     const deleted = await this.repo.deleteTree(treeId);
     if (!deleted) throw new NotFoundError('Tree');
   }
@@ -1788,16 +1798,27 @@ export class ChatService {
     }
   }
 
-  /** Marks leftover `streaming` nodes of a tree as `error` ("interrupted"). */
+  /**
+   * Marks leftover `streaming` nodes of a tree as `error` ("interrupted").
+   * Only for a caller that knows no generation of the tree is running (a
+   * fresh process): a live reply in another branch would be failed too.
+   */
   async recoverInterrupted(treeId: string): Promise<number> {
     const stale = await this.repo.listStreamingNodes(treeId);
-    for (const node of stale) {
-      await this.repo.updateNode(node.id, {
-        status: 'error',
-        error: 'Interrupted before the reply finished',
-      });
-    }
+    for (const node of stale) await this.repo.updateNode(node.id, INTERRUPTED);
     return stale.length;
+  }
+
+  /**
+   * Marks one node `error` ("interrupted") if it is still `streaming`, for a
+   * caller that knows no generation of it is running. Returns the node as it
+   * now stands (null if there is none).
+   */
+  async recoverInterruptedNode(nodeId: string): Promise<ChatNode | null> {
+    const node = await this.repo.getNode(nodeId);
+    if (node?.status !== 'streaming') return node;
+    await this.repo.updateNode(node.id, INTERRUPTED);
+    return { ...node, ...INTERRUPTED };
   }
 
   // --------------------------------------------------------------- backup

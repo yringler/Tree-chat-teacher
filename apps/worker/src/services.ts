@@ -104,20 +104,25 @@ function openrouterWithSuggestions(env: AppEnv, config: ProviderConfig): Provide
 }
 
 /**
- * Secrets and vars share the env object; providers look up only the names
- * they are configured with. `withheld` names secrets this request may not
- * use (the operator's keys, see registryFor): providers that need one then
- * report unavailable, or take the user's key.
+ * The secrets `configs` name (`apiKeySecret`, `extraHeaderSecrets`), and no
+ * others: secrets and vars share the env object, and the app's own (auth,
+ * payments, cookie sealing) never reach provider code. `withheld` names
+ * secrets this request may not use (the operator's keys, see registryFor):
+ * providers that need one then report unavailable, or take the user's key.
  */
 export function providerEnv(
   env: AppEnv,
+  configs: readonly ProviderConfig[],
   apiKeys?: UserApiKeys,
   withheld: ReadonlySet<string> = new Set(),
 ): ProviderEnv {
+  const named = new Set([
+    ...apiKeySecrets(configs),
+    ...configs.flatMap((c) => Object.values(c.extraHeaderSecrets ?? {})),
+  ]);
   const secrets: Record<string, string | undefined> = {};
   for (const [k, v] of Object.entries(env)) {
-    // The cookie-sealing secret is never a provider credential.
-    if (typeof v === 'string' && k !== 'KEY_ENCRYPTION_SECRET' && !withheld.has(k)) secrets[k] = v;
+    if (typeof v === 'string' && named.has(k) && !withheld.has(k)) secrets[k] = v;
   }
   return apiKeys ? { secrets, apiKeys } : { secrets };
 }
@@ -163,7 +168,8 @@ export async function canShare(env: AppEnv, userId: string | null): Promise<bool
  * SIMPLE_PROVIDER override and its `apiKeySecret` respected), whoever pays.
  */
 export function builtInProviderUsable(env: AppEnv): boolean {
-  const registry = createProviderRegistry([simpleProviderConfig(env)], providerEnv(env));
+  const configs = [simpleProviderConfig(env)];
+  const registry = createProviderRegistry(configs, providerEnv(env, configs));
   return registry.list()[0]?.available ?? false;
 }
 
@@ -245,40 +251,36 @@ export function registryFor(
     if (account.builtIn) {
       // On the pool, a generating request sees only the pool model, with its caps.
       const pool = poolScope(account, scope);
-      return windowedRegistry(
-        env,
-        [pool ? poolProviderConfig(env, pool) : config],
-        providerEnv(env),
-      );
+      return windowedRegistry(env, [pool ? poolProviderConfig(env, pool) : config]);
     }
     const own = apiKeys?.[LEARN_KEY_PROVIDER];
     return windowedRegistry(
       env,
       [config],
-      providerEnv(
-        env,
-        own ? { [config.id]: own } : undefined,
-        new Set([SIMPLE_KEY_SECRET, ...apiKeySecrets([config])]),
-      ),
+      own ? { [config.id]: own } : undefined,
+      new Set([SIMPLE_KEY_SECRET, ...apiKeySecrets([config])]),
     );
   }
   const configs = providerConfigs(env);
   const withheld = new Set([SIMPLE_KEY_SECRET]);
   if (!account.operatorKeys) for (const name of apiKeySecrets(configs)) withheld.add(name);
-  return windowedRegistry(env, configs, providerEnv(env, apiKeys, withheld));
+  return windowedRegistry(env, configs, apiKeys, withheld);
 }
 
 /**
  * The providers of `configs`, with OpenRouter models budgeted on their real
  * context windows (model-windows.ts `withModelWindows`): every registry a
- * request generates through is built here.
+ * request generates through is built here. `apiKeys` and `withheld` as in
+ * `providerEnv`.
  */
 function windowedRegistry(
   env: AppEnv,
   configs: ProviderConfig[],
-  penv: ProviderEnv,
+  apiKeys?: UserApiKeys,
+  withheld?: ReadonlySet<string>,
 ): ProviderRegistry {
-  return withModelWindows(createProviderRegistry(configs, penv), configs, env);
+  const registry = createProviderRegistry(configs, providerEnv(env, configs, apiKeys, withheld));
+  return withModelWindows(registry, configs, env);
 }
 
 /**
@@ -290,7 +292,7 @@ function windowedRegistry(
  */
 export function creditRegistryFor(env: AppEnv, account: AccountContext): ProviderRegistry | null {
   if (account.mode === 'simple' || !account.builtIn) return null;
-  return windowedRegistry(env, [builtInPowerConfig(env)], providerEnv(env));
+  return windowedRegistry(env, [builtInPowerConfig(env)]);
 }
 
 /**

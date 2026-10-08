@@ -1,5 +1,6 @@
 import {
   DEFAULT_SYSTEM_PROMPT,
+  MAX_BACKUP_BYTES,
   type Branch,
   type MeResponse,
   type StreamEvent,
@@ -405,5 +406,57 @@ describe('an old backup that names the retired `fake` provider', () => {
       type: 'done',
       node: { providerId: 'openrouter', model: 'smart' },
     });
+  });
+});
+
+describe('import limits', () => {
+  /** A limiter that records its keys and allows or refuses every call. */
+  function limiter(success: boolean) {
+    const keys: string[] = [];
+    const binding: RateLimit = {
+      limit: ({ key }: { key: string }) => {
+        keys.push(key);
+        return Promise.resolve({ success });
+      },
+    };
+    return { keys, binding };
+  }
+
+  it('rate limits import and copy-to-learn per account', async () => {
+    const u = await newUser();
+    const original = await powerTree(u);
+    const backup = await json<TreeBackup>(await u.call(`/api/trees/${original.tree.id}/backup`));
+    const refusing = limiter(false);
+    const limited: AppEnv = { ...u.env, IMPORT_RATE_LIMITER: refusing.binding };
+    const post = { method: 'POST', json: backup } as const;
+
+    expect((await u.call('/api/import', post, limited)).status).toBe(429);
+    const copy = `/api/trees/${original.tree.id}/copy-to-learn`;
+    expect((await u.call(copy, { method: 'POST' }, limited)).status).toBe(429);
+    expect((await u.call('/api/import', { ...post, learn: 'own-key' }, limited)).status).toBe(429);
+    expect(refusing.keys).toEqual([
+      `import:account:${u.power.accountId}`,
+      `import:account:${u.power.accountId}`,
+      `import:account:${u.learn.accountId}`,
+    ]);
+    // Nothing was written.
+    const trees = await json<TreeSummary[]>(await u.call('/api/trees'));
+    expect(trees.map((t) => t.id)).toEqual([original.tree.id]);
+
+    const allowing = limiter(true);
+    const allowed: AppEnv = { ...u.env, IMPORT_RATE_LIMITER: allowing.binding };
+    expect((await u.call('/api/import', post, allowed)).status).toBe(201);
+    expect(allowing.keys).toEqual([`import:account:${u.power.accountId}`]);
+  });
+
+  it('refuses a backup over the size cap before parsing it', async () => {
+    const u = await newUser();
+    const res = await u.call('/api/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ padding: 'x'.repeat(MAX_BACKUP_BYTES) }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain('too large');
   });
 });

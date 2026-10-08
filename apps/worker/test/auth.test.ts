@@ -417,6 +417,40 @@ describe('social sign-in', () => {
     expect(row).toBeNull();
   });
 
+  it('links Google to an existing user only when Google verified the email', async () => {
+    const googleAccounts = (email: string) =>
+      env.DB.prepare(
+        `SELECT a.account_id FROM auth_accounts a JOIN auth_users u ON u.id = a.user_id
+          WHERE u.email = ? AND a.provider_id = 'google'`,
+      )
+        .bind(email)
+        .all();
+    const userIdOf = async (res: Response, s: ReturnType<typeof setup>) => {
+      const me = await s.call('/api/me', { headers: { cookie: cookieHeader(res) } });
+      return ((await me.json()) as MeResponse).userId;
+    };
+
+    // The mock reports email_verified: false for an address starting with `unverified`.
+    const victim = 'unverified-victim@example.org';
+    const owner = setup(googleEnv());
+    const ownerId = await userIdOf(await signIn(owner, victim), owner);
+    const takeover = await googleSignIn(setup(googleEnv()), victim, true);
+    expect(takeover.status).toBe(302);
+    expect(takeover.headers.get('location')).toMatch(/^\/login\?error=/);
+    expect(findSetCookie(takeover, SESSION_COOKIE)).toBeUndefined();
+    expect((await googleAccounts(victim)).results).toHaveLength(0);
+
+    const linked = 'linked@example.org';
+    const magic = setup(googleEnv());
+    const linkedId = await userIdOf(await signIn(magic, linked), magic);
+    const s = setup(googleEnv());
+    const res = await googleSignIn(s, linked, true);
+    expect(res.headers.get('location')).toBe('/');
+    expect(await userIdOf(res, s)).toBe(linkedId);
+    expect((await googleAccounts(linked)).results).toHaveLength(1);
+    expect(ownerId).not.toBe(linkedId);
+  });
+
   it('keeps the Google account id but none of its tokens, on sign-up or later sign-ins', async () => {
     const email = 'tokens@example.org';
     const stored = () =>

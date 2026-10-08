@@ -151,15 +151,17 @@ interface Run {
  *   GET  /stream?treeId=&nodeId=&account            → SSE (snapshot, then live)
  *   POST /cancel?treeId=&nodeId=&account            → 204
  *   POST /delete-branch?treeId=&branchId=&account   → DeleteBranchResponse
+ *   POST /delete-tree?treeId=&account               → 204
  *   POST /hold-candidate?treeId=     body SessionHoldBody → SessionHoldResponse
  *   POST /commit-candidate?treeId=   body SessionCommitBody → CommitCandidateResponse
  * The Worker resolves every branch/node id through the caller's account
  * before calling in, so the DO doesn't re-check ownership except where the
- * ChatService does it anyway (beginSend, deleteBranch, commitCandidate).
+ * ChatService does it anyway (beginSend, deleteBranch, deleteTree,
+ * commitCandidate).
  *
  * Compare candidates stream from the Worker (like reviews), never through a
  * run here: a finished one is only held in this DO's storage for
- * `CANDIDATE_TTL_MS` (expired entries are pruned on each hold), and a commit
+ * `CANDIDATE_TTL_MS` (the alarm prunes expired entries), and a commit
  * appends it under the send lock, so it can't interleave with a send. A
  * commit drops the candidate and its siblings (the other answers to the same
  * question); an uncommitted one simply expires.
@@ -201,10 +203,13 @@ export class TreeSession extends DurableObject<AppEnv> {
         return await this.reconnect(chat, url.searchParams.get('nodeId') ?? '');
       }
       if (request.method === 'POST' && url.pathname === '/cancel') {
-        return await this.cancel(chat, treeId, url.searchParams.get('nodeId') ?? '');
+        return await this.cancel(chat, url.searchParams.get('nodeId') ?? '');
       }
       if (request.method === 'POST' && url.pathname === '/delete-branch') {
         return await this.deleteBranch(chat, url.searchParams.get('branchId') ?? '');
+      }
+      if (request.method === 'POST' && url.pathname === '/delete-tree') {
+        return await this.deleteTree(chat, treeId);
       }
       return errorResponse(new DomainError('not_found', 'Unknown session route'));
     } catch (err) {
@@ -341,18 +346,56 @@ export class TreeSession extends DurableObject<AppEnv> {
     return Response.json(await deleted);
   }
 
-  /** Holds a finished candidate for `CANDIDATE_TTL_MS`, pruning the expired ones. */
+  /**
+   * Like `deleteBranch`, for the whole tree; then drops everything this DO
+   * stores for it (held candidates hold the user's question and answers).
+   */
+  private async deleteTree(chat: ChatService, treeId: string): Promise<Response> {
+    const deleted = this.sendLock.then(async () => {
+      await chat.deleteTree(treeId, {
+        stopGenerations: async () => {
+          const runs = [...this.runs.values()];
+          for (const run of runs) run.controller.abort();
+          await Promise.all(runs.map((r) => r.finished));
+        },
+      });
+      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.deleteAll();
+    });
+    this.sendLock = deleted.catch(() => undefined);
+    await deleted;
+    return new Response(null, { status: 204 });
+  }
+
+  /** Holds a finished candidate for `CANDIDATE_TTL_MS`. */
   private async holdCandidate(body: SessionHoldBody): Promise<Response> {
     const now = Date.now();
-    const storage = this.ctx.storage;
-    const held = await storage.list<HeldEntry>({ prefix: CANDIDATE_PREFIX });
-    const expired = [...held].filter(([, entry]) => entry.expiresAt <= now).map(([key]) => key);
-    await deleteKeys(storage, expired);
     const entry: HeldEntry = { ...body, expiresAt: now + CANDIDATE_TTL_MS };
-    await storage.put(CANDIDATE_PREFIX + body.candidate.id, entry);
+    await this.ctx.storage.put(CANDIDATE_PREFIX + body.candidate.id, entry);
+    await this.pruneCandidates(now);
     return Response.json({
       expiresAt: new Date(entry.expiresAt).toISOString(),
     } satisfies SessionHoldResponse);
+  }
+
+  /** Unpicked candidates (the user's question and answers) go when they expire. */
+  override async alarm(): Promise<void> {
+    await this.pruneCandidates(Date.now());
+  }
+
+  /** Deletes the expired held candidates and sets the alarm for the next expiry, if any. */
+  private async pruneCandidates(now: number): Promise<void> {
+    const storage = this.ctx.storage;
+    const held = await storage.list<HeldEntry>({ prefix: CANDIDATE_PREFIX });
+    const expired: string[] = [];
+    let next: number | null = null;
+    for (const [key, entry] of held) {
+      if (entry.expiresAt <= now) expired.push(key);
+      else if (next === null || entry.expiresAt < next) next = entry.expiresAt;
+    }
+    await deleteKeys(storage, expired);
+    if (next === null) await storage.deleteAlarm();
+    else await storage.setAlarm(next);
   }
 
   /**
@@ -452,16 +495,11 @@ export class TreeSession extends DurableObject<AppEnv> {
     const run = this.runs.get(nodeId);
     if (run) return this.subscribe(run, [{ type: 'snapshot', node: run.node }]);
 
-    // Not running here: serve the persisted final state.
-    const repo = chat.deps.repos.trees;
-    const node = await repo.getNode(nodeId);
-    if (!node) return errorResponse(new DomainError('not_found', 'Node not found'));
-    let final = node;
-    if (node.status === 'streaming') {
-      await chat.recoverInterrupted(node.treeId);
-      final = (await repo.getNode(nodeId)) ?? node;
-    }
-    const branch = await repo.getBranch(final.branchId);
+    // Not running here: serve the persisted final state. Still `streaming`
+    // means an orphan; only it is recovered (other branches may be live).
+    const final = await chat.recoverInterruptedNode(nodeId);
+    if (!final) return errorResponse(new DomainError('not_found', 'Node not found'));
+    const branch = await chat.deps.repos.trees.getBranch(final.branchId);
     const events: StreamEvent[] = [{ type: 'snapshot', node: final }];
     if (final.status === 'complete' && branch) events.push({ type: 'done', node: final, branch });
     else
@@ -474,10 +512,11 @@ export class TreeSession extends DurableObject<AppEnv> {
     return sseResponse(streamOf(events.map(sseFrame).join('')));
   }
 
-  private async cancel(chat: ChatService, treeId: string, nodeId: string): Promise<Response> {
+  /** Without a run here the node is finished or an orphan: only that node is recovered. */
+  private async cancel(chat: ChatService, nodeId: string): Promise<Response> {
     const run = this.runs.get(nodeId);
     if (run) run.controller.abort();
-    else if (treeId) await chat.recoverInterrupted(treeId);
+    else await chat.recoverInterruptedNode(nodeId);
     return new Response(null, { status: 204 });
   }
 

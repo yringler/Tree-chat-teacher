@@ -360,6 +360,27 @@ describe('ChatService sending', () => {
     // Branch is usable again.
     await expect(chat.beginSend(tree.trunkBranchId, 'again')).resolves.toBeDefined();
   });
+
+  it('recovers one interrupted node, leaving other streaming nodes alone', async () => {
+    const { chat, repos } = setup();
+    const { tree } = await chat.createTree({});
+    const { begin: start } = await send(chat, tree.trunkBranchId, 'hi');
+    const b = await chat.createBranch({ fromNodeId: start.assistantNode.id, contextMode: 'path' });
+    const orphan = await chat.beginSend(tree.trunkBranchId, 'orphan');
+    const live = await chat.beginSend(b.id, 'live');
+
+    expect(await chat.recoverInterruptedNode(orphan.assistantNode.id)).toMatchObject({
+      status: 'error',
+      error: 'Interrupted before the reply finished',
+    });
+    expect((await repos.trees.getNode(orphan.assistantNode.id))?.status).toBe('error');
+    expect((await repos.trees.getNode(live.assistantNode.id))?.status).toBe('streaming');
+    // A finished node is returned untouched.
+    expect(await chat.recoverInterruptedNode(start.assistantNode.id)).toMatchObject({
+      status: 'complete',
+    });
+    expect(await chat.recoverInterruptedNode('missing')).toBeNull();
+  });
 });
 
 describe('ChatService backup', () => {

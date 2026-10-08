@@ -1,6 +1,6 @@
 import type { TreeBackup } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
-import { backupFile, MAX_BACKUP_BYTES, readBackupFile } from './backup-file';
+import { backupFile, readBackupFile } from './backup-file';
 
 const AT = '2026-01-01T00:00:00.000Z';
 
@@ -49,9 +49,8 @@ describe('readBackupFile', () => {
     await expect(readBackupFile(file(''))).rejects.toThrow('lesson.tangent.json is empty.');
     const big = { name: 'big.json', size: 60 * 1024 * 1024, text: () => Promise.reject() };
     await expect(readBackupFile(big)).rejects.toThrow(
-      'big.json is too large to import (60 MB; the limit is 50 MB).',
+      'big.json is too large to import (60 MB; the limit is 10 MB).',
     );
-    expect(MAX_BACKUP_BYTES).toBe(50 * 1024 * 1024);
     await expect(readBackupFile(file('{"a":1}'), 3)).rejects.toThrow(/too large/);
   });
 

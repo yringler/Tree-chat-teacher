@@ -8,7 +8,7 @@ import {
   type ProviderConfig,
 } from '@tangent/shared';
 import { Hono } from 'hono';
-import { enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
+import { enforceRateLimit } from '../byok/guard.js';
 import {
   clearKeyCookie,
   freshExpiry,
@@ -32,7 +32,6 @@ import { simpleProviderConfig } from '../simple-mode.js';
  */
 export function keyRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
-  r.use('*', sameOriginOnly);
   r.use('*', async (c, next) => {
     await next();
     c.header('Cache-Control', 'no-store');
@@ -65,7 +64,7 @@ export function keyRoutes(): Hono<AppBindings> {
 
     // One cheap, unbilled call to confirm the key works. Only an explicit
     // 401/403 rejects it; an unreachable provider shouldn't block saving.
-    if ((await verifyApiKey(config, apiKey, providerEnv(c.env))) === 'rejected') {
+    if ((await verifyApiKey(config, apiKey, providerEnv(c.env, [config]))) === 'rejected') {
       throw new ValidationError(`${config.label} rejected this API key`);
     }
 

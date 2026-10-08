@@ -113,6 +113,12 @@
       "namespace_id": "1003",
       "simple": { "limit": 10, "period": 60 },
     },
+    {
+      // Importing a backup or copying a tree into Learn (each writes a whole tree), per account.
+      "name": "IMPORT_RATE_LIMITER",
+      "namespace_id": "1004",
+      "simple": { "limit": 10, "period": 60 },
+    },
   ],
   "vars": {
     // Public origin: share links, sign-in callbacks, magic links and the passkey relying party.

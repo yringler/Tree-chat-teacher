@@ -672,6 +672,27 @@ const role = z.enum(['user', 'assistant', 'system']);
 const nodeStatus = z.enum(['streaming', 'complete', 'error']);
 const linkOrigin = z.enum(['user', 'ai']) satisfies z.ZodType<LinkOrigin>;
 
+/*
+ * What one import may write. An import lands in D1 in one batch, so these
+ * (with the per-account import rate limit, byok/guard.ts) bound what a
+ * request can add to the database; each sits well above what using the app
+ * produces, so any exported tree imports again.
+ */
+/** A backup's JSON: a long conversation (1,000 exchanges with 4 KB replies) is about 5 MB. */
+export const MAX_BACKUP_BYTES = 10 * 1024 * 1024;
+/** Branches of one tree, as many as the links it may hold. */
+export const MAX_BACKUP_BRANCHES = 1_000;
+/** Messages of one tree: 5,000 exchanges. */
+export const MAX_BACKUP_NODES = 10_000;
+/**
+ * One message: a reply at the largest output cap (128k tokens of ~4
+ * characters) fits, and even at 3 UTF-8 bytes a character the row stays
+ * under D1's 2 MB limit.
+ */
+export const MAX_BACKUP_NODE_CHARS = 600_000;
+/** A failed reply's error as imported: provider errors are kept whole, so a longer one is cut, not refused. */
+export const MAX_NODE_ERROR_CHARS = 2_000;
+
 /** A parsed backup as accepted by import (owner fields optional). */
 export type TreeBackupInput = z.infer<typeof treeBackupSchema>;
 
@@ -689,47 +710,54 @@ export const treeBackupSchema = z.object({
     createdAt: isoDate,
     updatedAt: isoDate,
   }),
-  branches: z.array(
-    z.object({
-      id,
-      treeId: id,
-      parentBranchId: id.nullable(),
-      branchPointNodeId: id.nullable(),
-      contextMode,
-      anchorQuote: z.string().max(10_000).nullable(),
-      title: z.string().max(200),
-      titleSource: z.enum(['default', 'auto', 'user']),
-      isPrivate: z.boolean(),
-      providerId: z.string().max(64),
-      model: z.string().max(200),
-      grounding: groundingMode.optional(),
-      /**
-       * Absent in backups made before funding was split from the provider;
-       * import reads a missing one as `own-key` (ChatService.importBackup).
-       */
-      funding: branchFundingSchema.optional(),
-      createdAt: isoDate,
-      updatedAt: isoDate,
-    }),
-  ),
-  nodes: z.array(
-    z.object({
-      id,
-      treeId: id,
-      branchId: id,
-      parentId: id.nullable(),
-      seq: z.number().int().min(0),
-      role,
-      content: z.string().max(1_000_000),
-      status: nodeStatus,
-      error: z.string().nullable(),
-      providerId: z.string().nullable(),
-      model: z.string().nullable(),
-      usage: z.object({ inputTokens: z.number(), outputTokens: z.number() }).nullable(),
-      sources: z.array(citationSchema).max(CITATIONS_MAX).nullable().optional(),
-      createdAt: isoDate,
-    }),
-  ),
+  branches: z
+    .array(
+      z.object({
+        id,
+        treeId: id,
+        parentBranchId: id.nullable(),
+        branchPointNodeId: id.nullable(),
+        contextMode,
+        anchorQuote: z.string().max(10_000).nullable(),
+        title: z.string().max(200),
+        titleSource: z.enum(['default', 'auto', 'user']),
+        isPrivate: z.boolean(),
+        providerId: z.string().max(64),
+        model: z.string().max(200),
+        grounding: groundingMode.optional(),
+        /**
+         * Absent in backups made before funding was split from the provider;
+         * import reads a missing one as `own-key` (ChatService.importBackup).
+         */
+        funding: branchFundingSchema.optional(),
+        createdAt: isoDate,
+        updatedAt: isoDate,
+      }),
+    )
+    .max(MAX_BACKUP_BRANCHES),
+  nodes: z
+    .array(
+      z.object({
+        id,
+        treeId: id,
+        branchId: id,
+        parentId: id.nullable(),
+        seq: z.number().int().min(0),
+        role,
+        content: z.string().max(MAX_BACKUP_NODE_CHARS),
+        status: nodeStatus,
+        error: z
+          .string()
+          .transform((s) => s.slice(0, MAX_NODE_ERROR_CHARS))
+          .nullable(),
+        providerId: z.string().max(64).nullable(),
+        model: z.string().max(200).nullable(),
+        usage: z.object({ inputTokens: z.number(), outputTokens: z.number() }).nullable(),
+        sources: z.array(citationSchema).max(CITATIONS_MAX).nullable().optional(),
+        createdAt: isoDate,
+      }),
+    )
+    .max(MAX_BACKUP_NODES),
   /**
    * Absent in backups made before links existed. Import drops a link whose
    * ends aren't both in `nodes`, a self-link and a repeated pair.

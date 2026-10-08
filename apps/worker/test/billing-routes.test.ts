@@ -11,6 +11,7 @@ import { grantCredit } from '../src/billing/ledger.js';
 import { decodeFakeUrl } from '../src/billing/providers/fake.js';
 import type { AccountContext, AppBindings, AppEnv } from '../src/env.js';
 import { onError } from '../src/http/errors.js';
+import { sameOriginWrites } from '../src/byok/guard.js';
 import { billingRoutes } from '../src/routes/billing.js';
 import {
   insertUsage,
@@ -24,8 +25,9 @@ const env = rawEnv as unknown as AppEnv;
 const BASE = 'https://tangent.example.com';
 
 /**
- * billingRoutes() behind a stand-in for the session/account middleware, so
- * these tests don't depend on how accounts are resolved.
+ * billingRoutes() behind app.ts's CSRF guard and a stand-in for the
+ * session/account middleware, so these tests don't depend on how accounts
+ * are resolved.
  */
 function appAs(account: AccountContext, e: AppEnv = env) {
   const app = new Hono<AppBindings>();
@@ -35,6 +37,7 @@ function appAs(account: AccountContext, e: AppEnv = env) {
     c.set('accountId', account.id);
     await next();
   });
+  app.use('/api/*', sameOriginWrites);
   app.route('/api/billing', billingRoutes());
   return (path: string, init: RequestInit & { json?: unknown } = {}) => {
     const { json, ...rest } = init;

@@ -73,6 +73,16 @@ describe('legal pages', () => {
     );
   });
 
+  it('says how long unpicked Compare answers outlive an account deletion', async () => {
+    const privacy = await (await setup()('/privacy')).text();
+    expect(privacy).toContain(
+      "Compare answers you haven't picked (with the question they answer): 30 minutes",
+    );
+    expect(privacy).toContain(
+      'deleting your account leaves any still held to go when their 30 minutes are up',
+    );
+  });
+
   it('words share links by DMCA_AGENT_REGISTERED', async () => {
     const on = setup({ DMCA_AGENT_REGISTERED: 'true' });
     const off = setup({ DMCA_AGENT_REGISTERED: 'false' });

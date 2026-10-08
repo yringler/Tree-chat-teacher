@@ -517,7 +517,7 @@ export class DemoBackend {
       const node = await this.chat.getOwnedNode(id);
       const run = this.runs.get(node.id);
       if (run) run.controller.abort();
-      else await this.chat.recoverInterrupted(node.treeId);
+      else await this.chat.recoverInterruptedNode(node.id);
       return noContent();
     }
 
@@ -738,11 +738,8 @@ export class DemoBackend {
     if (run) return this.subscribe(run, [{ type: 'snapshot', node: run.node }], signal);
 
     // Not running: replay the stored final state.
-    let final = node;
-    if (node.status === 'streaming') {
-      await this.chat.recoverInterrupted(node.treeId);
-      final = (await this.repos.trees.getNode(node.id)) ?? node;
-    }
+    // Still `streaming` means an orphan; only it is recovered (other branches may be live).
+    const final = (await this.chat.recoverInterruptedNode(node.id)) ?? node;
     const branch = await this.repos.trees.getBranch(final.branchId);
     const events: StreamEvent[] = [{ type: 'snapshot', node: final }];
     if (final.status === 'complete' && branch) events.push({ type: 'done', node: final, branch });

@@ -17,7 +17,7 @@ import {
 } from '../billing/membership.js';
 import { PaymentProviderError } from '../billing/payments/index.js';
 import { getBillingSummary, listUsage, startTopUpCheckout } from '../billing/service.js';
-import { enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
+import { enforceRateLimit } from '../byok/guard.js';
 import type { AppBindings, AppContext } from '../env.js';
 import { apiError, validateJson, validateQuery } from '../http/errors.js';
 
@@ -77,7 +77,7 @@ export function billingRoutes(): Hono<AppBindings> {
     return c.json(page satisfies UsageListResponse);
   });
 
-  r.post('/checkout', sameOriginOnly, validateJson(createCheckoutRequestSchema), async (c) => {
+  r.post('/checkout', validateJson(createCheckoutRequestSchema), async (c) => {
     const { amountCents } = c.req.valid('json');
     const account = c.var.account;
     const userId = account.userId;
@@ -88,14 +88,14 @@ export function billingRoutes(): Hono<AppBindings> {
     return c.json(body satisfies CheckoutResponse);
   });
 
-  r.post('/membership/checkout', sameOriginOnly, async (c) => {
+  r.post('/membership/checkout', async (c) => {
     const body = await viaProvider(() =>
       startMembershipCheckout(c.env, c.var.account, baseUrlOf(c)),
     );
     return c.json(body satisfies CheckoutResponse);
   });
 
-  r.post('/portal', sameOriginOnly, async (c) => {
+  r.post('/portal', async (c) => {
     const body = await viaProvider(() => openBillingPortal(c.env, c.var.account, baseUrlOf(c)));
     if (!body)
       return apiError(c, 'no_customer', 'There is nothing to manage yet: no payment was made.');
@@ -103,18 +103,13 @@ export function billingRoutes(): Hono<AppBindings> {
   });
 
   // Rate limited per account before the comparison, so the code can't be brute-forced.
-  r.post(
-    '/membership/waiver',
-    sameOriginOnly,
-    validateJson(membershipWaiverRequestSchema),
-    async (c) => {
-      const account = c.var.account;
-      if (!account.userId) throw new DomainError('unauthorized', 'Sign in to redeem a code');
-      await enforceRateLimit(c, null, 'key');
-      const membership = await redeemWaiverCode(c.env, account, c.req.valid('json').code);
-      return c.json(membership satisfies MembershipInfo);
-    },
-  );
+  r.post('/membership/waiver', validateJson(membershipWaiverRequestSchema), async (c) => {
+    const account = c.var.account;
+    if (!account.userId) throw new DomainError('unauthorized', 'Sign in to redeem a code');
+    await enforceRateLimit(c, null, 'key');
+    const membership = await redeemWaiverCode(c.env, account, c.req.valid('json').code);
+    return c.json(membership satisfies MembershipInfo);
+  });
 
   return r;
 }

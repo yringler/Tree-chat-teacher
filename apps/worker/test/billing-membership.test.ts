@@ -11,6 +11,7 @@ import {
 } from '../src/billing/membership.js';
 import type { AccountContext, AppBindings, AppEnv } from '../src/env.js';
 import { onError } from '../src/http/errors.js';
+import { sameOriginWrites } from '../src/byok/guard.js';
 import { billingRoutes } from '../src/routes/billing.js';
 import {
   devPowerAccount,
@@ -47,7 +48,7 @@ async function isWaived(userId: string): Promise<{ waived: number; at: string | 
   return row!;
 }
 
-/** billingRoutes() behind a stand-in for the session/account middleware. */
+/** billingRoutes() behind app.ts's CSRF guard and a stand-in for the session/account middleware. */
 function appAs(account: AccountContext, e: AppEnv = memberEnv) {
   const app = new Hono<AppBindings>();
   app.onError(onError);
@@ -56,6 +57,7 @@ function appAs(account: AccountContext, e: AppEnv = memberEnv) {
     c.set('accountId', account.id);
     await next();
   });
+  app.use('/api/*', sameOriginWrites);
   app.route('/api/billing', billingRoutes());
   return (path: string, init: RequestInit & { json?: unknown } = {}) => {
     const { json, ...rest } = init;
