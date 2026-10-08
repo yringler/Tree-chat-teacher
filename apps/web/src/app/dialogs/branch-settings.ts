@@ -86,33 +86,35 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
           <app-model-picker [(route)]="route" [(modelId)]="modelId" />
         }
 
-        <label class="field">
-          <span class="field-label">Check facts with web search</span>
-          <select
-            #g
-            [value]="grounding()"
-            [disabled]="!canSearch()"
-            (change)="grounding.set(asGrounding(g.value))"
-          >
-            <option value="auto" [selected]="grounding() === 'auto'">
-              When a reply likely needs it (deep tangents, specific facts)
-            </option>
-            <option value="always" [selected]="grounding() === 'always'">
-              Offer it on every reply
-            </option>
-            <option value="off" [selected]="grounding() === 'off'">
-              Off (Check sources still works)
-            </option>
-          </select>
-          <span class="muted small">
-            @if (canSearch()) {
+        @if (canSearch()) {
+          <label class="field">
+            <span class="field-label">Check facts with web search</span>
+            <select #g [value]="grounding()" (change)="grounding.set(asGrounding(g.value))">
+              <option value="auto" [selected]="grounding() === 'auto'">
+                When a reply likely needs it (deep tangents, specific facts)
+              </option>
+              <option value="always" [selected]="grounding() === 'always'">
+                Offer it on every reply
+              </option>
+              <option value="off" [selected]="grounding() === 'off'">
+                Off (Check sources still works)
+              </option>
+            </select>
+            <span class="muted small">
               The model decides whether to search, at most once per reply. A search costs about
-              $0.007 at OpenRouter. New branches inherit this setting.
-            } @else {
-              This provider can't search the web; use an OpenRouter model to check facts.
-            }
-          </span>
-        </label>
+              $0.007 at OpenRouter, or $0.01 plus the results as input tokens at Anthropic. New
+              branches inherit this setting.
+            </span>
+          </label>
+        } @else {
+          <div class="field">
+            <span class="field-label">Check facts with web search</span>
+            <span class="muted small">
+              This provider can't search the web. Pick an OpenRouter or Anthropic model to check
+              facts; the setting is kept for when you do.
+            </span>
+          </div>
+        }
 
         <label class="check">
           <input type="checkbox" [checked]="isPrivate()" (change)="isPrivate.set(!isPrivate())" />

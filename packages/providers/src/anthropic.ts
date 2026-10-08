@@ -1,10 +1,15 @@
-import type {
-  GenerateRequest,
-  LlmProvider,
-  ProviderConfig,
-  ProviderErrorCode,
-  ProviderEvent,
-  TokenUsage,
+import {
+  CITATION_EXCERPT_MAX,
+  CITATIONS_MAX,
+  isCitableUrl,
+  type Citation,
+  type GenerateRequest,
+  type LlmProvider,
+  type ProviderConfig,
+  type ProviderErrorCode,
+  type ProviderEvent,
+  type TokenUsage,
+  type WebSearchRequest,
 } from '@tangent/shared';
 import type { ProviderEnv } from './registry.js';
 import { parseSse } from './sse.js';
@@ -56,6 +61,39 @@ function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 
+/**
+ * Anthropic's web search server tool, at most `maxUses` searches. The basic
+ * `web_search_20250305` runs on every Claude model and platform; the
+ * `_20260209` variant's dynamic filtering runs code over the results, which
+ * one search per reply doesn't need. `tool_choice` stays `auto` even when a
+ * search is required ("Check sources"): current models reject a forced tool
+ * choice, and CHECK_SOURCES_INSTRUCTIONS asks for the search.
+ */
+function webSearchTool(ws: WebSearchRequest): Record<string, unknown> {
+  return { type: 'web_search_20250305', name: 'web_search', max_uses: ws.maxUses };
+}
+
+/**
+ * Adds a streamed `web_search_result_location` citation to `into`
+ * (deduplicated by URL, http(s) only, excerpt clipped). Returns true if added.
+ */
+function collectCitation(raw: unknown, into: Map<string, Citation>): boolean {
+  if (!isRecord(raw) || raw['type'] !== 'web_search_result_location') return false;
+  if (typeof raw['url'] !== 'string') return false;
+  const url = raw['url'].trim();
+  if (!isCitableUrl(url) || into.has(url) || into.size >= CITATIONS_MAX) return false;
+  const title =
+    typeof raw['title'] === 'string' && raw['title'].trim() ? raw['title'].trim().slice(0, 500) : null;
+  const text = typeof raw['cited_text'] === 'string' ? raw['cited_text'].replace(/\s+/g, ' ').trim() : '';
+  const excerpt = text
+    ? text.length > CITATION_EXCERPT_MAX
+      ? `${text.slice(0, CITATION_EXCERPT_MAX - 1)}…`
+      : text
+    : null;
+  into.set(url, { url, title, excerpt });
+  return true;
+}
+
 /** Total input tokens (uncached + cache writes + cache reads), if reported. */
 function inputTokensOf(usage: Record<string, unknown>): number | undefined {
   const base = num(usage['input_tokens']);
@@ -69,16 +107,20 @@ function inputTokensOf(usage: Record<string, unknown>): number | undefined {
  * set baseUrl to an AI Gateway URL (…/{account}/{gateway}/anthropic) to route
  * through Cloudflare AI Gateway. Implements countTokens via
  * /v1/messages/count_tokens. Does not send `temperature` or assistant prefill.
+ *
+ * Web search (when `options.webSearch` is true and the request has
+ * `webSearch`): sends Anthropic's `web_search` server tool, reports the
+ * search starting (`server_tool_use`) as `activity`, the cited results
+ * (`citations_delta`) as `citations`, and
+ * `usage.server_tool_use.web_search_requests` as `billing.webSearches`.
+ * Anthropic reports no cost, so the search fee (about $0.01) is not in any
+ * `billing.costUsd`: enable it on own-key configs, not a metered one.
  */
 export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv): LlmProvider {
   const baseUrl = stripTrailingSlash(config.baseUrl ?? DEFAULT_BASE_URL);
   const doFetch = getFetch(env);
 
-  // Anthropic's own web_search tool is not wired up (docs/DEFERRED.md).
-  const capabilities = (model: string) => ({
-    ...resolveCapabilities(config, model, DEFAULTS, true),
-    supportsWebSearch: false,
-  });
+  const capabilities = (model: string) => resolveCapabilities(config, model, DEFAULTS, true);
 
   /** Request headers, or a missing-secret name. */
   const buildHeaders = (): { headers: Record<string, string>; secrets: string[] } | { missing: string } => {
@@ -107,12 +149,15 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
     return guardStream(request.signal, secrets, async function* () {
       if ('missing' in built) throw new ProviderFailure(missingSecretError(built.missing));
       const { signal } = request;
+      const caps = capabilities(request.model);
       const body: Record<string, unknown> = {
         model: request.model,
-        max_tokens: request.maxOutputTokens ?? capabilities(request.model).maxOutputTokens,
+        max_tokens: request.maxOutputTokens ?? caps.maxOutputTokens,
       };
       if (request.system !== null) body['system'] = request.system;
       body['messages'] = messagesOf(request);
+      const webSearch = request.webSearch && caps.supportsWebSearch ? request.webSearch : null;
+      if (webSearch) body['tools'] = [webSearchTool(webSearch)];
       body['stream'] = true;
 
       let res: Response;
@@ -134,6 +179,8 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
       if (!res.body) throw new ProviderFailure(providerError('network', 'Response has no body'));
 
       let stopReason: string | null = null;
+      const citations = new Map<string, Citation>();
+      let searchReported = false;
       for await (const msg of parseSse(res.body, signal)) {
         let data: unknown;
         try {
@@ -157,10 +204,28 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
             }
             break;
           }
+          case 'content_block_start': {
+            const block = data['content_block'];
+            if (
+              webSearch &&
+              !searchReported &&
+              isRecord(block) &&
+              block['type'] === 'server_tool_use' &&
+              block['name'] === 'web_search'
+            ) {
+              searchReported = true;
+              yield { type: 'activity', kind: 'web_search' };
+            }
+            break;
+          }
           case 'content_block_delta': {
             const delta = data['delta'];
             if (isRecord(delta) && delta['type'] === 'text_delta' && typeof delta['text'] === 'string') {
               if (delta['text'] !== '') yield { type: 'delta', text: delta['text'] };
+            } else if (webSearch && isRecord(delta) && delta['type'] === 'citations_delta') {
+              if (collectCitation(delta['citation'], citations)) {
+                yield { type: 'citations', citations: [...citations.values()] };
+              }
             }
             break;
           }
@@ -175,6 +240,9 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
               const input = inputTokensOf(usage);
               if (input !== undefined) u.inputTokens = input;
               if (Object.keys(u).length > 0) yield { type: 'usage', usage: u };
+              const stu = usage['server_tool_use'];
+              const webSearches = isRecord(stu) ? num(stu['web_search_requests']) : undefined;
+              if (webSearches !== undefined) yield { type: 'billing', webSearches };
             }
             break;
           }
@@ -191,7 +259,7 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
             return;
           }
           default:
-            // ping, content_block_start/stop and unknown events.
+            // ping, content_block_stop and unknown events.
             break;
         }
       }

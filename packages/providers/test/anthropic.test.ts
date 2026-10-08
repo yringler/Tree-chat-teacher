@@ -309,3 +309,99 @@ describe('anthropic provider', () => {
     ).rejects.toMatchObject({ error: { code: 'rate_limit', status: 429 } });
   });
 });
+
+describe('anthropic web search', () => {
+  const WS: ProviderConfig = { ...CONFIG, options: { webSearch: true } };
+  const webSearch = { mode: 'auto', maxResults: 5, maxUses: 1, engine: 'exa' } as const;
+  const cite = (url: string, title: string, citedText = '') => ({
+    type: 'content_block_delta',
+    index: 2,
+    delta: {
+      type: 'citations_delta',
+      citation: { type: 'web_search_result_location', url, title, encrypted_index: 'x', cited_text: citedText },
+    },
+  });
+  const STREAM = [
+    frame('message_start', { type: 'message_start', message: { usage: { input_tokens: 900, output_tokens: 1 } } }),
+    frame('content_block_start', {
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} },
+    }),
+    frame('content_block_delta', {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'input_json_delta', partial_json: '{"query":"boiling point"}' },
+    }),
+    frame('content_block_stop', { type: 'content_block_stop', index: 0 }),
+    frame('content_block_start', {
+      type: 'content_block_start',
+      index: 1,
+      content_block: {
+        type: 'web_search_tool_result',
+        tool_use_id: 'srvtoolu_1',
+        content: [{ type: 'web_search_result', url: 'https://example.org/a', title: 'A', encrypted_content: 'e' }],
+      },
+    }),
+    frame('content_block_stop', { type: 'content_block_stop', index: 1 }),
+    frame('content_block_start', { type: 'content_block_start', index: 2, content_block: { type: 'text', text: '' } }),
+    frame('content_block_delta', cite('https://example.org/a', 'A', 'x'.repeat(400))),
+    frame('content_block_delta', cite('javascript:alert(1)', 'bad')),
+    frame('content_block_delta', { type: 'content_block_delta', index: 2, delta: { type: 'text_delta', text: 'Water boils at 100 °C.' } }),
+    frame('content_block_delta', cite('https://example.org/a', 'A again')),
+    frame('content_block_delta', cite('https://b.example/', 'B')),
+    frame('content_block_stop', { type: 'content_block_stop', index: 2 }),
+    frame('message_delta', {
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn' },
+      usage: { output_tokens: 40, server_tool_use: { web_search_requests: 1 } },
+    }),
+    frame('message_stop', { type: 'message_stop' }),
+  ];
+
+  function setupWs(config: ProviderConfig) {
+    const m = mockFetch(() => sseResponse(STREAM).response);
+    const provider = createAnthropicProvider(config, { secrets: { ANTHROPIC_API_KEY: KEY }, fetch: m.fetch });
+    return { provider, calls: m.calls };
+  }
+
+  it('reports the capability only with options.webSearch', () => {
+    expect(setupWs(WS).provider.capabilities('claude-opus-5-5').supportsWebSearch).toBe(true);
+    expect(setupWs(CONFIG).provider.capabilities('claude-opus-5-5').supportsWebSearch).toBe(false);
+  });
+
+  it('sends the server tool and maps activity, citations and searches', async () => {
+    const { provider, calls } = setupWs(WS);
+    const events = await collect(provider.stream(req({ webSearch })));
+    expect(calls[0]!.body['tools']).toEqual([{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }]);
+    expect(calls[0]!.body).not.toHaveProperty('tool_choice');
+    expect(events.filter((e) => e.type === 'activity')).toEqual([{ type: 'activity', kind: 'web_search' }]);
+    const cites = events.filter((e) => e.type === 'citations');
+    expect(cites).toHaveLength(2);
+    const last = cites.at(-1);
+    expect(last?.type === 'citations' && last.citations.map((c) => c.url)).toEqual([
+      'https://example.org/a',
+      'https://b.example/',
+    ]);
+    const first = last?.type === 'citations' ? last.citations[0] : undefined;
+    expect(first?.title).toBe('A');
+    expect(first?.excerpt?.length).toBe(300);
+    expect(events).toContainEqual({ type: 'delta', text: 'Water boils at 100 °C.' });
+    expect(events).toContainEqual({ type: 'billing', webSearches: 1 });
+    expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'end_turn' });
+  });
+
+  it('leaves tool_choice on auto when a search is required', async () => {
+    const { provider, calls } = setupWs(WS);
+    await collect(provider.stream(req({ webSearch: { ...webSearch, mode: 'required' } })));
+    expect(calls[0]!.body['tools']).toHaveLength(1);
+    expect(calls[0]!.body).not.toHaveProperty('tool_choice');
+  });
+
+  it('ignores webSearch (and citations) when the capability is off', async () => {
+    const { provider, calls } = setupWs(CONFIG);
+    const events = await collect(provider.stream(req({ webSearch })));
+    expect(calls[0]!.body).not.toHaveProperty('tools');
+    expect(events.some((e) => e.type === 'citations' || e.type === 'activity')).toBe(false);
+  });
+});

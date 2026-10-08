@@ -247,9 +247,7 @@ describe('/pricing', () => {
     expect(auto).toContain('<th scope="row">Web search, with sources');
     expect(auto).toContain('When a reply probably needs checking');
     expect(auto).toContain('On credit, automatic searches stop after 40 a day');
-    expect(auto).toContain(
-      'It isn’t available with Anthropic or OpenAI keys, and it’s off on the open pool.',
-    );
+    expect(auto).toContain('It isn’t available with OpenAI keys, and it’s off on the open pool.');
     const explicit = (await pricing({ GROUNDING: 'explicit' })).html;
     expect(explicit).toContain('<strong>Check sources</strong> under an answer');
     expect(explicit).toContain('<li>Web search to check any answer</li>');

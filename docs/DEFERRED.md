@@ -30,7 +30,7 @@ Left out of the pool (`docs/pool/PLAN.md`). None blocks launching it.
 Left out of the first cut of grounding (DECISIONS "Grounding").
 
 - **Not checked against a live OpenRouter key.** The request and stream shapes and the cost reporting come from OpenRouter's docs, not a real call (RESEARCH "Web search", "Not yet verified"). Before setting `GROUNDING=auto` in production, run one grounded and one aborted reply on a key with a low credit limit and compare `usage_events` with OpenRouter's activity page.
-- **Native search on direct providers.** Anthropic's `web_search` tool (about $10 per 1,000 searches) and OpenAI's Responses API search are not wired up; those providers report `supportsWebSearch: false`.
+- **Native search on OpenAI.** The Responses API search is not wired up; the `openai` provider reports `supportsWebSearch: false`. (Anthropic's `web_search` tool is wired up for own-key configs.)
 - **No confidence trailer.** The model could flag low confidence at the end of an unsearched reply, to trigger a grounded follow-up only then. Not built, because it pays for the reply twice. Check sources covers the after-the-fact case at the learner's choice. Revisit with data on how often the gate's offer is used.
 - **Reviews don't search.** A review with sources would need the tool on the reviewer call and somewhere to show its citations.
 - **Canvas shows no sources and has no Check sources button.** The cards render the reply text, so inline citation links do show.
