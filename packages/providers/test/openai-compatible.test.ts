@@ -96,7 +96,8 @@ describe('openai-compatible provider', () => {
       ],
       stream: true,
       stream_options: { include_usage: true },
-      max_completion_tokens: 8192,
+      // gpt-5 reasons: without a requested cap, its limit (REASONING_MAX_OUTPUT_TOKENS).
+      max_completion_tokens: 32_000,
     });
     expect(call.body).not.toHaveProperty('temperature');
   });
@@ -123,7 +124,7 @@ describe('openai-compatible provider', () => {
       () => sseResponse(OPENROUTER_STREAM).response,
     );
     await collect(provider.stream(req()));
-    expect(calls[0]!.body).toHaveProperty('max_completion_tokens', 8192);
+    expect(calls[0]!.body).toHaveProperty('max_completion_tokens', 32_000);
     expect(calls[0]!.body).not.toHaveProperty('max_tokens');
   });
 
@@ -302,13 +303,24 @@ describe('openai-compatible provider', () => {
   it('has no countTokens and reports capabilities defaults', () => {
     const { provider } = setup(OPENAI, () => jsonResponse(500, {}));
     expect(provider.countTokens).toBeUndefined();
-    expect(provider.capabilities('gpt-5')).toEqual({
+    expect(provider.capabilities('gpt-4o')).toEqual({
       maxContextTokens: 128_000,
       maxOutputTokens: 8192,
       supportsSystemPrompt: true,
       supportsTokenCount: false,
       supportsWebSearch: false,
+      reasoning: false,
     });
+    // A reasoning model gets a larger limit unless the config names one.
+    expect(provider.capabilities('gpt-5')).toMatchObject({ maxOutputTokens: 32_000, reasoning: true });
+    const capped = setup({ ...OPENAI, maxOutputTokens: 4000 }, () => jsonResponse(500, {})).provider;
+    expect(capped.capabilities('gpt-5')).toMatchObject({ maxOutputTokens: 4000, reasoning: true });
+    const flagged = setup(
+      { ...OPENAI, models: [{ id: 'my-model', label: 'Mine', reasoning: true }, { id: 'gpt-5', label: 'GPT-5', reasoning: false }] },
+      () => jsonResponse(500, {}),
+    ).provider;
+    expect(flagged.capabilities('my-model')).toMatchObject({ maxOutputTokens: 32_000, reasoning: true });
+    expect(flagged.capabilities('gpt-5')).toMatchObject({ maxOutputTokens: 8192, reasoning: false });
   });
 });
 
@@ -481,7 +493,7 @@ describe('openai-compatible options.extraBody', () => {
       { role: 'user', content: 'Hi' },
     ]);
     expect(body['stream']).toBe(true);
-    expect(body['max_tokens']).toBe(8192);
+    expect(body['max_tokens']).toBe(32_000);
     expect(body).not.toHaveProperty('max_completion_tokens');
     // Non-protected keys pass through, including stream_options.
     expect(body['stream_options']).toEqual({ include_usage: false });

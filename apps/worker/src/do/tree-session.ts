@@ -41,8 +41,19 @@ export interface SessionSendBody {
   content: string;
   /** "Check sources": the reply must run a web search. */
   ground?: 'required';
+  /** Power's output cap for the reply (`SendMessageRequest.maxOutputTokens`). */
+  maxOutputTokens?: number;
   account: AccountContext;
   sealedKeys?: string;
+}
+
+/** What a send writes and generates. */
+interface SendTarget {
+  treeId: string;
+  branchId: string;
+  content: string;
+  ground?: 'required';
+  maxOutputTokens?: number;
 }
 
 /** The account as query parameters, for the internal routes without a body. */
@@ -114,7 +125,8 @@ export class TreeSession extends DurableObject<AppEnv> {
     const treeId = url.searchParams.get('treeId') ?? '';
     try {
       if (request.method === 'POST' && url.pathname === '/send') {
-        const { content, ground, account, sealedKeys } = (await request.json()) as SessionSendBody;
+        const { content, ground, maxOutputTokens, account, sealedKeys } =
+          (await request.json()) as SessionSendBody;
         await this.recoverOnce(chatService(this.env, account), treeId);
         // Learn on credit never uses the user's own keys (the Worker doesn't send them either).
         const keys = usesUserKeys(account) ? await openKeys(sealedKeys, this.env) : null;
@@ -132,6 +144,7 @@ export class TreeSession extends DurableObject<AppEnv> {
           branchId: url.searchParams.get('branchId') ?? '',
           content,
           ...(ground === 'required' ? { ground } : {}),
+          ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
         });
       }
       const chat = chatService(this.env, accountFromParams(url.searchParams));
@@ -170,7 +183,7 @@ export class TreeSession extends DurableObject<AppEnv> {
   private async send(
     chat: ChatService,
     account: AccountContext,
-    target: { treeId: string; branchId: string; content: string; ground?: 'required' },
+    target: SendTarget,
   ): Promise<Response> {
     const begin = this.sendLock.then(async () => {
       const reservationId = isPoolFunded(account)
@@ -202,7 +215,7 @@ export class TreeSession extends DurableObject<AppEnv> {
       },
     ]);
     // Detached: keeps running after the client disconnects (DOs stay alive while I/O is in flight).
-    run.finished = this.pump(chat, account, run, started, reservationId, target.ground);
+    run.finished = this.pump(chat, account, run, started, reservationId, target);
     this.ctx.waitUntil(run.finished);
     return response;
   }
@@ -270,7 +283,7 @@ export class TreeSession extends DurableObject<AppEnv> {
     run: Run,
     begin: BeginSendResult,
     reservationId: string | null,
-    ground?: 'required',
+    { ground, maxOutputTokens }: Pick<SendTarget, 'ground' | 'maxOutputTokens'> = {},
   ): Promise<void> {
     const keepalive = setInterval(() => this.broadcastRaw(run, sseKeepAliveFrame()), KEEPALIVE_MS);
     let completed = false;
@@ -278,6 +291,7 @@ export class TreeSession extends DurableObject<AppEnv> {
       const options = {
         ...(reservationId ? { reservationId } : {}),
         ...(ground ? { ground } : {}),
+        ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       };
       for await (const event of chat.runGeneration(begin, run.controller.signal, options)) {
         if (event.type === 'delta')

@@ -4,6 +4,7 @@ import {
   BUILT_IN_PROVIDER_ID,
   DEFAULT_SYSTEM_PROMPT,
   LEGACY_BUILT_IN_PROVIDER_ID,
+  BUILT_IN_MAX_OUTPUT_TOKENS,
   type ModelInfo,
   type ProviderConfig,
 } from '@tangent/shared';
@@ -35,8 +36,14 @@ export const DEFAULT_SIMPLE_SMART_MODEL = 'deepseek/deepseek-v4-pro';
 export const DEFAULT_SIMPLE_FAST_MODEL = 'deepseek/deepseek-v4-flash';
 /** What Learn's own key is: the user's OpenRouter key (cookie entry LEARN_KEY_PROVIDER). */
 export const LEARN_KEY_LABEL = 'OpenRouter';
-/** Output cap per call; with the input cap it bounds the cost of any one request. */
+/** Output cap of a reply on a model that doesn't reason. */
 export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
+/**
+ * The most output one call on the built-in provider asks for: a reasoning
+ * model's reply (its thinking counts as output), or power's own setting on
+ * Tangent credit. With the input cap it bounds the cost of any one request.
+ */
+export const SIMPLE_MAX_OUTPUT_TOKENS = BUILT_IN_MAX_OUTPUT_TOKENS;
 
 function smartModel(env: AppEnv): string {
   return env.SIMPLE_SMART_MODEL?.trim() || DEFAULT_SIMPLE_SMART_MODEL;
@@ -111,7 +118,7 @@ export function simpleMaxInputTokens(env: AppEnv): number {
  * SIMPLE_PROVIDER override), labelled "Tangent credit", with any model id
  * allowed (its models are suggestions) and one call's cost bounded like
  * Learn's: the context window is Learn's input cap plus its output reserve,
- * and output is capped at SIMPLE_RESERVED_OUTPUT_TOKENS. Per-model limits are
+ * and output is capped at SIMPLE_MAX_OUTPUT_TOKENS. Per-model limits are
  * dropped so no listed model can widen those bounds.
  */
 export function builtInPowerConfig(env: AppEnv): ProviderConfig {
@@ -124,8 +131,8 @@ export function builtInPowerConfig(env: AppEnv): ProviderConfig {
       label: label.endsWith('(suggested)') ? label : `${label} (suggested)`,
     })),
     openModels: true,
-    maxContextTokens: simpleMaxInputTokens(env) + SIMPLE_RESERVED_OUTPUT_TOKENS,
-    maxOutputTokens: SIMPLE_RESERVED_OUTPUT_TOKENS,
+    maxContextTokens: simpleMaxInputTokens(env) + SIMPLE_MAX_OUTPUT_TOKENS,
+    maxOutputTokens: SIMPLE_MAX_OUTPUT_TOKENS,
   };
 }
 
@@ -152,6 +159,7 @@ export function simpleChatSettings(env: AppEnv): ChatSettings {
     summaryModel: simpleFastModel(env, config),
     maxInputTokens: simpleMaxInputTokens(env),
     reservedOutputTokens: SIMPLE_RESERVED_OUTPUT_TOKENS,
+    reasoningOutputTokens: SIMPLE_MAX_OUTPUT_TOKENS,
     autoTitle: true,
     grounding: groundingSettings(env, 'simple'),
   };
@@ -256,6 +264,7 @@ export function poolChatSettings(pool: PoolParams): ChatSettings {
     summaryModel: pool.model,
     maxInputTokens: pool.maxInputTokens,
     reservedOutputTokens: pool.maxOutputTokens,
+    reasoningOutputTokens: pool.maxOutputTokens,
     autoTitle: true,
     // No web search on the pool: its holds are priced from tokens alone (docs/DEFERRED.md).
     grounding: { ...DEFAULT_CHAT_SETTINGS.grounding, policy: 'off' },

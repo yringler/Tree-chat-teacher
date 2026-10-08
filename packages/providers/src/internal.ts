@@ -10,6 +10,7 @@ import type {
   ProviderErrorCode,
   ProviderEvent,
 } from '@tangent/shared';
+import { isReasoningModel, REASONING_MAX_OUTPUT_TOKENS } from '@tangent/shared';
 import type { ProviderEnv } from './registry.js';
 
 /** Thrown inside provider internals; converted to an `error` event by `guardStream`. */
@@ -236,12 +237,19 @@ export function resolveCapabilities(
   supportsTokenCount: boolean,
 ): ProviderCapabilities {
   const m: ModelInfo | undefined = config.models.find((x) => x.id === model);
+  const reasoning = m?.reasoning ?? isReasoningModel(model);
+  // A reasoning model's thinking counts as output: without a configured limit, it may
+  // write up to REASONING_MAX_OUTPUT_TOKENS (a reply's cap is set by ChatService).
+  const defaultMaxOutput = reasoning
+    ? Math.max(defaults.maxOutputTokens, REASONING_MAX_OUTPUT_TOKENS)
+    : defaults.maxOutputTokens;
   return {
     maxContextTokens: m?.maxContextTokens ?? config.maxContextTokens ?? defaults.maxContextTokens,
-    maxOutputTokens: m?.maxOutputTokens ?? config.maxOutputTokens ?? defaults.maxOutputTokens,
+    maxOutputTokens: m?.maxOutputTokens ?? config.maxOutputTokens ?? defaultMaxOutput,
     supportsSystemPrompt: config.supportsSystemPrompt ?? defaults.supportsSystemPrompt,
     supportsTokenCount,
     supportsWebSearch: config.options?.['webSearch'] === true,
+    reasoning,
   };
 }
 

@@ -62,6 +62,7 @@ import {
   type LearnCopyWay,
   type StreamOutcome,
 } from '@tangent/web-shared';
+import { SettingsStore } from './settings-store';
 import { UiStore } from './ui-store';
 
 /** Live state of a generation, kept apart from `detail` so deltas don't re-index the tree. */
@@ -91,6 +92,7 @@ export class TreeStore {
   private readonly api = inject(ApiClient);
   private readonly router = inject(Router);
   private readonly ui = inject(UiStore);
+  private readonly appSettings = inject(SettingsStore);
 
   // Global data
   readonly me = signal<MeResponse | null>(null);
@@ -969,6 +971,12 @@ export class TreeStore {
 
   // Messages and streams
 
+  /** The reply length the user set (Settings), else nothing: the server's Auto. */
+  private outputCap(): { maxOutputTokens?: number } {
+    const tokens = this.appSettings.settings().maxOutputTokens;
+    return tokens === null ? {} : { maxOutputTokens: tokens };
+  }
+
   async send(
     branchId: string,
     content: string,
@@ -984,7 +992,8 @@ export class TreeStore {
     try {
       const outcome = await runStream(
         {
-          open: (signal) => this.api.sendMessage(branchId, { content, ...options }, signal),
+          open: (signal) =>
+            this.api.sendMessage(branchId, { content, ...options, ...this.outputCap() }, signal),
           reconnect: (id, signal) => this.api.streamNode(id, signal),
         },
         (event) => {

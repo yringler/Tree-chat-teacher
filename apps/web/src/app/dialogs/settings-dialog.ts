@@ -18,15 +18,16 @@ import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ApiClient, errorMessage, Modal } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
+import { OutputCapSetting, type OutputCapModel } from '../ui/output-cap-setting';
 
 /**
  * App-wide preferences, one section per feature. The default system prompt
- * is saved to the account (server-side, `/api/settings`); the reviewer is
- * saved in this browser.
+ * is saved to the account (server-side, `/api/settings`); the reviewer and
+ * the reply length are saved in this browser.
  */
 @Component({
   selector: 'app-settings-dialog',
-  imports: [Modal, ModelPicker],
+  imports: [Modal, ModelPicker, OutputCapSetting],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="Settings" (closed)="close()">
@@ -106,9 +107,15 @@ import { ModelPicker } from '../ui/model-picker';
           }
         </fieldset>
 
+        <app-output-cap-setting
+          [(value)]="outputCap"
+          [(invalid)]="outputCapInvalid"
+          [target]="outputCapTarget()"
+        />
+
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
-          <button type="submit" class="btn btn-primary" [disabled]="saving()">
+          <button type="submit" class="btn btn-primary" [disabled]="saving() || outputCapInvalid()">
             {{ saving() ? 'Saving…' : 'Save' }}
           </button>
         </div>
@@ -128,6 +135,15 @@ export class SettingsDialog implements OnInit {
   protected readonly route = signal('');
   protected readonly modelId = signal('');
 
+  /** Reply length (`AppSettings.maxOutputTokens`); null = Auto. */
+  protected readonly outputCap = signal<number | null>(null);
+  protected readonly outputCapInvalid = signal(false);
+  /** The open conversation's model, for the reply-length hint. */
+  protected readonly outputCapTarget = computed<OutputCapModel | null>(() => {
+    const branch = this.store.selectedBranch();
+    return branch ? { model: branch.model, provider: this.store.providerOf(branch) } : null;
+  });
+
   protected readonly maxChars = MAX_SYSTEM_PROMPT_CHARS;
   /** The editor's text; empty means the built-in prompt. */
   protected readonly systemPrompt = signal('');
@@ -146,6 +162,7 @@ export class SettingsDialog implements OnInit {
   protected readonly usesBuiltIn = computed(() => this.promptToSave() === null);
 
   ngOnInit(): void {
+    this.outputCap.set(this.settings.settings().maxOutputTokens);
     const saved = this.settings.settings().reviewer;
     this.custom.set(saved !== null);
     if (saved) {
@@ -191,7 +208,8 @@ export class SettingsDialog implements OnInit {
       this.custom() && this.route() && this.modelId().trim()
         ? { ...parseRouteKey(this.route()), model: this.modelId().trim() }
         : null;
-    this.settings.update({ reviewer });
+    if (this.outputCapInvalid()) return;
+    this.settings.update({ reviewer, maxOutputTokens: this.outputCap() });
     const prompt = this.promptToSave();
     if (this.promptLoaded() && prompt !== this.savedPrompt()) {
       this.saving.set(true);

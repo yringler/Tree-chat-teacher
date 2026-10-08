@@ -34,6 +34,9 @@ export class ScriptedProvider implements LlmProvider {
   citations: Citation[] = [];
   /** Reject a request carrying `webSearch` with invalid_request (before any delta). */
   rejectSearch = false;
+  /** Capabilities `maxOutputTokens` and `reasoning`. */
+  maxOutputTokens = 1000;
+  reasoning = false;
 
   constructor(readonly id = 'scripted') {}
 
@@ -46,10 +49,11 @@ export class ScriptedProvider implements LlmProvider {
   capabilities() {
     return {
       maxContextTokens: this.contextTokens,
-      maxOutputTokens: 1000,
+      maxOutputTokens: this.maxOutputTokens,
       supportsSystemPrompt: true,
       supportsTokenCount: false,
       supportsWebSearch: this.webSearch,
+      reasoning: this.reasoning,
     };
   }
 

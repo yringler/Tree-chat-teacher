@@ -136,8 +136,18 @@ describe('anthropic provider', () => {
       supportsSystemPrompt: true,
       supportsTokenCount: true,
       supportsWebSearch: false,
+      reasoning: true,
     });
-    expect(provider.capabilities('claude-opus-5-5')).toMatchObject({ maxContextTokens: 200_000, maxOutputTokens: 8192 });
+    // A reasoning model without a configured limit may write REASONING_MAX_OUTPUT_TOKENS.
+    expect(provider.capabilities('claude-opus-5-5')).toMatchObject({
+      maxContextTokens: 200_000,
+      maxOutputTokens: 32_000,
+      reasoning: true,
+    });
+    expect(provider.capabilities('claude-3-5-haiku')).toMatchObject({
+      maxOutputTokens: 8192,
+      reasoning: false,
+    });
     const p2 = createAnthropicProvider({ ...CONFIG, maxOutputTokens: 64_000 }, { secrets: {} });
     expect(p2.capabilities('claude-opus-5-5').maxOutputTokens).toBe(64_000);
     expect(provider.defaultModel()).toBe('claude-opus-5-5');

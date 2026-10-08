@@ -20,6 +20,12 @@ export interface ProviderCapabilities {
   supportsTokenCount: boolean;
   /** True when the provider can run a web search for a reply (`GenerateRequest.webSearch`). */
   supportsWebSearch: boolean;
+  /**
+   * True for a reasoning model (`ModelInfo.reasoning`, else `isReasoningModel`):
+   * its thinking counts as output, so replies get a larger cap (output-tokens.ts).
+   * Absent = false.
+   */
+  reasoning?: boolean;
 }
 
 export interface ModelInfo {
@@ -28,6 +34,8 @@ export interface ModelInfo {
   /** Overrides the provider-level capability defaults for this model. */
   maxContextTokens?: number;
   maxOutputTokens?: number;
+  /** Whether the model reasons (thinks before answering); absent = `isReasoningModel(id)`. */
+  reasoning?: boolean;
 }
 
 /**

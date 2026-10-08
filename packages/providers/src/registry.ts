@@ -64,6 +64,7 @@ const MODEL_KEYS: ReadonlySet<string> = new Set([
   'label',
   'maxContextTokens',
   'maxOutputTokens',
+  'reasoning',
 ]);
 
 class ConfigError extends Error {
@@ -136,6 +137,12 @@ function parseModel(v: unknown, path: string): ModelInfo {
   if (ctx !== undefined) m.maxContextTokens = ctx;
   const out = optPositiveInt(v, 'maxOutputTokens', path);
   if (out !== undefined) m.maxOutputTokens = out;
+  const reasoning = v['reasoning'];
+  if (reasoning !== undefined) {
+    if (typeof reasoning !== 'boolean')
+      throw new ConfigError(`${path}.reasoning`, 'must be a boolean');
+    m.reasoning = reasoning;
+  }
   return m;
 }
 

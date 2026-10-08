@@ -20,6 +20,7 @@ import type {
 } from './domain.js';
 import type { ProviderInfo } from './provider.js';
 import { fromLegacyRoute } from './route.js';
+import { MAX_REQUESTED_OUTPUT_TOKENS, MIN_REQUESTED_OUTPUT_TOKENS } from './output-tokens.js';
 import type { AccountMode, MembershipInfo } from './billing.js';
 import {
   CITATIONS_MAX,
@@ -467,6 +468,17 @@ export const sendMessageRequestSchema = z.object({
   content: z.string().min(1).max(200_000),
   /** `required`: "Check sources", the reply must run a web search (400 if the provider can't). */
   ground: z.enum(['required']).optional(),
+  /**
+   * Power only (Learn ignores it): the reply's output cap, instead of the
+   * default for the model (larger for reasoning models, output-tokens.ts);
+   * capped at the model's limit.
+   */
+  maxOutputTokens: z
+    .number()
+    .int()
+    .min(MIN_REQUESTED_OUTPUT_TOKENS)
+    .max(MAX_REQUESTED_OUTPUT_TOKENS)
+    .optional(),
 });
 export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
 
