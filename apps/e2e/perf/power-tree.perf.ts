@@ -778,9 +778,11 @@ interface DebugStore {
     content: string;
   }[];
   applyNodes: (nodes: unknown[]) => void;
-  setLive: (s: unknown) => void;
-  patchLive: (id: string, p: { content: string }) => void;
-  dropLive: (id: string) => void;
+  live: {
+    set: (s: unknown) => void;
+    patch: (id: string, p: { content: string }) => void;
+    drop: (id: string) => void;
+  };
 }
 
 test('synthetic long reply stream: per-chunk cost vs reply length (dev build)', async () => {
@@ -821,7 +823,7 @@ test('synthetic long reply stream: per-chunk cost vs reply length (dev build)', 
     }
     w.__synth = { store, node, text: blocks.join('\n\n') };
     store.applyNodes([{ ...node, status: 'streaming', content: '' }]);
-    store.setLive({
+    store.live.set({
       nodeId: node.id,
       treeId: node.treeId,
       branchId: node.branchId,
@@ -836,7 +838,7 @@ test('synthetic long reply stream: per-chunk cost vs reply length (dev build)', 
       const w = window as unknown as {
         __synth: { store: DebugStore; node: { id: string }; text: string };
       };
-      w.__synth.store.patchLive(w.__synth.node.id, { content: w.__synth.text.slice(0, s) });
+      w.__synth.store.live.patch(w.__synth.node.id, { content: w.__synth.text.slice(0, s) });
     }, size);
     await settle(page, 300);
     const before = await probe.metrics();
@@ -849,7 +851,7 @@ test('synthetic long reply stream: per-chunk cost vs reply length (dev build)', 
         new Promise((r) => requestAnimationFrame(() => setTimeout(r)));
       const t0 = performance.now();
       for (let i = 0; i < 40; i++) {
-        w.__synth.store.patchLive(w.__synth.node.id, {
+        w.__synth.store.live.patch(w.__synth.node.id, {
           content: w.__synth.text.slice(0, s + 4 * (i + 1)),
         });
         await frame();
@@ -885,7 +887,7 @@ test('synthetic long reply stream: per-chunk cost vs reply length (dev build)', 
   report['syntheticStream'] = rows;
   await page.evaluate(() => {
     const w = window as unknown as { __synth: { store: DebugStore; node: { id: string } } };
-    w.__synth.store.dropLive(w.__synth.node.id);
+    w.__synth.store.live.drop(w.__synth.node.id);
     w.__synth.store.applyNodes([w.__synth.node]);
   });
 });
