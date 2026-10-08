@@ -2,7 +2,6 @@ import {
   formatMicros,
   POOL_EMPTY_TEXT,
   poolSessionsHeadline,
-  poolWeekText,
   type PoolBlockDetails,
   type PoolStatusResponse,
 } from '@tangent/shared';
@@ -23,11 +22,6 @@ export function sessionsLabel(status: Pick<PoolStatusResponse, 'sessionsRemainin
 /** `$2.40 in the pool`, next to the sessions. */
 export function poolDollarsLabel(status: Pick<PoolStatusResponse, 'availableMicros'>): string {
   return `${formatMicros(status.availableMicros)} in the pool`;
-}
-
-/** `This week: 12 learners, 340 free replies`. */
-export function poolWeekLabel(status: Pick<PoolStatusResponse, 'week'>): string {
-  return poolWeekText(status.week);
 }
 
 /**

@@ -357,9 +357,9 @@ describe('PoolBank: caps inside reserve', () => {
     const caps: PoolCaps = { ...OPEN_CAPS, user: { requestsPerDay: 2, spendMicrosPerDay: 1e12 } };
     await reserved(poolId, { userId, caps });
     await reserved(poolId, { userId, caps });
-    // Summaries and tagging don't count as replies.
+    // Summaries and titles don't count as replies.
     await reserved(poolId, { userId, caps, purpose: 'summary' });
-    await reserved(poolId, { userId, caps, purpose: 'tagging' });
+    await reserved(poolId, { userId, caps, purpose: 'title' });
     const refused = await reserve(poolId, { userId, caps });
     const tomorrow = new Date();
     tomorrow.setUTCHours(24, 0, 0, 0);
@@ -380,7 +380,7 @@ describe('PoolBank: caps inside reserve', () => {
     expect((await reserve(poolId, { userId, caps })).ok).toBe(true);
   });
 
-  it('refuses spend past the daily cap (settled charges plus pending holds); tagging is exempt', async () => {
+  it('refuses spend past the daily cap (settled charges plus pending holds)', async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 1_000_000);
@@ -395,7 +395,6 @@ describe('PoolBank: caps inside reserve', () => {
       reason: 'cap_spend',
       limit: 5_000,
     });
-    expect((await reserve(poolId, { userId, caps, purpose: 'tagging' })).ok).toBe(true);
     // Settling the first at 1_000 frees the rest of its hold.
     await settleUsage(env.DB, first, { costNanos: 1_000_000, markupBps: 0, feeBps: 0 });
     expect((await reserve(poolId, { userId, caps })).ok).toBe(true);
@@ -428,7 +427,7 @@ describe('PoolBank: caps inside reserve', () => {
     });
   });
 
-  it("caps everyone's spend together at a share of the day's base; tagging is not counted", async () => {
+  it("caps everyone's spend together at a share of the day's base", async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
@@ -437,9 +436,6 @@ describe('PoolBank: caps inside reserve', () => {
       ...OPEN_CAPS,
       global: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 },
     };
-    // Tagging holds count toward no one's caps, the global ceiling included.
-    await reserved(poolId, { caps, purpose: 'tagging' });
-    await reserved(poolId, { caps, purpose: 'tagging' });
     // 9_000 of a 10_000 ceiling, by three different users.
     for (let i = 0; i < 3; i++) await reserved(poolId, { caps });
     expect(await reserve(poolId, { caps })).toMatchObject({
@@ -566,9 +562,9 @@ describe('PoolBank: per-minute rate limits', () => {
 
     expect((await at(t, alice)).ok).toBe(true);
     expect((await at(t + 1, alice)).ok).toBe(true);
-    // Summaries, titles and tagging are part of an admitted reply.
+    // Summaries and titles are part of an admitted reply.
     expect((await at(t + 2, alice, { purpose: 'summary' })).ok).toBe(true);
-    expect((await at(t + 3, alice, { purpose: 'tagging' })).ok).toBe(true);
+    expect((await at(t + 3, alice, { purpose: 'title' })).ok).toBe(true);
     expect(await at(t + 4, alice)).toMatchObject({
       ok: false,
       reason: 'rate',

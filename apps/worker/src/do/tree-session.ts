@@ -36,7 +36,6 @@ import {
   replyCeilingMicros,
   type PoolParams,
 } from '../pool/params.js';
-import { classifyPoolExchange } from '../pool/tagging.js';
 import { chatService } from '../services.js';
 import { BUILT_IN_PROVIDER_ID } from '../simple-mode.js';
 
@@ -313,7 +312,7 @@ export class TreeSession extends DurableObject<AppEnv> {
       },
     ]);
     // Detached: keeps running after the client disconnects (DOs stay alive while I/O is in flight).
-    run.finished = this.pump(chat, account, run, started, reservationId, target);
+    run.finished = this.pump(chat, run, started, reservationId, target);
     this.ctx.waitUntil(run.finished);
     return response;
   }
@@ -464,22 +463,17 @@ export class TreeSession extends DurableObject<AppEnv> {
   }
 
   /**
-   * Runs the generation and broadcasts it. `account` is the one the send runs
-   * as (who pays); `reservationId` is the pool reservation of the reply, if
-   * any. A pool reply that completes has its exchange topic-tagged in the
-   * background (pool/tagging.ts): only its own user message is classified, so
-   * earlier messages of a branch paid some other way never reach the tagger.
+   * Runs the generation and broadcasts it. `reservationId` is the pool
+   * reservation of the reply, if any.
    */
   private async pump(
     chat: ChatService,
-    account: AccountContext,
     run: Run,
     begin: BeginSendResult,
     reservationId: string | null,
     { ground, ...limits }: Pick<SendTarget, 'ground'> & GenerationLimits = {},
   ): Promise<void> {
     const keepalive = setInterval(() => this.broadcastRaw(run, sseKeepAliveFrame()), KEEPALIVE_MS);
-    let completed = false;
     try {
       const options = {
         ...(reservationId ? { reservationId } : {}),
@@ -489,22 +483,8 @@ export class TreeSession extends DurableObject<AppEnv> {
       for await (const event of chat.runGeneration(begin, run.controller.signal, options)) {
         if (event.type === 'delta')
           run.node = { ...run.node, content: run.node.content + event.text };
-        if (event.type === 'done' || event.type === 'error') {
-          if (event.node) run.node = event.node;
-          completed = event.type === 'done';
-        }
+        if ((event.type === 'done' || event.type === 'error') && event.node) run.node = event.node;
         this.broadcastRaw(run, sseFrame(event));
-      }
-      if (completed && reservationId && isPoolFunded(account)) {
-        const defer = (p: Promise<unknown>) => this.ctx.waitUntil(p);
-        defer(
-          classifyPoolExchange(this.env, account, {
-            treeId: begin.userNode.treeId,
-            branchId: begin.userNode.branchId,
-            poolExchangeUserMessage: begin.userNode.content,
-            defer,
-          }),
-        );
       }
     } finally {
       clearInterval(keepalive);

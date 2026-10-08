@@ -3,7 +3,7 @@
 // tests share a pool balance or its caps.
 import { POOL_NOTICE_VERSION, type MeResponse } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
-import { expect, vi } from 'vitest';
+import { expect } from 'vitest';
 import type { AppEnv } from '../src/env.js';
 import { recordConsent } from '../src/pool/consent.js';
 import { markPoolVerified } from '../src/pool/identity.js';
@@ -94,24 +94,4 @@ export async function poolReadyUser(
   const funds = opts.funds ?? POOL_FUNDS_MICROS;
   if (funds > 0) await fundPool(poolId, funds);
   return { client: c, poolId, userId };
-}
-
-/**
- * Waits until `poolId` has `count` topic-tagging rows, all settled: a pool
- * reply that completes is tagged in the background (pool/tagging.ts), after
- * its stream has ended.
- */
-export async function taggingSettled(poolId: string, count: number): Promise<void> {
-  await vi.waitFor(
-    async () => {
-      const row = await env.DB.prepare(
-        `SELECT COUNT(*) AS n, COUNT(CASE WHEN status = 'pending' THEN 1 END) AS pending
-           FROM usage_events WHERE account_id = ? AND purpose = 'tagging'`,
-      )
-        .bind(poolId)
-        .first<{ n: number; pending: number }>();
-      expect(row).toEqual({ n: count, pending: 0 });
-    },
-    { timeout: 5_000, interval: 20 },
-  );
 }

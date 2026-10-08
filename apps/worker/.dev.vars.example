@@ -86,8 +86,3 @@ DEV_ALLOW_NO_AUTH=true
 # "mode": "simulated_purchase" (personal only; fund the pool with "target": "pool", "mode":
 # "adjustment"; see the README's "Manual credit or adjustments"). Never in production.
 # DEV_PURCHASES_ENABLED=true
-# The weekly impact snapshot runs on the Monday cron; to run it locally, start `wrangler dev
-# --test-scheduled` and open
-# http://localhost:8787/cdn-cgi/handler/scheduled?cron=17+4+*+*+1. Topics appear on /pool only
-# once IMPACT_MIN_DISTINCT_USERS learners touched them and an admin approved them (the review
-# queue on /admin/).

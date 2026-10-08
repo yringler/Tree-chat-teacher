@@ -14,7 +14,7 @@ import { appConfig } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { LANDING_STYLE } from '../src/http/landing.js';
 import { LEGAL_STYLE } from '../src/http/legal.js';
-import { poolStatus, weekStart } from '../src/pool/status.js';
+import { poolStatus } from '../src/pool/status.js';
 import { envWithFailingDb, uniq } from './mocks/billing-helpers.js';
 import { fundPool, poolReadyUser } from './pool-helpers.js';
 import { authEnv, ORIGIN } from './session-client.js';
@@ -41,7 +41,7 @@ async function settledReply(
   poolId: string,
   userId: string,
   chargeMicros: number,
-  opts: { createdAt?: string; reason?: string; purpose?: string } = {},
+  opts: { reason?: string; purpose?: string } = {},
 ): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO usage_events (id, account_id, funding, user_id, purpose, provider_id, model, status,
@@ -55,7 +55,7 @@ async function settledReply(
       opts.purpose ?? 'reply',
       chargeMicros,
       opts.reason ?? (chargeMicros > 0 ? 'cost' : 'released'),
-      opts.createdAt ?? new Date().toISOString(),
+      new Date().toISOString(),
     )
     .run();
 }
@@ -81,7 +81,6 @@ describe('GET /api/pool/status', () => {
       // The fake's Normal, asked with the pool's effort (`POOL_EFFORT`, which the fake's
       // listing doesn't set) and its shorter reply cap.
       model: { id: 'simple', label: 'Normal', thinking: 'other', replies: 'shorter' },
-      week: { start: weekStart(new Date()).toISOString(), exchanges: 0, learners: 0 },
       revenueShareBps: 2000,
     });
     // The edge copy answers the next minute's visitors, whatever D1 says meanwhile.
@@ -92,40 +91,17 @@ describe('GET /api/pool/status', () => {
     expect(again.availableMicros).toBe(1_000_000);
   });
 
-  it('counts this week’s funded exchanges and learners, not released or free replies', async () => {
+  it('reports the balance net of every charge and hold, and no user', async () => {
     const poolId = uniq('pool');
     await fundPool(poolId, 500_000);
-    const now = new Date();
-    const [a, b, c] = [uniq('user'), uniq('user'), uniq('user')];
+    const [a, b] = [uniq('user'), uniq('user')];
     await settledReply(poolId, a, 1_200);
-    await settledReply(poolId, a, 900);
-    await settledReply(poolId, b, 1_500);
-    // Released (never reached the model) and settled at 0: not funded exchanges.
-    await settledReply(poolId, c, 0, { reason: 'released' });
-    await settledReply(poolId, c, 0, { reason: 'cost' });
-    // A summary is not an exchange; last week's reply is not this week's.
-    await settledReply(poolId, c, 700, { purpose: 'summary' });
-    await settledReply(poolId, c, 700, {
-      createdAt: new Date(weekStart(now).getTime() - 1).toISOString(),
-    });
+    await settledReply(poolId, b, 0, { reason: 'released' });
+    await settledReply(poolId, b, 700, { purpose: 'summary' });
 
-    const status = await poolStatus(poolEnv(poolId), now);
-    expect(status.week).toEqual({
-      start: weekStart(now).toISOString(),
-      exchanges: 3,
-      learners: 2,
-    });
-    expect(status.availableMicros).toBe(500_000 - 1_200 - 900 - 1_500 - 700 - 700);
-    expect(JSON.stringify(status)).not.toMatch(new RegExp(`${a}|${b}|${c}`));
-  });
-
-  it('weeks start on Monday 00:00 UTC', () => {
-    expect(weekStart(new Date('2026-10-05T13:00:00Z')).toISOString()).toBe(
-      '2026-10-05T00:00:00.000Z',
-    );
-    expect(weekStart(new Date('2026-10-04T23:59:59Z')).toISOString()).toBe(
-      '2026-09-28T00:00:00.000Z',
-    );
+    const status = await poolStatus(poolEnv(poolId));
+    expect(status.availableMicros).toBe(500_000 - 1_200 - 700);
+    expect(JSON.stringify(status)).not.toMatch(new RegExp(`${a}|${b}`));
   });
 
   it('says the pool is off, with nothing read, while POOL_ENABLED is off', async () => {
@@ -180,7 +156,7 @@ describe('GET /api/pool/me', () => {
 });
 
 describe('the landing page’s pool meter', () => {
-  it('shows about N learning sessions, the dollars, this week and where the credit comes from', async () => {
+  it('shows about N learning sessions, the dollars and where the credit comes from', async () => {
     const poolId = uniq('pool');
     await fundPool(poolId, 2_468_000);
     const learner = uniq('user');
@@ -191,7 +167,6 @@ describe('the landing page’s pool meter', () => {
     );
     expect(html).toContain(`About ${sessions} learning sessions left`);
     expect(html).toContain('$2.46 in the pool');
-    expect(html).toContain('This week: 1 learner, 1 free reply');
     expect(html).toContain('<h2 id="pool">Curiosity shouldn’t need a credit card</h2>');
     expect(html).toContain(
       '<p class="sub">Every AI reply costs real money, so good AI tutoring usually sits behind a paywall. Tangent keeps learning open. Here’s how:</p>',

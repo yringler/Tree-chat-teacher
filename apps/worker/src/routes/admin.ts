@@ -2,12 +2,8 @@ import { NotFoundError, ValidationError } from '@tangent/core';
 import {
   ADMIN_USERS_PAGE,
   adminCreditRequestSchema,
-  adminPoolTopicDecisionSchema,
-  adminPoolTopicsQuerySchema,
   adminPoolUsageQuerySchema,
   type AdminPoolResponse,
-  type AdminPoolTopic,
-  type AdminPoolTopicsResponse,
   type AdminCreditResponse,
   adminUsersQuerySchema,
   updateAdminUserRequestSchema,
@@ -35,9 +31,7 @@ import { appConfig } from '../config.js';
 import { createD1Repositories } from '../db/d1-repositories.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { apiError, validateJson, validateQuery } from '../http/errors.js';
-import { isBlocklisted } from '../pool/impact.js';
 import { identitySuspensionStatement } from '../pool/identity.js';
-import { topicById } from '../pool/taxonomy.js';
 import { poolBank } from '../pool/ids.js';
 import { poolOverageMicros } from '../pool/pool-bank.js';
 import { purgeShare } from '../share/cache.js';
@@ -97,17 +91,16 @@ function toAdminUser(row: UserRow, admins: ReadonlySet<string>): AdminUser {
 /** What one pool row costs: its charge once settled, its hold while pending. */
 const SPENT = `(CASE WHEN e.status = 'pending' THEN e.hold_micros ELSE COALESCE(e.charge_micros, 0) END)`;
 
-/** Pool replies (released ones never reached the model) and spend, tagging excluded. */
+/** Pool replies (released ones never reached the model) and spend. */
 const POOL_USAGE_COLUMNS = `
   COUNT(CASE WHEN e.purpose = 'reply' AND COALESCE(e.settle_reason, '') <> 'released' THEN 1 END) AS requests,
-  COALESCE(SUM(CASE WHEN e.purpose <> 'tagging' THEN ${SPENT} END), 0) AS spend`;
+  COALESCE(SUM(${SPENT}), 0) AS spend`;
 
 interface PoolUserRow {
   user_id: string;
   email: string | null;
   requests: number;
   spend: number;
-  tagging: number;
   last_at: string;
 }
 
@@ -135,29 +128,6 @@ function decodeCursor(cursor: string): { createdAt: number; id: string } {
   throw new ValidationError('Invalid cursor');
 }
 
-interface TopicReviewRow {
-  topic_id: string;
-  status: AdminPoolTopic['status'];
-  first_seen_week: string;
-  decided_at: string | null;
-  decided_by: string | null;
-}
-
-function toAdminPoolTopic(row: TopicReviewRow, blocklist: readonly string[]): AdminPoolTopic {
-  const topic = topicById(row.topic_id);
-  const parent = topic?.parent ? topicById(topic.parent) : undefined;
-  return {
-    id: row.topic_id,
-    label: topic?.label ?? row.topic_id,
-    group: parent?.label ?? '',
-    status: row.status,
-    firstSeenWeek: row.first_seen_week,
-    decidedAt: row.decided_at,
-    decidedBy: row.decided_by,
-    blocklisted: isBlocklisted(row.topic_id, blocklist),
-  };
-}
-
 async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
   const row = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM auth_users u WHERE u.id = ?2`)
     .bind(new Date().toISOString(), userId)
@@ -181,8 +151,7 @@ async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
  * consumes the pool, and credits a user's ledger or the pool without a payment
  * (`POST /credit`: adjustments, and simulated purchases where
  * DEV_PURCHASES_ENABLED allows them), showing the pool's balance and overage
- * breaker (`GET /pool`). It also runs the impact feed's review
- * queue (`/pool/topics`): a topic is named publicly only once approved here.
+ * breaker (`GET /pool`).
  */
 export function adminRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
@@ -309,9 +278,7 @@ export function adminRoutes(): Hono<AppBindings> {
     const since = new Date(today - (days - 1) * 86_400_000).toISOString();
     const [users, networks] = await c.env.DB.batch<Record<string, unknown>>([
       c.env.DB.prepare(
-        `SELECT e.user_id, u.email, ${POOL_USAGE_COLUMNS},
-           COALESCE(SUM(CASE WHEN e.purpose = 'tagging' THEN ${SPENT} END), 0) AS tagging,
-           MAX(e.created_at) AS last_at
+        `SELECT e.user_id, u.email, ${POOL_USAGE_COLUMNS}, MAX(e.created_at) AS last_at
          FROM usage_events e LEFT JOIN auth_users u ON u.id = e.user_id
          WHERE e.account_id = ?1 AND e.created_at >= ?2 AND e.user_id IS NOT NULL
          GROUP BY e.user_id
@@ -334,7 +301,6 @@ export function adminRoutes(): Hono<AppBindings> {
         email: r.email,
         requests: Number(r.requests),
         spendMicros: Number(r.spend),
-        taggingMicros: Number(r.tagging),
         lastAt: r.last_at,
       })),
       ipKeys: (networks!.results as unknown as PoolNetworkRow[]).map((r): AdminPoolIpKeyRow => ({
@@ -344,47 +310,6 @@ export function adminRoutes(): Hono<AppBindings> {
         spendMicros: Number(r.spend),
       })),
     } satisfies AdminPoolUsageResponse);
-  });
-
-  // The impact feed's review queue (pool/impact.ts): topics that first had enough learners to be
-  // named wait here; an approved one is named from the next weekly snapshot on, a rejected one
-  // never. A decision can be changed; it never alters a snapshot already written.
-  r.get('/pool/topics', validateQuery(adminPoolTopicsQuerySchema), async (c) => {
-    const { status } = c.req.valid('query');
-    const { results } = await c.env.DB.prepare(
-      `SELECT topic_id, status, first_seen_week, decided_at, decided_by FROM pool_topic_reviews
-       WHERE status = ? ORDER BY first_seen_week, topic_id`,
-    )
-      .bind(status)
-      .all<TopicReviewRow>();
-    const blocklist = appConfig(c.env).impact.topicBlocklist;
-    return c.json({
-      topics: results.map((row) => toAdminPoolTopic(row, blocklist)),
-    } satisfies AdminPoolTopicsResponse);
-  });
-
-  r.post('/pool/topics/:topicId', validateJson(adminPoolTopicDecisionSchema), async (c) => {
-    const topicId = c.req.param('topicId');
-    const { decision } = c.req.valid('json');
-    // Only a topic the weekly job queued (sensitive and unknown ids never are).
-    const row = await c.env.DB.prepare(
-      `UPDATE pool_topic_reviews SET status = ?, decided_at = ?, decided_by = ?
-         WHERE topic_id = ?
-         RETURNING topic_id, status, first_seen_week, decided_at, decided_by`,
-    )
-      .bind(decision, new Date().toISOString(), c.var.identity.userId, topicId)
-      .first<TopicReviewRow>();
-    if (!row) throw new NotFoundError('Topic');
-    console.log(
-      JSON.stringify({
-        event: 'pool_topic_review',
-        adminId: c.var.identity.userId,
-        topicId,
-        decision,
-      }),
-    );
-    const blocklist = appConfig(c.env).impact.topicBlocklist;
-    return c.json(toAdminPoolTopic(row, blocklist) satisfies AdminPoolTopic);
   });
 
   // Credit without a payment: a signed adjustment of a user's ledger or the pool (a negative pool

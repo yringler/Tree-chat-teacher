@@ -406,7 +406,7 @@ class PoolRun extends ObservedRun {
 }
 
 /** Calls made for another one (a reply's summaries and title): no slot of their own. */
-const RIDES_ON_A_CALL: ReadonlySet<UsagePurpose> = new Set(['summary', 'title', 'tagging']);
+const RIDES_ON_A_CALL: ReadonlySet<UsagePurpose> = new Set(['summary', 'title']);
 
 /** `defer` keeps background work alive (`ctx.waitUntil` in the DO / Worker). */
 export function createUsageMeter(

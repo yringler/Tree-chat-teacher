@@ -103,10 +103,8 @@ export interface AdminPoolUsageRow {
   email: string | null;
   /** Pool replies (released ones, which never reached the model, excluded). */
   requests: number;
-  /** Charged plus still held, micro-USD, topic tagging excluded. */
+  /** Charged plus still held, micro-USD. */
   spendMicros: number;
-  /** Topic tagging charged to the pool for the user's exchanges, micro-USD. */
-  taggingMicros: number;
   /** ISO timestamp of the user's latest pool call. */
   lastAt: string;
 }
@@ -226,46 +224,3 @@ export interface AdminCreditResponse {
   /** The target ledger's balance afterwards (settled; pending holds not deducted). */
   balanceMicros: number;
 }
-
-/**
- * The impact feed's review queue: the first time a topic would be named
- * publicly it is queued `pending` instead; `approved` topics publish from the
- * next weekly snapshot on, `rejected` ones never.
- */
-export const POOL_TOPIC_REVIEW_STATUSES = ['pending', 'approved', 'rejected'] as const;
-export type PoolTopicReviewStatus = (typeof POOL_TOPIC_REVIEW_STATUSES)[number];
-
-/** `GET /api/admin/pool/topics`: one status (default `pending`, the queue). */
-export const adminPoolTopicsQuerySchema = z.object({
-  status: z.enum(POOL_TOPIC_REVIEW_STATUSES).default('pending'),
-});
-export type AdminPoolTopicsQuery = z.infer<typeof adminPoolTopicsQuerySchema>;
-
-/** A topic in the review queue (or decided). */
-export interface AdminPoolTopic {
-  /** Taxonomy leaf id. */
-  id: string;
-  label: string;
-  /** Its parent's label (`History` for `history.ancient-rome`). */
-  group: string;
-  status: PoolTopicReviewStatus;
-  /** The week (`YYYY-MM-DD`) it first had enough learners to be named. */
-  firstSeenWeek: string;
-  /** ISO; null while pending. */
-  decidedAt: string | null;
-  /** The deciding admin's user id; null while pending. */
-  decidedBy: string | null;
-  /** On POOL_TOPIC_BLOCKLIST: never published, whatever its status. */
-  blocklisted: boolean;
-}
-
-/** `GET /api/admin/pool/topics`, oldest first. */
-export interface AdminPoolTopicsResponse {
-  topics: AdminPoolTopic[];
-}
-
-/** `POST /api/admin/pool/topics/:topicId`: approve or reject a queued topic (or change a decision). */
-export const adminPoolTopicDecisionSchema = z.object({
-  decision: z.enum(['approved', 'rejected']),
-});
-export type AdminPoolTopicDecision = z.infer<typeof adminPoolTopicDecisionSchema>;

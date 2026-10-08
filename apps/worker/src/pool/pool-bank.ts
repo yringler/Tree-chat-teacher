@@ -203,13 +203,13 @@ export interface DayRow {
   spend: number;
 }
 
-/** Day-to-date pool usage: replies (released ones excluded) and spend (tagging excluded). */
 /** A usage row's spend: its hold while pending, its charge once settled. */
 const SPEND_EXPR = `(CASE WHEN status = 'pending' THEN hold_micros ELSE COALESCE(charge_micros, 0) END)`;
 
+/** Day-to-date pool usage: replies (released ones excluded) and spend. */
 const DAY_USAGE_COLUMNS = `
   COUNT(CASE WHEN purpose = 'reply' AND COALESCE(settle_reason, '') <> 'released' THEN 1 END) AS requests,
-  COALESCE(SUM(CASE WHEN purpose <> 'tagging' THEN ${SPEND_EXPR} END), 0) AS spend`;
+  COALESCE(SUM(${SPEND_EXPR}), 0) AS spend`;
 
 /** 00:00 UTC of `now`'s day: the daily caps' window starts here. */
 export function dayStart(now: Date): Date {
@@ -302,8 +302,8 @@ export class PoolBank extends DurableObject<AppEnv> {
       });
 
     if (await this.breakerTripped(req.poolId, req.overage, now)) return refuse('unpriced');
-    // Only replies count toward the per-minute limits: a reply's summaries, its title and
-    // topic tagging ride on the reply that was admitted.
+    // Only replies count toward the per-minute limits: a reply's summaries and its title
+    // ride on the reply that was admitted.
     if (req.purpose === 'reply') {
       const limited = this.takeRate(req, now);
       if (limited) return limited;
@@ -337,13 +337,13 @@ export class PoolBank extends DurableObject<AppEnv> {
            WHERE account_id = ?1 AND ip_key = ?2 AND created_at >= ?3`,
         )
         .bind(req.poolId, req.ipKey ?? '', day),
-      // The pool's spend today, all users together (tagging counts toward no one's caps).
+      // The pool's spend today, all users together.
       // Every row on the pool counts, whatever its `tier`: rows from before the member
       // tier was retired carry 'free' or 'member', newer ones null.
       db
         .prepare(
           `SELECT COALESCE(SUM(${SPEND_EXPR}), 0) AS spend FROM usage_events
-           WHERE account_id = ?1 AND purpose <> 'tagging' AND created_at >= ?2`,
+           WHERE account_id = ?1 AND created_at >= ?2`,
         )
         .bind(req.poolId, day),
     ];
@@ -359,32 +359,27 @@ export class PoolBank extends DurableObject<AppEnv> {
     const caps = req.caps.user;
     const hold = req.holdMicros;
 
-    // Topic tagging is charged to the pool but counts toward no one's caps.
-    if (req.purpose !== 'tagging') {
-      const reply = req.purpose === 'reply';
-      if (reply && Number(user?.requests ?? 0) >= caps.requestsPerDay)
-        return refuse('cap_requests', caps.requestsPerDay);
-      if (Number(user?.spend ?? 0) + hold > caps.spendMicrosPerDay)
-        return refuse('cap_spend', caps.spendMicrosPerDay);
-      if (req.ipKey !== null) {
-        const ipCaps = req.caps.ip;
-        if (reply && Number(ip?.requests ?? 0) >= ipCaps.requestsPerDay)
-          return refuse('cap_ip', ipCaps.requestsPerDay);
-        if (Number(ip?.spend ?? 0) + hold > ipCaps.spendMicrosPerDay)
-          return refuse('cap_ip', ipCaps.spendMicrosPerDay);
-      }
+    const reply = req.purpose === 'reply';
+    if (reply && Number(user?.requests ?? 0) >= caps.requestsPerDay)
+      return refuse('cap_requests', caps.requestsPerDay);
+    if (Number(user?.spend ?? 0) + hold > caps.spendMicrosPerDay)
+      return refuse('cap_spend', caps.spendMicrosPerDay);
+    if (req.ipKey !== null) {
+      const ipCaps = req.caps.ip;
+      if (reply && Number(ip?.requests ?? 0) >= ipCaps.requestsPerDay)
+        return refuse('cap_ip', ipCaps.requestsPerDay);
+      if (Number(ip?.spend ?? 0) + hold > ipCaps.spendMicrosPerDay)
+        return refuse('cap_ip', ipCaps.spendMicrosPerDay);
     }
     // An empty pool says so (the first-class empty state), rather than "busy today".
     if (available < hold) return refuse('empty');
-    if (req.purpose !== 'tagging') {
-      // One ceiling for all users together, a share of the day's base: the balance at
-      // 00:00 UTC plus what was added since (so funding helps the same day).
-      const g = req.caps.global;
-      const base = Math.max(0, morning) + Math.max(0, added);
-      const share = Math.floor((base * g.bpsOfMorningBalance) / 10_000);
-      const ceiling = Math.min(g.spendMicrosPerDay, share);
-      if (spent + hold > ceiling) return refuse('cap_global', ceiling);
-    }
+    // One ceiling for all users together, a share of the day's base: the balance at
+    // 00:00 UTC plus what was added since (so funding helps the same day).
+    const g = req.caps.global;
+    const base = Math.max(0, morning) + Math.max(0, added);
+    const share = Math.floor((base * g.bpsOfMorningBalance) / 10_000);
+    const ceiling = Math.min(g.spendMicrosPerDay, share);
+    if (spent + hold > ceiling) return refuse('cap_global', ceiling);
 
     const usageId = crypto.randomUUID();
     await insertPendingUsageStatement(db, {

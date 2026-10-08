@@ -162,18 +162,6 @@ describe('ApiClient open pool', () => {
     ]);
   });
 
-  it('poolImpact(week?) and poolImpactWeeks() GET the public impact feed', async () => {
-    fetchMock.mockImplementation(async () => jsonResponse({}));
-    await api.poolImpact();
-    await api.poolImpact('2026-09-28');
-    await api.poolImpactWeeks();
-    expect(fetchMock.mock.calls.map(([url, init]) => [init.method, url])).toEqual([
-      ['GET', '/api/pool/impact'],
-      ['GET', '/api/pool/impact?week=2026-09-28'],
-      ['GET', '/api/pool/impact/weeks'],
-    ]);
-  });
-
   it('adminPool() GETs the pool panel; adminCredit POSTs the request as given', async () => {
     fetchMock.mockImplementation(async () => jsonResponse({}));
     await api.adminPool();
@@ -190,19 +178,6 @@ describe('ApiClient open pool', () => {
       ['POST', '/api/admin/credit'],
     ]);
     expect(JSON.parse(String(fetchMock.mock.calls[1]![1].body))).toEqual(req);
-  });
-
-  it('adminPoolTopics(status?) lists the review queue; decideAdminPoolTopic POSTs the decision', async () => {
-    fetchMock.mockImplementation(async () => jsonResponse({ topics: [] }));
-    await api.adminPoolTopics();
-    await api.adminPoolTopics('rejected');
-    await api.decideAdminPoolTopic('history.ancient-rome', 'approved');
-    expect(fetchMock.mock.calls.map(([url, init]) => [init.method, url])).toEqual([
-      ['GET', '/api/admin/pool/topics'],
-      ['GET', '/api/admin/pool/topics?status=rejected'],
-      ['POST', '/api/admin/pool/topics/history.ancient-rome'],
-    ]);
-    expect(JSON.parse(String(fetchMock.mock.calls[2]![1].body))).toEqual({ decision: 'approved' });
   });
 
   it("createCheckout(cents) asks for a top-up of the caller's own credit only", async () => {

@@ -137,7 +137,7 @@ import { UiStore } from '../state/ui-store';
 
       @if (payment() === 'pool') {
         @if (account.poolStatus(); as status) {
-          <app-pool-meter [status]="status" [compact]="true" />
+          <app-pool-meter [status]="status" />
         }
         <p class="small">
           @if (poolUse(); as use) {

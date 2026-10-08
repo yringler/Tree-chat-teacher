@@ -115,14 +115,10 @@ interface UsageRow {
   settle_reason: string | null;
 }
 
-/**
- * The account's usage rows, topic tagging left out: a pool reply that completes
- * is tagged in the background (pool-impact-tagging.test.ts covers those rows).
- */
+/** The account's usage rows, oldest first. */
 async function rows(accountId: string): Promise<UsageRow[]> {
   const { results } = await env.DB.prepare(
-    `SELECT * FROM usage_events WHERE account_id = ? AND purpose <> 'tagging'
-     ORDER BY created_at, id`,
+    `SELECT * FROM usage_events WHERE account_id = ? ORDER BY created_at, id`,
   )
     .bind(accountId)
     .all<UsageRow>();

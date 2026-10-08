@@ -355,7 +355,7 @@ describe('compare in Learn', () => {
     expect(committed.assistantNode).toMatchObject({ model: 'smart', providerId: 'openrouter' });
     expect(committed.userNode.content).toBe('Why is the sky blue?');
     // The commit itself calls no model (titles are off in tests): still two rows.
-    expect((await usageRows(env, billing)).filter((r) => r.purpose !== 'tagging')).toHaveLength(2);
+    expect(await usageRows(env, billing)).toHaveLength(2);
   });
 
   it('is refused on the open pool, for both routes', async () => {

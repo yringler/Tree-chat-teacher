@@ -261,9 +261,6 @@ describe('demo backend', () => {
       personalAvailableMicros: DEMO_START_BALANCE_MICROS,
     });
     await expect(api.createCheckout(1000)).rejects.toBeInstanceOf(ApiError);
-    // No impact snapshots either.
-    await expect(api.poolImpact()).rejects.toMatchObject({ status: 404, code: 'not_found' });
-    await expect(api.poolImpactWeeks()).resolves.toEqual({ weeks: [] });
   });
 
   it('rejects invalid bodies with a 400', async () => {

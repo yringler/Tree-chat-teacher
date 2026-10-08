@@ -1,9 +1,6 @@
-import { ConflictError, DomainError, NotFoundError, ValidationError } from '@tangent/core';
+import { ConflictError, DomainError, ValidationError } from '@tangent/core';
 import {
   poolConsentRequestSchema,
-  poolImpactQuerySchema,
-  type PoolImpactResponse,
-  type PoolImpactWeeksResponse,
   poolVerifyRequestSchema,
   type PoolConsentResponse,
   type PoolMeResponse,
@@ -16,9 +13,8 @@ import { turnstileHostname } from '../auth/auth.js';
 import { poolAccessError } from '../billing/gate.js';
 import { appConfig } from '../config.js';
 import type { AppBindings } from '../env.js';
-import { validateJson, validateQuery } from '../http/errors.js';
+import { validateJson } from '../http/errors.js';
 import { recordConsent } from '../pool/consent.js';
-import { poolImpactWeeks, readPoolImpact } from '../pool/impact.js';
 import { markPoolVerified } from '../pool/identity.js';
 import { cachedPoolStatus, poolMe } from '../pool/status.js';
 import { TURNSTILE_ACTION, verifyTurnstile } from '../pool/turnstile.js';
@@ -99,39 +95,4 @@ export async function poolStatusRoute(c: Context<AppBindings>): Promise<Response
   return c.json(status satisfies PoolStatusResponse, 200, {
     'Cache-Control': 'no-cache',
   });
-}
-
-/** Browsers and caches may keep a snapshot read this long: a new one appears once a week. */
-export const POOL_IMPACT_MAX_AGE_S = 300;
-
-/**
- * The impact feed's public routes, mounted at /api/pool/impact before the
- * session middleware (by `createApp`): weekly snapshots of what the pool
- * funded, aggregates only (no user or tree ids). Named topics passed the
- * crowd-size threshold, are not sensitive or blocklisted, and were approved
- * (pool/impact.ts).
- *
- * `GET /?week=YYYY-MM-DD`: that week's snapshot, or the latest; 404 when none.
- * `GET /weeks`: the weeks with a snapshot, newest first.
- * Both answer 404 while POOL_ENABLED is false, as the pages leave the feed out.
- */
-export function poolImpactRoutes(): Hono<AppBindings> {
-  const r = new Hono<AppBindings>();
-  r.use('*', async (c, next) => {
-    if (!appConfig(c.env).flags.poolEnabled) throw new NotFoundError('Impact snapshot');
-    await next();
-    if (c.res.ok) c.header('Cache-Control', `public, max-age=${POOL_IMPACT_MAX_AGE_S}`);
-  });
-
-  r.get('/', validateQuery(poolImpactQuerySchema), async (c) => {
-    const impact = await readPoolImpact(c.env.DB, c.req.valid('query').week);
-    if (!impact) throw new NotFoundError('Impact snapshot');
-    return c.json(impact satisfies PoolImpactResponse);
-  });
-
-  r.get('/weeks', async (c) =>
-    c.json({ weeks: await poolImpactWeeks(c.env.DB) } satisfies PoolImpactWeeksResponse),
-  );
-
-  return r;
 }

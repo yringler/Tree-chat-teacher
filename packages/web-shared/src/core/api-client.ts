@@ -3,9 +3,6 @@ import type {
   AdminCreditRequest,
   AdminCreditResponse,
   AdminPoolResponse,
-  AdminPoolTopic,
-  AdminPoolTopicDecision,
-  AdminPoolTopicsResponse,
   AdminPoolUsageResponse,
   AdminStatusResponse,
   AdminUser,
@@ -37,13 +34,10 @@ import type {
   PoolConsentDetails,
   PoolConsentRequest,
   PoolConsentResponse,
-  PoolImpactResponse,
-  PoolImpactWeeksResponse,
   PoolMeResponse,
   PoolStatusResponse,
   PortalResponse,
   ProviderInfo,
-  PoolTopicReviewStatus,
   ReviewRequest,
   SendMessageRequest,
   SettingsResponse,
@@ -207,22 +201,6 @@ export class ApiClient {
   /** The caller's caps and use of the pool today. */
   poolMe(): Promise<PoolMeResponse> {
     return this.json('GET', '/pool/me');
-  }
-
-  /**
-   * A weekly impact snapshot of the pool (public): `week` (`YYYY-MM-DD`, its
-   * Monday) or the latest. 404 `not_found` when there is none yet.
-   */
-  poolImpact(week?: string): Promise<PoolImpactResponse> {
-    return this.json(
-      'GET',
-      week ? `/pool/impact?${new URLSearchParams({ week }).toString()}` : '/pool/impact',
-    );
-  }
-
-  /** The weeks with an impact snapshot, newest first (public). */
-  poolImpactWeeks(): Promise<PoolImpactWeeksResponse> {
-    return this.json('GET', '/pool/impact/weeks');
   }
 
   /**
@@ -429,21 +407,6 @@ export class ApiClient {
   /** Pool consumption per user over the last `days`, most spend first, and today's busiest networks. */
   adminPoolUsage(days?: number): Promise<AdminPoolUsageResponse> {
     return this.json('GET', days ? `/admin/pool/usage?days=${days}` : '/admin/pool/usage');
-  }
-
-  /** The impact feed's review queue (`pending`, the default) or the decided topics. */
-  adminPoolTopics(status?: PoolTopicReviewStatus): Promise<AdminPoolTopicsResponse> {
-    return this.json('GET', status ? `/admin/pool/topics?status=${status}` : '/admin/pool/topics');
-  }
-
-  /** Approves (named from the next weekly snapshot on) or rejects a queued topic. */
-  decideAdminPoolTopic(
-    topicId: string,
-    decision: AdminPoolTopicDecision['decision'],
-  ): Promise<AdminPoolTopic> {
-    return this.json('POST', `/admin/pool/topics/${enc(topicId)}`, {
-      decision,
-    } satisfies AdminPoolTopicDecision);
   }
 
   adminUserShares(userId: string): Promise<ShareSummary[]> {

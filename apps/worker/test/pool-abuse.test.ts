@@ -21,7 +21,7 @@ import { normaliseEmail, poolIdentity } from '../src/pool/identity.js';
 import { poolBank } from '../src/pool/ids.js';
 import { replyCeilingMicros, resolvePoolParams } from '../src/pool/params.js';
 import { insertSubscription, uniq } from './mocks/billing-helpers.js';
-import { poolAccess, poolReadyUser, taggingSettled } from './pool-helpers.js';
+import { poolAccess, poolReadyUser } from './pool-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
 
 const env = rawEnv as unknown as AppEnv;
@@ -626,9 +626,6 @@ describe('consumption report', () => {
     await sendOk(heavy, heavyTree.branchId, 'One');
     await sendOk(heavy, heavyTree.branchId, 'Two');
     await sendOk(light, (await newTree(light)).branchId);
-    // Each reply is followed by a topic classification (the fake's answer is no topic id,
-    // so no branch gets a tag and every reply is classified).
-    await taggingSettled(heavy.poolId, 3);
 
     const report = await json<AdminPoolUsageResponse>(
       await admin.client.call('/api/admin/pool/usage?days=1&limit=10', {}, adminEnv),
@@ -644,8 +641,6 @@ describe('consumption report', () => {
     const [first, second] = report.rows;
     expect(first!.spendMicros).toBeGreaterThan(second!.spendMicros);
     expect(second!.spendMicros).toBeGreaterThan(0);
-    // Tagging is reported on its own, outside the spend the caps count.
-    expect(first!.taggingMicros).toBeGreaterThan(0);
     expect(first).toMatchObject({ lastAt: expect.any(String) as unknown });
     expect(first!.email).toMatch(/@example\.org$/);
     expect(report.ipKeys).toHaveLength(1);

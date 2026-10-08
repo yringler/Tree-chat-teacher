@@ -1,6 +1,6 @@
 // The pool meter (docs/pool/PLAN.md §S6): what `GET /api/pool/status`, the
 // landing page and the apps show about the open pool. Aggregates only:
-// the balance, the sessions it covers and this week's counts, never a user.
+// the balance and the sessions it covers, never a user.
 import {
   isReasoningModel,
   type PoolMeResponse,
@@ -8,7 +8,7 @@ import {
   type PoolStatusResponse,
   type ReasoningEffort,
 } from '@tangent/shared';
-import { balanceStatement, getBalance, readBalance, type BalanceRow } from '../billing/ledger.js';
+import { getBalance } from '../billing/ledger.js';
 import { appConfig } from '../config.js';
 import type { AccountContext, AppEnv } from '../env.js';
 import { poolAvailable } from '../services.js';
@@ -80,44 +80,24 @@ export async function poolUsable(env: AppEnv): Promise<boolean> {
   return poolAvailable(env) && (await poolPriceProblem(env)) === null;
 }
 
-/**
- * The pool meter, read from D1. "Exchanges funded" are pool replies settled
- * at a charge above 0 since Monday 00:00 UTC (released and free ones never
- * reached the model, or cost nothing); "learners" the distinct users of those.
- */
-export async function poolStatus(env: AppEnv, now = new Date()): Promise<PoolStatusResponse> {
+/** The pool meter, read from D1. */
+export async function poolStatus(env: AppEnv): Promise<PoolStatusResponse> {
   const config = appConfig(env);
   const pool = config.pool;
-  const week = weekStart(now).toISOString();
   const base: PoolStatusResponse = {
     enabled: await poolUsable(env),
     availableMicros: 0,
     sessionsRemaining: 0,
     model: poolModelInfo(env),
-    week: { start: week, exchanges: 0, learners: 0 },
     revenueShareBps: pool.revenueShareBps,
   };
   if (!base.enabled) return base;
-  const [balanceRes, countsRes] = await env.DB.batch<Record<string, unknown>>([
-    balanceStatement(env.DB, pool.accountId),
-    env.DB.prepare(
-      `SELECT COUNT(*) AS exchanges, COUNT(DISTINCT user_id) AS learners FROM usage_events
-       WHERE account_id = ? AND purpose = 'reply' AND status = 'settled'
-         AND charge_micros > 0 AND created_at >= ?`,
-    ).bind(pool.accountId, week),
-  ]);
-  const balance = readBalance(balanceRes!.results[0] as BalanceRow | undefined);
-  const counts = countsRes!.results[0] as { exchanges?: number; learners?: number } | undefined;
+  const balance = await getBalance(env.DB, pool.accountId);
   const available = Math.max(0, balance.balanceMicros - balance.heldMicros);
   return {
     ...base,
     availableMicros: available,
     sessionsRemaining: Math.floor(available / pool.sessionEstimateMicros),
-    week: {
-      start: week,
-      exchanges: Number(counts?.exchanges ?? 0),
-      learners: Number(counts?.learners ?? 0),
-    },
   };
 }
 

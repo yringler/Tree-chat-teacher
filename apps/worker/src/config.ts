@@ -18,17 +18,6 @@ import {
 import { z } from 'zod';
 import type { AppEnv } from './env.js';
 
-// The topic taxonomy is code, not env: it lives in its own module.
-export {
-  isSensitive,
-  isValidLeafTopicId,
-  LEAF_TOPIC_IDS,
-  SENSITIVE_TOPIC_ID,
-  topicById,
-  TOPICS,
-  type Topic,
-} from './pool/taxonomy.js';
-
 // ---- Defaults
 
 export const DEFAULT_USAGE_HOLD_MICROS = 20_000;
@@ -143,8 +132,6 @@ export const DEFAULT_POOL_ACCOUNT_ID = 'pool';
  * the markup on personal credit as it is spent (pool/revenue-share.ts).
  */
 const DEFAULT_POOL_REVENUE_SHARE_BPS = 2000;
-/** A smaller impact threshold would make single learners identifiable. */
-export const MIN_IMPACT_DISTINCT_USERS = 3;
 /** The expiry alarm needs this much slack between a call's timeout and its reservation's TTL. */
 const POOL_TTL_SLACK_MS = 60_000;
 
@@ -366,13 +353,6 @@ export interface AppConfig {
     backgroundEffort: ReasoningEffort | null;
   };
   pool: PoolConfig;
-  impact: {
-    minDistinctUsers: number;
-    topicBlocklist: readonly string[];
-    classifierMaxOutputTokens: number;
-    classifierInputChars: number;
-    tagRetentionDays: number;
-  };
 }
 
 // ---- Parsers
@@ -504,7 +484,6 @@ function parse(env: AppEnv): AppConfig {
   const ttl = positiveInt(env.POOL_RESERVATION_TTL_MS, 10 * 60_000);
   const callTimeout = positiveInt(env.POOL_CALL_TIMEOUT_MS, 120_000);
   const giveUp = positiveInt(env.POOL_GIVE_UP_MS, 60 * 60_000);
-  const minUsers = intVar(env.IMPACT_MIN_DISTINCT_USERS, 5);
   const prices = parsePrices(env.MODEL_PRICES);
   return {
     flags: {
@@ -585,17 +564,6 @@ function parse(env: AppEnv): AppConfig {
         env.TEST_SEAMS === 'true'
           ? Math.max(POOL_NOTICE_VERSION, intVar(env.POOL_NOTICE_VERSION, POOL_NOTICE_VERSION))
           : POOL_NOTICE_VERSION,
-    },
-    impact: {
-      minDistinctUsers: clamped(
-        'IMPACT_MIN_DISTINCT_USERS',
-        minUsers,
-        Math.max(MIN_IMPACT_DISTINCT_USERS, minUsers),
-      ),
-      topicBlocklist: list(env.POOL_TOPIC_BLOCKLIST),
-      classifierMaxOutputTokens: 12,
-      classifierInputChars: 2_000,
-      tagRetentionDays: positiveInt(env.IMPACT_TAG_RETENTION_DAYS, 14),
     },
   };
 }

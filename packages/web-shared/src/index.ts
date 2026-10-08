@@ -163,14 +163,12 @@ export {
 // The open pool: the meter, the billing page's section, the inline empty/cap states and the first-use check
 export { PoolMeter } from './pool/pool-meter';
 export { PoolSection } from './pool/pool-section';
-export { ImpactFeed, loadLatestImpact } from './pool/impact-feed';
 export { PoolBlockNotice } from './pool/pool-block-notice';
 export { PoolFirstUseDialog, poolVerifyHref } from './pool/pool-first-use-dialog';
 export {
   poolBlockOf,
   poolBlockText,
   poolDollarsLabel,
-  poolWeekLabel,
   sessionsLabel,
   untilText,
   type PoolBlock,

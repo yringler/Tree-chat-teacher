@@ -92,9 +92,8 @@
   // Every 10 minutes: settles usage the stream couldn't (src/billing/reconcile.ts), expires stale
   // open pool reservations and maintains the pool's balance checkpoint.
   // Daily 03:23 UTC: OpenRouter's list prices of the priced models (src/pool/model-prices.ts).
-  // Mondays 04:17 UTC: the open pool's weekly impact snapshot of the ISO week just ended, and
-  // its topic-tag retention (src/pool/impact.ts). src/index.ts dispatches on the cron string.
-  "triggers": { "crons": ["*/10 * * * *", "23 3 * * *", "17 4 * * 1"] },
+  // src/cron.ts dispatches on the cron string.
+  "triggers": { "crons": ["*/10 * * * *", "23 3 * * *"] },
   "ratelimits": [
     {
       "name": "SHARE_RATE_LIMITER",
@@ -325,12 +324,6 @@
     // still records the list price, and logs `price_override_below_list` (its $1.00 output is above
     // this $0.60): expected while the pinned providers charge $0.60.
     "MODEL_PRICES": "{\"deepseek/deepseek-v4.1-flash\":{\"in\":150000,\"out\":600000,\"context\":1048576,\"cacheRead\":3000}}",
-    // Impact feed: a topic is named publicly only when at least this many distinct learners touched
-    // it in the week (default 5, never below 3); comma-separated topic ids never published; and how
-    // many days topic tags outlive their branch's last pool use.
-    "IMPACT_MIN_DISTINCT_USERS": "5",
-    "POOL_TOPIC_BLOCKLIST": "",
-    "IMPACT_TAG_RETENTION_DAYS": "14",
     // A future "featured learning" wall of conversations users publish (opt-in per conversation).
     // Only a stub exists and it stays off: user-published content waits for DMCA_AGENT_REGISTERED.
     // Either way /api/featured/* is 404, nothing renders and nothing is collected for it.

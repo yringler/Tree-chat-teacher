@@ -32,11 +32,10 @@ describe('PoolSection', () => {
 });
 
 describe('PoolMeter', () => {
-  it('shows about N learning sessions, the dollars and this week', () => {
+  it('shows about N learning sessions and the dollars', () => {
     expect(reflectComponentType(PoolMeter)?.selector).toBe('app-pool-meter');
     const t = templateOf(PoolMeter);
     expect(t).toContain('{{ headline() }}');
     expect(t).toContain('{{ dollars() }}');
-    expect(t).toContain('{{ week() }}');
   });
 });

@@ -34,7 +34,6 @@ import { ApiClient, errorMessage, formatCharge } from '@tangent/web-shared';
               <th scope="col">User</th>
               <th scope="col">Replies</th>
               <th scope="col">Spend</th>
-              <th scope="col">Topic tagging</th>
               <th scope="col">Latest</th>
             </tr>
           </thead>
@@ -49,12 +48,11 @@ import { ApiClient, errorMessage, formatCharge } from '@tangent/web-shared';
                 </td>
                 <td>{{ row.requests }}</td>
                 <td>{{ money(row.spendMicros) }}</td>
-                <td>{{ money(row.taggingMicros) }}</td>
                 <td class="admin-nowrap">{{ row.lastAt | date: 'short' }}</td>
               </tr>
             } @empty {
               <tr>
-                <td colspan="5" class="muted">No pool use in this period.</td>
+                <td colspan="4" class="muted">No pool use in this period.</td>
               </tr>
             }
           </tbody>

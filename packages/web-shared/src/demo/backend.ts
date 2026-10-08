@@ -49,7 +49,6 @@ import {
   MAX_USAGE_FACTOR_FALLBACK,
   type NodeLink,
   POOL_NOTICE_VERSION,
-  type PoolImpactWeeksResponse,
   type PoolMeResponse,
   type PoolStatusResponse,
   type ProviderEvent,
@@ -109,7 +108,6 @@ export const DEMO_POOL_STATUS: PoolStatusResponse = {
   availableMicros: 0,
   sessionsRemaining: 0,
   model: { id: 'lorem', label: 'Lite' },
-  week: { start: '1970-01-05T00:00:00.000Z', exchanges: 0, learners: 0 },
   revenueShareBps: 0,
 };
 const DEMO_POOL_ME: Omit<PoolMeResponse, 'personalAvailableMicros'> = {
@@ -401,13 +399,6 @@ export class DemoBackend {
         ...DEMO_POOL_ME,
         personalAvailableMicros: this.balanceMicros - this.heldMicros,
       } satisfies PoolMeResponse);
-    }
-    // No impact snapshots: the demos' pool funds nothing.
-    if (method === 'GET' && path === '/api/pool/impact/weeks') {
-      return json({ weeks: [] } satisfies PoolImpactWeeksResponse);
-    }
-    if (method === 'GET' && path === '/api/pool/impact') {
-      return apiError('not_found', 'Impact snapshot not found');
     }
 
     // Account settings (the default system prompt), kept with the session

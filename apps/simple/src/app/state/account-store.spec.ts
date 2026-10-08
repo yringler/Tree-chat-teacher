@@ -65,7 +65,6 @@ const POOL: PoolStatusResponse = {
   availableMicros: 2_400_000,
   sessionsRemaining: 120,
   model: { id: 'lite', label: 'Lite' },
-  week: { start: '2026-10-05T00:00:00.000Z', exchanges: 3, learners: 2 },
   revenueShareBps: 2000,
 };
 

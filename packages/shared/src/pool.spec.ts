@@ -10,15 +10,9 @@ import {
   poolConsentRequestSchema,
   poolErrorCode,
   poolFundingText,
-  poolImpactDepthText,
-  poolImpactHeadline,
-  poolImpactQuerySchema,
-  poolImpactTopicText,
-  poolImpactWeekText,
   poolModelDifferences,
   poolModelText,
   poolSessionsText,
-  poolWeekText,
 } from './pool.js';
 
 describe('poolErrorCode', () => {
@@ -52,13 +46,6 @@ describe('poolBlockDetailsSchema', () => {
 });
 
 describe('pool copy', () => {
-  it("states the week's learners and free replies, singular where 1", () => {
-    expect(poolWeekText({ learners: 1240, exchanges: 3400 })).toBe(
-      'This week: 1,240 learners, 3,400 free replies',
-    );
-    expect(poolWeekText({ learners: 1, exchanges: 1 })).toBe('This week: 1 learner, 1 free reply');
-  });
-
   it('counts learning sessions, approximately', () => {
     expect(poolSessionsText(1240)).toBe('about 1,240 learning sessions');
     expect(poolSessionsText(1)).toBe('about 1 learning session');
@@ -119,58 +106,6 @@ describe('the pool notice', () => {
     expect(poolConsentRequestSchema.parse({ version: 1 })).toEqual({ version: 1 });
     for (const version of [0, -1, 1.5, '1', null])
       expect(poolConsentRequestSchema.safeParse({ version }).success).toBe(false);
-  });
-});
-
-describe('impact feed copy', () => {
-  it('names the week from its Monday, without locale data', () => {
-    expect(poolImpactWeekText('2026-09-28')).toBe('the week of 28 September 2026');
-    expect(poolImpactWeekText('2027-01-04')).toBe('the week of 4 January 2027');
-  });
-
-  it('headlines the replies, learners and topics, singular where 1', () => {
-    expect(
-      poolImpactHeadline({ weekStart: '2026-09-28', exchanges: 1240, learners: 87, topics: 31 }),
-    ).toBe(
-      'In the week of 28 September 2026, the pool paid for 1,240 replies to 87 learners across 31 topics.',
-    );
-    expect(
-      poolImpactHeadline({ weekStart: '2026-09-28', exchanges: 1, learners: 1, topics: 1 }),
-    ).toBe(
-      'In the week of 28 September 2026, the pool paid for 1 reply to 1 learner across 1 topic.',
-    );
-  });
-
-  it('features branch depth and the deepest rabbit hole', () => {
-    expect(poolImpactDepthText({ avgDepth: 1.4567, maxDepth: 7, deepest: null })).toBe(
-      'Learners went 1.5 branches deep on average, and 7 branches at the deepest.',
-    );
-    expect(
-      poolImpactDepthText({
-        avgDepth: 1,
-        maxDepth: 1,
-        deepest: { id: 'history.ancient-rome', label: 'Ancient Rome', avgDepth: 2.25 },
-      }),
-    ).toBe(
-      'Learners went 1 branch deep on average, and 1 branch at the deepest. Deepest rabbit hole: Ancient Rome (2.3 branches deep on average).',
-    );
-    expect(poolImpactTopicText({ label: 'Ancient Rome', learners: 40 })).toBe(
-      'Ancient Rome: 40 learners',
-    );
-  });
-
-  it('never words funding as a donation', () => {
-    const texts = [
-      poolImpactHeadline({ weekStart: '2026-09-28', exchanges: 2, learners: 2, topics: 2 }),
-      poolImpactDepthText({ avgDepth: 2, maxDepth: 3, deepest: null }),
-    ];
-    for (const t of texts) expect(t).not.toMatch(FORBIDDEN_POOL_COPY);
-  });
-
-  it('accepts only YYYY-MM-DD weeks', () => {
-    expect(poolImpactQuerySchema.parse({})).toEqual({});
-    expect(poolImpactQuerySchema.parse({ week: '2026-09-28' })).toEqual({ week: '2026-09-28' });
-    expect(poolImpactQuerySchema.safeParse({ week: 'last' }).success).toBe(false);
   });
 });
 

@@ -87,11 +87,8 @@ export function isReasoningEffort(value: unknown): value is ReasoningEffort {
   return typeof value === 'string' && (REASONING_EFFORTS as readonly string[]).includes(value);
 }
 
-/**
- * Why a provider call is made; recorded with its usage for billing.
- * `tagging` is the open pool's topic classifier (charged to the pool).
- */
-export type UsagePurpose = 'reply' | 'summary' | 'title' | 'review' | 'tagging' | 'other';
+/** Why a provider call is made; recorded with its usage for billing. */
+export type UsagePurpose = 'reply' | 'summary' | 'title' | 'review' | 'other';
 
 /** Attribution of one provider call (billing). Providers ignore it. */
 export interface UsageTag {

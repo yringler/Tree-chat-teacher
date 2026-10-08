@@ -34,7 +34,6 @@ const ERROR_CODES: ReadonlySet<string> = new Set<ProviderErrorCode>([
 
 interface FakeOptions {
   responses: [string, string][];
-  anyMessageResponses: [string, string][];
   stopReasons: [string, string][];
   chunkSize: number;
   delayMs: number;
@@ -75,7 +74,6 @@ function readOptions(options: Record<string, unknown> | undefined): FakeOptions 
   const echo = o['echoRequest'];
   return {
     responses: readResponses(o['responses']),
-    anyMessageResponses: readResponses(o['anyMessageResponses']),
     stopReasons: readResponses(o['stopReasons']),
     chunkSize: typeof cs === 'number' && Number.isInteger(cs) && cs > 0 ? cs : 8,
     delayMs: typeof dm === 'number' && dm > 0 ? dm : 0,
@@ -108,9 +106,6 @@ function inputTokens(request: Input): number {
  * options (all optional):
  * - responses: Record<string, string> — if the last user message contains a
  *   key, reply with its value (first match in insertion order);
- * - anyMessageResponses: Record<string, string> (tests only) — the same, but a
- *   key found in ANY message of the request (any role) matches, and these are
- *   checked before `responses`: lets a test see whether earlier history was sent;
  * - stopReasons: Record<string, string> — if the last user message contains a
  *   key, end with its value as `done.stopReason` (e.g. `length`: a reply cut
  *   off at its cap) instead of `end_turn`;
@@ -157,8 +152,6 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
     if (echo === true || (typeof echo === 'string' && lastUser.includes(echo))) {
       return `ECHO model=${request.model} maxOutputTokens=${request.maxOutputTokens ?? 'none'} system=${JSON.stringify(request.system)}`;
     }
-    for (const [key, value] of opts.anyMessageResponses)
-      if (request.messages.some((m) => m.content.includes(key))) return value;
     for (const [key, value] of opts.responses) if (lastUser.includes(key)) return value;
     return `Fake reply (${request.model}) to ${request.messages.length} message(s): "${lastUser.slice(0, 80)}"`;
   };

@@ -19,9 +19,7 @@ import { simpleMaxInputTokens } from '../src/simple-mode.js';
 const env = rawEnv as unknown as AppEnv;
 
 /** The deployed defaults: every pool var empty (wrangler.jsonc ships most of them set to these). */
-const POOL_VARS = Object.keys(env).filter(
-  (k) => k.startsWith('POOL_') || k.startsWith('IMPACT_') || k === 'MODEL_PRICES',
-);
+const POOL_VARS = Object.keys(env).filter((k) => k.startsWith('POOL_') || k === 'MODEL_PRICES');
 const blank = (overrides: Record<string, string> = {}): AppEnv =>
   ({ ...env, ...Object.fromEntries(POOL_VARS.map((k) => [k, ''])), ...overrides }) as AppEnv;
 
@@ -85,13 +83,6 @@ describe('appConfig', () => {
       global: { spendMicrosPerDay: 5_000_000, bpsOfMorningBalance: 2_000 },
       ip: { requestsPerDay: 60, spendMicrosPerDay: 300_000 },
     });
-    expect(c.impact).toEqual({
-      minDistinctUsers: 5,
-      topicBlocklist: [],
-      classifierMaxOutputTokens: 12,
-      classifierInputChars: 2000,
-      tagRetentionDays: 14,
-    });
     expect(c.billing).toEqual({
       usageHoldMicros: 20_000,
       usageMaxPending: 6,
@@ -115,7 +106,6 @@ describe('appConfig', () => {
       POOL_SPEND_MICROS_PER_DAY: '12',
       POOL_DAILY_GLOBAL_MICROS: '700',
       POOL_DAILY_GLOBAL_BPS: '50',
-      POOL_TOPIC_BLOCKLIST: ' a.b , ,c ',
       POOL_SYSTEM_PROMPT: 'Teach.',
     });
     const c = appConfig(custom);
@@ -130,7 +120,6 @@ describe('appConfig', () => {
     expect(c.pool.accountId).toBe('pool-x');
     expect(c.pool.caps.user).toEqual({ requestsPerDay: 9, spendMicrosPerDay: 12 });
     expect(c.pool.caps.global).toEqual({ spendMicrosPerDay: 700, bpsOfMorningBalance: 50 });
-    expect(c.impact.topicBlocklist).toEqual(['a.b', 'c']);
     expect(c.pool.systemPrompt).toBe('Teach.');
     expect(Object.isFrozen(c.pool.caps.user)).toBe(true);
     expect(appConfig(blank({ POOL_REQUESTS_PER_DAY: 'lots' })).pool.caps.user.requestsPerDay).toBe(
@@ -210,16 +199,13 @@ describe('appConfig', () => {
         POOL_RESERVATION_TTL_MS: '300000',
         POOL_CALL_TIMEOUT_MS: '600000',
         POOL_GIVE_UP_MS: '1000',
-        IMPACT_MIN_DISTINCT_USERS: '1',
       }),
     );
     expect(c.pool.callTimeoutMs).toBe(240_000); // the TTL minus a minute
     expect(c.pool.giveUpMs).toBe(300_000); // at least the TTL
-    expect(c.impact.minDistinctUsers).toBe(3); // never below 3
-    expect(warn).toHaveBeenCalledTimes(3);
+    expect(warn).toHaveBeenCalledTimes(2);
     warn.mockClear();
-    const safe = appConfig(blank({ IMPACT_MIN_DISTINCT_USERS: '8' }));
-    expect(safe.impact.minDistinctUsers).toBe(8);
+    const safe = appConfig(blank());
     expect(safe.pool.callTimeoutMs).toBe(120_000);
     expect(warn).not.toHaveBeenCalled();
   });

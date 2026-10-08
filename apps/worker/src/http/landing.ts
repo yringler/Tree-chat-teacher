@@ -9,9 +9,7 @@ import {
   poolModelText,
   poolSessionsHeadline,
   poolSteps,
-  poolWeekText,
   type ModelTier,
-  type PoolImpactResponse,
   type PoolStatusResponse,
 } from '@tangent/shared';
 import type { GroundingPolicy } from '@tangent/core';
@@ -21,7 +19,6 @@ import { groundingPolicy } from '../billing/grounding.js';
 import { membershipRequired } from '../billing/membership.js';
 import { appConfig } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
-import { latestImpactForPage, renderImpactBlock } from './impact-block.js';
 import { copyrightNotice, legalInfo } from './legal-info.js';
 import { LEARN_APP_CSP, LEARN_COMMON_HEADERS } from './learn-app.js';
 import { cachedPoolStatus } from '../pool/status.js';
@@ -121,7 +118,6 @@ h2{margin:0 0 8px;font-size:clamp(1.4rem,4vw,1.85rem);line-height:1.2;letter-spa
 .pool{display:grid;gap:20px;padding:24px;border:1px solid var(--accent);border-radius:14px;background:var(--bg-elev);box-shadow:var(--shadow)}
 .pool .meter{margin:0;font-size:clamp(1.5rem,5vw,2rem);font-weight:700;line-height:1.2}
 .pool .meter small{display:block;margin-top:4px;color:var(--muted);font-size:1rem;font-weight:500}
-.pool .week{margin:0;color:var(--muted)}
 .pool .fee{margin:0;color:var(--muted);font-size:.88rem}
 .pool .ctas{margin:0}
 .steps{display:grid;gap:12px;margin:0;padding:0;list-style:none;counter-reset:step}
@@ -129,12 +125,6 @@ h2{margin:0 0 8px;font-size:clamp(1.4rem,4vw,1.85rem);line-height:1.2;letter-spa
 .steps li::before{content:counter(step);position:absolute;top:11px;left:14px;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--accent-fg);font-size:.8rem;font-weight:700}
 @media (min-width:720px){.steps{grid-template-columns:repeat(3,1fr)}}
 #pool+.sub{max-width:40rem}
-.impact{display:grid;gap:8px}
-.impact p{margin:0}
-.impact .head{font-weight:600}
-.impact .depth,.impact .note{color:var(--muted)}
-.impact .topics{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 0;padding:0;list-style:none}
-.impact .topics li{padding:4px 10px;border:1px solid var(--border);border-radius:999px;background:var(--accent-soft);font-size:.9rem}
 footer{padding:32px 0 48px;border-top:1px solid var(--border);color:var(--muted);font-size:.9rem}
 footer .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px}
 footer nav{display:flex;flex-wrap:wrap;gap:18px}
@@ -184,8 +174,6 @@ export interface LandingPageOptions {
   sharing: boolean;
   /** The open pool's meter; absent when the pool is off or couldn't be read. */
   pool?: PoolStatusResponse;
-  /** The pool's latest weekly impact snapshot; absent when there is none (or the pool is off). */
-  impact?: PoolImpactResponse;
   /**
    * The yearly membership, at this price, while it is required
    * (`membershipRequired`): own keys need it, in Learn and power mode alike;
@@ -211,9 +199,6 @@ export function joinList(items: readonly string[], word: 'and' | 'or'): string {
   return `${items.slice(0, -1).join(', ')} ${word} ${items[items.length - 1]}`;
 }
 
-/** Topics the landing page names at most; `/pool` lists them all. */
-const LANDING_IMPACT_TOPICS = 12;
-
 /** True when the pool is on and can cover at least one more learning session: only then is "free" promised. */
 function poolOpen(pool: PoolStatusResponse | undefined): pool is PoolStatusResponse {
   return pool !== undefined && pool.sessionsRemaining > 0;
@@ -233,23 +218,15 @@ export function poolStepsHtml(revenueShareBps: number, memberships: boolean): st
     .join('')}</ol>`;
 }
 
-/** Learners on the pool this week the hero names at least; fewer would read as a weak signal. */
-const HERO_LEARNERS_MIN = 10;
-
 /**
  * The open pool section: why it exists, where its credit comes from
- * (Tangent's revenue share, in brief), the meter, this week's
- * counts and the latest weekly impact snapshot when there is one. It is
+ * (Tangent's revenue share, in brief) and the meter. It is
  * Tangent's own commitment: nothing here is for sale, and nothing asks the
  * visitor to pay for anyone else (docs/DECISIONS.md, "Revenue-funded
  * open pool"). The free sign-up button shows only while the pool has
  * credit.
  */
-function poolSection(
-  pool: PoolStatusResponse,
-  memberships: boolean,
-  impact?: PoolImpactResponse,
-): string {
+function poolSection(pool: PoolStatusResponse, memberships: boolean): string {
   const meter =
     pool.sessionsRemaining > 0
       ? `<p class="meter">${escapeHtml(poolSessionsHeadline(pool.sessionsRemaining))} left<small>${escapeHtml(formatMicros(pool.availableMicros))} in the pool</small></p>`
@@ -265,8 +242,7 @@ function poolSection(
 <div class="pool">
 ${poolStepsHtml(pool.revenueShareBps, memberships)}
 ${meter}
-<p class="week">${escapeHtml(poolWeekText(pool.week))}</p>
-${impact ? `${renderImpactBlock(impact, LANDING_IMPACT_TOPICS)}\n` : ''}<div class="ctas">${ctas}</div>
+<div class="ctas">${ctas}</div>
 <p class="fee">${escapeHtml(POOL_AT_COST_TEXT)}</p>
 </div>
 </div>
@@ -395,7 +371,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
   const canonical = escapeHtml(opts.canonicalUrl);
   const free = poolOpen(opts.pool);
   const freeNote = poolOpen(opts.pool)
-    ? `<p class="free"><strong>No credit card needed.</strong> ${opts.pool.revenueShareBps > 0 ? `Tangent puts ${escapeHtml(formatBps(opts.pool.revenueShareBps))} of what it earns into the open pool` : 'Tangent provides free credit in the open pool'}, so anyone signed in can learn here free, within daily limits.${opts.pool.week.learners >= HERO_LEARNERS_MIN ? ` ${opts.pool.week.learners.toLocaleString('en-US')} people learned free this week.` : ''} <a href="#pool">How it works</a></p>\n`
+    ? `<p class="free"><strong>No credit card needed.</strong> ${opts.pool.revenueShareBps > 0 ? `Tangent puts ${escapeHtml(formatBps(opts.pool.revenueShareBps))} of what it earns into the open pool` : 'Tangent provides free credit in the open pool'}, so anyone signed in can learn here free, within daily limits. <a href="#pool">How it works</a></p>\n`
     : '';
   return `<!doctype html>
 <html lang="en">
@@ -460,7 +436,7 @@ ${payCard(opts)}
 ${groundingCard(opts.grounding, opts.pool !== undefined, opts.credit !== undefined)}</div>
 </div>
 </section>
-${opts.pool ? poolSection(opts.pool, opts.membership !== undefined, opts.impact) : ''}<section aria-labelledby="modes">
+${opts.pool ? poolSection(opts.pool, opts.membership !== undefined) : ''}<section aria-labelledby="modes">
 <div class="wrap">
 <h2 id="modes">Two ways to use it</h2>
 <p class="sub">Learn and Power share one sign-in. Switch between them any time; each keeps its own conversations.</p>
@@ -556,7 +532,6 @@ async function landingResponse(
   const canonicalUrl = new URL('/', authBaseUrl(c.env, c.req.raw)).toString();
   const { operator, sharing } = legalInfo(c.env, c.req.raw);
   const pool = await landingPool(c);
-  const impact = pool ? await latestImpactForPage(c.env) : undefined;
   const membership = membershipRequired(c.env)
     ? { priceCents: appConfig(c.env).billing.membershipPriceCents }
     : undefined;
@@ -573,7 +548,6 @@ async function landingResponse(
     operator,
     sharing,
     pool,
-    impact,
     membership,
     grounding,
     credit,

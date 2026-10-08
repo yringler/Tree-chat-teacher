@@ -149,8 +149,6 @@ export interface PoolStatusResponse {
   sessionsRemaining: number;
   /** The one model pool replies use, and how the pool asks it (`poolModelText`). */
   model: PoolModelInfo;
-  /** Since Monday 00:00 UTC: pool replies that cost something, and the learners they went to. */
-  week: { start: string; exchanges: number; learners: number };
   /**
    * The share of Tangent's revenue that goes to the pool, bps
    * (`POOL_REVENUE_SHARE_BPS`, `poolFundingText`); 0 = none.
@@ -230,15 +228,6 @@ export function poolSessionsHeadline(sessions: number): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** `This week: 12 learners, 340 free replies`: aggregate counts only. */
-export function poolWeekText(week: { learners: number; exchanges: number }): string {
-  const { learners, exchanges } = week;
-  return (
-    `This week: ${learners.toLocaleString('en-US')} ${learners === 1 ? 'learner' : 'learners'}, ` +
-    `${exchanges.toLocaleString('en-US')} free ${exchanges === 1 ? 'reply' : 'replies'}`
-  );
-}
-
 /**
  * Where the pool's credit comes from, as every public page states it
  * (docs/DECISIONS.md): Tangent's commitment, read from
@@ -284,118 +273,3 @@ export const POOL_AT_COST_TEXT =
  */
 export const FORBIDDEN_POOL_COPY =
   /donat|donor|tax[- ]?deductible|charit|sponsor|crowdfund|patron|pledge|give back|pay(s|ing)? it forward|helped|supporter|community/i;
-
-// ---- The impact feed (spec §9 "Weekly aggregation", docs/pool/PLAN.md §S8b)
-
-/** A snapshot's week: the Monday (UTC) its ISO week starts, `YYYY-MM-DD`. */
-export const POOL_IMPACT_WEEK_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
-/** How many past weeks `GET /api/pool/impact/weeks` lists (newest first). */
-export const POOL_IMPACT_WEEKS_MAX = 52;
-
-/** `GET /api/pool/impact`: `week` picks a past snapshot; omitted = the latest. */
-export const poolImpactQuerySchema = z.object({
-  week: z.string().regex(POOL_IMPACT_WEEK_PATTERN, 'week must be YYYY-MM-DD').optional(),
-});
-export type PoolImpactQuery = z.infer<typeof poolImpactQuerySchema>;
-
-/** A topic a snapshot names: enough distinct learners, not sensitive, approved by an admin. */
-export interface PoolImpactTopic {
-  /** Taxonomy leaf id, e.g. `history.ancient-rome`. */
-  id: string;
-  label: string;
-  learners: number;
-  exchanges: number;
-  /** Average branch depth of its exchanges (0 = the trunk), to one decimal or so. */
-  avgDepth: number;
-}
-
-/**
- * `GET /api/pool/impact` (public): one week's snapshot. Aggregates only, no
- * user or tree ids. Totals count every funded pool reply of the week,
- * including topics that are never named (too few learners, sensitive,
- * blocked or not yet reviewed).
- */
-export interface PoolImpactResponse {
-  /** `YYYY-MM-DD`, the Monday the week starts (UTC). */
-  weekStart: string;
-  /** Pool replies that cost something. */
-  exchanges: number;
-  /** Distinct learners of those replies. */
-  learners: number;
-  /** Distinct topics touched, named or not. */
-  topics: number;
-  /** Average and deepest branch depth of the week's tagged exchanges. */
-  avgDepth: number;
-  maxDepth: number;
-  /** The "deepest rabbit hole": the named topic with the greatest average depth. */
-  deepest: { id: string; label: string; avgDepth: number } | null;
-  /** Most learners first. */
-  named: PoolImpactTopic[];
-}
-
-/** `GET /api/pool/impact/weeks` (public): the weeks with a snapshot, newest first. */
-export interface PoolImpactWeeksResponse {
-  weeks: string[];
-}
-
-const MONTHS = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-] as const;
-
-/** `the week of 28 September 2026`, from a snapshot's `weekStart` (no locale data needed). */
-export function poolImpactWeekText(weekStart: string): string {
-  const [y, m, d] = weekStart.split('-').map(Number);
-  return `the week of ${d} ${MONTHS[(m ?? 1) - 1] ?? ''} ${y}`;
-}
-
-function count(n: number, one: string, many: string): string {
-  return `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
-}
-
-/**
- * The feed's headline: `In the week of 28 September 2026, the pool paid for
- * 1,240 replies to 40 learners across 87 topics.`
- */
-export function poolImpactHeadline(
-  impact: Pick<PoolImpactResponse, 'weekStart' | 'exchanges' | 'learners' | 'topics'>,
-): string {
-  return (
-    `In ${poolImpactWeekText(impact.weekStart)}, the pool paid for ` +
-    `${count(impact.exchanges, 'reply', 'replies')} to ${count(impact.learners, 'learner', 'learners')} ` +
-    `across ${count(impact.topics, 'topic', 'topics')}.`
-  );
-}
-
-/** One decimal at most: `2.5`, `3`. */
-function depth(n: number): string {
-  return Number(n.toFixed(1)).toLocaleString('en-US');
-}
-
-/**
- * Branch depth, Tangent's angle: `Learners went 1.4 branches deep on average,
- * and 7 at the deepest.` plus the deepest rabbit hole when one is named.
- */
-export function poolImpactDepthText(
-  impact: Pick<PoolImpactResponse, 'avgDepth' | 'maxDepth' | 'deepest'>,
-): string {
-  const base = `Learners went ${depth(impact.avgDepth)} ${impact.avgDepth === 1 ? 'branch' : 'branches'} deep on average, and ${count(impact.maxDepth, 'branch', 'branches')} at the deepest.`;
-  if (!impact.deepest) return base;
-  return `${base} Deepest rabbit hole: ${impact.deepest.label} (${depth(impact.deepest.avgDepth)} ${impact.deepest.avgDepth === 1 ? 'branch' : 'branches'} deep on average).`;
-}
-
-/** A named topic's line: `Ancient Rome: 40 learners`. */
-export function poolImpactTopicText(topic: Pick<PoolImpactTopic, 'label' | 'learners'>): string {
-  return `${topic.label}: ${count(topic.learners, 'learner', 'learners')}`;
-}

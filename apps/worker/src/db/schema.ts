@@ -529,7 +529,7 @@ export const usageEvents = sqliteTable(
      */
     tier: text('tier', { enum: ['free', 'member'] }),
     purpose: text('purpose', {
-      enum: ['reply', 'summary', 'title', 'review', 'tagging', 'other'],
+      enum: ['reply', 'summary', 'title', 'review', 'other'],
     }).notNull(),
     providerId: text('provider_id').notNull(),
     model: text('model').notNull(),
@@ -567,8 +567,6 @@ export const usageEvents = sqliteTable(
     index('usage_events_pool_user_idx').on(t.accountId, t.userId, t.createdAt),
     index('usage_events_pool_ip_idx').on(t.accountId, t.ipKey, t.createdAt),
     index('usage_events_pool_tier_idx').on(t.accountId, t.tier, t.createdAt),
-    // The weekly impact job's tag retention: a branch's latest pool reply.
-    index('usage_events_branch_idx').on(t.branchId, t.createdAt),
     // The pool's daily revenue share: personal charges settled in a UTC day (pool/revenue-share.ts).
     index('usage_events_personal_settled_idx')
       .on(t.settledAt)
@@ -602,7 +600,7 @@ export const poolIdentityHolders = sqliteTable(
   (t) => [index('pool_identity_holders_identity_idx').on(t.identity)],
 );
 
-// ---- Open pool consent and topic tags (src/pool/consent.ts, src/pool/tagging.ts)
+// ---- Open pool consent (src/pool/consent.ts)
 
 /**
  * Who acknowledged which version of the pool notice (packages/shared/src/pool.ts
@@ -618,75 +616,6 @@ export const poolConsents = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.noticeVersion] })],
 );
-
-/**
- * One topic per pool-funded branch, from the classifier's reading of the pool
- * exchange that first completed there (src/pool/taxonomy.ts leaf ids, or the
- * sentinel `sensitive`). No user id, no tree id and no text: per-topic
- * learners come from `usage_events`, joined on `branch_id`. Deleted 14 days
- * after the branch's last pool use, or with the account.
- */
-export const poolTopicTags = sqliteTable(
-  'pool_topic_tags',
-  {
-    branchId: text('branch_id').primaryKey(),
-    topicId: text('topic_id').notNull(),
-    /** The branch's depth in its tree when tagged: 0 = the trunk. */
-    branchDepth: integer('branch_depth').notNull(),
-    createdAt: text('created_at').notNull(),
-  },
-  (t) => [index('pool_topic_tags_topic_idx').on(t.topicId, t.createdAt)],
-);
-
-// ---- Open pool impact feed (src/pool/impact.ts, docs/pool/PLAN.md §S8b)
-
-/**
- * One immutable public snapshot per ISO week (`week_start`: its Monday,
- * `YYYY-MM-DD`), written by the weekly cron. Totals cover every funded pool
- * reply of the week, sensitive and unnamed topics included.
- */
-export const poolImpactSnapshots = sqliteTable('pool_impact_snapshots', {
-  weekStart: text('week_start').primaryKey(),
-  /** Pool replies settled above 0 in the week. */
-  exchanges: integer('exchanges').notNull(),
-  /** Distinct users of those replies. */
-  learners: integer('learners').notNull(),
-  /** Distinct topics touched (the sentinel `sensitive` counts as one). */
-  topics: integer('topics').notNull(),
-  /** Average branch depth of the tagged replies, × 1000. */
-  avgDepthMilli: integer('avg_depth_milli').notNull(),
-  maxDepth: integer('max_depth').notNull(),
-  /** The published topic with the greatest average depth; null when none is published. */
-  deepestTopicId: text('deepest_topic_id'),
-  createdAt: text('created_at').notNull(),
-});
-
-/** The topics a snapshot names: published ones only (threshold, not sensitive or blocked, approved). */
-export const poolImpactTopics = sqliteTable(
-  'pool_impact_topics',
-  {
-    weekStart: text('week_start').notNull(),
-    topicId: text('topic_id').notNull(),
-    learners: integer('learners').notNull(),
-    exchanges: integer('exchanges').notNull(),
-    avgDepthMilli: integer('avg_depth_milli').notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.weekStart, t.topicId] })],
-);
-
-/**
- * The admin review queue: a topic that first qualifies to be named is queued
- * `pending`; only `approved` topics are ever published, from the next week on.
- */
-export const poolTopicReviews = sqliteTable('pool_topic_reviews', {
-  topicId: text('topic_id').primaryKey(),
-  status: text('status', { enum: ['pending', 'approved', 'rejected'] }).notNull(),
-  /** The week (`YYYY-MM-DD`) it first qualified. */
-  firstSeenWeek: text('first_seen_week').notNull(),
-  decidedAt: text('decided_at'),
-  /** The admin's user id. */
-  decidedBy: text('decided_by'),
-});
 
 /**
  * OpenRouter list prices of the priced models, refreshed daily by the price

@@ -462,13 +462,11 @@ export function pinnedModelRegistry(inner: ProviderRegistry, model: string): Pro
 }
 
 /**
- * The providers of a generating pool-funded request (the chat service's, and
- * the pool's topic classifier, pool/tagging.ts): the pool's config of the
+ * The providers of a generating pool-funded request: the pool's config of the
  * built-in provider, every call reserved and settled on the pool, and pinned
- * to the pool model. `inner` is the unmetered registry (tests pass a
- * recording one).
+ * to the pool model. `inner` is the unmetered registry.
  */
-export function poolGeneratingRegistry(
+function poolGeneratingRegistry(
   env: AppEnv,
   account: AccountContext & { pool: PoolParams },
   defer: Defer,

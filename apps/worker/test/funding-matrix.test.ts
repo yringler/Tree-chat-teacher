@@ -100,9 +100,7 @@ function replyOf(text: string): string {
 }
 
 async function usageRows(accountId: string): Promise<number> {
-  const row = await env.DB.prepare(
-    "SELECT COUNT(*) AS n FROM usage_events WHERE account_id = ?1 AND purpose <> 'tagging'",
-  )
+  const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM usage_events WHERE account_id = ?1')
     .bind(accountId)
     .first<{ n: number }>();
   return row?.n ?? 0;

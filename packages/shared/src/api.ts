@@ -114,9 +114,6 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  *                                                most spend first; today's busiest network keys)
  *   GET    /api/admin/pool                       -> AdminPoolResponse (the pool's balance, holds and
  *                                                overage breaker state)
- *   GET    /api/admin/pool/topics?status=        -> AdminPoolTopicsResponse (the impact feed's review queue)
- *   POST   /api/admin/pool/topics/:topicId AdminPoolTopicDecision -> AdminPoolTopic (same-origin only;
- *                                                404 for a topic never queued)
  *   GET    /api/admin/users/:userId/shares       -> ShareSummary[] (both of the user's accounts, newest first)
  *   POST   /api/admin/shares/:shareId/revoke     -> ShareSummary (any owner's share; same-origin only)
  *   POST   /api/admin/credit AdminCreditRequest -> AdminCreditResponse (same-origin only; personal

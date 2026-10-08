@@ -17,7 +17,7 @@ import { apiRoutes } from './routes/api.js';
 import { billingRoutes } from './routes/billing.js';
 import { featuredRoute } from './routes/featured.js';
 import { paymentWebhookRoute } from './routes/payment-webhooks.js';
-import { poolImpactRoutes, poolRoutes, poolStatusRoute } from './routes/pool.js';
+import { poolRoutes, poolStatusRoute } from './routes/pool.js';
 import { shareRoutes } from './routes/share.js';
 
 export interface AppOptions {
@@ -28,8 +28,7 @@ export interface AppOptions {
  * The HTTP app.
  * - `/api/auth/*` is Better Auth (sign-in, callbacks, session, passkeys).
  * - `/api/login-options` is public: what the login page should offer,
- *   `/api/pool/status` the open pool's meter and `/api/pool/impact*`
- *   its weekly impact snapshots (routes/pool.ts).
+ *   and `/api/pool/status` the open pool's meter (routes/pool.ts).
  * - `POST /api/webhooks/:provider` is public too: payment provider webhooks,
  *   verified by their signature (routes/payment-webhooks.ts).
  * - Every other `/api/*` request but GET, HEAD and OPTIONS must be
@@ -84,7 +83,6 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   });
 
   app.get('/api/pool/status', poolStatusRoute);
-  app.route('/api/pool/impact', poolImpactRoutes());
   app.all('/api/featured', featuredRoute);
   app.all('/api/featured/*', featuredRoute);
 

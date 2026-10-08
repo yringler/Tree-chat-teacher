@@ -375,9 +375,9 @@ describe('the open pool with request settings', () => {
         completion: pool.price!.outMicrosPerMTok / 1_000_000,
       },
     });
-    // The topic classifier turns thinking off whatever the pool's effort.
-    const classifier = await sentBody(config, { model: pool.model, reasoning: 'none' });
-    expect(classifier['reasoning']).toEqual({ enabled: false });
+    // A call that asks for no thinking (a summary at `none`) turns it off whatever the pool's effort.
+    const unthinking = await sentBody(config, { model: pool.model, reasoning: 'none' });
+    expect(unthinking['reasoning']).toEqual({ enabled: false });
     expect(poolChatSettings(pool).summaryEffort).toBe('none');
   });
 
