@@ -18,7 +18,7 @@ import {
   promptCacheOption,
   usesExplicitCacheControl,
   withBreakpoint,
-  type CachedTextPart,
+  withTurnInstructions,
 } from './prompt-cache.js';
 import type { ProviderEnv } from './registry.js';
 import { parseSse } from './sse.js';
@@ -228,6 +228,8 @@ function codeForStreamError(err: Record<string, unknown>, message: string): Prov
  * the latest message become content-part arrays with a `cache_control`
  * breakpoint; other models and endpoints get plain string content (they cache
  * automatically, or a strict API could reject the field).
+ * `request.turnInstructions` follow the latest message (`withTurnInstructions`):
+ * a separate part after its breakpoint, or appended to its plain text.
  * `options.promptCache`: false never marks; true marks on any endpoint (one
  * known to accept `cache_control`, e.g. a proxy in front of OpenRouter), still
  * only for explicit-cache models. Usage reports the cache reads and writes
@@ -289,9 +291,10 @@ export function createOpenAiCompatibleProvider(
         }
       }
       const cache = promptCache && usesExplicitCacheControl(request.model);
-      const messages: { role: string; content: string | CachedTextPart[] }[] = cache
-        ? markLastMessage(plain)
-        : plain;
+      const messages = withTurnInstructions(
+        cache ? markLastMessage(plain) : plain,
+        request.turnInstructions,
+      );
       if (system !== null) {
         messages.unshift({ role: 'system', content: cache ? withBreakpoint(system) : system });
       }

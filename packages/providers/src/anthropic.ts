@@ -6,7 +6,7 @@ import type {
   ProviderEvent,
   ProviderUsage,
 } from '@tangent/shared';
-import { markLastMessage, promptCacheOption, withBreakpoint } from './prompt-cache.js';
+import { markLastMessage, promptCacheOption, withBreakpoint, withTurnInstructions } from './prompt-cache.js';
 import type { ProviderEnv } from './registry.js';
 import { parseSse } from './sse.js';
 import {
@@ -87,7 +87,9 @@ function usageOf(usage: Record<string, unknown>): Partial<ProviderUsage> {
  *
  * Prompt caching (prompt-cache.ts): `cache_control` breakpoints on the system
  * prompt and on the latest message, unless `options.promptCache` is false
- * (e.g. a proxy that rejects them). Usage reports the input total
+ * (e.g. a proxy that rejects them). `request.turnInstructions` follow the
+ * latest message as a separate text part after its breakpoint
+ * (`withTurnInstructions`). Usage reports the input total
  * (uncached + cache writes + cache reads) and the cache reads and writes.
  */
 export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv): LlmProvider {
@@ -134,7 +136,10 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
       };
       if (request.system !== null)
         body['system'] = promptCache ? withBreakpoint(request.system) : request.system;
-      body['messages'] = promptCache ? markLastMessage(messagesOf(request)) : messagesOf(request);
+      body['messages'] = withTurnInstructions(
+        promptCache ? markLastMessage(messagesOf(request)) : messagesOf(request),
+        request.turnInstructions,
+      );
       body['stream'] = true;
 
       let res: Response;

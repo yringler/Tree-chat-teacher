@@ -120,6 +120,14 @@ export interface GenerateRequest {
   /** Offer (or require) a web search; ignored unless `capabilities(model).supportsWebSearch`. */
   webSearch?: WebSearchRequest;
   /**
+   * Instructions for this reply only (e.g. how to use the web search tool),
+   * sent after the history: appended to the last user message, as their own
+   * text part after its cache breakpoint where the provider marks one, so a
+   * turn with them and one without share the cached prefix (and the next
+   * turn, whose history holds that message without them, still reads it).
+   */
+  turnInstructions?: string;
+  /**
    * The reasoning effort of this call, overriding the model's configured
    * `ModelInfo.effort`: e.g. `none` for short structured answers whose output
    * cap thinking would use up (the pool's topic classifier), or the

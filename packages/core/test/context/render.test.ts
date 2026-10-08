@@ -9,6 +9,7 @@ import {
   CLIPPED_TRANSCRIPT_MARKER,
   CONTINUATION_MESSAGE,
   renderPlan,
+  replyInstructions,
   SUMMARY_HEADING,
   plainText,
 } from '../../src/context/render.js';
@@ -419,15 +420,11 @@ suite('plainText', () => {
   });
 });
 
-suite('renderPlan extraSystem (grounding)', () => {
-  it('appends it as the last system section, and folds it when system prompts are unsupported', () => {
-    const p = plan([sys('Be kind.'), msg('branch', 'user', 'Hi')]);
-    expect(renderPlan(p, { ...WITH_SYSTEM, extraSystem: '## Checking facts' }).system).toBe(
-      'Be kind.\n\n## Checking facts',
+suite('replyInstructions (grounding)', () => {
+  it('tags per-reply instructions so they read as the app’s note', () => {
+    expect(replyInstructions('  ## Checking facts\n\nSearch once.\n')).toBe(
+      '<instructions_for_this_reply>\n## Checking facts\n\nSearch once.\n</instructions_for_this_reply>',
     );
-    const folded = renderPlan(p, { ...NO_SYSTEM, extraSystem: '## Checking facts' });
-    expect(folded.system).toBeNull();
-    expect(folded.messages[0]!.content).toBe('Be kind.\n\n## Checking facts\n\nHi');
   });
 
   it('asks summaries to keep cited links', () => {

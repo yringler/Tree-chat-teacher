@@ -75,6 +75,7 @@ import {
   cleanTitle,
   plainText,
   renderPlan,
+  replyInstructions,
   type RenderOptions,
 } from '../context/render.js';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
@@ -1120,8 +1121,9 @@ export class ChatService {
   }
 
   /**
-   * Streams one reply to a planned context: renders it (with the grounding
-   * instructions when a search is offered), yields `delta`/`usage` for
+   * Streams one reply to a planned context: renders it (the grounding
+   * instructions go after the history, as `turnInstructions`, when a search
+   * is offered), yields `delta`/`usage` for
    * `target.nodeId` and `status` messages, and accumulates the text, usage
    * and found sources into `state` as they arrive (so a caller that fails
    * midway still has the partial reply). A provider that rejects the search
@@ -1152,16 +1154,14 @@ export class ChatService {
     let webSearch = this.webSearchRequest(target.grounding);
     for (let attempt = 0; attempt < 2; attempt++) {
       let retryWithoutSearch = false;
-      const extraSystem =
+      // After the history, not in the system prompt: see `replyInstructions`.
+      const turnInstructions =
         webSearch === undefined
           ? undefined
-          : webSearch.mode === 'required'
-            ? CHECK_SOURCES_INSTRUCTIONS
-            : GROUNDING_INSTRUCTIONS;
-      const rendered = renderPlan(plan, {
-        ...this.renderOptions(caps.supportsSystemPrompt),
-        ...(extraSystem !== undefined ? { extraSystem } : {}),
-      });
+          : replyInstructions(
+              webSearch.mode === 'required' ? CHECK_SOURCES_INSTRUCTIONS : GROUNDING_INSTRUCTIONS,
+            );
+      const rendered = renderPlan(plan, this.renderOptions(caps.supportsSystemPrompt));
       let searched = false;
       let cited: Citation[] = [];
       for await (const event of provider.stream({
@@ -1172,6 +1172,7 @@ export class ChatService {
         signal,
         usageTag: target.usageTag,
         ...(webSearch !== undefined ? { webSearch } : {}),
+        ...(turnInstructions !== undefined ? { turnInstructions } : {}),
       })) {
         if (event.type === 'delta') {
           state.content += event.text;

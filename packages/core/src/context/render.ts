@@ -12,8 +12,6 @@ import { MESSAGE_OVERHEAD_TOKENS, type TokenEstimator } from '../tokens.js';
 
 export interface RenderOptions {
   supportsSystemPrompt: boolean;
-  /** Appended as the last system section (e.g. grounding instructions); folded like the rest. */
-  extraSystem?: string;
 }
 
 export const SUMMARY_HEADING = '## Summary of the earlier conversation';
@@ -62,8 +60,6 @@ export function renderPlan(plan: ContextPlan, options: RenderOptions): RenderedP
   if (messages[0]?.role === 'assistant')
     messages.unshift({ role: 'user', content: CONTINUATION_MESSAGE });
 
-  if (options.extraSystem && options.extraSystem.trim() !== '')
-    systemParts.push(options.extraSystem);
   const system = systemParts.length > 0 ? systemParts.join('\n\n') : null;
   if (options.supportsSystemPrompt || system === null) return { system, messages };
 
@@ -71,6 +67,17 @@ export function renderPlan(plan: ContextPlan, options: RenderOptions): RenderedP
   if (first) first.content = `${system}\n\n${first.content}`;
   else messages.push({ role: 'user', content: system });
   return { system: null, messages };
+}
+
+/**
+ * Per-reply instructions (e.g. grounding) as sent after the history
+ * (`GenerateRequest.turnInstructions`), never in the system prompt: the
+ * system prompt and history stay the same whether a turn has them or not,
+ * so the cached prefix does too. Tagged so they read as the app's note for
+ * this reply, not as the learner's words.
+ */
+export function replyInstructions(text: string): string {
+  return `<instructions_for_this_reply>\n${text.trim()}\n</instructions_for_this_reply>`;
 }
 
 /** Appends a message, merging it into the last one when the role repeats. */

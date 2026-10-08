@@ -85,3 +85,40 @@ export function markLastMessage<M extends { content: string }>(
     i === messages.length - 1 ? { ...m, content: withBreakpoint(m.content) } : m,
   );
 }
+
+/** A plain text content part (no breakpoint). */
+export interface TextPart {
+  type: 'text';
+  text: string;
+}
+
+/** A message as sent: plain text, or content parts (some carrying a breakpoint). */
+export interface WireMessage {
+  role: string;
+  content: string | (CachedTextPart | TextPart)[];
+}
+
+/**
+ * `messages` (already marked, or plain) with `instructions`
+ * (`GenerateRequest.turnInstructions`) after the history: added to the last
+ * message when it is the user's (a new user message otherwise, so roles
+ * still alternate). A last message carrying a breakpoint gets them as a
+ * separate text part after it, outside the cached prefix: the next turn sends
+ * that message without them and still reads the entry this turn writes. A
+ * plain message gets them appended to its text (automatic caches match by
+ * prefix, so the tail is all they change). Blank instructions change nothing.
+ */
+export function withTurnInstructions(
+  messages: readonly WireMessage[],
+  instructions: string | undefined,
+): WireMessage[] {
+  const text = instructions?.trim() ?? '';
+  if (text === '') return [...messages];
+  const last = messages.at(-1);
+  if (!last || last.role !== 'user') return [...messages, { role: 'user', content: text }];
+  const content: WireMessage['content'] =
+    typeof last.content === 'string'
+      ? `${last.content}\n\n${text}`
+      : [...last.content, { type: 'text', text }];
+  return [...messages.slice(0, -1), { ...last, content }];
+}

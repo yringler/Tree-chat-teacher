@@ -561,6 +561,15 @@ describe('openai-compatible web search (OpenRouter)', () => {
     expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'stop' });
   });
 
+  it('sends the tool with the turn instructions after the history, not in the system prompt', async () => {
+    const { provider, calls } = setup(WS, () => sseResponse(OPENROUTER_STREAM).response);
+    await collect(provider.stream(req({ webSearch, turnInstructions: 'Search once.' })));
+    expect(calls[0]!.body['tool_choice']).toBe('auto');
+    const messages = calls[0]!.body['messages'] as { role: string; content: string }[];
+    expect(messages.at(-1)!.content.endsWith('\n\nSearch once.')).toBe(true);
+    expect(messages.filter((m) => m.role === 'system').some((m) => m.content.includes('Search once.'))).toBe(false);
+  });
+
   it('requires the tool for mode required', async () => {
     const { provider, calls } = setup(WS, () => sseResponse(OPENROUTER_STREAM).response);
     await collect(provider.stream(req({ webSearch: { ...webSearch, mode: 'required' } })));
@@ -688,6 +697,86 @@ describe('openai-compatible prompt caching', () => {
     expect(
       await sentMessages(OPENROUTER, { model: 'anthropic/claude-sonnet-5.5', messages }),
     ).toEqual([MARKED[0], { role: 'user', content: '' }]);
+  });
+
+  describe('turnInstructions', () => {
+    const NOTE = '<instructions_for_this_reply>\nSearch once.\n</instructions_for_this_reply>';
+    const turnInstructions = NOTE;
+
+    it('follow the breakpoint of the latest message as their own part', async () => {
+      expect(
+        await sentMessages(OPENROUTER, { model: 'anthropic/claude-sonnet-5.5', turnInstructions }),
+      ).toEqual([
+        ...MARKED.slice(0, 3),
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'And an integral?', cache_control: BP },
+            { type: 'text', text: NOTE },
+          ],
+        },
+      ]);
+    });
+
+    it('leave the system prompt and the earlier messages exactly as without them', async () => {
+      const model = 'anthropic/claude-sonnet-5.5';
+      const withNote = (await sentMessages(OPENROUTER, { model, turnInstructions })) as unknown[];
+      const without = (await sentMessages(OPENROUTER, { model })) as unknown[];
+      expect(withNote.slice(0, -1)).toEqual(without.slice(0, -1));
+      // The next turn sends this message as plain text: the same text as the marked part.
+      const last = withNote.at(-1) as { content: { text: string }[] };
+      expect(last.content[0]!.text).toBe(HISTORY.messages.at(-1)!.content);
+    });
+
+    it('are appended to the plain text of the latest message (automatic caching)', async () => {
+      expect(
+        await sentMessages(OPENROUTER, { model: 'deepseek/deepseek-v4-pro', turnInstructions }),
+      ).toEqual([...PLAIN.slice(0, 3), { role: 'user', content: `And an integral?\n\n${NOTE}` }]);
+    });
+
+    it('come after a folded system prompt and the only message', async () => {
+      const folded = { ...OPENROUTER, supportsSystemPrompt: false };
+      expect(
+        await sentMessages(folded, {
+          model: 'anthropic/claude-sonnet-5.5',
+          messages: [{ role: 'user', content: 'Hi' }],
+          turnInstructions,
+        }),
+      ).toEqual([
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'You are a patient tutor.\n\nHi', cache_control: BP },
+            { type: 'text', text: NOTE },
+          ],
+        },
+      ]);
+    });
+
+    it('become a user message after a latest assistant message; blank ones are dropped', async () => {
+      const messages = [
+        { role: 'user' as const, content: 'Hi' },
+        { role: 'assistant' as const, content: 'Hello' },
+      ];
+      expect(
+        await sentMessages(OPENROUTER, {
+          model: 'anthropic/claude-sonnet-5.5',
+          messages,
+          turnInstructions,
+        }),
+      ).toEqual([
+        MARKED[0],
+        { role: 'user', content: 'Hi' },
+        { role: 'assistant', content: [{ type: 'text', text: 'Hello', cache_control: BP }] },
+        { role: 'user', content: NOTE },
+      ]);
+      expect(
+        await sentMessages(OPENROUTER, {
+          model: 'deepseek/deepseek-v4-pro',
+          turnInstructions: '  \n',
+        }),
+      ).toEqual(PLAIN);
+    });
   });
 
   it('reports cache reads and writes from prompt_tokens_details', async () => {

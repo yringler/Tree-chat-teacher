@@ -351,6 +351,36 @@ describe('anthropic prompt caching', () => {
     ]);
   });
 
+  it('sends turnInstructions after the latest message breakpoint, as their own part', async () => {
+    const { provider, calls } = setup(() => sseResponse(RECORDED).response);
+    await collect(provider.stream(req({ turnInstructions: 'Search once.' })));
+    const body = calls[0]!.body;
+    expect(body['system']).toEqual([{ type: 'text', text: 'Be brief.', cache_control: BP }]);
+    const messages = body['messages'] as { role: string; content: unknown }[];
+    expect(messages.map((m) => m.content)).toEqual([
+      'Hi',
+      'Hello!',
+      [
+        { type: 'text', text: 'Tell me a joke', cache_control: BP },
+        { type: 'text', text: 'Search once.' },
+      ],
+    ]);
+    expect(JSON.stringify(body).match(/cache_control/g)).toHaveLength(2);
+  });
+
+  it('appends turnInstructions to the plain text with options.promptCache false', async () => {
+    const m = mockFetch(() => sseResponse(RECORDED).response);
+    const provider = createAnthropicProvider(
+      { ...CONFIG, options: { promptCache: false } },
+      { secrets: { ANTHROPIC_API_KEY: KEY }, fetch: m.fetch },
+    );
+    await collect(provider.stream(req({ turnInstructions: 'Search once.' })));
+    expect((m.calls[0]!.body['messages'] as unknown[]).at(-1)).toEqual({
+      role: 'user',
+      content: 'Tell me a joke\n\nSearch once.',
+    });
+  });
+
   it('sends plain content with options.promptCache false', async () => {
     const m = mockFetch(() => sseResponse(RECORDED).response);
     const provider = createAnthropicProvider(
