@@ -7,15 +7,13 @@
 // events are safe:
 //
 // - payment.succeeded, credits → `fulfilPurchase` (the buyer's own credit,
-//   net of the processing fee), once per payment ref. Non-USD payments,
-//   unknown targets (a legacy pool purchase) and any ledger but a personal one
-//   are logged and never credited; an unknown fee throws RetryLaterError.
+//   net of the processing fee), once per payment ref. Non-USD payments and
+//   payments naming no user are logged and never credited; an unknown fee
+//   throws RetryLaterError.
 // - payment.succeeded, membership → nothing on the ledger: the membership is
 //   its subscription snapshot (membership.changed below).
-// - refund.succeeded → a personal purchase: − the refunded pre-tax amount in
-//   full (the processor keeps its fee, so the refund passes it on); a legacy
-//   pool purchase (from before the pool became revenue-funded): − the share
-//   of what it credited, clamped by PoolBank.debit. A refund (or dispute) of
+// - refund.succeeded → a purchase: − the refunded pre-tax amount in full
+//   (the processor keeps its fee, so the refund passes it on). A refund (or dispute) of
 //   a payment not applied yet throws RetryLaterError only while that payment
 //   will grant something once applied (`grantsOnPayment`); a refund of one
 //   that never grants (a membership payment) is logged (`refund_not_debited`)
@@ -30,11 +28,9 @@
 //
 // Any event that names both our user and the provider's customer records
 // them in `billing_customers`.
-import { billingAccountIdFor, DEV_SIMPLE_ACCOUNT_ID, userIdOfAccount } from '../../auth/account.js';
+import { userIdOfAccount } from '../../auth/account.js';
 import type { AppEnv } from '../../env.js';
 import { identitySuspensionStatement } from '../../pool/identity.js';
-import { poolBank } from '../../pool/ids.js';
-import { creditEquivalentMicros } from '../../pool/pricing.js';
 import { grantByRef, grantCredit, grantTowardCap, hasGrant, type GrantRow } from '../ledger.js';
 import { centsToMicros } from '../pricing.js';
 import { fulfilPurchase } from '../purchases.js';
@@ -80,24 +76,6 @@ function written(changed: boolean): ApplyResult {
   return changed ? 'applied' : 'duplicate';
 }
 
-/**
- * True when `accountId` is a user's own ledger (`u_<userId>`, or the dev
- * bypass's `default_simple`); anything else that received a purchase is a
- * open pool account (a legacy pool purchase).
- */
-function isPersonalLedger(accountId: string): boolean {
-  return accountId === DEV_SIMPLE_ACCOUNT_ID || userIdOfAccount(accountId) !== null;
-}
-
-/** The personal ledger a credits payment is credited to; null = never credited (`no_account`). */
-function creditsAccountOf(
-  purpose: { accountId: string | null },
-  userId: string | null,
-): string | null {
-  const accountId = purpose.accountId || (userId ? billingAccountIdFor(userId) : null);
-  return accountId && isPersonalLedger(accountId) ? accountId : null;
-}
-
 /** Applies one normalised payment event. Throws RetryLaterError (or a D1 error) to be retried. */
 export async function applyPaymentEvent(
   env: AppEnv,
@@ -137,15 +115,10 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
     });
     return 'skipped';
   }
-  if (purpose.target === 'unknown') {
-    log('payment_not_credited', { reason: 'unknown_target', paymentRef: e.paymentRef });
-    return 'skipped';
-  }
   if (!(e.netCents > 0)) return 'skipped';
   if (await hasGrant(env.DB, e.paymentRef)) return 'duplicate';
   if (!e.fee) throw new RetryLaterError(`The fee of ${e.paymentRef} is not known yet`);
-  const accountId = creditsAccountOf(purpose, e.userId);
-  if (!accountId) {
+  if (!e.userId) {
     log('payment_not_credited', { reason: 'no_account', paymentRef: e.paymentRef });
     return 'skipped';
   }
@@ -153,8 +126,7 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
     log('fee_estimated', { paymentRef: e.paymentRef, feeCents: e.fee.cents, netCents: e.netCents });
   return written(
     await fulfilPurchase(env, {
-      userId: e.userId ?? userIdOfAccount(accountId),
-      accountId,
+      userId: e.userId,
       grossCents: e.netCents,
       processorFeeCents: e.fee.cents,
       ref: e.paymentRef,
@@ -165,16 +137,12 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
 /**
  * True when applying this payment writes a grant (what `paidGrant` reads): a
  * credits payment `paymentSucceeded` credits on its own ref (every skip
- * there, `currency`, `unknown_target`, nothing paid and `no_account`, is
- * final). A payment that grants nothing is never waited for, so its refund
+ * there, `currency`, nothing paid and `no_account`, is final). A payment that grants nothing is never waited for, so its refund
  * can't be retried forever.
  */
 function grantsOnPayment(facts: PaymentFacts): boolean {
   if (!(facts.netCents > 0)) return false;
-  const purpose = facts.purpose;
-  if (purpose.kind !== 'credits' || purpose.target === 'unknown' || facts.currency !== 'usd')
-    return false;
-  return creditsAccountOf(purpose, facts.userId) !== null;
+  return facts.purpose.kind === 'credits' && facts.currency === 'usd' && facts.userId !== null;
 }
 
 /**
@@ -238,12 +206,11 @@ function personalCapMicros(grant: GrantRow): number {
 }
 
 /**
- * Debits a purchase being refunded or disputed: a personal purchase by the
- * refunded pre-tax amount in full (it may go negative; the processor keeps
- * its fee, so the refund passes it on), a legacy pool purchase through
- * `debitPoolPurchase` (clamped). Keyed on `ref`. All of a purchase's refunds
- * and disputes together (net of won disputes) never take back more than it
- * paid (personal) or credited (pool): each row is linked to `paymentRef`.
+ * Debits a purchase being refunded or disputed by the refunded pre-tax amount
+ * in full (it may go negative; the processor keeps its fee, so the refund
+ * passes it on). Keyed on `ref`. All of a purchase's refunds and disputes
+ * together (net of won disputes) never take back more than it paid: each row
+ * is linked to `paymentRef`.
  */
 async function debitPurchase(
   env: AppEnv,
@@ -252,15 +219,6 @@ async function debitPurchase(
 ): Promise<ApplyResult> {
   const micros = centsToMicros(debit.netCents);
   if (micros <= 0) return 'skipped';
-  if (!isPersonalLedger(grant.account_id)) {
-    const { debited } = await debitPoolPurchase(env, grant, {
-      paymentRef: debit.paymentRef,
-      refId: debit.ref,
-      refundedGrossMicros: micros,
-      note: debit.note,
-    });
-    return written(debited);
-  }
   return written(
     await grantTowardCap(env.DB, {
       accountId: grant.account_id,
@@ -272,42 +230,6 @@ async function debitPurchase(
       note: debit.note,
     }),
   );
-}
-
-/**
- * Debits the pool for `refundedGrossMicros` (pre-tax) of a legacy pool
- * purchase being refunded or disputed: the share of what the purchase actually
- * credited (`creditEquivalentMicros`, net of its fee), or, for an old row
- * without its gross amount, at most the refunded amount; capped at what is
- * left of what the purchase credited, then clamped to what the pool has
- * available. The row is always written (PoolBank.debit), so a redelivery is
- * a no-op.
- */
-async function debitPoolPurchase(
-  env: AppEnv,
-  grant: GrantRow,
-  d: { paymentRef: ProviderRef; refId: string; refundedGrossMicros: number; note: string },
-): Promise<{ debited: boolean }> {
-  if (d.refundedGrossMicros <= 0) return { debited: false };
-  const poolId = grant.account_id;
-  const requested =
-    grant.gross_micros !== null && grant.gross_micros > 0
-      ? creditEquivalentMicros(d.refundedGrossMicros, {
-          amountMicros: grant.amount_micros,
-          grossMicros: grant.gross_micros,
-        })
-      : d.refundedGrossMicros;
-  const result = await poolBank(env, poolId).debit({
-    poolId,
-    refId: d.refId,
-    requestedMicros: requested,
-    kind: 'refund',
-    userId: grant.user_id,
-    grossMicros: -d.refundedGrossMicros,
-    cap: { paymentRef: d.paymentRef, maxMicros: Math.max(0, grant.amount_micros) },
-    note: d.note,
-  });
-  return { debited: result.debited };
 }
 
 /** The ledger of zero-amount markers that belong to no account (a dispute of a payment that granted nothing). */
@@ -385,40 +307,24 @@ async function suspendPoolAccess(env: AppEnv, userId: string, disputeRef: string
 }
 
 /**
- * The dispute was won and its funds reinstated, once. A personal purchase:
- * its refunds alone (capped) are what is taken back now, so this credits
- * back what the dispute took beyond them (all of it unless a refund came
- * after the dispute and found nothing left). A legacy pool purchase: exactly
- * what the dispute debited (the clamped amount). Nothing when it never
- * debited anything (a poller may first see a dispute already won).
+ * The dispute was won and its funds reinstated, once. The purchase's refunds
+ * alone (capped) are what is taken back now, so this credits back what the
+ * dispute took beyond them (all of it unless a refund came after the dispute
+ * and found nothing left). Nothing when it never debited anything (a poller
+ * may first see a dispute already won).
  */
 async function disputeWon(env: AppEnv, e: DisputeEvent): Promise<ApplyResult> {
   const debited = await grantByRef(env.DB, e.disputeRef);
-  if (!debited) return 'skipped';
-  const purchase = isPersonalLedger(debited.account_id)
-    ? await grantByRef(env.DB, e.paymentRef)
-    : null;
-  if (purchase && debited.gross_micros !== null)
-    return written(
-      await grantTowardCap(env.DB, {
-        accountId: debited.account_id,
-        grossMicros: -debited.gross_micros,
-        capMicros: personalCapMicros(purchase),
-        paymentRef: e.paymentRef,
-        userId: debited.user_id,
-        providerRef: reinstatedRef(e.disputeRef),
-        note: `Dispute ${e.disputeRef} won`,
-      }),
-    );
+  const purchase = debited ? await grantByRef(env.DB, e.paymentRef) : null;
+  if (!debited || !purchase || debited.gross_micros === null) return 'skipped';
   return written(
-    await grantCredit(env.DB, {
+    await grantTowardCap(env.DB, {
       accountId: debited.account_id,
-      kind: 'refund',
-      amountMicros: -debited.amount_micros,
-      grossMicros: debited.gross_micros === null ? null : -debited.gross_micros,
+      grossMicros: -debited.gross_micros,
+      capMicros: personalCapMicros(purchase),
+      paymentRef: e.paymentRef,
       userId: debited.user_id,
       providerRef: reinstatedRef(e.disputeRef),
-      paymentRef: e.paymentRef,
       note: `Dispute ${e.disputeRef} won`,
     }),
   );

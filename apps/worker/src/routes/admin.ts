@@ -335,10 +335,11 @@ export function adminRoutes(): Hono<AppBindings> {
     let ref: string;
     let credited: boolean;
     if (req.mode === 'simulated_purchase') {
+      // The schema gives a simulated purchase a personal target, so a user.
+      if (req.userId === null) throw new ValidationError('A simulated purchase needs a user');
       ref = `dev:${req.idempotencyKey}`;
       credited = await fulfilPurchase(c.env, {
         userId: req.userId,
-        accountId,
         grossCents: req.amountCents,
         processorFeeCents: 0,
         ref,
@@ -352,9 +353,7 @@ export function adminRoutes(): Hono<AppBindings> {
           poolId: accountId,
           refId: ref,
           requestedMicros: -amountMicros,
-          kind: 'adjustment',
           userId: req.userId,
-          grossMicros: null,
           note,
         });
         credited = debit.debited;

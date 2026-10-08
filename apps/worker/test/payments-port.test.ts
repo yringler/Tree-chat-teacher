@@ -39,7 +39,6 @@ describe('payment refs', () => {
 describe('fake payment provider', () => {
   const input: TopUpCheckoutInput = {
     buyer: { userId: 'u1', email: 'ada@example.com', name: 'Ada Ünïcode', customerRef: null },
-    accountId: 'u_u1',
     amountCents: 1234,
     successUrl: 'https://app.example/billing?checkout=success',
     cancelUrl: 'https://app.example/billing?checkout=cancel',
@@ -62,7 +61,7 @@ describe('fake payment provider', () => {
   it('follows its options', async () => {
     const payment: PaymentFacts = {
       paymentRef: 'fake:order:o1' as ProviderRef,
-      purpose: { kind: 'credits', target: 'personal', accountId: 'u_u1' },
+      purpose: { kind: 'credits' },
       userId: 'u1',
       customerRef: null,
       currency: 'usd',

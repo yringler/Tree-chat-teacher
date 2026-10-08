@@ -31,9 +31,8 @@ export interface Buyer {
 }
 
 export interface TopUpCheckoutInput {
+  /** Credit is bought for the buyer's own ledger only. */
   buyer: Buyer;
-  /** The ledger to credit (the buyer's own, `u_<userId>`). It must come back in `PaymentSucceeded.purpose`. */
-  accountId: string;
   /** Pre-tax, whole USD cents. The domain has already validated the bounds. */
   amountCents: number;
   successUrl: string;
@@ -136,16 +135,10 @@ interface EventBase {
   occurredAt: string;
 }
 
-/**
- * Who a credits payment is for: the buyer's own ledger (`personal`), or
- * `unknown` (any other target, such as a `pool` purchase from before the
- * pool became revenue-funded): logged, never credited.
- */
-export type CreditsTarget = 'personal' | 'unknown';
-
 /** What a payment was for, as the checkout metadata (or the product) says. */
 export type PaymentPurpose =
-  | { kind: 'credits'; target: CreditsTarget; accountId: string | null }
+  /** A top-up of the buyer's own credit. */
+  | { kind: 'credits' }
   | { kind: 'membership'; cycle: 'initial' | 'renewal'; subscriptionRef: ProviderRef }
   /** Anything else on the provider account: logged, never credited. */
   | { kind: 'other' };

@@ -44,7 +44,6 @@ describe('credit checkout', () => {
       page: 'checkout',
       input: {
         buyer: { userId: user.id, email: user.email, name: 'Ada', customerRef: null },
-        accountId: account.id,
         amountCents: 500,
         successUrl: `${BASE}/learn/billing?checkout=success`,
         cancelUrl: `${BASE}/learn/billing?checkout=cancel`,
@@ -52,11 +51,11 @@ describe('credit checkout', () => {
     });
   });
 
-  it("works from power mode: credits the user's ledger and returns to /billing", async () => {
+  it('works from power mode: buys for the same user and returns to /billing', async () => {
     const { user } = await newUser(powerAccount());
     const { url } = await startTopUpCheckout(env, powerAccount(user.id), user.id, 1000, BASE);
     expect(decodeFakeUrl(url).input).toMatchObject({
-      accountId: `u_${user.id}`,
+      buyer: { userId: user.id },
       successUrl: `${BASE}/billing?checkout=success`,
       cancelUrl: `${BASE}/billing?checkout=cancel`,
     });

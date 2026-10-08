@@ -7,17 +7,16 @@ import { pollDisputes } from '../src/billing/payments/disputes.js';
 import { getBalance } from '../src/billing/ledger.js';
 import { createFakeProvider } from '../src/billing/providers/fake.js';
 import type { AppEnv } from '../src/env.js';
-import { grantDetailsFor, insertUsage, insertUser, uniq } from './mocks/billing-helpers.js';
+import { grantDetailsFor, insertUser, uniq } from './mocks/billing-helpers.js';
 import {
   disputed,
   fakeRef,
   factsOf,
-  legacyPoolPurchase,
   membershipPaid,
   paid,
   refunded,
 } from './mocks/payment-events.js';
-import { fundPool, poolAccess } from './pool-helpers.js';
+import { poolAccess } from './pool-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
 const noProvider = { provider: null };
@@ -50,15 +49,13 @@ describe('disputes', () => {
   it('a dispute first seen as lost debits once and suspends the buyer once', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const userId = await newUser();
-    const poolId = uniq('pool');
-    const payment = await legacyPoolPurchase(env, { poolId, userId, netCents: 1000, feeCents: 80 });
-    await insertUsage(env, { accountId: poolId, status: 'settled', chargeMicros: 9_000_000 });
+    const payment = paid({ userId, netCents: 1000, feeCents: 80 });
+    await apply(payment);
     const lost = disputed('dispute.lost', payment.paymentRef, 1000);
     expect(await apply(lost)).toBe('applied');
-    // Clamped: the pool had only 0.20 left.
     expect(
-      (await grantDetailsFor(env, poolId)).find((g) => g.provider_ref === lost.disputeRef),
-    ).toMatchObject({ kind: 'refund', amount_micros: -200_000, gross_micros: -10_000_000 });
+      (await grantDetailsFor(env, `u_${userId}`)).find((g) => g.provider_ref === lost.disputeRef),
+    ).toMatchObject({ kind: 'refund', amount_micros: -10_000_000, gross_micros: -10_000_000 });
     expect((await poolAccess(userId))?.pool_suspended).toBe(1);
     // An admin lifts the suspension; the poller keeps seeing the dispute as lost.
     await env.DB.prepare('UPDATE auth_users SET pool_suspended = 0 WHERE id = ?')
@@ -66,7 +63,7 @@ describe('disputes', () => {
       .run();
     expect(await apply(lost)).toBe('duplicate');
     expect((await poolAccess(userId))?.pool_suspended).toBe(0);
-    expect(await balance(poolId)).toBe(0);
+    expect(await balance(`u_${userId}`)).toBe(-800_000);
     warn.mockRestore();
   });
 
@@ -113,19 +110,6 @@ describe('refunds and disputes of the same purchase', () => {
     await apply(disputed('dispute.won', b.paymentRef, 1000, ref));
     await apply(disputed('dispute.opened', b.paymentRef, 1000, ref));
     expect(await balance(`u_${other}`)).toBe(5_200_000);
-  });
-
-  it('take back at most what a legacy pool purchase credited', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const userId = await newUser();
-    const poolId = uniq('pool');
-    await fundPool(poolId, 50_000_000);
-    const payment = await legacyPoolPurchase(env, { poolId, userId, netCents: 1000, feeCents: 80 });
-    await apply(refunded(payment.paymentRef, 1000));
-    await apply(disputed('dispute.lost', payment.paymentRef, 1000));
-    // 50 + 9.20 credited − 9.20 taken back, once.
-    expect(await balance(poolId)).toBe(50_000_000);
-    warn.mockRestore();
   });
 });
 

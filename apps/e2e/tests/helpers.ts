@@ -131,7 +131,7 @@ export function topUp(userId: string, cents: number) {
     provider: 'fake',
     occurredAt: new Date().toISOString(),
     paymentRef: `fake:order:${userId}:${Date.now()}`,
-    purpose: { kind: 'credits', target: 'personal', accountId: null },
+    purpose: { kind: 'credits' },
     userId,
     customerRef: null,
     currency: 'usd',

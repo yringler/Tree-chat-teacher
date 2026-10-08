@@ -16,7 +16,7 @@ export type CreditGrantKind = 'purchase' | 'refund' | 'adjustment';
 export interface CreditGrantInput {
   accountId: string;
   kind: CreditGrantKind;
-  /** Signed micro-USD (refunds are negative); for purchases, net of the processing fee (pool purchases before 2026-10: of the pool margin). */
+  /** Signed micro-USD (refunds are negative); for purchases, net of the processing fee. */
   amountMicros: number;
   /**
    * Purchases: the pre-tax amount paid, before the processing fee. Refunds: minus the refunded

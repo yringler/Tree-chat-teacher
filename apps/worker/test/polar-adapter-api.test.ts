@@ -44,7 +44,6 @@ describe('Polar checkouts', () => {
     const b = buyer();
     const session = await polar.createTopUpCheckout({
       buyer: b,
-      accountId: `u_${b.userId}`,
       amountCents: 2500,
       successUrl: 'https://app.example/learn/billing?checkout=success',
       cancelUrl: 'https://app.example/learn/billing?checkout=cancel',
@@ -73,7 +72,6 @@ describe('Polar checkouts', () => {
       metadata: {
         kind: 'credits',
         target: 'personal',
-        accountId: `u_${b.userId}`,
         userId: b.userId,
         v: 1,
       },
@@ -176,7 +174,7 @@ describe('Polar payments and disputes', () => {
     await objects({ orders: [order({ id, externalId: 'user_7' })] });
     expect(await polar.getPayment(`polar:order:${id}` as ProviderRef)).toMatchObject({
       paymentRef: `polar:order:${id}`,
-      purpose: { kind: 'credits', target: 'personal' },
+      purpose: { kind: 'credits' },
       userId: 'user_7',
       netCents: 1000,
     });

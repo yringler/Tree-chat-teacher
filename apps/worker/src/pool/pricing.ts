@@ -1,11 +1,10 @@
 // Open pool money math (docs/pool/PLAN.md §1.2), on top of the integer
-// helpers in billing/pricing.ts: worst-case holds from the price table,
-// token-priced costs when the provider reports none, and refund shares of a
-// purchase. Every charge is the call's true cost, price × (1 + fee), with no
-// markup (Tangent funds the pool, so a markup on it would be meaningless;
-// rows reserved before carry their stored markup), and every hold is priced
-// the same way, so a hold always covers its charge. Exact integer (BigInt)
-// math, rounded in the pool's favour.
+// helpers in billing/pricing.ts: worst-case holds from the price table, and
+// token-priced costs when the provider reports none. Every pool charge is the
+// call's true cost, price × (1 + fee), with no markup (Tangent funds the
+// pool, so a markup on it would be meaningless), and every hold is priced the
+// same way, so a hold always covers its charge. Exact integer (BigInt) math,
+// rounded in the pool's favour.
 import { CHARS_PER_TOKEN, renderOverheadBytes, utf8Bytes } from '@tangent/core';
 import type { ChatMessage } from '@tangent/shared';
 import { BPS_SCALE, bpsOf, chargeMicros } from '../billing/pricing.js';
@@ -205,7 +204,7 @@ export function costFromTokensNanos(
   return Number((raw + 999n) / 1000n);
 }
 
-/** What a token-priced call is charged on the pool: its true cost, plus the row's stored markup (0 since the pool went at-cost). */
+/** What a token-priced call is charged: its true cost plus `markupBps` (0 on the pool). */
 export function chargeFromTokensMicros(
   price: ModelPrice,
   inputTokens: number | null,
@@ -219,22 +218,4 @@ export function chargeFromTokensMicros(
     markupBps,
     feeBps,
   );
-}
-
-/**
- * The pool credit a refund of `refundGrossMicros` (pre-tax) of a pool
- * purchase takes back: the same share of the credit the purchase granted,
- * `round(refund × credit / gross)`, so refunding all of a $10 purchase that
- * added $9.20 (net of the processing fee) takes $9.20 of pool credit, and
- * refunding half of it $4.60. Also the proportion of a membership payment's
- * pool share a refund takes back (`reverseMembershipShare`).
- */
-export function creditEquivalentMicros(
-  refundGrossMicros: number,
-  grant: { amountMicros: number; grossMicros: number },
-): number {
-  if (refundGrossMicros <= 0 || grant.grossMicros <= 0 || grant.amountMicros <= 0) return 0;
-  const num = BigInt(Math.round(refundGrossMicros)) * BigInt(Math.round(grant.amountMicros));
-  const den = BigInt(Math.round(grant.grossMicros));
-  return Number((2n * num + den) / (2n * den));
 }

@@ -12,7 +12,6 @@
 import type { models } from '@polar-sh/sdk/2026-10';
 import type { SubscriptionStatus } from '@tangent/shared';
 import type {
-  CreditsTarget,
   DisputeEvent,
   MembershipChanged,
   PaymentFacts,
@@ -87,11 +86,9 @@ function purposeOf(order: models.Order, config: PolarConfig): PaymentPurpose {
     return { kind: 'other' };
   }
   if (order.billing_reason === 'purchase' && text(metadata, 'kind') === CREDITS_KIND) {
-    // Credit is sold only for the buyer's own ledger; anything else (a legacy
-    // `pool` purchase) is not credited automatically.
-    const raw = text(metadata, 'target');
-    const target: CreditsTarget = raw === null || raw === 'personal' ? 'personal' : 'unknown';
-    return { kind: 'credits', target, accountId: text(metadata, 'accountId') };
+    // Credit is sold only for the buyer's own ledger: an order for any other target is not credited.
+    const target = text(metadata, 'target');
+    return target === null || target === 'personal' ? { kind: 'credits' } : { kind: 'other' };
   }
   return { kind: 'other' };
 }

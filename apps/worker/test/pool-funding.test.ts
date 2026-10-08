@@ -1,8 +1,7 @@
 // How credit reaches the open pool now that nobody buys it
-// (docs/polar-migration/05-pool-framing.md, D1): a pool-target payment is
-// never credited, legacy pool purchase grants are still debited (clamped) by
-// their refunds and disputes, checkouts are personal only, and the admin's
-// credit route and pool panel.
+// (docs/polar-migration/05-pool-framing.md, D1): a payment is never credited
+// to the pool, checkouts are personal only, and the admin's credit route and
+// pool panel are how the pool is funded.
 import {
   type AdminCreditResponse,
   type AdminPoolResponse,
@@ -14,7 +13,7 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 // @ts-expect-error -- `?raw` is a Vite import; the worker tsconfig has no vite/client types.
 import wranglerText from '../wrangler.jsonc?raw';
-import { getBalance, grantCredit } from '../src/billing/ledger.js';
+import { getBalance } from '../src/billing/ledger.js';
 import { decodeFakeUrl } from '../src/billing/providers/fake.js';
 import { fulfilPurchase } from '../src/billing/purchases.js';
 import { applyPaymentEvent } from '../src/billing/payments/apply.js';
@@ -22,8 +21,8 @@ import { appConfig } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { poolBank } from '../src/pool/ids.js';
 import { insertUser, uniq } from './mocks/billing-helpers.js';
-import { disputed, legacyPoolPurchase, paid, refunded } from './mocks/payment-events.js';
-import { fundPool, poolAccess, poolReadyUser } from './pool-helpers.js';
+import { paid, refunded } from './mocks/payment-events.js';
+import { fundPool, poolReadyUser } from './pool-helpers.js';
 import { authEnv } from './session-client.js';
 
 const env = rawEnv as unknown as AppEnv;
@@ -60,58 +59,19 @@ async function json<T>(res: Response, status = 200): Promise<T> {
 }
 
 describe('no pool purchases through the payment webhook', () => {
-  it('never credits a pool-target payment, or one naming any ledger but a personal one', async () => {
+  it('never credits an order that is not a personal top-up, or its refund', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const poolId = uniq('pool');
     const buyer = uniq('user');
     await insertUser(env, { id: buyer });
-    // A legacy `target: 'pool'` order maps to `unknown` (polar/map.ts).
-    const legacy = paid({ userId: buyer, target: 'unknown', accountId: poolId });
-    expect(await applyPaymentEvent(env, legacy, { provider: null })).toBe('skipped');
-    const forged = paid({ userId: buyer, accountId: poolId });
-    expect(await applyPaymentEvent(env, forged, { provider: null })).toBe('skipped');
+    // A `target: 'pool'` order maps to `other` (polar/map.ts).
+    const other = { ...paid({ userId: buyer }), purpose: { kind: 'other' as const } };
+    expect(await applyPaymentEvent(env, other, { provider: null })).toBe('skipped');
     expect(await grants(poolId)).toEqual([]);
     expect(await balance(`u_${buyer}`)).toBe(0);
-    // Their refunds take nothing back (the provider reports nothing that was credited).
-    expect(
-      await applyPaymentEvent(env, refunded(legacy.paymentRef, 1000), { provider: null }),
-    ).toBe('skipped');
-    warn.mockRestore();
-  });
-
-  it('a refund of a legacy pool purchase still debits the pool, clamped, once', async () => {
-    const poolId = uniq('pool');
-    const buyer = uniq('user');
-    await insertUser(env, { id: buyer });
-    const { paymentRef } = await legacyPoolPurchase(env, { poolId, userId: buyer });
-    // Half refunded: half of what it credited comes back out.
-    const half = refunded(paymentRef, 500);
-    expect(await applyPaymentEvent(env, half, { provider: null })).toBe('applied');
-    expect(await applyPaymentEvent(env, half, { provider: null })).toBe('duplicate');
-    expect(await balance(poolId)).toBe(4_600_000);
-    // The pool spent some meanwhile: the rest is clamped to what it has.
-    await grantCredit(env.DB, {
-      accountId: poolId,
-      kind: 'adjustment',
-      amountMicros: -4_000_000,
-      providerRef: `admin:${uniq('spent')}`,
-    });
-    await applyPaymentEvent(env, refunded(paymentRef, 500), { provider: null });
-    expect(await balance(poolId)).toBe(0);
-    const rows = await grants(poolId);
-    expect(rows.at(-1)).toMatchObject({ kind: 'refund', amount_micros: -600_000, user_id: buyer });
-    expect(rows.at(-1)!.note).toContain('requested=4600000;shortfall=4000000');
-  });
-
-  it('a lost dispute of a legacy pool purchase debits the pool and suspends its buyer', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const poolId = uniq('pool');
-    const buyer = uniq('user');
-    await insertUser(env, { id: buyer });
-    const { paymentRef } = await legacyPoolPurchase(env, { poolId, userId: buyer });
-    await applyPaymentEvent(env, disputed('dispute.lost', paymentRef, 1000), { provider: null });
-    expect(await balance(poolId)).toBe(0);
-    expect((await poolAccess(buyer))?.pool_suspended).toBe(1);
+    expect(await applyPaymentEvent(env, refunded(other.paymentRef, 1000), { provider: null })).toBe(
+      'skipped',
+    );
     warn.mockRestore();
   });
 
@@ -121,12 +81,10 @@ describe('no pool purchases through the payment webhook', () => {
     const bank = poolBank(env, poolId);
     const req = {
       poolId,
-      refId: uniq('re'),
+      refId: `admin:${uniq('re')}`,
       requestedMicros: 5_000,
-      kind: 'refund' as const,
       userId: null,
-      grossMicros: -5_000,
-      note: 'Refund',
+      note: 'Correction',
     };
     expect(await bank.debit(req)).toEqual({
       debited: true,
@@ -177,7 +135,7 @@ describe('POST /api/billing/checkout', () => {
         (await json<CheckoutResponse>(await checkout(500, target))).url,
       );
       expect(personal.input).toMatchObject({
-        accountId: `u_${userId}`,
+        buyer: { userId },
         amountCents: 500,
         successUrl: `${ORIGIN}/learn/billing?checkout=success`,
         cancelUrl: `${ORIGIN}/learn/billing?checkout=cancel`,

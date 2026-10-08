@@ -134,7 +134,7 @@ describe('POST /api/webhooks/polar (smoke, signed synthetic deliveries)', () => 
     const paidOrder = order({
       id: orderId,
       externalId: userId,
-      metadata: { kind: 'credits', target: 'personal', accountId: `u_${userId}`, userId, v: 1 },
+      metadata: { kind: 'credits', target: 'personal', userId, v: 1 },
     });
     expect((await deliverPolar(envelope('order.paid', paidOrder))).status).toBe(200);
     expect(await grantDetailsFor(base, `u_${userId}`)).toEqual([

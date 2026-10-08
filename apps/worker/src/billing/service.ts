@@ -446,7 +446,6 @@ export async function startTopUpCheckout(
   // The user's ledger, whichever app the top-up was bought from.
   const session = await provider.createTopUpCheckout({
     buyer,
-    accountId: account.billingAccountId,
     amountCents,
     successUrl: checkoutReturnUrl(baseUrl, account, 'success'),
     cancelUrl: checkoutReturnUrl(baseUrl, account, 'cancel'),

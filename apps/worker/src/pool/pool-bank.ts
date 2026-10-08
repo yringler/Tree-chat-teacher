@@ -140,25 +140,15 @@ export interface PoolRefusal {
   limit: number | null;
 }
 
-/** `debit`: take up to `requestedMicros` from the pool, keyed on `refId`. */
+/** `debit`: an admin's negative adjustment, up to `requestedMicros`, keyed on `refId`. */
 export interface PoolDebitRequest {
   poolId: string;
-  /** Idempotency key: the payment provider's refund or dispute ref, or `admin:<key>`. */
+  /** Idempotency key: `admin:<key>`. */
   refId: string;
   /** Positive micro-USD to take; the debit is clamped to what is available. */
   requestedMicros: number;
-  /** `refund` for refunds and disputes, `adjustment` for an admin's. */
-  kind: 'refund' | 'adjustment';
-  /** The buyer whose purchase is refunded, or the admin adjustment's user. */
+  /** The adjustment's user, if it names one. */
   userId: string | null;
-  /** Refunds and disputes: minus the refunded pre-tax amount (unclamped); else null. */
-  grossMicros: number | null;
-  /**
-   * A refund or dispute of a payment: the payment, and the most all of its
-   * rows on this pool may take back together (what it added). The debit is
-   * capped at what is left of that first, then clamped to what is available.
-   */
-  cap?: { paymentRef: string; maxMicros: number };
   note: string;
 }
 
@@ -405,14 +395,12 @@ export class PoolBank extends DurableObject<AppEnv> {
   }
 
   /**
-   * Debits the pool (a refund or dispute of a legacy pool purchase, or a
-   * negative admin adjustment; docs/pool/PLAN.md §1.3), under the reservation lock: a
-   * debit lowers `available` like a reservation does. The amount is clamped
-   * to what is available, so the pool never goes negative, and the row is
-   * written even when the clamp leaves 0: keyed on `refId`, it makes every
-   * redelivery (or a later event listing the same refund again) a no-op. The
-   * requested amount and the shortfall go in the note; the shortfall is the
-   * operator's to absorb and is logged.
+   * Debits the pool (a negative admin adjustment; docs/pool/PLAN.md §1.3),
+   * under the reservation lock: a debit lowers `available` like a
+   * reservation does. The amount is clamped to what is available, so the
+   * pool never goes negative, and the row is written even when the clamp
+   * leaves 0: keyed on `refId`, it makes a repeat a no-op. The requested
+   * amount and the shortfall go in the note; the shortfall is logged.
    */
   async debit(req: PoolDebitRequest): Promise<PoolDebitResult> {
     if (!Number.isSafeInteger(req.requestedMicros) || req.requestedMicros < 0)
@@ -427,21 +415,18 @@ export class PoolBank extends DurableObject<AppEnv> {
     const existing = await grantByRef(db, req.refId);
     if (existing)
       return { debited: false, amountMicros: -existing.amount_micros, shortfallMicros: 0 };
-    const requested = req.cap
-      ? Math.min(req.requestedMicros, await this.leftToTake(req.poolId, req.cap))
-      : req.requestedMicros;
+    const requested = req.requestedMicros;
     const balance = await getBalance(db, req.poolId, await this.checkpointOf(req.poolId));
     const available = balance.balanceMicros - balance.heldMicros;
     const amount = Math.min(requested, Math.max(available, 0));
     const shortfall = requested - amount;
     const debited = await grantCredit(db, {
       accountId: req.poolId,
-      kind: req.kind,
+      kind: 'adjustment',
       amountMicros: -amount,
-      grossMicros: req.grossMicros,
+      grossMicros: null,
       userId: req.userId,
       providerRef: req.refId,
-      paymentRef: req.cap?.paymentRef ?? null,
       note: `${req.note} (requested=${requested};shortfall=${shortfall})`,
     });
     if (debited && shortfall > 0) {
@@ -462,20 +447,6 @@ export class PoolBank extends DurableObject<AppEnv> {
       return { debited: false, amountMicros: -(row?.amount_micros ?? 0), shortfallMicros: 0 };
     }
     return { debited: true, amountMicros: amount, shortfallMicros: shortfall };
-  }
-
-  /** What `cap` leaves to take: its maximum less what the payment's rows on the pool took (net). */
-  private async leftToTake(
-    poolId: string,
-    cap: { paymentRef: string; maxMicros: number },
-  ): Promise<number> {
-    const row = await this.env.DB.prepare(
-      `SELECT COALESCE(SUM(amount_micros), 0) AS net FROM credit_grants
-       WHERE account_id = ? AND payment_ref = ?`,
-    )
-      .bind(poolId, cap.paymentRef)
-      .first<{ net: number }>();
-    return Math.max(0, cap.maxMicros + Number(row?.net ?? 0));
   }
 
   /**

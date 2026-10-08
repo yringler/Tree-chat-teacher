@@ -166,7 +166,6 @@ export function createPolarProvider(config: PolarConfig): PaymentProvider {
           metadata: {
             kind: CREDITS_KIND,
             target: 'personal',
-            accountId: input.accountId,
             userId: input.buyer.userId,
             v: METADATA_VERSION,
           },

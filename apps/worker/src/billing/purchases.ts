@@ -1,8 +1,8 @@
 // The purchase interface (docs/pool/PLAN.md §S5): how credit is bought and,
 // once paid, what it credits. Credit is bought only for the buyer's own
 // ledger (`u_<userId>`), spent with the usage-time markup (MARKUP_BPS).
-// Nobody buys credit for the open pool: Tangent funds it from its own
-// revenue (docs/polar-migration/05-pool-framing.md).
+// Nobody buys credit for the open pool: Tangent funds it with admin
+// adjustments (docs/polar-migration/05-pool-framing.md).
 //
 // A purchase is credited the pre-tax amount paid net of the payment
 // provider's actual processing fee (`netOfFee`). The operator earns on usage,
@@ -20,10 +20,8 @@ import { centsToMicros } from './pricing.js';
 
 /** A purchase the processor reports as paid. */
 export interface PaidPurchase {
-  /** The buyer; null only for the dev bypass ledger (`default_simple`). */
-  userId: string | null;
-  /** The ledger credited, as the checkout recorded it. Default: the buyer's own ledger. */
-  accountId?: string | null;
+  /** The buyer, whose own ledger (`u_<userId>`) is credited. */
+  userId: string;
   /** Pre-tax amount paid, in cents (tax is never credited). */
   grossCents: number;
   /** The processor's fee on the payment, in cents. */
@@ -55,10 +53,8 @@ export function netOfFee(
 export async function fulfilPurchase(env: AppEnv, p: PaidPurchase): Promise<boolean> {
   if (!Number.isSafeInteger(p.grossCents) || p.grossCents <= 0)
     throw new Error(`fulfilPurchase: no amount paid for ${p.ref}`);
-  const accountId = p.accountId || (p.userId ? billingAccountIdFor(p.userId) : null);
-  if (!accountId) throw new Error(`fulfilPurchase: no account for ${p.ref}`);
   return grantCredit(env.DB, {
-    accountId,
+    accountId: billingAccountIdFor(p.userId),
     kind: 'purchase',
     ...netOfFee(p.grossCents, p.processorFeeCents),
     userId: p.userId,

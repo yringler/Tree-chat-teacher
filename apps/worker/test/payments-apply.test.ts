@@ -48,19 +48,6 @@ describe('payment.succeeded: credit purchases', () => {
     ]);
   });
 
-  it('credits the ledger the checkout named only when it is a personal one', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const userId = await newUser();
-    const named = paid({ userId, accountId: `u_${userId}`, netCents: 2000, feeCents: 150 });
-    expect(await apply(named)).toBe('applied');
-    expect(await balance(`u_${userId}`)).toBe(18_500_000);
-    // Nobody buys pool credit: a payment naming the pool's ledger credits nothing.
-    const poolId = uniq('pool');
-    expect(await apply(paid({ userId, accountId: poolId }))).toBe('skipped');
-    expect(await grantDetailsFor(env, poolId)).toEqual([]);
-    warn.mockRestore();
-  });
-
   it('asks for a retry while the fee is unknown, and logs an estimated fee', async () => {
     const userId = await newUser();
     const e = paid({ userId, feeCents: null });
@@ -73,12 +60,11 @@ describe('payment.succeeded: credit purchases', () => {
     expect(await balance(`u_${userId}`)).toBe(9_100_000);
   });
 
-  it('never credits another currency, an unknown target or a payment with no account', async () => {
+  it('never credits another currency or a payment with no user', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const userId = await newUser();
     expect(await apply(paid({ userId, currency: 'eur' }))).toBe('skipped');
-    expect(await apply(paid({ userId, target: 'unknown' }))).toBe('skipped');
-    expect(await apply(paid({ userId: null, target: 'personal' }))).toBe('skipped');
+    expect(await apply(paid({ userId: null }))).toBe('skipped');
     expect(await apply(paid({ userId, netCents: 0 }))).toBe('skipped');
     warn.mockRestore();
     expect(await balance(`u_${userId}`)).toBe(0);
@@ -91,7 +77,7 @@ describe('payment.succeeded: credit purchases', () => {
     await apply(paid({ userId, customerRef: 'cus_2' }));
     expect(await customerRefFor(env.DB, 'fake', userId)).toBe('cus_2');
     const ghost = uniq('user');
-    await apply(paid({ userId: ghost, accountId: `u_${ghost}`, customerRef: 'cus_3' }));
+    await apply(paid({ userId: ghost, customerRef: 'cus_3' }));
     expect(await customerRefFor(env.DB, 'fake', ghost)).toBeNull();
   });
 });

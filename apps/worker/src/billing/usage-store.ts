@@ -193,8 +193,8 @@ export async function markDispatched(
 /**
  * Pool: lowers a pending reservation's hold to `holdMicros` (never raises it),
  * once the exact worst case of the call is known. Only raises the pool's
- * available balance, so it needs no lock. Resolves the row's resulting hold,
- * fee and markup, or null when it is no longer an undispatched pending row of
+ * available balance, so it needs no lock. Resolves the row's resulting hold
+ * and fee, or null when it is no longer an undispatched pending row of
  * `accountId` (another call already claimed it).
  */
 export async function shrinkHold(
@@ -202,19 +202,17 @@ export async function shrinkHold(
   usageId: string,
   accountId: string,
   holdMicros: number,
-): Promise<{ holdMicros: number; feeBps: number; markupBps: number } | null> {
+): Promise<{ holdMicros: number; feeBps: number } | null> {
   const row = await db
     .prepare(
       `UPDATE usage_events SET hold_micros = MIN(hold_micros, ?)
        WHERE id = ? AND account_id = ? AND funding = 'pool' AND status = 'pending'
          AND dispatched_at IS NULL
-       RETURNING hold_micros, fee_bps, markup_bps`,
+       RETURNING hold_micros, fee_bps`,
     )
     .bind(holdMicros, usageId, accountId)
-    .first<{ hold_micros: number; fee_bps: number; markup_bps: number }>();
-  return row
-    ? { holdMicros: row.hold_micros, feeBps: row.fee_bps, markupBps: row.markup_bps }
-    : null;
+    .first<{ hold_micros: number; fee_bps: number }>();
+  return row ? { holdMicros: row.hold_micros, feeBps: row.fee_bps } : null;
 }
 
 export interface Settlement {
