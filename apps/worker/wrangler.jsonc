@@ -330,10 +330,6 @@
     "IMPACT_MIN_DISTINCT_USERS": "5",
     "POOL_TOPIC_BLOCKLIST": "",
     "IMPACT_TAG_RETENTION_DAYS": "14",
-    // A future "featured learning" wall of conversations users publish (opt-in per conversation).
-    // Only a stub exists and it stays off: user-published content waits for DMCA_AGENT_REGISTERED.
-    // Either way /api/featured/* is 404, nothing renders and nothing is collected for it.
-    "FEATURED_CONVERSATIONS_ENABLED": "false",
   },
   // Secrets (wrangler secret put): AI_GATEWAY_TOKEN,
   //   KEY_ENCRYPTION_SECRET (`openssl rand -base64 32`; enables bring-your-own-key, rotate to revoke all stored keys)

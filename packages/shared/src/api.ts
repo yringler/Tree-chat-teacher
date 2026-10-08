@@ -268,12 +268,6 @@ export interface MeResponse {
    * without a membership").
    */
   membershipNeededFor: BranchFunding[];
-  /**
-   * The "featured learning" wall of conversations users publish. Always false:
-   * only a stub exists (FEATURED_CONVERSATIONS_ENABLED, docs/DEFERRED.md), so
-   * no app renders an entry point.
-   */
-  featuredConversations: false;
 }
 
 /** What the login page offers. Magic links and passkeys are always available once auth is configured. */

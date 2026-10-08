@@ -190,8 +190,6 @@ export function apiRoutes(): Hono<AppBindings> {
       isAdmin: isAdmin(c.env, identity),
       membership,
       membershipNeededFor: membershipNeededFor(account, membership),
-      // The featured wall is a stub (routes/featured.ts): never offered.
-      featuredConversations: false,
     } satisfies MeResponse);
   });
 

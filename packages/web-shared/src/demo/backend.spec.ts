@@ -451,7 +451,6 @@ describe('power demo backend', () => {
       membership: { required: false },
       // Nothing needs a membership, so no power branch is ever read-only here.
       membershipNeededFor: [],
-      featuredConversations: false,
     });
     // So "Create a copy in Learn" is never offered: the two demos stay apart.
     const [tree] = await api.listTrees();

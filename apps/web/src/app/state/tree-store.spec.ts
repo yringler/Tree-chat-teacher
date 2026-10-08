@@ -49,7 +49,6 @@ function me(over: Partial<MeResponse> = {}): MeResponse {
     isAdmin: false,
     membership: membership(),
     membershipNeededFor: ['own-key'],
-    featuredConversations: false,
     ...over,
   };
 }

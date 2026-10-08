@@ -360,7 +360,6 @@ export class DemoBackend {
         membership: { ...DEMO_MEMBERSHIP },
         // Nothing needs a membership here, so nothing is ever read-only.
         membershipNeededFor: [],
-        featuredConversations: false,
       } satisfies MeResponse);
     }
     if (method === 'GET' && path === '/api/login-options') {

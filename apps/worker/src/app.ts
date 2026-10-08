@@ -15,7 +15,6 @@ import { verifyPageRoutes } from './http/verify-page.js';
 import { adminRoutes } from './routes/admin.js';
 import { apiRoutes } from './routes/api.js';
 import { billingRoutes } from './routes/billing.js';
-import { featuredRoute } from './routes/featured.js';
 import { paymentWebhookRoute } from './routes/payment-webhooks.js';
 import { poolImpactRoutes, poolRoutes, poolStatusRoute } from './routes/pool.js';
 import { shareRoutes } from './routes/share.js';
@@ -34,8 +33,6 @@ export interface AppOptions {
  *   verified by their signature (routes/payment-webhooks.ts).
  * - Every other `/api/*` request but GET, HEAD and OPTIONS must be
  *   same-origin (`sameOriginWrites`, byok/guard.ts), sign-in included.
- * - `/api/featured*` is always 404: the featured-conversations wall is a stub
- *   (routes/featured.ts).
  * - Every other `/api/*` route requires a session (auth/session.ts) and acts
  *   as the caller's account for the app named by the `x-tangent-mode` header
  *   (auth/account.ts); `/api/billing/*` is the billing API, `/api/pool/*` the
@@ -85,8 +82,6 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
 
   app.get('/api/pool/status', poolStatusRoute);
   app.route('/api/pool/impact', poolImpactRoutes());
-  app.all('/api/featured', featuredRoute);
-  app.all('/api/featured/*', featuredRoute);
 
   app.use('/api/*', sessionMiddleware(options.auth));
   app.use('/api/*', accountMiddleware);

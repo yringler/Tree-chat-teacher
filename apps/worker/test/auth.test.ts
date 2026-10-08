@@ -134,7 +134,6 @@ describe('fail closed', () => {
       },
       // The dev bypass requires no membership: nothing is ever read-only.
       membershipNeededFor: [],
-      featuredConversations: false,
     } satisfies MeResponse);
 
     // Secret set: DEV_ALLOW_NO_AUTH=true is ignored and a session is required.
@@ -174,7 +173,6 @@ describe('fail closed', () => {
         includedCreditCents: 0,
       },
       membershipNeededFor: [],
-      featuredConversations: false,
     } satisfies MeResponse);
   });
 });

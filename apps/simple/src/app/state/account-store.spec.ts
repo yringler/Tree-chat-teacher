@@ -56,7 +56,6 @@ function me(m: MembershipInfo): MeResponse {
     membership: m,
     // Where the membership is required, the own key needs it in Learn too.
     membershipNeededFor: m.required ? ['own-key'] : [],
-    featuredConversations: false,
   };
 }
 
