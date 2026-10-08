@@ -351,7 +351,7 @@ function whyFreeSection(pool: NonNullable<PricingFacts['pool']>, memberships: bo
 <div class="wrap">
 <p class="eyebrow">The open pool</p>
 <h2 id="why">Why there’s a free plan</h2>
-<p class="sub">${escapeHtml(POOL_MOTTO)} Free replies come from the open pool: ${source}. They use ${escapeHtml(poolModelNoun(pool.model))}. They have daily limits and are available only while the pool has credit. <a href="/pool">How the pool works</a></p>
+<p class="sub">${escapeHtml(POOL_MOTTO)} Free replies come from the open pool: ${source}. They use ${escapeHtml(poolModelNoun(pool.model))}, have daily limits and are available only while the pool has credit. <a href="/pool">How the pool works</a></p>
 ${poolStepsHtml(pool.revenueShareBps, memberships)}
 </div>
 </section>
@@ -398,11 +398,11 @@ function lede(f: PricingFacts): string {
     );
   if (credit)
     parts.push(
-      `${pool ? 'Want more, or power mode? Buy' : 'Buy'} prepaid credit${membership ? ', with no subscription' : ''}: you pay for each reply at what it costs Tangent, plus ${escapeHtml(formatBps(credit.markupBps))}.`,
+      `${pool ? 'For more replies or power mode, buy' : 'Buy'} prepaid credit${membership ? ', with no subscription,' : ''} and pay for each reply at what it costs Tangent, plus ${escapeHtml(formatBps(credit.markupBps))}.`,
     );
   if (membership)
     parts.push(
-      `${pool || credit ? 'Prefer your own API key?' : 'Bring your own API key:'} Your AI provider bills you directly, and a ${escapeHtml(formatCents(membership.priceCents))} yearly membership covers Tangent itself.`,
+      `${pool || credit ? 'With your own API key, your' : 'Bring your own API key: your'} AI provider bills you directly, and a ${escapeHtml(formatCents(membership.priceCents))} yearly membership covers Tangent itself.`,
     );
   else
     parts.push(
@@ -642,7 +642,7 @@ ${plans.join('\n')}
 ${pool ? whyFreeSection(pool, membership !== null) : ''}<section aria-labelledby="compare">
 <div class="wrap">
 <h2 id="compare">Exactly what you get</h2>
-<p class="sub">Line by line. The numbered notes under the chart have the details.</p>
+<p class="sub">The numbered notes under the chart have the details.</p>
 ${chart}
 <div class="notes">
 <h3>Notes</h3>

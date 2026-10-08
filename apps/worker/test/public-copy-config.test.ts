@@ -220,7 +220,7 @@ describe("Learn's tiers", () => {
     };
     expect(await page('/welcome', same)).toContain('(the free pool uses Normal)</li>');
     expect(await page('/pricing', same)).toContain(
-      'They use the Normal model. They have daily limits',
+      'They use the Normal model, have daily limits',
     );
     const more = {
       POOL_EFFORT: 'high',
