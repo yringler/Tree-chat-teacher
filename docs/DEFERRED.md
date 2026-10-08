@@ -6,7 +6,7 @@ Known gaps and follow-ups that were consciously left out of a change. Each entry
 
 Left out of the server side of the membership (`apps/worker/src/billing/membership.ts`). None blocks charging for it.
 
-- **Turning the annual fee off doesn't touch existing subscriptions.** With `ANNUAL_FEE_ENABLED` off nothing requires the membership and the billing page hides it, but Polar keeps renewing subscriptions bought while it was on (each renewal still grants its included credit, if `MEMBERSHIP_CREDIT_CENTS` is above 0), and their holders can only cancel through Polar's billing portal (Polar's own emails link to it). Cancelling them in bulk, or keeping a "Manage billing" link for subscribers while the fee is off, is not done.
+- **Turning the annual fee off doesn't touch existing subscriptions.** With `ANNUAL_FEE_ENABLED` off nothing requires the membership and the billing page hides it, but Polar keeps renewing subscriptions bought while it was on, and their holders can only cancel through Polar's billing portal (Polar's own emails link to it). Cancelling them in bulk, or keeping a "Manage billing" link for subscribers while the fee is off, is not done.
 
 - **No email when a membership lapses or a renewal fails.** Polar's own customer emails (receipts, failed payments, renewals) cover it; the app only shows the status on the billing page. Sending our own needs a reaction to `membership.changed` in `billing/payments/apply.ts` and a template in `src/email/`.
 - **Waivers can't be filtered on the admin page.** Its **Member** column sets and clears `auth_users.membership_waived` per user, but listing everyone who has one is still the SQL in the README ("Waiving the membership"). A filter needs a query parameter on `GET /api/admin/users`.
@@ -16,13 +16,12 @@ Left out of the server side of the membership (`apps/worker/src/billing/membersh
 
 Left out of the pool (`docs/pool/PLAN.md`). None blocks launching it.
 
-- **Disputes of membership invoices are handled by hand.** Only personal credit purchases and legacy pool purchases are debited automatically.
+- **Disputes of membership invoices are handled by hand.** Only personal credit purchases are debited automatically.
 - **Spending from the pool is Learn-only.** The power app and Canvas never use it (power mode ignores the `pool` payment header); the power app only shows the pool meter on its billing page. Offering it there would need the pool's model pin and locked prompt to coexist with power mode's per-tree prompts and model pickers.
 - **The first-use human check leaves the app.** The apps' CSP doesn't load Turnstile, so `PoolFirstUseDialog` sends the learner to the Worker's `/verify` page and back; the unsent message isn't kept across that page load. Allowing `challenges.cloudflare.com` in the Learn app's CSP would let `<app-turnstile>` and `POST /api/pool/verify` run in place.
 - **No admin UI for personal credit.** The admin page's pool panel tops up and corrects the pool; crediting a user's personal ledger (`POST /api/admin/credit` with target `personal`) still needs the API.
 - **Featured conversations are not built.** There is no flag, route, table, column or UI for them. User-published content waits for the DMCA designated agent (docs/LEGAL.md §8), and share links already give explicit, revocable, per-conversation opt-in. A wall would: add `shares.featured_at` (set only by an explicit "Feature this conversation" action on an existing share, never by default, cleared by un-featuring or revoking the share), a moderated queue like the topic review queue, `GET /api/featured` listing approved, unrevoked shares of users who may share, and the routes and UI behind a flag that also requires `DMCA_AGENT_REGISTERED`.
 - **One global `PoolBank`.** Every pool reservation passes through one Durable Object (about two D1 round trips each). If it becomes a bottleneck, shard by user-id hash into N banks, each holding a slice of the balance that a coordinator rebalances, keeping never-negative per shard.
-- **The impact feed's review queue has no notification.** A topic waiting for review shows only on the admin page; an email or a count in the admin header would make it harder to miss. Snapshots are written once and never rewritten, so a topic approved late appears from the next week on.
 
 ## Grounding (web search)
 
