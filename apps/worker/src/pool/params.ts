@@ -12,6 +12,7 @@ import {
   type PoolCaps,
   type PoolOverage,
   type PoolRateLimits,
+  type TierRequestConfig,
 } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
@@ -55,6 +56,25 @@ export function poolModel(env: AppEnv): string {
 }
 
 /**
+ * How the pool asks `model` (its model, `poolModel`): `POOL_EFFORT` and
+ * `POOL_PROVIDER_ORDER`, else the default pool model's evaluated settings
+ * while it runs that model (`withTierDefaults`). The reply cap is
+ * `POOL_MAX_OUTPUT_TOKENS`, apart.
+ */
+export function poolRequest(
+  env: AppEnv,
+  model: string = poolModel(env),
+): Pick<TierRequestConfig, 'effort' | 'providerOrder'> {
+  const pool = appConfig(env).pool;
+  const { effort, providerOrder } = withTierDefaults(
+    { effort: pool.effort, maxOutputTokens: null, providerOrder: pool.providerOrder },
+    DEFAULT_TIER_REQUESTS.pool,
+    model,
+  );
+  return { effort, providerOrder };
+}
+
+/**
  * Resolves the pool parameters of a request from `env` (the price: `modelPrice`).
  * The caps are the same for every caller: nothing here depends on who asks
  * but their network (`ipKey`).
@@ -64,11 +84,7 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
   const pool = config.pool;
   const model = poolModel(env);
   const entry = await modelPrice(env, model);
-  const request = withTierDefaults(
-    { effort: pool.effort, maxOutputTokens: null, providerOrder: pool.providerOrder },
-    DEFAULT_TIER_REQUESTS.pool,
-    model,
-  );
+  const request = poolRequest(env, model);
   return {
     accountId: pool.accountId,
     model,

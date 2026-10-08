@@ -374,3 +374,101 @@ describe('pool reply length', () => {
     expect(await page('/pool', env)).toContain('2,048 tokens (roughly 1,550 words)');
   });
 });
+
+describe('the privacy policy names who handles Tangent-paid requests from the config', () => {
+  /** The policy's item on Tangent credit and the open pool. */
+  const item = (html: string) => {
+    const start = html.indexOf('<li>Tangent credit and the open pool:');
+    expect(start, 'the hosted AI item').toBeGreaterThan(-1);
+    return html.slice(start, html.indexOf('</ul></li>', start));
+  };
+
+  it('as deployed: Normal, the pool and summaries on their pinned hosts, Max and power on OpenRouter’s choice', async () => {
+    const html = await page('/privacy');
+    expect(html).not.toContain('currently DeepSeek models');
+    const ai = item(html);
+    expect(ai).toContain(
+      'OpenRouter (USA), which forwards each request to a company that hosts the model: the company that made it or another hosting company, which may be in the USA, China or elsewhere.',
+    );
+    expect(ai).toContain(
+      `<li>Learn&#39;s Normal tier, the open pool, and summaries and titles of conversations: <code>${NORMAL}</code> (made by DeepSeek), sent first to StreamLake, then to DeepInfra, and to another host only if they are unavailable.</li>`,
+    );
+    expect(ai).toContain(
+      `<li>Learn&#39;s Max tier: <code>${MAX}</code> (made by Anthropic), on a host OpenRouter chooses.</li>`,
+    );
+    expect(ai).toContain(
+      '<li>Power mode on Tangent credit: the model you choose, on a host OpenRouter chooses.</li>',
+    );
+    expect(html).toContain(
+      'In Learn, your OpenRouter key runs the same models, sent to the same hosts, as Learn on Tangent credit.',
+    );
+  });
+
+  it('follows a changed model, pinning or pool model', async () => {
+    const ai = item(
+      await page('/privacy', {
+        SIMPLE_NORMAL_PROVIDER_ORDER: 'deepinfra/fp8',
+        // wrangler.jsonc pins the pool's hosts explicitly; on Max they are OpenRouter's choice.
+        POOL_PROVIDER_ORDER: '',
+        POOL_MODEL: MAX,
+        POOL_ACCOUNT_ID: uniq('pool'),
+      }),
+    );
+    // Summaries run on Normal's listing of the background model, so they move with it.
+    expect(ai).toContain(
+      `<li>Learn&#39;s Normal tier and summaries and titles of conversations: <code>${NORMAL}</code> (made by DeepSeek), sent to DeepInfra, and to another host only if it is unavailable.</li>`,
+    );
+    expect(ai).toContain(`<li>Learn&#39;s Max tier and the open pool: <code>${MAX}</code>`);
+  });
+
+  it('without credit: only the open pool', async () => {
+    const ai = item(await page('/privacy', NO_CREDIT));
+    expect(ai).not.toMatch(/Learn&#39;s|Power mode on Tangent credit/);
+    expect(ai).toContain(`<li>The open pool: <code>${NORMAL}</code>`);
+  });
+
+  it('pinned hosts without fallbacks, when the operator turns them off', async () => {
+    const ai = item(
+      await page('/privacy', {
+        SIMPLE_PROVIDER: JSON.stringify({
+          id: 'openrouter',
+          kind: 'openai-compatible',
+          label: 'Tangent',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
+          defaultModel: 'a/quick',
+          models: [
+            { id: 'a/quick', label: 'Quick', tier: 'normal', providerOrder: ['some-host/fp8'] },
+          ],
+          options: { extraBody: { provider: { allow_fallbacks: false } } },
+        }),
+        POOL_MODEL: 'a/quick',
+        POOL_ACCOUNT_ID: uniq('pool'),
+      }),
+    );
+    expect(ai).toContain(
+      '<li>Learn&#39;s Quick tier and summaries and titles of conversations: <code>a/quick</code> (made by a), sent to some-host only.</li>',
+    );
+  });
+
+  it('another endpoint than OpenRouter is named by its host, with no hosting claims', async () => {
+    const html = await page('/privacy', {
+      SIMPLE_PROVIDER: builtIn({
+        baseUrl: 'https://api.openai.com/v1',
+        models: [
+          { id: 'gpt-5-mini', label: 'Normal', tier: 'normal' },
+          { id: 'gpt-5', label: 'Max', tier: 'max' },
+        ],
+      }),
+      POOL_MODEL: 'gpt-5-mini',
+      POOL_ACCOUNT_ID: uniq('pool'),
+    });
+    const ai = item(html);
+    expect(ai).toContain(
+      'Tangent credit and the open pool: api.openai.com, which runs the models.',
+    );
+    expect(ai).toContain('<li>Learn&#39;s Max tier: <code>gpt-5</code>.</li>');
+    expect(ai).not.toContain('OpenRouter');
+    expect(html).not.toContain('In Learn, your OpenRouter key runs the same models');
+  });
+});
