@@ -10,6 +10,7 @@ import { payloadToMarkdown, renderViewerPage, viewerCsp } from '@tangent/render'
 import {
   backupFileName,
   candidateRequestSchema,
+  contextLimitsQuerySchema,
   createBranchRequestSchema,
   createLinkRequestSchema,
   createShareRequestSchema,
@@ -53,6 +54,7 @@ import {
   type AppEnv,
 } from '../env.js';
 import { validateJson, validateQuery } from '../http/errors.js';
+import { generationLimits, inputBudgetResponse } from '../input-limit.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { purgeShare } from '../share/cache.js';
 import {
@@ -68,7 +70,8 @@ import { keyRoutes } from './key.js';
 /** Keepalive of the streams served straight from the Worker (reviews, compare candidates). */
 const REVIEW_KEEPALIVE_MS = 15_000;
 
-const contextQuerySchema = z.object({
+/** The preview plans like a send with power's limits (`contextLimitsQuerySchema`) when given. */
+const contextQuerySchema = contextLimitsQuerySchema.extend({
   nodeId: z.string().min(1).max(64).optional(),
   resolve: z
     .enum(['true', 'false'])
@@ -266,10 +269,17 @@ export function apiRoutes(): Hono<AppBindings> {
       const res = await chat.planContext(branch.id, q.nodeId ?? null, {
         resolveSummaries: q.resolve,
         signal: c.req.raw.signal,
+        limits: generationLimits(c.env, c.var.account, branch.funding, q),
       });
       return c.json(res);
     },
   );
+  // What bounds a message's input on the branch, for power's input limit setting.
+  api.get('/branches/:branchId/input-budget', async (c) => {
+    const chat = chatOf(c, await keysOf(c));
+    const branch = await chat.getOwnedBranch(c.req.param('branchId'));
+    return c.json(await inputBudgetResponse(c.env, c.var.account, chat, branch.id));
+  });
 
   // ---- messages (delegated to the tree's Durable Object)
   api.post(
@@ -296,12 +306,17 @@ export function apiRoutes(): Hono<AppBindings> {
         throw new ValidationError("This conversation's model can't check sources");
       }
       // The Durable Object gets the still-sealed cookie value in the body (never
-      // a header, which request logs may capture) and opens it itself. An output
-      // cap is power's setting: Learn's replies keep its own (simple-mode.ts).
-      const { maxOutputTokens, ...rest } = req;
+      // a header, which request logs may capture) and opens it itself. The output
+      // cap and the input limit are power's settings, clamped on Tangent credit:
+      // Learn's replies keep its own (input-limit.ts).
+      const { maxOutputTokens, maxInputTokens, inputOverflow, ...rest } = req;
       const body: SessionSendBody = {
         ...rest,
-        ...(maxOutputTokens !== undefined && account.mode === 'power' ? { maxOutputTokens } : {}),
+        ...generationLimits(c.env, account, branch.funding, {
+          maxOutputTokens,
+          maxInputTokens,
+          inputOverflow,
+        }),
         account,
         ...(keys ? { sealedKeys: keys.sealed } : {}),
       };

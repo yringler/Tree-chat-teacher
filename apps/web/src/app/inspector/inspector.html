@@ -70,11 +70,14 @@
       </p>
     }
     @if (d.plan.truncation; as t) {
-      <p class="notice notice-error">
+      <p class="notice" [class.notice-error]="!dropsByChoice()">
         Truncated: {{ t.droppedNodeIds.length }} messages were dropped to fit the budget (~{{
           t.tokensBefore.toLocaleString()
         }}
         → {{ t.tokensAfter.toLocaleString() }} tokens).
+        @if (dropsByChoice()) {
+          Settings drop the oldest messages over the limit instead of summarizing them.
+        }
       </p>
     }
     @if (!d.plan.complete || pendingCount() > 0) {

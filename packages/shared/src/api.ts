@@ -21,6 +21,12 @@ import type {
 import type { ProviderInfo } from './provider.js';
 import { fromLegacyRoute } from './route.js';
 import { MAX_REQUESTED_OUTPUT_TOKENS, MIN_REQUESTED_OUTPUT_TOKENS } from './output-tokens.js';
+import {
+  INPUT_OVERFLOWS,
+  MAX_REQUESTED_INPUT_TOKENS,
+  MIN_REQUESTED_INPUT_TOKENS,
+  requestedInputTokens,
+} from './input-limit.js';
 import type { AccountMode, MembershipInfo } from './billing.js';
 import {
   CITATIONS_MAX,
@@ -479,8 +485,38 @@ export const sendMessageRequestSchema = z.object({
     .min(MIN_REQUESTED_OUTPUT_TOKENS)
     .max(MAX_REQUESTED_OUTPUT_TOKENS)
     .optional(),
+  /**
+   * Power only (Learn ignores it): the most input the message may send, below
+   * the model's context window (input-limit.ts); the server caps it at the
+   * window less the reply, and on Tangent credit at its own input cap.
+   */
+  maxInputTokens: requestedInputTokens.optional(),
+  /** Power only: what a conversation over its input budget loses (absent = `compact`). */
+  inputOverflow: z.enum(INPUT_OVERFLOWS).optional(),
 });
 export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
+
+/**
+ * Query parameters of `GET /api/branches/:id/context` that make the preview
+ * plan like a send with power's settings (all optional; the server ignores
+ * them in Learn, as it does on a send).
+ */
+export const contextLimitsQuerySchema = z.object({
+  maxInputTokens: z.coerce
+    .number()
+    .int()
+    .min(MIN_REQUESTED_INPUT_TOKENS)
+    .max(MAX_REQUESTED_INPUT_TOKENS)
+    .optional(),
+  maxOutputTokens: z.coerce
+    .number()
+    .int()
+    .min(MIN_REQUESTED_OUTPUT_TOKENS)
+    .max(MAX_REQUESTED_OUTPUT_TOKENS)
+    .optional(),
+  inputOverflow: z.enum(INPUT_OVERFLOWS).optional(),
+});
+export type ContextLimitsQuery = z.infer<typeof contextLimitsQuerySchema>;
 
 /**
  * Bring-your-own-key. The key is sent once, sealed by the Worker into an

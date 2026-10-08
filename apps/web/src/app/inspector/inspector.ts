@@ -7,8 +7,9 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import type { ContextPlanResponse } from '@tangent/shared';
+import type { ContextLimitsQuery, ContextPlanResponse } from '@tangent/shared';
 import { ApiClient, errorMessage, Icon } from '@tangent/web-shared';
+import { generationLimits, SettingsStore } from '../state/settings-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { SegmentCard } from './segment-card';
@@ -27,6 +28,7 @@ export class Inspector {
   private readonly api = inject(ApiClient);
   protected readonly store = inject(TreeStore);
   protected readonly ui = inject(UiStore);
+  private readonly settings = inject(SettingsStore);
 
   protected readonly tab = signal<Tab>('segments');
   protected readonly data = signal<ContextPlanResponse | null>(null);
@@ -35,14 +37,25 @@ export class Inspector {
   protected readonly resolved = signal(false);
   private seq = 0;
 
-  /** Inputs of the query: branch, target node (focused on the path, else the leaf), completions. */
+  /**
+   * Inputs of the query: branch, target node (focused on the path, else the
+   * leaf), completions, and the reply length and input limit a send would
+   * carry (Settings), so the preview plans as the next send will.
+   */
   private readonly query = computed(
     () => ({
       branchId: this.store.selectedBranchId(),
       nodeId: this.store.focusedInPath()?.id ?? null,
       tick: this.store.completions(),
+      limits: generationLimits(this.settings.settings()),
     }),
-    { equal: (a, b) => a.branchId === b.branchId && a.nodeId === b.nodeId && a.tick === b.tick },
+    {
+      equal: (a, b) =>
+        a.branchId === b.branchId &&
+        a.nodeId === b.nodeId &&
+        a.tick === b.tick &&
+        JSON.stringify(a.limits) === JSON.stringify(b.limits),
+    },
   );
 
   /**
@@ -64,6 +77,11 @@ export class Inspector {
     return Math.min(100, Math.round((b.usedTokens / b.maxInputTokens) * 100));
   });
 
+  /** True when Settings drop the oldest messages over the limit (no summary). */
+  protected readonly dropsByChoice = computed(
+    () => this.settings.settings().inputOverflow === 'truncate',
+  );
+
   protected readonly pendingCount = computed(
     () =>
       this.data()?.plan.segments.filter((s) => s.kind === 'summary' && s.status !== 'ready')
@@ -75,7 +93,7 @@ export class Inspector {
       const q = this.query();
       untracked(() => {
         this.resolved.set(false);
-        void this.load(q.branchId, q.nodeId, false);
+        void this.load(q.branchId, q.nodeId, false, q.limits);
       });
     });
   }
@@ -83,12 +101,12 @@ export class Inspector {
   protected resolve(): void {
     this.resolved.set(true);
     const q = this.query();
-    void this.load(q.branchId, q.nodeId, true);
+    void this.load(q.branchId, q.nodeId, true, q.limits);
   }
 
   protected refresh(): void {
     const q = this.query();
-    void this.load(q.branchId, q.nodeId, this.resolved());
+    void this.load(q.branchId, q.nodeId, this.resolved(), q.limits);
   }
 
   protected focusNode(nodeId: string): void {
@@ -104,13 +122,14 @@ export class Inspector {
     branchId: string | null,
     nodeId: string | null,
     resolve: boolean,
+    limits: ContextLimitsQuery,
   ): Promise<void> {
     if (!branchId) return;
     const seq = ++this.seq;
     this.loading.set(true);
     this.error.set(null);
     try {
-      const res = await this.api.getContext(branchId, nodeId, resolve);
+      const res = await this.api.getContext(branchId, nodeId, resolve, limits);
       if (seq === this.seq) this.data.set(res);
     } catch (err) {
       if (seq === this.seq) this.error.set(errorMessage(err));

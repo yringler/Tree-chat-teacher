@@ -7,6 +7,7 @@ import {
   newId,
   systemClock,
   type BeginSendResult,
+  type GenerationLimits,
   type HeldCandidate,
   type RunGenerationOptions,
   type Clock,
@@ -15,6 +16,7 @@ import { createMemoryRepositories, type MemoryState } from '@tangent/core/testin
 import {
   CANDIDATE_TTL_MS,
   candidateRequestSchema,
+  contextLimitsQuerySchema,
   createBranchRequestSchema,
   createLinkRequestSchema,
   createTreeRequestSchema,
@@ -38,6 +40,7 @@ import {
   type CandidateEvent,
   type ChatNode,
   type GenerateRequest,
+  type InputBudgetResponse,
   type KeyStatusResponse,
   type LlmProvider,
   type LoginOptionsResponse,
@@ -466,8 +469,14 @@ export class DemoBackend {
     if (method === 'GET' && (id = seg(/^\/api\/branches\/([^/]+)\/context$/))) {
       const nodeId = url.searchParams.get('nodeId');
       const resolve = url.searchParams.get('resolve') === 'true';
-      const res = await this.chat.planContext(id, nodeId, { resolveSummaries: resolve });
+      const limits = this.powerLimits(
+        contextLimitsQuerySchema.parse(Object.fromEntries(url.searchParams)),
+      );
+      const res = await this.chat.planContext(id, nodeId, { resolveSummaries: resolve, limits });
       return resolve ? this.saved(json(res)) : json(res);
+    }
+    if (method === 'GET' && (id = seg(/^\/api\/branches\/([^/]+)\/input-budget$/))) {
+      return json(await this.inputBudget(id));
     }
 
     // Links
@@ -522,7 +531,7 @@ export class DemoBackend {
     body: unknown,
     signal: AbortSignal | null,
   ): Promise<Response> {
-    const { content, ground } = sendMessageRequestSchema.parse(body ?? {});
+    const { content, ground, ...requested } = sendMessageRequestSchema.parse(body ?? {});
     await this.chat.getOwnedBranch(branchId);
     if (this.outOfCredit()) return apiError('payment_required', 'Add credit to keep learning');
     const begin = this.lock.then(() => this.chat.beginSend(branchId, content));
@@ -549,9 +558,43 @@ export class DemoBackend {
       signal,
     );
     // Detached, like the Durable Object: keeps going when the reader goes away.
-    run.finished = this.pump(run, started, ground === 'required' ? { ground } : {});
+    run.finished = this.pump(run, started, {
+      ...(ground === 'required' ? { ground } : {}),
+      ...this.powerLimits(requested),
+    });
     this.save();
     return response;
+  }
+
+  /**
+   * Power's reply length and input limit, as the Worker passes them on the
+   * own key (apps/worker input-limit.ts); Learn ignores them.
+   */
+  private powerLimits(requested: GenerationLimits): GenerationLimits {
+    if (this.mode !== 'power') return {};
+    const { maxOutputTokens, maxInputTokens, inputOverflow } = requested;
+    return {
+      ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+      ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
+      ...(inputOverflow === 'truncate' ? { inputOverflow } : {}),
+    };
+  }
+
+  /** As the Worker's: the demo's own pretend prices, and no credit cap in power. */
+  private async inputBudget(branchId: string): Promise<InputBudgetResponse> {
+    const budget = await this.chat.inputBudget(branchId);
+    const price = DEMO_MODEL_PRICES[budget.model];
+    return {
+      model: budget.model,
+      funding: budget.funding,
+      contextTokens: budget.contextTokens,
+      maxOutputTokens: budget.maxOutputTokens,
+      reasoning: budget.reasoning,
+      serverMaxInputTokens: budget.maxInputTokens,
+      price: price
+        ? { inputUsdPerMTok: price.inMicrosPerMTok / MICROS_PER_USD, cacheReadUsdPerMTok: null }
+        : null,
+    };
   }
 
   /** A review streams straight back and stores nothing, as in the Worker. */
