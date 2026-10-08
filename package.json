@@ -15,7 +15,8 @@
     "e2e": "pnpm --filter @tangent/e2e e2e",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint . && node scripts/check-provider-neutral.mjs",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
