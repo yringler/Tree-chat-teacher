@@ -134,6 +134,22 @@ describe('ChatService grounding', () => {
     expect(s.provider.chatCalls().at(-1)!.webSearch?.mode).toBe('required');
   });
 
+  it('treats an allowance that threw as refused, and logs it', async () => {
+    const lines: [string, Record<string, unknown>][] = [];
+    const s = setup(auto, {
+      groundingAllowance: () => Promise.reject(new Error('D1 down')),
+      log: (event, fields) => lines.push([event, fields]),
+    });
+    s.provider.webSearch = true;
+    const { b2 } = await deepTree(s);
+    await send(s.chat, b2.id, 'Who invented it?');
+    expect(s.provider.chatCalls().at(-1)!.webSearch).toBeUndefined();
+    expect(lines).toContainEqual([
+      'grounding_allowance_failed',
+      { providerId: 'scripted', funding: 'own-key', error: 'D1 down' },
+    ]);
+  });
+
   it('honors the branch setting, inherited by child branches', async () => {
     const s = setup(auto);
     s.provider.webSearch = true;

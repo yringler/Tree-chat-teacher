@@ -47,6 +47,7 @@ import {
   type LlmProvider,
   type NodeLink,
   type ProviderCapabilities,
+  type ProviderError,
   type ProviderInfo,
   type ProviderRegistry,
   type ProviderRoute,
@@ -240,6 +241,13 @@ export interface ChatServiceDeps {
    * gets no more room than a message). Default: unlimited.
    */
   anchorQuoteMaxChars?: number;
+  /**
+   * Where the service reports the failures it recovers from on its own (a
+   * summary or title the provider failed, a token count, the grounding
+   * allowance, …), which no caller sees otherwise: `event` names what
+   * happened, `fields` the ids involved and the error. Absent: not reported.
+   */
+  log?: (event: string, fields: Record<string, unknown>) => void;
   clock?: Clock;
   newId?: () => string;
 }
@@ -781,8 +789,15 @@ export class ChatService {
           messages: rendered.messages,
           ...(options.signal ? { signal: options.signal } : {}),
         });
-      } catch {
+      } catch (err) {
         exactInputTokens = null;
+        this.log('count_tokens_failed', {
+          treeId: inputs.tree.id,
+          branchId: inputs.branch.id,
+          providerId: inputs.provider.id,
+          model,
+          error: errorText(err),
+        });
       }
     }
     return {
@@ -855,6 +870,10 @@ export class ChatService {
       targetNodeId: tail?.id ?? nodeId,
       provider,
     };
+  }
+
+  private log(event: string, fields: Record<string, unknown>): void {
+    this.deps.log?.(event, fields);
   }
 
   private renderOptions(supportsSystemPrompt: boolean): RenderOptions {
@@ -1063,6 +1082,14 @@ export class ChatService {
       signal ?? new AbortController().signal,
       { purpose: 'summary', ...target, nodeId: null },
       this.deps.settings.summaryEffort,
+      (error) =>
+        this.log('summary_failed', {
+          ...target,
+          providerId: provider.id,
+          model,
+          code: error.code,
+          error: error.message,
+        }),
     );
     return text?.trim() ? text.trim() : null;
   }
@@ -1214,8 +1241,15 @@ export class ChatService {
       let node: ChatNode | null;
       try {
         node = await finish('error', message);
-      } catch {
+      } catch (saveErr) {
         node = null;
+        this.log('reply_save_failed', {
+          treeId: assistantNode.treeId,
+          branchId: assistantNode.branchId,
+          nodeId: assistantNode.id,
+          reply: message,
+          error: errorText(saveErr),
+        });
       }
       yield { type: 'error', nodeId: assistantNode.id, message, node };
     }
@@ -1323,7 +1357,12 @@ export class ChatService {
   canSearch(branch: Branch): boolean {
     try {
       return this.requireProvider(branch).capabilities(this.modelOf(branch)).supportsWebSearch;
-    } catch {
+    } catch (err) {
+      this.log('can_search_failed', {
+        branchId: branch.id,
+        providerId: branch.providerId,
+        error: errorText(err),
+      });
       return false;
     }
   }
@@ -1354,14 +1393,13 @@ export class ChatService {
     const decision = decideGrounding(input);
     // Only an automatic search that would otherwise run consults the (I/O) cap.
     if (decision.mode !== 'auto' || !this.deps.groundingAllowance) return decision;
+    const route = { providerId: inputs.branch.providerId, funding: inputs.branch.funding };
     let allowed: boolean;
     try {
-      allowed = await this.deps.groundingAllowance({
-        providerId: inputs.branch.providerId,
-        funding: inputs.branch.funding,
-      });
-    } catch {
+      allowed = await this.deps.groundingAllowance(route);
+    } catch (err) {
       allowed = false;
+      this.log('grounding_allowance_failed', { ...route, error: errorText(err) });
     }
     return allowed ? decision : decideGrounding({ ...input, autoAllowed: false });
   }
@@ -1399,6 +1437,15 @@ export class ChatService {
         AbortSignal.timeout(TITLE_TIMEOUT_MS),
         { purpose: 'title', treeId: tree.id, branchId: branch.id, nodeId: null },
         this.deps.settings.summaryEffort,
+        (error) =>
+          this.log('auto_title_failed', {
+            treeId: tree.id,
+            branchId: branch.id,
+            providerId: provider.id,
+            model,
+            code: error.code,
+            error: error.message,
+          }),
       );
       const title = raw ? cleanTitle(raw) : null;
       if (!title) return null;
@@ -1412,7 +1459,12 @@ export class ChatService {
         });
       }
       return null;
-    } catch {
+    } catch (err) {
+      this.log('auto_title_failed', {
+        treeId: tree.id,
+        branchId: branch.id,
+        error: errorText(err),
+      });
       return null;
     }
   }
@@ -1726,7 +1778,12 @@ export class ChatService {
     try {
       const owned = await this.requireOwnedBranch(branch.id);
       return (await this.autoTitle(owned.tree, owned.branch, userNode, assistantNode)) ?? branch;
-    } catch {
+    } catch (err) {
+      this.log('auto_title_failed', {
+        treeId: branch.treeId,
+        branchId: branch.id,
+        error: errorText(err),
+      });
       return branch;
     }
   }
@@ -1981,7 +2038,7 @@ function importedLinks(
   return out;
 }
 
-/** Streams a prompt to completion; returns null on provider error. */
+/** Streams a prompt to completion; returns null on provider error, after passing it to `onError`. */
 async function collectText(
   provider: LlmProvider,
   model: string,
@@ -1989,6 +2046,7 @@ async function collectText(
   signal: AbortSignal,
   usageTag: UsageTag,
   effort: ReasoningEffort | null,
+  onError: (error: ProviderError) => void,
 ): Promise<string | null> {
   let text = '';
   for await (const event of provider.stream({
@@ -2002,7 +2060,10 @@ async function collectText(
   })) {
     if (event.type === 'delta') text += event.text;
     else if (event.type === 'billing') continue;
-    else if (event.type === 'error') return null;
+    else if (event.type === 'error') {
+      onError(event.error);
+      return null;
+    }
   }
   return text;
 }
@@ -2022,6 +2083,11 @@ function foldSystem(prompt: { system: string | null; messages: ChatMessage[] }) 
     system: null,
     messages: [{ ...first, content: `${prompt.system}\n\n${first.content}` }, ...rest],
   };
+}
+
+/** A caught error as a log field: its message (an `Error` serializes as `{}`). */
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function emptyToNull(value: string | null | undefined): string | null {

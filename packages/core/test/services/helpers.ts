@@ -141,7 +141,7 @@ export function registryOf(...providers: LlmProvider[]): ProviderRegistry {
 
 export function setup(
   settings: Partial<ChatSettings> = {},
-  deps: Pick<ChatServiceDeps, 'groundingAllowance'> = {},
+  deps: Pick<ChatServiceDeps, 'groundingAllowance' | 'log'> = {},
 ) {
   const repos = createMemoryRepositories();
   const provider = new ScriptedProvider();

@@ -524,6 +524,8 @@ export function chatService(
         }
       : {}),
     groundingAllowance: groundingAllowance(env, account),
+    // Failures the service recovers from on its own, as structured log lines.
+    log: (event, fields) => console.error(JSON.stringify({ event, ...fields })),
   });
 }
 
