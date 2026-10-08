@@ -14,7 +14,6 @@ import { Hono, type Context } from 'hono';
 import { clientIp } from '../auth/account.js';
 import { turnstileHostname } from '../auth/auth.js';
 import { poolAccessError } from '../billing/gate.js';
-import { sameOriginOnly } from '../byok/guard.js';
 import { appConfig } from '../config.js';
 import type { AppBindings } from '../env.js';
 import { validateJson, validateQuery } from '../http/errors.js';
@@ -51,7 +50,7 @@ export function poolRoutes(): Hono<AppBindings> {
 
   r.get('/me', async (c) => c.json((await poolMe(c.env, c.var.account)) satisfies PoolMeResponse));
 
-  r.post('/verify', sameOriginOnly, validateJson(poolVerifyRequestSchema), async (c) => {
+  r.post('/verify', validateJson(poolVerifyRequestSchema), async (c) => {
     const { userId, email } = c.var.identity;
     if (!userId || !email)
       throw new DomainError('pool_unavailable', 'The open pool needs a signed-in account');
@@ -67,7 +66,7 @@ export function poolRoutes(): Hono<AppBindings> {
     return c.json({ verified: true } satisfies PoolVerifyResponse);
   });
 
-  r.post('/consent', sameOriginOnly, validateJson(poolConsentRequestSchema), async (c) => {
+  r.post('/consent', validateJson(poolConsentRequestSchema), async (c) => {
     const { userId } = c.var.identity;
     if (!userId)
       throw new DomainError('pool_unavailable', 'The open pool needs a signed-in account');

@@ -379,6 +379,43 @@ describe('owner API', () => {
     expect((await call(`/api/trees/${detail.tree.id}`, { method: 'DELETE' })).status).toBe(404);
   });
 
+  it('CSRF: refuses every cross-site write to the API, body or not', async () => {
+    const detail = await newTree();
+    const events = await sendMessage(detail.tree.trunkBranchId, 'hello');
+    const start = events[0];
+    if (start?.type !== 'start') throw new Error('expected start');
+    const from = (site: string) => ({ 'Sec-Fetch-Site': site });
+    for (const site of ['cross-site', 'same-site']) {
+      const del = await call(`/api/trees/${detail.tree.id}`, {
+        method: 'DELETE',
+        headers: from(site),
+      });
+      expect(del.status).toBe(403);
+      expect(await del.text()).toContain('Cross-origin requests are not allowed');
+      const cancel = await call(`/api/nodes/${start.assistantNode.id}/cancel`, {
+        method: 'POST',
+        headers: from(site),
+      });
+      expect(cancel.status).toBe(403);
+    }
+    expect(
+      (await call(`/api/trees/${detail.tree.id}`, { headers: from('cross-site') })).status,
+    ).toBe(200);
+    // Payment webhooks come from the provider's servers: left to their signature check.
+    const hook = await call('/api/webhooks/fake', {
+      method: 'POST',
+      headers: from('cross-site'),
+      json: {},
+    });
+    expect(await hook.text()).not.toContain('Cross-origin');
+
+    const del = await call(`/api/trees/${detail.tree.id}`, {
+      method: 'DELETE',
+      headers: from('same-origin'),
+    });
+    expect(del.status).toBe(204);
+  });
+
   it('backs up and restores a tree', async () => {
     const detail = await newTree();
     await sendMessage(detail.tree.trunkBranchId, 'backup me');

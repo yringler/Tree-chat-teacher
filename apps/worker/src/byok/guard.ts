@@ -28,6 +28,19 @@ export const sameOriginOnly = createMiddleware<AppBindings>(async (c, next) => {
   await next();
 });
 
+const SAFE_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * The API's CSRF guard, mounted once on `/api/*` (app.ts): every request
+ * that may change something must be same-origin (`sameOriginOnly`), body or
+ * not, since SameSite=Lax cookies still ride a request from a sibling
+ * subdomain. GET routes that spend credit add `sameOriginOnly` themselves.
+ */
+export const sameOriginWrites = createMiddleware<AppBindings>(async (c, next) => {
+  if (SAFE_METHODS.has(c.req.method)) await next();
+  else await sameOriginOnly(c, next);
+});
+
 /**
  * The branch's provider must have a key (the user's or the server's) and the
  * model must be allowed: one the provider config lists or, for an

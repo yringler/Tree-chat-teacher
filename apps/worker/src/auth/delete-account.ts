@@ -8,7 +8,6 @@ import {
   forgetCustomersStatement,
 } from '../billing/payments/customers.js';
 import { paymentProvider } from '../billing/payments/index.js';
-import { sameOriginOnly } from '../byok/guard.js';
 import { clearKeyCookie } from '../byok/keys.js';
 import type { AppBindings, AppContext, AppEnv } from '../env.js';
 import { validateJson } from '../http/errors.js';
@@ -170,7 +169,7 @@ function clearAuthCookies(c: AppContext): void {
  */
 export function accountDeletionRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
-  r.delete('/', sameOriginOnly, validateJson(deleteAccountRequestSchema), async (c) => {
+  r.delete('/', validateJson(deleteAccountRequestSchema), async (c) => {
     const { userId, email } = c.var.identity;
     if (!userId || !email) {
       throw new ValidationError('There is no account to delete while sign-in is disabled');

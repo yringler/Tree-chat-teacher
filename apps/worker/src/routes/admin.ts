@@ -31,7 +31,6 @@ import { ACTIVE_STATUSES, membershipRequired } from '../billing/membership.js';
 import { MEMBERSHIP_KIND } from '../billing/payments/apply.js';
 import { centsToMicros } from '../billing/pricing.js';
 import { fulfilPurchase } from '../billing/purchases.js';
-import { sameOriginOnly } from '../byok/guard.js';
 import { appConfig } from '../config.js';
 import { createD1Repositories } from '../db/d1-repositories.js';
 import type { AppBindings, AppEnv } from '../env.js';
@@ -231,57 +230,52 @@ export function adminRoutes(): Hono<AppBindings> {
   // Revoking the share permission takes the user's links down at once: /s/* checks it per
   // request. A pool suspension applies from the user's next pool request (the gate reads it), and
   // a membership waiver from the user's next request (membershipFor reads it each time).
-  r.patch(
-    '/users/:userId',
-    sameOriginOnly,
-    validateJson(updateAdminUserRequestSchema),
-    async (c) => {
-      const userId = c.req.param('userId');
-      const { shareAllowed, poolSuspended, membershipWaived } = c.req.valid('json');
-      const sets: string[] = [];
-      const params: (number | string)[] = [];
-      if (shareAllowed !== undefined) {
-        sets.push('share_allowed = ?');
-        params.push(shareAllowed ? 1 : 0);
-      }
-      if (poolSuspended !== undefined) {
-        sets.push('pool_suspended = ?');
-        params.push(poolSuspended ? 1 : 0);
-      }
-      if (membershipWaived !== undefined) {
-        // Keeps the time it was first waived, like redeeming the code (billing/membership.ts).
-        if (membershipWaived) {
-          sets.push(
-            'membership_waived_at = CASE WHEN membership_waived = 1 THEN membership_waived_at ELSE ? END',
-          );
-          params.push(new Date().toISOString());
-        }
-        sets.push('membership_waived = ?');
-        params.push(membershipWaived ? 1 : 0);
-      }
-      const db = c.env.DB;
-      const [updated] = await db.batch([
-        db.prepare(`UPDATE auth_users SET ${sets.join(', ')} WHERE id = ?`).bind(...params, userId),
-        // On the pool identity too, so deleting the account doesn't lift it.
-        ...(poolSuspended !== undefined
-          ? [identitySuspensionStatement(db, userId, poolSuspended)]
-          : []),
-      ]);
-      if (!updated!.meta.changes) throw new NotFoundError('User');
-      if (poolSuspended !== undefined)
-        console.log(JSON.stringify({ event: 'pool_suspension_set', userId, poolSuspended }));
-      if (membershipWaived !== undefined)
-        console.log(
-          JSON.stringify({
-            event: 'membership_waiver_set',
-            adminId: c.var.identity.userId,
-            userId,
-            membershipWaived,
-          }),
+  r.patch('/users/:userId', validateJson(updateAdminUserRequestSchema), async (c) => {
+    const userId = c.req.param('userId');
+    const { shareAllowed, poolSuspended, membershipWaived } = c.req.valid('json');
+    const sets: string[] = [];
+    const params: (number | string)[] = [];
+    if (shareAllowed !== undefined) {
+      sets.push('share_allowed = ?');
+      params.push(shareAllowed ? 1 : 0);
+    }
+    if (poolSuspended !== undefined) {
+      sets.push('pool_suspended = ?');
+      params.push(poolSuspended ? 1 : 0);
+    }
+    if (membershipWaived !== undefined) {
+      // Keeps the time it was first waived, like redeeming the code (billing/membership.ts).
+      if (membershipWaived) {
+        sets.push(
+          'membership_waived_at = CASE WHEN membership_waived = 1 THEN membership_waived_at ELSE ? END',
         );
-      return c.json((await getUser(c.env, userId)) satisfies AdminUser);
-    },
-  );
+        params.push(new Date().toISOString());
+      }
+      sets.push('membership_waived = ?');
+      params.push(membershipWaived ? 1 : 0);
+    }
+    const db = c.env.DB;
+    const [updated] = await db.batch([
+      db.prepare(`UPDATE auth_users SET ${sets.join(', ')} WHERE id = ?`).bind(...params, userId),
+      // On the pool identity too, so deleting the account doesn't lift it.
+      ...(poolSuspended !== undefined
+        ? [identitySuspensionStatement(db, userId, poolSuspended)]
+        : []),
+    ]);
+    if (!updated!.meta.changes) throw new NotFoundError('User');
+    if (poolSuspended !== undefined)
+      console.log(JSON.stringify({ event: 'pool_suspension_set', userId, poolSuspended }));
+    if (membershipWaived !== undefined)
+      console.log(
+        JSON.stringify({
+          event: 'membership_waiver_set',
+          adminId: c.var.identity.userId,
+          userId,
+          membershipWaived,
+        }),
+      );
+    return c.json((await getUser(c.env, userId)) satisfies AdminUser);
+  });
 
   // The pool's ledger and overage breaker, for the admin pool panel (top-ups: POST /credit).
   r.get('/pool', async (c) => {
@@ -369,39 +363,34 @@ export function adminRoutes(): Hono<AppBindings> {
     } satisfies AdminPoolTopicsResponse);
   });
 
-  r.post(
-    '/pool/topics/:topicId',
-    sameOriginOnly,
-    validateJson(adminPoolTopicDecisionSchema),
-    async (c) => {
-      const topicId = c.req.param('topicId');
-      const { decision } = c.req.valid('json');
-      // Only a topic the weekly job queued (sensitive and unknown ids never are).
-      const row = await c.env.DB.prepare(
-        `UPDATE pool_topic_reviews SET status = ?, decided_at = ?, decided_by = ?
+  r.post('/pool/topics/:topicId', validateJson(adminPoolTopicDecisionSchema), async (c) => {
+    const topicId = c.req.param('topicId');
+    const { decision } = c.req.valid('json');
+    // Only a topic the weekly job queued (sensitive and unknown ids never are).
+    const row = await c.env.DB.prepare(
+      `UPDATE pool_topic_reviews SET status = ?, decided_at = ?, decided_by = ?
          WHERE topic_id = ?
          RETURNING topic_id, status, first_seen_week, decided_at, decided_by`,
-      )
-        .bind(decision, new Date().toISOString(), c.var.identity.userId, topicId)
-        .first<TopicReviewRow>();
-      if (!row) throw new NotFoundError('Topic');
-      console.log(
-        JSON.stringify({
-          event: 'pool_topic_review',
-          adminId: c.var.identity.userId,
-          topicId,
-          decision,
-        }),
-      );
-      const blocklist = appConfig(c.env).impact.topicBlocklist;
-      return c.json(toAdminPoolTopic(row, blocklist) satisfies AdminPoolTopic);
-    },
-  );
+    )
+      .bind(decision, new Date().toISOString(), c.var.identity.userId, topicId)
+      .first<TopicReviewRow>();
+    if (!row) throw new NotFoundError('Topic');
+    console.log(
+      JSON.stringify({
+        event: 'pool_topic_review',
+        adminId: c.var.identity.userId,
+        topicId,
+        decision,
+      }),
+    );
+    const blocklist = appConfig(c.env).impact.topicBlocklist;
+    return c.json(toAdminPoolTopic(row, blocklist) satisfies AdminPoolTopic);
+  });
 
   // Credit without a payment: a signed adjustment of a user's ledger or the pool (a negative pool
   // adjustment is clamped to what the pool has available, under PoolBank's lock), or a simulated
   // purchase, fulfilled exactly as the webhook would. Idempotent on the key.
-  r.post('/credit', sameOriginOnly, validateJson(adminCreditRequestSchema), async (c) => {
+  r.post('/credit', validateJson(adminCreditRequestSchema), async (c) => {
     const req = c.req.valid('json');
     const config = appConfig(c.env);
     // Like an unknown route: a production deployment doesn't advertise the dev tool.
@@ -490,7 +479,7 @@ export function adminRoutes(): Hono<AppBindings> {
   });
 
   // A takedown: revokes any owner's share and purges its cached copies, like the owner's revoke.
-  r.post('/shares/:shareId/revoke', sameOriginOnly, async (c) => {
+  r.post('/shares/:shareId/revoke', async (c) => {
     const share = await createD1Repositories(c.env.DB).shares.getShare(c.req.param('shareId'));
     if (!share) throw new NotFoundError('Share');
     const s = await shareService(c.env, c.req.url, share.accountId).revoke(share.id);

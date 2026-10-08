@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { authConfigured, getAuth, socialProviderFlags, type AuthDeps } from './auth/auth.js';
 import { accountMiddleware } from './auth/account.js';
 import { sessionMiddleware } from './auth/session.js';
+import { sameOriginWrites } from './byok/guard.js';
 import type { AppBindings } from './env.js';
 import { apiError, notFound, onError } from './http/errors.js';
 import { landingRoutes } from './http/landing.js';
@@ -31,6 +32,8 @@ export interface AppOptions {
  *   its weekly impact snapshots (routes/pool.ts).
  * - `POST /api/webhooks/:provider` is public too: payment provider webhooks,
  *   verified by their signature (routes/payment-webhooks.ts).
+ * - Every other `/api/*` request but GET, HEAD and OPTIONS must be
+ *   same-origin (`sameOriginWrites`, byok/guard.ts), sign-in included.
  * - `/api/featured*` is always 404: the featured-conversations wall is a stub
  *   (routes/featured.ts).
  * - Every other `/api/*` route requires a session (auth/session.ts) and acts
@@ -60,6 +63,11 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   app.onError(onError);
   app.notFound(notFound);
 
+  // Payment webhooks come from the provider's servers, verified by their signature;
+  // every other API write must come from this origin (sameOriginWrites).
+  app.post('/api/webhooks/:provider', paymentWebhookRoute);
+  app.use('/api/*', sameOriginWrites);
+
   app.on(['GET', 'POST'], '/api/auth/*', (c) => {
     if (!authConfigured(c.env)) return apiError(c, 'internal', 'Authentication is not configured');
     return getAuth(c.env, c.req.raw, options.auth).handler(c.req.raw);
@@ -76,7 +84,6 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   });
 
   app.get('/api/pool/status', poolStatusRoute);
-  app.post('/api/webhooks/:provider', paymentWebhookRoute);
   app.route('/api/pool/impact', poolImpactRoutes());
   app.all('/api/featured', featuredRoute);
   app.all('/api/featured/*', featuredRoute);
