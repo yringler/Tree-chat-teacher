@@ -142,6 +142,7 @@ pnpm typecheck   # tsc everywhere (+ Angular strict templates)
 pnpm lint        # ESLint (typescript-eslint strict, plus the type-aware promise rules)
 pnpm format:check # Prettier (`pnpm format` rewrites); .prettierignore skips vendored and generated files
 pnpm coverage    # the same tests with coverage, then a lines/branches table per package
+pnpm knip        # unused files, dependencies and exports (knip.jsonc); not in CI yet
 pnpm e2e         # Playwright end-to-end tests against wrangler dev (see below)
 ```
 
