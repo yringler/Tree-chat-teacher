@@ -13,7 +13,7 @@
     "test": "pnpm -r --workspace-concurrency=1 --no-bail test",
     "coverage": "pnpm -r --workspace-concurrency=1 --no-bail coverage && node scripts/coverage-summary.mjs",
     "e2e": "pnpm --filter @tangent/e2e e2e",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm -r typecheck && tsc -p scripts/model-eval",
     "lint": "eslint . && node scripts/check-provider-neutral.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
