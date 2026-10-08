@@ -120,6 +120,11 @@ export interface TruncationRecord {
   droppedNodeIds: string[];
   tokensBefore: number;
   tokensAfter: number;
+  /**
+   * True when the context was to be compacted but the summary failed (or
+   * holds one that failed), so the oldest segments were dropped instead.
+   */
+  compactionFailed: boolean;
 }
 
 export interface ChainLink {

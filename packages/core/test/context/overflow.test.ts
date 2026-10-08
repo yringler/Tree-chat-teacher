@@ -83,8 +83,28 @@ suite('overflowBudget', () => {
       droppedNodeIds: ids(6),
       tokensBefore: 11040,
       tokensAfter: 4416,
+      compactionFailed: true,
     });
+    expect(truncated.truncation!.compactionFailed).toBe(false);
     expect(plan.budget.usedTokens).toBe(4416);
     expect(plan.pendingSummaries).toEqual([]);
+  });
+
+  it('compact blocked by a failed branch summary falls back to truncate too', () => {
+    const f = new Fixture();
+    f.messages('T', 2);
+    const b = f.fork('T.1', 'summary');
+    const Y = 'y'.repeat(1100);
+    for (let i = 0; i < 10; i++) f.add(b, i % 2 === 0 ? 'user' : 'assistant', Y);
+    const options = { estimateTokens: charTokens, budget: { maxInputTokens: 5000 } };
+    const branchKey = f.plan(b).pendingSummaries[0]!.key;
+    const plan = f.plan(b, { ...options, failedSummaries: new Set([summaryKeyString(branchKey)]) });
+    // The compaction would hold the failed summary, so it could never be made:
+    // no 0-token summary stands in for the oldest messages.
+    expect(plan.compaction).toBeNull();
+    expect(plan.segments.filter((s) => s.kind === 'summary')).toEqual([]);
+    expect(plan.pendingSummaries).toEqual([]);
+    expect(plan.truncation).toMatchObject({ tokensAfter: 4416, compactionFailed: true });
+    expect(plan.budget.usedTokens).toBe(4416);
   });
 });

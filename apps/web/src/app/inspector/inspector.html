@@ -75,7 +75,9 @@
           t.tokensBefore.toLocaleString()
         }}
         → {{ t.tokensAfter.toLocaleString() }} tokens).
-        @if (dropsByChoice()) {
+        @if (t.compactionFailed) {
+          Their summary could not be generated, so they were dropped instead.
+        } @else if (dropsByChoice()) {
           Settings drop the oldest messages over the limit instead of summarizing them.
         }
       </p>

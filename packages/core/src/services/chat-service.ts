@@ -2092,9 +2092,15 @@ async function collectText(
 
 const SUMMARY_MISSING_STATUS = 'A summary could not be generated; sending without it.';
 
-/** Whether a resolved plan leaves out a summary (it failed, or is still pending). */
+/**
+ * Whether a resolved plan leaves out a summary: one failed or is still
+ * pending, or the compaction failed and the oldest messages were dropped.
+ */
 function missesSummary(plan: ContextPlan): boolean {
-  return plan.segments.some((s) => s.kind === 'summary' && s.status !== 'ready');
+  return (
+    plan.truncation?.compactionFailed === true ||
+    plan.segments.some((s) => s.kind === 'summary' && s.status !== 'ready')
+  );
 }
 
 /** For providers without a system prompt: fold it into the first user message. */
