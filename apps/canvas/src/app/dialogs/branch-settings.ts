@@ -12,6 +12,7 @@ import {
   parseRouteKey,
   providerRouteKey,
   routeKey,
+  type Branch,
   type ContextMode,
 } from '@tangent/shared';
 import { Icon, Modal } from '@tangent/web-shared';
@@ -20,7 +21,7 @@ import { confirmDeleteLane } from '../canvas/delete-lane';
 import { laneTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore, type BranchSettingsState } from '../state/ui-store';
-import { ModelField } from './model-field';
+import { ModelField, routeSuffix } from './model-field';
 
 const MODE_HELP: Record<ContextMode, string> = {
   path: 'Everything the parent lane had at the fork, then this lane.',
@@ -79,11 +80,10 @@ const MODE_HELP: Record<ContextMode, string> = {
                 @for (p of store.providers(); track key(p)) {
                   <option
                     [value]="key(p)"
-                    [disabled]="!p.available"
+                    [disabled]="!p.available || store.routeLocked(p)"
                     [selected]="key(p) === route()"
                   >
-                    {{ p.label
-                    }}{{ p.available ? '' : p.acceptsUserKey ? ' — no key' : ' — unavailable' }}
+                    {{ p.label }}{{ suffix(p, store.routeLocked(p)) }}
                   </option>
                 }
               </select>
@@ -137,10 +137,17 @@ export class BranchSettings implements OnInit {
   protected readonly branch = computed(
     () => this.store.index()?.branches.get(this.state().branchId) ?? null,
   );
+  /**
+   * The lane as the form was filled from it. Saving sends what the user
+   * changed from this, not from the live lane: a reply finishing meanwhile
+   * may have retitled it.
+   */
+  private opened: Branch | null = null;
   protected readonly title = signal('');
   protected readonly mode = signal<ContextMode>('path');
   protected readonly quote = signal('');
   protected readonly key = providerRouteKey;
+  protected readonly suffix = routeSuffix;
   /** Provider and funding, as a `routeKey`. */
   protected readonly route = signal('');
   protected readonly model = signal('');
@@ -150,6 +157,7 @@ export class BranchSettings implements OnInit {
   ngOnInit(): void {
     const b = this.branch();
     if (!b) return;
+    this.opened = b;
     this.title.set(laneTitle(b));
     this.mode.set(b.contextMode);
     this.quote.set(b.anchorQuote ?? '');
@@ -169,7 +177,7 @@ export class BranchSettings implements OnInit {
   }
 
   protected async save(): Promise<void> {
-    const b = this.branch();
+    const b = this.opened;
     if (!b) return;
     this.saving.set(true);
     const title = this.title().trim();

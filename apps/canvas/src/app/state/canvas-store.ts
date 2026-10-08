@@ -41,6 +41,7 @@ import {
   addBlockedSend,
   ApiClient,
   ApiError,
+  coalesced,
   creditBuyable,
   creditCanPay,
   creditCarriesOn,
@@ -188,6 +189,7 @@ export class CanvasStore {
   readonly completions = signal(0);
   private readonly controllers = new Map<string, AbortController>();
   private detailSeq = 0;
+  private treesSeq = 0;
 
   // Lineage (one plan per lane, cached by leaf)
   readonly lineages = signal<ReadonlyMap<string, Lineage>>(new Map());
@@ -554,12 +556,19 @@ export class CanvasStore {
 
   async loadTrees(): Promise<void> {
     try {
-      this.trees.set(await this.api.listTrees());
+      await this.readTrees();
     } catch (err) {
       this.fail(err);
     } finally {
       this.treesLoaded.set(true);
     }
+  }
+
+  /** Reads the list; a read answering after one started later is dropped. */
+  private async readTrees(): Promise<void> {
+    const seq = ++this.treesSeq;
+    const list = await this.api.listTrees();
+    if (seq === this.treesSeq) this.trees.set(list);
   }
 
   // Routing (the URL is the source of truth for the selection)
@@ -578,10 +587,7 @@ export class CanvasStore {
       this.lineages.set(new Map());
       this.lineageFailed.clear();
       if (treeId) void this.loadTree(treeId);
-      else {
-        this.detail.set(null);
-        this.detailError.set(null);
-      }
+      else this.showDetail(null);
     }
   }
 
@@ -671,11 +677,11 @@ export class CanvasStore {
     if (this.detail()?.tree.id !== treeId) this.detail.set(null);
     try {
       const detail = await this.api.getTree(treeId);
-      if (seq !== this.detailSeq) return;
+      if (!this.loadCurrent(seq, treeId)) return;
       this.detail.set(detail);
       this.resumeStreaming(detail.nodes);
     } catch (err) {
-      if (seq !== this.detailSeq) return;
+      if (!this.loadCurrent(seq, treeId)) return;
       this.detailError.set(
         err instanceof ApiError && err.status === 404
           ? 'This conversation does not exist.'
@@ -684,6 +690,19 @@ export class CanvasStore {
     } finally {
       if (seq === this.detailSeq) this.detailLoading.set(false);
     }
+  }
+
+  /** The load numbered `seq` of `treeId` is still the one wanted (no other tree, nor none, since). */
+  private loadCurrent(seq: number, treeId: string): boolean {
+    return seq === this.detailSeq && this.selectedTreeId() === treeId;
+  }
+
+  /** Shows `detail` (null: no tree), dropping whatever tree load is still in flight. */
+  private showDetail(detail: TreeDetail | null): void {
+    this.detailSeq++;
+    this.detailLoading.set(false);
+    this.detailError.set(null);
+    this.detail.set(detail);
   }
 
   /**
@@ -700,7 +719,7 @@ export class CanvasStore {
         ...(route ? parseRouteKey(route) : {}),
         ...(model ? { model } : {}),
       });
-      this.detail.set(detail);
+      this.showDetail(detail);
       this.selectedTreeId.set(detail.tree.id);
       this.ui.clearLinkState();
       this.trees.update((list) => [summaryOf(detail), ...list]);
@@ -714,6 +733,7 @@ export class CanvasStore {
   async deleteTree(treeId: string): Promise<void> {
     try {
       await this.api.deleteTree(treeId);
+      this.stopTreeStreams(treeId);
       this.trees.update((list) => list.filter((t) => t.id !== treeId));
       if (this.selectedTreeId() === treeId) await this.router.navigate(['/']);
       this.ui.notify('Conversation deleted');
@@ -782,7 +802,8 @@ export class CanvasStore {
   /**
    * Follows a tangent the assistant suggested under `fromNodeId`: a `path`
    * branch titled after it whose first message is the title. A tangent
-   * already followed from that message just opens its lane.
+   * already followed from that message just opens its lane. On a locked lane
+   * nothing new is opened: the lane would start on its route, read-only.
    */
   async followTangent(fromNodeId: string, title: string): Promise<Branch | null> {
     const existing = this.childBranchesAt(fromNodeId).find((b) => b.title === title);
@@ -790,6 +811,10 @@ export class CanvasStore {
       this.go(existing.id);
       return existing;
     }
+    const idx = this.index();
+    const from = idx?.nodes.get(fromNodeId);
+    const lane = from && idx?.branches.get(from.branchId);
+    if (lane && this.routeLocked(lane)) return null;
     return this.startLane({ fromNodeId, contextMode: 'path', anchorQuote: null, title }, title);
   }
 
@@ -1156,9 +1181,19 @@ export class CanvasStore {
     void this.refreshAfterCompletion();
   }
 
-  /** Titles can change after the first reply (auto-titling): refresh the list and the tree title. */
-  private async refreshAfterCompletion(): Promise<void> {
-    await this.loadTrees();
+  /**
+   * Titles can change after the first reply (auto-titling): refresh the list
+   * and the tree title. Replies finishing together (a fan-out) share one
+   * refresh, plus one more if asked meanwhile. Quiet on failure: the next
+   * reply refreshes again.
+   */
+  private readonly refreshAfterCompletion = coalesced(async () => {
+    try {
+      await this.readTrees();
+    } catch (err) {
+      console.warn('tree list refresh failed', err);
+      return;
+    }
     const d = this.detail();
     const summary = d && this.trees().find((t) => t.id === d.tree.id);
     if (d && summary && summary.title !== d.tree.title) {
@@ -1166,7 +1201,7 @@ export class CanvasStore {
         cur ? { ...cur, tree: { ...cur.tree, title: summary.title } } : cur,
       );
     }
-  }
+  });
 
   private markError(nodeId: string, message: string): void {
     const node = this.index()?.nodes.get(nodeId);
@@ -1201,6 +1236,16 @@ export class CanvasStore {
       const mine = links.filter((l) => l.treeId === d.tree.id);
       return mine.length ? { ...d, links: upsertById(d.links, mine) } : d;
     });
+  }
+
+  /** Stops following the replies of a deleted tree (the server has no tree to stream them from). */
+  private stopTreeStreams(treeId: string): void {
+    for (const l of this.live().values()) {
+      if (l.treeId !== treeId) continue;
+      this.controllers.get(l.nodeId)?.abort();
+      this.controllers.delete(l.nodeId);
+      this.dropLive(l.nodeId);
+    }
   }
 
   private removeBranches(res: DeleteBranchResponse): void {

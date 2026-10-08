@@ -24,6 +24,7 @@ import {
 import {
   ApiClient,
   ApiError,
+  coalesced,
   backupFile,
   CompareRun,
   errorMessage,
@@ -57,17 +58,54 @@ export interface LiveReply {
 
 /**
  * A message that didn't reach the lesson (refused, e.g. out of credit or for
- * want of the own key, or a failed request), offered back to the composer.
+ * want of the own key, or a failed request), offered back to the composer
+ * of its branch. Kept for the tab (`UNSENT_STORAGE_KEY`): a top-up (checkout)
+ * and the human check leave the page and come back to it.
  */
 export interface UnsentDraft {
+  treeId: string;
   branchId: string;
   text: string;
+  /** Sent as a "Check sources" request: resent as one, never offered as typed text. */
+  ground?: 'required';
   /**
    * Refused for want of the learner's own key (401 `key_required`): once
    * "How replies are paid for" is settled (a key saved, credit or the pool
    * picked), it is sent (`resumeUnsent`).
    */
   needsKey?: boolean;
+}
+
+/** Where the unsent message waits in sessionStorage (this tab only, like the page it left). */
+const UNSENT_STORAGE_KEY = 'tangent.learn.unsent';
+
+function storedDraft(): UnsentDraft | null {
+  try {
+    const raw = sessionStorage.getItem(UNSENT_STORAGE_KEY);
+    const d: unknown = raw ? JSON.parse(raw) : null;
+    if (typeof d !== 'object' || d === null) return null;
+    const { treeId, branchId, text, ground, needsKey } = d as Record<string, unknown>;
+    if (typeof treeId !== 'string' || typeof branchId !== 'string' || typeof text !== 'string')
+      return null;
+    return {
+      treeId,
+      branchId,
+      text,
+      ...(ground === 'required' ? { ground } : {}),
+      ...(needsKey === true ? { needsKey } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function storeDraft(d: UnsentDraft | null): void {
+  try {
+    if (d) sessionStorage.setItem(UNSENT_STORAGE_KEY, JSON.stringify(d));
+    else sessionStorage.removeItem(UNSENT_STORAGE_KEY);
+  } catch {
+    // Storage unavailable: the message waits for this page only.
+  }
 }
 
 /**
@@ -176,14 +214,15 @@ export class LessonStore {
 
   // Replies
   readonly live = signal<ReadonlyMap<string, LiveReply>>(new Map());
-  /** Branch whose POST is in flight (before `start` arrives). */
-  readonly sendingBranchId = signal<string | null>(null);
-  readonly unsentDraft = signal<UnsentDraft | null>(null);
+  /** Branches whose POST is in flight (before `start` arrives). */
+  readonly sending = signal<ReadonlySet<string>>(new Set());
+  readonly unsentDraft = signal<UnsentDraft | null>(storedDraft());
   readonly poolBlock = signal<LessonPoolBlock | null>(null);
   /** The Compare sheet is open (its answers stream): the composer waits. */
   readonly comparing = signal(false);
   private readonly controllers = new Map<string, AbortController>();
   private detailSeq = 0;
+  private treesSeq = 0;
 
   readonly index = computed<TreeIndex | null>(() => {
     const d = this.detail();
@@ -243,11 +282,9 @@ export class LessonStore {
   });
 
   readonly busy = computed(() => {
-    const sending = this.sendingBranchId();
+    const id = this.selectedBranchId();
     return (
-      this.comparing() ||
-      this.streamingNode() !== null ||
-      (sending !== null && sending === this.selectedBranchId())
+      this.comparing() || this.streamingNode() !== null || (id !== null && this.sending().has(id))
     );
   });
 
@@ -267,12 +304,19 @@ export class LessonStore {
 
   async loadTrees(): Promise<void> {
     try {
-      this.trees.set(await this.api.listTrees());
+      await this.readTrees();
     } catch (err) {
       this.fail(err);
     } finally {
       this.treesLoaded.set(true);
     }
+  }
+
+  /** Reads the list; a read answering after one started later is dropped. */
+  private async readTrees(): Promise<void> {
+    const seq = ++this.treesSeq;
+    const list = await this.api.listTrees();
+    if (seq === this.treesSeq) this.trees.set(list);
   }
 
   async loadTree(treeId: string, force = false): Promise<void> {
@@ -283,11 +327,11 @@ export class LessonStore {
     if (this.detail()?.tree.id !== treeId) this.detail.set(null);
     try {
       const detail = await this.api.getTree(treeId);
-      if (seq !== this.detailSeq) return;
+      if (!this.loadCurrent(seq, treeId)) return;
       this.detail.set(detail);
       this.resumeStreaming(detail.nodes);
     } catch (err) {
-      if (seq !== this.detailSeq) return;
+      if (!this.loadCurrent(seq, treeId)) return;
       this.detailError.set(
         err instanceof ApiError && err.status === 404
           ? 'This lesson does not exist.'
@@ -296,6 +340,19 @@ export class LessonStore {
     } finally {
       if (seq === this.detailSeq) this.detailLoading.set(false);
     }
+  }
+
+  /** The load numbered `seq` of `treeId` is still the one wanted (no other tree, nor none, since). */
+  private loadCurrent(seq: number, treeId: string): boolean {
+    return seq === this.detailSeq && this.selectedTreeId() === treeId;
+  }
+
+  /** Shows `detail` (null: no tree), dropping whatever tree load is still in flight. */
+  private showDetail(detail: TreeDetail | null): void {
+    this.detailSeq++;
+    this.detailLoading.set(false);
+    this.detailError.set(null);
+    this.detail.set(detail);
   }
 
   // Routing (the URL is the source of truth for the selection)
@@ -318,10 +375,7 @@ export class LessonStore {
       this.linkReturn.set(null);
       this.selectedTreeId.set(treeId);
       if (treeId) void this.loadTree(treeId);
-      else {
-        this.detail.set(null);
-        this.detailError.set(null);
-      }
+      else this.showDetail(null);
     }
   }
 
@@ -386,7 +440,7 @@ export class LessonStore {
         ...(providerId ? { providerId } : {}),
         ...(model ? { model } : {}),
       });
-      this.detail.set(detail);
+      this.showDetail(detail);
       this.selectedTreeId.set(detail.tree.id);
       this.trees.update((list) => [summaryOf(detail), ...list]);
       await this.router.navigate(['/t', detail.tree.id]);
@@ -404,6 +458,8 @@ export class LessonStore {
   async deleteLesson(treeId: string): Promise<boolean> {
     try {
       await this.api.deleteTree(treeId);
+      this.stopTreeStreams(treeId);
+      if (this.unsentDraft()?.treeId === treeId) this.setUnsent(null);
       this.trees.update((list) => list.filter((t) => t.id !== treeId));
       if (this.selectedTreeId() === treeId) await this.router.navigate(['/']);
       this.ui.notify('Lesson deleted');
@@ -579,8 +635,10 @@ export class LessonStore {
 
   /**
    * "Check sources" on a finished reply: asks the tutor to check it with a
-   * web search. On the branch's last reply the check is appended there; on an
-   * earlier one it opens a side question, so later messages keep their place.
+   * web search. On the open branch's last reply the check is appended there;
+   * on an earlier one, including one of an ancestor branch (the open branch's
+   * messages follow it on screen), it opens a side question, so later
+   * messages keep their place and the check streams where the learner sees it.
    */
   async checkSources(nodeId: string): Promise<boolean> {
     const idx = this.index();
@@ -588,8 +646,7 @@ export class LessonStore {
     if (!idx || !node || node.role !== 'assistant') return false;
     const parent = node.parentId ? idx.nodes.get(node.parentId) : undefined;
     const content = checkSourcesMessage(parent?.role === 'user' ? parent.content : null);
-    const own = idx.nodesByBranch.get(node.branchId) ?? [];
-    if (own.at(-1)?.id === node.id) {
+    if (node.branchId === this.selectedBranchId() && this.path().at(-1)?.id === node.id) {
       return this.send(node.branchId, content, { ground: 'required' });
     }
     const from = idx.branches.get(node.branchId);
@@ -694,8 +751,10 @@ export class LessonStore {
     content: string,
     options: { ground?: 'required' } = {},
   ): Promise<boolean> {
-    this.sendingBranchId.set(branchId);
-    if (this.unsentDraft()?.branchId === branchId) this.unsentDraft.set(null);
+    this.markSending(branchId, true);
+    // Sent again: let it go. A "Check sources" request leaves the learner's own message be.
+    const draft = this.unsentDraft();
+    if (draft?.branchId === branchId && !draft.ground === !options.ground) this.setUnsent(null);
     if (this.poolBlock()?.branchId === branchId) this.poolBlock.set(null);
     const ctrl = new AbortController();
     let nodeId: string | null = null;
@@ -709,7 +768,7 @@ export class LessonStore {
           if (event.type === 'start') {
             nodeId = event.assistantNode.id;
             this.controllers.set(nodeId, ctrl);
-            this.sendingBranchId.set(null);
+            this.markSending(branchId, false);
             // In the lesson now: the composer may let the text go.
             this.ui.markSent(content);
           }
@@ -726,22 +785,24 @@ export class LessonStore {
       const block = poolBlockOf(err);
       if (block) {
         // The pool's empty and cap-reached states: inline, never a toast or a navigation.
-        this.unsentDraft.set({ branchId, text: content });
+        // A "Check sources" request isn't text the learner typed: not offered back.
+        if (!options.ground) this.keepUnsent(branchId, content, options);
         this.poolBlock.set({ ...block, branchId });
         void this.account.refreshPool();
         return false;
       }
-      if (nodeId === null && !options.ground) {
+      const needsKey = err instanceof ApiError && err.code === 'key_required';
+      if (nodeId === null && (!options.ground || needsKey)) {
         // Any refusal or failure before the reply started (out of credit, no key or
         // membership, the pool's checks, a network error…): nothing was written, so
-        // the text goes back to the composer ("Check sources" asks no typed text).
-        const needsKey = err instanceof ApiError && err.code === 'key_required';
-        this.unsentDraft.set({ branchId, text: content, ...(needsKey ? { needsKey } : {}) });
+        // the text goes back to the composer. "Check sources" asks no typed text: it
+        // is kept only to be resumed once the key is settled.
+        this.keepUnsent(branchId, content, options, needsKey);
       }
       this.fail(err);
       return false;
     } finally {
-      if (this.sendingBranchId() === branchId) this.sendingBranchId.set(null);
+      this.markSending(branchId, false);
       if (nodeId) this.controllers.delete(nodeId);
     }
   }
@@ -790,7 +851,7 @@ export class LessonStore {
     const { userNode, assistantNode, branch } = res;
     this.apply({ type: 'start', userNode, assistantNode, branch }, null);
     this.apply({ type: 'done', node: assistantNode, branch }, assistantNode.id);
-    if (this.unsentDraft()?.branchId === run.branchId) this.unsentDraft.set(null);
+    if (this.unsentDraft()?.branchId === run.branchId) this.setUnsent(null);
     if (this.poolBlock()?.branchId === run.branchId) this.poolBlock.set(null);
     this.ui.markSent(run.question);
     this.finish(assistantNode.id, { kind: 'done' });
@@ -833,8 +894,8 @@ export class LessonStore {
     }
     this.ui.poolConsentVersion.set(null);
     void this.account.refreshPool();
-    const draft = this.unsentDraft();
-    if (draft) void this.send(draft.branchId, draft.text);
+    const draft = this.openDraft();
+    if (draft) void this.resend(draft);
     return true;
   }
 
@@ -844,10 +905,37 @@ export class LessonStore {
    * (`UnsentDraft.needsKey`): sends it. False when none waits.
    */
   resumeUnsent(): boolean {
-    const draft = this.unsentDraft();
+    const draft = this.openDraft();
     if (!draft?.needsKey) return false;
-    void this.send(draft.branchId, draft.text);
+    void this.resend(draft);
     return true;
+  }
+
+  /** The unsent message of the open lesson, if any (one of another lesson waits for it). */
+  private openDraft(): UnsentDraft | null {
+    const d = this.unsentDraft();
+    return d && d.treeId === this.selectedTreeId() ? d : null;
+  }
+
+  /** Sends an unsent message again, as it was first sent. */
+  private resend(d: UnsentDraft): Promise<boolean> {
+    return this.send(d.branchId, d.text, d.ground ? { ground: d.ground } : {});
+  }
+
+  private keepUnsent(
+    branchId: string,
+    text: string,
+    options: { ground?: 'required' },
+    needsKey = false,
+  ): void {
+    const treeId = this.index()?.branches.get(branchId)?.treeId ?? this.selectedTreeId();
+    if (!treeId) return;
+    this.setUnsent({ treeId, branchId, text, ...options, ...(needsKey ? { needsKey } : {}) });
+  }
+
+  private setUnsent(d: UnsentDraft | null): void {
+    this.unsentDraft.set(d);
+    storeDraft(d);
   }
 
   /** Stop: the server cancels the generation and the stream ends with an `error` event. */
@@ -980,14 +1068,29 @@ export class LessonStore {
         this.dropLive(nodeId);
       }
     }
-    void this.account.refreshBalance();
-    if (this.account.payment.poolAvailable()) void this.account.refreshPool();
     void this.refreshAfterCompletion();
   }
 
-  /** Lessons are titled after the first reply: refresh the list and the open lesson's title. */
-  private async refreshAfterCompletion(): Promise<void> {
-    await this.loadTrees();
+  /**
+   * After a reply: the balance, the pool meter while the pool is offered, and
+   * the lessons, titled after the first reply (the list and the open
+   * lesson's title). Replies finishing together share one refresh, plus one
+   * more if asked meanwhile. Quiet on failure: the next reply refreshes again.
+   */
+  private readonly refreshAfterCompletion = coalesced(async () => {
+    const lessons = this.readTrees().then(
+      () => true,
+      (err: unknown) => {
+        console.warn('lesson list refresh failed', err);
+        return false;
+      },
+    );
+    const [listed] = await Promise.all([
+      lessons,
+      this.account.refreshBalance(),
+      this.account.payment.poolAvailable() ? this.account.refreshPool() : null,
+    ]);
+    if (!listed) return;
     const d = this.detail();
     const summary = d && this.trees().find((t) => t.id === d.tree.id);
     if (d && summary && summary.title !== d.tree.title) {
@@ -995,7 +1098,7 @@ export class LessonStore {
         cur ? { ...cur, tree: { ...cur.tree, title: summary.title } } : cur,
       );
     }
-  }
+  });
 
   private markError(nodeId: string, message: string): void {
     const node = this.index()?.nodes.get(nodeId);
@@ -1031,6 +1134,16 @@ export class LessonStore {
   }
 
   /** Drops deleted branches and their messages, and stops following their replies. */
+  /** Stops following the replies of a deleted tree (the server has no tree to stream them from). */
+  private stopTreeStreams(treeId: string): void {
+    for (const l of this.live().values()) {
+      if (l.treeId !== treeId) continue;
+      this.controllers.get(l.nodeId)?.abort();
+      this.controllers.delete(l.nodeId);
+      this.dropLive(l.nodeId);
+    }
+  }
+
   private removeBranches(res: DeleteBranchResponse): void {
     const branchIds = new Set(res.branchIds);
     const nodeIds = new Set(res.nodeIds);
@@ -1040,7 +1153,7 @@ export class LessonStore {
       this.dropLive(id);
     }
     const draft = this.unsentDraft();
-    if (draft && branchIds.has(draft.branchId)) this.unsentDraft.set(null);
+    if (draft && branchIds.has(draft.branchId)) this.setUnsent(null);
     const block = this.poolBlock();
     if (block && branchIds.has(block.branchId)) this.poolBlock.set(null);
     this.detail.update((d) =>
@@ -1073,6 +1186,16 @@ export class LessonStore {
         ),
       );
     }
+  }
+
+  private markSending(branchId: string, on: boolean): void {
+    if (this.sending().has(branchId) === on) return;
+    this.sending.update((set) => {
+      const next = new Set(set);
+      if (on) next.add(branchId);
+      else next.delete(branchId);
+      return next;
+    });
   }
 
   private setLive(s: LiveReply): void {

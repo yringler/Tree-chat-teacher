@@ -13,6 +13,7 @@ import type {
   ProviderInfo,
   StreamEvent,
   TreeDetail,
+  TreeSummary,
   UpdateBranchRequest,
 } from '@tangent/shared';
 import { providerRouteKey } from '@tangent/shared';
@@ -63,7 +64,7 @@ function setup() {
   const api = {
     me: vi.fn(async (): Promise<MeResponse> => me()),
     providers: vi.fn(async (): Promise<ProviderInfo[]> => []),
-    listTrees: vi.fn(async () => []),
+    listTrees: vi.fn(async (): Promise<TreeSummary[]> => []),
     keyStatus: vi.fn(async () => ({ enabled: true, hasKey: false, providers: [] })),
     billing: vi.fn(async (): Promise<BillingSummary> => summary),
     poolStatus: vi.fn(async () => ({ enabled: false }) as PoolStatusResponse),
@@ -1546,5 +1547,338 @@ describe('TreeStore a committed Compare pick', () => {
       branch: trunk,
     });
     expect(s.store.unsentDrafts().has('trunk')).toBe(false);
+  });
+});
+
+/** Tree `id`: a trunk with one exchange, and a side branch off the reply with one of its own. */
+function smallTree(id: string): TreeDetail {
+  const at = '2026-10-01T00:00:00.000Z';
+  const branch = (over: Partial<Branch>): Branch => ({
+    id: `${id}-trunk`,
+    treeId: id,
+    parentBranchId: null,
+    branchPointNodeId: null,
+    contextMode: 'path',
+    anchorQuote: null,
+    title: 'Main thread',
+    titleSource: 'default',
+    isPrivate: false,
+    providerId: 'openrouter',
+    model: 'a/b',
+    funding: 'credit',
+    createdAt: at,
+    updatedAt: at,
+    ...over,
+  });
+  const node = (over: Partial<ChatNode>): ChatNode => ({
+    id: `${id}-u1`,
+    treeId: id,
+    branchId: `${id}-trunk`,
+    parentId: null,
+    seq: 0,
+    role: 'user',
+    content: 'What is light?',
+    status: 'complete',
+    error: null,
+    providerId: null,
+    model: null,
+    usage: null,
+    createdAt: at,
+    ...over,
+  });
+  return {
+    tree: {
+      id,
+      accountId: 'p_1',
+      title: `Tree ${id}`,
+      systemPrompt: null,
+      trunkBranchId: `${id}-trunk`,
+      createdAt: at,
+      updatedAt: at,
+    },
+    branches: [
+      branch({}),
+      branch({
+        id: `${id}-side`,
+        parentBranchId: `${id}-trunk`,
+        branchPointNodeId: `${id}-a1`,
+        title: 'Side',
+      }),
+    ],
+    nodes: [
+      node({}),
+      node({ id: `${id}-a1`, parentId: `${id}-u1`, seq: 1, role: 'assistant', content: 'A wave.' }),
+      node({
+        id: `${id}-u2`,
+        branchId: `${id}-side`,
+        parentId: `${id}-a1`,
+        seq: 2,
+        content: 'And?',
+      }),
+      node({
+        id: `${id}-a2`,
+        branchId: `${id}-side`,
+        parentId: `${id}-u2`,
+        seq: 3,
+        role: 'assistant',
+        content: 'A particle.',
+      }),
+    ],
+    links: [],
+  };
+}
+
+/** A promise the test settles. */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+const emptyStream = () => new Response('', { headers: { 'content-type': 'text/event-stream' } });
+
+describe('TreeStore a tree load that lands late', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  function slowLoad() {
+    const s = setup();
+    const pending = deferred<TreeDetail>();
+    const getTree = vi.fn((_id: string) => pending.promise);
+    const sendMessage = vi.fn(async (_b: string, _req: unknown, _signal: AbortSignal) =>
+      emptyStream(),
+    );
+    Object.assign(s.api, {
+      getTree,
+      sendMessage,
+      streamNode: vi.fn(),
+      createTree: vi.fn(async () => smallTree('Y')),
+    });
+    s.store.setRoute('X', null, null);
+    expect(getTree).toHaveBeenCalledWith('X');
+    return { ...s, pending, sendMessage };
+  }
+
+  it('going home while it loads: home stays empty', async () => {
+    const s = slowLoad();
+    s.store.setRoute(null, null, null);
+    expect(s.store.detailLoading()).toBe(false);
+    s.pending.resolve(smallTree('X'));
+    await s.pending.promise;
+    await Promise.resolve();
+    expect(s.store.detail()).toBeNull();
+    expect(s.store.detailLoading()).toBe(false);
+  });
+
+  it('starting a new conversation while it loads: the new one stays open and gets the message', async () => {
+    const s = slowLoad();
+    await s.store.startConversation('Hello', null, null);
+    s.pending.resolve(smallTree('X'));
+    await s.pending.promise;
+    await Promise.resolve();
+    expect(s.store.detail()?.tree.id).toBe('Y');
+    expect(s.store.detailLoading()).toBe(false);
+    await vi.waitFor(() =>
+      expect(s.sendMessage).toHaveBeenCalledWith(
+        'Y-trunk',
+        expect.objectContaining({ content: 'Hello' }),
+        expect.any(AbortSignal),
+      ),
+    );
+    // The composer's next send goes to Y as well.
+    expect(s.store.selectedBranchId()).toBe('Y-trunk');
+  });
+});
+
+describe('TreeStore sends on two branches at once', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('a send on another branch leaves the first branch busy until its reply starts', async () => {
+    const s = setup();
+    const posts = new Map<string, ReturnType<typeof deferred<Response>>>();
+    const sendMessage = vi.fn((branchId: string, _req: unknown, _signal: AbortSignal) => {
+      const d = deferred<Response>();
+      posts.set(branchId, d);
+      return d.promise;
+    });
+    Object.assign(s.api, { sendMessage, streamNode: vi.fn() });
+    s.store.detail.set(smallTree('X'));
+    s.store.setRoute('X', 'X-side', null);
+
+    void s.store.send('X-side', 'One');
+    expect(s.store.busy()).toBe(true);
+    const other = s.store.send('X-trunk', 'Two');
+    expect(s.store.busy()).toBe(true);
+    // The other branch's POST ends (refused here) while the first is still out.
+    posts.get('X-trunk')?.resolve(new Response('nope', { status: 500 }));
+    await other;
+    expect(s.store.busy()).toBe(true);
+    expect([...s.store.sending()]).toEqual(['X-side']);
+  });
+});
+
+describe('TreeStore deleting a tree with a reply generating', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('stops following its replies', async () => {
+    const s = setup();
+    const generating = smallTree('X');
+    generating.nodes = generating.nodes.map((n) =>
+      n.id === 'X-a2' ? { ...n, status: 'streaming' } : n,
+    );
+    const signals: AbortSignal[] = [];
+    Object.assign(s.api, {
+      getTree: vi.fn(async () => generating),
+      streamNode: vi.fn((_id: string, signal: AbortSignal) => {
+        signals.push(signal);
+        return new Promise<Response>(() => undefined);
+      }),
+      deleteTree: vi.fn(async () => undefined),
+    });
+    s.store.setRoute('X', null, null);
+    await vi.waitFor(() => expect(signals).toHaveLength(1));
+    expect(s.store.live().has('X-a2')).toBe(true);
+    await expect(s.store.deleteTree('X')).resolves.toBe(true);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(s.store.live().size).toBe(0);
+  });
+});
+
+describe('TreeStore refreshing the list after replies', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function finished(s: ReturnType<typeof setup>, n: number) {
+    const tree = smallTree('X');
+    const branch = tree.branches[0]!;
+    for (let i = 0; i < n; i++) {
+      const assistantNode: ChatNode = {
+        ...tree.nodes[1]!,
+        id: `done-${i}`,
+        parentId: `ask-${i}`,
+        seq: 10 + 2 * i,
+      };
+      const userNode: ChatNode = { ...tree.nodes[0]!, id: `ask-${i}`, seq: 9 + 2 * i };
+      s.store.applyCommitted({ userNode, assistantNode, branch });
+    }
+  }
+
+  const summaryOf = (title: string) => ({
+    id: 'X',
+    title,
+    createdAt: '2026-10-01T00:00:00.000Z',
+    updatedAt: '2026-10-01T00:00:00.000Z',
+    branchCount: 2,
+    messageCount: 4,
+  });
+
+  it('six replies finishing together read the list twice at most, and the latest answer stays', async () => {
+    const s = setup();
+    s.store.detail.set(smallTree('X'));
+    s.store.setRoute('X', null, null);
+    const reads: ReturnType<typeof deferred<ReturnType<typeof summaryOf>[]>>[] = [];
+    s.api.listTrees.mockImplementation(() => {
+      const d = deferred<ReturnType<typeof summaryOf>[]>();
+      reads.push(d);
+      return d.promise;
+    });
+    finished(s, 6);
+    expect(reads).toHaveLength(1);
+    reads[0]!.resolve([summaryOf('Light')]);
+    await vi.waitFor(() => expect(reads).toHaveLength(2));
+    reads[1]!.resolve([summaryOf('Light and waves')]);
+    await vi.waitFor(() => expect(s.store.detail()?.tree.title).toBe('Light and waves'));
+    expect(reads).toHaveLength(2);
+    expect(s.store.trees().map((t) => t.title)).toEqual(['Light and waves']);
+  });
+
+  it('an older read answering last does not overwrite a newer one', async () => {
+    const s = setup();
+    const reads: ReturnType<typeof deferred<ReturnType<typeof summaryOf>[]>>[] = [];
+    s.api.listTrees.mockImplementation(() => {
+      const d = deferred<ReturnType<typeof summaryOf>[]>();
+      reads.push(d);
+      return d.promise;
+    });
+    const first = s.store.loadTrees();
+    const second = s.store.loadTrees();
+    reads[1]!.resolve([summaryOf('New')]);
+    await second;
+    reads[0]!.resolve([summaryOf('Old')]);
+    await first;
+    expect(s.store.trees().map((t) => t.title)).toEqual(['New']);
+  });
+
+  it('a failed refresh after a reply is quiet', async () => {
+    const s = setup();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    s.store.detail.set(smallTree('X'));
+    s.api.listTrees.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
+    finished(s, 1);
+    await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
+    expect(s.ui.toasts()).toEqual([]);
+  });
+});
+
+describe('TreeStore Check sources', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  /** Tree X open on its side branch, which follows the trunk's last reply X-a1. */
+  function openSide() {
+    const s = setup();
+    const sendMessage = vi.fn(async (_b: string, _req: unknown, _signal: AbortSignal) =>
+      emptyStream(),
+    );
+    const createBranch = vi.fn(async (req: CreateBranchRequest): Promise<Branch> => ({
+      ...smallTree('X').branches[1]!,
+      id: 'X-check',
+      branchPointNodeId: req.fromNodeId,
+      title: req.title ?? 'Branch',
+    }));
+    Object.assign(s.api, { sendMessage, createBranch, streamNode: vi.fn() });
+    s.store.detail.set(smallTree('X'));
+    s.store.setRoute('X', 'X-side', null);
+    const go = vi.spyOn(s.store, 'go');
+    return { ...s, sendMessage, createBranch, go };
+  }
+
+  it('after the open branch’s last reply, appends the check there', async () => {
+    const s = openSide();
+    await s.store.checkSources('X-a2');
+    expect(s.createBranch).not.toHaveBeenCalled();
+    expect(s.sendMessage).toHaveBeenCalledWith(
+      'X-side',
+      expect.objectContaining({ ground: 'required' }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('on an ancestor branch’s last reply, opens a branch from it where the check streams', async () => {
+    const s = openSide();
+    await s.store.checkSources('X-a1');
+    expect(s.createBranch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fromNodeId: 'X-a1',
+        contextMode: 'path',
+        title: 'Checking sources',
+      }),
+    );
+    expect(s.go).toHaveBeenCalledWith('X-check');
+    expect(s.sendMessage).toHaveBeenCalledTimes(1);
+    expect(s.sendMessage).toHaveBeenCalledWith(
+      'X-check',
+      expect.objectContaining({ ground: 'required' }),
+      expect.any(AbortSignal),
+    );
   });
 });

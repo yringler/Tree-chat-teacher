@@ -539,6 +539,26 @@ describe('CanvasStore read-only lanes without a membership', () => {
     expect(s.store.routeLocked(trunk!)).toBe(false);
   });
 
+  it('a tangent of a locked lane opens no lane on its route; one already followed still opens', async () => {
+    const s = setup();
+    s.api.providers.mockResolvedValue([credit]);
+    await s.store.init({
+      builtInCredit: true,
+      membership: inactive,
+      membershipNeededFor: ['own-key'],
+    } as MeResponse);
+    s.store.detail.set(ownKeyTrunk());
+    const createBranch = vi.fn(async (req: CreateBranchRequest) =>
+      branch('new', { title: req.title ?? '' }),
+    );
+    Object.assign(s.api, { createBranch });
+    await expect(s.store.followTangent('a1', 'Waves in water')).resolves.toBeNull();
+    expect(createBranch).not.toHaveBeenCalled();
+    expect(s.api.sendMessage).not.toHaveBeenCalled();
+    // Lane `b` already follows a1 under its title: it just opens.
+    await expect(s.store.followTangent('a1', 'b')).resolves.toMatchObject({ id: 'b' });
+  });
+
   it('a 402 membership_required locks own-key lanes and re-reads me', async () => {
     const s = setup();
     await s.store.init({
@@ -984,5 +1004,125 @@ describe('CanvasStore links between messages', () => {
     s.store.setRoute('t2', null, null);
     expect(s.ui.linkPick()).toBeNull();
     expect(s.ui.linkReturn()).toBeNull();
+  });
+});
+
+describe('CanvasStore refreshing the list after replies', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** A whole exchange in lane `b`, streamed at once. */
+  function exchange(i: number): Response {
+    const userNode = node(`u-${i}`, {
+      seq: 10 + 2 * i,
+      parentId: 'a2',
+      branchId: 'b',
+      role: 'user',
+    });
+    const reply = node(`r-${i}`, { seq: 11 + 2 * i, parentId: `u-${i}`, branchId: 'b' });
+    const lane = branch('b', { parentBranchId: 'trunk', branchPointNodeId: 'a1' });
+    return new Response(
+      sse([
+        { type: 'start', userNode, assistantNode: { ...reply, status: 'streaming' }, branch: lane },
+        { type: 'done', node: reply, branch: lane },
+      ]),
+      { headers: { 'content-type': 'text/event-stream' } },
+    );
+  }
+
+  const summaryOf = (title: string): TreeSummary => ({
+    id: 't1',
+    title,
+    createdAt: T,
+    updatedAt: T,
+    branchCount: 2,
+    messageCount: 4,
+  });
+
+  it('a six-lane fan-out finishing reads the list twice at most; the latest answer stays', async () => {
+    const s = setup();
+    let i = 0;
+    s.api.sendMessage.mockImplementation(async () => exchange(i++));
+    const reads: ((list: TreeSummary[]) => void)[] = [];
+    s.api.listTrees.mockImplementation(() => new Promise<TreeSummary[]>((r) => reads.push(r)));
+    await Promise.all(Array.from({ length: 6 }, () => s.store.send('b', 'Why?')));
+    expect(reads).toHaveLength(1);
+    reads[0]!([summaryOf('Light')]);
+    await vi.waitFor(() => expect(reads).toHaveLength(2));
+    reads[1]!([summaryOf('Light and waves')]);
+    await vi.waitFor(() => expect(s.store.detail()?.tree.title).toBe('Light and waves'));
+    expect(reads).toHaveLength(2);
+  });
+
+  it('a failed refresh after a reply is quiet', async () => {
+    const s = setup();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    s.api.sendMessage.mockImplementation(async () => exchange(0));
+    s.api.listTrees.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
+    await s.store.send('b', 'Why?');
+    await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
+    expect(s.ui.toasts()).toEqual([]);
+  });
+});
+
+describe('CanvasStore deleting a tree with a reply generating', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('stops following its replies', async () => {
+    const s = setup();
+    s.store.detail.set(null);
+    const generating = detail();
+    generating.nodes = generating.nodes.map((n) =>
+      n.id === 'a2' ? { ...n, status: 'streaming' } : n,
+    );
+    s.api.getTree.mockResolvedValue(generating);
+    const signals: AbortSignal[] = [];
+    s.api.streamNode.mockImplementation((_id: string, signal: AbortSignal) => {
+      signals.push(signal);
+      return new Promise<Response>(() => undefined);
+    });
+    Object.assign(s.api, { deleteTree: vi.fn(async () => undefined) });
+    s.store.setRoute('t1', null, null);
+    await vi.waitFor(() => expect(signals).toHaveLength(1));
+    expect(s.store.live().has('a2')).toBe(true);
+    await s.store.deleteTree('t1');
+    expect(signals[0]?.aborted).toBe(true);
+    expect(s.store.live().size).toBe(0);
+  });
+});
+
+describe('CanvasStore a tree load that lands late', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  function slowLoad() {
+    const s = setup();
+    s.store.detail.set(null);
+    let land!: (d: TreeDetail) => void;
+    s.api.getTree.mockReturnValue(new Promise<TreeDetail>((r) => (land = r)));
+    const other: TreeDetail = { ...detail(), tree: { ...detail().tree, id: 't2' } };
+    Object.assign(s.api, { createTree: vi.fn(async () => other) });
+    s.store.setRoute('t1', null, null);
+    return { ...s, land: (d: TreeDetail) => land(d) };
+  }
+
+  it('going home while it loads: home stays empty', async () => {
+    const s = slowLoad();
+    s.store.setRoute(null, null, null);
+    s.land(detail());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.store.detail()).toBeNull();
+    expect(s.store.detailLoading()).toBe(false);
+  });
+
+  it('starting a new conversation while it loads: the new one stays open', async () => {
+    const s = slowLoad();
+    await s.store.startConversation('Hello', null, null);
+    s.land(detail());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.store.detail()?.tree.id).toBe('t2');
+    expect(s.store.detailLoading()).toBe(false);
   });
 });

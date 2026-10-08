@@ -1,13 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  effect,
-  model,
-  type OnInit,
-  signal,
-  untracked,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, model, type OnInit, signal } from '@angular/core';
 
 type Choice = 'none' | '1' | '7' | '30' | 'custom';
 
@@ -26,7 +17,7 @@ function localDateInput(d: Date): string {
     <div class="field-row">
       <label class="field">
         <span class="field-label">Expires</span>
-        <select #c [value]="choice()" (change)="choice.set(asChoice(c.value))">
+        <select #c [value]="choice()" (change)="pick(asChoice(c.value))">
           <option value="none">Never</option>
           <option value="1">In 1 day</option>
           <option value="7">In 7 days</option>
@@ -37,7 +28,7 @@ function localDateInput(d: Date): string {
       @if (choice() === 'custom') {
         <label class="field">
           <span class="field-label">Date</span>
-          <input #d type="date" [min]="today" [value]="date()" (input)="date.set(d.value)" />
+          <input #d type="date" [min]="today" [value]="date()" (input)="pickDate(d.value)" />
         </label>
       }
     </div>
@@ -50,7 +41,8 @@ export class ExpiryPicker implements OnInit {
   protected readonly today = localDateInput(new Date());
   protected readonly date = signal(localDateInput(new Date(Date.now() + 7 * DAY)));
 
-  private readonly computedValue = computed<string | null>(() => {
+  /** The expiry the choice and date stand for. */
+  private value(): string | null {
     const c = this.choice();
     if (c === 'none') return null;
     if (c === 'custom') {
@@ -61,13 +53,21 @@ export class ExpiryPicker implements OnInit {
       return Number.isNaN(end.getTime()) ? null : end.toISOString();
     }
     return new Date(Date.now() + Number(c) * DAY).toISOString();
-  });
+  }
 
-  constructor() {
-    effect(() => {
-      const v = this.computedValue();
-      untracked(() => this.expiresAt.set(v));
-    });
+  /**
+   * Only the user's changes set the expiry: an existing one shown as its
+   * date is kept to the second until then (end of that day could revive a
+   * share that expired earlier today).
+   */
+  protected pick(choice: Choice): void {
+    this.choice.set(choice);
+    this.expiresAt.set(this.value());
+  }
+
+  protected pickDate(date: string): void {
+    this.date.set(date);
+    this.expiresAt.set(this.value());
   }
 
   /** Pre-select "custom" when editing an existing expiry. */

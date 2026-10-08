@@ -48,6 +48,7 @@ import {
   addBlockedSend,
   ApiClient,
   ApiError,
+  coalesced,
   creditBuyable,
   creditCanPay,
   creditCarriesOn,
@@ -134,8 +135,8 @@ export class TreeStore {
 
   // Streams
   readonly live = signal<ReadonlyMap<string, LiveStream>>(new Map());
-  /** Branch whose POST is in flight (before `start` arrives). */
-  readonly sendingBranchId = signal<string | null>(null);
+  /** Branches whose POST is in flight (before `start` arrives). */
+  readonly sending = signal<ReadonlySet<string>>(new Set());
   /** Bumped whenever a generation finishes; the inspector refreshes on it. */
   readonly completions = signal(0);
   /**
@@ -157,6 +158,7 @@ export class TreeStore {
   readonly unsentDrafts = signal<ReadonlyMap<string, string>>(new Map());
   private readonly controllers = new Map<string, AbortController>();
   private detailSeq = 0;
+  private treesSeq = 0;
 
   readonly index = computed<TreeIndex | null>(() => {
     const d = this.detail();
@@ -247,10 +249,8 @@ export class TreeStore {
   });
 
   readonly busy = computed(() => {
-    const sending = this.sendingBranchId();
-    return (
-      this.streamingNode() !== null || (sending !== null && sending === this.selectedBranchId())
-    );
+    const id = this.selectedBranchId();
+    return this.streamingNode() !== null || (id !== null && this.sending().has(id));
   });
 
   /**
@@ -483,7 +483,7 @@ export class TreeStore {
 
   async loadTrees(): Promise<void> {
     try {
-      this.trees.set(await this.api.listTrees());
+      await this.readTrees();
     } catch (err) {
       this.fail(err);
     } finally {
@@ -491,10 +491,18 @@ export class TreeStore {
     }
   }
 
+  /** Reads the list; a read answering after one started later is dropped. */
+  private async readTrees(): Promise<void> {
+    const seq = ++this.treesSeq;
+    const list = await this.api.listTrees();
+    if (seq === this.treesSeq) this.trees.set(list);
+  }
+
   // Routing (URL is the source of truth for selection)
 
   /** Called by the routed page whenever the URL changes. */
   setRoute(treeId: string | null, branchId: string | null, focusNodeId: string | null): void {
+    const branchBefore = this.selectedBranchId();
     this.routeBranchId.set(branchId);
     this.focusedNodeId.set(focusNodeId);
     if (treeId !== this.selectedTreeId()) {
@@ -503,11 +511,10 @@ export class TreeStore {
       // A comparison belongs to a branch of the tree left behind (Back while it was open).
       this.ui.compareDialog.set(null);
       if (treeId) void this.loadTree(treeId);
-      else {
-        this.detail.set(null);
-        this.detailError.set(null);
-      }
+      else this.showDetail(null);
     }
+    // Branch settings edit the branch on screen: going to another (Back, a link) closes them.
+    if (this.selectedBranchId() !== branchBefore) this.ui.branchSettingsOpen.set(false);
   }
 
   go(branchId: string, focusNodeId: string | null = null, replace = false): void {
@@ -584,11 +591,11 @@ export class TreeStore {
     if (this.detail()?.tree.id !== treeId) this.detail.set(null);
     try {
       const detail = await this.api.getTree(treeId);
-      if (seq !== this.detailSeq) return;
+      if (!this.loadCurrent(seq, treeId)) return;
       this.detail.set(detail);
       this.resumeStreaming(detail.nodes);
     } catch (err) {
-      if (seq !== this.detailSeq) return;
+      if (!this.loadCurrent(seq, treeId)) return;
       this.detailError.set(
         err instanceof ApiError && err.status === 404
           ? 'This conversation does not exist.'
@@ -597,6 +604,19 @@ export class TreeStore {
     } finally {
       if (seq === this.detailSeq) this.detailLoading.set(false);
     }
+  }
+
+  /** The load numbered `seq` of `treeId` is still the one wanted (no other tree, nor none, since). */
+  private loadCurrent(seq: number, treeId: string): boolean {
+    return seq === this.detailSeq && this.selectedTreeId() === treeId;
+  }
+
+  /** Shows `detail` (null: no tree), dropping whatever tree load is still in flight. */
+  private showDetail(detail: TreeDetail | null): void {
+    this.detailSeq++;
+    this.detailLoading.set(false);
+    this.detailError.set(null);
+    this.detail.set(detail);
   }
 
   /**
@@ -613,7 +633,7 @@ export class TreeStore {
         ...(route ? parseRouteKey(route) : {}),
         ...(model ? { model } : {}),
       });
-      this.detail.set(detail);
+      this.showDetail(detail);
       this.selectedTreeId.set(detail.tree.id);
       this.ui.clearLinkState();
       this.trees.update((list) => [this.summaryOf(detail), ...list]);
@@ -624,11 +644,9 @@ export class TreeStore {
     }
   }
 
-  async updateTree(req: UpdateTreeRequest): Promise<boolean> {
-    const d = this.detail();
-    if (!d) return false;
+  async updateTree(treeId: string, req: UpdateTreeRequest): Promise<boolean> {
     try {
-      const tree = await this.api.updateTree(d.tree.id, req);
+      const tree = await this.api.updateTree(treeId, req);
       this.detail.update((cur) => (cur && cur.tree.id === tree.id ? { ...cur, tree } : cur));
       this.trees.update((list) =>
         list.map((t) =>
@@ -650,6 +668,7 @@ export class TreeStore {
   async deleteTree(treeId: string): Promise<boolean> {
     try {
       await this.api.deleteTree(treeId);
+      this.stopTreeStreams(treeId);
       this.trees.update((list) => list.filter((t) => t.id !== treeId));
       if (this.selectedTreeId() === treeId) await this.router.navigate(['/']);
       this.ui.notify('Conversation deleted');
@@ -749,8 +768,10 @@ export class TreeStore {
 
   /**
    * "Check sources" on a finished reply: a web-searched check of it. After
-   * the branch's last reply it is appended there; on an earlier reply it
-   * opens a `path` branch, so later messages keep their place.
+   * the open branch's last reply it is appended there; on an earlier reply,
+   * including one of an ancestor branch (the open branch's messages follow
+   * it on screen), it opens a `path` branch, so later messages keep their
+   * place and the check streams where the user sees it.
    */
   async checkSources(nodeId: string): Promise<boolean> {
     const idx = this.index();
@@ -758,7 +779,7 @@ export class TreeStore {
     if (!idx || !node || node.role !== 'assistant') return false;
     const parent = node.parentId ? idx.nodes.get(node.parentId) : undefined;
     const content = checkSourcesMessage(parent?.role === 'user' ? parent.content : null);
-    if ((idx.nodesByBranch.get(node.branchId) ?? []).at(-1)?.id === node.id) {
+    if (node.branchId === this.selectedBranchId() && this.leaf()?.id === node.id) {
       return this.send(node.branchId, content, { ground: 'required' });
     }
     try {
@@ -984,7 +1005,7 @@ export class TreeStore {
     content: string,
     options: { ground?: 'required' } = {},
   ): Promise<boolean> {
-    this.sendingBranchId.set(branchId);
+    this.markSending(branchId, true);
     if (this.blockedSends().some((s) => s.branchId === branchId)) {
       this.blockedSends.update((list) => list.filter((s) => s.branchId !== branchId));
     }
@@ -1002,7 +1023,7 @@ export class TreeStore {
           if (event.type === 'start') {
             nodeId = event.assistantNode.id;
             this.controllers.set(nodeId, ctrl);
-            this.sendingBranchId.set(null);
+            this.markSending(branchId, false);
             // In the tree now: the composer may let the text go.
             this.ui.markSent(content);
           }
@@ -1030,7 +1051,7 @@ export class TreeStore {
       this.fail(err);
       return false;
     } finally {
-      if (this.sendingBranchId() === branchId) this.sendingBranchId.set(null);
+      this.markSending(branchId, false);
       if (nodeId) this.controllers.delete(nodeId);
     }
   }
@@ -1153,9 +1174,19 @@ export class TreeStore {
     void this.refreshAfterCompletion();
   }
 
-  /** Titles can change after the first reply (auto-titling): refresh the list and the tree title. */
-  private async refreshAfterCompletion(): Promise<void> {
-    await this.loadTrees();
+  /**
+   * Titles can change after the first reply (auto-titling): refresh the list
+   * and the tree title. Replies finishing together (a fan-out) share one
+   * refresh, plus one more if asked meanwhile. Quiet on failure: the next
+   * reply refreshes again.
+   */
+  private readonly refreshAfterCompletion = coalesced(async () => {
+    try {
+      await this.readTrees();
+    } catch (err) {
+      console.warn('tree list refresh failed', err);
+      return;
+    }
     const d = this.detail();
     const summary = d && this.trees().find((t) => t.id === d.tree.id);
     if (d && summary && summary.title !== d.tree.title) {
@@ -1163,7 +1194,7 @@ export class TreeStore {
         cur ? { ...cur, tree: { ...cur.tree, title: summary.title } } : cur,
       );
     }
-  }
+  });
 
   private markError(nodeId: string, message: string): void {
     const node = this.index()?.nodes.get(nodeId);
@@ -1198,6 +1229,16 @@ export class TreeStore {
       const mine = links.filter((l) => l.treeId === d.tree.id);
       return mine.length ? { ...d, links: upsertById(d.links, mine) } : d;
     });
+  }
+
+  /** Stops following the replies of a deleted tree (the server has no tree to stream them from). */
+  private stopTreeStreams(treeId: string): void {
+    for (const l of this.live().values()) {
+      if (l.treeId !== treeId) continue;
+      this.controllers.get(l.nodeId)?.abort();
+      this.controllers.delete(l.nodeId);
+      this.dropLive(l.nodeId);
+    }
   }
 
   private removeBranches(res: DeleteBranchResponse): void {
@@ -1245,6 +1286,16 @@ export class TreeStore {
         ),
       );
     }
+  }
+
+  private markSending(branchId: string, on: boolean): void {
+    if (this.sending().has(branchId) === on) return;
+    this.sending.update((set) => {
+      const next = new Set(set);
+      if (on) next.add(branchId);
+      else next.delete(branchId);
+      return next;
+    });
   }
 
   private setLive(s: LiveStream): void {

@@ -15,7 +15,7 @@ import { Icon } from '@tangent/web-shared';
 import { treeTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
-import { ModelField } from '../dialogs/model-field';
+import { ModelField, routeSuffix } from '../dialogs/model-field';
 
 /** `/canvas/`: start a conversation and open the existing ones (the power account's). */
 @Component({
@@ -55,11 +55,10 @@ import { ModelField } from '../dialogs/model-field';
                   @for (p of store.providers(); track key(p)) {
                     <option
                       [value]="key(p)"
-                      [disabled]="!p.available"
+                      [disabled]="!p.available || store.routeLocked(p)"
                       [selected]="key(p) === route()"
                     >
-                      {{ p.label
-                      }}{{ p.available ? '' : p.acceptsUserKey ? ' — no key' : ' — unavailable' }}
+                      {{ p.label }}{{ suffix(p, store.routeLocked(p)) }}
                     </option>
                   }
                 </select>
@@ -135,6 +134,7 @@ export class HomePage {
   protected readonly text = signal('');
   protected readonly starting = signal(false);
   protected readonly key = providerRouteKey;
+  protected readonly suffix = routeSuffix;
   /** The picked provider and funding, as a `routeKey`. */
   private readonly pickedRoute = signal<string | null>(null);
   private readonly pickedModel = signal<string | null>(null);

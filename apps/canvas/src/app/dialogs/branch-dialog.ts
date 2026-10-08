@@ -18,7 +18,7 @@ import {
 } from '@tangent/shared';
 import { Icon, Modal } from '@tangent/web-shared';
 import { MODE_LABEL } from '../canvas/lane';
-import { ModelField } from './model-field';
+import { laneRoute, ModelField, routeSuffix } from './model-field';
 import { CanvasStore, type BranchVariant } from '../state/canvas-store';
 import { UiStore, type BranchDialogState } from '../state/ui-store';
 
@@ -83,11 +83,10 @@ const MAX_VARIANTS = 6;
                   @for (p of store.providers(); track providerKey(p)) {
                     <option
                       [value]="providerKey(p)"
-                      [disabled]="!p.available"
+                      [disabled]="!p.available || store.routeLocked(p)"
                       [selected]="providerKey(p) === routeOf(v)"
                     >
-                      {{ p.label
-                      }}{{ p.available ? '' : p.acceptsUserKey ? ' — no key' : ' — unavailable' }}
+                      {{ p.label }}{{ suffix(p, store.routeLocked(p)) }}
                     </option>
                   }
                 </select>
@@ -219,13 +218,11 @@ export class BranchDialog implements OnInit {
 
   private fresh(contextMode: ContextMode): VariantRow {
     const p = this.parent();
-    const fallback = this.store.defaultProvider();
+    const usable = !!p && !this.store.routeLocked(p) && !this.store.keyMissing(p);
     return {
       key: ++this.seq,
       contextMode,
-      providerId: p?.providerId ?? fallback?.id ?? '',
-      funding: p?.funding ?? fallback?.funding ?? 'own-key',
-      model: p?.model ?? fallback?.defaultModel ?? '',
+      ...laneRoute(p, usable, this.store.defaultProvider()),
     };
   }
 
@@ -256,6 +253,7 @@ export class BranchDialog implements OnInit {
   }
 
   protected readonly providerKey = providerRouteKey;
+  protected readonly suffix = routeSuffix;
   protected readonly routeOf = routeKey;
 
   /** `route` is a `routeKey`: the provider and who pays for it. */

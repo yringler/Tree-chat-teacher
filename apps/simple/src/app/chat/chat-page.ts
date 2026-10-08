@@ -172,10 +172,14 @@ export class ChatPage implements OnDestroy {
     return maxUsageNote(tierModel(models, 'max')?.usageFactor);
   });
 
-  /** A message refused for lack of credit, offered back after a top-up. */
+  /**
+   * A message refused before it reached the lesson (no credit, the pool, a
+   * missing key…), offered back in its branch, also after a top-up or the
+   * human check (kept for the tab).
+   */
   protected readonly initialDraft = computed(() => {
     const d = this.store.unsentDraft();
-    return d && d.branchId === this.store.selectedBranchId() ? d.text : '';
+    return d && !d.ground && d.branchId === this.store.selectedBranchId() ? d.text : '';
   });
 
   constructor() {

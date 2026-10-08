@@ -137,6 +137,22 @@ describe('AccountStore membership', () => {
     expect(account.billing()?.membership.status).toBe('waived');
   });
 
+  it('a 402 membership_required locks the own key until the membership is active again', async () => {
+    const { account, api } = setup(async () => summary(membership()));
+    account.setMe(me(membership({ status: 'active' })));
+    account.payment.choose('own-key');
+    expect(account.membershipBlocked()).toBe(false);
+
+    // The membership lapsed since /api/me: the server refuses, the billing summary agrees.
+    account.membershipRequired();
+    await vi.waitFor(() => expect(api.billing).toHaveBeenCalled());
+    expect(account.membershipBlocked()).toBe(true);
+
+    // A waiver redeemed on the billing page: the own key works again without a reload.
+    account.setMembership(membership({ status: 'waived' }));
+    expect(account.membershipBlocked()).toBe(false);
+  });
+
   it('a non-member buys and spends credit as anyone does, even with nothing left', async () => {
     const { account } = setup(async () => summary(membership(), 0));
     account.setMe(me(membership()));
