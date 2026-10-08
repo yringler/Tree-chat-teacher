@@ -69,21 +69,26 @@ export function assertGenerationAllowed(
  * spends the operator's key, so its `chat` bucket is the user's ledger
  * (`billing:<billingAccountId>`), shared by both apps. `key`: saving a key
  * makes a verification call upstream, limited per account (a fresh cookie
- * per save would otherwise reset the bucket).
+ * per save would otherwise reset the bucket). `import`: importing a backup
+ * or copying a tree into Learn writes a whole tree, limited per account.
  * A missing binding or a limiter failure lets the request through
  * (availability over strictness; the model allowlist and output cap still apply).
  */
 export async function enforceRateLimit(
   c: AppContext,
   keys: UserKeys | null,
-  scope: 'chat' | 'key',
+  scope: 'chat' | 'key' | 'import',
   funding?: BranchFunding,
 ): Promise<void> {
-  const limiter = (scope === 'chat' ? c.env.CHAT_RATE_LIMITER : c.env.KEY_RATE_LIMITER) as
-    RateLimit | undefined;
+  const bindings = {
+    chat: c.env.CHAT_RATE_LIMITER,
+    key: c.env.KEY_RATE_LIMITER,
+    import: c.env.IMPORT_RATE_LIMITER,
+  };
+  const limiter = bindings[scope] as RateLimit | undefined;
   if (!limiter || typeof limiter.limit !== 'function') return;
   let who: string;
-  if (scope === 'key') who = `account:${c.var.accountId}`;
+  if (scope !== 'chat') who = `account:${c.var.accountId}`;
   else if (funding !== undefined && isMetered(c.var.account, funding))
     who = `billing:${c.var.account.billingAccountId}`;
   else if (keys?.state === 'ok') who = `cookie:${await fingerprint(keys.sealed)}`;

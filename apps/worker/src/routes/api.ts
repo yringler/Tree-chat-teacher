@@ -17,6 +17,7 @@ import {
   createTreeRequestSchema,
   exportFileStem,
   exportQuerySchema,
+  MAX_BACKUP_BYTES,
   reviewRequestSchema,
   sendMessageRequestSchema,
   treeBackupSchema,
@@ -30,12 +31,13 @@ import {
   type MeResponse,
 } from '@tangent/shared';
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { createMiddleware } from 'hono/factory';
 import { z } from 'zod';
 import { ensureAccountRow, resolveAccount } from '../auth/account.js';
 import { isAdmin } from '../auth/admin.js';
 import { accountDeletionRoutes } from '../auth/delete-account.js';
-import { sameOriginOnly } from '../byok/guard.js';
+import { enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
 import { assertCanGenerate, membershipNeededFor } from '../billing/gate.js';
 import { membershipFor } from '../billing/membership.js';
 import { readKeys, requireReadableKeys, type UserKeys } from '../byok/keys.js';
@@ -200,8 +202,25 @@ export function apiRoutes(): Hono<AppBindings> {
       'Content-Disposition': `attachment; filename="${backupFileName(backup.tree.title)}"`,
     });
   });
-  api.post('/import', validateJson(treeBackupSchema), async (c) =>
-    c.json(await chatOf(c).importBackup(c.req.valid('json')), 201),
+  // Each import writes a whole tree: rate limited per account, and the size cap is
+  // checked on the bytes as they arrive, before the JSON is parsed.
+  const importLimited = createMiddleware<AppBindings>(async (c, next) => {
+    await enforceRateLimit(c, null, 'import');
+    await next();
+  });
+  api.post(
+    '/import',
+    importLimited,
+    bodyLimit({
+      maxSize: MAX_BACKUP_BYTES,
+      onError: () => {
+        throw new ValidationError(
+          `This backup is too large to import (the limit is ${MAX_BACKUP_BYTES / (1024 * 1024)} MB)`,
+        );
+      },
+    }),
+    validateJson(treeBackupSchema),
+    async (c) => c.json(await chatOf(c).importBackup(c.req.valid('json')), 201),
   );
   // "Create a copy in Learn" (docs/DECISIONS.md "Read-only power without a
   // membership"): the caller's power tree, exported by the power service (404
@@ -209,7 +228,7 @@ export function apiRoutes(): Hono<AppBindings> {
   // account, so it is adapted like any import into Learn. Neither generates,
   // so there is no gate: no membership, no credit, no model call. The power
   // tree is only read.
-  api.post('/trees/:treeId/copy-to-learn', sameOriginOnly, async (c) => {
+  api.post('/trees/:treeId/copy-to-learn', sameOriginOnly, importLimited, async (c) => {
     const { account, identity } = c.var;
     if (account.mode !== 'power')
       throw new DomainError('bad_request', 'Only a power conversation can be copied into Learn');

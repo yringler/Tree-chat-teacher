@@ -1,6 +1,7 @@
 import { InjectionToken } from '@angular/core';
 import {
   backupFileName,
+  MAX_BACKUP_BYTES,
   treeBackupSchema,
   type TreeBackup,
   type TreeBackupInput,
@@ -12,9 +13,6 @@ import {
  * the server's (`tangent-tree-backup`), so a file made by either app imports
  * into the other.
  */
-
-/** The largest backup either app reads (50 MB): far above a long conversation, below what a browser parses comfortably. */
-export const MAX_BACKUP_BYTES = 50 * 1024 * 1024;
 
 /** What reading a backup needs of a `File`. */
 export type BackupFile = Pick<File, 'name' | 'size' | 'text'>;

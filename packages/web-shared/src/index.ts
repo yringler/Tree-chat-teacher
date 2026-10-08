@@ -24,7 +24,6 @@ export { API_FETCH, API_HEADERS, defaultApiFetch } from './core/api-fetch';
 export { CompareRun, type CompareCandidateState, type CompareSpec } from './core/compare-run';
 export {
   backupFile,
-  MAX_BACKUP_BYTES,
   readBackupFile,
   SAVE_FILE,
   type BackupFile,
