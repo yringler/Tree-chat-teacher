@@ -793,7 +793,8 @@ export class CanvasStore {
   /**
    * Follows a tangent the assistant suggested under `fromNodeId`: a `path`
    * branch titled after it whose first message is the title. A tangent
-   * already followed from that message just opens its lane.
+   * already followed from that message just opens its lane. On a locked lane
+   * nothing new is opened: the lane would start on its route, read-only.
    */
   async followTangent(fromNodeId: string, title: string): Promise<Branch | null> {
     const existing = this.childBranchesAt(fromNodeId).find((b) => b.title === title);
@@ -801,6 +802,10 @@ export class CanvasStore {
       this.go(existing.id);
       return existing;
     }
+    const idx = this.index();
+    const from = idx?.nodes.get(fromNodeId);
+    const lane = from && idx?.branches.get(from.branchId);
+    if (lane && this.routeLocked(lane)) return null;
     return this.startLane({ fromNodeId, contextMode: 'path', anchorQuote: null, title }, title);
   }
 

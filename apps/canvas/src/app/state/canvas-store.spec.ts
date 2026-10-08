@@ -539,6 +539,26 @@ describe('CanvasStore read-only lanes without a membership', () => {
     expect(s.store.routeLocked(trunk!)).toBe(false);
   });
 
+  it('a tangent of a locked lane opens no lane on its route; one already followed still opens', async () => {
+    const s = setup();
+    s.api.providers.mockResolvedValue([credit]);
+    await s.store.init({
+      builtInCredit: true,
+      membership: inactive,
+      membershipNeededFor: ['own-key'],
+    } as MeResponse);
+    s.store.detail.set(ownKeyTrunk());
+    const createBranch = vi.fn(async (req: CreateBranchRequest) =>
+      branch('new', { title: req.title ?? '' }),
+    );
+    Object.assign(s.api, { createBranch });
+    await expect(s.store.followTangent('a1', 'Waves in water')).resolves.toBeNull();
+    expect(createBranch).not.toHaveBeenCalled();
+    expect(s.api.sendMessage).not.toHaveBeenCalled();
+    // Lane `b` already follows a1 under its title: it just opens.
+    await expect(s.store.followTangent('a1', 'b')).resolves.toMatchObject({ id: 'b' });
+  });
+
   it('a 402 membership_required locks own-key lanes and re-reads me', async () => {
     const s = setup();
     await s.store.init({

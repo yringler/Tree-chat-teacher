@@ -20,7 +20,7 @@ import { confirmDeleteLane } from '../canvas/delete-lane';
 import { laneTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore, type BranchSettingsState } from '../state/ui-store';
-import { ModelField } from './model-field';
+import { ModelField, routeSuffix } from './model-field';
 
 const MODE_HELP: Record<ContextMode, string> = {
   path: 'Everything the parent lane had at the fork, then this lane.',
@@ -79,11 +79,10 @@ const MODE_HELP: Record<ContextMode, string> = {
                 @for (p of store.providers(); track key(p)) {
                   <option
                     [value]="key(p)"
-                    [disabled]="!p.available"
+                    [disabled]="!p.available || store.routeLocked(p)"
                     [selected]="key(p) === route()"
                   >
-                    {{ p.label
-                    }}{{ p.available ? '' : p.acceptsUserKey ? ' — no key' : ' — unavailable' }}
+                    {{ p.label }}{{ suffix(p, store.routeLocked(p)) }}
                   </option>
                 }
               </select>
@@ -141,6 +140,7 @@ export class BranchSettings implements OnInit {
   protected readonly mode = signal<ContextMode>('path');
   protected readonly quote = signal('');
   protected readonly key = providerRouteKey;
+  protected readonly suffix = routeSuffix;
   /** Provider and funding, as a `routeKey`. */
   protected readonly route = signal('');
   protected readonly model = signal('');

@@ -118,8 +118,14 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
               type="button"
               class="tangent"
               [class.is-followed]="followed().has(t.title)"
-              [disabled]="opening() !== null"
-              [title]="followed().has(t.title) ? 'Open this lane' : (t.why ?? t.title)"
+              [disabled]="opening() !== null || (locked() && !followed().has(t.title))"
+              [title]="
+                followed().has(t.title)
+                  ? 'Open this lane'
+                  : locked()
+                    ? 'Following it needs a membership (this lane is on your own key)'
+                    : (t.why ?? t.title)
+              "
               (click)="follow(t.title, $event)"
             >
               <app-icon [name]="followed().has(t.title) ? 'chevronRight' : 'branch'" [size]="14" />
@@ -426,7 +432,7 @@ export class Card {
 
   protected async follow(title: string, e: Event): Promise<void> {
     e.stopPropagation();
-    if (this.opening() !== null) return;
+    if (this.opening() !== null || (this.locked() && !this.followed().has(title))) return;
     this.opening.set(title);
     try {
       await this.store.followTangent(this.node().id, title);

@@ -1,5 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, input, model } from '@angular/core';
-import { isModelAllowed, type ProviderInfo } from '@tangent/shared';
+import {
+  isModelAllowed,
+  type Branch,
+  type BranchFunding,
+  type ProviderInfo,
+} from '@tangent/shared';
 import { ModelSuggestions } from '@tangent/web-shared';
 
 let uid = 0;
@@ -15,6 +20,40 @@ export function modelHint(provider: ProviderInfo | null, model: string): string 
   if (!isModelAllowed(provider, model))
     return 'Not a model id: use letters, digits and . _ - : / (like vendor/model-name).';
   return null;
+}
+
+/**
+ * Why a route can't be picked, appended to its label; empty when it can: no
+ * key, unavailable, or (`locked`, see CanvasStore `routeLocked`) a funding
+ * that needs the membership the user lacks. (The power app's rule too.)
+ */
+export function routeSuffix(p: ProviderInfo, locked: boolean): string {
+  if (p.available) return locked ? ' — needs a membership' : '';
+  return p.acceptsUserKey ? ' — missing API key' : ' — unavailable';
+}
+
+/**
+ * The route and model a new lane starts on: its parent lane's, unless that
+ * one can't generate here (`parentUsable` false: its funding needs the
+ * membership the user lacks, or its own key isn't saved in this browser);
+ * then `fallback`, the default route of a new conversation, keeping the
+ * parent's model where that route serves it.
+ */
+export function laneRoute(
+  parent: Pick<Branch, 'providerId' | 'funding' | 'model'> | null,
+  parentUsable: boolean,
+  fallback: ProviderInfo | null,
+): { providerId: string; funding: BranchFunding; model: string } {
+  if (parent && parentUsable) {
+    return { providerId: parent.providerId, funding: parent.funding, model: parent.model };
+  }
+  const keepModel =
+    !!parent && fallback?.id === parent.providerId && isModelAllowed(fallback, parent.model);
+  return {
+    providerId: fallback?.id ?? '',
+    funding: fallback?.funding ?? 'own-key',
+    model: (keepModel ? parent.model : fallback?.defaultModel) ?? '',
+  };
 }
 
 /**
