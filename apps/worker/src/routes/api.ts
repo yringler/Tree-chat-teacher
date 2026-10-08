@@ -4,7 +4,9 @@ import {
   projectShare,
   ValidationError,
   type ChatService,
+  type GenerationLimits,
   type HeldCandidate,
+  type PreparedReview,
 } from '@tangent/core';
 import { payloadToMarkdown, renderViewerPage, viewerCsp } from '@tangent/render';
 import {
@@ -26,6 +28,7 @@ import {
   updateSettingsRequestSchema,
   updateShareRequestSchema,
   updateTreeRequestSchema,
+  type Branch,
   type CandidateEvent,
   type CopyToLearnResponse,
   type MeResponse,
@@ -40,15 +43,18 @@ import { accountDeletionRoutes } from '../auth/delete-account.js';
 import { enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
 import { assertCanGenerate, membershipNeededFor } from '../billing/gate.js';
 import { membershipFor } from '../billing/membership.js';
+import { assertCreditCovers, replyHoldMicros } from '../billing/service.js';
 import { readKeys, requireReadableKeys, type UserKeys } from '../byok/keys.js';
 import {
   accountParams,
+  type CreditReplyHold,
   type SessionCommitBody,
   type SessionHoldBody,
   type SessionHoldResponse,
   type SessionSendBody,
 } from '../do/tree-session.js';
 import {
+  isMetered,
   isPoolFunded,
   usesUserKeys,
   type AppBindings,
@@ -121,6 +127,45 @@ async function keysOf(c: AppContext): Promise<Extract<UserKeys, { state: 'ok' }>
  * `payment_required`) or the pool's rules. Every other route stays open
  * without a membership.
  */
+/**
+ * What a send on Tangent credit reserves before its nodes are written (the
+ * tree's Durable Object, `reserveCreditReply`): the reply's worst case on the
+ * branch's route and model under the send's limits, resolved here like the
+ * pool's parameters, so the Durable Object reads no prices of its own.
+ */
+async function creditReplyHold(
+  c: AppContext,
+  keys: Extract<UserKeys, { state: 'ok' }> | null,
+  branch: Branch,
+  limits: GenerationLimits,
+): Promise<CreditReplyHold> {
+  // Built for the account the gate settled on, as the send will run.
+  const budget = await chatOf(c, keys, true).routeBudget(branch, branch.model, limits);
+  return {
+    providerId: branch.providerId,
+    model: branch.model,
+    holdMicros: await replyHoldMicros(c.env, branch.model, budget),
+  };
+}
+
+/**
+ * A review or compare answer on Tangent credit streams from the Worker, so
+ * nothing is reserved before its 200: this checks up front that the
+ * available credit covers its worst case before its prompt exists (402
+ * naming what it needs), the way a send's reservation does. The meter's
+ * reservation still stops a race.
+ */
+async function assertCreditCoversReply(
+  c: AppContext,
+  chat: ChatService,
+  prepared: Pick<PreparedReview, 'providerId' | 'funding' | 'model' | 'limits'>,
+): Promise<void> {
+  const account = c.var.account;
+  if (!isMetered(account, prepared.funding)) return;
+  const budget = await chat.routeBudget(prepared, prepared.model, prepared.limits);
+  await assertCreditCovers(c.env, account, await replyHoldMicros(c.env, prepared.model, budget));
+}
+
 export function apiRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();
 
@@ -330,15 +375,19 @@ export function apiRoutes(): Hono<AppBindings> {
     // cap and the input limit are power's settings, clamped on Tangent credit:
     // Learn's replies keep its own (input-limit.ts).
     const { maxOutputTokens, maxInputTokens, inputOverflow, ...rest } = req;
+    const limits = generationLimits(c.env, account, branch.funding, {
+      maxOutputTokens,
+      maxInputTokens,
+      inputOverflow,
+    });
     const body: SessionSendBody = {
       ...rest,
-      ...generationLimits(c.env, account, branch.funding, {
-        maxOutputTokens,
-        maxInputTokens,
-        inputOverflow,
-      }),
+      ...limits,
       account,
       ...(keys ? { sealedKeys: keys.sealed } : {}),
+      ...(isMetered(account, branch.funding) && !isPoolFunded(account)
+        ? { creditReply: await creditReplyHold(c, keys, branch, limits) }
+        : {}),
     };
     return session(c.env, branch.treeId).fetch(
       sessionUrl('/send', { treeId: branch.treeId, branchId: branch.id }),
@@ -397,6 +446,7 @@ export function apiRoutes(): Hono<AppBindings> {
       req,
       generationLimits(c.env, c.var.account, req.funding ?? 'own-key', req),
     );
+    await assertCreditCoversReply(c, chat, prepared);
 
     const encoder = new TextEncoder();
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
@@ -453,6 +503,7 @@ export function apiRoutes(): Hono<AppBindings> {
       req,
       generationLimits(c.env, c.var.account, route.funding, req),
     );
+    await assertCreditCoversReply(c, chat, prepared);
     const accountId = c.var.account.id;
 
     /** The wire `done`: the candidate, once the Durable Object holds it for the commit. */

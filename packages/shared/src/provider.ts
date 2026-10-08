@@ -151,6 +151,8 @@ export interface WebSearchRequest {
 }
 
 export type ProviderErrorCode =
+  /** The user's Tangent credit can't cover the call (the Worker's meter, before it is sent). */
+  | 'payment_required'
   | 'auth'
   | 'rate_limit'
   | 'overloaded'

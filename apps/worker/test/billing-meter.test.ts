@@ -488,12 +488,12 @@ describe('usage meter holds on credit', () => {
       .get('openrouter')!
       .stream(request()))
       void _;
-    // 'hi' is 2 bytes, + 4 for the message and 16 for the request: 22 tokens in, 100 out,
-    // with the fee and the markup.
+    // 'hi' is 1 estimated token (chars / 3.5), + 4 for the message: 5 in, 100 out, with the fee
+    // and the markup.
     const worst = chargeMicros(
       costFromTokensNanos(
         { inMicrosPerMTok: 150_000_000, outMicrosPerMTok: 600_000_000, contextTokens: 200_000 },
-        22,
+        5,
         100,
       ),
       1000,
@@ -524,8 +524,10 @@ describe('usage meter holds on credit', () => {
       {
         type: 'error',
         error: {
-          code: 'rate_limit',
-          message: 'Not enough Tangent credit for this request.',
+          code: 'payment_required',
+          message: expect.stringMatching(
+            /^This reply needs about \$0\.\d\d of Tangent credit available\./,
+          ),
           retryable: false,
           upstream: 'not_sent',
         },
@@ -546,7 +548,10 @@ describe('usage meter holds on credit', () => {
       .stream(request()))
       events.push(e);
     expect(events).toMatchObject([
-      { type: 'error', error: { message: expect.stringContaining("price isn't known") } },
+      {
+        type: 'error',
+        error: { code: 'config', message: expect.stringContaining('no known price') },
+      },
     ]);
     expect(provider.calls).toBe(0);
     expect(await h.rows()).toEqual([]);

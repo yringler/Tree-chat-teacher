@@ -469,6 +469,72 @@ describe('Learn mode on paid credit', () => {
     expect(replies?.n).toBe(1);
   });
 
+  /** Learn on credit with Max at Sonnet's price, the pool off (a spent balance would move to it). */
+  const priceyMax = () =>
+    authEnv({
+      POOL_ENABLED: 'false',
+      MODEL_PRICES: JSON.stringify({
+        simple: { in: 10_000, out: 10_000, context: 1_048_576 },
+        smart: { in: 2_000_000, out: 10_000_000, context: 1_000_000 },
+      }),
+    });
+  const grant = (accountId: string, amountMicros: number) =>
+    grantCredit(env.DB, { accountId, kind: 'adjustment', amountMicros, providerRef: null });
+
+  it('a reply its balance cannot cover is a 402 naming what it needs, before any node is written', async () => {
+    const u = await newUser(priceyMax());
+    const { detail, trunk, assistant } = await treeWithNodes(u, 'credit', { model: 'smart' });
+    await grant(u.learn.accountId, 100_000);
+    const res = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+      learn: 'credit',
+    });
+    expect(res.status).toBe(402);
+    const error = ((await res.json()) as ApiError).error;
+    expect(error.code).toBe('payment_required');
+    expect(error.message).toMatch(
+      /^This reply needs about \$0\.[1-9]\d of Tangent credit available\./,
+    );
+    const nodes = await json<TreeDetail>(
+      await u.call(`/api/trees/${detail.tree.id}`, { learn: 'credit' }),
+    );
+    expect(nodes.nodes).toHaveLength(2);
+    // A review on Max, which streams from the Worker, is refused the same way, up front.
+    const review = await u.call(`/api/nodes/${assistant.id}/review`, {
+      method: 'POST',
+      json: { providerId: 'openrouter', model: 'smart' },
+      learn: 'credit',
+    });
+    expect(review.status).toBe(402);
+    expect(((await review.json()) as ApiError).error.message).toMatch(/^This reply needs about/);
+    // And a compare answer on Max.
+    const candidate = await u.call(`/api/branches/${trunk.id}/candidates`, {
+      method: 'POST',
+      json: { content: 'Explain primes', model: 'smart' },
+      learn: 'credit',
+    });
+    expect(candidate.status).toBe(402);
+    expect(((await candidate.json()) as ApiError).error.message).toMatch(/^This reply needs about/);
+    // Enough for it: the send streams, and its usage row names the reply's node.
+    await grant(u.learn.accountId, 1_000_000);
+    const ok = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+      learn: 'credit',
+    });
+    expect(ok.status).toBe(200);
+    const events = parseSse(await ok.text());
+    expect(events.at(-1)?.type).toBe('done');
+    const start = events[0] as Extract<StreamEvent, { type: 'start' }>;
+    const row = await env.DB.prepare(
+      "SELECT node_id, status FROM usage_events WHERE account_id = ?1 AND purpose = 'reply'",
+    )
+      .bind(u.learn.accountId)
+      .first<{ node_id: string | null; status: string }>();
+    expect(row).toEqual({ node_id: start.assistantNode.id, status: 'settled' });
+  });
+
   it('is hidden without billing: credit falls back to the own-key mode', async () => {
     const e = authEnv({ PAYMENT_PROVIDER: 'polar' });
     const u = await newUser(e);
@@ -598,7 +664,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
     expect(await usageRows(`u_${userId}`)).toBe(1);
   });
 
-  it('caps metered calls in flight per user (USAGE_MAX_PENDING, 3): 429, no new row; BYOK is not capped', async () => {
+  it('caps metered calls in flight per user (USAGE_MAX_PENDING, 6, as many as canvas fans out): 429, no new row; BYOK is not capped', async () => {
     const u = await newUser();
     const ledger = u.learn.accountId;
     await grantCredit(env.DB, {
@@ -614,11 +680,9 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
         method: 'POST',
         json: { content: 'Explain primes' },
       });
-    // Two calls still in flight (e.g. in the other app): one more may start.
-    const inFlight = [
-      await insertUsage(env, { accountId: ledger }),
-      await insertUsage(env, { accountId: ledger }),
-    ];
+    // Five calls still in flight (canvas's other lanes, or the other app): one more may start.
+    const inFlight: string[] = [];
+    for (let i = 0; i < 5; i++) inFlight.push(await insertUsage(env, { accountId: ledger }));
     const ok = await send(onTangent.trunk.id);
     expect(ok.status).toBe(200);
     expect(parseSse(await ok.text()).at(-1)?.type).toBe('done');

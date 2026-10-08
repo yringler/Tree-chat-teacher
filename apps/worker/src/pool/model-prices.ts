@@ -30,6 +30,7 @@
 // price. They only matter for holds and token-priced settlements: a reported
 // or looked-up cost already includes them. A cache price that drops to under
 // 1/`MAX_PRICE_DROP_FACTOR` of the stored one is held back like the others.
+import { DomainError } from '@tangent/core';
 import { EXPLICIT_CACHE_WRITE_MULTIPLIER, usesExplicitCacheControl } from '@tangent/providers';
 import { appConfig, type ModelPrice } from '../config.js';
 import type { AppEnv } from '../env.js';
@@ -196,51 +197,72 @@ export async function modelPrice(env: AppEnv, model: string): Promise<ModelPrice
   return withCacheWritePrice(model, price);
 }
 
-/** How long an isolate waits before syncing prices on demand again (`creditPrice`). */
-const ON_DEMAND_SYNC_EVERY_MS = 60 * 60_000;
-let onDemandSync: { at: number; done: Promise<void> } | null = null;
+/** How long a completed on-demand sync stands before a miss runs another (`creditPrice`). */
+const ON_DEMAND_SYNC_FRESH_MS = 10 * 60_000;
+/** How long a failed one stands: a miss soon after asks OpenRouter again. */
+const ON_DEMAND_RETRY_MS = 60_000;
+/** This isolate's latest on-demand sync: concurrent misses share it. */
+let onDemandSync: { at: number; ok: Promise<boolean> } | null = null;
 
 /**
- * Runs the price sync now, at most once an hour per isolate (concurrent
- * callers share the run), when the built-in provider is OpenRouter: the only
- * endpoint the sync lists. Never throws.
+ * Runs the price sync now, unless this isolate ran one recently (shared by
+ * concurrent callers), when the built-in provider is OpenRouter, the only
+ * endpoint the sync lists. Resolves whether OpenRouter's list was read
+ * (true where there is nothing to read). Never throws.
  */
-async function syncOnDemand(env: AppEnv): Promise<void> {
+async function syncOnDemand(env: AppEnv): Promise<boolean> {
   let openRouter: boolean;
   try {
     openRouter = isOpenRouter(simpleProviderConfig(env).baseUrl);
   } catch {
-    return;
+    return true;
   }
-  if (!openRouter) return;
+  if (!openRouter) return true;
   const now = Date.now();
-  if (!onDemandSync || now - onDemandSync.at >= ON_DEMAND_SYNC_EVERY_MS) {
+  const last = onDemandSync;
+  const stale =
+    !last ||
+    now - last.at >= ON_DEMAND_SYNC_FRESH_MS ||
+    (now - last.at >= ON_DEMAND_RETRY_MS && !(await last.ok));
+  if (stale) {
     onDemandSync = {
       at: now,
-      done: syncModelPrices(env, new Date(now)).then(
-        () => undefined,
-        (e: unknown) => console.error('On-demand price sync failed', e),
+      ok: syncModelPrices(env, new Date(now)).then(
+        () => true,
+        (e: unknown) => {
+          console.error('On-demand price sync failed', e);
+          return false;
+        },
       ),
     };
   }
-  await onDemandSync.done;
+  return onDemandSync!.ok;
 }
 
 /**
  * The price a Tangent credit call on `model` is held at (billing/meter.ts):
- * `modelPrice` for a configured model, else the list price the sync stored
- * for it (it stores every listed model's), or null when neither is known, so
- * the model can't run on credit. A model the store doesn't know yet (any
- * model before the first daily sync after a deploy, or one OpenRouter listed
- * since) syncs once on demand. A stored price without a window has none.
+ * `modelPrice` for a configured model (every model the product offers has
+ * one, built in or in `MODEL_PRICES`), else the list price the sync stored
+ * for it (it stores every listed model's), or null when OpenRouter lists no
+ * price for it, so the model can't run on credit. A model the store doesn't
+ * know yet (before the first daily sync after a deploy, or listed since)
+ * syncs on demand; when OpenRouter can't be read then, a 502
+ * `provider_error` is thrown rather than calling the model unpriced. A
+ * stored price without a window has none.
  */
 export async function creditPrice(env: AppEnv, model: string): Promise<ModelPrice | null> {
   const configured = await modelPrice(env, model);
   if (configured) return configured;
   let synced = await storedPrice(env.DB, model);
   if (!synced) {
-    await syncOnDemand(env);
+    const read = await syncOnDemand(env);
     synced = await storedPrice(env.DB, model);
+    if (!synced && !read) {
+      throw new DomainError(
+        'provider_error',
+        `The price of ${model} couldn't be looked up just now. Try again in a moment.`,
+      );
+    }
   }
   if (!synced) return null;
   const price: ModelPrice = {
@@ -367,11 +389,20 @@ async function syncUntrackedPrices(
 ): Promise<number> {
   const stored = await storedPrices(env.DB);
   const rows: (string | number | null)[][] = [];
+  const anomalies: string[] = [];
   for (const [model, next] of list) {
     if (!next || tracked.has(model)) continue;
     const prev = stored.get(model);
-    if (prev && (samePrice(prev, next) || isAnomalousDrop(prev, next))) continue;
+    if (prev && samePrice(prev, next)) continue;
+    if (prev && isAnomalousDrop(prev, next)) {
+      anomalies.push(model);
+      continue;
+    }
     rows.push([...priceColumns(model, next), at]);
+  }
+  if (anomalies.length > 0) {
+    // One line for all of them: a list-wide glitch would otherwise log hundreds.
+    console.error(JSON.stringify({ event: 'price_sync_anomaly', models: anomalies }));
   }
   const writes: D1PreparedStatement[] = [];
   for (let i = 0; i < rows.length; i += PRICE_ROWS_PER_INSERT) {

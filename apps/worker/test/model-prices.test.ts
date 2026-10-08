@@ -266,6 +266,11 @@ describe('syncModelPrices', () => {
       listing([{ id: other, prompt: '0.00001', completion: '0.002' }]).fetchImpl,
     );
     expect((await storedPrice(env.DB, other))?.inMicrosPerMTok).toBe(1_000_000_000);
+    // Logged once for all the models held back, not a line each.
+    const anomalies = error.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes('"event":"price_sync_anomaly"'),
+    );
+    expect(anomalies).toEqual([[JSON.stringify({ event: 'price_sync_anomaly', models: [other] })]]);
   });
 
   it('confirms an unchanged price without a new history row; a change adds one and is logged', async () => {

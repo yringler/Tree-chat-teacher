@@ -121,9 +121,10 @@ export async function reservePersonalUsage(
 
 /**
  * Personal credit: sets a pending, undispatched reservation's hold to
- * `holdMicros` once the call's own worst case is known. Lowering it always
- * succeeds; raising it only while the rest of the available balance covers
- * the increase, in the same statement. Resolves the row's markup and fee, or
+ * `holdMicros` once the call's own worst case is known, and its node (the
+ * reply's, unknown when it was reserved). Lowering the hold always succeeds;
+ * raising it only while the rest of the available balance covers the
+ * increase, in the same statement. Resolves the row's markup and fee, or
  * null when it is no longer such a row or the balance can't cover the hold.
  */
 export async function repriceReservation(
@@ -131,16 +132,17 @@ export async function repriceReservation(
   usageId: string,
   accountId: string,
   holdMicros: number,
+  nodeId: string | null,
 ): Promise<{ feeBps: number; markupBps: number } | null> {
   const row = await db
     .prepare(
-      `UPDATE usage_events SET hold_micros = ?3
+      `UPDATE usage_events SET hold_micros = ?3, node_id = COALESCE(node_id, ?4)
        WHERE id = ?2 AND account_id = ?1 AND funding = 'personal' AND status = 'pending'
          AND dispatched_at IS NULL
          AND (?3 <= hold_micros OR ${AVAILABLE_SQL} + hold_micros >= ?3)
        RETURNING fee_bps, markup_bps`,
     )
-    .bind(accountId, usageId, holdMicros)
+    .bind(accountId, usageId, holdMicros, nodeId)
     .first<{ fee_bps: number; markup_bps: number }>();
   return row ? { feeBps: row.fee_bps, markupBps: row.markup_bps } : null;
 }

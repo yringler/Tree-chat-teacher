@@ -94,7 +94,7 @@ describe('appConfig', () => {
     });
     expect(c.billing).toEqual({
       usageHoldMicros: 20_000,
-      usageMaxPending: 3,
+      usageMaxPending: 6,
       markupBps: 1000,
       openRouterFeeBps: 550,
       membershipPriceCents: 1000,
@@ -285,6 +285,35 @@ describe('resolvePoolParams', () => {
       error.mockClear();
       // At the ceiling exactly, a reply fits.
       expect(poolConfigProblem({ ...env, [cap]: String(ceiling) } as AppEnv)).toBeNull();
+    }
+  });
+
+  it('reports the pool off when its synced price puts a reply over the caps, as it refuses then', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    // A placeholder-priced pool model (no MODEL_PRICES entry pins it), so the synced price applies.
+    const model = 'minimax/minimax-m3';
+    const synced = {
+      ...env,
+      POOL_MODEL: model,
+      MODEL_PRICES: '',
+      POOL_ACCOUNT_ID: `pool-synced-${Date.now()}`,
+    } as AppEnv;
+    expect(poolAvailable(synced)).toBe(true);
+    expect((await poolStatus(synced)).enabled).toBe(true);
+    await env.DB.prepare(
+      `INSERT OR REPLACE INTO model_prices (model, in_micros_per_mtok, out_micros_per_mtok, fetched_at)
+       VALUES (?1, 1000000000, 1000000000, '2026-01-01T00:00:00.000Z')`,
+    )
+      .bind(model)
+      .run();
+    try {
+      // The configured price still fits; the live one refuses every reply, and says so.
+      expect(poolConfigProblem(synced)).toBeNull();
+      expect((await resolvePoolParams(synced, null)).price).toBeNull();
+      expect((await poolStatus(synced)).enabled).toBe(false);
+      expect(error.mock.calls.some((c) => String(c[0]).includes('pool_misconfigured'))).toBe(true);
+    } finally {
+      await env.DB.prepare('DELETE FROM model_prices WHERE model = ?1').bind(model).run();
     }
   });
 

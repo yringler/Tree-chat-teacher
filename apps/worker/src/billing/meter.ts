@@ -40,6 +40,7 @@ import {
   isLengthStop,
   type GenerateRequest,
   type LlmProvider,
+  type ProviderErrorCode,
   type ProviderEvent,
   type ProviderRegistry,
   type ProviderUpstream,
@@ -47,7 +48,7 @@ import {
   type UsagePurpose,
   type UsageTag,
 } from '@tangent/shared';
-import { PaymentRequiredError } from '@tangent/core';
+import { DomainError, PaymentRequiredError } from '@tangent/core';
 import type { AccountContext, AppEnv } from '../env.js';
 import { poolBank } from '../pool/ids.js';
 import { creditPrice } from '../pool/model-prices.js';
@@ -64,9 +65,9 @@ import { costUsdToNanos } from './pricing.js';
 import { reconcileGeneration, RECONCILE_RETRY_DELAYS_MS } from './reconcile.js';
 import {
   creditHoldMicros,
+  creditRates,
   creditRefusal,
-  markupFor,
-  openRouterFeeBps,
+  estimatedInputTokens,
   unpricedOnCredit,
   usageMaxPending,
 } from './service.js';
@@ -116,9 +117,20 @@ export interface UsageMeterOptions {
   settleRetryDelaysMs?: readonly number[];
 }
 
-/** Tangent credit can't cover the call (or its model has no price): it is failed before anything is sent. */
+/**
+ * Tangent credit can't start the call: the balance can't cover its hold
+ * (`payment_required`), too many are in flight (`rate_limit`), its model has
+ * no price (`config`) or the price couldn't be looked up (`server`). It is
+ * failed before anything is sent.
+ */
 export class CreditRefusedError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly code: Extract<
+      ProviderErrorCode,
+      'payment_required' | 'rate_limit' | 'config' | 'server'
+    >,
+  ) {
     super(message);
     this.name = 'CreditRefusedError';
   }
@@ -406,12 +418,21 @@ export function createUsageMeter(
   return {
     funding: 'personal',
     async begin({ tag, providerId, model, request, maxOutputTokens }) {
-      const price = await creditPrice(env, model);
-      if (!price) throw new CreditRefusedError(unpricedOnCredit(model).message);
-      const rates = { markupBps: markupFor(env), feeBps: openRouterFeeBps(env) };
+      const price = await creditPrice(env, model).catch((e: unknown) => {
+        // The price couldn't be looked up just now (domain errors only; others fail as metering).
+        throw e instanceof DomainError ? new CreditRefusedError(e.message, 'server') : e;
+      });
+      if (!price) throw new CreditRefusedError(unpricedOnCredit(model).message, 'config');
+      const rates = creditRates(env);
       // The hold bounds the output: a request without a cap gets the provider's.
       const upstream = { ...request, maxOutputTokens: request.maxOutputTokens ?? maxOutputTokens };
-      const holdMicros = creditHoldMicros(env, price, request, upstream.maxOutputTokens, rates);
+      const holdMicros = creditHoldMicros(
+        env,
+        price,
+        estimatedInputTokens(request),
+        upstream.maxOutputTokens,
+        rates,
+      );
       const run = (usageId: string, r: typeof rates, reserved: boolean) =>
         new PersonalRun(env, usageId, r.markupBps, r.feeBps, defer, options, upstream, reserved);
       if (tag?.reservationId) {
@@ -420,6 +441,7 @@ export function createUsageMeter(
           tag.reservationId,
           account.billingAccountId,
           holdMicros,
+          tag.nodeId,
         );
         if (claimed) return run(tag.reservationId, claimed, true);
         // Already used (a reply retried without its web search), or too dear for the balance:
@@ -449,9 +471,8 @@ export function createUsageMeter(
       if (!reserved) {
         const refusal = await creditRefusal(env, account.billingAccountId, holdMicros);
         throw new CreditRefusedError(
-          refusal instanceof PaymentRequiredError
-            ? 'Not enough Tangent credit for this request.'
-            : refusal.message,
+          refusal.message,
+          refusal instanceof PaymentRequiredError ? 'payment_required' : 'rate_limit',
         );
       }
       return run(usageId, rates, false);
@@ -615,7 +636,12 @@ async function* meteredStream(
     if (e instanceof CreditRefusedError) {
       yield {
         type: 'error',
-        error: { code: 'rate_limit', message: e.message, retryable: false, upstream: 'not_sent' },
+        error: {
+          code: e.code,
+          message: e.message,
+          retryable: e.code === 'server',
+          upstream: 'not_sent',
+        },
       };
       return;
     }
