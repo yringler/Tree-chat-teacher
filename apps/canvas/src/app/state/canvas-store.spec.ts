@@ -500,7 +500,7 @@ describe('CanvasStore read-only lanes without a membership', () => {
     id: 'openrouter',
     kind: 'openai-compatible',
     label: 'Tangent credit',
-    models: [{ id: 'smart-model', label: 'Smart' }],
+    models: [{ id: 'smart-model', label: 'Max' }],
     defaultModel: 'smart-model',
     openModels: true,
     available: true,
@@ -793,16 +793,16 @@ describe('modelLabel', () => {
     keySource: null,
     funding,
   });
-  const providers = [entry('own-key', 'Smart'), entry('credit', 'Smart (suggested)')];
+  const providers = [entry('own-key', 'Max'), entry('credit', 'Max (suggested)')];
 
   it('labels by route: the same endpoint on the user key or on Tangent credit', () => {
-    expect(modelLabel(providers, { providerId: 'openrouter' }, 'a/smart')).toBe('Smart');
+    expect(modelLabel(providers, { providerId: 'openrouter' }, 'a/smart')).toBe('Max');
     expect(modelLabel(providers, { providerId: 'openrouter', funding: 'credit' }, 'a/smart')).toBe(
-      'Smart (suggested)',
+      'Max (suggested)',
     );
     // A reply records no funding; an unlisted model is shortened.
     expect(modelLabel(providers.slice(1), { providerId: 'openrouter' }, 'a/smart')).toBe(
-      'Smart (suggested)',
+      'Max (suggested)',
     );
     expect(modelLabel(providers, { providerId: 'openrouter' }, 'vendor/other')).toBe('other');
   });

@@ -87,6 +87,11 @@ export class UiStore {
   readonly accountOpen = signal(false);
   /** Review dialog for one assistant message. */
   readonly reviewDialog = signal<{ nodeId: string } | null>(null);
+  /**
+   * Compare: Normal and Max answer `content` at the leaf of `branchId`, and
+   * the user keeps one. The message stays in the composer until a pick commits.
+   */
+  readonly compareDialog = signal<{ branchId: string; content: string } | null>(null);
   readonly linkDialog = signal<LinkDialogState | null>(null);
   readonly linkPick = signal<LinkPickState | null>(null);
   readonly linkReturn = signal<LinkReturn | null>(null);
@@ -164,7 +169,8 @@ export class UiStore {
       this.keysDialog() !== null ||
       this.settingsOpen() ||
       this.accountOpen() ||
-      this.reviewDialog() !== null
+      this.reviewDialog() !== null ||
+      this.compareDialog() !== null
     );
   }
 
@@ -180,6 +186,10 @@ export class UiStore {
     }
     if (this.reviewDialog()) {
       this.reviewDialog.set(null);
+      return true;
+    }
+    if (this.compareDialog()) {
+      this.compareDialog.set(null);
       return true;
     }
     if (this.linkDialog()) {

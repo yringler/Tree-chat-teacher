@@ -85,7 +85,7 @@ describe('anthropic provider', () => {
     const chunks = [text.slice(0, 50), text.slice(50, 333), text.slice(333, 700), text.slice(700)];
     const { provider } = setup(() => sseResponse(chunks).response);
     expect(await collect(provider.stream(req()))).toEqual<ProviderEvent[]>([
-      { type: 'usage', usage: { inputTokens: 25, outputTokens: 1 } },
+      { type: 'usage', usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } },
       { type: 'delta', text: 'Why did' },
       { type: 'delta', text: ' the chicken…' },
       { type: 'usage', usage: { outputTokens: 15 } },
@@ -106,11 +106,14 @@ describe('anthropic provider', () => {
     expect(call.body).toEqual({
       model: 'claude-opus-5-5',
       max_tokens: 1234,
-      system: 'Be brief.',
+      system: [{ type: 'text', text: 'Be brief.', cache_control: { type: 'ephemeral' } }],
       messages: [
         { role: 'user', content: 'Hi' },
         { role: 'assistant', content: 'Hello!' },
-        { role: 'user', content: 'Tell me a joke' },
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'Tell me a joke', cache_control: { type: 'ephemeral' } }],
+        },
       ],
       stream: true,
     });
@@ -133,8 +136,18 @@ describe('anthropic provider', () => {
       supportsSystemPrompt: true,
       supportsTokenCount: true,
       supportsWebSearch: false,
+      reasoning: true,
     });
-    expect(provider.capabilities('claude-opus-5-5')).toMatchObject({ maxContextTokens: 200_000, maxOutputTokens: 8192 });
+    // A reasoning model without a configured limit may write REASONING_MAX_OUTPUT_TOKENS.
+    expect(provider.capabilities('claude-opus-5-5')).toMatchObject({
+      maxContextTokens: 200_000,
+      maxOutputTokens: 32_000,
+      reasoning: true,
+    });
+    expect(provider.capabilities('claude-3-5-haiku')).toMatchObject({
+      maxOutputTokens: 8192,
+      reasoning: false,
+    });
     const p2 = createAnthropicProvider({ ...CONFIG, maxOutputTokens: 64_000 }, { secrets: {} });
     expect(p2.capabilities('claude-opus-5-5').maxOutputTokens).toBe(64_000);
     expect(provider.defaultModel()).toBe('claude-opus-5-5');
@@ -183,7 +196,7 @@ describe('anthropic provider', () => {
         ]).response,
     );
     expect(await collect(provider.stream(req()))).toEqual([
-      { type: 'usage', usage: { inputTokens: 25, outputTokens: 1 } },
+      { type: 'usage', usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } },
       { type: 'delta', text: 'Why did' },
       { type: 'error', error: { code: 'overloaded', message: 'Overloaded', retryable: true } },
     ]);
@@ -285,7 +298,7 @@ describe('anthropic provider', () => {
     })();
     await withTimeout(run);
     expect(events).toEqual([
-      { type: 'usage', usage: { inputTokens: 25, outputTokens: 1 } },
+      { type: 'usage', usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } },
       { type: 'delta', text: 'Why did' },
       { type: 'error', error: { code: 'aborted', message: 'Request aborted', retryable: false } },
     ]);
@@ -307,6 +320,121 @@ describe('anthropic provider', () => {
     await expect(
       provider.countTokens!({ model: 'claude-opus-5-5', system: 'x', messages: req().messages }),
     ).rejects.toMatchObject({ error: { code: 'rate_limit', status: 429 } });
+  });
+});
+
+describe('anthropic prompt caching', () => {
+  const BP = { type: 'ephemeral' };
+
+  it('puts breakpoints on the system prompt and the latest message only', async () => {
+    const { provider, calls } = setup(() => sseResponse(RECORDED).response);
+    await collect(provider.stream(req()));
+    const body = calls[0]!.body;
+    expect(body['system']).toEqual([{ type: 'text', text: 'Be brief.', cache_control: BP }]);
+    const messages = body['messages'] as { content: unknown }[];
+    expect(messages.map((m) => m.content)).toEqual([
+      'Hi',
+      'Hello!',
+      [{ type: 'text', text: 'Tell me a joke', cache_control: BP }],
+    ]);
+    expect(JSON.stringify(body).match(/cache_control/g)).toHaveLength(2);
+  });
+
+  it('marks only the latest message without a system prompt', async () => {
+    const { provider, calls } = setup(() => sseResponse(RECORDED).response);
+    await collect(
+      provider.stream(req({ system: null, messages: [{ role: 'user', content: 'Hi' }] })),
+    );
+    expect(calls[0]!.body).not.toHaveProperty('system');
+    expect(calls[0]!.body['messages']).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'Hi', cache_control: BP }] },
+    ]);
+  });
+
+  it('sends turnInstructions after the latest message breakpoint, as their own part', async () => {
+    const { provider, calls } = setup(() => sseResponse(RECORDED).response);
+    await collect(provider.stream(req({ turnInstructions: 'Search once.' })));
+    const body = calls[0]!.body;
+    expect(body['system']).toEqual([{ type: 'text', text: 'Be brief.', cache_control: BP }]);
+    const messages = body['messages'] as { role: string; content: unknown }[];
+    expect(messages.map((m) => m.content)).toEqual([
+      'Hi',
+      'Hello!',
+      [
+        { type: 'text', text: 'Tell me a joke', cache_control: BP },
+        { type: 'text', text: 'Search once.' },
+      ],
+    ]);
+    expect(JSON.stringify(body).match(/cache_control/g)).toHaveLength(2);
+  });
+
+  it('appends turnInstructions to the plain text with options.promptCache false', async () => {
+    const m = mockFetch(() => sseResponse(RECORDED).response);
+    const provider = createAnthropicProvider(
+      { ...CONFIG, options: { promptCache: false } },
+      { secrets: { ANTHROPIC_API_KEY: KEY }, fetch: m.fetch },
+    );
+    await collect(provider.stream(req({ turnInstructions: 'Search once.' })));
+    expect((m.calls[0]!.body['messages'] as unknown[]).at(-1)).toEqual({
+      role: 'user',
+      content: 'Tell me a joke\n\nSearch once.',
+    });
+  });
+
+  it('sends plain content with options.promptCache false', async () => {
+    const m = mockFetch(() => sseResponse(RECORDED).response);
+    const provider = createAnthropicProvider(
+      { ...CONFIG, options: { promptCache: false } },
+      { secrets: { ANTHROPIC_API_KEY: KEY }, fetch: m.fetch },
+    );
+    await collect(provider.stream(req()));
+    expect(m.calls[0]!.body['system']).toBe('Be brief.');
+    expect(JSON.stringify(m.calls[0]!.body)).not.toContain('cache_control');
+  });
+
+  it('counts tokens without breakpoints', async () => {
+    const { provider, calls } = setup(() => jsonResponse(200, { input_tokens: 42 }));
+    await provider.countTokens!({
+      model: 'claude-opus-5-5',
+      system: 'Be brief.',
+      messages: req().messages,
+    });
+    expect(JSON.stringify(calls[0]!.body)).not.toContain('cache_control');
+  });
+
+  it('reports the input total and the cache reads and writes', async () => {
+    const stream = [
+      frame('message_start', {
+        type: 'message_start',
+        message: {
+          id: 'msg_02',
+          usage: {
+            input_tokens: 12,
+            cache_creation_input_tokens: 300,
+            cache_read_input_tokens: 4000,
+            output_tokens: 1,
+          },
+        },
+      }),
+      frame('message_delta', {
+        type: 'message_delta',
+        delta: { stop_reason: 'end_turn' },
+        usage: {
+          input_tokens: 12,
+          cache_creation_input_tokens: 300,
+          cache_read_input_tokens: 4000,
+          output_tokens: 50,
+        },
+      }),
+      frame('message_stop', { type: 'message_stop' }),
+    ];
+    const { provider } = setup(() => sseResponse(stream).response);
+    const usage = { inputTokens: 4312, cacheReadTokens: 4000, cacheWriteTokens: 300 };
+    expect(await collect(provider.stream(req()))).toEqual<ProviderEvent[]>([
+      { type: 'usage', usage: { ...usage, outputTokens: 1 } },
+      { type: 'usage', usage: { ...usage, outputTokens: 50 } },
+      { type: 'done', stopReason: 'end_turn' },
+    ]);
   });
 });
 

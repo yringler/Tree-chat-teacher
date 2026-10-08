@@ -124,6 +124,7 @@ describe('fake provider', () => {
       supportsSystemPrompt: true,
       supportsTokenCount: true,
       supportsWebSearch: false,
+      reasoning: false,
     });
     const p2 = createFakeProvider(
       {
@@ -141,6 +142,7 @@ describe('fake provider', () => {
       supportsSystemPrompt: false,
       supportsTokenCount: true,
       supportsWebSearch: false,
+      reasoning: false,
     });
   });
 
@@ -221,5 +223,18 @@ describe('fake provider web search', () => {
     expect((await collect(none.stream(req({ webSearch })))).some((e) => e.type === 'activity')).toBe(false);
     const required = await collect(none.stream(req({ webSearch: { ...webSearch, mode: 'required' } })));
     expect(required).toContainEqual({ type: 'citations', citations: [] });
+  });
+});
+
+describe('fake provider stopReasons', () => {
+  it('ends with the scripted stop reason when the last user message has its key', async () => {
+    const provider = createFakeProvider(
+      { id: 'f', kind: 'fake', label: 'F', defaultModel: 'f1', models: [], options: { stopReasons: { CUTOFF: 'length' } } },
+      { secrets: {} },
+    );
+    const stopOf = async (content: string) =>
+      (await collect(provider.stream({ model: 'f1', system: null, messages: [{ role: 'user', content }], signal: new AbortController().signal }))).at(-1);
+    expect(await stopOf('please CUTOFF here')).toEqual({ type: 'done', stopReason: 'length' });
+    expect(await stopOf('a normal question')).toEqual({ type: 'done', stopReason: 'end_turn' });
   });
 });

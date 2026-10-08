@@ -1,0 +1,29 @@
+[
+  {
+    "label": "v4.1-flash-low",
+    "model": "deepseek/deepseek-v4.1-flash",
+    "effort": "low",
+    "maxTokens": 8192,
+    "providerOrder": ["streamlake/fp8", "deepinfra/fp8"]
+  },
+  {
+    "label": "v4.1-flash-high",
+    "model": "deepseek/deepseek-v4.1-flash",
+    "effort": "high",
+    "maxTokens": 16384,
+    "providerOrder": ["streamlake/fp8", "deepinfra/fp8"]
+  },
+  {
+    "label": "v4-flash",
+    "model": "deepseek/deepseek-v4-flash",
+    "effort": null,
+    "maxTokens": 8192
+  },
+  {
+    "label": "sonnet-5.5",
+    "model": "anthropic/claude-sonnet-5.5",
+    "effort": null,
+    "maxTokens": 16384,
+    "subset": "core"
+  }
+]

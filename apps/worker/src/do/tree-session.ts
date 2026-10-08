@@ -1,16 +1,23 @@
 import {
   DomainError,
+  GoneError,
   HTTP_STATUS,
   KeyRequiredError,
+  NotFoundError,
   PoolBlockedError,
+  pickGenerationLimits,
   poolBlock,
   type BeginSendResult,
   type ChatService,
+  type GenerationLimits,
+  type HeldCandidate,
 } from '@tangent/core';
 import {
+  CANDIDATE_TTL_MS,
   DEFAULT_ACCOUNT_ID,
   type ApiError,
   type ChatNode,
+  type CommitCandidateResponse,
   type FundingSource,
   type StreamEvent,
 } from '@tangent/shared';
@@ -37,12 +44,57 @@ const encoder = new TextEncoder();
  * the Worker resolved it; the DO trusts it (its routes are internal) and the
  * Worker has already checked that the branch belongs to it.
  */
-export interface SessionSendBody {
+export interface SessionSendBody extends GenerationLimits {
   content: string;
   /** "Check sources": the reply must run a web search. */
   ground?: 'required';
+  // GenerationLimits: power's reply length and input limit, as the Worker clamped them.
   account: AccountContext;
   sealedKeys?: string;
+}
+
+/**
+ * Body of the internal POST /hold-candidate: a finished compare candidate
+ * (`ChatService.runCandidate`), held for `accountId` until it is committed or
+ * expires.
+ */
+export interface SessionHoldBody {
+  candidate: HeldCandidate;
+  accountId: string;
+}
+
+/** What POST /hold-candidate answers: when the held candidate expires (ISO). */
+export interface SessionHoldResponse {
+  expiresAt: string;
+}
+
+/**
+ * Body of the internal POST /commit-candidate. `account` and `sealedKeys` as
+ * in SessionSendBody (a commit may auto-title the branch, which calls a model).
+ */
+export interface SessionCommitBody {
+  candidateId: string;
+  branchId: string;
+  account: AccountContext;
+  sealedKeys?: string;
+}
+
+/** A held candidate in this DO's storage, under `candidate:<id>`. */
+interface HeldEntry {
+  candidate: HeldCandidate;
+  accountId: string;
+  /** Epoch ms after which it can no longer be committed. */
+  expiresAt: number;
+}
+
+const CANDIDATE_PREFIX = 'candidate:';
+
+/** What a send writes and generates (with power's limits). */
+interface SendTarget extends GenerationLimits {
+  treeId: string;
+  branchId: string;
+  content: string;
+  ground?: 'required';
 }
 
 /** The account as query parameters, for the internal routes without a body. */
@@ -99,14 +151,23 @@ interface Run {
  *   GET  /stream?treeId=&nodeId=&account            → SSE (snapshot, then live)
  *   POST /cancel?treeId=&nodeId=&account            → 204
  *   POST /delete-branch?treeId=&branchId=&account   → DeleteBranchResponse
+ *   POST /hold-candidate?treeId=     body SessionHoldBody → SessionHoldResponse
+ *   POST /commit-candidate?treeId=   body SessionCommitBody → CommitCandidateResponse
  * The Worker resolves every branch/node id through the caller's account
  * before calling in, so the DO doesn't re-check ownership except where the
- * ChatService does it anyway (beginSend, deleteBranch).
+ * ChatService does it anyway (beginSend, deleteBranch, commitCandidate).
+ *
+ * Compare candidates stream from the Worker (like reviews), never through a
+ * run here: a finished one is only held in this DO's storage for
+ * `CANDIDATE_TTL_MS` (expired entries are pruned on each hold), and a commit
+ * appends it under the send lock, so it can't interleave with a send. A
+ * commit drops the candidate and its siblings (the other answers to the same
+ * question); an uncommitted one simply expires.
  */
 export class TreeSession extends DurableObject<AppEnv> {
   private readonly runs = new Map<string, Run>();
   private recovered = false;
-  /** Serializes beginSend (and branch deletion) within this tree. */
+  /** Serializes beginSend (and branch deletion, and candidate commits) within this tree. */
   private sendLock: Promise<unknown> = Promise.resolve();
 
   override async fetch(request: Request): Promise<Response> {
@@ -114,25 +175,25 @@ export class TreeSession extends DurableObject<AppEnv> {
     const treeId = url.searchParams.get('treeId') ?? '';
     try {
       if (request.method === 'POST' && url.pathname === '/send') {
-        const { content, ground, account, sealedKeys } = (await request.json()) as SessionSendBody;
+        const body = (await request.json()) as SessionSendBody;
+        const { content, ground, account } = body;
         await this.recoverOnce(chatService(this.env, account), treeId);
-        // Learn on credit never uses the user's own keys (the Worker doesn't send them either).
-        const keys = usesUserKeys(account) ? await openKeys(sealedKeys, this.env) : null;
-        if (keys?.state === 'invalid')
-          throw new KeyRequiredError('Your stored API key could not be read. Enter it again.');
-        // Keys stay in memory only for this generation (the ChatService closes over them).
-        const chat = chatService(this.env, account, {
-          ...(keys?.state === 'ok' ? { apiKeys: keys.keys } : {}),
-          // The usage meter (built-in provider) settles or reconciles after the stream ends.
-          defer: (p) => this.ctx.waitUntil(p),
-          generating: true,
-        });
+        const chat = await this.generatingChat(body);
         return await this.send(chat, account, {
           treeId,
           branchId: url.searchParams.get('branchId') ?? '',
           content,
           ...(ground === 'required' ? { ground } : {}),
+          ...pickGenerationLimits(body),
         });
+      }
+      if (request.method === 'POST' && url.pathname === '/hold-candidate') {
+        return await this.holdCandidate((await request.json()) as SessionHoldBody);
+      }
+      if (request.method === 'POST' && url.pathname === '/commit-candidate') {
+        const body = (await request.json()) as SessionCommitBody;
+        await this.recoverOnce(chatService(this.env, body.account), treeId);
+        return await this.commitCandidate(await this.generatingChat(body), body);
       }
       const chat = chatService(this.env, accountFromParams(url.searchParams));
       await this.recoverOnce(chat, treeId);
@@ -153,6 +214,29 @@ export class TreeSession extends DurableObject<AppEnv> {
     }
   }
 
+  /**
+   * The ChatService of a request that may call a model (a send, a commit's
+   * auto-title), as `account`, with the user's keys opened from the still-sealed
+   * cookie value. Learn on credit never uses the user's own keys (the Worker
+   * doesn't send them either).
+   */
+  private async generatingChat(body: {
+    account: AccountContext;
+    sealedKeys?: string;
+  }): Promise<ChatService> {
+    const { account, sealedKeys } = body;
+    const keys = usesUserKeys(account) ? await openKeys(sealedKeys, this.env) : null;
+    if (keys?.state === 'invalid')
+      throw new KeyRequiredError('Your stored API key could not be read. Enter it again.');
+    // Keys stay in memory only for this generation (the ChatService closes over them).
+    return chatService(this.env, account, {
+      ...(keys?.state === 'ok' ? { apiKeys: keys.keys } : {}),
+      // The usage meter (built-in provider) settles or reconciles after the stream ends.
+      defer: (p) => this.ctx.waitUntil(p),
+      generating: true,
+    });
+  }
+
   /** A fresh instance (first request, or after eviction/redeploy) owns no runs: stale `streaming` nodes are orphans. */
   private async recoverOnce(chat: ChatService, treeId: string): Promise<void> {
     if (this.recovered || !treeId) return;
@@ -170,7 +254,7 @@ export class TreeSession extends DurableObject<AppEnv> {
   private async send(
     chat: ChatService,
     account: AccountContext,
-    target: { treeId: string; branchId: string; content: string; ground?: 'required' },
+    target: SendTarget,
   ): Promise<Response> {
     const begin = this.sendLock.then(async () => {
       const reservationId = isPoolFunded(account)
@@ -202,7 +286,7 @@ export class TreeSession extends DurableObject<AppEnv> {
       },
     ]);
     // Detached: keeps running after the client disconnects (DOs stay alive while I/O is in flight).
-    run.finished = this.pump(chat, account, run, started, reservationId, target.ground);
+    run.finished = this.pump(chat, account, run, started, reservationId, target);
     this.ctx.waitUntil(run.finished);
     return response;
   }
@@ -257,6 +341,60 @@ export class TreeSession extends DurableObject<AppEnv> {
     return Response.json(await deleted);
   }
 
+  /** Holds a finished candidate for `CANDIDATE_TTL_MS`, pruning the expired ones. */
+  private async holdCandidate(body: SessionHoldBody): Promise<Response> {
+    const now = Date.now();
+    const storage = this.ctx.storage;
+    const held = await storage.list<HeldEntry>({ prefix: CANDIDATE_PREFIX });
+    const expired = [...held].filter(([, entry]) => entry.expiresAt <= now).map(([key]) => key);
+    await deleteKeys(storage, expired);
+    const entry: HeldEntry = { ...body, expiresAt: now + CANDIDATE_TTL_MS };
+    await storage.put(CANDIDATE_PREFIX + body.candidate.id, entry);
+    return Response.json({
+      expiresAt: new Date(entry.expiresAt).toISOString(),
+    } satisfies SessionHoldResponse);
+  }
+
+  /**
+   * Appends a held candidate to its branch under the send lock (no send can
+   * slip in between the check that the branch hasn't moved on and the
+   * append): 410 when it expired or is gone, 404 when it isn't this
+   * account's or this branch's, 409 (ChatService) when the branch moved on.
+   * The candidate and its siblings are dropped once it is in the tree. The
+   * auto-title of a first exchange (a model call) runs after the lock is
+   * released, so other sends in the tree don't wait on it.
+   */
+  private async commitCandidate(chat: ChatService, body: SessionCommitBody): Promise<Response> {
+    const storage = this.ctx.storage;
+    const key = CANDIDATE_PREFIX + body.candidateId;
+    const committed = this.sendLock.then(async () => {
+      const entry = await storage.get<HeldEntry>(key);
+      if (!entry || entry.expiresAt <= Date.now()) {
+        if (entry) await storage.delete(key);
+        throw new GoneError('This comparison expired. Ask again.');
+      }
+      if (entry.accountId !== body.account.id || entry.candidate.branchId !== body.branchId)
+        throw new NotFoundError('Candidate');
+      const result = await chat.appendCandidate(entry.candidate);
+      const { branchId, parentId } = entry.candidate;
+      const held = await storage.list<HeldEntry>({ prefix: CANDIDATE_PREFIX });
+      const done = [...held]
+        .filter(
+          ([, other]) =>
+            other.candidate.branchId === branchId && other.candidate.parentId === parentId,
+        )
+        .map(([k]) => k);
+      await deleteKeys(storage, [...new Set([key, ...done])]);
+      return result;
+    });
+    this.sendLock = committed.catch(() => undefined);
+    const result = await committed;
+    return Response.json({
+      ...result,
+      branch: await chat.titleCommitted(result),
+    } satisfies CommitCandidateResponse);
+  }
+
   /**
    * Runs the generation and broadcasts it. `account` is the one the send runs
    * as (who pays); `reservationId` is the pool reservation of the reply, if
@@ -270,7 +408,7 @@ export class TreeSession extends DurableObject<AppEnv> {
     run: Run,
     begin: BeginSendResult,
     reservationId: string | null,
-    ground?: 'required',
+    { ground, ...limits }: Pick<SendTarget, 'ground'> & GenerationLimits = {},
   ): Promise<void> {
     const keepalive = setInterval(() => this.broadcastRaw(run, sseKeepAliveFrame()), KEEPALIVE_MS);
     let completed = false;
@@ -278,6 +416,7 @@ export class TreeSession extends DurableObject<AppEnv> {
       const options = {
         ...(reservationId ? { reservationId } : {}),
         ...(ground ? { ground } : {}),
+        ...pickGenerationLimits(limits),
       };
       for await (const event of chat.runGeneration(begin, run.controller.signal, options)) {
         if (event.type === 'delta')
@@ -358,6 +497,14 @@ export class TreeSession extends DurableObject<AppEnv> {
       writer.write(bytes).catch(() => run.subscribers.delete(writer));
     }
   }
+}
+
+/** Storage deletes take at most 128 keys at a time. */
+const DELETE_BATCH = 128;
+
+async function deleteKeys(storage: DurableObjectStorage, keys: string[]): Promise<void> {
+  for (let i = 0; i < keys.length; i += DELETE_BATCH)
+    await storage.delete(keys.slice(i, i + DELETE_BATCH));
 }
 
 function streamOf(text: string): ReadableStream<Uint8Array> {

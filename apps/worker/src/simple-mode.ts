@@ -4,15 +4,33 @@ import {
   BUILT_IN_PROVIDER_ID,
   DEFAULT_SYSTEM_PROMPT,
   LEGACY_BUILT_IN_PROVIDER_ID,
+  TIER_LABELS,
+  TIERS,
+  BUILT_IN_MAX_OUTPUT_TOKENS,
   type ModelInfo,
+  type ModelTier,
   type ProviderConfig,
 } from '@tangent/shared';
-import { appConfig } from './config.js';
+import {
+  appConfig,
+  backgroundEffort,
+  DEFAULT_SIMPLE_NORMAL_MODEL,
+  DEFAULT_SIMPLE_MAX_MODEL,
+  DEFAULT_SIMPLE_FAST_MODEL,
+  DEFAULT_TIER_REQUESTS,
+  withTierDefaults,
+  type TierRequestConfig,
+} from './config.js';
 import { groundingSettings } from './billing/grounding.js';
 import type { AppEnv } from './env.js';
 import type { PoolParams } from './pool/params.js';
 
-export { DEFAULT_SIMPLE_MAX_INPUT_TOKENS } from './config.js';
+export {
+  DEFAULT_SIMPLE_FAST_MODEL,
+  DEFAULT_SIMPLE_MAX_INPUT_TOKENS,
+  DEFAULT_SIMPLE_MAX_MODEL,
+  DEFAULT_SIMPLE_NORMAL_MODEL,
+} from './config.js';
 
 /**
  * The built-in provider: the endpoint `openrouter` (BUILT_IN_PROVIDER_ID in
@@ -31,15 +49,32 @@ export { DEFAULT_SIMPLE_MAX_INPUT_TOKENS } from './config.js';
 export { BUILT_IN_PROVIDER_ID };
 /** Learn's provider id: the built-in endpoint (`openrouter`). */
 export const SIMPLE_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
-export const DEFAULT_SIMPLE_SMART_MODEL = 'deepseek/deepseek-v4-pro';
-export const DEFAULT_SIMPLE_FAST_MODEL = 'deepseek/deepseek-v4-flash';
+/** What the pool model is called where Learn's config doesn't list it (it is no tier). */
+export const POOL_MODEL_LABEL = 'Lite';
 /** What Learn's own key is: the user's OpenRouter key (cookie entry LEARN_KEY_PROVIDER). */
 export const LEARN_KEY_LABEL = 'OpenRouter';
-/** Output cap per call; with the input cap it bounds the cost of any one request. */
+/** Output cap of a reply on a model that doesn't reason. */
 export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
+/**
+ * The most output one call on the built-in provider asks for: a reasoning
+ * model's reply (its thinking counts as output), or power's own setting on
+ * Tangent credit. With the input cap it bounds the cost of any one request.
+ */
+export const SIMPLE_MAX_OUTPUT_TOKENS = BUILT_IN_MAX_OUTPUT_TOKENS;
 
-function smartModel(env: AppEnv): string {
-  return env.SIMPLE_SMART_MODEL?.trim() || DEFAULT_SIMPLE_SMART_MODEL;
+/**
+ * Normal: `SIMPLE_NORMAL_MODEL`, else the legacy `SIMPLE_SMART_MODEL` (the
+ * old default tier, whose deployed value is Normal's model), else the default.
+ */
+function normalModel(env: AppEnv): string {
+  return (
+    env.SIMPLE_NORMAL_MODEL?.trim() || env.SIMPLE_SMART_MODEL?.trim() || DEFAULT_SIMPLE_NORMAL_MODEL
+  );
+}
+
+/** Max: `SIMPLE_MAX_MODEL`, else the default. No legacy var ever names Max. */
+function maxModel(env: AppEnv): string {
+  return env.SIMPLE_MAX_MODEL?.trim() || DEFAULT_SIMPLE_MAX_MODEL;
 }
 
 function fastModel(env: AppEnv): string {
@@ -47,13 +82,23 @@ function fastModel(env: AppEnv): string {
 }
 
 /**
- * The built-in provider's config, as Learn uses it. `SIMPLE_PROVIDER` (one
+ * The built-in provider's config, as Learn uses it: its tiers, Normal (the
+ * default) then Max, each tagged with its `tier`. `SIMPLE_PROVIDER` (one
  * ProviderConfig as JSON, id `openrouter`, or the legacy `tangent`, read as
  * `openrouter`) replaces it wholesale, e.g. a fake provider in tests or the
- * AI Gateway. The id is fixed so that a branch's provider id means the same
- * endpoint in both apps. There is deliberately no fallback to
- * OPENROUTER_API_KEY: customer spend stays on its own key, which can carry a
- * hard credit limit.
+ * AI Gateway; its models may name their `tier`, and when none does, its
+ * default is Normal and it has no Max (an untagged override predates the
+ * tiers: its second model was the cheaper one, so position can't name Max).
+ * The id is fixed so that a branch's provider
+ * id means the same endpoint in both apps. There is deliberately no fallback
+ * to OPENROUTER_API_KEY: customer spend stays on its own key, which can carry
+ * a hard credit limit.
+ *
+ * The default config's tier models carry their tier's request settings
+ * (`SIMPLE_NORMAL_EFFORT`, `_REPLY_TOKENS`, `_PROVIDER_ORDER`, and Max's;
+ * empty ones are the default model's evaluated settings, `withTierDefaults`), so
+ * a tier is a model plus how it is asked, whoever pays (credit or the
+ * learner's own key); an override's models carry their own.
  */
 export function simpleProviderConfig(env: AppEnv): ProviderConfig {
   const override = env.SIMPLE_PROVIDER?.trim();
@@ -61,44 +106,79 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
     const configs = parseProviderConfigs(override.startsWith('[') ? override : `[${override}]`);
     if (configs.length !== 1)
       throw new Error('Invalid SIMPLE_PROVIDER: expected exactly one provider config');
-    const config = configs[0]!;
+    const config = withDefaultTier(configs[0]!);
     if (config.id === LEGACY_BUILT_IN_PROVIDER_ID) return { ...config, id: SIMPLE_PROVIDER_ID };
     if (config.id !== SIMPLE_PROVIDER_ID)
       throw new Error(`Invalid SIMPLE_PROVIDER: id must be "${SIMPLE_PROVIDER_ID}"`);
     return config;
   }
-  const smart = smartModel(env);
-  const fast = fastModel(env);
   return {
     id: SIMPLE_PROVIDER_ID,
     kind: 'openai-compatible',
     label: 'Tangent',
     baseUrl: 'https://openrouter.ai/api/v1',
     apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
-    defaultModel: smart,
+    defaultModel: normalModel(env),
     // OpenRouter's web search server tool (grounding, see billing/grounding.ts).
     options: { webSearch: true },
-    models:
-      smart === fast
-        ? [{ id: smart, label: 'Smart' }]
-        : [
-            { id: smart, label: 'Smart' },
-            { id: fast, label: 'Simple' },
-          ],
+    models: tierModels(env, (tier) => TIER_LABELS[tier]).map((m) =>
+      m.tier
+        ? withRequestConfig(
+            m,
+            withTierDefaults(appConfig(env).simple[m.tier], DEFAULT_TIER_REQUESTS[m.tier], m.id),
+          )
+        : m,
+    ),
   };
 }
 
 /**
- * The suggested OpenRouter models, smart first (SIMPLE_SMART_MODEL,
- * SIMPLE_FAST_MODEL): Learn's two tiers, and the models power lists first for
+ * `model` with a hosted tier's request settings (only those set): its effort,
+ * its reply cap as the model's `maxOutputTokens` (a reply's default cap stays
+ * below it, ChatService `budgetFor`), and its pinned providers.
+ */
+export function withRequestConfig(
+  model: ModelInfo,
+  request: Omit<TierRequestConfig, 'maxOutputTokens'> & { maxOutputTokens?: number | null },
+): ModelInfo {
+  return {
+    ...model,
+    ...(request.effort !== null ? { effort: request.effort } : {}),
+    ...(request.maxOutputTokens != null ? { maxOutputTokens: request.maxOutputTokens } : {}),
+    ...(request.providerOrder.length > 0 ? { providerOrder: [...request.providerOrder] } : {}),
+  };
+}
+
+/** Normal then Max, labelled by `label`; Normal alone when both are the same model. */
+function tierModels(env: AppEnv, label: (tier: ModelTier) => string): ModelInfo[] {
+  const ids: Record<ModelTier, string> = { normal: normalModel(env), max: maxModel(env) };
+  const tiers = ids.normal === ids.max ? TIERS.slice(0, 1) : TIERS;
+  return tiers.map((tier) => ({ id: ids[tier], label: label(tier), tier }));
+}
+
+/**
+ * An override that tags no model with a tier: its default is Normal and the
+ * rest are untiered. Pre-tier overrides listed `[Smart (default), Simple
+ * (cheaper)]`, so reading the second model as Max would sell the cheaper one
+ * as the strongest; Max must be named.
+ */
+function withDefaultTier(config: ProviderConfig): ProviderConfig {
+  if (config.models.some((m) => m.tier !== undefined)) return config;
+  return {
+    ...config,
+    models: config.models.map((m) =>
+      m.id === config.defaultModel ? { ...m, tier: 'normal' as const } : m,
+    ),
+  };
+}
+
+/**
+ * The suggested OpenRouter models, Normal first (SIMPLE_NORMAL_MODEL,
+ * SIMPLE_MAX_MODEL): Learn's two tiers, and the models power lists first for
  * OpenRouter, on the user's own key or on credit.
  */
 export function suggestedModels(env: AppEnv): ModelInfo[] {
-  const smart = smartModel(env);
-  const fast = fastModel(env);
-  const models: ModelInfo[] = [{ id: smart, label: 'Smart (suggested)' }];
-  if (fast !== smart) models.push({ id: fast, label: 'Simple (suggested)' });
-  return models;
+  return tierModels(env, (tier) => `${TIER_LABELS[tier]} (suggested)`);
 }
 
 /** Learn's per-call input cap (`SIMPLE_MAX_INPUT_TOKENS`). */
@@ -111,7 +191,7 @@ export function simpleMaxInputTokens(env: AppEnv): number {
  * SIMPLE_PROVIDER override), labelled "Tangent credit", with any model id
  * allowed (its models are suggestions) and one call's cost bounded like
  * Learn's: the context window is Learn's input cap plus its output reserve,
- * and output is capped at SIMPLE_RESERVED_OUTPUT_TOKENS. Per-model limits are
+ * and output is capped at SIMPLE_MAX_OUTPUT_TOKENS. Per-model limits are
  * dropped so no listed model can widen those bounds.
  */
 export function builtInPowerConfig(env: AppEnv): ProviderConfig {
@@ -119,39 +199,46 @@ export function builtInPowerConfig(env: AppEnv): ProviderConfig {
   return {
     ...base,
     label: 'Tangent credit',
-    models: base.models.map(({ id, label }) => ({
+    models: base.models.map(({ id, label, tier }) => ({
       id,
       label: label.endsWith('(suggested)') ? label : `${label} (suggested)`,
+      ...(tier ? { tier } : {}),
     })),
     openModels: true,
-    maxContextTokens: simpleMaxInputTokens(env) + SIMPLE_RESERVED_OUTPUT_TOKENS,
-    maxOutputTokens: SIMPLE_RESERVED_OUTPUT_TOKENS,
+    maxContextTokens: simpleMaxInputTokens(env) + SIMPLE_MAX_OUTPUT_TOKENS,
+    maxOutputTokens: SIMPLE_MAX_OUTPUT_TOKENS,
   };
 }
 
 /**
- * The cheaper model of the simple provider (summaries and titles):
- * SIMPLE_FAST_MODEL when the config lists it, else the config's second
- * model (the "Simple" tier), else its default.
+ * The background model of the simple provider (summaries, titles, and the
+ * pool's default model): SIMPLE_FAST_MODEL, which the default config needn't
+ * list (it is no tier, and OpenRouter takes any model id). A SIMPLE_PROVIDER
+ * override is a closed list, so there it is SIMPLE_FAST_MODEL when the
+ * override lists it, else the override's default (never another tier, which
+ * could be Max).
  */
 export function simpleFastModel(
   env: AppEnv,
   config: ProviderConfig = simpleProviderConfig(env),
 ): string {
   const wanted = fastModel(env);
-  const models = config.models;
-  return models.find((m) => m.id === wanted)?.id ?? models[1]?.id ?? config.defaultModel;
+  if (!env.SIMPLE_PROVIDER?.trim()) return wanted;
+  return config.models.some((m) => m.id === wanted) ? wanted : config.defaultModel;
 }
 
 /** Chat settings for simple accounts: capped input, fixed output reserve, cheap summaries. */
 export function simpleChatSettings(env: AppEnv): ChatSettings {
   const config = simpleProviderConfig(env);
+  const summaryModel = simpleFastModel(env, config);
   return {
     ...DEFAULT_CHAT_SETTINGS,
     summaryProviderId: config.id,
-    summaryModel: simpleFastModel(env, config),
+    summaryModel,
+    summaryEffort: backgroundEffort(env, summaryModel),
     maxInputTokens: simpleMaxInputTokens(env),
     reservedOutputTokens: SIMPLE_RESERVED_OUTPUT_TOKENS,
+    reasoningOutputTokens: SIMPLE_MAX_OUTPUT_TOKENS,
     autoTitle: true,
     grounding: groundingSettings(env, 'simple'),
   };
@@ -175,13 +262,21 @@ export function simpleSystemPrompt(env: AppEnv): string {
  * over-priced route fails upstream (released) instead of costing the operator.
  * Other endpoints (OpenAI, Workers AI, local servers) get no `provider` field,
  * which strict APIs reject; there the table must be the endpoint's own price.
+ * The pool model carries the pool's own effort and pinned providers
+ * (`POOL_EFFORT`, `POOL_PROVIDER_ORDER`), never a tier's, even when a tier
+ * runs the same model; pinning merges with `max_price` (openai-compatible.ts).
  */
 export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfig {
   const base = simpleProviderConfig(env);
   const listed = base.models.find((m) => m.id === pool.model);
   const config: ProviderConfig = {
     ...base,
-    models: [{ id: pool.model, label: listed?.label ?? 'Simple' }],
+    models: [
+      withRequestConfig(
+        { id: pool.model, label: listed?.label ?? POOL_MODEL_LABEL },
+        { effort: pool.effort, providerOrder: pool.providerOrder },
+      ),
+    ],
     defaultModel: pool.model,
     openModels: false,
     maxContextTokens: pool.maxInputTokens + pool.maxOutputTokens,
@@ -254,8 +349,10 @@ export function poolChatSettings(pool: PoolParams): ChatSettings {
     ...DEFAULT_CHAT_SETTINGS,
     summaryProviderId: SIMPLE_PROVIDER_ID,
     summaryModel: pool.model,
+    summaryEffort: pool.summaryEffort,
     maxInputTokens: pool.maxInputTokens,
     reservedOutputTokens: pool.maxOutputTokens,
+    reasoningOutputTokens: pool.maxOutputTokens,
     autoTitle: true,
     // No web search on the pool: its holds are priced from tokens alone (docs/DEFERRED.md).
     grounding: { ...DEFAULT_CHAT_SETTINGS.grounding, policy: 'off' },
@@ -264,15 +361,16 @@ export function poolChatSettings(pool: PoolParams): ChatSettings {
 
 /**
  * What Learn offers, as the public pages (landing, pricing) describe it, read
- * from the built-in provider's config: its models (Learn's tiers, the default
- * first), whether it is OpenRouter (so credit takes "any OpenRouter model"),
- * whether its replies can search the web, and whether a search costs about
- * 1¢ (OpenRouter's Exa price covers up to 10 results; other engines and more
- * results cost differently). Null when SIMPLE_PROVIDER is invalid, so a page
- * falls back to wording that claims none of these.
+ * from the built-in provider's config: its models (Learn's tiers: Normal,
+ * Max, then any model that is no tier), whether it is OpenRouter (so credit
+ * takes "any OpenRouter model"), whether its replies can search the web, and
+ * whether a search costs about 1¢ (OpenRouter's Exa price covers up to 10
+ * results; other engines and more results cost differently). Null when
+ * SIMPLE_PROVIDER is invalid, so a page falls back to wording that claims
+ * none of these.
  */
 export interface LearnOffer {
-  tiers: { id: string; label: string }[];
+  tiers: { id: string; label: string; tier?: ModelTier }[];
   openRouter: boolean;
   search: boolean;
   searchAboutOneCent: boolean;
@@ -285,10 +383,10 @@ export function learnOffer(env: AppEnv): LearnOffer | null {
   } catch {
     return null;
   }
-  const isDefault = (id: string) => (id === config.defaultModel ? 0 : 1);
+  const rank = (tier: ModelTier | undefined) => (tier ? TIERS.indexOf(tier) : TIERS.length);
   const tiers = [...config.models]
-    .sort((a, b) => isDefault(a.id) - isDefault(b.id))
-    .map(({ id, label }) => ({ id, label }));
+    .sort((a, b) => rank(a.tier) - rank(b.tier))
+    .map(({ id, label, tier }) => ({ id, label, ...(tier ? { tier } : {}) }));
   const openRouter = config.kind === 'openai-compatible' && isOpenRouter(config.baseUrl);
   const grounding = groundingSettings(env, 'simple');
   return {

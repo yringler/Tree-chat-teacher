@@ -20,7 +20,19 @@ export interface ProviderCapabilities {
   supportsTokenCount: boolean;
   /** True when the provider can run a web search for a reply (`GenerateRequest.webSearch`). */
   supportsWebSearch: boolean;
+  /**
+   * True for a reasoning model (`ModelInfo.reasoning`, else `isReasoningModel`):
+   * its thinking counts as output, so replies get a larger cap (output-tokens.ts).
+   * Absent = false.
+   */
+  reasoning?: boolean;
 }
+
+/**
+ * A model's place in the two-tier offer: `normal` (the everyday default) or
+ * `max` (a stronger, pricier model). Labels live in `TIER_LABELS` (tiers.ts).
+ */
+export type ModelTier = 'normal' | 'max';
 
 export interface ModelInfo {
   id: string;
@@ -28,6 +40,51 @@ export interface ModelInfo {
   /** Overrides the provider-level capability defaults for this model. */
   maxContextTokens?: number;
   maxOutputTokens?: number;
+  /**
+   * The tier this model is (Learn's Normal/Max, power's suggested pair).
+   * Clients key on this, never on `label`. Absent = not a tier.
+   */
+  tier?: ModelTier;
+  /**
+   * Max only: about how many Normal replies' worth of usage one Max reply is
+   * (a whole number >= 1, from list prices; set by the server, never read
+   * from config). Absent = unknown.
+   */
+  usageFactor?: number;
+  /** Whether the model reasons (thinks before answering); absent = `isReasoningModel(id)`. */
+  reasoning?: boolean;
+  /**
+   * The reasoning effort to ask this model for (`GenerateRequest.reasoning`
+   * overrides it per call); absent = send none, the model's own default.
+   * Sent on OpenRouter only. Server-side config: not listed to clients.
+   */
+  effort?: ReasoningEffort;
+  /**
+   * OpenRouter only: the upstream providers to try first, in order (slugs such
+   * as `streamlake/fp8`), sent as `provider: {order, allow_fallbacks: true}`. Pinning
+   * keeps a model's prompt cache, which each upstream keeps for itself, and
+   * its price. Absent or empty = OpenRouter's own routing. Server-side config:
+   * not listed to clients.
+   */
+  providerOrder?: string[];
+}
+
+/**
+ * How hard a reasoning model thinks: `none` asks it not to (OpenRouter
+ * `reasoning: {enabled: false}`), `low` and `high` are OpenRouter's
+ * `reasoning.effort`. There is deliberately no `max` (nor `xhigh`): at its
+ * top effort a model is far more verbose, and in Artificial Analysis'
+ * measurements it almost never admits it doesn't know, the worst trade for
+ * a learning app.
+ */
+export type ReasoningEffort = 'none' | 'low' | 'high';
+
+/** Every `ReasoningEffort`, lowest first. */
+export const REASONING_EFFORTS: readonly ReasoningEffort[] = ['none', 'low', 'high'];
+
+/** Whether `value` is a `ReasoningEffort`. */
+export function isReasoningEffort(value: unknown): value is ReasoningEffort {
+  return typeof value === 'string' && (REASONING_EFFORTS as readonly string[]).includes(value);
 }
 
 /**
@@ -62,6 +119,23 @@ export interface GenerateRequest {
   usageTag?: UsageTag;
   /** Offer (or require) a web search; ignored unless `capabilities(model).supportsWebSearch`. */
   webSearch?: WebSearchRequest;
+  /**
+   * Instructions for this reply only (e.g. how to use the web search tool),
+   * sent after the history: appended to the last user message, as their own
+   * text part after its cache breakpoint where the provider marks one, so a
+   * turn with them and one without share the cached prefix (and the next
+   * turn, whose history holds that message without them, still reads it).
+   */
+  turnInstructions?: string;
+  /**
+   * The reasoning effort of this call, overriding the model's configured
+   * `ModelInfo.effort`: e.g. `none` for short structured answers whose output
+   * cap thinking would use up (the pool's topic classifier), or the
+   * background effort of summaries and titles. Absent = the model's
+   * `effort`, else none sent. Sent only where the endpoint takes it
+   * (OpenRouter); elsewhere ignored.
+   */
+  reasoning?: ReasoningEffort;
 }
 
 /** A web search offered for one reply (OpenRouter's `openrouter:web_search` server tool). */
@@ -107,6 +181,19 @@ export interface ProviderError {
 }
 
 /**
+ * Token usage as a provider reports it: the totals, plus the prompt-cache
+ * share of the input when the upstream reports it (absent = not reported).
+ */
+export interface ProviderUsage extends TokenUsage {
+  /** Input tokens read from the prompt cache; included in `inputTokens`. */
+  cacheReadTokens: number;
+  /** Input tokens written to the prompt cache; included in `inputTokens`. */
+  cacheWriteTokens: number;
+  /** Output tokens spent thinking; included in `outputTokens`. */
+  reasoningTokens: number;
+}
+
+/**
  * One event type for streaming, usage, completion and failure.
  *
  * Contract for `LlmProvider.stream`:
@@ -116,17 +203,27 @@ export interface ProviderError {
  * - `usage` may be yielded more than once; later values override earlier ones
  *   field by field (providers report cumulative numbers);
  * - aborting `signal` ends the stream promptly with `error{code:'aborted'}`;
- * - `billing` (upstream generation id and/or reported cost in USD) may be
- *   yielded any number of times before the terminal event; later fields
- *   override earlier ones. Consumers that don't bill must ignore it;
+ * - `billing` (upstream generation id, reported cost in USD, and the upstream
+ *   provider that served the call, `servedBy`, e.g. OpenRouter's `DeepSeek`)
+ *   may be yielded any number of times before the terminal event; later
+ *   fields override earlier ones. Consumers that don't bill must ignore it;
+ * - `done.stopReason` is the upstream's own finish reason (`stop`, `length`,
+ *   `end_turn`, `max_tokens`, …); `isLengthStop` (stop-reason.ts) tells a
+ *   reply cut off at its output cap;
  * - `citations` (sources a web search found and the reply cites) may be
  *   yielded any number of times; each carries the full, deduplicated list so
  *   far. `activity` reports that a web search started.
  */
 export type ProviderEvent =
   | { type: 'delta'; text: string }
-  | { type: 'usage'; usage: Partial<TokenUsage> }
-  | { type: 'billing'; generationId?: string; costUsd?: number; webSearches?: number }
+  | { type: 'usage'; usage: Partial<ProviderUsage> }
+  | {
+      type: 'billing';
+      generationId?: string;
+      costUsd?: number;
+      webSearches?: number;
+      servedBy?: string;
+    }
   | { type: 'citations'; citations: Citation[] }
   | { type: 'activity'; kind: 'web_search' }
   | { type: 'done'; stopReason: string | null }
@@ -139,6 +236,13 @@ export interface LlmProvider {
   models(): ModelInfo[];
   defaultModel(): string;
   capabilities(model: string): ProviderCapabilities;
+  /**
+   * `capabilities` with the model's real limits where the host can look them
+   * up (the Worker: OpenRouter's catalog of context windows): they replace the
+   * kind's built-in defaults and never raise a configured limit. Absent =
+   * `capabilities` is all there is. ChatService budgets with it.
+   */
+  resolveCapabilities?(model: string): Promise<ProviderCapabilities>;
   stream(request: GenerateRequest): AsyncIterable<ProviderEvent>;
   /** Exact input-token count, when `capabilities(model).supportsTokenCount`. */
   countTokens?(

@@ -28,6 +28,7 @@ const ERROR_CODES: ReadonlySet<string> = new Set<ProviderErrorCode>([
 interface FakeOptions {
   responses: [string, string][];
   anyMessageResponses: [string, string][];
+  stopReasons: [string, string][];
   chunkSize: number;
   delayMs: number;
   failWith: ProviderErrorCode | null;
@@ -68,6 +69,7 @@ function readOptions(options: Record<string, unknown> | undefined): FakeOptions 
   return {
     responses: readResponses(o['responses']),
     anyMessageResponses: readResponses(o['anyMessageResponses']),
+    stopReasons: readResponses(o['stopReasons']),
     chunkSize: typeof cs === 'number' && Number.isInteger(cs) && cs > 0 ? cs : 8,
     delayMs: typeof dm === 'number' && dm > 0 ? dm : 0,
     failWith: typeof fw === 'string' && ERROR_CODES.has(fw) ? (fw as ProviderErrorCode) : null,
@@ -101,6 +103,9 @@ function inputTokens(request: Input): number {
  * - anyMessageResponses: Record<string, string> (tests only) — the same, but a
  *   key found in ANY message of the request (any role) matches, and these are
  *   checked before `responses`: lets a test see whether earlier history was sent;
+ * - stopReasons: Record<string, string> — if the last user message contains a
+ *   key, end with its value as `done.stopReason` (e.g. `length`: a reply cut
+ *   off at its cap) instead of `end_turn`;
  * - chunkSize: number (default 8) — characters per `delta`;
  * - delayMs: number (default 0) — await between deltas (to test abort);
  * - failWith: ProviderErrorCode — emit this error after the first delta;
@@ -130,15 +135,16 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
   const defaultModel = config.defaultModel || (models[0]?.id ?? 'fake-1');
   const effectiveConfig: ProviderConfig = { ...config, models };
 
-  const replyFor = (request: Input): string => {
-    let lastUser = '';
+  const lastUserOf = (request: Input): string => {
     for (let i = request.messages.length - 1; i >= 0; i--) {
       const m = request.messages[i];
-      if (m?.role === 'user') {
-        lastUser = m.content;
-        break;
-      }
+      if (m?.role === 'user') return m.content;
     }
+    return '';
+  };
+
+  const replyFor = (request: Input): string => {
+    const lastUser = lastUserOf(request);
     const echo = opts.echoRequest;
     if (echo === true || (typeof echo === 'string' && lastUser.includes(echo))) {
       return `ECHO model=${request.model} maxOutputTokens=${request.maxOutputTokens ?? 'none'} system=${JSON.stringify(request.system)}`;
@@ -190,7 +196,9 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
           ...(searches ? { webSearches: 1 } : {}),
         };
       }
-      yield { type: 'done', stopReason: 'end_turn' };
+      const lastUser = lastUserOf(request);
+      const stopReason = opts.stopReasons.find(([key]) => lastUser.includes(key))?.[1] ?? 'end_turn';
+      yield { type: 'done', stopReason };
     });
   }
 

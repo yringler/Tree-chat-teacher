@@ -24,6 +24,9 @@ export interface PoolSettleFacts {
   generationCostUsd?: number | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  /** Of `inputTokens`, those read from / written to the prompt cache, when reported. */
+  cacheReadTokens?: number | null;
+  cacheWriteTokens?: number | null;
   /** The pool model's price, to price observed tokens; null = no tokens settlement. */
   price?: ModelPrice | null;
 }
@@ -59,7 +62,10 @@ export function poolSettlement(f: PoolSettleFacts): PoolSettlement {
   if (f.price && tokens(f.inputTokens) && tokens(f.outputTokens)) {
     return {
       reason: 'tokens',
-      costNanos: costFromTokensNanos(f.price, f.inputTokens, f.outputTokens),
+      costNanos: costFromTokensNanos(f.price, f.inputTokens, f.outputTokens, {
+        readTokens: f.cacheReadTokens ?? null,
+        writeTokens: f.cacheWriteTokens ?? null,
+      }),
     };
   }
   return { reason: 'hold', costNanos: null };

@@ -7,11 +7,16 @@ import {
   newId,
   systemClock,
   type BeginSendResult,
+  type GenerationLimits,
+  type HeldCandidate,
   type RunGenerationOptions,
   type Clock,
 } from '@tangent/core';
 import { createMemoryRepositories, type MemoryState } from '@tangent/core/testing';
 import {
+  CANDIDATE_TTL_MS,
+  candidateRequestSchema,
+  contextLimitsQuerySchema,
   createBranchRequestSchema,
   createLinkRequestSchema,
   createTreeRequestSchema,
@@ -32,13 +37,16 @@ import {
   type BillingSummary,
   type Branch,
   type BranchFunding,
+  type CandidateEvent,
   type ChatNode,
   type GenerateRequest,
+  type InputBudgetResponse,
   type KeyStatusResponse,
   type LlmProvider,
   type LoginOptionsResponse,
   type MeResponse,
   type MembershipInfo,
+  MAX_USAGE_FACTOR_FALLBACK,
   type NodeLink,
   POOL_NOTICE_VERSION,
   type PoolImpactWeeksResponse,
@@ -55,9 +63,10 @@ import {
   treeBackupSchema,
   type UsageEntry,
   type UsageListResponse,
+  usageFactorOf,
 } from '@tangent/shared';
 import { seedDemoLesson } from './seed';
-import { createLoremProvider } from './lorem';
+import { createLoremProvider, DEMO_MODEL_PRICES } from './lorem';
 
 /*
  * The demos' backend, in the browser: a `fetch` replacement that answers
@@ -71,6 +80,9 @@ import { createLoremProvider } from './lorem';
  * Streaming mirrors the Worker's TreeSession Durable Object: a generation
  * runs detached from the request, `GET /api/nodes/:id/stream` re-attaches
  * with a `snapshot`, and cancel aborts it (the stream ends with `error`).
+ * Reviews and Compare's candidate answers stream straight back as in the
+ * Worker; a finished candidate is held in memory (as the Durable Object
+ * holds it) until it is committed or expires.
  */
 
 export const DEMO_ACCOUNT_ID = 'demo';
@@ -96,7 +108,7 @@ export const DEMO_POOL_STATUS: PoolStatusResponse = {
   enabled: false,
   availableMicros: 0,
   sessionsRemaining: 0,
-  model: { id: 'lorem', label: 'Simple' },
+  model: { id: 'lorem', label: 'Lite' },
   week: { start: '1970-01-05T00:00:00.000Z', exchanges: 0, learners: 0 },
   revenueShareBps: 0,
 };
@@ -153,6 +165,13 @@ interface Run {
   finished: Promise<void>;
 }
 
+/** A finished compare candidate, waiting to be committed (in memory only, like the DO's TTL'd storage). */
+interface Held {
+  candidate: HeldCandidate;
+  /** Epoch ms. */
+  expiresAt: number;
+}
+
 interface Saved {
   version: 1;
   trees: Tree[];
@@ -171,7 +190,7 @@ interface Saved {
 const encoder = new TextEncoder();
 
 /** One SSE frame, exactly as the Worker writes it (apps/worker/src/http/sse.ts). */
-export function sseFrame(event: StreamEvent | ReviewEvent): string {
+export function sseFrame(event: StreamEvent | ReviewEvent | CandidateEvent): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
@@ -235,6 +254,8 @@ export class DemoBackend {
   private readonly mode: AccountMode;
   private readonly storageKey: string;
   private readonly runs = new Map<string, Run>();
+  /** Compare candidates by id. */
+  private readonly held = new Map<string, Held>();
   private balanceMicros = DEMO_START_BALANCE_MICROS;
   private heldMicros = 0;
   /** Newest first. */
@@ -353,7 +374,9 @@ export class DemoBackend {
       } satisfies LoginOptionsResponse);
     }
     if (method === 'POST' && path === '/api/auth/sign-out') return json({ success: true });
-    if (method === 'GET' && path === '/api/providers') return json([providerInfo(this.provider)]);
+    if (method === 'GET' && path === '/api/providers') {
+      return json([withUsageFactor(providerInfo(this.provider))]);
+    }
 
     // Keys and shares (power): nothing stored, nothing published
     if (method === 'GET' && path === '/api/key/status') {
@@ -446,8 +469,14 @@ export class DemoBackend {
     if (method === 'GET' && (id = seg(/^\/api\/branches\/([^/]+)\/context$/))) {
       const nodeId = url.searchParams.get('nodeId');
       const resolve = url.searchParams.get('resolve') === 'true';
-      const res = await this.chat.planContext(id, nodeId, { resolveSummaries: resolve });
+      const limits = this.powerLimits(
+        contextLimitsQuerySchema.parse(Object.fromEntries(url.searchParams)),
+      );
+      const res = await this.chat.planContext(id, nodeId, { resolveSummaries: resolve, limits });
       return resolve ? this.saved(json(res)) : json(res);
+    }
+    if (method === 'GET' && (id = seg(/^\/api\/branches\/([^/]+)\/input-budget$/))) {
+      return json(await this.inputBudget(id));
     }
 
     // Links
@@ -477,6 +506,13 @@ export class DemoBackend {
     if (method === 'POST' && (id = seg(/^\/api\/nodes\/([^/]+)\/review$/))) {
       return this.review(id, body, signal);
     }
+    if (method === 'POST' && (id = seg(/^\/api\/branches\/([^/]+)\/candidates$/))) {
+      return this.candidate(id, body, signal);
+    }
+    const commit = /^\/api\/branches\/([^/]+)\/candidates\/([^/]+)\/commit$/.exec(path);
+    if (method === 'POST' && commit) {
+      return this.commitCandidate(decodeURIComponent(commit[1]!), decodeURIComponent(commit[2]!));
+    }
     if (method === 'POST' && (id = seg(/^\/api\/nodes\/([^/]+)\/cancel$/))) {
       const node = await this.chat.getOwnedNode(id);
       const run = this.runs.get(node.id);
@@ -495,7 +531,7 @@ export class DemoBackend {
     body: unknown,
     signal: AbortSignal | null,
   ): Promise<Response> {
-    const { content, ground } = sendMessageRequestSchema.parse(body ?? {});
+    const { content, ground, ...requested } = sendMessageRequestSchema.parse(body ?? {});
     await this.chat.getOwnedBranch(branchId);
     if (this.outOfCredit()) return apiError('payment_required', 'Add credit to keep learning');
     const begin = this.lock.then(() => this.chat.beginSend(branchId, content));
@@ -522,9 +558,48 @@ export class DemoBackend {
       signal,
     );
     // Detached, like the Durable Object: keeps going when the reader goes away.
-    run.finished = this.pump(run, started, ground === 'required' ? { ground } : {});
+    run.finished = this.pump(run, started, {
+      ...(ground === 'required' ? { ground } : {}),
+      ...this.powerLimits(requested),
+    });
     this.save();
     return response;
+  }
+
+  /**
+   * Power's reply length and input limit, as the Worker passes them on the
+   * own key (apps/worker input-limit.ts); Learn ignores them.
+   */
+  private powerLimits(requested: GenerationLimits): GenerationLimits {
+    if (this.mode !== 'power') return {};
+    const { maxOutputTokens, maxInputTokens, inputOverflow } = requested;
+    return {
+      ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+      ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
+      ...(inputOverflow === 'truncate' ? { inputOverflow } : {}),
+    };
+  }
+
+  /** As the Worker's: the demo's own pretend prices, and no credit cap in power. */
+  private async inputBudget(branchId: string): Promise<InputBudgetResponse> {
+    const budget = await this.chat.inputBudget(branchId);
+    const price = DEMO_MODEL_PRICES[budget.model];
+    return {
+      model: budget.model,
+      funding: budget.funding,
+      contextTokens: budget.contextTokens,
+      maxOutputTokens: budget.maxOutputTokens,
+      reasoning: budget.reasoning,
+      serverMaxInputTokens: budget.maxInputTokens,
+      price: price
+        ? {
+            inputUsdPerMTok: price.inMicrosPerMTok / MICROS_PER_USD,
+            cacheReadUsdPerMTok: null,
+            // Pretend list prices, with no fee or markup on top.
+            basis: 'list' as const,
+          }
+        : null,
+    };
   }
 
   /** A review streams straight back and stores nothing, as in the Worker. */
@@ -535,7 +610,7 @@ export class DemoBackend {
   ): Promise<Response> {
     const req = reviewRequestSchema.parse(body ?? {});
     if (this.outOfCredit()) return apiError('payment_required', 'Add credit to keep learning');
-    const prepared = await this.chat.prepareReview(nodeId, req);
+    const prepared = await this.chat.prepareReview(nodeId, req, this.powerLimits(req));
     const controller = new AbortController();
     signal?.addEventListener('abort', () => controller.abort(), { once: true });
     const chat = this.chat;
@@ -552,6 +627,83 @@ export class DemoBackend {
         },
       }),
     );
+  }
+
+  /**
+   * Compare: one model's answer streams straight back (like a review) and is
+   * held once finished; nothing enters the tree until it is committed.
+   */
+  private async candidate(
+    branchId: string,
+    body: unknown,
+    signal: AbortSignal | null,
+  ): Promise<Response> {
+    const req = candidateRequestSchema.parse(body ?? {});
+    if (this.outOfCredit()) return apiError('payment_required', 'Add credit to keep learning');
+    const prepared = await this.chat.prepareCandidate(branchId, req, this.powerLimits(req));
+    const controller = new AbortController();
+    signal?.addEventListener('abort', () => controller.abort(), { once: true });
+    const events = this.chat.runCandidate(prepared, controller.signal)[Symbol.asyncIterator]();
+    const hold = (candidate: HeldCandidate): CandidateEvent => this.hold(candidate);
+    const save = (): void => this.save();
+    return sseResponse(
+      new ReadableStream<Uint8Array>({
+        async pull(c) {
+          const next = await events.next();
+          if (next.done) {
+            save(); // the candidate's usage
+            c.close();
+            return;
+          }
+          const event = next.value;
+          c.enqueue(
+            encoder.encode(sseFrame(event.type === 'done' ? hold(event.candidate) : event)),
+          );
+        },
+        async cancel() {
+          // Run the aborted answer to its end, so the meter settles its hold.
+          controller.abort();
+          while (!(await events.next()).done);
+          save();
+        },
+      }),
+    );
+  }
+
+  /** Holds a finished candidate (pruning expired ones); returns the wire `done`. */
+  private hold(candidate: HeldCandidate): CandidateEvent {
+    const now = this.clock().getTime();
+    for (const [key, h] of this.held) if (h.expiresAt <= now) this.held.delete(key);
+    const expiresAt = now + CANDIDATE_TTL_MS;
+    this.held.set(candidate.id, { candidate, expiresAt });
+    return {
+      type: 'done',
+      candidateId: candidate.id,
+      providerId: candidate.providerId,
+      funding: candidate.funding,
+      model: candidate.model,
+      usage: candidate.usage,
+      sources: candidate.sources,
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+  }
+
+  /** Keeps one candidate: appends its exchange under the send lock and drops its siblings. */
+  private async commitCandidate(branchId: string, candidateId: string): Promise<Response> {
+    const held = this.held.get(candidateId);
+    if (!held || held.expiresAt <= this.clock().getTime()) {
+      this.held.delete(candidateId);
+      return apiError('gone', 'That comparison has expired; ask again');
+    }
+    if (held.candidate.branchId !== branchId) return apiError('not_found', 'Candidate not found');
+    const committed = this.lock.then(() => this.chat.commitCandidate(held.candidate));
+    this.lock = committed.catch(() => undefined);
+    const res = await committed;
+    for (const [key, h] of this.held) {
+      if (h.candidate.branchId === branchId && h.candidate.parentId === held.candidate.parentId)
+        this.held.delete(key);
+    }
+    return this.saved(json(res));
   }
 
   private async pump(
@@ -839,6 +991,24 @@ function providerInfo(provider: LlmProvider): ProviderInfo {
     acceptsUserKey: false,
     keySource: 'server',
     webSearch: provider.capabilities(provider.defaultModel()).supportsWebSearch,
+  };
+}
+
+/**
+ * Sets `usageFactor` on the Max model from the pretend prices (as the Worker
+ * does from list prices), so the demo shows the same usage note.
+ */
+function withUsageFactor(info: ProviderInfo): ProviderInfo {
+  const normal = info.models.find((m) => m.tier === 'normal');
+  const normalPrice = normal ? DEMO_MODEL_PRICES[normal.id] : undefined;
+  return {
+    ...info,
+    models: info.models.map((m) => {
+      if (m.tier !== 'max') return m;
+      const maxPrice = DEMO_MODEL_PRICES[m.id];
+      const factor = normalPrice && maxPrice ? usageFactorOf(normalPrice, maxPrice) : null;
+      return { ...m, usageFactor: factor ?? MAX_USAGE_FACTOR_FALLBACK };
+    }),
   };
 }
 

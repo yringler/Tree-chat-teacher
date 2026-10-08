@@ -39,7 +39,7 @@ type User = Awaited<ReturnType<typeof newUser>>;
 
 /**
  * A power tree: the trunk on the BYOK provider `ant` with a custom prompt and
- * one exchange, a `summary` branch on Tangent credit with Learn's Simple model,
+ * one exchange, a `summary` branch on Tangent credit with Learn's Normal model,
  * and an `independent` branch on the test provider `fake`.
  */
 async function powerTree(u: User): Promise<TreeDetail> {

@@ -25,6 +25,7 @@ import {
   type MessageQuote,
 } from '@tangent/web-shared';
 import { Inspector } from '../inspector/inspector';
+import { TierStore } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ModeBadge } from '../ui/mode-badge';
@@ -65,6 +66,7 @@ interface Entry {
 export class ChatPage implements OnDestroy {
   protected readonly store = inject(TreeStore);
   protected readonly ui = inject(UiStore);
+  private readonly tiers = inject(TierStore);
   /** The user's text size for the messages and composer (see chat.css). */
   protected readonly textSize = inject(TextSizeStore);
   private readonly title = inject(Title);
@@ -134,6 +136,11 @@ export class ChatPage implements OnDestroy {
     const id = this.store.selectedBranchId();
     return (id && this.store.unsentDrafts().get(id)) || '';
   });
+
+  /** Compare is offered: Normal and Max are two models the open branch can use, and it is idle. */
+  protected readonly canCompare = computed(
+    () => !this.store.busy() && this.tiers.available(this.store.selectedBranch()),
+  );
 
   /** Pick mode, with what the message being linked from says (for the banner). */
   protected readonly picking = computed(() => {
@@ -248,6 +255,13 @@ export class ChatPage implements OnDestroy {
     this.pinned.set(true);
     if (this.store.focusedNodeId()) this.store.focus(null);
     void this.store.send(id, content);
+  }
+
+  /** Compare: Normal and Max answer the message in a dialog; the text stays until one is kept. */
+  protected compare(content: string): void {
+    const branchId = this.store.selectedBranchId();
+    if (!branchId) return;
+    this.ui.compareDialog.set({ branchId, content });
   }
 
   /** "Continue with Tangent credit": the selected branch moves onto credit and its composer returns. */

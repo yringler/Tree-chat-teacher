@@ -8,7 +8,13 @@
 // registry (the pool's default model, whether the built-in provider is
 // offered) is resolved by its caller, so this module imports nothing from
 // services.ts or simple-mode.ts.
-import { DEFAULT_SYSTEM_PROMPT, POOL_NOTICE_VERSION } from '@tangent/shared';
+import {
+  BUILT_IN_MAX_OUTPUT_TOKENS,
+  DEFAULT_SYSTEM_PROMPT,
+  isReasoningEffort,
+  POOL_NOTICE_VERSION,
+  type ReasoningEffort,
+} from '@tangent/shared';
 import { z } from 'zod';
 import type { AppEnv } from './env.js';
 
@@ -35,6 +41,100 @@ export const DEFAULT_MEMBERSHIP_PRICE_CENTS = 1000;
 export const DEFAULT_MEMBERSHIP_CREDIT_CENTS = 0;
 export const DEFAULT_SIMPLE_MAX_INPUT_TOKENS = 60_000;
 
+// ---- The hosted models (docs/DECISIONS.md "Hosted models from the eval")
+
+/** Learn's Normal tier, its default (`SIMPLE_NORMAL_MODEL`). */
+export const DEFAULT_SIMPLE_NORMAL_MODEL = 'deepseek/deepseek-v4.1-flash';
+/** Learn's Max tier (`SIMPLE_MAX_MODEL`). */
+export const DEFAULT_SIMPLE_MAX_MODEL = 'anthropic/claude-sonnet-5.5';
+/**
+ * The background model (`SIMPLE_FAST_MODEL`): Learn's summaries and titles,
+ * and the open pool's default model. Not a tier, though today it is the same
+ * model as Normal, asked differently.
+ */
+export const DEFAULT_SIMPLE_FAST_MODEL = 'deepseek/deepseek-v4.1-flash';
+
+/**
+ * Where V4.1 Flash is pinned: StreamLake, then DeepInfra, both fp8 and both
+ * caching. Not `deepseek` (first-party): OpenRouter drops it for an account
+ * that denies paid-data training, and the fallbacks then scatter across
+ * about 28 providers, fp4 ones included, and lose the prompt cache.
+ */
+const V4_1_FLASH_PROVIDER_ORDER: readonly string[] = ['streamlake/fp8', 'deepinfra/fp8'];
+
+/** How a hosted tier asks its default model when the tier's vars are empty. */
+export interface DefaultTierRequest {
+  /** The default model these settings are for. */
+  model: string;
+  request: TierRequestConfig;
+}
+
+/**
+ * The evaluated settings of each hosted tier's default model (wrangler.jsonc
+ * sets the same values): what an empty `*_EFFORT`, `SIMPLE_*_REPLY_TOKENS` or
+ * `*_PROVIDER_ORDER` means while the tier runs that model (`withTierDefaults`).
+ * A tier moved to another model starts from that model's own defaults (no
+ * effort sent, the default cap, OpenRouter's routing): an effort or a pinned
+ * provider tuned for one model says nothing about another. The pool's reply
+ * cap is `POOL_MAX_OUTPUT_TOKENS` (8,192), whatever its model.
+ */
+export const DEFAULT_TIER_REQUESTS: Readonly<
+  Record<'normal' | 'max' | 'pool', DefaultTierRequest>
+> = {
+  normal: {
+    model: DEFAULT_SIMPLE_NORMAL_MODEL,
+    request: {
+      effort: 'high',
+      maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS,
+      providerOrder: V4_1_FLASH_PROVIDER_ORDER,
+    },
+  },
+  max: {
+    model: DEFAULT_SIMPLE_MAX_MODEL,
+    request: { effort: null, maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS, providerOrder: [] },
+  },
+  pool: {
+    model: DEFAULT_SIMPLE_FAST_MODEL,
+    request: { effort: 'low', maxOutputTokens: null, providerOrder: V4_1_FLASH_PROVIDER_ORDER },
+  },
+};
+
+/**
+ * The effort of summaries and titles on the default background model when
+ * `SIMPLE_FAST_EFFORT` is empty. Without one they would run at the effort of
+ * the model's listing, which on V4.1 Flash is Normal's `high`.
+ */
+export const DEFAULT_BACKGROUND_EFFORT: { model: string; effort: ReasoningEffort } = {
+  model: DEFAULT_SIMPLE_FAST_MODEL,
+  effort: 'low',
+};
+
+/**
+ * `request` (parsed from a tier's vars) with `defaults` filling each empty
+ * setting, while the tier runs the defaults' model; unchanged on any other.
+ */
+export function withTierDefaults(
+  request: TierRequestConfig,
+  defaults: DefaultTierRequest,
+  model: string,
+): TierRequestConfig {
+  if (model !== defaults.model) return request;
+  return {
+    effort: request.effort ?? defaults.request.effort,
+    maxOutputTokens: request.maxOutputTokens ?? defaults.request.maxOutputTokens,
+    providerOrder:
+      request.providerOrder.length > 0 ? request.providerOrder : defaults.request.providerOrder,
+  };
+}
+
+/** `SIMPLE_FAST_EFFORT`, else `DEFAULT_BACKGROUND_EFFORT` while background calls run its model. */
+export function backgroundEffort(env: AppEnv, model: string): ReasoningEffort | null {
+  return (
+    appConfig(env).simple.backgroundEffort ??
+    (model === DEFAULT_BACKGROUND_EFFORT.model ? DEFAULT_BACKGROUND_EFFORT.effort : null)
+  );
+}
+
 /** The open pool's ledger account id (`POOL_ACCOUNT_ID`). */
 export const DEFAULT_POOL_ACCOUNT_ID = 'pool';
 /**
@@ -53,30 +153,66 @@ const POOL_TTL_SLACK_MS = 60_000;
  * model's context window: the input bound of the reply's ceiling hold.
  * `feeBps` grosses the price up like OPENROUTER_FEE_BPS does for reported
  * costs (default: that var); 0 for a provider billed directly.
+ * Prompt caching: `cacheReadMicrosPerMTok` prices input tokens read from the
+ * cache, `cacheWriteMicrosPerMTok` those written to it (Anthropic: 1.25× the
+ * input price). Unset, a read costs the input price (never less than the
+ * truth) and a write too, except on explicit-cache models, which
+ * `pool/model-prices.ts` gives the write premium.
  */
 export interface ModelPrice {
   inMicrosPerMTok: number;
   outMicrosPerMTok: number;
   contextTokens: number;
   feeBps?: number;
+  cacheReadMicrosPerMTok?: number;
+  cacheWriteMicrosPerMTok?: number;
 }
 
 /**
- * Placeholder prices of the default pool models (OpenRouter list prices when
- * the pool was planned). The daily price sync (pool/model-prices.ts) replaces
- * them with OpenRouter's current list prices; `MODEL_PRICES` overrides or
- * extends them, and an override also wins over the synced price.
+ * Placeholder prices of the default pool model, of Learn's tiers, Normal
+ * and Max, which the Max usage note compares (tiers.ts `withUsageFactors`;
+ * `MAX_USAGE_FACTOR_FALLBACK` is their factor), of the previous defaults and
+ * of a fallback candidate: OpenRouter list prices when they were added, or
+ * (V4.1 Flash) the price of its pinned providers. The daily price sync
+ * (pool/model-prices.ts) replaces them with OpenRouter's current list prices;
+ * `MODEL_PRICES` overrides or extends them, and an override also wins over
+ * the synced price.
  */
 export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
+  // Normal and the pool. The price of StreamLake (and DeepSeek's own): $0.15 / $0.60, cache
+  // read $0.003. OpenRouter's model-level list price ($0.0356 / $1.00) is no route's price, and
+  // as the pool's `max_price` it would admit only fp4 endpoints, so wrangler.jsonc repeats this
+  // entry in `MODEL_PRICES`, where it wins over the daily sync (docs/DECISIONS.md "Hosted
+  // models from the eval").
+  'deepseek/deepseek-v4.1-flash': {
+    inMicrosPerMTok: 150_000,
+    outMicrosPerMTok: 600_000,
+    contextTokens: 1_048_576,
+    cacheReadMicrosPerMTok: 3_000,
+  },
+  // The previous pool and Normal models, priced so moving back is a config change.
   'deepseek/deepseek-v4-flash': {
     inMicrosPerMTok: 100_000,
     outMicrosPerMTok: 400_000,
     contextTokens: 131_072,
   },
   'deepseek/deepseek-v4-pro': {
-    inMicrosPerMTok: 500_000,
-    outMicrosPerMTok: 2_000_000,
-    contextTokens: 131_072,
+    inMicrosPerMTok: 955_260,
+    outMicrosPerMTok: 1_910_520,
+    contextTokens: 1_048_576,
+  },
+  'anthropic/claude-sonnet-5.5': {
+    inMicrosPerMTok: 2_000_000,
+    outMicrosPerMTok: 10_000_000,
+    contextTokens: 1_000_000,
+  },
+  // A fallback candidate, no default: priced so the pool (`POOL_MODEL`) or a
+  // tier can be moved to it by config alone (docs/DECISIONS.md "Hosted tier config").
+  'minimax/minimax-m3': {
+    inMicrosPerMTok: 300_000,
+    outMicrosPerMTok: 1_200_000,
+    contextTokens: 1_000_000,
+    cacheReadMicrosPerMTok: 60_000,
   },
 };
 
@@ -118,10 +254,36 @@ export interface PoolOverage {
   maxMicros: number;
 }
 
+/**
+ * How one hosted tier asks its model (`SIMPLE_NORMAL_*`, `SIMPLE_MAX_*`,
+ * `POOL_*`), as parsed: an empty var is null (or no providers). The tier's
+ * model is resolved by the caller (simple-mode.ts, pool/params.ts), which
+ * fills the empty settings from `DEFAULT_TIER_REQUESTS` while the tier runs
+ * its default model (`withTierDefaults`); on any other model they stay
+ * empty: no effort sent, the default output cap, OpenRouter's own routing.
+ */
+export interface TierRequestConfig {
+  /** `*_EFFORT`: `none`, `low` or `high` (never `max`); null = send none, the model's default. */
+  effort: ReasoningEffort | null;
+  /**
+   * `SIMPLE_*_REPLY_TOKENS`: the reply's output cap (thinking and answer
+   * together), at most BUILT_IN_MAX_OUTPUT_TOKENS (16,384); null = the default
+   * for the model's kind (16,384 on a reasoning model, 4,096 otherwise). The
+   * pool's is `POOL_MAX_OUTPUT_TOKENS` (`PoolConfig.maxOutputTokens`).
+   */
+  maxOutputTokens: number | null;
+  /** `*_PROVIDER_ORDER`: OpenRouter provider slugs to pin, comma-separated; empty = none. */
+  providerOrder: readonly string[];
+}
+
 export interface PoolConfig {
   accountId: string;
   /** `POOL_MODEL`; null = the simple provider's fast model, resolved by the caller. */
   model: string | null;
+  /** `POOL_EFFORT` (null = the model's default). */
+  effort: ReasoningEffort | null;
+  /** `POOL_PROVIDER_ORDER`. */
+  providerOrder: readonly string[];
   systemPrompt: string;
   /**
    * `POOL_REVENUE_SHARE_BPS` (at most 10,000): the share of each membership
@@ -192,7 +354,17 @@ export interface AppConfig {
     /** Before the built-in-provider check (`membershipCreditCents`). */
     membershipCreditCentsRaw: number;
   };
-  simple: { maxInputTokens: number };
+  simple: {
+    maxInputTokens: number;
+    /** Learn's tiers' request settings (their models: `SIMPLE_NORMAL_MODEL`, `SIMPLE_MAX_MODEL`). */
+    normal: TierRequestConfig;
+    max: TierRequestConfig;
+    /**
+     * `SIMPLE_FAST_EFFORT`: the effort of summaries and titles, in Learn and on
+     * the open pool, as parsed (null = empty: `backgroundEffort` resolves it).
+     */
+    backgroundEffort: ReasoningEffort | null;
+  };
   pool: PoolConfig;
   impact: {
     minDistinctUsers: number;
@@ -253,7 +425,10 @@ export function jsonVar<T>(
 
 const nonNegativeInt = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
-/** `MODEL_PRICES`: `{"<model>": {"in": µ$/MTok, "out": µ$/MTok, "context": tokens, "feeBps"?: bps}}`. */
+/**
+ * `MODEL_PRICES`: `{"<model>": {"in": µ$/MTok, "out": µ$/MTok, "context": tokens,
+ * "feeBps"?: bps, "cacheRead"?: µ$/MTok, "cacheWrite"?: µ$/MTok}}`.
+ */
 const modelPricesSchema = z.record(
   z.string().min(1),
   z.strictObject({
@@ -261,6 +436,8 @@ const modelPricesSchema = z.record(
     out: nonNegativeInt,
     context: nonNegativeInt.positive(),
     feeBps: nonNegativeInt.optional(),
+    cacheRead: nonNegativeInt.optional(),
+    cacheWrite: nonNegativeInt.optional(),
   }),
 );
 
@@ -276,9 +453,39 @@ function parsePrices(raw: string | undefined): {
       outMicrosPerMTok: p.out,
       contextTokens: p.context,
       ...(p.feeBps !== undefined ? { feeBps: p.feeBps } : {}),
+      ...(p.cacheRead !== undefined ? { cacheReadMicrosPerMTok: p.cacheRead } : {}),
+      ...(p.cacheWrite !== undefined ? { cacheWriteMicrosPerMTok: p.cacheWrite } : {}),
     };
   }
   return { prices, overrides: Object.keys(overrides) };
+}
+
+/**
+ * `*_EFFORT`: `none`, `low` or `high` (any case); empty gives null (the
+ * model's default). `max` and `xhigh` are refused like any other value
+ * (logged, null): Tangent never asks for a model's top effort.
+ */
+export function effortVar(name: string, raw: string | undefined): ReasoningEffort | null {
+  const s = raw?.trim().toLowerCase();
+  if (!s) return null;
+  if (isReasoningEffort(s)) return s;
+  console.error(`Invalid ${name}=${s}: expected none, low or high; sending no effort`);
+  return null;
+}
+
+/** `SIMPLE_*_REPLY_TOKENS`: a positive cap up to BUILT_IN_MAX_OUTPUT_TOKENS; empty or invalid gives null. */
+function replyTokensVar(name: string, raw: string | undefined): number | null {
+  const n = positiveInt(raw, 0);
+  if (n === 0) return null;
+  return clamped(name, n, Math.min(n, BUILT_IN_MAX_OUTPUT_TOKENS));
+}
+
+function tierRequest(env: AppEnv, prefix: 'SIMPLE_NORMAL' | 'SIMPLE_MAX'): TierRequestConfig {
+  return {
+    effort: effortVar(`${prefix}_EFFORT`, env[`${prefix}_EFFORT`]),
+    maxOutputTokens: replyTokensVar(`${prefix}_REPLY_TOKENS`, env[`${prefix}_REPLY_TOKENS`]),
+    providerOrder: list(env[`${prefix}_PROVIDER_ORDER`]),
+  };
 }
 
 function list(raw: string | undefined): string[] {
@@ -322,10 +529,15 @@ function parse(env: AppEnv): AppConfig {
     },
     simple: {
       maxInputTokens: positiveInt(env.SIMPLE_MAX_INPUT_TOKENS, DEFAULT_SIMPLE_MAX_INPUT_TOKENS),
+      normal: tierRequest(env, 'SIMPLE_NORMAL'),
+      max: tierRequest(env, 'SIMPLE_MAX'),
+      backgroundEffort: effortVar('SIMPLE_FAST_EFFORT', env.SIMPLE_FAST_EFFORT),
     },
     pool: {
       accountId: env.POOL_ACCOUNT_ID?.trim() || DEFAULT_POOL_ACCOUNT_ID,
       model: env.POOL_MODEL?.trim() || null,
+      effort: effortVar('POOL_EFFORT', env.POOL_EFFORT),
+      providerOrder: list(env.POOL_PROVIDER_ORDER),
       systemPrompt:
         env.POOL_SYSTEM_PROMPT?.trim() || env.SIMPLE_SYSTEM_PROMPT?.trim() || DEFAULT_SYSTEM_PROMPT,
       revenueShareBps: Math.min(
@@ -333,7 +545,7 @@ function parse(env: AppEnv): AppConfig {
         10_000,
       ),
       maxInputTokens: positiveInt(env.POOL_MAX_INPUT_TOKENS, 16_000),
-      maxOutputTokens: positiveInt(env.POOL_MAX_OUTPUT_TOKENS, 1024),
+      maxOutputTokens: positiveInt(env.POOL_MAX_OUTPUT_TOKENS, 8192),
       maxMessageChars: positiveInt(env.POOL_MAX_MESSAGE_CHARS, 4000),
       reservationTtlMs: ttl,
       // A call must time out well before the alarm may expire its reservation, and a

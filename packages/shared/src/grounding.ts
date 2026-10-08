@@ -25,8 +25,10 @@ export const CITATION_EXCERPT_MAX = 300;
 export const CITATIONS_MAX = 20;
 
 /**
- * Appended to the system prompt when the web search tool is offered. The
- * model decides whether to search; links it cites stay in the reply text,
+ * Sent when the web search tool is offered, after the history (at the end of
+ * the reply's user turn, `GenerateRequest.turnInstructions`), not in the
+ * system prompt: turns with and without search then share the cached prefix.
+ * The model decides whether to search; links it cites stay in the reply text,
  * so later turns and child branches inherit them as already-checked facts.
  */
 export const GROUNDING_INSTRUCTIONS = `## Checking facts
@@ -35,7 +37,7 @@ You can call the web_search tool once for this reply. Use it only when the answe
 
 When you use search results, cite each claim they support with a Markdown link named after the site's domain, right after the claim, like [en.wikipedia.org](https://en.wikipedia.org/wiki/Example). If a result contradicts what you believed, say so plainly.`;
 
-/** Appended instead when the learner asked to check sources (search required). */
+/** Sent instead when the learner asked to check sources (search required). */
 export const CHECK_SOURCES_INSTRUCTIONS = `## Checking facts
 
 The user asked you to check your previous answer against sources. Search the web, then say plainly which of its claims the sources confirm, which they contradict (and what is right instead), and which you couldn't verify. Cite each checked claim with a Markdown link named after the site's domain, like [en.wikipedia.org](https://en.wikipedia.org/wiki/Example). Skip the tangents block.`;

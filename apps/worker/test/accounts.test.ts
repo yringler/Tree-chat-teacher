@@ -210,14 +210,21 @@ describe('power provider configs', () => {
 
   it('the default OpenRouter config lists the suggested models first and takes any model', () => {
     const openrouter = providerConfigs(
-      withEnv({ PROVIDERS: '', SIMPLE_SMART_MODEL: 'a/smart', SIMPLE_FAST_MODEL: 'b/fast' }),
+      withEnv({
+        PROVIDERS: '',
+        SIMPLE_NORMAL_MODEL: 'a/normal',
+        SIMPLE_MAX_MODEL: 'b/max',
+        SIMPLE_FAST_MODEL: 'c/fast',
+      }),
     ).find((c) => c.id === 'openrouter')!;
     expect(openrouter.openModels).toBe(true);
-    expect(openrouter.defaultModel).toBe('a/smart');
+    expect(openrouter.defaultModel).toBe('a/normal');
     expect(openrouter.models.slice(0, 2)).toEqual([
-      { id: 'a/smart', label: 'Smart (suggested)' },
-      { id: 'b/fast', label: 'Simple (suggested)' },
+      { id: 'a/normal', label: 'Normal (suggested)', tier: 'normal' },
+      { id: 'b/max', label: 'Max (suggested)', tier: 'max' },
     ]);
+    // The background model is no tier, so it isn't suggested.
+    expect(openrouter.models.some((m) => m.id === 'c/fast')).toBe(false);
     // The previous entries are kept after them.
     expect(openrouter.models.length).toBeGreaterThan(2);
   });

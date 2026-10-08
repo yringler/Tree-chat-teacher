@@ -2,13 +2,17 @@
 // `appConfig(env)` and handed to the meter and to PoolBank as arguments, so
 // the Durable Objects read no pool config of their own (a per-request env,
 // e.g. a test's, then applies everywhere).
-import type { PoolBlockDetails, UsagePurpose } from '@tangent/shared';
+import type { PoolBlockDetails, ReasoningEffort, UsagePurpose } from '@tangent/shared';
 import {
   appConfig,
+  backgroundEffort,
+  DEFAULT_TIER_REQUESTS,
+  withTierDefaults,
   type ModelPrice,
   type PoolCaps,
   type PoolOverage,
   type PoolRateLimits,
+  type TierRequestConfig,
 } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
@@ -25,6 +29,12 @@ export interface PoolParams {
   systemPrompt: string;
   maxInputTokens: number;
   maxOutputTokens: number;
+  /** The pool model's reasoning effort (`POOL_EFFORT`, else the default model's); null = its default. */
+  effort: ReasoningEffort | null;
+  /** OpenRouter providers pinned for the pool model (`POOL_PROVIDER_ORDER`, else the default model's). */
+  providerOrder: readonly string[];
+  /** The effort of the pool's summaries and titles (`backgroundEffort`); null = `effort`. */
+  summaryEffort: ReasoningEffort | null;
   /** The longest message a pool send accepts (`POOL_MAX_MESSAGE_CHARS`). */
   maxMessageChars: number;
   ttlMs: number;
@@ -40,9 +50,28 @@ export interface PoolParams {
   noticeVersion: number;
 }
 
-/** The pool model: `POOL_MODEL`, else the simple provider's fast model. */
+/** The pool model: `POOL_MODEL`, else Learn's background model (`simpleFastModel`, SIMPLE_FAST_MODEL). */
 export function poolModel(env: AppEnv): string {
   return appConfig(env).pool.model ?? simpleFastModel(env, simpleProviderConfig(env));
+}
+
+/**
+ * How the pool asks `model` (its model, `poolModel`): `POOL_EFFORT` and
+ * `POOL_PROVIDER_ORDER`, else the default pool model's evaluated settings
+ * while it runs that model (`withTierDefaults`). The reply cap is
+ * `POOL_MAX_OUTPUT_TOKENS`, apart.
+ */
+export function poolRequest(
+  env: AppEnv,
+  model: string = poolModel(env),
+): Pick<TierRequestConfig, 'effort' | 'providerOrder'> {
+  const pool = appConfig(env).pool;
+  const { effort, providerOrder } = withTierDefaults(
+    { effort: pool.effort, maxOutputTokens: null, providerOrder: pool.providerOrder },
+    DEFAULT_TIER_REQUESTS.pool,
+    model,
+  );
+  return { effort, providerOrder };
 }
 
 /**
@@ -55,6 +84,7 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
   const pool = config.pool;
   const model = poolModel(env);
   const entry = await modelPrice(env, model);
+  const request = poolRequest(env, model);
   return {
     accountId: pool.accountId,
     model,
@@ -62,6 +92,9 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
     systemPrompt: pool.systemPrompt,
     maxInputTokens: pool.maxInputTokens,
     maxOutputTokens: pool.maxOutputTokens,
+    effort: request.effort,
+    providerOrder: request.providerOrder,
+    summaryEffort: backgroundEffort(env, model),
     maxMessageChars: pool.maxMessageChars,
     ttlMs: pool.reservationTtlMs,
     giveUpMs: pool.giveUpMs,

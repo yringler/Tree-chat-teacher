@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import type { Branch } from '@tangent/shared';
-import { Icon } from '@tangent/web-shared';
+import { maxUsageNote, TIERS, type Branch, type ModelTier } from '@tangent/shared';
+import { Icon, Segmented } from '@tangent/web-shared';
+import { TierStore, tierOptions } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 
@@ -13,10 +14,16 @@ export interface RouteView {
   model: string;
   /** On the user's own key, with none saved in this browser (`TreeStore.keyMissing`). */
   missing: boolean;
+  /** Normal and Max are offered for this branch (TierStore `available`). */
+  tiers: boolean;
+  /** The tier the branch replies on; null = another model. */
+  tier: ModelTier | null;
 }
 
 /**
- * Under the message box: what the open branch replies on (provider, who pays,
+ * Under the message box: the Normal | Max switch (TierStore; "Configure"
+ * opens Settings, where each tier's model is chosen) with what Max costs
+ * while it is on, then what the open branch replies on (provider, who pays,
  * model), as a button to its settings, where that and the rest of them
  * (context, web search, …) can be changed at any point of the conversation:
  * a branch's route is where it starts, and every send uses its current one.
@@ -26,12 +33,21 @@ export interface RouteView {
  */
 @Component({
   selector: 'app-route-bar',
-  imports: [Icon],
+  imports: [Icon, Segmented],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'route-bar-host' },
   template: `
     @if (view(); as r) {
       <div class="route-bar">
+        @if (r.tiers) {
+          <app-segmented
+            label="Model tier"
+            [options]="tierOptions()"
+            [value]="r.tier"
+            [disabled]="store.busy() || switching()"
+            (changed)="switchTier(r.branch.id, $event)"
+          />
+        }
         <span class="muted small">Replies on</span>
         <button
           type="button"
@@ -48,6 +64,16 @@ export interface RouteView {
           >
           <app-icon name="settings" [size]="13" />
         </button>
+        @if (r.tiers) {
+          <button
+            type="button"
+            class="link-btn small"
+            title="Choose the models of Normal and Max (Settings)"
+            (click)="ui.settingsOpen.set(true)"
+          >
+            Configure
+          </button>
+        }
         @if (r.missing) {
           <span class="route-warn small">No {{ r.label }} key in this browser.</span>
           @if (store.creditRoute()) {
@@ -69,13 +95,24 @@ export interface RouteView {
           </button>
         }
       </div>
+      @if (r.tier === 'max') {
+        <p class="tier-note route-tier-note">{{ maxNote() }}</p>
+      }
     }
   `,
 })
 export class RouteBar {
   protected readonly store = inject(TreeStore);
   protected readonly ui = inject(UiStore);
+  private readonly tiers = inject(TierStore);
   protected readonly switching = signal(false);
+
+  /** What Max uses compared with Normal, for the open branch's routes. */
+  protected readonly maxNote = computed(() =>
+    maxUsageNote(this.tiers.usageFactor(this.store.selectedBranch())),
+  );
+
+  protected readonly tierOptions = computed(() => tierOptions(this.maxNote()));
 
   protected readonly view = computed<RouteView | null>(() => {
     const branch = this.store.selectedBranch();
@@ -86,8 +123,21 @@ export class RouteBar {
       label: provider?.label ?? branch.providerId,
       model: provider?.models.find((m) => m.id === branch.model)?.label ?? branch.model,
       missing: this.store.keyMissing(branch),
+      tiers: this.tiers.available(branch),
+      tier: this.tiers.tierOfBranch(branch),
     };
   });
+
+  protected async switchTier(branchId: string, id: string): Promise<void> {
+    const tier = TIERS.find((t) => t === id);
+    if (!tier) return;
+    this.switching.set(true);
+    try {
+      await this.tiers.switchTier(branchId, tier);
+    } finally {
+      this.switching.set(false);
+    }
+  }
 
   protected async useCredit(branchId: string): Promise<void> {
     this.switching.set(true);

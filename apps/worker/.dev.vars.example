@@ -60,8 +60,8 @@ DEV_ALLOW_NO_AUTH=true
 # The markup is MARKUP_BPS (wrangler.jsonc); MARKUP_PREPAID_BPS is still read while it is empty (deprecated).
 
 # --- Option C: the built-in provider on credit, offline (no OpenRouter, no payments). Works with Option A or B.
-# A fake `tangent` provider that reports a fixed cost per call (the shape the worker tests use):
-# SIMPLE_PROVIDER='{"id":"tangent","kind":"fake","label":"Tangent","defaultModel":"smart","models":[{"id":"smart","label":"Smart"},{"id":"simple","label":"Simple"}],"options":{"chunkSize":4,"costUsd":0.001234}}'
+# A fake built-in provider (Learn's Normal and Max tiers) that reports a fixed cost per call (the shape the worker tests use):
+# SIMPLE_PROVIDER='{"id":"openrouter","kind":"fake","label":"Tangent","defaultModel":"simple","models":[{"id":"simple","label":"Normal","tier":"normal"},{"id":"smart","label":"Max","tier":"max"}],"options":{"chunkSize":4,"costUsd":0.001234}}'
 # Placeholders so sends are allowed (top-ups and the membership checkout won't work with them;
 # leave POLAR_MEMBERSHIP_PRODUCT_ID empty, or waive yourself with the README's SQL), or instead
 # PERSONAL_CREDIT_ENABLED=true (below):

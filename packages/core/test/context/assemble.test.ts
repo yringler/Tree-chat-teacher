@@ -1,6 +1,8 @@
 import type { ChatMessage, ContextMode, ContextPlan, ContextSegment } from '@tangent/shared';
 import { describe as suite, expect, it } from 'vitest';
 import { assembleContext, summaryKeyString } from '../../src/context/assemble.js';
+import type { AssembleBudget } from '../../src/context/assemble.js';
+import { renderPlan } from '../../src/context/render.js';
 import { ValidationError } from '../../src/errors.js';
 import { sha256Hex } from '../../src/hash.js';
 import { estimateTokens, MESSAGE_OVERHEAD_TOKENS } from '../../src/tokens.js';
@@ -1004,16 +1006,22 @@ suite('token budget', () => {
     expect(plan.compaction).toBeNull();
   });
 
+  /** Over the budget, compacting only what this turn needs (`compactionTarget: 1`). */
   function compacted() {
     const f = long(10);
     const input = f.input('T', {
       estimateTokens: charTokens,
-      budget: { maxInputTokens: 500, compactionSummaryTokens: 100, minTailMessages: 2 },
+      budget: {
+        maxInputTokens: 500,
+        compactionSummaryTokens: 100,
+        minTailMessages: 2,
+        compactionTarget: 1,
+      },
     });
     return { f, input };
   }
 
-  it('compacts the shortest oldest prefix and keeps the tail and target', () => {
+  it('with compactionTarget 1, compacts the shortest oldest prefix and keeps the tail and target', () => {
     const { input } = compacted();
     const plan = assembleContext(input);
     // 1040 - 7*104 + 100 = 412 <= 500; 6 messages would leave 516.
@@ -1077,6 +1085,111 @@ suite('token budget', () => {
     expect(plan.budget.usedTokens).toBe(312);
   });
 
+  it('by default compacts a whole step, down to about half the budget', () => {
+    const f = long(16);
+    const plan = f.plan('T', {
+      estimateTokens: charTokens,
+      budget: { maxInputTokens: 1000, compactionSummaryTokens: 100, minTailMessages: 2 },
+    });
+    // 1664 is 664 over; steps of 1000 * 0.5 = 500 → 1000, plus the summary's 100: 11 messages.
+    expect(plan.compaction!.compactedNodeIds).toHaveLength(11);
+    expect(plan.compaction!.compactedNodeIds.at(-1)).toBe('T.10');
+    // 520 + the estimated 100 for the summary: about half the budget.
+    expect(plan.compaction!.tokensAfter).toBe(520);
+    expect(summarySegments(plan)[0]!.explanation).toContain('500 tokens at a time');
+  });
+
+  it('compacts all the candidates when a whole step is out of reach but they fit', () => {
+    const f = long(10);
+    const plan = f.plan('T', {
+      estimateTokens: charTokens,
+      // Needs 1040 - 800 = 240 compacted, a step is 750, but the 5 candidates before
+      // the 5-message tail hold only 520: all 5 go, not just the 3 that would fit.
+      budget: {
+        maxInputTokens: 800,
+        compactionSummaryTokens: 0,
+        minTailMessages: 5,
+        compactionTarget: 0.0625,
+      },
+    });
+    expect(plan.compaction!.compactedNodeIds).toEqual(['T.0', 'T.1', 'T.2', 'T.3', 'T.4']);
+    expect(plan.truncation).toBeNull();
+  });
+
+  suite('over several turns', () => {
+    /**
+     * A trunk of `start` messages, then one user + assistant turn at a time;
+     * each turn is planned with the summaries resolved so far (the cache).
+     */
+    function turns(start: number, count: number, budget: Partial<AssembleBudget>) {
+      const f = long(start);
+      const summaries = new Map<string, string>();
+      const out: {
+        plan: ContextPlan;
+        requests: number;
+        rendered: ReturnType<typeof renderPlan>;
+      }[] = [];
+      for (let turn = 0; turn < count; turn++) {
+        if (turn > 0) {
+          f.add('T', 'user', X);
+          f.add('T', 'assistant', X);
+        }
+        const r = resolveAll(
+          f.input('T', {
+            estimateTokens: charTokens,
+            summaries,
+            budget: { maxInputTokens: 2000, compactionSummaryTokens: 100, ...budget },
+          }),
+        );
+        for (const [k, v] of r.summaries) summaries.set(k, v);
+        out.push({
+          plan: r.plan,
+          requests: r.requests.length,
+          rendered: renderPlan(r.plan, { supportsSystemPrompt: true }),
+        });
+      }
+      return out;
+    }
+
+    it('reuse one compaction summary and keep the sent prefix until the context grows a step', () => {
+      // 20 messages = 2080, 80 over 2000: compact a step of 1000 plus the summary's 100.
+      // Each turn adds 208; at the 6th turn the overflow passes a step and the boundary moves once.
+      const seq = turns(20, 8, {});
+      const keys = seq.map((t) => summaryKeyString(t.plan.compaction!.key));
+      expect(new Set(keys.slice(0, 5)).size).toBe(1);
+      expect(seq.map((t) => t.requests)).toEqual([1, 0, 0, 0, 0, 1, 0, 0]);
+      expect(keys[5]).not.toBe(keys[0]);
+      expect(new Set(keys.slice(5)).size).toBe(1);
+      expect(seq[0]!.plan.compaction!.compactedNodeIds).toHaveLength(11);
+      expect(seq[5]!.plan.compaction!.compactedNodeIds).toHaveLength(21);
+      for (const t of seq) {
+        expect(t.plan.complete).toBe(true);
+        expect(t.plan.truncation).toBeNull();
+        expect(t.plan.budget.usedTokens).toBeLessThanOrEqual(2000);
+      }
+      // Within a step the system prompt (with the summary) is the same and each
+      // turn's messages start with the previous turn's: the cached prefix holds.
+      for (const range of [
+        [0, 5],
+        [5, 8],
+      ] as const) {
+        for (let i = range[0] + 1; i < range[1]; i++) {
+          const before = seq[i - 1]!.rendered;
+          const now = seq[i]!.rendered;
+          expect(now.system).toBe(before.system);
+          expect(now.messages.slice(0, before.messages.length)).toEqual(before.messages);
+        }
+      }
+    });
+
+    it('with compactionTarget 1, compact one more segment (a new summary) every turn', () => {
+      const seq = turns(20, 4, { compactionTarget: 1 });
+      const keys = seq.map((t) => summaryKeyString(t.plan.compaction!.key));
+      expect(new Set(keys).size).toBe(4);
+      expect(seq.map((t) => t.requests)).toEqual([1, 1, 1, 1]);
+    });
+  });
+
   it('respects minTailMessages', () => {
     const f = long(10);
     const plan = f.plan('T', {
@@ -1117,7 +1230,12 @@ suite('token budget', () => {
     const plan = f.plan(b, {
       summaries,
       estimateTokens: charTokens,
-      budget: { maxInputTokens: 500, compactionSummaryTokens: 100, minTailMessages: 2 },
+      budget: {
+        maxInputTokens: 500,
+        compactionSummaryTokens: 100,
+        minTailMessages: 2,
+        compactionTarget: 1,
+      },
     });
     // 200 + 5 + 6*104 = 829; dropping summary+anchor+3 messages: 829-517+100 = 412.
     expect(describe(plan)).toEqual(['sum:compaction:pending', `br:${X}`, `br:${X}`, `br:${X}`]);

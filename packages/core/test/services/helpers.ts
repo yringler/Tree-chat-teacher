@@ -34,6 +34,13 @@ export class ScriptedProvider implements LlmProvider {
   citations: Citation[] = [];
   /** Reject a request carrying `webSearch` with invalid_request (before any delta). */
   rejectSearch = false;
+  /** Capabilities `maxOutputTokens` and `reasoning`. */
+  maxOutputTokens = 1000;
+  reasoning = false;
+  /** `done.stopReason` of chat replies (`length`: cut off at the cap). */
+  chatStopReason = 'end_turn';
+  /** Text of chat replies instead of the default echo (`''`: an empty reply). */
+  chatText: string | null = null;
 
   constructor(readonly id = 'scripted') {}
 
@@ -46,10 +53,11 @@ export class ScriptedProvider implements LlmProvider {
   capabilities() {
     return {
       maxContextTokens: this.contextTokens,
-      maxOutputTokens: 1000,
+      maxOutputTokens: this.maxOutputTokens,
       supportsSystemPrompt: true,
       supportsTokenCount: false,
       supportsWebSearch: this.webSearch,
+      reasoning: this.reasoning,
     };
   }
 
@@ -69,7 +77,7 @@ export class ScriptedProvider implements LlmProvider {
         ? 'Scripted Title'
         : kind === 'summary'
           ? `SUMMARY(${req.messages.length})`
-          : `reply to: ${last.slice(0, 40)}`;
+          : (this.chatText ?? `reply to: ${last.slice(0, 40)}`);
     const searches =
       req.webSearch !== undefined &&
       (req.webSearch.mode === 'required' || this.citations.length > 0);
@@ -101,7 +109,7 @@ export class ScriptedProvider implements LlmProvider {
       yield { type: 'citations', citations: this.citations };
       yield { type: 'billing', costUsd: 0.008, webSearches: 1 };
     }
-    yield { type: 'done', stopReason: 'end_turn' };
+    yield { type: 'done', stopReason: kind === 'chat' ? this.chatStopReason : 'end_turn' };
   }
 
   chatCalls(): GenerateRequest[] {

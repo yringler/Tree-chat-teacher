@@ -21,6 +21,7 @@ export {
   type ExportParams,
 } from './core/api-client';
 export { API_FETCH, API_HEADERS, defaultApiFetch } from './core/api-fetch';
+export { CompareRun, type CompareCandidateState, type CompareSpec } from './core/compare-run';
 export {
   backupFile,
   MAX_BACKUP_BYTES,
@@ -61,6 +62,7 @@ export {
 // Server-sent events
 export {
   isTerminal,
+  parseCandidateEvent,
   parseReviewEvent,
   parseStreamEvent,
   readSseEvents,
@@ -77,6 +79,7 @@ export {
 } from './sse/stream-runner';
 
 // UI
+export { Compare, type CompareCandidate } from './ui/compare';
 export { Icon, type IconName } from './ui/icon';
 export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';
@@ -107,6 +110,7 @@ export {
   type MessageQuote,
 } from './ui/selection-ask';
 export { ModeSwitch } from './ui/mode-switch';
+export { Segmented, type SegmentedOption } from './ui/segmented';
 export { Turnstile } from './ui/turnstile';
 export { LoginPage } from './login/login-page';
 export { AccountId } from './account/account-id';

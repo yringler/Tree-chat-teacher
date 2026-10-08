@@ -3,7 +3,7 @@ import type { ModelInfo } from '@tangent/shared';
 
 /** What a suggestion chip reads: the model's name and, when it adds something, its id. */
 export interface SuggestionText {
-  /** The label without a trailing note in brackets: "Smart (suggested)" → "Smart"; else the id. */
+  /** The label without a trailing note in brackets: "Max (suggested)" → "Max"; else the id. */
   name: string;
   /** The id's last segment ("deepseek-v4-pro"), or null when it only repeats the name. */
   id: string | null;
@@ -22,7 +22,7 @@ export function suggestionText(m: ModelInfo): SuggestionText {
  * The listed models of an `openModels` provider (OpenRouter, Tangent credit)
  * as a row of chips under its model id field, every one always in view and
  * one click from replacing the id: a `<datalist>` filters its options by the
- * field's text, so with the default (smart) id in the field it offered only
+ * field's text, so with the default (Normal) id in the field it offered only
  * that one. The chip of the current id is pressed (`aria-pressed`).
  */
 @Component({

@@ -11,7 +11,7 @@ export const FUNDING_OPTIONS: readonly { id: FundingOption; label: string; hint:
 /**
  * The composer's funding switch (spec §8): the learner's own credit or the
  * open pool, shown only while both can pay. A radiogroup in the
- * segmented style of the Smart/Simple toggle.
+ * segmented style of the Normal/Max toggle.
  */
 @Component({
   selector: 'app-funding-toggle',

@@ -7,7 +7,7 @@ import type {
   UsageTag,
 } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createUsageMeter, meteredRegistry, type UsageMeterOptions } from '../src/billing/meter.js';
 import { chargeMicros, costUsdToNanos } from '../src/billing/pricing.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
@@ -39,7 +39,7 @@ function scriptedProvider(
     kind: 'fake' as const,
     label: 'Tangent',
     calls: 0,
-    models: () => [{ id: 'smart', label: 'Smart' }],
+    models: () => [{ id: 'smart', label: 'Max', tier: 'max' }],
     defaultModel: () => 'smart',
     capabilities: () => ({
       maxContextTokens: 1000,
@@ -521,5 +521,94 @@ describe('usage meter web searches', () => {
       cost_nanos: 7_500_000,
       web_searches: 1,
     });
+  });
+});
+
+describe('the call log', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const lines = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls
+      .map(([line]) =>
+        typeof line === 'string' ? (JSON.parse(line) as Record<string, unknown>) : null,
+      )
+      .filter((l) => l?.['event'] === 'llm_call');
+
+  it('logs each call once: tier, served provider, cached and reasoning tokens, cost, finish reason', async () => {
+    const log = vi.spyOn(console, 'log');
+    const warn = vi.spyOn(console, 'warn');
+    const h = harness();
+    await h.run(
+      [
+        { type: 'billing', generationId: uniq('gen') },
+        { type: 'billing', servedBy: 'DeepSeek' },
+        { type: 'delta', text: 'Hello' },
+        {
+          type: 'usage',
+          usage: { inputTokens: 120, cacheReadTokens: 100, outputTokens: 40, reasoningTokens: 30 },
+        },
+        { type: 'billing', costUsd: COST },
+        { type: 'done', stopReason: 'stop' },
+      ],
+      { tag },
+    );
+    const [row] = await h.rows();
+    expect(lines(warn)).toEqual([]);
+    expect(lines(log)).toEqual([
+      {
+        event: 'llm_call',
+        usageId: row!.id,
+        funding: 'personal',
+        purpose: 'reply',
+        providerId: 'openrouter',
+        model: 'smart',
+        tier: 'max',
+        effort: null,
+        providerOrder: null,
+        servedBy: 'DeepSeek',
+        maxOutputTokens: 100,
+        inputTokens: 120,
+        cacheReadTokens: 100,
+        cacheWriteTokens: null,
+        outputTokens: 40,
+        reasoningTokens: 30,
+        costUsd: COST,
+        finishReason: 'stop',
+        truncated: false,
+        error: null,
+      },
+    ]);
+    // The charge is the reported cost, whatever the cap was.
+    expect(row).toMatchObject({ status: 'settled', cost_nanos: 1_234_000 });
+  });
+
+  it('warns about a reply cut off at its cap', async () => {
+    const log = vi.spyOn(console, 'log');
+    const warn = vi.spyOn(console, 'warn');
+    const h = harness();
+    await h.run(
+      [
+        { type: 'delta', text: 'Half an' },
+        { type: 'usage', usage: { inputTokens: 10, outputTokens: 100, reasoningTokens: 95 } },
+        { type: 'billing', generationId: uniq('gen'), costUsd: COST },
+        { type: 'done', stopReason: 'length' },
+      ],
+      { tag },
+    );
+    expect(lines(log)).toEqual([]);
+    expect(lines(warn)).toMatchObject([
+      { finishReason: 'length', truncated: true, reasoningTokens: 95, tier: 'max' },
+    ]);
+  });
+
+  it('logs nothing for a call never sent upstream', async () => {
+    const log = vi.spyOn(console, 'log');
+    const h = harness();
+    await h.run([{ type: 'done', stopReason: 'stop' }], {
+      env: envWithFailingDb(env, /INSERT INTO usage_events/),
+    });
+    expect(lines(log)).toEqual([]);
   });
 });

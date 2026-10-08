@@ -225,6 +225,16 @@ button.crumb:hover {
   font-size: calc(0.88 * var(--chat-rem, 1rem));
 }
 
+/* A reply cut off at its length limit: a warning, not a failure; "Continue" asks for the rest. */
+.msg-cut-off {
+  background: var(--warn-soft);
+}
+
+.msg-continue {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
 .cursor {
   display: inline-block;
   width: 8px;
@@ -648,6 +658,46 @@ app-link-dialog app-node-picker {
 
 .route-warn {
   color: var(--warn);
+}
+
+/* The Normal | Max switch in the route bar: as compact as the route chip. */
+.route-bar .segment {
+  padding: 1px 10px;
+  font-size: 0.8rem;
+}
+
+.route-tier-note {
+  margin: 4px 0 0;
+  padding: 0 4px;
+}
+
+/* The home page's Normal | Max switch, above its model picker (home/home-page.ts). */
+.home-tiers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.home-tiers .tier-note {
+  margin: 0;
+}
+
+/* Settings, "Normal & Max": one block per tier (dialogs/settings-dialog.ts). */
+.tier-setting {
+  margin-top: 8px;
+}
+
+/* Under the Compare sheet's answers (dialogs/compare-dialog.ts). */
+.compare-foot {
+  margin: 8px 0 0;
+}
+
+@media (max-width: 560px) {
+  /* Phone: the switch, the route chip and its links wrap onto lines of their own. */
+  .route-bar {
+    row-gap: 6px;
+  }
 }
 
 /* Popover menu (export) */

@@ -15,6 +15,8 @@ import {
   poolImpactQuerySchema,
   poolImpactTopicText,
   poolImpactWeekText,
+  poolModelDifferences,
+  poolModelText,
   poolSessionsText,
   poolWeekText,
 } from './pool.js';
@@ -169,5 +171,35 @@ describe('impact feed copy', () => {
     expect(poolImpactQuerySchema.parse({})).toEqual({});
     expect(poolImpactQuerySchema.parse({ week: '2026-09-28' })).toEqual({ week: '2026-09-28' });
     expect(poolImpactQuerySchema.safeParse({ week: 'last' }).success).toBe(false);
+  });
+});
+
+describe('poolModelText', () => {
+  const normal = { id: 'deepseek/deepseek-v4.1-flash', label: 'Normal' };
+
+  it("is the label when the pool asks the tier's model the same way, or runs a model of its own", () => {
+    expect(poolModelText(normal)).toBe('Normal');
+    expect(poolModelText({ id: 'x/lite', label: 'Lite' })).toBe('Lite');
+  });
+
+  it("says how the pool asks the tier's model differently", () => {
+    const pool = { ...normal, thinking: 'lighter', replies: 'shorter' } as const;
+    expect(poolModelText(pool)).toBe("Normal's model with lighter thinking and shorter replies");
+    expect(poolModelText({ ...normal, thinking: 'more' })).toBe(
+      "Normal's model with more thinking",
+    );
+    expect(poolModelText({ ...normal, thinking: 'other' })).toBe(
+      "Normal's model with a different thinking setting",
+    );
+    expect(poolModelText({ ...normal, replies: 'longer' })).toBe(
+      "Normal's model with longer replies",
+    );
+  });
+
+  it('leaves the replies out for copy that states the cap', () => {
+    const pool = { ...normal, thinking: 'lighter', replies: 'shorter' } as const;
+    expect(poolModelDifferences(pool, { replies: false })).toEqual(['lighter thinking']);
+    expect(poolModelText(pool, { replies: false })).toBe("Normal's model with lighter thinking");
+    expect(poolModelText({ ...normal, replies: 'shorter' }, { replies: false })).toBe('Normal');
   });
 });

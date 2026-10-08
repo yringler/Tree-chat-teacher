@@ -61,7 +61,7 @@ describe('appConfig', () => {
       model: null,
       revenueShareBps: 2000,
       maxInputTokens: 16_000,
-      maxOutputTokens: 1024,
+      maxOutputTokens: 8192,
       maxMessageChars: 4000,
       reservationTtlMs: 600_000,
       giveUpMs: 3_600_000,
@@ -152,7 +152,22 @@ describe('appConfig', () => {
     expect(merged['deepseek/deepseek-v4-flash']).toEqual(
       DEFAULT_MODEL_PRICES['deepseek/deepseek-v4-flash'],
     );
+    const cached = appConfig(
+      blank({
+        MODEL_PRICES: JSON.stringify({
+          c: { in: 5, out: 6, context: 100, cacheRead: 1, cacheWrite: 7 },
+        }),
+      }),
+    ).prices;
+    expect(cached['c']).toEqual({
+      inMicrosPerMTok: 5,
+      outMicrosPerMTok: 6,
+      contextTokens: 100,
+      cacheReadMicrosPerMTok: 1,
+      cacheWriteMicrosPerMTok: 7,
+    });
     for (const bad of [
+      JSON.stringify({ m: { in: 1, out: 1, context: 1, cacheRead: -1 } }),
       '{not json',
       JSON.stringify({ m: { in: 1.5, out: 1, context: 1 } }),
       JSON.stringify({ m: { in: -1, out: 1, context: 1 } }),
@@ -246,9 +261,11 @@ describe('resolvePoolParams', () => {
     });
   });
 
-  it('defaults the model to the simple provider fast model; an unpriced model has no price', async () => {
+  it("defaults the model to Learn's background model; an unpriced model has no price", async () => {
     const noModel = { ...env, POOL_MODEL: '' } as AppEnv;
-    expect(poolModel(noModel)).toBe('simple'); // the fake config's second model
+    // SIMPLE_FAST_MODEL when the fake config lists it, else that config's default.
+    expect(poolModel({ ...noModel, SIMPLE_FAST_MODEL: 'simple' } as AppEnv)).toBe('simple');
+    expect(poolModel(noModel)).toBe('smart');
     expect(
       (await resolvePoolParams({ ...env, POOL_MODEL: 'smart' } as AppEnv, null)).price,
     ).toBeNull();

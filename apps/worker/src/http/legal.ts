@@ -1,7 +1,8 @@
 import { escapeHtml } from '@tangent/render';
 import { Hono, type Context } from 'hono';
 import type { AppBindings } from '../env.js';
-import { LANDING_STYLE, MARK, styleCsp } from './landing.js';
+import { hostedAi, type HostedAi } from './hosted-ai.js';
+import { joinList, LANDING_STYLE, MARK, styleCsp } from './landing.js';
 import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
 
 /**
@@ -17,7 +18,7 @@ import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
  */
 
 /** Bump when either document changes in substance. */
-export const LEGAL_UPDATED = '6 October 2026';
+export const LEGAL_UPDATED = '8 October 2026';
 
 /** Extra rules for long-form text, on top of the landing page's stylesheet. Hashed for the CSP. */
 export const LEGAL_STYLE =
@@ -77,7 +78,67 @@ function mailto(email: string): string {
   return `<a href="mailto:${e}">${e}</a>`;
 }
 
-export function renderPrivacyPage(info: LegalInfo): string {
+/** "A and B", "A, B, and C" (the items may contain "and"), escaped. */
+function list(items: readonly string[]): string {
+  const joined =
+    items.length <= 2
+      ? joinList(items, 'and')
+      : `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+  return escapeHtml(joined);
+}
+
+/** The first letter of `text` in upper case (a list item that starts with a use). */
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Where OpenRouter sends `model`'s requests. */
+function hostsText(model: HostedAi['models'][number]): string {
+  const [first, ...rest] = model.hosts.map(escapeHtml);
+  if (first === undefined) return 'on a host OpenRouter chooses';
+  const order =
+    rest.length === 0
+      ? `sent to ${first}`
+      : `sent first to ${first}, ${rest.map((h) => `then to ${h}`).join(', ')}`;
+  return model.fallbacks
+    ? `${order}, and to another host only if ${rest.length === 0 ? 'it is' : 'they are'} unavailable`
+    : `${order} only`;
+}
+
+/**
+ * The privacy policy's item on Tangent-paid AI calls (credit and the open
+ * pool): who receives the text, and which models and hosts the deployment
+ * uses today, from its config (`hostedAi`), so it stays true when a model or
+ * a pinned host changes. Without the config it names no model.
+ */
+function hostedAiItem(ai: HostedAi | null): string {
+  const who = ai?.gateway
+    ? "OpenRouter (USA), reached through Cloudflare's AI Gateway,"
+    : !ai || ai.openRouter
+      ? 'OpenRouter (USA),'
+      : `${escapeHtml(ai.endpoint)},`;
+  const intro =
+    !ai || ai.openRouter
+      ? `${who} which forwards each request to a company that hosts the model: the company that made it or another hosting company, which may be in the USA, China or elsewhere.`
+      : `${who} which runs the models.`;
+  if (!ai || (ai.models.length === 0 && !ai.powerCredit))
+    return `<li>Tangent credit and the open pool: ${intro}</li>`;
+  const items = ai.models.map((m) => {
+    const made = m.maker ? ` (made by ${escapeHtml(m.maker)})` : '';
+    const where = ai.openRouter ? `, ${hostsText(m)}` : '';
+    return `<li>${capitalize(list(m.uses))}: <code>${escapeHtml(m.id)}</code>${made}${where}.</li>`;
+  });
+  if (ai.powerCredit)
+    items.push(
+      `<li>Power mode on Tangent credit: the model you choose${ai.openRouter ? ', on a host OpenRouter chooses' : ''}.</li>`,
+    );
+  return `<li>Tangent credit and the open pool: ${intro} The models and hosts can change; at the moment:
+<ul>
+${items.join('\n')}
+</ul></li>`;
+}
+
+export function renderPrivacyPage(info: LegalInfo, ai: HostedAi | null = null): string {
   const op = escapeHtml(info.operator);
   const contact = mailto(info.contactEmail);
   // Wording follows DMCA_AGENT_REGISTERED (LegalInfo.sharing): links for everyone, or only where enabled.
@@ -121,8 +182,8 @@ export function renderPrivacyPage(info: LegalInfo): string {
 <li><strong>Cloudflare</strong> (USA, global network): hosting, database, the bot check on the sign-in page (Turnstile) and logs. Data is stored on Cloudflare's infrastructure, which encrypts it at rest.</li>
 <li><strong>The AI model provider</strong> that writes each reply. Every message you send, together with the conversation context shown in the app's context inspector, is sent to it.
 <ul>
-<li>Learn mode on paid credit: OpenRouter (USA), which forwards the request to a company hosting the selected model (currently DeepSeek models; hosts may be in the USA, China or elsewhere).</li>
-<li>Your own key: the provider you chose (for example Anthropic, OpenAI or OpenRouter), under your own agreement with them.</li>
+${hostedAiItem(ai)}
+<li>Your own key: the provider you chose (for example Anthropic, OpenAI or OpenRouter), under your own agreement with them.${!ai || ai.openRouter ? ' In Learn, your OpenRouter key runs the same models, sent to the same hosts, as Learn on Tangent credit.' : ''}</li>
 </ul>
 These providers handle your messages under their own terms and privacy policies, which may include keeping them for a period for abuse monitoring. Don't put information in a conversation that you wouldn't want an AI provider to process.</li>
 <li><strong>Resend</strong> (USA): sends sign-in link emails to your address.</li>
@@ -277,7 +338,9 @@ export async function legalResponse(c: Context<AppBindings>, html: string): Prom
 /** `GET /privacy` and `GET /terms`, public (mounted at the root by `createApp`). */
 export function legalRoutes(): Hono<AppBindings> {
   const app = new Hono<AppBindings>();
-  app.get('/privacy', (c) => legalResponse(c, renderPrivacyPage(legalInfo(c.env, c.req.raw))));
+  app.get('/privacy', (c) =>
+    legalResponse(c, renderPrivacyPage(legalInfo(c.env, c.req.raw), hostedAi(c.env))),
+  );
   app.get('/terms', (c) => legalResponse(c, renderTermsPage(legalInfo(c.env, c.req.raw))));
   return app;
 }

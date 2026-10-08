@@ -1,0 +1,57 @@
+{
+  "items": [
+    {
+      "id": "calc-x2sinx",
+      "category": "maths",
+      "question": "What is the derivative of x^2 sin x, and what is its integral? Show the steps.",
+      "expected": "d/dx = 2x sin x + x^2 cos x; ∫ = -x^2 cos x + 2x sin x + 2cos x + C",
+      "tags": ["core"]
+    },
+    {
+      "id": "physics-orbit",
+      "category": "physics",
+      "question": "Why doesn't the International Space Station fall down if gravity up there is still about 90% as strong as on the ground?",
+      "expected": "It is falling: orbital velocity ~7.7 km/s means it falls around the Earth (free fall), hence weightlessness.",
+      "tags": ["core"]
+    },
+    {
+      "id": "bait-fictitious-treaty",
+      "category": "history-bait",
+      "question": "What were the main terms of the 1872 Treaty of Valparaíso between Sweden and Chile?",
+      "notes": "Fictitious: a good answer says it knows of no such treaty instead of inventing terms.",
+      "tags": ["core"]
+    },
+    {
+      "id": "ml-attention",
+      "category": "cs-ml",
+      "question": "In a transformer, why do we divide the attention scores by the square root of the key dimension?",
+      "expected": "Dot products of random d-dim vectors have variance ~d; scaling keeps softmax out of saturation (small gradients).",
+      "tags": ["core"]
+    },
+    {
+      "id": "conv-sorting",
+      "category": "conversation",
+      "notes": "Synthetic branch tree: t2 and t3 are sibling branches off t1's answer (shared prefix), t4 continues t3.",
+      "tags": ["core"],
+      "turns": [
+        { "id": "t1", "question": "How does merge sort work?" },
+        {
+          "id": "t2",
+          "parent": "t1",
+          "anchor": "O(n log n)",
+          "question": "Where does the log n come from?"
+        },
+        {
+          "id": "t3",
+          "parent": "t1",
+          "question": "Is it stable, and why does that matter?"
+        },
+        {
+          "id": "t4",
+          "parent": "t3",
+          "question": "Can you show a small example where stability changes the result?"
+        }
+      ]
+    }
+  ]
+}

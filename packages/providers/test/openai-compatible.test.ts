@@ -96,7 +96,8 @@ describe('openai-compatible provider', () => {
       ],
       stream: true,
       stream_options: { include_usage: true },
-      max_completion_tokens: 8192,
+      // gpt-5 reasons: without a requested cap, its limit (REASONING_MAX_OUTPUT_TOKENS).
+      max_completion_tokens: 32_000,
     });
     expect(call.body).not.toHaveProperty('temperature');
   });
@@ -123,7 +124,7 @@ describe('openai-compatible provider', () => {
       () => sseResponse(OPENROUTER_STREAM).response,
     );
     await collect(provider.stream(req()));
-    expect(calls[0]!.body).toHaveProperty('max_completion_tokens', 8192);
+    expect(calls[0]!.body).toHaveProperty('max_completion_tokens', 32_000);
     expect(calls[0]!.body).not.toHaveProperty('max_tokens');
   });
 
@@ -302,13 +303,24 @@ describe('openai-compatible provider', () => {
   it('has no countTokens and reports capabilities defaults', () => {
     const { provider } = setup(OPENAI, () => jsonResponse(500, {}));
     expect(provider.countTokens).toBeUndefined();
-    expect(provider.capabilities('gpt-5')).toEqual({
+    expect(provider.capabilities('gpt-4o')).toEqual({
       maxContextTokens: 128_000,
       maxOutputTokens: 8192,
       supportsSystemPrompt: true,
       supportsTokenCount: false,
       supportsWebSearch: false,
+      reasoning: false,
     });
+    // A reasoning model gets a larger limit unless the config names one.
+    expect(provider.capabilities('gpt-5')).toMatchObject({ maxOutputTokens: 32_000, reasoning: true });
+    const capped = setup({ ...OPENAI, maxOutputTokens: 4000 }, () => jsonResponse(500, {})).provider;
+    expect(capped.capabilities('gpt-5')).toMatchObject({ maxOutputTokens: 4000, reasoning: true });
+    const flagged = setup(
+      { ...OPENAI, models: [{ id: 'my-model', label: 'Mine', reasoning: true }, { id: 'gpt-5', label: 'GPT-5', reasoning: false }] },
+      () => jsonResponse(500, {}),
+    ).provider;
+    expect(flagged.capabilities('my-model')).toMatchObject({ maxOutputTokens: 32_000, reasoning: true });
+    expect(flagged.capabilities('gpt-5')).toMatchObject({ maxOutputTokens: 8192, reasoning: false });
   });
 });
 
@@ -358,9 +370,13 @@ describe('openai-compatible billing (OpenRouter)', () => {
     const { provider } = setup(OPENROUTER, () => withHeader(sseResponse(STREAM).response, 'gen-from-header'));
     expect(await collect(provider.stream(req()))).toEqual<ProviderEvent[]>([
       { type: 'billing', generationId: 'gen-from-header' },
+      { type: 'billing', servedBy: 'DeepSeek' },
       { type: 'delta', text: 'Hi' },
       { type: 'delta', text: '!' },
-      { type: 'usage', usage: { inputTokens: 42, outputTokens: 7 } },
+      {
+        type: 'usage',
+        usage: { inputTokens: 42, outputTokens: 7, cacheReadTokens: 0, reasoningTokens: 3 },
+      },
       { type: 'billing', costUsd: 0.00000245 },
       { type: 'done', stopReason: 'stop' },
     ]);
@@ -369,12 +385,14 @@ describe('openai-compatible billing (OpenRouter)', () => {
   it('falls back to the first gen- chunk id (once) without the header', async () => {
     const { provider } = setup(OPENROUTER, () => sseResponse(STREAM).response);
     const events = await collect(provider.stream(req()));
-    expect(events.slice(0, 2)).toEqual([
+    expect(events.slice(0, 3)).toEqual([
       { type: 'billing', generationId: GEN },
+      { type: 'billing', servedBy: 'DeepSeek' },
       { type: 'delta', text: 'Hi' },
     ]);
     expect(events.filter((e) => e.type === 'billing')).toEqual([
       { type: 'billing', generationId: GEN },
+      { type: 'billing', servedBy: 'DeepSeek' },
       { type: 'billing', costUsd: 0.00000245 },
     ]);
   });
@@ -408,6 +426,7 @@ describe('openai-compatible billing (OpenRouter)', () => {
     );
     expect(events).toEqual([
       { type: 'billing', generationId: GEN },
+      { type: 'billing', servedBy: 'DeepSeek' },
       { type: 'delta', text: 'a' },
       { type: 'error', error: { code: 'aborted', message: 'Request aborted', retryable: false } },
     ]);
@@ -481,7 +500,7 @@ describe('openai-compatible options.extraBody', () => {
       { role: 'user', content: 'Hi' },
     ]);
     expect(body['stream']).toBe(true);
-    expect(body['max_tokens']).toBe(8192);
+    expect(body['max_tokens']).toBe(32_000);
     expect(body).not.toHaveProperty('max_completion_tokens');
     // Non-protected keys pass through, including stream_options.
     expect(body['stream_options']).toEqual({ include_usage: false });
@@ -542,6 +561,15 @@ describe('openai-compatible web search (OpenRouter)', () => {
     expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'stop' });
   });
 
+  it('sends the tool with the turn instructions after the history, not in the system prompt', async () => {
+    const { provider, calls } = setup(WS, () => sseResponse(OPENROUTER_STREAM).response);
+    await collect(provider.stream(req({ webSearch, turnInstructions: 'Search once.' })));
+    expect(calls[0]!.body['tool_choice']).toBe('auto');
+    const messages = calls[0]!.body['messages'] as { role: string; content: string }[];
+    expect(messages.at(-1)!.content.endsWith('\n\nSearch once.')).toBe(true);
+    expect(messages.filter((m) => m.role === 'system').some((m) => m.content.includes('Search once.'))).toBe(false);
+  });
+
   it('requires the tool for mode required', async () => {
     const { provider, calls } = setup(WS, () => sseResponse(OPENROUTER_STREAM).response);
     await collect(provider.stream(req({ webSearch: { ...webSearch, mode: 'required' } })));
@@ -563,5 +591,382 @@ describe('openai-compatible web search (OpenRouter)', () => {
     const events = await collect(provider.stream(req({ webSearch })));
     expect(calls[0]!.body['tools']).toBeUndefined();
     expect(events.some((e) => e.type === 'citations' || e.type === 'activity')).toBe(false);
+  });
+});
+
+describe('openai-compatible prompt caching', () => {
+  const BP = { type: 'ephemeral' };
+  const HISTORY = {
+    system: 'You are a patient tutor.',
+    messages: [
+      { role: 'user' as const, content: 'What is a derivative?' },
+      { role: 'assistant' as const, content: 'The rate of change of a function.' },
+      { role: 'user' as const, content: 'And an integral?' },
+    ],
+  };
+  const MARKED = [
+    {
+      role: 'system',
+      content: [{ type: 'text', text: 'You are a patient tutor.', cache_control: BP }],
+    },
+    { role: 'user', content: 'What is a derivative?' },
+    { role: 'assistant', content: 'The rate of change of a function.' },
+    { role: 'user', content: [{ type: 'text', text: 'And an integral?', cache_control: BP }] },
+  ];
+  const PLAIN = [
+    { role: 'system', content: 'You are a patient tutor.' },
+    { role: 'user', content: 'What is a derivative?' },
+    { role: 'assistant', content: 'The rate of change of a function.' },
+    { role: 'user', content: 'And an integral?' },
+  ];
+
+  async function sentMessages(config: ProviderConfig, overrides: Partial<GenerateRequest>) {
+    const { provider, calls } = setup(config, () => sseResponse(OPENROUTER_STREAM).response);
+    await collect(provider.stream(req({ ...HISTORY, ...overrides })));
+    return calls[0]!.body['messages'];
+  }
+
+  it.each(['anthropic/claude-sonnet-5.5', '~anthropic/claude-sonnet-latest'])(
+    'marks the system prompt and the latest message for %s on OpenRouter',
+    async (model) => {
+      expect(await sentMessages(OPENROUTER, { model })).toEqual(MARKED);
+    },
+  );
+
+  it('marks through the AI Gateway OpenRouter route', async () => {
+    const gateway = {
+      ...OPENROUTER,
+      baseUrl: 'https://gateway.ai.cloudflare.com/v1/acct/gw/openrouter',
+    };
+    expect(await sentMessages(gateway, { model: 'anthropic/claude-sonnet-5.5' })).toEqual(MARKED);
+  });
+
+  it.each(['deepseek/deepseek-v4-pro', 'openai/gpt-5', 'google/gemini-3-pro', 'x-ai/grok-4'])(
+    'sends plain string content for %s (automatic caching)',
+    async (model) => {
+      expect(await sentMessages(OPENROUTER, { model })).toEqual(PLAIN);
+    },
+  );
+
+  it('never marks on other endpoints, even for anthropic/ model ids', async () => {
+    const other = { ...OPENAI, baseUrl: 'https://llm.example.com/v1' };
+    expect(await sentMessages(other, { model: 'anthropic/claude-sonnet-5.5' })).toEqual(PLAIN);
+    expect(await sentMessages(OPENAI, { model: 'gpt-5' })).toEqual(PLAIN);
+  });
+
+  it('options.promptCache false disables it; true enables it on any endpoint', async () => {
+    const off = { ...OPENROUTER, options: { promptCache: false } };
+    expect(await sentMessages(off, { model: 'anthropic/claude-sonnet-5.5' })).toEqual(PLAIN);
+    const on = {
+      ...OPENAI,
+      baseUrl: 'https://proxy.example.com/v1',
+      options: { promptCache: true },
+    };
+    expect(await sentMessages(on, { model: 'anthropic/claude-sonnet-5.5' })).toEqual(MARKED);
+    expect(await sentMessages(on, { model: 'deepseek/deepseek-v4-pro' })).toEqual(PLAIN);
+  });
+
+  it('marks only the latest message without a system prompt', async () => {
+    expect(
+      await sentMessages(OPENROUTER, { model: 'anthropic/claude-sonnet-5.5', system: null }),
+    ).toEqual(MARKED.slice(1));
+  });
+
+  it('keeps a breakpoint on a folded system prompt only when it is the latest message', async () => {
+    const folded = { ...OPENROUTER, supportsSystemPrompt: false };
+    expect(
+      await sentMessages(folded, {
+        model: 'anthropic/claude-sonnet-5.5',
+        messages: [{ role: 'user', content: 'Hi' }],
+      }),
+    ).toEqual([
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'You are a patient tutor.\n\nHi', cache_control: BP }],
+      },
+    ]);
+    expect(await sentMessages(folded, { model: 'anthropic/claude-sonnet-5.5' })).toEqual([
+      { role: 'user', content: 'You are a patient tutor.\n\nWhat is a derivative?' },
+      MARKED[2],
+      MARKED[3],
+    ]);
+  });
+
+  it('leaves an empty latest message as a string (an empty block cannot be marked)', async () => {
+    const messages = [{ role: 'user' as const, content: '' }];
+    expect(
+      await sentMessages(OPENROUTER, { model: 'anthropic/claude-sonnet-5.5', messages }),
+    ).toEqual([MARKED[0], { role: 'user', content: '' }]);
+  });
+
+  describe('turnInstructions', () => {
+    const NOTE = '<instructions_for_this_reply>\nSearch once.\n</instructions_for_this_reply>';
+    const turnInstructions = NOTE;
+
+    it('follow the breakpoint of the latest message as their own part', async () => {
+      expect(
+        await sentMessages(OPENROUTER, { model: 'anthropic/claude-sonnet-5.5', turnInstructions }),
+      ).toEqual([
+        ...MARKED.slice(0, 3),
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'And an integral?', cache_control: BP },
+            { type: 'text', text: NOTE },
+          ],
+        },
+      ]);
+    });
+
+    it('leave the system prompt and the earlier messages exactly as without them', async () => {
+      const model = 'anthropic/claude-sonnet-5.5';
+      const withNote = (await sentMessages(OPENROUTER, { model, turnInstructions })) as unknown[];
+      const without = (await sentMessages(OPENROUTER, { model })) as unknown[];
+      expect(withNote.slice(0, -1)).toEqual(without.slice(0, -1));
+      // The next turn sends this message as plain text: the same text as the marked part.
+      const last = withNote.at(-1) as { content: { text: string }[] };
+      expect(last.content[0]!.text).toBe(HISTORY.messages.at(-1)!.content);
+    });
+
+    it('are appended to the plain text of the latest message (automatic caching)', async () => {
+      expect(
+        await sentMessages(OPENROUTER, { model: 'deepseek/deepseek-v4-pro', turnInstructions }),
+      ).toEqual([...PLAIN.slice(0, 3), { role: 'user', content: `And an integral?\n\n${NOTE}` }]);
+    });
+
+    it('come after a folded system prompt and the only message', async () => {
+      const folded = { ...OPENROUTER, supportsSystemPrompt: false };
+      expect(
+        await sentMessages(folded, {
+          model: 'anthropic/claude-sonnet-5.5',
+          messages: [{ role: 'user', content: 'Hi' }],
+          turnInstructions,
+        }),
+      ).toEqual([
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'You are a patient tutor.\n\nHi', cache_control: BP },
+            { type: 'text', text: NOTE },
+          ],
+        },
+      ]);
+    });
+
+    it('become a user message after a latest assistant message; blank ones are dropped', async () => {
+      const messages = [
+        { role: 'user' as const, content: 'Hi' },
+        { role: 'assistant' as const, content: 'Hello' },
+      ];
+      expect(
+        await sentMessages(OPENROUTER, {
+          model: 'anthropic/claude-sonnet-5.5',
+          messages,
+          turnInstructions,
+        }),
+      ).toEqual([
+        MARKED[0],
+        { role: 'user', content: 'Hi' },
+        { role: 'assistant', content: [{ type: 'text', text: 'Hello', cache_control: BP }] },
+        { role: 'user', content: NOTE },
+      ]);
+      expect(
+        await sentMessages(OPENROUTER, {
+          model: 'deepseek/deepseek-v4-pro',
+          turnInstructions: '  \n',
+        }),
+      ).toEqual(PLAIN);
+    });
+  });
+
+  it('reports cache reads and writes from prompt_tokens_details', async () => {
+    const stream = [
+      chunk({ content: 'Hi' }),
+      chunk({}, 'stop'),
+      chunk({}, null, {
+        usage: {
+          prompt_tokens: 5000,
+          completion_tokens: 10,
+          prompt_tokens_details: { cached_tokens: 3800, cache_write_tokens: 1150 },
+          cost: 0.002,
+        },
+      }),
+      'data: [DONE]\n\n',
+    ];
+    const { provider } = setup(OPENROUTER, () => sseResponse(stream).response);
+    const events = await collect(provider.stream(req({ model: 'anthropic/claude-sonnet-5.5' })));
+    expect(events).toContainEqual({
+      type: 'usage',
+      usage: { inputTokens: 5000, outputTokens: 10, cacheReadTokens: 3800, cacheWriteTokens: 1150 },
+    });
+  });
+
+  it("reports DeepSeek's prompt_cache_hit_tokens as cache reads", async () => {
+    const stream = [
+      chunk({}, 'stop'),
+      chunk({}, null, {
+        usage: {
+          prompt_tokens: 900,
+          completion_tokens: 4,
+          prompt_cache_hit_tokens: 640,
+          prompt_cache_miss_tokens: 260,
+        },
+      }),
+      'data: [DONE]\n\n',
+    ];
+    const { provider } = setup(OPENAI, () => sseResponse(stream).response);
+    expect(await collect(provider.stream(req()))).toContainEqual({
+      type: 'usage',
+      usage: { inputTokens: 900, outputTokens: 4, cacheReadTokens: 640 },
+    });
+  });
+});
+
+describe('openai-compatible reasoning effort and provider pinning', () => {
+  const FLASH = 'deepseek/deepseek-v4-flash';
+  async function sent(config: ProviderConfig, overrides: Partial<GenerateRequest>) {
+    const { provider, calls } = setup(config, () => sseResponse(OPENROUTER_STREAM).response);
+    await collect(provider.stream(req(overrides)));
+    return calls[0]!.body;
+  }
+  const tiered = (model: Partial<ProviderConfig['models'][number]>, base = OPENROUTER) => ({
+    ...base,
+    defaultModel: FLASH,
+    models: [{ id: FLASH, label: 'Flash', ...model }],
+  });
+
+  it("turns thinking off for 'none' and sends low/high as reasoning.effort, on OpenRouter only", async () => {
+    expect(await sent(OPENROUTER, { model: FLASH, reasoning: 'none' })).toMatchObject({
+      reasoning: { enabled: false },
+    });
+    expect((await sent(OPENROUTER, { model: FLASH, reasoning: 'low' }))['reasoning']).toEqual({
+      effort: 'low',
+    });
+    expect((await sent(OPENROUTER, { model: FLASH, reasoning: 'high' }))['reasoning']).toEqual({
+      effort: 'high',
+    });
+    expect(await sent(OPENROUTER, { model: FLASH })).not.toHaveProperty('reasoning');
+    expect(await sent(OPENAI, { model: 'gpt-5', reasoning: 'none' })).not.toHaveProperty('reasoning');
+    expect(await sent(OPENAI, { model: 'gpt-5', reasoning: 'high' })).not.toHaveProperty('reasoning');
+  });
+
+  it("sends the model's configured effort; a request's effort overrides it", async () => {
+    const config = tiered({ effort: 'low' });
+    expect((await sent(config, { model: FLASH }))['reasoning']).toEqual({ effort: 'low' });
+    expect((await sent(config, { model: FLASH, reasoning: 'none' }))['reasoning']).toEqual({
+      enabled: false,
+    });
+    // An unlisted model has no configured effort.
+    expect(await sent(config, { model: 'deepseek/deepseek-v4-pro' })).not.toHaveProperty('reasoning');
+    // An effort replaces extraBody's `reasoning`; without one, extraBody's stays.
+    const extra = { ...config, options: { extraBody: { reasoning: { max_tokens: 100 } } } };
+    expect((await sent(extra, { model: FLASH }))['reasoning']).toEqual({ effort: 'low' });
+    const plain = { ...tiered({}), options: { extraBody: { reasoning: { max_tokens: 100 } } } };
+    expect((await sent(plain, { model: FLASH }))['reasoning']).toEqual({ max_tokens: 100 });
+  });
+
+  it('pins the provider order with fallbacks allowed, merged into extraBody routing', async () => {
+    const config = tiered({ providerOrder: ['deepseek'] });
+    expect((await sent(config, { model: FLASH }))['provider']).toEqual({
+      order: ['deepseek'],
+      allow_fallbacks: true,
+    });
+    // The open pool's max_price (and the operator's other routing) stays.
+    const pool = {
+      ...config,
+      options: {
+        extraBody: {
+          provider: { max_price: { prompt: 0.2, completion: 0.8 }, data_collection: 'deny' },
+        },
+      },
+    };
+    expect((await sent(pool, { model: FLASH }))['provider']).toEqual({
+      order: ['deepseek'],
+      allow_fallbacks: true,
+      max_price: { prompt: 0.2, completion: 0.8 },
+      data_collection: 'deny',
+    });
+    // The operator's explicit allow_fallbacks wins; the model's order wins over theirs.
+    const strict = {
+      ...config,
+      options: { extraBody: { provider: { allow_fallbacks: false, order: ['other'] } } },
+    };
+    expect((await sent(strict, { model: FLASH }))['provider']).toEqual({
+      order: ['deepseek'],
+      allow_fallbacks: false,
+    });
+    // No order: extraBody's routing untouched; none at all: no provider field.
+    expect((await sent(pool, { model: 'deepseek/deepseek-v4-pro' }))['provider']).toEqual(
+      pool.options.extraBody.provider,
+    );
+    expect(await sent(tiered({}), { model: FLASH })).not.toHaveProperty('provider');
+  });
+
+  it('sends neither effort nor pinning off OpenRouter (strict APIs reject them)', async () => {
+    const other = tiered(
+      { effort: 'high', providerOrder: ['deepseek'] },
+      { ...OPENAI, baseUrl: 'https://llm.example.com/v1' },
+    );
+    const body = await sent(other, { model: FLASH });
+    expect(body).not.toHaveProperty('reasoning');
+    expect(body).not.toHaveProperty('provider');
+  });
+
+  it('reports the serving provider and reasoning tokens, and never yields the thinking', async () => {
+    const stream = [
+      frame(null, {
+        id: 'gen-1',
+        provider: 'DeepSeek',
+        choices: [{ index: 0, delta: { role: 'assistant', content: '', reasoning: 'Let me think' } }],
+      }),
+      frame(null, {
+        id: 'gen-1',
+        provider: 'DeepSeek',
+        choices: [
+          {
+            index: 0,
+            delta: { content: '', reasoning_details: [{ type: 'reasoning.text', text: 'hmm' }] },
+          },
+        ],
+      }),
+      frame(null, {
+        id: 'gen-1',
+        provider: 'DeepSeek',
+        choices: [{ index: 0, delta: { content: 'Answer' }, finish_reason: 'stop' }],
+      }),
+      frame(null, {
+        id: 'gen-1',
+        provider: 'DeepSeek',
+        choices: [{ index: 0, delta: { content: '' } }],
+        usage: {
+          prompt_tokens: 50,
+          completion_tokens: 40,
+          completion_tokens_details: { reasoning_tokens: 35 },
+          prompt_tokens_details: { cached_tokens: 30 },
+          cost: 0.00002,
+        },
+      }),
+      'data: [DONE]\n\n',
+    ];
+    const { provider } = setup(tiered({ effort: 'low' }), () => sseResponse(stream).response);
+    const events = await collect(provider.stream(req({ model: FLASH })));
+    expect(events.filter((e) => e.type === 'delta')).toEqual([{ type: 'delta', text: 'Answer' }]);
+    expect(events).toContainEqual({ type: 'billing', servedBy: 'DeepSeek' });
+    expect(events.filter((e) => e.type === 'billing' && e.servedBy !== undefined)).toHaveLength(1);
+    expect(events).toContainEqual({
+      type: 'usage',
+      usage: { inputTokens: 50, outputTokens: 40, reasoningTokens: 35, cacheReadTokens: 30 },
+    });
+    expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'stop' });
+  });
+
+  it("reports a reply cut off at its cap as stopReason 'length'", async () => {
+    const stream = [
+      chunk({ role: 'assistant', content: 'Half an ans' }, 'length'),
+      'data: [DONE]\n\n',
+    ];
+    const { provider } = setup(OPENROUTER, () => sseResponse(stream).response);
+    const events = await collect(provider.stream(req({ model: FLASH })));
+    expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'length' });
   });
 });

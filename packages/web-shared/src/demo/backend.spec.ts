@@ -3,6 +3,7 @@ import { Injector } from '@angular/core';
 import {
   DEFAULT_SYSTEM_PROMPT,
   splitTangents,
+  type CandidateEvent,
   type ReviewEvent,
   type StreamEvent,
 } from '@tangent/shared';
@@ -10,6 +11,7 @@ import {
   API_FETCH,
   ApiClient,
   ApiError,
+  parseCandidateEvent,
   parseReviewEvent,
   readSseEvents,
   readStreamEvents,
@@ -64,10 +66,11 @@ describe('demo backend', () => {
     await expect(api.me()).resolves.toMatchObject({ mode: 'simple', devMode: false });
     const [provider, ...others] = await api.providers();
     expect(others).toEqual([]);
-    expect(provider).toMatchObject({ id: 'openrouter', defaultModel: 'smart', available: true });
+    expect(provider).toMatchObject({ id: 'openrouter', defaultModel: 'simple', available: true });
+    // Normal first (the default), then Max with its usage factor from the pretend prices.
     expect(provider!.models).toEqual([
-      { id: 'smart', label: 'Smart' },
-      { id: 'simple', label: 'Simple' },
+      { id: 'simple', label: 'Normal', tier: 'normal' },
+      { id: 'smart', label: 'Max', tier: 'max', usageFactor: 14 },
     ]);
   });
 
@@ -361,6 +364,101 @@ describe('demo backend', () => {
     expect((await api.getTree(lesson!.id)).nodes).toEqual(before.nodes);
   });
 
+  it('compares: streams two candidates, commits the one picked, and keeps only that exchange', async () => {
+    const { api } = setup({ seed: false });
+    const detail = await api.createTree({});
+    const branchId = detail.tree.trunkBranchId;
+    const ask = async (model: string): Promise<CandidateEvent[]> => {
+      const res = await api.streamCandidate(
+        branchId,
+        { content: 'Why is the sky blue?', model },
+        new AbortController().signal,
+      );
+      const out: CandidateEvent[] = [];
+      for await (const e of readSseEvents(res.body!, parseCandidateEvent)) out.push(e);
+      return out;
+    };
+    const normal = await ask('simple');
+    const max = await ask('smart');
+    for (const stream of [normal, max]) {
+      expect(stream.some((e) => e.type === 'delta')).toBe(true);
+      expect(stream.at(-1)?.type).toBe('done');
+    }
+    // Nothing enters the lesson before the pick; both answers were charged.
+    expect((await api.getTree(detail.tree.id)).nodes).toEqual([]);
+    expect((await api.usage()).entries.filter((e) => e.purpose === 'reply')).toHaveLength(2);
+
+    const picked = max.at(-1) as Extract<CandidateEvent, { type: 'done' }>;
+    const other = normal.at(-1) as Extract<CandidateEvent, { type: 'done' }>;
+    expect(picked).toMatchObject({ providerId: 'openrouter', funding: 'own-key', model: 'smart' });
+    expect(Date.parse(picked.expiresAt)).toBeGreaterThan(Date.now());
+    const text = max.flatMap((e) => (e.type === 'delta' ? [e.text] : [])).join('');
+
+    const committed = await api.commitCandidate(branchId, picked.candidateId);
+    expect(committed.userNode).toMatchObject({ role: 'user', content: 'Why is the sky blue?' });
+    expect(committed.assistantNode).toMatchObject({
+      role: 'assistant',
+      status: 'complete',
+      content: text,
+      model: 'smart',
+    });
+    const after = await api.getTree(detail.tree.id);
+    expect(after.nodes.map((n) => [n.role, n.model])).toEqual([
+      ['user', null],
+      ['assistant', 'smart'],
+    ]);
+    // The branch keeps its own model; the lesson was titled after its first exchange.
+    expect(after.branches[0]!.model).toBe('simple');
+    expect(after.tree.title).not.toBe('New conversation');
+
+    // The sibling was dropped with the commit; a committed one can't be kept twice.
+    await expect(api.commitCandidate(branchId, other.candidateId)).rejects.toMatchObject({
+      status: 410,
+      code: 'gone',
+    });
+    await expect(api.commitCandidate(branchId, picked.candidateId)).rejects.toMatchObject({
+      status: 410,
+    });
+  });
+
+  it('refuses a stale or foreign candidate commit, and a compare without credit', async () => {
+    const storage = memoryStorage();
+    const { api } = setup({ storage, seed: false });
+    const detail = await api.createTree({});
+    const branchId = detail.tree.trunkBranchId;
+    const other = await api.createTree({});
+    const res = await api.streamCandidate(
+      branchId,
+      { content: 'Hi', model: 'simple' },
+      new AbortController().signal,
+    );
+    const seen: CandidateEvent[] = [];
+    for await (const e of readSseEvents(res.body!, parseCandidateEvent)) seen.push(e);
+    const done = seen.at(-1) as Extract<CandidateEvent, { type: 'done' }>;
+    // Another branch: not found. The conversation moved on: conflict.
+    await expect(
+      api.commitCandidate(other.tree.trunkBranchId, done.candidateId),
+    ).rejects.toMatchObject({ status: 404 });
+    await events(await api.sendMessage(branchId, { content: 'Hi' }, new AbortController().signal));
+    await expect(api.commitCandidate(branchId, done.candidateId)).rejects.toMatchObject({
+      status: 409,
+      code: 'conflict',
+    });
+
+    const saved = JSON.parse(storage.data.get('tangent.learn-demo.v1')!) as {
+      balanceMicros: number;
+    };
+    storage.data.set('tangent.learn-demo.v1', JSON.stringify({ ...saved, balanceMicros: 0 }));
+    const { api: broke } = setup({ storage });
+    await expect(
+      broke.streamCandidate(
+        branchId,
+        { content: 'Hi', model: 'smart' },
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ status: 402, code: 'payment_required' });
+  });
+
   it('serializes SSE frames like the Worker', () => {
     expect(sseFrame({ type: 'status', message: 'x' })).toBe(
       'event: status\ndata: {"type":"status","message":"x"}\n\n',
@@ -443,6 +541,30 @@ describe('power demo backend', () => {
     });
   });
 
+  it('plans the Context preview with the input limit, and reports the input budget', async () => {
+    const { api } = setup({ mode: 'power' });
+    const [lesson] = await api.listTrees();
+    const branchId = (await api.getTree(lesson!.id)).tree.trunkBranchId;
+    const budget = await api.inputBudget(branchId);
+    // The demo caps input at 60,000 tokens in both modes.
+    expect(budget).toMatchObject({ funding: 'own-key', serverMaxInputTokens: 60_000 });
+    expect(budget.price?.inputUsdPerMTok).toBeGreaterThan(0);
+    const plain = await api.getContext(branchId, null, false);
+    expect(plain.plan.budget.maxInputTokens).toBeGreaterThan(1000);
+    const limited = await api.getContext(branchId, null, false, {
+      maxInputTokens: 1000,
+      inputOverflow: 'truncate',
+    });
+    expect(limited.plan.budget.maxInputTokens).toBe(1000);
+    expect(limited.plan.compaction).toBeNull();
+    // Learn ignores power's limits.
+    const learn = setup();
+    const [learnLesson] = await learn.api.listTrees();
+    const learnBranch = (await learn.api.getTree(learnLesson!.id)).tree.trunkBranchId;
+    const ignored = await learn.api.getContext(learnBranch, null, false, { maxInputTokens: 1000 });
+    expect(ignored.plan.budget.maxInputTokens).not.toBe(1000);
+  });
+
   it('backs up a conversation and imports it as a copy', async () => {
     const { api, backend } = setup({ mode: 'power' });
     const [lesson] = await api.listTrees();
@@ -476,7 +598,7 @@ describe('power demo backend', () => {
     expect(lesson.branches.map((b) => [b.providerId, b.contextMode, b.funding])).toEqual(
       lesson.branches.map(() => ['openrouter', 'path', 'own-key']),
     );
-    expect(lesson.branches[0]!.model).toBe('smart');
+    expect(lesson.branches[0]!.model).toBe('simple');
     expect(lesson.branches.slice(1).map((b) => b.model)).toEqual(rest.map((b) => b.model));
     expect(lesson.nodes.map((n) => n.content)).toEqual(backup.nodes.map((n) => n.content));
     expect((await learn.api.listTrees()).map((t) => t.id)).toEqual([lesson.tree.id]);

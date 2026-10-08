@@ -10,6 +10,7 @@ import {
   ProviderCapabilities,
   ProviderEvent,
   type Tangent,
+  type TokenPrice,
 } from '@tangent/shared';
 import { getAdjectives, getNouns, sentence as txtSentence, setRandom, setTemplates } from 'txtgen';
 
@@ -68,14 +69,29 @@ function sentence(): string {
     .replace(/;$/, '.');
 }
 
-/** The demo provider's id and models, mirroring the real built-in provider (`openrouter`). */
+/**
+ * The demo provider's id and models, mirroring the real built-in provider
+ * (`openrouter`): Normal (the default) and Max. The ids predate the Normal /
+ * Max names and stay as they are, since stored demo lessons use them:
+ * `simple` is Normal, `smart` is Max.
+ */
 export const DEMO_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
 export const DEMO_SMART_MODEL = 'smart';
 export const DEMO_SIMPLE_MODEL = 'simple';
 export const DEMO_MODELS: readonly ModelInfo[] = [
-  { id: DEMO_SMART_MODEL, label: 'Smart' },
-  { id: DEMO_SIMPLE_MODEL, label: 'Simple' },
+  { id: DEMO_SIMPLE_MODEL, label: 'Normal', tier: 'normal' },
+  { id: DEMO_SMART_MODEL, label: 'Max', tier: 'max' },
 ];
+
+/**
+ * Pretend list prices (micro-dollars per million tokens): the default tiers'
+ * real prices (V4.1 Flash and Sonnet 5.5), so the demo's Max note says what
+ * the app's does, about 14× Normal.
+ */
+export const DEMO_MODEL_PRICES: Readonly<Record<string, TokenPrice>> = {
+  [DEMO_SIMPLE_MODEL]: { inMicrosPerMTok: 150_000, outMicrosPerMTok: 600_000 },
+  [DEMO_SMART_MODEL]: { inMicrosPerMTok: 2_000_000, outMicrosPerMTok: 10_000_000 },
+};
 
 /** A small deterministic RNG (mulberry32), for tests and reproducible demos. */
 export function seededRandom(seed: number): Random {
@@ -203,8 +219,8 @@ function boldSome(random: Random, text: string): string {
 }
 
 /**
- * A Learn-shaped reply in Markdown: 1–3 short paragraphs (the Smart model
- * writes more), sometimes a bulleted list or a bold phrase, always ending
+ * A Learn-shaped reply in Markdown: 1–3 short paragraphs (Max writes
+ * more), sometimes a bulleted list or a bold phrase, always ending
  * with a `<tangents>` block (the prompt's format; the app turns it into
  * branch buttons).
  */
@@ -376,11 +392,14 @@ function tokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-/** Pretend price per token in USD: a few thousandths of a dollar per reply. */
+/** Pretend price in USD (DEMO_MODEL_PRICES plus a base): a few thousandths of a dollar per reply. */
 function fakeCostUsd(model: string, inputTokens: number, outputTokens: number): number {
   const smart = model !== DEMO_SIMPLE_MODEL;
-  const [inPrice, outPrice, base] = smart ? [5e-7, 2.5e-5, 0.002] : [2e-7, 1e-5, 0.001];
-  return base + inputTokens * inPrice + outputTokens * outPrice;
+  const price = DEMO_MODEL_PRICES[smart ? DEMO_SMART_MODEL : DEMO_SIMPLE_MODEL]!;
+  const base = smart ? 0.002 : 0.001;
+  return (
+    base + (inputTokens * price.inMicrosPerMTok + outputTokens * price.outMicrosPerMTok) / 1e12
+  );
 }
 
 /**
@@ -473,7 +492,7 @@ export function createLoremProvider(options: LoremProviderOptions = {}): LlmProv
     kind: 'openai-compatible',
     label: 'Tangent',
     models: () => DEMO_MODELS.map((m) => ({ ...m })),
-    defaultModel: () => DEMO_SMART_MODEL,
+    defaultModel: () => DEMO_SIMPLE_MODEL,
     capabilities: () => ({ ...CAPABILITIES }),
     stream,
   };

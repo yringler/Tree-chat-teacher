@@ -118,8 +118,10 @@
             [initial]="initialDraft()"
             [disabled]="store.busy()"
             [busy]="store.streamingNode() !== null"
+            [canCompare]="canCompare()"
             (send)="send($event)"
             (stop)="stop()"
+            (compare)="compare($event)"
           />
           <!-- The branch's provider, payer and model: changeable before any send. -->
           <app-route-bar />

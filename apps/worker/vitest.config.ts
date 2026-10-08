@@ -146,7 +146,8 @@ export default defineConfig({
                 label: 'Fake',
                 defaultModel: 'fake-1',
                 models: [{ id: 'fake-1', label: 'Fake 1' }],
-                options: { chunkSize: 4 },
+                // `[echo-request]`: the reply echoes the request's model and output cap (output-cap.test.ts).
+                options: { chunkSize: 4, echoRequest: '[echo-request]' },
               },
               {
                 id: 'slow',
@@ -170,14 +171,16 @@ export default defineConfig({
             // Learn mode and billing (paid credit offered). Multi-user tests pass an env
             // override with auth configured (as auth.test.ts does for BETTER_AUTH_SECRET).
             // The built-in provider (the endpoint `openrouter`): fake, reporting a fixed cost per call.
+            // Its tiers keep the ids from before Normal and Max: `smart` is Max (and, unlike a
+            // deployment, the default, as the suites were written against it), `simple` is Normal.
             SIMPLE_PROVIDER: JSON.stringify({
               id: 'openrouter',
               kind: 'fake',
               label: 'Tangent',
               defaultModel: 'smart',
               models: [
-                { id: 'smart', label: 'Smart' },
-                { id: 'simple', label: 'Simple' },
+                { id: 'smart', label: 'Max', tier: 'max' },
+                { id: 'simple', label: 'Normal', tier: 'normal' },
               ],
               // `[echo-request]` in a message makes the reply echo the request's model, output cap
               // and system prompt (the pool tests check what was really sent upstream).

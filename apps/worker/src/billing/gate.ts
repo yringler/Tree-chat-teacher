@@ -1,5 +1,5 @@
 // The one gate in front of every route that generates (docs/pool/PLAN.md §3):
-// sends, reviews and `context?resolve=true`. It decides who pays (personal
+// sends, reviews, compare candidates and `context?resolve=true`. It decides who pays (personal
 // credit, the open pool or the user's own key) and checks that they can,
 // before anything is written or sent upstream.
 import {
@@ -40,19 +40,22 @@ import { assertCanSpend, usageHoldMicros } from './service.js';
 
 /** What a generating request is about to do. */
 export interface GenerateCheck {
-  /** `send` and `resolve` may fall back to the pool; `review` never does. */
-  purpose: 'send' | 'resolve' | 'review';
+  /**
+   * `send` and `resolve` may fall back to the pool; `review` never does, nor
+   * does `compare` (a compare candidate, which like a review is refused on the pool).
+   */
+  purpose: 'send' | 'resolve' | 'review' | 'compare';
   /** The provider the request calls (the endpoint). */
   providerId: string;
   /** How that call is paid in power (the branch's or reviewer's funding); Learn pays per request. */
   funding: BranchFunding;
   /** Checked against the provider's allowlist; null = not checked (a context resolve). */
   model: string | null;
-  /** Another route the request may also spend on (a review's branch, for its summaries). */
+  /** Another route the request may also spend on (a review's or candidate's branch, for its summaries). */
   alsoSpendsOn?: ProviderRoute;
   /** The user's key cookie (power, and Learn on its own key). */
   keys: UserKeys | null;
-  /** A send's message: the pool accepts at most `POOL_MAX_MESSAGE_CHARS`. */
+  /** A send's (or candidate's) message: the pool accepts at most `POOL_MAX_MESSAGE_CHARS`. */
   content?: string;
 }
 
@@ -61,15 +64,21 @@ export interface GenerateCheck {
  * context resolve on personal credit moves to the open pool when the pool
  * is on and the caller can't cover one more call
  * (`available < USAGE_HOLD_MICROS`). Credit needs no membership, to buy or to
- * spend, so anyone holding it keeps spending it until it runs short. A review never moves, and keeps its 402 `payment_required`; nor does
- * a send while the pool is off.
+ * spend, so anyone holding it keeps spending it until it runs short. A review
+ * or a compare candidate never moves, and keeps its 402 `payment_required`;
+ * nor does a send while the pool is off.
  */
 export async function resolveFunding(
   c: AppContext,
   account: AccountContext,
   purpose: GenerateCheck['purpose'],
 ): Promise<AccountContext> {
-  if (purpose === 'review' || account.mode !== 'simple' || account.funding !== 'personal')
+  if (
+    purpose === 'review' ||
+    purpose === 'compare' ||
+    account.mode !== 'simple' ||
+    account.funding !== 'personal'
+  )
     return account;
   if (!account.userId || !poolAvailable(c.env)) return account;
   const { balanceMicros, heldMicros } = await getBalance(c.env.DB, account.billingAccountId);
@@ -221,7 +230,7 @@ export async function defaultRouteFacts(
 
 /**
  * Checks that the caller may generate, in order: who pays (`resolveFunding`);
- * then either the pool's own rules, which need no membership (no reviews, the
+ * then either the pool's own rules, which need no membership (no reviews or compare, the
  * message length, the account gates of `assertPoolAccess`, the acknowledgment
  * of the current pool notice (403 `pool_consent_required`, gate step 5), and
  * for a context resolve PoolBank's rate check; a reply itself is reserved, or refused with
@@ -241,6 +250,8 @@ export async function assertCanGenerate(
   if (account.funding === 'pool') {
     if (check.purpose === 'review')
       throw new DomainError('pool_unavailable', 'Reviews are not available on the open pool');
+    if (check.purpose === 'compare')
+      throw new DomainError('pool_unavailable', "Compare isn't available on the open pool");
     if (!isPoolFunded(account))
       throw new DomainError('pool_unavailable', 'The open pool is not available right now');
     const pool = account.pool;

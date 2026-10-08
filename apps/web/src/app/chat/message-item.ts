@@ -8,7 +8,15 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { parseReview, splitTangents, type Branch, type ChatNode } from '@tangent/shared';
+import {
+  CONTINUE_MESSAGE,
+  isCutOffReply,
+  isStoppedReply,
+  parseReview,
+  splitTangents,
+  type Branch,
+  type ChatNode,
+} from '@tangent/shared';
 import {
   Icon,
   MarkdownService,
@@ -142,10 +150,26 @@ import { ReviewVerdict } from '../ui/review-verdict';
           }
         </button>
       }
-      @if (n.status === 'error') {
+      @if (cutOff()) {
+        <!-- Ended at its length limit: what it said is kept, but it isn't a whole answer. -->
+        <div class="msg-error-box msg-cut-off" role="alert">
+          <strong>Cut off.</strong>
+          <span>{{ n.error }}</span>
+          @if (canContinue()) {
+            <button type="button" class="btn btn-sm msg-continue" (click)="continueReply($event)">
+              Continue
+            </button>
+          } @else {
+            <span class="muted small"
+              >To get the rest, ask the model to continue (Settings → Reply length raises the
+              limit).</span
+            >
+          }
+        </div>
+      } @else if (n.status === 'error') {
         <div class="msg-error-box" role="alert">
-          <strong>{{ n.error === 'cancelled' ? 'Stopped.' : 'The reply failed.' }}</strong>
-          @if (n.error && n.error !== 'cancelled') {
+          <strong>{{ stopped() ? 'Stopped.' : 'The reply failed.' }}</strong>
+          @if (n.error && !stopped()) {
             <span>{{ n.error }}</span>
           }
           <span class="muted small"
@@ -443,6 +467,29 @@ export class MessageItem {
     } finally {
       this.opening.set(null);
     }
+  }
+
+  /** A reply cut off at its length limit (stored as an error that keeps its text). */
+  protected readonly cutOff = computed(() => isCutOffReply(this.node()));
+  protected readonly stopped = computed(() => isStoppedReply(this.node()));
+  /** "Continue" is offered on the open branch's last message, while it can generate. */
+  protected readonly canContinue = computed(() => {
+    const n = this.node();
+    return (
+      this.cutOff() &&
+      n.branchId === this.store.selectedBranchId() &&
+      this.store.path().at(-1)?.id === n.id &&
+      !this.store.busy() &&
+      !this.locked() &&
+      this.store.canGenerate()
+    );
+  });
+
+  /** Asks the model to go on from where the cut-off reply ended (it is in the context). */
+  protected continueReply(e: Event): void {
+    e.stopPropagation();
+    if (!this.canContinue()) return;
+    void this.store.send(this.node().branchId, CONTINUE_MESSAGE);
   }
 
   /** "Ask your own": offered wherever tangents are, while a branch can be generated on. */

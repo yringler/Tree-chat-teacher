@@ -14,7 +14,7 @@ import {
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import { describeEndpoint } from '@tangent/core/links';
-import type { Branch, ChatNode } from '@tangent/shared';
+import { maxUsageNote, tierModel, tierOf, type Branch, type ChatNode } from '@tangent/shared';
 import {
   Icon,
   PendingQuote,
@@ -28,6 +28,7 @@ import {
 import { BRAND } from '../brand';
 import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
+import { UiStore } from '../state/ui-store';
 import { Composer } from './composer';
 import { connectionTitleOf } from './connections';
 import { confirmDeleteSideQuestion } from './delete-side-question';
@@ -73,6 +74,7 @@ export class ChatPage implements OnDestroy {
   protected readonly store = inject(LessonStore);
   protected readonly account = inject(AccountStore);
   protected readonly textSize = inject(TextSizeStore);
+  private readonly ui = inject(UiStore);
   private readonly title = inject(Title);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   /** True while the view is scrolled to (near) the bottom: new text keeps it pinned. */
@@ -146,6 +148,29 @@ export class ChatPage implements OnDestroy {
   protected readonly funding = computed<FundingOption>(() =>
     this.account.payment.payment() === 'pool' ? 'pool' : 'credit',
   );
+
+  /**
+   * Compare (Normal and Max answer, one is kept) beside Send: both tiers are
+   * listed and the reply isn't on the open pool, which refuses it.
+   */
+  protected readonly canCompare = computed(() => {
+    const models = this.store.models();
+    return (
+      this.store.selectedBranch() !== null &&
+      tierModel(models, 'normal') !== undefined &&
+      tierModel(models, 'max') !== undefined &&
+      this.account.poolModel() === null &&
+      !this.store.busy()
+    );
+  });
+
+  /** "Max uses about 14× as much as Normal." while the open branch is on Max (not on the pool). */
+  protected readonly maxNote = computed(() => {
+    const models = this.store.models();
+    const b = this.store.selectedBranch();
+    if (!b || this.account.poolModel() || tierOf(models, b.model) !== 'max') return null;
+    return maxUsageNote(tierModel(models, 'max')?.usageFactor);
+  });
 
   /** A message refused for lack of credit, offered back after a top-up. */
   protected readonly initialDraft = computed(() => {
@@ -241,6 +266,15 @@ export class ChatPage implements OnDestroy {
     this.pinned.set(true);
     if (this.store.focusedNodeId()) this.store.go(id, null, true);
     void this.store.send(id, content);
+  }
+
+  /** Opens the Compare sheet for `content`; the composer keeps it until a pick is kept. */
+  protected compare(content: string): void {
+    const id = this.store.selectedBranchId();
+    if (!id || !this.canCompare()) return;
+    this.pinned.set(true);
+    if (this.store.focusedNodeId()) this.store.go(id, null, true);
+    this.ui.compare.set({ branchId: id, content });
   }
 
   protected stop(): void {

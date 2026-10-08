@@ -133,7 +133,8 @@ describe('owner API', () => {
     );
     expect(JSON.stringify(summary!.rendered.messages)).not.toContain('TRUNK-CONTENT');
     expect(JSON.stringify(independent!.rendered)).not.toContain('TRUNK-CONTENT');
-    expect(independent!.rendered.system).toContain('the quote');
+    expect(independent!.rendered.system).not.toContain('the quote');
+    expect(JSON.stringify(independent!.rendered.messages)).toContain('the quote');
     // Message mode sends the reply it forks from, but not the question before it.
     const point = message!.plan.segments.find((s) => s.reason === 'branch-point-message');
     if (point?.kind !== 'ancestor') throw new Error('no branch-point message');
@@ -141,9 +142,11 @@ describe('owner API', () => {
     expect(message!.rendered.messages.slice(0, 3)).toEqual([
       { role: 'user', content: '(Conversation continues.)' },
       { role: 'assistant', content: point.text },
-      { role: 'user', content: 'in message' },
+      {
+        role: 'user',
+        content: expect.stringMatching(/<excerpt>\nthe quote\n<\/excerpt>\n\nin message$/),
+      },
     ]);
-    expect(message!.rendered.system).toContain('the quote');
     // Siblings never see each other.
     expect(JSON.stringify(path!.rendered)).not.toContain('in independent');
     // The trunk stays trim.

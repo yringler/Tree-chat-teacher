@@ -518,3 +518,49 @@ describe('ApiClient links', () => {
     });
   });
 });
+
+describe('ApiClient compare', () => {
+  it('streamCandidate() POSTs the request and resolves with the stream; commitCandidate() POSTs the commit', async () => {
+    const committed = { userNode: { id: 'u' }, assistantNode: { id: 'a' }, branch: { id: 'b 1' } };
+    const transport = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void init;
+      return String(input).endsWith('/commit')
+        ? jsonResponse(committed)
+        : new Response('event: status\ndata: {"type":"status","message":"x"}\n\n', {
+            headers: { 'content-type': 'text/event-stream' },
+          });
+    });
+    const api = createApi([{ provide: API_FETCH, useValue: transport }]);
+    const signal = new AbortController().signal;
+
+    const res = await api.streamCandidate('b 1', { content: 'Why?', model: 'm' }, signal);
+    expect(res.body).not.toBeNull();
+    await expect(api.commitCandidate('b 1', 'c/1')).resolves.toEqual(committed);
+
+    expect(transport.mock.calls.map(([url]) => url)).toEqual([
+      '/api/branches/b%201/candidates',
+      '/api/branches/b%201/candidates/c%2F1/commit',
+    ]);
+    const [, streamInit] = transport.mock.calls[0]!;
+    expect(streamInit!.method).toBe('POST');
+    expect(streamInit!.signal).toBe(signal);
+    expect(JSON.parse(String(streamInit!.body))).toEqual({ content: 'Why?', model: 'm' });
+    const [, commitInit] = transport.mock.calls[1]!;
+    expect(commitInit!.method).toBe('POST');
+    expect(commitInit!.body).toBeUndefined();
+  });
+
+  it('rejects an expired candidate with the 410', async () => {
+    const api = createApi([
+      {
+        provide: API_FETCH,
+        useValue: async () =>
+          jsonResponse({ error: { code: 'gone', message: 'That comparison has expired' } }, 410),
+      },
+    ]);
+    await expect(api.commitCandidate('b', 'c')).rejects.toMatchObject({
+      status: 410,
+      code: 'gone',
+    });
+  });
+});

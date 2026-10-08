@@ -795,7 +795,7 @@ test('Learn demo: export a lesson, import a power-style backup, get a Learn less
     expect(b.contextMode).toBe('path');
     expect(b.funding).toBe('own-key');
   }
-  expect(lesson.branches[0].model).toBe('smart');
+  expect(lesson.branches[0].model).toBe('simple');
   expect(lesson.nodes.map((n: { content: string }) => n.content)).toEqual(
     backup.nodes.map((n: { content: string }) => n.content),
   );

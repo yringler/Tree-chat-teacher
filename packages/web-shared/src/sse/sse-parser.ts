@@ -1,4 +1,10 @@
-import { REVIEW_EVENT_TYPES, type ReviewEvent, type StreamEvent } from '@tangent/shared';
+import {
+  CANDIDATE_EVENT_TYPES,
+  REVIEW_EVENT_TYPES,
+  type CandidateEvent,
+  type ReviewEvent,
+  type StreamEvent,
+} from '@tangent/shared';
 
 /**
  * Pure `text/event-stream` parsing (WHATWG SSE rules, the subset we need).
@@ -132,6 +138,11 @@ export function parseStreamEvent(frame: SseFrame): StreamEvent | null {
 /** Same as parseStreamEvent, for the review stream. */
 export function parseReviewEvent(frame: SseFrame): ReviewEvent | null {
   return parseTyped<ReviewEvent>(frame, REVIEW_EVENT_TYPES);
+}
+
+/** Same as parseStreamEvent, for a compare candidate's stream. */
+export function parseCandidateEvent(frame: SseFrame): CandidateEvent | null {
+  return parseTyped<CandidateEvent>(frame, CANDIDATE_EVENT_TYPES);
 }
 
 function parseTyped<T>(frame: SseFrame, types: ReadonlySet<string>): T | null {

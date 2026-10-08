@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isModelAllowed, OPEN_MODEL_ID_PATTERN } from './provider.js';
+import { isModelAllowed, isReasoningEffort, OPEN_MODEL_ID_PATTERN } from './provider.js';
 
 const listed = [{ id: 'smart', label: 'Smart' }];
 
@@ -19,5 +19,13 @@ describe('isModelAllowed', () => {
       expect(isModelAllowed(open, id), id).toBe(false);
     }
     expect(OPEN_MODEL_ID_PATTERN.test('x'.repeat(200))).toBe(true);
+  });
+});
+
+describe('isReasoningEffort', () => {
+  it('accepts none, low and high; never max', () => {
+    for (const e of ['none', 'low', 'high']) expect(isReasoningEffort(e)).toBe(true);
+    for (const e of ['max', 'xhigh', 'medium', 'minimal', 'off', '', null, 3])
+      expect(isReasoningEffort(e)).toBe(false);
   });
 });

@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import { providerConfigs, registryFor } from '../src/services.js';
-import { DEFAULT_SIMPLE_SMART_MODEL } from '../src/simple-mode.js';
 
 /*
  * The offline fake provider is no longer one of power's defaults
@@ -13,6 +12,8 @@ import { DEFAULT_SIMPLE_SMART_MODEL } from '../src/simple-mode.js';
  */
 
 const env = rawEnv as unknown as AppEnv;
+/** Where 0021 moved them: the default Normal model when it ran (0025 later moves Learn's on). */
+const MOVED_TO = 'deepseek/deepseek-v4-pro';
 const defaults = { ...env, PROVIDERS: '' } as AppEnv;
 /** A signed-in power user (bring-your-own-key) on a server with the default providers. */
 const powerUser: AccountContext = {
@@ -99,8 +100,8 @@ describe('the offline fake provider is retired', () => {
         node.model,
       ]),
     ).toEqual([
-      ['openrouter', DEFAULT_SIMPLE_SMART_MODEL, 'own-key', 'fake', 'fake-1'],
-      ['openrouter', DEFAULT_SIMPLE_SMART_MODEL, 'own-key', 'fake', 'fake-1'],
+      ['openrouter', MOVED_TO, 'own-key', 'fake', 'fake-1'],
+      ['openrouter', MOVED_TO, 'own-key', 'fake', 'fake-1'],
       ['anthropic', 'claude-opus-5-5', 'own-key', 'anthropic', 'claude-opus-5-5'],
     ]);
 
@@ -108,6 +109,6 @@ describe('the offline fake provider is retired', () => {
     const openrouter = registryFor(defaults, powerUser)
       .list()
       .find((p) => p.id === 'openrouter')!;
-    expect(isModelAllowed(openrouter, DEFAULT_SIMPLE_SMART_MODEL)).toBe(true);
+    expect(isModelAllowed(openrouter, MOVED_TO)).toBe(true);
   });
 });

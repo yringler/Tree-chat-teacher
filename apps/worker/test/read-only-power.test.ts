@@ -22,6 +22,7 @@ import { describe, expect, it } from 'vitest';
 import { getBalance, grantCredit } from '../src/billing/ledger.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
+import { DEFAULT_SIMPLE_NORMAL_MODEL } from '../src/simple-mode.js';
 import { makeNode } from './fixtures.js';
 import { insertSubscription } from './mocks/billing-helpers.js';
 import { authEnv, client } from './session-client.js';
@@ -409,8 +410,8 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
       apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
       defaultModel: 'smart',
       models: [
-        { id: 'smart', label: 'Smart' },
-        { id: 'simple', label: 'Simple' },
+        { id: 'smart', label: 'Max', tier: 'max' },
+        { id: 'simple', label: 'Normal', tier: 'normal' },
       ],
     }),
     OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR',
@@ -446,10 +447,10 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
     ]);
 
     const tree = await newTree(u);
-    // OpenRouter's configured default model (the suggested smart one).
+    // OpenRouter's configured default model (the suggested Normal one).
     expect(tree.branches[0]).toMatchObject({
       providerId: 'openrouter',
-      model: 'deepseek/deepseek-v4-pro',
+      model: DEFAULT_SIMPLE_NORMAL_MODEL,
       funding: 'own-key',
     });
     expect((await json<ApiError>(await firstSend(u, tree), 401)).error).toEqual({
@@ -503,7 +504,7 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
     // Never onto credit that can't pay.
     expect(tree.branches[0]).toMatchObject({
       providerId: 'openrouter',
-      model: 'deepseek/deepseek-v4-pro',
+      model: DEFAULT_SIMPLE_NORMAL_MODEL,
       funding: 'own-key',
     });
     const send = await firstSend(u, tree);

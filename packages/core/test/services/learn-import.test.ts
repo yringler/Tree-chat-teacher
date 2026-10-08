@@ -1,22 +1,23 @@
 import type { TreeBackup, TreeDetail } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { ChatService, DEFAULT_CHAT_SETTINGS } from '../../src/services/chat-service.js';
+import { ANCHOR_HEADING } from '../../src/context/render.js';
 import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
 import { registryOf, ScriptedProvider, send } from './helpers.js';
 
-/** Learn's one provider: the built-in endpoint with Smart and Simple. */
+/** Learn's one provider: the built-in endpoint with Normal and Max. */
 class LearnProvider extends ScriptedProvider {
   constructor() {
     super('openrouter');
   }
   override models() {
     return [
-      { id: 'smart', label: 'Smart' },
-      { id: 'simple', label: 'Simple' },
+      { id: 'normal', label: 'Normal' },
+      { id: 'max', label: 'Max' },
     ];
   }
   override defaultModel() {
-    return 'smart';
+    return 'normal';
   }
 }
 
@@ -65,14 +66,14 @@ async function powerTree(power: ChatService): Promise<TreeDetail> {
     fromNodeId: from,
     providerId: 'openrouter',
     funding: 'credit',
-    model: 'simple',
+    model: 'max',
     contextMode: 'summary',
     title: 'On credit',
   });
   await power.createBranch({
     fromNodeId: from,
     providerId: 'openrouter',
-    model: 'smart',
+    model: 'normal',
     contextMode: 'independent',
     anchorQuote: 'two divisors',
     title: 'Independent',
@@ -92,9 +93,9 @@ describe('importing into Learn (adaptImportsForLearn)', () => {
     const lesson = await learn.importBackup(backup);
     expect(lesson.tree).toMatchObject({ accountId: 'u_user', systemPrompt: 'TUTOR' });
     expect(routes(lesson)).toEqual([
-      ['Main thread', 'openrouter', 'smart', 'path', 'own-key'],
-      ['On credit', 'openrouter', 'simple', 'path', 'own-key'],
-      ['Independent', 'openrouter', 'smart', 'path', 'own-key'],
+      ['Main thread', 'openrouter', 'normal', 'path', 'own-key'],
+      ['On credit', 'openrouter', 'max', 'path', 'own-key'],
+      ['Independent', 'openrouter', 'normal', 'path', 'own-key'],
     ]);
     // Messages, anchors and the provider each reply ran on are kept.
     expect(lesson.nodes.map((n) => [n.content, n.providerId])).toEqual(
@@ -124,16 +125,16 @@ describe('importing into Learn (adaptImportsForLearn)', () => {
     const { last } = await send(learn, side.id, 'Why two?');
     expect(last).toMatchObject({
       type: 'done',
-      node: { providerId: 'openrouter', model: 'smart' },
+      node: { providerId: 'openrouter', model: 'normal' },
     });
     const call = learnProvider.chatCalls().at(-1)!;
-    expect(call.model).toBe('smart');
+    expect(call.model).toBe('normal');
     expect(call.system).toContain('TUTOR');
     // Path context: the trunk's exchange comes before the side question.
     expect(call.messages.map((m) => m.content)).toEqual([
       'What is a prime?',
       'reply to: What is a prime?',
-      'Why two?',
+      `${ANCHOR_HEADING}\n\n<excerpt>\ntwo divisors\n</excerpt>\n\nWhy two?`,
     ]);
     expect(ant.calls).toHaveLength(before);
     expect(credit.calls).toHaveLength(0);
@@ -147,14 +148,14 @@ describe('importing into Learn (adaptImportsForLearn)', () => {
     expect(routes(copy)).toEqual(routes(original));
     expect(routes(copy)).toEqual([
       ['Main thread', 'ant', 'm1', 'path', 'own-key'],
-      ['On credit', 'openrouter', 'simple', 'summary', 'credit'],
-      ['Independent', 'openrouter', 'smart', 'independent', 'own-key'],
+      ['On credit', 'openrouter', 'max', 'summary', 'credit'],
+      ['Independent', 'openrouter', 'normal', 'independent', 'own-key'],
     ]);
   });
 
   it('round-trips: Learn → Learn keeps everything; Learn → power keeps what Learn wrote', async () => {
     const { power, learn } = setup();
-    const { tree } = await learn.createTree({ model: 'simple' });
+    const { tree } = await learn.createTree({ model: 'max' });
     const { begin } = await send(learn, tree.trunkBranchId, 'Teach me primes');
     await learn.createBranch({
       fromNodeId: begin.assistantNode.id,

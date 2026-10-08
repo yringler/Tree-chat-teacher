@@ -8,9 +8,18 @@ import {
   type ProviderConfig,
   type ProviderErrorCode,
   type ProviderEvent,
-  type TokenUsage,
+  type ProviderUsage,
+  type ReasoningEffort,
   type WebSearchRequest,
 } from '@tangent/shared';
+import {
+  isOpenRouterBaseUrl,
+  markLastMessage,
+  promptCacheOption,
+  usesExplicitCacheControl,
+  withBreakpoint,
+  withTurnInstructions,
+} from './prompt-cache.js';
 import type { ProviderEnv } from './registry.js';
 import { parseSse } from './sse.js';
 import {
@@ -79,6 +88,21 @@ function webSearchBody(ws: WebSearchRequest): Record<string, unknown> {
   };
 }
 
+/** OpenRouter's `reasoning` object for an effort: `none` turns thinking off. */
+function reasoningBody(effort: ReasoningEffort): Record<string, unknown> {
+  return effort === 'none' ? { enabled: false } : { effort };
+}
+
+/**
+ * OpenRouter's `provider` routing with `order` pinned first: merged into the
+ * operator's own routing from `extraBody` (e.g. the open pool's `max_price`,
+ * `data_collection`), whose explicit `allow_fallbacks` wins; fallbacks are
+ * allowed otherwise, so an outage of the pinned upstream doesn't fail the call.
+ */
+function pinnedRouting(routing: unknown, order: readonly string[]): Record<string, unknown> {
+  return { allow_fallbacks: true, ...(isRecord(routing) ? routing : {}), order: [...order] };
+}
+
 /**
  * Adds the `url_citation` annotations in `raw` to `into` (deduplicated by
  * URL, http(s) only, excerpt clipped). Returns true if anything was added.
@@ -122,6 +146,32 @@ function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 
+/**
+ * A chunk's `usage` as our usage fields (only those reported). `prompt_tokens`
+ * includes cached tokens; the cache share is `prompt_tokens_details`
+ * (`cached_tokens`, and OpenRouter's `cache_write_tokens`), or DeepSeek's own
+ * `prompt_cache_hit_tokens`. `completion_tokens` includes the thinking,
+ * `completion_tokens_details.reasoning_tokens`.
+ */
+function usageOf(usage: Record<string, unknown>): Partial<ProviderUsage> {
+  const u: Partial<ProviderUsage> = {};
+  const input = num(usage['prompt_tokens']);
+  if (input !== undefined) u.inputTokens = input;
+  const output = num(usage['completion_tokens']);
+  if (output !== undefined) u.outputTokens = output;
+  const completion = usage['completion_tokens_details'];
+  const reasoning = isRecord(completion) ? num(completion['reasoning_tokens']) : undefined;
+  if (reasoning !== undefined) u.reasoningTokens = reasoning;
+  const details = usage['prompt_tokens_details'];
+  const read =
+    (isRecord(details) ? num(details['cached_tokens']) : undefined) ??
+    num(usage['prompt_cache_hit_tokens']);
+  if (read !== undefined) u.cacheReadTokens = read;
+  const write = isRecord(details) ? num(details['cache_write_tokens']) : undefined;
+  if (write !== undefined) u.cacheWriteTokens = write;
+  return u;
+}
+
 /** In-stream `error` object (OpenRouter sends these with HTTP 200). */
 function codeForStreamError(err: Record<string, unknown>, message: string): ProviderErrorCode {
   const code = err['code'];
@@ -159,6 +209,32 @@ function codeForStreamError(err: Record<string, unknown>, message: string): Prov
  * delta), otherwise once for the first chunk whose `id` starts with `gen-`;
  * and `{type:'billing', costUsd}` when a chunk's `usage.cost` is a number.
  *
+ * Reasoning and routing (OpenRouter only; other endpoints may reject the
+ * fields): the call's effort (`request.reasoning`, else the model's
+ * `ModelInfo.effort`) is sent as `reasoning: {effort}` (`none`:
+ * `{enabled: false}`), replacing any `reasoning` in `extraBody`; nothing is
+ * sent when neither names one. A model's `providerOrder` is sent as
+ * `provider.order` with `allow_fallbacks: true`, merged into `extraBody`'s
+ * `provider` (the open pool's `max_price` stays). The thinking itself is
+ * never read: only `delta.content` becomes text, so streamed
+ * `delta.reasoning` / `reasoning_details` are dropped here, never shown,
+ * stored or sent back (it is not asked to be excluded: `reasoning.exclude`
+ * changes nothing billed, and the stream stays the same with or without
+ * an effort). Each chunk's `provider` (the upstream that served the call)
+ * is yielded once as `billing.servedBy`.
+ *
+ * Prompt caching (prompt-cache.ts): for models that cache only with explicit
+ * markers (Anthropic's, `anthropic/…`) on OpenRouter, the system message and
+ * the latest message become content-part arrays with a `cache_control`
+ * breakpoint; other models and endpoints get plain string content (they cache
+ * automatically, or a strict API could reject the field).
+ * `request.turnInstructions` follow the latest message (`withTurnInstructions`):
+ * a separate part after its breakpoint, or appended to its plain text.
+ * `options.promptCache`: false never marks; true marks on any endpoint (one
+ * known to accept `cache_control`, e.g. a proxy in front of OpenRouter), still
+ * only for explicit-cache models. Usage reports the cache reads and writes
+ * (`prompt_tokens_details`).
+ *
  * Error events say how far the call got (`ProviderError.upstream`): `not_sent`
  * (missing key, connection failure), `rejected` (non-2xx response) or
  * `stream` (failed after a 2xx response). The open pool releases a
@@ -176,6 +252,8 @@ export function createOpenAiCompatibleProvider(
       ? optParam
       : defaultMaxTokensParam(baseUrl);
   const extraBody = readExtraBody(config.options);
+  const openRouter = isOpenRouterBaseUrl(baseUrl);
+  const promptCache = promptCacheOption(config.options) ?? openRouter;
 
   const capabilities = (model: string) => resolveCapabilities(config, model, DEFAULTS, false);
 
@@ -199,17 +277,26 @@ export function createOpenAiCompatibleProvider(
       const { signal } = request;
       const caps = capabilities(request.model);
 
-      const messages: { role: string; content: string }[] = request.messages.map((m) => ({
+      const plain: { role: string; content: string }[] = request.messages.map((m) => ({
         role: m.role,
         content: m.content,
       }));
+      let system: string | null = null;
       if (request.system !== null) {
-        const first = messages[0];
+        const first = plain[0];
         if (caps.supportsSystemPrompt || !first || first.role !== 'user') {
-          messages.unshift({ role: 'system', content: request.system });
+          system = request.system;
         } else {
           first.content = `${request.system}\n\n${first.content}`;
         }
+      }
+      const cache = promptCache && usesExplicitCacheControl(request.model);
+      const messages = withTurnInstructions(
+        cache ? markLastMessage(plain) : plain,
+        request.turnInstructions,
+      );
+      if (system !== null) {
+        messages.unshift({ role: 'system', content: cache ? withBreakpoint(system) : system });
       }
       const webSearch = request.webSearch && caps.supportsWebSearch ? request.webSearch : null;
       const extra = webSearch
@@ -217,10 +304,17 @@ export function createOpenAiCompatibleProvider(
             Object.entries(extraBody).filter(([k]) => !WEB_SEARCH_BODY_KEYS.includes(k)),
           )
         : extraBody;
+      const listed = config.models.find((m) => m.id === request.model);
+      const effort = request.reasoning ?? listed?.effort;
+      const order = listed?.providerOrder ?? [];
       const body: Record<string, unknown> = {
         stream_options: { include_usage: true },
         ...extra,
         ...(webSearch ? webSearchBody(webSearch) : {}),
+        ...(openRouter && effort !== undefined ? { reasoning: reasoningBody(effort) } : {}),
+        ...(openRouter && order.length > 0
+          ? { provider: pinnedRouting(extra['provider'], order) }
+          : {}),
         model: request.model,
         messages,
         stream: true,
@@ -259,6 +353,7 @@ export function createOpenAiCompatibleProvider(
 
       let finishReason: string | null = null;
       let sawFinish = false;
+      let servedBy: string | undefined;
       const citations = new Map<string, Citation>();
       let searchReported = false;
       for await (const msg of parseSse(res.body, signal)) {
@@ -286,6 +381,15 @@ export function createOpenAiCompatibleProvider(
         ) {
           generationId = chunkId;
           yield { type: 'billing', generationId };
+        }
+        const upstreamProvider = chunk['provider'];
+        if (
+          servedBy === undefined &&
+          typeof upstreamProvider === 'string' &&
+          upstreamProvider.trim() !== ''
+        ) {
+          servedBy = upstreamProvider.trim();
+          yield { type: 'billing', servedBy };
         }
 
         const err = chunk['error'];
@@ -335,11 +439,7 @@ export function createOpenAiCompatibleProvider(
 
         const usage = chunk['usage'];
         if (isRecord(usage)) {
-          const u: Partial<TokenUsage> = {};
-          const input = num(usage['prompt_tokens']);
-          if (input !== undefined) u.inputTokens = input;
-          const output = num(usage['completion_tokens']);
-          if (output !== undefined) u.outputTokens = output;
+          const u = usageOf(usage);
           if (Object.keys(u).length > 0) yield { type: 'usage', usage: u };
           const costUsd = num(usage['cost']);
           const stu = usage['server_tool_use'];

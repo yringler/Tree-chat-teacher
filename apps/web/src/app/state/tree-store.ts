@@ -28,6 +28,7 @@ import type {
   BillingSummary,
   Branch,
   ChatNode,
+  CommitCandidateResponse,
   CreateBranchRequest,
   DeleteBranchResponse,
   KeyStatusResponse,
@@ -62,6 +63,7 @@ import {
   type LearnCopyWay,
   type StreamOutcome,
 } from '@tangent/web-shared';
+import { generationLimits, SettingsStore } from './settings-store';
 import { UiStore } from './ui-store';
 
 /** Live state of a generation, kept apart from `detail` so deltas don't re-index the tree. */
@@ -91,6 +93,7 @@ export class TreeStore {
   private readonly api = inject(ApiClient);
   private readonly router = inject(Router);
   private readonly ui = inject(UiStore);
+  private readonly appSettings = inject(SettingsStore);
 
   // Global data
   readonly me = signal<MeResponse | null>(null);
@@ -497,6 +500,8 @@ export class TreeStore {
     if (treeId !== this.selectedTreeId()) {
       this.selectedTreeId.set(treeId);
       this.ui.clearLinkState();
+      // A comparison belongs to a branch of the tree left behind (Back while it was open).
+      this.ui.compareDialog.set(null);
       if (treeId) void this.loadTree(treeId);
       else {
         this.detail.set(null);
@@ -969,6 +974,11 @@ export class TreeStore {
 
   // Messages and streams
 
+  /** The reply length and input limit the user set (Settings), else nothing: the server's defaults. */
+  private sendLimits(): ReturnType<typeof generationLimits> {
+    return generationLimits(this.appSettings.settings());
+  }
+
   async send(
     branchId: string,
     content: string,
@@ -984,7 +994,8 @@ export class TreeStore {
     try {
       const outcome = await runStream(
         {
-          open: (signal) => this.api.sendMessage(branchId, { content, ...options }, signal),
+          open: (signal) =>
+            this.api.sendMessage(branchId, { content, ...options, ...this.sendLimits() }, signal),
           reconnect: (id, signal) => this.api.streamNode(id, signal),
         },
         (event) => {
@@ -1022,6 +1033,19 @@ export class TreeStore {
       if (this.sendingBranchId() === branchId) this.sendingBranchId.set(null);
       if (nodeId) this.controllers.delete(nodeId);
     }
+  }
+
+  /**
+   * A Compare pick the server committed (`POST …/candidates/:id/commit`): the
+   * question and the kept answer join the tree as a finished send's `start`
+   * and `done` would add them, and the same refresh follows (auto-titling).
+   */
+  applyCommitted(result: CommitCandidateResponse): void {
+    const { userNode, assistantNode, branch } = result;
+    this.setUnsentDraft(branch.id, null);
+    this.apply({ type: 'start', userNode, assistantNode, branch }, null);
+    this.apply({ type: 'done', node: assistantNode, branch }, assistantNode.id);
+    this.finish(assistantNode.id, { kind: 'done' });
   }
 
   private setUnsentDraft(branchId: string, text: string | null): void {

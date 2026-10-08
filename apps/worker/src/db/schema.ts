@@ -699,8 +699,29 @@ export const modelPrices = sqliteTable('model_prices', {
   outMicrosPerMTok: integer('out_micros_per_mtok').notNull(),
   /** OpenRouter's `context_length`; null when not reported. */
   contextTokens: integer('context_tokens'),
+  /** OpenRouter's `input_cache_read` price; null when not listed. */
+  cacheReadMicrosPerMTok: integer('cache_read_micros_per_mtok'),
+  /** OpenRouter's `input_cache_write` price; null when not listed. */
+  cacheWriteMicrosPerMTok: integer('cache_write_micros_per_mtok'),
   /** When a sync last confirmed the price (ISO). */
   fetchedAt: text('fetched_at').notNull(),
+});
+
+/**
+ * Every model in OpenRouter's catalog with its real limits, refreshed daily
+ * with the prices (model-windows.ts): what ChatService budgets an OpenRouter
+ * model with when its provider config names no window (instead of the kind's
+ * 128,000 default), and below a configured one. Any listed model, priced or
+ * not; a model that leaves the catalog keeps its last row.
+ */
+export const modelWindows = sqliteTable('model_windows', {
+  model: text('model').primaryKey(),
+  /** OpenRouter's `context_length`: input plus output. */
+  contextTokens: integer('context_tokens').notNull(),
+  /** OpenRouter's `top_provider.max_completion_tokens`; null when not reported. */
+  maxOutputTokens: integer('max_output_tokens'),
+  /** When the row last changed (ISO). */
+  updatedAt: text('updated_at').notNull(),
 });
 
 /** Every price a sync first saw (append-only): one row per new or changed price. */
@@ -711,6 +732,8 @@ export const modelPriceHistory = sqliteTable(
     inMicrosPerMTok: integer('in_micros_per_mtok').notNull(),
     outMicrosPerMTok: integer('out_micros_per_mtok').notNull(),
     contextTokens: integer('context_tokens'),
+    cacheReadMicrosPerMTok: integer('cache_read_micros_per_mtok'),
+    cacheWriteMicrosPerMTok: integer('cache_write_micros_per_mtok'),
     /** ISO. */
     recordedAt: text('recorded_at').notNull(),
   },

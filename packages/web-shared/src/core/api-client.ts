@@ -14,10 +14,14 @@ import type {
   ApiErrorCode,
   BillingSummary,
   Branch,
+  CandidateRequest,
   CheckoutResponse,
+  CommitCandidateResponse,
   CopyToLearnResponse,
   CreateCheckoutRequest,
+  ContextLimitsQuery,
   ContextPlanResponse,
+  InputBudgetResponse,
   CreateBranchRequest,
   CreateLinkRequest,
   CreateShareRequest,
@@ -288,15 +292,25 @@ export class ApiClient {
     return this.json('DELETE', `/branches/${enc(branchId)}`);
   }
 
+  /** `limits`: plan like a send with power's settings (the server ignores them in Learn). */
   getContext(
     branchId: string,
     nodeId: string | null,
     resolve: boolean,
+    limits: ContextLimitsQuery = {},
   ): Promise<ContextPlanResponse> {
     const q = new URLSearchParams();
     if (nodeId) q.set('nodeId', nodeId);
     q.set('resolve', String(resolve));
+    for (const [key, value] of Object.entries(limits)) {
+      if (value !== undefined) q.set(key, String(value));
+    }
     return this.json('GET', `/branches/${enc(branchId)}/context?${q.toString()}`);
+  }
+
+  /** What bounds a message's input on the branch (power's input limit setting). */
+  inputBudget(branchId: string): Promise<InputBudgetResponse> {
+    return this.json('GET', `/branches/${enc(branchId)}/input-budget`);
   }
 
   // Links
@@ -334,6 +348,23 @@ export class ApiClient {
   /** Review the conversation up to an assistant reply; resolves with the open event stream. */
   reviewNode(nodeId: string, req: ReviewRequest, signal: AbortSignal): Promise<Response> {
     return this.stream('POST', `/nodes/${enc(nodeId)}/review`, req, signal);
+  }
+
+  /**
+   * Compare: one model's candidate answer to `req.content` at the branch's
+   * leaf; resolves with the open event stream (CandidateEvent). Nothing is
+   * stored until `commitCandidate`.
+   */
+  streamCandidate(branchId: string, req: CandidateRequest, signal: AbortSignal): Promise<Response> {
+    return this.stream('POST', `/branches/${enc(branchId)}/candidates`, req, signal);
+  }
+
+  /**
+   * Keeps one finished candidate: appends the question and that answer to the
+   * branch. 404 unknown, 409 the branch moved on, 410 expired, 403 on the pool.
+   */
+  commitCandidate(branchId: string, candidateId: string): Promise<CommitCandidateResponse> {
+    return this.json('POST', `/branches/${enc(branchId)}/candidates/${enc(candidateId)}/commit`);
   }
 
   // Shares

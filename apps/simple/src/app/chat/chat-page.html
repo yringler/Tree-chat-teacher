@@ -150,6 +150,9 @@
       <!-- The own key needs a membership the learner lacks: the ways out, not a composer. -->
       <app-key-locked-notice />
     } @else {
+      @if (maxNote(); as note) {
+        <p class="tier-note" role="status">{{ note }}</p>
+      }
       @if (account.fundingChoice()) {
         <app-funding-toggle
           [value]="funding()"
@@ -162,7 +165,9 @@
         [initial]="initialDraft()"
         [disabled]="store.busy()"
         [busy]="store.streamingNode() !== null"
+        [canCompare]="canCompare()"
         (send)="send($event)"
+        (compare)="compare($event)"
         (stop)="stop()"
       />
     }

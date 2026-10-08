@@ -8,6 +8,7 @@ import {
   Icon,
   PoolFirstUseDialog,
 } from '@tangent/web-shared';
+import { CompareDialog } from './chat/compare-dialog';
 import { ConnectDialog } from './chat/connect-dialog';
 import { RouteSync } from './core/route-sync';
 import { DEMO_SIGNUP_URL } from './demo/demo-mode';
@@ -31,6 +32,7 @@ import { UiStore } from './state/ui-store';
     Icon,
     PoolFirstUseDialog,
     ConnectDialog,
+    CompareDialog,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -64,6 +66,9 @@ import { UiStore } from './state/ui-store';
       }
       @if (ui.linkDialog(); as sourceNodeId) {
         <app-connect-dialog [sourceNodeId]="sourceNodeId" />
+      }
+      @if (ui.compare(); as c) {
+        <app-compare-dialog [branchId]="c.branchId" [content]="c.content" />
       }
       @if (ui.poolVerifyOpen()) {
         <app-pool-first-use-dialog (closed)="ui.poolVerifyOpen.set(false)" />

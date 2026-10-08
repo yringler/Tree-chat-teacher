@@ -8,6 +8,10 @@ import {
   MIN_TOP_UP_CENTS,
   POOL_MOTTO,
   poolFundingText,
+  poolModelDifferences,
+  poolModelText,
+  roughWords,
+  type PoolModelInfo,
 } from '@tangent/shared';
 import type { GroundingPolicy } from '@tangent/core';
 import { Hono, type Context } from 'hono';
@@ -15,12 +19,11 @@ import { groundingDailyCap, groundingPolicy } from '../billing/grounding.js';
 import { membershipCreditCents, membershipRequired } from '../billing/membership.js';
 import { appConfig, type PoolDailyCaps } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
-import { poolModel } from '../pool/params.js';
-import { cachedPoolStatus } from '../pool/status.js';
+import { cachedPoolStatus, poolModelInfo } from '../pool/status.js';
 import { waitUntilOf } from '../routes/pool.js';
 import { creditSold, ownKeyProviders, poolAvailable } from '../services.js';
-import { learnOffer, simpleProviderConfig, type LearnOffer } from '../simple-mode.js';
-import { joinList, LANDING_STYLE, MARK, poolStepsHtml, roughWords, styleCsp } from './landing.js';
+import { learnOffer, type LearnOffer } from '../simple-mode.js';
+import { joinList, LANDING_STYLE, MARK, poolStepsHtml, styleCsp } from './landing.js';
 import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
 
 /**
@@ -40,12 +43,23 @@ import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
  * the pool has credit, with its balance from the landing page's cached meter.
  */
 
+/**
+ * The pool's model as a noun phrase: "the Normal model" when the pool asks
+ * the tier's model the same way (or runs a model of its own), else "Normal's
+ * model with lighter thinking and shorter replies" (`poolModelText`).
+ */
+function poolModelNoun(model: PoolModelInfo, opts: { replies?: boolean } = {}): string {
+  return poolModelDifferences(model, opts).length === 0
+    ? `the ${model.label} model`
+    : poolModelText(model, opts);
+}
+
 /** Everything the page states, resolved from the config (one place, for the tests too). */
 export interface PricingFacts {
   /** The open pool, while Learn may spend from it (`poolAvailable`). */
   pool: {
-    modelId: string;
-    modelLabel: string;
+    /** The pool's model and how it is asked against the tier that runs it (`poolModelInfo`). */
+    model: PoolModelInfo;
     revenueShareBps: number;
     maxOutputTokens: number;
     /** Each learner's daily caps, the same for everyone. */
@@ -68,7 +82,7 @@ export interface PricingFacts {
   grounding: GroundingPolicy;
   /** A search costs about 1¢ (`LearnOffer.searchAboutOneCent`). */
   searchAboutOneCent: boolean;
-  /** Learn's models, the default first (`LearnOffer.tiers`); fewer than two = no choice of tier. */
+  /** Learn's models, Normal then Max (`LearnOffer.tiers`); fewer than two = no choice of tier. */
   tiers: LearnOffer['tiers'];
   /** Automatic web searches a user may run per UTC day on credit (`GROUNDING_AUTO_DAILY_CAP`); 0 = no cap. */
   searchDailyCap: number;
@@ -84,14 +98,11 @@ export function pricingFacts(
   poolAvailableMicros: number | null = null,
 ): PricingFacts {
   const config = appConfig(env);
-  const poolId = poolModel(env);
   const offer = learnOffer(env);
   return {
     pool: poolAvailable(env)
       ? {
-          modelId: poolId,
-          modelLabel:
-            simpleProviderConfig(env).models.find((m) => m.id === poolId)?.label ?? poolId,
+          model: poolModelInfo(env),
           revenueShareBps: config.pool.revenueShareBps,
           maxOutputTokens: config.pool.maxOutputTokens,
           caps: config.pool.caps.user,
@@ -229,7 +240,7 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, string>> {
     'own-key': `With your own key, the AI provider bills you directly, at its own prices, and Tangent adds nothing to that bill. Learn takes an OpenRouter key${searches ? ', which also works for web search' : ''}${others ? `; power mode also takes ${others} keys` : ''}.${membership ? ' Your own keys need the membership, in Learn and in power mode alike.' : ''}`,
   };
   if (pool) {
-    texts.pool = `${escapeHtml(poolFundingText(pool.revenueShareBps))} Pool replies use the ${escapeHtml(pool.modelLabel)} model, are at most ${pool.maxOutputTokens.toLocaleString('en-US')} tokens long (roughly ${roughWords(pool.maxOutputTokens)} words) and don’t search the web. While the pool has credit, each learner can use up to ${pool.caps.requestsPerDay.toLocaleString('en-US')} replies or ${escapeHtml(formatMicros(pool.caps.spendMicrosPerDay))} of AI cost a day, whichever comes first. The limits are the same for everyone, whatever else they pay for, and reset at 00:00 UTC. You need to be signed in and pass a quick check that you’re human, with one account per email address. <a href="/pool">How the pool works, with every limit</a>.`;
+    texts.pool = `${escapeHtml(poolFundingText(pool.revenueShareBps))} Pool replies use ${escapeHtml(poolModelNoun(pool.model, { replies: false }))}, are at most ${pool.maxOutputTokens.toLocaleString('en-US')} tokens long (roughly ${roughWords(pool.maxOutputTokens)} words) and don’t search the web. While the pool has credit, each learner can use up to ${pool.caps.requestsPerDay.toLocaleString('en-US')} replies or ${escapeHtml(formatMicros(pool.caps.spendMicrosPerDay))} of AI cost a day, whichever comes first. The limits are the same for everyone, whatever else they pay for, and reset at 00:00 UTC. You need to be signed in and pass a quick check that you’re human, with one account per email address. <a href="/pool">How the pool works, with every limit</a>.`;
   }
   if (credit) {
     const share =
@@ -340,7 +351,7 @@ function whyFreeSection(pool: NonNullable<PricingFacts['pool']>, memberships: bo
 <div class="wrap">
 <p class="eyebrow">The open pool</p>
 <h2 id="why">Why there’s a free plan</h2>
-<p class="sub">${escapeHtml(POOL_MOTTO)} Free replies come from the open pool: ${source}. They use the ${escapeHtml(pool.modelLabel)} model, have daily limits, and are available only while the pool has credit. <a href="/pool">How the pool works</a></p>
+<p class="sub">${escapeHtml(POOL_MOTTO)} Free replies come from the open pool: ${source}. They use ${escapeHtml(poolModelNoun(pool.model))}. They have daily limits and are available only while the pool has credit. <a href="/pool">How the pool works</a></p>
 ${poolStepsHtml(pool.revenueShareBps, memberships)}
 </div>
 </section>
@@ -423,9 +434,9 @@ export function renderPricingPage(info: LegalInfo, f: PricingFacts): string {
     ...(credit ? [{ id: 'credit' as const, name: 'Pay as you go' }] : []),
     ...(membership ? [{ id: 'key' as const, name: 'Your own key' }] : []),
   ];
-  // Learn's deeper tier, when it has a choice of models, and whether the pool runs it.
-  const top = f.tiers.length >= 2 ? f.tiers[0]! : null;
-  const poolHasTop = top !== null && pool?.modelId === top.id;
+  // Learn's Max tier, when it has a choice of models, and whether the pool runs it.
+  const top = f.tiers.length >= 2 ? (f.tiers.find((t) => t.tier === 'max') ?? null) : null;
+  const poolHasTop = top !== null && pool?.model.id === top.id;
   const anyModel = credit?.openRouter ? 'any OpenRouter model' : 'your choice of model';
 
   // Built top to bottom, so the notes number in reading order.
@@ -495,7 +506,7 @@ ${credit && membership.includedCreditCents > 0 ? `<li>${escapeHtml(formatCents(m
   if (top) {
     const onPool = poolHasTop ? 'On the open pool' : '';
     learn.push({
-      label: `The ${escapeHtml(top.label)} tier${top.label === 'Smart' ? ', for deeper explanations' : ''}`,
+      label: `The ${escapeHtml(top.label)} tier${top.tier === 'max' ? ', for the hardest questions' : ''}`,
       free: keysFree ? `${onPool ? `${onPool} or your key` : 'On your key'}` : onPool || false,
       credit: true,
       key: true,

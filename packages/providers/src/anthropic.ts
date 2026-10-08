@@ -8,9 +8,10 @@ import {
   type ProviderConfig,
   type ProviderErrorCode,
   type ProviderEvent,
-  type TokenUsage,
+  type ProviderUsage,
   type WebSearchRequest,
 } from '@tangent/shared';
+import { markLastMessage, promptCacheOption, withBreakpoint, withTurnInstructions } from './prompt-cache.js';
 import type { ProviderEnv } from './registry.js';
 import { parseSse } from './sse.js';
 import {
@@ -101,12 +102,33 @@ function inputTokensOf(usage: Record<string, unknown>): number | undefined {
   return base + (num(usage['cache_creation_input_tokens']) ?? 0) + (num(usage['cache_read_input_tokens']) ?? 0);
 }
 
+/** A `usage` object as our usage fields (only those reported). */
+function usageOf(usage: Record<string, unknown>): Partial<ProviderUsage> {
+  const u: Partial<ProviderUsage> = {};
+  const input = inputTokensOf(usage);
+  if (input !== undefined) u.inputTokens = input;
+  const output = num(usage['output_tokens']);
+  if (output !== undefined) u.outputTokens = output;
+  const read = num(usage['cache_read_input_tokens']);
+  if (read !== undefined) u.cacheReadTokens = read;
+  const write = num(usage['cache_creation_input_tokens']);
+  if (write !== undefined) u.cacheWriteTokens = write;
+  return u;
+}
+
 /**
  * Anthropic Messages API over raw fetch + SSE (POST {baseUrl}/v1/messages,
  * `anthropic-version: 2023-06-01`). Default baseUrl https://api.anthropic.com;
  * set baseUrl to an AI Gateway URL (…/{account}/{gateway}/anthropic) to route
  * through Cloudflare AI Gateway. Implements countTokens via
  * /v1/messages/count_tokens. Does not send `temperature` or assistant prefill.
+ *
+ * Prompt caching (prompt-cache.ts): `cache_control` breakpoints on the system
+ * prompt and on the latest message, unless `options.promptCache` is false
+ * (e.g. a proxy that rejects them). `request.turnInstructions` follow the
+ * latest message as a separate text part after its breakpoint
+ * (`withTurnInstructions`). Usage reports the input total
+ * (uncached + cache writes + cache reads) and the cache reads and writes.
  *
  * Web search (when `options.webSearch` is true and the request has
  * `webSearch`): sends Anthropic's `web_search` server tool, reports the
@@ -142,6 +164,7 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
 
   const messagesOf = (request: Pick<GenerateRequest, 'messages'>) =>
     request.messages.map((m) => ({ role: m.role, content: m.content }));
+  const promptCache = promptCacheOption(config.options) !== false;
 
   function stream(request: GenerateRequest): AsyncIterable<ProviderEvent> {
     const built = buildHeaders();
@@ -154,8 +177,12 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
         model: request.model,
         max_tokens: request.maxOutputTokens ?? caps.maxOutputTokens,
       };
-      if (request.system !== null) body['system'] = request.system;
-      body['messages'] = messagesOf(request);
+      if (request.system !== null)
+        body['system'] = promptCache ? withBreakpoint(request.system) : request.system;
+      body['messages'] = withTurnInstructions(
+        promptCache ? markLastMessage(messagesOf(request)) : messagesOf(request),
+        request.turnInstructions,
+      );
       const webSearch = request.webSearch && caps.supportsWebSearch ? request.webSearch : null;
       if (webSearch) body['tools'] = [webSearchTool(webSearch)];
       body['stream'] = true;
@@ -195,11 +222,7 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
             const message = data['message'];
             const usage = isRecord(message) ? message['usage'] : undefined;
             if (isRecord(usage)) {
-              const u: Partial<TokenUsage> = {};
-              const input = inputTokensOf(usage);
-              if (input !== undefined) u.inputTokens = input;
-              const output = num(usage['output_tokens']);
-              if (output !== undefined) u.outputTokens = output;
+              const u = usageOf(usage);
               if (Object.keys(u).length > 0) yield { type: 'usage', usage: u };
             }
             break;
@@ -234,11 +257,7 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
             if (isRecord(delta) && typeof delta['stop_reason'] === 'string') stopReason = delta['stop_reason'];
             const usage = data['usage'];
             if (isRecord(usage)) {
-              const u: Partial<TokenUsage> = {};
-              const output = num(usage['output_tokens']);
-              if (output !== undefined) u.outputTokens = output;
-              const input = inputTokensOf(usage);
-              if (input !== undefined) u.inputTokens = input;
+              const u = usageOf(usage);
               if (Object.keys(u).length > 0) yield { type: 'usage', usage: u };
               const stu = usage['server_tool_use'];
               const webSearches = isRecord(stu) ? num(stu['web_search_requests']) : undefined;

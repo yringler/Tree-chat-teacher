@@ -1,7 +1,11 @@
 import {
+  isReasoningEffort,
   OPEN_MODEL_ID_PATTERN,
+  REASONING_EFFORTS,
+  TIERS,
   type LlmProvider,
   type ModelInfo,
+  type ModelTier,
   type ProviderConfig,
   type ProviderError,
   type ProviderInfo,
@@ -64,8 +68,12 @@ const MODEL_KEYS: ReadonlySet<string> = new Set([
   'label',
   'maxContextTokens',
   'maxOutputTokens',
+  // `usageFactor` is computed by the server from prices, never configured.
+  'tier',
+  'reasoning',
+  'effort',
+  'providerOrder',
 ]);
-
 class ConfigError extends Error {
   constructor(path: string, problem: string) {
     super(`Invalid provider config: ${path} ${problem}`);
@@ -136,7 +144,40 @@ function parseModel(v: unknown, path: string): ModelInfo {
   if (ctx !== undefined) m.maxContextTokens = ctx;
   const out = optPositiveInt(v, 'maxOutputTokens', path);
   if (out !== undefined) m.maxOutputTokens = out;
+  const tier = v['tier'];
+  if (tier !== undefined) {
+    if (typeof tier !== 'string' || !(TIERS as readonly string[]).includes(tier))
+      throw new ConfigError(`${path}.tier`, 'must be "normal" or "max"');
+    m.tier = tier as ModelTier;
+  }
+  const reasoning = v['reasoning'];
+  if (reasoning !== undefined) {
+    if (typeof reasoning !== 'boolean')
+      throw new ConfigError(`${path}.reasoning`, 'must be a boolean');
+    m.reasoning = reasoning;
+  }
+  const effort = v['effort'];
+  if (effort !== undefined) {
+    if (!isReasoningEffort(effort))
+      throw new ConfigError(
+        `${path}.effort`,
+        `must be one of ${REASONING_EFFORTS.map((e) => `"${e}"`).join(', ')}`,
+      );
+    m.effort = effort;
+  }
+  const order = v['providerOrder'];
+  if (order !== undefined) {
+    if (!Array.isArray(order) || !order.every((p) => typeof p === 'string' && p.trim() !== ''))
+      throw new ConfigError(`${path}.providerOrder`, 'must be an array of non-empty strings');
+    m.providerOrder = order.map((p: string) => p.trim());
+  }
   return m;
+}
+
+/** A model as clients see it: without the server-side request settings (`effort`, `providerOrder`). */
+function publicModel(model: ModelInfo): ModelInfo {
+  const { effort: _effort, providerOrder: _order, ...rest } = model;
+  return rest;
 }
 
 function parseConfig(v: unknown, path: string): ProviderConfig {
@@ -388,7 +429,7 @@ export function createProviderRegistry(
         id: provider.id,
         kind: provider.kind,
         label: provider.label,
-        models: provider.models(),
+        models: provider.models().map(publicModel),
         defaultModel: provider.defaultModel(),
         openModels: config.openModels === true,
         available,

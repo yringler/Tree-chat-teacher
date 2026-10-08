@@ -6,9 +6,11 @@ import {
   POOL_AT_COST_TEXT,
   POOL_EMPTY_TEXT,
   POOL_MOTTO,
+  poolModelText,
   poolSessionsHeadline,
   poolSteps,
   poolWeekText,
+  type ModelTier,
   type PoolImpactResponse,
   type PoolStatusResponse,
 } from '@tangent/shared';
@@ -199,13 +201,8 @@ export interface LandingPageOptions {
   credit?: { markupBps: number; openRouter: boolean };
   /** Who power mode takes the user's own keys for (`ownKeyProviders` labels); empty = a generic phrase. */
   providers?: readonly string[];
-  /** Learn's models, the default first (`LearnOffer.tiers` labels); fewer than two = no choice to describe. */
-  tiers?: readonly string[];
-}
-
-/** About how many English words `tokens` tokens make (¾ of a word each), to the nearest 50: `750` for 1,024. */
-export function roughWords(tokens: number): string {
-  return Math.max(50, Math.round((tokens * 0.75) / 50) * 50).toLocaleString('en-US');
+  /** Learn's models, Normal then Max (`LearnOffer.tiers`); fewer than two = no choice to describe. */
+  tiers?: readonly { label: string; tier?: ModelTier }[];
 }
 
 /** `A`, `A or B`, `A, B or C` (or `and`). */
@@ -340,10 +337,17 @@ function learnItems(opts: LandingPageOptions): string[] {
   const tiers = opts.tiers ?? [];
   if (tiers.length >= 2) {
     const choice =
-      tiers.length === 2 && tiers[0] === 'Smart' && tiers[1] === 'Simple'
-        ? 'Two tiers: Smart for deeper explanations, Simple for quicker, cheaper answers'
-        : `A choice of models: ${escapeHtml(joinList(tiers, 'and'))}`;
-    items.push(pool ? `${choice} (the free pool uses ${escapeHtml(pool.model.label)})` : choice);
+      tiers.length === 2 && tiers[0]?.tier === 'normal' && tiers[1]?.tier === 'max'
+        ? `Two tiers: ${escapeHtml(tiers[0].label)} for everyday learning, ${escapeHtml(tiers[1].label)} for the hardest questions`
+        : `A choice of models: ${escapeHtml(
+            joinList(
+              tiers.map((t) => t.label),
+              'and',
+            ),
+          )}`;
+    items.push(
+      pool ? `${choice} (the free pool uses ${escapeHtml(poolModelText(pool.model))})` : choice,
+    );
   }
   if (pool)
     items.push(
@@ -563,7 +567,7 @@ async function landingResponse(
     ? { markupBps: appConfig(c.env).billing.markupBps, openRouter: offer?.openRouter ?? false }
     : undefined;
   const providers = ownKeyProviders(c.env).map((p) => p.label);
-  const tiers = offer?.tiers.map((t) => t.label) ?? [];
+  const tiers = offer?.tiers ?? [];
   const page = renderLandingPage({
     canonicalUrl,
     operator,

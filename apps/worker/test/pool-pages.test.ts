@@ -78,7 +78,9 @@ describe('GET /api/pool/status', () => {
       enabled: true,
       availableMicros: 1_000_000,
       sessionsRemaining: Math.floor(1_000_000 / config.pool.sessionEstimateMicros),
-      model: { id: 'simple', label: expect.any(String) },
+      // The fake's Normal, asked with the pool's effort (`POOL_EFFORT`, which the fake's
+      // listing doesn't set) and its shorter reply cap.
+      model: { id: 'simple', label: 'Normal', thinking: 'other', replies: 'shorter' },
       week: { start: weekStart(new Date()).toISOString(), exchanges: 0, learners: 0 },
       revenueShareBps: 2000,
     });
@@ -222,8 +224,10 @@ describe('the landing page’s pool meter', () => {
     expect(html).toContain(
       '<li>Learn free on the open pool, within daily limits, on credit Tangent provides from its earnings</li>',
     );
-    // The Learn card names the pool's model: Smart needs a key or credit.
-    expect(html).toContain('(the free pool uses Simple)');
+    // The Learn card names the pool's model (the fake's Normal) and how the pool asks it.
+    expect(html).toContain(
+      '(the free pool uses Normal&#39;s model with a different thinking setting and shorter replies)',
+    );
     // Nothing to buy for the pool.
     expect(html).not.toContain('fund-pool');
     expect(html).not.toMatch(

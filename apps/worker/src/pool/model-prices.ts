@@ -17,8 +17,20 @@
 // costs and trip the overage breaker. An operator who confirms such a drop
 // sets it in `MODEL_PRICES`. A failed fetch, or a model missing from the list,
 // keeps the stored price.
+//
+// Prompt caching: the sync also stores OpenRouter's cache prices
+// (`input_cache_read`, `input_cache_write`) when listed. Like the input and
+// output prices, a synced cache price replaces the built-in placeholder's, and
+// an explicit `MODEL_PRICES` entry wins over both. A cache price neither gives
+// falls back: a write to 1.25× the input price on explicit-cache (Anthropic)
+// models (`withCacheWritePrice`), else the input price; a read to the input
+// price. They only matter for holds and token-priced settlements: a reported
+// or looked-up cost already includes them. A cache price that drops to under
+// 1/`MAX_PRICE_DROP_FACTOR` of the stored one is held back like the others.
+import { EXPLICIT_CACHE_WRITE_MULTIPLIER, usesExplicitCacheControl } from '@tangent/providers';
 import { appConfig, type ModelPrice } from '../config.js';
 import type { AppEnv } from '../env.js';
+import { syncModelWindows } from '../model-windows.js';
 import { poolModel } from './params.js';
 
 export const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
@@ -34,6 +46,10 @@ export interface ListPrice {
   outMicrosPerMTok: number;
   /** OpenRouter's `context_length`; null when not reported. */
   contextTokens: number | null;
+  /** OpenRouter's `input_cache_read`; null when not listed (or unusable). */
+  cacheReadMicrosPerMTok: number | null;
+  /** OpenRouter's `input_cache_write`; null when not listed (or unusable). */
+  cacheWriteMicrosPerMTok: number | null;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -60,7 +76,8 @@ export function usdPerTokenToMicrosPerMTok(raw: unknown): number | null {
 
 /**
  * The list prices in a `GET /api/v1/models` body, by model id; null for a
- * listed model whose price is unusable. Throws on a body without `data`.
+ * listed model whose input or output price is unusable (an unusable cache
+ * price is just null). Throws on a body without `data`.
  */
 export function parseListPrices(body: unknown): Map<string, ListPrice | null> {
   const data = isRecord(body) ? body['data'] : undefined;
@@ -83,16 +100,22 @@ export function parseListPrices(body: unknown): Map<string, ListPrice | null> {
               typeof context === 'number' && Number.isSafeInteger(context) && context > 0
                 ? context
                 : null,
+            cacheReadMicrosPerMTok: usdPerTokenToMicrosPerMTok(
+              isRecord(pricing) ? pricing['input_cache_read'] : undefined,
+            ),
+            cacheWriteMicrosPerMTok: usdPerTokenToMicrosPerMTok(
+              isRecord(pricing) ? pricing['input_cache_write'] : undefined,
+            ),
           },
     );
   }
   return prices;
 }
 
-/** `GET /api/v1/models` (public, no key). Throws on network failure, non-2xx or a malformed body. */
-export async function fetchListPrices(
+/** `GET /api/v1/models` (public, no key), its body as JSON. Throws on network failure or non-2xx. */
+export async function fetchModelsList(
   fetchImpl: typeof fetch = (input, init) => globalThis.fetch(input, init),
-): Promise<Map<string, ListPrice | null>> {
+): Promise<unknown> {
   const res = await fetchImpl(OPENROUTER_MODELS_URL, {
     headers: { accept: 'application/json' },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -101,7 +124,14 @@ export async function fetchListPrices(
     await res.body?.cancel().catch(() => undefined);
     throw new Error(`OpenRouter models list failed: HTTP ${res.status}`);
   }
-  return parseListPrices(await res.json());
+  return res.json();
+}
+
+/** The list prices of `GET /api/v1/models`. Throws on network failure, non-2xx or a malformed body. */
+export async function fetchListPrices(
+  fetchImpl?: typeof fetch,
+): Promise<Map<string, ListPrice | null>> {
+  return parseListPrices(await fetchModelsList(fetchImpl));
 }
 
 interface PriceRow {
@@ -109,6 +139,8 @@ interface PriceRow {
   in_micros_per_mtok: number;
   out_micros_per_mtok: number;
   context_tokens: number | null;
+  cache_read_micros_per_mtok: number | null;
+  cache_write_micros_per_mtok: number | null;
 }
 
 function listPriceOf(row: PriceRow): ListPrice {
@@ -116,6 +148,8 @@ function listPriceOf(row: PriceRow): ListPrice {
     inMicrosPerMTok: row.in_micros_per_mtok,
     outMicrosPerMTok: row.out_micros_per_mtok,
     contextTokens: row.context_tokens,
+    cacheReadMicrosPerMTok: row.cache_read_micros_per_mtok,
+    cacheWriteMicrosPerMTok: row.cache_write_micros_per_mtok,
   };
 }
 
@@ -123,7 +157,9 @@ function listPriceOf(row: PriceRow): ListPrice {
 export async function storedPrice(db: D1Database, model: string): Promise<ListPrice | null> {
   const row = await db
     .prepare(
-      'SELECT model, in_micros_per_mtok, out_micros_per_mtok, context_tokens FROM model_prices WHERE model = ?1',
+      `SELECT model, in_micros_per_mtok, out_micros_per_mtok, context_tokens,
+         cache_read_micros_per_mtok, cache_write_micros_per_mtok
+       FROM model_prices WHERE model = ?1`,
     )
     .bind(model)
     .first<PriceRow>();
@@ -138,16 +174,16 @@ export async function modelPrice(env: AppEnv, model: string): Promise<ModelPrice
   const config = appConfig(env);
   const entry = config.prices[model];
   if (!entry) return null;
-  if (config.priceOverrides.includes(model)) return entry;
+  if (config.priceOverrides.includes(model)) return withCacheWritePrice(model, entry);
   let synced: ListPrice | null;
   try {
     synced = await storedPrice(env.DB, model);
   } catch (e) {
     console.error(`Synced price of ${model} could not be read; using the configured one`, e);
-    return entry;
+    return withCacheWritePrice(model, entry);
   }
-  if (!synced) return entry;
-  return {
+  if (!synced) return withCacheWritePrice(model, entry);
+  const price: ModelPrice = {
     ...entry,
     inMicrosPerMTok: synced.inMicrosPerMTok,
     outMicrosPerMTok: synced.outMicrosPerMTok,
@@ -156,6 +192,25 @@ export async function modelPrice(env: AppEnv, model: string): Promise<ModelPrice
         ? entry.contextTokens
         : Math.min(entry.contextTokens, synced.contextTokens),
   };
+  if (synced.cacheReadMicrosPerMTok !== null)
+    price.cacheReadMicrosPerMTok = synced.cacheReadMicrosPerMTok;
+  if (synced.cacheWriteMicrosPerMTok !== null)
+    price.cacheWriteMicrosPerMTok = synced.cacheWriteMicrosPerMTok;
+  return withCacheWritePrice(model, price);
+}
+
+/**
+ * `price` with a cache-write price: its own, else, for a model whose requests
+ * carry explicit cache breakpoints (Anthropic's), the input price × 1.25
+ * (rounded up), so holds and token-priced charges cover the write premium.
+ * Other models write at the input price (or free), so they need none.
+ */
+export function withCacheWritePrice(model: string, price: ModelPrice): ModelPrice {
+  if (price.cacheWriteMicrosPerMTok !== undefined || !usesExplicitCacheControl(model)) return price;
+  return {
+    ...price,
+    cacheWriteMicrosPerMTok: Math.ceil(price.inMicrosPerMTok * EXPLICIT_CACHE_WRITE_MULTIPLIER),
+  };
 }
 
 /** The models the sync tracks: every configured price, and the pool model. */
@@ -163,11 +218,21 @@ export function trackedModels(env: AppEnv): string[] {
   return [...new Set([...Object.keys(appConfig(env).prices), poolModel(env)])];
 }
 
-/** Whether `next` drops either price to under 1/`MAX_PRICE_DROP_FACTOR` of `prev`. */
+/** Whether `next` is under 1/`MAX_PRICE_DROP_FACTOR` of `prev` (both known). */
+function droppedTooFar(prev: number | null, next: number | null): boolean {
+  return prev !== null && next !== null && next * MAX_PRICE_DROP_FACTOR < prev;
+}
+
+/**
+ * Whether `next` drops any price (input, output, or a cache price both list)
+ * to under 1/`MAX_PRICE_DROP_FACTOR` of `prev`.
+ */
 export function isAnomalousDrop(prev: ListPrice, next: ListPrice): boolean {
   return (
-    next.inMicrosPerMTok * MAX_PRICE_DROP_FACTOR < prev.inMicrosPerMTok ||
-    next.outMicrosPerMTok * MAX_PRICE_DROP_FACTOR < prev.outMicrosPerMTok
+    droppedTooFar(prev.inMicrosPerMTok, next.inMicrosPerMTok) ||
+    droppedTooFar(prev.outMicrosPerMTok, next.outMicrosPerMTok) ||
+    droppedTooFar(prev.cacheReadMicrosPerMTok, next.cacheReadMicrosPerMTok) ||
+    droppedTooFar(prev.cacheWriteMicrosPerMTok, next.cacheWriteMicrosPerMTok)
   );
 }
 
@@ -175,8 +240,34 @@ function samePrice(a: ListPrice, b: ListPrice): boolean {
   return (
     a.inMicrosPerMTok === b.inMicrosPerMTok &&
     a.outMicrosPerMTok === b.outMicrosPerMTok &&
-    a.contextTokens === b.contextTokens
+    a.contextTokens === b.contextTokens &&
+    a.cacheReadMicrosPerMTok === b.cacheReadMicrosPerMTok &&
+    a.cacheWriteMicrosPerMTok === b.cacheWriteMicrosPerMTok
   );
+}
+
+/** Whether an override prices any of input, output or a listed cache price below the list. */
+function isBelowList(override: ModelPrice, listed: ListPrice): boolean {
+  const below = (own: number | undefined, list: number | null) =>
+    own !== undefined && list !== null && own < list;
+  return (
+    override.inMicrosPerMTok < listed.inMicrosPerMTok ||
+    override.outMicrosPerMTok < listed.outMicrosPerMTok ||
+    below(override.cacheReadMicrosPerMTok, listed.cacheReadMicrosPerMTok) ||
+    below(override.cacheWriteMicrosPerMTok, listed.cacheWriteMicrosPerMTok)
+  );
+}
+
+/** The stored columns of `model`'s list price, in table order (before the timestamp). */
+function priceColumns(model: string, p: ListPrice): (string | number | null)[] {
+  return [
+    model,
+    p.inMicrosPerMTok,
+    p.outMicrosPerMTok,
+    p.contextTokens,
+    p.cacheReadMicrosPerMTok,
+    p.cacheWriteMicrosPerMTok,
+  ];
 }
 
 export interface PriceSyncResult {
@@ -194,6 +285,9 @@ export interface PriceSyncResult {
  * The daily price sync: fetches OpenRouter's list prices and stores those of
  * the tracked models (see the header for what is held back). Throws when the
  * list can't be fetched or D1 can't be written; nothing is stored then.
+ * From the same list it then stores every model's context window
+ * (model-windows.ts `syncModelWindows`); a failure there is logged and
+ * leaves the prices stored.
  */
 export async function syncModelPrices(
   env: AppEnv,
@@ -202,7 +296,8 @@ export async function syncModelPrices(
 ): Promise<PriceSyncResult> {
   const config = appConfig(env);
   const models = trackedModels(env);
-  const list = await fetchListPrices(fetchImpl);
+  const body = await fetchModelsList(fetchImpl);
+  const list = parseListPrices(body);
   const at = now.toISOString();
   const result: PriceSyncResult = { changed: [], unchanged: [], missing: [], anomalies: [] };
   const writes: D1PreparedStatement[] = [];
@@ -224,11 +319,7 @@ export async function syncModelPrices(
     }
     // An override below the list price under-holds: real costs exceed the holds.
     const override = config.priceOverrides.includes(model) ? config.prices[model] : undefined;
-    if (
-      override &&
-      (override.inMicrosPerMTok < next.inMicrosPerMTok ||
-        override.outMicrosPerMTok < next.outMicrosPerMTok)
-    ) {
+    if (override && isBelowList(override, next)) {
       console.warn(
         JSON.stringify({ event: 'price_override_below_list', model, override, listed: next }),
       );
@@ -237,12 +328,16 @@ export async function syncModelPrices(
     (changed ? result.changed : result.unchanged).push(model);
     writes.push(
       env.DB.prepare(
-        `INSERT INTO model_prices (model, in_micros_per_mtok, out_micros_per_mtok, context_tokens, fetched_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)
+        `INSERT INTO model_prices (model, in_micros_per_mtok, out_micros_per_mtok, context_tokens,
+           cache_read_micros_per_mtok, cache_write_micros_per_mtok, fetched_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
          ON CONFLICT (model) DO UPDATE SET in_micros_per_mtok = excluded.in_micros_per_mtok,
            out_micros_per_mtok = excluded.out_micros_per_mtok,
-           context_tokens = excluded.context_tokens, fetched_at = excluded.fetched_at`,
-      ).bind(model, next.inMicrosPerMTok, next.outMicrosPerMTok, next.contextTokens, at),
+           context_tokens = excluded.context_tokens,
+           cache_read_micros_per_mtok = excluded.cache_read_micros_per_mtok,
+           cache_write_micros_per_mtok = excluded.cache_write_micros_per_mtok,
+           fetched_at = excluded.fetched_at`,
+      ).bind(...priceColumns(model, next), at),
     );
     if (changed) {
       if (prev) {
@@ -251,14 +346,18 @@ export async function syncModelPrices(
       writes.push(
         env.DB.prepare(
           `INSERT OR IGNORE INTO model_price_history
-             (model, in_micros_per_mtok, out_micros_per_mtok, context_tokens, recorded_at)
-           VALUES (?1, ?2, ?3, ?4, ?5)`,
-        ).bind(model, next.inMicrosPerMTok, next.outMicrosPerMTok, next.contextTokens, at),
+             (model, in_micros_per_mtok, out_micros_per_mtok, context_tokens,
+              cache_read_micros_per_mtok, cache_write_micros_per_mtok, recorded_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+        ).bind(...priceColumns(model, next), at),
       );
     }
   }
 
   if (writes.length > 0) await env.DB.batch(writes);
   console.log(JSON.stringify({ event: 'price_sync', ...result }));
+  await syncModelWindows(env, now, body).catch((e: unknown) => {
+    console.error('Model window sync failed; the stored windows stay', e);
+  });
   return result;
 }

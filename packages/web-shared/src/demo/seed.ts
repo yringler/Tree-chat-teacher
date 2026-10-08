@@ -1,7 +1,7 @@
 import type { MemoryState } from '@tangent/core/testing';
 import type { Branch, ChatNode, NodeLink, Tree, UsageEntry } from '@tangent/shared';
 import { formatTangents } from '@tangent/shared';
-import { DEMO_PROVIDER_ID, DEMO_SMART_MODEL } from './lorem';
+import { DEMO_PROVIDER_ID, DEMO_SIMPLE_MODEL } from './lorem';
 
 /*
  * The example lesson the demo starts with: a few turns on the main thread,
@@ -98,7 +98,7 @@ export function seedDemoLesson(
     contextMode: 'path' as const,
     isPrivate: false,
     providerId: DEMO_PROVIDER_ID,
-    model: DEMO_SMART_MODEL,
+    model: DEMO_SIMPLE_MODEL,
     funding: 'own-key' as const,
     createdAt: created,
     updatedAt: created,

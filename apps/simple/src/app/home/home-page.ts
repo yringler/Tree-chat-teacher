@@ -1,7 +1,15 @@
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { poolFundingText, type PoolStatusResponse, type TreeSummary } from '@tangent/shared';
+import {
+  maxUsageNote,
+  poolFundingText,
+  poolModelText,
+  tierModel,
+  tierOf,
+  type PoolStatusResponse,
+  type TreeSummary,
+} from '@tangent/shared';
 import { Icon, PoolMeter } from '@tangent/web-shared';
 import { Composer } from '../chat/composer';
 import { lessonTitle } from '../chat/titles';
@@ -81,6 +89,9 @@ import { UiStore } from '../state/ui-store';
                 </button>
               </div>
             </div>
+            @if (maxNote(); as note) {
+              <p class="tier-note" role="status">{{ note }}</p>
+            }
           }
         </form>
       </section>
@@ -90,7 +101,7 @@ import { UiStore } from '../state/ui-store';
           <h2 id="pool-title">Open pool</h2>
           <app-pool-meter [status]="status" />
           <p class="muted small">
-            {{ funding(status) }} Any signed-in learner can use it, on {{ status.model.label }},
+            {{ funding(status) }} Any signed-in learner can use it, on {{ poolModelName(status) }},
             within daily limits. <a href="/pool" target="_blank" rel="noopener">How it works</a>
           </p>
         </section>
@@ -154,8 +165,14 @@ export class HomePage {
   protected readonly topic = signal('');
   protected readonly pickedModel = signal<string | null>(null);
   protected readonly starting = signal(false);
-  /** The learner's pick, else the provider's default ("Smart"). */
+  /** The learner's pick, else the provider's default (Normal). */
   protected readonly model = computed(() => this.pickedModel() ?? this.store.defaultModel());
+  /** "Max uses about 14× as much as Normal." while Max is picked (not on the pool, which picks for them). */
+  protected readonly maxNote = computed(() => {
+    const models = this.store.models();
+    if (this.account.poolModel() || tierOf(models, this.model()) !== 'max') return null;
+    return maxUsageNote(tierModel(models, 'max')?.usageFactor);
+  });
   /** The open pool's meter while the pool is on (never in the demo, where it is off). */
   protected readonly pool = computed(() => {
     const status = this.account.poolStatus();
@@ -163,6 +180,11 @@ export class HomePage {
   });
 
   /** Where the pool's credit comes from: Tangent's revenue share (`POOL_REVENUE_SHARE_BPS`). */
+  /** The pool's model, as the copy names it (`poolModelText`). */
+  protected poolModelName(status: PoolStatusResponse): string {
+    return poolModelText(status.model);
+  }
+
   protected funding(status: PoolStatusResponse): string {
     return poolFundingText(status.revenueShareBps);
   }

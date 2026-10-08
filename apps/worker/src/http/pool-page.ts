@@ -6,7 +6,10 @@ import {
   POOL_IMPACT_WEEK_PATTERN,
   poolFundingText,
   poolImpactWeekText,
+  poolModelDifferences,
   type PoolImpactResponse,
+  type PoolModelInfo,
+  roughWords,
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import { membershipRequired } from '../billing/membership.js';
@@ -17,11 +20,10 @@ import { modelPrice } from '../pool/model-prices.js';
 import { poolModel } from '../pool/params.js';
 import { ceilingHoldMicros } from '../pool/pricing.js';
 import { poolContributions } from '../pool/revenue-share.js';
-import { weekStart } from '../pool/status.js';
+import { poolModelInfo, weekStart } from '../pool/status.js';
 import { creditSold } from '../services.js';
-import { simpleProviderConfig } from '../simple-mode.js';
 import { renderImpactBlock } from './impact-block.js';
-import { joinList, roughWords } from './landing.js';
+import { joinList } from './landing.js';
 import { legalInfo, type LegalInfo } from './legal-info.js';
 import { legalResponse, page } from './legal.js';
 
@@ -38,7 +40,8 @@ import { legalResponse, page } from './legal.js';
 /** Everything the page states, resolved from the config (one place, for the tests too). */
 export interface PoolPageFacts {
   enabled: boolean;
-  model: { id: string; label: string };
+  /** The pool's model and how it is asked against the tier that runs it (`poolModelInfo`). */
+  model: PoolModelInfo;
   /** `POOL_REVENUE_SHARE_BPS`: the share of Tangent's revenue added to the pool. */
   revenueShareBps: number;
   sessionEstimateMicros: number;
@@ -79,7 +82,7 @@ export async function poolPageFacts(env: AppEnv): Promise<PoolPageFacts> {
   const price = await modelPrice(env, id);
   return {
     enabled: config.flags.poolEnabled,
-    model: { id, label: simpleProviderConfig(env).models.find((m) => m.id === id)?.label ?? id },
+    model: poolModelInfo(env),
     revenueShareBps: pool.revenueShareBps,
     sessionEstimateMicros: pool.sessionEstimateMicros,
     maxOutputTokens: pool.maxOutputTokens,
@@ -152,7 +155,12 @@ export function renderPoolPage(
   feed: PoolPageFeed | null = null,
   contributions: PoolPageContributions | null = null,
 ): string {
-  const model = `${escapeHtml(f.model.label)} (<code>${escapeHtml(f.model.id)}</code>)`;
+  // The reply cap is stated next to it, so only the thinking is named here.
+  const asked = poolModelDifferences(f.model, { replies: false });
+  const model =
+    asked.length === 0
+      ? `${escapeHtml(f.model.label)} (<code>${escapeHtml(f.model.id)}</code>)`
+      : `${escapeHtml(f.model.label)}'s model (<code>${escapeHtml(f.model.id)}</code>) with ${escapeHtml(asked.join(' and '))}`;
   const ceiling =
     f.ceilingHoldMicros === null
       ? ''
@@ -202,7 +210,7 @@ ${added}
 <p>Each reply is paid from the pool at the AI provider's price (including the provider's credit-purchase fee), with no markup, and costs the learner nothing. Tangent earns nothing on the pool.</p>
 
 <h2>Which model pool learners get</h2>
-<p>Every reply on the pool uses ${model}, with a fixed teaching prompt, replies of at most ${f.maxOutputTokens.toLocaleString('en-US')} tokens (roughly ${roughWords(f.maxOutputTokens)} words) and a capped amount of earlier conversation. You can't choose another model or prompt on the pool: that keeps it a learning tool and keeps each reply cheap. Reviews and web search aren't available on the pool either.</p>
+<p>Every reply on the pool uses ${model}, a fixed teaching prompt, replies of at most ${f.maxOutputTokens.toLocaleString('en-US')} tokens (roughly ${roughWords(f.maxOutputTokens)} words) and a capped amount of earlier conversation. You can't choose another model or prompt on the pool: that keeps it a learning tool and keeps each reply cheap. Reviews and web search aren't available on the pool either.</p>
 
 <h2>Why there are limits</h2>
 <p>A shared pool only works if no one person or script can drain it. So the pool is good for learning and poor as a free general-purpose AI service:</p>

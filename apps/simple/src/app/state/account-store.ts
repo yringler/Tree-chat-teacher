@@ -1,6 +1,7 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import {
   LEARN_KEY_PROVIDER,
+  poolModelText,
   type BillingSummary,
   type KeyStatusResponse,
   type LearnPayment,
@@ -154,16 +155,22 @@ export class AccountStore {
     );
   });
 
-  /** On the open pool, which uses one model: the Smart/Simple switch shows it, locked. */
+  /** On the open pool, which uses one model: the Normal/Max switch shows it, locked. */
   readonly poolModel = computed(() => {
     const status = this.poolStatus();
     return status?.enabled && this.payment.payment() === 'pool' ? status.model : null;
   });
 
-  /** Why the Smart/Simple switch is locked, or null when it isn't. */
+  /**
+   * Why the Normal/Max switch is locked, or null when it isn't. By default the
+   * pool runs Normal's model, asked with less thinking and a shorter reply
+   * cap ("The open pool uses Normal's model with lighter thinking and shorter
+   * replies.", `poolModelText`); one that is neither tier ("Lite") leaves no
+   * segment on.
+   */
   readonly poolModelHint = computed(() => {
     const model = this.poolModel();
-    return model ? `The open pool uses ${model.label}.` : null;
+    return model ? `The open pool uses ${poolModelText(model)}.` : null;
   });
 
   /**

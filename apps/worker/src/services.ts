@@ -28,6 +28,7 @@ import { createPoolUsageMeter, createUsageMeter, meteredRegistry } from './billi
 import { paymentProvider, paymentsConfigured } from './billing/payments/index.js';
 import { appConfig } from './config.js';
 import { createD1Repositories } from './db/d1-repositories.js';
+import { withModelWindows } from './model-windows.js';
 import { isPoolFunded, type AccountContext, type AppEnv } from './env.js';
 import type { PoolParams } from './pool/params.js';
 import {
@@ -87,9 +88,9 @@ export function ownKeyProviders(env: AppEnv): { id: string; label: string; searc
 }
 
 /**
- * The default `openrouter` config with the suggested models (Learn's Smart and
- * Simple) first, the smart one as its default, and any model id allowed: the
- * easy way to use the suggested defaults on one's own OpenRouter key.
+ * The default `openrouter` config with the suggested models (Learn's Normal and
+ * Max, tagged with their tier) first, Normal as its default, and any model id
+ * allowed: the easy way to use the suggested defaults on one's own OpenRouter key.
  */
 function openrouterWithSuggestions(env: AppEnv, config: ProviderConfig): ProviderConfig {
   const suggested = suggestedModels(env);
@@ -244,13 +245,15 @@ export function registryFor(
     if (account.builtIn) {
       // On the pool, a generating request sees only the pool model, with its caps.
       const pool = poolScope(account, scope);
-      return createProviderRegistry(
+      return windowedRegistry(
+        env,
         [pool ? poolProviderConfig(env, pool) : config],
         providerEnv(env),
       );
     }
     const own = apiKeys?.[LEARN_KEY_PROVIDER];
-    return createProviderRegistry(
+    return windowedRegistry(
+      env,
       [config],
       providerEnv(
         env,
@@ -262,7 +265,20 @@ export function registryFor(
   const configs = providerConfigs(env);
   const withheld = new Set([SIMPLE_KEY_SECRET]);
   if (!account.operatorKeys) for (const name of apiKeySecrets(configs)) withheld.add(name);
-  return createProviderRegistry(configs, providerEnv(env, apiKeys, withheld));
+  return windowedRegistry(env, configs, providerEnv(env, apiKeys, withheld));
+}
+
+/**
+ * The providers of `configs`, with OpenRouter models budgeted on their real
+ * context windows (model-windows.ts `withModelWindows`): every registry a
+ * request generates through is built here.
+ */
+function windowedRegistry(
+  env: AppEnv,
+  configs: ProviderConfig[],
+  penv: ProviderEnv,
+): ProviderRegistry {
+  return withModelWindows(createProviderRegistry(configs, penv), configs, env);
 }
 
 /**
@@ -274,7 +290,7 @@ export function registryFor(
  */
 export function creditRegistryFor(env: AppEnv, account: AccountContext): ProviderRegistry | null {
   if (account.mode === 'simple' || !account.builtIn) return null;
-  return createProviderRegistry([builtInPowerConfig(env)], providerEnv(env));
+  return windowedRegistry(env, [builtInPowerConfig(env)], providerEnv(env));
 }
 
 /**
@@ -425,6 +441,8 @@ export function pinnedModelRegistry(inner: ProviderRegistry, model: string): Pro
           capabilities: () => provider.capabilities(model),
           stream: (request) => provider.stream({ ...request, model }),
         };
+        const resolve = provider.resolveCapabilities?.bind(provider);
+        if (resolve) pinned.resolveCapabilities = () => resolve(model);
         const count = provider.countTokens?.bind(provider);
         if (count) pinned.countTokens = (request) => count({ ...request, model });
         cache.set(provider, pinned);

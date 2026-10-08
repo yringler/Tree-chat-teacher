@@ -430,7 +430,7 @@ Resulting semantics:
 When the total exceeds the budget:
 
 1. **Candidates.** The candidates are the non-system body segments in order, excluding the last `minTailMessages` (default 2) message segments. The target message is never a candidate.
-2. **Compaction.** Find the shortest _oldest-first prefix_ P of the candidates such that `total − tokens(P) + compactionSummaryTokens (default 1024) ≤ budget`. Replace P with one compaction summary segment. Its key is `{ anchorNodeId: last node in P, sourceHash: hash(flatten(P)) }` and it has `reason: budget-compaction`. Record `CompactionRecord { compactedNodeIds, tokensBefore, tokensAfter, key }`. P may include inherited summaries and anchors; they are re-summarized.
+2. **Compaction.** Find the shortest _oldest-first prefix_ P of the candidates such that `tokens(P) ≥ ⌈(total − budget) / step⌉ · step + compactionSummaryTokens (default 1024)`, where `step = ⌊budget · (1 − compactionTarget)⌋` (`compactionTarget` default 0.5): the overflow rounded up to whole steps, so a compaction brings the context down to about half the budget and P stays the same (same key, same cached summary, same prompt prefix) until the context outgrows the budget by another step. If no prefix reaches that but all the candidates together make the context fit (`total − tokens + compactionSummaryTokens ≤ budget`), P is all of them; a later turn, with more candidates, moves to the step boundary once. `compactionTarget: 1` gives the shortest prefix that fits, which compacts one more segment (a new summary) on every turn over the budget. Replace P with one compaction summary segment. Its key is `{ anchorNodeId: last node in P, sourceHash: hash(flatten(P)) }` and it has `reason: budget-compaction`. Record `CompactionRecord { compactedNodeIds, tokensBefore, tokensAfter, key }`. P may include inherited summaries and anchors; they are re-summarized.
 3. **Truncation.** Truncation applies if no prefix fits (the tail alone is too large), or if the resolved compaction summary is larger than estimated and still overflows. In that case, drop the oldest non-system segments (never the target) until the total fits, or until only system segments plus the target remain. Record `TruncationRecord`. This is the last resort, and the inspector shows it.
 
 Compaction only exists because the plan is over budget. It therefore applies to any mode, not only `path`; in practice it triggers for long `path` chains. Compaction summaries are cached exactly like branch summaries.
@@ -455,7 +455,7 @@ The tests cover:
 - nested pending (inner-first);
 - hash stability and sensitivity (edit upstream → new hash; edit in own branch → same branch-summary hash);
 - a failed summary;
-- budget: fits, compaction with the tail kept, compaction including inherited summaries, the truncation fallback, and compaction with a ready summary;
+- budget: fits, compaction with the tail kept, compaction by whole steps and its stability over several turns, compaction including inherited summaries, the truncation fallback, and compaction with a ready summary;
 - system nodes;
 - streaming/error nodes skipped;
 - validation errors;

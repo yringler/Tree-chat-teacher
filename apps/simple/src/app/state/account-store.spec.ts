@@ -64,7 +64,7 @@ const POOL: PoolStatusResponse = {
   enabled: true,
   availableMicros: 2_400_000,
   sessionsRemaining: 120,
-  model: { id: 'fast', label: 'Simple' },
+  model: { id: 'lite', label: 'Lite' },
   week: { start: '2026-10-05T00:00:00.000Z', exchanges: 3, learners: 2 },
   revenueShareBps: 2000,
 };
@@ -415,8 +415,22 @@ describe('AccountStore open pool', () => {
       warn: false,
     });
     expect(account.poolLow()).toBe(false);
-    expect(account.poolModel()).toEqual({ id: 'fast', label: 'Simple' });
-    expect(account.poolModelHint()).toBe('The open pool uses Simple.');
+    expect(account.poolModel()).toEqual({ id: 'lite', label: 'Lite' });
+    expect(account.poolModelHint()).toBe('The open pool uses Lite.');
+  });
+
+  it("names how the pool asks a tier's model when it asks it differently", async () => {
+    const pool: PoolStatusResponse = {
+      ...POOL,
+      model: { id: 'n', label: 'Normal', thinking: 'lighter', replies: 'shorter' },
+    };
+    const { account } = setup(async () => summary(membership()), pool);
+    account.setMe(me(membership({ required: false })));
+    await account.refreshPool();
+    account.payment.choose('pool');
+    expect(account.poolModelHint()).toBe(
+      "The open pool uses Normal's model with lighter thinking and shorter replies.",
+    );
   });
 
   it('offers the funding toggle only while both own credit and the pool can pay', async () => {

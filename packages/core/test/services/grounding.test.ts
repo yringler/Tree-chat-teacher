@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CHECK_SOURCES_INSTRUCTIONS, GROUNDING_INSTRUCTIONS } from '@tangent/shared';
+import { replyInstructions } from '../../src/context/render.js';
 import { DEFAULT_GROUNDING_SETTINGS } from '../../src/services/chat-service.js';
 import { send, setup } from './helpers.js';
 
@@ -25,7 +26,10 @@ describe('ChatService grounding', () => {
     const r = await send(s.chat, b2.id, 'tell me more');
     const call = s.provider.chatCalls().at(-1)!;
     expect(call.webSearch).toEqual({ mode: 'auto', maxResults: 5, maxUses: 1, engine: 'exa' });
-    expect(call.system).toContain(GROUNDING_INSTRUCTIONS);
+    // After the history, never in the system prompt (the cached prefix).
+    expect(call.turnInstructions).toBe(replyInstructions(GROUNDING_INSTRUCTIONS));
+    expect(call.system ?? '').not.toContain('## Checking facts');
+    expect(call.messages.at(-1)).toEqual({ role: 'user', content: 'tell me more' });
     expect(r.events).toContainEqual({ type: 'status', message: 'Checking sources…' });
     expect(r.last).toMatchObject({ type: 'done', node: { sources: citations } });
     const stored = (await s.chat.getTreeDetail(b2.treeId)).nodes.find(
@@ -42,6 +46,7 @@ describe('ChatService grounding', () => {
     const r = await send(s.chat, tree.trunkBranchId, 'Why does ice float?');
     const call = s.provider.chatCalls().at(-1)!;
     expect(call.webSearch).toBeUndefined();
+    expect(call.turnInstructions).toBeUndefined();
     expect(call.system ?? '').not.toContain('## Checking facts');
     expect(r.last).toMatchObject({ type: 'done', node: { sources: null } });
   });
@@ -56,9 +61,37 @@ describe('ChatService grounding', () => {
     });
     const call = s.provider.chatCalls().at(-1)!;
     expect(call.webSearch?.mode).toBe('required');
-    expect(call.system).toContain(CHECK_SOURCES_INSTRUCTIONS);
+    expect(call.turnInstructions).toBe(replyInstructions(CHECK_SOURCES_INSTRUCTIONS));
+    expect(call.system ?? '').not.toContain('## Checking facts');
     // Searched but cited nothing: an empty list, not null.
     expect(r.last).toMatchObject({ type: 'done', node: { sources: [] } });
+  });
+
+  it('keeps the system prompt and history the same on turns with and without search', async () => {
+    const s = setup(auto);
+    s.provider.webSearch = true;
+    const { tree } = await s.chat.createTree({ systemPrompt: 'Be a kind tutor.' });
+    await send(s.chat, tree.trunkBranchId, 'Why does ice float?');
+    await send(s.chat, tree.trunkBranchId, 'Who discovered it in 1850?');
+    await send(s.chat, tree.trunkBranchId, 'Why is that?');
+    await send(s.chat, tree.trunkBranchId, 'Check your last answer against sources', {
+      ground: 'required',
+    });
+    const calls = s.provider.chatCalls();
+    expect(calls.map((c) => c.webSearch?.mode ?? 'none')).toEqual([
+      'none',
+      'auto',
+      'none',
+      'required',
+    ]);
+    // Every turn's system prompt is the same, and each turn's messages start
+    // with the previous turn's: only the tail differs, so the cached prefix holds.
+    for (const call of calls) expect(call.system).toBe(calls[0]!.system);
+    for (let i = 1; i < calls.length; i++) {
+      const previous = calls[i - 1]!.messages;
+      expect(calls[i]!.messages.slice(0, previous.length)).toEqual(previous);
+    }
+    expect(calls.map((c) => c.turnInstructions !== undefined)).toEqual([false, true, false, true]);
   });
 
   it('never sends webSearch to a provider that cannot search, or with the policy off', async () => {
@@ -66,6 +99,7 @@ describe('ChatService grounding', () => {
     const { b2 } = await deepTree(s);
     await send(s.chat, b2.id, 'Who invented it?', { ground: 'required' });
     expect(s.provider.chatCalls().every((c) => c.webSearch === undefined)).toBe(true);
+    expect(s.provider.chatCalls().every((c) => c.turnInstructions === undefined)).toBe(true);
 
     const off = setup();
     off.provider.webSearch = true;
@@ -83,7 +117,10 @@ describe('ChatService grounding', () => {
     const calls = s.provider.chatCalls().slice(-2);
     expect(calls[0]!.webSearch).toBeDefined();
     expect(calls[1]!.webSearch).toBeUndefined();
-    expect(calls[1]!.system ?? '').not.toContain('## Checking facts');
+    expect(calls[0]!.turnInstructions).toBeDefined();
+    expect(calls[1]!.turnInstructions).toBeUndefined();
+    expect(calls[1]!.system).toBe(calls[0]!.system);
+    expect(calls[1]!.messages).toEqual(calls[0]!.messages);
     expect(r.last).toMatchObject({ type: 'done', node: { status: 'complete', sources: null } });
   });
 

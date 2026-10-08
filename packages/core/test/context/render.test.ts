@@ -9,6 +9,7 @@ import {
   CLIPPED_TRANSCRIPT_MARKER,
   CONTINUATION_MESSAGE,
   renderPlan,
+  replyInstructions,
   SUMMARY_HEADING,
   plainText,
 } from '../../src/context/render.js';
@@ -123,7 +124,7 @@ suite('renderPlan', () => {
     expect(CONTINUATION_MESSAGE).toBe('(Conversation continues.)');
   });
 
-  it('renders ready summaries and anchors into the system text in segment order', () => {
+  it('renders ready summaries into the system text in segment order, anchors into the user turn', () => {
     const out = renderPlan(
       plan([
         sys('SP'),
@@ -134,15 +135,15 @@ suite('renderPlan', () => {
       ]),
       WITH_SYSTEM,
     );
-    expect(out.system).toBe(
-      `SP\n\n${SUMMARY_HEADING}\n\nEarlier: X.\n\n${ANCHOR_HEADING}\n\nthe quote\n\nnode rule`,
-    );
+    expect(out.system).toBe(`SP\n\n${SUMMARY_HEADING}\n\nEarlier: X.\n\nnode rule`);
     expect(SUMMARY_HEADING).toBe('## Summary of the earlier conversation');
     expect(ANCHOR_HEADING).toBe('## The user branched off to focus on this excerpt');
-    expect(out.messages).toEqual([{ role: 'user', content: 'go' }]);
+    expect(out.messages).toEqual([
+      { role: 'user', content: `${ANCHOR_HEADING}\n\n<excerpt>\nthe quote\n</excerpt>\n\ngo` },
+    ]);
   });
 
-  it('with anchorsAsUserText, quotes anchors into the user turn and keeps them out of system', () => {
+  it('quotes anchors into the user turn where they occur and keeps them out of system', () => {
     const out = renderPlan(
       plan([
         sys('SP'),
@@ -150,7 +151,7 @@ suite('renderPlan', () => {
         anchor('the quote'),
         msg('branch', 'user', 'go'),
       ]),
-      { ...WITH_SYSTEM, anchorsAsUserText: true },
+      WITH_SYSTEM,
     );
     expect(out.system).toBe('SP');
     expect(out.messages).toEqual([
@@ -197,7 +198,9 @@ suite('renderPlan', () => {
   it('folds the system text into the first user message without system prompt support', () => {
     const out = renderPlan(plan([sys('SP'), anchor('q'), msg('branch', 'user', 'hi')]), NO_SYSTEM);
     expect(out.system).toBeNull();
-    expect(out.messages).toEqual([{ role: 'user', content: `SP\n\n${ANCHOR_HEADING}\n\nq\n\nhi` }]);
+    expect(out.messages).toEqual([
+      { role: 'user', content: `SP\n\n${ANCHOR_HEADING}\n\n<excerpt>\nq\n</excerpt>\n\nhi` },
+    ]);
   });
 
   it('folds into the synthetic user message when the plan starts with an assistant message', () => {
@@ -229,11 +232,12 @@ suite('renderPlan', () => {
     f.messages(b, 2);
     const { plan: resolved } = resolveAll(f.input(b));
     const out = renderPlan(resolved, WITH_SYSTEM);
-    expect(out.system).toBe(
-      `SP\n\n${SUMMARY_HEADING}\n\nsummary@T.1\n\n${ANCHOR_HEADING}\n\nfocus here`,
-    );
+    expect(out.system).toBe(`SP\n\n${SUMMARY_HEADING}\n\nsummary@T.1`);
     expect(out.messages).toEqual([
-      { role: 'user', content: 'B1.0' },
+      {
+        role: 'user',
+        content: `${ANCHOR_HEADING}\n\n<excerpt>\nfocus here\n</excerpt>\n\nB1.0`,
+      },
       { role: 'assistant', content: 'B1.1' },
     ]);
   });
@@ -416,15 +420,11 @@ suite('plainText', () => {
   });
 });
 
-suite('renderPlan extraSystem (grounding)', () => {
-  it('appends it as the last system section, and folds it when system prompts are unsupported', () => {
-    const p = plan([sys('Be kind.'), msg('branch', 'user', 'Hi')]);
-    expect(renderPlan(p, { ...WITH_SYSTEM, extraSystem: '## Checking facts' }).system).toBe(
-      'Be kind.\n\n## Checking facts',
+suite('replyInstructions (grounding)', () => {
+  it('tags per-reply instructions so they read as the app’s note', () => {
+    expect(replyInstructions('  ## Checking facts\n\nSearch once.\n')).toBe(
+      '<instructions_for_this_reply>\n## Checking facts\n\nSearch once.\n</instructions_for_this_reply>',
     );
-    const folded = renderPlan(p, { ...NO_SYSTEM, extraSystem: '## Checking facts' });
-    expect(folded.system).toBeNull();
-    expect(folded.messages[0]!.content).toBe('Be kind.\n\n## Checking facts\n\nHi');
   });
 
   it('asks summaries to keep cited links', () => {

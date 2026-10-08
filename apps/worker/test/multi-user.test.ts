@@ -479,8 +479,8 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       acceptsUserKey: false,
       openModels: true,
       models: [
-        { id: 'smart', label: 'Smart (suggested)' },
-        { id: 'simple', label: 'Simple (suggested)' },
+        { id: 'smart', label: 'Max (suggested)', tier: 'max' },
+        { id: 'simple', label: 'Normal (suggested)', tier: 'normal' },
       ],
     });
     expect(providers.filter((p) => p.openModels).map((p) => p.id)).toEqual(['openrouter']);
@@ -814,8 +814,8 @@ describe("Learn mode on the user's own OpenRouter key", () => {
         apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
         defaultModel: 'smart',
         models: [
-          { id: 'smart', label: 'Smart' },
-          { id: 'simple', label: 'Simple' },
+          { id: 'smart', label: 'Max', tier: 'max' },
+          { id: 'simple', label: 'Normal', tier: 'normal' },
         ],
       }),
       OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR-0123',
