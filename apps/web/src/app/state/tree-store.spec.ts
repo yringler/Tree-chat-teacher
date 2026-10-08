@@ -19,6 +19,7 @@ import { providerRouteKey } from '@tangent/shared';
 import { ApiClient, ApiError } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeStore } from './tree-store';
+import { SettingsStore } from './settings-store';
 import { UiStore } from './ui-store';
 
 function membership(over: Partial<MembershipInfo> = {}): MembershipInfo {
@@ -72,11 +73,18 @@ function setup() {
     providers: [
       { provide: TreeStore },
       { provide: UiStore },
+      { provide: SettingsStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: router },
     ],
   });
-  return { store: injector.get(TreeStore), ui: injector.get(UiStore), api, router };
+  return {
+    store: injector.get(TreeStore),
+    ui: injector.get(UiStore),
+    settings: injector.get(SettingsStore),
+    api,
+    router,
+  };
 }
 
 describe('TreeStore membership and credit', () => {
@@ -562,6 +570,27 @@ describe('TreeStore read-only power without a membership', () => {
       );
       expect(s.store.blockedSends()).toEqual([]);
       expect(s.ui.keysDialog()).toBeNull();
+    });
+
+    it('sends the reply length set in Settings; Auto sends none', async () => {
+      const s = await openNoKey();
+      s.settings.update({ maxOutputTokens: 16_384 });
+      try {
+        await s.store.send('trunk', 'Why primes?');
+        expect(s.sendMessage).toHaveBeenLastCalledWith(
+          'trunk',
+          { content: 'Why primes?', maxOutputTokens: 16_384 },
+          expect.any(AbortSignal),
+        );
+      } finally {
+        s.settings.update({ maxOutputTokens: null });
+      }
+      await s.store.send('trunk', 'Why primes?');
+      expect(s.sendMessage).toHaveBeenLastCalledWith(
+        'trunk',
+        { content: 'Why primes?' },
+        expect.any(AbortSignal),
+      );
     });
 
     it('closing the dialog sends nothing and leaves the text for the composer', async () => {

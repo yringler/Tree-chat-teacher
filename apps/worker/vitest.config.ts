@@ -146,7 +146,8 @@ export default defineConfig({
                 label: 'Fake',
                 defaultModel: 'fake-1',
                 models: [{ id: 'fake-1', label: 'Fake 1' }],
-                options: { chunkSize: 4 },
+                // `[echo-request]`: the reply echoes the request's model and output cap (output-cap.test.ts).
+                options: { chunkSize: 4, echoRequest: '[echo-request]' },
               },
               {
                 id: 'slow',

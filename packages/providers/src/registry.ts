@@ -68,6 +68,7 @@ const MODEL_KEYS: ReadonlySet<string> = new Set([
   'maxOutputTokens',
   // `usageFactor` is computed by the server from prices, never configured.
   'tier',
+  'reasoning',
 ]);
 class ConfigError extends Error {
   constructor(path: string, problem: string) {
@@ -144,6 +145,12 @@ function parseModel(v: unknown, path: string): ModelInfo {
     if (typeof tier !== 'string' || !(TIERS as readonly string[]).includes(tier))
       throw new ConfigError(`${path}.tier`, 'must be "normal" or "max"');
     m.tier = tier as ModelTier;
+  }
+  const reasoning = v['reasoning'];
+  if (reasoning !== undefined) {
+    if (typeof reasoning !== 'boolean')
+      throw new ConfigError(`${path}.reasoning`, 'must be a boolean');
+    m.reasoning = reasoning;
   }
   return m;
 }

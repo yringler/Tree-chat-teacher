@@ -209,6 +209,16 @@ describe('provider registry', () => {
       expect(parseProviderConfigs(JSON.stringify([withExtra, fake]))).toEqual([withExtra, fake]);
     });
 
+    it('accepts a model reasoning flag, and rejects a non-boolean one', () => {
+      const flagged = { ...valid, models: [{ id: 'm1', label: 'M1', reasoning: true }] };
+      expect(parseProviderConfigs(JSON.stringify([flagged]))).toEqual([flagged]);
+      expect(() =>
+        parseProviderConfigs(
+          JSON.stringify([{ ...valid, models: [{ id: 'm1', label: 'M1', reasoning: 'yes' }] }]),
+        ),
+      ).toThrow(/reasoning must be a boolean/);
+    });
+
     it('defaults defaultModel to the first model', () => {
       const { defaultModel: _d, ...rest } = valid;
       expect(parseProviderConfigs(JSON.stringify([rest]))[0]!.defaultModel).toBe('m1');

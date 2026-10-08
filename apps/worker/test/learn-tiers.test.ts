@@ -1,7 +1,7 @@
 // Learn's tiers, Normal and Max (docs/DECISIONS.md "Learn tiers: Normal and
 // Max"): the built-in provider's models and their `tier`, the env vars (and the
 // legacy SIMPLE_SMART_MODEL), the background model, the Max usage factor
-// `/api/providers` sends, and migration 0024 for Learn branches on the old
+// `/api/providers` sends, and migration 0025 for Learn branches on the old
 // cheaper tier.
 import { MAX_USAGE_FACTOR_FALLBACK, type ProviderInfo } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
@@ -245,13 +245,13 @@ describe('the Max usage factor', () => {
   });
 });
 
-describe('migration 0024 (Learn branches on the old cheaper tier)', () => {
+describe('migration 0025 (Learn branches on the old cheaper tier)', () => {
   it('moves Learn branches on Flash to Pro, and leaves power branches and history alone', async () => {
     const migrations = (
       env as unknown as { TEST_MIGRATIONS: { name: string; queries: string[] }[] }
     ).TEST_MIGRATIONS;
-    const migration = migrations.find((m) => m.name.startsWith('0024_'))!;
-    expect(migration.name).toBe('0024_learn_tiers.sql');
+    const migration = migrations.find((m) => m.name.startsWith('0025_'))!;
+    expect(migration.name).toBe('0025_learn_tiers.sql');
 
     const db = env.DB;
     const at = new Date().toISOString();

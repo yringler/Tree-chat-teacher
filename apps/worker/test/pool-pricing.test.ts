@@ -9,6 +9,7 @@ import {
   costFromTokensNanos,
   exceedsContext,
   inputBoundTokens,
+  maxInputMicrosPerMTok,
   utf8Bytes,
   worstCaseHoldMicros,
 } from '../src/pool/pricing.js';
@@ -105,6 +106,95 @@ describe('pool pricing', () => {
       grossMicros: 10_000_000,
       feeMicros: 800_000,
     });
+  });
+});
+
+describe('pool pricing with prompt caching', () => {
+  // Sonnet-like: $2 in, $10 out, reads 0.1×, writes 1.25×.
+  const CACHED: ModelPrice = {
+    inMicrosPerMTok: 2_000_000,
+    outMicrosPerMTok: 10_000_000,
+    contextTokens: 200_000,
+    cacheReadMicrosPerMTok: 200_000,
+    cacheWriteMicrosPerMTok: 2_500_000,
+  };
+
+  it('prices cache reads and writes at their own prices, the rest at the input price', () => {
+    // n$ per token: read 200, write 2500, input 2000, output 10_000.
+    // 1000 in = 600 read + 300 written + 100 uncached; 10 out:
+    // 120_000 + 750_000 + 200_000 + 100_000 n$.
+    expect(costFromTokensNanos(CACHED, 1000, 10, { readTokens: 600, writeTokens: 300 })).toBe(
+      1_170_000,
+    );
+    // All read: 200_000 + 100_000 n$ (vs 2_100_000 uncached).
+    expect(costFromTokensNanos(CACHED, 1000, 10, { readTokens: 1000, writeTokens: 0 })).toBe(
+      300_000,
+    );
+    // Nothing cached: the plain input price.
+    expect(costFromTokensNanos(CACHED, 1000, 10, { readTokens: 0, writeTokens: 0 })).toBe(
+      2_100_000,
+    );
+  });
+
+  it('never undercharges input whose cache share is unknown', () => {
+    // No report: every input token at the write price (the most it can cost).
+    expect(costFromTokensNanos(CACHED, 1000, 10)).toBe(2_600_000);
+    // Reads without writes: the reads at the read price, the rest at the write price.
+    expect(costFromTokensNanos(CACHED, 1000, 10, { readTokens: 600 })).toBe(
+      120_000 + 1_000_000 + 100_000,
+    );
+    // Over-reported cache counts are clamped to the input total.
+    expect(costFromTokensNanos(CACHED, 1000, 0, { readTokens: 5000, writeTokens: 5000 })).toBe(
+      200_000,
+    );
+  });
+
+  it('prices unset cache prices at the input price', () => {
+    expect(maxInputMicrosPerMTok(FLASH)).toBe(100_000);
+    expect(costFromTokensNanos(FLASH, 1000, 500, { readTokens: 800, writeTokens: 200 })).toBe(
+      costFromTokensNanos(FLASH, 1000, 500),
+    );
+    expect(
+      costFromTokensNanos({ ...FLASH, cacheReadMicrosPerMTok: 10_000 }, 1000, 0, {
+        readTokens: 1000,
+        writeTokens: 0,
+      }),
+    ).toBe(10_000);
+  });
+
+  it('holds input at the cache-write price, so a hold covers a call that writes it all', () => {
+    expect(maxInputMicrosPerMTok(CACHED)).toBe(2_500_000);
+    for (const inTok of [37, 1000, 50_000]) {
+      const request = { system: null, messages: [msg('x'.repeat(Math.max(0, inTok - 20)))] };
+      const bound = inputBoundTokens(request);
+      for (const fee of [0, 550]) {
+        const hold = worstCaseHoldMicros(CACHED, request, 100, fee);
+        const allWritten = chargeMicros(
+          costFromTokensNanos(CACHED, bound, 100, { readTokens: 0, writeTokens: bound }),
+          0,
+          fee,
+        );
+        expect(hold).toBeGreaterThanOrEqual(allWritten);
+      }
+    }
+    // (200_000 × 2.5 + 1024 × 10) µ$
+    expect(ceilingHoldMicros(CACHED, 1024, 0)).toBe(510_240);
+  });
+
+  it('settles tokens with the reported cache share', () => {
+    expect(
+      poolSettlement({
+        dispatched: true,
+        inputTokens: 1000,
+        outputTokens: 10,
+        cacheReadTokens: 600,
+        cacheWriteTokens: 300,
+        price: CACHED,
+      }),
+    ).toEqual({ reason: 'tokens', costNanos: 1_170_000 });
+    expect(
+      poolSettlement({ dispatched: true, inputTokens: 1000, outputTokens: 10, price: CACHED }),
+    ).toEqual({ reason: 'tokens', costNanos: 2_600_000 });
   });
 });
 

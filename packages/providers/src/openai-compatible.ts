@@ -8,9 +8,17 @@ import {
   type ProviderConfig,
   type ProviderErrorCode,
   type ProviderEvent,
-  type TokenUsage,
+  type ProviderUsage,
   type WebSearchRequest,
 } from '@tangent/shared';
+import {
+  isOpenRouterBaseUrl,
+  markLastMessage,
+  promptCacheOption,
+  usesExplicitCacheControl,
+  withBreakpoint,
+  type CachedTextPart,
+} from './prompt-cache.js';
 import type { ProviderEnv } from './registry.js';
 import { parseSse } from './sse.js';
 import {
@@ -122,6 +130,28 @@ function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 
+/**
+ * A chunk's `usage` as our usage fields (only those reported). `prompt_tokens`
+ * includes cached tokens; the cache share is `prompt_tokens_details`
+ * (`cached_tokens`, and OpenRouter's `cache_write_tokens`), or DeepSeek's own
+ * `prompt_cache_hit_tokens`.
+ */
+function usageOf(usage: Record<string, unknown>): Partial<ProviderUsage> {
+  const u: Partial<ProviderUsage> = {};
+  const input = num(usage['prompt_tokens']);
+  if (input !== undefined) u.inputTokens = input;
+  const output = num(usage['completion_tokens']);
+  if (output !== undefined) u.outputTokens = output;
+  const details = usage['prompt_tokens_details'];
+  const read =
+    (isRecord(details) ? num(details['cached_tokens']) : undefined) ??
+    num(usage['prompt_cache_hit_tokens']);
+  if (read !== undefined) u.cacheReadTokens = read;
+  const write = isRecord(details) ? num(details['cache_write_tokens']) : undefined;
+  if (write !== undefined) u.cacheWriteTokens = write;
+  return u;
+}
+
 /** In-stream `error` object (OpenRouter sends these with HTTP 200). */
 function codeForStreamError(err: Record<string, unknown>, message: string): ProviderErrorCode {
   const code = err['code'];
@@ -159,6 +189,16 @@ function codeForStreamError(err: Record<string, unknown>, message: string): Prov
  * delta), otherwise once for the first chunk whose `id` starts with `gen-`;
  * and `{type:'billing', costUsd}` when a chunk's `usage.cost` is a number.
  *
+ * Prompt caching (prompt-cache.ts): for models that cache only with explicit
+ * markers (Anthropic's, `anthropic/…`) on OpenRouter, the system message and
+ * the latest message become content-part arrays with a `cache_control`
+ * breakpoint; other models and endpoints get plain string content (they cache
+ * automatically, or a strict API could reject the field).
+ * `options.promptCache`: false never marks; true marks on any endpoint (one
+ * known to accept `cache_control`, e.g. a proxy in front of OpenRouter), still
+ * only for explicit-cache models. Usage reports the cache reads and writes
+ * (`prompt_tokens_details`).
+ *
  * Error events say how far the call got (`ProviderError.upstream`): `not_sent`
  * (missing key, connection failure), `rejected` (non-2xx response) or
  * `stream` (failed after a 2xx response). The open pool releases a
@@ -176,6 +216,7 @@ export function createOpenAiCompatibleProvider(
       ? optParam
       : defaultMaxTokensParam(baseUrl);
   const extraBody = readExtraBody(config.options);
+  const promptCache = promptCacheOption(config.options) ?? isOpenRouterBaseUrl(baseUrl);
 
   const capabilities = (model: string) => resolveCapabilities(config, model, DEFAULTS, false);
 
@@ -199,17 +240,25 @@ export function createOpenAiCompatibleProvider(
       const { signal } = request;
       const caps = capabilities(request.model);
 
-      const messages: { role: string; content: string }[] = request.messages.map((m) => ({
+      const plain: { role: string; content: string }[] = request.messages.map((m) => ({
         role: m.role,
         content: m.content,
       }));
+      let system: string | null = null;
       if (request.system !== null) {
-        const first = messages[0];
+        const first = plain[0];
         if (caps.supportsSystemPrompt || !first || first.role !== 'user') {
-          messages.unshift({ role: 'system', content: request.system });
+          system = request.system;
         } else {
           first.content = `${request.system}\n\n${first.content}`;
         }
+      }
+      const cache = promptCache && usesExplicitCacheControl(request.model);
+      const messages: { role: string; content: string | CachedTextPart[] }[] = cache
+        ? markLastMessage(plain)
+        : plain;
+      if (system !== null) {
+        messages.unshift({ role: 'system', content: cache ? withBreakpoint(system) : system });
       }
       const webSearch = request.webSearch && caps.supportsWebSearch ? request.webSearch : null;
       const extra = webSearch
@@ -335,11 +384,7 @@ export function createOpenAiCompatibleProvider(
 
         const usage = chunk['usage'];
         if (isRecord(usage)) {
-          const u: Partial<TokenUsage> = {};
-          const input = num(usage['prompt_tokens']);
-          if (input !== undefined) u.inputTokens = input;
-          const output = num(usage['completion_tokens']);
-          if (output !== undefined) u.outputTokens = output;
+          const u = usageOf(usage);
           if (Object.keys(u).length > 0) yield { type: 'usage', usage: u };
           const costUsd = num(usage['cost']);
           const stu = usage['server_tool_use'];

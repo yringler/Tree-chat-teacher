@@ -124,6 +124,7 @@ describe('fake provider', () => {
       supportsSystemPrompt: true,
       supportsTokenCount: true,
       supportsWebSearch: false,
+      reasoning: false,
     });
     const p2 = createFakeProvider(
       {
@@ -141,6 +142,7 @@ describe('fake provider', () => {
       supportsSystemPrompt: false,
       supportsTokenCount: true,
       supportsWebSearch: false,
+      reasoning: false,
     });
   });
 

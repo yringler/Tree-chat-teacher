@@ -57,7 +57,18 @@ export function exceedsContext(
   return inputBoundTokens(request) > price.contextTokens;
 }
 
-/** `ceil((inTok·in + outTok·out) / 10⁶ × (1 + fee))` micro-USD: the true cost, no markup. */
+/**
+ * The most one input token can cost: the input price, or the cache-write
+ * price when that is higher (a prompt-cached request may write all its input).
+ */
+export function maxInputMicrosPerMTok(price: ModelPrice): number {
+  return Math.max(price.inMicrosPerMTok, price.cacheWriteMicrosPerMTok ?? 0);
+}
+
+/**
+ * `ceil((inTok·maxIn + outTok·out) / 10⁶ × (1 + fee))` micro-USD: a bound on
+ * the true cost (input at `maxInputMicrosPerMTok`), no markup.
+ */
 function priceMicros(
   price: ModelPrice,
   inputTokens: number,
@@ -65,7 +76,7 @@ function priceMicros(
   feeBps: number,
 ): number {
   const raw =
-    tokensOf(inputTokens) * BigInt(price.inMicrosPerMTok) +
+    tokensOf(inputTokens) * BigInt(maxInputMicrosPerMTok(price)) +
     tokensOf(outputTokens) * BigInt(price.outMicrosPerMTok);
   const divisor = TOKENS_PER_PRICE_UNIT * BPS_SCALE;
   return Number((raw * (BPS_SCALE + bpsOf(feeBps)) + divisor - 1n) / divisor);
@@ -103,16 +114,51 @@ export function ceilingHoldMicros(
   return priceMicros(price, price.contextTokens, maxOutputTokens, feeBpsOf(price, defaultFeeBps));
 }
 
-/** The model price of `inputTokens` in and `outputTokens` out, in nano-USD (rounded up), before fees. */
+/** The prompt-cache share of a call's input tokens, as the provider reported it (null = not reported). */
+export interface CacheTokens {
+  readTokens?: number | null;
+  writeTokens?: number | null;
+}
+
+/**
+ * The input side of a token-priced cost, in micro-USD × 10⁶: cache reads at
+ * the read price, cache writes at the write price, the rest at the input
+ * price. Input whose cache share is unknown (no report, or reads without
+ * writes) is priced at `maxInputMicrosPerMTok`, so it is never undercharged.
+ */
+function inputRaw(price: ModelPrice, inputTokens: number | null, cache: CacheTokens): bigint {
+  const total = tokensOf(inputTokens);
+  const read = minBig(tokensOf(cache.readTokens), total);
+  const readRaw = read * BigInt(price.cacheReadMicrosPerMTok ?? price.inMicrosPerMTok);
+  if (cache.writeTokens === null || cache.writeTokens === undefined) {
+    return readRaw + (total - read) * BigInt(maxInputMicrosPerMTok(price));
+  }
+  const write = minBig(tokensOf(cache.writeTokens), total - read);
+  return (
+    readRaw +
+    write * BigInt(price.cacheWriteMicrosPerMTok ?? price.inMicrosPerMTok) +
+    (total - read - write) * BigInt(price.inMicrosPerMTok)
+  );
+}
+
+function minBig(a: bigint, b: bigint): bigint {
+  return a < b ? a : b;
+}
+
+/**
+ * The model price of `inputTokens` in (of which `cache` was read from or
+ * written to the prompt cache) and `outputTokens` out, in nano-USD (rounded
+ * up), before fees.
+ */
 export function costFromTokensNanos(
   price: ModelPrice,
   inputTokens: number | null,
   outputTokens: number | null,
+  cache: CacheTokens = {},
 ): number {
   // µ$/MTok × tokens / 10⁶ = µ$; × 1000 = n$.
   const raw =
-    tokensOf(inputTokens) * BigInt(price.inMicrosPerMTok) +
-    tokensOf(outputTokens) * BigInt(price.outMicrosPerMTok);
+    inputRaw(price, inputTokens, cache) + tokensOf(outputTokens) * BigInt(price.outMicrosPerMTok);
   return Number((raw + 999n) / 1000n);
 }
 
@@ -123,8 +169,13 @@ export function chargeFromTokensMicros(
   outputTokens: number | null,
   feeBps: number,
   markupBps: number,
+  cache: CacheTokens = {},
 ): number {
-  return chargeMicros(costFromTokensNanos(price, inputTokens, outputTokens), markupBps, feeBps);
+  return chargeMicros(
+    costFromTokensNanos(price, inputTokens, outputTokens, cache),
+    markupBps,
+    feeBps,
+  );
 }
 
 /**

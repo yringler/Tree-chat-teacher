@@ -152,7 +152,22 @@ describe('appConfig', () => {
     expect(merged['deepseek/deepseek-v4-flash']).toEqual(
       DEFAULT_MODEL_PRICES['deepseek/deepseek-v4-flash'],
     );
+    const cached = appConfig(
+      blank({
+        MODEL_PRICES: JSON.stringify({
+          c: { in: 5, out: 6, context: 100, cacheRead: 1, cacheWrite: 7 },
+        }),
+      }),
+    ).prices;
+    expect(cached['c']).toEqual({
+      inMicrosPerMTok: 5,
+      outMicrosPerMTok: 6,
+      contextTokens: 100,
+      cacheReadMicrosPerMTok: 1,
+      cacheWriteMicrosPerMTok: 7,
+    });
     for (const bad of [
+      JSON.stringify({ m: { in: 1, out: 1, context: 1, cacheRead: -1 } }),
       '{not json',
       JSON.stringify({ m: { in: 1.5, out: 1, context: 1 } }),
       JSON.stringify({ m: { in: -1, out: 1, context: 1 } }),

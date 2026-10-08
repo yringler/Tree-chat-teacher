@@ -1,5 +1,11 @@
 import { Injectable, signal } from '@angular/core';
-import { fromLegacyRoute, type BranchFunding, type ModelTier } from '@tangent/shared';
+import {
+  fromLegacyRoute,
+  MAX_REQUESTED_OUTPUT_TOKENS,
+  MIN_REQUESTED_OUTPUT_TOKENS,
+  type BranchFunding,
+  type ModelTier,
+} from '@tangent/shared';
 
 /**
  * A provider + model pair, as stored in settings, with who pays for it
@@ -25,11 +31,18 @@ export interface AppSettings {
    * each tier; null = the suggested model of the tier (TierStore `choice`).
    */
   tiers: Readonly<Record<ModelTier, ModelChoice | null>>;
+  /**
+   * Output cap of a reply, sent with each message (the server caps it at the
+   * model's limit); null = Auto, the server's default for the model (larger
+   * for reasoning models, @tangent/shared output-tokens.ts).
+   */
+  maxOutputTokens: number | null;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   reviewer: null,
   tiers: { normal: null, max: null },
+  maxOutputTokens: null,
 };
 
 const STORAGE_KEY = 'tangent.settings';
@@ -63,7 +76,18 @@ export function parseSettings(raw: string | null): AppSettings {
     ...DEFAULT_SETTINGS,
     reviewer: parseChoice(value['reviewer']),
     tiers: { normal: parseChoice(tiers['normal']), max: parseChoice(tiers['max']) },
+    maxOutputTokens: parseOutputTokens(value['maxOutputTokens']),
   };
+}
+
+/** A whole number of tokens a send may ask for, else null (Auto). */
+export function parseOutputTokens(v: unknown): number | null {
+  return typeof v === 'number' &&
+    Number.isInteger(v) &&
+    v >= MIN_REQUESTED_OUTPUT_TOKENS &&
+    v <= MAX_REQUESTED_OUTPUT_TOKENS
+    ? v
+    : null;
 }
 
 /**

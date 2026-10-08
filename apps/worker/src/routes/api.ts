@@ -296,9 +296,12 @@ export function apiRoutes(): Hono<AppBindings> {
         throw new ValidationError("This conversation's model can't check sources");
       }
       // The Durable Object gets the still-sealed cookie value in the body (never
-      // a header, which request logs may capture) and opens it itself.
+      // a header, which request logs may capture) and opens it itself. An output
+      // cap is power's setting: Learn's replies keep its own (simple-mode.ts).
+      const { maxOutputTokens, ...rest } = req;
       const body: SessionSendBody = {
-        ...req,
+        ...rest,
+        ...(maxOutputTokens !== undefined && account.mode === 'power' ? { maxOutputTokens } : {}),
         account,
         ...(keys ? { sealedKeys: keys.sealed } : {}),
       };

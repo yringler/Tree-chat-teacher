@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeSettings } from '../dialogs/tree-settings';
 import { Sidebar } from '../sidebar/sidebar';
 import { TreeStore } from '../state/tree-store';
+import { SettingsStore } from '../state/settings-store';
 import { UiStore } from '../state/ui-store';
 import { HomePage } from './home-page';
 
@@ -49,6 +50,7 @@ function setup() {
     providers: [
       { provide: TreeStore },
       { provide: UiStore },
+      { provide: SettingsStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: router },
       { provide: DEMO_MODE, useValue: false },

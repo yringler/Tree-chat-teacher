@@ -843,6 +843,46 @@ describe('Pool meter', () => {
     });
     expect(await available(poolId)).toBe(100_000 - 159);
   });
+
+  it('settles observed tokens at the cache prices the stream reports', async () => {
+    quiet();
+    const poolId = uniq('pool');
+    await fund(poolId, 100_000);
+    const base = params(poolId);
+    // 1 µ$ per token in and out (the test price), reads 0.1×, writes 1.25×.
+    expect(base.price).toMatchObject({ inMicrosPerMTok: 1_000_000, outMicrosPerMTok: 1_000_000 });
+    const p = params(poolId, {
+      price: {
+        ...base.price!,
+        cacheReadMicrosPerMTok: 100_000,
+        cacheWriteMicrosPerMTok: 1_250_000,
+      },
+    });
+    const cached = providerOf(async function* () {
+      yield { type: 'delta', text: 'x' };
+      yield {
+        type: 'usage',
+        usage: { inputTokens: 1000, outputTokens: 50, cacheReadTokens: 800, cacheWriteTokens: 100 },
+      };
+      yield { type: 'done', stopReason: 'stop' };
+    });
+    const deferred: Promise<unknown>[] = [];
+    const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
+    await drain(
+      meteredRegistry(registryOf(cached), meter, () => true)
+        .get('openrouter')!
+        .stream(genRequest(tag())),
+    );
+    await settleAll(deferred);
+    const [row] = await poolRows(poolId);
+    // 800 × 0.1 + 100 × 1.25 + 100 × 1 + 50 × 1 = 355 µ$; × 1.055 (fee) = 374.5 → 375.
+    expect(row).toMatchObject({
+      status: 'settled',
+      settle_reason: 'tokens',
+      cost_nanos: 355_000,
+      charge_micros: 375,
+    });
+  });
 });
 
 describe('PoolBank: reservation expiry (spec test)', () => {

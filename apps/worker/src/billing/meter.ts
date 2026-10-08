@@ -110,6 +110,9 @@ abstract class ObservedRun implements MeterRun {
   protected costUsd: number | null = null;
   protected inputTokens: number | null = null;
   protected outputTokens: number | null = null;
+  /** Of `inputTokens`, read from / written to the prompt cache (null = not reported). */
+  protected cacheReadTokens: number | null = null;
+  protected cacheWriteTokens: number | null = null;
   protected upstream: ProviderUpstream | null = null;
   /** Web searches seen (reported count, else 1 once a search started); null = none seen. */
   protected webSearches: number | null = null;
@@ -162,6 +165,11 @@ abstract class ObservedRun implements MeterRun {
           this.inputTokens = inputTokens;
         if (typeof outputTokens === 'number' && Number.isFinite(outputTokens))
           this.outputTokens = outputTokens;
+        const { cacheReadTokens, cacheWriteTokens } = event.usage;
+        if (typeof cacheReadTokens === 'number' && Number.isFinite(cacheReadTokens))
+          this.cacheReadTokens = cacheReadTokens;
+        if (typeof cacheWriteTokens === 'number' && Number.isFinite(cacheWriteTokens))
+          this.cacheWriteTokens = cacheWriteTokens;
       } else if (event.type === 'error') {
         this.upstream = event.error.upstream ?? null;
       }
@@ -285,6 +293,8 @@ class PoolRun extends ObservedRun {
       generationCostUsd,
       inputTokens: this.inputTokens,
       outputTokens: this.outputTokens,
+      cacheReadTokens: this.cacheReadTokens,
+      cacheWriteTokens: this.cacheWriteTokens,
       price: this.pool.price,
     });
   }

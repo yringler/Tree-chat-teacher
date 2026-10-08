@@ -699,6 +699,10 @@ export const modelPrices = sqliteTable('model_prices', {
   outMicrosPerMTok: integer('out_micros_per_mtok').notNull(),
   /** OpenRouter's `context_length`; null when not reported. */
   contextTokens: integer('context_tokens'),
+  /** OpenRouter's `input_cache_read` price; null when not listed. */
+  cacheReadMicrosPerMTok: integer('cache_read_micros_per_mtok'),
+  /** OpenRouter's `input_cache_write` price; null when not listed. */
+  cacheWriteMicrosPerMTok: integer('cache_write_micros_per_mtok'),
   /** When a sync last confirmed the price (ISO). */
   fetchedAt: text('fetched_at').notNull(),
 });
@@ -711,6 +715,8 @@ export const modelPriceHistory = sqliteTable(
     inMicrosPerMTok: integer('in_micros_per_mtok').notNull(),
     outMicrosPerMTok: integer('out_micros_per_mtok').notNull(),
     contextTokens: integer('context_tokens'),
+    cacheReadMicrosPerMTok: integer('cache_read_micros_per_mtok'),
+    cacheWriteMicrosPerMTok: integer('cache_write_micros_per_mtok'),
     /** ISO. */
     recordedAt: text('recorded_at').notNull(),
   },

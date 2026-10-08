@@ -9,6 +9,10 @@ import {
   BUILT_IN_PROVIDER_ID,
   MAX_LINKS_PER_TREE,
   TRUNK_TITLE,
+  DEFAULT_REPLY_OUTPUT_TOKENS,
+  REASONING_REPLY_OUTPUT_TOKENS,
+  auxOutputTokens,
+  replyOutputTokens,
   createBranchRequestSchema,
   createLinkRequestSchema,
   pickDefaultRoute,
@@ -86,8 +90,17 @@ export interface ChatSettings {
    */
   summaryProviderId: string | null;
   summaryModel: string | null;
-  /** Output tokens reserved when computing the input budget. Default 4096. */
+  /**
+   * A reply's output cap (also reserved when computing the input budget) on a
+   * model that doesn't reason. Default DEFAULT_REPLY_OUTPUT_TOKENS (4096).
+   */
   reservedOutputTokens: number;
+  /**
+   * The same on a reasoning model (`ProviderCapabilities.reasoning`), whose
+   * thinking counts as output. Default REASONING_REPLY_OUTPUT_TOKENS (16384).
+   * Either is capped at the model's `maxOutputTokens`.
+   */
+  reasoningOutputTokens: number;
   /** Optional cap below the provider's context window (e.g. to save cost). */
   maxInputTokens: number | null;
   /** Generate a branch title after the first assistant reply. */
@@ -123,7 +136,8 @@ export const DEFAULT_GROUNDING_SETTINGS: GroundingSettings = {
 export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   summaryProviderId: null,
   summaryModel: null,
-  reservedOutputTokens: 4096,
+  reservedOutputTokens: DEFAULT_REPLY_OUTPUT_TOKENS,
+  reasoningOutputTokens: REASONING_REPLY_OUTPUT_TOKENS,
   maxInputTokens: null,
   autoTitle: true,
   grounding: DEFAULT_GROUNDING_SETTINGS,
@@ -231,6 +245,11 @@ export interface RunGenerationOptions {
   reservationId?: string;
   /** `required`: "Check sources", the reply must search (when the provider can). */
   ground?: 'required';
+  /**
+   * The reply's output cap the caller asks for (power's setting), instead of
+   * the settings' default for the model; capped at the model's limit.
+   */
+  maxOutputTokens?: number;
 }
 
 /** A validated review, ready to run (see `prepareReview`). */
@@ -766,12 +785,24 @@ export class ChatService {
     return this.deps.pinnedModel ?? branch.model;
   }
 
+  /**
+   * A reply's output cap on `model` (`requested`, else the settings' default
+   * for a reasoning or a plain model, within the model's limit) and the input
+   * budget that leaves in its context window.
+   */
   private budgetFor(
     provider: LlmProvider,
     model: string,
+    requested?: number,
   ): { maxInputTokens: number; maxOutput: number } {
     const caps = provider.capabilities(model);
-    const maxOutput = Math.min(this.deps.settings.reservedOutputTokens, caps.maxOutputTokens);
+    const { reservedOutputTokens, reasoningOutputTokens } = this.deps.settings;
+    const maxOutput = replyOutputTokens({
+      reasoning: caps.reasoning === true,
+      maxOutputTokens: caps.maxOutputTokens,
+      requested: requested ?? null,
+      defaults: { plain: reservedOutputTokens, reasoning: reasoningOutputTokens },
+    });
     let maxInputTokens = Math.max(1, caps.maxContextTokens - maxOutput);
     if (this.deps.settings.maxInputTokens !== null) {
       maxInputTokens = Math.min(maxInputTokens, this.deps.settings.maxInputTokens);
@@ -799,13 +830,18 @@ export class ChatService {
     inputs: PlanInputs,
     generate: boolean,
     signal?: AbortSignal,
+    requestedOutput?: number,
   ): AsyncGenerator<string, ContextPlan> {
     const summaries = new Map<string, string>();
     const failed = new Set<string>();
     const { provider: summaryProvider, model: summaryModel } = this.summaryTarget(
       inputs.summaryBranch,
     );
-    const { maxInputTokens } = this.budgetFor(inputs.provider, this.modelOf(inputs.branch));
+    const { maxInputTokens } = this.budgetFor(
+      inputs.provider,
+      this.modelOf(inputs.branch),
+      requestedOutput,
+    );
     const lookedUp = new Set<string>();
 
     const plan = (): ContextPlan =>
@@ -1012,7 +1048,7 @@ export class ChatService {
     try {
       const inputs = await this.loadPlanInputs(branch.id, userNode.id);
       branch = inputs.branch;
-      const steps = this.resolvePlan(inputs, true, signal);
+      const steps = this.resolvePlan(inputs, true, signal, options.maxOutputTokens);
       let step = await steps.next();
       while (!step.done) {
         yield { type: 'status', message: step.value };
@@ -1043,6 +1079,9 @@ export class ChatService {
             ...(options.reservationId ? { reservationId: options.reservationId } : {}),
           },
           nodeId: assistantNode.id,
+          ...(options.maxOutputTokens !== undefined
+            ? { maxOutputTokens: options.maxOutputTokens }
+            : {}),
         },
         state,
         signal,
@@ -1089,12 +1128,14 @@ export class ChatService {
       usageTag: UsageTag;
       /** The node the `delta`/`usage` events are for. */
       nodeId: string;
+      /** The output cap the caller asks for (RunGenerationOptions.maxOutputTokens). */
+      maxOutputTokens?: number;
     },
     state: ReplyState,
     signal: AbortSignal,
   ): AsyncGenerator<ReplyEvent, ReplyTerminal> {
     const { provider, plan, model, caps, nodeId } = target;
-    const { maxOutput } = this.budgetFor(provider, model);
+    const { maxOutput } = this.budgetFor(provider, model, target.maxOutputTokens);
     let terminal: ReplyTerminal | null = null;
     let webSearch = this.webSearchRequest(target.grounding);
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -1816,7 +1857,7 @@ async function collectText(
     model,
     system: prompt.system,
     messages: prompt.messages,
-    maxOutputTokens: 1024,
+    maxOutputTokens: auxOutputTokens(provider.capabilities(model)),
     signal,
     usageTag,
   })) {

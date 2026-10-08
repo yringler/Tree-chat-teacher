@@ -5,6 +5,7 @@ import type { MeResponse, ProviderInfo } from '@tangent/shared';
 import { ApiClient } from '@tangent/web-shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TreeStore } from '../state/tree-store';
+import { SettingsStore } from '../state/settings-store';
 import { UiStore } from '../state/ui-store';
 import { ApiKeys } from './api-keys';
 
@@ -36,6 +37,7 @@ function open(builtInCredit: boolean) {
     providers: [
       { provide: TreeStore },
       { provide: UiStore },
+      { provide: SettingsStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: {} },
     ],

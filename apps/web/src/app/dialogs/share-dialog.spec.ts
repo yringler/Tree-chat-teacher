@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShareCard } from '../shares/share-card';
 import { shareBranchTitle, sharesOfTree } from '../shares/share-list';
 import { TreeStore } from '../state/tree-store';
+import { SettingsStore } from '../state/settings-store';
 import { UiStore } from '../state/ui-store';
 import { ShareDialog } from './share-dialog';
 
@@ -146,6 +147,7 @@ function setup(list: ShareSummary[]) {
     providers: [
       { provide: TreeStore },
       { provide: UiStore },
+      { provide: SettingsStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: { navigate: vi.fn(async () => true) } },
       { provide: DEMO_MODE, useValue: false },

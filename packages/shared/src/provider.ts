@@ -20,6 +20,12 @@ export interface ProviderCapabilities {
   supportsTokenCount: boolean;
   /** True when the provider can run a web search for a reply (`GenerateRequest.webSearch`). */
   supportsWebSearch: boolean;
+  /**
+   * True for a reasoning model (`ModelInfo.reasoning`, else `isReasoningModel`):
+   * its thinking counts as output, so replies get a larger cap (output-tokens.ts).
+   * Absent = false.
+   */
+  reasoning?: boolean;
 }
 
 /**
@@ -45,6 +51,8 @@ export interface ModelInfo {
    * from config). Absent = unknown.
    */
   usageFactor?: number;
+  /** Whether the model reasons (thinks before answering); absent = `isReasoningModel(id)`. */
+  reasoning?: boolean;
 }
 
 /**
@@ -124,6 +132,17 @@ export interface ProviderError {
 }
 
 /**
+ * Token usage as a provider reports it: the totals, plus the prompt-cache
+ * share of the input when the upstream reports it (absent = not reported).
+ */
+export interface ProviderUsage extends TokenUsage {
+  /** Input tokens read from the prompt cache; included in `inputTokens`. */
+  cacheReadTokens: number;
+  /** Input tokens written to the prompt cache; included in `inputTokens`. */
+  cacheWriteTokens: number;
+}
+
+/**
  * One event type for streaming, usage, completion and failure.
  *
  * Contract for `LlmProvider.stream`:
@@ -142,7 +161,7 @@ export interface ProviderError {
  */
 export type ProviderEvent =
   | { type: 'delta'; text: string }
-  | { type: 'usage'; usage: Partial<TokenUsage> }
+  | { type: 'usage'; usage: Partial<ProviderUsage> }
   | { type: 'billing'; generationId?: string; costUsd?: number; webSearches?: number }
   | { type: 'citations'; citations: Citation[] }
   | { type: 'activity'; kind: 'web_search' }
