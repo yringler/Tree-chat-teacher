@@ -190,7 +190,7 @@ describe('power: a send with an input limit', () => {
 });
 
 describe('GET /api/branches/:id/input-budget', () => {
-  it('reports the window, the server cap and the list price', async () => {
+  it('reports the window, the server cap and, on credit, what credit charges', async () => {
     const own = await trunk({ providerId: 'fake' });
     const res = await call(`/api/branches/${own}/input-budget`);
     expect(res.status).toBe(200);
@@ -204,7 +204,8 @@ describe('GET /api/branches/:id/input-budget', () => {
       price: null,
     });
 
-    // `simple` is priced at 1 µ$ a token each way (vitest.config.ts MODEL_PRICES).
+    // `simple` is priced at 1 µ$ a token each way (vitest.config.ts MODEL_PRICES); credit
+    // charges it with OpenRouter's fee (5.5%) and the markup (10%), as billing does.
     const credit = await trunk({ providerId: 'openrouter', funding: 'credit', model: 'simple' });
     const body = (await (
       await call(`/api/branches/${credit}/input-budget`)
@@ -213,7 +214,7 @@ describe('GET /api/branches/:id/input-budget', () => {
       model: 'simple',
       funding: 'credit',
       serverMaxInputTokens: CREDIT_CAP,
-      price: { inputUsdPerMTok: 1, cacheReadUsdPerMTok: null },
+      price: { inputUsdPerMTok: 1.1605, cacheReadUsdPerMTok: null, basis: 'credit' },
     });
   });
 });

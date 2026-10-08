@@ -1,5 +1,5 @@
 import type { GenerateRequest } from '@tangent/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ChatSettings, RunGenerationOptions } from '../../src/services/chat-service.js';
 import { send, setup } from './helpers.js';
 
@@ -98,6 +98,7 @@ describe('input limit', () => {
     const s = await conversation({ maxInputTokens: 50_000 });
     s.provider.reasoning = true;
     expect(await s.chat.inputBudget(s.branchId)).toEqual({
+      providerId: 'scripted',
       model: 'm1',
       funding: 'own-key',
       contextTokens: 200_000,
@@ -180,5 +181,16 @@ describe('input limit', () => {
     expect(dropped.summaries).toEqual([]);
     expect(summarized(dropped.call)).toBe(false);
     expect(chars(dropped.call)).toBeLessThan(6000 * 3.5 + 1000);
+  });
+
+  it('budgets with the provider’s resolved capabilities when it has them (real windows)', async () => {
+    const s = await conversation();
+    const base = s.provider.capabilities();
+    const resolve = vi.fn(async (_model: string) => ({ ...base, maxContextTokens: 500_000 }));
+    Object.assign(s.provider, { resolveCapabilities: resolve });
+    const plan = await s.chat.planContext(s.branchId, null, { resolveSummaries: false });
+    expect(plan.plan.budget.maxInputTokens).toBe(500_000 - 4096);
+    expect((await s.chat.inputBudget(s.branchId)).contextTokens).toBe(500_000);
+    expect(resolve).toHaveBeenCalledWith('m1');
   });
 });

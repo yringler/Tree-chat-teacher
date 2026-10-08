@@ -236,6 +236,13 @@ export interface LlmProvider {
   models(): ModelInfo[];
   defaultModel(): string;
   capabilities(model: string): ProviderCapabilities;
+  /**
+   * `capabilities` with the model's real limits where the host can look them
+   * up (the Worker: OpenRouter's catalog of context windows): they replace the
+   * kind's built-in defaults and never raise a configured limit. Absent =
+   * `capabilities` is all there is. ChatService budgets with it.
+   */
+  resolveCapabilities?(model: string): Promise<ProviderCapabilities>;
   stream(request: GenerateRequest): AsyncIterable<ProviderEvent>;
   /** Exact input-token count, when `capabilities(model).supportsTokenCount`. */
   countTokens?(

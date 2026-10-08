@@ -10,10 +10,15 @@ import type { ChatService, GenerationLimits } from '@tangent/core';
 import type { BranchFunding, ContextLimitsQuery, InputBudgetResponse } from '@tangent/shared';
 import type { AccountContext, AppEnv } from './env.js';
 import { modelPrice } from './pool/model-prices.js';
-import { simpleMaxInputTokens } from './simple-mode.js';
+import { chargeMicros } from './billing/pricing.js';
+import { markupFor, openRouterFeeBps } from './billing/service.js';
+import { providerConfigs } from './services.js';
+import { isOpenRouter, simpleMaxInputTokens, simpleProviderConfig } from './simple-mode.js';
 
 /** USD per million tokens, from the price table's micro-USD per million. */
 const MICROS_PER_USD = 1_000_000;
+/** `chargeMicros` takes nano-USD. */
+const NANOS_PER_MICRO = 1000;
 
 /**
  * The most input the server sends on a route whatever the user's setting:
@@ -67,10 +72,20 @@ export async function inputBudgetResponse(
   const caps = [budget.maxInputTokens, serverInputCap(env, account, budget.funding)].filter(
     (n): n is number => n !== null,
   );
-  const price = await modelPrice(env, budget.model).catch((err: unknown) => {
-    console.error(`Price of ${budget.model} could not be read`, err);
-    return null;
-  });
+  const credit = account.mode === 'power' && budget.funding === 'credit';
+  // The price table holds OpenRouter's prices: on the own key, only an OpenRouter route is billed by them.
+  const priced = credit || ownKeyOnOpenRouter(env, account, budget.providerId);
+  const price = priced
+    ? await modelPrice(env, budget.model).catch((err: unknown) => {
+        console.error(`Price of ${budget.model} could not be read`, err);
+        return null;
+      })
+    : null;
+  /** USD per million tokens of a list price in micro-USD per million: as charged on credit, or as listed. */
+  const usd = (microsPerMTok: number) =>
+    (credit
+      ? chargeMicros(microsPerMTok * NANOS_PER_MICRO, markupFor(env), openRouterFeeBps(env))
+      : microsPerMTok) / MICROS_PER_USD;
   return {
     model: budget.model,
     funding: budget.funding,
@@ -79,11 +94,21 @@ export async function inputBudgetResponse(
     reasoning: budget.reasoning,
     serverMaxInputTokens: caps.length > 0 ? Math.min(...caps) : null,
     price: price && {
-      inputUsdPerMTok: price.inMicrosPerMTok / MICROS_PER_USD,
+      inputUsdPerMTok: usd(price.inMicrosPerMTok),
       cacheReadUsdPerMTok:
-        price.cacheReadMicrosPerMTok !== undefined
-          ? price.cacheReadMicrosPerMTok / MICROS_PER_USD
-          : null,
+        price.cacheReadMicrosPerMTok !== undefined ? usd(price.cacheReadMicrosPerMTok) : null,
+      basis: credit ? 'credit' : 'list',
     },
   };
+}
+
+/** Whether `providerId` is an OpenRouter route of the account's own keys. */
+function ownKeyOnOpenRouter(env: AppEnv, account: AccountContext, providerId: string): boolean {
+  try {
+    const configs = account.mode === 'simple' ? [simpleProviderConfig(env)] : providerConfigs(env);
+    const config = configs.find((c) => c.id === providerId);
+    return !!config && config.kind === 'openai-compatible' && isOpenRouter(config.baseUrl);
+  } catch {
+    return false;
+  }
 }

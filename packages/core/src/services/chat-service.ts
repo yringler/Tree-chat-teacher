@@ -297,6 +297,8 @@ export function pickGenerationLimits(value: GenerationLimits): GenerationLimits 
 
 /** What bounds a reply's input on a branch's route (`inputBudget`). */
 export interface BranchInputBudget {
+  /** The branch's route: its provider and funding, and its model. */
+  providerId: string;
   model: string;
   funding: BranchFunding;
   /** `ProviderCapabilities.maxContextTokens`. */
@@ -306,6 +308,16 @@ export interface BranchInputBudget {
   reasoning: boolean;
   /** The settings' input cap (`ChatSettings.maxInputTokens`). */
   maxInputTokens: number | null;
+}
+
+/**
+ * `provider`'s capabilities for `model`, with its real limits where the
+ * provider can look them up (`LlmProvider.resolveCapabilities`).
+ */
+function capabilitiesOf(provider: LlmProvider, model: string): Promise<ProviderCapabilities> {
+  return provider.resolveCapabilities
+    ? provider.resolveCapabilities(model)
+    : Promise.resolve(provider.capabilities(model));
 }
 
 /** A validated review, ready to run (see `prepareReview`). */
@@ -855,13 +867,13 @@ export class ChatService {
    * budget that leaves in its context window, within the settings' cap and
    * `requestedInput` (power's input limit).
    */
-  private budgetFor(
+  private async budgetFor(
     provider: LlmProvider,
     model: string,
     requested?: number,
     requestedInput?: number,
-  ): { maxInputTokens: number; maxOutput: number } {
-    const caps = provider.capabilities(model);
+  ): Promise<{ maxInputTokens: number; maxOutput: number }> {
+    const caps = await capabilitiesOf(provider, model);
     const { reservedOutputTokens, reasoningOutputTokens } = this.deps.settings;
     const maxOutput = replyOutputTokens({
       reasoning: caps.reasoning === true,
@@ -885,8 +897,9 @@ export class ChatService {
   async inputBudget(branchId: string): Promise<BranchInputBudget> {
     const branch = await this.getOwnedBranch(branchId);
     const model = this.modelOf(branch);
-    const caps = this.requireProvider(branch).capabilities(model);
+    const caps = await capabilitiesOf(this.requireProvider(branch), model);
     return {
+      providerId: branch.providerId,
       model,
       funding: this.fundingOf(branch),
       contextTokens: caps.maxContextTokens,
@@ -923,7 +936,7 @@ export class ChatService {
     const { provider: summaryProvider, model: summaryModel } = this.summaryTarget(
       inputs.summaryBranch,
     );
-    const { maxInputTokens } = this.budgetFor(
+    const { maxInputTokens } = await this.budgetFor(
       inputs.provider,
       this.modelOf(inputs.branch),
       limits.maxOutputTokens,
@@ -1022,7 +1035,7 @@ export class ChatService {
     const prompt = buildSummaryPrompt(
       request,
       bound && {
-        maxInputTokens: this.budgetFor(provider, model).maxInputTokens,
+        maxInputTokens: (await this.budgetFor(provider, model)).maxInputTokens,
         estimateTokens: bound.estimateTokens,
       },
     );
@@ -1226,7 +1239,7 @@ export class ChatService {
     signal: AbortSignal,
   ): AsyncGenerator<ReplyEvent, ReplyTerminal> {
     const { provider, plan, model, caps, nodeId } = target;
-    const { maxOutput } = this.budgetFor(provider, model, target.maxOutputTokens);
+    const { maxOutput } = await this.budgetFor(provider, model, target.maxOutputTokens);
     let terminal: ReplyTerminal | null = null;
     let webSearch = this.webSearchRequest(target.grounding);
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -1440,7 +1453,7 @@ export class ChatService {
       const rendered = reviewer.capabilities(review.model).supportsSystemPrompt
         ? prompt
         : foldSystem(prompt);
-      const { maxOutput } = this.budgetFor(reviewer, review.model, reviewOutput);
+      const { maxOutput } = await this.budgetFor(reviewer, review.model, reviewOutput);
       yield { type: 'status', message: 'Reviewing…' };
 
       const usage: Partial<TokenUsage> = {};

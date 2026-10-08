@@ -59,11 +59,19 @@ export interface InputBudgetResponse {
    */
   serverMaxInputTokens: number | null;
   /**
-   * The model's list price in USD per million input tokens, and per million
-   * read from the prompt cache (null when unknown); null when the server has
-   * no price for the model.
+   * What a million input tokens cost, and a million read from the prompt
+   * cache (null when unknown), in USD; null when the server has no price for
+   * the model (or, on the own key, the route isn't OpenRouter's, whose prices
+   * the table holds). `basis` says which price it is: `credit`, what Tangent
+   * credit charges (OpenRouter's list price with its credit-purchase fee and
+   * Tangent's markup, as billing works it out); `list`, OpenRouter's list
+   * price, which it bills the user's own key directly.
    */
-  price: { inputUsdPerMTok: number; cacheReadUsdPerMTok: number | null } | null;
+  price: {
+    inputUsdPerMTok: number;
+    cacheReadUsdPerMTok: number | null;
+    basis: 'list' | 'credit';
+  } | null;
 }
 
 /** What a message's input budget is, and what decides it; see `inputBudgetOf`. */

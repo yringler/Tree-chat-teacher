@@ -627,6 +627,8 @@ function meteredProvider(provider: LlmProvider, meter: UsageMeter): LlmProvider 
     capabilities: (model) => provider.capabilities(model),
     stream: (request) => meteredStream(provider, request, meter),
   };
+  const resolve = provider.resolveCapabilities?.bind(provider);
+  if (resolve) wrapped.resolveCapabilities = resolve;
   const count = provider.countTokens?.bind(provider);
   if (count) wrapped.countTokens = count;
   return wrapped;

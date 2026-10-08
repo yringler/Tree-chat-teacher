@@ -43,7 +43,8 @@ export interface InputLimitState {
  * The hints under the setting, live as it changes: how big the number in
  * effect is (the limit, or without one the default), what the server would
  * send without a limit on the open conversation's route and model, and what
- * that much input costs at the model's list price. `info` null: no
+ * that much input costs: on Tangent credit what credit charges for it, on the
+ * own key OpenRouter's list price. `info` null: no
  * conversation is open (or its numbers didn't load), so only the size of a
  * chosen limit shows.
  */
@@ -69,15 +70,24 @@ export function inputLimitNotes(
       : '';
   let cost: string | null = null;
   if (info.price) {
-    const { inputUsdPerMTok, cacheReadUsdPerMTok } = info.price;
+    const { inputUsdPerMTok, cacheReadUsdPerMTok, basis } = info.price;
     const full = formatUsdEstimate(inputCostUsd(budget.tokens, inputUsdPerMTok));
+    // On credit: what the user pays (billing's list price × fee × markup); on the own key: the
+    // list price, which OpenRouter bills directly.
+    const at =
+      basis === 'credit'
+        ? `on Tangent credit, which charges ${perMillion(inputUsdPerMTok)} per million tokens ` +
+          `of ${info.model}'s input (OpenRouter's price with its fee and Tangent's markup)`
+        : `at ${info.model}'s OpenRouter list price (${perMillion(inputUsdPerMTok)} per million tokens)`;
     cost =
-      `A message that sends all ${n(budget.tokens)} tokens costs about ${full} in input at ` +
-      `${info.model}'s list price (${perMillion(inputUsdPerMTok)} per million tokens)` +
+      `A message that sends all ${n(budget.tokens)} tokens costs about ${full} in input ${at}` +
       (cacheReadUsdPerMTok !== null
         ? `, or about ${formatUsdEstimate(inputCostUsd(budget.tokens, cacheReadUsdPerMTok))} ` +
           `when it is read from the prompt cache (${perMillion(cacheReadUsdPerMTok)} per million).`
-        : '.');
+        : '.') +
+      (basis === 'list'
+        ? ' OpenRouter bills your key directly, and adds its fee when you buy OpenRouter credit.'
+        : '');
   }
   return { size: describeTokenSize(budget.tokens), route: route + over, cost };
 }

@@ -13,16 +13,17 @@ const OWN_KEY: InputBudgetResponse = {
   maxOutputTokens: 64_000,
   reasoning: true,
   serverMaxInputTokens: null,
-  price: { inputUsdPerMTok: 2, cacheReadUsdPerMTok: 0.2 },
+  price: { inputUsdPerMTok: 2, cacheReadUsdPerMTok: 0.2, basis: 'list' },
 };
 const CREDIT: InputBudgetResponse = {
-  model: 'deepseek/deepseek-v4-flash',
+  model: 'deepseek/deepseek-v4.1-flash',
   funding: 'credit',
   contextTokens: 60_000 + 16_384,
   maxOutputTokens: 16_384,
   reasoning: true,
   serverMaxInputTokens: 60_000,
-  price: { inputUsdPerMTok: 0.1, cacheReadUsdPerMTok: null },
+  // $0.15 a million with OpenRouter's 5.5% and a 10% markup.
+  price: { inputUsdPerMTok: 0.174075, cacheReadUsdPerMTok: null, basis: 'credit' },
 };
 
 describe('inputLimitNotes', () => {
@@ -47,8 +48,9 @@ describe('inputLimitNotes', () => {
         '983,616 tokens a message: its 1,000,000-token context window less 16,384 for the reply.',
       cost:
         'A message that sends all 200,000 tokens costs about $0.40 in input at ' +
-        "anthropic/claude-sonnet-5.5's list price ($2.00 per million tokens), or about $0.040 " +
-        'when it is read from the prompt cache ($0.20 per million).',
+        "anthropic/claude-sonnet-5.5's OpenRouter list price ($2.00 per million tokens), or " +
+        'about $0.040 when it is read from the prompt cache ($0.20 per million). OpenRouter ' +
+        'bills your key directly, and adds its fee when you buy OpenRouter credit.',
     });
   });
 
@@ -65,11 +67,12 @@ describe('inputLimitNotes', () => {
     expect(inputLimitNotes(CREDIT, { maxInputTokens: 200_000, maxOutputTokens: null })).toEqual({
       size: '60,000 tokens ≈ 45,000 words ≈ 160 paperback pages, about the length of a short novel.',
       route:
-        'On Tangent credit, a message sends at most 60,000 tokens (on deepseek/deepseek-v4-flash); ' +
+        'On Tangent credit, a message sends at most 60,000 tokens (on deepseek/deepseek-v4.1-flash); ' +
         'a limit of yours can only lower that. Your limit is above that, so 60,000 applies.',
       cost:
-        'A message that sends all 60,000 tokens costs about $0.0060 in input at ' +
-        "deepseek/deepseek-v4-flash's list price ($0.10 per million tokens).",
+        'A message that sends all 60,000 tokens costs about $0.010 in input on Tangent credit, ' +
+        "which charges $0.1741 per million tokens of deepseek/deepseek-v4.1-flash's input " +
+        "(OpenRouter's price with its fee and Tangent's markup).",
     });
     expect(
       inputLimitNotes(CREDIT, { maxInputTokens: 16_000, maxOutputTokens: null }).route,

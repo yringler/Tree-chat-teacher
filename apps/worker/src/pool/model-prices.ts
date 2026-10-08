@@ -30,6 +30,7 @@
 import { EXPLICIT_CACHE_WRITE_MULTIPLIER, usesExplicitCacheControl } from '@tangent/providers';
 import { appConfig, type ModelPrice } from '../config.js';
 import type { AppEnv } from '../env.js';
+import { syncModelWindows } from '../model-windows.js';
 import { poolModel } from './params.js';
 
 export const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
@@ -111,10 +112,10 @@ export function parseListPrices(body: unknown): Map<string, ListPrice | null> {
   return prices;
 }
 
-/** `GET /api/v1/models` (public, no key). Throws on network failure, non-2xx or a malformed body. */
-export async function fetchListPrices(
+/** `GET /api/v1/models` (public, no key), its body as JSON. Throws on network failure or non-2xx. */
+export async function fetchModelsList(
   fetchImpl: typeof fetch = (input, init) => globalThis.fetch(input, init),
-): Promise<Map<string, ListPrice | null>> {
+): Promise<unknown> {
   const res = await fetchImpl(OPENROUTER_MODELS_URL, {
     headers: { accept: 'application/json' },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -123,7 +124,14 @@ export async function fetchListPrices(
     await res.body?.cancel().catch(() => undefined);
     throw new Error(`OpenRouter models list failed: HTTP ${res.status}`);
   }
-  return parseListPrices(await res.json());
+  return res.json();
+}
+
+/** The list prices of `GET /api/v1/models`. Throws on network failure, non-2xx or a malformed body. */
+export async function fetchListPrices(
+  fetchImpl?: typeof fetch,
+): Promise<Map<string, ListPrice | null>> {
+  return parseListPrices(await fetchModelsList(fetchImpl));
 }
 
 interface PriceRow {
@@ -277,6 +285,9 @@ export interface PriceSyncResult {
  * The daily price sync: fetches OpenRouter's list prices and stores those of
  * the tracked models (see the header for what is held back). Throws when the
  * list can't be fetched or D1 can't be written; nothing is stored then.
+ * From the same list it then stores every model's context window
+ * (model-windows.ts `syncModelWindows`); a failure there is logged and
+ * leaves the prices stored.
  */
 export async function syncModelPrices(
   env: AppEnv,
@@ -285,7 +296,8 @@ export async function syncModelPrices(
 ): Promise<PriceSyncResult> {
   const config = appConfig(env);
   const models = trackedModels(env);
-  const list = await fetchListPrices(fetchImpl);
+  const body = await fetchModelsList(fetchImpl);
+  const list = parseListPrices(body);
   const at = now.toISOString();
   const result: PriceSyncResult = { changed: [], unchanged: [], missing: [], anomalies: [] };
   const writes: D1PreparedStatement[] = [];
@@ -344,5 +356,8 @@ export async function syncModelPrices(
 
   if (writes.length > 0) await env.DB.batch(writes);
   console.log(JSON.stringify({ event: 'price_sync', ...result }));
+  await syncModelWindows(env, now, body).catch((e: unknown) => {
+    console.error('Model window sync failed; the stored windows stay', e);
+  });
   return result;
 }

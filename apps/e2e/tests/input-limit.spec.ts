@@ -186,4 +186,29 @@ test('the input limit shows its size live, persists, and shapes sends and the Co
   await reviewDialog.getByRole('button', { name: 'Review', exact: true }).click();
   expect((await reviewed).postDataJSON()).toMatchObject({ maxInputTokens: 3000 });
   await expect(reviewDialog.getByText(/input · \d+ output tokens/)).toBeVisible();
+
+  await reviewDialog.getByRole('button', { name: 'Close' }).first().click();
+
+  // On Tangent credit the cost is what credit charges: OpenRouter's price with its fee and
+  // Tangent's markup (V4.1 Flash is priced at $0.15 a million; a model the server has no
+  // price for, like the tiers here, shows none).
+  const onCredit = await request.post('/api/trees', {
+    headers,
+    data: {
+      title: 'On credit',
+      providerId: 'openrouter',
+      funding: 'credit',
+      model: 'deepseek/deepseek-v4.1-flash',
+    },
+  });
+  expect(onCredit.status(), await onCredit.text()).toBe(201);
+  await page.goto(`/t/${((await onCredit.json()) as TreeDetail).tree.id}`);
+  ({ section } = await openSettings(page));
+  await expect(section.locator('.input-limit-route')).toHaveText(
+    'On Tangent credit, a message sends at most 60,000 tokens (on deepseek/deepseek-v4.1-flash); ' +
+      'a limit of yours can only lower that.',
+  );
+  await expect(section.locator('.input-limit-cost')).toHaveText(
+    /^A message that sends all 3,000 tokens costs about \$0\.\d+ in input on Tangent credit, which charges \$0\.1\d+ per million tokens of deepseek\/deepseek-v4\.1-flash's input \(OpenRouter's price with its fee and Tangent's markup\)/,
+  );
 });

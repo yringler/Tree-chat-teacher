@@ -592,7 +592,12 @@ export class DemoBackend {
       reasoning: budget.reasoning,
       serverMaxInputTokens: budget.maxInputTokens,
       price: price
-        ? { inputUsdPerMTok: price.inMicrosPerMTok / MICROS_PER_USD, cacheReadUsdPerMTok: null }
+        ? {
+            inputUsdPerMTok: price.inMicrosPerMTok / MICROS_PER_USD,
+            cacheReadUsdPerMTok: null,
+            // Pretend list prices, with no fee or markup on top.
+            basis: 'list' as const,
+          }
         : null,
     };
   }
