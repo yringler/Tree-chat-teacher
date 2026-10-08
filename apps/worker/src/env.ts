@@ -35,19 +35,13 @@ export interface AppEnv extends Env {
   /** Local dev only (.dev.vars): skip sign-in. Honoured only while BETTER_AUTH_SECRET is unset. */
   DEV_ALLOW_NO_AUTH?: string;
   /**
-   * OpenRouter key of the built-in provider `tangent`, sold as prepaid credit
-   * in both apps (the name predates power mode using it). Never falls back to
+   * OpenRouter key of the built-in provider (`openrouter`), sold as prepaid
+   * credit in both apps and used by the open pool. Never falls back to
    * OPENROUTER_API_KEY; set a credit limit on it in OpenRouter.
    * Its spend is billed at the reported cost grossed up by the `OPENROUTER_FEE_BPS`
    * var (OpenRouter's credit-purchase fee), then marked up.
    */
   OPENROUTER_SIMPLE_API_KEY?: string;
-  /**
-   * Legacy name of Learn's default tier (it was "Smart"; its deployed value is
-   * Normal's model). No longer in wrangler.jsonc; read only as the fallback of
-   * `SIMPLE_NORMAL_MODEL`, never for Max (simple-mode.ts).
-   */
-  SIMPLE_SMART_MODEL?: string;
   /**
    * Polar organization access token (`polar_oat_…`), for the `polar` payment
    * provider (billing/providers/polar). Payments are on only when this and

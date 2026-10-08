@@ -127,7 +127,7 @@ export async function insertUsage(env: AppEnv, row: UsageRowInput): Promise<stri
       row.accountId,
       row.treeId ?? null,
       row.purpose ?? 'reply',
-      row.model ?? 'smart',
+      row.model ?? 'max',
       row.generationId ?? null,
       row.status ?? 'pending',
       row.holdMicros ?? 20_000,

@@ -30,7 +30,7 @@ export const LEARN_COMMON_HEADERS: Readonly<Record<string, string>> = {
   'Referrer-Policy': 'same-origin',
 };
 
-/** The base paths of the Angular apps the Worker serves (PLAN §2.8). */
+/** The base paths of the Angular apps the Worker serves. */
 export const LEARN_BASE = '/learn/';
 export const CANVAS_BASE = '/canvas/';
 export const ADMIN_BASE = '/admin/';

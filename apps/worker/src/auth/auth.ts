@@ -30,7 +30,7 @@ import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnst
  *
  * Anyone may sign up; abuse is bounded by Turnstile and the rate limits on
  * magic links. While the open pool is on, Turnstile runs on every first
- * sign-in (docs/pool/PLAN.md §9, D4): a magic link can only be requested with
+ * sign-in: a magic link can only be requested with
  * a Turnstile pass, so signing in with one records it
  * (`auth_users.pool_verified_at`); a first OAuth sign-in (or any OAuth
  * sign-in of a user with no pass on record) is sent through the Turnstile

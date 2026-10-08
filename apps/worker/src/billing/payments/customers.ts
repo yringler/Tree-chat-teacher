@@ -2,7 +2,7 @@
 // domain from any event (or checkout) that carries both ids; read to tell
 // account deletion whether a provider holds a customer, and by adapters that
 // need a stored customer id. Polar addresses customers by our user id
-// (external_id), so for it this is informational (02 §5, D6).
+// (external_id), so for it this is informational.
 import type { Buyer, ProviderId } from './port.js';
 
 /**

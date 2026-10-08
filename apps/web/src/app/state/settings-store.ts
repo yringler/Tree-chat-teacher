@@ -1,7 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import {
   DEFAULT_INPUT_OVERFLOW,
-  fromLegacyRoute,
   MAX_REQUESTED_INPUT_TOKENS,
   MAX_REQUESTED_OUTPUT_TOKENS,
   MIN_REQUESTED_INPUT_TOKENS,
@@ -13,8 +12,7 @@ import {
 
 /**
  * A provider + model pair, as stored in settings, with who pays for it
- * (absent = the user's own key). Choices saved before funding was split from
- * the provider name the legacy `tangent`: read as `openrouter` on credit.
+ * (absent = the user's own key).
  */
 export interface ModelChoice {
   providerId: string;
@@ -72,7 +70,7 @@ function parseChoice(v: unknown): ModelChoice | null {
     return null;
   const choice: ModelChoice = { providerId, model };
   if (funding === 'credit' || funding === 'own-key') choice.funding = funding;
-  return fromLegacyRoute(choice);
+  return choice;
 }
 
 export function parseSettings(raw: string | null): AppSettings {

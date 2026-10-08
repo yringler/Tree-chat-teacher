@@ -111,7 +111,7 @@ function request(poolId: string, overrides: Partial<PoolReserveRequest> = {}): P
     branchId: 'branch_1',
     nodeId: null,
     providerId: 'openrouter',
-    model: 'simple',
+    model: 'normal',
     holdMicros: 3_000,
     feeBps: 0,
     caps: OPEN_CAPS,
@@ -148,7 +148,7 @@ async function insertPoolRow(
   await env.DB.prepare(
     `INSERT INTO usage_events (id, account_id, funding, purpose, provider_id, model, status, hold_micros,
        markup_bps, fee_bps, charge_micros, created_at)
-     VALUES (?, ?, 'pool', 'reply', 'openrouter', 'simple', ?, ?, 0, 0, ?, ?)`,
+     VALUES (?, ?, 'pool', 'reply', 'openrouter', 'normal', ?, ?, 0, 0, ?, ?)`,
   )
     .bind(
       id,
@@ -199,8 +199,8 @@ function providerOf(stream: (req: GenerateRequest) => AsyncIterable<ProviderEven
     id: 'openrouter',
     kind: 'fake',
     label: 'Tangent',
-    models: () => [{ id: 'simple', label: 'Normal', tier: 'normal' }],
-    defaultModel: () => 'simple',
+    models: () => [{ id: 'normal', label: 'Normal', tier: 'normal' }],
+    defaultModel: () => 'normal',
     capabilities: () => ({
       maxContextTokens: 8192,
       maxOutputTokens: 2048,
@@ -224,7 +224,7 @@ function tag(overrides: Partial<UsageTag> = {}): UsageTag {
 
 function genRequest(t: UsageTag, signal = new AbortController().signal): GenerateRequest {
   return {
-    model: 'simple',
+    model: 'normal',
     system: null,
     messages: [{ role: 'user', content: 'hi' }],
     maxOutputTokens: 2048,
@@ -1219,7 +1219,7 @@ describe('Personal reconciliation beside the pool', () => {
       env.DB.prepare(
         `INSERT INTO usage_events (id, account_id, funding, purpose, provider_id, model, status, hold_micros,
            markup_bps, fee_bps, created_at)
-         VALUES (?, ?, 'pool', 'reply', 'openrouter', 'simple', 'pending', 3000, 0, 0, ?)`,
+         VALUES (?, ?, 'pool', 'reply', 'openrouter', 'normal', 'pending', 3000, 0, 0, ?)`,
       ).bind(uniq('use'), poolId, new Date(NOW.getTime() - 30 * MIN + i).toISOString()),
     );
     await env.DB.batch(statements);
@@ -1227,7 +1227,7 @@ describe('Personal reconciliation beside the pool', () => {
     await env.DB.prepare(
       `INSERT INTO usage_events (id, account_id, purpose, provider_id, model, status, hold_micros,
          markup_bps, fee_bps, created_at)
-       VALUES (?, ?, 'reply', 'openrouter', 'smart', 'pending', 20000, 1000, 550, ?)`,
+       VALUES (?, ?, 'reply', 'openrouter', 'max', 'pending', 20000, 1000, 550, ?)`,
     )
       .bind(personal, `u_${uniq('user')}`, new Date(NOW.getTime() - 15 * MIN).toISOString())
       .run();

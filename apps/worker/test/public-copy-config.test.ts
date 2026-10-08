@@ -179,7 +179,7 @@ describe("Learn's tiers", () => {
     expect(await page('/pool')).toContain(
       `Every reply on the pool uses Normal's model (<code>${NORMAL}</code>) with lighter thinking, a fixed teaching prompt, replies of at most 1,024 tokens`,
     );
-    // No claim about the old models.
+    // No claim about models the defaults don't run.
     expect(`${pricing}${landing}`).not.toMatch(/V4 Pro|V4 Flash|deepseek-v4-(pro|flash)\b/);
   });
 
@@ -280,19 +280,19 @@ describe("Learn's tiers", () => {
     );
   });
 
-  it('a pre-tier override names no Max (its second model was the cheaper one)', async () => {
+  it('an override that names no tiers offers none', async () => {
     const env = {
       SIMPLE_PROVIDER: builtIn({
         baseUrl: 'https://openrouter.ai/api/v1',
         models: [
-          { id: 'a/smart', label: 'Smart' },
-          { id: 'a/simple', label: 'Simple' },
+          { id: 'a/first', label: 'First' },
+          { id: 'a/second', label: 'Second' },
         ],
       }),
       POOL_ACCOUNT_ID: uniq('pool'),
     };
     const pricing = await page('/pricing', env);
-    expect(pricing).not.toContain('<th scope="row">The Simple tier');
+    expect(pricing).not.toContain('<th scope="row">The Second tier');
     expect(await page('/welcome', env)).not.toContain('Two tiers');
   });
 

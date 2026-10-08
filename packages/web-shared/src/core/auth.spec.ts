@@ -55,7 +55,6 @@ const ME: MeResponse = {
     priceCents: 1000,
   },
   membershipNeededFor: [],
-  featuredConversations: false,
 };
 
 describe('AuthService with APP_PATHS', () => {

@@ -71,16 +71,14 @@ function sentence(): string {
 
 /**
  * The demo provider's id and models, mirroring the real built-in provider
- * (`openrouter`): Normal (the default) and Max. The ids predate the Normal /
- * Max names and stay as they are, since stored demo lessons use them:
- * `simple` is Normal, `smart` is Max.
+ * (`openrouter`): Normal (the default) and Max.
  */
 export const DEMO_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
-export const DEMO_SMART_MODEL = 'smart';
-export const DEMO_SIMPLE_MODEL = 'simple';
+export const DEMO_NORMAL_MODEL = 'normal';
+export const DEMO_MAX_MODEL = 'max';
 export const DEMO_MODELS: readonly ModelInfo[] = [
-  { id: DEMO_SIMPLE_MODEL, label: 'Normal', tier: 'normal' },
-  { id: DEMO_SMART_MODEL, label: 'Max', tier: 'max' },
+  { id: DEMO_NORMAL_MODEL, label: 'Normal', tier: 'normal' },
+  { id: DEMO_MAX_MODEL, label: 'Max', tier: 'max' },
 ];
 
 /**
@@ -89,8 +87,8 @@ export const DEMO_MODELS: readonly ModelInfo[] = [
  * the app's does, about 14× Normal.
  */
 export const DEMO_MODEL_PRICES: Readonly<Record<string, TokenPrice>> = {
-  [DEMO_SIMPLE_MODEL]: { inMicrosPerMTok: 150_000, outMicrosPerMTok: 600_000 },
-  [DEMO_SMART_MODEL]: { inMicrosPerMTok: 2_000_000, outMicrosPerMTok: 10_000_000 },
+  [DEMO_NORMAL_MODEL]: { inMicrosPerMTok: 150_000, outMicrosPerMTok: 600_000 },
+  [DEMO_MAX_MODEL]: { inMicrosPerMTok: 2_000_000, outMicrosPerMTok: 10_000_000 },
 };
 
 /** A small deterministic RNG (mulberry32), for tests and reproducible demos. */
@@ -226,18 +224,18 @@ function boldSome(random: Random, text: string): string {
  */
 export function loremReply(model: string, random: Random = Math.random): string {
   return withRandom(random, () => {
-    const smart = model !== DEMO_SIMPLE_MODEL;
+    const max = model !== DEMO_NORMAL_MODEL;
     const paragraphs: string[] = [];
-    const count = smart ? between(random, 2, 3) : between(random, 1, 2);
+    const count = max ? between(random, 2, 3) : between(random, 1, 2);
     for (let i = 0; i < count; i++) {
-      let p = sentences(random, smart ? between(random, 2, 4) : between(random, 1, 3));
+      let p = sentences(random, max ? between(random, 2, 4) : between(random, 1, 3));
       if (i === 0 && random() < 0.5) p = `${pick(random, OPENERS)(words(random))} ${p}`;
       else if (random() < 0.35) p = boldSome(random, p);
       paragraphs.push(p);
     }
-    if (random() < (smart ? 0.5 : 0.3)) {
+    if (random() < (max ? 0.5 : 0.3)) {
       const items: string[] = [];
-      for (let i = between(random, 2, smart ? 4 : 3); i > 0; i--) {
+      for (let i = between(random, 2, max ? 4 : 3); i > 0; i--) {
         const w = words(random);
         items.push(`- **${capitalize(plural(w.noun))}**: ${sentence()}`);
       }
@@ -394,9 +392,9 @@ function tokens(text: string): number {
 
 /** Pretend price in USD (DEMO_MODEL_PRICES plus a base): a few thousandths of a dollar per reply. */
 function fakeCostUsd(model: string, inputTokens: number, outputTokens: number): number {
-  const smart = model !== DEMO_SIMPLE_MODEL;
-  const price = DEMO_MODEL_PRICES[smart ? DEMO_SMART_MODEL : DEMO_SIMPLE_MODEL]!;
-  const base = smart ? 0.002 : 0.001;
+  const max = model !== DEMO_NORMAL_MODEL;
+  const price = DEMO_MODEL_PRICES[max ? DEMO_MAX_MODEL : DEMO_NORMAL_MODEL]!;
+  const base = max ? 0.002 : 0.001;
   return (
     base + (inputTokens * price.inMicrosPerMTok + outputTokens * price.outMicrosPerMTok) / 1e12
   );
@@ -492,7 +490,7 @@ export function createLoremProvider(options: LoremProviderOptions = {}): LlmProv
     kind: 'openai-compatible',
     label: 'Tangent',
     models: () => DEMO_MODELS.map((m) => ({ ...m })),
-    defaultModel: () => DEMO_SIMPLE_MODEL,
+    defaultModel: () => DEMO_NORMAL_MODEL,
     capabilities: () => ({ ...CAPABILITIES }),
     stream,
   };

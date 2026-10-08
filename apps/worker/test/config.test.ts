@@ -55,7 +55,6 @@ describe('appConfig', () => {
       annualFeeEnabled: false,
       personalCreditEnabled: false,
       devPurchasesEnabled: false,
-      featuredConversationsEnabled: false,
     });
     expect(c.prices).toEqual(DEFAULT_MODEL_PRICES);
     expect(c.pool).toMatchObject({
@@ -94,7 +93,6 @@ describe('appConfig', () => {
       ANNUAL_FEE_ENABLED: 'true',
       PERSONAL_CREDIT_ENABLED: 'TRUE',
       DEV_PURCHASES_ENABLED: 'true',
-      FEATURED_CONVERSATIONS_ENABLED: 'true',
       POOL_ACCOUNT_ID: 'pool-x',
       POOL_REQUESTS_PER_DAY: '9',
       POOL_SPEND_MICROS_PER_DAY: '12',
@@ -109,7 +107,6 @@ describe('appConfig', () => {
       annualFeeEnabled: true,
       personalCreditEnabled: true,
       devPurchasesEnabled: true,
-      featuredConversationsEnabled: true,
     });
     expect(c.pool.accountId).toBe('pool-x');
     expect(c.pool.caps.user).toEqual({ requestsPerDay: 9, spendMicrosPerDay: 12 });
@@ -199,7 +196,7 @@ describe('appConfig', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('keeps the old accessors: SIMPLE_MAX_INPUT_TOKENS is positive', () => {
+  it('SIMPLE_MAX_INPUT_TOKENS is positive', () => {
     expect(simpleMaxInputTokens({ ...env, SIMPLE_MAX_INPUT_TOKENS: '0' })).toBe(60_000);
     expect(simpleMaxInputTokens({ ...env, SIMPLE_MAX_INPUT_TOKENS: '1234' })).toBe(1234);
   });
@@ -227,7 +224,7 @@ describe('resolvePoolParams', () => {
     const p = await resolvePoolParams(env, 'ipk');
     expect(p).toMatchObject({
       accountId: 'pool',
-      model: 'simple',
+      model: 'normal',
       price: {
         inMicrosPerMTok: 1_000_000,
         outMicrosPerMTok: 1_000_000,
@@ -291,8 +288,8 @@ describe('resolvePoolParams', () => {
   it("defaults the model to Learn's background model; an unpriced model has no price", async () => {
     const noModel = { ...env, POOL_MODEL: '' } as AppEnv;
     // SIMPLE_FAST_MODEL when the fake config lists it, else that config's default.
-    expect(poolModel({ ...noModel, SIMPLE_FAST_MODEL: 'simple' } as AppEnv)).toBe('simple');
-    expect(poolModel(noModel)).toBe('smart');
+    expect(poolModel({ ...noModel, SIMPLE_FAST_MODEL: 'normal' } as AppEnv)).toBe('normal');
+    expect(poolModel(noModel)).toBe('max');
     expect(
       (await resolvePoolParams({ ...env, POOL_MODEL: 'vendor/unpriced' } as AppEnv, null)).price,
     ).toBeNull();

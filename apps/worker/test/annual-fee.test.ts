@@ -1,4 +1,4 @@
-// ANNUAL_FEE_ENABLED (docs/pool/PLAN.md §S7): the yearly membership is
+// ANNUAL_FEE_ENABLED: the yearly membership is
 // required to generate only while the flag is on. Off (the default), the
 // membership code paths stay but require nothing, whatever the payment
 // provider sells: any signed-in user may learn from the pool (within its
@@ -240,7 +240,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
       expect(me.membership).toMatchObject({ required: true, status: 'inactive' });
       expect(me.membershipNeededFor).toEqual(['own-key']);
       const own = await treeWithNodes(u, 'own-key');
-      for (const [path, init] of generating(own, { providerId: 'openrouter', model: 'smart' })) {
+      for (const [path, init] of generating(own, { providerId: 'openrouter', model: 'max' })) {
         const res = await u.client.call(path, { ...init, learn: 'own-key' });
         expect((await json<ApiError>(res, 402)).error.code, path).toBe('membership_required');
       }
@@ -262,7 +262,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
       const text = await send.text();
       expect(send.status, text).toBe(200);
       expect(lastEvent(text)?.type).toBe('done');
-      for (const [path, init] of generating(own, { providerId: 'openrouter', model: 'smart' })) {
+      for (const [path, init] of generating(own, { providerId: 'openrouter', model: 'max' })) {
         const res = await u.client.call(path, { ...init, learn: 'own-key' });
         const body = await res.text();
         expect(res.status, `${path} ${body}`).not.toBe(402);
@@ -316,7 +316,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
         });
 
         // Power on Tangent credit: allowed, and metered.
-        const onCredit = await treeWithNodes(u, undefined, { ...CREDIT, model: 'smart' });
+        const onCredit = await treeWithNodes(u, undefined, { ...CREDIT, model: 'max' });
         const send = await u.client.call(`/api/branches/${onCredit.trunk.id}/messages`, {
           method: 'POST',
           json: { content: 'Explain primes' },
@@ -348,7 +348,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
         expect(await balanceMicros(u)).toBeLessThan(afterPower);
         const review = await u.client.call(`/api/nodes/${learn.assistant.id}/review`, {
           method: 'POST',
-          json: { providerId: 'openrouter', model: 'smart' },
+          json: { providerId: 'openrouter', model: 'max' },
           learn: 'credit',
         });
         expect(review.status, await review.text()).toBe(200);
@@ -378,14 +378,14 @@ describe('ANNUAL_FEE_ENABLED', () => {
 
     it('a non-member without a balance: 402 payment_required on credit, in power and Learn', async () => {
       const u = await poolReadyUser({ env: { ...feeEnv(true), POOL_ENABLED: 'false' } });
-      const power = await treeWithNodes(u, undefined, { ...CREDIT, model: 'smart' });
-      for (const [path, init] of generating(power, { ...CREDIT, model: 'smart' })) {
+      const power = await treeWithNodes(u, undefined, { ...CREDIT, model: 'max' });
+      for (const [path, init] of generating(power, { ...CREDIT, model: 'max' })) {
         const res = await u.client.call(path, init);
         expect((await json<ApiError>(res, 402)).error.code, path).toBe('payment_required');
       }
       // With the pool off a Learn credit send can't move to it either.
       const credit = await treeWithNodes(u, 'credit');
-      for (const [path, init] of generating(credit, { providerId: 'openrouter', model: 'smart' })) {
+      for (const [path, init] of generating(credit, { providerId: 'openrouter', model: 'max' })) {
         const res = await u.client.call(path, { ...init, learn: 'credit' });
         expect((await json<ApiError>(res, 402)).error.code, path).toBe('payment_required');
       }
@@ -406,10 +406,10 @@ describe('ANNUAL_FEE_ENABLED', () => {
       // Reviewer on credit, the branch (and its summaries) on an own key.
       const own = await treeWithNodes(u);
       expect(
-        (await json<ApiError>(await review(own.assistant.id, CREDIT, 'smart'), 402)).error.code,
+        (await json<ApiError>(await review(own.assistant.id, CREDIT, 'max'), 402)).error.code,
       ).toBe('membership_required');
       // Reviewer on an own key, the branch on credit.
-      const onCredit = await treeWithNodes(u, undefined, { ...CREDIT, model: 'smart' });
+      const onCredit = await treeWithNodes(u, undefined, { ...CREDIT, model: 'max' });
       expect(
         (
           await json<ApiError>(
@@ -419,11 +419,11 @@ describe('ANNUAL_FEE_ENABLED', () => {
         ).error.code,
       ).toBe('membership_required');
       // Both on credit: fine.
-      const both = await review(onCredit.assistant.id, CREDIT, 'smart');
+      const both = await review(onCredit.assistant.id, CREDIT, 'max');
       expect(both.status, await both.text()).toBe(200);
       // A member may mix.
       await insertSubscription(env, u.userId, 'active');
-      const mixed = await review(own.assistant.id, CREDIT, 'smart');
+      const mixed = await review(own.assistant.id, CREDIT, 'max');
       expect(mixed.status, await mixed.text()).toBe(200);
     });
 

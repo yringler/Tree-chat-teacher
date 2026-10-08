@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Fails when a payment provider is named where no provider should be
-// (docs/polar-migration/03-architecture.md §5): the shared packages and the
+// Fails when a payment provider is named where no provider should be: the
+// shared packages and the
 // browser apps talk to the billing API only, so a provider switch never
 // touches them. Provider names belong in the Worker's adapter
 // (apps/worker/src/billing/providers/), its config, the legal pages and the

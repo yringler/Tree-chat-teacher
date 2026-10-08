@@ -4,7 +4,7 @@
 // values of the fields marked PLAUSIBLE in docs/polar-migration/04-verification.md
 // (`platform_fee_amount` at order.paid, `Refund.amount` being pre-tax,
 // `Dispute.amount` including tax, `Subscription.modified_at`) are assumptions.
-// Replace these with recorded sandbox deliveries (04-verification.md §2).
+// Replace these with recorded sandbox deliveries.
 import type { models, webhooks } from '@polar-sh/sdk/2026-10';
 
 export const SYNTHETIC = true;

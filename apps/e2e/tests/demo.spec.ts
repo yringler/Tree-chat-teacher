@@ -791,11 +791,11 @@ test('Learn demo: export a lesson, import a power-style backup, get a Learn less
   expect(lesson.tree.systemPrompt).not.toBe('Talk like a pirate.');
   for (const b of lesson.branches) {
     expect(b.providerId).toBe('openrouter');
-    expect(['smart', 'simple']).toContain(b.model);
+    expect(['max', 'normal']).toContain(b.model);
     expect(b.contextMode).toBe('path');
     expect(b.funding).toBe('own-key');
   }
-  expect(lesson.branches[0].model).toBe('simple');
+  expect(lesson.branches[0].model).toBe('normal');
   expect(lesson.nodes.map((n: { content: string }) => n.content)).toEqual(
     backup.nodes.map((n: { content: string }) => n.content),
   );

@@ -75,7 +75,7 @@ async function powerTree(u: User, credit = true): Promise<TreeDetail> {
           fromNodeId: reply.id,
           providerId: 'openrouter',
           funding: 'credit',
-          model: 'smart',
+          model: 'max',
           contextMode: 'summary',
           title: 'On credit',
         },
@@ -228,12 +228,7 @@ describe('POST /api/trees/:id/copy-to-learn', () => {
     await insertSubscription(env, u.userId, 'canceled');
     const learnId = `u_${u.userId}`;
     const tree = await powerTree(u);
-    // The user never opened Learn: its account row doesn't exist yet.
-    const accountRow = () =>
-      env.DB.prepare('SELECT mode, user_id FROM accounts WHERE id = ?')
-        .bind(learnId)
-        .first<{ mode: string; user_id: string }>();
-    expect(await accountRow()).toBeNull();
+    // The user never opened Learn.
     const before = await snapshot(u, tree.tree.id);
     const balanceBefore = await getBalance(env.DB, learnId);
     expect(balanceBefore.balanceMicros).toBe(0);
@@ -241,7 +236,6 @@ describe('POST /api/trees/:id/copy-to-learn', () => {
     const res = await json<CopyToLearnResponse>(await copy(u, tree.tree.id), 201);
     expect(res.title).toBe('Primes');
     expect(res.treeId).not.toBe(tree.tree.id);
-    expect(await accountRow()).toEqual({ mode: 'simple', user_id: u.userId });
 
     // The lesson, in Learn: adapted like any import into Learn.
     const lesson = await json<TreeDetail>(
@@ -252,8 +246,8 @@ describe('POST /api/trees/:id/copy-to-learn', () => {
     expect(
       lesson.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode, b.funding]),
     ).toEqual([
-      ['Main thread', 'openrouter', 'smart', 'path', 'own-key'],
-      ['On credit', 'openrouter', 'smart', 'path', 'own-key'],
+      ['Main thread', 'openrouter', 'max', 'path', 'own-key'],
+      ['On credit', 'openrouter', 'max', 'path', 'own-key'],
     ]);
     expect(lesson.nodes.map((n) => [n.role, n.content])).toEqual([
       ['user', 'What is a prime?'],
@@ -408,10 +402,10 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
       label: 'Tangent',
       baseUrl: 'https://llm.test',
       apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
-      defaultModel: 'smart',
+      defaultModel: 'max',
       models: [
-        { id: 'smart', label: 'Max', tier: 'max' },
-        { id: 'simple', label: 'Normal', tier: 'normal' },
+        { id: 'max', label: 'Max', tier: 'max' },
+        { id: 'normal', label: 'Normal', tier: 'normal' },
       ],
     }),
     OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR',
@@ -521,7 +515,7 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
     const tree = await newTree(u);
     expect(tree.branches[0]).toMatchObject({
       providerId: 'openrouter',
-      model: 'smart',
+      model: 'max',
       funding: 'credit',
     });
     const send = await firstSend(u, tree);

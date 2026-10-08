@@ -68,7 +68,7 @@ function limitText(reason: PoolBlockDetails['reason'], limit: number): string {
 }
 
 /**
- * What the chat says when the pool refused a message (spec §8):
+ * What the chat says when the pool refused a message:
  * - empty: `POOL_EMPTY_TEXT` (Tangent refills it);
  * - a daily cap: the cap and when it resets (one set of caps for everyone,
  *   paying or not, so there is no higher tier to point to);

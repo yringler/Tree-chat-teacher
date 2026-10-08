@@ -1,4 +1,4 @@
-// PoolBank: the open pool's bank (docs/pool/PLAN.md §1.2). One Durable
+// PoolBank: the open pool's bank. One Durable
 // Object per pool account id. D1 is the ledger and the authority; PoolBank
 // only serialises the operations that can lower the pool's available balance:
 //
@@ -393,7 +393,7 @@ export class PoolBank extends DurableObject<AppEnv> {
   }
 
   /**
-   * Debits the pool (a negative admin adjustment; docs/pool/PLAN.md §1.3),
+   * Debits the pool (a negative admin adjustment),
    * under the reservation lock: a debit lowers `available` like a
    * reservation does. The amount is clamped to what is available, so the
    * pool never goes negative, and the row is written even when the clamp
@@ -448,8 +448,8 @@ export class PoolBank extends DurableObject<AppEnv> {
   }
 
   /**
-   * The breaker and rate check without a reservation, for `context?resolve`
-   * (docs/pool/PLAN.md §1.2): the summaries it generates then reserve through
+   * The breaker and rate check without a reservation, for `context?resolve`:
+   * the summaries it generates then reserve through
    * the meter, which checks the caps and the balance. Counts toward the
    * per-minute limits like a reply.
    */

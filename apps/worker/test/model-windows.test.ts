@@ -115,8 +115,8 @@ describe('modelWindow', () => {
   it('a priced model: its price entry’s window, with the synced output limit', async () => {
     // `simple` is priced with a 1,048,576-token window (vitest.config.ts MODEL_PRICES): a larger
     // synced window never raises it.
-    await syncModelWindows(env, T0, body([{ id: 'simple', context: 2_000_000, out: 4000 }]));
-    expect(await modelWindow(env, 'simple')).toEqual({
+    await syncModelWindows(env, T0, body([{ id: 'normal', context: 2_000_000, out: 4000 }]));
+    expect(await modelWindow(env, 'normal')).toEqual({
       contextTokens: 1_048_576,
       maxOutputTokens: 4000,
     });
@@ -238,7 +238,7 @@ describe('the input budget of an OpenRouter branch', () => {
     }),
     PERSONAL_CREDIT_ENABLED: 'true',
     MODEL_PRICES: JSON.stringify({
-      simple: { in: 1_000_000, out: 1_000_000, context: 8_192 },
+      normal: { in: 1_000_000, out: 1_000_000, context: 8_192 },
       'x/priced': { in: 2_000_000, out: 8_000_000, cacheRead: 200_000, context: 400_000 },
     }),
   };

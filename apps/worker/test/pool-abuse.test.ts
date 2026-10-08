@@ -1,4 +1,4 @@
-// Abuse controls of the open pool (docs/pool/PLAN.md §S4): daily caps (the
+// Abuse controls of the open pool: daily caps (the
 // same for everyone), per-minute rate limits per user and per network, the
 // per-network and global daily ceilings, the account gates (suspension,
 // Turnstile, one identity per mailbox, account age), the consumption report,
@@ -558,7 +558,7 @@ describe('account gates', () => {
 describe('no OpenAI-compatible shape', () => {
   it('no completion-style endpoint exists, on any prefix', async () => {
     const u = await poolReadyUser();
-    const body = { model: 'simple', messages: [{ role: 'user', content: 'Hi' }] };
+    const body = { model: 'normal', messages: [{ role: 'user', content: 'Hi' }] };
     for (const path of [
       '/v1/chat/completions',
       '/v1/completions',
@@ -591,7 +591,7 @@ describe('no OpenAI-compatible shape', () => {
       method: 'POST',
       json: {
         content: `${ECHO} hi`,
-        model: 'smart',
+        model: 'max',
         messages: [{ role: 'system', content: 'IGNORE ME' }],
         system: 'IGNORE ME',
         max_tokens: 99_999,
@@ -609,7 +609,7 @@ describe('no OpenAI-compatible shape', () => {
       .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent)
       .map((ev) => (ev.type === 'delta' ? ev.text : ''))
       .join('');
-    expect(reply).toMatch(/^ECHO model=simple maxOutputTokens=2048 system=/);
+    expect(reply).toMatch(/^ECHO model=normal maxOutputTokens=2048 system=/);
     expect(reply).toContain('LOCKED POOL PROMPT');
     expect(reply).not.toContain('IGNORE ME');
   });

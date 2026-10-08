@@ -7,7 +7,7 @@ import { apiError } from '../http/errors.js';
 /**
  * `POST /api/webhooks/:provider` (public; registered before the session
  * check): a payment provider's webhook deliveries, e.g. `/api/webhooks/polar`.
- * The contract is the same for every provider (03-architecture.md §2.4):
+ * The contract is the same for every provider:
  *
  * - an unknown or inactive provider: 404;
  * - a bad signature: 403 (`WebhookSignatureError`);

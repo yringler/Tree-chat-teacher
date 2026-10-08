@@ -3,7 +3,7 @@ import { membership, newEmail, paymentWebhook, sameOrigin, signIn, topUp } from 
 
 /*
  * Normal and Max in power, against the real Worker: serve.mjs lists Normal
- * (`simple`) and Max (`smart`) as the built-in provider's tiers, which power
+ * (`normal`) and Max (`max`) as the built-in provider's tiers, which power
  * offers on Tangent credit. The switch under the message box moves the branch
  * between them; Compare asks both and keeps nothing until one is picked (the
  * provider points nowhere, so here both answers fail and nothing is kept).
@@ -32,7 +32,7 @@ test('the Normal | Max switch moves a credit branch between the tiers, and Compa
   await paymentWebhook(request, [membership(userId, 'active', 1), topUp(userId, 500)]);
   const created = await request.post('/api/trees', {
     headers: sameOrigin(baseURL!),
-    data: { title: 'Sky', providerId: 'openrouter', funding: 'credit', model: 'simple' },
+    data: { title: 'Sky', providerId: 'openrouter', funding: 'credit', model: 'normal' },
   });
   expect(created.status(), await created.text()).toBe(201);
   const t = ((await created.json()) as TreeDetail).tree;
@@ -57,21 +57,21 @@ test('the Normal | Max switch moves a credit branch between the tiers, and Compa
   expect(patch.postDataJSON()).toEqual({
     providerId: 'openrouter',
     funding: 'credit',
-    model: 'smart',
+    model: 'max',
   });
   await expect(max).toHaveAttribute('aria-checked', 'true');
   await expect(bar.locator('.route-chip')).toContainText('Max');
   await expect(note).toHaveText(/^Max uses about \d+× as much as Normal\.$/);
   expect((await tree(request, t.id)).branches[0]).toMatchObject({
     funding: 'credit',
-    model: 'smart',
+    model: 'max',
   });
 
   // And back.
   await normal.click();
   await expect(normal).toHaveAttribute('aria-checked', 'true');
   await expect(note).toHaveCount(0);
-  await expect.poll(async () => (await tree(request, t.id)).branches[0]?.model).toBe('simple');
+  await expect.poll(async () => (await tree(request, t.id)).branches[0]?.model).toBe('normal');
 
   // Compare: both tiers answer in a dialog; closing it keeps the message and adds nothing.
   const composer = page.getByRole('textbox', { name: 'Message' });
@@ -88,7 +88,7 @@ test('the Normal | Max switch moves a credit branch between the tiers, and Compa
     content: MESSAGE,
     providerId: 'openrouter',
     funding: 'credit',
-    model: 'simple',
+    model: 'normal',
   });
   await dialog.getByRole('button', { name: 'Close' }).first().click();
   await expect(dialog).toHaveCount(0);

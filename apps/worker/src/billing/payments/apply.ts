@@ -1,4 +1,4 @@
-// The domain side of payments (03-architecture.md §2.3): what each normalised
+// The domain side of payments: what each normalised
 // `PaymentEvent` does to the ledger, the open pool and the membership.
 // Provider-independent: adapters (billing/providers/*) turn deliveries and
 // polls into events, and this module decides. Every write is idempotent on a

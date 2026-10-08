@@ -1,5 +1,5 @@
 // Billing for the built-in provider: markup and fee pass-through, spend gate, summary, usage
-// history and credit top-ups (PLAN §2.3–2.6, §13), sold through the payment provider's port
+// history and credit top-ups, sold through the payment provider's port
 // (billing/payments). The membership is in membership.ts. Credit is per user: every ledger read and
 // write goes to `AccountContext.billingAccountId`, the same in both modes.
 import {

@@ -1,4 +1,4 @@
-// The yearly membership (PLAN §2.3, §13): required for generating on the
+// The yearly membership: required for generating on the
 // user's own keys, in Learn and in power mode alike, once ANNUAL_FEE_ENABLED
 // is "true", the payment provider sells it and the server stores user keys
 // (KEY_ENCRYPTION_SECRET; without it there is nothing for the membership to

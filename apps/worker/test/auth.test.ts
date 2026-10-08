@@ -133,7 +133,6 @@ describe('fail closed', () => {
       },
       // The dev bypass requires no membership: nothing is ever read-only.
       membershipNeededFor: [],
-      featuredConversations: false,
     } satisfies MeResponse);
 
     // Secret set: DEV_ALLOW_NO_AUTH=true is ignored and a session is required.
@@ -172,7 +171,6 @@ describe('fail closed', () => {
         priceCents: 1000,
       },
       membershipNeededFor: [],
-      featuredConversations: false,
     } satisfies MeResponse);
   });
 });
@@ -487,7 +485,7 @@ describe('social sign-in', () => {
   });
 });
 
-describe('Turnstile on first sign-in (docs/pool/PLAN.md §9, D4)', () => {
+describe('Turnstile on first sign-in', () => {
   const poolOn = () =>
     authEnv({ GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret', POOL_ENABLED: 'true' });
 

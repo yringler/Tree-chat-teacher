@@ -3,7 +3,7 @@ import { POOL_EMPTY_TEXT, type PoolStatusResponse } from '@tangent/shared';
 import { poolDollarsLabel, sessionsLabel } from './pool-format';
 
 /**
- * The open pool meter (spec §8): about how many learning sessions the
+ * The open pool meter: about how many learning sessions the
  * pool still covers, and the dollars. Styles: `.pool-*` in base.css.
  */
 @Component({

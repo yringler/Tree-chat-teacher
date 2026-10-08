@@ -369,7 +369,7 @@ describe('usage history', () => {
     expect([...times].sort().reverse()).toEqual(times);
     expect(all.entries[0]).toMatchObject({
       purpose: 'reply',
-      model: 'smart',
+      model: 'max',
       treeId: 't1',
       status: 'settled',
       chargeMicros: 6,

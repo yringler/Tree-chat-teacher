@@ -19,7 +19,6 @@ import type {
   Tree,
 } from './domain.js';
 import type { ProviderInfo } from './provider.js';
-import { fromLegacyRoute } from './route.js';
 import { MAX_REQUESTED_OUTPUT_TOKENS, MIN_REQUESTED_OUTPUT_TOKENS } from './output-tokens.js';
 import {
   INPUT_OVERFLOWS,
@@ -124,7 +123,7 @@ import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
  * `membership_required` when the membership is required, the user has none
  * (`MembershipInfo`) and the request runs on the user's own keys, in either
  * app (the open pool and Tangent credit need no membership), then 402 `payment_required` when a call on the
- * built-in provider (`tangent`, on credit) finds the available credit too
+ * built-in provider (`openrouter`, on credit) finds the available credit too
  * low. Calls on the user's own keys never touch credit. Every other route
  * stays open without a membership: nobody is locked out of their data.
  *
@@ -231,7 +230,7 @@ export interface MeResponse {
    */
   operatorKeys: boolean;
   /**
-   * True when the server offers the built-in provider (`tangent`, the
+   * True when the server offers the built-in provider (`openrouter`, the
    * operator's OpenRouter key) on prepaid credit: payments and the operator's
    * key are set up. Power lists it among its providers; Learn offers it as
    * "Use Tangent credit". The credit is per user, shared by both apps.
@@ -266,12 +265,6 @@ export interface MeResponse {
    * without a membership").
    */
   membershipNeededFor: BranchFunding[];
-  /**
-   * The "featured learning" wall of conversations users publish. Always false:
-   * only a stub exists (FEATURED_CONVERSATIONS_ENABLED, docs/DEFERRED.md), so
-   * no app renders an entry point.
-   */
-  featuredConversations: false;
 }
 
 /** What the login page offers. Magic links and passkeys are always available once auth is configured. */
@@ -295,7 +288,6 @@ export interface TreeSummary {
   messageCount: number;
 }
 
-/** Whole tree in one response; the client builds the outline with @tangent/core. */
 /**
  * `POST /api/trees/:treeId/copy-to-learn`: the power tree was copied into the
  * caller's Learn account as a new lesson (adapted as any import into Learn).
@@ -306,6 +298,7 @@ export interface CopyToLearnResponse {
   title: string;
 }
 
+/** Whole tree in one response; the client builds the outline with @tangent/core. */
 export interface TreeDetail {
   tree: Tree;
   branches: Branch[];
@@ -339,16 +332,14 @@ export const MAX_SYSTEM_PROMPT_CHARS = 20_000;
  * Without a (non-blank) `systemPrompt`, the tree gets the account's saved
  * default (SettingsResponse.systemPrompt), else the built-in one.
  */
-export const createTreeRequestSchema = z
-  .object({
-    title: z.string().trim().min(1).max(200).optional(),
-    systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable().optional(),
-    /** The trunk's endpoint and how power pays for it; both default to the account's default route. */
-    providerId: id.optional(),
-    funding: branchFundingSchema.optional(),
-    model: z.string().min(1).max(200).optional(),
-  })
-  .transform(fromLegacyRoute);
+export const createTreeRequestSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable().optional(),
+  /** The trunk's endpoint and how power pays for it; both default to the account's default route. */
+  providerId: id.optional(),
+  funding: branchFundingSchema.optional(),
+  model: z.string().min(1).max(200).optional(),
+});
 export type CreateTreeRequest = z.infer<typeof createTreeRequestSchema>;
 
 /**
@@ -389,41 +380,37 @@ export const updateTreeRequestSchema = z.object({
 });
 export type UpdateTreeRequest = z.infer<typeof updateTreeRequestSchema>;
 
-export const createBranchRequestSchema = z
-  .object({
-    /** The branch point: any node of the tree. */
-    fromNodeId: id,
-    contextMode: contextMode.default('path'),
-    anchorQuote: z.string().max(10_000).nullable().optional(),
-    title: z.string().trim().min(1).max(200).optional(),
-    /**
-     * Defaults to the parent branch's provider, funding and model. A provider
-     * without a funding is on the user's own key (`own-key`); a funding
-     * without a provider keeps the parent's provider.
-     */
-    providerId: id.optional(),
-    funding: branchFundingSchema.optional(),
-    model: z.string().min(1).max(200).optional(),
-    isPrivate: z.boolean().optional(),
-    /** Defaults to the parent branch's setting. */
-    grounding: groundingMode.optional(),
-  })
-  .transform(fromLegacyRoute);
+export const createBranchRequestSchema = z.object({
+  /** The branch point: any node of the tree. */
+  fromNodeId: id,
+  contextMode: contextMode.default('path'),
+  anchorQuote: z.string().max(10_000).nullable().optional(),
+  title: z.string().trim().min(1).max(200).optional(),
+  /**
+   * Defaults to the parent branch's provider, funding and model. A provider
+   * without a funding is on the user's own key (`own-key`); a funding
+   * without a provider keeps the parent's provider.
+   */
+  providerId: id.optional(),
+  funding: branchFundingSchema.optional(),
+  model: z.string().min(1).max(200).optional(),
+  isPrivate: z.boolean().optional(),
+  /** Defaults to the parent branch's setting. */
+  grounding: groundingMode.optional(),
+});
 export type CreateBranchRequest = z.input<typeof createBranchRequestSchema>;
 
-export const updateBranchRequestSchema = z
-  .object({
-    title: z.string().trim().min(1).max(200).optional(),
-    contextMode: contextMode.optional(),
-    anchorQuote: z.string().max(10_000).nullable().optional(),
-    isPrivate: z.boolean().optional(),
-    /** As in createBranchRequestSchema: a provider without a funding is `own-key`. */
-    providerId: id.optional(),
-    funding: branchFundingSchema.optional(),
-    model: z.string().min(1).max(200).optional(),
-    grounding: groundingMode.optional(),
-  })
-  .transform(fromLegacyRoute);
+export const updateBranchRequestSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  contextMode: contextMode.optional(),
+  anchorQuote: z.string().max(10_000).nullable().optional(),
+  isPrivate: z.boolean().optional(),
+  /** As in createBranchRequestSchema: a provider without a funding is `own-key`. */
+  providerId: id.optional(),
+  funding: branchFundingSchema.optional(),
+  model: z.string().min(1).max(200).optional(),
+  grounding: groundingMode.optional(),
+});
 export type UpdateBranchRequest = z.infer<typeof updateBranchRequestSchema>;
 
 /**
@@ -723,8 +710,8 @@ export const treeBackupSchema = z.object({
         model: z.string().max(200),
         grounding: groundingMode.optional(),
         /**
-         * Absent in backups made before funding was split from the provider;
-         * import reads a missing one as `own-key` (ChatService.importBackup).
+         * Optional: import reads a missing one as `own-key`
+         * (ChatService.importBackup), so an import never spends credit implicitly.
          */
         funding: branchFundingSchema.optional(),
         createdAt: isoDate,

@@ -26,13 +26,6 @@ import {
 const BASE = 'https://tangent.example.com';
 
 describe('accounts (dev bypass: the default account)', () => {
-  it('migration seeds the built-in default account', async () => {
-    const row = await env.DB.prepare('SELECT id, name FROM accounts WHERE id = ?1')
-      .bind(DEFAULT_ACCOUNT_ID)
-      .first<{ id: string; name: string }>();
-    expect(row).toEqual({ id: DEFAULT_ACCOUNT_ID, name: 'Default account' });
-  });
-
   it('/api/me reports the account and new rows are stamped with it', async () => {
     const me = (await (await exports.default.fetch(`${BASE}/api/me`)).json()) as MeResponse;
     expect(me.accountId).toBe(DEFAULT_ACCOUNT_ID);
@@ -236,12 +229,11 @@ describe('power provider configs', () => {
     expect(openrouter.models.length).toBeGreaterThan(2);
   });
 
-  it("the operator's PROVIDERS rule, and may not claim the legacy built-in id", () => {
+  it("the operator's PROVIDERS rule; without it, power's defaults are the three real endpoints", () => {
     expect(providerConfigs(withEnv()).some((c) => c.openModels)).toBe(false);
-    const claim = JSON.stringify([
-      { id: 'tangent', kind: 'fake', label: 'Mine', defaultModel: 'x', models: [] },
-    ]);
-    expect(() => providerConfigs(withEnv({ PROVIDERS: claim }))).toThrow(/reserved id "tangent"/);
+    const defaults = providerConfigs(withEnv({ PROVIDERS: '' }));
+    expect(defaults.map((c) => c.id)).toEqual(['anthropic', 'openai', 'openrouter']);
+    expect(defaults.some((c) => c.kind === 'fake')).toBe(false);
   });
 
   it('Tangent credit takes the operator key only, never a user key, in a registry of its own', () => {

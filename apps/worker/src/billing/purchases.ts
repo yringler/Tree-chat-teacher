@@ -1,4 +1,4 @@
-// The purchase interface (docs/pool/PLAN.md §S5): how credit is bought and,
+// The purchase interface: how credit is bought and,
 // once paid, what it credits. Credit is bought only for the buyer's own
 // ledger (`u_<userId>`), spent with the usage-time markup (MARKUP_BPS).
 // Nobody buys credit for the open pool: Tangent funds it with admin
@@ -6,7 +6,7 @@
 //
 // A purchase is credited the pre-tax amount paid net of the payment
 // provider's actual processing fee (`netOfFee`). The operator earns on usage,
-// never on the purchase (docs/polar-migration/04-verification.md, D4).
+// never on the purchase.
 //
 // Checkouts go through the payment provider's port (billing/service.ts
 // `startTopUpCheckout`). The payment webhook (billing/payments/apply.ts), the

@@ -14,7 +14,6 @@ import {
 import {
   DEFAULT_SYSTEM_PROMPT,
   LEARN_KEY_PROVIDER,
-  LEGACY_BUILT_IN_PROVIDER_ID,
   type BranchFunding,
   type LlmProvider,
   type ProviderConfig,
@@ -52,8 +51,6 @@ export type Defer = (p: Promise<unknown>) => void;
  * the defaults with OpenRouter opened up (`openrouterWithSuggestions`). The
  * built-in provider is not one of them: Tangent credit is a registry of its
  * own (`creditRegistryFor`), even where both name the endpoint `openrouter`.
- * The legacy id `tangent` is reserved, since requests from older clients
- * still name it for the built-in endpoint on credit (`fromLegacyRoute`).
  */
 export function providerConfigs(env: AppEnv): ProviderConfig[] {
   if (!env.PROVIDERS?.trim()) {
@@ -61,12 +58,7 @@ export function providerConfigs(env: AppEnv): ProviderConfig[] {
       c.id === LEARN_KEY_PROVIDER ? openrouterWithSuggestions(env, c) : c,
     );
   }
-  const configs = parseProviderConfigs(env.PROVIDERS);
-  if (configs.some((c) => c.id === LEGACY_BUILT_IN_PROVIDER_ID))
-    throw new Error(
-      `Invalid provider config: PROVIDERS may not use the reserved id "${LEGACY_BUILT_IN_PROVIDER_ID}"`,
-    );
-  return configs;
+  return parseProviderConfigs(env.PROVIDERS);
 }
 
 /**
@@ -346,13 +338,11 @@ export function chatSettingsFor(
   const pool = poolScope(account, scope);
   if (pool) return poolChatSettings(pool);
   if (account.mode === 'simple') return simpleChatSettings(env);
-  const summaryProviderId = env.SUMMARY_PROVIDER_ID?.trim() || null;
   return {
     ...DEFAULT_CHAT_SETTINGS,
     // A summary provider is looked up among the own-key routes only (ChatService), so
-    // summaries of branches on the user's own keys never cost credit. The legacy
-    // `tangent` id named Tangent credit: it means "no summary provider".
-    summaryProviderId: summaryProviderId === LEGACY_BUILT_IN_PROVIDER_ID ? null : summaryProviderId,
+    // summaries of branches on the user's own keys never cost credit.
+    summaryProviderId: env.SUMMARY_PROVIDER_ID?.trim() || null,
     summaryModel: env.SUMMARY_MODEL?.trim() || null,
     autoTitle: env.AUTO_TITLE !== 'false',
     grounding: groundingSettings(env, 'power'),

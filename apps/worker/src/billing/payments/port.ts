@@ -1,6 +1,5 @@
-// The one interface between billing and a payment provider
-// (docs/polar-migration/03-architecture.md §2). It imports nothing but shared
-// types: adapters (billing/providers/*) implement it, and the domain
+// The one interface between billing and a payment provider. It imports
+// nothing but shared types: adapters (billing/providers/*) implement it, and the domain
 // (apply.ts, service.ts, membership.ts) depends on it only.
 //
 // Rules: adapters translate and never decide (no D1, no ledger, no business
@@ -123,7 +122,7 @@ export class PaymentProviderError extends Error {
   override readonly name = 'PaymentProviderError';
 }
 
-// ---- Normalised domain events (03-architecture.md §2.2)
+// ---- Normalised domain events
 
 interface EventBase {
   provider: ProviderId;
@@ -153,7 +152,7 @@ export interface PaymentFacts {
   netCents: number;
   /**
    * The processor's or MoR's fee in USD cents; `estimated` when the adapter
-   * fell back to its fee formula (D3). null = unknown, so retry.
+   * fell back to its fee formula. null = unknown, so retry.
    */
   fee: { cents: number; estimated: boolean } | null;
 }
@@ -163,7 +162,7 @@ export interface PaymentSucceeded extends EventBase, PaymentFacts {
   type: 'payment.succeeded';
 }
 
-/** A refund settled. Adapters emit only settled refunds (D10); pending and failed refunds produce nothing. */
+/** A refund settled. Adapters emit only settled refunds; pending and failed refunds produce nothing. */
 export interface RefundSucceeded extends EventBase {
   type: 'refund.succeeded';
   refundRef: ProviderRef;

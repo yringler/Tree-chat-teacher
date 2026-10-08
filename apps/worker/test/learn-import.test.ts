@@ -64,7 +64,7 @@ async function powerTree(u: User): Promise<TreeDetail> {
     {
       providerId: 'openrouter',
       funding: 'credit',
-      model: 'simple',
+      model: 'normal',
       contextMode: 'summary',
       title: 'On credit',
     },
@@ -108,9 +108,9 @@ describe('importing into Learn', () => {
     expect(lesson.tree.accountId).toBe(`u_${u.power.accountId.slice(2)}`);
     expect(lesson.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
     expect(routes(lesson)).toEqual([
-      ['Main thread', 'openrouter', 'smart', 'path', 'own-key'],
-      ['On credit', 'openrouter', 'simple', 'path', 'own-key'],
-      ['Independent', 'openrouter', 'smart', 'path', 'own-key'],
+      ['Main thread', 'openrouter', 'max', 'path', 'own-key'],
+      ['On credit', 'openrouter', 'normal', 'path', 'own-key'],
+      ['Independent', 'openrouter', 'max', 'path', 'own-key'],
     ]);
     expect(lesson.nodes.map((n) => [n.content, n.providerId])).toEqual([
       ['What is a prime?', null],
@@ -156,7 +156,7 @@ describe('importing into Learn', () => {
     const events = parseSse(await res.text());
     expect(events.at(-1)).toMatchObject({
       type: 'done',
-      node: { providerId: 'openrouter', model: 'smart' },
+      node: { providerId: 'openrouter', model: 'max' },
     });
   });
 
@@ -173,7 +173,7 @@ describe('importing into Learn', () => {
     expect(routes(copy)).toEqual(routes(original));
     expect(routes(copy)).toEqual([
       ['Main thread', 'ant', 'claude-test', 'path', 'own-key'],
-      ['On credit', 'openrouter', 'simple', 'summary', 'credit'],
+      ['On credit', 'openrouter', 'normal', 'summary', 'credit'],
       ['Independent', 'fake', 'fake-1', 'independent', 'own-key'],
     ]);
   });
@@ -183,7 +183,7 @@ describe('importing into Learn', () => {
     const created = await json<TreeDetail>(
       await u.call('/api/trees', {
         method: 'POST',
-        json: { title: 'Light', model: 'simple' },
+        json: { title: 'Light', model: 'normal' },
         learn: 'own-key',
       }),
       201,
@@ -194,7 +194,7 @@ describe('importing into Learn', () => {
       role: 'assistant',
       content: 'A wave and a particle.',
       providerId: 'openrouter',
-      model: 'simple',
+      model: 'normal',
     });
     await createD1Repositories(env.DB).trees.appendNodes([user, reply], new Date().toISOString());
     await json<Branch>(
@@ -254,9 +254,8 @@ describe('importing into Learn', () => {
 });
 
 /**
- * A backup made before the fake reply provider was retired and before funding
- * was split from the provider: no `funding` fields, a trunk on `fake` and a side
- * branch on the legacy built-in id `tangent`.
+ * A backup naming providers this server doesn't offer and no `funding`
+ * fields: a trunk on `fake` and a side branch on `tangent`.
  */
 function oldBackup(): TreeBackup {
   const at = '2026-09-15T10:00:00.000Z';
@@ -312,7 +311,7 @@ function oldBackup(): TreeBackup {
         branchPointNodeId: 'old_n2',
         title: 'On the built-in provider',
         providerId: 'tangent',
-        model: 'smart',
+        model: 'max',
         contextMode: 'summary',
       }),
     ],
@@ -331,7 +330,7 @@ function oldBackup(): TreeBackup {
   } as TreeBackup;
 }
 
-describe('an old backup that names the retired `fake` provider', () => {
+describe('a backup naming providers the server does not offer', () => {
   /** A deployment with the default power providers: `fake` isn't one (vitest.config.ts adds it). */
   const defaults = authEnv({ POOL_ENABLED: 'false', PROVIDERS: '' });
 
@@ -343,11 +342,10 @@ describe('an old backup that names the retired `fake` provider', () => {
     );
     expect(copy.tree.accountId).toBe(u.power.accountId);
     expect(copy.tree.systemPrompt).toBe('Be brief.');
-    // `fake` is kept, like any provider the server doesn't offer; `tangent` is the
-    // endpoint `openrouter`, and a missing funding is the user's own key.
+    // Providers the server doesn't offer are kept, and a missing funding is the user's own key.
     expect(routes(copy)).toEqual([
       ['Main thread', 'fake', 'fake-1', 'path', 'own-key'],
-      ['On the built-in provider', 'openrouter', 'smart', 'summary', 'own-key'],
+      ['On the built-in provider', 'tangent', 'max', 'summary', 'own-key'],
     ]);
     expect(copy.nodes.map((n) => n.providerId)).toEqual([null, 'fake']);
     const providers = await json<{ id: string }[]>(await u.call('/api/providers'));
@@ -382,8 +380,8 @@ describe('an old backup that names the retired `fake` provider', () => {
     expect(lesson.tree.accountId).toBe(u.learn.accountId);
     expect(lesson.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
     expect(routes(lesson)).toEqual([
-      ['Main thread', 'openrouter', 'smart', 'path', 'own-key'],
-      ['On the built-in provider', 'openrouter', 'smart', 'path', 'own-key'],
+      ['Main thread', 'openrouter', 'max', 'path', 'own-key'],
+      ['On the built-in provider', 'openrouter', 'max', 'path', 'own-key'],
     ]);
     // The reply keeps the provider it ran on: history.
     expect(lesson.nodes.map((n) => n.providerId)).toEqual([null, 'fake']);
@@ -404,7 +402,7 @@ describe('an old backup that names the retired `fake` provider', () => {
     expect(res.status).toBe(200);
     expect(parseSse(await res.text()).at(-1)).toMatchObject({
       type: 'done',
-      node: { providerId: 'openrouter', model: 'smart' },
+      node: { providerId: 'openrouter', model: 'max' },
     });
   });
 });

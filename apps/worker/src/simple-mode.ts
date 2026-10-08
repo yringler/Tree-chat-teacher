@@ -3,7 +3,6 @@ import { parseProviderConfigs } from '@tangent/providers';
 import {
   BUILT_IN_PROVIDER_ID,
   DEFAULT_SYSTEM_PROMPT,
-  LEGACY_BUILT_IN_PROVIDER_ID,
   TIER_LABELS,
   TIERS,
   BUILT_IN_MAX_OUTPUT_TOKENS,
@@ -35,7 +34,7 @@ export {
 /**
  * The built-in provider: the endpoint `openrouter` (BUILT_IN_PROVIDER_ID in
  * @tangent/shared) on the operator's OpenRouter key, metered per call and
- * paid from the user's prepaid credit or the open pool (PLAN §13). Its
+ * paid from the user's prepaid credit or the open pool. Its
  * provider id names only the endpoint; who pays is the funding (the request's
  * payment in Learn, the branch's funding in power), never the id. It is the
  * only provider config in a Learn account's registry, so the generic provider
@@ -62,17 +61,10 @@ export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
  */
 export const SIMPLE_MAX_OUTPUT_TOKENS = BUILT_IN_MAX_OUTPUT_TOKENS;
 
-/**
- * Normal: `SIMPLE_NORMAL_MODEL`, else the legacy `SIMPLE_SMART_MODEL` (the
- * old default tier, whose deployed value is Normal's model), else the default.
- */
 function normalModel(env: AppEnv): string {
-  return (
-    env.SIMPLE_NORMAL_MODEL?.trim() || env.SIMPLE_SMART_MODEL?.trim() || DEFAULT_SIMPLE_NORMAL_MODEL
-  );
+  return env.SIMPLE_NORMAL_MODEL?.trim() || DEFAULT_SIMPLE_NORMAL_MODEL;
 }
 
-/** Max: `SIMPLE_MAX_MODEL`, else the default. No legacy var ever names Max. */
 function maxModel(env: AppEnv): string {
   return env.SIMPLE_MAX_MODEL?.trim() || DEFAULT_SIMPLE_MAX_MODEL;
 }
@@ -84,13 +76,10 @@ function fastModel(env: AppEnv): string {
 /**
  * The built-in provider's config, as Learn uses it: its tiers, Normal (the
  * default) then Max, each tagged with its `tier`. `SIMPLE_PROVIDER` (one
- * ProviderConfig as JSON, id `openrouter`, or the legacy `tangent`, read as
- * `openrouter`) replaces it wholesale, e.g. a fake provider in tests or the
- * AI Gateway; its models may name their `tier`, and when none does, its
- * default is Normal and it has no Max (an untagged override predates the
- * tiers: its second model was the cheaper one, so position can't name Max).
- * The id is fixed so that a branch's provider
- * id means the same endpoint in both apps. There is deliberately no fallback
+ * ProviderConfig as JSON, id `openrouter`) replaces it wholesale, e.g. a fake
+ * provider in tests or the AI Gateway; its models name their own `tier`, and
+ * one that names none offers no tiers. The id is fixed so that a branch's
+ * provider id means the same endpoint in both apps. There is deliberately no fallback
  * to OPENROUTER_API_KEY: customer spend stays on its own key, which can carry
  * a hard credit limit.
  *
@@ -106,8 +95,7 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
     const configs = parseProviderConfigs(override.startsWith('[') ? override : `[${override}]`);
     if (configs.length !== 1)
       throw new Error('Invalid SIMPLE_PROVIDER: expected exactly one provider config');
-    const config = withDefaultTier(configs[0]!);
-    if (config.id === LEGACY_BUILT_IN_PROVIDER_ID) return { ...config, id: SIMPLE_PROVIDER_ID };
+    const config = configs[0]!;
     if (config.id !== SIMPLE_PROVIDER_ID)
       throw new Error(`Invalid SIMPLE_PROVIDER: id must be "${SIMPLE_PROVIDER_ID}"`);
     return config;
@@ -154,22 +142,6 @@ function tierModels(env: AppEnv, label: (tier: ModelTier) => string): ModelInfo[
   const ids: Record<ModelTier, string> = { normal: normalModel(env), max: maxModel(env) };
   const tiers = ids.normal === ids.max ? TIERS.slice(0, 1) : TIERS;
   return tiers.map((tier) => ({ id: ids[tier], label: label(tier), tier }));
-}
-
-/**
- * An override that tags no model with a tier: its default is Normal and the
- * rest are untiered. Pre-tier overrides listed `[Smart (default), Simple
- * (cheaper)]`, so reading the second model as Max would sell the cheaper one
- * as the strongest; Max must be named.
- */
-function withDefaultTier(config: ProviderConfig): ProviderConfig {
-  if (config.models.some((m) => m.tier !== undefined)) return config;
-  return {
-    ...config,
-    models: config.models.map((m) =>
-      m.id === config.defaultModel ? { ...m, tier: 'normal' as const } : m,
-    ),
-  };
 }
 
 /**

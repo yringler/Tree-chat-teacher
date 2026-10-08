@@ -1,4 +1,4 @@
-// Open pool money math (docs/pool/PLAN.md §1.2), on top of the integer
+// Open pool money math, on top of the integer
 // helpers in billing/pricing.ts: worst-case holds from the price table, and
 // token-priced costs when the provider reports none. Every pool charge is the
 // call's true cost, price × (1 + fee), with no markup (Tangent funds the

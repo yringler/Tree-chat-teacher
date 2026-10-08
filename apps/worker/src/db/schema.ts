@@ -18,34 +18,11 @@ import {
  */
 
 /**
- * Owner of trees and shares. Every user has a `power` account `p_<userId>`
- * and a `simple` (Learn) account `u_<userId>`, created on first request
- * (migrations 0003 and 0005). The seeded `default` account (migration 0001)
- * is the dev bypass's power account.
- */
-export const accounts = sqliteTable(
-  'accounts',
-  {
-    id: text('id').primaryKey(),
-    name: text('name').notNull(),
-    createdAt: text('created_at').notNull(),
-    /** Better Auth user id of the account's owner; null for the dev bypass accounts. */
-    userId: text('user_id'),
-    /** Each user has one account per mode: `p_<userId>` (power) and `u_<userId>` (simple). */
-    mode: text('mode', { enum: ['power', 'simple'] })
-      .notNull()
-      .default('power'),
-  },
-  (t) => [uniqueIndex('accounts_user_mode_uq').on(t.userId, t.mode)],
-);
-
-/**
  * Per-account settings, one row per account, written on the first save
- * (`PATCH /api/settings`); no row = the defaults. A table of its own rather
- * than columns on `accounts`: settings are large (a system prompt can be
- * 20k chars), change rarely and are read only when needed, while `accounts`
- * stays the small row every request ensures. No FK, like the other
- * `account_id` columns.
+ * (`PATCH /api/settings`); no row = the defaults. An account is an id, not a
+ * row: every user has a `power` account `p_<userId>` and a Learn account
+ * `u_<userId>` (auth/account.ts), and the dev bypass uses `default` and
+ * `default_simple`. No FK, like the other `account_id` columns.
  */
 export const accountSettings = sqliteTable('account_settings', {
   accountId: text('account_id').primaryKey(),
@@ -91,8 +68,7 @@ export const branches = sqliteTable(
     model: text('model').notNull(),
     /**
      * Who pays for the branch's calls in power mode: `own-key` or `credit`
-     * (Tangent credit). Learn pays per request and writes `own-key`. Migration
-     * 0020 split it from `provider_id` (the legacy `tangent`).
+     * (Tangent credit). Learn pays per request and writes `own-key`.
      */
     funding: text('funding', { enum: ['own-key', 'credit'] })
       .notNull()

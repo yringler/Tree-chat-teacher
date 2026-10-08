@@ -1,4 +1,4 @@
-// Expiry of stale open pool reservations (docs/pool/PLAN.md §1.2): run
+// Expiry of stale open pool reservations: run
 // by PoolBank's alarm and, as a backstop, by the cron. A reservation older
 // than its TTL belongs to a request that crashed or was evicted; settling it
 // only raises the pool's available balance, so this takes no lock and never

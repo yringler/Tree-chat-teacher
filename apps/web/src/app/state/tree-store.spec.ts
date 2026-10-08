@@ -48,7 +48,6 @@ function me(over: Partial<MeResponse> = {}): MeResponse {
     isAdmin: false,
     membership: membership(),
     membershipNeededFor: ['own-key'],
-    featuredConversations: false,
     ...over,
   };
 }
@@ -249,8 +248,8 @@ describe('TreeStore read-only power without a membership', () => {
   const credit: ProviderInfo = {
     ...ownKey,
     label: 'Tangent credit',
-    models: [{ id: 'smart/model', label: 'Max' }],
-    defaultModel: 'smart/model',
+    models: [{ id: 'max/model', label: 'Max' }],
+    defaultModel: 'max/model',
     acceptsUserKey: false,
     keySource: 'server',
     funding: 'credit',
@@ -684,7 +683,7 @@ describe('TreeStore the default route of a new conversation (no keys)', () => {
   const credit: ProviderInfo = {
     ...defaults[2]!,
     label: 'Tangent credit',
-    defaultModel: 'smart/model',
+    defaultModel: 'max/model',
     available: true,
     acceptsUserKey: false,
     keySource: 'server',

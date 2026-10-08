@@ -28,16 +28,11 @@ describe('parseSettings', () => {
     expect(parseSettings('{"reviewer":"opus"}').reviewer).toBeNull();
   });
 
-  it('keeps a reviewer on Tangent credit, and reads the legacy `tangent` as one', () => {
+  it('keeps a reviewer on Tangent credit', () => {
     expect(
       parseSettings('{"reviewer":{"providerId":"openrouter","funding":"credit","model":"a/b"}}')
         .reviewer,
     ).toEqual({ providerId: 'openrouter', funding: 'credit', model: 'a/b' });
-    expect(parseSettings('{"reviewer":{"providerId":"tangent","model":"a/b"}}').reviewer).toEqual({
-      providerId: 'openrouter',
-      funding: 'credit',
-      model: 'a/b',
-    });
     // An unknown funding is dropped: the user's own key.
     expect(
       parseSettings('{"reviewer":{"providerId":"openrouter","funding":"free","model":"a/b"}}')
@@ -77,15 +72,6 @@ describe('parseSettings tiers (Normal and Max)', () => {
         '{"tiers":{"normal":{"providerId":"openrouter"},"max":{"providerId":"x","model":"y"}}}',
       ).tiers,
     ).toEqual({ normal: null, max: { providerId: 'x', model: 'y' } });
-  });
-
-  it('reads the legacy `tangent` provider as the built-in endpoint on credit', () => {
-    expect(parseSettings('{"tiers":{"max":{"providerId":"tangent","model":"a/b"}}}').tiers).toEqual(
-      {
-        normal: null,
-        max: { providerId: 'openrouter', funding: 'credit', model: 'a/b' },
-      },
-    );
   });
 });
 

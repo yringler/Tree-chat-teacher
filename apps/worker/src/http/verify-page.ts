@@ -18,8 +18,8 @@ import { LEGAL_STYLE } from './legal.js';
 import { MARK, sha256Base64 } from './landing.js';
 
 /**
- * The Turnstile interstitial after a first OAuth sign-in (docs/pool/PLAN.md
- * §9, D4; auth/auth.ts sends the callback here). A server-rendered form with
+ * The Turnstile interstitial after a first OAuth sign-in (auth/auth.ts sends
+ * the callback here). A server-rendered form with
  * Cloudflare's widget and no script of our own: the widget puts its token in
  * the form as `cf-turnstile-response`, the form posts back here, and a pass
  * records `auth_users.pool_verified_at` (and the pool identity) before

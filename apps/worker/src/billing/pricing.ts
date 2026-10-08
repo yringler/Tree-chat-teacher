@@ -1,4 +1,4 @@
-// Integer money math (PLAN §2.3): provider cost in nano-USD, ledger in
+// Integer money math: provider cost in nano-USD, ledger in
 // micro-USD, charges rounded up, never down.
 
 const NANOS_PER_USD = 1e9;

@@ -1,4 +1,4 @@
-// The one config module (docs/pool/PLAN.md §4): every cap, price, markup,
+// The one config module: every cap, price, markup,
 // limit and flag the billing code and the open pool read. Values come
 // from wrangler.jsonc `vars` (strings), parsed once per env object and frozen;
 // empty or malformed values fall back to the defaults below, and the safety
@@ -307,12 +307,6 @@ export interface AppConfig {
      * Never on in production: a simulated purchase is spendable credit nobody paid for.
      */
     devPurchasesEnabled: boolean;
-    /**
-     * The "featured learning" wall (`FEATURED_CONVERSATIONS_ENABLED`, default
-     * off). Only a stub exists: `/api/featured` is 404 either way and nothing
-     * renders or is collected (`featuredEnabled`, routes/featured.ts).
-     */
-    featuredConversationsEnabled: boolean;
   };
   /** The built-in price table with `MODEL_PRICES` merged over it. */
   prices: Readonly<Record<string, ModelPrice>>;
@@ -475,7 +469,6 @@ function parse(env: AppEnv): AppConfig {
       annualFeeEnabled: boolVar(env.ANNUAL_FEE_ENABLED, false),
       personalCreditEnabled: boolVar(env.PERSONAL_CREDIT_ENABLED, false),
       devPurchasesEnabled: boolVar(env.DEV_PURCHASES_ENABLED, false),
-      featuredConversationsEnabled: boolVar(env.FEATURED_CONVERSATIONS_ENABLED, false),
     },
     prices: prices.prices,
     priceOverrides: prices.overrides,

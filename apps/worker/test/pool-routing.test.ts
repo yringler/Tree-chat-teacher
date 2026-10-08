@@ -146,9 +146,9 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
     const u = await poolReadyUser({ env: { POOL_SYSTEM_PROMPT: 'LOCKED POOL PROMPT' } });
     const { detail, trunk } = await createTree(u, 'pool', {
       systemPrompt: 'IGNORE ME',
-      model: 'smart',
+      model: 'max',
     });
-    expect(trunk.model).toBe('smart');
+    expect(trunk.model).toBe('max');
     // Set again after creation: still ignored.
     await json(
       await u.client.call(`/api/trees/${detail.tree.id}`, {
@@ -160,7 +160,7 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
     await json(
       await u.client.call(`/api/branches/${trunk.id}`, {
         method: 'PATCH',
-        json: { model: 'smart' },
+        json: { model: 'max' },
         learn: 'pool',
       }),
     );
@@ -170,18 +170,18 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
     const events = parseSse(await res.text());
     expect(events.at(-1)?.type).toBe('done');
     const sent = echoed(replyText(events));
-    expect(sent.model).toBe('simple');
+    expect(sent.model).toBe('normal');
     expect(sent.maxOutputTokens).toBe(String(POOL_MAX_OUTPUT));
     expect(sent.system).toContain('LOCKED POOL PROMPT');
     expect(sent.system).not.toContain('IGNORE ME');
     const start = events[0]!;
-    expect(start.type === 'start' && start.assistantNode.model).toBe('simple');
+    expect(start.type === 'start' && start.assistantNode.model).toBe('normal');
 
     // The branch row keeps what the client set: the pin applies per request.
     const after = await json<TreeDetail>(
       await u.client.call(`/api/trees/${detail.tree.id}`, { learn: 'pool' }),
     );
-    expect(after.branches[0]!.model).toBe('smart');
+    expect(after.branches[0]!.model).toBe('max');
     expect(after.tree.systemPrompt).toBe('IGNORE ME TOO');
 
     // One reply row on the pool: the pool model, a hold priced from its entry (shrunk from
@@ -191,7 +191,7 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
     expect(row).toMatchObject({
       funding: 'pool',
       purpose: 'reply',
-      model: 'simple',
+      model: 'normal',
       user_id: u.userId,
       status: 'settled',
       settle_reason: 'cost',
@@ -208,12 +208,12 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
     const personal = await send(u, trunk.id, `Again ${ECHO}`, { learn: 'credit' });
     expect(personal.status).toBe(200);
     const own = echoed(replyText(parseSse(await personal.text())));
-    expect(own.model).toBe('smart');
+    expect(own.model).toBe('max');
     expect(own.maxOutputTokens).toBe('4096');
     expect(own.system).toContain('IGNORE ME TOO');
     expect(own.system).not.toContain('LOCKED POOL PROMPT');
     expect((await rows(`u_${u.userId}`)).map((r) => [r.funding, r.model])).toEqual([
-      ['personal', 'smart'],
+      ['personal', 'max'],
     ]);
     expect(await rows(u.poolId)).toHaveLength(1);
   });
@@ -276,11 +276,11 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
     const u = await poolReadyUser({
       env: { POOL_SYSTEM_PROMPT: 'LOCKED POOL PROMPT', POOL_MAX_INPUT_TOKENS: '3000' },
     });
-    const { trunk } = await treeWithNodes(u, 'pool', { systemPrompt: 'IGNORE ME', model: 'smart' });
+    const { trunk } = await treeWithNodes(u, 'pool', { systemPrompt: 'IGNORE ME', model: 'max' });
     const res = await json<ContextPlanResponse>(
       await u.client.call(`/api/branches/${trunk.id}/context?resolve=true`, { learn: 'pool' }),
     );
-    expect(res.model).toBe('simple');
+    expect(res.model).toBe('normal');
     expect(res.plan.budget.maxInputTokens).toBe(3000);
     expect(res.rendered.system).toContain('LOCKED POOL PROMPT');
     expect(res.rendered.system).not.toContain('IGNORE ME');
@@ -288,7 +288,7 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
     const plain = await json<ContextPlanResponse>(
       await u.client.call(`/api/branches/${trunk.id}/context`, { learn: 'pool' }),
     );
-    expect(plain.model).toBe('smart');
+    expect(plain.model).toBe('max');
   });
 
   it('caps a pool send at POOL_MAX_MESSAGE_CHARS (400, nothing written)', async () => {
@@ -332,7 +332,7 @@ describe('funding resolution', () => {
     );
     const pooled = await rows(u.poolId);
     expect(pooled.map((r) => [r.funding, r.purpose, r.model, r.user_id, r.status])).toEqual([
-      ['pool', 'summary', 'simple', u.userId, 'settled'],
+      ['pool', 'summary', 'normal', u.userId, 'settled'],
     ]);
     expect(await rows(`u_${u.userId}`)).toEqual([]);
   });
@@ -343,7 +343,7 @@ describe('funding resolution', () => {
     const review = (learn: LearnPayment) =>
       u.client.call(`/api/nodes/${assistant.id}/review`, {
         method: 'POST',
-        json: { providerId: 'openrouter', model: 'smart' },
+        json: { providerId: 'openrouter', model: 'max' },
         learn,
       });
     const credit = await review('credit');
@@ -361,7 +361,7 @@ describe('funding resolution', () => {
       await u.client.call('/api/trees', {
         method: 'POST',
         // Power on Tangent credit: the pool header doesn't move it to the pool.
-        json: { providerId: 'openrouter', funding: 'credit', model: 'smart' },
+        json: { providerId: 'openrouter', funding: 'credit', model: 'max' },
         headers: { [PAYMENT_HEADER]: 'pool' },
       }),
       201,
@@ -490,7 +490,7 @@ describe("the pool's context limit bounds every call", () => {
       env: {
         POOL_MAX_INPUT_TOKENS: '4000',
         MODEL_PRICES: JSON.stringify({
-          simple: { in: 1_000_000, out: 1_000_000, context: 65_536 },
+          normal: { in: 1_000_000, out: 1_000_000, context: 65_536 },
         }),
       },
     });
@@ -576,7 +576,7 @@ describe("the pool's context limit bounds every call", () => {
       env: {
         POOL_MAX_INPUT_TOKENS: '100000',
         MODEL_PRICES: JSON.stringify({
-          simple: { in: 1_000_000, out: 1_000_000, context: 8_192 },
+          normal: { in: 1_000_000, out: 1_000_000, context: 8_192 },
         }),
       },
     });
@@ -606,10 +606,10 @@ describe('routes that never generate, on a pool header', () => {
       await u.client.call('/api/providers', { learn: 'pool' }),
     );
     expect(providers.map((p) => [p.id, p.defaultModel, p.models.map((m) => m.id)])).toEqual([
-      ['openrouter', 'smart', ['smart', 'simple']],
+      ['openrouter', 'max', ['max', 'normal']],
     ]);
     const { trunk } = await createTree(u, 'pool');
-    expect(trunk.model).toBe('smart');
+    expect(trunk.model).toBe('max');
   });
 });
 
@@ -625,8 +625,8 @@ describe('poolProviderConfig', () => {
       label: 'Tangent',
       baseUrl,
       apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
-      defaultModel: 'simple',
-      models: [{ id: 'simple', label: 'Normal', tier: 'normal' }],
+      defaultModel: 'normal',
+      models: [{ id: 'normal', label: 'Normal', tier: 'normal' }],
       options: { extraBody: { transforms: [], provider } },
     }),
   });

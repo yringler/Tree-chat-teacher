@@ -59,8 +59,7 @@ export default tseslint.config(
       '@typescript-eslint/await-thenable': 'error',
     },
   },
-  // Payment boundaries (docs/polar-migration/03-architecture.md §2.7): the
-  // Polar SDK is imported only by its adapter (and its tests), and adapters
+  // Payment boundaries: the Polar SDK is imported only by its adapter (and its tests), and adapters
   // translate without reaching into the ledger, purchases, the domain
   // handler or the pool.
   {

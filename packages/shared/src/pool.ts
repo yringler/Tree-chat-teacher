@@ -75,7 +75,7 @@ export function poolErrorCode(reason: PoolBlockReason): PoolErrorCode {
 
 /**
  * `POST /api/pool/verify`: a Cloudflare Turnstile token, for accounts with no
- * Turnstile pass on record (they predate the check at sign-in). The first
+ * Turnstile pass on record. The first
  * pool use asks for it (`pool_unavailable`, reason `verify`).
  */
 export const poolVerifyRequestSchema = z.object({
@@ -177,7 +177,7 @@ export interface PoolMeResponse {
 }
 
 /**
- * The pool notice (spec §9), shown before the first pool request. Changing the
+ * The pool notice (docs/pool/SPEC.md), shown before the first pool request. Changing the
  * text means bumping the version: everyone acknowledges the new text before
  * their next pool request (403 `pool_consent_required` until they do).
  */
@@ -204,7 +204,7 @@ export interface PoolConsentResponse {
 }
 
 /**
- * The empty state, wherever it shows (spec §8). Only Tangent adds credit to
+ * The empty state, wherever it shows. Only Tangent adds credit to
  * the pool (`POOL_FUNDING_TEXT`), so the copy never says people refill it.
  */
 export const POOL_EMPTY_TEXT = 'The open pool is empty until Tangent adds more credit.';

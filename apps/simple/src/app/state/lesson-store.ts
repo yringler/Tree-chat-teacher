@@ -135,7 +135,7 @@ export interface LinkReturn {
 }
 
 /**
- * Learn's endpoint, the built-in provider (`openrouter`; PLAN §2.2); the first
+ * Learn's endpoint, the built-in provider (`openrouter`); the first
  * provider otherwise. Learn pays per request (its payment header), never per
  * branch, so it names no funding.
  */

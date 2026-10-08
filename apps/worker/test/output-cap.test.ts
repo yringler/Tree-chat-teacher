@@ -88,7 +88,7 @@ describe('Learn ignores a requested cap', () => {
     const u = await poolReadyUser();
     const created = await u.client.call('/api/trees', {
       method: 'POST',
-      json: { title: 'L', model: 'smart' },
+      json: { title: 'L', model: 'max' },
       learn: 'credit',
     });
     expect(created.status).toBe(201);

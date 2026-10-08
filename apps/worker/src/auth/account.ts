@@ -159,36 +159,6 @@ export function clientIp(headers: Headers): string | null {
   return headers.get('cf-connecting-ip');
 }
 
-// Account rows known to exist, per D1 binding, for this isolate's lifetime.
-const ensured = new WeakMap<D1Database, Set<string>>();
-
-/**
- * Creates the account row on first use (`INSERT OR IGNORE`, so concurrent
- * first requests are harmless). The `default` row is seeded by migration 0001
- * and carries no user id; so does the dev bypass's `default_simple`.
- */
-export async function ensureAccountRow(db: D1Database, account: AccountContext): Promise<void> {
-  let known = ensured.get(db);
-  if (!known) {
-    known = new Set();
-    ensured.set(db, known);
-  }
-  if (known.has(account.id)) return;
-  await db
-    .prepare(
-      'INSERT OR IGNORE INTO accounts (id, name, created_at, user_id, mode) VALUES (?1, ?2, ?3, ?4, ?5)',
-    )
-    .bind(
-      account.id,
-      account.mode === 'simple' ? 'Learn account' : 'Power account',
-      new Date().toISOString(),
-      account.userId,
-      account.mode,
-    )
-    .run();
-  known.add(account.id);
-}
-
 /** Sets `c.var.account` / `c.var.accountId` for owner routes. Must run after the session middleware. */
 export const accountMiddleware = createMiddleware<AppBindings>(async (c, next) => {
   const headers = c.req.raw.headers;
@@ -197,7 +167,6 @@ export const accountMiddleware = createMiddleware<AppBindings>(async (c, next) =
     resolveAccount(c.env, c.var.identity, accountRequest(headers)),
     clientIp(headers),
   );
-  await ensureAccountRow(c.env.DB, account);
   c.set('account', account);
   c.set('accountId', account.id);
   await next();

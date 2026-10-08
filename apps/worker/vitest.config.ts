@@ -171,16 +171,15 @@ export default defineConfig({
             // Learn mode and billing (paid credit offered). Multi-user tests pass an env
             // override with auth configured (as auth.test.ts does for BETTER_AUTH_SECRET).
             // The built-in provider (the endpoint `openrouter`): fake, reporting a fixed cost per call.
-            // Its tiers keep the ids from before Normal and Max: `smart` is Max (and, unlike a
-            // deployment, the default, as the suites were written against it), `simple` is Normal.
+            // Unlike a deployment, Max is the default, as the suites were written against it.
             SIMPLE_PROVIDER: JSON.stringify({
               id: 'openrouter',
               kind: 'fake',
               label: 'Tangent',
-              defaultModel: 'smart',
+              defaultModel: 'max',
               models: [
-                { id: 'smart', label: 'Max', tier: 'max' },
-                { id: 'simple', label: 'Normal', tier: 'normal' },
+                { id: 'max', label: 'Max', tier: 'max' },
+                { id: 'normal', label: 'Normal', tier: 'normal' },
               ],
               // `[echo-request]` in a message makes the reply echo the request's model, output cap
               // and system prompt (the pool tests check what was really sent upstream).
@@ -209,7 +208,7 @@ export default defineConfig({
             MEMBERSHIP_WAIVER_CODE: '',
             MARKUP_BPS: '1000',
             // The open pool, on. Pool tests isolate themselves with a unique POOL_ACCOUNT_ID per
-            // test. The pool model is the fake built-in provider's `simple`, priced at 1 µ$ per token
+            // test. The pool model is the fake built-in provider's `normal`, priced at 1 µ$ per token
             // each way, so every reply hold (up to 2,048 tokens out) is above the fake's reported
             // cost (0.001234 USD ≈ 1,302 µ$ with the fee) and only the test that targets the clamp
             // hits it. Its window is as large as the deployed pool model's, so the reply's ceiling
@@ -221,12 +220,12 @@ export default defineConfig({
             // As deployed: tests that simulate purchases turn it on in an env override.
             DEV_PURCHASES_ENABLED: 'false',
             POOL_ACCOUNT_ID: 'pool',
-            POOL_MODEL: 'simple',
-            // `smart` (Max) is priced too, low, so a credit call on it holds USAGE_HOLD_MICROS like
+            POOL_MODEL: 'normal',
+            // `max` is priced too, low, so a credit call on it holds USAGE_HOLD_MICROS like
             // any cheap model (a model without a price can't run on credit).
             MODEL_PRICES: JSON.stringify({
-              simple: { in: 1_000_000, out: 1_000_000, context: 1_048_576 },
-              smart: { in: 10_000, out: 10_000, context: 1_048_576 },
+              normal: { in: 1_000_000, out: 1_000_000, context: 1_048_576 },
+              max: { in: 10_000, out: 10_000, context: 1_048_576 },
             }),
             POOL_MAX_OUTPUT_TOKENS: '2048',
             POOL_REQUESTS_PER_DAY: '3',
@@ -236,19 +235,10 @@ export default defineConfig({
             // Generation lookups made inside Durable Objects (PoolBank's expiry) reach the
             // OpenRouter mock with this key; tests that need no key override it with ''.
             OPENROUTER_SIMPLE_API_KEY: 'sk-or-test',
-            // As deployed; pool-featured.test.ts also turns it on (the stub is 404 either way).
-            FEATURED_CONVERSATIONS_ENABLED: 'false',
             // Test-only RPC methods (PoolBank.expire, PoolBank.status).
             TEST_SEAMS: 'true',
           },
-          // Empty databases for the upgrade tests (test/migrations-upgrade.test.ts and
-          // test/migrations-node-links.test.ts, one each), which build them at an older schema (a
-          // prefix of TEST_MIGRATIONS) and upgrade them; DB keeps every migration.
-          d1Databases: {
-            DB: 'tangent-test',
-            MIGRATION_DB: 'tangent-migration-test',
-            LINKS_MIGRATION_DB: 'tangent-links-migration-test',
-          },
+          d1Databases: { DB: 'tangent-test' },
           ratelimits: {
             CHAT_RATE_LIMITER: { namespace_id: '1002', simple: { limit: 5, period: 60 } },
             KEY_RATE_LIMITER: { namespace_id: '1003', simple: { limit: 1000, period: 60 } },
