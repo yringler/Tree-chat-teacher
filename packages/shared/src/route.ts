@@ -20,28 +20,6 @@ export interface ProviderRoute {
  */
 export const BUILT_IN_PROVIDER_ID = 'openrouter';
 
-/**
- * The built-in provider's id before funding was split from it (migration
- * 0020): `tangent` meant "OpenRouter, paid with Tangent credit" in power mode
- * and "OpenRouter, paid per request" in Learn. Requests from clients built
- * before the change may still name it; `fromLegacyRoute` reads it as
- * `openrouter` on credit (Learn ignores a branch's funding, so this is what it
- * meant in either app). Stored data and backups are mapped by their own rules.
- */
-export const LEGACY_BUILT_IN_PROVIDER_ID = 'tangent';
-
-/**
- * A request naming the legacy `tangent` id, read as the built-in endpoint on
- * Tangent credit (unless it names its funding itself); any other request is
- * returned unchanged.
- */
-export function fromLegacyRoute<
-  T extends { providerId?: string | undefined; funding?: BranchFunding | undefined },
->(request: T): T {
-  if (request.providerId !== LEGACY_BUILT_IN_PROVIDER_ID) return request;
-  return { ...request, providerId: BUILT_IN_PROVIDER_ID, funding: request.funding ?? 'credit' };
-}
-
 /** Separator of `routeKey`; provider ids are config ids and never contain it. */
 const CREDIT_SUFFIX = '@credit';
 
@@ -57,12 +35,10 @@ export function routeKey(route: {
   return route.funding === 'credit' ? `${route.providerId}${CREDIT_SUFFIX}` : route.providerId;
 }
 
-/** The inverse of `routeKey`; the legacy `tangent` id reads as the built-in endpoint on credit. */
+/** The inverse of `routeKey`. */
 export function parseRouteKey(key: string): ProviderRoute {
   if (key.endsWith(CREDIT_SUFFIX))
     return { providerId: key.slice(0, -CREDIT_SUFFIX.length), funding: 'credit' };
-  if (key === LEGACY_BUILT_IN_PROVIDER_ID)
-    return { providerId: BUILT_IN_PROVIDER_ID, funding: 'credit' };
   return { providerId: key, funding: 'own-key' };
 }
 

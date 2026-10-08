@@ -145,7 +145,7 @@
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFLlFryv5vXul-MG",
     // JSON array of ProviderConfig for power mode's own-key providers; empty = built-in defaults
     // (anthropic, openai, openrouter), where openrouter lists the suggested models below first
-    // and takes any OpenRouter model id. The id "tangent" (the built-in provider's legacy id) is reserved.
+    // and takes any OpenRouter model id.
     "PROVIDERS": "",
     // Provider/model for summaries; empty = use the branch's provider/model.
     "SUMMARY_PROVIDER_ID": "",
@@ -172,8 +172,7 @@
     // Canvas) alike (waivable per user, see MEMBERSHIP_WAIVER_CODE below and the README); Tangent
     // credit, bought or spent, and the open pool never do (src/billing/gate.ts `needsMembership`).
     // The suggested OpenRouter models: Learn's Normal (the default) / Max tiers, listed first in power.
-    // The old SIMPLE_SMART_MODEL is still read as a fallback for Normal (never for Max). The values
-    // below are the code's defaults, from the 2026-10 model eval (docs/DECISIONS.md "Hosted models
+    // The values below are the code's defaults, from the 2026-10 model eval (docs/DECISIONS.md "Hosted models
     // from the eval"): one model for Normal and the pool, split by effort, and a top model for Max.
     "SIMPLE_NORMAL_MODEL": "deepseek/deepseek-v4.1-flash",
     "SIMPLE_MAX_MODEL": "anthropic/claude-sonnet-5.5",
@@ -199,8 +198,8 @@
     // default background model, else their model's own. They run on Normal's listing of the model
     // (or the pool's), so they share its pinned providers; there is no SIMPLE_FAST_PROVIDER_ORDER.
     "SIMPLE_FAST_EFFORT": "low",
-    // Full ProviderConfig JSON (id "openrouter"; legacy "tangent" is read as it) for the built-in provider;
-    // empty = OpenRouter with the models above.
+    // Full ProviderConfig JSON (id "openrouter") for the built-in provider, its models tagged with
+    // their `tier`; empty = OpenRouter with the models above.
     "SIMPLE_PROVIDER": "",
     // Per-call input-token cap for Learn and for the built-in provider in power (bounds the cost of one call).
     "SIMPLE_MAX_INPUT_TOKENS": "60000",

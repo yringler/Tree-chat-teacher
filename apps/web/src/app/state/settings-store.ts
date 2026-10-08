@@ -1,7 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import {
   DEFAULT_INPUT_OVERFLOW,
-  fromLegacyRoute,
   MAX_REQUESTED_INPUT_TOKENS,
   MAX_REQUESTED_OUTPUT_TOKENS,
   MIN_REQUESTED_INPUT_TOKENS,
@@ -72,7 +71,7 @@ function parseChoice(v: unknown): ModelChoice | null {
     return null;
   const choice: ModelChoice = { providerId, model };
   if (funding === 'credit' || funding === 'own-key') choice.funding = funding;
-  return fromLegacyRoute(choice);
+  return choice;
 }
 
 export function parseSettings(raw: string | null): AppSettings {

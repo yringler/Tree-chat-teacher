@@ -194,7 +194,7 @@ describe('funding matrix: the same party pays with the same key as before the sp
       code: 'key_required',
     });
     await saveOwnOpenRouterKey(c, 'own-key');
-    for (const route of [OWN, CREDIT, { providerId: 'tangent' }]) {
+    for (const route of [OWN, CREDIT]) {
       expect(await reviewWith(c, assistant.id, route, { learn: 'own-key' })).toEqual({
         status: 200,
         reply: 'key=USER-0123456789',
@@ -301,18 +301,13 @@ describe('funding matrix: the same party pays with the same key as before the sp
       reply: 'key=OPERATOR',
       code: null,
     });
-    // The legacy id from an older client means the same: the endpoint on credit.
-    expect(await reviewWith(c, assistant.id, { providerId: 'tangent' })).toMatchObject({
-      status: 200,
-      reply: 'key=OPERATOR',
-    });
-    expect(await usageRows(`u_${userId}`)).toBe(2);
+    expect(await usageRows(`u_${userId}`)).toBe(1);
     // The same endpoint on the user's key, from the same branch, stays theirs and free.
     const own = await replyOn(c, OWN);
     expect(await reviewWith(c, own.assistant.id, OWN)).toMatchObject({
       reply: 'key=USER-0123456789',
     });
-    expect(await usageRows(`u_${userId}`)).toBe(2);
+    expect(await usageRows(`u_${userId}`)).toBe(1);
   });
 
   it('the membership gates own keys in both apps; credit never needs it', async () => {
@@ -399,113 +394,21 @@ describe('funding matrix: the same party pays with the same key as before the sp
   });
 });
 
-describe('the legacy built-in id', () => {
-  it('SIMPLE_PROVIDER may still name `tangent`: it is read as the `openrouter` endpoint', () => {
-    const legacy = {
+describe('the provider id `tangent`', () => {
+  it('is an unknown provider: SIMPLE_PROVIDER may not use it, and a request naming it is refused', async () => {
+    const named = {
       ...env,
       SIMPLE_PROVIDER: JSON.stringify({ ...openRouterLike('Tangent', 'X'), id: 'tangent' }),
     } as AppEnv;
-    expect(simpleProviderConfig(legacy).id).toBe('openrouter');
-    const other = {
-      ...env,
-      SIMPLE_PROVIDER: JSON.stringify({ ...openRouterLike('Tangent', 'X'), id: 'other' }),
-    } as AppEnv;
-    expect(() => simpleProviderConfig(other)).toThrow(/id must be "openrouter"/);
-  });
-
-  it('an older power client naming `tangent` creates a branch on the endpoint on credit', async () => {
+    expect(() => simpleProviderConfig(named)).toThrow(/id must be "openrouter"/);
     const { c } = await signedIn(authEnv());
-    const detail = await json<TreeDetail>(
-      await c.call('/api/trees', {
-        method: 'POST',
-        json: { providerId: 'tangent', model: 'smart' },
-      }),
-      201,
-    );
-    expect(detail.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'credit' });
-    const branch = await json<Branch>(
-      await c.call('/api/branches', {
-        method: 'POST',
-        json: { fromNodeId: (await replyOn(c, CREDIT)).assistant.id, providerId: 'tangent' },
-      }),
-      201,
-    );
-    expect(branch).toMatchObject({ providerId: 'openrouter', funding: 'credit' });
-  });
-});
-
-describe('migration 0020: stored `tangent` branches', () => {
-  it('power branches on `tangent` become openrouter on credit; Learn ones openrouter on own key', async () => {
-    const migrations = (
-      env as unknown as { TEST_MIGRATIONS: { name: string; queries: string[] }[] }
-    ).TEST_MIGRATIONS;
-    const migration = migrations.find((m) => m.name.startsWith('0020_'))!;
-    expect(migration).toBeDefined();
-    const [addColumn, ...remap] = migration.queries;
-    expect(addColumn).toMatch(/ADD `funding`/);
-
-    const db = env.DB;
-    const at = new Date().toISOString();
-    const id = (p: string) => `${p}_${Math.random().toString(36).slice(2, 10)}`;
-    const power = id('p_mig');
-    const learn = id('u_mig');
-    await db.batch([
-      db
-        .prepare(
-          "INSERT INTO accounts (id, name, created_at, user_id, mode) VALUES (?, 'P', ?, ?, 'power')",
-        )
-        .bind(power, at, id('usr')),
-      db
-        .prepare(
-          "INSERT INTO accounts (id, name, created_at, user_id, mode) VALUES (?, 'L', ?, ?, 'simple')",
-        )
-        .bind(learn, at, id('usr')),
-    ]);
-    const rows: { account: string; provider: string; funding?: string }[] = [
-      { account: power, provider: 'tangent' },
-      { account: power, provider: 'ant' },
-      { account: learn, provider: 'tangent' },
-      // A tree whose account row is missing: the safe own-key.
-      { account: id('p_gone'), provider: 'tangent' },
-    ];
-    const ids: { tree: string; branch: string; node: string }[] = [];
-    for (const r of rows) {
-      const tree = id('t');
-      const branch = id('b');
-      const node = id('n');
-      ids.push({ tree, branch, node });
-      await db.batch([
-        db
-          .prepare(
-            'INSERT INTO trees (id, title, system_prompt, trunk_branch_id, account_id, created_at, updated_at) VALUES (?, ?, NULL, ?, ?, ?, ?)',
-          )
-          .bind(tree, 'T', branch, r.account, at, at),
-        db
-          .prepare(
-            "INSERT INTO branches (id, tree_id, parent_branch_id, branch_point_node_id, context_mode, anchor_quote, title, title_source, is_private, provider_id, model, created_at, updated_at) VALUES (?, ?, NULL, NULL, 'path', NULL, 'Main', 'default', 0, ?, 'smart', ?, ?)",
-          )
-          .bind(branch, tree, r.provider, at, at),
-        db
-          .prepare(
-            "INSERT INTO nodes (id, tree_id, branch_id, parent_id, seq, role, content, status, provider_id, model, created_at) VALUES (?, ?, ?, NULL, 0, 'assistant', 'A', 'complete', ?, 'smart', ?)",
-          )
-          .bind(node, tree, branch, r.provider, at),
-      ]);
-    }
-    for (const q of remap) await db.prepare(q).run();
-
-    const repos = createD1Repositories(db);
-    const got = await Promise.all(
-      ids.map(async ({ branch, node }) => ({
-        branch: await repos.trees.getBranch(branch),
-        node: await repos.trees.getNode(node),
-      })),
-    );
-    expect(got.map((g) => [g.branch!.providerId, g.branch!.funding, g.node!.providerId])).toEqual([
-      ['openrouter', 'credit', 'openrouter'],
-      ['ant', 'own-key', 'ant'],
-      ['openrouter', 'own-key', 'openrouter'],
-      ['openrouter', 'own-key', 'openrouter'],
-    ]);
+    const res = await c.call('/api/trees', {
+      method: 'POST',
+      json: { providerId: 'tangent', model: 'max' },
+    });
+    expect(await res.json()).toEqual({
+      error: { code: 'bad_request', message: 'Unknown provider "tangent"' },
+    });
+    expect(res.status).toBe(400);
   });
 });

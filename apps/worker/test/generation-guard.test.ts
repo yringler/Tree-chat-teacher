@@ -94,12 +94,7 @@ describe('chatSettingsFor: SUMMARY_PROVIDER_ID', () => {
   const settings = (id: string) =>
     chatSettingsFor({ ...env, SUMMARY_PROVIDER_ID: id } as AppEnv, power);
 
-  it('the legacy `tangent` (Tangent credit) means no summary provider, so summaries never cost credit', () => {
-    expect(settings('tangent').summaryProviderId).toBeNull();
-    expect(settings(' tangent ').summaryProviderId).toBeNull();
-  });
-
-  it('any other id is kept, and blank is none', () => {
+  it('an id is kept, and blank is none', () => {
     expect(settings('ant').summaryProviderId).toBe('ant');
     expect(settings('openrouter').summaryProviderId).toBe('openrouter');
     expect(settings('  ').summaryProviderId).toBeNull();

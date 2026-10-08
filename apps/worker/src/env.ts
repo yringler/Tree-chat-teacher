@@ -43,12 +43,6 @@ export interface AppEnv extends Env {
    */
   OPENROUTER_SIMPLE_API_KEY?: string;
   /**
-   * Legacy name of Learn's default tier (it was "Smart"; its deployed value is
-   * Normal's model). No longer in wrangler.jsonc; read only as the fallback of
-   * `SIMPLE_NORMAL_MODEL`, never for Max (simple-mode.ts).
-   */
-  SIMPLE_SMART_MODEL?: string;
-  /**
    * Polar organization access token (`polar_oat_…`), for the `polar` payment
    * provider (billing/providers/polar). Payments are on only when this and
    * POLAR_WEBHOOK_SECRET are set. Sandbox and production tokens differ.

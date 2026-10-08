@@ -254,9 +254,8 @@ describe('importing into Learn', () => {
 });
 
 /**
- * A backup made before the fake reply provider was retired and before funding
- * was split from the provider: no `funding` fields, a trunk on `fake` and a side
- * branch on the legacy built-in id `tangent`.
+ * A backup naming providers this server doesn't offer and no `funding`
+ * fields: a trunk on `fake` and a side branch on `tangent`.
  */
 function oldBackup(): TreeBackup {
   const at = '2026-09-15T10:00:00.000Z';
@@ -331,7 +330,7 @@ function oldBackup(): TreeBackup {
   } as TreeBackup;
 }
 
-describe('an old backup that names the retired `fake` provider', () => {
+describe('a backup naming providers the server does not offer', () => {
   /** A deployment with the default power providers: `fake` isn't one (vitest.config.ts adds it). */
   const defaults = authEnv({ POOL_ENABLED: 'false', PROVIDERS: '' });
 
@@ -343,11 +342,10 @@ describe('an old backup that names the retired `fake` provider', () => {
     );
     expect(copy.tree.accountId).toBe(u.power.accountId);
     expect(copy.tree.systemPrompt).toBe('Be brief.');
-    // `fake` is kept, like any provider the server doesn't offer; `tangent` is the
-    // endpoint `openrouter`, and a missing funding is the user's own key.
+    // Providers the server doesn't offer are kept, and a missing funding is the user's own key.
     expect(routes(copy)).toEqual([
       ['Main thread', 'fake', 'fake-1', 'path', 'own-key'],
-      ['On the built-in provider', 'openrouter', 'smart', 'summary', 'own-key'],
+      ['On the built-in provider', 'tangent', 'smart', 'summary', 'own-key'],
     ]);
     expect(copy.nodes.map((n) => n.providerId)).toEqual([null, 'fake']);
     const providers = await json<{ id: string }[]>(await u.call('/api/providers'));

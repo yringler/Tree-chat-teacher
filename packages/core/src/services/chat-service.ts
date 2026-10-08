@@ -5,8 +5,6 @@ import {
   GROUNDING_INSTRUCTIONS,
   DEFAULT_BRANCH_TITLE_PREFIX,
   DEFAULT_TREE_TITLE,
-  LEGACY_BUILT_IN_PROVIDER_ID,
-  BUILT_IN_PROVIDER_ID,
   MAX_LINKS_PER_TREE,
   TRUNK_TITLE,
   DEFAULT_REPLY_OUTPUT_TOKENS,
@@ -1926,8 +1924,6 @@ export class ChatService {
     }));
     const nodes: ChatNode[] = data.nodes.map((n) => ({
       ...n,
-      providerId:
-        n.providerId === LEGACY_BUILT_IN_PROVIDER_ID ? BUILT_IN_PROVIDER_ID : n.providerId,
       id: mapNode(n.id),
       treeId,
       branchId: mapBranch(n.branchId),
@@ -2047,20 +2043,16 @@ export class ChatService {
 }
 
 /**
- * A backed-up branch's route as import stores it. Backups name the endpoint
- * and, since funding was split from the provider, the funding. An older
- * backup names neither the funding nor what its legacy `tangent` id was paid
- * with (credit in power, per request in Learn), so a missing funding is
- * `own-key`: an imported conversation never spends credit until its owner
- * picks Tangent credit for it. Learn's fixed funding wins, as for any write.
+ * A backed-up branch's route as import stores it. A backup without a funding
+ * is on `own-key`: an imported conversation never spends credit until its
+ * owner picks Tangent credit for it. Learn's fixed funding wins, as for any
+ * write.
  */
 function importedRoute(
   b: { providerId: string; funding?: BranchFunding | undefined },
   fixedFunding: BranchFunding | undefined,
 ): ProviderRoute {
-  const providerId =
-    b.providerId === LEGACY_BUILT_IN_PROVIDER_ID ? BUILT_IN_PROVIDER_ID : b.providerId;
-  return { providerId, funding: fixedFunding ?? b.funding ?? 'own-key' };
+  return { providerId: b.providerId, funding: fixedFunding ?? b.funding ?? 'own-key' };
 }
 
 /**

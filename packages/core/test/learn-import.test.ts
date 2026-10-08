@@ -59,7 +59,6 @@ function powerBackup(): TreeBackupInput {
       branch('max', { model: 'max', anchorQuote: 'a prime', isPrivate: true }),
       branch('credit', { model: 'normal', funding: 'credit', contextMode: 'summary' }),
       branch('open', { model: 'vendor/other-model', contextMode: 'independent' }),
-      branch('legacy', { providerId: 'tangent', model: 'max', funding: undefined }),
       branch('elsewhere', { providerId: 'openai', model: 'normal' }),
     ],
     nodes: [
@@ -111,8 +110,6 @@ describe('adaptBackupForLearn', () => {
       ['credit', 'openrouter', 'normal', 'path', 'own-key'],
       // A model Learn doesn't offer (power's open models): Normal.
       ['open', 'openrouter', 'normal', 'path', 'own-key'],
-      // The legacy built-in id is the built-in endpoint.
-      ['legacy', 'openrouter', 'max', 'path', 'own-key'],
       // A model id Learn offers, but on another provider: Normal on Learn's.
       ['elsewhere', 'openrouter', 'normal', 'path', 'own-key'],
     ]);

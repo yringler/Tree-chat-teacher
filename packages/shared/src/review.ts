@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { generationLimitsShape } from './api.js';
 import type { BranchFunding, TokenUsage } from './domain.js';
-import { fromLegacyRoute } from './route.js';
 
 /**
  * Reviewer ("fact check up to here"). A second, usually stronger, model reads
@@ -15,21 +14,17 @@ import { fromLegacyRoute } from './route.js';
  * they never enter the context of later replies unless the user sends them.
  */
 
-export const reviewRequestSchema = z
-  .object({
-    providerId: z.string().min(1).max(64),
-    /** How power pays for the reviewer (default `own-key`); Learn pays per request. */
-    funding: z.enum(['own-key', 'credit']).optional() satisfies z.ZodType<
-      BranchFunding | undefined
-    >,
-    model: z.string().min(1).max(200),
-    /**
-     * Power's reply length (the review's cap) and input limit (what of the
-     * conversation the reviewer reads), as on a send (Learn sends none).
-     */
-    ...generationLimitsShape,
-  })
-  .transform(fromLegacyRoute);
+export const reviewRequestSchema = z.object({
+  providerId: z.string().min(1).max(64),
+  /** How power pays for the reviewer (default `own-key`); Learn pays per request. */
+  funding: z.enum(['own-key', 'credit']).optional() satisfies z.ZodType<BranchFunding | undefined>,
+  model: z.string().min(1).max(200),
+  /**
+   * Power's reply length (the review's cap) and input limit (what of the
+   * conversation the reviewer reads), as on a send (Learn sends none).
+   */
+  ...generationLimitsShape,
+});
 export type ReviewRequest = z.infer<typeof reviewRequestSchema>;
 
 /**

@@ -281,7 +281,7 @@ describe("Learn's tiers", () => {
     );
   });
 
-  it('a pre-tier override names no Max (its second model was the cheaper one)', async () => {
+  it('an override that names no tiers offers none', async () => {
     const env = {
       SIMPLE_PROVIDER: builtIn({
         baseUrl: 'https://openrouter.ai/api/v1',

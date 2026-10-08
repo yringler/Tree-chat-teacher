@@ -1,4 +1,4 @@
-import type { DefaultRouteFacts, ProviderRegistry, TreeBackup } from '@tangent/shared';
+import type { DefaultRouteFacts, ProviderRegistry, TreeBackupInput } from '@tangent/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { ChatService, DEFAULT_CHAT_SETTINGS } from '../../src/services/chat-service.js';
 import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
@@ -78,18 +78,11 @@ describe('ChatService routes (provider + funding)', () => {
     expect(await chat.updateBranch(own.id, { model: 'm1' })).toMatchObject({ funding: 'credit' });
   });
 
-  it('reads the legacy `tangent` id as the built-in endpoint on credit', async () => {
+  it('refuses the `tangent` id as an unknown provider', async () => {
     const { chat } = setup();
-    const { tree } = await chat.createTree({ providerId: 'tangent' });
-    expect(await chat.getOwnedBranch(tree.trunkBranchId)).toMatchObject({
-      providerId: 'openrouter',
-      funding: 'credit',
-    });
-    const updated = await chat.updateBranch(tree.trunkBranchId, {
-      providerId: 'tangent',
-      funding: 'own-key',
-    });
-    expect(updated).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
+    await expect(chat.createTree({ providerId: 'tangent' })).rejects.toThrow(
+      /Unknown provider "tangent"/,
+    );
   });
 
   it('refuses a credit route where credit is not offered, before anything is written', async () => {
@@ -265,8 +258,6 @@ describe('ChatService routes (provider + funding)', () => {
     const { tree } = await chat.createTree({ providerId: 'openrouter', funding: 'credit' });
     const trunk = await chat.getOwnedBranch(tree.trunkBranchId);
     expect(trunk).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
-    const legacy = await chat.updateBranch(trunk.id, { providerId: 'tangent' });
-    expect(legacy).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
     await send(chat, trunk.id, 'learn');
     expect(own.chatCalls()).toHaveLength(1);
     expect(credit.calls).toHaveLength(0);
@@ -275,10 +266,10 @@ describe('ChatService routes (provider + funding)', () => {
     );
   });
 
-  it('import maps legacy `tangent` to openrouter and a missing funding to own-key', async () => {
+  it('import reads a missing funding as own-key', async () => {
     const { chat } = setup();
     const at = '2026-01-01T00:00:00.000Z';
-    const backup: TreeBackup = {
+    const backup: TreeBackupInput = {
       format: 'tangent-tree-backup',
       version: 1,
       exportedAt: at,
@@ -292,7 +283,7 @@ describe('ChatService routes (provider + funding)', () => {
         updatedAt: at,
       },
       branches: [
-        // A pre-split backup: no funding, the legacy id.
+        // No funding.
         {
           id: 'b',
           treeId: 't',
@@ -303,11 +294,11 @@ describe('ChatService routes (provider + funding)', () => {
           title: 'Main',
           titleSource: 'default',
           isPrivate: false,
-          providerId: 'tangent',
+          providerId: 'openrouter',
           model: 'm1',
           createdAt: at,
           updatedAt: at,
-        } as unknown as TreeBackup['branches'][number],
+        },
         {
           id: 'c',
           treeId: 't',
@@ -351,7 +342,7 @@ describe('ChatService routes (provider + funding)', () => {
           content: 'a',
           status: 'complete',
           error: null,
-          providerId: 'tangent',
+          providerId: 'openrouter',
           model: 'm1',
           usage: null,
           createdAt: at,

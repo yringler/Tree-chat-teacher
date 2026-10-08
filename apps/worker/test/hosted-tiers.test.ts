@@ -50,7 +50,6 @@ const deployed = (overrides: Partial<AppEnv> = {}) =>
     SIMPLE_PROVIDER: '',
     SIMPLE_NORMAL_MODEL: '',
     SIMPLE_MAX_MODEL: '',
-    SIMPLE_SMART_MODEL: '',
     SIMPLE_FAST_MODEL: '',
     POOL_MODEL: '',
     MODEL_PRICES: '',
