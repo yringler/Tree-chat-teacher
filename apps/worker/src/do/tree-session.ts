@@ -201,7 +201,7 @@ export class TreeSession extends DurableObject<AppEnv> {
         return await this.reconnect(chat, url.searchParams.get('nodeId') ?? '');
       }
       if (request.method === 'POST' && url.pathname === '/cancel') {
-        return await this.cancel(chat, treeId, url.searchParams.get('nodeId') ?? '');
+        return await this.cancel(chat, url.searchParams.get('nodeId') ?? '');
       }
       if (request.method === 'POST' && url.pathname === '/delete-branch') {
         return await this.deleteBranch(chat, url.searchParams.get('branchId') ?? '');
@@ -452,16 +452,11 @@ export class TreeSession extends DurableObject<AppEnv> {
     const run = this.runs.get(nodeId);
     if (run) return this.subscribe(run, [{ type: 'snapshot', node: run.node }]);
 
-    // Not running here: serve the persisted final state.
-    const repo = chat.deps.repos.trees;
-    const node = await repo.getNode(nodeId);
-    if (!node) return errorResponse(new DomainError('not_found', 'Node not found'));
-    let final = node;
-    if (node.status === 'streaming') {
-      await chat.recoverInterrupted(node.treeId);
-      final = (await repo.getNode(nodeId)) ?? node;
-    }
-    const branch = await repo.getBranch(final.branchId);
+    // Not running here: serve the persisted final state. Still `streaming`
+    // means an orphan; only it is recovered (other branches may be live).
+    const final = await chat.recoverInterruptedNode(nodeId);
+    if (!final) return errorResponse(new DomainError('not_found', 'Node not found'));
+    const branch = await chat.deps.repos.trees.getBranch(final.branchId);
     const events: StreamEvent[] = [{ type: 'snapshot', node: final }];
     if (final.status === 'complete' && branch) events.push({ type: 'done', node: final, branch });
     else
@@ -474,10 +469,11 @@ export class TreeSession extends DurableObject<AppEnv> {
     return sseResponse(streamOf(events.map(sseFrame).join('')));
   }
 
-  private async cancel(chat: ChatService, treeId: string, nodeId: string): Promise<Response> {
+  /** Without a run here the node is finished or an orphan: only that node is recovered. */
+  private async cancel(chat: ChatService, nodeId: string): Promise<Response> {
     const run = this.runs.get(nodeId);
     if (run) run.controller.abort();
-    else if (treeId) await chat.recoverInterrupted(treeId);
+    else await chat.recoverInterruptedNode(nodeId);
     return new Response(null, { status: 204 });
   }
 

@@ -206,6 +206,49 @@ describe('owner API', () => {
     expect(replay.map((e) => e.type)).toEqual(['snapshot', 'error']);
   });
 
+  it("cancelling a finished reply leaves another branch's live reply running", async () => {
+    const detail = await newTree('slow');
+    const trunk = await sendMessage(detail.tree.trunkBranchId, 'short');
+    const trunkStart = trunk[0];
+    if (trunkStart?.type !== 'start') throw new Error('expected start');
+    expect(trunk.at(-1)?.type).toBe('done');
+    const b = await ok<Branch>(
+      call('/api/branches', {
+        method: 'POST',
+        json: { fromNodeId: trunkStart.assistantNode.id, contextMode: 'path' },
+      }),
+      201,
+    );
+    const live = await call(`/api/branches/${b.id}/messages`, {
+      method: 'POST',
+      json: { content: 'please write a long answer about everything' },
+    });
+    const reader = live.body!.getReader();
+    const start = parseSse(new TextDecoder().decode((await reader.read()).value))[0];
+    if (start?.type !== 'start') throw new Error('expected start');
+
+    expect(
+      (await call(`/api/nodes/${trunkStart.assistantNode.id}/cancel`, { method: 'POST' })).status,
+    ).toBe(204);
+    const after = await ok<TreeDetail>(call(`/api/trees/${detail.tree.id}`));
+    expect(after.nodes.find((n) => n.id === start.assistantNode.id)?.status).toBe('streaming');
+    expect(after.nodes.find((n) => n.id === trunkStart.assistantNode.id)?.status).toBe('complete');
+    const overlap = await call(`/api/branches/${b.id}/messages`, {
+      method: 'POST',
+      json: { content: 'overlap' },
+    });
+    expect(overlap.status).toBe(409);
+    await overlap.text();
+
+    let rest = '';
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      rest += new TextDecoder().decode(chunk.value);
+    }
+    expect(parseSse(rest).at(-1)?.type).toBe('done');
+  });
+
   it('finished generations continue after the client disconnects', async () => {
     const detail = await newTree('slow');
     const res = await call(`/api/branches/${detail.tree.trunkBranchId}/messages`, {
