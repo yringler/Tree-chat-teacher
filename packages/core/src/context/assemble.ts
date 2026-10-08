@@ -117,14 +117,26 @@ export function assembleContext(input: AssembleInput): ContextPlan {
     const parent = i > 0 ? chain[i - 1]! : null;
     const next: Draft[] = [];
     if (parent) {
-      if (branch.contextMode === 'path') {
-        next.push(...effective);
-      } else if (branch.contextMode === 'summary') {
-        const summary = branchSummary(ctx, branch, parent, effective);
-        if (summary) next.push(summary);
-      } else if (branch.contextMode === 'message') {
-        const point = branchPointSegment(ctx, branch, parent, ownNodes[i - 1]!);
-        if (point) next.push(point);
+      switch (branch.contextMode) {
+        case 'path':
+          next.push(...effective);
+          break;
+        case 'summary': {
+          const summary = branchSummary(ctx, branch, parent, effective);
+          if (summary) next.push(summary);
+          break;
+        }
+        case 'message': {
+          const point = branchPointSegment(ctx, branch, parent, ownNodes[i - 1]!);
+          if (point) next.push(point);
+          break;
+        }
+        case 'independent':
+          break;
+        default: {
+          // A new mode fails to compile here until it is handled.
+          const _unhandled: never = branch.contextMode;
+        }
       }
       const anchor = anchorSegment(ctx, branch);
       if (anchor) next.push(anchor);
