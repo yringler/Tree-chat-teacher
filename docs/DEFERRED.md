@@ -11,7 +11,6 @@ Left out of the server side of the membership (`apps/worker/src/billing/membersh
 - **No email when a membership lapses or a renewal fails.** Polar's own customer emails (receipts, failed payments, renewals) cover it; the app only shows the status on the billing page. Sending our own needs a reaction to `membership.changed` in `billing/payments/apply.ts` and a template in `src/email/`.
 - **Waivers can't be filtered on the admin page.** Its **Member** column sets and clears `auth_users.membership_waived` per user, but listing everyone who has one is still the SQL in the README ("Waiving the membership"). A filter needs a query parameter on `GET /api/admin/users`.
 - **One waiver code, not per-person codes.** A leaked code is changed for everyone; whoever redeemed it keeps the flag until it is cleared by hand. Per-person or single-use codes need a codes table.
-- **The included credit isn't prorated or clawed back on cancellation.** It is granted per paid membership order and taken back only when that order is refunded. Moot while `MEMBERSHIP_CREDIT_CENTS` is 0, the default since DECISIONS "One membership rule: own keys".
 
 ## Community credit pool
 

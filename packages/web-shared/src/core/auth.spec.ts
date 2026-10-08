@@ -53,7 +53,6 @@ const ME: MeResponse = {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
-    includedCreditCents: 200,
   },
   membershipNeededFor: [],
   featuredConversations: false,

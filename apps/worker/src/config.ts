@@ -26,8 +26,6 @@ export const DEFAULT_MARKUP_BPS = 1000;
 /** OpenRouter's fee on credit purchases (5.5%; higher for top-ups under ~$15, see README). */
 export const DEFAULT_OPENROUTER_FEE_BPS = 550;
 export const DEFAULT_MEMBERSHIP_PRICE_CENTS = 1000;
-/** The membership includes no credit (the mechanism stays, `MEMBERSHIP_CREDIT_CENTS`). */
-export const DEFAULT_MEMBERSHIP_CREDIT_CENTS = 0;
 export const DEFAULT_SIMPLE_MAX_INPUT_TOKENS = 60_000;
 
 // ---- The hosted models (docs/DECISIONS.md "Hosted models from the eval")
@@ -326,8 +324,6 @@ export interface AppConfig {
     markupBps: number;
     openRouterFeeBps: number;
     membershipPriceCents: number;
-    /** Before the built-in-provider check (`membershipCreditCents`). */
-    membershipCreditCentsRaw: number;
   };
   simple: {
     maxInputTokens: number;
@@ -489,10 +485,6 @@ function parse(env: AppEnv): AppConfig {
       markupBps: intVar(env.MARKUP_BPS, intVar(env.MARKUP_PREPAID_BPS, DEFAULT_MARKUP_BPS)),
       openRouterFeeBps: intVar(env.OPENROUTER_FEE_BPS, DEFAULT_OPENROUTER_FEE_BPS),
       membershipPriceCents: intVar(env.MEMBERSHIP_PRICE_CENTS, DEFAULT_MEMBERSHIP_PRICE_CENTS),
-      membershipCreditCentsRaw: intVar(
-        env.MEMBERSHIP_CREDIT_CENTS,
-        DEFAULT_MEMBERSHIP_CREDIT_CENTS,
-      ),
     },
     simple: {
       maxInputTokens: positiveInt(env.SIMPLE_MAX_INPUT_TOKENS, DEFAULT_SIMPLE_MAX_INPUT_TOKENS),

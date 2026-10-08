@@ -128,20 +128,10 @@ export interface MembershipInfo {
   cancelAtPeriodEnd: boolean;
   /** Display price per year, pre-tax (tax is added at checkout). */
   priceCents: number;
-  /**
-   * Credit granted with each paid membership year; 0 when the server doesn't
-   * offer the built-in provider (no credit is then promised or granted).
-   */
-  includedCreditCents: number;
 }
 
-/**
- * The latest credit purchase with a known processing fee: a top-up (or, on
- * older ledgers, a monthly-plan invoice). Credit included with the membership
- * is a fixed gift, not a purchase, and never shows here.
- */
+/** The latest top-up with a known processing fee. */
 export interface PurchaseInfo {
-  kind: 'purchase' | 'subscription';
   /** Pre-tax amount paid. */
   grossMicros: number;
   /** The payment provider's processing fee, deducted from the credit. */

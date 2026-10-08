@@ -270,30 +270,23 @@ export async function assertCanSpend(
 }
 
 interface PurchaseRow {
-  kind: 'purchase' | 'subscription';
   amount_micros: number;
   gross_micros: number;
   fee_micros: number;
   created_at: string;
 }
 
-/**
- * The latest purchase recorded with its gross amount and processing fee: a
- * top-up, or a Stripe-era monthly-plan payment on ledgers from before the
- * membership.
- * Membership credit (gross null) is a gift, not a purchase, and is skipped.
- */
+/** The latest top-up recorded with its gross amount and processing fee. */
 async function lastPurchase(env: AppEnv, accountId: string): Promise<PurchaseInfo | null> {
   const row = await env.DB.prepare(
-    `SELECT kind, amount_micros, gross_micros, fee_micros, created_at FROM credit_grants
-     WHERE account_id = ? AND kind IN ('purchase', 'subscription') AND gross_micros IS NOT NULL
+    `SELECT amount_micros, gross_micros, fee_micros, created_at FROM credit_grants
+     WHERE account_id = ? AND kind = 'purchase' AND gross_micros IS NOT NULL
      ORDER BY created_at DESC, id DESC LIMIT 1`,
   )
     .bind(accountId)
     .first<PurchaseRow>();
   if (!row) return null;
   return {
-    kind: row.kind,
     grossMicros: row.gross_micros,
     feeMicros: row.fee_micros,
     creditMicros: row.amount_micros,

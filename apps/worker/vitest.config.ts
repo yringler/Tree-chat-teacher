@@ -203,11 +203,9 @@ export default defineConfig({
             POLAR_CREDITS_PRODUCT_ID: '',
             POLAR_MEMBERSHIP_PRODUCT_ID: '',
             // No membership required by default (tests that need one pass ANNUAL_FEE_ENABLED: 'true' in
-            // an env override), so the other suites generate freely. The price and the included credit
-            // (none) are the defaults; tests of the included credit set MEMBERSHIP_CREDIT_CENTS.
+            // an env override), so the other suites generate freely. The price is the default.
             ANNUAL_FEE_ENABLED: 'false',
             MEMBERSHIP_PRICE_CENTS: '1000',
-            MEMBERSHIP_CREDIT_CENTS: '0',
             MEMBERSHIP_WAIVER_CODE: '',
             MARKUP_BPS: '1000',
             // The open pool, on. Pool tests isolate themselves with a unique POOL_ACCOUNT_ID per

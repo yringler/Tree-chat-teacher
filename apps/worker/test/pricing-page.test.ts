@@ -182,19 +182,12 @@ describe('/pricing', () => {
     expect(row(html, 'Free replies on the open pool')).toContain(perDay.repeat(3));
     expect(html).toContain('The limits are the same for everyone, whatever else they pay for');
     expect(html).not.toMatch(/members:|instead of|raises your pool limit|more free replies/);
-    // No credit is included at the default MEMBERSHIP_CREDIT_CENTS (0).
+    // The membership includes no credit.
     expect(html).not.toMatch(/credit included|a year included|comes with/);
     expect(row(html, 'Prepaid credit')).toMatch(/<td>Bought separately<\/td>$/);
     expect(html).toContain(
       '<li>Tangent earns money from memberships and credit, like any software business.</li>',
     );
-  });
-
-  it('still names credit included with the membership when MEMBERSHIP_CREDIT_CENTS is set', async () => {
-    const { html } = await pricing({ ...MEMBERSHIP, MEMBERSHIP_CREDIT_CENTS: '200' });
-    expect(html).toContain('<li>$2 of credit included each year');
-    expect(html).toContain('Each paid year comes with $2 of credit.');
-    expect(row(html, 'Prepaid credit')).toMatch(/<td>\$2 a year included<\/td>$/);
   });
 
   it('without credit for sale: no paid column unless there is a membership, and no credit fine print', async () => {

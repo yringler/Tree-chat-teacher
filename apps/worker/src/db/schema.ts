@@ -405,7 +405,7 @@ export const creditGrants = sqliteTable(
     id: text('id').primaryKey(),
     accountId: text('account_id').notNull(),
     kind: text('kind', {
-      enum: ['purchase', 'subscription', 'refund', 'adjustment'],
+      enum: ['purchase', 'refund', 'adjustment'],
     }).notNull(),
     /** Signed: refunds are negative. For purchases, the credit net of the processing fee (older pool purchases: of the margin). */
     amountMicros: integer('amount_micros').notNull(),

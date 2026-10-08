@@ -16,7 +16,7 @@ import {
 import type { GroundingPolicy } from '@tangent/core';
 import { Hono, type Context } from 'hono';
 import { groundingDailyCap, groundingPolicy } from '../billing/grounding.js';
-import { membershipCreditCents, membershipRequired } from '../billing/membership.js';
+import { membershipRequired } from '../billing/membership.js';
 import { appConfig, type PoolDailyCaps } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { cachedPoolStatus, poolModelInfo } from '../pool/status.js';
@@ -76,7 +76,7 @@ export interface PricingFacts {
     maxTopUpCents: number;
   } | null;
   /** The yearly membership, while it is required (`membershipRequired`): what own keys need. */
-  membership: { priceCents: number; includedCreditCents: number } | null;
+  membership: { priceCents: number } | null;
   /** The `GROUNDING` ceiling, or `off` when Learn's provider can't search (`LearnOffer.search`). */
   grounding: GroundingPolicy;
   /** A search costs about 1¢ (`LearnOffer.searchAboutOneCent`). */
@@ -117,10 +117,7 @@ export function pricingFacts(
         }
       : null,
     membership: membershipRequired(env)
-      ? {
-          priceCents: config.billing.membershipPriceCents,
-          includedCreditCents: membershipCreditCents(env),
-        }
+      ? { priceCents: config.billing.membershipPriceCents }
       : null,
     grounding: offer?.search ? groundingPolicy(env) : 'off',
     searchAboutOneCent: offer?.searchAboutOneCent ?? false,
@@ -252,12 +249,7 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, string>> {
       `Top up ${escapeHtml(formatCents(credit.minTopUpCents))} to ${escapeHtml(formatCents(credit.maxTopUpCents))} at a time. Tax is added at checkout. The payment processor’s fee (a percentage plus a fixed amount) comes out of the credit you receive, so larger top-ups lose a smaller share to it. Credit doesn’t expire while your account exists. It can’t be transferred, and it isn’t refundable, except where the law requires it or Polar’s terms for buyers allow it. Polar, our merchant of record, handles checkout, tax and receipts (<a href="/terms">terms</a>, section 7).${membership ? ' Buying and spending credit never needs a membership.' : ''}`;
   }
   if (membership) {
-    const included =
-      credit && membership.includedCreditCents > 0
-        ? ` Each paid year comes with ${escapeHtml(formatCents(membership.includedCreditCents))} of credit.`
-        : credit
-          ? ' Credit is separate: anyone can buy it, member or not.'
-          : '';
+    const included = credit ? ' Credit is separate: anyone can buy it, member or not.' : '';
     texts.membership = `${escapeHtml(formatCents(membership.priceCents))} a year plus tax. It renews every year until you cancel, and one membership covers your own keys in both Learn and power mode.${included} Cancel any time under <strong>Manage billing</strong>; your membership lasts until the end of the year you paid for.`;
     // A copy in Learn can only get replies without a membership on the pool or on credit.
     const learnOn =
@@ -463,7 +455,7 @@ ${searches ? `<li>${f.grounding === 'explicit' ? 'Web search to check any answer
 <li>Everything in Free</li>
 <li>Learn and power mode on your own API keys${notes.ref('own-key')}</li>
 <li>Nothing added to your AI provider’s bill</li>
-${credit && membership.includedCreditCents > 0 ? `<li>${escapeHtml(formatCents(membership.includedCreditCents))} of credit included each year${notes.ref('top-up')}</li>\n` : ''}</ul>
+</ul>
 <a class="btn" href="/learn/login">Sign in to join</a>
 </article>`
     : '';
@@ -572,10 +564,7 @@ ${credit && membership.includedCreditCents > 0 ? `<li>${escapeHtml(formatCents(m
       label: 'Prepaid credit',
       free: false,
       credit: topUp,
-      key:
-        membership && membership.includedCreditCents > 0
-          ? `${escapeHtml(formatCents(membership.includedCreditCents))} a year included`
-          : 'Bought separately',
+      key: 'Bought separately',
     });
   }
 

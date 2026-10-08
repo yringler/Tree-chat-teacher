@@ -815,7 +815,6 @@ describe('membership', () => {
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
-        includedCreditCents: 0,
       } satisfies MembershipInfo);
     }
     const u = await newUser(memberEnv());

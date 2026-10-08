@@ -19,11 +19,7 @@ import {
 } from './mocks/payment-events.js';
 import { fundPool, poolAccess } from './pool-helpers.js';
 
-/**
- * The test env with $2 of credit included per paid membership year: deployments include
- * none (MEMBERSHIP_CREDIT_CENTS 0, as vitest.config.ts has it), but the mechanism stays.
- */
-const env = { ...(rawEnv as unknown as AppEnv), MEMBERSHIP_CREDIT_CENTS: '200' } as AppEnv;
+const env = rawEnv as unknown as AppEnv;
 const noProvider = { provider: null };
 const apply = (e: Parameters<typeof applyPaymentEvent>[1]) => applyPaymentEvent(env, e, noProvider);
 const balance = async (accountId: string) => (await getBalance(env.DB, accountId)).balanceMicros;
@@ -81,7 +77,7 @@ describe('disputes', () => {
     await apply(payment);
     expect(await apply(disputed('dispute.opened', payment.paymentRef, 1000))).toBe('skipped');
     expect(await apply(disputed('dispute.won', payment.paymentRef, 1000))).toBe('skipped');
-    expect(await balance(`u_${userId}`)).toBe(2_000_000);
+    expect(await balance(`u_${userId}`)).toBe(0);
     warn.mockRestore();
   });
 });
@@ -179,7 +175,7 @@ describe('pollDisputes', () => {
   it('looks up and logs a dispute that will never be debited once, not on every poll', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const userId = await newUser();
-    // A membership payment (credit granted, left to the operator) and an order that granted nothing.
+    // A membership payment (left to the operator) and an order that granted nothing.
     const member = membershipPaid(userId);
     await apply(member);
     const other = { ...paid({ userId: null }), purpose: { kind: 'other' as const } };
@@ -192,7 +188,7 @@ describe('pollDisputes', () => {
     });
     const getPayment = vi.spyOn(provider, 'getPayment');
     expect(await pollDisputes(env, new Date(), provider)).toMatchObject({ applied: 0, failed: 0 });
-    expect(getPayment).toHaveBeenCalledTimes(1);
+    expect(getPayment).toHaveBeenCalledTimes(2);
     const notDebited = () =>
       warn.mock.calls.filter((c) => String(c[0]).includes('dispute_not_debited')).length;
     expect(notDebited()).toBe(2);
@@ -201,10 +197,10 @@ describe('pollDisputes', () => {
         applied: 0,
         failed: 0,
       });
-    expect(getPayment).toHaveBeenCalledTimes(1);
+    expect(getPayment).toHaveBeenCalledTimes(2);
     expect(notDebited()).toBe(2);
     warn.mockRestore();
-    expect(await balance(`u_${userId}`)).toBe(2_000_000);
+    expect(await balance(`u_${userId}`)).toBe(0);
   });
 
   it('does nothing without a polled dispute source', async () => {

@@ -210,10 +210,10 @@ describe('billing summary', () => {
     await insertUsage(env, { accountId: account.id, status: 'pending', holdMicros: 20_000 });
     // A subscription row doesn't matter while no membership is required.
     await insertSubscription(env, account.userId!, 'active');
-    // Membership credit (no gross amount) is a gift, not a purchase to show.
+    // An admin's credit (no gross amount) is not a purchase to show either.
     await grantCredit(env.DB, {
       accountId: account.id,
-      kind: 'subscription',
+      kind: 'adjustment',
       amountMicros: 2_000_000,
       grossMicros: null,
       providerRef: uniq('in'),
@@ -228,7 +228,6 @@ describe('billing summary', () => {
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
-        includedCreditCents: 0,
       },
       builtInCredit: true,
       topUpsEnabled: true,
@@ -239,7 +238,6 @@ describe('billing summary', () => {
       markupBps: 1000,
       openRouterFeeBps: 550,
       lastPurchase: {
-        kind: 'purchase',
         grossMicros: 10_670_000,
         feeMicros: 670_000,
         creditMicros: 10_000_000,
@@ -261,7 +259,7 @@ describe('billing summary', () => {
       markupBps: 1000,
       openRouterFeeBps: 550,
       lastPurchase: null,
-      membership: { required: false, includedCreditCents: 0 },
+      membership: { required: false },
     });
     const custom = await getBillingSummary({ ...env, OPENROUTER_FEE_BPS: '700' }, simpleAccount());
     expect(custom.openRouterFeeBps).toBe(700);

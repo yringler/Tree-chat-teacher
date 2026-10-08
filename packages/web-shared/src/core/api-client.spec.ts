@@ -38,7 +38,6 @@ const SUMMARY: BillingSummary = {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
-    includedCreditCents: 200,
   },
   builtInCredit: true,
   currency: 'usd',

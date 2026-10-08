@@ -8,11 +8,10 @@
 // The open pool is one more account in the same tables (pool/pool-bank.ts).
 
 /**
- * - `purchase`: credit bought (net of the processing fee); `subscription`:
- *   credit included with a membership payment; `refund`: a refund or dispute
- *   taking credit back; `adjustment`: an admin's (or a marker row).
+ * - `purchase`: credit bought (net of the processing fee); `refund`: a refund
+ *   or dispute taking credit back; `adjustment`: an admin's (or a marker row).
  */
-export type CreditGrantKind = 'purchase' | 'subscription' | 'refund' | 'adjustment';
+export type CreditGrantKind = 'purchase' | 'refund' | 'adjustment';
 
 export interface CreditGrantInput {
   accountId: string;
@@ -30,8 +29,8 @@ export interface CreditGrantInput {
   userId?: string | null;
   /**
    * Idempotency key: a payment, refund or dispute ref such as
-   * `polar:order:<id>`, or a ref the domain derives from one (`…:membership-refund`,
-   * `…:reinstated`, `…:lost`, `…:ignored`); `admin:<key>` for an admin's
+   * `polar:order:<id>`, or a ref the domain derives from one (`…:reinstated`,
+   * `…:lost`, `…:ignored`); `admin:<key>` for an admin's
    * adjustment, `dev:<key>` for a simulated purchase (provider refs never start
    * with those); null for SQL adjustments.
    */

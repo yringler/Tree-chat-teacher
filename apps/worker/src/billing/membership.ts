@@ -16,7 +16,6 @@ import { DomainError, MembershipRequiredError } from '@tangent/core';
 import type { CheckoutResponse, MembershipInfo, SubscriptionStatus } from '@tangent/shared';
 import type { AccountContext, AppEnv } from '../env.js';
 import { keySecret } from '../byok/keys.js';
-import { builtInAvailable } from '../services.js';
 import { appConfig } from '../config.js';
 import { MEMBERSHIP_KIND } from './payments/apply.js';
 import { buyerFor, rememberCustomer } from './payments/customers.js';
@@ -54,16 +53,6 @@ function membershipPriceCents(env: AppEnv): number {
   return appConfig(env).billing.membershipPriceCents;
 }
 
-/**
- * Credit included with each paid membership year (first payment or renewal), in cents: `MEMBERSHIP_CREDIT_CENTS`
- * (default 0: the membership includes no credit), or 0 when the server doesn't offer
- * the built-in provider (nothing to spend it on, so nothing is promised or granted).
- */
-export function membershipCreditCents(env: AppEnv): number {
-  if (!builtInAvailable(env)) return 0;
-  return appConfig(env).billing.membershipCreditCentsRaw;
-}
-
 interface MembershipRow {
   waived: number;
   status: SubscriptionStatus | null;
@@ -85,7 +74,6 @@ export async function membershipFor(env: AppEnv, account: AccountContext): Promi
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: membershipPriceCents(env),
-    includedCreditCents: membershipCreditCents(env),
   };
   if (!account.userId || !membershipRequired(env)) return base;
   const active = ACTIVE_STATUSES.map((s) => `'${s}'`).join(', ');

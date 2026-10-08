@@ -18,11 +18,7 @@ import {
 } from './mocks/payment-events.js';
 import { fundPool } from './pool-helpers.js';
 
-/**
- * The test env with $2 of credit included per paid membership year: deployments include
- * none (MEMBERSHIP_CREDIT_CENTS 0, as vitest.config.ts has it), but the mechanism stays.
- */
-const env = { ...(rawEnv as unknown as AppEnv), MEMBERSHIP_CREDIT_CENTS: '200' } as AppEnv;
+const env = rawEnv as unknown as AppEnv;
 const noProvider = { provider: null };
 const apply = (e: Parameters<typeof applyPaymentEvent>[1]) => applyPaymentEvent(env, e, noProvider);
 const balance = async (accountId: string) => (await getBalance(env.DB, accountId)).balanceMicros;
@@ -85,22 +81,6 @@ describe('refund.succeeded: legacy pool purchases', () => {
   });
 });
 
-describe('refund.succeeded: the membership', () => {
-  it('takes the included credit back once, however many refunds the payment gets', async () => {
-    const userId = await newUser();
-    const payment = membershipPaid(userId);
-    await apply(payment);
-    expect(await apply(refunded(payment.paymentRef, 300))).toBe('applied');
-    expect(await apply(refunded(payment.paymentRef, 700))).toBe('duplicate');
-    expect(await balance(`u_${userId}`)).toBe(0);
-    expect((await grantDetailsFor(env, `u_${userId}`))[1]).toMatchObject({
-      kind: 'refund',
-      amount_micros: -2_000_000,
-      provider_ref: `${payment.paymentRef}:membership-refund`,
-    });
-  });
-});
-
 describe('refund.succeeded before (or without) its payment', () => {
   it('retries while the payment is a credits purchase not credited yet', async () => {
     const userId = await newUser();
@@ -139,36 +119,26 @@ describe('refund.succeeded before (or without) its payment', () => {
     expect(await balance(`u_${userId}`)).toBe(0);
   });
 
-  it('retries a membership refund until its payment is applied, then takes back its credit', async () => {
-    const userId = await newUser();
-    const payment = membershipPaid(userId, { netCents: 1000 });
-    const provider = createFakeProvider({ payments: [factsOf(payment)] });
-    const refund = refunded(payment.paymentRef, 1000);
-    await expect(applyPaymentEvent(env, refund, { provider })).rejects.toBeInstanceOf(
-      RetryLaterError,
-    );
-    await applyPaymentEvent(env, payment, { provider });
-    expect(await applyPaymentEvent(env, refund, { provider })).toBe('applied');
-    expect(await balance(`u_${userId}`)).toBe(0);
-  });
-
-  it('with no included credit, a membership payment grants nothing: its refund never waits', async () => {
-    const noCredit = { ...env, MEMBERSHIP_CREDIT_CENTS: '0' } as AppEnv;
+  it('never waits for a membership payment: it grants nothing', async () => {
     const userId = await newUser();
     const payment = membershipPaid(userId, { netCents: 1000 });
     const quiet = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    expect(
-      await applyPaymentEvent(noCredit, refunded(payment.paymentRef, 1000), {
-        provider: createFakeProvider({ payments: [factsOf(payment)] }),
-      }),
-    ).toBe('skipped');
+    const provider = createFakeProvider({ payments: [factsOf(payment)] });
+    expect(await applyPaymentEvent(env, refunded(payment.paymentRef, 1000), { provider })).toBe(
+      'skipped',
+    );
+    expect(await applyPaymentEvent(env, payment, { provider })).toBe('skipped');
+    expect(await applyPaymentEvent(env, refunded(payment.paymentRef, 1000), { provider })).toBe(
+      'skipped',
+    );
     quiet.mockRestore();
+    expect(await balance(`u_${userId}`)).toBe(0);
   });
 
   it('does nothing for a payment that granted nothing, or one the provider doesn’t know', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const userId = await newUser();
-    // A membership payment naming no user: no included credit to wait for.
+    // A membership payment naming no user: nothing to wait for.
     const free = membershipPaid(null);
     const provider = createFakeProvider({ payments: [factsOf(free)] });
     expect(await applyPaymentEvent(env, refunded(free.paymentRef, 1000), { provider })).toBe(

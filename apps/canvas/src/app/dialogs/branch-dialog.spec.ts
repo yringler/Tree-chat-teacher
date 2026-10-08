@@ -48,7 +48,6 @@ function membership(status: MembershipInfo['status']): MembershipInfo {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
-    includedCreditCents: 0,
   };
 }
 

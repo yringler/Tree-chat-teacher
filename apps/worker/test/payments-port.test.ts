@@ -11,7 +11,7 @@ import {
   type ProviderRef,
   type TopUpCheckoutInput,
 } from '../src/billing/payments/index.js';
-import { membershipRefundRef, providerRef, reinstatedRef } from '../src/billing/payments/refs.js';
+import { providerRef, reinstatedRef } from '../src/billing/payments/refs.js';
 import {
   createFakeProvider,
   decodeFakeUrl,
@@ -25,7 +25,6 @@ describe('payment refs', () => {
   it('namespaces provider object ids and derives the secondary keys', () => {
     const order = providerRef('polar', 'order', '6c1e');
     expect(order).toBe('polar:order:6c1e');
-    expect(membershipRefundRef(order)).toBe('polar:order:6c1e:membership-refund');
     const dispute = providerRef('fake', 'dispute', 'd1');
     expect(reinstatedRef(dispute)).toBe('fake:dispute:d1:reinstated');
   });

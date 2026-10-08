@@ -17,7 +17,6 @@ function summary(overrides: Partial<BillingSummary> = {}): BillingSummary {
       periodEnd: null,
       cancelAtPeriodEnd: false,
       priceCents: 1000,
-      includedCreditCents: 200,
     },
     builtInCredit: true,
     currency: 'usd',
@@ -145,7 +144,7 @@ describe('BillingController: ?checkout=success', () => {
     expect(clearCheckoutParam).toHaveBeenCalledTimes(1);
   });
 
-  it('stops when the membership becomes active, which wins over the included credit', async () => {
+  it('stops when the membership becomes active, which wins over a balance change', async () => {
     const before = summary();
     const after = summary({
       balanceMicros: 3_000_000,

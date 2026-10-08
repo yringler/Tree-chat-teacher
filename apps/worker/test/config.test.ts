@@ -3,7 +3,6 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error -- `?raw` is a Vite import; the worker tsconfig has no vite/client types.
 import wranglerText from '../wrangler.jsonc?raw';
-import { membershipCreditCents } from '../src/billing/membership.js';
 import { appConfig, boolVar, DEFAULT_MODEL_PRICES, intVar, positiveInt } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import {
@@ -86,8 +85,6 @@ describe('appConfig', () => {
       markupBps: 1000,
       openRouterFeeBps: 550,
       membershipPriceCents: 1000,
-      // The membership includes no credit by default.
-      membershipCreditCentsRaw: 0,
     });
   });
 
@@ -202,13 +199,9 @@ describe('appConfig', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('keeps the old accessors: SIMPLE_MAX_INPUT_TOKENS is positive, membership credit needs the built-in provider', () => {
+  it('keeps the old accessors: SIMPLE_MAX_INPUT_TOKENS is positive', () => {
     expect(simpleMaxInputTokens({ ...env, SIMPLE_MAX_INPUT_TOKENS: '0' })).toBe(60_000);
     expect(simpleMaxInputTokens({ ...env, SIMPLE_MAX_INPUT_TOKENS: '1234' })).toBe(1234);
-    expect(membershipCreditCents({ ...env, MEMBERSHIP_CREDIT_CENTS: '300' })).toBe(300);
-    expect(
-      membershipCreditCents({ ...env, PAYMENT_PROVIDER: 'polar', MEMBERSHIP_CREDIT_CENTS: '300' }),
-    ).toBe(0);
   });
 });
 

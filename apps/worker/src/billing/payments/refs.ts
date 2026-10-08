@@ -16,8 +16,3 @@ export function providerRef(provider: ProviderId, object: string, rawId: string)
 export function reinstatedRef(disputeRef: ProviderRef): ProviderRef {
   return `${disputeRef}:reinstated` as ProviderRef;
 }
-
-/** The membership's included credit taken back once, however many refunds a payment gets. */
-export function membershipRefundRef(paymentRef: ProviderRef): ProviderRef {
-  return `${paymentRef}:membership-refund` as ProviderRef;
-}

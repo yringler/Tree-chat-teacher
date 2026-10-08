@@ -10,18 +10,16 @@
 //   net of the processing fee), once per payment ref. Non-USD payments,
 //   unknown targets (a legacy pool purchase) and any ledger but a personal one
 //   are logged and never credited; an unknown fee throws RetryLaterError.
-// - payment.succeeded, membership (first year or renewal) → the included
-//   credit (MEMBERSHIP_CREDIT_CENTS), a fixed gift with no gross or fee, once
-//   per payment.
+// - payment.succeeded, membership → nothing on the ledger: the membership is
+//   its subscription snapshot (membership.changed below).
 // - refund.succeeded → a personal purchase: − the refunded pre-tax amount in
 //   full (the processor keeps its fee, so the refund passes it on); a legacy
 //   pool purchase (from before the pool became revenue-funded): − the share
-//   of what it credited, clamped by PoolBank.debit; a membership payment: its
-//   included credit, once per payment. A refund (or
-//   dispute) of a payment not applied yet throws RetryLaterError only while
-//   that payment will grant something once applied (`grantsOnPayment`); a
-//   refund of one that never grants is logged (`refund_not_debited`) and
-//   acknowledged, so it can't fail every delivery.
+//   of what it credited, clamped by PoolBank.debit. A refund (or dispute) of
+//   a payment not applied yet throws RetryLaterError only while that payment
+//   will grant something once applied (`grantsOnPayment`); a refund of one
+//   that never grants (a membership payment) is logged (`refund_not_debited`)
+//   and acknowledged, so it can't fail every delivery.
 // - dispute.opened / dispute.lost → debited like a refund of the disputed
 //   amount (membership disputes are left to the operator); lost also
 //   suspends the buyer's pool access, once. dispute.won → what the dispute
@@ -38,7 +36,6 @@ import { identitySuspensionStatement } from '../../pool/identity.js';
 import { poolBank } from '../../pool/ids.js';
 import { creditEquivalentMicros } from '../../pool/pricing.js';
 import { grantByRef, grantCredit, grantTowardCap, hasGrant, type GrantRow } from '../ledger.js';
-import { membershipCreditCents } from '../membership.js';
 import { centsToMicros } from '../pricing.js';
 import { fulfilPurchase } from '../purchases.js';
 import { rememberCustomer } from './customers.js';
@@ -53,10 +50,8 @@ import type {
   ProviderRef,
   RefundSucceeded,
 } from './port.js';
-import { membershipRefundRef, reinstatedRef } from './refs.js';
+import { reinstatedRef } from './refs.js';
 
-/** The note on the credit a membership payment includes (and that a refund of it takes back). */
-export const MEMBERSHIP_CREDIT_NOTE = 'Included with membership';
 /** The `billing_subscriptions.kind` (and checkout metadata `kind`) of the yearly membership. */
 export const MEMBERSHIP_KIND = 'membership';
 
@@ -132,7 +127,7 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
     log('payment_not_credited', { reason: 'other', paymentRef: e.paymentRef });
     return 'skipped';
   }
-  if (purpose.kind === 'membership') return membershipPayment(env, e);
+  if (purpose.kind === 'membership') return 'skipped';
 
   if (e.currency !== 'usd') {
     log('payment_not_credited', {
@@ -168,49 +163,15 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
 }
 
 /**
- * A paid membership year (the first or a renewal) includes
- * MEMBERSHIP_CREDIT_CENTS of credit: a fixed gift, not a purchase, so no
- * gross amount or fee. Nothing when the built-in provider isn't offered (the
- * amount is then 0) or nothing was paid (a trial or a 100% discount).
- */
-async function membershipPayment(env: AppEnv, e: PaymentSucceeded): Promise<ApplyResult> {
-  if (!(e.netCents > 0)) return 'skipped';
-  const cents = membershipCreditCents(env);
-  let credited: ApplyResult = 'skipped';
-  if (cents > 0) {
-    if (e.userId) {
-      credited = written(
-        await grantCredit(env.DB, {
-          accountId: billingAccountIdFor(e.userId),
-          kind: 'subscription',
-          amountMicros: centsToMicros(cents),
-          grossMicros: null,
-          feeMicros: 0,
-          userId: e.userId,
-          providerRef: e.paymentRef,
-          note: MEMBERSHIP_CREDIT_NOTE,
-        }),
-      );
-    } else {
-      log('payment_not_credited', { reason: 'no_user', paymentRef: e.paymentRef });
-    }
-  }
-  return credited;
-}
-
-/**
  * True when applying this payment writes a grant (what `paidGrant` reads): a
  * credits payment `paymentSucceeded` credits on its own ref (every skip
  * there, `currency`, `unknown_target`, nothing paid and `no_account`, is
- * final), or, with `membership`, a membership payment whose included credit
- * `membershipPayment` grants (as configured now). A payment that grants
- * nothing is never waited for, so its refund can't be retried forever.
+ * final). A payment that grants nothing is never waited for, so its refund
+ * can't be retried forever.
  */
-function grantsOnPayment(env: AppEnv, facts: PaymentFacts, membership: boolean): boolean {
+function grantsOnPayment(facts: PaymentFacts): boolean {
   if (!(facts.netCents > 0)) return false;
   const purpose = facts.purpose;
-  if (purpose.kind === 'membership')
-    return membership && !!facts.userId && membershipCreditCents(env) > 0;
   if (purpose.kind !== 'credits' || purpose.target === 'unknown' || facts.currency !== 'usd')
     return false;
   return creditsAccountOf(purpose, facts.userId) !== null;
@@ -218,21 +179,19 @@ function grantsOnPayment(env: AppEnv, facts: PaymentFacts, membership: boolean):
 
 /**
  * The grant a refund or dispute names. With none, asks the provider: a
- * payment that will grant once applied (`grantsOnPayment`; membership
- * payments only for a refund) means the event came first, so retry; a
- * payment that never grants anything (or one the provider doesn't know)
- * means there is nothing to take back.
+ * payment that will grant once applied (`grantsOnPayment`) means the event
+ * came first, so retry; a payment that never grants anything (or one the
+ * provider doesn't know) means there is nothing to take back.
  */
 async function paidGrant(
   env: AppEnv,
   paymentRef: ProviderRef,
   deps: ApplyDeps,
-  o: { membership: boolean },
 ): Promise<GrantRow | null> {
   const grant = await grantByRef(env.DB, paymentRef);
   if (grant) return grant;
   const facts = deps.provider ? await deps.provider.getPayment(paymentRef) : null;
-  if (facts && grantsOnPayment(env, facts, o.membership))
+  if (facts && grantsOnPayment(facts))
     throw new RetryLaterError(`${paymentRef} is not applied yet`);
   return null;
 }
@@ -257,24 +216,8 @@ async function refundSucceeded(
 }
 
 async function refundGrant(env: AppEnv, e: RefundSucceeded, deps: ApplyDeps): Promise<ApplyResult> {
-  const grant = await paidGrant(env, e.paymentRef, deps, { membership: true });
-  if (!grant) return 'skipped';
-  if (grant.kind === 'subscription') {
-    // The membership's included credit is taken back once, whatever the refunded amount
-    // (a fixed gift, not a share of the price), so later partial refunds add nothing.
-    if (grant.amount_micros <= 0) return 'skipped';
-    return written(
-      await grantCredit(env.DB, {
-        accountId: grant.account_id,
-        kind: 'refund',
-        amountMicros: -grant.amount_micros,
-        userId: grant.user_id,
-        providerRef: membershipRefundRef(e.paymentRef),
-        note: `Refund of membership payment ${e.paymentRef}`,
-      }),
-    );
-  }
-  if (grant.kind !== 'purchase') return 'skipped';
+  const grant = await paidGrant(env, e.paymentRef, deps);
+  if (!grant || grant.kind !== 'purchase') return 'skipped';
   return debitPurchase(env, grant, {
     paymentRef: e.paymentRef,
     ref: e.refundRef,
@@ -377,7 +320,7 @@ async function disputeDebited(env: AppEnv, e: DisputeEvent, deps: ApplyDeps): Pr
   }
   const ignoredRef = `${e.disputeRef}:ignored`;
   if (await hasGrant(env.DB, ignoredRef)) return 'duplicate';
-  const grant = await paidGrant(env, e.paymentRef, deps, { membership: false });
+  const grant = await paidGrant(env, e.paymentRef, deps);
   if (!grant || grant.kind !== 'purchase') {
     // A membership payment (or one that granted nothing): left to the operator. Final
     // (`paidGrant` retries a payment that will grant), so recorded once, logged once.

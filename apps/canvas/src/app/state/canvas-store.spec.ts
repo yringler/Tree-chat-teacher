@@ -120,7 +120,6 @@ function fakeApi() {
             periodEnd: null,
             cancelAtPeriodEnd: false,
             priceCents: 1000,
-            includedCreditCents: 0,
           },
           membershipNeededFor: ['own-key'],
         }) as MeResponse,
@@ -360,7 +359,6 @@ describe('CanvasStore', () => {
           periodEnd: null,
           cancelAtPeriodEnd: false,
           priceCents: 1000,
-          includedCreditCents: 0,
         },
       } as MeResponse);
       expect(s.store.membershipBlocked()).toBe(false);
@@ -389,7 +387,6 @@ describe('CanvasStore', () => {
       periodEnd: null,
       cancelAtPeriodEnd: false,
       priceCents: 1000,
-      includedCreditCents: 0,
     } as const;
     const withCredit = setup();
     await withCredit.store.init({ builtInCredit: true, membership: inactive } as MeResponse);
@@ -494,7 +491,6 @@ describe('CanvasStore read-only lanes without a membership', () => {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
-    includedCreditCents: 0,
   } as const;
   const credit: ProviderInfo = {
     id: 'openrouter',
@@ -691,7 +687,6 @@ describe('CanvasStore the default route of a new conversation', () => {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
-    includedCreditCents: 0,
   } as const;
   const own = (id: string, available = false): ProviderInfo => ({
     id,

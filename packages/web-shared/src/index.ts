@@ -145,7 +145,6 @@ export {
   creditCanPay,
   creditCarriesOn,
   creditFeeText,
-  includedCreditText,
   membershipBlocks,
   membershipPriceText,
   membershipStatusText,

@@ -2,22 +2,14 @@
 // on neutral events: no provider wire format, so a provider switch leaves these as they are.
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  applyPaymentEvent,
-  MEMBERSHIP_CREDIT_NOTE,
-  RetryLaterError,
-} from '../src/billing/payments/apply.js';
+import { applyPaymentEvent, RetryLaterError } from '../src/billing/payments/apply.js';
 import { customerRefFor } from '../src/billing/payments/customers.js';
 import { getBalance } from '../src/billing/ledger.js';
 import type { AppEnv } from '../src/env.js';
 import { grantDetailsFor, insertUser, uniq } from './mocks/billing-helpers.js';
 import { membership, membershipPaid, paid } from './mocks/payment-events.js';
 
-/**
- * The test env with $2 of credit included per paid membership year: deployments include
- * none (MEMBERSHIP_CREDIT_CENTS 0, as vitest.config.ts has it), but the mechanism stays.
- */
-const env = { ...(rawEnv as unknown as AppEnv), MEMBERSHIP_CREDIT_CENTS: '200' } as AppEnv;
+const env = rawEnv as unknown as AppEnv;
 const noProvider = { provider: null };
 const apply = (e: Parameters<typeof applyPaymentEvent>[1], en: AppEnv = env) =>
   applyPaymentEvent(en, e, noProvider);
@@ -105,37 +97,12 @@ describe('payment.succeeded: credit purchases', () => {
 });
 
 describe('payment.succeeded: the membership', () => {
-  it('grants the included credit once per paid year, first and renewal', async () => {
+  it('writes nothing to the ledger, paid or free, first year or renewal', async () => {
     const userId = await newUser();
-    const first = membershipPaid(userId);
-    const renewal = membershipPaid(userId, { cycle: 'renewal' });
-    expect(await apply(first)).toBe('applied');
-    expect(await apply(first)).toBe('duplicate');
-    expect(await apply(renewal)).toBe('applied');
-    expect(await grantDetailsFor(env, `u_${userId}`)).toEqual([
-      expect.objectContaining({
-        kind: 'subscription',
-        amount_micros: 2_000_000,
-        gross_micros: null,
-      }),
-      expect.objectContaining({
-        kind: 'subscription',
-        amount_micros: 2_000_000,
-        gross_micros: null,
-      }),
-    ]);
-    const { results } = await env.DB.prepare('SELECT note FROM credit_grants WHERE account_id = ?')
-      .bind(`u_${userId}`)
-      .all<{ note: string }>();
-    expect(results.every((r) => r.note === MEMBERSHIP_CREDIT_NOTE)).toBe(true);
-  });
-
-  it('grants nothing for a free year, or when no credit is included', async () => {
-    const userId = await newUser();
+    expect(await apply(membershipPaid(userId))).toBe('skipped');
+    expect(await apply(membershipPaid(userId, { cycle: 'renewal' }))).toBe('skipped');
     expect(await apply(membershipPaid(userId, { netCents: 0 }))).toBe('skipped');
-    expect(
-      await apply(membershipPaid(userId), { ...env, MEMBERSHIP_CREDIT_CENTS: '0' } as AppEnv),
-    ).toBe('skipped');
+    expect(await grantDetailsFor(env, `u_${userId}`)).toEqual([]);
     expect(await balance(`u_${userId}`)).toBe(0);
   });
 });
