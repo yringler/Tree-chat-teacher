@@ -210,6 +210,7 @@ export function assembleContext(input: AssembleInput): ContextPlan {
       droppedNodeIds: unique(dropped.flatMap((s) => s.sourceNodeIds)),
       tokensBefore: budgeted.truncation.tokensBefore,
       tokensAfter: budgeted.truncation.tokensAfter,
+      compactionFailed: budgeted.truncation.compactionFailed,
     };
   }
 
@@ -646,7 +647,12 @@ function branchSummary(
 interface BudgetResult {
   segments: Draft[];
   compaction: CompactionRecord | null;
-  truncation: { dropped: Draft[]; tokensBefore: number; tokensAfter: number } | null;
+  truncation: {
+    dropped: Draft[];
+    tokensBefore: number;
+    tokensAfter: number;
+    compactionFailed: boolean;
+  } | null;
 }
 
 function sumTokens(segments: readonly Draft[]): number {
@@ -685,6 +691,7 @@ function applyBudget(
 
   let segments = input;
   let compaction: CompactionRecord | null = null;
+  let compactionFailed = false;
 
   // Candidates: non-system segments before the protected tail (the last
   // `minTail` message segments and the target).
@@ -746,9 +753,11 @@ function applyBudget(
       },
       prefix,
     );
-    // A failed summary leaves the prefix in place: dropping all of it would
-    // lose more than the truncation below, which drops only what must go.
-    if (summary.status !== 'failed') {
+    // A summary that failed, or never can be made, leaves the prefix in
+    // place: dropping all of it would lose more than the truncation below,
+    // which drops only what must go.
+    compactionFailed = unresolvable(ctx, summary);
+    if (!compactionFailed) {
       const inPrefix = new Set<Draft>(prefix);
       const next: Draft[] = [];
       let placed = false;
@@ -785,8 +794,22 @@ function applyBudget(
   return {
     segments: segments.filter((s) => !dropped.has(s)),
     compaction,
-    truncation: { dropped: [...dropped], tokensBefore: beforeTruncation, tokensAfter: total },
+    truncation: {
+      dropped: [...dropped],
+      tokensBefore: beforeTruncation,
+      tokensAfter: total,
+      compactionFailed,
+    },
   };
+}
+
+/**
+ * Whether `summary` can't be made in this plan: it failed, or its transcript
+ * holds a summary that can't (a failed one, however deeply nested).
+ */
+function unresolvable(ctx: Ctx, summary: DraftSummary): boolean {
+  if (summary.status === 'failed') return true;
+  return (ctx.blockers.get(summary) ?? []).some((inner) => unresolvable(ctx, inner));
 }
 
 function unique(ids: readonly string[]): string[] {

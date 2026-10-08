@@ -167,6 +167,14 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
 };
 
 export { DEFAULT_TREE_TITLE, TRUNK_TITLE };
+
+/**
+ * The most summaries one send generates. Each is a paid call the reply waits
+ * on, made one after another; 16 covers a chain nested deeper than anyone
+ * branches by hand (fifteen summary-mode levels and a compaction), and
+ * bounds an imported chain of hundreds to under a minute of waiting.
+ */
+const MAX_SUMMARY_CALLS = 16;
 const TITLE_TIMEOUT_MS = 15_000;
 const INTERRUPTED = { status: 'error', error: 'Interrupted before the reply finished' } as const;
 
@@ -802,13 +810,15 @@ export class ChatService {
         });
       } catch (err) {
         exactInputTokens = null;
-        this.log('count_tokens_failed', {
-          treeId: inputs.tree.id,
-          branchId: inputs.branch.id,
-          providerId: inputs.provider.id,
-          model,
-          error: errorText(err),
-        });
+        // A count the caller cancelled didn't fail.
+        if (!options.signal?.aborted)
+          this.log('count_tokens_failed', {
+            treeId: inputs.tree.id,
+            branchId: inputs.branch.id,
+            providerId: inputs.provider.id,
+            model,
+            error: errorText(err),
+          });
       }
     }
     return {
@@ -964,8 +974,10 @@ export class ChatService {
    * compaction can hold any of them), so they resolve inner-first, a level
    * per round: a round that only found cached summaries is free (each finds
    * one it hadn't, so there are no more of them than cached summaries), and the
-   * rounds that generate are bounded by the levels there can be, one per
-   * branch of the chain and one compaction.
+   * rounds that generate are bounded by the levels there can be: one per
+   * branch below the trunk, and one compaction. One resolve makes at most
+   * MAX_SUMMARY_CALLS summary calls and goes without the summaries still
+   * missing; what it made is cached, so the next one goes on from there.
    * Yields human-readable status messages; returns the final plan.
    */
   private async *resolvePlan(
@@ -1001,7 +1013,8 @@ export class ChatService {
       });
 
     let current = plan();
-    const maxGeneratingRounds = inputs.chain.length + 1;
+    const maxGeneratingRounds = inputs.chain.length;
+    let calls = 0;
     let generatingRounds = 0;
     for (;;) {
       // 1. Cache lookups for every pending summary we haven't looked up yet.
@@ -1040,6 +1053,8 @@ export class ChatService {
       for (const request of current.pendingSummaries) {
         const k = summaryKeyString(request.key);
         if (summaries.has(k) || failed.has(k)) continue;
+        if (calls === MAX_SUMMARY_CALLS) return plan();
+        calls++;
         yield request.purpose === 'branch'
           ? 'Summarizing the parent conversation…'
           : 'Compacting older messages to fit the context window…';
@@ -1093,14 +1108,17 @@ export class ChatService {
       signal ?? new AbortController().signal,
       { purpose: 'summary', ...target, nodeId: null },
       this.deps.settings.summaryEffort,
-      (error) =>
+      (error) => {
+        // A summary cut short by a cancelled send didn't fail.
+        if (signal?.aborted) return;
         this.log('summary_failed', {
           ...target,
           providerId: provider.id,
           model,
           code: error.code,
           error: error.message,
-        }),
+        });
+      },
     );
     return text?.trim() ? text.trim() : null;
   }
@@ -2092,9 +2110,15 @@ async function collectText(
 
 const SUMMARY_MISSING_STATUS = 'A summary could not be generated; sending without it.';
 
-/** Whether a resolved plan leaves out a summary (it failed, or is still pending). */
+/**
+ * Whether a resolved plan leaves out a summary: one failed or is still
+ * pending, or the compaction failed and the oldest messages were dropped.
+ */
 function missesSummary(plan: ContextPlan): boolean {
-  return plan.segments.some((s) => s.kind === 'summary' && s.status !== 'ready');
+  return (
+    plan.truncation?.compactionFailed === true ||
+    plan.segments.some((s) => s.kind === 'summary' && s.status !== 'ready')
+  );
 }
 
 /** For providers without a system prompt: fold it into the first user message. */
