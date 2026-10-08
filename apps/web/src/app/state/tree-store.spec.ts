@@ -593,6 +593,21 @@ describe('TreeStore read-only power without a membership', () => {
       );
     });
 
+    it('sends the input limit and the over-limit choice set in Settings', async () => {
+      const s = await openNoKey();
+      s.settings.update({ maxInputTokens: 60_000, inputOverflow: 'truncate' });
+      try {
+        await s.store.send('trunk', 'Why primes?');
+        expect(s.sendMessage).toHaveBeenLastCalledWith(
+          'trunk',
+          { content: 'Why primes?', maxInputTokens: 60_000, inputOverflow: 'truncate' },
+          expect.any(AbortSignal),
+        );
+      } finally {
+        s.settings.update({ maxInputTokens: null, inputOverflow: 'compact' });
+      }
+    });
+
     it('closing the dialog sends nothing and leaves the text for the composer', async () => {
       const s = await openNoKey();
       await s.store.send('trunk', 'Why primes?');

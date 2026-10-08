@@ -63,7 +63,7 @@ import {
   type LearnCopyWay,
   type StreamOutcome,
 } from '@tangent/web-shared';
-import { SettingsStore } from './settings-store';
+import { generationLimits, SettingsStore } from './settings-store';
 import { UiStore } from './ui-store';
 
 /** Live state of a generation, kept apart from `detail` so deltas don't re-index the tree. */
@@ -974,10 +974,9 @@ export class TreeStore {
 
   // Messages and streams
 
-  /** The reply length the user set (Settings), else nothing: the server's Auto. */
-  private outputCap(): { maxOutputTokens?: number } {
-    const tokens = this.appSettings.settings().maxOutputTokens;
-    return tokens === null ? {} : { maxOutputTokens: tokens };
+  /** The reply length and input limit the user set (Settings), else nothing: the server's defaults. */
+  private sendLimits(): ReturnType<typeof generationLimits> {
+    return generationLimits(this.appSettings.settings());
   }
 
   async send(
@@ -996,7 +995,7 @@ export class TreeStore {
       const outcome = await runStream(
         {
           open: (signal) =>
-            this.api.sendMessage(branchId, { content, ...options, ...this.outputCap() }, signal),
+            this.api.sendMessage(branchId, { content, ...options, ...this.sendLimits() }, signal),
           reconnect: (id, signal) => this.api.streamNode(id, signal),
         },
         (event) => {

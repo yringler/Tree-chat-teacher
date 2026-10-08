@@ -8,6 +8,7 @@ import {
   MIN_TOP_UP_CENTS,
   POOL_MOTTO,
   poolFundingText,
+  roughWords,
 } from '@tangent/shared';
 import type { GroundingPolicy } from '@tangent/core';
 import { Hono, type Context } from 'hono';
@@ -25,7 +26,7 @@ import {
   simpleProviderConfig,
   type LearnOffer,
 } from '../simple-mode.js';
-import { joinList, LANDING_STYLE, MARK, poolStepsHtml, roughWords, styleCsp } from './landing.js';
+import { joinList, LANDING_STYLE, MARK, poolStepsHtml, styleCsp } from './landing.js';
 import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
 
 /**

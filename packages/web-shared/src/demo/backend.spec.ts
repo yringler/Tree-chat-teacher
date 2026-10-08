@@ -541,6 +541,30 @@ describe('power demo backend', () => {
     });
   });
 
+  it('plans the Context preview with the input limit, and reports the input budget', async () => {
+    const { api } = setup({ mode: 'power' });
+    const [lesson] = await api.listTrees();
+    const branchId = (await api.getTree(lesson!.id)).tree.trunkBranchId;
+    const budget = await api.inputBudget(branchId);
+    // The demo caps input at 60,000 tokens in both modes.
+    expect(budget).toMatchObject({ funding: 'own-key', serverMaxInputTokens: 60_000 });
+    expect(budget.price?.inputUsdPerMTok).toBeGreaterThan(0);
+    const plain = await api.getContext(branchId, null, false);
+    expect(plain.plan.budget.maxInputTokens).toBeGreaterThan(1000);
+    const limited = await api.getContext(branchId, null, false, {
+      maxInputTokens: 1000,
+      inputOverflow: 'truncate',
+    });
+    expect(limited.plan.budget.maxInputTokens).toBe(1000);
+    expect(limited.plan.compaction).toBeNull();
+    // Learn ignores power's limits.
+    const learn = setup();
+    const [learnLesson] = await learn.api.listTrees();
+    const learnBranch = (await learn.api.getTree(learnLesson!.id)).tree.trunkBranchId;
+    const ignored = await learn.api.getContext(learnBranch, null, false, { maxInputTokens: 1000 });
+    expect(ignored.plan.budget.maxInputTokens).not.toBe(1000);
+  });
+
   it('backs up a conversation and imports it as a copy', async () => {
     const { api, backend } = setup({ mode: 'power' });
     const [lesson] = await api.listTrees();

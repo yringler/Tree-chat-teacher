@@ -7,6 +7,7 @@ import {
   poolFundingText,
   poolImpactWeekText,
   type PoolImpactResponse,
+  roughWords,
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import { membershipRequired } from '../billing/membership.js';
@@ -21,7 +22,7 @@ import { weekStart } from '../pool/status.js';
 import { creditSold } from '../services.js';
 import { POOL_MODEL_LABEL, simpleProviderConfig } from '../simple-mode.js';
 import { renderImpactBlock } from './impact-block.js';
-import { joinList, roughWords } from './landing.js';
+import { joinList } from './landing.js';
 import { legalInfo, type LegalInfo } from './legal-info.js';
 import { legalResponse, page } from './legal.js';
 

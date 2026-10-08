@@ -204,11 +204,6 @@ export interface LandingPageOptions {
   tiers?: readonly { label: string; tier?: ModelTier }[];
 }
 
-/** About how many English words `tokens` tokens make (¾ of a word each), to the nearest 50: `750` for 1,024. */
-export function roughWords(tokens: number): string {
-  return Math.max(50, Math.round((tokens * 0.75) / 50) * 50).toLocaleString('en-US');
-}
-
 /** `A`, `A or B`, `A, B or C` (or `and`). */
 export function joinList(items: readonly string[], word: 'and' | 'or'): string {
   if (items.length <= 1) return items.join('');

@@ -8,6 +8,7 @@ import {
   poolBlock,
   type BeginSendResult,
   type ChatService,
+  type GenerationLimits,
   type HeldCandidate,
 } from '@tangent/core';
 import {
@@ -30,6 +31,7 @@ import { poolBank } from '../pool/ids.js';
 import { poolBlockDetails, poolReserveRequest, type PoolParams } from '../pool/params.js';
 import { ceilingHoldMicros } from '../pool/pricing.js';
 import { classifyPoolExchange } from '../pool/tagging.js';
+import { pickLimits } from '../input-limit.js';
 import { chatService } from '../services.js';
 import { BUILT_IN_PROVIDER_ID } from '../simple-mode.js';
 
@@ -42,12 +44,11 @@ const encoder = new TextEncoder();
  * the Worker resolved it; the DO trusts it (its routes are internal) and the
  * Worker has already checked that the branch belongs to it.
  */
-export interface SessionSendBody {
+export interface SessionSendBody extends GenerationLimits {
   content: string;
   /** "Check sources": the reply must run a web search. */
   ground?: 'required';
-  /** Power's output cap for the reply (`SendMessageRequest.maxOutputTokens`). */
-  maxOutputTokens?: number;
+  // GenerationLimits: power's reply length and input limit, as the Worker clamped them.
   account: AccountContext;
   sealedKeys?: string;
 }
@@ -88,13 +89,12 @@ interface HeldEntry {
 
 const CANDIDATE_PREFIX = 'candidate:';
 
-/** What a send writes and generates. */
-interface SendTarget {
+/** What a send writes and generates (with power's limits). */
+interface SendTarget extends GenerationLimits {
   treeId: string;
   branchId: string;
   content: string;
   ground?: 'required';
-  maxOutputTokens?: number;
 }
 
 /** The account as query parameters, for the internal routes without a body. */
@@ -176,7 +176,7 @@ export class TreeSession extends DurableObject<AppEnv> {
     try {
       if (request.method === 'POST' && url.pathname === '/send') {
         const body = (await request.json()) as SessionSendBody;
-        const { content, ground, maxOutputTokens, account } = body;
+        const { content, ground, account } = body;
         await this.recoverOnce(chatService(this.env, account), treeId);
         const chat = await this.generatingChat(body);
         return await this.send(chat, account, {
@@ -184,7 +184,7 @@ export class TreeSession extends DurableObject<AppEnv> {
           branchId: url.searchParams.get('branchId') ?? '',
           content,
           ...(ground === 'required' ? { ground } : {}),
-          ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+          ...pickLimits(body),
         });
       }
       if (request.method === 'POST' && url.pathname === '/hold-candidate') {
@@ -408,7 +408,7 @@ export class TreeSession extends DurableObject<AppEnv> {
     run: Run,
     begin: BeginSendResult,
     reservationId: string | null,
-    { ground, maxOutputTokens }: Pick<SendTarget, 'ground' | 'maxOutputTokens'> = {},
+    { ground, ...limits }: Pick<SendTarget, 'ground'> & GenerationLimits = {},
   ): Promise<void> {
     const keepalive = setInterval(() => this.broadcastRaw(run, sseKeepAliveFrame()), KEEPALIVE_MS);
     let completed = false;
@@ -416,7 +416,7 @@ export class TreeSession extends DurableObject<AppEnv> {
       const options = {
         ...(reservationId ? { reservationId } : {}),
         ...(ground ? { ground } : {}),
-        ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+        ...pickLimits(limits),
       };
       for await (const event of chat.runGeneration(begin, run.controller.signal, options)) {
         if (event.type === 'delta')

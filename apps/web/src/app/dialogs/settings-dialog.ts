@@ -10,6 +10,7 @@ import {
 import {
   MAX_SYSTEM_PROMPT_CHARS,
   maxUsageNote,
+  type InputOverflow,
   type ModelTier,
   parseRouteKey,
   providerRouteKey,
@@ -24,6 +25,7 @@ import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ApiClient, errorMessage, Modal } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
+import { InputLimitSetting } from '../ui/input-limit-setting';
 import { OutputCapSetting, type OutputCapModel } from '../ui/output-cap-setting';
 
 /** One tier in the "Normal & Max" section: the suggested model, or the user's own pick. */
@@ -39,11 +41,12 @@ interface TierRow {
 /**
  * App-wide preferences, one section per feature. The default system prompt
  * is saved to the account (server-side, `/api/settings`); the reviewer and
- * the models of Normal and Max and the reply length are saved in this browser.
+ * the models of Normal and Max, the reply length and the input limit are
+ * saved in this browser.
  */
 @Component({
   selector: 'app-settings-dialog',
-  imports: [Modal, ModelPicker, OutputCapSetting],
+  imports: [Modal, ModelPicker, OutputCapSetting, InputLimitSetting],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="Settings" (closed)="close()">
@@ -155,10 +158,20 @@ interface TierRow {
           [(invalid)]="outputCapInvalid"
           [target]="outputCapTarget()"
         />
+        <app-input-limit-setting
+          [(value)]="inputLimit"
+          [(overflow)]="inputOverflow"
+          [(invalid)]="inputLimitInvalid"
+          [replyTokens]="outputCap()"
+        />
 
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
-          <button type="submit" class="btn btn-primary" [disabled]="saving() || outputCapInvalid()">
+          <button
+            type="submit"
+            class="btn btn-primary"
+            [disabled]="saving() || outputCapInvalid() || inputLimitInvalid()"
+          >
             {{ saving() ? 'Saving…' : 'Save' }}
           </button>
         </div>
@@ -196,6 +209,10 @@ export class SettingsDialog implements OnInit {
   /** Reply length (`AppSettings.maxOutputTokens`); null = Auto. */
   protected readonly outputCap = signal<number | null>(null);
   protected readonly outputCapInvalid = signal(false);
+  /** Input limit (`AppSettings.maxInputTokens`, null = off) and what happens over it. */
+  protected readonly inputLimit = signal<number | null>(null);
+  protected readonly inputOverflow = signal<InputOverflow>('compact');
+  protected readonly inputLimitInvalid = signal(false);
   /** The open conversation's model, for the reply-length hint. */
   protected readonly outputCapTarget = computed<OutputCapModel | null>(() => {
     const branch = this.store.selectedBranch();
@@ -221,6 +238,8 @@ export class SettingsDialog implements OnInit {
 
   ngOnInit(): void {
     this.outputCap.set(this.settings.settings().maxOutputTokens);
+    this.inputLimit.set(this.settings.settings().maxInputTokens);
+    this.inputOverflow.set(this.settings.settings().inputOverflow);
     const saved = this.settings.settings().reviewer;
     this.custom.set(saved !== null);
     if (saved) {
@@ -302,12 +321,14 @@ export class SettingsDialog implements OnInit {
       this.custom() && this.route() && this.modelId().trim()
         ? { ...parseRouteKey(this.route()), model: this.modelId().trim() }
         : null;
-    if (this.outputCapInvalid()) return;
+    if (this.outputCapInvalid() || this.inputLimitInvalid()) return;
     const [normal, max] = this.tierRows.map((row) => this.tierChoice(row));
     this.settings.update({
       reviewer,
       tiers: { normal: normal ?? null, max: max ?? null },
       maxOutputTokens: this.outputCap(),
+      maxInputTokens: this.inputLimit(),
+      inputOverflow: this.inputOverflow(),
     });
     const prompt = this.promptToSave();
     if (this.promptLoaded() && prompt !== this.savedPrompt()) {

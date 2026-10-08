@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, parseOutputTokens, parseSettings } from './settings-store';
+import {
+  DEFAULT_SETTINGS,
+  generationLimits,
+  parseInputTokens,
+  parseOutputTokens,
+  parseSettings,
+} from './settings-store';
 
 describe('parseSettings', () => {
   it('returns defaults for missing or malformed data', () => {
@@ -15,6 +21,8 @@ describe('parseSettings', () => {
       reviewer: { providerId: 'anthropic', model: 'claude-opus-5-5' },
       tiers: { normal: null, max: null },
       maxOutputTokens: null,
+      maxInputTokens: null,
+      inputOverflow: 'compact',
     });
     expect(parseSettings('{"reviewer":{"providerId":"anthropic"}}').reviewer).toBeNull();
     expect(parseSettings('{"reviewer":"opus"}').reviewer).toBeNull();
@@ -94,5 +102,47 @@ describe('the reply length (maxOutputTokens)', () => {
     expect(parseOutputTokens(256)).toBe(256);
     expect(parseOutputTokens(128_000)).toBe(128_000);
     expect(parseSettings('{"maxOutputTokens":"lots"}').maxOutputTokens).toBeNull();
+  });
+});
+
+describe('the input limit (maxInputTokens, inputOverflow)', () => {
+  it('defaults to no limit, compacting over the window', () => {
+    expect(parseSettings(null)).toMatchObject({ maxInputTokens: null, inputOverflow: 'compact' });
+    // Settings saved before the input limit existed.
+    expect(parseSettings('{"maxOutputTokens":8192}')).toMatchObject({
+      maxOutputTokens: 8192,
+      maxInputTokens: null,
+      inputOverflow: 'compact',
+    });
+  });
+
+  it('reads a saved limit and choice', () => {
+    expect(parseSettings('{"maxInputTokens":60000,"inputOverflow":"truncate"}')).toMatchObject({
+      maxInputTokens: 60_000,
+      inputOverflow: 'truncate',
+    });
+  });
+
+  it('drops anything a send would be refused for', () => {
+    for (const bad of [999, 2_000_001, 60_000.5, '60000', false, Number.POSITIVE_INFINITY])
+      expect(parseInputTokens(bad), String(bad)).toBeNull();
+    expect(parseInputTokens(1000)).toBe(1000);
+    expect(parseInputTokens(2_000_000)).toBe(2_000_000);
+    expect(parseSettings('{"inputOverflow":"forget"}').inputOverflow).toBe('compact');
+  });
+
+  it('sends only what differs from the server’s defaults', () => {
+    expect(generationLimits(DEFAULT_SETTINGS)).toEqual({});
+    expect(
+      generationLimits({
+        ...DEFAULT_SETTINGS,
+        maxOutputTokens: 8192,
+        maxInputTokens: 60_000,
+        inputOverflow: 'truncate',
+      }),
+    ).toEqual({ maxOutputTokens: 8192, maxInputTokens: 60_000, inputOverflow: 'truncate' });
+    expect(generationLimits({ ...DEFAULT_SETTINGS, maxInputTokens: 32_000 })).toEqual({
+      maxInputTokens: 32_000,
+    });
   });
 });

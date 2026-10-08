@@ -42,6 +42,7 @@ import {
   type CreateTreeRequest,
   type DefaultRouteFacts,
   type DeleteBranchResponse,
+  type InputOverflow,
   type LlmProvider,
   type NodeLink,
   type ProviderCapabilities,
@@ -68,6 +69,7 @@ import {
   type WebSearchRequest,
 } from '@tangent/shared';
 import { assembleContext, summaryKeyString } from '../context/assemble.js';
+import { overflowBudget } from '../context/overflow.js';
 import {
   buildReviewPrompt,
   buildSummaryPrompt,
@@ -264,6 +266,33 @@ export interface RunGenerationOptions {
    * the settings' default for the model; capped at the model's limit.
    */
   maxOutputTokens?: number;
+  /**
+   * The most input the caller lets the reply send (power's input limit),
+   * below the input budget (the context window less the reply, within the
+   * settings' `maxInputTokens`); never raises it.
+   */
+  maxInputTokens?: number;
+  /** What a context over its input budget loses (`overflowBudget`); absent = `compact`. */
+  inputOverflow?: InputOverflow;
+}
+
+/** A send's own limits (power's settings), as a send or a context preview passes them. */
+export type GenerationLimits = Pick<
+  RunGenerationOptions,
+  'maxOutputTokens' | 'maxInputTokens' | 'inputOverflow'
+>;
+
+/** What bounds a reply's input on a branch's route (`inputBudget`). */
+export interface BranchInputBudget {
+  model: string;
+  funding: BranchFunding;
+  /** `ProviderCapabilities.maxContextTokens`. */
+  contextTokens: number;
+  /** `ProviderCapabilities.maxOutputTokens`. */
+  maxOutputTokens: number;
+  reasoning: boolean;
+  /** The settings' input cap (`ChatSettings.maxInputTokens`). */
+  maxInputTokens: number | null;
 }
 
 /** A validated review, ready to run (see `prepareReview`). */
@@ -691,10 +720,15 @@ export class ChatService {
   async planContext(
     branchId: string,
     nodeId: string | null,
-    options: { resolveSummaries: boolean; signal?: AbortSignal },
+    options: { resolveSummaries: boolean; signal?: AbortSignal; limits?: GenerationLimits },
   ): Promise<ContextPlanResponse> {
     const inputs = await this.loadPlanInputs(branchId, nodeId);
-    const steps = this.resolvePlan(inputs, options.resolveSummaries, options.signal);
+    const steps = this.resolvePlan(
+      inputs,
+      options.resolveSummaries,
+      options.signal,
+      options.limits,
+    );
     let step = await steps.next();
     while (!step.done) step = await steps.next();
     const plan = step.value;
@@ -798,12 +832,14 @@ export class ChatService {
   /**
    * A reply's output cap on `model` (`requested`, else the settings' default
    * for a reasoning or a plain model, within the model's limit) and the input
-   * budget that leaves in its context window.
+   * budget that leaves in its context window, within the settings' cap and
+   * `requestedInput` (power's input limit).
    */
   private budgetFor(
     provider: LlmProvider,
     model: string,
     requested?: number,
+    requestedInput?: number,
   ): { maxInputTokens: number; maxOutput: number } {
     const caps = provider.capabilities(model);
     const { reservedOutputTokens, reasoningOutputTokens } = this.deps.settings;
@@ -817,7 +853,27 @@ export class ChatService {
     if (this.deps.settings.maxInputTokens !== null) {
       maxInputTokens = Math.min(maxInputTokens, this.deps.settings.maxInputTokens);
     }
+    if (requestedInput !== undefined) maxInputTokens = Math.min(maxInputTokens, requestedInput);
     return { maxInputTokens, maxOutput };
+  }
+
+  /**
+   * What bounds a reply's input on an owned branch's route and model (for
+   * power's input limit setting): the model's window and output limit, and
+   * the settings' input cap. `budgetFor` works the budget out from these.
+   */
+  async inputBudget(branchId: string): Promise<BranchInputBudget> {
+    const branch = await this.getOwnedBranch(branchId);
+    const model = this.modelOf(branch);
+    const caps = this.requireProvider(branch).capabilities(model);
+    return {
+      model,
+      funding: this.fundingOf(branch),
+      contextTokens: caps.maxContextTokens,
+      maxOutputTokens: caps.maxOutputTokens,
+      reasoning: caps.reasoning === true,
+      maxInputTokens: this.deps.settings.maxInputTokens,
+    };
   }
 
   private summaryTarget(branch: Branch): { provider: LlmProvider; model: string } {
@@ -840,7 +896,7 @@ export class ChatService {
     inputs: PlanInputs,
     generate: boolean,
     signal?: AbortSignal,
-    requestedOutput?: number,
+    limits: GenerationLimits = {},
   ): AsyncGenerator<string, ContextPlan> {
     const summaries = new Map<string, string>();
     const failed = new Set<string>();
@@ -850,7 +906,8 @@ export class ChatService {
     const { maxInputTokens } = this.budgetFor(
       inputs.provider,
       this.modelOf(inputs.branch),
-      requestedOutput,
+      limits.maxOutputTokens,
+      limits.maxInputTokens,
     );
     const lookedUp = new Set<string>();
 
@@ -863,7 +920,7 @@ export class ChatService {
         targetNodeId: inputs.targetNodeId,
         summaries,
         failedSummaries: failed,
-        budget: { maxInputTokens },
+        budget: { maxInputTokens, ...overflowBudget(limits.inputOverflow) },
         ...(this.deps.inputBound ? { estimateTokens: this.deps.inputBound.estimateTokens } : {}),
       });
 
@@ -1059,7 +1116,7 @@ export class ChatService {
     try {
       const inputs = await this.loadPlanInputs(branch.id, userNode.id);
       branch = inputs.branch;
-      const steps = this.resolvePlan(inputs, true, signal, options.maxOutputTokens);
+      const steps = this.resolvePlan(inputs, true, signal, options);
       let step = await steps.next();
       while (!step.done) {
         yield { type: 'status', message: step.value };
