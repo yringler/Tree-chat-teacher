@@ -34,6 +34,7 @@ import { EXPLICIT_CACHE_WRITE_MULTIPLIER, usesExplicitCacheControl } from '@tang
 import { appConfig, type ModelPrice } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { syncModelWindows } from '../model-windows.js';
+import { isOpenRouter, simpleProviderConfig } from '../simple-mode.js';
 import { poolModel } from './params.js';
 
 export const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
@@ -195,16 +196,52 @@ export async function modelPrice(env: AppEnv, model: string): Promise<ModelPrice
   return withCacheWritePrice(model, price);
 }
 
+/** How long an isolate waits before syncing prices on demand again (`creditPrice`). */
+const ON_DEMAND_SYNC_EVERY_MS = 60 * 60_000;
+let onDemandSync: { at: number; done: Promise<void> } | null = null;
+
+/**
+ * Runs the price sync now, at most once an hour per isolate (concurrent
+ * callers share the run), when the built-in provider is OpenRouter: the only
+ * endpoint the sync lists. Never throws.
+ */
+async function syncOnDemand(env: AppEnv): Promise<void> {
+  let openRouter: boolean;
+  try {
+    openRouter = isOpenRouter(simpleProviderConfig(env).baseUrl);
+  } catch {
+    return;
+  }
+  if (!openRouter) return;
+  const now = Date.now();
+  if (!onDemandSync || now - onDemandSync.at >= ON_DEMAND_SYNC_EVERY_MS) {
+    onDemandSync = {
+      at: now,
+      done: syncModelPrices(env, new Date(now)).then(
+        () => undefined,
+        (e: unknown) => console.error('On-demand price sync failed', e),
+      ),
+    };
+  }
+  await onDemandSync.done;
+}
+
 /**
  * The price a Tangent credit call on `model` is held at (billing/meter.ts):
  * `modelPrice` for a configured model, else the list price the sync stored
  * for it (it stores every listed model's), or null when neither is known, so
- * the model can't run on credit. A stored price without a window has none.
+ * the model can't run on credit. A model the store doesn't know yet (any
+ * model before the first daily sync after a deploy, or one OpenRouter listed
+ * since) syncs once on demand. A stored price without a window has none.
  */
 export async function creditPrice(env: AppEnv, model: string): Promise<ModelPrice | null> {
   const configured = await modelPrice(env, model);
   if (configured) return configured;
-  const synced = await storedPrice(env.DB, model);
+  let synced = await storedPrice(env.DB, model);
+  if (!synced) {
+    await syncOnDemand(env);
+    synced = await storedPrice(env.DB, model);
+  }
   if (!synced) return null;
   const price: ModelPrice = {
     inMicrosPerMTok: synced.inMicrosPerMTok,

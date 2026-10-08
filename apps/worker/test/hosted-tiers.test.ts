@@ -14,7 +14,7 @@ import wranglerText from '../wrangler.jsonc?raw';
 import { appConfig, DEFAULT_TIER_REQUESTS, effortVar } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { modelPrice } from '../src/pool/model-prices.js';
-import { resolvePoolParams } from '../src/pool/params.js';
+import { poolModel, resolvePoolParams } from '../src/pool/params.js';
 import {
   builtInPowerConfig,
   DEFAULT_SIMPLE_FAST_MODEL,
@@ -23,11 +23,13 @@ import {
   poolChatSettings,
   poolProviderConfig,
   simpleChatSettings,
+  simpleFastModel,
   simpleProviderConfig,
   suggestedModels,
 } from '../src/simple-mode.js';
 import { withUsageFactors } from '../src/tiers.js';
-import { uniq } from './mocks/billing-helpers.js';
+import { envWithFailingDb, uniq } from './mocks/billing-helpers.js';
+import { shippedVars } from './mocks/wrangler-vars.js';
 
 const env = rawEnv as unknown as AppEnv;
 const TIER_VARS = [
@@ -413,5 +415,27 @@ describe('MiniMax M3, a config-only fallback', () => {
     );
     const tier = simpleProviderConfig(deployed({ SIMPLE_NORMAL_MODEL: 'minimax/minimax-m3' }));
     expect(tier.models[0]).toMatchObject({ id: 'minimax/minimax-m3', tier: 'normal' });
+  });
+});
+
+describe('prices as shipped', () => {
+  it('prices every model a user can pick or a hosted call runs on, before any sync', async () => {
+    // wrangler.jsonc's vars, and no synced price readable: what a fresh deploy holds credit at.
+    const shipped = {
+      ...env,
+      ...shippedVars(),
+      DB: envWithFailingDb(env, /model_prices/).DB,
+    } as AppEnv;
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const models = new Set([
+      ...simpleProviderConfig(shipped).models.map((m) => m.id),
+      ...suggestedModels(shipped).map((m) => m.id),
+      simpleFastModel(shipped),
+      poolModel(shipped),
+    ]);
+    expect(models.size).toBeGreaterThan(1);
+    for (const model of models) {
+      expect(await modelPrice(shipped, model), model).not.toBeNull();
+    }
   });
 });

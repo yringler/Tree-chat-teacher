@@ -94,6 +94,13 @@ const vars = {
     ],
   }),
   OPENROUTER_SIMPLE_API_KEY: 'sk-or-e2e-unused',
+  // Credit holds each call at its model's price, and refuses a model without one. The daily
+  // sync only lists OpenRouter, which this endpoint isn't, so the tiers are priced here, as a
+  // deployment on another endpoint must: Normal at V4.1 Flash's price, Max at Sonnet's.
+  MODEL_PRICES: JSON.stringify({
+    simple: { in: 150_000, out: 600_000, context: 1_048_576 },
+    smart: { in: 2_000_000, out: 10_000_000, context: 1_000_000 },
+  }),
 };
 // dotenv: single quotes keep JSON's double quotes literal.
 fs.writeFileSync(
