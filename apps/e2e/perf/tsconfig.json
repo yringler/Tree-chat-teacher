@@ -1,0 +1,10 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    // As packages/web-shared (whose demo backend the seed runs): Angular-style imports.
+    "verbatimModuleSyntax": false
+  },
+  "include": ["*.ts"]
+}

@@ -12,7 +12,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
-    "coverage": "vitest run --coverage --passWithNoTests"
+    "coverage": "vitest run --coverage --passWithNoTests",
+    "bench": "vitest run --config bench/vitest.config.ts --reporter=verbose"
   },
   "dependencies": {
     "@tangent/shared": "workspace:*"
