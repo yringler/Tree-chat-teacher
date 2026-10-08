@@ -230,7 +230,9 @@ export class TreeSession extends DurableObject<AppEnv> {
     sealedKeys?: string;
   }): Promise<ChatService> {
     const { account, sealedKeys } = body;
-    const keys = usesUserKeys(account) ? await openKeys(sealedKeys, this.env) : null;
+    const keys = usesUserKeys(account)
+      ? await openKeys(sealedKeys, this.env, account.userId)
+      : null;
     if (keys?.state === 'invalid')
       throw new KeyRequiredError('Your stored API key could not be read. Enter it again.');
     // Keys stay in memory only for this generation (the ChatService closes over them).
