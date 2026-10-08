@@ -632,6 +632,22 @@ describe('openai-compatible prompt caching', () => {
     },
   );
 
+  it("turns thinking off on OpenRouter for reasoning: 'off', and sends nothing elsewhere", async () => {
+    const sent = async (config: ProviderConfig, overrides: Partial<GenerateRequest>) => {
+      const { provider, calls } = setup(config, () => sseResponse(OPENROUTER_STREAM).response);
+      await collect(provider.stream(req({ ...HISTORY, ...overrides })));
+      return calls[0]!.body;
+    };
+    const model = 'deepseek/deepseek-v4-flash';
+    expect(await sent(OPENROUTER, { model, reasoning: 'off' })).toMatchObject({
+      reasoning: { enabled: false },
+    });
+    expect(await sent(OPENROUTER, { model })).not.toHaveProperty('reasoning');
+    expect(await sent(OPENAI, { model: 'gpt-5', reasoning: 'off' })).not.toHaveProperty(
+      'reasoning',
+    );
+  });
+
   it('never marks on other endpoints, even for anthropic/ model ids', async () => {
     const other = { ...OPENAI, baseUrl: 'https://llm.example.com/v1' };
     expect(await sentMessages(other, { model: 'anthropic/claude-sonnet-5.5' })).toEqual(PLAIN);

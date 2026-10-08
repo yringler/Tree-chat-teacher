@@ -87,6 +87,12 @@ export interface GenerateRequest {
   usageTag?: UsageTag;
   /** Offer (or require) a web search; ignored unless `capabilities(model).supportsWebSearch`. */
   webSearch?: WebSearchRequest;
+  /**
+   * `off`: ask a reasoning model not to think, for short structured answers
+   * whose output cap thinking would use up (the pool's topic classifier).
+   * Sent only where the endpoint takes it (OpenRouter); elsewhere ignored.
+   */
+  reasoning?: 'off';
 }
 
 /** A web search offered for one reply (OpenRouter's `openrouter:web_search` server tool). */

@@ -216,7 +216,8 @@ export function createOpenAiCompatibleProvider(
       ? optParam
       : defaultMaxTokensParam(baseUrl);
   const extraBody = readExtraBody(config.options);
-  const promptCache = promptCacheOption(config.options) ?? isOpenRouterBaseUrl(baseUrl);
+  const openRouter = isOpenRouterBaseUrl(baseUrl);
+  const promptCache = promptCacheOption(config.options) ?? openRouter;
 
   const capabilities = (model: string) => resolveCapabilities(config, model, DEFAULTS, false);
 
@@ -270,6 +271,7 @@ export function createOpenAiCompatibleProvider(
         stream_options: { include_usage: true },
         ...extra,
         ...(webSearch ? webSearchBody(webSearch) : {}),
+        ...(request.reasoning === 'off' && openRouter ? { reasoning: { enabled: false } } : {}),
         model: request.model,
         messages,
         stream: true,

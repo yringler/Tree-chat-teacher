@@ -61,7 +61,7 @@ describe('appConfig', () => {
       model: null,
       revenueShareBps: 2000,
       maxInputTokens: 16_000,
-      maxOutputTokens: 1024,
+      maxOutputTokens: 8192,
       maxMessageChars: 4000,
       reservationTtlMs: 600_000,
       giveUpMs: 3_600_000,

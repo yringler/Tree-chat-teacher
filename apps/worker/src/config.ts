@@ -354,7 +354,7 @@ function parse(env: AppEnv): AppConfig {
         10_000,
       ),
       maxInputTokens: positiveInt(env.POOL_MAX_INPUT_TOKENS, 16_000),
-      maxOutputTokens: positiveInt(env.POOL_MAX_OUTPUT_TOKENS, 1024),
+      maxOutputTokens: positiveInt(env.POOL_MAX_OUTPUT_TOKENS, 8192),
       maxMessageChars: positiveInt(env.POOL_MAX_MESSAGE_CHARS, 4000),
       reservationTtlMs: ttl,
       // A call must time out well before the alarm may expire its reservation, and a

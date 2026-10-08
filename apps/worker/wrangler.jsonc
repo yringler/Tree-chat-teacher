@@ -243,7 +243,7 @@
     "POOL_REVENUE_SHARE_BPS": "2000",
     // Per-call input and output token caps of pool calls, and the longest message a pool send accepts.
     "POOL_MAX_INPUT_TOKENS": "16000",
-    "POOL_MAX_OUTPUT_TOKENS": "1024",
+    "POOL_MAX_OUTPUT_TOKENS": "8192",
     "POOL_MAX_MESSAGE_CHARS": "4000",
     // A reservation still pending after this long is expired by the PoolBank alarm (10 min).
     "POOL_RESERVATION_TTL_MS": "600000",

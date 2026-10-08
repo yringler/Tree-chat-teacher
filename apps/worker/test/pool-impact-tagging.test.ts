@@ -491,6 +491,7 @@ describe('request-time topic tagging', () => {
       system: CLASSIFIER_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: 'Now on the pool [topic:history.ancient-rome]' }],
       maxOutputTokens: appConfig(env).impact.classifierMaxOutputTokens,
+      reasoning: 'off',
       usageTag: { purpose: 'tagging', branchId, nodeId: null },
     });
   });
