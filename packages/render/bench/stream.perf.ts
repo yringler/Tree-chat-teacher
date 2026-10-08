@@ -1,15 +1,15 @@
 import { test } from 'vitest';
+import { BlockRenderer } from '../src/blocks.js';
 import { renderMarkdown } from '../src/markdown.js';
 
 /*
  * What streaming a reply costs in Markdown rendering alone (not part of
- * `pnpm test`): `pnpm --filter @tangent/render bench`. The chat view renders
- * the whole reply again on every delta (MessageItem.html → MarkdownService
- * .render, uncached while streaming), so a reply of N characters arriving in
- * c-character deltas costs Σ render(prefix) ≈ N²/2c. For comparison, a
- * block-incremental render: finished blocks (split at blank lines outside
- * code fences) are rendered once and kept; only the last, still-growing
- * block is rendered per delta.
+ * `pnpm test`): `pnpm --filter @tangent/render bench`. Rendering the whole
+ * reply again on every delta (what the chat views did before BlockRenderer)
+ * costs, for a reply of N characters arriving in c-character deltas,
+ * Σ render(prefix) ≈ N²/2c. BlockRenderer (what they do now, at most once
+ * per frame) renders each finished block once and only the last,
+ * still-growing block per delta.
  */
 
 const PARA =
@@ -32,26 +32,6 @@ function reply(chars: number): string {
   return blocks.join('\n\n').slice(0, chars);
 }
 
-/** Splits at blank lines that are not inside a ``` fence; the last block may still grow. */
-function blocks(text: string): string[] {
-  const out: string[] = [];
-  let fence = false;
-  let start = 0;
-  const lines = text.split('\n');
-  let pos = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (line.startsWith('```')) fence = !fence;
-    pos += line.length + 1;
-    if (!fence && line === '' && i < lines.length - 1) {
-      out.push(text.slice(start, pos));
-      start = pos;
-    }
-  }
-  out.push(text.slice(start));
-  return out;
-}
-
 function streamFull(text: string, chunk: number): number {
   const t0 = performance.now();
   for (let i = chunk; i < text.length + chunk; i += chunk) renderMarkdown(text.slice(0, i));
@@ -60,25 +40,11 @@ function streamFull(text: string, chunk: number): number {
 
 /** The time, and the last HTML (kept so the work isn't optimized away). */
 function streamIncremental(text: string, chunk: number): { ms: number; html: string } {
-  const cache = new Map<string, string>();
+  const renderer = new BlockRenderer(renderMarkdown);
   const t0 = performance.now();
-  let last = '';
-  for (let i = chunk; i < text.length + chunk; i += chunk) {
-    const bs = blocks(text.slice(0, i));
-    let html = '';
-    for (let b = 0; b < bs.length; b++) {
-      const src = bs[b]!;
-      const done = b < bs.length - 1;
-      let h = done ? cache.get(src) : undefined;
-      if (h === undefined) {
-        h = renderMarkdown(src);
-        if (done) cache.set(src, h);
-      }
-      html += h;
-    }
-    last = html;
-  }
-  return { ms: performance.now() - t0, html: last };
+  let last: string[] = [];
+  for (let i = chunk; i < text.length + chunk; i += chunk) last = renderer.update(text.slice(0, i));
+  return { ms: performance.now() - t0, html: last.join('') };
 }
 
 test('markdown cost of streaming a reply, by length', () => {
@@ -89,7 +55,8 @@ test('markdown cost of streaming a reply, by length', () => {
     const chunk = 4; // ~one token per delta
     const deltas = Math.ceil(text.length / chunk);
     const full = streamFull(text, chunk);
-    const inc = streamIncremental(text, chunk).ms;
+    const { ms: inc, html } = streamIncremental(text, chunk);
+    if (html !== renderMarkdown(text)) throw new Error(`blocks differ from the whole at ${chars}`);
     const t0 = performance.now();
     for (let i = 0; i < 20; i++) renderMarkdown(text);
     const once = (performance.now() - t0) / 20;

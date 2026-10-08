@@ -7,13 +7,18 @@ import { escapeHtml, renderMarkdown } from '@tangent/render';
  */
 @Injectable({ providedIn: 'root' })
 export class MarkdownService {
+  /** Least recently used first: a Map iterates in insertion order, and a hit is re-inserted. */
   private readonly cache = new Map<string, string>();
   private readonly max = 300;
 
   /** `cache: false` for text that is still streaming (every delta is a new string). */
   render(markdown: string, cache = true): string {
     const hit = this.cache.get(markdown);
-    if (hit !== undefined) return hit;
+    if (hit !== undefined) {
+      this.cache.delete(markdown);
+      this.cache.set(markdown, hit);
+      return hit;
+    }
     let html: string;
     try {
       html = renderMarkdown(markdown);

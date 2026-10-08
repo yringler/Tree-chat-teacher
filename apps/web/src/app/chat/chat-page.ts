@@ -18,6 +18,7 @@ import {
   endpointTitle,
   Icon,
   PendingQuote,
+  pinToBottom,
   ReadOnlyComposer,
   SelectionAsk,
   selectedMessageQuote,
@@ -69,6 +70,7 @@ export class ChatPage implements OnDestroy {
   protected readonly textSize = inject(TextSizeStore);
   private readonly title = inject(Title);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
+  private readonly content = viewChild<ElementRef<HTMLElement>>('content');
   /** True while the view is scrolled to (near) the bottom: new text keeps it pinned. */
   private readonly pinned = signal(true);
   /**
@@ -185,12 +187,13 @@ export class ChatPage implements OnDestroy {
       }
     });
 
-    // Keep the view pinned to the bottom while a reply streams in.
-    effect(() => {
-      const s = this.store.streamingNode();
-      const live = s ? this.store.live.get(s.id)?.content : undefined;
-      if (live === undefined || !untracked(this.pinned)) return;
-      requestAnimationFrame(() => this.scrollTo(null));
+    // Keep the view pinned to the bottom while a reply streams in (and grows the list).
+    effect((onCleanup) => {
+      const scroller = this.scroller()?.nativeElement;
+      const content = this.content()?.nativeElement;
+      if (!scroller || !content) return;
+      const keep = (): boolean => this.pinned() && this.store.streamingNode() !== null;
+      onCleanup(pinToBottom(scroller, content, keep));
     });
   }
 

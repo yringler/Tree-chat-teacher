@@ -49,7 +49,8 @@ export function typesetMath(root: HTMLElement): void {
 /**
  * Put next to `[innerHTML]`, bound to the same HTML string:
  * `<div [innerHTML]="html()" [appTypesetMath]="html()">`. Typesets after
- * every DOM update that changes the HTML (each streamed delta re-renders it).
+ * every DOM update that changes the HTML. MarkdownView puts one on each
+ * block, so a streaming reply typesets only the block that changed.
  */
 @Directive({ selector: '[appTypesetMath]' })
 export class TypesetMath {

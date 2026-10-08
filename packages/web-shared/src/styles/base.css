@@ -1760,6 +1760,22 @@ app-node-picker {
   margin-top: 8px;
 }
 
+/*
+ * Rendered markdown (ui/markdown-view.ts) comes in blocks, one wrapper each,
+ * so a streaming reply only replaces its last one. The wrappers make no box:
+ * the blocks' elements lay out (and collapse margins) as the `.md` element's
+ * children, and its first and last child lose their outer margin as before.
+ */
+.md-block {
+  display: contents;
+}
+.md > .md-block:first-child > :first-child {
+  margin-top: 0;
+}
+.md > .md-block:last-child > :last-child {
+  margin-bottom: 0;
+}
+
 /* TeX math (renderMarkdown placeholders, typeset by TypesetMath / KaTeX) */
 .math-display {
   display: block;

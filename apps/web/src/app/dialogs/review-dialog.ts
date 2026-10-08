@@ -10,7 +10,7 @@ import {
 import { plainText } from '@tangent/core';
 import { parseReview, parseRouteKey, routeKey, type BranchFunding } from '@tangent/shared';
 import { copyText } from '../core/selection';
-import { Icon, MarkdownService, Modal, TypesetMath } from '@tangent/web-shared';
+import { Icon, MarkdownView, Modal } from '@tangent/web-shared';
 import { ReviewStore } from '../state/review-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
@@ -26,7 +26,7 @@ const EXCERPT_CHARS = 280;
  */
 @Component({
   selector: 'app-review-dialog',
-  imports: [Modal, ModelPicker, Icon, ReviewVerdict, TypesetMath],
+  imports: [Modal, MarkdownView, ModelPicker, Icon, ReviewVerdict],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="Review up to here" [wide]="true" (closed)="close()">
@@ -51,7 +51,11 @@ const EXCERPT_CHARS = 280;
             <p class="msg-status muted small">{{ r.status }}</p>
           }
           @if (parsed().body) {
-            <div class="md review-body" [innerHTML]="html()" [appTypesetMath]="html()"></div>
+            <div
+              class="md review-body"
+              [appMarkdown]="parsed().body"
+              [streaming]="r.phase === 'running'"
+            ></div>
           }
           @if (r.phase === 'running') {
             <span class="cursor" aria-hidden="true"></span>
@@ -142,7 +146,6 @@ export class ReviewDialog implements OnInit {
   protected readonly store = inject(TreeStore);
   protected readonly reviews = inject(ReviewStore);
   protected readonly ui = inject(UiStore);
-  private readonly md = inject(MarkdownService);
 
   readonly nodeId = input.required<string>();
 
@@ -168,9 +171,6 @@ export class ReviewDialog implements OnInit {
   });
   protected readonly review = computed(() => this.reviews.reviews().get(this.nodeId()) ?? null);
   protected readonly parsed = computed(() => parseReview(this.review()?.text ?? ''));
-  protected readonly html = computed(() =>
-    this.md.render(this.parsed().body, this.review()?.phase !== 'running'),
-  );
   protected readonly choice = computed(() =>
     this.route() ? { ...parseRouteKey(this.route()), model: this.modelId().trim() } : null,
   );

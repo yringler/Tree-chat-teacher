@@ -11,12 +11,11 @@ import {
 import { parseReview, splitTangents, type Branch, type ChatNode } from '@tangent/shared';
 import {
   Icon,
-  MarkdownService,
+  MarkdownView,
   RelatedLinks,
   relatedLinks,
   SourcesList,
   TangentAsk,
-  TypesetMath,
   type LinkNoteEdit,
   type RelatedLink,
 } from '@tangent/web-shared';
@@ -31,7 +30,7 @@ import { ReviewVerdict } from '../ui/review-verdict';
 /** One message of the linear branch view. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, ModeBadge, RelatedLinks, ReviewVerdict, SourcesList, TangentAsk, TypesetMath],
+  imports: [Icon, MarkdownView, ModeBadge, RelatedLinks, ReviewVerdict, SourcesList, TangentAsk],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -115,8 +114,8 @@ import { ReviewVerdict } from '../ui/review-verdict';
         #body
         class="msg-body md"
         [attr.data-node-id]="n.id"
-        [innerHTML]="html()"
-        [appTypesetMath]="html()"
+        [appMarkdown]="bodyText()"
+        [streaming]="streaming()"
       ></div>
       @if (streaming()) {
         <span class="cursor" aria-hidden="true"></span>
@@ -273,7 +272,6 @@ import { ReviewVerdict } from '../ui/review-verdict';
 export class MessageItem {
   protected readonly store = inject(TreeStore);
   protected readonly ui = inject(UiStore);
-  private readonly md = inject(MarkdownService);
   private readonly reviews = inject(ReviewStore);
 
   readonly node = input.required<ChatNode>();
@@ -281,7 +279,9 @@ export class MessageItem {
   readonly focused = input(false);
   readonly chainIds = input<ReadonlySet<string>>(new Set());
 
-  private readonly bodyRef = viewChild.required<ElementRef<HTMLElement>>('body');
+  private readonly bodyRef = viewChild.required<string, ElementRef<HTMLElement>>('body', {
+    read: ElementRef,
+  });
   protected readonly forksOpen = signal(false);
   protected readonly copied = signal(false);
   private pendingQuote: string | null = null;
@@ -300,7 +300,7 @@ export class MessageItem {
       ? splitTangents(this.content())
       : { body: this.content(), tangents: [], partial: false },
   );
-  protected readonly html = computed(() => this.md.render(this.split().body, !this.streaming()));
+  protected readonly bodyText = computed(() => this.split().body);
   protected readonly reviewable = computed(
     () => this.node().role === 'assistant' && this.node().status === 'complete',
   );

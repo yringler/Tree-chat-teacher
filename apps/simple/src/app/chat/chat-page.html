@@ -95,7 +95,7 @@
   </header>
 
   <div class="messages" #scroller (scroll)="onScroll(scroller)" tabindex="-1">
-    <div class="messages-inner">
+    <div class="messages-inner" #content>
       @if (store.path().length === 0) {
         <div class="empty-state">
           <p class="lead">What would you like to learn?</p>
