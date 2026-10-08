@@ -378,12 +378,12 @@ export class TreeSession extends DurableObject<AppEnv> {
     } satisfies SessionHoldResponse);
   }
 
-  /** Unpicked candidates (the user's question and answers) go when they expire, not on the next hold. */
+  /** Unpicked candidates (the user's question and answers) go when they expire. */
   override async alarm(): Promise<void> {
     await this.pruneCandidates(Date.now());
   }
 
-  /** Deletes the expired held candidates and sets the alarm for the next expiry (none when none is left). */
+  /** Deletes the expired held candidates and sets the alarm for the next expiry, if any. */
   private async pruneCandidates(now: number): Promise<void> {
     const storage = this.ctx.storage;
     const held = await storage.list<HeldEntry>({ prefix: CANDIDATE_PREFIX });
