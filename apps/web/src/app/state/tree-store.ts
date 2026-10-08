@@ -44,6 +44,7 @@ import type {
   UpdateTreeRequest,
 } from '@tangent/shared';
 import {
+  addBlockedSend,
   ApiClient,
   ApiError,
   creditBuyable,
@@ -51,11 +52,13 @@ import {
   creditCarriesOn,
   errorMessage,
   isNotFound,
+  keyMissing,
   learnCopyWay,
   lockedFundings,
   routeLocked,
   routeOpen,
   runStream,
+  type BlockedSend,
   type LearnCopyWay,
   type StreamOutcome,
 } from '@tangent/web-shared';
@@ -132,6 +135,23 @@ export class TreeStore {
   readonly sendingBranchId = signal<string | null>(null);
   /** Bumped whenever a generation finishes; the inspector refreshes on it. */
   readonly completions = signal(0);
+  /**
+   * Messages the server refused for want of their branch's own API key (401
+   * `key_required`, before anything was written), while the keys dialog asks
+   * how to carry on: Tangent credit (`resumeOnCredit`) or the key
+   * (`resumeAfterKey`) sends them; closing the dialog just forgets them
+   * (`dropBlockedSends`): the text is still in the composer (`unsentDrafts`).
+   */
+  readonly blockedSends = signal<readonly BlockedSend[]>([]);
+  /**
+   * Messages that didn't reach the server's tree (any error before the reply
+   * started: a missing key, no credit, a network failure…), by branch. The
+   * composer of that branch takes the text back when its box is empty
+   * (`Composer.initial`), so a message typed elsewhere (a tangent, "Ask your
+   * own", the branch dialog, a new conversation) is not lost either. Dropped
+   * when the branch sends again.
+   */
+  readonly unsentDrafts = signal<ReadonlyMap<string, string>>(new Map());
   private readonly controllers = new Map<string, AbortController>();
   private detailSeq = 0;
 
@@ -298,6 +318,20 @@ export class TreeStore {
   readonly creditRoute = computed<ProviderInfo | null>(
     () => this.openRoutes().find((p) => p.funding === 'credit') ?? null,
   );
+
+  /**
+   * A route (a branch) on the user's own key with none saved in this browser
+   * (`keyMissing`): sending there asks for the key, or another way to pay.
+   */
+  keyMissing(route: { providerId: string; funding?: BranchFunding }): boolean {
+    return keyMissing(this.providerOf(route));
+  }
+
+  /** The branch of the latest blocked send, while one waits (the keys dialog's notice). */
+  readonly blockedBranch = computed<Branch | null>(() => {
+    const s = this.blockedSends().at(-1);
+    return (s && this.index()?.branches.get(s.branchId)) || null;
+  });
 
   /** A review of a reply in `branch`: the branch's summaries and the reviewer both need an open route. */
   canReview(branch: { funding?: BranchFunding } | null): boolean {
@@ -775,6 +809,53 @@ export class TreeStore {
   }
 
   /**
+   * "Continue on Tangent credit" in the keys dialog, after a send was refused
+   * for want of the branch's own key: moves each waiting branch onto credit
+   * (`switchToCredit`), closes the dialog and sends its message there.
+   */
+  async resumeOnCredit(): Promise<boolean> {
+    const waiting = this.blockedSends();
+    if (waiting.length === 0) return false;
+    let all = true;
+    for (const s of waiting) {
+      if (!(await this.switchToCredit(s.branchId))) {
+        all = false;
+        continue;
+      }
+      this.blockedSends.update((list) => list.filter((w) => w !== s));
+      void this.send(s.branchId, s.content, s.ground ? { ground: s.ground } : {});
+    }
+    if (all) this.ui.keysDialog.set(null);
+    return all;
+  }
+
+  /**
+   * A key was saved for `provider`: the waiting messages of branches on it,
+   * with the user's own key, are sent; the dialog closes once none waits.
+   */
+  resumeAfterKey(provider: string): void {
+    const branches = this.index()?.branches;
+    const ready = this.blockedSends().filter((s) => {
+      const b = branches?.get(s.branchId);
+      return !!b && b.providerId === provider && b.funding === 'own-key' && !this.keyMissing(b);
+    });
+    if (ready.length === 0) return;
+    this.blockedSends.update((list) => list.filter((s) => !ready.includes(s)));
+    for (const s of ready)
+      void this.send(s.branchId, s.content, s.ground ? { ground: s.ground } : {});
+    if (this.blockedSends().length === 0) this.ui.keysDialog.set(null);
+  }
+
+  /**
+   * The keys dialog closed with messages still waiting: nothing is sent. Their
+   * text stays in the composer (`unsentDrafts`), to send once the branch's
+   * settings are changed.
+   */
+  dropBlockedSends(): void {
+    if (this.blockedSends().length > 0) this.blockedSends.set([]);
+  }
+
+  /**
    * Deletes a branch with everything below it. If the selection is inside it,
    * moves to the message it branched from. The caller confirms first.
    */
@@ -894,6 +975,10 @@ export class TreeStore {
     options: { ground?: 'required' } = {},
   ): Promise<boolean> {
     this.sendingBranchId.set(branchId);
+    if (this.blockedSends().some((s) => s.branchId === branchId)) {
+      this.blockedSends.update((list) => list.filter((s) => s.branchId !== branchId));
+    }
+    this.setUnsentDraft(branchId, null);
     const ctrl = new AbortController();
     let nodeId: string | null = null;
     try {
@@ -907,6 +992,8 @@ export class TreeStore {
             nodeId = event.assistantNode.id;
             this.controllers.set(nodeId, ctrl);
             this.sendingBranchId.set(null);
+            // In the tree now: the composer may let the text go.
+            this.ui.markSent(content);
           }
           this.apply(event, nodeId);
         },
@@ -918,12 +1005,32 @@ export class TreeStore {
       this.finish(nodeId, outcome);
       return true;
     } catch (err) {
+      if (nodeId === null) {
+        // Refused before anything was written: the text goes back to the branch's
+        // composer (not a "Check sources" request, which the user didn't type) and,
+        // for want of the key, waits for the keys dialog to carry it on.
+        if (!options.ground) this.setUnsentDraft(branchId, content);
+        if (err instanceof ApiError && err.code === 'key_required') {
+          this.blockedSends.update((list) =>
+            addBlockedSend(list, { branchId, content, ...options }),
+          );
+        }
+      }
       this.fail(err);
       return false;
     } finally {
       if (this.sendingBranchId() === branchId) this.sendingBranchId.set(null);
       if (nodeId) this.controllers.delete(nodeId);
     }
+  }
+
+  private setUnsentDraft(branchId: string, text: string | null): void {
+    const cur = this.unsentDrafts();
+    if (text === null ? !cur.has(branchId) : cur.get(branchId) === text) return;
+    const next = new Map(cur);
+    if (text === null) next.delete(branchId);
+    else next.set(branchId, text);
+    this.unsentDrafts.set(next);
   }
 
   async cancel(nodeId: string): Promise<void> {
@@ -1091,6 +1198,10 @@ export class TreeStore {
           }
         : d,
     );
+    if (this.blockedSends().some((s) => branchIds.has(s.branchId))) {
+      this.blockedSends.update((list) => list.filter((s) => !branchIds.has(s.branchId)));
+    }
+    for (const id of branchIds) this.setUnsentDraft(id, null);
     // Linking from a message that is gone, or back to a branch that is.
     for (const s of [this.ui.linkPick, this.ui.linkDialog]) {
       const from = s()?.fromNodeId;
@@ -1164,10 +1275,12 @@ export class TreeStore {
     }
     this.ui.notify(errorMessage(err), 'error');
     if (err instanceof ApiError && err.code === 'key_required') {
-      // Missing, expired or reset key: ask for it for the provider in use.
+      // Missing, expired or reset key: ask for it for the provider in use (the
+      // dialog also offers Tangent credit for a refused send, `blockedSends`).
       void this.refreshKeys();
       if (!this.ui.keysDialog()) {
-        this.ui.keysDialog.set({ provider: this.selectedBranch()?.providerId ?? null });
+        const branch = this.blockedBranch() ?? this.selectedBranch();
+        this.ui.keysDialog.set({ provider: branch?.providerId ?? null });
       }
     }
   }

@@ -173,6 +173,7 @@ export const MODE_LABEL = { path: 'full path', summary: 'summary', independent: 
           [disabled]="busy()"
           [busy]="streaming() !== null"
           [selected]="selected"
+          [initial]="store.unsentDrafts().get(b.id) ?? ''"
           (send)="send($event)"
           (stop)="stop()"
         />

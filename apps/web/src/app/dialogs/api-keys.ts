@@ -5,6 +5,7 @@ import {
   type ElementRef,
   inject,
   input,
+  type OnDestroy,
   type OnInit,
   signal,
   viewChild,
@@ -13,7 +14,7 @@ import { RouterLink } from '@angular/router';
 import { LEARN_KEY_PROVIDER, type ProviderInfo } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { formatMicros, Icon, Modal } from '@tangent/web-shared';
+import { formatMicros, Icon, KeyMissingNotice, Modal } from '@tangent/web-shared';
 import { feeSentence } from '../ui/credit';
 
 /**
@@ -23,13 +24,29 @@ import { feeSentence } from '../ui/credit';
  * it into an HttpOnly cookie this code can't read. Where the server offers
  * the built-in provider, its row shows the user's credit (shared with Learn)
  * and links to `/billing` to add more.
+ *
+ * Opened by a send the server refused for want of the branch's own key
+ * (`TreeStore.blockedSends`), it says so on top and offers to carry the
+ * branch on with Tangent credit; that, or saving the key, sends the message.
+ * Closed without either, nothing is sent and the message stays in the composer.
  */
 @Component({
   selector: 'app-api-keys',
-  imports: [Modal, Icon, RouterLink],
+  imports: [Modal, Icon, KeyMissingNotice, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal [heading]="credit() ? 'Keys & credit' : 'API keys'" (closed)="close()">
+      @if (store.blockedBranch(); as b) {
+        <app-key-missing-notice
+          [branchTitle]="b.title"
+          [providerLabel]="store.providerOf(b)?.label ?? b.providerId"
+          [credit]="store.creditRoute() !== null"
+          [balance]="balance()"
+          [keyForm]="enabled()"
+          [busy]="switching()"
+          (useCredit)="useCredit()"
+        />
+      }
       @if (store.keyStatus(); as status) {
         @if (!status.enabled) {
           <p class="notice">
@@ -85,7 +102,8 @@ import { feeSentence } from '../ui/credit';
       </ul>
       @if (credit() && store.billing(); as b) {
         <p class="muted small">
-          {{ fees(b) }} No key needed: pick “Tangent credit” as the provider.
+          {{ fees(b) }} No key needed: pick “Tangent credit” as the provider, for a new conversation
+          or any branch (its settings, also under the message box).
         </p>
       }
 
@@ -143,7 +161,7 @@ import { feeSentence } from '../ui/credit';
     </app-modal>
   `,
 })
-export class ApiKeys implements OnInit {
+export class ApiKeys implements OnInit, OnDestroy {
   protected readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
   /** Provider to preselect (e.g. the one a failed request needed). */
@@ -152,6 +170,8 @@ export class ApiKeys implements OnInit {
   private readonly keyInput = viewChild<ElementRef<HTMLInputElement>>('keyInput');
   protected readonly provider = signal('');
   protected readonly busy = signal(false);
+  /** "Continue on Tangent credit" is moving the branch. */
+  protected readonly switching = signal(false);
 
   protected readonly learnKey = LEARN_KEY_PROVIDER;
   protected readonly usd = formatMicros;
@@ -168,6 +188,11 @@ export class ApiKeys implements OnInit {
   protected readonly providerLabel = computed(
     () => this.keyProviders().find((p) => p.id === this.provider())?.label ?? 'the provider',
   );
+  /** The credit available, for the refused send's notice. */
+  protected readonly balance = computed(() => {
+    const b = this.store.billing();
+    return b ? formatMicros(b.availableMicros) : null;
+  });
 
   ngOnInit(): void {
     if (this.credit()) void this.store.refreshBilling();
@@ -178,8 +203,23 @@ export class ApiKeys implements OnInit {
     this.provider.set(pick?.id ?? '');
   }
 
+  /** However it closes (Close, Escape, a send carried on): nothing waits on it any more. */
+  ngOnDestroy(): void {
+    this.store.dropBlockedSends();
+  }
+
   protected close(): void {
     this.ui.keysDialog.set(null);
+  }
+
+  protected async useCredit(): Promise<void> {
+    if (this.switching()) return;
+    this.switching.set(true);
+    try {
+      await this.store.resumeOnCredit();
+    } finally {
+      this.switching.set(false);
+    }
   }
 
   protected async save(): Promise<void> {
@@ -192,7 +232,10 @@ export class ApiKeys implements OnInit {
     this.busy.set(true);
     const ok = await this.store.saveKey(this.provider(), apiKey);
     this.busy.set(false);
-    if (ok) this.ui.notify(`${this.providerLabel()} key saved`);
+    if (ok) {
+      this.ui.notify(`${this.providerLabel()} key saved`);
+      this.store.resumeAfterKey(this.provider());
+    }
   }
 
   protected async forget(provider?: string): Promise<void> {

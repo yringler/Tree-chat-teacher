@@ -115,11 +115,14 @@
         } @else {
           <app-composer
             [placeholder]="placeholder()"
+            [initial]="initialDraft()"
             [disabled]="store.busy()"
             [busy]="store.streamingNode() !== null"
             (send)="send($event)"
             (stop)="stop()"
           />
+          <!-- The branch's provider, payer and model: changeable before any send. -->
+          <app-route-bar />
         }
       </div>
     </section>

@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { plainText } from '@tangent/core';
 import {
+  isModelAllowed,
   parseRouteKey,
   providerRouteKey,
   routeKey,
@@ -134,13 +135,18 @@ export class BranchDialog implements OnInit {
 
   ngOnInit(): void {
     this.quote.set(this.state().quote ?? '');
-    // The parent's route, unless its funding needs the membership the user lacks:
-    // then the first route they can generate on (Tangent credit, which anyone can buy).
+    // The parent's route, unless its funding needs the membership the user lacks, or
+    // its own key isn't saved in this browser: then the default route of a new
+    // conversation (a provider with a key, else Tangent credit where it can pay or be
+    // bought), keeping the parent's model where that route serves it.
     const parent = this.parent();
-    const p = parent && !this.store.routeLocked(parent) ? parent : null;
+    const usable = parent && !this.store.routeLocked(parent) && !this.store.keyMissing(parent);
+    const p = usable ? parent : null;
     const fallback = this.store.defaultProvider();
     this.route.set(p ? routeKey(p) : fallback ? providerRouteKey(fallback) : '');
-    this.modelId.set(p?.model ?? fallback?.defaultModel ?? '');
+    const keepModel =
+      !p && parent && fallback?.id === parent.providerId && isModelAllowed(fallback, parent.model);
+    this.modelId.set(p?.model ?? (keepModel ? parent.model : fallback?.defaultModel) ?? '');
   }
 
   protected close(): void {

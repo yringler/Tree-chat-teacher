@@ -300,8 +300,11 @@ describe('LessonStore', () => {
     s.api.sendMessage.mockResolvedValue(live.response);
     const sending = s.store.send('trunk', 'What is light?');
     expect(s.store.busy()).toBe(true);
+    // The composer keeps the text until the message is in the lesson.
+    expect(s.ui.composerSent()).toBeNull();
 
     await vi.waitFor(() => expect(s.store.live().get('a1')?.status).toBe('Thinking…'));
+    expect(s.ui.composerSent()).toEqual({ seq: 1, text: 'What is light?' });
     expect(s.store.streamingNode()?.id).toBe('a1');
     expect(s.store.sendingBranchId()).toBeNull();
 
@@ -464,8 +467,27 @@ describe('LessonStore', () => {
     expect(s.ui.accessOpen()).toBe(true);
     expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error' });
     expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
-    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
+    expect(s.store.unsentDraft()).toEqual({
+      branchId: 'trunk',
+      text: 'What is light?',
+      needsKey: true,
+    });
     await vi.waitFor(() => expect(s.api.keyStatus).toHaveBeenCalled());
+
+    // A way to pay settled in the dialog: the refused message goes, once.
+    s.api.sendMessage.mockRejectedValue(new ApiError(409, 'conflict', 'Still generating'));
+    expect(s.store.resumeUnsent()).toBe(true);
+    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(2));
+    expect(s.api.sendMessage).toHaveBeenLastCalledWith(
+      'trunk',
+      { content: 'What is light?' },
+      expect.any(AbortSignal),
+    );
+    // Refused again for another reason: kept, but no longer waiting on a key.
+    await vi.waitFor(() =>
+      expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' }),
+    );
+    expect(s.store.resumeUnsent()).toBe(false);
   });
 
   it('402 membership_required on send: locks the own key, no toast, keeps the message', async () => {
@@ -655,7 +677,9 @@ describe('LessonStore', () => {
     await expect(s.store.send('trunk', 'Hi')).resolves.toBe(false);
     expect(s.router.navigate).not.toHaveBeenCalled();
     expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still generating' });
-    expect(s.store.unsentDraft()).toBeNull();
+    // Nothing was written: the message is offered back, not lost.
+    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'Hi' });
+    expect(s.ui.composerSent()).toBeNull();
   });
 
   it('"Ask about this" branches with the quote, path context and the current model', async () => {

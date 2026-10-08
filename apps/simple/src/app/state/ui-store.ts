@@ -23,6 +23,12 @@ export class UiStore {
   readonly linkDialog = signal<string | null>(null);
   /** Bumped to ask the composer to take focus. */
   readonly composerFocus = signal(0);
+  /**
+   * A message that reached the server (its reply started): a composer still
+   * holding exactly that text lets it go. Until then the text stays, so a
+   * refused or failed send never loses it.
+   */
+  readonly composerSent = signal<{ seq: number; text: string } | null>(null);
   private toastSeq = 0;
 
   notify(text: string, kind: Toast['kind'] = 'info'): void {
@@ -33,6 +39,10 @@ export class UiStore {
 
   dismiss(id: number): void {
     this.toasts.update((list) => list.filter((t) => t.id !== id));
+  }
+
+  markSent(text: string): void {
+    this.composerSent.update((cur) => ({ seq: (cur?.seq ?? 0) + 1, text }));
   }
 
   focusComposer(): void {

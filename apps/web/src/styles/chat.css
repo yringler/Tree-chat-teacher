@@ -597,6 +597,59 @@ app-link-dialog app-node-picker {
   opacity: 0.6;
 }
 
+/* Under the composer: the branch's provider, payer and model (chat/route-bar.ts). */
+
+.route-bar-host {
+  display: block;
+  max-width: 820px;
+  margin: 6px auto 0;
+}
+
+.route-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 0 4px;
+}
+
+.route-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.route-chip:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.route-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-chip.is-warn {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+  color: var(--fg);
+}
+
+.route-warn {
+  color: var(--warn);
+}
+
 /* Popover menu (export) */
 
 .menu-wrap {

@@ -94,6 +94,12 @@ export class UiStore {
   readonly relatedOpen = signal<ReadonlySet<string>>(new Set());
   /** Text for the composer to insert; `seq` makes repeated inserts of the same text distinct. */
   readonly composerInsert = signal<{ seq: number; text: string } | null>(null);
+  /**
+   * A message that reached the server (its reply started): a composer still
+   * holding exactly that text lets it go. Until then the text stays, so a
+   * refused or failed send never loses it.
+   */
+  readonly composerSent = signal<{ seq: number; text: string } | null>(null);
   /** Outline items the user collapsed (by branch id). */
   readonly collapsed = signal<ReadonlySet<string>>(new Set());
   /** Bumped to ask the composer to take focus. */
@@ -141,6 +147,10 @@ export class UiStore {
   /** Appends `text` to the composer draft and focuses it. */
   insertIntoComposer(text: string): void {
     this.composerInsert.update((cur) => ({ seq: (cur?.seq ?? 0) + 1, text }));
+  }
+
+  markSent(text: string): void {
+    this.composerSent.update((cur) => ({ seq: (cur?.seq ?? 0) + 1, text }));
   }
 
   anyDialogOpen(): boolean {

@@ -118,6 +118,14 @@ export { BILLING_SUMMARY_LISTENER } from './billing/billing-listener';
 export { MembershipCodeForm } from './billing/membership-code-form';
 export { ReadOnlyComposer } from './billing/read-only-composer';
 export {
+  addBlockedSend,
+  keyMissing,
+  KeyMissingNotice,
+  keyMissingText,
+  type BlockedSend,
+  type KeyMissingText,
+} from './billing/key-missing';
+export {
   LearnCopy,
   learnCopyWay,
   learnLessonHref,

@@ -31,6 +31,7 @@ import { ModeBadge } from '../ui/mode-badge';
 import { ChatHeader } from './chat-header';
 import { Composer } from './composer';
 import { MessageItem } from './message-item';
+import { RouteBar } from './route-bar';
 
 interface Entry {
   node: ChatNode;
@@ -50,6 +51,7 @@ interface Entry {
     ModeBadge,
     Inspector,
     ReadOnlyComposer,
+    RouteBar,
     RouterLink,
     SelectionAsk,
   ],
@@ -125,6 +127,12 @@ export class ChatPage implements OnDestroy {
     const node = q ? this.store.index()?.nodes.get(q.nodeId) : undefined;
     const branch = node ? this.store.index()?.branches.get(node.branchId) : undefined;
     return !!branch && this.store.routeLocked(branch);
+  });
+
+  /** A message of the open branch that couldn't be sent: the composer takes it back. */
+  protected readonly initialDraft = computed(() => {
+    const id = this.store.selectedBranchId();
+    return (id && this.store.unsentDrafts().get(id)) || '';
   });
 
   /** Pick mode, with what the message being linked from says (for the banner). */

@@ -11,6 +11,7 @@ import type {
   NodeLink,
   PoolStatusResponse,
   ProviderInfo,
+  StreamEvent,
   TreeDetail,
   UpdateBranchRequest,
 } from '@tangent/shared';
@@ -464,6 +465,154 @@ describe('TreeStore read-only power without a membership', () => {
     (s.api as unknown as { updateBranch: typeof updateBranch }).updateBranch = updateBranch;
     await expect(s.store.switchToCredit('trunk')).resolves.toBe(true);
     expect(s.store.readOnly()).toBe(false);
+  });
+
+  describe('a branch on the own key, with no key in this browser', () => {
+    const noKey: ProviderInfo = { ...ownKey, available: false, keySource: null };
+    const keyRequired = () =>
+      new ApiError(
+        401,
+        'key_required',
+        'Add your OpenRouter API key to continue this conversation.',
+      );
+    const sse = (events: StreamEvent[]): Response =>
+      new Response(events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''), {
+        headers: { 'content-type': 'text/event-stream' },
+      });
+
+    async function openNoKey() {
+      const s = setup();
+      s.api.providers.mockResolvedValue([noKey, credit]);
+      await s.store.init(me());
+      s.store.detail.set(tree());
+      s.store.setRoute('t1', null, null);
+      const sendMessage = vi.fn(
+        async (_b: string, _req: unknown, _signal: AbortSignal): Promise<Response> => {
+          throw keyRequired();
+        },
+      );
+      const updateBranch = vi.fn(async (id: string, req: UpdateBranchRequest) => ({
+        ...tree().branches.find((b) => b.id === id)!,
+        ...req,
+      }));
+      Object.assign(s.api, {
+        sendMessage,
+        updateBranch,
+        streamNode: vi.fn(),
+        saveKey: vi.fn(async () => undefined),
+      });
+      return { ...s, sendMessage, updateBranch };
+    }
+
+    it('says so before anything is sent', async () => {
+      const s = await openNoKey();
+      expect(s.store.readOnly()).toBe(false);
+      expect(s.store.keyMissing(s.store.selectedBranch()!)).toBe(true);
+      // Tangent credit never needs a key.
+      expect(s.store.keyMissing({ providerId: 'openrouter', funding: 'credit' })).toBe(false);
+    });
+
+    it('a refused send keeps the message and opens the keys dialog on the branch’s provider', async () => {
+      const s = await openNoKey();
+      await expect(s.store.send('trunk', 'Why primes?')).resolves.toBe(false);
+      expect(s.store.blockedSends()).toEqual([{ branchId: 'trunk', content: 'Why primes?' }]);
+      expect(s.store.blockedBranch()?.id).toBe('trunk');
+      expect(s.store.unsentDrafts().get('trunk')).toBe('Why primes?');
+      expect(s.ui.keysDialog()).toEqual({ provider: 'openrouter' });
+      // Nothing reached the tree: the composer keeps the text.
+      expect(s.ui.composerSent()).toBeNull();
+    });
+
+    it('"Continue on Tangent credit" moves the branch onto credit and sends the message there', async () => {
+      const s = await openNoKey();
+      await s.store.send('trunk', 'Why primes?');
+      s.sendMessage.mockImplementation(async () => sse([]));
+      await expect(s.store.resumeOnCredit()).resolves.toBe(true);
+      expect(s.updateBranch).toHaveBeenCalledWith('trunk', {
+        providerId: 'openrouter',
+        funding: 'credit',
+        model: 'a/b',
+      });
+      expect(s.store.selectedBranch()?.funding).toBe('credit');
+      expect(s.sendMessage).toHaveBeenLastCalledWith(
+        'trunk',
+        { content: 'Why primes?' },
+        expect.any(AbortSignal),
+      );
+      expect(s.store.blockedSends()).toEqual([]);
+      expect(s.ui.keysDialog()).toBeNull();
+    });
+
+    it('saving the key sends the waiting message on it', async () => {
+      const s = await openNoKey();
+      await s.store.send('trunk', 'Why primes?');
+      // Another provider's key carries nothing on.
+      s.store.resumeAfterKey('anthropic');
+      expect(s.sendMessage).toHaveBeenCalledTimes(1);
+
+      s.api.providers.mockResolvedValue([ownKey, credit]);
+      s.sendMessage.mockImplementation(async () => sse([]));
+      await expect(s.store.saveKey('openrouter', 'sk-or-1')).resolves.toBe(true);
+      s.store.resumeAfterKey('openrouter');
+      expect(s.sendMessage).toHaveBeenCalledTimes(2);
+      expect(s.sendMessage).toHaveBeenLastCalledWith(
+        'trunk',
+        { content: 'Why primes?' },
+        expect.any(AbortSignal),
+      );
+      expect(s.store.blockedSends()).toEqual([]);
+      expect(s.ui.keysDialog()).toBeNull();
+    });
+
+    it('closing the dialog sends nothing and leaves the text for the composer', async () => {
+      const s = await openNoKey();
+      await s.store.send('trunk', 'Why primes?');
+      s.store.dropBlockedSends();
+      expect(s.store.blockedSends()).toEqual([]);
+      expect(s.store.unsentDrafts().get('trunk')).toBe('Why primes?');
+      expect(s.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('any failure before the reply starts keeps the text; a started reply lets it go', async () => {
+      const s = await openNoKey();
+      s.sendMessage.mockRejectedValueOnce(new ApiError(0, 'network', 'Network error'));
+      await s.store.send('side', 'And twins?');
+      expect(s.store.unsentDrafts().get('side')).toBe('And twins?');
+      expect(s.store.blockedSends()).toEqual([]);
+
+      const at = '2026-10-01T00:00:00.000Z';
+      const userNode: ChatNode = {
+        id: 'u9',
+        treeId: 't1',
+        branchId: 'side',
+        parentId: 'n2',
+        seq: 2,
+        role: 'user',
+        content: 'And twins?',
+        status: 'complete',
+        error: null,
+        providerId: null,
+        model: null,
+        usage: null,
+        createdAt: at,
+      };
+      const reply: ChatNode = { ...userNode, id: 'a9', role: 'assistant', content: '' };
+      const side = tree().branches[1]!;
+      s.sendMessage.mockImplementation(async () =>
+        sse([
+          {
+            type: 'start',
+            userNode,
+            assistantNode: { ...reply, status: 'streaming' },
+            branch: side,
+          },
+          { type: 'done', node: { ...reply, content: 'Yes.' }, branch: side },
+        ]),
+      );
+      await s.store.send('side', 'And twins?');
+      expect(s.store.unsentDrafts().has('side')).toBe(false);
+      expect(s.ui.composerSent()).toEqual({ seq: 1, text: 'And twins?' });
+    });
   });
 });
 
