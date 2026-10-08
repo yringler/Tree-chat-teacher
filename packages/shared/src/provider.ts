@@ -107,6 +107,17 @@ export interface ProviderError {
 }
 
 /**
+ * Token usage as a provider reports it: the totals, plus the prompt-cache
+ * share of the input when the upstream reports it (absent = not reported).
+ */
+export interface ProviderUsage extends TokenUsage {
+  /** Input tokens read from the prompt cache; included in `inputTokens`. */
+  cacheReadTokens: number;
+  /** Input tokens written to the prompt cache; included in `inputTokens`. */
+  cacheWriteTokens: number;
+}
+
+/**
  * One event type for streaming, usage, completion and failure.
  *
  * Contract for `LlmProvider.stream`:
@@ -125,7 +136,7 @@ export interface ProviderError {
  */
 export type ProviderEvent =
   | { type: 'delta'; text: string }
-  | { type: 'usage'; usage: Partial<TokenUsage> }
+  | { type: 'usage'; usage: Partial<ProviderUsage> }
   | { type: 'billing'; generationId?: string; costUsd?: number; webSearches?: number }
   | { type: 'citations'; citations: Citation[] }
   | { type: 'activity'; kind: 'web_search' }

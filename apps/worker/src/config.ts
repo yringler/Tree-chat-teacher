@@ -53,12 +53,19 @@ const POOL_TTL_SLACK_MS = 60_000;
  * model's context window: the input bound of the reply's ceiling hold.
  * `feeBps` grosses the price up like OPENROUTER_FEE_BPS does for reported
  * costs (default: that var); 0 for a provider billed directly.
+ * Prompt caching: `cacheReadMicrosPerMTok` prices input tokens read from the
+ * cache, `cacheWriteMicrosPerMTok` those written to it (Anthropic: 1.25× the
+ * input price). Unset, a read costs the input price (never less than the
+ * truth) and a write too, except on explicit-cache models, which
+ * `pool/model-prices.ts` gives the write premium.
  */
 export interface ModelPrice {
   inMicrosPerMTok: number;
   outMicrosPerMTok: number;
   contextTokens: number;
   feeBps?: number;
+  cacheReadMicrosPerMTok?: number;
+  cacheWriteMicrosPerMTok?: number;
 }
 
 /**
@@ -253,7 +260,10 @@ export function jsonVar<T>(
 
 const nonNegativeInt = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
-/** `MODEL_PRICES`: `{"<model>": {"in": µ$/MTok, "out": µ$/MTok, "context": tokens, "feeBps"?: bps}}`. */
+/**
+ * `MODEL_PRICES`: `{"<model>": {"in": µ$/MTok, "out": µ$/MTok, "context": tokens,
+ * "feeBps"?: bps, "cacheRead"?: µ$/MTok, "cacheWrite"?: µ$/MTok}}`.
+ */
 const modelPricesSchema = z.record(
   z.string().min(1),
   z.strictObject({
@@ -261,6 +271,8 @@ const modelPricesSchema = z.record(
     out: nonNegativeInt,
     context: nonNegativeInt.positive(),
     feeBps: nonNegativeInt.optional(),
+    cacheRead: nonNegativeInt.optional(),
+    cacheWrite: nonNegativeInt.optional(),
   }),
 );
 
@@ -276,6 +288,8 @@ function parsePrices(raw: string | undefined): {
       outMicrosPerMTok: p.out,
       contextTokens: p.context,
       ...(p.feeBps !== undefined ? { feeBps: p.feeBps } : {}),
+      ...(p.cacheRead !== undefined ? { cacheReadMicrosPerMTok: p.cacheRead } : {}),
+      ...(p.cacheWrite !== undefined ? { cacheWriteMicrosPerMTok: p.cacheWrite } : {}),
     };
   }
   return { prices, overrides: Object.keys(overrides) };

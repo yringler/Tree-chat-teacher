@@ -17,6 +17,13 @@
 // costs and trip the overage breaker. An operator who confirms such a drop
 // sets it in `MODEL_PRICES`. A failed fetch, or a model missing from the list,
 // keeps the stored price.
+//
+// Prompt caching: the sync stores input and output prices only. A cache-write
+// price comes from `MODEL_PRICES` (`cacheWrite`), else for explicit-cache
+// (Anthropic) models it is 1.25× the input price (`withCacheWritePrice`); an
+// unset cache-read price is the input price. Both only matter for holds and
+// token-priced settlements: a reported or looked-up cost already includes them.
+import { EXPLICIT_CACHE_WRITE_MULTIPLIER, usesExplicitCacheControl } from '@tangent/providers';
 import { appConfig, type ModelPrice } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { poolModel } from './params.js';
@@ -138,16 +145,16 @@ export async function modelPrice(env: AppEnv, model: string): Promise<ModelPrice
   const config = appConfig(env);
   const entry = config.prices[model];
   if (!entry) return null;
-  if (config.priceOverrides.includes(model)) return entry;
+  if (config.priceOverrides.includes(model)) return withCacheWritePrice(model, entry);
   let synced: ListPrice | null;
   try {
     synced = await storedPrice(env.DB, model);
   } catch (e) {
     console.error(`Synced price of ${model} could not be read; using the configured one`, e);
-    return entry;
+    return withCacheWritePrice(model, entry);
   }
-  if (!synced) return entry;
-  return {
+  if (!synced) return withCacheWritePrice(model, entry);
+  return withCacheWritePrice(model, {
     ...entry,
     inMicrosPerMTok: synced.inMicrosPerMTok,
     outMicrosPerMTok: synced.outMicrosPerMTok,
@@ -155,6 +162,20 @@ export async function modelPrice(env: AppEnv, model: string): Promise<ModelPrice
       synced.contextTokens === null
         ? entry.contextTokens
         : Math.min(entry.contextTokens, synced.contextTokens),
+  });
+}
+
+/**
+ * `price` with a cache-write price: its own, else, for a model whose requests
+ * carry explicit cache breakpoints (Anthropic's), the input price × 1.25
+ * (rounded up), so holds and token-priced charges cover the write premium.
+ * Other models write at the input price (or free), so they need none.
+ */
+export function withCacheWritePrice(model: string, price: ModelPrice): ModelPrice {
+  if (price.cacheWriteMicrosPerMTok !== undefined || !usesExplicitCacheControl(model)) return price;
+  return {
+    ...price,
+    cacheWriteMicrosPerMTok: Math.ceil(price.inMicrosPerMTok * EXPLICIT_CACHE_WRITE_MULTIPLIER),
   };
 }
 

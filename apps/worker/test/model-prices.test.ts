@@ -4,6 +4,7 @@ import { DEFAULT_MODEL_PRICES } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import {
   modelPrice,
+  withCacheWritePrice,
   OPENROUTER_MODELS_URL,
   parseListPrices,
   storedPrice,
@@ -281,6 +282,38 @@ describe('modelPrice', () => {
       contextTokens: 1000,
       feeBps: 0,
     });
+  });
+
+  it('gives explicit-cache (Anthropic) models the cache-write premium unless configured', async () => {
+    const SONNET = 'anthropic/claude-sonnet-5.5';
+    const priced = {
+      ...env,
+      MODEL_PRICES: JSON.stringify({
+        [SONNET]: { in: 2_000_001, out: 10_000_000, context: 200_000 },
+        'anthropic/claude-haiku-5.5': {
+          in: 100_000,
+          out: 500_000,
+          context: 200_000,
+          cacheWrite: 120_000,
+          cacheRead: 10_000,
+        },
+      }),
+    } as AppEnv;
+    expect(await modelPrice(priced, SONNET)).toEqual({
+      inMicrosPerMTok: 2_000_001,
+      outMicrosPerMTok: 10_000_000,
+      contextTokens: 200_000,
+      cacheWriteMicrosPerMTok: 2_500_002, // ⌈2_000_001 × 1.25⌉
+    });
+    expect(await modelPrice(priced, 'anthropic/claude-haiku-5.5')).toMatchObject({
+      cacheReadMicrosPerMTok: 10_000,
+      cacheWriteMicrosPerMTok: 120_000,
+    });
+    // Automatic-cache models write at the input price: no premium.
+    expect(await modelPrice(env, FLASH)).not.toHaveProperty('cacheWriteMicrosPerMTok');
+    expect(withCacheWritePrice('google/gemini-3-pro', DEFAULT_MODEL_PRICES[FLASH]!)).toEqual(
+      DEFAULT_MODEL_PRICES[FLASH],
+    );
   });
 
   it('is null for a model with no configured entry, even when synced', async () => {

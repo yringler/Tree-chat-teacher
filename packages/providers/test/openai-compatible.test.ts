@@ -360,7 +360,7 @@ describe('openai-compatible billing (OpenRouter)', () => {
       { type: 'billing', generationId: 'gen-from-header' },
       { type: 'delta', text: 'Hi' },
       { type: 'delta', text: '!' },
-      { type: 'usage', usage: { inputTokens: 42, outputTokens: 7 } },
+      { type: 'usage', usage: { inputTokens: 42, outputTokens: 7, cacheReadTokens: 0 } },
       { type: 'billing', costUsd: 0.00000245 },
       { type: 'done', stopReason: 'stop' },
     ]);
@@ -563,5 +563,153 @@ describe('openai-compatible web search (OpenRouter)', () => {
     const events = await collect(provider.stream(req({ webSearch })));
     expect(calls[0]!.body['tools']).toBeUndefined();
     expect(events.some((e) => e.type === 'citations' || e.type === 'activity')).toBe(false);
+  });
+});
+
+describe('openai-compatible prompt caching', () => {
+  const BP = { type: 'ephemeral' };
+  const HISTORY = {
+    system: 'You are a patient tutor.',
+    messages: [
+      { role: 'user' as const, content: 'What is a derivative?' },
+      { role: 'assistant' as const, content: 'The rate of change of a function.' },
+      { role: 'user' as const, content: 'And an integral?' },
+    ],
+  };
+  const MARKED = [
+    {
+      role: 'system',
+      content: [{ type: 'text', text: 'You are a patient tutor.', cache_control: BP }],
+    },
+    { role: 'user', content: 'What is a derivative?' },
+    { role: 'assistant', content: 'The rate of change of a function.' },
+    { role: 'user', content: [{ type: 'text', text: 'And an integral?', cache_control: BP }] },
+  ];
+  const PLAIN = [
+    { role: 'system', content: 'You are a patient tutor.' },
+    { role: 'user', content: 'What is a derivative?' },
+    { role: 'assistant', content: 'The rate of change of a function.' },
+    { role: 'user', content: 'And an integral?' },
+  ];
+
+  async function sentMessages(config: ProviderConfig, overrides: Partial<GenerateRequest>) {
+    const { provider, calls } = setup(config, () => sseResponse(OPENROUTER_STREAM).response);
+    await collect(provider.stream(req({ ...HISTORY, ...overrides })));
+    return calls[0]!.body['messages'];
+  }
+
+  it.each(['anthropic/claude-sonnet-5.5', '~anthropic/claude-sonnet-latest'])(
+    'marks the system prompt and the latest message for %s on OpenRouter',
+    async (model) => {
+      expect(await sentMessages(OPENROUTER, { model })).toEqual(MARKED);
+    },
+  );
+
+  it('marks through the AI Gateway OpenRouter route', async () => {
+    const gateway = {
+      ...OPENROUTER,
+      baseUrl: 'https://gateway.ai.cloudflare.com/v1/acct/gw/openrouter',
+    };
+    expect(await sentMessages(gateway, { model: 'anthropic/claude-sonnet-5.5' })).toEqual(MARKED);
+  });
+
+  it.each(['deepseek/deepseek-v4-pro', 'openai/gpt-5', 'google/gemini-3-pro', 'x-ai/grok-4'])(
+    'sends plain string content for %s (automatic caching)',
+    async (model) => {
+      expect(await sentMessages(OPENROUTER, { model })).toEqual(PLAIN);
+    },
+  );
+
+  it('never marks on other endpoints, even for anthropic/ model ids', async () => {
+    const other = { ...OPENAI, baseUrl: 'https://llm.example.com/v1' };
+    expect(await sentMessages(other, { model: 'anthropic/claude-sonnet-5.5' })).toEqual(PLAIN);
+    expect(await sentMessages(OPENAI, { model: 'gpt-5' })).toEqual(PLAIN);
+  });
+
+  it('options.promptCache false disables it; true enables it on any endpoint', async () => {
+    const off = { ...OPENROUTER, options: { promptCache: false } };
+    expect(await sentMessages(off, { model: 'anthropic/claude-sonnet-5.5' })).toEqual(PLAIN);
+    const on = {
+      ...OPENAI,
+      baseUrl: 'https://proxy.example.com/v1',
+      options: { promptCache: true },
+    };
+    expect(await sentMessages(on, { model: 'anthropic/claude-sonnet-5.5' })).toEqual(MARKED);
+    expect(await sentMessages(on, { model: 'deepseek/deepseek-v4-pro' })).toEqual(PLAIN);
+  });
+
+  it('marks only the latest message without a system prompt', async () => {
+    expect(
+      await sentMessages(OPENROUTER, { model: 'anthropic/claude-sonnet-5.5', system: null }),
+    ).toEqual(MARKED.slice(1));
+  });
+
+  it('keeps a breakpoint on a folded system prompt only when it is the latest message', async () => {
+    const folded = { ...OPENROUTER, supportsSystemPrompt: false };
+    expect(
+      await sentMessages(folded, {
+        model: 'anthropic/claude-sonnet-5.5',
+        messages: [{ role: 'user', content: 'Hi' }],
+      }),
+    ).toEqual([
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'You are a patient tutor.\n\nHi', cache_control: BP }],
+      },
+    ]);
+    expect(await sentMessages(folded, { model: 'anthropic/claude-sonnet-5.5' })).toEqual([
+      { role: 'user', content: 'You are a patient tutor.\n\nWhat is a derivative?' },
+      MARKED[2],
+      MARKED[3],
+    ]);
+  });
+
+  it('leaves an empty latest message as a string (an empty block cannot be marked)', async () => {
+    const messages = [{ role: 'user' as const, content: '' }];
+    expect(
+      await sentMessages(OPENROUTER, { model: 'anthropic/claude-sonnet-5.5', messages }),
+    ).toEqual([MARKED[0], { role: 'user', content: '' }]);
+  });
+
+  it('reports cache reads and writes from prompt_tokens_details', async () => {
+    const stream = [
+      chunk({ content: 'Hi' }),
+      chunk({}, 'stop'),
+      chunk({}, null, {
+        usage: {
+          prompt_tokens: 5000,
+          completion_tokens: 10,
+          prompt_tokens_details: { cached_tokens: 3800, cache_write_tokens: 1150 },
+          cost: 0.002,
+        },
+      }),
+      'data: [DONE]\n\n',
+    ];
+    const { provider } = setup(OPENROUTER, () => sseResponse(stream).response);
+    const events = await collect(provider.stream(req({ model: 'anthropic/claude-sonnet-5.5' })));
+    expect(events).toContainEqual({
+      type: 'usage',
+      usage: { inputTokens: 5000, outputTokens: 10, cacheReadTokens: 3800, cacheWriteTokens: 1150 },
+    });
+  });
+
+  it("reports DeepSeek's prompt_cache_hit_tokens as cache reads", async () => {
+    const stream = [
+      chunk({}, 'stop'),
+      chunk({}, null, {
+        usage: {
+          prompt_tokens: 900,
+          completion_tokens: 4,
+          prompt_cache_hit_tokens: 640,
+          prompt_cache_miss_tokens: 260,
+        },
+      }),
+      'data: [DONE]\n\n',
+    ];
+    const { provider } = setup(OPENAI, () => sseResponse(stream).response);
+    expect(await collect(provider.stream(req()))).toContainEqual({
+      type: 'usage',
+      usage: { inputTokens: 900, outputTokens: 4, cacheReadTokens: 640 },
+    });
   });
 });
