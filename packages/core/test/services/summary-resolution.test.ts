@@ -34,6 +34,41 @@ describe('ChatService summary resolution', () => {
     const plan = await chat.planContext(deepest, null, { resolveSummaries: false });
     expect(plan.plan.complete).toBe(true);
   });
+
+  it('resolves every level of a deep uncached chain, and its compaction, in one send', async () => {
+    const { chat, provider, repos } = setup({ autoTitle: false, maxInputTokens: 3000 });
+    const deepest = await nestedSummaryBranches(chat, 4);
+    for (let i = 0; i < 8; i++) await send(chat, deepest, `q${i} ${'x'.repeat(1390)}`);
+    repos.dump().summaries.clear();
+    provider.calls.length = 0;
+
+    const { events } = await send(chat, deepest, `last ${'x'.repeat(1390)}`);
+    // Inner first, a level per round: four branch summaries, then the
+    // compaction that holds the outermost of them.
+    expect(provider.summaryCalls()).toHaveLength(5);
+    expect(events).not.toContainEqual({ type: 'status', message: SUMMARY_MISSING });
+    const plan = await chat.planContext(deepest, null, { resolveSummaries: false });
+    expect(plan.plan.compaction).not.toBeNull();
+    expect(plan.plan.complete).toBe(true);
+  });
+
+  it('stops at 16 summaries in one send, warns, and goes on from the cache next time', async () => {
+    const { chat, provider, repos } = setup({ autoTitle: false });
+    const deepest = await nestedSummaryBranches(chat, 20);
+    repos.dump().summaries.clear();
+    provider.calls.length = 0;
+
+    const first = await send(chat, deepest, 'Q1');
+    expect(provider.summaryCalls()).toHaveLength(16);
+    // The outer summaries are still pending (not failed): sent without them.
+    expect(first.events).toContainEqual({ type: 'status', message: SUMMARY_MISSING });
+    expect(provider.chatCalls().at(-1)!.system ?? '').not.toContain('SUMMARY(');
+
+    const second = await send(chat, deepest, 'Q2');
+    expect(provider.summaryCalls()).toHaveLength(20);
+    expect(second.events).not.toContainEqual({ type: 'status', message: SUMMARY_MISSING });
+    expect(provider.chatCalls().at(-1)!.system ?? '').toContain('SUMMARY(');
+  });
 });
 
 describe('ChatService failed compaction', () => {
