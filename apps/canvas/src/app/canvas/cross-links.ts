@@ -27,7 +27,7 @@ function isOn(
 /**
  * The lines between linked messages (NodeLink), in world coordinates under
  * the lanes, after the fork connectors. A thin solid line in its own colour
- * (dashes and dots already say "summary" and "independent"), stronger where
+ * (dashes and dots already say "summary", "parent message" and "independent"), stronger where
  * it touches the selected lane or the focused card, dimmed where an end is
  * folded away. Not a hit target: the glyph on top (CrossLinkGlyphs) is.
  */

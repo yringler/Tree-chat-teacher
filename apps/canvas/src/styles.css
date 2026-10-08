@@ -415,6 +415,11 @@
   stroke-dasharray: 9 7;
 }
 
+.link-message {
+  stroke: var(--mode-message);
+  stroke-dasharray: 10 5 2 5;
+}
+
 .link-independent {
   stroke: var(--mode-independent);
   stroke-dasharray: 2 6;
@@ -736,6 +741,10 @@
 
 .mode-head-summary {
   border-top-color: var(--mode-summary);
+}
+
+.mode-head-message {
+  border-top-color: var(--mode-message);
 }
 
 .mode-head-independent {
@@ -1178,6 +1187,10 @@
   border-left: 3px solid var(--mode-summary);
 }
 
+.mode-chip-message {
+  border-left: 3px solid var(--mode-message);
+}
+
 .mode-chip-independent {
   border-left: 3px solid var(--mode-independent);
 }
@@ -1226,6 +1239,11 @@
 
 .mode-fill-summary {
   fill: var(--mode-summary);
+  opacity: 0.35;
+}
+
+.mode-fill-message {
+  fill: var(--mode-message);
   opacity: 0.35;
 }
 
@@ -1337,6 +1355,19 @@ app-node-picker {
 .legend-summary {
   border-top-color: var(--mode-summary);
   border-top-style: dashed;
+}
+
+/* Dash-dot, like the connector: borders have no such style, so it is painted. */
+.legend-message {
+  height: 3px;
+  border-top: 0;
+  background: repeating-linear-gradient(
+    to right,
+    var(--mode-message) 0 10px,
+    transparent 10px 15px,
+    var(--mode-message) 15px 17px,
+    transparent 17px 22px
+  );
 }
 
 .legend-independent {

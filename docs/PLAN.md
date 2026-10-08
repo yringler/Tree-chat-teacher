@@ -148,7 +148,7 @@ The code is the source of truth. The signatures are abbreviated here.
 ```ts
 type Role = 'user' | 'assistant' | 'system';
 type NodeStatus = 'streaming' | 'complete' | 'error';
-type ContextMode = 'path' | 'summary' | 'independent';
+type ContextMode = 'path' | 'summary' | 'message' | 'independent';
 interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
@@ -223,8 +223,8 @@ interface Share {
 
 ```ts
 interface ChatMessage { role: 'user' | 'assistant'; content: string }
-type InclusionReason = 'tree-system-prompt' | 'system-node' | 'path-ancestor' | 'branch-message'
-  | 'branch-summary' | 'budget-compaction' | 'anchor-quote';
+type InclusionReason = 'tree-system-prompt' | 'system-node' | 'path-ancestor' | 'branch-point-message'
+  | 'branch-message' | 'branch-summary' | 'budget-compaction' | 'anchor-quote';
 // Every segment has: id, kind, reason, explanation, sourceNodeIds[], viaBranchId, tokens
 type ContextSegment =
   | SystemSegment          { kind: 'system'; text }
@@ -389,6 +389,7 @@ ctx(i)  = prefix(i) ++ anchor(Bi) ++ own(Bi)          for i ≥ 1
 prefix(i) = match Bi.contextMode
   'path'        → ctx(i-1)                              // transparent: inherit what the parent saw
   'summary'     → [ summary( flatten(ctx(i-1)), focus = Bi.anchorQuote ) ]
+  'message'     → [ last(own(B(i-1))) ]                 // the branch-point node only
   'independent' → []                                    // hard boundary
 anchor(Bi) = Bi.anchorQuote ? [AnchorSegment] : []      // in every mode
 plan.segments = [treeSystemPrompt?] ++ ctx(k)           // then the budget pass
@@ -399,13 +400,14 @@ Resulting semantics:
 - **The trunk stays trim.** `ctx(i)` only ever looks up the chain, never at siblings or descendants.
 - **`path` is compositional.** A `path` branch continues exactly what its parent branch would have sent at the branch point. It does not re-expand content that an ancestor `summary` or `independent` branch deliberately dropped. For example, a `path` branch under a `summary` branch under the trunk sends [summary of trunk up to P1] + [anchor1] + [summary-branch messages up to P2] + [anchor2] + [own messages].
 - **`summary` summarizes the parent's effective context**, which may itself contain a summary. Nested summaries therefore compose, and the inner one is simply part of the transcript being summarized.
+- **`message`** sends only the branch-point node as the parent saw it (an `ancestor` segment, reason `branch-point-message`), then the anchor quote and its own messages. Nothing else from the chain survives, so a summary-mode ancestor needs no summary call. A skipped branch point (in-flight or failed reply) sends nothing.
 - **`independent`** sends only the anchor quote (the topic) and its own messages. The tree's system prompt is still included, because it is tree-wide configuration, not conversation content.
 - **System-role nodes** on the path become `system` segments (reason `system-node`) where they are inherited. They are never summarized.
 - Nodes with status `streaming`/`error` and empty content are skipped. This covers an in-flight or failed reply.
 
 ### 4.2 Segment typing and provenance
 
-- Nodes of the target branch become `branch` segments (reason `branch-message`). Inherited nodes become `ancestor` segments (reason `path-ancestor`, `viaBranchId` = the owning branch).
+- Nodes of the target branch become `branch` segments (reason `branch-message`). Inherited nodes become `ancestor` segments (reason `path-ancestor`, or `branch-point-message` for the node a `message` branch forks from; `viaBranchId` = the owning branch).
 - A branch summary is a `summary` segment with purpose `branch`, `viaBranchId` = the summary-mode branch, and `sourceNodeIds` = every node the summarized transcript came from.
 - A compaction summary is a `summary` segment with purpose `compaction`.
 - Each segment has an `explanation` string for the inspector, e.g. "Inherited from ‘Trunk’ via path mode".

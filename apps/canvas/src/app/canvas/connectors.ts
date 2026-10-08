@@ -5,8 +5,9 @@ import { CanvasStore } from '../state/canvas-store';
 /**
  * The curves from each fork card to the lane that hangs off it, drawn in
  * world coordinates under the lanes. Their stroke says how the child inherits
- * context: solid for the full path, dashed for a summary, dotted (and cut
- * short of the lane) for an independent lane. Curves on the selected lane's
+ * context: solid for the full path, dashed for a summary, dash-dot for the
+ * parent message only, dotted (and cut short of the lane) for an independent
+ * lane. Curves on the selected lane's
  * ancestry are stronger.
  */
 @Component({

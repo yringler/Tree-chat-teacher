@@ -123,7 +123,9 @@ const MAX_VARIANTS = 6;
               type="button"
               class="btn btn-ghost btn-sm"
               title="One lane per context mode: see how much context changes the answer"
-              [disabled]="variants().length + 2 > max"
+              [disabled]="
+                missingModes().length === 0 || variants().length + missingModes().length > max
+              "
               (click)="addEveryMode()"
             >
               Every context mode
@@ -232,10 +234,15 @@ export class BranchDialog implements OnInit {
     this.variants.update((list) => [...list, { ...(last ?? this.fresh('path')), key: ++this.seq }]);
   }
 
-  /** Adds the two modes not yet present (keeping the rows that are). */
-  protected addEveryMode(): void {
+  /** Context modes no variant row uses yet. */
+  protected readonly missingModes = computed(() => {
     const have = new Set(this.variants().map((v) => v.contextMode));
-    const missing = CONTEXT_MODES.filter((m) => !have.has(m));
+    return CONTEXT_MODES.filter((m) => !have.has(m));
+  });
+
+  /** Adds the modes not yet present (keeping the rows that are). */
+  protected addEveryMode(): void {
+    const missing = this.missingModes();
     this.variants.update((list) => [...list, ...missing.map((m) => this.fresh(m))]);
   }
 

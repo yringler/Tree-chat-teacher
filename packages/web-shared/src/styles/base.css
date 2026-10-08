@@ -29,6 +29,8 @@
   --mode-path-soft: #e6eefc;
   --mode-summary: #a15c00;
   --mode-summary-soft: #fcefd9;
+  --mode-message: #0f7a70;
+  --mode-message-soft: #ddf2ef;
   --mode-independent: #7a45c7;
   --mode-independent-soft: #f0e8fb;
   --radius: 10px;
@@ -66,6 +68,8 @@
     --mode-path-soft: #1d2a42;
     --mode-summary: #e7b35a;
     --mode-summary-soft: #3a2d14;
+    --mode-message: #5cc6b9;
+    --mode-message-soft: #15302c;
     --mode-independent: #b893f0;
     --mode-independent-soft: #2e2242;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.45);
@@ -373,6 +377,11 @@ hr {
   color: var(--mode-summary);
 }
 
+.mode-message {
+  background: var(--mode-message-soft);
+  color: var(--mode-message);
+}
+
 .mode-independent {
   background: var(--mode-independent-soft);
   color: var(--mode-independent);
@@ -384,6 +393,10 @@ hr {
 
 .mode-text-summary {
   color: var(--mode-summary);
+}
+
+.mode-text-message {
+  color: var(--mode-message);
 }
 
 .mode-text-independent {

@@ -7,6 +7,7 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 - Each branch has a **context mode** that decides what the model sees:
   - `path`: everything its parent saw, plus the branch's own messages.
   - `summary`: a cached summary of the parent context.
+  - `message`: only the message the branch forks from, plus the highlighted quote.
   - `independent`: only the highlighted quote or topic.
 - The **Context Inspector** shows exactly what will be sent to the model, and why.
 - **Review up to here** (on any assistant reply, or `v`) sends the conversation, as the model saw it, to a reviewer model of your choice (default in **Settings**). The reviewer lists corrections and says whether to continue on a stronger model. One click moves the branch to the reviewer's model, branches off on it, or puts the corrections in the message box.
@@ -38,7 +39,7 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 
 A third UI, **Tangent Canvas** at `/canvas/` (`apps/canvas`), takes branching as far as it goes. It is a view of the **power** account's conversations (same account `p_<userId>`, same keys, same API, no header of its own), so anything started in Power mode can be opened on the canvas and the other way round. Instead of one branch at a time:
 
-- **Every branch is a lane on one pannable, zoomable surface.** A lane hangs to the right of the message it forks from, connected by a curve whose stroke is its context mode (solid for `path`, dashed for `summary`, dotted and cut short for `independent`). The layout is a contour sweep in `apps/canvas/src/app/layout/layout.ts` over the lanes' measured heights.
+- **Every branch is a lane on one pannable, zoomable surface.** A lane hangs to the right of the message it forks from, connected by a curve whose stroke is its context mode (solid for `path`, dashed for `summary`, dash-dot for `message`, dotted and cut short for `independent`). The layout is a contour sweep in `apps/canvas/src/app/layout/layout.ts` over the lanes' measured heights.
 - **Every lane has its own message box and streams on its own.** Any number of lanes can generate at once (the server only refuses a send into a branch whose last reply is still streaming); the bar counts how many are writing.
 - **Branch into variants.** The branch button on any message opens one lane, or several at once, each with its own context mode and model, and an optional starting message sent to all of them in parallel ("Every context mode" opens the same question three ways, side by side). There is no title field: a single lane is named after its first reply, several are named by model and mode.
 - **Ask your own.** Under a finished reply, after its suggested tangents (or on its own), **Ask your own question…** grows into a few lines when clicked; Enter asks it in a new `path` lane (Shift+Enter for a new line, Escape folds it), and its gear opens the branch dialog with the question as the starting message, for other modes, models or variants. On the selected lane's last reply it is already open (without taking focus), until folded.

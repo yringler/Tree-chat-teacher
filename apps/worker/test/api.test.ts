@@ -106,7 +106,7 @@ describe('owner API', () => {
     if (start?.type !== 'start') throw new Error('no start');
     const fork = start.assistantNode.id;
 
-    const modes = ['path', 'summary', 'independent'] as const;
+    const modes = ['path', 'summary', 'message', 'independent'] as const;
     const branches: Branch[] = [];
     for (const contextMode of modes) {
       branches.push(
@@ -126,7 +126,7 @@ describe('owner API', () => {
     const plans = await Promise.all(
       branches.map((b) => ok<ContextPlanResponse>(call(`/api/branches/${b.id}/context`))),
     );
-    const [path, summary, independent] = plans;
+    const [path, summary, message, independent] = plans;
     expect(JSON.stringify(path!.rendered)).toContain('TRUNK-CONTENT');
     expect(summary!.plan.segments.some((s) => s.kind === 'summary' && s.status === 'ready')).toBe(
       true,
@@ -134,11 +134,21 @@ describe('owner API', () => {
     expect(JSON.stringify(summary!.rendered.messages)).not.toContain('TRUNK-CONTENT');
     expect(JSON.stringify(independent!.rendered)).not.toContain('TRUNK-CONTENT');
     expect(independent!.rendered.system).toContain('the quote');
+    // Message mode sends the reply it forks from, but not the question before it.
+    const point = message!.plan.segments.find((s) => s.reason === 'branch-point-message');
+    if (point?.kind !== 'ancestor') throw new Error('no branch-point message');
+    expect(point.nodeId).toBe(fork);
+    expect(message!.rendered.messages.slice(0, 3)).toEqual([
+      { role: 'user', content: '(Conversation continues.)' },
+      { role: 'assistant', content: point.text },
+      { role: 'user', content: 'in message' },
+    ]);
+    expect(message!.rendered.system).toContain('the quote');
     // Siblings never see each other.
     expect(JSON.stringify(path!.rendered)).not.toContain('in independent');
     // The trunk stays trim.
     const trunkPlan = await ok<ContextPlanResponse>(call(`/api/branches/${trunk}/context`));
-    expect(JSON.stringify(trunkPlan.rendered)).not.toMatch(/in (path|summary|independent)/);
+    expect(JSON.stringify(trunkPlan.rendered)).not.toMatch(/in (path|summary|message|independent)/);
   });
 
   it('rejects a concurrent send in the same branch with 409', async () => {

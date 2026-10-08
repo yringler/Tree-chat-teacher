@@ -6,7 +6,7 @@ import { sha256Hex } from '../../src/hash.js';
 import { estimateTokens, MESSAGE_OVERHEAD_TOKENS } from '../../src/tokens.js';
 import { charTokens, describe, Fixture, resolveAll, summarySegments } from './fixtures.js';
 
-const MODES: ContextMode[] = ['path', 'summary', 'independent'];
+const MODES: ContextMode[] = ['path', 'summary', 'message', 'independent'];
 
 const u = (content: string): ChatMessage => ({ role: 'user', content });
 const a = (content: string): ChatMessage => ({ role: 'assistant', content });
@@ -28,7 +28,13 @@ function checkProvenance(f: Fixture, plan: ContextPlan): void {
     switch (s.kind) {
       case 'ancestor': {
         const node = f.node(s.nodeId);
-        expect(s.reason).toBe('path-ancestor');
+        if (s.reason === 'branch-point-message') {
+          // Sent because some branch on the chain forks from it in message mode.
+          const forks = plan.chain.filter((c) => c.branchPointNodeId === s.nodeId);
+          expect(forks.map((c) => c.mode)).toContain('message');
+        } else {
+          expect(s.reason).toBe('path-ancestor');
+        }
         expect(s.viaBranchId).toBe(node.branchId);
         expect(s.viaBranchId).not.toBe(plan.targetBranchId);
         expect(s.sourceNodeIds).toEqual([s.nodeId]);
@@ -186,6 +192,46 @@ suite('each mode directly under the trunk', () => {
     expect(plan.pendingSummaries).toEqual([]);
   });
 
+  it('message sends the branch-point message, then the anchor and own messages', () => {
+    const { f, b } = build('message');
+    const plan = f.plan(b);
+    expect(describe(plan)).toEqual(['anc:T.1', 'quote:quote', 'br:B1.0', 'br:B1.1']);
+    expect(plan.mode).toBe('message');
+    expect(plan.complete).toBe(true);
+    const point = seg(plan, 'anc:T.1');
+    expect(point.reason).toBe('branch-point-message');
+    expect(point.viaBranchId).toBe('T');
+    expect(point.explanation).toBe(
+      'The message in ‘Trunk’ that ‘Child’ branched from, because it uses parent-message mode',
+    );
+    checkProvenance(f, plan);
+  });
+
+  it('message without an anchor sends the branch-point message and own messages', () => {
+    const { f, b } = build('message', null);
+    f.systemPrompt = 'SP';
+    expect(describe(f.plan(b))).toEqual(['sys:SP', 'anc:T.1', 'br:B1.0', 'br:B1.1']);
+  });
+
+  it('message off a user message sends that user message', () => {
+    const f = new Fixture();
+    f.messages('T', 4);
+    const b = f.fork('T.2', 'message', { anchor: 'q' });
+    f.add(b, 'assistant');
+    const plan = f.plan(b);
+    expect(describe(plan)).toEqual(['anc:T.2', 'quote:q', 'br:B1.0']);
+    checkProvenance(f, plan);
+  });
+
+  it('message off a failed reply with no content sends only the anchor', () => {
+    const f = new Fixture();
+    f.messages('T', 1);
+    f.add('T', 'assistant', '', { status: 'error' });
+    const b = f.fork('T.1', 'message', { anchor: 'q' });
+    f.messages(b, 1);
+    expect(describe(f.plan(b))).toEqual(['quote:q', 'br:B1.0']);
+  });
+
   it('independent sends only the anchor and own messages', () => {
     const { f, b } = build('independent');
     const plan = f.plan(b);
@@ -236,6 +282,7 @@ suite('two-level nesting (3×3)', () => {
   const ctx1: Record<ContextMode, string[]> = {
     path: ['anc:T.0', 'anc:T.1', 'quote:q1', 'anc:B1.0', 'anc:B1.1'],
     summary: ['sum:branch:ready', 'quote:q1', 'anc:B1.0', 'anc:B1.1'],
+    message: ['anc:T.1', 'quote:q1', 'anc:B1.0', 'anc:B1.1'],
     independent: ['quote:q1', 'anc:B1.0', 'anc:B1.1'],
   };
   const flat1: Record<ContextMode, ChatMessage[]> = {
@@ -246,11 +293,13 @@ suite('two-level nesting (3×3)', () => {
       u('B1.0'),
       a('B1.1'),
     ],
+    message: [a('T.1'), u('[Focus excerpt] q1'), u('B1.0'), a('B1.1')],
     independent: [u('[Focus excerpt] q1'), u('B1.0'), a('B1.1')],
   };
   const sources1: Record<ContextMode, string[]> = {
     path: ['T.0', 'T.1', 'B1.0', 'B1.1'],
     summary: ['T.0', 'T.1', 'B1.0', 'B1.1'],
+    message: ['T.1', 'B1.0', 'B1.1'],
     independent: ['T.1', 'B1.0', 'B1.1'],
   };
 
@@ -261,8 +310,13 @@ suite('two-level nesting (3×3)', () => {
     const { plan, requests } = resolveAll(f.input('B2'));
 
     const own = ['quote:q2', 'br:B2.0'];
-    const expected =
-      m2 === 'path' ? [...ctx1[m1], ...own] : m2 === 'summary' ? ['sum:branch:ready', ...own] : own;
+    const prefix: Record<ContextMode, string[]> = {
+      path: ctx1[m1],
+      summary: ['sum:branch:ready'],
+      message: ['anc:B1.1'],
+      independent: [],
+    };
+    const expected = [...prefix[m2], ...own];
     expect(describe(plan)).toEqual(expected);
     expect(plan.mode).toBe(m2);
     expect(plan.chain.map((c) => [c.branchId, c.mode])).toEqual([
@@ -293,7 +347,7 @@ suite('two-level nesting (3×3)', () => {
       expect(b2Summary).toBeUndefined();
     }
     // The inner (B1) summary is only needed when B2 actually sees B1's context.
-    const needsInner = m1 === 'summary' && m2 !== 'independent';
+    const needsInner = m1 === 'summary' && (m2 === 'path' || m2 === 'summary');
     expect(b1Summary !== undefined).toBe(needsInner);
     if (b1Summary) {
       expect(b1Summary.transcript).toEqual([u('T.0'), a('T.1')]);
@@ -392,6 +446,40 @@ suite('three-level chains', () => {
     expect(rounds).toBe(4);
     expect(describe(plan)).toEqual(['sum:branch:ready', 'quote:q3', 'br:B3.0']);
     expect(requests[2]!.transcript[0]).toEqual(u('[Summary of earlier conversation] summary@B1.1'));
+  });
+
+  it('message → path → path keeps only the trunk branch-point message', () => {
+    const f = chain3('message', 'path', 'path');
+    const plan = f.plan('B3');
+    expect(describe(plan)).toEqual([
+      'anc:T.1',
+      'quote:q1',
+      'anc:B1.0',
+      'anc:B1.1',
+      'quote:q2',
+      'anc:B2.0',
+      'anc:B2.1',
+      'quote:q3',
+      'br:B3.0',
+    ]);
+    expect(seg(plan, 'anc:T.1').reason).toBe('branch-point-message');
+    expect(seg(plan, 'anc:B1.0').reason).toBe('path-ancestor');
+    checkProvenance(f, plan);
+  });
+
+  it('summary → message → path drops the inner summary', () => {
+    const f = chain3('summary', 'message', 'path');
+    const { plan, requests } = resolveAll(f.input('B3'));
+    expect(describe(plan)).toEqual([
+      'anc:B1.1',
+      'quote:q2',
+      'anc:B2.0',
+      'anc:B2.1',
+      'quote:q3',
+      'br:B3.0',
+    ]);
+    expect(requests).toEqual([]);
+    checkProvenance(f, plan);
   });
 
   it('path → independent → path starts at the independent branch', () => {

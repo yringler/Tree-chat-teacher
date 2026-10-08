@@ -38,6 +38,7 @@ Each entry is one line. Newer decisions go at the bottom. See [PLAN.md](./PLAN.m
 
 - **`path` mode is compositional:** it inherits the parent's effective context at the branch point. A path branch under a summary or independent branch therefore doesn't re-expand what that ancestor dropped.
 - **The anchor quote is included in every mode**, placed before the branch's own messages. It also focuses the summary in `summary` mode.
+- **`message` mode sends only the branch-point message**, between `summary` and `independent`: the quote alone often lacks the surrounding answer, but the whole path is more than the branch needs. It is the node as the parent saw it (no summary call, no earlier turns, no inherited system nodes), and it is skipped like any path node when it is an in-flight or failed reply.
 - **The tree system prompt is sent in every mode, including `independent`.** It is configuration, not conversation.
 - **Summaries and anchors are rendered into the system prompt**, not as fake messages, so user/assistant alternation is never broken.
 - **Compaction replaces the oldest prefix of the context with one cached summary.** Truncation is only a last resort, and both are recorded in the plan.

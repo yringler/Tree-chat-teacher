@@ -12,6 +12,11 @@ export const MODE_INFO: Record<ContextMode, { short: string; label: string; help
     label: 'Summary',
     help: 'Sends a generated summary of the parent context (focused on the quote), then this branch.',
   },
+  message: {
+    short: 'msg',
+    label: 'Parent message',
+    help: 'Sends only the message you branched from and the anchor quote, no other earlier messages.',
+  },
   independent: {
     short: 'ind',
     label: 'Independent',

@@ -10,7 +10,7 @@ import {
   untracked,
 } from '@angular/core';
 import { branchLeaf } from '@tangent/core/tree';
-import type { ChatNode } from '@tangent/shared';
+import type { ChatNode, ContextMode } from '@tangent/shared';
 import { Icon, ReadOnlyComposer, TextSizeStore } from '@tangent/web-shared';
 import type { LanePlacement } from '../layout/layout';
 import { LayoutStore } from '../layout/layout-store';
@@ -21,7 +21,12 @@ import { confirmDeleteLane } from './delete-lane';
 import { LaneComposer } from './lane-composer';
 import { laneTitle } from './titles';
 
-export const MODE_LABEL = { path: 'full path', summary: 'summary', independent: 'independent' };
+export const MODE_LABEL: Record<ContextMode, string> = {
+  path: 'full path',
+  summary: 'summary',
+  message: 'parent message',
+  independent: 'independent',
+};
 
 /**
  * One branch as a column on the canvas: its head (title, context mode,
@@ -232,6 +237,8 @@ export class Lane implements OnDestroy {
         return 'Full path: the model sees everything the parent lane had at the fork, then this lane';
       case 'summary':
         return 'Summary: the model sees a generated summary of the parent context, then this lane';
+      case 'message':
+        return 'Parent message: the model sees only the message this lane forks from, the quote and this lane';
       case 'independent':
         return 'Independent: the model sees only the system prompt, the quote and this lane';
     }

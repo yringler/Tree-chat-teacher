@@ -25,6 +25,7 @@ import { ModelField } from './model-field';
 const MODE_HELP: Record<ContextMode, string> = {
   path: 'Everything the parent lane had at the fork, then this lane.',
   summary: 'A generated summary of the parent context (focused on the quote), then this lane.',
+  message: 'Only the message this lane forks from and the quote: no other earlier messages.',
   independent: 'Only the system prompt and the quote: no earlier messages.',
 };
 
