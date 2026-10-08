@@ -10,11 +10,10 @@ import {
 import { splitTangents, type ChatNode } from '@tangent/shared';
 import {
   Icon,
-  MarkdownService,
+  MarkdownView,
   RelatedLinks,
   relatedLinks,
   TangentAsk,
-  TypesetMath,
   type LinkNoteEdit,
 } from '@tangent/web-shared';
 import { LayoutStore, type Point } from '../layout/layout-store';
@@ -45,7 +44,7 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
  */
 @Component({
   selector: 'app-card',
-  imports: [Icon, RelatedLinks, TangentAsk, TypesetMath],
+  imports: [Icon, MarkdownView, RelatedLinks, TangentAsk],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -94,7 +93,7 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
       @if (streaming() && liveStatus()) {
         <p class="card-status muted small">{{ liveStatus() }}</p>
       }
-      <div class="card-body md" [innerHTML]="html()" [appTypesetMath]="html()"></div>
+      <div class="card-body md" [appMarkdown]="bodyText()" [streaming]="streaming()"></div>
       @if (streaming()) {
         <span class="cursor" aria-hidden="true"></span>
         <span class="sr-only">Writing…</span>
@@ -212,7 +211,6 @@ export class Card {
   protected readonly store = inject(CanvasStore);
   protected readonly ui = inject(UiStore);
   private readonly geo = inject(LayoutStore);
-  private readonly md = inject(MarkdownService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly laneTitle = laneTitle;
   protected readonly pickLabel = PICK_LABEL;
@@ -241,7 +239,7 @@ export class Card {
       ? splitTangents(this.content())
       : { body: this.content(), tangents: [], partial: false },
   );
-  protected readonly html = computed(() => this.md.render(this.split().body, !this.streaming()));
+  protected readonly bodyText = computed(() => this.split().body);
   /** A finished reply: offers its tangents and "Ask your own". */
   protected readonly complete = computed(
     () => this.node().role === 'assistant' && this.node().status === 'complete',

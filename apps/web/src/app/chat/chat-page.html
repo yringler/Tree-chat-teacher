@@ -36,7 +36,7 @@
       }
 
       <div class="messages" #scroller (scroll)="onScroll(scroller)" tabindex="-1">
-        <div class="messages-inner">
+        <div class="messages-inner" #content>
           @if (store.path().length === 0) {
             <div class="empty-state">
               <p class="muted">No messages yet. Say something to start.</p>

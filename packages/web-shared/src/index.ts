@@ -97,6 +97,8 @@ export {
   type RelatedLink,
 } from './ui/links-view';
 export { selectionText, TypesetMath, typesetMath } from './ui/math';
+export { MarkdownView, StreamedMarkdown, type FrameScheduler } from './ui/markdown-view';
+export { pinToBottom } from './ui/pin-to-bottom';
 export { TangentAsk } from './ui/tangent-ask';
 export { TextSizeMenu } from './ui/text-size-menu';
 export {

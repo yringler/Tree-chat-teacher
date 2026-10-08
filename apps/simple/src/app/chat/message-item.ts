@@ -2,12 +2,11 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, signal } f
 import { splitTangents, type ChatNode } from '@tangent/shared';
 import {
   Icon,
-  MarkdownService,
+  MarkdownView,
   RelatedLinks,
   relatedLinks,
   SourcesList,
   TangentAsk,
-  TypesetMath,
   type LinkNoteEdit,
 } from '@tangent/web-shared';
 import { LessonStore } from '../state/lesson-store';
@@ -19,7 +18,7 @@ import { branchTitle } from './titles';
 /** One message of the lesson; `data-node-id` lets the chat page map a text selection to it. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, RelatedLinks, SourcesList, TangentAsk, TypesetMath],
+  imports: [Icon, MarkdownView, RelatedLinks, SourcesList, TangentAsk],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -56,7 +55,7 @@ import { branchTitle } from './titles';
       @if (streaming() && liveStatus()) {
         <p class="msg-status muted small">{{ liveStatus() }}</p>
       }
-      <div class="msg-body md" [innerHTML]="html()" [appTypesetMath]="html()"></div>
+      <div class="msg-body md" [appMarkdown]="bodyText()" [streaming]="streaming()"></div>
       @if (streaming()) {
         <span class="cursor" aria-hidden="true"></span>
         <span class="sr-only">Writing…</span>
@@ -160,7 +159,6 @@ import { branchTitle } from './titles';
 export class MessageItem {
   protected readonly store = inject(LessonStore);
   protected readonly ui = inject(UiStore);
-  private readonly md = inject(MarkdownService);
   protected readonly branchTitle = branchTitle;
   protected readonly connectedLabel = connectedLabel;
 
@@ -183,8 +181,8 @@ export class MessageItem {
       ? splitTangents(this.content())
       : { body: this.content(), tangents: [], partial: false },
   );
-  /** Rendered by the shared markdown pipeline; [innerHTML] adds Angular's sanitizer on top. */
-  protected readonly html = computed(() => this.md.render(this.split().body, !this.streaming()));
+  /** Rendered by the shared markdown pipeline (MarkdownView: block by block while streaming). */
+  protected readonly bodyText = computed(() => this.split().body);
   protected readonly askable = computed(
     () => this.node().role === 'assistant' && this.node().status === 'complete',
   );
