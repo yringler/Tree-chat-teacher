@@ -60,4 +60,56 @@ describe('ChatService log', () => {
       ],
     ]);
   });
+
+  it('logs a failed token count, but not one the caller aborted', async () => {
+    const { lines, log } = logged();
+    const { chat, provider } = setup({ autoTitle: false }, { log });
+    const caps = provider.capabilities.bind(provider);
+    provider.capabilities = () => ({ ...caps(), supportsTokenCount: true });
+    provider.countTokens = () => Promise.reject(new Error('count failed'));
+    const { tree } = await chat.createTree({});
+    await send(chat, tree.trunkBranchId, 'Q');
+
+    const aborted = new AbortController();
+    aborted.abort();
+    const options = { resolveSummaries: false, signal: aborted.signal };
+    await chat.planContext(tree.trunkBranchId, null, options);
+    expect(lines).toEqual([]);
+
+    await chat.planContext(tree.trunkBranchId, null, { resolveSummaries: false });
+    expect(lines).toEqual([
+      [
+        'count_tokens_failed',
+        {
+          treeId: tree.id,
+          branchId: tree.trunkBranchId,
+          providerId: 'scripted',
+          model: 'm1',
+          error: 'count failed',
+        },
+      ],
+    ]);
+  });
+
+  it('does not log a summary cut short by a cancelled send', async () => {
+    const { lines, log } = logged();
+    const { chat, provider } = setup({ autoTitle: false }, { log });
+    const { tree } = await chat.createTree({});
+    const root = await send(chat, tree.trunkBranchId, 'ROOT');
+    const branch = await chat.createBranch({
+      fromNodeId: root.begin.assistantNode.id,
+      contextMode: 'summary',
+    });
+    provider.delayMs = 5;
+    const begin = await chat.beginSend(branch.id, 'Q');
+    const cancel = new AbortController();
+    const events = [];
+    for await (const event of chat.runGeneration(begin, cancel.signal)) {
+      events.push(event);
+      if (event.type === 'status') cancel.abort();
+    }
+    expect(events.at(-1)).toMatchObject({ type: 'error', message: 'Cancelled' });
+    expect(provider.summaryCalls()).toHaveLength(1);
+    expect(lines).toEqual([]);
+  });
 });

@@ -41,6 +41,8 @@ export class ScriptedProvider implements LlmProvider {
   chatStopReason = 'end_turn';
   /** Text of chat replies instead of the default echo (`''`: an empty reply). */
   chatText: string | null = null;
+  /** Set by a test that counts tokens (with capability `supportsTokenCount`). */
+  countTokens?: LlmProvider['countTokens'];
 
   constructor(readonly id = 'scripted') {}
 

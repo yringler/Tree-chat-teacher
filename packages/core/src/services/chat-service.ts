@@ -810,13 +810,15 @@ export class ChatService {
         });
       } catch (err) {
         exactInputTokens = null;
-        this.log('count_tokens_failed', {
-          treeId: inputs.tree.id,
-          branchId: inputs.branch.id,
-          providerId: inputs.provider.id,
-          model,
-          error: errorText(err),
-        });
+        // A count the caller cancelled didn't fail.
+        if (!options.signal?.aborted)
+          this.log('count_tokens_failed', {
+            treeId: inputs.tree.id,
+            branchId: inputs.branch.id,
+            providerId: inputs.provider.id,
+            model,
+            error: errorText(err),
+          });
       }
     }
     return {
@@ -1106,14 +1108,17 @@ export class ChatService {
       signal ?? new AbortController().signal,
       { purpose: 'summary', ...target, nodeId: null },
       this.deps.settings.summaryEffort,
-      (error) =>
+      (error) => {
+        // A summary cut short by a cancelled send didn't fail.
+        if (signal?.aborted) return;
         this.log('summary_failed', {
           ...target,
           providerId: provider.id,
           model,
           code: error.code,
           error: error.message,
-        }),
+        });
+      },
     );
     return text?.trim() ? text.trim() : null;
   }
