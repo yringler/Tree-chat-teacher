@@ -538,8 +538,17 @@ export class ChatService {
     return tree;
   }
 
-  async deleteTree(treeId: string): Promise<void> {
+  /**
+   * Deletes a tree with everything in it. `stopGenerations` (the Worker's
+   * Durable Object, which owns generations) runs once the tree is known to be
+   * this account's, to stop its runs before their nodes go.
+   */
+  async deleteTree(
+    treeId: string,
+    options: { stopGenerations?: () => Promise<void> } = {},
+  ): Promise<void> {
     await this.requireOwnedTree(treeId);
+    await options.stopGenerations?.();
     const deleted = await this.repo.deleteTree(treeId);
     if (!deleted) throw new NotFoundError('Tree');
   }

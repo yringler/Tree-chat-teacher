@@ -9,7 +9,7 @@ import type {
   StreamEvent,
   TreeDetail,
 } from '@tangent/shared';
-import { runInDurableObject } from 'cloudflare:test';
+import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env as rawEnv, exports } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { grantCredit } from '../src/billing/ledger.js';
@@ -196,6 +196,66 @@ describe('compare candidates', () => {
     expect((await commit(other.id, mine.candidateId)).status).toBe(404);
     expect((await commit(branchId, 'no-such-candidate')).status).toBe(410);
     expect((await commit('no-such-branch', mine.candidateId)).status).toBe(404);
+  });
+
+  it('the alarm deletes a candidate when it expires, with no later hold needed', async () => {
+    const detail = await treeWithExchange();
+    const stub = treeSession(detail.tree.id);
+    const { done } = await candidate(detail.tree.trunkBranchId, { content: 'Q', model: 'fake-1' });
+    const key = `candidate:${done.candidateId}`;
+    await runInDurableObject(stub, async (_, state) => {
+      expect(await state.storage.getAlarm()).toBe(Date.parse(done.expiresAt));
+      const entry = (await state.storage.get<{ expiresAt: number }>(key))!;
+      await state.storage.put(key, { ...entry, expiresAt: Date.now() - 1 });
+    });
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    await runInDurableObject(stub, async (_, state) => {
+      expect(await state.storage.get(key)).toBeUndefined();
+      expect(await state.storage.getAlarm()).toBeNull();
+    });
+  });
+
+  it('deleting the tree drops its held candidates', async () => {
+    const detail = await treeWithExchange();
+    await candidate(detail.tree.trunkBranchId, { content: 'Q', model: 'fake-1' });
+    expect((await call(`/api/trees/${detail.tree.id}`, { method: 'DELETE' })).status).toBe(204);
+    await runInDurableObject(treeSession(detail.tree.id), async (_, state) => {
+      expect((await state.storage.list()).size).toBe(0);
+      expect(await state.storage.getAlarm()).toBeNull();
+    });
+  });
+
+  it('after an account deletion, a held candidate still goes when it expires', async () => {
+    const c = client(authEnv());
+    const email = `compare-gone-${uniq('u')}@example.org`;
+    await c.signIn(email);
+    const detail = await ok<TreeDetail>(
+      c.call('/api/trees', { method: 'POST', json: { title: 'Gone', providerId: 'fake' } }),
+      201,
+    );
+    const branchId = detail.tree.trunkBranchId;
+    await c.call(`/api/branches/${branchId}/messages`, { method: 'POST', json: { content: 'Q1' } });
+    const held = await c.call(`/api/branches/${branchId}/candidates`, {
+      method: 'POST',
+      json: { content: 'Q2', model: 'fake-1' },
+    });
+    const done = events(await held.text()).at(-1);
+    if (done?.type !== 'done') throw new Error('expected done');
+
+    expect(
+      (await c.call('/api/account', { method: 'DELETE', json: { confirmEmail: email } })).status,
+    ).toBe(204);
+    const stub = treeSession(detail.tree.id);
+    const key = `candidate:${done.candidateId}`;
+    await runInDurableObject(stub, async (_, state) => {
+      expect(await state.storage.getAlarm()).toBe(Date.parse(done.expiresAt));
+      const entry = (await state.storage.get<{ expiresAt: number }>(key))!;
+      await state.storage.put(key, { ...entry, expiresAt: Date.now() - 1 });
+    });
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    await runInDurableObject(stub, async (_, state) => {
+      expect((await state.storage.list()).size).toBe(0);
+    });
   });
 
   it('validates the request before any stream opens', async () => {

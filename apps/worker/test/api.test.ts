@@ -357,6 +357,28 @@ describe('owner API', () => {
     ).toBe(400);
   });
 
+  it('deletes a tree through its session, stopping a running reply', async () => {
+    const detail = await newTree('slow');
+    const res = await call(`/api/branches/${detail.tree.trunkBranchId}/messages`, {
+      method: 'POST',
+      json: { content: 'please write a long answer about everything' },
+    });
+    const reader = res.body!.getReader();
+    const start = parseSse(new TextDecoder().decode((await reader.read()).value))[0];
+    if (start?.type !== 'start') throw new Error('expected start');
+
+    expect((await call(`/api/trees/${detail.tree.id}`, { method: 'DELETE' })).status).toBe(204);
+    let rest = '';
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      rest += new TextDecoder().decode(chunk.value);
+    }
+    expect(parseSse(rest).at(-1)).toMatchObject({ type: 'error', message: 'Cancelled' });
+    expect((await call(`/api/trees/${detail.tree.id}`)).status).toBe(404);
+    expect((await call(`/api/trees/${detail.tree.id}`, { method: 'DELETE' })).status).toBe(404);
+  });
+
   it('backs up and restores a tree', async () => {
     const detail = await newTree();
     await sendMessage(detail.tree.trunkBranchId, 'backup me');

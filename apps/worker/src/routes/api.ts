@@ -185,9 +185,14 @@ export function apiRoutes(): Hono<AppBindings> {
   api.patch('/trees/:treeId', validateJson(updateTreeRequestSchema), async (c) =>
     c.json(await chatOf(c).updateTree(c.req.param('treeId'), c.req.valid('json'))),
   );
+  // Through the tree's Durable Object: it stops the tree's generations first and
+  // drops what it holds for the tree (Compare candidates).
   api.delete('/trees/:treeId', async (c) => {
-    await chatOf(c).deleteTree(c.req.param('treeId'));
-    return c.body(null, 204);
+    const treeId = c.req.param('treeId');
+    return session(c.env, treeId).fetch(
+      sessionUrl('/delete-tree', { treeId, ...accountParams(c.var.account) }),
+      { method: 'POST' },
+    );
   });
   api.get('/trees/:treeId/backup', async (c) => {
     const backup = await chatOf(c).exportBackup(c.req.param('treeId'));

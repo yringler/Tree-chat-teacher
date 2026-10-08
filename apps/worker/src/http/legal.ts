@@ -1,4 +1,5 @@
 import { escapeHtml } from '@tangent/render';
+import { CANDIDATE_TTL_MS } from '@tangent/shared';
 import { Hono, type Context } from 'hono';
 import type { AppBindings } from '../env.js';
 import { hostedAi, type HostedAi } from './hosted-ai.js';
@@ -141,6 +142,7 @@ ${items.join('\n')}
 export function renderPrivacyPage(info: LegalInfo, ai: HostedAi | null = null): string {
   const op = escapeHtml(info.operator);
   const contact = mailto(info.contactEmail);
+  const candidateMinutes = CANDIDATE_TTL_MS / 60_000;
   // Wording follows DMCA_AGENT_REGISTERED (LegalInfo.sharing): links for everyone, or only where enabled.
   const visibility = info.sharing
     ? "other users can't see them unless you publish a share link."
@@ -208,6 +210,7 @@ ${shareIntro}<p>When you create a share link, anyone who has the link can read w
 <h2>How long we keep it</h2>
 <ul>
 <li>Conversations, settings and share links: until you delete them or your account. Deleting is immediate in the app.</li>
+<li>Compare answers you haven't picked (with the question they answer): ${candidateMinutes} minutes after they are written, so you can pick one. Deleting the conversation deletes them at once; deleting your account leaves any still held to go when their ${candidateMinutes} minutes are up.</li>
 <li>Sessions: until they expire or you sign out. Sign-in links: 15 minutes.</li>
 <li>Open pool notice acknowledgments: until your account is deleted. Pool topics: until 14 days after the branch was last used on the pool, or until your account is deleted, whichever comes first.</li>
 <li>The weekly open pool snapshots (counts only, nothing about any one person): kept, so past weeks stay browsable.</li>

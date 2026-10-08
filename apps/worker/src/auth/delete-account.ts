@@ -51,6 +51,10 @@ export interface DeletedUser {
  *    Other colos hold a copy for at most the share cache TTL; the D1 rows
  *    are gone, so nothing new is ever served.
  *
+ * Not visited: the trees' Durable Objects. The Compare candidates one holds
+ * (question and answers) are deleted by its alarm within `CANDIDATE_TTL_MS`,
+ * as the privacy policy says; a call per tree here would be unbounded.
+ *
  * Kept on purpose: the billing ledger (`credit_grants`, `usage_events`),
  * which holds amounts, model names and token counts but no message content.
  * Tax and accounting law require keeping payment records, and once the
