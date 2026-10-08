@@ -75,10 +75,10 @@ describe('accounts', () => {
     const restored = await otherChat.importBackup(backup);
     expect(restored.tree.accountId).toBe('other');
     expect(await otherChat.listTrees()).toHaveLength(1);
-    // Backups made before accounts existed (no accountId) import fine.
-    const { accountId: _drop, ...legacyTree } = backup.tree;
-    const legacy = await chat.importBackup({ ...backup, tree: legacyTree });
-    expect(legacy.tree.accountId).toBe(DEFAULT_ACCOUNT_ID);
+    // Import ignores a backup's accountId, so one without it imports too.
+    const { accountId: _drop, ...anonymousTree } = backup.tree;
+    const anonymous = await chat.importBackup({ ...backup, tree: anonymousTree });
+    expect(anonymous.tree.accountId).toBe(DEFAULT_ACCOUNT_ID);
   });
 });
 
