@@ -13,6 +13,7 @@ import type {
   ProviderInfo,
   StreamEvent,
   TreeDetail,
+  TreeSummary,
   UpdateBranchRequest,
 } from '@tangent/shared';
 import { providerRouteKey } from '@tangent/shared';
@@ -63,7 +64,7 @@ function setup() {
   const api = {
     me: vi.fn(async (): Promise<MeResponse> => me()),
     providers: vi.fn(async (): Promise<ProviderInfo[]> => []),
-    listTrees: vi.fn(async () => []),
+    listTrees: vi.fn(async (): Promise<TreeSummary[]> => []),
     keyStatus: vi.fn(async () => ({ enabled: true, hasKey: false, providers: [] })),
     billing: vi.fn(async (): Promise<BillingSummary> => summary),
     poolStatus: vi.fn(async () => ({ enabled: false }) as PoolStatusResponse),
