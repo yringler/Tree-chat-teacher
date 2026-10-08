@@ -27,14 +27,10 @@ function visitor(e: AppEnv) {
   return (path: string) => app.request(`${ORIGIN}${path}`, {}, e);
 }
 
-/** An env (auth configured) whose pool is `poolId`, with the deployed 20% revenue share. */
+/** An env (auth configured) whose pool is `poolId`. */
 function poolEnv(poolId: string, overrides: Partial<AppEnv> = {}): AppEnv {
-  return authEnv({ POOL_ACCOUNT_ID: poolId, POOL_REVENUE_SHARE_BPS: '2000', ...overrides });
+  return authEnv({ POOL_ACCOUNT_ID: poolId, ...overrides });
 }
-
-/** The public commitment, exactly as every page states it at 20%. */
-const COMMITMENT =
-  'The open pool is free credit Tangent provides. Tangent puts 20% of what it earns into it: 20% of each membership payment (after tax and payment fees) and 20% of its markup on credit, as that credit is used.';
 
 /** A settled pool row of `userId` (no pending rows: other suites' crons would expire them). */
 async function settledReply(
@@ -81,7 +77,6 @@ describe('GET /api/pool/status', () => {
       // The fake's Normal, asked with the pool's effort (`POOL_EFFORT`, which the fake's
       // listing doesn't set) and its shorter reply cap.
       model: { id: 'simple', label: 'Normal', thinking: 'other', replies: 'shorter' },
-      revenueShareBps: 2000,
     });
     // The edge copy answers the next minute's visitors, whatever D1 says meanwhile.
     await fundPool(poolId, 2_000_000);
@@ -112,9 +107,9 @@ describe('GET /api/pool/status', () => {
     expect(status).toMatchObject({ enabled: false, availableMicros: 0, sessionsRemaining: 0 });
   });
 
-  it('reports the configured revenue share, with or without payments', async () => {
+  it('is on with or without payments, and offers nothing to buy', async () => {
     const status = await poolStatus(poolEnv(uniq('pool'), { PAYMENT_PROVIDER: 'polar' }));
-    expect(status).toMatchObject({ enabled: true, revenueShareBps: 2000 });
+    expect(status).toMatchObject({ enabled: true });
     expect(status).not.toHaveProperty('fundingOpen');
     expect(status).not.toHaveProperty('markupBps');
   });
@@ -173,10 +168,10 @@ describe('the landing page’s pool meter', () => {
     );
     // How the pool comes about, Tangent the subject of every money step.
     expect(html).toContain(
-      '<ol class="steps"><li>Tangent earns money from the credit people buy, like any software business.</li><li>It sets aside 20% of what it earns as the open pool.</li><li>Anyone signed in can learn free from the pool, within daily limits, while it has credit.</li></ol>',
+      '<ol class="steps"><li>Tangent earns money from the credit people buy, like any software business.</li><li>It sets aside free credit as the open pool.</li><li>Anyone signed in can learn free from the pool, within daily limits, while it has credit.</li></ol>',
     );
     expect(html).toContain(
-      '<strong>No credit card needed.</strong> Tangent puts 20% of what it earns into the open pool, so anyone signed in can learn here free, within daily limits. <a href="#pool">',
+      '<strong>No credit card needed.</strong> Tangent provides free credit in the open pool, so anyone signed in can learn here free, within daily limits. <a href="#pool">',
     );
     // Open pool: "free" in the hero, the CTAs and the pricing card.
     expect(html).toContain('<p class="free"><strong>No credit card needed.</strong>');
@@ -197,7 +192,7 @@ describe('the landing page’s pool meter', () => {
     );
     expect(html).toContain('<a class="btn" href="/pool">How the pool works</a>');
     expect(html).toContain(
-      '<li>Learn free on the open pool, within daily limits, on credit Tangent provides from its earnings</li>',
+      '<li>Learn free on the open pool, within daily limits, on credit Tangent provides</li>',
     );
     // The Learn card names the pool's model (the fake's Normal) and how the pool asks it.
     expect(html).toContain(
@@ -230,24 +225,6 @@ describe('the landing page’s pool meter', () => {
     expect(html).toContain('Curiosity shouldn’t need a credit card');
   });
 
-  it('reads the share from the config, and states no percentage at 0', async () => {
-    const at15 = await (
-      await visitor(poolEnv(uniq('pool'), { POOL_REVENUE_SHARE_BPS: '1500' }))('/welcome')
-    ).text();
-    expect(at15).toContain('<li>It sets aside 15% of what it earns as the open pool.</li>');
-    const unshared = uniq('pool');
-    await fundPool(unshared, 1_000_000);
-    const none = await (
-      await visitor(poolEnv(unshared, { POOL_REVENUE_SHARE_BPS: '0' }))('/welcome')
-    ).text();
-    expect(none).toContain('<p class="free"><strong>No credit card needed.</strong>');
-    expect(none).toContain('Tangent provides free credit in the open pool, so anyone signed in');
-    expect(none).toContain('<li>It sets aside free credit as the open pool.</li>');
-    expect(none).toContain('on credit Tangent provides</li>');
-    expect(none).not.toContain('of what it earns');
-    expect(none).not.toMatch(/from its (revenue|earnings)|part of what it earns/);
-  });
-
   it('is left out while the pool is off, or when it can’t be read', async () => {
     const off = await (
       await visitor(poolEnv(uniq('pool'), { POOL_ENABLED: 'false' }))('/welcome')
@@ -278,19 +255,15 @@ describe('/pool', () => {
     expect(html).not.toContain('<script');
   });
 
-  it('states this deployment’s model, revenue share, at-cost replies and caps, the same for everyone', async () => {
+  it('states this deployment’s model, at-cost replies and caps, the same for everyone', async () => {
     const e = poolEnv(uniq('pool'), { POOL_REQUESTS_PER_DAY: '30' });
     const html = await (await visitor(e)('/pool')).text();
     expect(html).toContain('<code>simple</code>');
     expect(html).toContain(
-      `<strong>The short version.</strong> ${COMMITMENT} Any signed-in learner can use it in Tangent Learn`,
+      '<strong>The short version.</strong> The open pool is free credit Tangent provides. Any signed-in learner can use it in Tangent Learn',
     );
-    expect(html).toContain(
-      'Pool credit isn&#39;t sold. Tangent adds 20% of each membership payment, after tax and the payment provider&#39;s fee, when the payment comes in, and once a day 20% of the markup on the credit people used the day before (UTC).',
-    );
-    expect(html).toContain(
-      'If a membership payment is refunded, the same part of its share comes back out of the pool.',
-    );
+    expect(html).toContain("Pool credit isn't sold. Tangent adds it, at its discretion.");
+    expect(html).not.toMatch(/revenue share|of each membership payment|of what it earns/);
     expect(html).toContain('<h2>What a reply costs</h2>');
     expect(html).toContain(
       'with no markup, and costs the learner nothing. Tangent earns nothing on the pool.',
@@ -356,30 +329,10 @@ describe('/pool', () => {
     expect(html).not.toMatch(/buy (pool )?access|sell/i);
   });
 
-  it('shows what the revenue share added this week and month', async () => {
-    const poolId = uniq('pool');
-    const now = new Date();
-    await env.DB.prepare(
-      `INSERT INTO credit_grants (id, account_id, kind, amount_micros, provider_ref, created_at)
-       VALUES (?1, ?2, 'contribution', 1840000, ?3, ?4), (?5, ?2, 'adjustment', 5000000, ?6, ?4)`,
-    )
-      .bind(uniq('g'), poolId, uniq('ref'), now.toISOString(), uniq('g'), uniq('ref'))
-      .run();
-    const html = await (await visitor(poolEnv(poolId))('/pool')).text();
-    // Admin top-ups aren't part of the revenue share.
-    expect(html).toContain(
-      'So far Tangent’s revenue share has added $1.84 to the pool this week (since Monday, UTC) and $1.84 this month.',
-    );
-    const off = await (
-      await visitor(poolEnv(poolId, { POOL_REVENUE_SHARE_BPS: '0' }))('/pool')
-    ).text();
-    expect(off).not.toContain('revenue share has added');
-  });
-
-  it('the terms: an operator-provided pool funded from revenue, not for sale; refunds as Polar allows', async () => {
+  it('the terms: an operator-provided pool, not for sale; refunds as Polar allows', async () => {
     const html = await (await visitor(poolEnv(uniq('pool')))('/terms')).text();
     expect(html).toContain(
-      "is free credit we provide, at our discretion, that any signed-in learner may use within its limits. We fund it from our own revenue, as described on the pool page; pool credit isn't for sale.",
+      "is free credit we provide, at our discretion, that any signed-in learner may use within its limits. We fund it ourselves; pool credit isn't for sale.",
     );
     expect(html).toContain('or end it, and it may be empty.');
     expect(html).toContain(

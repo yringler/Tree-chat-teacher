@@ -2,7 +2,7 @@
 // (docs/polar-migration/05-pool-framing.md, D1): a pool-target payment is
 // never credited, legacy pool purchase grants are still debited (clamped) by
 // their refunds and disputes, checkouts are personal only, and the admin's
-// credit route and pool panel. The revenue share is in pool-revenue-share.test.ts.
+// credit route and pool panel.
 import {
   type AdminCreditResponse,
   type AdminPoolResponse,

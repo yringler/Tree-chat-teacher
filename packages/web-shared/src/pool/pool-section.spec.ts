@@ -22,7 +22,7 @@ describe('PoolSection', () => {
   it('renders only while the pool is on, with the meter, the funding text and the link', () => {
     expect(t).toContain('@if (s.enabled) {');
     expect(t).toContain('<app-pool-meter [status]="s" />');
-    expect(t).toContain('{{ funding(s) }}');
+    expect(t).toContain('{{ funding }}');
     expect(t).toContain('<a href="/pool" target="_blank" rel="noopener">');
   });
 

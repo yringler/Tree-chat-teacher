@@ -3,7 +3,7 @@ import {
   formatBps,
   formatMicros,
   POOL_EMPTY_TEXT,
-  poolFundingText,
+  POOL_FUNDING_TEXT,
   poolModelDifferences,
   type PoolModelInfo,
   roughWords,
@@ -15,8 +15,7 @@ import type { AppBindings, AppEnv } from '../env.js';
 import { modelPrice } from '../pool/model-prices.js';
 import { poolModel } from '../pool/params.js';
 import { ceilingHoldMicros } from '../pool/pricing.js';
-import { poolContributions } from '../pool/revenue-share.js';
-import { poolModelInfo, weekStart } from '../pool/status.js';
+import { poolModelInfo } from '../pool/status.js';
 import { creditSold } from '../services.js';
 import { joinList } from './landing.js';
 import { legalInfo, type LegalInfo } from './legal-info.js';
@@ -24,12 +23,11 @@ import { legalResponse, page } from './legal.js';
 
 /**
  * `/pool`: how the open pool works (spec §8, transparency page). A
- * static, script-free page like the legal pages, whose numbers (revenue
- * share, model, caps) come from the config module, so it always describes
- * what this deployment does. The pool is free credit Tangent provides from
- * its revenue (pool/revenue-share.ts, docs/polar-migration/05-pool-framing.md):
- * nothing on the page offers pool credit for sale, and it never calls the
- * pool a donation.
+ * static, script-free page like the legal pages, whose numbers (model, caps)
+ * come from the config module, so it always describes what this deployment
+ * does. The pool is free credit Tangent provides (admin adjustments,
+ * docs/polar-migration/05-pool-framing.md): nothing on the page offers pool
+ * credit for sale, and it never calls the pool a donation.
  */
 
 /** Everything the page states, resolved from the config (one place, for the tests too). */
@@ -37,8 +35,6 @@ export interface PoolPageFacts {
   enabled: boolean;
   /** The pool's model and how it is asked against the tier that runs it (`poolModelInfo`). */
   model: PoolModelInfo;
-  /** `POOL_REVENUE_SHARE_BPS`: the share of Tangent's revenue added to the pool. */
-  revenueShareBps: number;
   sessionEstimateMicros: number;
   maxOutputTokens: number;
   /** Each learner's daily caps: the same for everyone, member or not. */
@@ -63,7 +59,6 @@ export async function poolPageFacts(env: AppEnv): Promise<PoolPageFacts> {
   return {
     enabled: config.flags.poolEnabled,
     model: poolModelInfo(env),
-    revenueShareBps: pool.revenueShareBps,
     sessionEstimateMicros: pool.sessionEstimateMicros,
     maxOutputTokens: pool.maxOutputTokens,
     user: pool.caps.user,
@@ -94,24 +89,7 @@ function smallMoney(micros: number): string {
   return `${Number((micros / 10_000).toFixed(1))}¢`;
 }
 
-/** Where the pool's credit comes from, in detail (the summary states the commitment). */
-function sourcesText(revenueShareBps: number): string {
-  if (revenueShareBps <= 0) return "Pool credit isn't sold. Tangent adds it, at its discretion.";
-  const share = formatBps(revenueShareBps);
-  return `Pool credit isn't sold. Tangent adds ${share} of each membership payment, after tax and the payment provider's fee, when the payment comes in, and once a day ${share} of the markup on the credit people used the day before (UTC). The markup is what Tangent earns on credit; buying credit adds nothing until it is used. If a membership payment is refunded, the same part of its share comes back out of the pool. Tangent may add more on top.`;
-}
-
-/** What the revenue share added recently, when it could be read. */
-export interface PoolPageContributions {
-  weekMicros: number;
-  monthMicros: number;
-}
-
-export function renderPoolPage(
-  info: LegalInfo,
-  f: PoolPageFacts,
-  contributions: PoolPageContributions | null = null,
-): string {
+export function renderPoolPage(info: LegalInfo, f: PoolPageFacts): string {
   // The reply cap is stated next to it, so only the thinking is named here.
   const asked = poolModelDifferences(f.model, { replies: false });
   const model =
@@ -122,12 +100,8 @@ export function renderPoolPage(
     f.ceilingHoldMicros === null
       ? ''
       : `<p>Before a reply starts, the pool sets aside what the longest possible reply could cost (about ${escapeHtml(smallMoney(f.ceilingHoldMicros))}) and settles the real cost when it ends. So the last ${escapeHtml(smallMoney(f.ceilingHoldMicros))} or so of a daily spending limit can't start a new reply.</p>\n`;
-  const added =
-    contributions && f.revenueShareBps > 0
-      ? `<p>So far Tangent’s revenue share has added ${escapeHtml(formatMicros(contributions.weekMicros))} to the pool this week (since Monday, UTC) and ${escapeHtml(formatMicros(contributions.monthMicros))} this month.</p>\n`
-      : '';
   const contact = escapeHtml(info.contactEmail);
-  // What Tangent sells here, if anything; the pool comes out of what it earns.
+  // What Tangent sells here, if anything.
   const sold = joinList(
     [f.membershipOffered && 'memberships', f.creditSold && 'credit'].filter(
       (x): x is string => typeof x === 'string',
@@ -135,7 +109,7 @@ export function renderPoolPage(
     'and',
   );
   const why = sold
-    ? `Tangent charges for ${sold} like any software business, and keeps a share of what it earns open for anyone who wants to learn. Paying for Tangent pays for Tangent; the pool is Tangent’s own decision, within daily limits and while it has credit.`
+    ? `Tangent charges for ${sold} like any software business, and keeps the pool open for anyone who wants to learn. Paying for Tangent pays for Tangent; the pool is Tangent’s own decision, within daily limits and while it has credit.`
     : 'Tangent keeps the pool open for anyone who wants to learn. It is Tangent’s own decision, within daily limits and while it has credit.';
   const ownKey = `use your own OpenRouter key${f.membershipOffered ? ' (with a membership)' : ''}`;
   const instead = f.creditSold
@@ -147,14 +121,14 @@ export function renderPoolPage(
     'The open pool',
     `<h1>The open pool: how Tangent keeps learning free</h1>
 <div class="summary">
-<p><strong>The short version.</strong> ${escapeHtml(poolFundingText(f.revenueShareBps))} Any signed-in learner can use it in Tangent Learn, on one economical model, within daily limits.</p>
+<p><strong>The short version.</strong> ${escapeHtml(POOL_FUNDING_TEXT)} Any signed-in learner can use it in Tangent Learn, on one economical model, within daily limits.</p>
 </div>
 <h2>Why it exists</h2>
 <p>Good AI tutoring costs real money for every reply, so most of it sits behind a paywall. ${why}</p>
 ${f.enabled ? '' : '<p class="updated">The open pool isn’t running on this server yet.</p>\n'}
 <h2>Where the credit comes from</h2>
-<p>${escapeHtml(sourcesText(f.revenueShareBps))}</p>
-${added}
+<p>Pool credit isn't sold. Tangent adds it, at its discretion.</p>
+
 <h2>How it works</h2>
 <ul>
 <li>Any signed-in learner can use the pool in Tangent Learn. When your own credit runs out, Learn uses the pool. When you have both, you choose with the <strong>Pay for replies with</strong> switch above the message box.</li>
@@ -191,32 +165,11 @@ ${ceiling}
   );
 }
 
-/** What the revenue share added this week and month; null while the pool is off or D1 can't be read. */
-export async function poolPageContributions(
-  env: AppEnv,
-  now = new Date(),
-): Promise<PoolPageContributions | null> {
-  if (!appConfig(env).flags.poolEnabled) return null;
-  try {
-    return await poolContributions(env, now, weekStart(now));
-  } catch (err) {
-    console.warn('/pool: the revenue share could not be read', err);
-    return null;
-  }
-}
-
 /** `GET /pool`, public (mounted at the root by `createApp`; listed in run_worker_first). */
 export function poolPageRoutes(): Hono<AppBindings> {
   const app = new Hono<AppBindings>();
   app.get('/pool', async (c) =>
-    legalResponse(
-      c,
-      renderPoolPage(
-        legalInfo(c.env, c.req.raw),
-        await poolPageFacts(c.env),
-        await poolPageContributions(c.env),
-      ),
-    ),
+    legalResponse(c, renderPoolPage(legalInfo(c.env, c.req.raw), await poolPageFacts(c.env))),
   );
   return app;
 }

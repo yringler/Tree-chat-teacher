@@ -113,7 +113,7 @@ import { UiStore } from '../state/ui-store';
                 <span class="muted small">
                   Free to you, within daily limits, on
                   {{ account.poolStatus()?.model?.label ?? 'one economical model' }}. Free credit
-                  Tangent provides from its revenue.
+                  Tangent provides.
                 </span>
               </span>
             </label>

@@ -45,8 +45,8 @@ function newKey(): string {
  * every request until the window's overage falls back under the limit or the
  * price table is fixed). Below it, a top-up or correction of the pool
  * (`POST /api/admin/credit`, an adjustment; a negative one is clamped to what
- * is available): how the operator adds credit beyond the automatic revenue
- * share. Nobody buys pool credit, so there is no simulated pool purchase.
+ * is available): how the operator funds the pool. Nobody buys pool credit,
+ * so there is no simulated pool purchase.
  */
 @Component({
   selector: 'app-pool-page',

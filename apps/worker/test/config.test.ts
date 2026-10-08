@@ -50,9 +50,7 @@ describe('config parsers', () => {
 
 describe('appConfig', () => {
   it('has the documented defaults', () => {
-    const c = appConfig(
-      blank({ POOL_ENABLED: '', ANNUAL_FEE_ENABLED: '', POOL_REVENUE_SHARE_BPS: '' }),
-    );
+    const c = appConfig(blank({ POOL_ENABLED: '', ANNUAL_FEE_ENABLED: '' }));
     expect(c.flags).toEqual({
       poolEnabled: false,
       annualFeeEnabled: false,
@@ -64,7 +62,6 @@ describe('appConfig', () => {
     expect(c.pool).toMatchObject({
       accountId: 'pool',
       model: null,
-      revenueShareBps: 2000,
       maxInputTokens: 16_000,
       maxOutputTokens: 8192,
       maxMessageChars: 4000,
@@ -177,18 +174,13 @@ describe('appConfig', () => {
     expect(error).toHaveBeenCalled();
   });
 
-  it('reads the pool revenue share from POOL_REVENUE_SHARE_BPS (default 20%, at most 100%)', () => {
-    expect(appConfig(blank({ POOL_REVENUE_SHARE_BPS: '1500' })).pool.revenueShareBps).toBe(1500);
-    expect(appConfig(blank({ POOL_REVENUE_SHARE_BPS: '0' })).pool.revenueShareBps).toBe(0);
-    expect(appConfig(blank({ POOL_REVENUE_SHARE_BPS: 'a fifth' })).pool.revenueShareBps).toBe(2000);
-    expect(appConfig(blank({ POOL_REVENUE_SHARE_BPS: '12000' })).pool.revenueShareBps).toBe(10_000);
-  });
-
-  it('ships the share wrangler.jsonc documents, and no pool purchase or pool markup vars', () => {
-    expect(/"POOL_REVENUE_SHARE_BPS"\s*:\s*"([^"]*)"/.exec(wranglerText as string)?.[1]).toBe(
-      '2000',
-    );
-    for (const gone of ['POOL_PURCHASES_ENABLED', 'POOL_MIN_PURCHASE_CENTS', 'POOL_MARKUP_BPS'])
+  it('ships no pool purchase, pool markup or revenue share vars', () => {
+    for (const gone of [
+      'POOL_PURCHASES_ENABLED',
+      'POOL_MIN_PURCHASE_CENTS',
+      'POOL_MARKUP_BPS',
+      'POOL_REVENUE_SHARE_BPS',
+    ])
       expect(wranglerText as string).not.toContain(gone);
   });
 

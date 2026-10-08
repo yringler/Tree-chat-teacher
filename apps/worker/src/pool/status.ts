@@ -26,13 +26,6 @@ import { dayResetAt, dayStart, userDayUsageStatement, type DayRow } from './pool
 /** How long the meter is cached at the edge (`caches.default`) and by browsers. */
 export const POOL_STATUS_MAX_AGE_S = 60;
 
-/** Monday 00:00 UTC of `now`'s ISO week. */
-export function weekStart(now: Date): Date {
-  const day = dayStart(now);
-  const sinceMonday = (day.getUTCDay() + 6) % 7;
-  return new Date(day.getTime() - sinceMonday * 24 * 60 * 60_000);
-}
-
 /** Reasoning efforts from least to most thinking. */
 const EFFORT_RANK: Readonly<Record<ReasoningEffort, number>> = { none: 0, low: 1, high: 2 };
 
@@ -89,7 +82,6 @@ export async function poolStatus(env: AppEnv): Promise<PoolStatusResponse> {
     availableMicros: 0,
     sessionsRemaining: 0,
     model: poolModelInfo(env),
-    revenueShareBps: pool.revenueShareBps,
   };
   if (!base.enabled) return base;
   const balance = await getBalance(env.DB, pool.accountId);

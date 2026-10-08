@@ -4,12 +4,12 @@ import {
   POOL_AT_COST_TEXT,
   POOL_BLOCK_REASONS,
   POOL_EMPTY_TEXT,
+  POOL_FUNDING_TEXT,
   POOL_NOTICE_TEXT,
   POOL_NOTICE_VERSION,
   poolBlockDetailsSchema,
   poolConsentRequestSchema,
   poolErrorCode,
-  poolFundingText,
   poolModelDifferences,
   poolModelText,
   poolSessionsText,
@@ -54,21 +54,8 @@ describe('pool copy', () => {
     expect(poolSessionsText(2.9)).toBe('about 2 learning sessions');
   });
 
-  it("states Tangent's revenue share from the configured rate", () => {
-    expect(poolFundingText(2000)).toBe(
-      'The open pool is free credit Tangent provides. Tangent puts 20% of what it earns into it: 20% of each membership payment (after tax and payment fees) and 20% of its markup on credit, as that credit is used.',
-    );
-    expect(poolFundingText(1250)).toContain('12.5% of each membership payment');
-    expect(poolFundingText(0)).toBe('The open pool is free credit Tangent provides.');
-  });
-
   it('never offers pool credit for sale', () => {
-    for (const text of [
-      poolFundingText(2000),
-      poolFundingText(0),
-      POOL_EMPTY_TEXT,
-      POOL_AT_COST_TEXT,
-    ])
+    for (const text of [POOL_FUNDING_TEXT, POOL_EMPTY_TEXT, POOL_AT_COST_TEXT])
       expect(text).not.toMatch(/buy|purchase|fund the pool|people fund/i);
     expect(POOL_EMPTY_TEXT).toBe('The open pool is empty until Tangent adds more credit.');
     expect(POOL_AT_COST_TEXT).toContain('with no markup');
@@ -78,7 +65,7 @@ describe('pool copy', () => {
     for (const text of [
       POOL_EMPTY_TEXT,
       POOL_AT_COST_TEXT,
-      poolFundingText(2000),
+      POOL_FUNDING_TEXT,
       poolSessionsText(10),
     ])
       expect(text).not.toMatch(FORBIDDEN_POOL_COPY);

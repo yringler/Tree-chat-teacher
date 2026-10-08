@@ -177,7 +177,6 @@ describe('the dispute cron job', () => {
       reconcile: vi.fn(() => Promise.resolve()),
       poolExpiry: vi.fn(() => Promise.resolve()),
       paymentDisputes: vi.fn(() => Promise.reject(new Error('Polar is down'))),
-      poolRevenueShare: vi.fn(() => Promise.resolve()),
       priceSync: vi.fn(() => Promise.resolve()),
     } satisfies CronJobs;
     await expect(

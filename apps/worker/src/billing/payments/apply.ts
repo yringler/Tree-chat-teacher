@@ -11,16 +11,13 @@
 //   unknown targets (a legacy pool purchase) and any ledger but a personal one
 //   are logged and never credited; an unknown fee throws RetryLaterError.
 // - payment.succeeded, membership (first year or renewal) → the included
-//   credit (MEMBERSHIP_CREDIT_CENTS), a fixed gift with no gross or fee, and
-//   the open pool's revenue share of the payment after its fee
-//   (pool/revenue-share.ts), each once per payment; an unknown fee throws
-//   RetryLaterError once the included credit is in.
+//   credit (MEMBERSHIP_CREDIT_CENTS), a fixed gift with no gross or fee, once
+//   per payment.
 // - refund.succeeded → a personal purchase: − the refunded pre-tax amount in
 //   full (the processor keeps its fee, so the refund passes it on); a legacy
 //   pool purchase (from before the pool became revenue-funded): − the share
 //   of what it credited, clamped by PoolBank.debit; a membership payment: its
-//   included credit, once per payment, and the refunded proportion of the
-//   pool's revenue share of it, clamped, once per refund. A refund (or
+//   included credit, once per payment. A refund (or
 //   dispute) of a payment not applied yet throws RetryLaterError only while
 //   that payment will grant something once applied (`grantsOnPayment`); a
 //   refund of one that never grants is logged (`refund_not_debited`) and
@@ -40,12 +37,6 @@ import type { AppEnv } from '../../env.js';
 import { identitySuspensionStatement } from '../../pool/identity.js';
 import { poolBank } from '../../pool/ids.js';
 import { creditEquivalentMicros } from '../../pool/pricing.js';
-import {
-  grantMembershipShare,
-  membershipShareMicros,
-  reverseMembershipShare,
-  revenueShareBps,
-} from '../../pool/revenue-share.js';
 import { grantByRef, grantCredit, grantTowardCap, hasGrant, type GrantRow } from '../ledger.js';
 import { membershipCreditCents } from '../membership.js';
 import { centsToMicros } from '../pricing.js';
@@ -62,12 +53,7 @@ import type {
   ProviderRef,
   RefundSucceeded,
 } from './port.js';
-import {
-  membershipPoolShareRef,
-  membershipRefundRef,
-  poolShareReversalRef,
-  reinstatedRef,
-} from './refs.js';
+import { membershipRefundRef, reinstatedRef } from './refs.js';
 
 /** The note on the credit a membership payment includes (and that a refund of it takes back). */
 export const MEMBERSHIP_CREDIT_NOTE = 'Included with membership';
@@ -185,8 +171,7 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
  * A paid membership year (the first or a renewal) includes
  * MEMBERSHIP_CREDIT_CENTS of credit: a fixed gift, not a purchase, so no
  * gross amount or fee. Nothing when the built-in provider isn't offered (the
- * amount is then 0) or nothing was paid (a trial or a 100% discount). Then
- * the open pool's share of the payment (USD only), which needs the fee.
+ * amount is then 0) or nothing was paid (a trial or a 100% discount).
  */
 async function membershipPayment(env: AppEnv, e: PaymentSucceeded): Promise<ApplyResult> {
   if (!(e.netCents > 0)) return 'skipped';
@@ -210,29 +195,7 @@ async function membershipPayment(env: AppEnv, e: PaymentSucceeded): Promise<Appl
       log('payment_not_credited', { reason: 'no_user', paymentRef: e.paymentRef });
     }
   }
-  if (revenueShareBps(env) <= 0 || e.currency !== 'usd') return credited;
-  if (!e.fee) throw new RetryLaterError(`The fee of ${e.paymentRef} is not known yet`);
-  const shared = await grantMembershipShare(env, {
-    paymentRef: e.paymentRef,
-    netCents: e.netCents,
-    feeCents: e.fee.cents,
-  });
-  if (shared) return 'applied';
-  if (credited !== 'skipped') return credited;
-  return (await hasGrant(env.DB, membershipPoolShareRef(e.paymentRef))) ? 'duplicate' : 'skipped';
-}
-
-/**
- * True when `membershipPayment` adds the open pool's share of this membership
- * payment (as configured now): a USD payment, the share on, and a share
- * above zero after the fee (an unknown fee counts: the payment itself waits
- * for it).
- */
-function sharesOnPayment(env: AppEnv, facts: PaymentFacts): boolean {
-  if (facts.purpose.kind !== 'membership' || facts.currency !== 'usd') return false;
-  const bps = revenueShareBps(env);
-  if (bps <= 0) return false;
-  return facts.fee === null || membershipShareMicros(facts.netCents, facts.fee.cents, bps) > 0;
+  return credited;
 }
 
 /**
@@ -240,21 +203,14 @@ function sharesOnPayment(env: AppEnv, facts: PaymentFacts): boolean {
  * credits payment `paymentSucceeded` credits on its own ref (every skip
  * there, `currency`, `unknown_target`, nothing paid and `no_account`, is
  * final), or, with `membership`, a membership payment whose included credit
- * (on its own ref) or pool share (`<paymentRef>:pool-share`)
- * `membershipPayment` grants (as configured now). The share counts even with
- * no included credit (MEMBERSHIP_CREDIT_CENTS 0, the default): a refund that
- * came first must wait for it, or the share added later is never taken back.
- * A payment that grants nothing is never waited for, so its refund can't be
- * retried forever.
+ * `membershipPayment` grants (as configured now). A payment that grants
+ * nothing is never waited for, so its refund can't be retried forever.
  */
 function grantsOnPayment(env: AppEnv, facts: PaymentFacts, membership: boolean): boolean {
   if (!(facts.netCents > 0)) return false;
   const purpose = facts.purpose;
   if (purpose.kind === 'membership')
-    return (
-      membership &&
-      ((!!facts.userId && membershipCreditCents(env) > 0) || sharesOnPayment(env, facts))
-    );
+    return membership && !!facts.userId && membershipCreditCents(env) > 0;
   if (purpose.kind !== 'credits' || purpose.target === 'unknown' || facts.currency !== 'usd')
     return false;
   return creditsAccountOf(purpose, facts.userId) !== null;
@@ -265,9 +221,7 @@ function grantsOnPayment(env: AppEnv, facts: PaymentFacts, membership: boolean):
  * payment that will grant once applied (`grantsOnPayment`; membership
  * payments only for a refund) means the event came first, so retry; a
  * payment that never grants anything (or one the provider doesn't know)
- * means there is nothing to take back. A membership payment whose pool share
- * is on record was applied: with no included credit, the share (which the
- * refund takes back itself) is all it granted.
+ * means there is nothing to take back.
  */
 async function paidGrant(
   env: AppEnv,
@@ -277,7 +231,6 @@ async function paidGrant(
 ): Promise<GrantRow | null> {
   const grant = await grantByRef(env.DB, paymentRef);
   if (grant) return grant;
-  if (o.membership && (await hasGrant(env.DB, membershipPoolShareRef(paymentRef)))) return null;
   const facts = deps.provider ? await deps.provider.getPayment(paymentRef) : null;
   if (facts && grantsOnPayment(env, facts, o.membership))
     throw new RetryLaterError(`${paymentRef} is not applied yet`);
@@ -293,17 +246,7 @@ async function refundSucceeded(
     log('refund_not_debited', { reason: 'currency', refundRef: e.refundRef, currency: e.currency });
     return 'skipped';
   }
-  // A membership payment's pool share (none for any other payment) is taken back per refund.
-  const unshared = await reverseMembershipShare(env, {
-    paymentRef: e.paymentRef,
-    refundRef: e.refundRef,
-    netCents: e.netCents,
-  });
   const result = await refundGrant(env, e, deps);
-  if (unshared) return 'applied';
-  // A redelivered refund whose share was already taken back (and nothing else to take).
-  if (result === 'skipped' && (await hasGrant(env.DB, poolShareReversalRef(e.refundRef))))
-    return 'duplicate';
   if (result === 'skipped')
     log('refund_not_debited', {
       reason: 'nothing_granted',

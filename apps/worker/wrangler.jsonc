@@ -249,8 +249,8 @@
     // Credit included with each paid membership year, in US cents (200 = $2.00); granted only while
     // the built-in provider is offered. 0 (the default) = none: the membership includes no credit.
     "MEMBERSHIP_CREDIT_CENTS": "0",
-    // ---- The open credit pool (docs/pool/SPEC.md, src/config.ts). Tangent funds it from its own
-    // revenue (POOL_REVENUE_SHARE_BPS) and admin adjustments; nobody buys credit for it. Any signed-in
+    // ---- The open credit pool (docs/pool/SPEC.md, src/config.ts). Tangent funds it with admin
+    // adjustments (POST /api/admin/credit); nobody buys credit for it. Any signed-in
     // Learn user may learn from it on one economical model, at cost, within daily caps. Every value
     // below is read through src/config.ts; empty or malformed = the default named in the comment.
     // "true" turns the pool on. Off, nothing spends from it.
@@ -273,11 +273,6 @@
     "POOL_PROVIDER_ORDER": "streamlake/fp8,deepinfra/fp8",
     // The locked system prompt of pool replies; empty = SIMPLE_SYSTEM_PROMPT, else the built-in prompt.
     "POOL_SYSTEM_PROMPT": "",
-    // The share of Tangent's revenue added to the pool, in bps (2000 = 20%; at most 10000; "0" = none):
-    // of each membership payment after tax and the payment fee, at payment time, and of the markup on
-    // personal credit as it is used, once per UTC day (src/pool/revenue-share.ts). The public pages
-    // quote this value. Pool replies are charged at their true cost, with no markup.
-    "POOL_REVENUE_SHARE_BPS": "2000",
     // Per-call input and output token caps of pool calls, and the longest message a pool send accepts.
     "POOL_MAX_INPUT_TOKENS": "16000",
     "POOL_MAX_OUTPUT_TOKENS": "8192",

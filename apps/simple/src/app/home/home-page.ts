@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { RouterLink } from '@angular/router';
 import {
   maxUsageNote,
-  poolFundingText,
+  POOL_FUNDING_TEXT,
   poolModelText,
   tierModel,
   tierOf,
@@ -101,8 +101,8 @@ import { UiStore } from '../state/ui-store';
           <h2 id="pool-title">Open pool</h2>
           <app-pool-meter [status]="status" />
           <p class="muted small">
-            {{ funding(status) }} Any signed-in learner can use it, on {{ poolModelName(status) }},
-            within daily limits. <a href="/pool" target="_blank" rel="noopener">How it works</a>
+            {{ funding }} Any signed-in learner can use it, on {{ poolModelName(status) }}, within
+            daily limits. <a href="/pool" target="_blank" rel="noopener">How it works</a>
           </p>
         </section>
       }
@@ -179,14 +179,12 @@ export class HomePage {
     return status?.enabled ? status : null;
   });
 
-  /** Where the pool's credit comes from: Tangent's revenue share (`POOL_REVENUE_SHARE_BPS`). */
+  /** Where the pool's credit comes from. */
+  protected readonly funding = POOL_FUNDING_TEXT;
+
   /** The pool's model, as the copy names it (`poolModelText`). */
   protected poolModelName(status: PoolStatusResponse): string {
     return poolModelText(status.model);
-  }
-
-  protected funding(status: PoolStatusResponse): string {
-    return poolFundingText(status.revenueShareBps);
   }
 
   protected async start(): Promise<void> {

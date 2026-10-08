@@ -108,7 +108,6 @@ export const DEMO_POOL_STATUS: PoolStatusResponse = {
   availableMicros: 0,
   sessionsRemaining: 0,
   model: { id: 'lorem', label: 'Lite' },
-  revenueShareBps: 0,
 };
 const DEMO_POOL_ME: Omit<PoolMeResponse, 'personalAvailableMicros'> = {
   available: false,

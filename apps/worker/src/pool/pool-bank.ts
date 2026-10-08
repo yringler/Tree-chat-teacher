@@ -147,8 +147,8 @@ export interface PoolDebitRequest {
   refId: string;
   /** Positive micro-USD to take; the debit is clamped to what is available. */
   requestedMicros: number;
-  /** `refund` for refunds and disputes, `adjustment` for an admin's, `contribution` for a revenue share taken back. */
-  kind: 'refund' | 'adjustment' | 'contribution';
+  /** `refund` for refunds and disputes, `adjustment` for an admin's. */
+  kind: 'refund' | 'adjustment';
   /** The buyer whose purchase is refunded, or the admin adjustment's user. */
   userId: string | null;
   /** Refunds and disputes: minus the refunded pre-tax amount (unclamped); else null. */
@@ -405,9 +405,8 @@ export class PoolBank extends DurableObject<AppEnv> {
   }
 
   /**
-   * Debits the pool (a refund or dispute of a legacy pool purchase, a refund
-   * taking back a membership payment's revenue share, or a negative
-   * admin adjustment; docs/pool/PLAN.md §1.3), under the reservation lock: a
+   * Debits the pool (a refund or dispute of a legacy pool purchase, or a
+   * negative admin adjustment; docs/pool/PLAN.md §1.3), under the reservation lock: a
    * debit lowers `available` like a reservation does. The amount is clamped
    * to what is available, so the pool never goes negative, and the row is
    * written even when the clamp leaves 0: keyed on `refId`, it makes every

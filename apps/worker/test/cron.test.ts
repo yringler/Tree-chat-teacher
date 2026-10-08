@@ -11,7 +11,6 @@ function spies() {
     reconcile: vi.fn(() => Promise.resolve()),
     poolExpiry: vi.fn(() => Promise.resolve()),
     paymentDisputes: vi.fn(() => Promise.resolve()),
-    poolRevenueShare: vi.fn(() => Promise.resolve()),
     priceSync: vi.fn(() => Promise.resolve()),
   } satisfies CronJobs;
 }
@@ -24,7 +23,6 @@ describe('cron dispatch', () => {
     expect(frequent.reconcile).toHaveBeenCalledOnce();
     expect(frequent.poolExpiry).toHaveBeenCalledWith(env, now);
     expect(frequent.paymentDisputes).toHaveBeenCalledWith(env, now);
-    expect(frequent.poolRevenueShare).toHaveBeenCalledWith(env, now);
     expect(frequent.priceSync).not.toHaveBeenCalled();
 
     const daily = spies();

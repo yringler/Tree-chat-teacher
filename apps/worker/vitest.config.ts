@@ -223,9 +223,6 @@ export default defineConfig({
             // As deployed: tests that simulate purchases turn it on in an env override.
             DEV_PURCHASES_ENABLED: 'false',
             POOL_ACCOUNT_ID: 'pool',
-            // No revenue share by default: the suites that test it (pool-revenue-share.test.ts) set it on
-            // a pool of their own, so membership payments elsewhere never touch the shared `pool`.
-            POOL_REVENUE_SHARE_BPS: '0',
             POOL_MODEL: 'simple',
             // `smart` (Max) is priced too, low, so a credit call on it holds USAGE_HOLD_MICROS like
             // any cheap model (a model without a price can't run on credit).

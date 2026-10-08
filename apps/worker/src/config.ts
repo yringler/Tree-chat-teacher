@@ -126,12 +126,6 @@ export function backgroundEffort(env: AppEnv, model: string): ReasoningEffort | 
 
 /** The open pool's ledger account id (`POOL_ACCOUNT_ID`). */
 export const DEFAULT_POOL_ACCOUNT_ID = 'pool';
-/**
- * The share of Tangent's revenue that goes to the open pool, in bps
- * (20%): of each membership payment net of tax and the processing fee, and of
- * the markup on personal credit as it is spent (pool/revenue-share.ts).
- */
-const DEFAULT_POOL_REVENUE_SHARE_BPS = 2000;
 /** The expiry alarm needs this much slack between a call's timeout and its reservation's TTL. */
 const POOL_TTL_SLACK_MS = 60_000;
 
@@ -272,12 +266,6 @@ export interface PoolConfig {
   /** `POOL_PROVIDER_ORDER`. */
   providerOrder: readonly string[];
   systemPrompt: string;
-  /**
-   * `POOL_REVENUE_SHARE_BPS` (at most 10,000): the share of each membership
-   * payment (after the processing fee) and of the markup on personal credit
-   * as it is used that Tangent adds to the pool (pool/revenue-share.ts); 0 = none.
-   */
-  revenueShareBps: number;
   maxInputTokens: number;
   maxOutputTokens: number;
   maxMessageChars: number;
@@ -519,10 +507,6 @@ function parse(env: AppEnv): AppConfig {
       providerOrder: list(env.POOL_PROVIDER_ORDER),
       systemPrompt:
         env.POOL_SYSTEM_PROMPT?.trim() || env.SIMPLE_SYSTEM_PROMPT?.trim() || DEFAULT_SYSTEM_PROMPT,
-      revenueShareBps: Math.min(
-        intVar(env.POOL_REVENUE_SHARE_BPS, DEFAULT_POOL_REVENUE_SHARE_BPS),
-        10_000,
-      ),
       maxInputTokens: positiveInt(env.POOL_MAX_INPUT_TOKENS, 16_000),
       maxOutputTokens: positiveInt(env.POOL_MAX_OUTPUT_TOKENS, 8192),
       maxMessageChars: positiveInt(env.POOL_MAX_MESSAGE_CHARS, 4000),

@@ -10,12 +10,9 @@
 /**
  * - `purchase`: credit bought (net of the processing fee); `subscription`:
  *   credit included with a membership payment; `refund`: a refund or dispute
- *   taking credit back; `adjustment`: an admin's (or a marker row);
- * - `contribution`: the pool's share of Tangent's revenue
- *   (pool/revenue-share.ts), or, negative, a refund taking it back.
+ *   taking credit back; `adjustment`: an admin's (or a marker row).
  */
-export type CreditGrantKind =
-  'purchase' | 'subscription' | 'refund' | 'adjustment' | 'contribution';
+export type CreditGrantKind = 'purchase' | 'subscription' | 'refund' | 'adjustment';
 
 export interface CreditGrantInput {
   accountId: string;
@@ -24,8 +21,7 @@ export interface CreditGrantInput {
   amountMicros: number;
   /**
    * Purchases: the pre-tax amount paid, before the processing fee. Refunds: minus the refunded
-   * pre-tax amount. Contributions: the revenue they are a share of (a membership payment's
-   * pre-tax amount, or a day's markup); their reversals: minus the refunded pre-tax amount.
+   * pre-tax amount.
    */
   grossMicros?: number | null;
   /** Purchases: the payment provider's actual processing fee (`grossMicros - amountMicros` for personal credit). */
@@ -35,13 +31,12 @@ export interface CreditGrantInput {
   /**
    * Idempotency key: a payment, refund or dispute ref such as
    * `polar:order:<id>`, or a ref the domain derives from one (`…:membership-refund`,
-   * `…:pool-share`, `…:reinstated`, `…:lost`, `…:ignored`); `admin:<key>` for an admin's
-   * adjustment, `dev:<key>` for a simulated purchase, `pool-share:usage:<day>`
-   * for the pool's daily usage share (provider refs never start with those);
-   * null for SQL adjustments.
+   * `…:reinstated`, `…:lost`, `…:ignored`); `admin:<key>` for an admin's
+   * adjustment, `dev:<key>` for a simulated purchase (provider refs never start
+   * with those); null for SQL adjustments.
    */
   providerRef: string | null;
-  /** Refunds, disputes, reinstatements and revenue-share reversals: the payment they take back from. */
+  /** Refunds, disputes and reinstatements: the payment they take back from. */
   paymentRef?: string | null;
   note?: string;
 }

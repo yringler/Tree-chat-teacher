@@ -10,7 +10,7 @@ import { ApiError, isPoolCapReached, isPoolEmpty } from '../core/api-client';
 /*
  * The open pool as both apps word it: the meter and the inline empty and
  * cap-reached states. Plain functions, so the specs check the exact copy.
- * The pool is free credit Tangent provides (`poolFundingText`); nothing here
+ * The pool is free credit Tangent provides (`POOL_FUNDING_TEXT`); nothing here
  * offers it for sale, and nothing calls it a donation.
  */
 

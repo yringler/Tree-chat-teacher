@@ -205,26 +205,24 @@ function poolOpen(pool: PoolStatusResponse | undefined): pool is PoolStatusRespo
 }
 
 /**
- * The pool section's intro: why the pool exists. The steps under it say how
- * (with the revenue share's percentage from the config); the details (what
- * the share is of, the model, the limits) are on `/pool`.
+ * The pool section's intro: why the pool exists. The steps under it say how;
+ * the details (the model, the limits) are on `/pool`.
  */
 const POOL_INTRO = `Every AI reply costs real money, so good AI tutoring usually sits behind a paywall. ${POOL_MOTTO} Here’s how:`;
 
 /** How the pool comes about, as three numbered steps (`poolSteps`); the landing and pricing pages share it. */
-export function poolStepsHtml(revenueShareBps: number, memberships: boolean): string {
-  return `<ol class="steps">${poolSteps(revenueShareBps, memberships)
+export function poolStepsHtml(memberships: boolean): string {
+  return `<ol class="steps">${poolSteps(memberships)
     .map((step) => `<li>${escapeHtml(step)}</li>`)
     .join('')}</ol>`;
 }
 
 /**
- * The open pool section: why it exists, where its credit comes from
- * (Tangent's revenue share, in brief) and the meter. It is
- * Tangent's own commitment: nothing here is for sale, and nothing asks the
- * visitor to pay for anyone else (docs/DECISIONS.md, "Revenue-funded
- * open pool"). The free sign-up button shows only while the pool has
- * credit.
+ * The open pool section: why it exists, where its credit comes from and the
+ * meter. It is Tangent's own commitment: nothing here is for sale, and
+ * nothing asks the visitor to pay for anyone else (docs/DECISIONS.md,
+ * "Revenue-funded open pool"). The free sign-up button shows only while the
+ * pool has credit.
  */
 function poolSection(pool: PoolStatusResponse, memberships: boolean): string {
   const meter =
@@ -240,7 +238,7 @@ function poolSection(pool: PoolStatusResponse, memberships: boolean): string {
 <h2 id="pool">Curiosity shouldn’t need a credit card</h2>
 <p class="sub">${escapeHtml(POOL_INTRO)}</p>
 <div class="pool">
-${poolStepsHtml(pool.revenueShareBps, memberships)}
+${poolStepsHtml(memberships)}
 ${meter}
 <div class="ctas">${ctas}</div>
 <p class="fee">${escapeHtml(POOL_AT_COST_TEXT)}</p>
@@ -326,9 +324,7 @@ function learnItems(opts: LandingPageOptions): string[] {
     );
   }
   if (pool)
-    items.push(
-      `Learn free on the open pool, within daily limits, on credit Tangent provides${pool.revenueShareBps > 0 ? ' from its earnings' : ''}`,
-    );
+    items.push('Learn free on the open pool, within daily limits, on credit Tangent provides');
   items.push(
     `${pool ? 'Or use your' : 'Your'} own OpenRouter key, ${membership ? `with a ${escapeHtml(formatCents(membership.priceCents))} yearly membership and nothing charged per reply` : 'with nothing charged by Tangent'}`,
   );
@@ -371,7 +367,7 @@ export function renderLandingPage(opts: LandingPageOptions): string {
   const canonical = escapeHtml(opts.canonicalUrl);
   const free = poolOpen(opts.pool);
   const freeNote = poolOpen(opts.pool)
-    ? `<p class="free"><strong>No credit card needed.</strong> ${opts.pool.revenueShareBps > 0 ? `Tangent puts ${escapeHtml(formatBps(opts.pool.revenueShareBps))} of what it earns into the open pool` : 'Tangent provides free credit in the open pool'}, so anyone signed in can learn here free, within daily limits. <a href="#pool">How it works</a></p>\n`
+    ? `<p class="free"><strong>No credit card needed.</strong> Tangent provides free credit in the open pool, so anyone signed in can learn here free, within daily limits. <a href="#pool">How it works</a></p>\n`
     : '';
   return `<!doctype html>
 <html lang="en">

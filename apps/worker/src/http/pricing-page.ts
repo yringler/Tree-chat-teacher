@@ -6,8 +6,8 @@ import {
   LEARN_KEY_PROVIDER,
   MAX_TOP_UP_CENTS,
   MIN_TOP_UP_CENTS,
+  POOL_FUNDING_TEXT,
   POOL_MOTTO,
-  poolFundingText,
   poolModelDifferences,
   poolModelText,
   roughWords,
@@ -60,7 +60,6 @@ export interface PricingFacts {
   pool: {
     /** The pool's model and how it is asked against the tier that runs it (`poolModelInfo`). */
     model: PoolModelInfo;
-    revenueShareBps: number;
     maxOutputTokens: number;
     /** Each learner's daily caps, the same for everyone. */
     caps: PoolDailyCaps;
@@ -103,7 +102,6 @@ export function pricingFacts(
     pool: poolAvailable(env)
       ? {
           model: poolModelInfo(env),
-          revenueShareBps: config.pool.revenueShareBps,
           maxOutputTokens: config.pool.maxOutputTokens,
           caps: config.pool.caps.user,
           availableMicros: poolAvailableMicros,
@@ -240,20 +238,16 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, string>> {
     'own-key': `With your own key, the AI provider bills you directly, at its own prices, and Tangent adds nothing to that bill. Learn takes an OpenRouter key${searches ? ', which also works for web search' : ''}${others ? `; power mode also takes ${others} keys` : ''}.${membership ? ' Your own keys need the membership, in Learn and in power mode alike.' : ''}`,
   };
   if (pool) {
-    texts.pool = `${escapeHtml(poolFundingText(pool.revenueShareBps))} Pool replies use ${escapeHtml(poolModelNoun(pool.model, { replies: false }))}, are at most ${pool.maxOutputTokens.toLocaleString('en-US')} tokens long (roughly ${roughWords(pool.maxOutputTokens)} words) and don’t search the web. While the pool has credit, each learner can use up to ${pool.caps.requestsPerDay.toLocaleString('en-US')} replies or ${escapeHtml(formatMicros(pool.caps.spendMicrosPerDay))} of AI cost a day, whichever comes first. The limits are the same for everyone, whatever else they pay for, and reset at 00:00 UTC. You need to be signed in and pass a quick check that you’re human, with one account per email address. <a href="/pool">How the pool works, with every limit</a>.`;
+    texts.pool = `${escapeHtml(POOL_FUNDING_TEXT)} Pool replies use ${escapeHtml(poolModelNoun(pool.model, { replies: false }))}, are at most ${pool.maxOutputTokens.toLocaleString('en-US')} tokens long (roughly ${roughWords(pool.maxOutputTokens)} words) and don’t search the web. While the pool has credit, each learner can use up to ${pool.caps.requestsPerDay.toLocaleString('en-US')} replies or ${escapeHtml(formatMicros(pool.caps.spendMicrosPerDay))} of AI cost a day, whichever comes first. The limits are the same for everyone, whatever else they pay for, and reset at 00:00 UTC. You need to be signed in and pass a quick check that you’re human, with one account per email address. <a href="/pool">How the pool works, with every limit</a>.`;
   }
   if (credit) {
-    const share =
-      pool && pool.revenueShareBps > 0
-        ? ` Tangent puts ${escapeHtml(formatBps(pool.revenueShareBps))} of its markup into the open pool as credit is used.`
-        : '';
     // Credit runs on the built-in provider: OpenRouter unless the operator points it elsewhere.
     const via = credit.openRouter ? 'OpenRouter' : 'the AI provider';
     const fee =
       credit.openRouterFeeBps > 0
         ? ` plus the ${escapeHtml(formatBps(credit.openRouterFeeBps))} fee ${via} charges on credit purchases`
         : '';
-    texts.credit = `You pay what each reply costs Tangent, plus Tangent’s ${escapeHtml(formatBps(credit.markupBps))} markup. Tangent’s cost is ${via}’s price${fee}. So for every 1¢ ${via} charges, you pay about ${perCent(credit)}¢. Summaries and titles made on credit are charged the same way, and your billing page lists every charge.${share}`;
+    texts.credit = `You pay what each reply costs Tangent, plus Tangent’s ${escapeHtml(formatBps(credit.markupBps))} markup. Tangent’s cost is ${via}’s price${fee}. So for every 1¢ ${via} charges, you pay about ${perCent(credit)}¢. Summaries and titles made on credit are charged the same way, and your billing page lists every charge.`;
     texts['top-up'] =
       `Top up ${escapeHtml(formatCents(credit.minTopUpCents))} to ${escapeHtml(formatCents(credit.maxTopUpCents))} at a time. Tax is added at checkout. The payment processor’s fee (a percentage plus a fixed amount) comes out of the credit you receive, so larger top-ups lose a smaller share to it. Credit doesn’t expire while your account exists. It can’t be transferred, and it isn’t refundable, except where the law requires it or Polar’s terms for buyers allow it. Polar, our merchant of record, handles checkout, tax and receipts (<a href="/terms">terms</a>, section 7).${membership ? ' Buying and spending credit never needs a membership.' : ''}`;
   }
@@ -343,16 +337,12 @@ function perDay(caps: PoolDailyCaps): string {
  * paying for Tangent pays for Tangent (docs/DECISIONS.md).
  */
 function whyFreeSection(pool: NonNullable<PricingFacts['pool']>, memberships: boolean): string {
-  const source =
-    pool.revenueShareBps > 0
-      ? 'credit Tangent sets aside from what it earns'
-      : 'free credit Tangent provides';
   return `<section class="why" aria-labelledby="why">
 <div class="wrap">
 <p class="eyebrow">The open pool</p>
 <h2 id="why">Why there’s a free plan</h2>
-<p class="sub">${escapeHtml(POOL_MOTTO)} Free replies come from the open pool: ${source}. They use ${escapeHtml(poolModelNoun(pool.model))}, have daily limits and are available only while the pool has credit. <a href="/pool">How the pool works</a></p>
-${poolStepsHtml(pool.revenueShareBps, memberships)}
+<p class="sub">${escapeHtml(POOL_MOTTO)} Free replies come from the open pool: free credit Tangent provides. They use ${escapeHtml(poolModelNoun(pool.model))}, have daily limits and are available only while the pool has credit. <a href="/pool">How the pool works</a></p>
+${poolStepsHtml(memberships)}
 </div>
 </section>
 `;

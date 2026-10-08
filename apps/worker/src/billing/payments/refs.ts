@@ -1,9 +1,8 @@
 // Ledger idempotency keys (`credit_grants.provider_ref`). Adapters mint one
 // ref per provider object (`<provider>:<object>:<id>`); the domain derives the
-// secondary keys it needs from them, so no provider has to. `admin:`, `dev:`
-// and `pool-share:` keys (an admin's adjustment, a simulated purchase, the
-// pool's daily usage share) are never minted by a provider: `ProviderId` has
-// no such literal.
+// secondary keys it needs from them, so no provider has to. `admin:` and
+// `dev:` keys (an admin's adjustment, a simulated purchase) are never minted
+// by a provider: `ProviderId` has no such literal.
 import type { ProviderId, ProviderRef } from './port.js';
 
 /** `<provider>:<object>:<rawId>`, e.g. `polar:order:6c1e…`. */
@@ -21,14 +20,4 @@ export function reinstatedRef(disputeRef: ProviderRef): ProviderRef {
 /** The membership's included credit taken back once, however many refunds a payment gets. */
 export function membershipRefundRef(paymentRef: ProviderRef): ProviderRef {
   return `${paymentRef}:membership-refund` as ProviderRef;
-}
-
-/** The pool's share of a membership payment (pool/revenue-share.ts), granted once per payment. */
-export function membershipPoolShareRef(paymentRef: ProviderRef): ProviderRef {
-  return `${paymentRef}:pool-share` as ProviderRef;
-}
-
-/** What one refund of a membership payment takes back of the pool's share of it, once per refund. */
-export function poolShareReversalRef(refundRef: ProviderRef): ProviderRef {
-  return `${refundRef}:pool-share` as ProviderRef;
 }

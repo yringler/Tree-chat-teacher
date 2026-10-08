@@ -1,9 +1,8 @@
 import { z } from 'zod';
-import { formatBps } from './money.js';
 
 /**
  * The open credit pool (docs/pool/SPEC.md): free credit Tangent provides
- * from its own revenue (`poolFundingText`; nobody buys pool credit), spent at
+ * at its discretion (`POOL_FUNDING_TEXT`; nobody buys pool credit), spent at
  * cost by signed-in Learn users on one economical model within daily caps.
  *
  * Who pays for a request's model calls. The server decides it per request
@@ -149,11 +148,6 @@ export interface PoolStatusResponse {
   sessionsRemaining: number;
   /** The one model pool replies use, and how the pool asks it (`poolModelText`). */
   model: PoolModelInfo;
-  /**
-   * The share of Tangent's revenue that goes to the pool, bps
-   * (`POOL_REVENUE_SHARE_BPS`, `poolFundingText`); 0 = none.
-   */
-  revenueShareBps: number;
 }
 
 /**
@@ -211,7 +205,7 @@ export interface PoolConsentResponse {
 
 /**
  * The empty state, wherever it shows (spec §8). Only Tangent adds credit to
- * the pool (`poolFundingText`), so the copy never says people refill it.
+ * the pool (`POOL_FUNDING_TEXT`), so the copy never says people refill it.
  */
 export const POOL_EMPTY_TEXT = 'The open pool is empty until Tangent adds more credit.';
 
@@ -230,15 +224,10 @@ export function poolSessionsHeadline(sessions: number): string {
 
 /**
  * Where the pool's credit comes from, as every public page states it
- * (docs/DECISIONS.md): Tangent's commitment, read from
- * `POOL_REVENUE_SHARE_BPS`, exactly as pool/revenue-share.ts in the Worker
- * implements it. Nobody can buy credit for the pool.
+ * (docs/DECISIONS.md): Tangent adds it with admin adjustments. Nobody can buy
+ * credit for the pool.
  */
-export function poolFundingText(revenueShareBps: number): string {
-  if (revenueShareBps <= 0) return 'The open pool is free credit Tangent provides.';
-  const share = formatBps(revenueShareBps);
-  return `The open pool is free credit Tangent provides. Tangent puts ${share} of what it earns into it: ${share} of each membership payment (after tax and payment fees) and ${share} of its markup on credit, as that credit is used.`;
-}
+export const POOL_FUNDING_TEXT = 'The open pool is free credit Tangent provides.';
 
 /** The pool's motto: Tangent, not its customers, keeps learning open. */
 export const POOL_MOTTO = 'Tangent keeps learning open.';
@@ -248,14 +237,10 @@ export const POOL_MOTTO = 'Tangent keeps learning open.';
  * pages. Tangent is the subject of every step that moves money: a customer
  * pays for Tangent, never for someone else's learning (docs/DECISIONS.md).
  */
-export function poolSteps(revenueShareBps: number, memberships: boolean): [string, string, string] {
-  const setAside =
-    revenueShareBps > 0
-      ? `It sets aside ${formatBps(revenueShareBps)} of what it earns as the open pool.`
-      : 'It sets aside free credit as the open pool.';
+export function poolSteps(memberships: boolean): [string, string, string] {
   return [
     `Tangent earns money from ${memberships ? 'memberships and credit' : 'the credit people buy'}, like any software business.`,
-    setAside,
+    'It sets aside free credit as the open pool.',
     'Anyone signed in can learn free from the pool, within daily limits, while it has credit.',
   ];
 }

@@ -65,7 +65,6 @@ const POOL: PoolStatusResponse = {
   availableMicros: 2_400_000,
   sessionsRemaining: 120,
   model: { id: 'lite', label: 'Lite' },
-  revenueShareBps: 2000,
 };
 
 const POOL_ME: PoolMeResponse = {

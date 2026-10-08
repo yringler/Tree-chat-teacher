@@ -11,12 +11,11 @@ import { fundPool } from './pool-helpers.js';
 import { authEnv, ORIGIN } from './session-client.js';
 
 /**
- * The pool on with a 20% revenue share and 1,024-token replies, credit sold
+ * The pool on with 1,024-token replies, credit sold
  * (the fake payment provider), the default own-key and built-in providers,
  * no membership (MEMBERSHIP adds it, as deployed).
  */
 const DEPLOYED: Partial<AppEnv> = {
-  POOL_REVENUE_SHARE_BPS: '2000',
   POOL_MAX_OUTPUT_TOKENS: '1024',
   PROVIDERS: '',
   // The real built-in provider (OpenRouter, with web search), not the test suite's fake,
@@ -109,7 +108,7 @@ describe('/pricing', () => {
     expect(billing.markupBps).toBe(1000);
     expect(html).toContain('<p class="price">At cost<small> + 10% a reply</small>');
     // The notes: the pool's limits, at-cost pricing with both fees, top-ups and tax.
-    expect(html).toContain('Tangent puts 20% of what it earns into it');
+    expect(html).toContain('The open pool is free credit Tangent provides. Pool replies use');
     expect(html).toContain(
       `While the pool has credit, each learner can use up to ${pool.caps.user.requestsPerDay} replies or ${formatMicros(pool.caps.user.spendMicrosPerDay)} of AI cost a day, whichever comes first.`,
     );
@@ -118,11 +117,11 @@ describe('/pricing', () => {
     expect(html).toContain(
       'You pay what each reply costs Tangent, plus Tangent’s 10% markup. Tangent’s cost is OpenRouter’s price plus the 5.5% fee OpenRouter charges on credit purchases. So for every 1¢ OpenRouter charges, you pay about 1.16¢.',
     );
-    expect(html).toContain('Tangent puts 20% of its markup into the open pool as credit is used.');
+    expect(html).not.toMatch(/of its markup into the open pool|of what it earns/);
     // Why there's a free plan: Tangent's own policy, with its catch, not tied to the reader's purchase.
     expect(html).toContain('<h2 id="why">Why there’s a free plan</h2>');
     expect(html).toContain(
-      'Free replies come from the open pool: credit Tangent sets aside from what it earns. They use Normal&#39;s model with lighter thinking and shorter replies, have daily limits and are available only while the pool has credit.',
+      'Free replies come from the open pool: free credit Tangent provides. They use Normal&#39;s model with lighter thinking and shorter replies, have daily limits and are available only while the pool has credit.',
     );
     expect(html).toContain(
       '<li>Tangent earns money from the credit people buy, like any software business.</li>',

@@ -19,7 +19,6 @@ const FAST = 'deepseek/deepseek-v4.1-flash';
  * (the fake payment provider).
  */
 const BASE: Partial<AppEnv> = {
-  POOL_REVENUE_SHARE_BPS: '2000',
   POOL_MAX_OUTPUT_TOKENS: '1024',
   PROVIDERS: '',
   SIMPLE_PROVIDER: '',

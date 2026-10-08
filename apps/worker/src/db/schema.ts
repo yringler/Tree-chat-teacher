@@ -398,15 +398,14 @@ export const authRateLimits = sqliteTable('auth_rate_limits', {
 // user's credit is the account `u_<userId>`; the open pool is one more
 // account (`POOL_ACCOUNT_ID`, default `pool`) in the same two tables.
 
-/** Credits (purchases, membership credit, pool contributions) and debits (refunds, manual adjustments). */
+/** Credits (purchases, membership credit) and debits (refunds, manual adjustments). */
 export const creditGrants = sqliteTable(
   'credit_grants',
   {
     id: text('id').primaryKey(),
     accountId: text('account_id').notNull(),
-    /** `contribution`: the pool's share of Tangent's revenue (pool/revenue-share.ts) or its reversal. */
     kind: text('kind', {
-      enum: ['purchase', 'subscription', 'refund', 'adjustment', 'contribution'],
+      enum: ['purchase', 'subscription', 'refund', 'adjustment'],
     }).notNull(),
     /** Signed: refunds are negative. For purchases, the credit net of the processing fee (older pool purchases: of the margin). */
     amountMicros: integer('amount_micros').notNull(),
@@ -431,7 +430,7 @@ export const creditGrants = sqliteTable(
     /**
      * Refunds, disputes and their reinstatements (since migration 0018): the payment they
      * take back from, so together they never take back more than it granted
-     * (billing/payments/apply.ts). Also a membership payment's revenue share taken back.
+     * (billing/payments/apply.ts).
      */
     paymentRef: text('payment_ref'),
     note: text('note'),
@@ -567,10 +566,6 @@ export const usageEvents = sqliteTable(
     index('usage_events_pool_user_idx').on(t.accountId, t.userId, t.createdAt),
     index('usage_events_pool_ip_idx').on(t.accountId, t.ipKey, t.createdAt),
     index('usage_events_pool_tier_idx').on(t.accountId, t.tier, t.createdAt),
-    // The pool's daily revenue share: personal charges settled in a UTC day (pool/revenue-share.ts).
-    index('usage_events_personal_settled_idx')
-      .on(t.settledAt)
-      .where(sql`funding = 'personal' AND status = 'settled'`),
   ],
 );
 
