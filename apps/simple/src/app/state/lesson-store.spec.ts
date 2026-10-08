@@ -1388,6 +1388,25 @@ describe('LessonStore a lesson load that lands late', () => {
   });
 });
 
+describe('LessonStore deleting a lesson with a reply generating', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('stops following its replies', async () => {
+    const s = setup();
+    const signals: AbortSignal[] = [];
+    s.api.streamNode.mockImplementation((_id: string, signal: AbortSignal) => {
+      signals.push(signal);
+      return new Promise<Response>(() => undefined);
+    });
+    await open(s, detail([userNode, replyNode]));
+    await vi.waitFor(() => expect(signals).toHaveLength(1));
+    expect(s.store.live().has('a1')).toBe(true);
+    await expect(s.store.deleteLesson('t1')).resolves.toBe(true);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(s.store.live().size).toBe(0);
+  });
+});
+
 describe('LessonStore sends on two branches at once', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);

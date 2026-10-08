@@ -1717,6 +1717,33 @@ describe('TreeStore sends on two branches at once', () => {
   });
 });
 
+describe('TreeStore deleting a tree with a reply generating', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('stops following its replies', async () => {
+    const s = setup();
+    const generating = smallTree('X');
+    generating.nodes = generating.nodes.map((n) =>
+      n.id === 'X-a2' ? { ...n, status: 'streaming' } : n,
+    );
+    const signals: AbortSignal[] = [];
+    Object.assign(s.api, {
+      getTree: vi.fn(async () => generating),
+      streamNode: vi.fn((_id: string, signal: AbortSignal) => {
+        signals.push(signal);
+        return new Promise<Response>(() => undefined);
+      }),
+      deleteTree: vi.fn(async () => undefined),
+    });
+    s.store.setRoute('X', null, null);
+    await vi.waitFor(() => expect(signals).toHaveLength(1));
+    expect(s.store.live().has('X-a2')).toBe(true);
+    await expect(s.store.deleteTree('X')).resolves.toBe(true);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(s.store.live().size).toBe(0);
+  });
+});
+
 describe('TreeStore Check sources', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);

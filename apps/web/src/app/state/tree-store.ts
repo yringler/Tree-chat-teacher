@@ -659,6 +659,7 @@ export class TreeStore {
   async deleteTree(treeId: string): Promise<boolean> {
     try {
       await this.api.deleteTree(treeId);
+      this.stopTreeStreams(treeId);
       this.trees.update((list) => list.filter((t) => t.id !== treeId));
       if (this.selectedTreeId() === treeId) await this.router.navigate(['/']);
       this.ui.notify('Conversation deleted');
@@ -1209,6 +1210,16 @@ export class TreeStore {
       const mine = links.filter((l) => l.treeId === d.tree.id);
       return mine.length ? { ...d, links: upsertById(d.links, mine) } : d;
     });
+  }
+
+  /** Stops following the replies of a deleted tree (the server has no tree to stream them from). */
+  private stopTreeStreams(treeId: string): void {
+    for (const l of this.live().values()) {
+      if (l.treeId !== treeId) continue;
+      this.controllers.get(l.nodeId)?.abort();
+      this.controllers.delete(l.nodeId);
+      this.dropLive(l.nodeId);
+    }
   }
 
   private removeBranches(res: DeleteBranchResponse): void {

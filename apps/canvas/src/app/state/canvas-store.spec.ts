@@ -987,6 +987,32 @@ describe('CanvasStore links between messages', () => {
   });
 });
 
+describe('CanvasStore deleting a tree with a reply generating', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('stops following its replies', async () => {
+    const s = setup();
+    s.store.detail.set(null);
+    const generating = detail();
+    generating.nodes = generating.nodes.map((n) =>
+      n.id === 'a2' ? { ...n, status: 'streaming' } : n,
+    );
+    s.api.getTree.mockResolvedValue(generating);
+    const signals: AbortSignal[] = [];
+    s.api.streamNode.mockImplementation((_id: string, signal: AbortSignal) => {
+      signals.push(signal);
+      return new Promise<Response>(() => undefined);
+    });
+    Object.assign(s.api, { deleteTree: vi.fn(async () => undefined) });
+    s.store.setRoute('t1', null, null);
+    await vi.waitFor(() => expect(signals).toHaveLength(1));
+    expect(s.store.live().has('a2')).toBe(true);
+    await s.store.deleteTree('t1');
+    expect(signals[0]?.aborted).toBe(true);
+    expect(s.store.live().size).toBe(0);
+  });
+});
+
 describe('CanvasStore a tree load that lands late', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);

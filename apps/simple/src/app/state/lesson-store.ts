@@ -412,6 +412,7 @@ export class LessonStore {
   async deleteLesson(treeId: string): Promise<boolean> {
     try {
       await this.api.deleteTree(treeId);
+      this.stopTreeStreams(treeId);
       this.trees.update((list) => list.filter((t) => t.id !== treeId));
       if (this.selectedTreeId() === treeId) await this.router.navigate(['/']);
       this.ui.notify('Lesson deleted');
@@ -1040,6 +1041,16 @@ export class LessonStore {
   }
 
   /** Drops deleted branches and their messages, and stops following their replies. */
+  /** Stops following the replies of a deleted tree (the server has no tree to stream them from). */
+  private stopTreeStreams(treeId: string): void {
+    for (const l of this.live().values()) {
+      if (l.treeId !== treeId) continue;
+      this.controllers.get(l.nodeId)?.abort();
+      this.controllers.delete(l.nodeId);
+      this.dropLive(l.nodeId);
+    }
+  }
+
   private removeBranches(res: DeleteBranchResponse): void {
     const branchIds = new Set(res.branchIds);
     const nodeIds = new Set(res.nodeIds);
