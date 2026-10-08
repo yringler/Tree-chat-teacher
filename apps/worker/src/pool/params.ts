@@ -10,14 +10,16 @@ import {
   withTierDefaults,
   type ModelPrice,
   type PoolCaps,
+  type PoolConfig,
   type PoolOverage,
   type PoolRateLimits,
   type TierRequestConfig,
 } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
-import { modelPrice } from './model-prices.js';
+import { modelPrice, withCacheWritePrice } from './model-prices.js';
 import type { PoolAdmitRequest, PoolRefusal, PoolReserveRequest } from './pool-bank.js';
+import { ceilingHoldMicros } from './pricing.js';
 
 export interface PoolParams {
   /** The pool's ledger account id (`POOL_ACCOUNT_ID`). */
@@ -85,10 +87,14 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
   const model = poolModel(env);
   const entry = await modelPrice(env, model);
   const request = poolRequest(env, model);
+  const price = entry
+    ? { ...entry, feeBps: entry.feeBps ?? config.billing.openRouterFeeBps }
+    : null;
   return {
     accountId: pool.accountId,
     model,
-    price: entry ? { ...entry, feeBps: entry.feeBps ?? config.billing.openRouterFeeBps } : null,
+    // A price whose reply ceiling no cap admits refuses as `unpriced` (logged), not as the user's cap.
+    price: price && reportCeilingProblem(pool, model, price) === null ? price : null,
     systemPrompt: pool.systemPrompt,
     maxInputTokens: pool.maxInputTokens,
     maxOutputTokens: pool.maxOutputTokens,
@@ -106,6 +112,75 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
     ipKey,
     noticeVersion: pool.noticeVersion,
   };
+}
+
+/** A pool reply's hold before its prompt exists: `ceilingHoldMicros` at the pool's caps. */
+export function replyCeilingMicros(
+  pool: Pick<PoolParams, 'maxInputTokens' | 'maxOutputTokens'>,
+  price: ModelPrice & { feeBps: number },
+): number {
+  return ceilingHoldMicros(price, pool.maxInputTokens, pool.maxOutputTokens, price.feeBps);
+}
+
+/**
+ * Why the pool can reserve no reply at `price`, or null. PoolBank refuses a
+ * hold that would take a day's spend over a cap, so a reply ceiling above
+ * the per-user, per-network or fixed global daily cap refuses every reply,
+ * each one looking like a user who hit their cap.
+ */
+function ceilingProblem(
+  pool: Pick<PoolConfig, 'maxInputTokens' | 'maxOutputTokens' | 'caps'>,
+  model: string,
+  price: ModelPrice & { feeBps: number },
+): string | null {
+  const hold = replyCeilingMicros(pool, price);
+  const caps: [string, number][] = [
+    ['POOL_SPEND_MICROS_PER_DAY', pool.caps.user.spendMicrosPerDay],
+    ['POOL_IP_SPEND_MICROS_PER_DAY', pool.caps.ip.spendMicrosPerDay],
+    ['POOL_DAILY_GLOBAL_MICROS', pool.caps.global.spendMicrosPerDay],
+  ];
+  const over = caps.find(([, cap]) => hold > cap);
+  if (!over) return null;
+  return (
+    `A pool reply's ceiling hold (${hold} µ$: POOL_MAX_INPUT_TOKENS in and POOL_MAX_OUTPUT_TOKENS ` +
+    `out at ${model}'s price) is above ${over[0]} (${over[1]} µ$), so the pool would refuse ` +
+    'every reply. Lower those token caps or raise the spend caps.'
+  );
+}
+
+/** Problems already logged by this isolate (each once). */
+const reported = new Set<string>();
+
+/** `ceilingProblem`, logged as an error the first time this isolate sees it. */
+function reportCeilingProblem(
+  pool: PoolConfig,
+  model: string,
+  price: ModelPrice & { feeBps: number },
+): string | null {
+  const problem = ceilingProblem(pool, model, price);
+  if (problem !== null && !reported.has(problem)) {
+    reported.add(problem);
+    console.error(JSON.stringify({ event: 'pool_misconfigured', problem }));
+  }
+  return problem;
+}
+
+/**
+ * Why the pool cannot serve replies as configured (`ceilingProblem` at the
+ * pool model's configured price), or null; also null for an unpriced model,
+ * which the pool refuses on its own (`unpriced`). Read synchronously, so
+ * `poolAvailable` reports such a pool as off instead of refusing each reply.
+ */
+export function poolConfigProblem(env: AppEnv): string | null {
+  const config = appConfig(env);
+  const model = poolModel(env);
+  const entry = config.prices[model];
+  if (!entry) return null;
+  const price = withCacheWritePrice(model, entry);
+  return reportCeilingProblem(config.pool, model, {
+    ...price,
+    feeBps: price.feeBps ?? config.billing.openRouterFeeBps,
+  });
 }
 
 /** One call to reserve for on the pool (see `poolReserveRequest`). */

@@ -19,6 +19,7 @@ import { env } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { deleteUser } from '../src/auth/delete-account.js';
 import { grantCredit } from '../src/billing/ledger.js';
+import { usageHoldMicros } from '../src/billing/service.js';
 import { rememberCustomer } from '../src/billing/payments/customers.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
@@ -430,6 +431,44 @@ describe('Learn mode on paid credit', () => {
     }
   });
 
+  it('parallel sends on credit for one hold: exactly one is reserved, the rest get 402', async () => {
+    // Each reply's hold is taken in one conditional statement before its nodes are written,
+    // so sends racing on different trees (different Durable Objects) can't all pass.
+    const u = await newUser(authEnv({ POOL_ENABLED: 'false' }));
+    const trunks = await Promise.all(
+      Array.from({ length: 5 }, async () => (await treeWithNodes(u, 'credit')).trunk),
+    );
+    await grantCredit(env.DB, {
+      accountId: u.learn.accountId,
+      kind: 'adjustment',
+      amountMicros: usageHoldMicros(env as AppEnv),
+      providerRef: null,
+      note: 'one hold',
+    });
+    const responses = await Promise.all(
+      trunks.map((t) =>
+        u.call(`/api/branches/${t.id}/messages`, {
+          method: 'POST',
+          json: { content: 'Explain primes' },
+          learn: 'credit',
+        }),
+      ),
+    );
+    const statuses = responses.map((r) => r.status).sort();
+    expect(statuses).toEqual([200, 402, 402, 402, 402]);
+    for (const r of responses) {
+      if (r.status === 402) expect(await errorCode(r)).toBe('payment_required');
+      else await r.text();
+    }
+    // Nothing was written on the refused trees.
+    const replies = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM usage_events WHERE account_id = ?1 AND purpose = 'reply'",
+    )
+      .bind(u.learn.accountId)
+      .first<{ n: number }>();
+    expect(replies?.n).toBe(1);
+  });
+
   it('is hidden without billing: credit falls back to the own-key mode', async () => {
     const e = authEnv({ PAYMENT_PROVIDER: 'polar' });
     const u = await newUser(e);
@@ -640,6 +679,11 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       amountMicros: 1_000_000,
       providerRef: null,
     });
+    // Credit holds each call at its model's price: the daily sync stores every listed model's.
+    await env.DB.prepare(
+      `INSERT OR REPLACE INTO model_prices (model, in_micros_per_mtok, out_micros_per_mtok, fetched_at)
+       VALUES ('vendor/any-model:free', 0, 0, '2026-01-01T00:00:00.000Z')`,
+    ).run();
     const open = await powerTree(u, CREDIT, 'vendor/any-model:free');
     const ok = await u.call(`/api/branches/${open.trunk.id}/messages`, {
       method: 'POST',
@@ -655,6 +699,8 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
     for (const [route, model] of [
       [CREDIT, 'not a model id'],
       [{ providerId: 'fake' }, 'vendor/any-model:free'],
+      // No price known: it can't be held, so it can't run on credit.
+      [CREDIT, 'vendor/unpriced-model'],
     ] as const) {
       const t = await powerTree(u, route, model);
       const res = await u.call(`/api/branches/${t.trunk.id}/messages`, {

@@ -99,7 +99,13 @@ export function readBalance(row: BalanceRow | null | undefined): {
   };
 }
 
-/** With `checkpoint`, sums only the rows since it (the pool's hot path); the result is the same. */
+/**
+ * With `checkpoint`, sums only the rows since it (the pool's hot path); the
+ * result is the same. The full sum subtracts `settled` charges and the
+ * checkpointed one every non-pending row's: the only other status,
+ * `unresolved`, is always charged 0 (`markUnresolved`), and no statement
+ * changes a row once it has left `pending`.
+ */
 export async function getBalance(
   db: D1Database,
   accountId: string,

@@ -11,6 +11,7 @@ import { type StreamEvent } from '@tangent/shared';
 import { applyD1Migrations, type D1Migration } from 'cloudflare:test';
 import { env as rawEnv } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { grantCredit } from '../src/billing/ledger.js';
 import { assertGenerationAllowed } from '../src/byok/guard.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
@@ -627,6 +628,13 @@ describe('migrations 0020 and 0021 on a database at the 0019 schema', () => {
   });
 
   it('a power branch that was on `tangent` continues on Tangent credit, metered to the user', async () => {
+    // Credit to hold the call against.
+    await grantCredit(db, {
+      accountId: LEARN,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      providerRef: null,
+    });
     const service = chatService(upgraded, powerAccount, { generating: true });
     const begin = await service.beginSend('b_power_trunk', 'And twin primes?');
     expect(begin.assistantNode).toMatchObject({ providerId: 'openrouter', model: 'smart' });

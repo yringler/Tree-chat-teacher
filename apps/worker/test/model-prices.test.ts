@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_MODEL_PRICES } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import {
+  creditPrice,
   modelPrice,
   withCacheWritePrice,
   OPENROUTER_MODELS_URL,
@@ -218,8 +219,39 @@ describe('syncModelPrices', () => {
       cacheReadMicrosPerMTok: null,
       cacheWriteMicrosPerMTok: null,
     });
-    expect(await storedPrice(env.DB, 'someone/else')).toBeNull();
     expect(await historyOf(PRO)).toEqual([{ inp: 600_000, out: 2_400_000, at: T0.toISOString() }]);
+  });
+
+  it("stores every other listed model's price for credit, without history, and holds back a collapse", async () => {
+    const other = 'someone/else';
+    await syncModelPrices(
+      env,
+      T0,
+      listing([{ id: other, prompt: '0.001', completion: '0.002', context: 8_000 }]).fetchImpl,
+    );
+    expect(await storedPrice(env.DB, other)).toEqual({
+      inMicrosPerMTok: 1_000_000_000,
+      outMicrosPerMTok: 2_000_000_000,
+      contextTokens: 8_000,
+      cacheReadMicrosPerMTok: null,
+      cacheWriteMicrosPerMTok: null,
+    });
+    expect(await historyOf(other)).toEqual([]);
+    // The pool still prices only configured models; credit reads the stored list price.
+    expect(await modelPrice(env, other)).toBeNull();
+    expect(await creditPrice(env, other)).toEqual({
+      inMicrosPerMTok: 1_000_000_000,
+      outMicrosPerMTok: 2_000_000_000,
+      contextTokens: 8_000,
+    });
+    expect(await creditPrice(env, 'never/listed')).toBeNull();
+    // A drop to under a tenth is held back, as for a tracked model.
+    await syncModelPrices(
+      env,
+      T1,
+      listing([{ id: other, prompt: '0.00001', completion: '0.002' }]).fetchImpl,
+    );
+    expect((await storedPrice(env.DB, other))?.inMicrosPerMTok).toBe(1_000_000_000);
   });
 
   it('confirms an unchanged price without a new history row; a change adds one and is logged', async () => {

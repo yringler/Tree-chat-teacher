@@ -137,7 +137,13 @@ export class AuthService {
     return null;
   }
 
+  /**
+   * Forgets the user's provider keys (an HttpOnly cookie, so only the server
+   * can), then ends the session. Sign-out clears the keys too; forgetting
+   * them first means a sign-out that fails leaves none behind either.
+   */
   async signOut(): Promise<void> {
+    await this.api.forgetKey().catch(() => undefined);
     await this.client.signOut();
     location.assign(this.paths.login);
   }

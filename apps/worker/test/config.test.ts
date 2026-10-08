@@ -6,7 +6,14 @@ import wranglerText from '../wrangler.jsonc?raw';
 import { membershipCreditCents } from '../src/billing/membership.js';
 import { appConfig, boolVar, DEFAULT_MODEL_PRICES, intVar, positiveInt } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
-import { poolModel, resolvePoolParams } from '../src/pool/params.js';
+import {
+  poolConfigProblem,
+  poolModel,
+  replyCeilingMicros,
+  resolvePoolParams,
+} from '../src/pool/params.js';
+import { poolStatus } from '../src/pool/status.js';
+import { poolAvailable } from '../src/services.js';
 import { simpleMaxInputTokens } from '../src/simple-mode.js';
 
 const env = rawEnv as unknown as AppEnv;
@@ -253,12 +260,32 @@ describe('resolvePoolParams', () => {
       price: {
         inMicrosPerMTok: 1_000_000,
         outMicrosPerMTok: 1_000_000,
-        contextTokens: 8192,
+        contextTokens: 1_048_576,
         feeBps: 550,
       },
       maxOutputTokens: 2048,
       ipKey: 'ipk',
     });
+  });
+
+  it('reports a pool whose reply ceiling no daily spend cap admits as off, and logs why', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    expect(poolConfigProblem(env)).toBeNull();
+    expect(poolAvailable(env)).toBe(true);
+    const params = await resolvePoolParams(env, null);
+    const ceiling = replyCeilingMicros(params, params.price!);
+    for (const cap of ['POOL_SPEND_MICROS_PER_DAY', 'POOL_IP_SPEND_MICROS_PER_DAY']) {
+      const tight = { ...env, [cap]: String(ceiling - 1) } as AppEnv;
+      expect(poolConfigProblem(tight)).toContain(cap);
+      expect(poolAvailable(tight)).toBe(false);
+      expect((await poolStatus(tight)).enabled).toBe(false);
+      // A request that gets this far is refused as unpriced, not as the user's cap.
+      expect((await resolvePoolParams(tight, null)).price).toBeNull();
+      expect(error.mock.calls.some((c) => String(c[0]).includes('pool_misconfigured'))).toBe(true);
+      error.mockClear();
+      // At the ceiling exactly, a reply fits.
+      expect(poolConfigProblem({ ...env, [cap]: String(ceiling) } as AppEnv)).toBeNull();
+    }
   });
 
   it("defaults the model to Learn's background model; an unpriced model has no price", async () => {
@@ -267,7 +294,7 @@ describe('resolvePoolParams', () => {
     expect(poolModel({ ...noModel, SIMPLE_FAST_MODEL: 'simple' } as AppEnv)).toBe('simple');
     expect(poolModel(noModel)).toBe('smart');
     expect(
-      (await resolvePoolParams({ ...env, POOL_MODEL: 'smart' } as AppEnv, null)).price,
+      (await resolvePoolParams({ ...env, POOL_MODEL: 'vendor/unpriced' } as AppEnv, null)).price,
     ).toBeNull();
   });
 });

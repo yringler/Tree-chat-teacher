@@ -1,6 +1,7 @@
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { reconcilePendingUsage, simpleApiKey } from '../src/billing/reconcile.js';
+import { CRON_JOBS } from '../src/cron.js';
 import type { AppEnv } from '../src/env.js';
 import {
   generationCalls,
@@ -134,5 +135,12 @@ describe('usage reconciliation cron', () => {
     } as AppEnv;
     expect(simpleApiKey(named)).toBe('sk-other');
     expect(simpleApiKey({ ...env, SIMPLE_PROVIDER: '{bad json' } as AppEnv)).toBe('sk-or-cron');
+  });
+
+  it('runs as the cron job at the time the trigger gives it', async () => {
+    // Five minutes old at NOW: too young to give up on, whatever today's date.
+    const young = await insertUsage(env, { accountId: uniq('acct'), createdAt: ago(5 * MIN) });
+    await CRON_JOBS.reconcile(env, NOW);
+    expect(await usageRow(env, young)).toMatchObject({ status: 'pending' });
   });
 });

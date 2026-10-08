@@ -1,6 +1,6 @@
 // Model prices: OpenRouter's list prices, synced daily by the cron into D1
-// (`model_prices`, with every new or changed price kept in
-// `model_price_history`), and the price a pool hold is computed from.
+// (`model_prices`, with every new or changed price of a configured model kept
+// in `model_price_history`), and the price a pool hold is computed from.
 //
 // Which price a model is held at: its explicit `MODEL_PRICES` entry (the
 // operator's choice), else the synced list price, else the built-in
@@ -8,7 +8,10 @@
 // is priced at all, so the sync refreshes a known model's price but never
 // makes a new model usable by the pool. The context window is the lower of
 // the configured one and OpenRouter's: a smaller window only makes the pool
-// refuse more requests (`exceedsContext`), and the ceiling hold stays small.
+// refuse more requests (`poolInputLimitTokens`), and the ceiling hold stays small.
+// The sync also stores every other listed model's price, which only Tangent
+// credit reads (`creditPrice`): credit takes any OpenRouter model, and holds
+// each call at its own model's price.
 //
 // Safety: a price increase is applied whatever its size (holds only grow, so
 // the pool refuses earlier rather than overspending). A drop to under
@@ -193,6 +196,29 @@ export async function modelPrice(env: AppEnv, model: string): Promise<ModelPrice
 }
 
 /**
+ * The price a Tangent credit call on `model` is held at (billing/meter.ts):
+ * `modelPrice` for a configured model, else the list price the sync stored
+ * for it (it stores every listed model's), or null when neither is known, so
+ * the model can't run on credit. A stored price without a window has none.
+ */
+export async function creditPrice(env: AppEnv, model: string): Promise<ModelPrice | null> {
+  const configured = await modelPrice(env, model);
+  if (configured) return configured;
+  const synced = await storedPrice(env.DB, model);
+  if (!synced) return null;
+  const price: ModelPrice = {
+    inMicrosPerMTok: synced.inMicrosPerMTok,
+    outMicrosPerMTok: synced.outMicrosPerMTok,
+    contextTokens: synced.contextTokens ?? Number.MAX_SAFE_INTEGER,
+  };
+  if (synced.cacheReadMicrosPerMTok !== null)
+    price.cacheReadMicrosPerMTok = synced.cacheReadMicrosPerMTok;
+  if (synced.cacheWriteMicrosPerMTok !== null)
+    price.cacheWriteMicrosPerMTok = synced.cacheWriteMicrosPerMTok;
+  return withCacheWritePrice(model, price);
+}
+
+/**
  * `price` with a cache-write price: its own, else, for a model whose requests
  * carry explicit cache breakpoints (Anthropic's), the input price × 1.25
  * (rounded up), so holds and token-priced charges cover the write premium.
@@ -274,13 +300,71 @@ export interface PriceSyncResult {
   anomalies: string[];
 }
 
+/** D1 binds at most 100 parameters a statement; seven per price row. */
+const PRICE_ROWS_PER_INSERT = 14;
+
+/** Every stored price, by model. */
+async function storedPrices(db: D1Database): Promise<Map<string, ListPrice>> {
+  const { results } = await db
+    .prepare(
+      `SELECT model, in_micros_per_mtok, out_micros_per_mtok, context_tokens,
+         cache_read_micros_per_mtok, cache_write_micros_per_mtok
+       FROM model_prices`,
+    )
+    .all<PriceRow>();
+  return new Map(results.map((row) => [row.model, listPriceOf(row)]));
+}
+
+/**
+ * Stores the list prices of the models the sync doesn't track, for Tangent
+ * credit's holds (`creditPrice`): new and changed rows only (a few hundred
+ * models, most unchanged from day to day), in multi-row statements, with the
+ * same hold-back of a collapsed price but no history and no per-model logs.
+ * Returns how many were written.
+ */
+async function syncUntrackedPrices(
+  env: AppEnv,
+  list: Map<string, ListPrice | null>,
+  tracked: ReadonlySet<string>,
+  at: string,
+): Promise<number> {
+  const stored = await storedPrices(env.DB);
+  const rows: (string | number | null)[][] = [];
+  for (const [model, next] of list) {
+    if (!next || tracked.has(model)) continue;
+    const prev = stored.get(model);
+    if (prev && (samePrice(prev, next) || isAnomalousDrop(prev, next))) continue;
+    rows.push([...priceColumns(model, next), at]);
+  }
+  const writes: D1PreparedStatement[] = [];
+  for (let i = 0; i < rows.length; i += PRICE_ROWS_PER_INSERT) {
+    const chunk = rows.slice(i, i + PRICE_ROWS_PER_INSERT);
+    writes.push(
+      env.DB.prepare(
+        `INSERT INTO model_prices (model, in_micros_per_mtok, out_micros_per_mtok, context_tokens,
+           cache_read_micros_per_mtok, cache_write_micros_per_mtok, fetched_at)
+         VALUES ${chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ')}
+         ON CONFLICT (model) DO UPDATE SET in_micros_per_mtok = excluded.in_micros_per_mtok,
+           out_micros_per_mtok = excluded.out_micros_per_mtok,
+           context_tokens = excluded.context_tokens,
+           cache_read_micros_per_mtok = excluded.cache_read_micros_per_mtok,
+           cache_write_micros_per_mtok = excluded.cache_write_micros_per_mtok,
+           fetched_at = excluded.fetched_at`,
+      ).bind(...chunk.flat()),
+    );
+  }
+  if (writes.length > 0) await env.DB.batch(writes);
+  return rows.length;
+}
+
 /**
  * The daily price sync: fetches OpenRouter's list prices and stores those of
- * the tracked models (see the header for what is held back). Throws when the
- * list can't be fetched or D1 can't be written; nothing is stored then.
+ * the tracked models (see the header for what is held back), then those of
+ * every other listed model (`syncUntrackedPrices`). Throws when the list
+ * can't be fetched or D1 can't be written; no tracked price is stored then.
  * From the same list it then stores every model's context window
- * (model-windows.ts `syncModelWindows`); a failure there is logged and
- * leaves the prices stored.
+ * (model-windows.ts `syncModelWindows`); a failure there, or in the other
+ * models' prices, is logged and leaves the tracked prices stored.
  */
 export async function syncModelPrices(
   env: AppEnv,
@@ -348,7 +432,11 @@ export async function syncModelPrices(
   }
 
   if (writes.length > 0) await env.DB.batch(writes);
-  console.log(JSON.stringify({ event: 'price_sync', ...result }));
+  const others = await syncUntrackedPrices(env, list, new Set(models), at).catch((e: unknown) => {
+    console.error('Syncing the other models’ prices failed; their stored prices stay', e);
+    return 0;
+  });
+  console.log(JSON.stringify({ event: 'price_sync', ...result, others }));
   await syncModelWindows(env, now, body).catch((e: unknown) => {
     console.error('Model window sync failed; the stored windows stay', e);
   });

@@ -22,11 +22,16 @@ import type { PoolCaps, PoolRateLimits } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { expirePoolReservations } from '../src/pool/expiry.js';
 import { poolBank } from '../src/pool/ids.js';
-import { resolvePoolParams, type PoolParams } from '../src/pool/params.js';
+import {
+  poolReserveRequest,
+  replyCeilingMicros,
+  resolvePoolParams,
+  type PoolParams,
+} from '../src/pool/params.js';
 import type { PoolReserveRequest, PoolReserveResult } from '../src/pool/pool-bank.js';
-import { ceilingHoldMicros } from '../src/pool/pricing.js';
 import { simpleProviderConfig } from '../src/simple-mode.js';
 import { scriptGeneration, uniq, usageRow, type UsageRow } from './mocks/billing-helpers.js';
+import { shippedVars } from './mocks/wrangler-vars.js';
 
 const env = rawEnv as unknown as AppEnv;
 /** The pool params of the test env (its price is a `MODEL_PRICES` entry: no D1 read). */
@@ -319,6 +324,27 @@ describe('PoolBank: the never-negative invariant (spec test)', () => {
     ).toBe(true);
     expect(await available(poolId)).toBe(20_000 - 1302 * done.length);
     expect(await available(poolId)).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('PoolBank: as shipped (wrangler.jsonc vars)', () => {
+  it("reserves a new user's first pool reply within the daily caps", async () => {
+    const shipped = { ...env, ...shippedVars(), POOL_ACCOUNT_ID: uniq('pool') } as AppEnv;
+    const pool = await resolvePoolParams(shipped, 'ip-key');
+    expect(pool.price).not.toBeNull();
+    await fund(pool.accountId, 100_000_000);
+    const result = await poolBank(shipped, pool.accountId).reserve(
+      poolReserveRequest(pool, uniq('user'), {
+        purpose: 'reply',
+        treeId: 'tree_1',
+        branchId: 'branch_1',
+        nodeId: null,
+        providerId: 'openrouter',
+        holdMicros: replyCeilingMicros(pool, pool.price!),
+        feeBps: pool.price!.feeBps,
+      }),
+    );
+    expect(result).toMatchObject({ ok: true });
   });
 });
 
@@ -672,7 +698,7 @@ describe('Pool meter', () => {
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
     const p = params(poolId);
-    const ceiling = ceilingHoldMicros(p.price!, p.maxOutputTokens, p.price!.feeBps);
+    const ceiling = replyCeilingMicros(p, p.price!);
     const reservationId = await reserved(poolId, {
       holdMicros: ceiling,
       feeBps: p.price!.feeBps,
@@ -712,7 +738,7 @@ describe('Pool meter', () => {
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
     const p = params(poolId);
-    const ceiling = ceilingHoldMicros(p.price!, p.maxOutputTokens, p.price!.feeBps);
+    const ceiling = replyCeilingMicros(p, p.price!);
     const reservationId = await reserved(poolId, {
       holdMicros: ceiling,
       feeBps: p.price!.feeBps,

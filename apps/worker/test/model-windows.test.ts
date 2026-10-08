@@ -113,10 +113,11 @@ describe('syncModelWindows', () => {
 
 describe('modelWindow', () => {
   it('a priced model: its price entry’s window, with the synced output limit', async () => {
-    // `simple` is priced with an 8,192-token window (vitest.config.ts MODEL_PRICES).
-    await syncModelWindows(env, T0, body([{ id: 'simple', context: 100_000, out: 4000 }]));
+    // `simple` is priced with a 1,048,576-token window (vitest.config.ts MODEL_PRICES): a larger
+    // synced window never raises it.
+    await syncModelWindows(env, T0, body([{ id: 'simple', context: 2_000_000, out: 4000 }]));
     expect(await modelWindow(env, 'simple')).toEqual({
-      contextTokens: 8192,
+      contextTokens: 1_048_576,
       maxOutputTokens: 4000,
     });
   });

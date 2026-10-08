@@ -3,6 +3,7 @@ import { env, exports } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { KEY_COOKIE_NAME } from '../src/byok/keys.js';
 import { open, seal, SealConfigError, UnsealError } from '../src/byok/seal.js';
+import { client, ORIGIN } from './session-client.js';
 
 const BASE = 'https://tangent.example.com';
 const SECRET = env.KEY_ENCRYPTION_SECRET;
@@ -372,5 +373,58 @@ describe('bring-your-own-key API', () => {
     const all = logged.join('\n');
     expect(all).not.toContain('hotel');
     expect(all).not.toContain(sealed);
+  });
+});
+
+describe('the key cookie belongs to its user', () => {
+  let seq = 0;
+  const email = () => `byok${++seq}-${Math.random().toString(36).slice(2, 8)}@example.org`;
+  const apiKey = 'sk-ant-good-owner-0123456789';
+
+  /** A browser signed in as a fresh user, holding a saved `ant` key. */
+  async function withSavedKey() {
+    const browser = client();
+    await browser.signIn(email());
+    const saved = await browser.call('/api/key', {
+      method: 'POST',
+      json: { provider: 'ant', apiKey },
+    });
+    expect(saved.status, await saved.clone().text()).toBe(204);
+    const status = await body<KeyStatusResponse>(await browser.call('/api/key/status'), 200);
+    expect(status.hasKey).toBe(true);
+    return browser;
+  }
+
+  it('is cleared, never used, when another user signs in on the same browser', async () => {
+    const browser = await withSavedKey();
+    // The first user's session lapses without a sign-out; the next one signs in here.
+    await browser.signIn(email());
+    const tree = await body<TreeDetail>(
+      await browser.call('/api/trees', { method: 'POST', json: { title: 'T', providerId: 'ant' } }),
+      201,
+    );
+    const send = await browser.call(`/api/branches/${tree.tree.trunkBranchId}/messages`, {
+      method: 'POST',
+      json: { content: 'hi' },
+    });
+    expect(send.status).toBe(401);
+    expect(await errorCode(send)).toBe('key_required');
+    expect(setCookieOf(send)).toMatch(new RegExp(`^${KEY_COOKIE_NAME}=;.*Max-Age=0`));
+    const status = await body<KeyStatusResponse>(await browser.call('/api/key/status'), 200);
+    expect(status.hasKey).toBe(false);
+  });
+
+  it('is cleared by signing out', async () => {
+    const browser = await withSavedKey();
+    const out = await browser.call('/api/auth/sign-out', {
+      method: 'POST',
+      headers: { origin: ORIGIN },
+    });
+    expect(out.status).toBe(200);
+    expect(
+      out.headers
+        .getSetCookie()
+        .some((c) => c.startsWith(`${KEY_COOKIE_NAME}=;`) && /Max-Age=0/i.test(c)),
+    ).toBe(true);
   });
 });

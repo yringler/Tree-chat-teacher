@@ -14,6 +14,7 @@ import {
   authUsers,
   authVerifications,
 } from '../db/schema.js';
+import { KEY_COOKIE_ATTRIBUTES, KEY_COOKIE_NAME } from '../byok/keys.js';
 import { appConfig } from '../config.js';
 import { createEmailSender, magicLinkEmail, type EmailSender } from '../email/index.js';
 import type { AppEnv } from '../env.js';
@@ -257,6 +258,11 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
       // browser-session cookie, and Better Auth's signed `dont_remember`
       // cookie so later refreshes don't extend it.
       after: createAuthMiddleware(async (ctx) => {
+        if (ctx.path === '/sign-out') {
+          // The user's provider keys go with their session (byok/keys.ts).
+          ctx.setCookie(KEY_COOKIE_NAME, '', { ...KEY_COOKIE_ATTRIBUTES, maxAge: 0 });
+          return;
+        }
         if (!isSignInCompletion(ctx.path)) return;
         const created = ctx.context.newSession;
         if (!created) return;

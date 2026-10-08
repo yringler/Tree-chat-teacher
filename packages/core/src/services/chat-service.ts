@@ -269,8 +269,9 @@ export interface BeginSendResult {
 /** Options of `runGeneration`. */
 export interface RunGenerationOptions {
   /**
-   * A reservation the caller already made for the reply (the open
-   * pool's ceiling hold), passed to the provider as `usageTag.reservationId`.
+   * A reservation the caller already made for the reply (the open pool's
+   * ceiling hold, or Tangent credit's least hold), passed to the provider as
+   * `usageTag.reservationId`.
    */
   reservationId?: string;
   /** `required`: "Check sources", the reply must search (when the provider can). */

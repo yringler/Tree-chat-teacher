@@ -315,7 +315,8 @@
     // {"<model id>": {"in": 100000, "out": 400000, "context": 131072, "feeBps": 550, "cacheRead": 0,
     // "cacheWrite": 0}}. feeBps and the cache prices are optional (default OPENROUTER_FEE_BPS; the
     // input price). A model without a price can't be used by the pool. A daily cron syncs
-    // OpenRouter's list prices of the table's models into D1, replacing the built-in placeholders;
+    // OpenRouter's list prices into D1: the table's models' replace the built-in placeholders, and
+    // every other model's are kept for Tangent credit's holds (no price, no credit);
     // an entry here wins over the synced price (src/pool/model-prices.ts). V4.1 Flash is pinned here
     // at its pinned providers' price: OpenRouter's model-level list price ($0.0356 in / $1.00 out)
     // is no route's price, and as the pool's `max_price` it would admit only fp4 endpoints. The sync

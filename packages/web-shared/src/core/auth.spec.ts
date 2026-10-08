@@ -24,7 +24,7 @@ function fakeAuthClient() {
 
 function setup(paths: AppPaths, me: () => Promise<MeResponse>) {
   const client = fakeAuthClient();
-  const api = { me: vi.fn(me) };
+  const api = { me: vi.fn(me), forgetKey: vi.fn(async () => undefined) };
   const injector = Injector.create({
     providers: [
       { provide: AuthService },
@@ -182,5 +182,18 @@ describe('AuthService with APP_PATHS', () => {
     expect(location.assign).toHaveBeenLastCalledWith('/');
     await auth.signOut();
     expect(location.assign).toHaveBeenLastCalledWith('/login');
+  });
+
+  it('forgets the stored provider keys before signing out, even when that fails', async () => {
+    const { auth, api, client } = setup(SIMPLE_PATHS, async () => ME);
+    await auth.signOut();
+    expect(api.forgetKey).toHaveBeenCalledWith();
+    expect(api.forgetKey.mock.invocationCallOrder[0]).toBeLessThan(
+      client.signOut.mock.invocationCallOrder[0]!,
+    );
+    api.forgetKey.mockRejectedValueOnce(new ApiError(500, 'internal', 'down'));
+    await auth.signOut();
+    expect(client.signOut).toHaveBeenCalledTimes(2);
+    expect(location.assign).toHaveBeenLastCalledWith('/learn/login');
   });
 });
