@@ -28,7 +28,7 @@ import { legalInfo, type LegalInfo } from './legal-info.js';
 import { legalResponse, page } from './legal.js';
 
 /**
- * `/pool`: how the open pool works (spec §8, transparency page). A
+ * `/pool`: how the open pool works (the transparency page). A
  * static, script-free page like the legal pages, whose numbers (revenue
  * share, model, caps) come from the config module, so it always describes
  * what this deployment does. The pool is free credit Tangent provides from

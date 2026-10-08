@@ -1,4 +1,4 @@
-// The one config module (docs/pool/PLAN.md §4): every cap, price, markup,
+// The one config module: every cap, price, markup,
 // limit and flag the billing code and the open pool read. Values come
 // from wrangler.jsonc `vars` (strings), parsed once per env object and frozen;
 // empty or malformed values fall back to the defaults below, and the safety

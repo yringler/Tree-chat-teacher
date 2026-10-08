@@ -109,7 +109,7 @@ export function assembleContext(input: AssembleInput): ContextPlan {
   const chain = resolveChain(branchIndex(input.branches), input.tree.id, input.targetBranchId);
   const ownNodes = resolveOwnNodes(indexNodes(input.nodes), chain, input.targetNodeId);
 
-  // ctx(0) … ctx(k), PLAN §4.1.
+  // ctx(0) … ctx(k): the context of each branch on the chain, root first.
   const k = chain.length - 1;
   let effective: Draft[] = [];
   for (let i = 0; i <= k; i++) {
@@ -526,7 +526,7 @@ function anchorSegment(ctx: Ctx, branch: Branch): Draft<AnchorSegment> | null {
 }
 
 /**
- * `flatten(segments)` (PLAN §4.3). Returns null when the transcript is unknown
+ * The segments as one transcript. Returns null when the transcript is unknown
  * because it contains a summary that is not ready yet.
  */
 function flatten(segments: readonly Draft[]): ChatMessage[] | null {
@@ -642,7 +642,7 @@ function branchSummary(
 }
 
 // ---------------------------------------------------------------------------
-// Budget pass (PLAN §4.4)
+// Budget pass
 
 interface BudgetResult {
   segments: Draft[];

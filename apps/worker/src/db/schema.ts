@@ -68,8 +68,7 @@ export const branches = sqliteTable(
     model: text('model').notNull(),
     /**
      * Who pays for the branch's calls in power mode: `own-key` or `credit`
-     * (Tangent credit). Learn pays per request and writes `own-key`. Migration
-     * 0020 split it from `provider_id` (the legacy `tangent`).
+     * (Tangent credit). Learn pays per request and writes `own-key`.
      */
     funding: text('funding', { enum: ['own-key', 'credit'] })
       .notNull()

@@ -34,7 +34,7 @@ export {
 /**
  * The built-in provider: the endpoint `openrouter` (BUILT_IN_PROVIDER_ID in
  * @tangent/shared) on the operator's OpenRouter key, metered per call and
- * paid from the user's prepaid credit or the open pool (PLAN §13). Its
+ * paid from the user's prepaid credit or the open pool. Its
  * provider id names only the endpoint; who pays is the funding (the request's
  * payment in Learn, the branch's funding in power), never the id. It is the
  * only provider config in a Learn account's registry, so the generic provider

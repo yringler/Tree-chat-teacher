@@ -250,10 +250,10 @@ export class Card {
       : { body: this.content(), tangents: [], partial: false },
   );
   protected readonly html = computed(() => this.md.render(this.split().body, !this.streaming()));
-  /** A finished reply: offers its tangents and "Ask your own". */
   /** A reply cut off at its length limit (it keeps its text, but isn't a whole answer). */
   protected readonly cutOff = computed(() => isCutOffReply(this.node()));
   protected readonly stopped = computed(() => isStoppedReply(this.node()));
+  /** A finished reply: offers its tangents and "Ask your own". */
   protected readonly complete = computed(
     () => this.node().role === 'assistant' && this.node().status === 'complete',
   );

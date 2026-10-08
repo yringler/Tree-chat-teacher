@@ -1,6 +1,6 @@
 // Settling usage whose cost the stream didn't report (aborted, truncated or
 // evicted generations): OpenRouter's generation endpoint, with retries right
-// after the stream and a cron backstop (PLAN §2.4).
+// after the stream and a cron backstop.
 import { fetchOpenRouterGeneration, type GenerationCost } from '@tangent/providers';
 import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';

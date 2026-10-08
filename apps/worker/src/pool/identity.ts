@@ -1,4 +1,4 @@
-// Who may use the open pool (docs/pool/PLAN.md §S4): one pool identity
+// Who may use the open pool: one pool identity
 // per mailbox, claimed when the user first passes Turnstile. An email's
 // identity is the SHA-256 of its normalised form, so the aliases one inbox
 // receives (`A.B+pool@gmail.com`, `ab@googlemail.com`) are one free tier.

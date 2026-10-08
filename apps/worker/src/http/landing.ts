@@ -592,7 +592,7 @@ async function landingResponse(
 }
 
 /**
- * The landing page (PLAN §14), mounted at the root by `createApp`.
+ * The landing page, mounted at the root by `createApp`.
  * - `GET /welcome` always serves it.
  * - `GET /` serves it to anonymous visitors only: no Better Auth session
  *   cookie and not the dev bypass. Everyone else gets the power app's

@@ -25,7 +25,7 @@ import { TURNSTILE_ACTION, verifyTurnstile } from '../pool/turnstile.js';
 
 /**
  * Open pool API, mounted at /api/pool behind the session and account
- * middleware (docs/pool/PLAN.md §S4). The contract is in
+ * middleware. The contract is in
  * packages/shared/src/pool.ts and the route list in api.ts.
  *
  * `GET /me`: the caller's caps (the same for everyone) and use today, their

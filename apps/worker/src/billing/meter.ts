@@ -1,4 +1,4 @@
-// Usage metering for the built-in provider (PLAN §2.4): a `ProviderRegistry`
+// Usage metering for the built-in provider: a `ProviderRegistry`
 // decorator that records one `usage_events` row per call on a metered
 // provider. Who pays is the meter's funding:
 //
@@ -14,7 +14,7 @@
 //   3. At the terminal event: settle inline when the cost is known; else, with a
 //      generation id, reconcile in the background via OpenRouter; else (the
 //      request never reached OpenRouter) settle at 0.
-// - the open pool (`createPoolUsageMeter`, docs/pool/PLAN.md §1.2):
+// - the open pool (`createPoolUsageMeter`):
 //   1. Reserve the call's exact worst case through PoolBank (or shrink the
 //      reservation the reply already holds, `UsageTag.reservationId`); a
 //      refusal fails the call before anything is sent.
@@ -380,8 +380,8 @@ class PoolRun extends ObservedRun {
       costNanos: s.costNanos ?? 0,
       reason: s.reason,
       chargeHold: s.reason === 'hold',
-      // A run that never dispatched must not release a row another run has dispatched
-      // (§1.2 step 3); left unchanged, the row waits for that run's meter or expiry.
+      // A run that never dispatched must not release a row another run has dispatched,
+      // which may have been billed upstream; left unchanged, the row waits for that run's meter or expiry.
       requireUndispatched: !this.dispatched && s.reason === 'released',
     });
   }

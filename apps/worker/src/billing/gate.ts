@@ -1,4 +1,4 @@
-// The one gate in front of every route that generates (docs/pool/PLAN.md §3):
+// The one gate in front of every route that generates:
 // sends, reviews, compare candidates and `context?resolve=true`. It decides who pays (personal
 // credit, the open pool or the user's own key) and checks that they can,
 // before anything is written or sent upstream.
@@ -113,7 +113,7 @@ function refuseAccess(reason: PoolBlockDetails['reason']): never {
 }
 
 /**
- * The pool's account gates (docs/pool/PLAN.md §S4), in order, each a 403
+ * The pool's account gates, in order, each a 403
  * `pool_unavailable` with its reason: a real signed-in user (the dev bypass
  * has none to cap); not `suspended` by an admin (the account, or its pool
  * identity, when a suspended account was deleted); a Turnstile pass on record

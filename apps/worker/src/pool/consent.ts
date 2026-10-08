@@ -1,5 +1,4 @@
-// The pool notice's acknowledgments (spec §9 "Consent", docs/pool/PLAN.md
-// §S8a). A pool request needs the user's acknowledgment of the current
+// The pool notice's acknowledgments. A pool request needs the user's acknowledgment of the current
 // notice version (`PoolParams.noticeVersion`, resolved Worker-side); a new
 // version asks again. Rows are only ever added (`ON CONFLICT DO NOTHING`), so
 // the first acknowledgment of each version keeps its time, and they go with

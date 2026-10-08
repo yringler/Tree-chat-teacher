@@ -221,7 +221,7 @@ describe('appConfig', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('keeps the old accessors: SIMPLE_MAX_INPUT_TOKENS is positive, membership credit needs the built-in provider', () => {
+  it('SIMPLE_MAX_INPUT_TOKENS is positive, and membership credit needs the built-in provider', () => {
     expect(simpleMaxInputTokens({ ...env, SIMPLE_MAX_INPUT_TOKENS: '0' })).toBe(60_000);
     expect(simpleMaxInputTokens({ ...env, SIMPLE_MAX_INPUT_TOKENS: '1234' })).toBe(1234);
     expect(membershipCreditCents({ ...env, MEMBERSHIP_CREDIT_CENTS: '300' })).toBe(300);

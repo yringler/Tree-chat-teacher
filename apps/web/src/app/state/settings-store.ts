@@ -12,8 +12,7 @@ import {
 
 /**
  * A provider + model pair, as stored in settings, with who pays for it
- * (absent = the user's own key). Choices saved before funding was split from
- * the provider name the legacy `tangent`: read as `openrouter` on credit.
+ * (absent = the user's own key).
  */
 export interface ModelChoice {
   providerId: string;

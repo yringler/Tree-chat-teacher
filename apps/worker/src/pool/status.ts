@@ -1,4 +1,4 @@
-// The pool meter (docs/pool/PLAN.md §S6): what `GET /api/pool/status`, the
+// The pool meter: what `GET /api/pool/status`, the
 // landing page and the apps show about the open pool. Aggregates only:
 // the balance, the sessions it covers and this week's counts, never a user.
 import {

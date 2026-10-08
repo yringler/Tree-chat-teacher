@@ -180,7 +180,7 @@ describe("Learn's tiers", () => {
     expect(await page('/pool')).toContain(
       `Every reply on the pool uses Normal's model (<code>${NORMAL}</code>) with lighter thinking, a fixed teaching prompt, replies of at most 1,024 tokens`,
     );
-    // No claim about the old models.
+    // No claim about models the defaults don't run.
     expect(`${pricing}${landing}`).not.toMatch(/V4 Pro|V4 Flash|deepseek-v4-(pro|flash)\b/);
   });
 

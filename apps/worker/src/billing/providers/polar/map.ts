@@ -1,8 +1,8 @@
 // Pure translation of Polar objects (API version 2026-10) into the port's
 // normalised events. No I/O: the fixture tests run every mapping here.
 //
-// Field choices (01-polar-research.md, 02 §2.5; the PLAUSIBLE ones are listed
-// in docs/polar-migration/04-verification.md for the sandbox check):
+// Field choices (the PLAUSIBLE ones are listed in
+// docs/polar-migration/04-verification.md for the sandbox check):
 // - an order's pre-tax amount is `net_amount` (after discounts, before tax),
 //   never `total_amount`; its fee is `platform_fee_amount` (in
 //   `platform_fee_currency`), else the configured estimate;
@@ -98,7 +98,7 @@ function purposeOf(order: models.Order, config: PolarConfig): PaymentPurpose {
 
 /**
  * Polar's fee on an order, in USD cents: `platform_fee_amount` when it is a
- * USD fee Polar has set, else the configured estimate (D3) on the total
+ * USD fee Polar has set, else the configured estimate on the total
  * charged, rather than a retry that could disable the webhook endpoint.
  */
 export function orderFee(
@@ -136,7 +136,7 @@ export function orderFacts(order: models.Order, config: PolarConfig): PaymentFac
   };
 }
 
-/** A settled refund; null while it is pending, or once it failed or was canceled (D10). */
+/** A settled refund; null while it is pending, or once it failed or was canceled. */
 export function refundEvent(
   refund: models.Refund,
   occurredAt: string,

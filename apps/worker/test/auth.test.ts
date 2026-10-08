@@ -487,7 +487,7 @@ describe('social sign-in', () => {
   });
 });
 
-describe('Turnstile on first sign-in (docs/pool/PLAN.md §9, D4)', () => {
+describe('Turnstile on first sign-in', () => {
   const poolOn = () =>
     authEnv({ GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret', POOL_ENABLED: 'true' });
 

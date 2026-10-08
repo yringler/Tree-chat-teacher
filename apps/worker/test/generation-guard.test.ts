@@ -1,7 +1,7 @@
 // The checks every generating route makes before it calls a provider
-// (`assertGenerationAllowed`, byok/guard.ts), and how the legacy built-in id
-// reads as a summary provider (`chatSettingsFor`, services.ts): the branches the
-// API suites rarely reach.
+// (`assertGenerationAllowed`, byok/guard.ts), and how SUMMARY_PROVIDER_ID is
+// read (`chatSettingsFor`, services.ts): the branches the API suites rarely
+// reach.
 import { KeyRequiredError, ValidationError } from '@tangent/core';
 import type { ProviderInfo, ProviderRegistry } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';

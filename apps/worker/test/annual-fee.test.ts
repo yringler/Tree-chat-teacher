@@ -1,4 +1,4 @@
-// ANNUAL_FEE_ENABLED (docs/pool/PLAN.md §S7): the yearly membership is
+// ANNUAL_FEE_ENABLED: the yearly membership is
 // required to generate only while the flag is on. Off (the default), the
 // membership code paths stay but require nothing, whatever the payment
 // provider sells: any signed-in user may learn from the pool (within its

@@ -291,7 +291,6 @@ export interface TreeSummary {
   messageCount: number;
 }
 
-/** Whole tree in one response; the client builds the outline with @tangent/core. */
 /**
  * `POST /api/trees/:treeId/copy-to-learn`: the power tree was copied into the
  * caller's Learn account as a new lesson (adapted as any import into Learn).
@@ -302,6 +301,7 @@ export interface CopyToLearnResponse {
   title: string;
 }
 
+/** Whole tree in one response; the client builds the outline with @tangent/core. */
 export interface TreeDetail {
   tree: Tree;
   branches: Branch[];
@@ -713,8 +713,8 @@ export const treeBackupSchema = z.object({
         model: z.string().max(200),
         grounding: groundingMode.optional(),
         /**
-         * Absent in backups made before funding was split from the provider;
-         * import reads a missing one as `own-key` (ChatService.importBackup).
+         * Optional: import reads a missing one as `own-key`
+         * (ChatService.importBackup), so an import never spends credit implicitly.
          */
         funding: branchFundingSchema.optional(),
         createdAt: isoDate,

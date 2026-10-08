@@ -1,4 +1,4 @@
-// PoolBank: the open pool's bank (docs/pool/PLAN.md §1.2). One Durable
+// PoolBank: the open pool's bank. One Durable
 // Object per pool account id. D1 is the ledger and the authority; PoolBank
 // only serialises the operations that can lower the pool's available balance:
 //
@@ -203,10 +203,10 @@ export interface DayRow {
   spend: number;
 }
 
-/** Day-to-date pool usage: replies (released ones excluded) and spend (tagging excluded). */
 /** A usage row's spend: its hold while pending, its charge once settled. */
 const SPEND_EXPR = `(CASE WHEN status = 'pending' THEN hold_micros ELSE COALESCE(charge_micros, 0) END)`;
 
+/** Day-to-date pool usage: replies (released ones excluded) and spend (tagging excluded). */
 const DAY_USAGE_COLUMNS = `
   COUNT(CASE WHEN purpose = 'reply' AND COALESCE(settle_reason, '') <> 'released' THEN 1 END) AS requests,
   COALESCE(SUM(CASE WHEN purpose <> 'tagging' THEN ${SPEND_EXPR} END), 0) AS spend`;
@@ -412,7 +412,7 @@ export class PoolBank extends DurableObject<AppEnv> {
   /**
    * Debits the pool (a refund or dispute of a legacy pool purchase, a refund
    * taking back a membership payment's revenue share, or a negative
-   * admin adjustment; docs/pool/PLAN.md §1.3), under the reservation lock: a
+   * admin adjustment), under the reservation lock: a
    * debit lowers `available` like a reservation does. The amount is clamped
    * to what is available, so the pool never goes negative, and the row is
    * written even when the clamp leaves 0: keyed on `refId`, it makes every
@@ -485,8 +485,8 @@ export class PoolBank extends DurableObject<AppEnv> {
   }
 
   /**
-   * The breaker and rate check without a reservation, for `context?resolve`
-   * (docs/pool/PLAN.md §1.2): the summaries it generates then reserve through
+   * The breaker and rate check without a reservation, for `context?resolve`:
+   * the summaries it generates then reserve through
    * the meter, which checks the caps and the balance. Counts toward the
    * per-minute limits like a reply.
    */

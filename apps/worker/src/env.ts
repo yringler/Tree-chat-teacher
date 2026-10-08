@@ -35,8 +35,8 @@ export interface AppEnv extends Env {
   /** Local dev only (.dev.vars): skip sign-in. Honoured only while BETTER_AUTH_SECRET is unset. */
   DEV_ALLOW_NO_AUTH?: string;
   /**
-   * OpenRouter key of the built-in provider `tangent`, sold as prepaid credit
-   * in both apps (the name predates power mode using it). Never falls back to
+   * OpenRouter key of the built-in provider (`openrouter`), sold as prepaid
+   * credit in both apps and used by the open pool. Never falls back to
    * OPENROUTER_API_KEY; set a credit limit on it in OpenRouter.
    * Its spend is billed at the reported cost grossed up by the `OPENROUTER_FEE_BPS`
    * var (OpenRouter's credit-purchase fee), then marked up.

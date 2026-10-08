@@ -2151,7 +2151,6 @@ function emptyToNull(value: string | null | undefined): string | null {
   return value === undefined || value === null || value.trim() === '' ? null : value;
 }
 
-/** Accumulated usage as stored: null when the provider reported none. */
 /**
  * The outcome of a reply the provider finished with `stopReason`: complete,
  * unless it stopped at its output cap (`isLengthStop`; with no text at all, a
@@ -2166,6 +2165,7 @@ function replyOutcome(content: string, stopReason: string | null): ReplyTerminal
   return { status: 'complete' };
 }
 
+/** Accumulated usage as stored: null when the provider reported none. */
 function finalTokenUsage(usage: Partial<TokenUsage>): TokenUsage | null {
   return usage.inputTokens !== undefined || usage.outputTokens !== undefined
     ? { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0 }

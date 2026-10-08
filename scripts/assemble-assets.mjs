@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Assembles the Workers Static Assets directory (apps/worker/site) from the
-// Angular builds (PLAN §2.8):
+// Angular builds:
 //   apps/web/dist/web/browser/**       → apps/worker/site/         (power app, `/`)
 //   apps/simple/dist/simple/browser/** → apps/worker/site/learn/   (simple app, `/learn/`)
 //   apps/canvas/dist/canvas/browser/** → apps/worker/site/canvas/  (canvas app, `/canvas/`)

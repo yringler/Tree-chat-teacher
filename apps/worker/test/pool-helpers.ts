@@ -1,4 +1,4 @@
-// Shared set-up of the open pool's HTTP tests (docs/pool/PLAN.md §6):
+// Shared set-up of the open pool's HTTP tests:
 // a signed-in Learn user whose requests go to a pool of their own, so no two
 // tests share a pool balance or its caps.
 import { POOL_NOTICE_VERSION, type MeResponse } from '@tangent/shared';

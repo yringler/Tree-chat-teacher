@@ -180,7 +180,7 @@ async function reviewWith(
 const OWN: Route = { providerId: 'openrouter', funding: 'own-key' };
 const CREDIT: Route = { providerId: 'openrouter', funding: 'credit' };
 
-describe('funding matrix: the same party pays with the same key as before the split', () => {
+describe('funding matrix: who pays, and with which key', () => {
   it("Learn on its own key: the user's OpenRouter key, never metered, whatever a branch's funding", async () => {
     const e = matrixEnv();
     const { c, userId } = await signedIn(e);

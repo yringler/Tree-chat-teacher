@@ -1,5 +1,5 @@
 // The Polar SDK client (`@polar-sh/sdk` v1, API version 2026-10 pinned by the
-// import path; bump it about every 6 months, 01-polar-research.md §1.1).
+// import path; bump it about every 6 months).
 import { createPolar, type Polar } from '@polar-sh/sdk/2026-10';
 import type { PolarConfig } from './config.js';
 

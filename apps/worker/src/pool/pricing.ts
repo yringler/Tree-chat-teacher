@@ -1,4 +1,4 @@
-// Open pool money math (docs/pool/PLAN.md §1.2), on top of the integer
+// Open pool money math, on top of the integer
 // helpers in billing/pricing.ts: worst-case holds from the price table,
 // token-priced costs when the provider reports none, and refund shares of a
 // purchase. Every charge is the call's true cost, price × (1 + fee), with no
@@ -205,7 +205,7 @@ export function costFromTokensNanos(
   return Number((raw + 999n) / 1000n);
 }
 
-/** What a token-priced call is charged on the pool: its true cost, plus the row's stored markup (0 since the pool went at-cost). */
+/** What a token-priced call is charged on the pool: its true cost, plus the row's stored markup (0: the pool charges at cost). */
 export function chargeFromTokensMicros(
   price: ModelPrice,
   inputTokens: number | null,

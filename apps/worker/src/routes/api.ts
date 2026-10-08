@@ -116,18 +116,6 @@ async function keysOf(c: AppContext): Promise<Extract<UserKeys, { state: 'ok' }>
 }
 
 /**
- * Owner API. Mounted under /api behind the session middleware (auth/session.ts)
- * and the account middleware (auth/account.ts). Every branch or node id is
- * resolved through the caller's account (`getOwnedBranch`/`getOwnedNode`)
- * before anything else happens, so another account's ids are 404. Routes that
- * generate pass `assertCanGenerate` (billing/gate.ts): who pays (a Learn send on
- * spent credit moves to the open pool), the membership for the user's own
- * keys, in Learn or power mode (402 `membership_required`, when one is
- * required; Tangent credit and the pool need none), then the credit (402
- * `payment_required`) or the pool's rules. Every other route stays open
- * without a membership.
- */
-/**
  * What a send on Tangent credit reserves before its nodes are written (the
  * tree's Durable Object, `reserveCreditReply`): the reply's worst case on the
  * branch's route and model under the send's limits, resolved here like the
@@ -166,6 +154,18 @@ async function assertCreditCoversReply(
   await assertCreditCovers(c.env, account, await replyHoldMicros(c.env, prepared.model, budget));
 }
 
+/**
+ * Owner API. Mounted under /api behind the session middleware (auth/session.ts)
+ * and the account middleware (auth/account.ts). Every branch or node id is
+ * resolved through the caller's account (`getOwnedBranch`/`getOwnedNode`)
+ * before anything else happens, so another account's ids are 404. Routes that
+ * generate pass `assertCanGenerate` (billing/gate.ts): who pays (a Learn send on
+ * spent credit moves to the open pool), the membership for the user's own
+ * keys, in Learn or power mode (402 `membership_required`, when one is
+ * required; Tangent credit and the pool need none), then the credit (402
+ * `payment_required`) or the pool's rules. Every other route stays open
+ * without a membership.
+ */
 export function apiRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();
 

@@ -179,12 +179,12 @@ export class HomePage {
     return status?.enabled ? status : null;
   });
 
-  /** Where the pool's credit comes from: Tangent's revenue share (`POOL_REVENUE_SHARE_BPS`). */
   /** The pool's model, as the copy names it (`poolModelText`). */
   protected poolModelName(status: PoolStatusResponse): string {
     return poolModelText(status.model);
   }
 
+  /** Where the pool's credit comes from: Tangent's revenue share (`POOL_REVENUE_SHARE_BPS`). */
   protected funding(status: PoolStatusResponse): string {
     return poolFundingText(status.revenueShareBps);
   }

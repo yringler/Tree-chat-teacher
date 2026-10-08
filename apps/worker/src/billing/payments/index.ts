@@ -1,4 +1,4 @@
-// Which payment provider this deployment uses (03-architecture.md §2.5),
+// Which payment provider this deployment uses,
 // picked like the email service (email/index.ts): `PAYMENT_PROVIDER`, default
 // `polar`. This is the only place that chooses an adapter; everything else
 // asks for "the provider" and gets the port.

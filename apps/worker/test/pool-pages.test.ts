@@ -1,4 +1,4 @@
-// The open pool's public surfaces (docs/pool/PLAN.md §S6): the meter
+// The open pool's public surfaces: the meter
 // (`GET /api/pool/status`, also on the landing page), the caller's standing
 // (`GET /api/pool/me`), the transparency page `/pool`, and the copy rule.
 import {

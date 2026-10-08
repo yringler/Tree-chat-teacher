@@ -1,4 +1,4 @@
-// Abuse controls of the open pool (docs/pool/PLAN.md §S4): daily caps (the
+// Abuse controls of the open pool: daily caps (the
 // same for everyone), per-minute rate limits per user and per network, the
 // per-network and global daily ceilings, the account gates (suspension,
 // Turnstile, one identity per mailbox, account age), the consumption report,
