@@ -472,27 +472,6 @@ describe('PoolBank: caps inside reserve', () => {
     });
   });
 
-  it("counts rows from the retired member tier toward today's one ceiling", async () => {
-    quiet();
-    const poolId = uniq('pool');
-    await fund(poolId, 1_000_000);
-    const caps: PoolCaps = {
-      ...OPEN_CAPS,
-      global: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 }, // 10_000
-    };
-    // Rows reserved while the pool had tiers carry 'free' or 'member'; newer ones none.
-    for (const tier of ['free', 'member'] as const) {
-      const id = await reserved(poolId, { caps });
-      await env.DB.prepare('UPDATE usage_events SET tier = ? WHERE id = ?').bind(tier, id).run();
-    }
-    await reserved(poolId, { caps }); // 9_000
-    expect(await reserve(poolId, { caps })).toMatchObject({
-      ok: false,
-      reason: 'cap_global',
-      limit: 10_000,
-    });
-  });
-
   it('applies the same caps whatever the caller holds: buying credit changes nothing', async () => {
     quiet();
     const poolId = uniq('pool');

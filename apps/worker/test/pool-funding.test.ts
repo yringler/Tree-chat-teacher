@@ -34,7 +34,6 @@ interface GrantRow {
   amount_micros: number;
   gross_micros: number | null;
   fee_micros: number;
-  margin_bps: number;
   user_id: string | null;
   provider_ref: string | null;
   note: string | null;
@@ -42,7 +41,7 @@ interface GrantRow {
 
 async function grants(accountId: string): Promise<GrantRow[]> {
   const { results } = await env.DB.prepare(
-    `SELECT account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id, provider_ref, note
+    `SELECT account_id, kind, amount_micros, gross_micros, fee_micros, user_id, provider_ref, note
      FROM credit_grants WHERE account_id = ? ORDER BY created_at, id`,
   )
     .bind(accountId)

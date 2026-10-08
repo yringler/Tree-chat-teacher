@@ -119,8 +119,8 @@ export async function grantCredit(db: D1Database, g: CreditGrantInput): Promise<
   const result = await db
     .prepare(
       `INSERT INTO credit_grants
-         (id, account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id, provider_ref, payment_ref, note, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+         (id, account_id, kind, amount_micros, gross_micros, fee_micros, user_id, provider_ref, payment_ref, note, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(provider_ref) DO NOTHING`,
     )
     .bind(
@@ -169,10 +169,10 @@ export async function grantTowardCap(
   const result = await db
     .prepare(
       `INSERT INTO credit_grants
-         (id, account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id, provider_ref, payment_ref, note, created_at)
+         (id, account_id, kind, amount_micros, gross_micros, fee_micros, user_id, provider_ref, payment_ref, note, created_at)
        SELECT ?1, ?2, 'refund',
               CASE WHEN ?3 < 0 THEN MIN(0, t.amount) ELSE MAX(0, t.amount) END,
-              ?3, 0, 0, ?4, ?5, ?6, ?7, ?8
+              ?3, 0, ?4, ?5, ?6, ?7, ?8
        FROM (SELECT -MIN(?9, MAX(0, -(COALESCE(SUM(gross_micros), 0) + ?3)))
                     - COALESCE(SUM(amount_micros), 0) AS amount
              FROM credit_grants WHERE account_id = ?2 AND payment_ref = ?6) AS t

@@ -398,7 +398,7 @@ export const authRateLimits = sqliteTable('auth_rate_limits', {
 // user's credit is the account `u_<userId>`; the open pool is one more
 // account (`POOL_ACCOUNT_ID`, default `pool`) in the same two tables.
 
-/** Credits (purchases, membership credit) and debits (refunds, manual adjustments). */
+/** Credits (purchases) and debits (refunds, manual adjustments). */
 export const creditGrants = sqliteTable(
   'credit_grants',
   {
@@ -407,7 +407,7 @@ export const creditGrants = sqliteTable(
     kind: text('kind', {
       enum: ['purchase', 'refund', 'adjustment'],
     }).notNull(),
-    /** Signed: refunds are negative. For purchases, the credit net of the processing fee (older pool purchases: of the margin). */
+    /** Signed: refunds are negative. For purchases, the credit net of the processing fee. */
     amountMicros: integer('amount_micros').notNull(),
     /**
      * Purchases: the pre-tax amount paid (`amount + fee` for personal credit); refunds and
@@ -415,16 +415,14 @@ export const creditGrants = sqliteTable(
      * adjustments and older refunds.
      */
     grossMicros: integer('gross_micros'),
-    /** Purchases: the payment provider's actual processing fee (deducted from personal credit; recorded only for the pool). */
+    /** Purchases: the payment provider's actual processing fee, deducted from the credit. */
     feeMicros: integer('fee_micros').notNull().default(0),
-    /** Older pool purchases: the margin taken, in bps (`amount = gross / (1 + margin)`); 0 otherwise, and since the pool moved to a per-call markup. */
-    marginBps: integer('margin_bps').notNull().default(0),
     /** The buyer or beneficiary (Better Auth user id); null on rows before migration 0010 and pool adjustments. */
     userId: text('user_id'),
     /**
      * Idempotency key, unique: a payment provider's namespaced object ref
      * (`<provider>:<object>:<id>`, billing/payments/refs.ts), `admin:<key>`,
-     * `dev:<key>`, or a bare object id of the previous processor on rows from before migration 0015.
+     * or `dev:<key>`.
      */
     providerRef: text('provider_ref').unique(),
     /**
@@ -521,12 +519,6 @@ export const usageEvents = sqliteTable(
       .default('personal'),
     /** Pool rows: a daily-rotating keyed hash of the caller's network (pool/ids.ts `ipKey`). */
     ipKey: text('ip_key'),
-    /**
-     * Pool rows reserved while the pool had a member tier: the caller's cap
-     * tier then. Null since: the pool has one set of caps for everyone, and
-     * nothing reads it (its global ceiling counts every pool row).
-     */
-    tier: text('tier', { enum: ['free', 'member'] }),
     purpose: text('purpose', {
       enum: ['reply', 'summary', 'title', 'review', 'other'],
     }).notNull(),
@@ -565,7 +557,6 @@ export const usageEvents = sqliteTable(
     index('usage_events_account_status_idx').on(t.accountId, t.status, t.createdAt),
     index('usage_events_pool_user_idx').on(t.accountId, t.userId, t.createdAt),
     index('usage_events_pool_ip_idx').on(t.accountId, t.ipKey, t.createdAt),
-    index('usage_events_pool_tier_idx').on(t.accountId, t.tier, t.createdAt),
   ],
 );
 
@@ -647,19 +638,3 @@ export const modelWindows = sqliteTable('model_windows', {
   /** When the row last changed (ISO). */
   updatedAt: text('updated_at').notNull(),
 });
-
-/** Every price a sync first saw (append-only): one row per new or changed price. */
-export const modelPriceHistory = sqliteTable(
-  'model_price_history',
-  {
-    model: text('model').notNull(),
-    inMicrosPerMTok: integer('in_micros_per_mtok').notNull(),
-    outMicrosPerMTok: integer('out_micros_per_mtok').notNull(),
-    contextTokens: integer('context_tokens'),
-    cacheReadMicrosPerMTok: integer('cache_read_micros_per_mtok'),
-    cacheWriteMicrosPerMTok: integer('cache_write_micros_per_mtok'),
-    /** ISO. */
-    recordedAt: text('recorded_at').notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.model, t.recordedAt] })],
-);
