@@ -116,7 +116,10 @@ export interface CompactionRecord {
 }
 
 export interface TruncationRecord {
-  /** Segments dropped because even compaction could not fit the budget. */
+  /**
+   * Segments dropped, oldest first: compaction could not fit the budget, its
+   * summary failed, or the send asked to truncate instead.
+   */
   droppedSegmentIds: string[];
   droppedNodeIds: string[];
   tokensBefore: number;

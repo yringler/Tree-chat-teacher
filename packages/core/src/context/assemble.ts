@@ -628,23 +628,27 @@ function applyBudget(
       },
       prefix,
     );
-    const inPrefix = new Set<Draft>(prefix);
-    const next: Draft[] = [];
-    let placed = false;
-    for (const s of segments) {
-      if (!inPrefix.has(s)) next.push(s);
-      else if (!placed) {
-        next.push(summary);
-        placed = true;
+    // A failed summary leaves the prefix in place: dropping all of it would
+    // lose more than the truncation below, which drops only what must go.
+    if (summary.status !== 'failed') {
+      const inPrefix = new Set<Draft>(prefix);
+      const next: Draft[] = [];
+      let placed = false;
+      for (const s of segments) {
+        if (!inPrefix.has(s)) next.push(s);
+        else if (!placed) {
+          next.push(summary);
+          placed = true;
+        }
       }
+      segments = next;
+      compaction = {
+        compactedNodeIds,
+        tokensBefore: totalBefore,
+        tokensAfter: sumTokens(segments),
+        key: summary.key,
+      };
     }
-    segments = next;
-    compaction = {
-      compactedNodeIds,
-      tokensBefore: totalBefore,
-      tokensAfter: sumTokens(segments),
-      key: summary.key,
-    };
   }
 
   const beforeTruncation = sumTokens(segments);
