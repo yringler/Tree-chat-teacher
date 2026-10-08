@@ -157,7 +157,7 @@ describe('provider registry', () => {
       'webSearch',
     ]);
     expect(reg.list().map((p) => [p.id, p.webSearch])).toEqual([
-      ['anthropic', false],
+      ['anthropic', true],
       ['openai', false],
       ['openrouter', true],
     ]);
