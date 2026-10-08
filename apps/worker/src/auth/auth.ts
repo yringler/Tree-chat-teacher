@@ -213,9 +213,12 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
     emailAndPassword: { enabled: false },
     socialProviders: socialProviders(env),
     account: {
-      // Google and GitHub both verify the email, so signing in with either
-      // (or a magic link) lands on the same user.
-      accountLinking: { enabled: true, trustedProviders: ['google', 'github'] },
+      // Signing in with Google, GitHub or a magic link lands on the same user,
+      // but a provider identity is linked to an existing user only when the
+      // provider reports the email verified (no `trustedProviders`: trusting
+      // a provider skips that check, letting anyone whose provider account
+      // claims the address unverified take over the user).
+      accountLinking: { enabled: true },
     },
     session: {
       expiresIn: SESSION_DAYS * DAY_SECONDS,
