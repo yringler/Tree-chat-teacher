@@ -12,6 +12,7 @@ import {
   parseRouteKey,
   providerRouteKey,
   routeKey,
+  type Branch,
   type ContextMode,
 } from '@tangent/shared';
 import { Icon, Modal } from '@tangent/web-shared';
@@ -136,6 +137,12 @@ export class BranchSettings implements OnInit {
   protected readonly branch = computed(
     () => this.store.index()?.branches.get(this.state().branchId) ?? null,
   );
+  /**
+   * The lane as the form was filled from it. Saving sends what the user
+   * changed from this, not from the live lane: a reply finishing meanwhile
+   * may have retitled it.
+   */
+  private opened: Branch | null = null;
   protected readonly title = signal('');
   protected readonly mode = signal<ContextMode>('path');
   protected readonly quote = signal('');
@@ -150,6 +157,7 @@ export class BranchSettings implements OnInit {
   ngOnInit(): void {
     const b = this.branch();
     if (!b) return;
+    this.opened = b;
     this.title.set(laneTitle(b));
     this.mode.set(b.contextMode);
     this.quote.set(b.anchorQuote ?? '');
@@ -169,7 +177,7 @@ export class BranchSettings implements OnInit {
   }
 
   protected async save(): Promise<void> {
-    const b = this.branch();
+    const b = this.opened;
     if (!b) return;
     this.saving.set(true);
     const title = this.title().trim();
