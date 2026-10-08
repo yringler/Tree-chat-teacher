@@ -236,12 +236,11 @@ describe('power provider configs', () => {
     expect(openrouter.models.length).toBeGreaterThan(2);
   });
 
-  it("the operator's PROVIDERS rule, and may not claim the legacy built-in id", () => {
+  it("the operator's PROVIDERS rule; without it, power's defaults are the three real endpoints", () => {
     expect(providerConfigs(withEnv()).some((c) => c.openModels)).toBe(false);
-    const claim = JSON.stringify([
-      { id: 'tangent', kind: 'fake', label: 'Mine', defaultModel: 'x', models: [] },
-    ]);
-    expect(() => providerConfigs(withEnv({ PROVIDERS: claim }))).toThrow(/reserved id "tangent"/);
+    const defaults = providerConfigs(withEnv({ PROVIDERS: '' }));
+    expect(defaults.map((c) => c.id)).toEqual(['anthropic', 'openai', 'openrouter']);
+    expect(defaults.some((c) => c.kind === 'fake')).toBe(false);
   });
 
   it('Tangent credit takes the operator key only, never a user key, in a registry of its own', () => {

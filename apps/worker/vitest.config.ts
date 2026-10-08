@@ -257,14 +257,7 @@ export default defineConfig({
             // Test-only RPC methods (PoolBank.expire, PoolBank.status).
             TEST_SEAMS: 'true',
           },
-          // Empty databases for the upgrade tests (test/migrations-upgrade.test.ts and
-          // test/migrations-node-links.test.ts, one each), which build them at an older schema (a
-          // prefix of TEST_MIGRATIONS) and upgrade them; DB keeps every migration.
-          d1Databases: {
-            DB: 'tangent-test',
-            MIGRATION_DB: 'tangent-migration-test',
-            LINKS_MIGRATION_DB: 'tangent-links-migration-test',
-          },
+          d1Databases: { DB: 'tangent-test' },
           ratelimits: {
             CHAT_RATE_LIMITER: { namespace_id: '1002', simple: { limit: 5, period: 60 } },
             KEY_RATE_LIMITER: { namespace_id: '1003', simple: { limit: 1000, period: 60 } },
