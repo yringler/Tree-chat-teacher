@@ -23,6 +23,21 @@ const noProvider = { provider: null };
 const apply = (e: Parameters<typeof applyPaymentEvent>[1]) => applyPaymentEvent(env, e, noProvider);
 const balance = async (accountId: string) => (await getBalance(env.DB, accountId)).balanceMicros;
 
+/** The dispute's markers (`billing_markers`) and any ledger row naming it beyond its debit. */
+async function markersOf(disputeRef: string) {
+  const markers = await env.DB.prepare(
+    "SELECT ref FROM billing_markers WHERE ref LIKE ?1 || ':%' ORDER BY ref",
+  )
+    .bind(disputeRef)
+    .all<{ ref: string }>();
+  const grants = await env.DB.prepare(
+    "SELECT provider_ref FROM credit_grants WHERE provider_ref LIKE ?1 || ':%'",
+  )
+    .bind(disputeRef)
+    .all<{ provider_ref: string }>();
+  return { markers: markers.results.map((r) => r.ref), grants: grants.results };
+}
+
 async function newUser(): Promise<string> {
   const id = uniq('user');
   await insertUser(env, { id });
@@ -64,6 +79,11 @@ describe('disputes', () => {
     expect(await apply(lost)).toBe('duplicate');
     expect((await poolAccess(userId))?.pool_suspended).toBe(0);
     expect(await balance(`u_${userId}`)).toBe(-800_000);
+    // The suspension is remembered as a marker, not as a zero-amount ledger row.
+    expect(await markersOf(lost.disputeRef)).toEqual({
+      markers: [`${lost.disputeRef}:lost`],
+      grants: [],
+    });
     warn.mockRestore();
   });
 
@@ -72,9 +92,15 @@ describe('disputes', () => {
     const userId = await newUser();
     const payment = membershipPaid(userId);
     await apply(payment);
-    expect(await apply(disputed('dispute.opened', payment.paymentRef, 1000))).toBe('skipped');
+    const opened = disputed('dispute.opened', payment.paymentRef, 1000);
+    expect(await apply(opened)).toBe('skipped');
+    expect(await apply(opened)).toBe('duplicate');
     expect(await apply(disputed('dispute.won', payment.paymentRef, 1000))).toBe('skipped');
     expect(await balance(`u_${userId}`)).toBe(0);
+    expect(await markersOf(opened.disputeRef)).toEqual({
+      markers: [`${opened.disputeRef}:ignored`],
+      grants: [],
+    });
     warn.mockRestore();
   });
 });

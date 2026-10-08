@@ -22,8 +22,8 @@
 //   amount (membership disputes are left to the operator); lost also
 //   suspends the buyer's pool access, once. dispute.won → what the dispute
 //   took is credited back, once. A dispute that will never be debited (not
-//   a purchase) gets a zero-amount `<disputeRef>:ignored` marker, so the
-//   poller neither asks the provider about it nor logs it again.
+//   a purchase) gets a `<disputeRef>:ignored` marker (`billing_markers`), so
+//   the poller neither asks the provider about it nor logs it again.
 // - membership.changed → the `billing_subscriptions` snapshot, newest wins.
 //
 // Any event that names both our user and the provider's customer records
@@ -31,7 +31,7 @@
 import { userIdOfAccount } from '../../auth/account.js';
 import type { AppEnv } from '../../env.js';
 import { identitySuspensionStatement } from '../../pool/identity.js';
-import { grantByRef, grantCredit, grantTowardCap, hasGrant, type GrantRow } from '../ledger.js';
+import { grantByRef, grantTowardCap, hasGrant, type GrantRow } from '../ledger.js';
 import { centsToMicros } from '../pricing.js';
 import { fulfilPurchase } from '../purchases.js';
 import { rememberCustomer } from './customers.js';
@@ -230,8 +230,25 @@ async function debitPurchase(
   );
 }
 
-/** The ledger of zero-amount markers that belong to no account (a dispute of a payment that granted nothing). */
-const NO_ACCOUNT_MARKERS = 'payment-markers';
+/** True when `ref` is in `billing_markers`. */
+async function hasMarker(db: D1Database, ref: string): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT 1 AS one FROM billing_markers WHERE ref = ? LIMIT 1')
+    .bind(ref)
+    .first<{ one: number }>();
+  return row !== null;
+}
+
+/** Records `ref` in `billing_markers`; false when it was already there. */
+async function markOnce(db: D1Database, ref: string): Promise<boolean> {
+  const result = await db
+    .prepare(
+      'INSERT INTO billing_markers (ref, created_at) VALUES (?, ?) ON CONFLICT(ref) DO NOTHING',
+    )
+    .bind(ref, new Date().toISOString())
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
 
 async function disputeDebited(env: AppEnv, e: DisputeEvent, deps: ApplyDeps): Promise<ApplyResult> {
   if (e.currency !== 'usd') {
@@ -239,21 +256,17 @@ async function disputeDebited(env: AppEnv, e: DisputeEvent, deps: ApplyDeps): Pr
     return 'skipped';
   }
   const ignoredRef = `${e.disputeRef}:ignored`;
-  if (await hasGrant(env.DB, ignoredRef)) return 'duplicate';
+  if (await hasMarker(env.DB, ignoredRef)) return 'duplicate';
   const grant = await paidGrant(env, e.paymentRef, deps);
   if (!grant || grant.kind !== 'purchase') {
     // A membership payment (or one that granted nothing): left to the operator. Final
     // (`paidGrant` retries a payment that will grant), so recorded once, logged once.
-    const first = await grantCredit(env.DB, {
-      accountId: grant?.account_id ?? NO_ACCOUNT_MARKERS,
-      kind: 'adjustment',
-      amountMicros: 0,
-      userId: grant?.user_id ?? null,
-      providerRef: ignoredRef,
-      note: `Dispute ${e.disputeRef} of ${e.paymentRef} not debited: not a purchase`,
+    if (!(await markOnce(env.DB, ignoredRef))) return 'duplicate';
+    log('dispute_not_debited', {
+      reason: 'not_a_purchase',
+      disputeRef: e.disputeRef,
+      paymentRef: e.paymentRef,
     });
-    if (!first) return 'duplicate';
-    log('dispute_not_debited', { reason: 'not_a_purchase', disputeRef: e.disputeRef });
     return 'skipped';
   }
   const result = await debitPurchase(env, grant, {
@@ -264,32 +277,23 @@ async function disputeDebited(env: AppEnv, e: DisputeEvent, deps: ApplyDeps): Pr
   });
   if (e.type !== 'dispute.lost') return result;
   const userId = grant.user_id ?? userIdOfAccount(grant.account_id);
-  const suspended = userId ? await suspendForLostDispute(env, grant, userId, e.disputeRef) : false;
+  const suspended = userId ? await suspendForLostDispute(env, userId, e.disputeRef) : false;
   return result === 'applied' || suspended ? 'applied' : result;
 }
 
 /**
  * A dispute of a credit purchase was lost: its buyer's open pool access
  * is suspended (on the account and its pool identity, as an admin's
- * suspension; an admin can lift it). Once per dispute: a zero-amount marker
- * row keyed `<disputeRef>:lost` records it, so a poller that keeps seeing
- * the dispute as lost never undoes an admin's lift.
+ * suspension; an admin can lift it). Once per dispute: the marker
+ * `<disputeRef>:lost` (`billing_markers`) records it, so a poller that keeps
+ * seeing the dispute as lost never undoes an admin's lift.
  */
 async function suspendForLostDispute(
   env: AppEnv,
-  grant: GrantRow,
   userId: string,
   disputeRef: ProviderRef,
 ): Promise<boolean> {
-  const first = await grantCredit(env.DB, {
-    accountId: grant.account_id,
-    kind: 'adjustment',
-    amountMicros: 0,
-    userId,
-    providerRef: `${disputeRef}:lost`,
-    note: `Dispute ${disputeRef} lost: pool access suspended`,
-  });
-  if (!first) return false;
+  if (!(await markOnce(env.DB, `${disputeRef}:lost`))) return false;
   await suspendPoolAccess(env, userId, disputeRef);
   return true;
 }

@@ -441,6 +441,17 @@ export const billingCustomers = sqliteTable(
 );
 
 /**
+ * Payment events decided once that move no money (billing/payments/apply.ts):
+ * `<disputeRef>:ignored`, a dispute that will never be debited, and
+ * `<disputeRef>:lost`, a lost dispute whose buyer's pool access was suspended.
+ * Kept apart from `credit_grants`, which holds money only.
+ */
+export const billingMarkers = sqliteTable('billing_markers', {
+  ref: text('ref').primaryKey(),
+  createdAt: text('created_at').notNull(),
+});
+
+/**
  * The membership subscription, as its provider last reported it: a snapshot
  * upserted from `membership.changed` events (billing/payments/apply.ts),
  * guarded by `version` so late or duplicate deliveries never roll it back.

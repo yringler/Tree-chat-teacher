@@ -29,8 +29,7 @@ export interface CreditGrantInput {
   userId?: string | null;
   /**
    * Idempotency key: a payment, refund or dispute ref such as
-   * `polar:order:<id>`, or a ref the domain derives from one (`…:reinstated`,
-   * `…:lost`, `…:ignored`); `admin:<key>` for an admin's
+   * `polar:order:<id>`, or a ref the domain derives from one (`…:reinstated`); `admin:<key>` for an admin's
    * adjustment, `dev:<key>` for a simulated purchase (provider refs never start
    * with those); null for SQL adjustments.
    */
