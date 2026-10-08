@@ -10,8 +10,8 @@
   "scripts": {
     "build": "pnpm --filter @tangent/web build && pnpm --filter @tangent/simple build && pnpm --filter @tangent/canvas build && pnpm --filter @tangent/admin build && node scripts/assemble-assets.mjs",
     "dev": "pnpm --filter @tangent/worker dev",
-    "test": "pnpm -r --workspace-concurrency=1 test",
-    "coverage": "pnpm -r --workspace-concurrency=1 coverage && node scripts/coverage-summary.mjs",
+    "test": "pnpm -r --workspace-concurrency=1 --no-bail test",
+    "coverage": "pnpm -r --workspace-concurrency=1 --no-bail coverage && node scripts/coverage-summary.mjs",
     "e2e": "pnpm --filter @tangent/e2e e2e",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint . && node scripts/check-provider-neutral.mjs",
