@@ -96,6 +96,7 @@ export {
   type PickerRow,
   type RelatedLink,
 } from './ui/links-view';
+export { selectionText, TypesetMath, typesetMath } from './ui/math';
 export { TangentAsk } from './ui/tangent-ask';
 export { TextSizeMenu } from './ui/text-size-menu';
 export {

@@ -19,6 +19,9 @@ import sql from 'highlight.js/lib/languages/sql';
 import typescript from 'highlight.js/lib/languages/typescript';
 import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
+import { mathPlugin, type MathEnv, type MathRenderer } from './math.js';
+
+export type { MathRenderer } from './math.js';
 
 const LANGUAGES = {
   bash,
@@ -69,7 +72,7 @@ const md = new MarkdownIt({
   typographer: false,
   breaks: false,
   highlight,
-});
+}).use(mathPlugin);
 
 const defaultLinkOpen = md.renderer.rules.link_open;
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
@@ -108,9 +111,14 @@ for (const rule of ['th_open', 'td_open'] as const) {
  * links get rel="noopener noreferrer nofollow" target="_blank", and fenced
  * code is highlighted with highlight.js (a curated language subset) producing
  * `hljs` classes only. No DOM required; safe to run in Workers.
+ *
+ * TeX math (`\(…\)`, `\[…\]`, `$$…$$`, `$…$`) is lifted out before Markdown
+ * escapes can eat its backslashes, and becomes a `.math` element holding
+ * `options.math(tex)`: by default the escaped source, which the
+ * Angular apps typeset in the DOM; the viewer passes `renderMathMl`.
  */
-export function renderMarkdown(markdown: string): string {
-  return md.render(markdown);
+export function renderMarkdown(markdown: string, options: { math?: MathRenderer } = {}): string {
+  return md.render(markdown, { math: options.math } satisfies MathEnv);
 }
 
 export function escapeHtml(text: string): string {

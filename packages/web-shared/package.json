@@ -19,6 +19,7 @@
     "@tangent/render": "workspace:*",
     "@tangent/shared": "workspace:*",
     "better-auth": "1.7.7",
+    "katex": "^0.16.47",
     "txtgen": "^3.0.7"
   },
   "peerDependencies": {

@@ -10,7 +10,7 @@ import {
 import { plainText } from '@tangent/core';
 import { parseReview, parseRouteKey, routeKey, type BranchFunding } from '@tangent/shared';
 import { copyText } from '../core/selection';
-import { Icon, MarkdownService, Modal } from '@tangent/web-shared';
+import { Icon, MarkdownService, Modal, TypesetMath } from '@tangent/web-shared';
 import { ReviewStore } from '../state/review-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
@@ -26,7 +26,7 @@ const EXCERPT_CHARS = 280;
  */
 @Component({
   selector: 'app-review-dialog',
-  imports: [Modal, ModelPicker, Icon, ReviewVerdict],
+  imports: [Modal, ModelPicker, Icon, ReviewVerdict, TypesetMath],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="Review up to here" [wide]="true" (closed)="close()">
@@ -51,7 +51,7 @@ const EXCERPT_CHARS = 280;
             <p class="msg-status muted small">{{ r.status }}</p>
           }
           @if (parsed().body) {
-            <div class="md review-body" [innerHTML]="html()"></div>
+            <div class="md review-body" [innerHTML]="html()" [appTypesetMath]="html()"></div>
           }
           @if (r.phase === 'running') {
             <span class="cursor" aria-hidden="true"></span>

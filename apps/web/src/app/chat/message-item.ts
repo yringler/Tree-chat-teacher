@@ -16,6 +16,7 @@ import {
   relatedLinks,
   SourcesList,
   TangentAsk,
+  TypesetMath,
   type LinkNoteEdit,
   type RelatedLink,
 } from '@tangent/web-shared';
@@ -30,7 +31,7 @@ import { ReviewVerdict } from '../ui/review-verdict';
 /** One message of the linear branch view. */
 @Component({
   selector: 'app-message-item',
-  imports: [Icon, ModeBadge, RelatedLinks, ReviewVerdict, SourcesList, TangentAsk],
+  imports: [Icon, ModeBadge, RelatedLinks, ReviewVerdict, SourcesList, TangentAsk, TypesetMath],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let n = node();
@@ -110,7 +111,13 @@ import { ReviewVerdict } from '../ui/review-verdict';
         <p class="msg-status muted small">{{ liveStatus() }}</p>
       }
       <!-- data-node-id: the chat page maps a text selection in here to this message ("Ask about this"). -->
-      <div #body class="msg-body md" [attr.data-node-id]="n.id" [innerHTML]="html()"></div>
+      <div
+        #body
+        class="msg-body md"
+        [attr.data-node-id]="n.id"
+        [innerHTML]="html()"
+        [appTypesetMath]="html()"
+      ></div>
       @if (streaming()) {
         <span class="cursor" aria-hidden="true"></span>
         <span class="sr-only">Generating…</span>

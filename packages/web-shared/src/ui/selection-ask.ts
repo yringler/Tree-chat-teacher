@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
 import { Icon } from './icon';
+import { selectionText } from './math';
 
 /** Text selected inside one message: the message (`data-node-id`) and the trimmed text. */
 export interface MessageQuote {
@@ -32,7 +33,7 @@ export function selectedMessageQuote(
   const el = start?.closest('[data-node-id]');
   const nodeId = el && container.contains(el) ? el.getAttribute('data-node-id') : null;
   if (!nodeId) return null;
-  const quote = selection.toString().trim().slice(0, MAX_QUOTE);
+  const quote = selectionText(selection).trim().slice(0, MAX_QUOTE);
   return quote ? { nodeId, quote } : null;
 }
 

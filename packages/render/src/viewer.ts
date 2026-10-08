@@ -1,6 +1,7 @@
 import type { ShareBranch, ShareMessage, SharePayload } from '@tangent/shared';
 import { escapeHtml, renderMarkdown } from './markdown.js';
 import { messageMarkdown } from './markdown-export.js';
+import { renderMathMl } from './math-mathml.js';
 
 export interface ViewerPageOptions {
   /** 'share' = served at /s/:token; 'export' = downloadable single file. */
@@ -99,6 +100,9 @@ code,pre,kbd{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"L
 .msg-body ul,.msg-body ol{padding-left:1.4rem}
 .msg-body li+li{margin-top:.2em}
 .msg-body pre{overflow:auto;padding:.85rem 1rem;border-radius:8px;background:var(--code-bg);border:1px solid var(--border);font-size:.84rem;line-height:1.5;overflow-wrap:normal}
+.msg-body math{font-family:"STIX Two Math","Cambria Math","Latin Modern Math",math}
+.msg-body .math-display{display:block;margin:.7em 0;overflow-x:auto;overflow-y:hidden}
+.msg-body .math-error{white-space:pre-wrap}
 .msg-body :not(pre)>code{padding:.1em .35em;border-radius:4px;background:var(--code-bg);border:1px solid var(--border);font-size:.87em}
 .msg-body blockquote{padding:0 1em;border-left:3px solid var(--border);color:var(--muted)}
 .msg-body img{max-width:100%;height:auto;border-radius:6px}
@@ -388,7 +392,7 @@ function renderMessage(vm: ViewModel, m: ShareMessage): string {
     `<article class="msg ${m.role === 'user' ? 'msg-user' : 'msg-assistant'}" id="${key}" data-key="${key}">` +
     `<div class="msg-head"><span class="msg-role">${role}</span>` +
     `<a class="msg-link" href="#${key}" aria-label="Link to this message">#</a></div>` +
-    `<div class="msg-body">${renderMarkdown(messageMarkdown(m))}</div>${forksHtml}</article>\n`
+    `<div class="msg-body">${renderMarkdown(messageMarkdown(m), { math: renderMathMl })}</div>${forksHtml}</article>\n`
   );
 }
 

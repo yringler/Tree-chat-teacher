@@ -56,6 +56,31 @@ describe('renderViewerPage', () => {
     expect(html.trimEnd().endsWith('</html>')).toBe(true);
   });
 
+  it('renders TeX as native MathML, with no inline styles for the CSP to block', () => {
+    const page = renderViewerPage(
+      samplePayload({
+        context: null,
+        branches: [
+          {
+            key: 'b0',
+            parentKey: null,
+            forkMessageKey: null,
+            title: 'Trunk',
+            anchorQuote: null,
+            messages: [
+              { key: 'm0', role: 'assistant', content: 'So \\(x^2\\):\n\n\\[\n\\frac{a}{b}\n\\]' },
+            ],
+          },
+        ],
+      }),
+      { variant: 'export' },
+    );
+    expect(page).toContain('<span class="math math-inline"><span class="katex"><math');
+    expect(page).toContain('<div class="math math-display"><span class="katex"><math');
+    expect(page).toContain('<mfrac><mi>a</mi><mi>b</mi></mfrac>');
+    expect(page).not.toMatch(/<[^>]*\sstyle=/);
+  });
+
   it("shows a reply's tangents as a plain list, never as raw tags", () => {
     const page = renderViewerPage(
       samplePayload({
