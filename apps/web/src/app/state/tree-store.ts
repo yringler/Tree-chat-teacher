@@ -760,8 +760,10 @@ export class TreeStore {
 
   /**
    * "Check sources" on a finished reply: a web-searched check of it. After
-   * the branch's last reply it is appended there; on an earlier reply it
-   * opens a `path` branch, so later messages keep their place.
+   * the open branch's last reply it is appended there; on an earlier reply,
+   * including one of an ancestor branch (the open branch's messages follow
+   * it on screen), it opens a `path` branch, so later messages keep their
+   * place and the check streams where the user sees it.
    */
   async checkSources(nodeId: string): Promise<boolean> {
     const idx = this.index();
@@ -769,7 +771,7 @@ export class TreeStore {
     if (!idx || !node || node.role !== 'assistant') return false;
     const parent = node.parentId ? idx.nodes.get(node.parentId) : undefined;
     const content = checkSourcesMessage(parent?.role === 'user' ? parent.content : null);
-    if ((idx.nodesByBranch.get(node.branchId) ?? []).at(-1)?.id === node.id) {
+    if (node.branchId === this.selectedBranchId() && this.leaf()?.id === node.id) {
       return this.send(node.branchId, content, { ground: 'required' });
     }
     try {

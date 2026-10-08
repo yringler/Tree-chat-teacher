@@ -589,8 +589,10 @@ export class LessonStore {
 
   /**
    * "Check sources" on a finished reply: asks the tutor to check it with a
-   * web search. On the branch's last reply the check is appended there; on an
-   * earlier one it opens a side question, so later messages keep their place.
+   * web search. On the open branch's last reply the check is appended there;
+   * on an earlier one, including one of an ancestor branch (the open branch's
+   * messages follow it on screen), it opens a side question, so later
+   * messages keep their place and the check streams where the learner sees it.
    */
   async checkSources(nodeId: string): Promise<boolean> {
     const idx = this.index();
@@ -598,8 +600,7 @@ export class LessonStore {
     if (!idx || !node || node.role !== 'assistant') return false;
     const parent = node.parentId ? idx.nodes.get(node.parentId) : undefined;
     const content = checkSourcesMessage(parent?.role === 'user' ? parent.content : null);
-    const own = idx.nodesByBranch.get(node.branchId) ?? [];
-    if (own.at(-1)?.id === node.id) {
+    if (node.branchId === this.selectedBranchId() && this.path().at(-1)?.id === node.id) {
       return this.send(node.branchId, content, { ground: 'required' });
     }
     const from = idx.branches.get(node.branchId);

@@ -1685,3 +1685,58 @@ describe('TreeStore a tree load that lands late', () => {
     expect(s.store.selectedBranchId()).toBe('Y-trunk');
   });
 });
+
+describe('TreeStore Check sources', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  /** Tree X open on its side branch, which follows the trunk's last reply X-a1. */
+  function openSide() {
+    const s = setup();
+    const sendMessage = vi.fn(async (_b: string, _req: unknown, _signal: AbortSignal) =>
+      emptyStream(),
+    );
+    const createBranch = vi.fn(
+      async (req: CreateBranchRequest): Promise<Branch> => ({
+        ...smallTree('X').branches[1]!,
+        id: 'X-check',
+        branchPointNodeId: req.fromNodeId,
+        title: req.title ?? 'Branch',
+      }),
+    );
+    Object.assign(s.api, { sendMessage, createBranch, streamNode: vi.fn() });
+    s.store.detail.set(smallTree('X'));
+    s.store.setRoute('X', 'X-side', null);
+    const go = vi.spyOn(s.store, 'go');
+    return { ...s, sendMessage, createBranch, go };
+  }
+
+  it('after the open branch’s last reply, appends the check there', async () => {
+    const s = openSide();
+    await s.store.checkSources('X-a2');
+    expect(s.createBranch).not.toHaveBeenCalled();
+    expect(s.sendMessage).toHaveBeenCalledWith(
+      'X-side',
+      expect.objectContaining({ ground: 'required' }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('on an ancestor branch’s last reply, opens a branch from it where the check streams', async () => {
+    const s = openSide();
+    await s.store.checkSources('X-a1');
+    expect(s.createBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ fromNodeId: 'X-a1', contextMode: 'path', title: 'Checking sources' }),
+    );
+    expect(s.go).toHaveBeenCalledWith('X-check');
+    expect(s.sendMessage).toHaveBeenCalledTimes(1);
+    expect(s.sendMessage).toHaveBeenCalledWith(
+      'X-check',
+      expect.objectContaining({ ground: 'required' }),
+      expect.any(AbortSignal),
+    );
+  });
+});

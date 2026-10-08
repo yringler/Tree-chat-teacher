@@ -1148,6 +1148,26 @@ describe('LessonStore', () => {
         expect.any(AbortSignal),
       );
     });
+
+    it('on the last reply of the branch a side question started from, opens a side question', async () => {
+      const s = setup();
+      const asked = branch('asked', { parentBranchId: 'trunk', branchPointNodeId: 'a1' });
+      const own = [
+        node('u2', { seq: 2, parentId: 'a1', branchId: 'asked', role: 'user' }),
+        node('a2', { seq: 3, parentId: 'u2', branchId: 'asked' }),
+      ];
+      await open(s, detail([userNode, done, ...own], [branch('trunk'), asked]), 'asked');
+      await s.store.checkSources('a1');
+      expect(s.api.createBranch).toHaveBeenCalledWith(
+        expect.objectContaining({ fromNodeId: 'a1', title: 'Checking sources' }),
+      );
+      expect(s.api.sendMessage).toHaveBeenCalledTimes(1);
+      expect(s.api.sendMessage).toHaveBeenCalledWith(
+        'side',
+        expect.objectContaining({ ground: 'required' }),
+        expect.any(AbortSignal),
+      );
+    });
   });
 
   describe('Connections', () => {
