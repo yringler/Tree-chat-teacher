@@ -498,6 +498,12 @@ export class TreeStore {
     if (seq === this.treesSeq) this.trees.set(list);
   }
 
+  /** A change made here (created, deleted, renamed): a read sent before it would undo it. */
+  private editTrees(change: (list: TreeSummary[]) => TreeSummary[]): void {
+    this.treesSeq++;
+    this.trees.update(change);
+  }
+
   // Routing (URL is the source of truth for selection)
 
   /** Called by the routed page whenever the URL changes. */
@@ -636,7 +642,7 @@ export class TreeStore {
       this.showDetail(detail);
       this.selectedTreeId.set(detail.tree.id);
       this.ui.clearLinkState();
-      this.trees.update((list) => [this.summaryOf(detail), ...list]);
+      this.editTrees((list) => [this.summaryOf(detail), ...list]);
       await this.router.navigate(['/t', detail.tree.id]);
       void this.send(detail.tree.trunkBranchId, content);
     } catch (err) {
@@ -648,7 +654,7 @@ export class TreeStore {
     try {
       const tree = await this.api.updateTree(treeId, req);
       this.detail.update((cur) => (cur && cur.tree.id === tree.id ? { ...cur, tree } : cur));
-      this.trees.update((list) =>
+      this.editTrees((list) =>
         list.map((t) =>
           t.id === tree.id ? { ...t, title: tree.title, updatedAt: tree.updatedAt } : t,
         ),
@@ -669,7 +675,7 @@ export class TreeStore {
     try {
       await this.api.deleteTree(treeId);
       this.stopTreeStreams(treeId);
-      this.trees.update((list) => list.filter((t) => t.id !== treeId));
+      this.editTrees((list) => list.filter((t) => t.id !== treeId));
       if (this.selectedTreeId() === treeId) await this.router.navigate(['/']);
       this.ui.notify('Conversation deleted');
       return true;
@@ -682,7 +688,7 @@ export class TreeStore {
   async importBackup(backup: TreeBackupInput): Promise<void> {
     try {
       const detail = await this.api.importBackup(backup);
-      this.trees.update((list) => [this.summaryOf(detail), ...list]);
+      this.editTrees((list) => [this.summaryOf(detail), ...list]);
       this.ui.notify(`Imported “${detail.tree.title}”`);
       await this.router.navigate(['/t', detail.tree.id]);
     } catch (err) {
@@ -1278,7 +1284,7 @@ export class TreeStore {
     }
     const d = this.detail();
     if (d && d.tree.id === res.treeId) {
-      this.trees.update((list) =>
+      this.editTrees((list) =>
         list.map((t) =>
           t.id === res.treeId
             ? { ...t, branchCount: d.branches.length, messageCount: d.nodes.length }

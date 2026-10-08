@@ -1815,6 +1815,31 @@ describe('TreeStore refreshing the list after replies', () => {
     expect(s.store.trees().map((t) => t.title)).toEqual(['New']);
   });
 
+  it('a read sent before a delete or a new conversation does not undo them', async () => {
+    const s = setup();
+    const reads: ((list: TreeSummary[]) => void)[] = [];
+    s.api.listTrees.mockImplementation(() => new Promise<TreeSummary[]>((r) => reads.push(r)));
+    Object.assign(s.api, {
+      deleteTree: vi.fn(async () => undefined),
+      createTree: vi.fn(async () => smallTree('Y')),
+      sendMessage: vi.fn(async () => emptyStream()),
+      streamNode: vi.fn(),
+    });
+    s.store.trees.set([summaryOf('Light')]);
+    const before = s.store.loadTrees();
+    await s.store.deleteTree('X');
+    expect(s.store.trees()).toEqual([]);
+    reads[0]!([summaryOf('Light')]);
+    await before;
+    expect(s.store.trees()).toEqual([]);
+
+    const again = s.store.loadTrees();
+    await s.store.startConversation('Hello', null, null);
+    reads[1]!([]);
+    await again;
+    expect(s.store.trees().map((t) => t.id)).toEqual(['Y']);
+  });
+
   it('a failed refresh after a reply is quiet', async () => {
     const s = setup();
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);

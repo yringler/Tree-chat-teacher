@@ -319,6 +319,12 @@ export class LessonStore {
     if (seq === this.treesSeq) this.trees.set(list);
   }
 
+  /** A change made here (created, deleted, renamed): a read sent before it would undo it. */
+  private editTrees(change: (list: TreeSummary[]) => TreeSummary[]): void {
+    this.treesSeq++;
+    this.trees.update(change);
+  }
+
   async loadTree(treeId: string, force = false): Promise<void> {
     if (!force && this.detail()?.tree.id === treeId) return;
     const seq = ++this.detailSeq;
@@ -442,7 +448,7 @@ export class LessonStore {
       });
       this.showDetail(detail);
       this.selectedTreeId.set(detail.tree.id);
-      this.trees.update((list) => [summaryOf(detail), ...list]);
+      this.editTrees((list) => [summaryOf(detail), ...list]);
       await this.router.navigate(['/t', detail.tree.id]);
       const first = topic.trim();
       if (first) void this.send(detail.tree.trunkBranchId, first);
@@ -460,7 +466,7 @@ export class LessonStore {
       await this.api.deleteTree(treeId);
       this.stopTreeStreams(treeId);
       if (this.unsentDraft()?.treeId === treeId) this.setUnsent(null);
-      this.trees.update((list) => list.filter((t) => t.id !== treeId));
+      this.editTrees((list) => list.filter((t) => t.id !== treeId));
       if (this.selectedTreeId() === treeId) await this.router.navigate(['/']);
       this.ui.notify('Lesson deleted');
       return true;
@@ -508,7 +514,7 @@ export class LessonStore {
         return false;
       }
       const detail = await this.api.importBackup(backup);
-      this.trees.update((list) => [summaryOf(detail), ...list]);
+      this.editTrees((list) => [summaryOf(detail), ...list]);
       this.ui.notify(`Imported “${lessonTitle(detail.tree.title)}”`);
       await this.router.navigate(['/t', detail.tree.id]);
       return true;
@@ -1178,7 +1184,7 @@ export class LessonStore {
     }
     const d = this.detail();
     if (d && d.tree.id === res.treeId) {
-      this.trees.update((list) =>
+      this.editTrees((list) =>
         list.map((t) =>
           t.id === res.treeId
             ? { ...t, branchCount: d.branches.length, messageCount: d.nodes.length }

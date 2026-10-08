@@ -1578,6 +1578,25 @@ describe('LessonStore refreshing after replies', () => {
     expect(s.api.billing).toHaveBeenCalledTimes(2);
   });
 
+  it('a read sent before a delete or a new lesson does not undo them', async () => {
+    const s = setup();
+    const reads: ((list: TreeSummary[]) => void)[] = [];
+    s.api.listTrees.mockImplementation(() => new Promise<TreeSummary[]>((r) => reads.push(r)));
+    s.api.createTree.mockResolvedValue({ ...detail(), tree: { ...detail().tree, id: 't2' } });
+    s.store.trees.set([summaryOf('Light')]);
+    const before = s.store.loadTrees();
+    await s.store.deleteLesson('t1');
+    reads[0]!([summaryOf('Light')]);
+    await before;
+    expect(s.store.trees()).toEqual([]);
+
+    const again = s.store.loadTrees();
+    await s.store.startLesson(null, '');
+    reads[1]!([]);
+    await again;
+    expect(s.store.trees().map((t) => t.id)).toEqual(['t2']);
+  });
+
   it('a failed refresh after a reply is quiet', async () => {
     const s = setup();
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);

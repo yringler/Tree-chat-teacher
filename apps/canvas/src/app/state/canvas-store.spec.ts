@@ -1053,6 +1053,29 @@ describe('CanvasStore refreshing the list after replies', () => {
     expect(reads).toHaveLength(2);
   });
 
+  it('a read sent before a delete or a new conversation does not undo them', async () => {
+    const s = setup();
+    const reads: ((list: TreeSummary[]) => void)[] = [];
+    s.api.listTrees.mockImplementation(() => new Promise<TreeSummary[]>((r) => reads.push(r)));
+    const other: TreeDetail = { ...detail(), tree: { ...detail().tree, id: 't2' } };
+    Object.assign(s.api, {
+      deleteTree: vi.fn(async () => undefined),
+      createTree: vi.fn(async () => other),
+    });
+    s.store.trees.set([summaryOf('Light')]);
+    const before = s.store.loadTrees();
+    await s.store.deleteTree('t1');
+    reads[0]!([summaryOf('Light')]);
+    await before;
+    expect(s.store.trees()).toEqual([]);
+
+    const again = s.store.loadTrees();
+    await s.store.startConversation('Hello', null, null);
+    reads[1]!([]);
+    await again;
+    expect(s.store.trees().map((t) => t.id)).toEqual(['t2']);
+  });
+
   it('a failed refresh after a reply is quiet', async () => {
     const s = setup();
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
