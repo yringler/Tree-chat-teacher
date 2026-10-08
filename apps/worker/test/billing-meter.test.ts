@@ -42,8 +42,8 @@ function scriptedProvider(
     kind: 'fake' as const,
     label: 'Tangent',
     calls: 0,
-    models: () => [{ id: 'smart', label: 'Max', tier: 'max' }],
-    defaultModel: () => 'smart',
+    models: () => [{ id: 'max', label: 'Max', tier: 'max' }],
+    defaultModel: () => 'max',
     capabilities: () => ({
       maxContextTokens: 1000,
       maxOutputTokens: 100,
@@ -86,7 +86,7 @@ const onlyBuiltIn = (providerId: string) => providerId === 'openrouter';
 
 function request(tag?: UsageTag, signal = new AbortController().signal): GenerateRequest {
   return {
-    model: 'smart',
+    model: 'max',
     system: null,
     messages: [{ role: 'user', content: 'hi' }],
     maxOutputTokens: 100,
@@ -183,7 +183,7 @@ describe('usage meter', () => {
       node_id: 'node_1',
       purpose: 'reply',
       provider_id: 'openrouter',
-      model: 'smart',
+      model: 'max',
       hold_micros: 20_000,
       markup_bps: 1000,
       fee_bps: 550,
@@ -435,9 +435,9 @@ describe('usage meter', () => {
       'openrouter',
       'fake',
       'Tangent',
-      'smart',
+      'max',
     ]);
-    expect(wrapped.capabilities('smart').maxOutputTokens).toBe(100);
+    expect(wrapped.capabilities('max').maxOutputTokens).toBe(100);
     expect(await wrapped.countTokens!(request())).toBe(42);
   });
 
@@ -465,11 +465,11 @@ describe('usage meter', () => {
 });
 
 describe('usage meter holds on credit', () => {
-  /** `smart` at about o1-pro's list price: $150 in, $600 out per million tokens. */
+  /** `max` at about o1-pro's list price: $150 in, $600 out per million tokens. */
   const pricey = {
     ...env,
     MODEL_PRICES: JSON.stringify({
-      smart: { in: 150_000_000, out: 600_000_000, context: 200_000 },
+      max: { in: 150_000_000, out: 600_000_000, context: 200_000 },
     }),
   } as AppEnv;
   const reply = [
@@ -667,7 +667,7 @@ describe('the call log', () => {
         funding: 'personal',
         purpose: 'reply',
         providerId: 'openrouter',
-        model: 'smart',
+        model: 'max',
         tier: 'max',
         effort: null,
         providerOrder: null,

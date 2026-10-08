@@ -43,8 +43,8 @@ const env = rawEnv as unknown as AppEnv;
 const MOCK_UPSTREAM = 'https://llm.test';
 const USER_KEY = 'sk-ant-goodUSER-0123456789';
 const MODELS = [
-  { id: 'smart', label: 'Max', tier: 'max' },
-  { id: 'simple', label: 'Normal', tier: 'normal' },
+  { id: 'max', label: 'Max', tier: 'max' },
+  { id: 'normal', label: 'Normal', tier: 'normal' },
 ];
 
 /** An OpenRouter-like endpoint on the mock upstream, keyed by `secret` (or a user key). */
@@ -55,7 +55,7 @@ function openRouterLike(label: string, secret: string) {
     label,
     baseUrl: MOCK_UPSTREAM,
     apiKeySecret: secret,
-    defaultModel: 'smart',
+    defaultModel: 'max',
     models: MODELS,
   };
 }
@@ -144,7 +144,7 @@ async function replyOn(c: Client, route: Route, learn?: LearnPayment, as?: AppEn
       '/api/trees',
       {
         method: 'POST',
-        json: { title: 'M', ...route, model: 'smart' },
+        json: { title: 'M', ...route, model: 'max' },
         ...(learn ? { learn } : {}),
       },
       as,
@@ -168,7 +168,7 @@ async function reviewWith(
 ): Promise<{ status: number; reply: string; code: string | null }> {
   const res = await c.call(
     `/api/nodes/${nodeId}/review`,
-    { method: 'POST', json: { ...route, model: 'smart' }, ...init },
+    { method: 'POST', json: { ...route, model: 'max' }, ...init },
     as,
   );
   const text = await res.text();
@@ -230,7 +230,7 @@ describe('funding matrix: the same party pays with the same key as before the sp
     const detail = await json<TreeDetail>(
       await u.client.call('/api/trees', {
         method: 'POST',
-        json: { title: 'P', systemPrompt: 'IGNORE ME', model: 'smart', funding: 'credit' },
+        json: { title: 'P', systemPrompt: 'IGNORE ME', model: 'max', funding: 'credit' },
         learn: 'pool',
       }),
       201,
@@ -255,7 +255,7 @@ describe('funding matrix: the same party pays with the same key as before the sp
     const text = await res.text();
     expect(res.status, text).toBe(200);
     const echoed = replyOf(text);
-    expect(echoed).toMatch(/^ECHO model=simple maxOutputTokens=2048 /);
+    expect(echoed).toMatch(/^ECHO model=normal maxOutputTokens=2048 /);
     expect(echoed).toContain('LOCKED POOL PROMPT');
     expect(echoed).not.toContain('IGNORE ME');
     expect(await usageRows(u.poolId)).toBe(1);

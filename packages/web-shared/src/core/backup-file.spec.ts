@@ -29,7 +29,7 @@ const BACKUP: TreeBackup = {
       titleSource: 'default',
       isPrivate: false,
       providerId: 'openrouter',
-      model: 'smart',
+      model: 'max',
       funding: 'own-key',
       createdAt: AT,
       updatedAt: AT,

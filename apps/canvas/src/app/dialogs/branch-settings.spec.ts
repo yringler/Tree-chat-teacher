@@ -22,7 +22,7 @@ function lane(over: Partial<Branch> = {}): Branch {
     titleSource: 'default',
     isPrivate: false,
     providerId: 'openrouter',
-    model: 'smart-model',
+    model: 'max-model',
     funding: 'credit',
     createdAt: T,
     updatedAt: T,

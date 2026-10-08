@@ -61,7 +61,7 @@ DEV_ALLOW_NO_AUTH=true
 
 # --- Option C: the built-in provider on credit, offline (no OpenRouter, no payments). Works with Option A or B.
 # A fake built-in provider (Learn's Normal and Max tiers) that reports a fixed cost per call (the shape the worker tests use):
-# SIMPLE_PROVIDER='{"id":"openrouter","kind":"fake","label":"Tangent","defaultModel":"simple","models":[{"id":"simple","label":"Normal","tier":"normal"},{"id":"smart","label":"Max","tier":"max"}],"options":{"chunkSize":4,"costUsd":0.001234}}'
+# SIMPLE_PROVIDER='{"id":"openrouter","kind":"fake","label":"Tangent","defaultModel":"normal","models":[{"id":"normal","label":"Normal","tier":"normal"},{"id":"max","label":"Max","tier":"max"}],"options":{"chunkSize":4,"costUsd":0.001234}}'
 # Placeholders so sends are allowed (top-ups and the membership checkout won't work with them;
 # leave POLAR_MEMBERSHIP_PRODUCT_ID empty, or waive yourself with the README's SQL), or instead
 # PERSONAL_CREDIT_ENABLED=true (below):
@@ -75,10 +75,10 @@ DEV_ALLOW_NO_AUTH=true
 
 # --- The community credit pool (docs/pool/SPEC.md); off in wrangler.jsonc. Its caps, price table
 # and TTLs are the POOL_* vars there (parsed in src/config.ts). With Option C's fake provider,
-# price its "simple" model so the pool can reserve for it:
+# price its "normal" model so the pool can reserve for it:
 # POOL_ENABLED=true
-# POOL_MODEL=simple
-# MODEL_PRICES='{"simple":{"in":100000,"out":400000,"context":131072}}'
+# POOL_MODEL=normal
+# MODEL_PRICES='{"normal":{"in":100000,"out":400000,"context":131072}}'
 # Learn then spends from the pool when it picks the pool, or when its credit runs out (sends only).
 # Admin-granted personal credit without payments:
 # PERSONAL_CREDIT_ENABLED=true

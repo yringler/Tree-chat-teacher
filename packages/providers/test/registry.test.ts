@@ -289,7 +289,7 @@ describe('provider registry', () => {
       ['not json', '{', /not valid JSON/],
       [
         'bad tier',
-        JSON.stringify([{ ...valid, models: [{ id: 'm1', label: 'M1', tier: 'smart' }] }]),
+        JSON.stringify([{ ...valid, models: [{ id: 'm1', label: 'M1', tier: 'premium' }] }]),
         /models\[0\]\.tier must be "normal" or "max"/,
       ],
       [

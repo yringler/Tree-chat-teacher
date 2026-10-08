@@ -39,7 +39,7 @@ async function setUp(request: APIRequestContext, baseURL: string, userId: string
       fromNodeId: reply.id,
       providerId: 'openrouter',
       funding: 'credit',
-      model: 'smart',
+      model: 'max',
       contextMode: 'path',
       title: 'Twin primes (on credit)',
     },

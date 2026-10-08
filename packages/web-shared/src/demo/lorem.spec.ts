@@ -8,8 +8,8 @@ import {
 import { describe, expect, it } from 'vitest';
 import {
   createLoremProvider,
-  DEMO_SIMPLE_MODEL,
-  DEMO_SMART_MODEL,
+  DEMO_NORMAL_MODEL,
+  DEMO_MAX_MODEL,
   DEMO_MODEL_PRICES,
   loremTangents,
   loremReply,
@@ -21,7 +21,7 @@ import {
 
 function request(over: Partial<GenerateRequest> = {}): GenerateRequest {
   return {
-    model: DEMO_SMART_MODEL,
+    model: DEMO_MAX_MODEL,
     system: 'You are a tutor.',
     messages: [{ role: 'user', content: 'Why is the sky blue?' }],
     signal: new AbortController().signal,
@@ -40,15 +40,13 @@ const noWait = async () => undefined;
 
 describe('lorem text', () => {
   it('is deterministic for a given RNG', () => {
-    expect(loremReply(DEMO_SMART_MODEL, seeded(7))).toBe(loremReply(DEMO_SMART_MODEL, seeded(7)));
-    expect(loremReply(DEMO_SMART_MODEL, seeded(7))).not.toBe(
-      loremReply(DEMO_SMART_MODEL, seeded(8)),
-    );
+    expect(loremReply(DEMO_MAX_MODEL, seeded(7))).toBe(loremReply(DEMO_MAX_MODEL, seeded(7)));
+    expect(loremReply(DEMO_MAX_MODEL, seeded(7))).not.toBe(loremReply(DEMO_MAX_MODEL, seeded(8)));
   });
 
   it('always ends with a tangents block the app can parse', () => {
     for (let seed = 1; seed <= 40; seed++) {
-      const reply = loremReply(seed % 2 ? DEMO_SMART_MODEL : DEMO_SIMPLE_MODEL, seeded(seed));
+      const reply = loremReply(seed % 2 ? DEMO_MAX_MODEL : DEMO_NORMAL_MODEL, seeded(seed));
       expect(reply.endsWith('</tangents>')).toBe(true);
       const { body, tangents, partial } = splitTangents(reply);
       expect(partial).toBe(false);
@@ -64,14 +62,14 @@ describe('lorem text', () => {
     expect(new Set(titles).size).toBe(titles.length);
   });
 
-  it('writes longer replies for Max (`smart`) than for Normal (`simple`)', () => {
-    let smart = 0;
-    let simple = 0;
+  it('writes longer replies for Max than for Normal', () => {
+    let max = 0;
+    let normal = 0;
     for (let seed = 1; seed <= 30; seed++) {
-      smart += loremReply(DEMO_SMART_MODEL, seeded(seed)).length;
-      simple += loremReply(DEMO_SIMPLE_MODEL, seeded(seed)).length;
+      max += loremReply(DEMO_MAX_MODEL, seeded(seed)).length;
+      normal += loremReply(DEMO_NORMAL_MODEL, seeded(seed)).length;
     }
-    expect(smart).toBeGreaterThan(simple * 1.3);
+    expect(max).toBeGreaterThan(normal * 1.3);
   });
 
   it("titles a lesson after the learner's first words, else at random", () => {
@@ -136,7 +134,7 @@ describe('createLoremProvider', () => {
     expect(deltas.length).toBeGreaterThan(10);
     for (const d of deltas) expect(d.text).toMatch(/^\S+\s*$/);
     const text = deltas.map((d) => d.text).join('');
-    expect(text).toBe(loremReply(DEMO_SMART_MODEL, seeded(1)));
+    expect(text).toBe(loremReply(DEMO_MAX_MODEL, seeded(1)));
     expect(text.trimEnd()).toMatch(/<\/tangents>$/);
     expect(events.slice(-3).map((e) => e.type)).toEqual(['usage', 'billing', 'done']);
     const billing = events.find((e) => e.type === 'billing');
@@ -195,17 +193,17 @@ describe('createLoremProvider', () => {
     const p = createLoremProvider();
     expect(p.id).toBe('openrouter');
     expect(p.models()).toEqual([
-      { id: DEMO_SIMPLE_MODEL, label: 'Normal', tier: 'normal' },
-      { id: DEMO_SMART_MODEL, label: 'Max', tier: 'max' },
+      { id: DEMO_NORMAL_MODEL, label: 'Normal', tier: 'normal' },
+      { id: DEMO_MAX_MODEL, label: 'Max', tier: 'max' },
     ]);
-    expect(p.defaultModel()).toBe(DEMO_SIMPLE_MODEL);
+    expect(p.defaultModel()).toBe(DEMO_NORMAL_MODEL);
     expect(p.kind).not.toBe('fake'); // the ChatService only auto-titles with real kinds
   });
 
   it('prices Max at about 14× Normal, like the default tiers', () => {
     const factor = usageFactorOf(
-      DEMO_MODEL_PRICES[DEMO_SIMPLE_MODEL]!,
-      DEMO_MODEL_PRICES[DEMO_SMART_MODEL]!,
+      DEMO_MODEL_PRICES[DEMO_NORMAL_MODEL]!,
+      DEMO_MODEL_PRICES[DEMO_MAX_MODEL]!,
     );
     expect(factor).toBe(14);
   });

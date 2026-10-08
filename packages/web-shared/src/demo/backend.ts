@@ -20,9 +20,7 @@ import {
   createBranchRequestSchema,
   createLinkRequestSchema,
   createTreeRequestSchema,
-  BUILT_IN_PROVIDER_ID,
   DEFAULT_SYSTEM_PROMPT,
-  LEGACY_BUILT_IN_PROVIDER_ID,
   MAX_TOP_UP_CENTS,
   MICROS_PER_USD,
   MIN_TOP_UP_CENTS,
@@ -36,7 +34,6 @@ import {
   type ApiErrorCode,
   type BillingSummary,
   type Branch,
-  type BranchFunding,
   type CandidateEvent,
   type ChatNode,
   type GenerateRequest,
@@ -132,8 +129,8 @@ const OPENROUTER_FEE_BPS = 550;
 const HOLD_MICROS = 20_000;
 /** Per mode, so the two demos keep separate conversations (like the two real accounts). */
 const STORAGE_KEYS: Readonly<Record<AccountMode, string>> = {
-  simple: 'tangent.learn-demo.v1',
-  power: 'tangent.power-demo.v1',
+  simple: 'tangent.learn-demo',
+  power: 'tangent.power-demo',
 };
 
 /** The bits of `Storage` the demo uses to survive a reload within the tab. */
@@ -172,19 +169,20 @@ interface Held {
   expiresAt: number;
 }
 
+/** The shape of a mirrored session; a session saved in another shape is discarded. */
+const SAVED_VERSION = 2;
+
 interface Saved {
-  version: 1;
+  version: typeof SAVED_VERSION;
   trees: Tree[];
-  /** Without `funding` in sessions saved before funding was split from the provider. */
-  branches: (Omit<Branch, 'funding'> & { funding?: BranchFunding })[];
+  branches: Branch[];
   nodes: ChatNode[];
-  /** Absent in sessions saved before links existed. */
-  links?: NodeLink[];
+  links: NodeLink[];
   summaries: SummaryRecord[];
   balanceMicros: number;
   usage: UsageEntry[];
-  /** The account's saved default system prompt (Settings); absent in sessions saved before it existed. */
-  systemPrompt?: string | null;
+  /** The account's saved default system prompt (Settings). */
+  systemPrompt: string | null;
 }
 
 const encoder = new TextEncoder();
@@ -909,7 +907,7 @@ export class DemoBackend {
   private save(): void {
     if (!this.storage) return;
     const saved: Saved = {
-      version: 1,
+      version: SAVED_VERSION,
       trees: [...this.state.trees.values()],
       branches: [...this.state.branches.values()],
       nodes: [...this.state.nodes.values()],
@@ -933,34 +931,25 @@ export class DemoBackend {
       const raw = this.storage?.getItem(this.storageKey);
       if (!raw) return false;
       saved = JSON.parse(raw) as Saved;
-      if (saved?.version !== 1 || !Array.isArray(saved.trees)) return false;
+      if (saved?.version !== SAVED_VERSION || !Array.isArray(saved.trees)) return false;
     } catch {
       return false;
     }
     for (const t of saved.trees) this.state.trees.set(t.id, t);
-    // Sessions saved before funding was split from the provider name the legacy `tangent`
-    // and no funding: the demo's provider, on its own key (as migration 0020 reads Learn).
-    for (const b of saved.branches)
-      this.state.branches.set(b.id, {
-        ...b,
-        providerId: currentProviderId(b.providerId),
-        funding: b.funding ?? 'own-key',
-      });
+    for (const b of saved.branches) this.state.branches.set(b.id, b);
     for (const n of saved.nodes) {
-      const node =
-        n.providerId === null ? n : { ...n, providerId: currentProviderId(n.providerId) };
       this.state.nodes.set(
         n.id,
-        node.status === 'streaming'
-          ? { ...node, status: 'error', error: 'Interrupted before the reply finished' }
-          : node,
+        n.status === 'streaming'
+          ? { ...n, status: 'error', error: 'Interrupted before the reply finished' }
+          : n,
       );
     }
-    for (const l of saved.links ?? []) this.state.links.set(l.id, l);
+    for (const l of saved.links) this.state.links.set(l.id, l);
     for (const s of saved.summaries) {
       this.state.summaries.set(`${s.anchorNodeId}|${s.sourceHash}|${s.model}`, s);
     }
-    if (typeof saved.systemPrompt === 'string') {
+    if (saved.systemPrompt !== null) {
       this.state.settings.set(DEMO_ACCOUNT_ID, { systemPrompt: saved.systemPrompt });
     }
     this.balanceMicros = saved.balanceMicros;
@@ -969,11 +958,6 @@ export class DemoBackend {
     );
     return true;
   }
-}
-
-/** A provider id as stored now: the legacy `tangent` is the built-in endpoint. */
-function currentProviderId(id: string): string {
-  return id === LEGACY_BUILT_IN_PROVIDER_ID ? BUILT_IN_PROVIDER_ID : id;
 }
 
 function providerInfo(provider: LlmProvider): ProviderInfo {

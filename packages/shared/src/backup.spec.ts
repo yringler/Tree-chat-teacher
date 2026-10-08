@@ -20,7 +20,7 @@ const branch = {
   titleSource: 'default',
   isPrivate: false,
   providerId: 'openrouter',
-  model: 'smart',
+  model: 'max',
   createdAt: AT,
   updatedAt: AT,
 };
@@ -36,7 +36,7 @@ const node = {
   status: 'error',
   error: 'Upstream failed',
   providerId: 'openrouter',
-  model: 'smart',
+  model: 'max',
   usage: null,
   createdAt: AT,
 };

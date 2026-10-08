@@ -286,14 +286,14 @@ describe("Learn's tiers", () => {
       SIMPLE_PROVIDER: builtIn({
         baseUrl: 'https://openrouter.ai/api/v1',
         models: [
-          { id: 'a/smart', label: 'Smart' },
-          { id: 'a/simple', label: 'Simple' },
+          { id: 'a/first', label: 'First' },
+          { id: 'a/second', label: 'Second' },
         ],
       }),
       POOL_ACCOUNT_ID: uniq('pool'),
     };
     const pricing = await page('/pricing', env);
-    expect(pricing).not.toContain('<th scope="row">The Simple tier');
+    expect(pricing).not.toContain('<th scope="row">The Second tier');
     expect(await page('/welcome', env)).not.toContain('Two tiers');
   });
 

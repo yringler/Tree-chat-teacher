@@ -324,7 +324,7 @@ describe('compare in Learn', () => {
       c.call(`/api/branches/${branchId}/candidates`, { method: 'POST', json, learn: 'credit' });
 
     const dones: Extract<CandidateEvent, { type: 'done' }>[] = [];
-    for (const model of ['simple', 'smart']) {
+    for (const model of ['normal', 'max']) {
       const res = await ask({ content: 'Why is the sky blue?', model });
       const text = await res.text();
       expect(res.status, text).toBe(200);
@@ -337,8 +337,8 @@ describe('compare in Learn', () => {
       const rows = (await usageRows(env, billing)).filter((r) => r.purpose === 'reply');
       rows.sort((a, b) => a.model.localeCompare(b.model));
       expect(rows.map((r) => [r.model, r.node_id, r.status])).toEqual([
-        ['simple', null, 'settled'],
-        ['smart', null, 'settled'],
+        ['max', null, 'settled'],
+        ['normal', null, 'settled'],
       ]);
     });
 
@@ -352,7 +352,7 @@ describe('compare in Learn', () => {
     );
     const committed = (await res.json()) as CommitCandidateResponse;
     expect(res.status).toBe(200);
-    expect(committed.assistantNode).toMatchObject({ model: 'smart', providerId: 'openrouter' });
+    expect(committed.assistantNode).toMatchObject({ model: 'max', providerId: 'openrouter' });
     expect(committed.userNode.content).toBe('Why is the sky blue?');
     // The commit itself calls no model (titles are off in tests): still two rows.
     expect((await usageRows(env, billing)).filter((r) => r.purpose !== 'tagging')).toHaveLength(2);
@@ -367,7 +367,7 @@ describe('compare in Learn', () => {
     const branchId = detail.tree.trunkBranchId;
     const ask = await u.client.call(`/api/branches/${branchId}/candidates`, {
       method: 'POST',
-      json: { content: 'Q', model: 'simple' },
+      json: { content: 'Q', model: 'normal' },
       learn: 'pool',
     });
     expect(ask.status).toBe(403);

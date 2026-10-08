@@ -487,7 +487,7 @@ describe('request-time topic tagging', () => {
     );
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
-      model: 'simple',
+      model: 'normal',
       system: CLASSIFIER_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: 'Now on the pool [topic:history.ancient-rome]' }],
       maxOutputTokens: appConfig(env).impact.classifierMaxOutputTokens,

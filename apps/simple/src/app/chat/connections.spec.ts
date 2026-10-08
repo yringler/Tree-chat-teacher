@@ -26,7 +26,7 @@ function branch(id: string, over: Partial<Branch> = {}): Branch {
     titleSource: 'default',
     isPrivate: false,
     providerId: 'openrouter',
-    model: 'smart-model',
+    model: 'max-model',
     funding: 'own-key',
     createdAt: T,
     updatedAt: T,

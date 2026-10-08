@@ -46,7 +46,7 @@ async function settledReply(
   await env.DB.prepare(
     `INSERT INTO usage_events (id, account_id, funding, user_id, purpose, provider_id, model, status,
        hold_micros, markup_bps, fee_bps, charge_micros, settle_reason, created_at)
-     VALUES (?, ?, 'pool', ?, ?, 'openrouter', 'simple', 'settled', 5000, 0, 0, ?, ?, ?)`,
+     VALUES (?, ?, 'pool', ?, ?, 'openrouter', 'normal', 'settled', 5000, 0, 0, ?, ?, ?)`,
   )
     .bind(
       uniq('use'),
@@ -80,7 +80,7 @@ describe('GET /api/pool/status', () => {
       sessionsRemaining: Math.floor(1_000_000 / config.pool.sessionEstimateMicros),
       // The fake's Normal, asked with the pool's effort (`POOL_EFFORT`, which the fake's
       // listing doesn't set) and its shorter reply cap.
-      model: { id: 'simple', label: 'Normal', thinking: 'other', replies: 'shorter' },
+      model: { id: 'normal', label: 'Normal', thinking: 'other', replies: 'shorter' },
       week: { start: weekStart(new Date()).toISOString(), exchanges: 0, learners: 0 },
       revenueShareBps: 2000,
     });
@@ -306,7 +306,7 @@ describe('/pool', () => {
   it('states this deployment’s model, revenue share, at-cost replies and caps, the same for everyone', async () => {
     const e = poolEnv(uniq('pool'), { POOL_REQUESTS_PER_DAY: '30' });
     const html = await (await visitor(e)('/pool')).text();
-    expect(html).toContain('<code>simple</code>');
+    expect(html).toContain('<code>normal</code>');
     expect(html).toContain(
       `<strong>The short version.</strong> ${COMMITMENT} Any signed-in learner can use it in Tangent Learn`,
     );

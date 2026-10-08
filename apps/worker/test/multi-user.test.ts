@@ -153,7 +153,7 @@ describe('switching modes', () => {
     // Learn pays per request: its branches are written `own-key`, whatever the payment.
     expect(plain.branches[0]).toMatchObject({
       providerId: 'openrouter',
-      model: 'smart',
+      model: 'max',
       funding: 'own-key',
     });
     const own = await json<TreeDetail>(
@@ -269,7 +269,7 @@ describe('account settings: the default system prompt', () => {
 describe('ownership across users', () => {
   for (const [label, learn, review] of [
     ['power', undefined, { providerId: 'fake', model: 'fake-1' }],
-    ['Learn', 'credit', { providerId: 'openrouter', model: 'smart' }],
+    ['Learn', 'credit', { providerId: 'openrouter', model: 'max' }],
   ] as const) {
     it(`every tree, branch, node and share route answers 404 for another user's data (${label})`, async () => {
       const a = await newUser();
@@ -381,7 +381,7 @@ describe('Learn mode on paid credit', () => {
       ],
       [
         `/api/nodes/${assistant.id}/review`,
-        { method: 'POST', json: { providerId: 'openrouter', model: 'smart' } },
+        { method: 'POST', json: { providerId: 'openrouter', model: 'max' } },
       ],
       [`/api/branches/${trunk.id}/context?resolve=true`, {}],
     ] as [string, CallInit][]) {
@@ -474,8 +474,8 @@ describe('Learn mode on paid credit', () => {
     authEnv({
       POOL_ENABLED: 'false',
       MODEL_PRICES: JSON.stringify({
-        simple: { in: 10_000, out: 10_000, context: 1_048_576 },
-        smart: { in: 2_000_000, out: 10_000_000, context: 1_000_000 },
+        normal: { in: 10_000, out: 10_000, context: 1_048_576 },
+        max: { in: 2_000_000, out: 10_000_000, context: 1_000_000 },
       }),
     });
   const grant = (accountId: string, amountMicros: number) =>
@@ -483,7 +483,7 @@ describe('Learn mode on paid credit', () => {
 
   it('a reply its balance cannot cover is a 402 naming what it needs, before any node is written', async () => {
     const u = await newUser(priceyMax());
-    const { detail, trunk, assistant } = await treeWithNodes(u, 'credit', { model: 'smart' });
+    const { detail, trunk, assistant } = await treeWithNodes(u, 'credit', { model: 'max' });
     await grant(u.learn.accountId, 100_000);
     const res = await u.call(`/api/branches/${trunk.id}/messages`, {
       method: 'POST',
@@ -503,7 +503,7 @@ describe('Learn mode on paid credit', () => {
     // A review on Max, which streams from the Worker, is refused the same way, up front.
     const review = await u.call(`/api/nodes/${assistant.id}/review`, {
       method: 'POST',
-      json: { providerId: 'openrouter', model: 'smart' },
+      json: { providerId: 'openrouter', model: 'max' },
       learn: 'credit',
     });
     expect(review.status).toBe(402);
@@ -511,7 +511,7 @@ describe('Learn mode on paid credit', () => {
     // And a compare answer on Max.
     const candidate = await u.call(`/api/branches/${trunk.id}/candidates`, {
       method: 'POST',
-      json: { content: 'Explain primes', model: 'smart' },
+      json: { content: 'Explain primes', model: 'max' },
       learn: 'credit',
     });
     expect(candidate.status).toBe(402);
@@ -584,8 +584,8 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       acceptsUserKey: false,
       openModels: true,
       models: [
-        { id: 'smart', label: 'Max (suggested)', tier: 'max' },
-        { id: 'simple', label: 'Normal (suggested)', tier: 'normal' },
+        { id: 'max', label: 'Max (suggested)', tier: 'max' },
+        { id: 'normal', label: 'Normal (suggested)', tier: 'normal' },
       ],
     });
     expect(providers.filter((p) => p.openModels).map((p) => p.id)).toEqual(['openrouter']);
@@ -605,7 +605,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
   it("meters sends on Tangent credit to the user's ledger u_<userId>; BYOK sends are not metered", async () => {
     const u = await newUser();
     const userId = u.power.accountId.slice(2);
-    const onTangent = await powerTree(u, CREDIT, 'smart');
+    const onTangent = await powerTree(u, CREDIT, 'max');
     const send = (branchId: string) =>
       u.call(`/api/branches/${branchId}/messages`, {
         method: 'POST',
@@ -651,7 +651,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
         json: { ...route, model },
       });
     expect((await review({ providerId: 'fake' }, 'fake-1')).status).toBe(200);
-    const onCredit = await review(CREDIT, 'smart');
+    const onCredit = await review(CREDIT, 'max');
     expect(onCredit.status).toBe(402);
     expect(await errorCode(onCredit)).toBe('payment_required');
     await grantCredit(env.DB, {
@@ -660,7 +660,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       amountMicros: 1_000_000,
       providerRef: null,
     });
-    expect((await review(CREDIT, 'smart')).status).toBe(200);
+    expect((await review(CREDIT, 'max')).status).toBe(200);
     expect(await usageRows(`u_${userId}`)).toBe(1);
   });
 
@@ -673,7 +673,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       amountMicros: 1_000_000,
       providerRef: null,
     });
-    const onTangent = await powerTree(u, CREDIT, 'smart');
+    const onTangent = await powerTree(u, CREDIT, 'max');
     const own = await powerTree(u, { providerId: 'fake' }, 'fake-1');
     const send = (branchId: string) =>
       u.call(`/api/branches/${branchId}/messages`, {
@@ -703,7 +703,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
 
   it("a review of a reply on Tangent credit needs credit whoever reviews: its summaries run on the branch's route", async () => {
     const u = await newUser();
-    const { assistant } = await powerTree(u, CREDIT, 'smart');
+    const { assistant } = await powerTree(u, CREDIT, 'max');
     const res = await u.call(`/api/nodes/${assistant.id}/review`, {
       method: 'POST',
       json: { providerId: 'fake', model: 'fake-1' },
@@ -720,7 +720,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       amountMicros: 1_000_000,
       providerRef: null,
     });
-    const power = await powerTree(u, CREDIT, 'smart');
+    const power = await powerTree(u, CREDIT, 'max');
     const learn = await treeWithNodes(u, 'credit');
     const resolve = (branchId: string, init: CallInit = {}) =>
       u.call(`/api/branches/${branchId}/context?resolve=true`, init);
@@ -793,7 +793,7 @@ describe('membership', () => {
       ? await treeWithNodes(owner, learn)
       : await treeWithNodes(owner, undefined, { providerId: 'fake', model: 'fake-1' });
     const review = learn
-      ? { providerId: 'openrouter', model: 'smart' }
+      ? { providerId: 'openrouter', model: 'max' }
       : { providerId: 'fake', model: 'fake-1' };
     return {
       trunk,
@@ -922,10 +922,10 @@ describe("Learn mode on the user's own OpenRouter key", () => {
         label: 'Tangent',
         baseUrl: MOCK_UPSTREAM,
         apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
-        defaultModel: 'smart',
+        defaultModel: 'max',
         models: [
-          { id: 'smart', label: 'Max', tier: 'max' },
-          { id: 'simple', label: 'Normal', tier: 'normal' },
+          { id: 'max', label: 'Max', tier: 'max' },
+          { id: 'normal', label: 'Normal', tier: 'normal' },
         ],
       }),
       OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR-0123',
@@ -970,7 +970,7 @@ describe("Learn mode on the user's own OpenRouter key", () => {
     const send = (learn: LearnPayment = 'own-key') =>
       u.call(`/api/nodes/${assistant.id}/review`, {
         method: 'POST',
-        json: { providerId: 'openrouter', model: 'smart' },
+        json: { providerId: 'openrouter', model: 'max' },
         learn,
       });
 

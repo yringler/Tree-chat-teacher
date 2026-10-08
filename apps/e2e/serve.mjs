@@ -86,11 +86,11 @@ const vars = {
     label: 'Tangent',
     baseUrl: 'http://127.0.0.1:9/v1',
     apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
-    // Learn's tiers (ids kept from when they were Smart and Simple): Normal is the default.
-    defaultModel: 'simple',
+    // Learn's tiers: Normal is the default.
+    defaultModel: 'normal',
     models: [
-      { id: 'simple', label: 'Normal', tier: 'normal' },
-      { id: 'smart', label: 'Max', tier: 'max' },
+      { id: 'normal', label: 'Normal', tier: 'normal' },
+      { id: 'max', label: 'Max', tier: 'max' },
     ],
   }),
   OPENROUTER_SIMPLE_API_KEY: 'sk-or-e2e-unused',
@@ -98,8 +98,8 @@ const vars = {
   // sync only lists OpenRouter, which this endpoint isn't, so the tiers are priced here, as a
   // deployment on another endpoint must: Normal at V4.1 Flash's price, Max at Sonnet's.
   MODEL_PRICES: JSON.stringify({
-    simple: { in: 150_000, out: 600_000, context: 1_048_576 },
-    smart: { in: 2_000_000, out: 10_000_000, context: 1_000_000 },
+    normal: { in: 150_000, out: 600_000, context: 1_048_576 },
+    max: { in: 2_000_000, out: 10_000_000, context: 1_000_000 },
   }),
 };
 // dotenv: single quotes keep JSON's double quotes literal.

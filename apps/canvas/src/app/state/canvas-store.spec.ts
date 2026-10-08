@@ -36,7 +36,7 @@ function branch(id: string, over: Partial<Branch> = {}): Branch {
     titleSource: 'default',
     isPrivate: false,
     providerId: 'openrouter',
-    model: 'smart-model',
+    model: 'max-model',
     funding: 'credit',
     createdAt: T,
     updatedAt: T,
@@ -314,7 +314,7 @@ describe('CanvasStore', () => {
     const variant = {
       providerId: 'openrouter',
       funding: 'credit' as const,
-      model: 'smart-model',
+      model: 'max-model',
     };
     await s.store.fanOut({
       fromNodeId: 'a1',
@@ -336,8 +336,8 @@ describe('CanvasStore', () => {
       firstMessage: '  And how?  ',
     });
     expect(createBranch.mock.calls.slice(1).map(([req]) => req.title)).toEqual([
-      'smart-model · path',
-      'smart-model · independent',
+      'max-model · path',
+      'max-model · independent',
     ]);
     await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(3));
     expect(s.api.sendMessage.mock.calls.map(([id, req]) => [id, req])).toEqual([
@@ -500,8 +500,8 @@ describe('CanvasStore read-only lanes without a membership', () => {
     id: 'openrouter',
     kind: 'openai-compatible',
     label: 'Tangent credit',
-    models: [{ id: 'smart-model', label: 'Max' }],
-    defaultModel: 'smart-model',
+    models: [{ id: 'max-model', label: 'Max' }],
+    defaultModel: 'max-model',
     openModels: true,
     available: true,
     acceptsUserKey: false,
@@ -630,7 +630,7 @@ describe('CanvasStore read-only lanes without a membership', () => {
     expect(updateBranch).toHaveBeenCalledWith('trunk', {
       providerId: 'openrouter',
       funding: 'credit',
-      model: 'smart-model',
+      model: 'max-model',
     });
     expect(s.store.routeLocked(s.store.detail()!.branches[0]!)).toBe(false);
   });
@@ -670,7 +670,7 @@ describe('CanvasStore read-only lanes without a membership', () => {
     expect(updateBranch).toHaveBeenCalledWith('trunk', {
       providerId: 'openrouter',
       funding: 'credit',
-      model: 'smart-model',
+      model: 'max-model',
     });
     expect(s.api.sendMessage).toHaveBeenLastCalledWith(
       'trunk',
@@ -805,8 +805,8 @@ describe('modelLabel', () => {
     id: 'openrouter',
     kind: 'openai-compatible',
     label: funding,
-    models: [{ id: 'a/smart', label }],
-    defaultModel: 'a/smart',
+    models: [{ id: 'a/max', label }],
+    defaultModel: 'a/max',
     openModels: true,
     available: true,
     acceptsUserKey: funding === 'own-key',
@@ -816,12 +816,12 @@ describe('modelLabel', () => {
   const providers = [entry('own-key', 'Max'), entry('credit', 'Max (suggested)')];
 
   it('labels by route: the same endpoint on the user key or on Tangent credit', () => {
-    expect(modelLabel(providers, { providerId: 'openrouter' }, 'a/smart')).toBe('Max');
-    expect(modelLabel(providers, { providerId: 'openrouter', funding: 'credit' }, 'a/smart')).toBe(
+    expect(modelLabel(providers, { providerId: 'openrouter' }, 'a/max')).toBe('Max');
+    expect(modelLabel(providers, { providerId: 'openrouter', funding: 'credit' }, 'a/max')).toBe(
       'Max (suggested)',
     );
     // A reply records no funding; an unlisted model is shortened.
-    expect(modelLabel(providers.slice(1), { providerId: 'openrouter' }, 'a/smart')).toBe(
+    expect(modelLabel(providers.slice(1), { providerId: 'openrouter' }, 'a/max')).toBe(
       'Max (suggested)',
     );
     expect(modelLabel(providers, { providerId: 'openrouter' }, 'vendor/other')).toBe('other');

@@ -75,7 +75,7 @@ async function powerTree(u: User, credit = true): Promise<TreeDetail> {
           fromNodeId: reply.id,
           providerId: 'openrouter',
           funding: 'credit',
-          model: 'smart',
+          model: 'max',
           contextMode: 'summary',
           title: 'On credit',
         },
@@ -252,8 +252,8 @@ describe('POST /api/trees/:id/copy-to-learn', () => {
     expect(
       lesson.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode, b.funding]),
     ).toEqual([
-      ['Main thread', 'openrouter', 'smart', 'path', 'own-key'],
-      ['On credit', 'openrouter', 'smart', 'path', 'own-key'],
+      ['Main thread', 'openrouter', 'max', 'path', 'own-key'],
+      ['On credit', 'openrouter', 'max', 'path', 'own-key'],
     ]);
     expect(lesson.nodes.map((n) => [n.role, n.content])).toEqual([
       ['user', 'What is a prime?'],
@@ -408,10 +408,10 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
       label: 'Tangent',
       baseUrl: 'https://llm.test',
       apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
-      defaultModel: 'smart',
+      defaultModel: 'max',
       models: [
-        { id: 'smart', label: 'Max', tier: 'max' },
-        { id: 'simple', label: 'Normal', tier: 'normal' },
+        { id: 'max', label: 'Max', tier: 'max' },
+        { id: 'normal', label: 'Normal', tier: 'normal' },
       ],
     }),
     OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR',
@@ -521,7 +521,7 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
     const tree = await newTree(u);
     expect(tree.branches[0]).toMatchObject({
       providerId: 'openrouter',
-      model: 'smart',
+      model: 'max',
       funding: 'credit',
     });
     const send = await firstSend(u, tree);

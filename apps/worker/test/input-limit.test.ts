@@ -111,7 +111,7 @@ describe('power: the Context preview plans with the limits', () => {
   });
 
   it('on Tangent credit: never above the server’s cap', async () => {
-    const branchId = await trunk({ providerId: 'openrouter', funding: 'credit', model: 'simple' });
+    const branchId = await trunk({ providerId: 'openrouter', funding: 'credit', model: 'normal' });
     expect(await budgetOf(branchId)).toBe(CREDIT_CAP);
     expect(await budgetOf(branchId, { maxInputTokens: '200000' })).toBe(CREDIT_CAP);
     expect(await budgetOf(branchId, { maxInputTokens: '20000' })).toBe(20_000);
@@ -206,12 +206,12 @@ describe('GET /api/branches/:id/input-budget', () => {
 
     // `simple` is priced at 1 µ$ a token each way (vitest.config.ts MODEL_PRICES); credit
     // charges it with OpenRouter's fee (5.5%) and the markup (10%), as billing does.
-    const credit = await trunk({ providerId: 'openrouter', funding: 'credit', model: 'simple' });
+    const credit = await trunk({ providerId: 'openrouter', funding: 'credit', model: 'normal' });
     const body = (await (
       await call(`/api/branches/${credit}/input-budget`)
     ).json()) as InputBudgetResponse;
     expect(body).toMatchObject({
-      model: 'simple',
+      model: 'normal',
       funding: 'credit',
       serverMaxInputTokens: CREDIT_CAP,
       price: { inputUsdPerMTok: 1.1605, cacheReadUsdPerMTok: null, basis: 'credit' },
@@ -323,7 +323,7 @@ describe('Compare candidates and reviews take the limits like a send', () => {
     for (const [route, want] of [
       [{ providerId: 'fake', model: 'fake-1' }, asked],
       [
-        { providerId: 'openrouter', funding: 'credit', model: 'simple' },
+        { providerId: 'openrouter', funding: 'credit', model: 'normal' },
         { ...asked, maxInputTokens: CREDIT_CAP },
       ],
     ] as const) {
@@ -340,7 +340,7 @@ describe('Compare candidates and reviews take the limits like a send', () => {
       [{}, { maxInputTokens: CREDIT_CAP }],
     ] as const) {
       const res = await call(`/api/nodes/${replyId}/review`, {
-        json: { providerId: 'openrouter', funding: 'credit', model: 'simple', ...extra },
+        json: { providerId: 'openrouter', funding: 'credit', model: 'normal', ...extra },
       });
       await res.text();
       expect(reviews.mock.calls.at(-1)?.[2]).toEqual(want);
@@ -361,7 +361,7 @@ describe('Compare candidates and reviews take the limits like a send', () => {
     ).json()) as TreeDetail;
     const res = await c.call(`/api/branches/${lesson.tree.trunkBranchId}/candidates`, {
       method: 'POST',
-      json: { content: 'Q', model: 'simple', ...asked },
+      json: { content: 'Q', model: 'normal', ...asked },
       learn: 'credit',
     });
     expect(res.status).toBe(200);
