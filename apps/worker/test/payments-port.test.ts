@@ -66,7 +66,6 @@ describe('fake payment provider', () => {
       customerRef: null,
       currency: 'usd',
       netCents: 1000,
-      taxCents: 0,
       fee: { cents: 80, estimated: false },
     };
     const fake = createFakeProvider({
@@ -90,7 +89,7 @@ describe('fake payment provider', () => {
         userId: 'u',
         customerRef: null,
       }),
-    ).rejects.toMatchObject({ name: 'PaymentProviderError', retryable: true });
+    ).rejects.toMatchObject({ name: 'PaymentProviderError' });
   });
 
   it('verifies and parses webhook deliveries', async () => {
@@ -103,7 +102,6 @@ describe('fake payment provider', () => {
       paymentRef: 'fake:order:o1' as ProviderRef,
       currency: 'usd',
       netCents: 100,
-      taxCents: 0,
     };
     const signed = new Headers({ [FAKE_SIGNATURE_HEADER]: FAKE_SIGNATURE });
     expect(

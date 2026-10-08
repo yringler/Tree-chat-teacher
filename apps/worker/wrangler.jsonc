@@ -216,8 +216,7 @@
     // the provider cost: charge = reported cost × (1 + fee) × (1 + markup). Raise it if you top up
     // OpenRouter in amounts under ~$15, where its $0.80 minimum fee is more than 5.5%.
     "OPENROUTER_FEE_BPS": "550",
-    // Margin on the true provider cost in basis points (1000 = +10%). Empty = the deprecated
-    // MARKUP_PREPAID_BPS if set (read for one release), else 1000.
+    // Margin on the true provider cost in basis points (1000 = +10%). Empty = 1000.
     "MARKUP_BPS": "1000",
     // ---- Payments (src/billing/payments; README "Membership, credit and billing"). The provider:
     // "polar" (https://polar.sh, merchant of record). Its secrets are POLAR_ACCESS_TOKEN and

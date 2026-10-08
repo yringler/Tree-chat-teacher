@@ -36,20 +36,18 @@ import { centsToMicros } from '../pricing.js';
 import { fulfilPurchase } from '../purchases.js';
 import { rememberCustomer } from './customers.js';
 import { paymentProvider } from './index.js';
-import type {
-  DisputeEvent,
-  MembershipChanged,
-  PaymentEvent,
-  PaymentFacts,
-  PaymentProvider,
-  PaymentSucceeded,
-  ProviderRef,
-  RefundSucceeded,
+import {
+  MEMBERSHIP_KIND,
+  type DisputeEvent,
+  type MembershipChanged,
+  type PaymentEvent,
+  type PaymentFacts,
+  type PaymentProvider,
+  type PaymentSucceeded,
+  type ProviderRef,
+  type RefundSucceeded,
 } from './port.js';
 import { reinstatedRef } from './refs.js';
-
-/** The `billing_subscriptions.kind` (and checkout metadata `kind`) of the yearly membership. */
-export const MEMBERSHIP_KIND = 'membership';
 
 /**
  * Thrown when the provider should deliver the event again later (a fee not

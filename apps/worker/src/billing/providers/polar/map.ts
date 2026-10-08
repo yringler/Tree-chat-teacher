@@ -11,20 +11,20 @@
 // - a subscription's `modified_at` orders its snapshots.
 import type { models } from '@polar-sh/sdk/2026-10';
 import type { SubscriptionStatus } from '@tangent/shared';
-import type {
-  DisputeEvent,
-  MembershipChanged,
-  PaymentFacts,
-  PaymentPurpose,
-  ProviderRef,
-  RefundSucceeded,
+import {
+  MEMBERSHIP_KIND,
+  type DisputeEvent,
+  type MembershipChanged,
+  type PaymentFacts,
+  type PaymentPurpose,
+  type ProviderRef,
+  type RefundSucceeded,
 } from '../../payments/port.js';
 import { providerRef } from '../../payments/refs.js';
 import type { PolarConfig } from './config.js';
 
-/** Checkout metadata `kind` values this app sets (copied by Polar onto orders and subscriptions). */
+/** The checkout metadata `kind` of a top-up (copied by Polar onto its order); the membership's is `MEMBERSHIP_KIND`. */
 export const CREDITS_KIND = 'credits';
-export const MEMBERSHIP_KIND = 'membership';
 
 type Metadata = Record<string, string | number | boolean>;
 
@@ -78,11 +78,7 @@ function purposeOf(order: models.Order, config: PolarConfig): PaymentPurpose {
       order.billing_reason === 'subscription_create' ||
       order.billing_reason === 'subscription_cycle'
     )
-      return {
-        kind: 'membership',
-        cycle: order.billing_reason === 'subscription_create' ? 'initial' : 'renewal',
-        subscriptionRef: subscriptionRef(order.subscription_id),
-      };
+      return { kind: 'membership' };
     return { kind: 'other' };
   }
   if (order.billing_reason === 'purchase' && text(metadata, 'kind') === CREDITS_KIND) {
@@ -128,7 +124,6 @@ export function orderFacts(order: models.Order, config: PolarConfig): PaymentFac
     customerRef: order.customer_id || null,
     currency: order.currency.toLowerCase(),
     netCents: order.net_amount,
-    taxCents: order.tax_amount,
     fee: orderFee(order, config),
   };
 }
@@ -146,7 +141,6 @@ export function refundEvent(
     paymentRef: orderRef(refund.order_id),
     currency: refund.currency.toLowerCase(),
     netCents: refund.amount,
-    taxCents: refund.tax_amount,
   };
 }
 

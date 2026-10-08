@@ -17,7 +17,7 @@ import type { CheckoutResponse, MembershipInfo, SubscriptionStatus } from '@tang
 import type { AccountContext, AppEnv } from '../env.js';
 import { keySecret } from '../byok/keys.js';
 import { appConfig } from '../config.js';
-import { MEMBERSHIP_KIND } from './payments/apply.js';
+import { MEMBERSHIP_KIND } from './payments/port.js';
 import { buyerFor, rememberCustomer } from './payments/customers.js';
 import { paymentProvider, type PaymentProvider } from './payments/index.js';
 import { billingPageUrl, checkoutReturnUrl } from './service.js';

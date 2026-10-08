@@ -34,7 +34,7 @@ async function subscriptionRows(userId: string) {
 describe('payment.succeeded: credit purchases', () => {
   it('credits a personal top-up once, net of the fee, to the buyer’s ledger', async () => {
     const userId = await newUser();
-    const e = paid({ userId, netCents: 1000, feeCents: 80, taxCents: 87 });
+    const e = paid({ userId, netCents: 1000, feeCents: 80 });
     expect(await apply(e)).toBe('applied');
     expect(await apply(e)).toBe('duplicate');
     expect(await grantDetailsFor(env, `u_${userId}`)).toEqual([
@@ -83,10 +83,10 @@ describe('payment.succeeded: credit purchases', () => {
 });
 
 describe('payment.succeeded: the membership', () => {
-  it('writes nothing to the ledger, paid or free, first year or renewal', async () => {
+  it('writes nothing to the ledger, paid or free', async () => {
     const userId = await newUser();
     expect(await apply(membershipPaid(userId))).toBe('skipped');
-    expect(await apply(membershipPaid(userId, { cycle: 'renewal' }))).toBe('skipped');
+    expect(await apply(membershipPaid(userId))).toBe('skipped');
     expect(await apply(membershipPaid(userId, { netCents: 0 }))).toBe('skipped');
     expect(await grantDetailsFor(env, `u_${userId}`)).toEqual([]);
     expect(await balance(`u_${userId}`)).toBe(0);

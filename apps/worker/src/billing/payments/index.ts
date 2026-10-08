@@ -41,11 +41,7 @@ export function paymentsConfigured(env: AppEnv): boolean {
   return paymentProvider(env) !== null;
 }
 
-/**
- * The provider whose webhooks `/api/webhooks/:id` accepts: the active one.
- * A post-launch switch may add a legacy provider here (PAYMENT_PROVIDER_LEGACY,
- * webhooks and dispute polls only) for the old provider's refund window.
- */
+/** The provider whose webhooks `/api/webhooks/:id` accepts: the active one. */
 export function webhookProvider(env: AppEnv, id: string): PaymentProvider | null {
   const provider = paymentProvider(env);
   return provider && provider.id === (id as ProviderId) ? provider : null;

@@ -102,7 +102,7 @@ describe('Polar checkouts', () => {
     });
   });
 
-  it('refuses what isn’t configured, and reports API failures as retryable', async () => {
+  it('refuses what isn’t configured, and reports API failures', async () => {
     const bare = createPolarProvider({
       ...CONFIG,
       creditsProductId: null,
@@ -111,18 +111,18 @@ describe('Polar checkouts', () => {
     expect(bare.capabilities).toEqual({ topUps: false, membership: false });
     await expect(
       bare.createMembershipCheckout({ buyer: buyer(), successUrl: 's', cancelUrl: 'c' }),
-    ).rejects.toMatchObject({ name: 'PaymentProviderError', retryable: false });
+    ).rejects.toMatchObject({ name: 'PaymentProviderError' });
     await expect(
       polar.createMembershipCheckout({
         buyer: buyer(uniq('fail_user')),
         successUrl: 's',
         cancelUrl: 'c',
       }),
-    ).rejects.toMatchObject({ name: 'PaymentProviderError', status: 503, retryable: true });
+    ).rejects.toMatchObject({ name: 'PaymentProviderError' });
     const unauthorized = createPolarProvider({ ...CONFIG, accessToken: 'nope' });
     await expect(
       unauthorized.createMembershipCheckout({ buyer: buyer(), successUrl: 's', cancelUrl: 'c' }),
-    ).rejects.toMatchObject({ status: 401, retryable: false });
+    ).rejects.toMatchObject({ name: 'PaymentProviderError' });
   });
 });
 

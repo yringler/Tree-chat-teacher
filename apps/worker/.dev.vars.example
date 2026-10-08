@@ -57,7 +57,7 @@ DEV_ALLOW_NO_AUTH=true
 # ANNUAL_FEE_ENABLED=true
 # A code that waives the membership fee for whoever enters it (empty = no code redemption):
 # MEMBERSHIP_WAIVER_CODE=
-# The markup is MARKUP_BPS (wrangler.jsonc); MARKUP_PREPAID_BPS is still read while it is empty (deprecated).
+# The markup is MARKUP_BPS (wrangler.jsonc).
 
 # --- Option C: the built-in provider on credit, offline (no OpenRouter, no payments). Works with Option A or B.
 # A fake built-in provider (Learn's Normal and Max tiers) that reports a fixed cost per call (the shape the worker tests use):

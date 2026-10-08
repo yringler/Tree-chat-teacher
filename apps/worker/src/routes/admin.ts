@@ -24,7 +24,7 @@ import {
 import { adminOnly, adminUserIds } from '../auth/admin.js';
 import { getBalance, grantByRef, grantCredit } from '../billing/ledger.js';
 import { ACTIVE_STATUSES, membershipRequired } from '../billing/membership.js';
-import { MEMBERSHIP_KIND } from '../billing/payments/apply.js';
+import { MEMBERSHIP_KIND } from '../billing/payments/port.js';
 import { centsToMicros } from '../billing/pricing.js';
 import { fulfilPurchase } from '../billing/purchases.js';
 import { appConfig } from '../config.js';

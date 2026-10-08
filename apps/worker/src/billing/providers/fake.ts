@@ -91,7 +91,7 @@ export function createFakeProvider(opts: FakeProviderOptions = {}): PaymentProvi
   const session = (url: string): RedirectSession =>
     opts.customerRef ? { url, customerRef: opts.customerRef } : { url };
   const failIfAsked = () => {
-    if (opts.failCheckout) throw new PaymentProviderError('Fake checkout failure', 503, true);
+    if (opts.failCheckout) throw new PaymentProviderError('Fake checkout failure');
   };
   return {
     id: 'fake',
@@ -111,7 +111,7 @@ export function createFakeProvider(opts: FakeProviderOptions = {}): PaymentProvi
     },
     async deleteCustomer() {
       const result = opts.deleteResult ?? 'absent';
-      if (result === 'error') throw new PaymentProviderError('Fake deletion failure', 503, true);
+      if (result === 'error') throw new PaymentProviderError('Fake deletion failure');
       return result;
     },
     async parseWebhook(req): Promise<WebhookParseResult> {

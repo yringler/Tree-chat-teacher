@@ -62,25 +62,13 @@ function listing(models: Listed[]) {
   return { fetchImpl, urls };
 }
 
-async function historyOf(model: string) {
-  const { results } = await env.DB.prepare(
-    'SELECT in_micros_per_mtok AS inp, out_micros_per_mtok AS out, recorded_at AS at FROM model_price_history WHERE model = ?1 ORDER BY recorded_at',
-  )
-    .bind(model)
-    .all<{ inp: number; out: number; at: string }>();
-  return results;
-}
-
 const T0 = new Date('2026-01-01T03:23:00Z');
 const T1 = new Date('2026-01-02T03:23:00Z');
 
 let warn: ReturnType<typeof vi.spyOn>;
 let error: ReturnType<typeof vi.spyOn>;
 beforeEach(async () => {
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM model_prices'),
-    env.DB.prepare('DELETE FROM model_price_history'),
-  ]);
+  await env.DB.prepare('DELETE FROM model_prices').run();
   vi.spyOn(console, 'log').mockImplementation(() => undefined);
   warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -220,7 +208,6 @@ describe('syncModelPrices', () => {
       cacheReadMicrosPerMTok: null,
       cacheWriteMicrosPerMTok: null,
     });
-    expect(await historyOf(PRO)).toEqual([{ inp: 600_000, out: 2_400_000, at: T0.toISOString() }]);
   });
 
   it('prices a credit model the store does not know yet by syncing once, on demand', async () => {
@@ -250,7 +237,6 @@ describe('syncModelPrices', () => {
       cacheReadMicrosPerMTok: null,
       cacheWriteMicrosPerMTok: null,
     });
-    expect(await historyOf(other)).toEqual([]);
     // The pool still prices only configured models; credit reads the stored list price.
     expect(await modelPrice(env, other)).toBeNull();
     expect(await creditPrice(env, other)).toEqual({
@@ -285,8 +271,7 @@ describe('syncModelPrices', () => {
     ]);
     const result = await syncModelPrices(env, T1, day1.fetchImpl);
     expect(result).toMatchObject({ changed: [PRO], unchanged: [FLASH] });
-    expect(await historyOf(FLASH)).toHaveLength(1);
-    expect((await historyOf(PRO)).map((h) => h.inp)).toEqual([600_000, 900_000]);
+    expect((await storedPrice(env.DB, PRO))?.inMicrosPerMTok).toBe(900_000);
     const fetchedAt = await env.DB.prepare('SELECT fetched_at FROM model_prices WHERE model = ?1')
       .bind(FLASH)
       .first<string>('fetched_at');
@@ -353,7 +338,7 @@ describe('syncModelPrices', () => {
       cacheWriteMicrosPerMTok: null,
     });
     const day1 = listing([
-      // A cache read price change alone is a change (history row).
+      // A cache read price change alone is a change.
       { id: FLASH, prompt: '0.00000027', completion: '0.0000011', cacheRead: '0.00000004' },
       // A cache read price at under a tenth is held back like an input price.
       { id: PRO, prompt: '0.0000006', completion: '0.0000024', cacheRead: '0.000000005' },
@@ -362,12 +347,6 @@ describe('syncModelPrices', () => {
     expect(result).toMatchObject({ changed: [FLASH], anomalies: [PRO] });
     expect((await storedPrice(env.DB, FLASH))?.cacheReadMicrosPerMTok).toBe(40_000);
     expect((await storedPrice(env.DB, PRO))?.cacheReadMicrosPerMTok).toBe(60_000);
-    const { results } = await env.DB.prepare(
-      'SELECT cache_read_micros_per_mtok AS r FROM model_price_history WHERE model = ?1 ORDER BY recorded_at',
-    )
-      .bind(FLASH)
-      .all<{ r: number | null }>();
-    expect(results.map((h) => h.r)).toEqual([30_000, 40_000]);
   });
 
   it('throws and stores nothing when the list cannot be fetched', async () => {

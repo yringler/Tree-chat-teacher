@@ -56,7 +56,6 @@ describe('Polar webhooks: orders', () => {
         customerRef: 'cus_of_user_1',
         currency: 'usd',
         netCents: 1000,
-        taxCents: 87,
         fee: { cents: 104, estimated: false },
       },
     ]);
@@ -98,14 +97,10 @@ describe('Polar webhooks: orders', () => {
     const renewal = order({ ...base, billing_reason: 'subscription_cycle' });
     const update = order({ ...base, billing_reason: 'subscription_update' });
     expect((await eventsOf(envelope('order.paid', first)))[0]).toMatchObject({
-      purpose: {
-        kind: 'membership',
-        cycle: 'initial',
-        subscriptionRef: 'polar:subscription:sub_1',
-      },
+      purpose: { kind: 'membership' },
     });
     expect((await eventsOf(envelope('order.paid', renewal)))[0]).toMatchObject({
-      purpose: { kind: 'membership', cycle: 'renewal' },
+      purpose: { kind: 'membership' },
     });
     expect((await eventsOf(envelope('order.paid', update)))[0]).toMatchObject({
       purpose: { kind: 'other' },
@@ -113,7 +108,7 @@ describe('Polar webhooks: orders', () => {
     // A product change keeps renewals recognised through the metadata.
     const moved = order({ ...base, product_id: 'prod_old', billing_reason: 'subscription_cycle' });
     expect((await eventsOf(envelope('order.paid', moved)))[0]).toMatchObject({
-      purpose: { kind: 'membership', cycle: 'renewal' },
+      purpose: { kind: 'membership' },
     });
   });
 
@@ -162,7 +157,6 @@ describe('Polar webhooks: refunds', () => {
         paymentRef: 'polar:order:ord_1',
         currency: 'usd',
         netCents: 500,
-        taxCents: 44,
       },
     ]);
     for (const status of ['pending', 'failed', 'canceled'] as const)

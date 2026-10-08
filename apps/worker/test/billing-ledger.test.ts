@@ -98,13 +98,9 @@ describe('markupFor', () => {
     expect(markupFor({ ...env, MARKUP_BPS: '0' })).toBe(0);
   });
 
-  it('falls back to the deprecated MARKUP_PREPAID_BPS while MARKUP_BPS is empty, then to 1000', () => {
-    expect(markupFor({ ...env, MARKUP_BPS: '', MARKUP_PREPAID_BPS: '1500' })).toBe(1500);
-    expect(markupFor({ ...env, MARKUP_BPS: 'oops', MARKUP_PREPAID_BPS: '1500' })).toBe(1500);
-    // MARKUP_BPS wins when both are set.
-    expect(markupFor({ ...env, MARKUP_BPS: '800', MARKUP_PREPAID_BPS: '1500' })).toBe(800);
-    expect(markupFor({ ...env, MARKUP_BPS: '', MARKUP_PREPAID_BPS: 'oops' })).toBe(1000);
-    expect(markupFor({ ...env, MARKUP_BPS: '', MARKUP_PREPAID_BPS: '' })).toBe(1000);
+  it('falls back to 1000 while MARKUP_BPS is empty or malformed', () => {
+    expect(markupFor({ ...env, MARKUP_BPS: '' })).toBe(1000);
+    expect(markupFor({ ...env, MARKUP_BPS: 'oops' })).toBe(1000);
   });
 });
 

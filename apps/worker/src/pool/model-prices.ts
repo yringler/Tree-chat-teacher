@@ -1,6 +1,5 @@
 // Model prices: OpenRouter's list prices, synced daily by the cron into D1
-// (`model_prices`, with every new or changed price of a configured model kept
-// in `model_price_history`), and the price a pool hold is computed from.
+// (`model_prices`), and the price a pool hold is computed from.
 //
 // Which price a model is held at: its explicit `MODEL_PRICES` entry (the
 // operator's choice), else the synced list price, else the built-in
@@ -484,19 +483,8 @@ export async function syncModelPrices(
            fetched_at = excluded.fetched_at`,
       ).bind(...priceColumns(model, next), at),
     );
-    if (changed) {
-      if (prev) {
-        console.warn(JSON.stringify({ event: 'price_changed', model, from: prev, to: next }));
-      }
-      writes.push(
-        env.DB.prepare(
-          `INSERT OR IGNORE INTO model_price_history
-             (model, in_micros_per_mtok, out_micros_per_mtok, context_tokens,
-              cache_read_micros_per_mtok, cache_write_micros_per_mtok, recorded_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-        ).bind(...priceColumns(model, next), at),
-      );
-    }
+    if (changed && prev)
+      console.warn(JSON.stringify({ event: 'price_changed', model, from: prev, to: next }));
   }
 
   if (writes.length > 0) await env.DB.batch(writes);

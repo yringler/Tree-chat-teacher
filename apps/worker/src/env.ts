@@ -71,11 +71,6 @@ export interface AppEnv extends Env {
    * (the local dev bypass is always admin, see auth/admin.ts).
    */
   ADMIN_USER_IDS?: string;
-  /**
-   * Deprecated: the markup before `MARKUP_BPS`, read only while `MARKUP_BPS`
-   * is empty. No longer in wrangler.jsonc; kept for one release.
-   */
-  MARKUP_PREPAID_BPS?: string;
   /** Tests only ("true"): enables test-only RPC methods such as `PoolBank.expire(now)`. */
   TEST_SEAMS?: string;
   /** Tests only (with `PAYMENT_PROVIDER=fake`): the fake provider's options, JSON (billing/providers/fake.ts). */

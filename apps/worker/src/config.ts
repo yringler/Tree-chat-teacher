@@ -482,7 +482,7 @@ function parse(env: AppEnv): AppConfig {
     billing: {
       usageHoldMicros: intVar(env.USAGE_HOLD_MICROS, DEFAULT_USAGE_HOLD_MICROS),
       usageMaxPending: intVar(env.USAGE_MAX_PENDING, DEFAULT_USAGE_MAX_PENDING),
-      markupBps: intVar(env.MARKUP_BPS, intVar(env.MARKUP_PREPAID_BPS, DEFAULT_MARKUP_BPS)),
+      markupBps: intVar(env.MARKUP_BPS, DEFAULT_MARKUP_BPS),
       openRouterFeeBps: intVar(env.OPENROUTER_FEE_BPS, DEFAULT_OPENROUTER_FEE_BPS),
       membershipPriceCents: intVar(env.MEMBERSHIP_PRICE_CENTS, DEFAULT_MEMBERSHIP_PRICE_CENTS),
     },

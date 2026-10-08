@@ -232,9 +232,8 @@ export function openRouterFeeBps(env: AppEnv): number {
 }
 
 /**
- * Markup on the true provider cost, in bps: `MARKUP_BPS`; while that is empty
- * or malformed, the deprecated `MARKUP_PREPAID_BPS` (read for one release);
- * else 1000 (+10%). The same for every user: there are no plan discounts.
+ * Markup on the true provider cost, in bps: `MARKUP_BPS`, else 1000 (+10%).
+ * The same for every user: there are no plan discounts.
  */
 export function markupFor(env: AppEnv): number {
   return appConfig(env).billing.markupBps;
