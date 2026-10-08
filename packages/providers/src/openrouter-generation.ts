@@ -32,7 +32,8 @@ export async function fetchOpenRouterGeneration(
   apiKey: string,
   fetchImpl?: typeof fetch,
 ): Promise<GenerationCost | null> {
-  const doFetch = fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init));
+  const doFetch =
+    fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init));
   const secrets = [apiKey];
   const fail = (message: string): Error => new Error(truncate(redact(message, secrets)));
 
@@ -43,7 +44,9 @@ export async function fetchOpenRouterGeneration(
       headers: { authorization: `Bearer ${apiKey}`, accept: 'application/json' },
     });
   } catch (e) {
-    throw fail(`OpenRouter generation lookup failed: ${e instanceof Error ? e.message : String(e)}`);
+    throw fail(
+      `OpenRouter generation lookup failed: ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
 
   if (res.status === 404) {
@@ -55,11 +58,16 @@ export async function fetchOpenRouterGeneration(
   try {
     text = await res.text();
   } catch (e) {
-    if (res.ok) throw fail(`OpenRouter generation lookup failed: ${e instanceof Error ? e.message : String(e)}`);
+    if (res.ok)
+      throw fail(
+        `OpenRouter generation lookup failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
   }
   if (!res.ok) {
     const detail = text.trim();
-    throw fail(`OpenRouter generation lookup failed: HTTP ${res.status}${detail ? `: ${detail}` : ''}`);
+    throw fail(
+      `OpenRouter generation lookup failed: HTTP ${res.status}${detail ? `: ${detail}` : ''}`,
+    );
   }
 
   let body: unknown;

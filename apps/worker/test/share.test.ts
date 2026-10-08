@@ -12,7 +12,11 @@ function call(path: string, init: RequestInit & { json?: unknown } = {}): Promis
   const headers = new Headers(rest.headers);
   if (json !== undefined) headers.set('Content-Type', 'application/json');
   return exports.default.fetch(
-    new Request(BASE + path, { ...rest, headers, body: json !== undefined ? JSON.stringify(json) : rest.body }),
+    new Request(BASE + path, {
+      ...rest,
+      headers,
+      body: json !== undefined ? JSON.stringify(json) : rest.body,
+    }),
   );
 }
 
@@ -24,7 +28,10 @@ async function ok<T>(res: Promise<Response>, status = 200): Promise<T> {
 }
 
 async function send(branchId: string, content: string) {
-  const res = await call(`/api/branches/${branchId}/messages`, { method: 'POST', json: { content } });
+  const res = await call(`/api/branches/${branchId}/messages`, {
+    method: 'POST',
+    json: { content },
+  });
   const events = (await res.text())
     .split('\n\n')
     .map((f) => f.split('\n').find((l) => l.startsWith('data:')))
@@ -36,16 +43,25 @@ async function send(branchId: string, content: string) {
 }
 
 async function seed() {
-  const detail = await ok<TreeDetail>(call('/api/trees', { method: 'POST', json: { title: 'Shared <tree>' } }), 201);
+  const detail = await ok<TreeDetail>(
+    call('/api/trees', { method: 'POST', json: { title: 'Shared <tree>' } }),
+    201,
+  );
   const trunk = detail.tree.trunkBranchId;
   const root = await send(trunk, 'PUBLIC-ROOT question');
   const side = await ok<Branch>(
-    call('/api/branches', { method: 'POST', json: { fromNodeId: root.assistantNode.id, title: 'Side' } }),
+    call('/api/branches', {
+      method: 'POST',
+      json: { fromNodeId: root.assistantNode.id, title: 'Side' },
+    }),
     201,
   );
   const sideMsg = await send(side.id, 'PUBLIC-SIDE');
   const secret = await ok<Branch>(
-    call('/api/branches', { method: 'POST', json: { fromNodeId: root.assistantNode.id, isPrivate: true } }),
+    call('/api/branches', {
+      method: 'POST',
+      json: { fromNodeId: root.assistantNode.id, isPrivate: true },
+    }),
     201,
   );
   await send(secret.id, 'PRIVATE-MARKER');
@@ -79,14 +95,22 @@ describe('public shares', () => {
     const json = JSON.stringify(payload);
     expect(json).not.toContain('PRIVATE-MARKER');
     expect(json).not.toContain(detail.tree.id);
-    expect(json).not.toMatch(/"(providerId|model|usage|inputTokens|contextMode|isPrivate|id|treeId|branchId)"/);
+    expect(json).not.toMatch(
+      /"(providerId|model|usage|inputTokens|contextMode|isPrivate|id|treeId|branchId)"/,
+    );
 
     // Snapshot is immutable until republish.
     await send(trunk, 'AFTER-SHARE');
-    expect(await (await exports.default.fetch(`${BASE}/s/${share.token}/data.json`)).text()).not.toContain('AFTER-SHARE');
-    const republished = await ok<ShareSummary>(call(`/api/shares/${share.id}/republish`, { method: 'POST' }));
+    expect(
+      await (await exports.default.fetch(`${BASE}/s/${share.token}/data.json`)).text(),
+    ).not.toContain('AFTER-SHARE');
+    const republished = await ok<ShareSummary>(
+      call(`/api/shares/${share.id}/republish`, { method: 'POST' }),
+    );
     expect(republished.version).toBe(2);
-    expect(await (await exports.default.fetch(`${BASE}/s/${share.token}/data.json`)).text()).toContain('AFTER-SHARE');
+    expect(
+      await (await exports.default.fetch(`${BASE}/s/${share.token}/data.json`)).text(),
+    ).toContain('AFTER-SHARE');
 
     // Revocation is immediate.
     await ok(call(`/api/shares/${share.id}/revoke`, { method: 'POST' }));
@@ -118,11 +142,16 @@ describe('public shares', () => {
   it('live shares follow the tree; path and subtree scopes stay in scope', async () => {
     const { detail, trunk, sideMsg, root } = await seed();
     const live = await ok<ShareSummary>(
-      call('/api/shares', { method: 'POST', json: { treeId: detail.tree.id, scope: 'tree', mode: 'live' } }),
+      call('/api/shares', {
+        method: 'POST',
+        json: { treeId: detail.tree.id, scope: 'tree', mode: 'live' },
+      }),
       201,
     );
     await send(trunk, 'LIVE-NEW');
-    expect(await (await exports.default.fetch(`${BASE}/s/${live.token}/data.json`)).text()).toContain('LIVE-NEW');
+    expect(
+      await (await exports.default.fetch(`${BASE}/s/${live.token}/data.json`)).text(),
+    ).toContain('LIVE-NEW');
 
     const path = await ok<ShareSummary>(
       call('/api/shares', {
@@ -131,7 +160,9 @@ describe('public shares', () => {
       }),
       201,
     );
-    const pathPayload = (await (await exports.default.fetch(`${BASE}/s/${path.token}/data.json`)).json()) as SharePayload;
+    const pathPayload = (await (
+      await exports.default.fetch(`${BASE}/s/${path.token}/data.json`)
+    ).json()) as SharePayload;
     expect(pathPayload.branches).toHaveLength(1);
     expect(JSON.stringify(pathPayload)).toContain('PUBLIC-ROOT');
     expect(JSON.stringify(pathPayload)).not.toContain('LIVE-NEW');
@@ -139,11 +170,18 @@ describe('public shares', () => {
     const subtree = await ok<ShareSummary>(
       call('/api/shares', {
         method: 'POST',
-        json: { treeId: detail.tree.id, scope: 'subtree', nodeId: sideMsg.userNode.id, includeAncestors: true },
+        json: {
+          treeId: detail.tree.id,
+          scope: 'subtree',
+          nodeId: sideMsg.userNode.id,
+          includeAncestors: true,
+        },
       }),
       201,
     );
-    const sub = (await (await exports.default.fetch(`${BASE}/s/${subtree.token}/data.json`)).json()) as SharePayload;
+    const sub = (await (
+      await exports.default.fetch(`${BASE}/s/${subtree.token}/data.json`)
+    ).json()) as SharePayload;
     expect(JSON.stringify(sub.branches)).toContain('PUBLIC-SIDE');
     expect(JSON.stringify(sub.branches)).not.toContain('PUBLIC-ROOT');
     expect(JSON.stringify(sub.context)).toContain('PUBLIC-ROOT');
@@ -176,7 +214,10 @@ describe('sharing off (no DMCA agent registered)', () => {
   // admins and the users the operator allows.
   const off = { ...env, DMCA_AGENT_REGISTERED: 'false' } as AppEnv;
   const app = createApp();
-  async function callOff(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
+  async function callOff(
+    path: string,
+    init: RequestInit & { json?: unknown } = {},
+  ): Promise<Response> {
     const { json, ...rest } = init;
     const headers = new Headers(rest.headers);
     if (json !== undefined) headers.set('Content-Type', 'application/json');
@@ -203,11 +244,18 @@ describe('sharing off (no DMCA agent registered)', () => {
 
     expect(((await (await callOff('/api/me')).json()) as { sharing: boolean }).sharing).toBe(false);
 
-    const create = await callOff('/api/shares', { method: 'POST', json: { treeId: detail.tree.id, scope: 'tree' } });
+    const create = await callOff('/api/shares', {
+      method: 'POST',
+      json: { treeId: detail.tree.id, scope: 'tree' },
+    });
     expect(create.status).toBe(403);
     expect(((await create.json()) as { error: { code: string } }).error.code).toBe('forbidden');
-    expect((await callOff(`/api/shares/${share.id}`, { method: 'PATCH', json: { title: 'x' } })).status).toBe(403);
-    expect((await callOff(`/api/shares/${share.id}/republish`, { method: 'POST' })).status).toBe(403);
+    expect(
+      (await callOff(`/api/shares/${share.id}`, { method: 'PATCH', json: { title: 'x' } })).status,
+    ).toBe(403);
+    expect((await callOff(`/api/shares/${share.id}/republish`, { method: 'POST' })).status).toBe(
+      403,
+    );
 
     // The old link no longer opens, as a page or as data.
     const page = await callOff(`/s/${share.token}`);
@@ -235,7 +283,9 @@ describe('export', () => {
     expect(mdText).toContain('PUBLIC-SIDE');
     expect(mdText).not.toContain('PRIVATE-MARKER');
 
-    const withPrivate = await (await call(`/api/export?treeId=${detail.tree.id}&format=md&includePrivate=true`)).text();
+    const withPrivate = await (
+      await call(`/api/export?treeId=${detail.tree.id}&format=md&includePrivate=true`)
+    ).text();
     expect(withPrivate).toContain('PRIVATE-MARKER');
 
     const html = await (await call(`/api/export?treeId=${detail.tree.id}&format=html`)).text();

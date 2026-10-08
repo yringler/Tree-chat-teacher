@@ -47,7 +47,9 @@ describe('FEATURED_CONVERSATIONS_ENABLED (spec test)', () => {
         for (const method of METHODS) {
           const init: RequestInit = {
             method,
-            ...(method === 'GET' ? {} : { body: '{}', headers: { 'content-type': 'application/json' } }),
+            ...(method === 'GET'
+              ? {}
+              : { body: '{}', headers: { 'content-type': 'application/json' } }),
           };
           for (const res of [
             await anonymous.request(`${ORIGIN}${path}`, init, e),

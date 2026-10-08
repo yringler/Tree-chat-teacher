@@ -25,12 +25,10 @@ export interface ShareServiceDeps {
 }
 
 export type PublicShareResult =
-  | { ok: true; share: Share; payload: SharePayload }
-  | { ok: false; reason: 'not_found' | 'gone' };
+  { ok: true; share: Share; payload: SharePayload } | { ok: false; reason: 'not_found' | 'gone' };
 
 export type PublicShareCheck =
-  | { ok: true; share: Share }
-  | { ok: false; reason: 'not_found' | 'gone' };
+  { ok: true; share: Share } | { ok: false; reason: 'not_found' | 'gone' };
 
 const PROJECTION_ERRORS: Record<Exclude<ProjectShareResult, { ok: true }>['reason'], string> = {
   target_not_found: 'The message to share was not found in this conversation',
@@ -74,7 +72,8 @@ export class ShareService {
   async create(request: CreateShareRequest): Promise<ShareSummary> {
     const req = createShareRequestSchema.parse(request);
     const now = this.now();
-    if (req.expiresAt && req.expiresAt <= now) throw new ValidationError('Expiry must be in the future');
+    if (req.expiresAt && req.expiresAt <= now)
+      throw new ValidationError('Expiry must be in the future');
     const tree = await this.deps.repos.trees.getTree(req.treeId);
     if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Tree');
 
@@ -98,7 +97,10 @@ export class ShareService {
     };
     // Validate for both modes; only snapshots store the payload.
     const payload = await this.project(share);
-    await this.shares.createShare(share, share.mode === 'snapshot' ? JSON.stringify(payload) : null);
+    await this.shares.createShare(
+      share,
+      share.mode === 'snapshot' ? JSON.stringify(payload) : null,
+    );
     return this.summarize({ ...share, treeTitle: tree.title });
   }
 

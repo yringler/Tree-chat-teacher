@@ -55,7 +55,9 @@ describe('parseSse', () => {
   });
 
   it('handles CRLF split across chunks without producing an extra blank line', async () => {
-    expect(await parseAll(['data: a\r', '\ndata: b\r', '\n\r', '\n'])).toEqual([{ event: 'message', data: 'a\nb' }]);
+    expect(await parseAll(['data: a\r', '\ndata: b\r', '\n\r', '\n'])).toEqual([
+      { event: 'message', data: 'a\nb' },
+    ]);
   });
 
   it('handles bare CR line endings', async () => {
@@ -72,7 +74,9 @@ describe('parseSse', () => {
   });
 
   it('joins multi-line data and keeps empty data lines', async () => {
-    expect(await parseAll(['data: a\ndata:\ndata: c\n\n'])).toEqual([{ event: 'message', data: 'a\n\nc' }]);
+    expect(await parseAll(['data: a\ndata:\ndata: c\n\n'])).toEqual([
+      { event: 'message', data: 'a\n\nc' },
+    ]);
   });
 
   it('strips exactly one leading space from values', async () => {
@@ -92,7 +96,9 @@ describe('parseSse', () => {
   });
 
   it('skips events without data and resets the event name', async () => {
-    expect(await parseAll(['event: foo\n\ndata: bar\n\nevent: baz\n'])).toEqual([{ event: 'message', data: 'bar' }]);
+    expect(await parseAll(['event: foo\n\ndata: bar\n\nevent: baz\n'])).toEqual([
+      { event: 'message', data: 'bar' },
+    ]);
   });
 
   it('treats a field with no colon as an empty value', async () => {

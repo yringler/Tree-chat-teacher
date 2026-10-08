@@ -3,7 +3,13 @@ import type { GenerateRequest, ProviderConfig, ProviderEvent } from '@tangent/sh
 import { createFakeProvider } from '../src/fake.js';
 import { collect, withTimeout } from './helpers.js';
 
-const BASE: ProviderConfig = { id: 'fake', kind: 'fake', label: 'Fake', defaultModel: 'fake-1', models: [] };
+const BASE: ProviderConfig = {
+  id: 'fake',
+  kind: 'fake',
+  label: 'Fake',
+  defaultModel: 'fake-1',
+  models: [],
+};
 
 function req(overrides: Partial<GenerateRequest> = {}): GenerateRequest {
   return {
@@ -49,24 +55,26 @@ describe('fake provider', () => {
 
   it('uses the responses map (first match in insertion order) and chunkSize', async () => {
     const p = createFakeProvider(
-      { ...BASE, options: { responses: { tangent: 'A line touching a curve.', What: 'nope' }, chunkSize: 5 } },
+      {
+        ...BASE,
+        options: { responses: { tangent: 'A line touching a curve.', What: 'nope' }, chunkSize: 5 },
+      },
       { secrets: {} },
     );
     const events = await collect(p.stream(req()));
-    expect(events.filter((e) => e.type === 'delta').map((e) => (e.type === 'delta' ? e.text : ''))).toEqual([
-      'A lin',
-      'e tou',
-      'ching',
-      ' a cu',
-      'rve.',
-    ]);
+    expect(
+      events.filter((e) => e.type === 'delta').map((e) => (e.type === 'delta' ? e.text : '')),
+    ).toEqual(['A lin', 'e tou', 'ching', ' a cu', 'rve.']);
   });
 
   it('matches anyMessageResponses against every message, before responses', async () => {
     const p = createFakeProvider(
       {
         ...BASE,
-        options: { anyMessageResponses: { first: 'from history' }, responses: { tangent: 'last only' } },
+        options: {
+          anyMessageResponses: { first: 'from history' },
+          responses: { tangent: 'last only' },
+        },
       },
       { secrets: {} },
     );
@@ -80,7 +88,10 @@ describe('fake provider', () => {
     const events = await collect(p.stream(req()));
     expect(events).toEqual([
       { type: 'delta', text: 'Fake rep' },
-      { type: 'error', error: { code: 'overloaded', message: 'Fake failure: overloaded', retryable: true } },
+      {
+        type: 'error',
+        error: { code: 'overloaded', message: 'Fake failure: overloaded', retryable: true },
+      },
     ]);
   });
 
@@ -97,7 +108,10 @@ describe('fake provider', () => {
   });
 
   it('aborts mid-stream between small delays', async () => {
-    const p = createFakeProvider({ ...BASE, options: { delayMs: 10, chunkSize: 1 } }, { secrets: {} });
+    const p = createFakeProvider(
+      { ...BASE, options: { delayMs: 10, chunkSize: 1 } },
+      { secrets: {} },
+    );
     const ac = new AbortController();
     const events: ProviderEvent[] = [];
     for await (const ev of p.stream(req({ signal: ac.signal }))) {
@@ -150,7 +164,10 @@ describe('fake provider', () => {
     const p = createFakeProvider({ ...BASE, options: { costUsd: 0.001234 } }, { secrets: {} });
     const events = await collect(p.stream(req()));
     const first = events[0];
-    expect(first).toEqual({ type: 'billing', generationId: expect.stringMatching(/^gen-fake-/) as unknown });
+    expect(first).toEqual({
+      type: 'billing',
+      generationId: expect.stringMatching(/^gen-fake-/) as unknown,
+    });
     const id = first?.type === 'billing' ? first.generationId : undefined;
     expect(events[1]?.type).toBe('delta');
     expect(events.slice(-3)).toEqual([
@@ -171,9 +188,15 @@ describe('fake provider', () => {
   });
 
   it('with costUsd and failWith: yields the id but no cost', async () => {
-    const p = createFakeProvider({ ...BASE, options: { costUsd: 0.5, failWith: 'server' } }, { secrets: {} });
+    const p = createFakeProvider(
+      { ...BASE, options: { costUsd: 0.5, failWith: 'server' } },
+      { secrets: {} },
+    );
     const events = await collect(p.stream(req()));
-    expect(events[0]).toEqual({ type: 'billing', generationId: expect.stringMatching(/^gen-fake-/) as unknown });
+    expect(events[0]).toEqual({
+      type: 'billing',
+      generationId: expect.stringMatching(/^gen-fake-/) as unknown,
+    });
     expect(events.filter((e) => e.type === 'billing')).toHaveLength(1);
     expect(events.at(-1)).toMatchObject({ type: 'error', error: { code: 'server' } });
   });
@@ -190,7 +213,10 @@ describe('fake provider', () => {
       'ECHO model=m maxOutputTokens=77 system="sys"',
     );
     // A string echoes only when the last user message contains it.
-    const marked = createFakeProvider({ ...BASE, options: { echoRequest: '[echo]' } }, { secrets: {} });
+    const marked = createFakeProvider(
+      { ...BASE, options: { echoRequest: '[echo]' } },
+      { secrets: {} },
+    );
     expect(text(await collect(marked.stream(req())))).toMatch(/^Fake reply/);
     const echoed = await collect(
       marked.stream(req({ system: null, messages: [{ role: 'user', content: 'hi [echo]' }] })),
@@ -217,11 +243,20 @@ describe('fake provider web search', () => {
   });
 
   it('does not search when not offered, or in auto mode without scripted citations', async () => {
-    const withCites = createFakeProvider({ ...BASE, options: { webSearch: true, citations } }, { secrets: {} });
-    expect((await collect(withCites.stream(req()))).some((e) => e.type === 'citations')).toBe(false);
+    const withCites = createFakeProvider(
+      { ...BASE, options: { webSearch: true, citations } },
+      { secrets: {} },
+    );
+    expect((await collect(withCites.stream(req()))).some((e) => e.type === 'citations')).toBe(
+      false,
+    );
     const none = createFakeProvider({ ...BASE, options: { webSearch: true } }, { secrets: {} });
-    expect((await collect(none.stream(req({ webSearch })))).some((e) => e.type === 'activity')).toBe(false);
-    const required = await collect(none.stream(req({ webSearch: { ...webSearch, mode: 'required' } })));
+    expect(
+      (await collect(none.stream(req({ webSearch })))).some((e) => e.type === 'activity'),
+    ).toBe(false);
+    const required = await collect(
+      none.stream(req({ webSearch: { ...webSearch, mode: 'required' } })),
+    );
     expect(required).toContainEqual({ type: 'citations', citations: [] });
   });
 });
@@ -229,11 +264,27 @@ describe('fake provider web search', () => {
 describe('fake provider stopReasons', () => {
   it('ends with the scripted stop reason when the last user message has its key', async () => {
     const provider = createFakeProvider(
-      { id: 'f', kind: 'fake', label: 'F', defaultModel: 'f1', models: [], options: { stopReasons: { CUTOFF: 'length' } } },
+      {
+        id: 'f',
+        kind: 'fake',
+        label: 'F',
+        defaultModel: 'f1',
+        models: [],
+        options: { stopReasons: { CUTOFF: 'length' } },
+      },
       { secrets: {} },
     );
     const stopOf = async (content: string) =>
-      (await collect(provider.stream({ model: 'f1', system: null, messages: [{ role: 'user', content }], signal: new AbortController().signal }))).at(-1);
+      (
+        await collect(
+          provider.stream({
+            model: 'f1',
+            system: null,
+            messages: [{ role: 'user', content }],
+            signal: new AbortController().signal,
+          }),
+        )
+      ).at(-1);
     expect(await stopOf('please CUTOFF here')).toEqual({ type: 'done', stopReason: 'length' });
     expect(await stopOf('a normal question')).toEqual({ type: 'done', stopReason: 'end_turn' });
   });

@@ -8,7 +8,14 @@ import type {
   ProviderEvent,
 } from '@tangent/shared';
 import type { ProviderEnv } from './registry.js';
-import { guardStream, isRecord, providerError, resolveCapabilities, sleep, abortError } from './internal.js';
+import {
+  guardStream,
+  isRecord,
+  providerError,
+  resolveCapabilities,
+  sleep,
+  abortError,
+} from './internal.js';
 
 const DEFAULTS = { maxContextTokens: 200_000, maxOutputTokens: 4096, supportsSystemPrompt: true };
 const DEFAULT_MODELS: ModelInfo[] = [{ id: 'fake-1', label: 'Fake 1' }];
@@ -75,7 +82,8 @@ function readOptions(options: Record<string, unknown> | undefined): FakeOptions 
     failWith: typeof fw === 'string' && ERROR_CODES.has(fw) ? (fw as ProviderErrorCode) : null,
     costUsd: typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? cost : null,
     citations,
-    webSearchCostUsd: typeof wsCost === 'number' && Number.isFinite(wsCost) && wsCost >= 0 ? wsCost : 0,
+    webSearchCostUsd:
+      typeof wsCost === 'number' && Number.isFinite(wsCost) && wsCost >= 0 ? wsCost : 0,
     echoRequest: echo === true || (typeof echo === 'string' && echo !== '') ? echo : false,
   };
 }
@@ -173,14 +181,20 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
         if (request.signal.aborted) throw abortError();
         yield { type: 'delta', text: chars.slice(i, i + opts.chunkSize).join('') };
         if (first && opts.failWith) {
-          yield { type: 'error', error: providerError(opts.failWith, `Fake failure: ${opts.failWith}`) };
+          yield {
+            type: 'error',
+            error: providerError(opts.failWith, `Fake failure: ${opts.failWith}`),
+          };
           return;
         }
         first = false;
       }
       if (opts.failWith) {
         // Empty reply: still fail as configured.
-        yield { type: 'error', error: providerError(opts.failWith, `Fake failure: ${opts.failWith}`) };
+        yield {
+          type: 'error',
+          error: providerError(opts.failWith, `Fake failure: ${opts.failWith}`),
+        };
         return;
       }
       yield {
@@ -197,7 +211,8 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
         };
       }
       const lastUser = lastUserOf(request);
-      const stopReason = opts.stopReasons.find(([key]) => lastUser.includes(key))?.[1] ?? 'end_turn';
+      const stopReason =
+        opts.stopReasons.find(([key]) => lastUser.includes(key))?.[1] ?? 'end_turn';
       yield { type: 'done', stopReason };
     });
   }

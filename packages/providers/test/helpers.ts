@@ -13,7 +13,10 @@ export interface TestStream {
  * A byte stream delivering `chunks` one per pull. With `hang: true` it never
  * closes after the last chunk (a pending read stays pending forever).
  */
-export function byteStream(chunks: readonly (string | Uint8Array)[], opts: { hang?: boolean } = {}): TestStream {
+export function byteStream(
+  chunks: readonly (string | Uint8Array)[],
+  opts: { hang?: boolean } = {},
+): TestStream {
   let i = 0;
   let cancelledFlag = false;
   let resolveCancelled: (reason: unknown) => void = () => undefined;
@@ -40,13 +43,19 @@ export function byteStream(chunks: readonly (string | Uint8Array)[], opts: { han
   return { stream, cancelled, isCancelled: () => cancelledFlag };
 }
 
-export function sseResponse(chunks: readonly (string | Uint8Array)[], opts: { hang?: boolean } = {}): {
+export function sseResponse(
+  chunks: readonly (string | Uint8Array)[],
+  opts: { hang?: boolean } = {},
+): {
   response: Response;
   body: TestStream;
 } {
   const body = byteStream(chunks, opts);
   return {
-    response: new Response(body.stream, { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+    response: new Response(body.stream, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    }),
     body,
   };
 }
@@ -98,6 +107,8 @@ export function frame(event: string | null, data: unknown): string {
 export function withTimeout<T>(p: Promise<T>, ms = 1000): Promise<T> {
   return Promise.race([
     p,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms)),
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms),
+    ),
   ]);
 }

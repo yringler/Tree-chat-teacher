@@ -13,7 +13,12 @@ const CONFIG: ProviderConfig = {
   defaultModel: 'claude-opus-5-5',
   models: [
     { id: 'claude-opus-5-5', label: 'Claude Opus 5.5' },
-    { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', maxContextTokens: 100_000, maxOutputTokens: 1000 },
+    {
+      id: 'claude-haiku-4-5',
+      label: 'Claude Haiku 4.5',
+      maxContextTokens: 100_000,
+      maxOutputTokens: 1000,
+    },
   ],
 };
 
@@ -43,12 +48,25 @@ const RECORDED = [
       model: 'claude-opus-5-5',
       stop_reason: null,
       stop_sequence: null,
-      usage: { input_tokens: 25, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 1 },
+      usage: {
+        input_tokens: 25,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        output_tokens: 1,
+      },
     },
   }),
-  frame('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+  frame('content_block_start', {
+    type: 'content_block_start',
+    index: 0,
+    content_block: { type: 'text', text: '' },
+  }),
   frame('ping', { type: 'ping' }),
-  frame('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Why did' } }),
+  frame('content_block_delta', {
+    type: 'content_block_delta',
+    index: 0,
+    delta: { type: 'text_delta', text: 'Why did' },
+  }),
   frame('content_block_delta', {
     type: 'content_block_delta',
     index: 0,
@@ -69,7 +87,10 @@ const RECORDED = [
   frame('message_stop', { type: 'message_stop' }),
 ];
 
-function setup(respond: Parameters<typeof mockFetch>[0], secrets: Record<string, string | undefined> = {}) {
+function setup(
+  respond: Parameters<typeof mockFetch>[0],
+  secrets: Record<string, string | undefined> = {},
+) {
   const m = mockFetch(respond);
   const provider = createAnthropicProvider(CONFIG, {
     secrets: { ANTHROPIC_API_KEY: KEY, ...secrets },
@@ -85,7 +106,10 @@ describe('anthropic provider', () => {
     const chunks = [text.slice(0, 50), text.slice(50, 333), text.slice(333, 700), text.slice(700)];
     const { provider } = setup(() => sseResponse(chunks).response);
     expect(await collect(provider.stream(req()))).toEqual<ProviderEvent[]>([
-      { type: 'usage', usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+      {
+        type: 'usage',
+        usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      },
       { type: 'delta', text: 'Why did' },
       { type: 'delta', text: ' the chicken…' },
       { type: 'usage', usage: { outputTokens: 15 } },
@@ -181,7 +205,10 @@ describe('anthropic provider', () => {
       { secrets: { ANTHROPIC_API_KEY: KEY }, fetch: m.fetch },
     );
     expect(await collect(provider.stream(req()))).toEqual([
-      { type: 'error', error: { code: 'config', message: 'Missing secret CF_AIG_TOKEN', retryable: false } },
+      {
+        type: 'error',
+        error: { code: 'config', message: 'Missing secret CF_AIG_TOKEN', retryable: false },
+      },
     ]);
     expect(m.calls).toHaveLength(0);
   });
@@ -192,11 +219,17 @@ describe('anthropic provider', () => {
         sseResponse([
           RECORDED[0]!,
           RECORDED[3]!,
-          frame('error', { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }),
+          frame('error', {
+            type: 'error',
+            error: { type: 'overloaded_error', message: 'Overloaded' },
+          }),
         ]).response,
     );
     expect(await collect(provider.stream(req()))).toEqual([
-      { type: 'usage', usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+      {
+        type: 'usage',
+        usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      },
       { type: 'delta', text: 'Why did' },
       { type: 'error', error: { code: 'overloaded', message: 'Overloaded', retryable: true } },
     ]);
@@ -205,8 +238,12 @@ describe('anthropic provider', () => {
   it('maps other in-stream error types', async () => {
     const { provider } = setup(
       () =>
-        sseResponse([frame('error', { type: 'error', error: { type: 'api_error', message: 'Internal error' } })])
-          .response,
+        sseResponse([
+          frame('error', {
+            type: 'error',
+            error: { type: 'api_error', message: 'Internal error' },
+          }),
+        ]).response,
     );
     expect(await collect(provider.stream(req()))).toEqual([
       { type: 'error', error: { code: 'server', message: 'Internal error', retryable: true } },
@@ -214,16 +251,58 @@ describe('anthropic provider', () => {
   });
 
   it.each([
-    [401, { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }, 'auth', false],
-    [403, { type: 'error', error: { type: 'permission_error', message: 'no access' } }, 'auth', false],
-    [429, { type: 'error', error: { type: 'rate_limit_error', message: 'Number of requests exceeded' } }, 'rate_limit', true],
-    [529, { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }, 'overloaded', true],
+    [
+      401,
+      { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } },
+      'auth',
+      false,
+    ],
+    [
+      403,
+      { type: 'error', error: { type: 'permission_error', message: 'no access' } },
+      'auth',
+      false,
+    ],
+    [
+      429,
+      {
+        type: 'error',
+        error: { type: 'rate_limit_error', message: 'Number of requests exceeded' },
+      },
+      'rate_limit',
+      true,
+    ],
+    [
+      529,
+      { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } },
+      'overloaded',
+      true,
+    ],
     [503, { error: { message: 'unavailable' } }, 'overloaded', true],
-    [500, { type: 'error', error: { type: 'api_error', message: 'Internal server error' } }, 'server', true],
-    [400, { type: 'error', error: { type: 'invalid_request_error', message: 'messages: field required' } }, 'invalid_request', false],
+    [
+      500,
+      { type: 'error', error: { type: 'api_error', message: 'Internal server error' } },
+      'server',
+      true,
+    ],
     [
       400,
-      { type: 'error', error: { type: 'invalid_request_error', message: 'prompt is too long: 212345 tokens > 200000 maximum' } },
+      {
+        type: 'error',
+        error: { type: 'invalid_request_error', message: 'messages: field required' },
+      },
+      'invalid_request',
+      false,
+    ],
+    [
+      400,
+      {
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message: 'prompt is too long: 212345 tokens > 200000 maximum',
+        },
+      },
       'context_length',
       false,
     ],
@@ -251,7 +330,10 @@ describe('anthropic provider', () => {
       throw new TypeError('fetch failed');
     });
     expect(await collect(provider.stream(req()))).toEqual([
-      { type: 'error', error: { code: 'network', message: 'Network error: fetch failed', retryable: true } },
+      {
+        type: 'error',
+        error: { code: 'network', message: 'Network error: fetch failed', retryable: true },
+      },
     ]);
   });
 
@@ -298,7 +380,10 @@ describe('anthropic provider', () => {
     })();
     await withTimeout(run);
     expect(events).toEqual([
-      { type: 'usage', usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+      {
+        type: 'usage',
+        usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      },
       { type: 'delta', text: 'Why did' },
       { type: 'error', error: { code: 'aborted', message: 'Request aborted', retryable: false } },
     ]);
@@ -308,7 +393,11 @@ describe('anthropic provider', () => {
   it('counts tokens via /v1/messages/count_tokens', async () => {
     const { provider, calls } = setup(() => jsonResponse(200, { input_tokens: 42 }));
     expect(provider.countTokens).toBeDefined();
-    const n = await provider.countTokens!({ model: 'claude-opus-5-5', system: null, messages: req().messages });
+    const n = await provider.countTokens!({
+      model: 'claude-opus-5-5',
+      system: null,
+      messages: req().messages,
+    });
     expect(n).toBe(42);
     expect(calls[0]!.url).toBe('https://api.anthropic.com/v1/messages/count_tokens');
     expect(calls[0]!.headers['x-api-key']).toBe(KEY);
@@ -316,7 +405,9 @@ describe('anthropic provider', () => {
   });
 
   it('countTokens rejects with a mapped error', async () => {
-    const { provider } = setup(() => jsonResponse(429, { error: { type: 'rate_limit_error', message: 'slow down' } }));
+    const { provider } = setup(() =>
+      jsonResponse(429, { error: { type: 'rate_limit_error', message: 'slow down' } }),
+    );
     await expect(
       provider.countTokens!({ model: 'claude-opus-5-5', system: 'x', messages: req().messages }),
     ).rejects.toMatchObject({ error: { code: 'rate_limit', status: 429 } });
@@ -446,11 +537,20 @@ describe('anthropic web search', () => {
     index: 2,
     delta: {
       type: 'citations_delta',
-      citation: { type: 'web_search_result_location', url, title, encrypted_index: 'x', cited_text: citedText },
+      citation: {
+        type: 'web_search_result_location',
+        url,
+        title,
+        encrypted_index: 'x',
+        cited_text: citedText,
+      },
     },
   });
   const STREAM = [
-    frame('message_start', { type: 'message_start', message: { usage: { input_tokens: 900, output_tokens: 1 } } }),
+    frame('message_start', {
+      type: 'message_start',
+      message: { usage: { input_tokens: 900, output_tokens: 1 } },
+    }),
     frame('content_block_start', {
       type: 'content_block_start',
       index: 0,
@@ -468,14 +568,29 @@ describe('anthropic web search', () => {
       content_block: {
         type: 'web_search_tool_result',
         tool_use_id: 'srvtoolu_1',
-        content: [{ type: 'web_search_result', url: 'https://example.org/a', title: 'A', encrypted_content: 'e' }],
+        content: [
+          {
+            type: 'web_search_result',
+            url: 'https://example.org/a',
+            title: 'A',
+            encrypted_content: 'e',
+          },
+        ],
       },
     }),
     frame('content_block_stop', { type: 'content_block_stop', index: 1 }),
-    frame('content_block_start', { type: 'content_block_start', index: 2, content_block: { type: 'text', text: '' } }),
+    frame('content_block_start', {
+      type: 'content_block_start',
+      index: 2,
+      content_block: { type: 'text', text: '' },
+    }),
     frame('content_block_delta', cite('https://example.org/a', 'A', 'x'.repeat(400))),
     frame('content_block_delta', cite('javascript:alert(1)', 'bad')),
-    frame('content_block_delta', { type: 'content_block_delta', index: 2, delta: { type: 'text_delta', text: 'Water boils at 100 °C.' } }),
+    frame('content_block_delta', {
+      type: 'content_block_delta',
+      index: 2,
+      delta: { type: 'text_delta', text: 'Water boils at 100 °C.' },
+    }),
     frame('content_block_delta', cite('https://example.org/a', 'A again')),
     frame('content_block_delta', cite('https://b.example/', 'B')),
     frame('content_block_stop', { type: 'content_block_stop', index: 2 }),
@@ -489,7 +604,10 @@ describe('anthropic web search', () => {
 
   function setupWs(config: ProviderConfig) {
     const m = mockFetch(() => sseResponse(STREAM).response);
-    const provider = createAnthropicProvider(config, { secrets: { ANTHROPIC_API_KEY: KEY }, fetch: m.fetch });
+    const provider = createAnthropicProvider(config, {
+      secrets: { ANTHROPIC_API_KEY: KEY },
+      fetch: m.fetch,
+    });
     return { provider, calls: m.calls };
   }
 
@@ -501,9 +619,13 @@ describe('anthropic web search', () => {
   it('sends the server tool and maps activity, citations and searches', async () => {
     const { provider, calls } = setupWs(WS);
     const events = await collect(provider.stream(req({ webSearch })));
-    expect(calls[0]!.body['tools']).toEqual([{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }]);
+    expect(calls[0]!.body['tools']).toEqual([
+      { type: 'web_search_20250305', name: 'web_search', max_uses: 1 },
+    ]);
     expect(calls[0]!.body).not.toHaveProperty('tool_choice');
-    expect(events.filter((e) => e.type === 'activity')).toEqual([{ type: 'activity', kind: 'web_search' }]);
+    expect(events.filter((e) => e.type === 'activity')).toEqual([
+      { type: 'activity', kind: 'web_search' },
+    ]);
     const cites = events.filter((e) => e.type === 'citations');
     expect(cites).toHaveLength(2);
     const last = cites.at(-1);
