@@ -58,17 +58,54 @@ export interface LiveReply {
 
 /**
  * A message that didn't reach the lesson (refused, e.g. out of credit or for
- * want of the own key, or a failed request), offered back to the composer.
+ * want of the own key, or a failed request), offered back to the composer
+ * of its branch. Kept for the tab (`UNSENT_STORAGE_KEY`): a top-up (checkout)
+ * and the human check leave the page and come back to it.
  */
 export interface UnsentDraft {
+  treeId: string;
   branchId: string;
   text: string;
+  /** Sent as a "Check sources" request: resent as one, never offered as typed text. */
+  ground?: 'required';
   /**
    * Refused for want of the learner's own key (401 `key_required`): once
    * "How replies are paid for" is settled (a key saved, credit or the pool
    * picked), it is sent (`resumeUnsent`).
    */
   needsKey?: boolean;
+}
+
+/** Where the unsent message waits in sessionStorage (this tab only, like the page it left). */
+const UNSENT_STORAGE_KEY = 'tangent.learn.unsent';
+
+function storedDraft(): UnsentDraft | null {
+  try {
+    const raw = sessionStorage.getItem(UNSENT_STORAGE_KEY);
+    const d: unknown = raw ? JSON.parse(raw) : null;
+    if (typeof d !== 'object' || d === null) return null;
+    const { treeId, branchId, text, ground, needsKey } = d as Record<string, unknown>;
+    if (typeof treeId !== 'string' || typeof branchId !== 'string' || typeof text !== 'string')
+      return null;
+    return {
+      treeId,
+      branchId,
+      text,
+      ...(ground === 'required' ? { ground } : {}),
+      ...(needsKey === true ? { needsKey } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function storeDraft(d: UnsentDraft | null): void {
+  try {
+    if (d) sessionStorage.setItem(UNSENT_STORAGE_KEY, JSON.stringify(d));
+    else sessionStorage.removeItem(UNSENT_STORAGE_KEY);
+  } catch {
+    // Storage unavailable: the message waits for this page only.
+  }
 }
 
 /**
@@ -179,7 +216,7 @@ export class LessonStore {
   readonly live = signal<ReadonlyMap<string, LiveReply>>(new Map());
   /** Branches whose POST is in flight (before `start` arrives). */
   readonly sending = signal<ReadonlySet<string>>(new Set());
-  readonly unsentDraft = signal<UnsentDraft | null>(null);
+  readonly unsentDraft = signal<UnsentDraft | null>(storedDraft());
   readonly poolBlock = signal<LessonPoolBlock | null>(null);
   /** The Compare sheet is open (its answers stream): the composer waits. */
   readonly comparing = signal(false);
@@ -422,6 +459,7 @@ export class LessonStore {
     try {
       await this.api.deleteTree(treeId);
       this.stopTreeStreams(treeId);
+      if (this.unsentDraft()?.treeId === treeId) this.setUnsent(null);
       this.trees.update((list) => list.filter((t) => t.id !== treeId));
       if (this.selectedTreeId() === treeId) await this.router.navigate(['/']);
       this.ui.notify('Lesson deleted');
@@ -714,7 +752,9 @@ export class LessonStore {
     options: { ground?: 'required' } = {},
   ): Promise<boolean> {
     this.markSending(branchId, true);
-    if (this.unsentDraft()?.branchId === branchId) this.unsentDraft.set(null);
+    // Sent again: let it go. A "Check sources" request leaves the learner's own message be.
+    const draft = this.unsentDraft();
+    if (draft?.branchId === branchId && !draft.ground === !options.ground) this.setUnsent(null);
     if (this.poolBlock()?.branchId === branchId) this.poolBlock.set(null);
     const ctrl = new AbortController();
     let nodeId: string | null = null;
@@ -745,17 +785,19 @@ export class LessonStore {
       const block = poolBlockOf(err);
       if (block) {
         // The pool's empty and cap-reached states: inline, never a toast or a navigation.
-        this.unsentDraft.set({ branchId, text: content });
+        // A "Check sources" request isn't text the learner typed: not offered back.
+        if (!options.ground) this.keepUnsent(branchId, content, options);
         this.poolBlock.set({ ...block, branchId });
         void this.account.refreshPool();
         return false;
       }
-      if (nodeId === null && !options.ground) {
+      const needsKey = err instanceof ApiError && err.code === 'key_required';
+      if (nodeId === null && (!options.ground || needsKey)) {
         // Any refusal or failure before the reply started (out of credit, no key or
         // membership, the pool's checks, a network error…): nothing was written, so
-        // the text goes back to the composer ("Check sources" asks no typed text).
-        const needsKey = err instanceof ApiError && err.code === 'key_required';
-        this.unsentDraft.set({ branchId, text: content, ...(needsKey ? { needsKey } : {}) });
+        // the text goes back to the composer. "Check sources" asks no typed text: it
+        // is kept only to be resumed once the key is settled.
+        this.keepUnsent(branchId, content, options, needsKey);
       }
       this.fail(err);
       return false;
@@ -809,7 +851,7 @@ export class LessonStore {
     const { userNode, assistantNode, branch } = res;
     this.apply({ type: 'start', userNode, assistantNode, branch }, null);
     this.apply({ type: 'done', node: assistantNode, branch }, assistantNode.id);
-    if (this.unsentDraft()?.branchId === run.branchId) this.unsentDraft.set(null);
+    if (this.unsentDraft()?.branchId === run.branchId) this.setUnsent(null);
     if (this.poolBlock()?.branchId === run.branchId) this.poolBlock.set(null);
     this.ui.markSent(run.question);
     this.finish(assistantNode.id, { kind: 'done' });
@@ -852,8 +894,8 @@ export class LessonStore {
     }
     this.ui.poolConsentVersion.set(null);
     void this.account.refreshPool();
-    const draft = this.unsentDraft();
-    if (draft) void this.send(draft.branchId, draft.text);
+    const draft = this.openDraft();
+    if (draft) void this.resend(draft);
     return true;
   }
 
@@ -863,10 +905,37 @@ export class LessonStore {
    * (`UnsentDraft.needsKey`): sends it. False when none waits.
    */
   resumeUnsent(): boolean {
-    const draft = this.unsentDraft();
+    const draft = this.openDraft();
     if (!draft?.needsKey) return false;
-    void this.send(draft.branchId, draft.text);
+    void this.resend(draft);
     return true;
+  }
+
+  /** The unsent message of the open lesson, if any (one of another lesson waits for it). */
+  private openDraft(): UnsentDraft | null {
+    const d = this.unsentDraft();
+    return d && d.treeId === this.selectedTreeId() ? d : null;
+  }
+
+  /** Sends an unsent message again, as it was first sent. */
+  private resend(d: UnsentDraft): Promise<boolean> {
+    return this.send(d.branchId, d.text, d.ground ? { ground: d.ground } : {});
+  }
+
+  private keepUnsent(
+    branchId: string,
+    text: string,
+    options: { ground?: 'required' },
+    needsKey = false,
+  ): void {
+    const treeId = this.index()?.branches.get(branchId)?.treeId ?? this.selectedTreeId();
+    if (!treeId) return;
+    this.setUnsent({ treeId, branchId, text, ...options, ...(needsKey ? { needsKey } : {}) });
+  }
+
+  private setUnsent(d: UnsentDraft | null): void {
+    this.unsentDraft.set(d);
+    storeDraft(d);
   }
 
   /** Stop: the server cancels the generation and the stream ends with an `error` event. */
@@ -1084,7 +1153,7 @@ export class LessonStore {
       this.dropLive(id);
     }
     const draft = this.unsentDraft();
-    if (draft && branchIds.has(draft.branchId)) this.unsentDraft.set(null);
+    if (draft && branchIds.has(draft.branchId)) this.setUnsent(null);
     const block = this.poolBlock();
     if (block && branchIds.has(block.branchId)) this.poolBlock.set(null);
     this.detail.update((d) =>

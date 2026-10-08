@@ -472,7 +472,11 @@ describe('LessonStore', () => {
 
     expect(s.router.navigate).toHaveBeenCalledWith(['/billing']);
     expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: OUT_OF_CREDIT_MESSAGE });
-    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
+    expect(s.store.unsentDraft()).toEqual({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'What is light?',
+    });
     expect(s.store.busy()).toBe(false);
     expect(s.store.path()).toEqual([]);
     await vi.waitFor(() => expect(s.api.billing).toHaveBeenCalled());
@@ -499,6 +503,7 @@ describe('LessonStore', () => {
     expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error' });
     expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
     expect(s.store.unsentDraft()).toEqual({
+      treeId: 't1',
       branchId: 'trunk',
       text: 'What is light?',
       needsKey: true,
@@ -516,7 +521,11 @@ describe('LessonStore', () => {
     );
     // Refused again for another reason: kept, but no longer waiting on a key.
     await vi.waitFor(() =>
-      expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' }),
+      expect(s.store.unsentDraft()).toEqual({
+        treeId: 't1',
+        branchId: 'trunk',
+        text: 'What is light?',
+      }),
     );
     expect(s.store.resumeUnsent()).toBe(false);
   });
@@ -538,7 +547,11 @@ describe('LessonStore', () => {
     expect(account.membershipBlocked()).toBe(true);
     expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
     expect(s.ui.toasts()).toEqual([]);
-    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
+    expect(s.store.unsentDraft()).toEqual({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'What is light?',
+    });
     await vi.waitFor(() => expect(account.billing()?.membership.status).toBe('inactive'));
     expect(account.membershipBlocked()).toBe(true);
   });
@@ -559,7 +572,11 @@ describe('LessonStore', () => {
     expect(s.store.poolBlock()).toEqual({ kind: 'empty', details: empty, branchId: 'trunk' });
     expect(s.ui.toasts()).toEqual([]);
     expect(s.router.navigate).not.toHaveBeenCalled();
-    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
+    expect(s.store.unsentDraft()).toEqual({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'What is light?',
+    });
     // Refused before anything was written: no message in the lesson.
     expect(s.store.path()).toEqual([]);
     expect(s.store.busy()).toBe(false);
@@ -624,7 +641,11 @@ describe('LessonStore', () => {
     expect(s.ui.poolConsentVersion()).toBe(POOL_NOTICE_VERSION);
     expect(s.ui.poolVerifyOpen()).toBe(false);
     expect(s.ui.toasts()).toEqual([]);
-    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
+    expect(s.store.unsentDraft()).toEqual({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'What is light?',
+    });
 
     s.api.sendMessage.mockResolvedValueOnce(stream([]));
     await expect(s.store.acknowledgePoolNotice()).resolves.toBe(true);
@@ -709,7 +730,7 @@ describe('LessonStore', () => {
     expect(s.router.navigate).not.toHaveBeenCalled();
     expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still generating' });
     // Nothing was written: the message is offered back, not lost.
-    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'Hi' });
+    expect(s.store.unsentDraft()).toEqual({ treeId: 't1', branchId: 'trunk', text: 'Hi' });
     expect(s.ui.composerSent()).toBeNull();
   });
 
@@ -950,7 +971,7 @@ describe('LessonStore', () => {
     it('takes the side questions below with it, and leaves the open one for where it started', async () => {
       const s = setup();
       await open(s, lesson(), 'deeper');
-      s.store.unsentDraft.set({ branchId: 'deeper', text: 'kept?' });
+      s.store.unsentDraft.set({ treeId: 't1', branchId: 'deeper', text: 'kept?' });
       await expect(s.store.deleteSideQuestion('side')).resolves.toBe(true);
       expect(s.api.deleteBranch).toHaveBeenCalledWith('side');
       expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1'], {
@@ -1404,6 +1425,110 @@ describe('LessonStore deleting a lesson with a reply generating', () => {
     await expect(s.store.deleteLesson('t1')).resolves.toBe(true);
     expect(signals[0]?.aborted).toBe(true);
     expect(s.store.live().size).toBe(0);
+  });
+});
+
+describe('LessonStore a refused message across leaving the page', () => {
+  /** This tab's sessionStorage, across the "page loads" of a test. */
+  let tab: Map<string, string>;
+
+  beforeEach(() => {
+    tab = new Map();
+    vi.stubGlobal('sessionStorage', {
+      getItem: (k: string) => tab.get(k) ?? null,
+      setItem: (k: string, v: string) => void tab.set(k, v),
+      removeItem: (k: string) => void tab.delete(k),
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const reply = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
+  const lesson = () => detail([userNode, reply]);
+
+  it('a message refused for want of credit is back in its lesson after the checkout', async () => {
+    const before = setup();
+    await open(before, lesson());
+    before.api.sendMessage.mockRejectedValue(
+      new ApiError(402, 'payment_required', 'Your balance is too low'),
+    );
+    await before.store.send('trunk', 'Why does it bend?');
+    expect(before.router.navigate).toHaveBeenCalledWith(['/billing']);
+
+    // Checkout is a full-page redirect: a new page, a new store.
+    const after = setup();
+    expect(after.store.unsentDraft()).toEqual({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'Why does it bend?',
+    });
+    await open(after, lesson());
+    after.api.sendMessage.mockResolvedValue(stream([]));
+    await after.store.send('trunk', 'Why does it bend?');
+    expect(after.store.unsentDraft()).toBeNull();
+    expect(setup().store.unsentDraft()).toBeNull();
+  });
+
+  it('a "Check sources" request the pool refuses is not kept as the learner’s message', async () => {
+    const s = setup();
+    await open(s, lesson());
+    s.store.unsentDraft.set({ treeId: 't1', branchId: 'trunk', text: 'Typed by the learner' });
+    s.api.sendMessage.mockRejectedValue(
+      new ApiError(402, 'pool_empty', 'The open pool is empty', {
+        reason: 'empty',
+        limit: null,
+        resetAt: null,
+      }),
+    );
+    await s.store.checkSources('a1');
+    expect(s.store.poolBlock()?.branchId).toBe('trunk');
+    expect(s.store.unsentDraft()).toEqual({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'Typed by the learner',
+    });
+  });
+
+  it('a "Check sources" refused for want of the key is resent as one once the key is settled', async () => {
+    const s = setup();
+    await open(s, lesson());
+    s.api.sendMessage.mockRejectedValueOnce(new ApiError(401, 'key_required', 'Add your key'));
+    await s.store.checkSources('a1');
+    expect(s.store.unsentDraft()).toMatchObject({ ground: 'required', needsKey: true });
+    s.api.sendMessage.mockResolvedValue(stream([]));
+    expect(s.store.resumeUnsent()).toBe(true);
+    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(2));
+    expect(s.api.sendMessage.mock.calls[1]![1]).toMatchObject({ ground: 'required' });
+  });
+
+  it('acknowledging the pool notice resends the message with its options', async () => {
+    const s = setup();
+    await open(s, lesson());
+    s.store.unsentDraft.set({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'Check it',
+      ground: 'required',
+    });
+    s.api.sendMessage.mockResolvedValue(stream([]));
+    await expect(s.store.acknowledgePoolNotice()).resolves.toBe(true);
+    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(1));
+    expect(s.api.sendMessage.mock.calls[0]!.slice(0, 2)).toEqual([
+      'trunk',
+      { content: 'Check it', ground: 'required' },
+    ]);
+  });
+
+  it('a message of another lesson waits for its lesson', async () => {
+    const s = setup();
+    await open(s, lesson());
+    s.store.unsentDraft.set({ treeId: 't9', branchId: 'x', text: 'Elsewhere', needsKey: true });
+    expect(s.store.resumeUnsent()).toBe(false);
+    expect(s.api.sendMessage).not.toHaveBeenCalled();
   });
 });
 
