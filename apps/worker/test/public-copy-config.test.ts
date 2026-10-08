@@ -33,6 +33,8 @@ const MEMBERSHIP: Partial<AppEnv> = { ANNUAL_FEE_ENABLED: 'true' };
 /** Polar without its secrets (vitest.config.ts pins them empty): nothing is sold. */
 const NO_CREDIT: Partial<AppEnv> = { PAYMENT_PROVIDER: 'polar' };
 const NO_POOL: Partial<AppEnv> = { POOL_ENABLED: 'false' };
+/** The pool asking a custom tier's (plain) model like the tier: no effort, a plain reply's cap. */
+const ASKED_LIKE_ITS_TIER: Partial<AppEnv> = { POOL_EFFORT: '', POOL_MAX_OUTPUT_TOKENS: '4096' };
 
 async function page(path: string, overrides: Partial<AppEnv> = {}): Promise<string> {
   const res = await createApp().request(`${ORIGIN}${path}`, {}, authEnv({ ...BASE, ...overrides }));
@@ -169,7 +171,14 @@ describe("Learn's tiers", () => {
     );
     const landing = await page('/welcome');
     expect(landing).toContain(
-      '<li>Two tiers: Normal for everyday learning, Max for the hardest questions (the free pool uses Normal)</li>',
+      '<li>Two tiers: Normal for everyday learning, Max for the hardest questions (the free pool uses Normal&#39;s model with lighter thinking and shorter replies)</li>',
+    );
+    // The pricing page states the pool's cap, so it names only the thinking there.
+    expect(pricing).toContain(
+      'Pool replies use Normal&#39;s model with lighter thinking, are at most 1,024 tokens long',
+    );
+    expect(await page('/pool')).toContain(
+      `Every reply on the pool uses Normal's model (<code>${NORMAL}</code>) with lighter thinking, a fixed teaching prompt, replies of at most 1,024 tokens`,
     );
     // No claim about the old models.
     expect(`${pricing}${landing}`).not.toMatch(/V4 Pro|V4 Flash|deepseek-v4-(pro|flash)\b/);
@@ -185,7 +194,14 @@ describe("Learn's tiers", () => {
 
   it('the pool on the Max model: Max is free on the pool', async () => {
     // Its own pool account: the landing page's pool status is cached per account.
-    const env = { ...MEMBERSHIP, POOL_MODEL: MAX, POOL_ACCOUNT_ID: uniq('pool') };
+    // Asked like Max: Max's effort (none set) and its reply cap.
+    const env = {
+      ...MEMBERSHIP,
+      POOL_MODEL: MAX,
+      POOL_EFFORT: '',
+      POOL_MAX_OUTPUT_TOKENS: '16384',
+      POOL_ACCOUNT_ID: uniq('pool'),
+    };
     const pricing = await page('/pricing', env);
     const max = row(pricing, 'The Max tier');
     // Own keys need the membership here, so Free has Max on the pool only.
@@ -194,6 +210,39 @@ describe("Learn's tiers", () => {
     const noFee = await page('/pricing', { ...env, ANNUAL_FEE_ENABLED: 'false' });
     expect(row(noFee, 'The Max tier')).toContain('<td>On the open pool or your key</td>');
     expect(await page('/welcome', env)).toContain('(the free pool uses Max)</li>');
+  });
+
+  it('the pool asked like Normal: plain Normal; asked otherwise: how', async () => {
+    const same = {
+      POOL_EFFORT: 'high',
+      POOL_MAX_OUTPUT_TOKENS: '16384',
+      POOL_ACCOUNT_ID: uniq('pool'),
+    };
+    expect(await page('/welcome', same)).toContain('(the free pool uses Normal)</li>');
+    expect(await page('/pricing', same)).toContain(
+      'They use the Normal model. They have daily limits',
+    );
+    const more = {
+      POOL_EFFORT: 'high',
+      POOL_MAX_OUTPUT_TOKENS: '32000',
+      POOL_ACCOUNT_ID: uniq('pool'),
+    };
+    expect(await page('/welcome', more)).toContain(
+      '(the free pool uses Normal&#39;s model with longer replies)</li>',
+    );
+    const unset = { POOL_EFFORT: 'none', POOL_ACCOUNT_ID: uniq('pool') };
+    expect(await page('/welcome', unset)).toContain(
+      '(the free pool uses Normal&#39;s model with lighter thinking and shorter replies)</li>',
+    );
+    // Normal's effort emptied on its default model is its evaluated `high` (withTierDefaults).
+    const tierHigher = {
+      SIMPLE_NORMAL_EFFORT: 'low',
+      POOL_EFFORT: 'high',
+      POOL_ACCOUNT_ID: uniq('pool'),
+    };
+    expect(await page('/welcome', tierHigher)).toContain(
+      '(the free pool uses Normal&#39;s model with more thinking and shorter replies)</li>',
+    );
   });
 
   it('one model: no tier to choose, so no tier is named', async () => {
@@ -217,6 +266,7 @@ describe("Learn's tiers", () => {
         webSearch: true,
       }),
       POOL_MODEL: 'a/quick',
+      ...ASKED_LIKE_ITS_TIER,
       POOL_ACCOUNT_ID: uniq('pool'),
     };
     const pricing = await page('/pricing', env);
@@ -256,6 +306,7 @@ describe("Learn's tiers", () => {
         ],
       }),
       POOL_MODEL: 'a/quick',
+      ...ASKED_LIKE_ITS_TIER,
       POOL_ACCOUNT_ID: uniq('pool'),
     };
     expect(await page('/pricing', env)).toContain(

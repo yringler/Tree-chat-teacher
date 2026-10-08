@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject, signal, type OnInit } from '@angular/core';
-import { poolFundingText, type PoolStatusResponse } from '@tangent/shared';
+import { poolFundingText, poolModelText, type PoolStatusResponse } from '@tangent/shared';
 import { ApiClient } from '../core/api-client';
 import { Icon } from '../ui/icon';
 import { ImpactFeed } from './impact-feed';
@@ -24,7 +24,7 @@ import { PoolMeter } from './pool-meter';
           <app-pool-meter [status]="s" />
           <app-impact-feed />
           <p class="muted small">
-            {{ funding(s) }} Any signed-in learner can use it on {{ s.model.label }}, within daily
+            {{ funding(s) }} Any signed-in learner can use it on {{ model(s) }}, within daily
             limits.
           </p>
           <p class="small">
@@ -46,6 +46,11 @@ export class PoolSection implements OnInit {
       (s) => this.status.set(s),
       () => this.status.set(null),
     );
+  }
+
+  /** The pool's model, as the copy names it (`poolModelText`). */
+  protected model(s: PoolStatusResponse): string {
+    return poolModelText(s.model);
   }
 
   protected funding(s: PoolStatusResponse): string {

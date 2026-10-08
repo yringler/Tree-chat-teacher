@@ -419,6 +419,20 @@ describe('AccountStore open pool', () => {
     expect(account.poolModelHint()).toBe('The open pool uses Lite.');
   });
 
+  it("names how the pool asks a tier's model when it asks it differently", async () => {
+    const pool: PoolStatusResponse = {
+      ...POOL,
+      model: { id: 'n', label: 'Normal', thinking: 'lighter', replies: 'shorter' },
+    };
+    const { account } = setup(async () => summary(membership()), pool);
+    account.setMe(me(membership({ required: false })));
+    await account.refreshPool();
+    account.payment.choose('pool');
+    expect(account.poolModelHint()).toBe(
+      "The open pool uses Normal's model with lighter thinking and shorter replies.",
+    );
+  });
+
   it('offers the funding toggle only while both own credit and the pool can pay', async () => {
     const { account } = setup(async () => summary(membership()));
     account.setMe(me(membership({ required: false })));

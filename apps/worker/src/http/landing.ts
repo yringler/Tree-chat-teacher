@@ -6,6 +6,7 @@ import {
   POOL_AT_COST_TEXT,
   POOL_EMPTY_TEXT,
   POOL_MOTTO,
+  poolModelText,
   poolSessionsHeadline,
   poolSteps,
   poolWeekText,
@@ -344,7 +345,9 @@ function learnItems(opts: LandingPageOptions): string[] {
               'and',
             ),
           )}`;
-    items.push(pool ? `${choice} (the free pool uses ${escapeHtml(pool.model.label)})` : choice);
+    items.push(
+      pool ? `${choice} (the free pool uses ${escapeHtml(poolModelText(pool.model))})` : choice,
+    );
   }
   if (pool)
     items.push(

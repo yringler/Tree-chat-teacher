@@ -90,6 +90,53 @@ export interface PoolVerifyResponse {
 }
 
 /**
+ * The pool's model as the apps and pages name it: its label in Learn's
+ * config (a tier's, e.g. "Normal", when the pool runs a tier's model; else
+ * the pool's own, "Lite"), and, on a tier's model, how the pool asks it
+ * differently from that tier. Absent `thinking` and `replies`: the same as
+ * the tier (or no tier to compare with).
+ */
+export interface PoolModelInfo {
+  id: string;
+  label: string;
+  /** The pool's reasoning effort against the tier's: lower, higher, or not comparable (one sends none). */
+  thinking?: 'lighter' | 'more' | 'other';
+  /** The pool's reply cap against the tier's. */
+  replies?: 'shorter' | 'longer';
+}
+
+const THINKING_TEXT: Record<NonNullable<PoolModelInfo['thinking']>, string> = {
+  lighter: 'lighter thinking',
+  more: 'more thinking',
+  other: 'a different thinking setting',
+};
+
+/**
+ * How the pool asks a tier's model differently, as phrases ("lighter
+ * thinking", "shorter replies"); empty when it asks it the same way. Without
+ * `replies`, the reply length is left out (for copy that states the cap).
+ */
+export function poolModelDifferences(
+  model: PoolModelInfo,
+  opts: { replies?: boolean } = {},
+): string[] {
+  const parts: string[] = [];
+  if (model.thinking) parts.push(THINKING_TEXT[model.thinking]);
+  if (model.replies && opts.replies !== false) parts.push(`${model.replies} replies`);
+  return parts;
+}
+
+/**
+ * The pool's model in copy: the tier's label when the pool asks it the same
+ * way ("Normal") or the model is no tier ("Lite"), else "Normal's model with
+ * lighter thinking and shorter replies" (`poolModelDifferences`).
+ */
+export function poolModelText(model: PoolModelInfo, opts: { replies?: boolean } = {}): string {
+  const parts = poolModelDifferences(model, opts);
+  return parts.length === 0 ? model.label : `${model.label}'s model with ${parts.join(' and ')}`;
+}
+
+/**
  * `GET /api/pool/status` (public, cached for a minute): the pool meter of the
  * landing page and the apps. Aggregates only; no user data.
  */
@@ -100,8 +147,8 @@ export interface PoolStatusResponse {
   availableMicros: number;
   /** About how many learning sessions that covers (`POOL_SESSION_ESTIMATE_MICROS` each). */
   sessionsRemaining: number;
-  /** The one model pool replies use. */
-  model: { id: string; label: string };
+  /** The one model pool replies use, and how the pool asks it (`poolModelText`). */
+  model: PoolModelInfo;
   /** Since Monday 00:00 UTC: pool replies that cost something, and the learners they went to. */
   week: { start: string; exchanges: number; learners: number };
   /**

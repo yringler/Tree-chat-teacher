@@ -122,7 +122,7 @@ describe('/pricing', () => {
     // Why there's a free plan: Tangent's own policy, with its catch, not tied to the reader's purchase.
     expect(html).toContain('<h2 id="why">Why there’s a free plan</h2>');
     expect(html).toContain(
-      'Free replies come from the open pool: credit Tangent sets aside from what it earns. They use the Normal model, have daily limits, and are available only while the pool has credit.',
+      'Free replies come from the open pool: credit Tangent sets aside from what it earns. They use Normal&#39;s model with lighter thinking and shorter replies. They have daily limits and are available only while the pool has credit.',
     );
     expect(html).toContain(
       '<li>Tangent earns money from the credit people buy, like any software business.</li>',

@@ -1,15 +1,26 @@
 // The pool meter (docs/pool/PLAN.md §S6): what `GET /api/pool/status`, the
 // landing page and the apps show about the open pool. Aggregates only:
 // the balance, the sessions it covers and this week's counts, never a user.
-import type { PoolMeResponse, PoolStatusResponse } from '@tangent/shared';
+import {
+  isReasoningModel,
+  type PoolMeResponse,
+  type PoolModelInfo,
+  type PoolStatusResponse,
+  type ReasoningEffort,
+} from '@tangent/shared';
 import { balanceStatement, getBalance, readBalance, type BalanceRow } from '../billing/ledger.js';
 import { appConfig } from '../config.js';
 import type { AccountContext, AppEnv } from '../env.js';
 import { poolAvailable } from '../services.js';
 import { getCached, putCached } from '../share/cache.js';
-import { POOL_MODEL_LABEL, simpleProviderConfig } from '../simple-mode.js';
+import {
+  POOL_MODEL_LABEL,
+  SIMPLE_MAX_OUTPUT_TOKENS,
+  SIMPLE_RESERVED_OUTPUT_TOKENS,
+  simpleProviderConfig,
+} from '../simple-mode.js';
 import { consentVersion } from './consent.js';
-import { poolModel } from './params.js';
+import { poolModel, poolRequest } from './params.js';
 import { dayResetAt, dayStart, userDayUsageStatement, type DayRow } from './pool-bank.js';
 
 /** How long the meter is cached at the edge (`caches.default`) and by browsers. */
@@ -22,16 +33,42 @@ export function weekStart(now: Date): Date {
   return new Date(day.getTime() - sinceMonday * 24 * 60 * 60_000);
 }
 
+/** Reasoning efforts from least to most thinking. */
+const EFFORT_RANK: Readonly<Record<ReasoningEffort, number>> = { none: 0, low: 1, high: 2 };
+
 /**
  * The pool model and its label in the simple provider's list (a tier, when
- * the pool runs one), else `POOL_MODEL_LABEL` (the default pool model, Learn's
- * background model, is no tier).
+ * the pool runs one), else `POOL_MODEL_LABEL` (a pool model Learn doesn't
+ * list is no tier). On a tier's model, how the pool asks it differently
+ * (`PoolModelInfo`): its effort (`POOL_EFFORT`) against the tier's, and its
+ * reply cap (`POOL_MAX_OUTPUT_TOKENS`) against a reply's on the tier (the
+ * tier's cap, within the default for a reasoning or a plain model). By
+ * default the pool runs Normal's model at `low` against Normal's `high`,
+ * with 8,192 tokens against 16,384.
  */
-function poolModelInfo(env: AppEnv): { id: string; label: string } {
+export function poolModelInfo(env: AppEnv): PoolModelInfo {
   const id = poolModel(env);
-  const label =
-    simpleProviderConfig(env).models.find((m) => m.id === id)?.label ?? POOL_MODEL_LABEL;
-  return { id, label };
+  const listed = simpleProviderConfig(env).models.find((m) => m.id === id);
+  if (!listed) return { id, label: POOL_MODEL_LABEL };
+  const info: PoolModelInfo = { id, label: listed.label };
+  const pool = poolRequest(env, id).effort;
+  const tier = listed.effort ?? null;
+  if (pool !== tier) {
+    info.thinking =
+      pool === null || tier === null
+        ? 'other'
+        : EFFORT_RANK[pool] < EFFORT_RANK[tier]
+          ? 'lighter'
+          : 'more';
+  }
+  const reasoning = listed.reasoning ?? isReasoningModel(id);
+  const tierReply = Math.min(
+    listed.maxOutputTokens ?? Infinity,
+    reasoning ? SIMPLE_MAX_OUTPUT_TOKENS : SIMPLE_RESERVED_OUTPUT_TOKENS,
+  );
+  const poolReply = appConfig(env).pool.maxOutputTokens;
+  if (poolReply !== tierReply) info.replies = poolReply < tierReply ? 'shorter' : 'longer';
+  return info;
 }
 
 /**

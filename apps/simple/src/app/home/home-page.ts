@@ -4,6 +4,7 @@ import { RouterLink } from '@angular/router';
 import {
   maxUsageNote,
   poolFundingText,
+  poolModelText,
   tierModel,
   tierOf,
   type PoolStatusResponse,
@@ -100,7 +101,7 @@ import { UiStore } from '../state/ui-store';
           <h2 id="pool-title">Open pool</h2>
           <app-pool-meter [status]="status" />
           <p class="muted small">
-            {{ funding(status) }} Any signed-in learner can use it, on {{ status.model.label }},
+            {{ funding(status) }} Any signed-in learner can use it, on {{ poolModelName(status) }},
             within daily limits. <a href="/pool" target="_blank" rel="noopener">How it works</a>
           </p>
         </section>
@@ -179,6 +180,11 @@ export class HomePage {
   });
 
   /** Where the pool's credit comes from: Tangent's revenue share (`POOL_REVENUE_SHARE_BPS`). */
+  /** The pool's model, as the copy names it (`poolModelText`). */
+  protected poolModelName(status: PoolStatusResponse): string {
+    return poolModelText(status.model);
+  }
+
   protected funding(status: PoolStatusResponse): string {
     return poolFundingText(status.revenueShareBps);
   }
