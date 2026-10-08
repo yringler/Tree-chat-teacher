@@ -11,6 +11,7 @@ import {
   TRUNK_TITLE,
   DEFAULT_REPLY_OUTPUT_TOKENS,
   REASONING_REPLY_OUTPUT_TOKENS,
+  REPLY_CANCELLED_ERROR,
   REPLY_CUT_OFF_ERROR,
   REPLY_EMPTY_ERROR,
   REPLY_THINKING_ONLY_ERROR,
@@ -1210,7 +1211,7 @@ export class ChatService {
         } else {
           terminal = {
             status: 'error',
-            message: event.error.code === 'aborted' ? 'Cancelled' : event.error.message,
+            message: event.error.code === 'aborted' ? REPLY_CANCELLED_ERROR : event.error.message,
           };
         }
       }
@@ -1394,7 +1395,7 @@ export class ChatService {
         } else {
           yield {
             type: 'error',
-            message: event.error.code === 'aborted' ? 'Cancelled' : event.error.message,
+            message: event.error.code === 'aborted' ? REPLY_CANCELLED_ERROR : event.error.message,
           };
           return;
         }

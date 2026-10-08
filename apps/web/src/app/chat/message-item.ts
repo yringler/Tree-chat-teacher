@@ -11,6 +11,7 @@ import {
 import {
   CONTINUE_MESSAGE,
   isCutOffReply,
+  isStoppedReply,
   parseReview,
   splitTangents,
   type Branch,
@@ -167,8 +168,8 @@ import { ReviewVerdict } from '../ui/review-verdict';
         </div>
       } @else if (n.status === 'error') {
         <div class="msg-error-box" role="alert">
-          <strong>{{ n.error === 'cancelled' ? 'Stopped.' : 'The reply failed.' }}</strong>
-          @if (n.error && n.error !== 'cancelled') {
+          <strong>{{ stopped() ? 'Stopped.' : 'The reply failed.' }}</strong>
+          @if (n.error && !stopped()) {
             <span>{{ n.error }}</span>
           }
           <span class="muted small"
@@ -470,6 +471,7 @@ export class MessageItem {
 
   /** A reply cut off at its length limit (stored as an error that keeps its text). */
   protected readonly cutOff = computed(() => isCutOffReply(this.node()));
+  protected readonly stopped = computed(() => isStoppedReply(this.node()));
   /** "Continue" is offered on the open branch's last message, while it can generate. */
   protected readonly canContinue = computed(() => {
     const n = this.node();

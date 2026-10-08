@@ -32,10 +32,18 @@ export const REPLY_THINKING_ONLY_ERROR =
 /** `ChatNode.error` of a reply that finished without any text. */
 export const REPLY_EMPTY_ERROR = 'The model finished without writing an answer. Try again.';
 
+/** `ChatNode.error` of a reply the learner stopped (the call was aborted). */
+export const REPLY_CANCELLED_ERROR = 'Cancelled';
+
 /** What "Continue" sends after a cut-off reply. */
 export const CONTINUE_MESSAGE = 'Please continue where you left off.';
 
 /** Whether `node` is a reply cut off at its length limit with some text kept. */
 export function isCutOffReply(node: Pick<ChatNode, 'status' | 'error'>): boolean {
   return node.status === 'error' && node.error === REPLY_CUT_OFF_ERROR;
+}
+
+/** Whether `node` is a reply the learner stopped. */
+export function isStoppedReply(node: Pick<ChatNode, 'status' | 'error'>): boolean {
+  return node.status === 'error' && node.error === REPLY_CANCELLED_ERROR;
 }

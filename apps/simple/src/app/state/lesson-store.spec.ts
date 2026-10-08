@@ -386,8 +386,8 @@ describe('LessonStore', () => {
         {
           type: 'error',
           nodeId: id,
-          message: 'cancelled',
-          node: { ...replyNode, status: 'error', error: 'cancelled', content: 'Li' },
+          message: 'Cancelled',
+          node: { ...replyNode, status: 'error', error: 'Cancelled', content: 'Li' },
         },
       ]);
       live.close();
@@ -402,7 +402,7 @@ describe('LessonStore', () => {
     expect(s.api.streamNode).not.toHaveBeenCalled();
     const stopped = s.store.index()?.nodes.get('a1');
     expect(stopped?.status).toBe('error');
-    expect(stopped?.error).toBe('cancelled');
+    expect(stopped?.error).toBe('Cancelled');
     expect(stopped?.content).toBe('Li');
     expect(s.store.streamingNode()).toBeNull();
     expect(s.store.busy()).toBe(false);
