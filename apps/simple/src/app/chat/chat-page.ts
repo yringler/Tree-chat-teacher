@@ -164,7 +164,7 @@ export class ChatPage implements OnDestroy {
     );
   });
 
-  /** "Max uses about 3× as much as Normal." while the open branch is on Max (not on the pool). */
+  /** "Max uses about 14× as much as Normal." while the open branch is on Max (not on the pool). */
   protected readonly maxNote = computed(() => {
     const models = this.store.models();
     const b = this.store.selectedBranch();

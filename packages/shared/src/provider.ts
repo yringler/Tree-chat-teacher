@@ -61,7 +61,7 @@ export interface ModelInfo {
   effort?: ReasoningEffort;
   /**
    * OpenRouter only: the upstream providers to try first, in order (slugs such
-   * as `deepseek`), sent as `provider: {order, allow_fallbacks: true}`. Pinning
+   * as `streamlake/fp8`), sent as `provider: {order, allow_fallbacks: true}`. Pinning
    * keeps a model's prompt cache, which each upstream keeps for itself, and
    * its price. Absent or empty = OpenRouter's own routing. Server-side config:
    * not listed to clients.

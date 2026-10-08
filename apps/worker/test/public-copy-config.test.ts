@@ -7,14 +7,15 @@ import type { AppEnv } from '../src/env.js';
 import { uniq } from './mocks/billing-helpers.js';
 import { authEnv, ORIGIN } from './session-client.js';
 
-const NORMAL = 'deepseek/deepseek-v4-pro';
+const NORMAL = 'deepseek/deepseek-v4.1-flash';
 const MAX = 'anthropic/claude-sonnet-5.5';
-const FAST = 'deepseek/deepseek-v4-flash';
+/** The background model: today Normal's model (the pool asks it with less thinking). */
+const FAST = 'deepseek/deepseek-v4.1-flash';
 
 /**
  * As deployed: the real built-in provider (OpenRouter, with web search) with
  * the Normal and Max tiers, the default own-key providers, the pool on its
- * default model (the background model, "Lite"), automatic search, credit sold
+ * default model (the background model, Normal's), automatic search, credit sold
  * (the fake payment provider).
  */
 const BASE: Partial<AppEnv> = {
@@ -158,7 +159,7 @@ describe('read-only power without a membership (the power-read note)', () => {
 });
 
 describe("Learn's tiers", () => {
-  it('Normal and Max, with the pool on Lite', async () => {
+  it("Normal and Max, with the pool on Normal's model (the default)", async () => {
     const pricing = await page('/pricing');
     expect(row(pricing, 'The Max tier, for the hardest questions')).toContain(
       '<td>On your key</td>',
@@ -168,6 +169,16 @@ describe("Learn's tiers", () => {
     );
     const landing = await page('/welcome');
     expect(landing).toContain(
+      '<li>Two tiers: Normal for everyday learning, Max for the hardest questions (the free pool uses Normal)</li>',
+    );
+    // No claim about the old models.
+    expect(`${pricing}${landing}`).not.toMatch(/V4 Pro|V4 Flash|deepseek-v4-(pro|flash)\b/);
+  });
+
+  it('the pool on a background model that is no tier: Lite', async () => {
+    // Its own pool account: the landing page's pool status is cached per account.
+    const env = { SIMPLE_FAST_MODEL: 'deepseek/deepseek-v4-flash', POOL_ACCOUNT_ID: uniq('pool') };
+    expect(await page('/welcome', env)).toContain(
       '<li>Two tiers: Normal for everyday learning, Max for the hardest questions (the free pool uses Lite)</li>',
     );
   });

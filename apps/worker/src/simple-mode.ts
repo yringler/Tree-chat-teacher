@@ -11,12 +11,26 @@ import {
   type ModelTier,
   type ProviderConfig,
 } from '@tangent/shared';
-import { appConfig, type TierRequestConfig } from './config.js';
+import {
+  appConfig,
+  backgroundEffort,
+  DEFAULT_SIMPLE_NORMAL_MODEL,
+  DEFAULT_SIMPLE_MAX_MODEL,
+  DEFAULT_SIMPLE_FAST_MODEL,
+  DEFAULT_TIER_REQUESTS,
+  withTierDefaults,
+  type TierRequestConfig,
+} from './config.js';
 import { groundingSettings } from './billing/grounding.js';
 import type { AppEnv } from './env.js';
 import type { PoolParams } from './pool/params.js';
 
-export { DEFAULT_SIMPLE_MAX_INPUT_TOKENS } from './config.js';
+export {
+  DEFAULT_SIMPLE_FAST_MODEL,
+  DEFAULT_SIMPLE_MAX_INPUT_TOKENS,
+  DEFAULT_SIMPLE_MAX_MODEL,
+  DEFAULT_SIMPLE_NORMAL_MODEL,
+} from './config.js';
 
 /**
  * The built-in provider: the endpoint `openrouter` (BUILT_IN_PROVIDER_ID in
@@ -35,15 +49,6 @@ export { DEFAULT_SIMPLE_MAX_INPUT_TOKENS } from './config.js';
 export { BUILT_IN_PROVIDER_ID };
 /** Learn's provider id: the built-in endpoint (`openrouter`). */
 export const SIMPLE_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
-/** Learn's Normal tier, its default (`SIMPLE_NORMAL_MODEL`). */
-export const DEFAULT_SIMPLE_NORMAL_MODEL = 'deepseek/deepseek-v4-pro';
-/** Learn's Max tier (`SIMPLE_MAX_MODEL`). */
-export const DEFAULT_SIMPLE_MAX_MODEL = 'anthropic/claude-sonnet-5.5';
-/**
- * The background model (`SIMPLE_FAST_MODEL`): Learn's summaries and titles,
- * and the open pool's default model. Not a tier.
- */
-export const DEFAULT_SIMPLE_FAST_MODEL = 'deepseek/deepseek-v4-flash';
 /** What the pool model is called where Learn's config doesn't list it (it is no tier). */
 export const POOL_MODEL_LABEL = 'Lite';
 /** What Learn's own key is: the user's OpenRouter key (cookie entry LEARN_KEY_PROVIDER). */
@@ -90,7 +95,8 @@ function fastModel(env: AppEnv): string {
  * a hard credit limit.
  *
  * The default config's tier models carry their tier's request settings
- * (`SIMPLE_NORMAL_EFFORT`, `_REPLY_TOKENS`, `_PROVIDER_ORDER`, and Max's), so
+ * (`SIMPLE_NORMAL_EFFORT`, `_REPLY_TOKENS`, `_PROVIDER_ORDER`, and Max's;
+ * empty ones are the default model's evaluated settings, `withTierDefaults`), so
  * a tier is a model plus how it is asked, whoever pays (credit or the
  * learner's own key); an override's models carry their own.
  */
@@ -116,7 +122,12 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
     // OpenRouter's web search server tool (grounding, see billing/grounding.ts).
     options: { webSearch: true },
     models: tierModels(env, (tier) => TIER_LABELS[tier]).map((m) =>
-      m.tier ? withRequestConfig(m, appConfig(env).simple[m.tier]) : m,
+      m.tier
+        ? withRequestConfig(
+            m,
+            withTierDefaults(appConfig(env).simple[m.tier], DEFAULT_TIER_REQUESTS[m.tier], m.id),
+          )
+        : m,
     ),
   };
 }
@@ -219,11 +230,12 @@ export function simpleFastModel(
 /** Chat settings for simple accounts: capped input, fixed output reserve, cheap summaries. */
 export function simpleChatSettings(env: AppEnv): ChatSettings {
   const config = simpleProviderConfig(env);
+  const summaryModel = simpleFastModel(env, config);
   return {
     ...DEFAULT_CHAT_SETTINGS,
     summaryProviderId: config.id,
-    summaryModel: simpleFastModel(env, config),
-    summaryEffort: appConfig(env).simple.backgroundEffort,
+    summaryModel,
+    summaryEffort: backgroundEffort(env, summaryModel),
     maxInputTokens: simpleMaxInputTokens(env),
     reservedOutputTokens: SIMPLE_RESERVED_OUTPUT_TOKENS,
     reasoningOutputTokens: SIMPLE_MAX_OUTPUT_TOKENS,

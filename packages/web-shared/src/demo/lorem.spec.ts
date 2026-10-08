@@ -202,11 +202,11 @@ describe('createLoremProvider', () => {
     expect(p.kind).not.toBe('fake'); // the ChatService only auto-titles with real kinds
   });
 
-  it('prices Max at about 3× Normal', () => {
+  it('prices Max at about 14× Normal, like the default tiers', () => {
     const factor = usageFactorOf(
       DEMO_MODEL_PRICES[DEMO_SIMPLE_MODEL]!,
       DEMO_MODEL_PRICES[DEMO_SMART_MODEL]!,
     );
-    expect(factor).toBe(3);
+    expect(factor).toBe(14);
   });
 });

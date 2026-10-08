@@ -166,7 +166,7 @@ export class HomePage {
   protected readonly starting = signal(false);
   /** The learner's pick, else the provider's default (Normal). */
   protected readonly model = computed(() => this.pickedModel() ?? this.store.defaultModel());
-  /** "Max uses about 3× as much as Normal." while Max is picked (not on the pool, which picks for them). */
+  /** "Max uses about 14× as much as Normal." while Max is picked (not on the pool, which picks for them). */
   protected readonly maxNote = computed(() => {
     const models = this.store.models();
     if (this.account.poolModel() || tierOf(models, this.model()) !== 'max') return null;

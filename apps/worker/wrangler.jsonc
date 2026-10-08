@@ -163,26 +163,33 @@
     // Canvas) alike (waivable per user, see MEMBERSHIP_WAIVER_CODE below and the README); Tangent
     // credit, bought or spent, and the open pool never do (src/billing/gate.ts `needsMembership`).
     // The suggested OpenRouter models: Learn's Normal (the default) / Max tiers, listed first in power.
-    // The old SIMPLE_SMART_MODEL is still read as a fallback for Normal (never for Max).
-    "SIMPLE_NORMAL_MODEL": "deepseek/deepseek-v4-pro",
+    // The old SIMPLE_SMART_MODEL is still read as a fallback for Normal (never for Max). The values
+    // below are the code's defaults, from the 2026-10 model eval (docs/DECISIONS.md "Hosted models
+    // from the eval"): one model for Normal and the pool, split by effort, and a top model for Max.
+    "SIMPLE_NORMAL_MODEL": "deepseek/deepseek-v4.1-flash",
     "SIMPLE_MAX_MODEL": "anthropic/claude-sonnet-5.5",
     // Summaries, titles and the open pool's default model (not a tier).
-    "SIMPLE_FAST_MODEL": "deepseek/deepseek-v4-flash",
-    // How each tier asks its model (src/config.ts `TierRequestConfig`); empty = the model's defaults.
-    // *_EFFORT: "none" (thinking off), "low" or "high", sent as OpenRouter's `reasoning`; empty = none
-    // sent. Never "max" (refused). *_REPLY_TOKENS: a reply's output cap, thinking and answer together,
-    // at most 16384; empty = 16384 on a reasoning model, else 4096. *_PROVIDER_ORDER: OpenRouter
-    // provider slugs to try first, comma-separated (e.g. "deepseek"), with fallbacks allowed; one
-    // provider keeps the prompt cache warm (each keeps its own). Empty = OpenRouter's routing.
+    "SIMPLE_FAST_MODEL": "deepseek/deepseek-v4.1-flash",
+    // How each tier asks its model (src/config.ts `TierRequestConfig`). *_EFFORT: "none" (thinking
+    // off), "low" or "high", sent as OpenRouter's `reasoning`. Never "max" (refused).
+    // *_REPLY_TOKENS: a reply's output cap, thinking and answer together, at most 16384.
+    // *_PROVIDER_ORDER: OpenRouter provider slugs to try first, comma-separated, with fallbacks
+    // allowed; one provider keeps the prompt cache warm (each keeps its own). Don't pin "deepseek":
+    // OpenRouter filters DeepSeek's own endpoint out for an account that denies paid-data training,
+    // and the fallbacks then scatter across ~28 providers and lose the cache. Empty = the default
+    // model's settings below while the tier runs it (src/config.ts `DEFAULT_TIER_REQUESTS`), else the
+    // model's own: no effort sent, 16384 on a reasoning model (else 4096), OpenRouter's routing.
     // Ignored with SIMPLE_PROVIDER, whose models carry their own `effort` / `providerOrder`.
-    "SIMPLE_NORMAL_EFFORT": "",
-    "SIMPLE_NORMAL_REPLY_TOKENS": "",
-    "SIMPLE_NORMAL_PROVIDER_ORDER": "",
+    "SIMPLE_NORMAL_EFFORT": "high",
+    "SIMPLE_NORMAL_REPLY_TOKENS": "16384",
+    "SIMPLE_NORMAL_PROVIDER_ORDER": "streamlake/fp8,deepinfra/fp8",
     "SIMPLE_MAX_EFFORT": "",
-    "SIMPLE_MAX_REPLY_TOKENS": "",
+    "SIMPLE_MAX_REPLY_TOKENS": "16384",
     "SIMPLE_MAX_PROVIDER_ORDER": "",
-    // The effort of summaries and titles, in Learn and on the open pool; empty = their model's own.
-    "SIMPLE_FAST_EFFORT": "",
+    // The effort of summaries and titles, in Learn and on the open pool; empty = "low" on the
+    // default background model, else their model's own. They run on Normal's listing of the model
+    // (or the pool's), so they share its pinned providers; there is no SIMPLE_FAST_PROVIDER_ORDER.
+    "SIMPLE_FAST_EFFORT": "low",
     // Full ProviderConfig JSON (id "openrouter"; legacy "tangent" is read as it) for the built-in provider;
     // empty = OpenRouter with the models above.
     "SIMPLE_PROVIDER": "",
@@ -248,12 +255,13 @@
     // Ledger account id of the pool in credit_grants / usage_events (default "pool").
     "POOL_ACCOUNT_ID": "pool",
     // The one model pool replies use; empty = SIMPLE_FAST_MODEL. It must have an entry in the price table.
-    "POOL_MODEL": "",
+    "POOL_MODEL": "deepseek/deepseek-v4.1-flash",
     // The pool model's effort and provider pinning, like SIMPLE_NORMAL_EFFORT / _PROVIDER_ORDER above
-    // (its reply cap is POOL_MAX_OUTPUT_TOKENS). Empty = none sent / OpenRouter's routing; pinning
-    // keeps the pool's `max_price` routing.
-    "POOL_EFFORT": "",
-    "POOL_PROVIDER_ORDER": "",
+    // (its reply cap is POOL_MAX_OUTPUT_TOKENS). Empty = the default model's ("low", StreamLake then
+    // DeepInfra) while the pool runs it, else none sent / OpenRouter's routing; pinning keeps the
+    // pool's `max_price` routing.
+    "POOL_EFFORT": "low",
+    "POOL_PROVIDER_ORDER": "streamlake/fp8,deepinfra/fp8",
     // The locked system prompt of pool replies; empty = SIMPLE_SYSTEM_PROMPT, else the built-in prompt.
     "POOL_SYSTEM_PROMPT": "",
     // The share of Tangent's revenue added to the pool, in bps (2000 = 20%; at most 10000; "0" = none):
@@ -296,11 +304,16 @@
     "POOL_OVERAGE_WINDOW_MS": "86400000",
     "POOL_OVERAGE_MAX_MICROS": "200000",
     // JSON merged over the built-in price table (src/config.ts), micro-USD per million tokens:
-    // {"<model id>": {"in": 100000, "out": 400000, "context": 131072, "feeBps": 550}}. feeBps is
-    // optional (default OPENROUTER_FEE_BPS). A model without a price can't be used by the pool.
-    // A daily cron syncs OpenRouter's list prices of the table's models into D1, replacing the
-    // built-in placeholders; an entry here wins over the synced price (src/pool/model-prices.ts).
-    "MODEL_PRICES": "",
+    // {"<model id>": {"in": 100000, "out": 400000, "context": 131072, "feeBps": 550, "cacheRead": 0,
+    // "cacheWrite": 0}}. feeBps and the cache prices are optional (default OPENROUTER_FEE_BPS; the
+    // input price). A model without a price can't be used by the pool. A daily cron syncs
+    // OpenRouter's list prices of the table's models into D1, replacing the built-in placeholders;
+    // an entry here wins over the synced price (src/pool/model-prices.ts). V4.1 Flash is pinned here
+    // at its pinned providers' price: OpenRouter's model-level list price ($0.0356 in / $1.00 out)
+    // is no route's price, and as the pool's `max_price` it would admit only fp4 endpoints. The sync
+    // still records the list price, and logs `price_override_below_list` (its $1.00 output is above
+    // this $0.60): expected while the pinned providers charge $0.60.
+    "MODEL_PRICES": "{\"deepseek/deepseek-v4.1-flash\":{\"in\":150000,\"out\":600000,\"context\":1048576,\"cacheRead\":3000}}",
     // Impact feed: a topic is named publicly only when at least this many distinct learners touched
     // it in the week (default 5, never below 3); comma-separated topic ids never published; and how
     // many days topic tags outlive their branch's last pool use.

@@ -478,8 +478,9 @@ describe('migrations 0020 and 0021 on a database at the 0019 schema', () => {
         b_learn_trunk: ['openrouter', 'smart', 'own-key'],
         // No account row: unreachable, the same safe value.
         b_orphan_trunk: ['openrouter', 'simple', 'own-key'],
-        // The retired fake: OpenRouter's default model on the user's own key, never credit.
-        b_power_fake: ['openrouter', DEFAULT_SIMPLE_NORMAL_MODEL, 'own-key'],
+        // The retired fake: OpenRouter's default model on the user's own key, never credit. 0021
+        // set the Normal model of its day, V4 Pro; 0025 moves Learn's on to today's Normal.
+        b_power_fake: ['openrouter', 'deepseek/deepseek-v4-pro', 'own-key'],
         b_learn_fake: ['openrouter', DEFAULT_SIMPLE_NORMAL_MODEL, 'own-key'],
       },
     );

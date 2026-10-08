@@ -307,12 +307,12 @@ describe('TierStore switchTier', () => {
 
 describe('tierOptions', () => {
   it('offers Normal then Max, with what Max costs in its hint', () => {
-    expect(tierOptions('Max uses about 3× as much as Normal.')).toEqual([
+    expect(tierOptions('Max uses about 14× as much as Normal.')).toEqual([
       { id: 'normal', label: 'Normal', hint: 'Normal: clear, thorough answers' },
       {
         id: 'max',
         label: 'Max',
-        hint: 'Max: the strongest model. Max uses about 3× as much as Normal.',
+        hint: 'Max: the strongest model. Max uses about 14× as much as Normal.',
       },
     ]);
   });

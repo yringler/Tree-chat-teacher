@@ -2,10 +2,11 @@
 // Max"): the built-in provider's models and their `tier`, the env vars (and the
 // legacy SIMPLE_SMART_MODEL), the background model, the Max usage factor
 // `/api/providers` sends, and migration 0025 for Learn branches on the old
-// cheaper tier.
-import { MAX_USAGE_FACTOR_FALLBACK, type ProviderInfo } from '@tangent/shared';
+// tiers' DeepSeek models.
+import { MAX_USAGE_FACTOR_FALLBACK, usageFactorOf, type ProviderInfo } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_MODEL_PRICES } from '../src/config.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
 import {
@@ -37,20 +38,39 @@ const deployed = (overrides: Partial<AppEnv> = {}) =>
     SIMPLE_FAST_MODEL: '',
     POOL_MODEL: '',
     MODEL_PRICES: '',
+    SIMPLE_NORMAL_EFFORT: '',
+    SIMPLE_NORMAL_REPLY_TOKENS: '',
+    SIMPLE_NORMAL_PROVIDER_ORDER: '',
+    SIMPLE_MAX_EFFORT: '',
+    SIMPLE_MAX_REPLY_TOKENS: '',
+    SIMPLE_MAX_PROVIDER_ORDER: '',
+    SIMPLE_FAST_EFFORT: '',
+    POOL_EFFORT: '',
+    POOL_PROVIDER_ORDER: '',
     ...overrides,
   }) as AppEnv;
+/** V4.1 Flash's pinned providers (config.ts `DEFAULT_TIER_REQUESTS`). */
+const PINNED = ['streamlake/fp8', 'deepinfra/fp8'];
 
 describe("Learn's tiers", () => {
   it('Normal (the default) then Max, tagged with their tier', () => {
     const config = simpleProviderConfig(deployed());
     expect(config.defaultModel).toBe(DEFAULT_SIMPLE_NORMAL_MODEL);
+    // Each with its evaluated request settings (docs/DECISIONS.md "Hosted models from the eval").
     expect(config.models).toEqual([
-      { id: 'deepseek/deepseek-v4-pro', label: 'Normal', tier: 'normal' },
-      { id: 'anthropic/claude-sonnet-5.5', label: 'Max', tier: 'max' },
+      {
+        id: 'deepseek/deepseek-v4.1-flash',
+        label: 'Normal',
+        tier: 'normal',
+        effort: 'high',
+        maxOutputTokens: 16_384,
+        providerOrder: PINNED,
+      },
+      { id: 'anthropic/claude-sonnet-5.5', label: 'Max', tier: 'max', maxOutputTokens: 16_384 },
     ]);
     expect(DEFAULT_SIMPLE_MAX_MODEL).toBe('anthropic/claude-sonnet-5.5');
-    // The background model is no tier: Learn doesn't offer it.
-    expect(config.models.some((m) => m.id === DEFAULT_SIMPLE_FAST_MODEL)).toBe(false);
+    // The background model is no tier, but today it is Normal's model, asked differently.
+    expect(DEFAULT_SIMPLE_FAST_MODEL).toBe(DEFAULT_SIMPLE_NORMAL_MODEL);
   });
 
   it('SIMPLE_NORMAL_MODEL and SIMPLE_MAX_MODEL choose them; one model when they are the same', () => {
@@ -81,10 +101,16 @@ describe("Learn's tiers", () => {
     expect(both.models.map((m) => m.id)).toEqual(['new/normal', DEFAULT_SIMPLE_MAX_MODEL]);
   });
 
-  it('summaries and titles stay on the background model (Flash), never on a tier', () => {
+  it('summaries and titles stay on the background model, at low effort, never on Max', () => {
     expect(simpleFastModel(deployed())).toBe(DEFAULT_SIMPLE_FAST_MODEL);
-    expect(simpleChatSettings(deployed()).summaryModel).toBe(DEFAULT_SIMPLE_FAST_MODEL);
+    const settings = simpleChatSettings(deployed());
+    expect(settings.summaryModel).toBe(DEFAULT_SIMPLE_FAST_MODEL);
+    // Not Normal's `high`, which its listing of the same model carries.
+    expect(settings.summaryEffort).toBe('low');
     expect(simpleFastModel(deployed({ SIMPLE_FAST_MODEL: 'c/fast' }))).toBe('c/fast');
+    // The default effort belongs to the default model.
+    expect(simpleChatSettings(deployed({ SIMPLE_FAST_MODEL: 'c/fast' })).summaryEffort).toBeNull();
+    expect(simpleChatSettings(deployed({ SIMPLE_FAST_EFFORT: 'none' })).summaryEffort).toBe('none');
   });
 
   it('a SIMPLE_PROVIDER override: its default is Normal unless it names tiers; its background model', () => {
@@ -169,13 +195,21 @@ describe("Learn's tiers", () => {
     ]);
   });
 
-  it('the pool runs the background model by default, labelled Lite', async () => {
+  it("the pool runs the background model by default: Normal's model, asked the pool's way", async () => {
     const e = deployed({ POOL_ACCOUNT_ID: uniq('pool') });
     const pool = await resolvePoolParams(e, null);
     expect(pool.model).toBe(DEFAULT_SIMPLE_FAST_MODEL);
+    expect(pool).toMatchObject({ effort: 'low', providerOrder: PINNED, summaryEffort: 'low' });
     expect(poolProviderConfig(e, pool).models).toEqual([
-      { id: DEFAULT_SIMPLE_FAST_MODEL, label: POOL_MODEL_LABEL },
+      { id: DEFAULT_SIMPLE_FAST_MODEL, label: 'Normal', effort: 'low', providerOrder: PINNED },
     ]);
+  });
+
+  it('a pool model Learn does not list is labelled Lite, with its own defaults', async () => {
+    const e = deployed({ POOL_ACCOUNT_ID: uniq('pool'), SIMPLE_FAST_MODEL: 'c/fast' });
+    const pool = await resolvePoolParams(e, null);
+    expect(pool).toMatchObject({ model: 'c/fast', effort: null, providerOrder: [] });
+    expect(poolProviderConfig(e, pool).models).toEqual([{ id: 'c/fast', label: POOL_MODEL_LABEL }]);
     expect(POOL_MODEL_LABEL).toBe('Lite');
   });
 });
@@ -206,14 +240,20 @@ describe('the Max usage factor', () => {
       ),
     });
 
-  it('is set on the Max model from the two prices: about 3 for V4 Pro and Sonnet 5.5', async () => {
+  it('is set on the Max model from the two prices: about 14 for V4.1 Flash and Sonnet 5.5', async () => {
     const [info] = await withUsageFactors(deployed(), [
       tiers(DEFAULT_SIMPLE_NORMAL_MODEL, DEFAULT_SIMPLE_MAX_MODEL),
     ]);
     expect(info!.models).toEqual([
       { id: DEFAULT_SIMPLE_NORMAL_MODEL, label: 'Normal', tier: 'normal' },
-      { id: DEFAULT_SIMPLE_MAX_MODEL, label: 'Max', tier: 'max', usageFactor: 3 },
+      { id: DEFAULT_SIMPLE_MAX_MODEL, label: 'Max', tier: 'max', usageFactor: 14 },
     ]);
+  });
+
+  it("the fallback is the default models' factor from the built-in prices", () => {
+    const normal = DEFAULT_MODEL_PRICES[DEFAULT_SIMPLE_NORMAL_MODEL]!;
+    const max = DEFAULT_MODEL_PRICES[DEFAULT_SIMPLE_MAX_MODEL]!;
+    expect(usageFactorOf(normal, max)).toBe(MAX_USAGE_FACTOR_FALLBACK);
   });
 
   it('follows the price table', async () => {
@@ -245,8 +285,8 @@ describe('the Max usage factor', () => {
   });
 });
 
-describe('migration 0025 (Learn branches on the old cheaper tier)', () => {
-  it('moves Learn branches on Flash to Pro, and leaves power branches and history alone', async () => {
+describe("migration 0025 (Learn branches on the old tiers' DeepSeek models)", () => {
+  it('moves Learn branches on V4 Flash and V4 Pro to Normal, and leaves power branches and history alone', async () => {
     const migrations = (
       env as unknown as { TEST_MIGRATIONS: { name: string; queries: string[] }[] }
     ).TEST_MIGRATIONS;
@@ -270,8 +310,24 @@ describe('migration 0025 (Learn branches on the old cheaper tier)', () => {
         .run();
     }
     const FLASH = 'deepseek/deepseek-v4-flash';
+    const PRO = 'deepseek/deepseek-v4-pro';
+    expect(DEFAULT_SIMPLE_NORMAL_MODEL).toBe('deepseek/deepseek-v4.1-flash');
     const rows = [
       { account: learn, provider: 'openrouter', model: FLASH, want: DEFAULT_SIMPLE_NORMAL_MODEL },
+      { account: learn, provider: 'openrouter', model: PRO, want: DEFAULT_SIMPLE_NORMAL_MODEL },
+      {
+        account: learn,
+        provider: 'openrouter',
+        model: DEFAULT_SIMPLE_NORMAL_MODEL,
+        want: DEFAULT_SIMPLE_NORMAL_MODEL,
+      },
+      // Another DeepSeek model (e.g. from an import) is not the migration's to move.
+      {
+        account: learn,
+        provider: 'openrouter',
+        model: 'deepseek/deepseek-v4-pro-0813',
+        want: 'deepseek/deepseek-v4-pro-0813',
+      },
       {
         account: learn,
         provider: 'openrouter',
@@ -279,6 +335,7 @@ describe('migration 0025 (Learn branches on the old cheaper tier)', () => {
         want: DEFAULT_SIMPLE_MAX_MODEL,
       },
       { account: power, provider: 'openrouter', model: FLASH, want: FLASH },
+      { account: power, provider: 'openrouter', model: PRO, want: PRO },
       { account: power, provider: 'anthropic', model: 'claude-opus-5-5', want: 'claude-opus-5-5' },
     ];
     const ids: { branch: string; node: string }[] = [];

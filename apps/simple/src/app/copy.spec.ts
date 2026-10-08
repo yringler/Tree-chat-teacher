@@ -62,6 +62,8 @@ describe('Learn copy rule (membership)', () => {
 describe('Learn copy rule (Normal and Max)', () => {
   it('Max says how much more it uses than Normal, where it can be picked', () => {
     expect(maxUsageNote(3)).toBe('Max uses about 3× as much as Normal.');
+    // The default tiers' prices give a two-digit factor (about 14).
+    expect(maxUsageNote(14)).toBe('Max uses about 14× as much as Normal.');
     expect(maxUsageNote(undefined)).toContain('more than Normal');
     expect(templateOf(HomePage)).toContain('<p class="tier-note" role="status">{{ note }}</p>');
   });

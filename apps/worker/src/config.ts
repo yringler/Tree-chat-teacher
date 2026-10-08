@@ -41,6 +41,100 @@ export const DEFAULT_MEMBERSHIP_PRICE_CENTS = 1000;
 export const DEFAULT_MEMBERSHIP_CREDIT_CENTS = 0;
 export const DEFAULT_SIMPLE_MAX_INPUT_TOKENS = 60_000;
 
+// ---- The hosted models (docs/DECISIONS.md "Hosted models from the eval")
+
+/** Learn's Normal tier, its default (`SIMPLE_NORMAL_MODEL`). */
+export const DEFAULT_SIMPLE_NORMAL_MODEL = 'deepseek/deepseek-v4.1-flash';
+/** Learn's Max tier (`SIMPLE_MAX_MODEL`). */
+export const DEFAULT_SIMPLE_MAX_MODEL = 'anthropic/claude-sonnet-5.5';
+/**
+ * The background model (`SIMPLE_FAST_MODEL`): Learn's summaries and titles,
+ * and the open pool's default model. Not a tier, though today it is the same
+ * model as Normal, asked differently.
+ */
+export const DEFAULT_SIMPLE_FAST_MODEL = 'deepseek/deepseek-v4.1-flash';
+
+/**
+ * Where V4.1 Flash is pinned: StreamLake, then DeepInfra, both fp8 and both
+ * caching. Not `deepseek` (first-party): OpenRouter drops it for an account
+ * that denies paid-data training, and the fallbacks then scatter across
+ * about 28 providers, fp4 ones included, and lose the prompt cache.
+ */
+const V4_1_FLASH_PROVIDER_ORDER: readonly string[] = ['streamlake/fp8', 'deepinfra/fp8'];
+
+/** How a hosted tier asks its default model when the tier's vars are empty. */
+export interface DefaultTierRequest {
+  /** The default model these settings are for. */
+  model: string;
+  request: TierRequestConfig;
+}
+
+/**
+ * The evaluated settings of each hosted tier's default model (wrangler.jsonc
+ * sets the same values): what an empty `*_EFFORT`, `SIMPLE_*_REPLY_TOKENS` or
+ * `*_PROVIDER_ORDER` means while the tier runs that model (`withTierDefaults`).
+ * A tier moved to another model starts from that model's own defaults (no
+ * effort sent, the default cap, OpenRouter's routing): an effort or a pinned
+ * provider tuned for one model says nothing about another. The pool's reply
+ * cap is `POOL_MAX_OUTPUT_TOKENS` (8,192), whatever its model.
+ */
+export const DEFAULT_TIER_REQUESTS: Readonly<
+  Record<'normal' | 'max' | 'pool', DefaultTierRequest>
+> = {
+  normal: {
+    model: DEFAULT_SIMPLE_NORMAL_MODEL,
+    request: {
+      effort: 'high',
+      maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS,
+      providerOrder: V4_1_FLASH_PROVIDER_ORDER,
+    },
+  },
+  max: {
+    model: DEFAULT_SIMPLE_MAX_MODEL,
+    request: { effort: null, maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS, providerOrder: [] },
+  },
+  pool: {
+    model: DEFAULT_SIMPLE_FAST_MODEL,
+    request: { effort: 'low', maxOutputTokens: null, providerOrder: V4_1_FLASH_PROVIDER_ORDER },
+  },
+};
+
+/**
+ * The effort of summaries and titles on the default background model when
+ * `SIMPLE_FAST_EFFORT` is empty. Without one they would run at the effort of
+ * the model's listing, which on V4.1 Flash is Normal's `high`.
+ */
+export const DEFAULT_BACKGROUND_EFFORT: { model: string; effort: ReasoningEffort } = {
+  model: DEFAULT_SIMPLE_FAST_MODEL,
+  effort: 'low',
+};
+
+/**
+ * `request` (parsed from a tier's vars) with `defaults` filling each empty
+ * setting, while the tier runs the defaults' model; unchanged on any other.
+ */
+export function withTierDefaults(
+  request: TierRequestConfig,
+  defaults: DefaultTierRequest,
+  model: string,
+): TierRequestConfig {
+  if (model !== defaults.model) return request;
+  return {
+    effort: request.effort ?? defaults.request.effort,
+    maxOutputTokens: request.maxOutputTokens ?? defaults.request.maxOutputTokens,
+    providerOrder:
+      request.providerOrder.length > 0 ? request.providerOrder : defaults.request.providerOrder,
+  };
+}
+
+/** `SIMPLE_FAST_EFFORT`, else `DEFAULT_BACKGROUND_EFFORT` while background calls run its model. */
+export function backgroundEffort(env: AppEnv, model: string): ReasoningEffort | null {
+  return (
+    appConfig(env).simple.backgroundEffort ??
+    (model === DEFAULT_BACKGROUND_EFFORT.model ? DEFAULT_BACKGROUND_EFFORT.effort : null)
+  );
+}
+
 /** The open pool's ledger account id (`POOL_ACCOUNT_ID`). */
 export const DEFAULT_POOL_ACCOUNT_ID = 'pool';
 /**
@@ -75,14 +169,28 @@ export interface ModelPrice {
 }
 
 /**
- * Placeholder prices of the default pool models, of Learn's tiers, Normal
- * and Max, which the Max usage note compares (tiers.ts `withUsageFactors`),
- * and of a fallback candidate: OpenRouter list prices when they were added. The daily price sync
+ * Placeholder prices of the default pool model, of Learn's tiers, Normal
+ * and Max, which the Max usage note compares (tiers.ts `withUsageFactors`;
+ * `MAX_USAGE_FACTOR_FALLBACK` is their factor), of the previous defaults and
+ * of a fallback candidate: OpenRouter list prices when they were added, or
+ * (V4.1 Flash) the price of its pinned providers. The daily price sync
  * (pool/model-prices.ts) replaces them with OpenRouter's current list prices;
  * `MODEL_PRICES` overrides or extends them, and an override also wins over
  * the synced price.
  */
 export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
+  // Normal and the pool. The price of StreamLake (and DeepSeek's own): $0.15 / $0.60, cache
+  // read $0.003. OpenRouter's model-level list price ($0.0356 / $1.00) is no route's price, and
+  // as the pool's `max_price` it would admit only fp4 endpoints, so wrangler.jsonc repeats this
+  // entry in `MODEL_PRICES`, where it wins over the daily sync (docs/DECISIONS.md "Hosted
+  // models from the eval").
+  'deepseek/deepseek-v4.1-flash': {
+    inMicrosPerMTok: 150_000,
+    outMicrosPerMTok: 600_000,
+    contextTokens: 1_048_576,
+    cacheReadMicrosPerMTok: 3_000,
+  },
+  // The previous pool and Normal models, priced so moving back is a config change.
   'deepseek/deepseek-v4-flash': {
     inMicrosPerMTok: 100_000,
     outMicrosPerMTok: 400_000,
@@ -148,9 +256,11 @@ export interface PoolOverage {
 
 /**
  * How one hosted tier asks its model (`SIMPLE_NORMAL_*`, `SIMPLE_MAX_*`,
- * `POOL_*`); the tier's model is resolved by the caller (simple-mode.ts,
- * pool/params.ts). Every default is today's behaviour: no effort sent, the
- * default output cap, OpenRouter's own routing.
+ * `POOL_*`), as parsed: an empty var is null (or no providers). The tier's
+ * model is resolved by the caller (simple-mode.ts, pool/params.ts), which
+ * fills the empty settings from `DEFAULT_TIER_REQUESTS` while the tier runs
+ * its default model (`withTierDefaults`); on any other model they stay
+ * empty: no effort sent, the default output cap, OpenRouter's own routing.
  */
 export interface TierRequestConfig {
   /** `*_EFFORT`: `none`, `low` or `high` (never `max`); null = send none, the model's default. */
@@ -251,7 +361,7 @@ export interface AppConfig {
     max: TierRequestConfig;
     /**
      * `SIMPLE_FAST_EFFORT`: the effort of summaries and titles, in Learn and on
-     * the open pool (null = their model's own).
+     * the open pool, as parsed (null = empty: `backgroundEffort` resolves it).
      */
     backgroundEffort: ReasoningEffort | null;
   };

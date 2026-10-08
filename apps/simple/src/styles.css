@@ -759,7 +759,7 @@ app-related-links.connections {
   margin: 0 auto 8px;
 }
 
-/* "Max uses about 3× as much as Normal." while the open branch is on Max. */
+/* "Max uses about 14× as much as Normal." while the open branch is on Max. */
 .composer-dock .tier-note {
   display: block;
   max-width: var(--col);
