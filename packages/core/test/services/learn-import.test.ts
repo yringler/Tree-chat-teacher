@@ -1,6 +1,7 @@
 import type { TreeBackup, TreeDetail } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { ChatService, DEFAULT_CHAT_SETTINGS } from '../../src/services/chat-service.js';
+import { ANCHOR_HEADING } from '../../src/context/render.js';
 import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
 import { registryOf, ScriptedProvider, send } from './helpers.js';
 
@@ -133,7 +134,7 @@ describe('importing into Learn (adaptImportsForLearn)', () => {
     expect(call.messages.map((m) => m.content)).toEqual([
       'What is a prime?',
       'reply to: What is a prime?',
-      'Why two?',
+      `${ANCHOR_HEADING}\n\n<excerpt>\ntwo divisors\n</excerpt>\n\nWhy two?`,
     ]);
     expect(ant.calls).toHaveLength(before);
     expect(credit.calls).toHaveLength(0);

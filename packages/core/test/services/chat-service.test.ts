@@ -261,7 +261,8 @@ describe('ChatService sending', () => {
     await send(chat, b.id, 'fresh start');
     const call = provider.chatCalls().at(-1)!;
     expect(JSON.stringify(call)).not.toContain('SECRET-ROOT');
-    expect(call.system ?? '').toContain('topic quote');
+    expect(call.system ?? '').not.toContain('topic quote');
+    expect(call.messages[0]?.content).toContain('<excerpt>\ntopic quote\n</excerpt>');
   });
 
   it('summary branches generate, cache and reuse summaries', async () => {

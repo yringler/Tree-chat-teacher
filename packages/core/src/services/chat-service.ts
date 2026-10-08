@@ -785,12 +785,8 @@ export class ChatService {
     };
   }
 
-  /** With a locked system prompt, anchor quotes stay out of the system channel. */
   private renderOptions(supportsSystemPrompt: boolean): RenderOptions {
-    return {
-      supportsSystemPrompt,
-      anchorsAsUserText: this.deps.systemPromptOverride !== undefined,
-    };
+    return { supportsSystemPrompt };
   }
 
   /** The model generations on `branch` use: the pinned one, else the branch's. */

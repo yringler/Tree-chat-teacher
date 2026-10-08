@@ -14,12 +14,6 @@ export interface RenderOptions {
   supportsSystemPrompt: boolean;
   /** Appended as the last system section (e.g. grounding instructions); folded like the rest. */
   extraSystem?: string;
-  /**
-   * Render anchor quotes as quoted user-turn text instead of system sections
-   * (the open pool, whose system channel holds only its locked prompt
-   * and summaries). Default false.
-   */
-  anchorsAsUserText?: boolean;
 }
 
 export const SUMMARY_HEADING = '## Summary of the earlier conversation';
@@ -28,10 +22,13 @@ export const CONTINUATION_MESSAGE = '(Conversation continues.)';
 
 /**
  * Plan → provider-agnostic prompt.
- * - system: tree system prompt, system nodes, summaries and anchor quotes, in
- *   segment order, as labelled sections (anchor quotes join the messages as
- *   user text instead with `anchorsAsUserText`);
- * - messages: ancestor + branch message segments in order; consecutive
+ * - system: tree system prompt, system nodes and summaries, in segment order,
+ *   as labelled sections;
+ * - messages: ancestor + branch message segments in order, with a branch's
+ *   anchor quote as quoted user text where it occurs (not in the system
+ *   prompt, so sibling branches with different quotes share the cached prefix
+ *   up to their branch point, and a client-set quote never reads as
+ *   instructions); consecutive
  *   same-role messages are merged; a leading assistant message gets a
  *   synthetic user message in front so the list starts with `user`;
  * - when `supportsSystemPrompt` is false the system text is prepended to the
@@ -51,8 +48,7 @@ export function renderPlan(plan: ContextPlan, options: RenderOptions): RenderedP
           systemParts.push(`${SUMMARY_HEADING}\n\n${seg.text}`);
         break;
       case 'anchor':
-        if (options.anchorsAsUserText) pushMessage(messages, 'user', quotedAnchor(seg.text));
-        else systemParts.push(`${ANCHOR_HEADING}\n\n${seg.text}`);
+        pushMessage(messages, 'user', quotedAnchor(seg.text));
         break;
       case 'ancestor':
       case 'branch': {
