@@ -30,11 +30,13 @@ export type NodeStatus = 'streaming' | 'complete' | 'error';
  * - `path`: whatever the parent branch sent at the branch point (transitively),
  *   i.e. the full root→node path unless an ancestor branch narrowed it.
  * - `summary`: a generated summary of that parent context, plus the anchor quote.
+ * - `message`: only the branch-point message itself, plus the anchor quote.
  * - `independent`: nothing from ancestors; only the anchor quote / topic.
  */
-export type ContextMode = 'path' | 'summary' | 'independent';
+export type ContextMode = 'path' | 'summary' | 'message' | 'independent';
 
-export const CONTEXT_MODES: readonly ContextMode[] = ['path', 'summary', 'independent'];
+/** Ordered from the most inherited context to the least. */
+export const CONTEXT_MODES: readonly ContextMode[] = ['path', 'summary', 'message', 'independent'];
 
 /**
  * Who pays for a branch's model calls in power mode (its provider id names

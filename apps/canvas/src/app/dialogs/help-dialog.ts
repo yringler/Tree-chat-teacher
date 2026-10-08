@@ -19,6 +19,10 @@ import { UiStore } from '../state/ui-store';
         <dd>
           <strong>Summary.</strong> The lane inherits a generated summary of the parent context.
         </dd>
+        <dt><span class="legend-line legend-message"></span></dt>
+        <dd>
+          <strong>Parent message.</strong> Only the message it forks from and the quote come along.
+        </dd>
         <dt><span class="legend-line legend-independent"></span></dt>
         <dd>
           <strong>Independent.</strong> The cut marks a fresh start: only the quote comes along.

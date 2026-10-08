@@ -79,7 +79,9 @@ export const branches = sqliteTable(
       .references(() => trees.id, { onDelete: 'cascade' }),
     parentBranchId: text('parent_branch_id'),
     branchPointNodeId: text('branch_point_node_id'),
-    contextMode: text('context_mode', { enum: ['path', 'summary', 'independent'] }).notNull(),
+    contextMode: text('context_mode', {
+      enum: ['path', 'summary', 'message', 'independent'],
+    }).notNull(),
     anchorQuote: text('anchor_quote'),
     title: text('title').notNull(),
     titleSource: text('title_source', { enum: ['default', 'auto', 'user'] }).notNull(),

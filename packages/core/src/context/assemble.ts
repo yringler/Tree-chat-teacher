@@ -112,6 +112,9 @@ export function assembleContext(input: AssembleInput): ContextPlan {
       } else if (branch.contextMode === 'summary') {
         const summary = branchSummary(ctx, branch, parent, effective);
         if (summary) next.push(summary);
+      } else if (branch.contextMode === 'message') {
+        const point = branchPointSegment(ctx, branch, parent, ownNodes[i - 1]!);
+        if (point) next.push(point);
       }
       const anchor = anchorSegment(ctx, branch);
       if (anchor) next.push(anchor);
@@ -347,6 +350,30 @@ function nodeSegment(ctx: Ctx, node: ChatNode, branch: Branch, isTarget: boolean
     role: node.role,
     nodeId: node.id,
     text: node.content,
+  };
+}
+
+/**
+ * The branch-point message of a `message`-mode branch, or null when it is not
+ * sent (an in-flight or failed reply). `parentOwn` is the parent's own path
+ * nodes, which end at the branch point unless it was skipped.
+ */
+function branchPointSegment(
+  ctx: Ctx,
+  branch: Branch,
+  parent: Branch,
+  parentOwn: readonly ChatNode[],
+): Draft | null {
+  const node = parentOwn.at(-1);
+  if (!node || node.id !== branch.branchPointNodeId) return null;
+  const segment = nodeSegment(ctx, node, parent, false);
+  if (segment.kind !== 'ancestor') return segment;
+  return {
+    ...segment,
+    reason: 'branch-point-message',
+    explanation:
+      `The message in ${quoted(parent.title)} that ${quoted(branch.title)} branched from, ` +
+      'because it uses parent-message mode',
   };
 }
 

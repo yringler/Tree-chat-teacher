@@ -14,6 +14,8 @@ export type InclusionReason =
   | 'system-node'
   /** A message from an ancestor branch, inherited through `path` mode. */
   | 'path-ancestor'
+  /** The message a `message`-mode branch was created from. */
+  | 'branch-point-message'
   /** A message of the target's own branch, at or before the target. */
   | 'branch-message'
   /** Summary of the parent context, because the branch uses `summary` mode. */

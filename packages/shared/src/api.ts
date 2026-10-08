@@ -311,7 +311,12 @@ export interface TreeDetail {
 }
 
 const id = z.string().min(1).max(64);
-const contextMode = z.enum(['path', 'summary', 'independent']) satisfies z.ZodType<ContextMode>;
+const contextMode = z.enum([
+  'path',
+  'summary',
+  'message',
+  'independent',
+]) satisfies z.ZodType<ContextMode>;
 const groundingMode = z.enum(['off', 'auto', 'always']) satisfies z.ZodType<GroundingMode>;
 const citationSchema = z.object({
   url: z.string().max(2048),

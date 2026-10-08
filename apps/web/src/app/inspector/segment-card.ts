@@ -5,6 +5,7 @@ const REASONS: Record<InclusionReason, string> = {
   'tree-system-prompt': 'system prompt',
   'system-node': 'system message',
   'path-ancestor': 'inherited (path)',
+  'branch-point-message': 'parent message',
   'branch-message': 'this branch',
   'branch-summary': 'branch summary',
   'budget-compaction': 'compaction',
