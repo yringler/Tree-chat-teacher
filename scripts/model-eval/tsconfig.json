@@ -1,0 +1,12 @@
+{
+  "//": "Type-check only: pnpm exec tsc -p scripts/model-eval. Node runs the .ts files directly (type stripping); @types/node comes from apps/e2e.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "typeRoots": ["../../apps/e2e/node_modules/@types"],
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true
+  },
+  "include": ["*.ts"]
+}
