@@ -33,7 +33,7 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 - **Whether search is offered.** A free check on the server offers it when a reply likely needs it: two or more tangents deep, a specific fact (a date, a figure, "who invented…"), something recent, or sources asked for. The model then decides whether to search, at most once per reply.
 - **What a grounded reply shows.** It cites its claims as links and lists its sources under the message ("Checked against 3 sources"); shares and exports list them too. An unchecked reply says "From the tutor's own knowledge", with a **Check sources** button that runs a search and adds the corrected, cited answer to the conversation.
 - **What it costs.** A reply that searches costs about $0.007 more at OpenRouter (checked on live calls, 2026-10), and it is part of the cost OpenRouter reports for the reply, so on Tangent credit it is billed like the reply, and on your own key OpenRouter bills you (see [How pricing works](#how-pricing-works)).
-- **Configuration.** The `GROUNDING*` vars in [Configuration](#configuration); migration `0022_grounding` adds the columns. Power mode also has a per-branch setting in branch settings (**Check facts with web search**: when likely needed, on every reply, or off).
+- **Configuration.** The `GROUNDING*` vars in [Configuration](#configuration). Power mode also has a per-branch setting in branch settings (**Check facts with web search**: when likely needed, on every reply, or off).
 
 ### Experimental: Canvas (for the brave)
 
@@ -218,6 +218,12 @@ To set it up (once):
 
 Runtime secrets and variables are unaffected: they live on the Worker, not in GitHub. The manual `pnpm db:migrate:remote` and `pnpm run deploy` still work.
 
+### Database migrations
+
+`apps/worker/migrations` starts from one baseline, `0000_baseline.sql`, which creates the whole schema of `apps/worker/src/db/schema.ts` from nothing. A schema change is an edit to `schema.ts` plus the migration drizzle-kit writes for it (`pnpm --filter @tangent/worker db:generate`, then commit the `.sql` and its `meta/` snapshot together); `pnpm lint` fails while `schema.ts` has a change no migration has (`scripts/check-migrations.mjs`). `pnpm db:migrate:remote` (or the deploy job) applies the new ones; wrangler records them in the database's `d1_migrations` table.
+
+A database created before the baseline (migrations `0000_init` to `0026_model_windows`) is converted once with `apps/worker/scripts/d1-baseline/convert.sql` before the first deploy of the baseline: [docs/runbooks/d1-baseline.md](docs/runbooks/d1-baseline.md). Without that, `migrations apply` stops on the existing tables (`table account_settings already exists`) and nothing is changed. A database older than `0026` is first migrated with the commit before the baseline.
+
 ### Sign-in (required)
 
 Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Google, GitHub, a magic link by email, or a passkey. The Worker **fails closed**: every `/api/*` request returns 500 until `BETTER_AUTH_SECRET` is set. Once it is, **anyone can sign up** with a verified email; Turnstile and the rate limits on magic links bound abuse.
@@ -257,11 +263,11 @@ Sign-in uses [Better Auth](https://better-auth.com) with **no passwords**: Googl
    curl -i https://tangent.example.com/s/does-not-exist   # 404 page from the Worker (shares are public)
    ```
 
-**Upgrading from the Cloudflare Access setup:** run `pnpm db:migrate:remote` (migration `0002_auth` adds the sign-in tables), set the secrets and vars above, deploy, then delete both Access applications ("Tangent" and "Tangent shares") in Zero Trust. Until they are deleted, Access still sits in front of the app.
+**Upgrading from the Cloudflare Access setup:** migrate ([Database migrations](#database-migrations)), set the secrets and vars above, deploy, then delete both Access applications ("Tangent" and "Tangent shares") in Zero Trust. Until they are deleted, Access still sits in front of the app.
 
 **Upgrading from the allowlist (`ALLOWED_EMAILS`, `OPEN_SIGNUP`):** sign-up is now open, and allowlisted users no longer share the `default` account.
 
-1. Migrate: `pnpm db:migrate:remote` (migration `0005_accounts_per_mode` lets each user have a power and a Learn account, and `0006_account_settings` stores each account's default system prompt).
+1. Migrate ([Database migrations](#database-migrations)): each user then has a power and a Learn account.
 2. Deploy: `pnpm run deploy`.
 3. Remove the old allowlist: `npx wrangler secret delete ALLOWED_EMAILS`. (`OPEN_SIGNUP` is gone from `wrangler.jsonc`.)
 
@@ -320,7 +326,7 @@ Payments go through [Polar](https://polar.sh), the **merchant of record**: Polar
    ```bash
    npx wrangler secret put MEMBERSHIP_WAIVER_CODE
    ```
-5. **Migrate and deploy.** Migration `0003_billing` adds the billing tables, `0004_fees` the fee columns, `0007_membership` the waiver flag, `0010_pool_ledger` the open pool's ledger columns, `0011_pool_access` its per-user access columns (suspension, Turnstile pass, pool identity) and the pool identity tables that survive account deletion, `0012_pool_consent_tags` the pool notice acknowledgments and topic tags, `0013_pool_impact` the weekly impact snapshots and the topic review queue, `0014_model_prices` the synced model price table and its history, `0015_polar_neutral` the provider-neutral ledger key (`provider_ref`) and the `billing_customers` and `billing_subscriptions` tables, `0016_drop_stripe` removes the previous processor's tables, `0017_pool_revenue_share` indexes the personal charges the pool's daily revenue share sums, and `0018_payment_ref` links each refund, dispute and reinstatement to its payment, so together they never take back more than it granted, `0019_member_tier` renames the pool's higher tier on past rows (`supporter` → `member`), `0024_model_cache_prices` adds the synced prompt-cache prices (nullable columns on `model_prices` and its history), `0025_learn_tiers` moves Learn branches left on Flash to Normal (Pro), and `0026_model_windows` adds `model_windows`, the real context window and output limit of every model OpenRouter lists, filled by the daily price sync (until its first run after the deploy, OpenRouter models without a price entry keep the 128,000-token default). The cron triggers (`*/10 * * * *` and the daily `23 3 * * *` in `wrangler.jsonc`) deploy with the Worker.
+5. **Migrate and deploy** ([Database migrations](#database-migrations)): the billing and pool tables are in the baseline migration. The cron triggers (`*/10 * * * *` and the daily `23 3 * * *` in `wrangler.jsonc`) deploy with the Worker.
    ```bash
    pnpm db:migrate:remote
    pnpm run deploy
