@@ -17,7 +17,7 @@
   // Builds the Angular apps into ./site (root `pnpm build`) before every `wrangler deploy` and
   // `wrangler dev`, so a bare `wrangler deploy` can't ship the empty assets directory: that serves
   // the Worker alone, and /learn/*, /canvas/*, /admin/*, /login and every asset 404. Under `wrangler dev` it reruns when
-  // the apps' sources change. Workers Builds ignores this key: see "Deploying from Git" in the README.
+  // the apps' sources change. The GitHub deploy relies on it too (README, "Deploying from Git").
   "build": {
     "command": "pnpm -w build",
     "watch_dir": [
@@ -67,8 +67,10 @@
     {
       "binding": "DB",
       "database_name": "tangent",
-      // D1 database "tangent" on the owner's account. Apply new migrations (./migrations) with
-      // `pnpm db:migrate:remote` before deploying code that needs them.
+      // D1 database "tangent" on the owner's account. The deploy job (.github/workflows/ci.yml)
+      // applies new migrations (./migrations) just before it deploys, so each one must also work
+      // with the code still running: expand first, contract in a later release (README,
+      // "Deploying from Git"). By hand: `pnpm db:migrate:remote`, then deploy.
       "database_id": "6f9486ed-e5fd-4dfa-b434-10274a650297",
       "migrations_dir": "migrations",
     },
