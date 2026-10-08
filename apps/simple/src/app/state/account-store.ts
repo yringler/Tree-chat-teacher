@@ -250,7 +250,10 @@ export class AccountStore {
 
   private useMembership(membership: MembershipInfo): void {
     this.membership.set(membership);
-    this.payment.member.set(!membershipBlocks(membership));
+    const member = !membershipBlocks(membership);
+    this.payment.member.set(member);
+    // A membership active again (renewed, a waiver redeemed) outranks an earlier refusal.
+    if (member) this.gateForced.set(false);
   }
 
   /** Re-reads the balance and membership; failures keep the last known value. */
