@@ -1,11 +1,10 @@
 // Shared set-up of the open pool's HTTP tests:
 // a signed-in Learn user whose requests go to a pool of their own, so no two
 // tests share a pool balance or its caps.
-import { POOL_NOTICE_VERSION, type MeResponse } from '@tangent/shared';
+import type { MeResponse } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { expect } from 'vitest';
 import type { AppEnv } from '../src/env.js';
-import { recordConsent } from '../src/pool/consent.js';
 import { markPoolVerified } from '../src/pool/identity.js';
 import { uniq } from './mocks/billing-helpers.js';
 import { authEnv, client } from './session-client.js';
@@ -56,8 +55,6 @@ export async function poolAccess(userId: string) {
  * are verified for the pool (`pool_verified_at`, `pool_identity`; set here if
  * the env had the pool off) unless `verified: false` clears it again (an
  * account from before the check).
- * They have acknowledged the current pool notice (`pool_consents`) unless
- * `consent: false` (a user who never saw it).
  * `ip` puts several users on one network; `email` picks the address.
  */
 export async function poolReadyUser(
@@ -68,7 +65,6 @@ export async function poolReadyUser(
     ip?: string;
     email?: string;
     verified?: boolean;
-    consent?: boolean;
   } = {},
 ) {
   const poolId = opts.poolId ?? uniq('pool');
@@ -90,7 +86,6 @@ export async function poolReadyUser(
     // Signed in while the pool was off (a test env), so the sign-in recorded nothing.
     await markPoolVerified(env.DB, userId, email);
   }
-  if (opts.consent !== false) await recordConsent(env.DB, userId, POOL_NOTICE_VERSION);
   const funds = opts.funds ?? POOL_FUNDS_MICROS;
   if (funds > 0) await fundPool(poolId, funds);
   return { client: c, poolId, userId };

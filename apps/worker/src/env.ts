@@ -69,8 +69,6 @@ export interface AppEnv extends Env {
   TEST_SEAMS?: string;
   /** Tests only (with `PAYMENT_PROVIDER=fake`): the fake provider's options, JSON (billing/providers/fake.ts). */
   FAKE_PAYMENTS?: string;
-  /** Tests only (with `TEST_SEAMS`): a pool notice version above the code's, as after a text change. */
-  POOL_NOTICE_VERSION?: string;
 }
 
 /**

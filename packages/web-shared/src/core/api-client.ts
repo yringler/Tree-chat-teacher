@@ -31,9 +31,6 @@ import type {
   MeResponse,
   NodeLink,
   PoolBlockDetails,
-  PoolConsentDetails,
-  PoolConsentRequest,
-  PoolConsentResponse,
   PoolMeResponse,
   PoolStatusResponse,
   PortalResponse,
@@ -60,8 +57,7 @@ import { API_FETCH, API_HEADERS, defaultApiFetch } from './api-fetch';
 
 /**
  * Thrown for every non-2xx API response (and for network failures, with
- * status 0). `pool` carries what an open pool refusal hit (`pool_*` codes);
- * `consent` the pool notice version to acknowledge (`pool_consent_required`).
+ * status 0). `pool` carries what an open pool refusal hit (`pool_*` codes).
  */
 export class ApiError extends Error {
   constructor(
@@ -69,7 +65,6 @@ export class ApiError extends Error {
     readonly code: ApiErrorCode | 'network',
     message: string,
     readonly pool: PoolBlockDetails | null = null,
-    readonly consent: PoolConsentDetails | null = null,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -201,14 +196,6 @@ export class ApiClient {
   /** The caller's caps and use of the pool today. */
   poolMe(): Promise<PoolMeResponse> {
     return this.json('GET', '/pool/me');
-  }
-
-  /**
-   * Acknowledges the pool notice at `version` (the one shown); a version that
-   * is no longer current is 409 `conflict`.
-   */
-  poolConsent(version: number): Promise<PoolConsentResponse> {
-    return this.json('POST', '/pool/consent', { version } satisfies PoolConsentRequest);
   }
 
   /**
@@ -531,7 +518,6 @@ export class ApiClient {
         parsed.error.code,
         parsed.error.message,
         parsed.error.pool ?? null,
-        parsed.error.consent ?? null,
       );
     return new ApiError(res.status, fallbackCode(res.status), `${res.status} ${res.statusText}`);
   }
@@ -570,11 +556,6 @@ export function isPoolEmpty(err: unknown): err is ApiError {
 /** True for a 429 `pool_cap_reached`: a daily pool cap or per-minute limit (`err.pool` says which). */
 export function isPoolCapReached(err: unknown): err is ApiError {
   return err instanceof ApiError && err.code === 'pool_cap_reached';
-}
-
-/** True for a 403 `pool_consent_required`: the current pool notice must be acknowledged first. */
-export function isPoolConsentRequired(err: unknown): err is ApiError {
-  return err instanceof ApiError && err.code === 'pool_consent_required';
 }
 
 /** True for a 403 `pool_unavailable`: this request or account can't use the pool (`err.pool?.reason`). */

@@ -14,7 +14,6 @@ export {
   isNotFound,
   isPaymentRequired,
   isPoolCapReached,
-  isPoolConsentRequired,
   isPoolEmpty,
   isPoolUnavailable,
   type CreateLinkResult,

@@ -239,7 +239,7 @@ export class ChatPage implements OnDestroy {
   protected chooseFunding(option: FundingOption): void {
     this.account.payment.choose(option);
     this.store.dismissPoolBlock();
-    if (option === 'pool') void this.account.switchToPool();
+    if (option === 'pool') void this.account.refreshPool();
     else void this.account.refreshBalance();
   }
 

@@ -2,13 +2,7 @@
 // sends, reviews, compare candidates and `context?resolve=true`. It decides who pays (personal
 // credit, the open pool or the user's own key) and checks that they can,
 // before anything is written or sent upstream.
-import {
-  DomainError,
-  PoolBlockedError,
-  PoolConsentRequiredError,
-  poolBlock,
-  ValidationError,
-} from '@tangent/core';
+import { DomainError, PoolBlockedError, poolBlock, ValidationError } from '@tangent/core';
 import {
   BRANCH_FUNDINGS,
   type BranchFunding,
@@ -28,7 +22,6 @@ import {
   type AppContext,
   type AppEnv,
 } from '../env.js';
-import { hasCurrentConsent } from '../pool/consent.js';
 import { claimPoolIdentity, identitySuspended, poolIdentity } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
 import { poolAdmitRequest, poolBlockDetails } from '../pool/params.js';
@@ -231,9 +224,8 @@ export async function defaultRouteFacts(
 /**
  * Checks that the caller may generate, in order: who pays (`resolveFunding`);
  * then either the pool's own rules, which need no membership (no reviews or compare, the
- * message length, the account gates of `assertPoolAccess`, the acknowledgment
- * of the current pool notice (403 `pool_consent_required`, gate step 5), and
- * for a context resolve PoolBank's rate check; a reply itself is reserved, or refused with
+ * message length, the account gates of `assertPoolAccess`, and for a context
+ * resolve PoolBank's rate check; a reply itself is reserved, or refused with
  * 402/429, by the tree's Durable Object before any node is written) or the
  * existing checks: the membership where `needsMembership` says so (the
  * user's own keys, in Learn or power; Tangent credit needs none), allowed
@@ -267,8 +259,6 @@ export async function assertCanGenerate(
       { userKeys: false },
     );
     await assertPoolAccess(c.env, account.userId);
-    if (!(await hasCurrentConsent(c.env.DB, account.userId!, pool.noticeVersion)))
-      throw new PoolConsentRequiredError(pool.noticeVersion);
     if (check.purpose === 'resolve') {
       // A send is admitted by its reply's reservation; a resolve reserves nothing itself.
       const admitted = await poolBank(c.env, pool.accountId).admit(

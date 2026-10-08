@@ -1,4 +1,4 @@
-import { DEFAULT_SYSTEM_PROMPT, POOL_NOTICE_VERSION } from '@tangent/shared';
+import { DEFAULT_SYSTEM_PROMPT } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error -- `?raw` is a Vite import; the worker tsconfig has no vite/client types.
@@ -199,23 +199,6 @@ describe('appConfig', () => {
   it('SIMPLE_MAX_INPUT_TOKENS is positive', () => {
     expect(simpleMaxInputTokens({ ...env, SIMPLE_MAX_INPUT_TOKENS: '0' })).toBe(60_000);
     expect(simpleMaxInputTokens({ ...env, SIMPLE_MAX_INPUT_TOKENS: '1234' })).toBe(1234);
-  });
-});
-
-describe('the pool notice version', () => {
-  it('is the code constant; only a test env (TEST_SEAMS) may raise it, never lower it', async () => {
-    expect(appConfig({ ...env, POOL_NOTICE_VERSION: '' } as AppEnv).pool.noticeVersion).toBe(
-      POOL_NOTICE_VERSION,
-    );
-    const raised = { ...env, POOL_NOTICE_VERSION: String(POOL_NOTICE_VERSION + 1) } as AppEnv;
-    expect(appConfig(raised).pool.noticeVersion).toBe(POOL_NOTICE_VERSION + 1);
-    expect((await resolvePoolParams(raised, null)).noticeVersion).toBe(POOL_NOTICE_VERSION + 1);
-    expect(appConfig({ ...raised, TEST_SEAMS: '' } as AppEnv).pool.noticeVersion).toBe(
-      POOL_NOTICE_VERSION,
-    );
-    expect(appConfig({ ...env, POOL_NOTICE_VERSION: '0' } as AppEnv).pool.noticeVersion).toBe(
-      POOL_NOTICE_VERSION,
-    );
   });
 });
 

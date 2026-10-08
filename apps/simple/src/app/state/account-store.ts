@@ -242,7 +242,7 @@ export class AccountStore {
   continueOn(payment: 'pool' | 'credit'): void {
     this.gateForced.set(false);
     this.payment.choose(payment);
-    if (payment === 'pool') void this.switchToPool();
+    if (payment === 'pool') void this.refreshPool();
     else void this.refreshBalance();
   }
 
@@ -277,29 +277,6 @@ export class AccountStore {
     } catch (err) {
       console.warn('Could not load the open pool', err);
     }
-  }
-
-  /**
-   * The pool notice version the learner still has to acknowledge before
-   * their first pool request, or null (none due, or the human check comes
-   * first: the server asks for that before the notice).
-   */
-  readonly poolNoticeDue = computed(() => {
-    const me = this.poolMe();
-    if (!me?.available || !me.verified) return null;
-    return (me.consentVersion ?? 0) < me.currentNoticeVersion ? me.currentNoticeVersion : null;
-  });
-
-  /**
-   * The learner switched replies to the open pool: re-reads it and, if
-   * they haven't acknowledged the current pool notice, shows it now (spec:
-   * "when a user first switches to pool funding"). A pool send refused with
-   * 403 `pool_consent_required` still opens it too.
-   */
-  async switchToPool(): Promise<void> {
-    await this.refreshPool();
-    const due = this.poolNoticeDue();
-    if (due !== null && this.payment.payment() === 'pool') this.ui.poolConsentVersion.set(due);
   }
 
   async refreshKey(): Promise<void> {

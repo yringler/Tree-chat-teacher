@@ -573,23 +573,6 @@ export const poolIdentityHolders = sqliteTable(
   (t) => [index('pool_identity_holders_identity_idx').on(t.identity)],
 );
 
-// ---- Open pool consent (src/pool/consent.ts)
-
-/**
- * Who acknowledged which version of the pool notice (packages/shared/src/pool.ts
- * `POOL_NOTICE_TEXT`), and when. A pool request needs a row at the current
- * version (`pool_consent_required`). Kept until the account is deleted.
- */
-export const poolConsents = sqliteTable(
-  'pool_consents',
-  {
-    userId: text('user_id').notNull(),
-    noticeVersion: integer('notice_version').notNull(),
-    acknowledgedAt: text('acknowledged_at').notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.userId, t.noticeVersion] })],
-);
-
 /**
  * OpenRouter list prices of the priced models, refreshed daily by the price
  * sync (pool/price-sync.ts). They replace the built-in placeholder prices of

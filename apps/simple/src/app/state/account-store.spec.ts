@@ -78,8 +78,6 @@ const POOL_ME: PoolMeResponse = {
     resetAt: '2026-10-06T00:00:00.000Z',
   },
   personalAvailableMicros: 1_000_000,
-  consentVersion: 1,
-  currentNoticeVersion: 1,
 };
 
 function setup(
@@ -494,24 +492,6 @@ describe('AccountStore open pool', () => {
     account.poolStatus.set(POOL);
     account.poolMe.set({ ...POOL_ME, caps: { ...POOL_ME.caps, usedRequests: 30 } });
     expect(account.poolLow()).toBe(true);
-  });
-
-  it('switching to the pool shows the notice at once when it is not acknowledged yet', async () => {
-    const fresh = { ...POOL_ME, consentVersion: null };
-    const { account, ui } = setup(async () => summary(membership()), POOL, fresh);
-    account.setMe(me(membership({ required: false })));
-    account.payment.choose('pool');
-    await account.switchToPool();
-    expect(ui.poolConsentVersion()).toBe(1);
-
-    // Acknowledged already, or not verified yet (the check comes first): nothing opens.
-    for (const poolMe of [POOL_ME, { ...fresh, verified: false }]) {
-      const s = setup(async () => summary(membership()), POOL, poolMe);
-      s.account.setMe(me(membership({ required: false })));
-      s.account.payment.choose('pool');
-      await s.account.switchToPool();
-      expect(s.ui.poolConsentVersion()).toBeNull();
-    }
   });
 
   it('while the pool is off it is not offered and its caps are not read', async () => {

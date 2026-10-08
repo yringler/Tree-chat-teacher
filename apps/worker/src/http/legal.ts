@@ -172,7 +172,6 @@ export function renderPrivacyPage(info: LegalInfo, ai: HostedAi | null = null): 
 <tr><td>Your content</td><td>Conversations (messages, replies, branch titles, summaries), system prompts, settings, and share links you create.</td><td>This is the service. Stored in our database until you delete it.</td></tr>
 <tr><td>AI provider API keys</td><td>If you add your own key, it is encrypted into a cookie that only your browser holds. We never store it on our servers; it is decrypted in memory for each request and never logged.</td><td>To call the provider on your behalf.</td></tr>
 <tr><td>Billing (paid credit only)</td><td>Your customer id at our payment provider, credit purchases and refunds, membership status, and for each paid reply: the model, token counts, cost and time. Card numbers, billing addresses and tax details go to Polar, our merchant of record, and never reach us.</td><td>To charge for what you use, show you your usage, and keep the records tax law requires.</td></tr>
-<tr><td>Open pool (only if you use it)</td><td>That you acknowledged the pool notice: which version, and when.</td><td>To show the notice again only when it changes.</td></tr>
 <tr><td>Technical logs</td><td>Errors and request metadata (time, path, status, IP address) kept by our hosting provider's logs for a short time. Rate-limit counters per IP address. Never message content or API keys.</td><td>Security, abuse prevention and fixing bugs.</td></tr>
 </tbody>
 </table>
@@ -212,8 +211,6 @@ ${shareIntro}<p>When you create a share link, anyone who has the link can read w
 <li>Conversations, settings and share links: until you delete them or your account. Deleting is immediate in the app.</li>
 <li>Compare answers you haven't picked (with the question they answer): ${candidateMinutes} minutes after they are written, so you can pick one. Deleting the conversation deletes them at once; deleting your account leaves any still held to go when their ${candidateMinutes} minutes are up.</li>
 <li>Sessions: until they expire or you sign out. Sign-in links: 15 minutes.</li>
-<li>Open pool notice acknowledgments: until your account is deleted.</li>
-<li>The weekly open pool snapshots (counts only, nothing about any one person): kept, so past weeks stay browsable.</li>
 <li>Payment records (credit purchases, refunds, usage charges): kept after your account is deleted, for as long as tax and accounting law requires (typically up to 7 years). They contain no message content, and nothing in them is linked to your email once your account is gone. Polar, as merchant of record, keeps its own order and tax records under its policy.</li>
 <li>Database recovery history: deleted data remains in our hosting provider's point-in-time recovery for up to 30 days, after which it is gone for good.</li>
 </ul>

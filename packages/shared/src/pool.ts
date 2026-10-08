@@ -170,37 +170,6 @@ export interface PoolMeResponse {
   };
   /** The caller's own credit, spendable now (the funding toggle offers it when > 0). */
   personalAvailableMicros: number;
-  /** The latest pool notice version the caller acknowledged; null = never. */
-  consentVersion: number | null;
-  /** The version a pool request needs (`consentVersion` below it: show the notice first). */
-  currentNoticeVersion: number;
-}
-
-/**
- * The pool notice (docs/pool/SPEC.md), shown before the first pool request. Changing the
- * text means bumping the version: everyone acknowledges the new text before
- * their next pool request (403 `pool_consent_required` until they do).
- */
-export const POOL_NOTICE_VERSION = 1;
-export const POOL_NOTICE_TEXT =
-  "Pool conversations contribute anonymously to aggregate topic stats shown publicly (e.g., 'Roman history: 40 learners this week'). Your questions are never shown.";
-
-/** `ApiError.error.consent` of a 403 `pool_consent_required`: the version to acknowledge. */
-export interface PoolConsentDetails {
-  currentVersion: number;
-}
-
-/** `POST /api/pool/consent`: the notice version the user read and acknowledged. */
-export const poolConsentRequestSchema = z.object({
-  version: z.number().int().positive(),
-});
-export type PoolConsentRequest = z.infer<typeof poolConsentRequestSchema>;
-
-/** `POST /api/pool/consent`: the acknowledgment on record (the first one, on a repeat). */
-export interface PoolConsentResponse {
-  version: number;
-  /** ISO. */
-  acknowledgedAt: string;
 }
 
 /**
@@ -253,8 +222,7 @@ export const POOL_AT_COST_TEXT =
  * Words pool copy must never use: the pool is free credit Tangent provides,
  * not a donation, a sponsorship or anything people pay into (spec reasoning
  * 3; the payment provider's acceptable use policy, docs/DECISIONS.md).
- * Tests run every pool page and template through it. "Contribute" isn't
- * here: the pool notice uses it for the topic tags.
+ * Tests run every pool page and template through it.
  */
 export const FORBIDDEN_POOL_COPY =
   /donat|donor|tax[- ]?deductible|charit|sponsor|crowdfund|patron|pledge|give back|pay(s|ing)? it forward|helped|supporter|community/i;

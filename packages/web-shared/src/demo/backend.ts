@@ -45,7 +45,6 @@ import {
   type MembershipInfo,
   MAX_USAGE_FACTOR_FALLBACK,
   type NodeLink,
-  POOL_NOTICE_VERSION,
   type PoolMeResponse,
   type PoolStatusResponse,
   type ProviderEvent,
@@ -116,8 +115,6 @@ const DEMO_POOL_ME: Omit<PoolMeResponse, 'personalAvailableMicros'> = {
     usedSpendMicros: 0,
     resetAt: '1970-01-02T00:00:00.000Z',
   },
-  consentVersion: null,
-  currentNoticeVersion: POOL_NOTICE_VERSION,
 };
 /** OpenRouter's credit-purchase fee, part of the cost the markup applies to (as in the Worker). */
 const OPENROUTER_FEE_BPS = 550;

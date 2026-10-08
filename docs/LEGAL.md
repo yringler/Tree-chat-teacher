@@ -24,8 +24,6 @@ Set to Yehuda Ringler, governed by the laws of the Commonwealth of Pennsylvania,
 - no sale of personal data, no training of models by us;
 - message content never in logs;
 - which models and hosts handle Tangent-paid requests, as the config says today (`http/hosted-ai.ts`; `public-copy-config.test.ts` checks the wording follows the config);
-- the open pool's topic tags hold no message text and no account id, sensitive topics are stored only as `sensitive`, and a tag is deleted 14 days after its branch's last pool use or with the account; notice acknowledgments are kept until the account is deleted (`pool/tagging.ts`, `pool/consent.ts`; a test scans the tables and logs for the message).
-- the pool's public impact feed (`/pool`, the landing page, `GET /api/pool/impact`) shows weekly aggregates only: exchanges, learners, topics and branch depth in total, and a topic by name only when at least `IMPACT_MIN_DISTINCT_USERS` (never below 3) distinct learners touched it that week, it isn't sensitive or blocklisted, and an admin approved it. Snapshots hold no user, branch or tree id and are kept so past weeks stay browsable (`pool/impact.ts`; `pool-impact-aggregate.test.ts` checks the threshold, the sensitive rule, the review queue and that responses carry no ids). The pool notice (`POOL_NOTICE_TEXT`) discloses this before the first pool request, and the privacy policy's pool row and retention list describe it.
 
 ## 2. Account deletion
 
@@ -111,7 +109,6 @@ Learn mode is pitched at "students and the curious", which draws children-privac
 | Breach notification: notify the authority within 72 hours and affected users without undue delay                                                                                                                                                                                                      | **you** (know the duty) |
 | Keep a short record of processing (the policy's tables are most of it)                                                                                                                                                                                                                                | **you**                 |
 | No cookie banner needed: only strictly necessary cookies. Adding analytics changes that                                                                                                                                                                                                               | done                    |
-| Open pool: the notice is acknowledged (version and time recorded) before the first pool request and after each text change. Pool use requires it, so it is transparency, not GDPR consent; the tags rest on legitimate interests (no text, no account id, sensitive ones unnamed)                     | done (policy)           |
 
 US state privacy laws (California CCPA/CPRA and similar) apply only above revenue or user thresholds (CCPA: $26.6M revenue or 100,000 consumers). The policy already says no sale or sharing.
 

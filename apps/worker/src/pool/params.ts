@@ -48,8 +48,6 @@ export interface PoolParams {
   overage: PoolOverage;
   /** The caller's network key for per-IP caps (pool/ids.ts `ipKey`); null when unknown. */
   ipKey: string | null;
-  /** The pool notice version the caller must have acknowledged (pool/consent.ts). */
-  noticeVersion: number;
 }
 
 /** The pool model: `POOL_MODEL`, else Learn's background model (`simpleFastModel`, SIMPLE_FAST_MODEL). */
@@ -110,7 +108,6 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
     limits: pool.limits,
     overage: pool.overage,
     ipKey,
-    noticeVersion: pool.noticeVersion,
   };
 }
 

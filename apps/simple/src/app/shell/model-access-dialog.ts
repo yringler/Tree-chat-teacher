@@ -253,7 +253,7 @@ export class ModelAccessDialog {
     this.error.set(null);
     this.account.payment.choose(payment);
     if (payment === 'credit') void this.account.refreshBalance();
-    if (payment === 'pool') void this.account.switchToPool();
+    if (payment === 'pool') void this.account.refreshPool();
     // A way that needs no key: the refused message goes now.
     if (payment !== 'own-key' && this.lessons.resumeUnsent()) this.close();
   }

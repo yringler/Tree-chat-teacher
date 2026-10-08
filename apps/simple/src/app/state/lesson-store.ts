@@ -6,7 +6,6 @@ import { branchChain, branchPath, indexTree, type TreeIndex } from '@tangent/cor
 import {
   checkSourcesMessage,
   BUILT_IN_PROVIDER_ID,
-  POOL_NOTICE_VERSION,
   TIER_LABELS,
   tierModel,
   type Branch,
@@ -31,7 +30,6 @@ import {
   isMembershipRequired,
   isNotFound,
   isPaymentRequired,
-  isPoolConsentRequired,
   isPoolUnavailable,
   poolBlockOf,
   readBackupFile,
@@ -157,9 +155,6 @@ const COMPARE_GONE_STATUSES: ReadonlySet<number> = new Set([404, 409, 410]);
  * answers worth keeping on screen, for another try.
  */
 export type CompareCommitOutcome = 'kept' | 'out-of-date' | 'refused' | 'failed';
-/** The pool notice changed since this page loaded: its copy of the text is stale. */
-export const STALE_POOL_NOTICE_MESSAGE =
-  'The open pool notice has changed. Reload the page to read the new one.';
 
 function upsertById<T extends { id: string }>(list: readonly T[], items: readonly T[]): T[] {
   const out = [...list];
@@ -888,38 +883,6 @@ export class LessonStore {
   }
 
   /**
-   * The pool notice was acknowledged (PoolFirstUseDialog): records it at the
-   * version of the text this build shows (`POOL_NOTICE_VERSION`, never the
-   * version the server asked for), then sends the message the pool refused for
-   * want of it, if any. False when it couldn't be recorded (the dialog stays
-   * open). When the server asked for another version, or answers 409, the
-   * notice changed since this page loaded, so this copy of its text is stale.
-   */
-  async acknowledgePoolNotice(): Promise<boolean> {
-    const asked = this.ui.poolConsentVersion();
-    if (asked !== null && asked !== POOL_NOTICE_VERSION) {
-      this.ui.notify(STALE_POOL_NOTICE_MESSAGE, 'error');
-      return false;
-    }
-    try {
-      await this.api.poolConsent(POOL_NOTICE_VERSION);
-    } catch (err) {
-      this.ui.notify(
-        err instanceof ApiError && err.code === 'conflict'
-          ? STALE_POOL_NOTICE_MESSAGE
-          : errorMessage(err),
-        'error',
-      );
-      return false;
-    }
-    this.ui.poolConsentVersion.set(null);
-    void this.account.refreshPool();
-    const draft = this.openDraft();
-    if (draft) void this.resend(draft);
-    return true;
-  }
-
-  /**
    * "How replies are paid for" was settled (a key saved, credit or the pool
    * picked) while a message refused for want of the own key waits
    * (`UnsentDraft.needsKey`): sends it. False when none waits.
@@ -981,8 +944,7 @@ export class LessonStore {
    * out of credit (402 payment_required) goes to the billing page; a missing
    * or unreadable own key (401 key_required) opens the payment dialog; a pool
    * account without a human check on record (403 pool_unavailable, `verify`)
-   * opens the check; one that hasn't acknowledged the current pool notice
-   * (403 pool_consent_required) opens the notice.
+   * opens the check.
    */
   fail(err: unknown): void {
     if (isMembershipRequired(err)) {
@@ -991,10 +953,6 @@ export class LessonStore {
     }
     if (isPoolUnavailable(err) && err.pool?.reason === 'verify') {
       this.ui.poolVerifyOpen.set(true);
-      return;
-    }
-    if (isPoolConsentRequired(err)) {
-      this.ui.poolConsentVersion.set(err.consent?.currentVersion ?? POOL_NOTICE_VERSION);
       return;
     }
     if (err instanceof ApiError && err.code === 'key_required') {

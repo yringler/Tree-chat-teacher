@@ -17,8 +17,6 @@ export class UiStore {
   readonly accessOpen = signal(false);
   /** The human check before a first pool message (PoolFirstUseDialog). */
   readonly poolVerifyOpen = signal(false);
-  /** The pool notice version to acknowledge before a pool message (PoolFirstUseDialog); null = closed. */
-  readonly poolConsentVersion = signal<number | null>(null);
   /** The "Connect" sheet (ConnectDialog): the message a connection is made from; null = closed. */
   readonly linkDialog = signal<string | null>(null);
   /**
@@ -66,10 +64,6 @@ export class UiStore {
     }
     if (this.poolVerifyOpen()) {
       this.poolVerifyOpen.set(false);
-      return true;
-    }
-    if (this.poolConsentVersion() !== null) {
-      this.poolConsentVersion.set(null);
       return true;
     }
     if (this.compare() !== null) {

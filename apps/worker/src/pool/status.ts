@@ -19,7 +19,6 @@ import {
   SIMPLE_RESERVED_OUTPUT_TOKENS,
   simpleProviderConfig,
 } from '../simple-mode.js';
-import { consentVersion } from './consent.js';
 import { poolModel, poolPriceProblem, poolRequest } from './params.js';
 import { dayResetAt, dayStart, userDayUsageStatement, type DayRow } from './pool-bank.js';
 
@@ -130,7 +129,7 @@ export async function poolMe(
   const pool = appConfig(env).pool;
   const userId = account.userId;
   const day = dayStart(now).toISOString();
-  const [personal, row, usage, consent, usable] = await Promise.all([
+  const [personal, row, usage, usable] = await Promise.all([
     getBalance(env.DB, account.billingAccountId),
     userId
       ? env.DB.prepare(
@@ -142,7 +141,6 @@ export async function poolMe(
           .first<PoolAccountRow>()
       : null,
     userId ? userDayUsageStatement(env.DB, pool.accountId, userId, day).first<DayRow>() : null,
-    userId ? consentVersion(env.DB, userId) : null,
     poolUsable(env),
   ]);
   // The same caps for everyone, member or not.
@@ -159,7 +157,5 @@ export async function poolMe(
       resetAt: dayResetAt(now),
     },
     personalAvailableMicros: personal.balanceMicros - personal.heldMicros,
-    consentVersion: consent,
-    currentNoticeVersion: pool.noticeVersion,
   };
 }

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import {
   ApiClient,
@@ -72,13 +72,6 @@ import { UiStore } from './state/ui-store';
       }
       @if (ui.poolVerifyOpen()) {
         <app-pool-first-use-dialog (closed)="ui.poolVerifyOpen.set(false)" />
-      } @else if (ui.poolConsentVersion(); as version) {
-        <app-pool-first-use-dialog
-          [consentVersion]="version"
-          [busy]="acknowledging()"
-          (closed)="ui.poolConsentVersion.set(null)"
-          (acknowledged)="acknowledgePoolNotice()"
-        />
       }
     }
 
@@ -114,22 +107,10 @@ export class App {
   protected readonly loginPage =
     !this.demo && location.pathname.replace(/\/+$/, '') === inject(APP_PATHS).login;
 
-  /** The pool notice's acknowledgment is being recorded. */
-  protected readonly acknowledging = signal(false);
-
   constructor() {
     if (this.loginPage) return;
     this.routeSync.start(inject(DestroyRef));
     void this.boot();
-  }
-
-  protected async acknowledgePoolNotice(): Promise<void> {
-    this.acknowledging.set(true);
-    try {
-      await this.lessons.acknowledgePoolNotice();
-    } finally {
-      this.acknowledging.set(false);
-    }
   }
 
   private async boot(): Promise<void> {

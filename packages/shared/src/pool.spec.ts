@@ -5,10 +5,7 @@ import {
   POOL_BLOCK_REASONS,
   POOL_EMPTY_TEXT,
   POOL_FUNDING_TEXT,
-  POOL_NOTICE_TEXT,
-  POOL_NOTICE_VERSION,
   poolBlockDetailsSchema,
-  poolConsentRequestSchema,
   poolErrorCode,
   poolModelDifferences,
   poolModelText,
@@ -78,21 +75,6 @@ describe('pool copy', () => {
       'charity',
     ])
       expect(bad).toMatch(FORBIDDEN_POOL_COPY);
-  });
-});
-
-describe('the pool notice', () => {
-  it('says what the stats show and that questions are never shown, within the copy rule', () => {
-    expect(POOL_NOTICE_VERSION).toBe(1);
-    expect(POOL_NOTICE_TEXT).toContain('aggregate topic stats shown publicly');
-    expect(POOL_NOTICE_TEXT).toContain('Your questions are never shown.');
-    expect(POOL_NOTICE_TEXT).not.toMatch(FORBIDDEN_POOL_COPY);
-  });
-
-  it('is acknowledged by its version, a positive integer', () => {
-    expect(poolConsentRequestSchema.parse({ version: 1 })).toEqual({ version: 1 });
-    for (const version of [0, -1, 1.5, '1', null])
-      expect(poolConsentRequestSchema.safeParse({ version }).success).toBe(false);
   });
 });
 
