@@ -11,7 +11,8 @@ import {
 
 /**
  * D1 schema. Source of truth for migrations (`pnpm db:generate` runs
- * drizzle-kit, output applied with `wrangler d1 migrations apply`).
+ * drizzle-kit, output applied with `wrangler d1 migrations apply`); `pnpm lint`
+ * fails while a change here has no migration (scripts/check-migrations.mjs).
  *
  * Ancestor lookups use a recursive CTE over nodes.parent_id (PK lookups per
  * level, O(depth)); see docs/DECISIONS.md.
@@ -387,13 +388,13 @@ export const creditGrants = sqliteTable(
     amountMicros: integer('amount_micros').notNull(),
     /**
      * Purchases: the pre-tax amount paid (`amount + fee` for personal credit); refunds and
-     * disputes (since migration 0010): minus the refunded pre-tax amount, unclamped. Null for
-     * adjustments and older refunds.
+     * disputes: minus the refunded pre-tax amount, unclamped. Null for adjustments and the
+     * oldest refunds.
      */
     grossMicros: integer('gross_micros'),
     /** Purchases: the payment provider's actual processing fee, deducted from the credit. */
     feeMicros: integer('fee_micros').notNull().default(0),
-    /** The buyer or beneficiary (Better Auth user id); null on rows before migration 0010 and pool adjustments. */
+    /** The buyer or beneficiary (Better Auth user id); null on the oldest rows and pool adjustments. */
     userId: text('user_id'),
     /**
      * Idempotency key, unique: a payment provider's namespaced object ref
@@ -402,7 +403,7 @@ export const creditGrants = sqliteTable(
      */
     providerRef: text('provider_ref').unique(),
     /**
-     * Refunds, disputes and their reinstatements (since migration 0018): the payment they
+     * Refunds, disputes and their reinstatements (null on the oldest): the payment they
      * take back from, so together they never take back more than it granted
      * (billing/payments/apply.ts).
      */
@@ -496,9 +497,9 @@ export const usageEvents = sqliteTable(
     accountId: text('account_id').notNull(),
     treeId: text('tree_id'),
     nodeId: text('node_id'),
-    /** The branch the call served (rows since migration 0010). */
+    /** The branch the call served; null on the oldest rows. */
     branchId: text('branch_id'),
-    /** Who made the call (rows since migration 0010). */
+    /** Who made the call; null on the oldest rows. */
     userId: text('user_id'),
     /** `personal` (the user's credit) or `pool` (the open pool, `account_id` = the pool). */
     funding: text('funding', { enum: ['personal', 'pool'] })
@@ -516,14 +517,14 @@ export const usageEvents = sqliteTable(
     status: text('status', { enum: ['pending', 'settled', 'unresolved'] }).notNull(),
     holdMicros: integer('hold_micros').notNull(),
     markupBps: integer('markup_bps').notNull(),
-    /** OpenRouter's credit-purchase fee in force at the call (rows before 0004: 0). */
+    /** OpenRouter's credit-purchase fee in force at the call (0 on the oldest rows). */
     feeBps: integer('fee_bps').notNull().default(0),
     costNanos: integer('cost_nanos'),
     /** Pool rows: never more than `hold_micros` (the excess is `overage_micros`). */
     chargeMicros: integer('charge_micros'),
     /** Pool rows: what the call cost beyond its hold, absorbed by the operator (feeds the breaker). */
     overageMicros: integer('overage_micros').notNull().default(0),
-    /** How the row settled: `cost|generation|tokens|hold|released|unresolved` (rows since 0010). */
+    /** How the row settled: `cost|generation|tokens|hold|released|unresolved`; null on the oldest rows. */
     settleReason: text('settle_reason', {
       enum: ['cost', 'generation', 'tokens', 'hold', 'released', 'unresolved'],
     }),

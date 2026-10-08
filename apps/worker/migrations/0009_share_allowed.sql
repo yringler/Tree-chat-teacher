@@ -1,1 +1,0 @@
-ALTER TABLE `auth_users` ADD `share_allowed` integer DEFAULT false NOT NULL;

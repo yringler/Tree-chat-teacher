@@ -491,8 +491,6 @@ describe('PoolBank: caps inside reserve', () => {
       reason: 'cap_requests',
       limit: 1,
     });
-    // New rows carry no tier.
-    expect((await poolRows(poolId)).map((r) => r.tier)).toEqual([null]);
   });
 
   it('refuses what the pool cannot cover as empty, and records the reservation row', async () => {
@@ -512,7 +510,6 @@ describe('PoolBank: caps inside reserve', () => {
       funding: 'pool',
       user_id: userId,
       ip_key: 'ipk',
-      tier: null,
       tree_id: 'tree_1',
       branch_id: 'branch_1',
       node_id: 'node_9',

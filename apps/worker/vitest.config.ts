@@ -121,16 +121,7 @@ async function mockUpstream(request: Request): Promise<Response> {
 export default defineConfig({
   plugins: [
     cloudflareTest(async () => {
-      const migrations = [
-        ...(await readD1Migrations(path.join(import.meta.dirname, 'migrations'))),
-        // What schema.ts has that no migration does yet: the baseline generated from it replaces this.
-        {
-          name: 'schema_pending',
-          queries: [
-            'CREATE TABLE billing_markers (ref text PRIMARY KEY NOT NULL, created_at text NOT NULL)',
-          ],
-        },
-      ];
+      const migrations = await readD1Migrations(path.join(import.meta.dirname, 'migrations'));
       return {
         main: './src/index.ts',
         wrangler: { configPath: './wrangler.jsonc' },
