@@ -32,7 +32,7 @@ In a normal chat, digging into a side topic pollutes the main thread, and starti
 
 - **Whether search is offered.** A free check on the server offers it when a reply likely needs it: two or more tangents deep, a specific fact (a date, a figure, "who invented…"), something recent, or sources asked for. The model then decides whether to search, at most once per reply.
 - **What a grounded reply shows.** It cites its claims as links and lists its sources under the message ("Checked against 3 sources"); shares and exports list them too. An unchecked reply says "From the tutor's own knowledge", with a **Check sources** button that runs a search and adds the corrected, cited answer to the conversation.
-- **What it costs.** A search costs about $0.007 at OpenRouter (from its docs, not yet checked against a live account), and it is part of the cost OpenRouter reports for the reply, so on Tangent credit it is billed like the reply, and on your own key OpenRouter bills you (see [How pricing works](#how-pricing-works)).
+- **What it costs.** A reply that searches costs about $0.007 more at OpenRouter (checked on live calls, 2026-10), and it is part of the cost OpenRouter reports for the reply, so on Tangent credit it is billed like the reply, and on your own key OpenRouter bills you (see [How pricing works](#how-pricing-works)).
 - **Configuration.** The `GROUNDING*` vars in [Configuration](#configuration); migration `0022_grounding` adds the columns. Power mode also has a per-branch setting in branch settings (**Check facts with web search**: when likely needed, on every reply, or off).
 
 ### Experimental: Canvas (for the brave)
