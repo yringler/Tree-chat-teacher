@@ -387,6 +387,39 @@ describe('ChatService backup', () => {
     expect(detail.nodes).toHaveLength(4);
   });
 
+  it('rejects a backup whose branch is missing a message, before importing anything', async () => {
+    const { chat, repos } = setup({ autoTitle: false });
+    const { tree } = await chat.createTree({});
+    await send(chat, tree.trunkBranchId, 'one');
+    await send(chat, tree.trunkBranchId, 'two');
+    const backup = await chat.exportBackup(tree.id);
+    // seq 0 → 2: the reply to "one" is gone, and the next message links past it.
+    const [first, , ...rest] = backup.nodes;
+    const broken = {
+      ...backup,
+      nodes: [first!, { ...rest[0]!, parentId: first!.id }, ...rest.slice(1)],
+    };
+    const trees = repos.dump().trees.size;
+    const rejected = chat.importBackup(broken);
+    await expect(rejected).rejects.toBeInstanceOf(ValidationError);
+    await expect(rejected).rejects.toThrow(
+      "This backup can't be restored: a branch is missing some of its messages",
+    );
+    expect(repos.dump().trees.size).toBe(trees);
+  });
+
+  it('rejects a backup whose message does not follow the one before it', async () => {
+    const { chat } = setup({ autoTitle: false });
+    const { tree } = await chat.createTree({});
+    await send(chat, tree.trunkBranchId, 'one');
+    const backup = await chat.exportBackup(tree.id);
+    const [question, reply] = backup.nodes;
+    const broken = { ...backup, nodes: [question!, { ...reply!, parentId: null }] };
+    await expect(chat.importBackup(broken)).rejects.toThrow(
+      "This backup can't be restored: a message does not follow the one before it",
+    );
+  });
+
   it('rejects malformed backups', async () => {
     const { chat } = setup();
     await expect(

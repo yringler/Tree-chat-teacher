@@ -32,7 +32,6 @@ describe('ChatService summary resolution', () => {
     const plan = await chat.planContext(deepest, null, { resolveSummaries: false });
     expect(plan.plan.complete).toBe(true);
   });
-
 });
 
 describe('ChatService summary provider', () => {

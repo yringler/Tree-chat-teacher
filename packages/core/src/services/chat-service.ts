@@ -69,7 +69,12 @@ import {
   type UpdateTreeRequest,
   type WebSearchRequest,
 } from '@tangent/shared';
-import { assembleContext, summaryKeyString } from '../context/assemble.js';
+import {
+  assembleContext,
+  BrokenChainError,
+  checkBranches,
+  summaryKeyString,
+} from '../context/assemble.js';
 import { overflowBudget } from '../context/overflow.js';
 import {
   buildReviewPrompt,
@@ -967,7 +972,8 @@ export class ChatService {
 
     let current = plan();
     const maxGeneratingRounds = inputs.chain.length + 1;
-    for (let generatingRounds = 0; ; ) {
+    let generatingRounds = 0;
+    for (;;) {
       // 1. Cache lookups for every pending summary we haven't looked up yet.
       // Requests can name inner summaries that have no segment of their own
       // (nested summary modes), so check both.
@@ -1776,6 +1782,13 @@ export class ChatService {
     const trunks = data.branches.filter((b) => b.parentBranchId === null);
     if (trunks.length !== 1 || trunks[0]?.id !== data.tree.trunkBranchId) {
       throw new ValidationError('Backup must contain exactly one trunk branch');
+    }
+    // A broken branch would import, then fail every send on it.
+    try {
+      checkBranches(data.tree, data.branches, data.nodes);
+    } catch (err) {
+      if (!(err instanceof BrokenChainError)) throw err;
+      throw new ValidationError(`This backup can't be restored: ${err.problem}`);
     }
     const treeId = this.newId();
     const now = this.now();
