@@ -3,6 +3,7 @@ import {
   MODE_HEADER,
   PAYMENT_HEADER,
   type MeResponse,
+  type ProviderConfig,
   type TreeDetail,
 } from '@tangent/shared';
 import { env, exports } from 'cloudflare:workers';
@@ -14,7 +15,13 @@ import {
   type AccountRequest,
 } from '../src/auth/account.js';
 import type { AppEnv } from '../src/env.js';
-import { creditRegistryFor, providerConfigs, providersFor, registryFor } from '../src/services.js';
+import {
+  creditRegistryFor,
+  providerConfigs,
+  providerEnv,
+  providersFor,
+  registryFor,
+} from '../src/services.js';
 
 const BASE = 'https://tangent.example.com';
 
@@ -260,5 +267,35 @@ describe('power provider configs', () => {
     expect(creditRegistryFor(withEnv(), { ...account, builtIn: false })).toBeNull();
     // Learn has one registry for every funding; it never has a credit registry.
     expect(creditRegistryFor(withEnv(), { ...account, mode: 'simple' })).toBeNull();
+  });
+});
+
+describe('provider secrets', () => {
+  it('hands providers only the secrets their configs name', () => {
+    const e = {
+      ...env,
+      BETTER_AUTH_SECRET: 'auth-secret',
+      POLAR_ACCESS_TOKEN: 'polar-token',
+      OPENROUTER_API_KEY: 'sk-or-server',
+      CF_AIG_TOKEN: 'gw-token',
+    } as AppEnv;
+    const config: ProviderConfig = {
+      id: 'gw',
+      kind: 'openai-compatible',
+      label: 'Gateway',
+      baseUrl: 'https://gateway.test',
+      apiKeySecret: 'OPENROUTER_API_KEY',
+      extraHeaderSecrets: { 'cf-aig-authorization': 'CF_AIG_TOKEN' },
+      defaultModel: 'm',
+      models: [{ id: 'm', label: 'M' }],
+    };
+    expect(providerEnv(e, [config]).secrets).toEqual({
+      OPENROUTER_API_KEY: 'sk-or-server',
+      CF_AIG_TOKEN: 'gw-token',
+    });
+    expect(providerEnv(e, [config], undefined, new Set(['OPENROUTER_API_KEY'])).secrets).toEqual({
+      CF_AIG_TOKEN: 'gw-token',
+    });
+    expect(providerEnv(e, []).secrets).toEqual({});
   });
 });

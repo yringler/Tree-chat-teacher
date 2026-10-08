@@ -64,7 +64,7 @@ export function keyRoutes(): Hono<AppBindings> {
 
     // One cheap, unbilled call to confirm the key works. Only an explicit
     // 401/403 rejects it; an unreachable provider shouldn't block saving.
-    if ((await verifyApiKey(config, apiKey, providerEnv(c.env))) === 'rejected') {
+    if ((await verifyApiKey(config, apiKey, providerEnv(c.env, [config]))) === 'rejected') {
       throw new ValidationError(`${config.label} rejected this API key`);
     }
 
