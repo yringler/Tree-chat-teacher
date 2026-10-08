@@ -29,8 +29,12 @@ import { isPoolFunded, usesUserKeys, type AccountContext, type AppEnv } from '..
 import { apiErrorBody } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { poolBank } from '../pool/ids.js';
-import { poolBlockDetails, poolReserveRequest, type PoolParams } from '../pool/params.js';
-import { ceilingHoldMicros } from '../pool/pricing.js';
+import {
+  poolBlockDetails,
+  poolReserveRequest,
+  replyCeilingMicros,
+  type PoolParams,
+} from '../pool/params.js';
 import { classifyPoolExchange } from '../pool/tagging.js';
 import { chatService } from '../services.js';
 import { BUILT_IN_PROVIDER_ID } from '../simple-mode.js';
@@ -306,7 +310,7 @@ export class TreeSession extends DurableObject<AppEnv> {
         branchId: target.branchId,
         nodeId: null,
         providerId: BUILT_IN_PROVIDER_ID,
-        holdMicros: ceilingHoldMicros(pool.price, pool.maxOutputTokens, pool.price.feeBps),
+        holdMicros: replyCeilingMicros(pool, pool.price),
         feeBps: pool.price.feeBps,
       }),
     );

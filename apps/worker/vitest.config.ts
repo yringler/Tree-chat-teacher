@@ -221,12 +221,14 @@ export default defineConfig({
             MEMBERSHIP_CREDIT_CENTS: '0',
             MEMBERSHIP_WAIVER_CODE: '',
             MARKUP_BPS: '1000',
-            // The open pool, on (wrangler.jsonc ships it off). Pool tests isolate themselves with a
-            // unique POOL_ACCOUNT_ID per test. The pool model is the fake built-in provider's `simple`,
-            // priced at 1 µ$ per token each way, so every reply hold (up to 2,048 tokens out) is above
-            // the fake's reported cost (0.001234 USD ≈ 1,302 µ$ with the fee) and only the test that
-            // targets the clamp hits it. Caps are small so cap tests stay short; the per-minute
-            // limits sit above them, so a cap test sees the cap.
+            // The open pool, on. Pool tests isolate themselves with a unique POOL_ACCOUNT_ID per
+            // test. The pool model is the fake built-in provider's `simple`, priced at 1 µ$ per token
+            // each way, so every reply hold (up to 2,048 tokens out) is above the fake's reported
+            // cost (0.001234 USD ≈ 1,302 µ$ with the fee) and only the test that targets the clamp
+            // hits it. Its window is as large as the deployed pool model's, so the reply's ceiling
+            // hold comes from POOL_MAX_INPUT_TOKENS (as deployed), not from a small window. Caps are
+            // small so cap tests stay short; the per-minute limits sit above them, so a cap test
+            // sees the cap.
             POOL_ENABLED: 'true',
             PERSONAL_CREDIT_ENABLED: 'false',
             // As deployed: tests that simulate purchases turn it on in an env override.
@@ -237,7 +239,7 @@ export default defineConfig({
             POOL_REVENUE_SHARE_BPS: '0',
             POOL_MODEL: 'simple',
             MODEL_PRICES: JSON.stringify({
-              simple: { in: 1_000_000, out: 1_000_000, context: 8_192 },
+              simple: { in: 1_000_000, out: 1_000_000, context: 1_048_576 },
             }),
             POOL_MAX_OUTPUT_TOKENS: '2048',
             POOL_REQUESTS_PER_DAY: '3',

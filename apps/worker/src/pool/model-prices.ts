@@ -8,7 +8,7 @@
 // is priced at all, so the sync refreshes a known model's price but never
 // makes a new model usable by the pool. The context window is the lower of
 // the configured one and OpenRouter's: a smaller window only makes the pool
-// refuse more requests (`exceedsContext`), and the ceiling hold stays small.
+// refuse more requests (`poolInputLimitTokens`), and the ceiling hold stays small.
 //
 // Safety: a price increase is applied whatever its size (holds only grow, so
 // the pool refuses earlier rather than overspending). A drop to under

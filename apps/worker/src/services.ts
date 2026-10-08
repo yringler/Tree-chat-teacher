@@ -30,7 +30,7 @@ import { appConfig } from './config.js';
 import { createD1Repositories } from './db/d1-repositories.js';
 import { withModelWindows } from './model-windows.js';
 import { isPoolFunded, type AccountContext, type AppEnv } from './env.js';
-import type { PoolParams } from './pool/params.js';
+import { poolConfigProblem, type PoolParams } from './pool/params.js';
 import {
   builtInPowerConfig,
   poolChatSettings,
@@ -194,11 +194,16 @@ export function creditSold(env: AppEnv): boolean {
 }
 
 /**
- * True when Learn may spend from the open pool: `POOL_ENABLED` and the
- * `tangent` provider is usable. Billing is not needed to spend from it.
+ * True when Learn may spend from the open pool: `POOL_ENABLED`, the
+ * `tangent` provider is usable, and the pool's caps admit a reply
+ * (`poolConfigProblem`, logged). Billing is not needed to spend from it.
  */
 export function poolAvailable(env: AppEnv): boolean {
-  return appConfig(env).flags.poolEnabled && builtInProviderUsable(env);
+  return (
+    appConfig(env).flags.poolEnabled &&
+    builtInProviderUsable(env) &&
+    poolConfigProblem(env) === null
+  );
 }
 
 /** Which service a request builds: `generating` = it will call a model (sends, context resolve). */

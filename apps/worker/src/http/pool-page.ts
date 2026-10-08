@@ -93,7 +93,12 @@ export async function poolPageFacts(env: AppEnv): Promise<PoolPageFacts> {
     ip: pool.caps.ip,
     perMinute: pool.limits.userPerMinute,
     ceilingHoldMicros: price
-      ? ceilingHoldMicros(price, pool.maxOutputTokens, config.billing.openRouterFeeBps)
+      ? ceilingHoldMicros(
+          price,
+          pool.maxInputTokens,
+          pool.maxOutputTokens,
+          config.billing.openRouterFeeBps,
+        )
       : null,
     minDistinctUsers: config.impact.minDistinctUsers,
     tagRetentionDays: config.impact.tagRetentionDays,

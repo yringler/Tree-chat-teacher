@@ -16,8 +16,7 @@ import { createD1Repositories } from '../src/db/d1-repositories.js';
 import { accountFromParams, accountParams } from '../src/do/tree-session.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import { poolBank } from '../src/pool/ids.js';
-import { poolReserveRequest, resolvePoolParams } from '../src/pool/params.js';
-import { ceilingHoldMicros } from '../src/pool/pricing.js';
+import { poolReserveRequest, replyCeilingMicros, resolvePoolParams } from '../src/pool/params.js';
 import { poolProviderConfig } from '../src/simple-mode.js';
 import { makeNode } from './fixtures.js';
 import { uniq } from './mocks/billing-helpers.js';
@@ -33,7 +32,7 @@ const POOL_MAX_OUTPUT = 2048;
 const PARAMS = await resolvePoolParams(env, null);
 const PRICE = PARAMS.price!;
 /** The reply's ceiling hold on a test pool. */
-const CEILING = ceilingHoldMicros(PRICE, POOL_MAX_OUTPUT, PRICE.feeBps);
+const CEILING = replyCeilingMicros(PARAMS, PRICE);
 
 type User = Awaited<ReturnType<typeof poolReadyUser>>;
 
@@ -523,9 +522,68 @@ describe("the pool's context limit bounds every call", () => {
     for (const r of calls) expect(r.hold_micros).toBeLessThanOrEqual(maxHold);
   });
 
+  it('a deep chain of quoted tangents on a full context stays inside the input limit', async () => {
+    // Each quote's heading and tags are rendered outside the budget: a dozen of them on a
+    // context filled to its budget must still fit the limit the reply's ceiling was priced on.
+    const budget = 3000;
+    const u = await poolReadyUser({
+      env: { POOL_MAX_INPUT_TOKENS: String(budget), POOL_DAILY_GLOBAL_BPS: '10000' },
+    });
+    const repo = createD1Repositories(env.DB).trees;
+    const { trunk } = await createTree(u, 'pool');
+    const question = makeNode(trunk, 0, null, { role: 'user', content: 'x' });
+    const answer = makeNode(trunk, 1, question.id, { role: 'assistant', content: 'Noted.' });
+    await repo.appendNodes([question, answer], new Date().toISOString());
+    let point = answer;
+    let leaf = trunk;
+    for (let depth = 0; depth < 24; depth++) {
+      leaf = await json<Branch>(
+        await u.client.call('/api/branches', {
+          method: 'POST',
+          json: { fromNodeId: point.id, contextMode: 'path', anchorQuote: 'q' },
+          learn: 'pool',
+        }),
+        201,
+      );
+      const q = makeNode(leaf, 0, point.id, { role: 'user', content: '?' });
+      const a = makeNode(leaf, 1, q.id, { role: 'assistant', content: '!' });
+      await repo.appendNodes([q, a], new Date().toISOString());
+      point = a;
+    }
+    // Pad the first question so the send's plan ('Go on': 2 + 4 tokens) is exactly the budget.
+    const planned = await json<ContextPlanResponse>(
+      await u.client.call(`/api/branches/${leaf.id}/context?resolve=true`, { learn: 'pool' }),
+    );
+    const room = budget - planned.plan.budget.usedTokens - 6;
+    expect(room).toBeGreaterThan(0);
+    await env.DB.prepare('UPDATE nodes SET content = ? WHERE id = ?')
+      .bind('x'.repeat(Math.floor((1 + room) * 3.5)), question.id)
+      .run();
+    const full = await json<ContextPlanResponse>(
+      await u.client.call(`/api/branches/${leaf.id}/context?resolve=true`, { learn: 'pool' }),
+    );
+    expect(full.plan.budget.usedTokens).toBe(budget - 6);
+    expect(full.plan.compaction).toBeNull();
+
+    const res = await send(u, leaf.id, 'Go on', { learn: 'pool' });
+    expect(res.status).toBe(200);
+    const events = parseSse(await res.text());
+    expect(events.at(-1)?.type).toBe('done');
+    expect((await rows(u.poolId)).map((r) => [r.purpose, r.status, r.settle_reason])).toEqual([
+      ['reply', 'settled', 'cost'],
+    ]);
+  });
+
   it("refuses a call whose input could exceed the price entry's window instead of clamping its hold", async () => {
     // A limit far above the 8_192-token window: the summary of a huge prefix cannot be priced.
-    const u = await poolReadyUser({ env: { POOL_MAX_INPUT_TOKENS: '100000' } });
+    const u = await poolReadyUser({
+      env: {
+        POOL_MAX_INPUT_TOKENS: '100000',
+        MODEL_PRICES: JSON.stringify({
+          simple: { in: 1_000_000, out: 1_000_000, context: 8_192 },
+        }),
+      },
+    });
     const { trunk } = await createTree(u, 'pool');
     const huge = makeNode(trunk, 0, null, { role: 'user', content: 'x'.repeat(200_000) });
     const answer = makeNode(trunk, 1, huge.id, { role: 'assistant', content: 'Noted.' });

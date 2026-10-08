@@ -19,8 +19,7 @@ import { describe, expect, it } from 'vitest';
 import type { AppEnv } from '../src/env.js';
 import { normaliseEmail, poolIdentity } from '../src/pool/identity.js';
 import { poolBank } from '../src/pool/ids.js';
-import { resolvePoolParams } from '../src/pool/params.js';
-import { ceilingHoldMicros } from '../src/pool/pricing.js';
+import { replyCeilingMicros, resolvePoolParams } from '../src/pool/params.js';
 import { insertSubscription, uniq } from './mocks/billing-helpers.js';
 import { poolAccess, poolReadyUser, taggingSettled } from './pool-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
@@ -29,8 +28,8 @@ const env = rawEnv as unknown as AppEnv;
 const ECHO = '[echo-request]';
 const PARAMS = await resolvePoolParams(env, null);
 const PRICE = PARAMS.price!;
-/** The reply's ceiling hold on a test pool (POOL_MAX_OUTPUT_TOKENS 2048 in vitest.config.ts). */
-const CEILING = ceilingHoldMicros(PRICE, 2048, PRICE.feeBps);
+/** The reply's ceiling hold on a test pool. */
+const CEILING = replyCeilingMicros(PARAMS, PRICE);
 /** POOL_REQUESTS_PER_DAY in vitest.config.ts. */
 const DAILY_REPLIES = 3;
 

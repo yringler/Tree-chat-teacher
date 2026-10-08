@@ -1,4 +1,6 @@
 import {
+  CHECK_SOURCES_INSTRUCTIONS,
+  GROUNDING_INSTRUCTIONS,
   REVIEW_ACCURACY_LABEL,
   REVIEW_ACCURACY_VALUES,
   REVIEW_RECOMMENDATION_LABEL,
@@ -8,7 +10,7 @@ import {
   type RenderedPrompt,
   type SummaryRequest,
 } from '@tangent/shared';
-import { MESSAGE_OVERHEAD_TOKENS, type TokenEstimator } from '../tokens.js';
+import { MESSAGE_OVERHEAD_TOKENS, utf8Bytes, type TokenEstimator } from '../tokens.js';
 
 export interface RenderOptions {
   supportsSystemPrompt: boolean;
@@ -17,6 +19,8 @@ export interface RenderOptions {
 export const SUMMARY_HEADING = '## Summary of the earlier conversation';
 export const ANCHOR_HEADING = '## The user branched off to focus on this excerpt';
 export const CONTINUATION_MESSAGE = '(Conversation continues.)';
+/** What joins system sections, and merged messages. */
+const SEPARATOR = '\n\n';
 
 /**
  * Plan → provider-agnostic prompt.
@@ -43,7 +47,7 @@ export function renderPlan(plan: ContextPlan, options: RenderOptions): RenderedP
         break;
       case 'summary':
         if (seg.status === 'ready' && seg.text !== null)
-          systemParts.push(`${SUMMARY_HEADING}\n\n${seg.text}`);
+          systemParts.push(`${SUMMARY_HEADING}${SEPARATOR}${seg.text}`);
         break;
       case 'anchor':
         pushMessage(messages, 'user', quotedAnchor(seg.text));
@@ -60,11 +64,11 @@ export function renderPlan(plan: ContextPlan, options: RenderOptions): RenderedP
   if (messages[0]?.role === 'assistant')
     messages.unshift({ role: 'user', content: CONTINUATION_MESSAGE });
 
-  const system = systemParts.length > 0 ? systemParts.join('\n\n') : null;
+  const system = systemParts.length > 0 ? systemParts.join(SEPARATOR) : null;
   if (options.supportsSystemPrompt || system === null) return { system, messages };
 
   const first = messages[0];
-  if (first) first.content = `${system}\n\n${first.content}`;
+  if (first) first.content = `${system}${SEPARATOR}${first.content}`;
   else messages.push({ role: 'user', content: system });
   return { system: null, messages };
 }
@@ -80,10 +84,36 @@ export function replyInstructions(text: string): string {
   return `<instructions_for_this_reply>\n${text.trim()}\n</instructions_for_this_reply>`;
 }
 
+/**
+ * The most UTF-8 bytes a rendered prompt adds to a plan's segment texts,
+ * for a plan of at most `sections` system, summary and anchor segments:
+ * their headings, tags and separators, the continuation message, the system
+ * text folded into the first message, and the longest per-reply
+ * instructions after the history (`replyInstructions`, as providers append
+ * them). Segment token counts leave all of it out, so a hard input bound
+ * (the open pool) allows for it. Each message segment also adds a separator
+ * when merged, which its `MESSAGE_OVERHEAD_TOKENS` covers; message framing
+ * is the caller's to count.
+ */
+export function renderOverheadBytes(sections: number): number {
+  const separator = utf8Bytes(SEPARATOR);
+  const perSection = Math.max(
+    utf8Bytes(`${SUMMARY_HEADING}${SEPARATOR}`) + separator,
+    utf8Bytes(quotedAnchor('')) + separator,
+  );
+  const instructions = Math.max(
+    ...[GROUNDING_INSTRUCTIONS, CHECK_SOURCES_INSTRUCTIONS].map((t) =>
+      utf8Bytes(replyInstructions(t)),
+    ),
+  );
+  const perPrompt = utf8Bytes(CONTINUATION_MESSAGE) + separator + instructions + separator;
+  return Math.max(0, sections) * perSection + perPrompt;
+}
+
 /** Appends a message, merging it into the last one when the role repeats. */
 function pushMessage(messages: ChatMessage[], role: ChatMessage['role'], text: string): void {
   const last = messages.at(-1);
-  if (last && last.role === role) last.content = `${last.content}\n\n${text}`;
+  if (last && last.role === role) last.content = `${last.content}${SEPARATOR}${text}`;
   else messages.push({ role, content: text });
 }
 

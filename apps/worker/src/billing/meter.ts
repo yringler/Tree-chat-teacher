@@ -45,7 +45,12 @@ import type { AccountContext, AppEnv } from '../env.js';
 import { poolBank } from '../pool/ids.js';
 import { poolReserveRequest, type PoolParams } from '../pool/params.js';
 import type { PoolRefusal } from '../pool/pool-bank.js';
-import { exceedsContext, inputBoundTokens, worstCaseHoldMicros } from '../pool/pricing.js';
+import {
+  exceedsInputLimit,
+  inputBoundTokens,
+  poolInputLimitTokens,
+  worstCaseHoldMicros,
+} from '../pool/pricing.js';
 import { poolSettlement, type PoolSettlement } from '../pool/settle-policy.js';
 import { costUsdToNanos } from './pricing.js';
 import { reconcileGeneration, RECONCILE_RETRY_DELAYS_MS } from './reconcile.js';
@@ -102,8 +107,9 @@ export class PoolRefusedError extends Error {
 }
 
 /**
- * A pool request's input could exceed its price entry's context window, so its
- * hold would not bound its cost: the call is failed before anything is sent.
+ * A pool request's input could exceed the pool's input limit
+ * (`poolInputLimitTokens`), so the reply's ceiling hold would not bound its
+ * cost: the call is failed before anything is sent.
  */
 export class PoolRequestTooLargeError extends Error {
   constructor(readonly inputBoundTokens: number) {
@@ -398,7 +404,8 @@ export function createPoolUsageMeter(
         request.maxOutputTokens ?? pool.maxOutputTokens,
         pool.maxOutputTokens,
       );
-      if (exceedsContext(price, request)) {
+      const limitTokens = poolInputLimitTokens(price, pool.maxInputTokens);
+      if (exceedsInputLimit(limitTokens, request)) {
         const bound = inputBoundTokens(request);
         console.warn(
           JSON.stringify({
@@ -406,7 +413,7 @@ export function createPoolUsageMeter(
             userId,
             purpose: tag?.purpose ?? 'other',
             inputBoundTokens: bound,
-            contextTokens: price.contextTokens,
+            limitTokens,
           }),
         );
         throw new PoolRequestTooLargeError(bound);
