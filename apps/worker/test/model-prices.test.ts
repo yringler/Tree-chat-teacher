@@ -28,6 +28,8 @@ interface Listed {
   prompt: string;
   completion: string;
   context?: number;
+  cacheRead?: string;
+  cacheWrite?: string;
 }
 
 /** A `fetch` serving `GET /api/v1/models` with `models`, recording the URLs asked for. */
@@ -38,7 +40,12 @@ function listing(models: Listed[]) {
     return Response.json({
       data: models.map((m) => ({
         id: m.id,
-        pricing: { prompt: m.prompt, completion: m.completion },
+        pricing: {
+          prompt: m.prompt,
+          completion: m.completion,
+          ...(m.cacheRead !== undefined ? { input_cache_read: m.cacheRead } : {}),
+          ...(m.cacheWrite !== undefined ? { input_cache_write: m.cacheWrite } : {}),
+        },
         context_length: m.context ?? null,
       })),
     });
@@ -114,11 +121,65 @@ describe('parseListPrices', () => {
         'junk',
       ],
     });
+    const noCache = { cacheReadMicrosPerMTok: null, cacheWriteMicrosPerMTok: null };
     expect(Object.fromEntries(prices)).toEqual({
-      'a/one': { inMicrosPerMTok: 1_000_000, outMicrosPerMTok: 4_000_000, contextTokens: 64_000 },
-      'a/two': { inMicrosPerMTok: 0, outMicrosPerMTok: 0, contextTokens: null },
+      'a/one': {
+        inMicrosPerMTok: 1_000_000,
+        outMicrosPerMTok: 4_000_000,
+        contextTokens: 64_000,
+        ...noCache,
+      },
+      'a/two': { inMicrosPerMTok: 0, outMicrosPerMTok: 0, contextTokens: null, ...noCache },
       'openrouter/auto': null,
       'a/no-pricing': null,
+    });
+  });
+
+  it('reads the cache prices when listed; an unusable one is null, not the whole price', () => {
+    const prices = parseListPrices({
+      data: [
+        {
+          id: 'anthropic/claude-sonnet-5.5',
+          pricing: {
+            prompt: '0.000002',
+            completion: '0.00001',
+            input_cache_read: '0.0000001',
+            input_cache_write: '0.0000025',
+            input_cache_write_1h: '0.000004',
+          },
+        },
+        {
+          id: 'deepseek/deepseek-v4-pro',
+          pricing: {
+            prompt: '0.00000095526',
+            completion: '0.00000191052',
+            input_cache_read: '0.000000079605',
+          },
+        },
+        {
+          id: 'a/odd',
+          pricing: {
+            prompt: '0.000001',
+            completion: '0.000001',
+            input_cache_read: '-1',
+            input_cache_write: 5,
+          },
+        },
+      ],
+    });
+    expect(prices.get('anthropic/claude-sonnet-5.5')).toMatchObject({
+      inMicrosPerMTok: 2_000_000,
+      cacheReadMicrosPerMTok: 100_000,
+      cacheWriteMicrosPerMTok: 2_500_000,
+    });
+    expect(prices.get('deepseek/deepseek-v4-pro')).toMatchObject({
+      cacheReadMicrosPerMTok: 79_605,
+      cacheWriteMicrosPerMTok: null,
+    });
+    expect(prices.get('a/odd')).toMatchObject({
+      inMicrosPerMTok: 1_000_000,
+      cacheReadMicrosPerMTok: null,
+      cacheWriteMicrosPerMTok: null,
     });
   });
 
@@ -142,6 +203,8 @@ describe('syncModelPrices', () => {
       inMicrosPerMTok: 270_000,
       outMicrosPerMTok: 1_100_000,
       contextTokens: 163_840,
+      cacheReadMicrosPerMTok: null,
+      cacheWriteMicrosPerMTok: null,
     });
     expect(await storedPrice(env.DB, 'someone/else')).toBeNull();
     expect(await historyOf(PRO)).toEqual([{ inp: 600_000, out: 2_400_000, at: T0.toISOString() }]);
@@ -209,6 +272,34 @@ describe('syncModelPrices', () => {
     expect((await storedPrice(env.DB, FLASH))?.outMicrosPerMTok).toBe(2_000_000);
     expect((await storedPrice(env.DB, PRO))?.outMicrosPerMTok).toBe(2_000_000);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('"event":"price_sync_missing"'));
+  });
+
+  it('stores the listed cache prices; a cache price change is a new price, a collapse is held back', async () => {
+    const day0 = listing([
+      { id: FLASH, prompt: '0.00000027', completion: '0.0000011', cacheRead: '0.00000003' },
+      { id: PRO, prompt: '0.0000006', completion: '0.0000024', cacheRead: '0.00000006' },
+    ]);
+    await syncModelPrices(env, T0, day0.fetchImpl);
+    expect(await storedPrice(env.DB, FLASH)).toMatchObject({
+      cacheReadMicrosPerMTok: 30_000,
+      cacheWriteMicrosPerMTok: null,
+    });
+    const day1 = listing([
+      // A cache read price change alone is a change (history row).
+      { id: FLASH, prompt: '0.00000027', completion: '0.0000011', cacheRead: '0.00000004' },
+      // A cache read price at under a tenth is held back like an input price.
+      { id: PRO, prompt: '0.0000006', completion: '0.0000024', cacheRead: '0.000000005' },
+    ]);
+    const result = await syncModelPrices(env, T1, day1.fetchImpl);
+    expect(result).toMatchObject({ changed: [FLASH], anomalies: [PRO] });
+    expect((await storedPrice(env.DB, FLASH))?.cacheReadMicrosPerMTok).toBe(40_000);
+    expect((await storedPrice(env.DB, PRO))?.cacheReadMicrosPerMTok).toBe(60_000);
+    const { results } = await env.DB.prepare(
+      'SELECT cache_read_micros_per_mtok AS r FROM model_price_history WHERE model = ?1 ORDER BY recorded_at',
+    )
+      .bind(FLASH)
+      .all<{ r: number | null }>();
+    expect(results.map((h) => h.r)).toEqual([30_000, 40_000]);
   });
 
   it('throws and stores nothing when the list cannot be fetched', async () => {
@@ -316,9 +407,67 @@ describe('modelPrice', () => {
     );
   });
 
+  it('is the synced cache prices over the fallbacks; an override keeps its own', async () => {
+    await sync([
+      { id: FLASH, prompt: '0.00000027', completion: '0.0000011', cacheRead: '0.00000003' },
+      {
+        id: PRO,
+        prompt: '0.0000006',
+        completion: '0.0000024',
+        cacheRead: '0.00000006',
+        cacheWrite: '0.0000007',
+      },
+    ]);
+    // Listed read price, no write price listed (DeepSeek): the write stays the input price.
+    expect(await modelPrice(env, FLASH)).toEqual({
+      inMicrosPerMTok: 270_000,
+      outMicrosPerMTok: 1_100_000,
+      contextTokens: 131_072,
+      cacheReadMicrosPerMTok: 30_000,
+    });
+    expect(await modelPrice(env, PRO)).toMatchObject({
+      cacheReadMicrosPerMTok: 60_000,
+      cacheWriteMicrosPerMTok: 700_000,
+    });
+
+    // An explicit MODEL_PRICES entry wins wholesale, cache prices included (as for input/output).
+    const SONNET = 'anthropic/claude-sonnet-5.5';
+    const overridden = {
+      ...env,
+      MODEL_PRICES: JSON.stringify({
+        [SONNET]: { in: 3_000_000, out: 20_000_000, context: 200_000, cacheRead: 1 },
+      }),
+    } as AppEnv;
+    await syncModelPrices(
+      overridden,
+      T0,
+      listing([
+        {
+          id: SONNET,
+          prompt: '0.000002',
+          completion: '0.00001',
+          cacheRead: '0.0000001',
+          cacheWrite: '0.0000025',
+        },
+      ]).fetchImpl,
+    );
+    expect((await storedPrice(env.DB, SONNET))?.cacheWriteMicrosPerMTok).toBe(2_500_000);
+    expect(await modelPrice(overridden, SONNET)).toEqual({
+      inMicrosPerMTok: 3_000_000,
+      outMicrosPerMTok: 20_000_000,
+      contextTokens: 200_000,
+      cacheReadMicrosPerMTok: 1,
+      cacheWriteMicrosPerMTok: 3_750_000, // the override's own 1.25× fallback, not the synced price
+    });
+    // …and an override below a listed cache price (only) is flagged.
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"price_override_below_list"'),
+    );
+  });
+
   it('is null for a model with no configured entry, even when synced', async () => {
     await env.DB.prepare(
-      "INSERT INTO model_prices VALUES ('x/unknown', 1, 1, NULL, '2026-01-01T00:00:00.000Z')",
+      "INSERT INTO model_prices (model, in_micros_per_mtok, out_micros_per_mtok, context_tokens, fetched_at) VALUES ('x/unknown', 1, 1, NULL, '2026-01-01T00:00:00.000Z')",
     ).run();
     expect(await modelPrice(env, 'x/unknown')).toBeNull();
   });
