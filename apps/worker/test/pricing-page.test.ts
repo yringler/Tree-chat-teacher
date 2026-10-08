@@ -122,7 +122,7 @@ describe('/pricing', () => {
     // Why there's a free plan: Tangent's own policy, with its catch, not tied to the reader's purchase.
     expect(html).toContain('<h2 id="why">Why there’s a free plan</h2>');
     expect(html).toContain(
-      'Free replies come from the open pool: credit Tangent sets aside from what it earns. They use Normal&#39;s model with lighter thinking and shorter replies. They have daily limits and are available only while the pool has credit.',
+      'Free replies come from the open pool: credit Tangent sets aside from what it earns. They use Normal&#39;s model with lighter thinking and shorter replies, have daily limits and are available only while the pool has credit.',
     );
     expect(html).toContain(
       '<li>Tangent earns money from the credit people buy, like any software business.</li>',
@@ -146,7 +146,7 @@ describe('/pricing', () => {
     expect(html).toContain('<div class="plans three">');
     expect(html).toContain('<h1>Learn free, pay for what you use, or bring your own key.</h1>');
     expect(html).toContain(
-      `Anyone signed in can learn free on the open pool: up to ${pool.caps.user.requestsPerDay} replies a day, the same limits for everyone, while the pool has credit. Want more, or power mode? Buy prepaid credit, with no subscription: you pay for each reply at what it costs Tangent, plus 10%. Prefer your own API key? Your AI provider bills you directly, and a $10 yearly membership covers Tangent itself.`,
+      `Anyone signed in can learn free on the open pool: up to ${pool.caps.user.requestsPerDay} replies a day, the same limits for everyone, while the pool has credit. For more replies or power mode, buy prepaid credit, with no subscription, and pay for each reply at what it costs Tangent, plus 10%. With your own API key, your AI provider bills you directly, and a $10 yearly membership covers Tangent itself.`,
     );
     // $10 a year over a 10% markup: the AI spend where the two cost the same.
     expect(html).toContain(

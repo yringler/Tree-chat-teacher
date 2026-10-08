@@ -451,9 +451,9 @@ ${freeNote}<p class="note">The demo needs no sign-up and runs entirely in your b
 <section aria-labelledby="features">
 <div class="wrap">
 <h2 id="features">Learning that follows your curiosity</h2>
-<p class="sub">Every lesson is a tree of branches. Wander off as far as you like, and the conversation stays easy to follow.</p>
+<p class="sub">Every lesson is a tree of branches, so the conversation stays easy to follow however many detours you take.</p>
 <div class="grid four">
-<article class="card">${ICON_COMPASS}<h3>Answers first, tangents next</h3><p>Ask a question and get the answer straight away, in real depth: how and why it works, not just the fact, and no quizzing. Full answers end with a few tangents worth following, and one tap opens any of them in its own branch.</p></article>
+<article class="card">${ICON_COMPASS}<h3>Answers first, tangents next</h3><p>Ask a question and the tutor answers it straight away, explaining how and why it works instead of quizzing you. Full answers end with a few tangents worth following, and one tap opens any of them in its own branch.</p></article>
 <article class="card">${ICON_BRANCH}<h3>Branch from any message</h3><p>Highlight a phrase and choose <strong>Ask about this</strong>. Your side question opens in its own branch, so detours never clutter the main thread, and every branch stays one click away.</p></article>
 <article class="card">${ICON_EYE}<h3>See exactly what the model sees</h3><p>In power mode, choose how much each branch inherits: the whole conversation so far, a summary of it, or just the passage you branched from. The context inspector shows the exact prompt before it’s sent.</p></article>
 ${payCard(opts)}
@@ -463,7 +463,7 @@ ${groundingCard(opts.grounding, opts.pool !== undefined, opts.credit !== undefin
 ${opts.pool ? poolSection(opts.pool, opts.membership !== undefined, opts.impact) : ''}<section aria-labelledby="modes">
 <div class="wrap">
 <h2 id="modes">Two ways to use it</h2>
-<p class="sub">One sign-in, two levels of control. Switch between them any time; each keeps its own conversations.</p>
+<p class="sub">Learn and Power share one sign-in. Switch between them any time; each keeps its own conversations.</p>
 <div class="grid two">
 <article class="card mode learn">
 <h3>Learn</h3>
