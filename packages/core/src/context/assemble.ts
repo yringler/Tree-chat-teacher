@@ -25,6 +25,14 @@ export interface AssembleBudget {
   /** Estimated size of a compaction summary when deciding what to compact. Default 1024. */
   compactionSummaryTokens?: number;
   /**
+   * About the share of `maxInputTokens` a compaction brings the context down
+   * to (default `DEFAULT_COMPACTION_TARGET`): it compacts the overflow in
+   * steps of `maxInputTokens × (1 − compactionTarget)`, and later turns grow
+   * into that headroom while reusing the same summary. 1 compacts only what
+   * the current turn needs (a new summary on every turn over the budget).
+   */
+  compactionTarget?: number;
+  /**
    * Number of most recent message segments that are never compacted or
    * truncated. Default 2. The target message itself is always kept.
    */
@@ -57,6 +65,8 @@ export function summaryKeyString(key: SummaryKey): string {
 }
 
 export const DEFAULT_COMPACTION_SUMMARY_TOKENS = 1024;
+/** `AssembleBudget.compactionTarget`: compact down to about half the budget. */
+export const DEFAULT_COMPACTION_TARGET = 0.5;
 export const DEFAULT_MIN_TAIL_MESSAGES = 2;
 
 /** Prefixes used when a summary / anchor is flattened into a transcript message. */
@@ -535,6 +545,13 @@ function isProtectedTarget(s: Draft, targetNodeId: string | null): boolean {
   return targetNodeId !== null && s.kind === 'branch' && s.nodeId === targetNodeId;
 }
 
+/** `budget.compactionTarget`, clamped to [0, 1]; the default when absent or not a number. */
+function compactionTarget(budget: AssembleBudget): number {
+  const t = budget.compactionTarget;
+  if (t === undefined || !Number.isFinite(t)) return DEFAULT_COMPACTION_TARGET;
+  return Math.min(1, Math.max(0, t));
+}
+
 function applyBudget(
   ctx: Ctx,
   budget: AssembleBudget,
@@ -562,14 +579,33 @@ function applyBudget(
   if (targetIdx !== -1) tailStart = Math.min(tailStart, targetIdx);
   const candidates = input.slice(0, tailStart).filter((s) => s.kind !== 'system');
 
+  // Hysteresis: the compacted prefix must hold at least `needed` tokens to
+  // fit; it holds the overflow rounded up to a whole number of steps (the
+  // budget's share above the target) plus the summary's estimate, counted
+  // from the start of the context, which brings the context down to about the
+  // target. The boundary, and so the summary's key and the prefix sent after
+  // it, then stays put until the context outgrows the budget by another step:
+  // later turns reuse the cached summary and the cached prompt prefix instead
+  // of compacting one more segment (a new summary call and a new prefix)
+  // every turn.
+  const overflow = totalBefore - max;
+  const needed = overflow + estimatedSummary;
+  const step = Math.floor(max * (1 - compactionTarget(budget)));
+  const goal = step >= 1 ? Math.ceil(overflow / step) * step + estimatedSummary : needed;
   let saved = 0;
   let prefixLength = 0;
   for (let j = 0; j < candidates.length; j++) {
     saved += candidates[j]!.tokens;
-    if (totalBefore - saved + estimatedSummary <= max) {
+    if (saved >= goal) {
       prefixLength = j + 1;
       break;
     }
+  }
+  // The goal is out of reach (the protected tail is large): compact all the
+  // candidates when that fits at all. A later turn, with more candidates,
+  // moves to the goal's boundary once and stays there.
+  if (prefixLength === 0 && candidates.length > 0 && saved >= needed) {
+    prefixLength = candidates.length;
   }
 
   if (prefixLength > 0) {
@@ -585,7 +621,10 @@ function applyBudget(
         viaBranchId: target.id,
         explanation:
           `Summary of the ${prefixLength} oldest context segments, replacing them because the ` +
-          `context exceeded the budget of ${max} tokens`,
+          `context exceeded the budget of ${max} tokens` +
+          (step >= 1
+            ? `; compacted about ${step} tokens at a time, so the next turns reuse this summary`
+            : ''),
       },
       prefix,
     );
