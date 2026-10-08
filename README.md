@@ -201,7 +201,7 @@ All commands run from `apps/worker` (use `npx wrangler …` or `pnpm exec wrangl
 4. `wrangler d1 migrations apply DB --remote` applies the new migrations in `apps/worker/migrations`.
 5. `wrangler deploy` deploys the Worker with those static assets.
 
-Deploys never overlap, and none is cancelled midway: a newer one waits for the running one.
+Deploys never overlap, and none is cancelled midway: a newer one waits for the running one. Re-running an old `master` run redeploys that commit's code but doesn't roll back later migrations: the database keeps the newest schema.
 
 **Migrations must stay compatible with the code still running.** They are applied before the deploy, so new code never meets an old schema, but the previous release keeps serving on the new schema until the deploy finishes, and for good if the deploy then fails. Expand first (new tables, new nullable or defaulted columns); contract (drop or rename what the running code still reads) in a later release, once no deployed code uses it.
 
@@ -212,7 +212,7 @@ To set it up (once):
    - Account → **D1** → Edit: applies the migrations.
    - Account → **Account Settings** → Read: lets wrangler read the account.
    - Zone → **Workers Routes** → Edit: every deploy publishes the custom domain in `routes` again.
-2. **Add the `production` environment** in the repository's **Settings → Environments**. Under **Deployment branches and tags**, allow only `master`. Add two environment secrets: `CLOUDFLARE_API_TOKEN` (the token) and `CLOUDFLARE_ACCOUNT_ID` (on the dashboard's account home, or `npx wrangler whoami`).
+2. **Add the `production` environment** in the repository's **Settings → Environments**. Under **Deployment branches and tags**, allow only `master`. This rule is a security requirement, not an option: without it, a pull request from a branch of this repository that edits `ci.yml` can run a job in `production` and read its secrets. Add two environment secrets: `CLOUDFLARE_API_TOKEN` (the token) and `CLOUDFLARE_ACCOUNT_ID` (on the dashboard's account home, or `npx wrangler whoami`).
 3. **Merge to `master`** and check that the first **Deploy** run succeeds.
 4. **Disconnect Workers Builds** once the workflow is on `master`: the Worker's **Settings → Build**, disconnect the repository. Until then, Workers Builds also deploys every push, untested and without migrations.
 
