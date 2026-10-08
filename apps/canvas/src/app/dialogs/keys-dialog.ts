@@ -133,7 +133,9 @@ import { UiStore } from '../state/ui-store';
           <p class="muted small">
             Your key is sent once to this server, checked with {{ providerLabel() }}, encrypted with
             a server-side secret and stored only in your browser as a cookie that page scripts can't
-            read. It is the same key the power app uses. It expires after 7 days.
+            read. It is not saved on the server. Every chat request sends it back to the server,
+            which decrypts it in memory to call the provider, so you are trusting this server not to
+            log it. The power app in this browser uses the same key. It expires after 7 days.
           </p>
           <div class="form-actions">
             @if (store.keyStatus()?.hasKey) {
