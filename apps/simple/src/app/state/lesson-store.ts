@@ -176,8 +176,8 @@ export class LessonStore {
 
   // Replies
   readonly live = signal<ReadonlyMap<string, LiveReply>>(new Map());
-  /** Branch whose POST is in flight (before `start` arrives). */
-  readonly sendingBranchId = signal<string | null>(null);
+  /** Branches whose POST is in flight (before `start` arrives). */
+  readonly sending = signal<ReadonlySet<string>>(new Set());
   readonly unsentDraft = signal<UnsentDraft | null>(null);
   readonly poolBlock = signal<LessonPoolBlock | null>(null);
   /** The Compare sheet is open (its answers stream): the composer waits. */
@@ -243,11 +243,9 @@ export class LessonStore {
   });
 
   readonly busy = computed(() => {
-    const sending = this.sendingBranchId();
+    const id = this.selectedBranchId();
     return (
-      this.comparing() ||
-      this.streamingNode() !== null ||
-      (sending !== null && sending === this.selectedBranchId())
+      this.comparing() || this.streamingNode() !== null || (id !== null && this.sending().has(id))
     );
   });
 
@@ -705,7 +703,7 @@ export class LessonStore {
     content: string,
     options: { ground?: 'required' } = {},
   ): Promise<boolean> {
-    this.sendingBranchId.set(branchId);
+    this.markSending(branchId, true);
     if (this.unsentDraft()?.branchId === branchId) this.unsentDraft.set(null);
     if (this.poolBlock()?.branchId === branchId) this.poolBlock.set(null);
     const ctrl = new AbortController();
@@ -720,7 +718,7 @@ export class LessonStore {
           if (event.type === 'start') {
             nodeId = event.assistantNode.id;
             this.controllers.set(nodeId, ctrl);
-            this.sendingBranchId.set(null);
+            this.markSending(branchId, false);
             // In the lesson now: the composer may let the text go.
             this.ui.markSent(content);
           }
@@ -752,7 +750,7 @@ export class LessonStore {
       this.fail(err);
       return false;
     } finally {
-      if (this.sendingBranchId() === branchId) this.sendingBranchId.set(null);
+      this.markSending(branchId, false);
       if (nodeId) this.controllers.delete(nodeId);
     }
   }
@@ -1084,6 +1082,16 @@ export class LessonStore {
         ),
       );
     }
+  }
+
+  private markSending(branchId: string, on: boolean): void {
+    if (this.sending().has(branchId) === on) return;
+    this.sending.update((set) => {
+      const next = new Set(set);
+      if (on) next.add(branchId);
+      else next.delete(branchId);
+      return next;
+    });
   }
 
   private setLive(s: LiveReply): void {

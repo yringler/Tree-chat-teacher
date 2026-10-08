@@ -134,8 +134,8 @@ export class TreeStore {
 
   // Streams
   readonly live = signal<ReadonlyMap<string, LiveStream>>(new Map());
-  /** Branch whose POST is in flight (before `start` arrives). */
-  readonly sendingBranchId = signal<string | null>(null);
+  /** Branches whose POST is in flight (before `start` arrives). */
+  readonly sending = signal<ReadonlySet<string>>(new Set());
   /** Bumped whenever a generation finishes; the inspector refreshes on it. */
   readonly completions = signal(0);
   /**
@@ -247,10 +247,8 @@ export class TreeStore {
   });
 
   readonly busy = computed(() => {
-    const sending = this.sendingBranchId();
-    return (
-      this.streamingNode() !== null || (sending !== null && sending === this.selectedBranchId())
-    );
+    const id = this.selectedBranchId();
+    return this.streamingNode() !== null || (id !== null && this.sending().has(id));
   });
 
   /**
@@ -997,7 +995,7 @@ export class TreeStore {
     content: string,
     options: { ground?: 'required' } = {},
   ): Promise<boolean> {
-    this.sendingBranchId.set(branchId);
+    this.markSending(branchId, true);
     if (this.blockedSends().some((s) => s.branchId === branchId)) {
       this.blockedSends.update((list) => list.filter((s) => s.branchId !== branchId));
     }
@@ -1015,7 +1013,7 @@ export class TreeStore {
           if (event.type === 'start') {
             nodeId = event.assistantNode.id;
             this.controllers.set(nodeId, ctrl);
-            this.sendingBranchId.set(null);
+            this.markSending(branchId, false);
             // In the tree now: the composer may let the text go.
             this.ui.markSent(content);
           }
@@ -1043,7 +1041,7 @@ export class TreeStore {
       this.fail(err);
       return false;
     } finally {
-      if (this.sendingBranchId() === branchId) this.sendingBranchId.set(null);
+      this.markSending(branchId, false);
       if (nodeId) this.controllers.delete(nodeId);
     }
   }
@@ -1258,6 +1256,16 @@ export class TreeStore {
         ),
       );
     }
+  }
+
+  private markSending(branchId: string, on: boolean): void {
+    if (this.sending().has(branchId) === on) return;
+    this.sending.update((set) => {
+      const next = new Set(set);
+      if (on) next.add(branchId);
+      else next.delete(branchId);
+      return next;
+    });
   }
 
   private setLive(s: LiveStream): void {

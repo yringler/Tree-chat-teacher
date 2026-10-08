@@ -337,7 +337,7 @@ describe('LessonStore', () => {
     await vi.waitFor(() => expect(s.store.live().get('a1')?.status).toBe('Thinking…'));
     expect(s.ui.composerSent()).toEqual({ seq: 1, text: 'What is light?' });
     expect(s.store.streamingNode()?.id).toBe('a1');
-    expect(s.store.sendingBranchId()).toBeNull();
+    expect(s.store.sending().size).toBe(0);
 
     live.push([
       { type: 'delta', nodeId: 'a1', text: 'Light is ' },
@@ -1385,5 +1385,33 @@ describe('LessonStore a lesson load that lands late', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(s.store.detail()?.tree.id).toBe('t2');
     expect(s.store.detailLoading()).toBe(false);
+  });
+});
+
+describe('LessonStore sends on two branches at once', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('a send on another branch leaves the first branch busy until its reply starts', async () => {
+    const s = setup();
+    const side = branch('side', { parentBranchId: 'trunk', branchPointNodeId: 'a1' });
+    const reply = node('a1', { seq: 1, parentId: 'u1', content: 'A wave.' });
+    await open(s, detail([userNode, reply], [branch('trunk'), side]), 'side');
+    const posts = new Map<string, (r: Response) => void>();
+    s.api.sendMessage.mockImplementation(
+      (branchId: string) => new Promise<Response>((r) => posts.set(branchId, r)),
+    );
+
+    void s.store.send('side', 'One');
+    expect(s.store.busy()).toBe(true);
+    const other = s.store.send('trunk', 'Two');
+    expect(s.store.busy()).toBe(true);
+    posts.get('trunk')?.(new Response('nope', { status: 500 }));
+    await other;
+    expect(s.store.busy()).toBe(true);
+    expect([...s.store.sending()]).toEqual(['side']);
   });
 });

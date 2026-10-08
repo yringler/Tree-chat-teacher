@@ -1686,6 +1686,37 @@ describe('TreeStore a tree load that lands late', () => {
   });
 });
 
+describe('TreeStore sends on two branches at once', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('a send on another branch leaves the first branch busy until its reply starts', async () => {
+    const s = setup();
+    const posts = new Map<string, ReturnType<typeof deferred<Response>>>();
+    const sendMessage = vi.fn((branchId: string, _req: unknown, _signal: AbortSignal) => {
+      const d = deferred<Response>();
+      posts.set(branchId, d);
+      return d.promise;
+    });
+    Object.assign(s.api, { sendMessage, streamNode: vi.fn() });
+    s.store.detail.set(smallTree('X'));
+    s.store.setRoute('X', 'X-side', null);
+
+    void s.store.send('X-side', 'One');
+    expect(s.store.busy()).toBe(true);
+    const other = s.store.send('X-trunk', 'Two');
+    expect(s.store.busy()).toBe(true);
+    // The other branch's POST ends (refused here) while the first is still out.
+    posts.get('X-trunk')?.resolve(new Response('nope', { status: 500 }));
+    await other;
+    expect(s.store.busy()).toBe(true);
+    expect([...s.store.sending()]).toEqual(['X-side']);
+  });
+});
+
 describe('TreeStore Check sources', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
