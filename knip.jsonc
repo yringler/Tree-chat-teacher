@@ -1,0 +1,23 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  // Exports used only inside their own file are part of that file's API for tests and readers.
+  "ignoreExportsUsedInFile": true,
+  "ignoreIssues": {
+    // BUILT_IN_MAX_OUTPUT_TOKENS is the reasoning default by decision, not by coincidence.
+    "packages/shared/src/output-tokens.ts": ["duplicates"],
+  },
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/*.mjs", "scripts/model-eval/eval.ts"],
+      "project": ["*.ts", "scripts/**/*.{mjs,ts}"],
+    },
+    // These apps' styles.css imports highlight.js's themes; knip doesn't read CSS.
+    "apps/web": { "ignoreDependencies": ["highlight.js"] },
+    "apps/simple": { "ignoreDependencies": ["highlight.js"] },
+    "apps/canvas": { "ignoreDependencies": ["highlight.js"] },
+    "apps/worker": {
+      // `cloudflare:test` and `cloudflare:workers` are workerd's built-in modules, not a package.
+      "ignoreDependencies": ["cloudflare"],
+    },
+  },
+}

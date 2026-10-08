@@ -22,7 +22,10 @@ const OPENROUTER: ProviderConfig = {
   models: [{ id: 'anthropic/claude-sonnet-5.5', label: 'Claude Sonnet 5.5 (OpenRouter)' }],
 };
 
-const SECRETS = { OPENAI_API_KEY: 'sk-proj-openai-key-123456', OPENROUTER_API_KEY: 'sk-or-v1-abcdefabcdef' };
+const SECRETS = {
+  OPENAI_API_KEY: 'sk-proj-openai-key-123456',
+  OPENROUTER_API_KEY: 'sk-or-v1-abcdefabcdef',
+};
 
 function req(overrides: Partial<GenerateRequest> = {}): GenerateRequest {
   return {
@@ -34,7 +37,11 @@ function req(overrides: Partial<GenerateRequest> = {}): GenerateRequest {
   };
 }
 
-function chunk(delta: Record<string, unknown>, finish: string | null = null, extra: Record<string, unknown> = {}) {
+function chunk(
+  delta: Record<string, unknown>,
+  finish: string | null = null,
+  extra: Record<string, unknown> = {},
+) {
   return frame(null, {
     id: 'chatcmpl-1',
     object: 'chat.completion.chunk',
@@ -71,9 +78,16 @@ const OPENROUTER_STREAM = [
   'data: [DONE]\n\n',
 ];
 
-function setup(config: ProviderConfig, respond: Parameters<typeof mockFetch>[0], secrets: Record<string, string> = SECRETS) {
+function setup(
+  config: ProviderConfig,
+  respond: Parameters<typeof mockFetch>[0],
+  secrets: Record<string, string> = SECRETS,
+) {
   const m = mockFetch(respond);
-  return { provider: createOpenAiCompatibleProvider(config, { secrets, fetch: m.fetch }), calls: m.calls };
+  return {
+    provider: createOpenAiCompatibleProvider(config, { secrets, fetch: m.fetch }),
+    calls: m.calls,
+  };
 }
 
 describe('openai-compatible provider', () => {
@@ -104,9 +118,11 @@ describe('openai-compatible provider', () => {
 
   it('parses the OpenRouter stream (comments, one-choice usage chunk)', async () => {
     const { provider, calls } = setup(OPENROUTER, () => sseResponse(OPENROUTER_STREAM).response);
-    expect(await collect(provider.stream(req({ model: 'anthropic/claude-sonnet-5.5', maxOutputTokens: 500 })))).toEqual<
-      ProviderEvent[]
-    >([
+    expect(
+      await collect(
+        provider.stream(req({ model: 'anthropic/claude-sonnet-5.5', maxOutputTokens: 500 })),
+      ),
+    ).toEqual<ProviderEvent[]>([
       { type: 'delta', text: 'Hi ' },
       { type: 'delta', text: 'there' },
       { type: 'usage', usage: { inputTokens: 20, outputTokens: 2 } },
@@ -146,7 +162,12 @@ describe('openai-compatible provider', () => {
       { type: 'delta', text: 'Partial' },
       {
         type: 'error',
-        error: { code: 'server', message: 'Provider disconnected unexpectedly', retryable: true, upstream: 'stream' },
+        error: {
+          code: 'server',
+          message: 'Provider disconnected unexpectedly',
+          retryable: true,
+          upstream: 'stream',
+        },
       },
     ]);
   });
@@ -156,11 +177,19 @@ describe('openai-compatible provider', () => {
       OPENROUTER,
       () =>
         sseResponse([
-          frame(null, { error: { code: 400, message: "This endpoint's maximum context length is 200000 tokens" } }),
+          frame(null, {
+            error: {
+              code: 400,
+              message: "This endpoint's maximum context length is 200000 tokens",
+            },
+          }),
         ]).response,
     );
     const [ev] = await collect(provider.stream(req()));
-    expect(ev).toMatchObject({ type: 'error', error: { code: 'context_length', retryable: false } });
+    expect(ev).toMatchObject({
+      type: 'error',
+      error: { code: 'context_length', retryable: false },
+    });
   });
 
   it('ends with done at stream end when finish_reason was seen but [DONE] is missing', async () => {
@@ -170,7 +199,10 @@ describe('openai-compatible provider', () => {
   });
 
   it('ends with done(null) at [DONE] without finish_reason', async () => {
-    const { provider } = setup(OPENAI, () => sseResponse([chunk({ content: 'x' }), 'data: [DONE]\n\n']).response);
+    const { provider } = setup(
+      OPENAI,
+      () => sseResponse([chunk({ content: 'x' }), 'data: [DONE]\n\n']).response,
+    );
     expect(await collect(provider.stream(req()))).toEqual([
       { type: 'delta', text: 'x' },
       { type: 'done', stopReason: null },
@@ -207,7 +239,12 @@ describe('openai-compatible provider', () => {
     expect(await collect(provider.stream(req()))).toEqual([
       {
         type: 'error',
-        error: { code: 'config', message: 'Missing secret OPENAI_API_KEY', retryable: false, upstream: 'not_sent' },
+        error: {
+          code: 'config',
+          message: 'Missing secret OPENAI_API_KEY',
+          retryable: false,
+          upstream: 'not_sent',
+        },
       },
     ]);
     expect(calls).toHaveLength(0);
@@ -220,13 +257,21 @@ describe('openai-compatible provider', () => {
     expect(await collect(provider.stream(req()))).toEqual([
       {
         type: 'error',
-        error: { code: 'network', message: 'Network error: connection refused', retryable: true, upstream: 'not_sent' },
+        error: {
+          code: 'network',
+          message: 'Network error: connection refused',
+          retryable: true,
+          upstream: 'not_sent',
+        },
       },
     ]);
   });
 
   it('folds the system prompt into the first user message when unsupported', async () => {
-    const { provider, calls } = setup({ ...OPENAI, supportsSystemPrompt: false }, () => sseResponse(OPENAI_STREAM).response);
+    const { provider, calls } = setup(
+      { ...OPENAI, supportsSystemPrompt: false },
+      () => sseResponse(OPENAI_STREAM).response,
+    );
     expect(provider.capabilities('gpt-5').supportsSystemPrompt).toBe(false);
     await collect(provider.stream(req()));
     expect(calls[0]!.body['messages']).toEqual([{ role: 'user', content: 'Be brief.\n\nHi' }]);
@@ -245,9 +290,14 @@ describe('openai-compatible provider', () => {
     [502, 'server', true],
     [400, 'invalid_request', false],
   ] as const)('maps HTTP %i to %s using {error:{message}}', async (status, code, retryable) => {
-    const { provider } = setup(OPENAI, () => jsonResponse(status, { error: { message: `oops ${status}`, type: 'x' } }));
+    const { provider } = setup(OPENAI, () =>
+      jsonResponse(status, { error: { message: `oops ${status}`, type: 'x' } }),
+    );
     expect(await collect(provider.stream(req()))).toEqual([
-      { type: 'error', error: { code, status, retryable, message: `oops ${status}`, upstream: 'rejected' } },
+      {
+        type: 'error',
+        error: { code, status, retryable, message: `oops ${status}`, upstream: 'rejected' },
+      },
     ]);
   });
 
@@ -255,7 +305,8 @@ describe('openai-compatible provider', () => {
     const { provider } = setup(OPENAI, () =>
       jsonResponse(400, {
         error: {
-          message: "This model's maximum context length is 128000 tokens. However, you requested 130000 tokens.",
+          message:
+            "This model's maximum context length is 128000 tokens. However, you requested 130000 tokens.",
           code: 'context_length_exceeded',
         },
       }),
@@ -264,14 +315,18 @@ describe('openai-compatible provider', () => {
     expect(ev).toMatchObject({ type: 'error', error: { code: 'context_length', status: 400 } });
 
     const { provider: p2 } = setup(OPENAI, () =>
-      jsonResponse(401, { error: { message: `Incorrect API key provided: ${SECRETS.OPENAI_API_KEY}` } }),
+      jsonResponse(401, {
+        error: { message: `Incorrect API key provided: ${SECRETS.OPENAI_API_KEY}` },
+      }),
     );
     const [ev2] = await collect(p2.stream(req()));
     expect(JSON.stringify(ev2)).not.toContain(SECRETS.OPENAI_API_KEY);
   });
 
   it('aborts promptly mid-stream', async () => {
-    const res = sseResponse([': OPENROUTER PROCESSING\n\n', chunk({ content: 'a' })], { hang: true });
+    const res = sseResponse([': OPENROUTER PROCESSING\n\n', chunk({ content: 'a' })], {
+      hang: true,
+    });
     const { provider } = setup(OPENROUTER, () => res.response);
     const ac = new AbortController();
     const events: ProviderEvent[] = [];
@@ -312,27 +367,51 @@ describe('openai-compatible provider', () => {
       reasoning: false,
     });
     // A reasoning model gets a larger limit unless the config names one.
-    expect(provider.capabilities('gpt-5')).toMatchObject({ maxOutputTokens: 32_000, reasoning: true });
-    const capped = setup({ ...OPENAI, maxOutputTokens: 4000 }, () => jsonResponse(500, {})).provider;
+    expect(provider.capabilities('gpt-5')).toMatchObject({
+      maxOutputTokens: 32_000,
+      reasoning: true,
+    });
+    const capped = setup({ ...OPENAI, maxOutputTokens: 4000 }, () =>
+      jsonResponse(500, {}),
+    ).provider;
     expect(capped.capabilities('gpt-5')).toMatchObject({ maxOutputTokens: 4000, reasoning: true });
     const flagged = setup(
-      { ...OPENAI, models: [{ id: 'my-model', label: 'Mine', reasoning: true }, { id: 'gpt-5', label: 'GPT-5', reasoning: false }] },
+      {
+        ...OPENAI,
+        models: [
+          { id: 'my-model', label: 'Mine', reasoning: true },
+          { id: 'gpt-5', label: 'GPT-5', reasoning: false },
+        ],
+      },
       () => jsonResponse(500, {}),
     ).provider;
-    expect(flagged.capabilities('my-model')).toMatchObject({ maxOutputTokens: 32_000, reasoning: true });
-    expect(flagged.capabilities('gpt-5')).toMatchObject({ maxOutputTokens: 8192, reasoning: false });
+    expect(flagged.capabilities('my-model')).toMatchObject({
+      maxOutputTokens: 32_000,
+      reasoning: true,
+    });
+    expect(flagged.capabilities('gpt-5')).toMatchObject({
+      maxOutputTokens: 8192,
+      reasoning: false,
+    });
   });
 });
 
 describe('openai-compatible billing (OpenRouter)', () => {
-  function orChunk(id: string, delta: Record<string, unknown>, finish: string | null = null, extra: Record<string, unknown> = {}) {
+  function orChunk(
+    id: string,
+    delta: Record<string, unknown>,
+    finish: string | null = null,
+    extra: Record<string, unknown> = {},
+  ) {
     return frame(null, {
       id,
       provider: 'DeepSeek',
       model: 'deepseek/deepseek-v4-flash',
       object: 'chat.completion.chunk',
       created: 1_790_000_000,
-      choices: [{ index: 0, delta, finish_reason: finish, native_finish_reason: finish, logprobs: null }],
+      choices: [
+        { index: 0, delta, finish_reason: finish, native_finish_reason: finish, logprobs: null },
+      ],
       ...extra,
     });
   }
@@ -367,7 +446,9 @@ describe('openai-compatible billing (OpenRouter)', () => {
   }
 
   it('yields the x-generation-id header before any delta, then the cost from the final chunk', async () => {
-    const { provider } = setup(OPENROUTER, () => withHeader(sseResponse(STREAM).response, 'gen-from-header'));
+    const { provider } = setup(OPENROUTER, () =>
+      withHeader(sseResponse(STREAM).response, 'gen-from-header'),
+    );
     expect(await collect(provider.stream(req()))).toEqual<ProviderEvent[]>([
       { type: 'billing', generationId: 'gen-from-header' },
       { type: 'billing', servedBy: 'DeepSeek' },
@@ -403,7 +484,11 @@ describe('openai-compatible billing (OpenRouter)', () => {
       () =>
         sseResponse([
           chunk({ content: 'x' }, 'stop'),
-          frame(null, { id: 'chatcmpl-1', choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, cost: '0.1' } }),
+          frame(null, {
+            id: 'chatcmpl-1',
+            choices: [],
+            usage: { prompt_tokens: 1, completion_tokens: 1, cost: '0.1' },
+          }),
           'data: [DONE]\n\n',
         ]).response,
     );
@@ -436,19 +521,37 @@ describe('openai-compatible billing (OpenRouter)', () => {
 
   it('yields the header id before an in-stream error', async () => {
     const { provider } = setup(OPENROUTER, () =>
-      withHeader(sseResponse([frame(null, { id: GEN, error: { code: 502, message: 'upstream died' } })]).response, GEN),
+      withHeader(
+        sseResponse([frame(null, { id: GEN, error: { code: 502, message: 'upstream died' } })])
+          .response,
+        GEN,
+      ),
     );
     expect(await collect(provider.stream(req()))).toEqual([
       { type: 'billing', generationId: GEN },
-      { type: 'error', error: { code: 'server', message: 'upstream died', retryable: true, upstream: 'stream' } },
+      {
+        type: 'error',
+        error: { code: 'server', message: 'upstream died', retryable: true, upstream: 'stream' },
+      },
     ]);
   });
 
   it('yields no billing on an HTTP error', async () => {
-    const { provider } = setup(OPENROUTER, () => withHeader(jsonResponse(500, { error: { message: 'boom' } }), GEN));
+    const { provider } = setup(OPENROUTER, () =>
+      withHeader(jsonResponse(500, { error: { message: 'boom' } }), GEN),
+    );
     const events = await collect(provider.stream(req()));
     expect(events).toEqual([
-      { type: 'error', error: { code: 'server', status: 500, retryable: true, message: 'boom', upstream: 'rejected' } },
+      {
+        type: 'error',
+        error: {
+          code: 'server',
+          status: 500,
+          retryable: true,
+          message: 'boom',
+          upstream: 'rejected',
+        },
+      },
     ]);
   });
 });
@@ -508,7 +611,10 @@ describe('openai-compatible options.extraBody', () => {
   });
 
   it('ignores a non-object extraBody', async () => {
-    const { provider, calls } = setup({ ...OPENAI, options: { extraBody: 'nope' } }, () => sseResponse(OPENAI_STREAM).response);
+    const { provider, calls } = setup(
+      { ...OPENAI, options: { extraBody: 'nope' } },
+      () => sseResponse(OPENAI_STREAM).response,
+    );
     await collect(provider.stream(req()));
     expect(Object.keys(calls[0]!.body).sort()).toEqual(
       ['max_completion_tokens', 'messages', 'model', 'stream', 'stream_options'].sort(),
@@ -524,11 +630,39 @@ describe('openai-compatible web search (OpenRouter)', () => {
     url_citation: { url, title, content, start_index: 0, end_index: 1 },
   });
   const STREAM = [
-    chunk({ role: 'assistant', content: '', tool_calls: [{ index: 0, id: 't1', type: 'function', function: { name: 'web_search', arguments: '{}' } }] }),
+    chunk({
+      role: 'assistant',
+      content: '',
+      tool_calls: [
+        { index: 0, id: 't1', type: 'function', function: { name: 'web_search', arguments: '{}' } },
+      ],
+    }),
     chunk({ content: 'Water boils at 100 °C [example.org](https://example.org/a).' }),
-    chunk({ content: '', annotations: [annotation('https://example.org/a', 'A', 'x'.repeat(400)), annotation('javascript:alert(1)', 'bad')] }),
-    chunk({ content: '', annotations: [annotation('https://example.org/a', 'A again'), annotation('https://b.example/', 'B')] }, 'stop'),
-    chunk({}, null, { usage: { prompt_tokens: 900, completion_tokens: 40, cost: 0.0075, server_tool_use: { web_search_requests: 1 } } }),
+    chunk({
+      content: '',
+      annotations: [
+        annotation('https://example.org/a', 'A', 'x'.repeat(400)),
+        annotation('javascript:alert(1)', 'bad'),
+      ],
+    }),
+    chunk(
+      {
+        content: '',
+        annotations: [
+          annotation('https://example.org/a', 'A again'),
+          annotation('https://b.example/', 'B'),
+        ],
+      },
+      'stop',
+    ),
+    chunk({}, null, {
+      usage: {
+        prompt_tokens: 900,
+        completion_tokens: 40,
+        cost: 0.0075,
+        server_tool_use: { web_search_requests: 1 },
+      },
+    }),
     'data: [DONE]\n\n',
   ];
 
@@ -567,7 +701,9 @@ describe('openai-compatible web search (OpenRouter)', () => {
     expect(calls[0]!.body['tool_choice']).toBe('auto');
     const messages = calls[0]!.body['messages'] as { role: string; content: string }[];
     expect(messages.at(-1)!.content.endsWith('\n\nSearch once.')).toBe(true);
-    expect(messages.filter((m) => m.role === 'system').some((m) => m.content.includes('Search once.'))).toBe(false);
+    expect(
+      messages.filter((m) => m.role === 'system').some((m) => m.content.includes('Search once.')),
+    ).toBe(false);
   });
 
   it('requires the tool for mode required', async () => {
@@ -577,7 +713,13 @@ describe('openai-compatible web search (OpenRouter)', () => {
   });
 
   it('extraBody cannot override the tool while searching, but applies otherwise', async () => {
-    const config = { ...WS, options: { webSearch: true, extraBody: { tools: [], tool_choice: 'none', plugins: [{ id: 'web' }] } } };
+    const config = {
+      ...WS,
+      options: {
+        webSearch: true,
+        extraBody: { tools: [], tool_choice: 'none', plugins: [{ id: 'web' }] },
+      },
+    };
     const { provider, calls } = setup(config, () => sseResponse(OPENROUTER_STREAM).response);
     await collect(provider.stream(req({ webSearch })));
     expect(calls[0]!.body['tool_choice']).toBe('auto');
@@ -846,8 +988,12 @@ describe('openai-compatible reasoning effort and provider pinning', () => {
       effort: 'high',
     });
     expect(await sent(OPENROUTER, { model: FLASH })).not.toHaveProperty('reasoning');
-    expect(await sent(OPENAI, { model: 'gpt-5', reasoning: 'none' })).not.toHaveProperty('reasoning');
-    expect(await sent(OPENAI, { model: 'gpt-5', reasoning: 'high' })).not.toHaveProperty('reasoning');
+    expect(await sent(OPENAI, { model: 'gpt-5', reasoning: 'none' })).not.toHaveProperty(
+      'reasoning',
+    );
+    expect(await sent(OPENAI, { model: 'gpt-5', reasoning: 'high' })).not.toHaveProperty(
+      'reasoning',
+    );
   });
 
   it("sends the model's configured effort; a request's effort overrides it", async () => {
@@ -857,7 +1003,9 @@ describe('openai-compatible reasoning effort and provider pinning', () => {
       enabled: false,
     });
     // An unlisted model has no configured effort.
-    expect(await sent(config, { model: 'deepseek/deepseek-v4-pro' })).not.toHaveProperty('reasoning');
+    expect(await sent(config, { model: 'deepseek/deepseek-v4-pro' })).not.toHaveProperty(
+      'reasoning',
+    );
     // An effort replaces extraBody's `reasoning`; without one, extraBody's stays.
     const extra = { ...config, options: { extraBody: { reasoning: { max_tokens: 100 } } } };
     expect((await sent(extra, { model: FLASH }))['reasoning']).toEqual({ effort: 'low' });
@@ -917,7 +1065,9 @@ describe('openai-compatible reasoning effort and provider pinning', () => {
       frame(null, {
         id: 'gen-1',
         provider: 'DeepSeek',
-        choices: [{ index: 0, delta: { role: 'assistant', content: '', reasoning: 'Let me think' } }],
+        choices: [
+          { index: 0, delta: { role: 'assistant', content: '', reasoning: 'Let me think' } },
+        ],
       }),
       frame(null, {
         id: 'gen-1',

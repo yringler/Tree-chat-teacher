@@ -90,11 +90,7 @@ export interface AnchorSegment extends SegmentBase {
 }
 
 export type ContextSegment =
-  | SystemSegment
-  | AncestorMessageSegment
-  | BranchMessageSegment
-  | SummarySegment
-  | AnchorSegment;
+  SystemSegment | AncestorMessageSegment | BranchMessageSegment | SummarySegment | AnchorSegment;
 
 /** A summary the assembler needs but was not given. The caller generates it and re-plans. */
 export interface SummaryRequest {

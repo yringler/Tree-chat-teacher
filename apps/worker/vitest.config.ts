@@ -271,6 +271,10 @@ export default defineConfig({
   ],
   test: {
     setupFiles: ['./test/apply-migrations.ts'],
+    // Many tests sign users in and drive Durable Objects inside workerd; on a shared CI runner
+    // the slowest take several seconds, so vitest's 5s default fails them at random.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     // workerd has no V8 coverage: Istanbul instruments the code instead.
     coverage: coverage('istanbul'),
   },

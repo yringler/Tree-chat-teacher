@@ -47,7 +47,9 @@ describe('fetchOpenRouterGeneration', () => {
   });
 
   it('reports a cancelled generation and missing token counts as null', async () => {
-    const { fetch } = mockFetch(() => jsonResponse(200, { data: { total_cost: 0, cancelled: true, native_tokens_prompt: null } }));
+    const { fetch } = mockFetch(() =>
+      jsonResponse(200, { data: { total_cost: 0, cancelled: true, native_tokens_prompt: null } }),
+    );
     expect(await fetchOpenRouterGeneration(ID, KEY, fetch)).toEqual({
       costUsd: 0,
       inputTokens: null,
@@ -58,18 +60,24 @@ describe('fetchOpenRouterGeneration', () => {
   });
 
   it('URL-encodes the id', async () => {
-    const { fetch, calls } = mockFetch(() => jsonResponse(404, { error: { message: 'not found' } }));
+    const { fetch, calls } = mockFetch(() =>
+      jsonResponse(404, { error: { message: 'not found' } }),
+    );
     await fetchOpenRouterGeneration('gen-a&b=c', KEY, fetch);
     expect(calls[0]!.url).toBe('https://openrouter.ai/api/v1/generation?id=gen-a%26b%3Dc');
   });
 
   it('resolves null on 404 (not yet available)', async () => {
-    const { fetch } = mockFetch(() => jsonResponse(404, { error: { message: `Generation ${ID} not found`, code: 404 } }));
+    const { fetch } = mockFetch(() =>
+      jsonResponse(404, { error: { message: `Generation ${ID} not found`, code: 404 } }),
+    );
     expect(await fetchOpenRouterGeneration(ID, KEY, fetch)).toBeNull();
   });
 
   it('throws on 500 with a redacted message', async () => {
-    const { fetch } = mockFetch(() => jsonResponse(500, { error: { message: `Internal error for key ${KEY}` } }));
+    const { fetch } = mockFetch(() =>
+      jsonResponse(500, { error: { message: `Internal error for key ${KEY}` } }),
+    );
     const err = await thrown(fetchOpenRouterGeneration(ID, KEY, fetch));
     expect(err.message).toMatch(/HTTP 500/);
     expect(err.message).not.toContain(KEY);

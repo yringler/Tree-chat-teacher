@@ -139,8 +139,10 @@ Checks:
 ```bash
 pnpm test        # Vitest in every package; the worker suite runs inside workerd with real D1 + Durable Objects
 pnpm typecheck   # tsc everywhere (+ Angular strict templates)
-pnpm lint        # ESLint (typescript-eslint strict)
+pnpm lint        # ESLint (typescript-eslint strict, plus the type-aware promise rules)
+pnpm format:check # Prettier (`pnpm format` rewrites); .prettierignore skips vendored and generated files
 pnpm coverage    # the same tests with coverage, then a lines/branches table per package
+pnpm knip        # unused files, dependencies and exports (knip.jsonc); not in CI yet
 pnpm e2e         # Playwright end-to-end tests against wrangler dev (see below)
 ```
 
@@ -155,7 +157,7 @@ pnpm e2e         # Playwright end-to-end tests against wrangler dev (see below)
 - `learn-key.spec.ts`: Learn on the learner's own key without one says which key is missing and opens **How replies are paid for**; the learner stays signed in.
 - `share-dialog.spec.ts`: the **Share…** dialog lists only the open conversation's links (a conversation without any says so), with the branch a path link ends in; a link created there joins the top of the list, and one revoked there shows as revoked at once and after reopening. The e2e server turns share links on for everyone (`DMCA_AGENT_REGISTERED`) for it.
 
-Sign-in is the real magic-link flow: `EMAIL_PROVIDER=log` prints the link to the server log, which the tests read, and Cloudflare's always-pass Turnstile test keys stand in for the captcha (their check still calls `challenges.cloudflare.com`, so the run needs network access). Memberships and credit come from the fake payment provider's signed webhook (`PAYMENT_PROVIDER=fake`, which the Worker allows only with `TEST_SEAMS`, as in the worker tests). `@playwright/test` is pinned to the release whose Chromium is installed; on a new machine run `pnpm --filter @tangent/e2e exec playwright install chromium` once, or point `PLAYWRIGHT_CHROMIUM_PATH` at a Chromium binary. While writing tests, `node apps/e2e/serve.mjs` in one terminal and `E2E_REUSE_SERVER=1 pnpm e2e` in another skips the rebuild. CI (`.github/workflows/ci.yml`) runs on every pull request to `master` and every push to it: a **Checks** job (`pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`) and an **End-to-end** job (installs Chromium, then `pnpm e2e`; on failure it uploads the Playwright report and the Worker log). Merging is blocked by a rule on `master` that requires both jobs (Settings → Rules), not by the workflow. Workers Builds only builds and deploys; it runs no tests.
+Sign-in is the real magic-link flow: `EMAIL_PROVIDER=log` prints the link to the server log, which the tests read, and Cloudflare's always-pass Turnstile test keys stand in for the captcha (their check still calls `challenges.cloudflare.com`, so the run needs network access). Memberships and credit come from the fake payment provider's signed webhook (`PAYMENT_PROVIDER=fake`, which the Worker allows only with `TEST_SEAMS`, as in the worker tests). `@playwright/test` is pinned to the release whose Chromium is installed; on a new machine run `pnpm --filter @tangent/e2e exec playwright install chromium` once, or point `PLAYWRIGHT_CHROMIUM_PATH` at a Chromium binary. While writing tests, `node apps/e2e/serve.mjs` in one terminal and `E2E_REUSE_SERVER=1 pnpm e2e` in another skips the rebuild. CI (`.github/workflows/ci.yml`) runs on every pull request to `master` and every push to it: a **Checks** job (`pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test`, `pnpm build`) and an **End-to-end** job (installs Chromium, then `pnpm e2e`; on failure it uploads the Playwright report and the Worker log). Merging is blocked by a rule on `master` that requires both jobs (Settings → Rules), not by the workflow. On `master`, a **Deploy** job follows once both pass ([Deploying from Git](#deploying-from-git)).
 
 ## Deploying
 
@@ -183,7 +185,7 @@ All commands run from `apps/worker` (use `npx wrangler …` or `pnpm exec wrangl
    "routes": [{ "pattern": "tangent.example.com", "custom_domain": true }]
    ```
    The edge cache for share pages only works on a custom domain.
-6. **Deploy.** This builds both Angular apps, assembles them into `apps/worker/site/` and deploys the Worker together with the static assets. `pnpm run deploy` and `npx wrangler deploy` are the same thing: the build is the Worker's `build.command` in `wrangler.jsonc`. Workers Builds ignores that key, so a Git-connected deploy needs the settings in [Deploying from Git](#deploying-from-git). A bare `pnpm deploy` is pnpm's own built-in command, not this script.
+6. **Deploy.** This builds both Angular apps, assembles them into `apps/worker/site/` and deploys the Worker together with the static assets. `pnpm run deploy` and `npx wrangler deploy` are the same thing: the build is the Worker's `build.command` in `wrangler.jsonc`. To deploy every merge to `master` from GitHub instead, see [Deploying from Git](#deploying-from-git). A bare `pnpm deploy` is pnpm's own built-in command, not this script.
    ```bash
    pnpm run deploy
    ```
@@ -191,16 +193,29 @@ All commands run from `apps/worker` (use `npx wrangler …` or `pnpm exec wrangl
 
 ### Deploying from Git
 
-Workers Builds (the Worker's **Settings → Build**, connected to this repository) doesn't run `build.command` from `wrangler.jsonc`. Without its own build step it deploys an empty `apps/worker/site/`, and every static file 404s. Use:
+`.github/workflows/ci.yml` deploys every push to `master`, and a manual **Run workflow** on `master`, once the **Checks** and **End-to-end** jobs pass. Its **Deploy** job runs in the GitHub environment `production`:
 
-| Setting                              | Value                                                                                          |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| Root directory                       | `/` (the repository root, so the install covers the whole pnpm workspace and `.nvmrc` applies) |
-| Build command                        | `pnpm build`                                                                                   |
-| Deploy command                       | `pnpm --filter @tangent/worker exec wrangler deploy`                                           |
-| Non-production branch deploy command | `pnpm --filter @tangent/worker exec wrangler versions upload`                                  |
+1. It stops at once if the `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID` secret is missing.
+2. `wrangler deploy --dry-run` runs `build.command` (the root `pnpm build`) and bundles the Worker, then a check fails the job unless `apps/worker/site/` holds all four apps' `index.html`. A deploy without the build would serve an empty assets directory, and every app page and asset would 404.
+3. `wrangler d1 migrations apply DB --remote` applies the new migrations in `apps/worker/migrations`.
+4. `wrangler deploy` builds again and deploys the Worker with its static assets.
 
-Runtime secrets and variables are unaffected: they live on the Worker, not in the build settings.
+Deploys never overlap, and none is cancelled midway: a newer one waits for the running one.
+
+**Migrations must stay compatible with the code still running.** They are applied before the deploy, so new code never meets an old schema, but the previous release keeps serving on the new schema until the deploy finishes, and for good if the deploy then fails. Expand first (new tables, new nullable or defaulted columns); contract (drop or rename what the running code still reads) in a later release, once no deployed code uses it.
+
+To set it up (once):
+
+1. **Create a Cloudflare API token**: **My Profile → API Tokens → Create Token → Create Custom Token**, with these permissions, the account resources limited to your account and the zone resources to your domain's zone:
+   - Account → **Workers Scripts** → Edit: uploads the Worker, its Durable Objects, cron triggers and static assets.
+   - Account → **D1** → Edit: applies the migrations.
+   - Account → **Account Settings** → Read: lets wrangler read the account.
+   - Zone → **Workers Routes** → Edit: every deploy publishes the custom domain in `routes` again.
+2. **Add the `production` environment** in the repository's **Settings → Environments**. Under **Deployment branches and tags**, allow only `master`. Add two environment secrets: `CLOUDFLARE_API_TOKEN` (the token) and `CLOUDFLARE_ACCOUNT_ID` (on the dashboard's account home, or `npx wrangler whoami`).
+3. **Merge to `master`** and check that the first **Deploy** run succeeds.
+4. **Disconnect Workers Builds** once the workflow is on `master`: the Worker's **Settings → Build**, disconnect the repository. Until then, Workers Builds also deploys every push, untested and without migrations.
+
+Runtime secrets and variables are unaffected: they live on the Worker, not in GitHub. The manual `pnpm db:migrate:remote` and `pnpm run deploy` still work.
 
 ### Sign-in (required)
 

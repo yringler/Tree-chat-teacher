@@ -127,13 +127,6 @@ export async function fetchModelsList(
   return res.json();
 }
 
-/** The list prices of `GET /api/v1/models`. Throws on network failure, non-2xx or a malformed body. */
-export async function fetchListPrices(
-  fetchImpl?: typeof fetch,
-): Promise<Map<string, ListPrice | null>> {
-  return parseListPrices(await fetchModelsList(fetchImpl));
-}
-
 interface PriceRow {
   model: string;
   in_micros_per_mtok: number;

@@ -11,7 +11,12 @@ import {
   type ProviderUsage,
   type WebSearchRequest,
 } from '@tangent/shared';
-import { markLastMessage, promptCacheOption, withBreakpoint, withTurnInstructions } from './prompt-cache.js';
+import {
+  markLastMessage,
+  promptCacheOption,
+  withBreakpoint,
+  withTurnInstructions,
+} from './prompt-cache.js';
 import type { ProviderEnv } from './registry.js';
 import { parseSse } from './sse.js';
 import {
@@ -84,8 +89,11 @@ function collectCitation(raw: unknown, into: Map<string, Citation>): boolean {
   const url = raw['url'].trim();
   if (!isCitableUrl(url) || into.has(url) || into.size >= CITATIONS_MAX) return false;
   const title =
-    typeof raw['title'] === 'string' && raw['title'].trim() ? raw['title'].trim().slice(0, 500) : null;
-  const text = typeof raw['cited_text'] === 'string' ? raw['cited_text'].replace(/\s+/g, ' ').trim() : '';
+    typeof raw['title'] === 'string' && raw['title'].trim()
+      ? raw['title'].trim().slice(0, 500)
+      : null;
+  const text =
+    typeof raw['cited_text'] === 'string' ? raw['cited_text'].replace(/\s+/g, ' ').trim() : '';
   const excerpt = text
     ? text.length > CITATION_EXCERPT_MAX
       ? `${text.slice(0, CITATION_EXCERPT_MAX - 1)}…`
@@ -99,7 +107,11 @@ function collectCitation(raw: unknown, into: Map<string, Citation>): boolean {
 function inputTokensOf(usage: Record<string, unknown>): number | undefined {
   const base = num(usage['input_tokens']);
   if (base === undefined) return undefined;
-  return base + (num(usage['cache_creation_input_tokens']) ?? 0) + (num(usage['cache_read_input_tokens']) ?? 0);
+  return (
+    base +
+    (num(usage['cache_creation_input_tokens']) ?? 0) +
+    (num(usage['cache_read_input_tokens']) ?? 0)
+  );
 }
 
 /** A `usage` object as our usage fields (only those reported). */
@@ -145,7 +157,8 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
   const capabilities = (model: string) => resolveCapabilities(config, model, DEFAULTS, true);
 
   /** Request headers, or a missing-secret name. */
-  const buildHeaders = (): { headers: Record<string, string>; secrets: string[] } | { missing: string } => {
+  const buildHeaders = ():
+    { headers: Record<string, string>; secrets: string[] } | { missing: string } => {
     const resolved = resolveConfigHeaders(config, env);
     if (resolved.missing !== undefined) return { missing: resolved.missing };
     const headers = resolved.headers;
@@ -213,7 +226,9 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
         try {
           data = JSON.parse(msg.data);
         } catch {
-          throw new ProviderFailure(providerError('unknown', `Malformed ${msg.event} event from provider`));
+          throw new ProviderFailure(
+            providerError('unknown', `Malformed ${msg.event} event from provider`),
+          );
         }
         if (!isRecord(data)) continue;
         const type = typeof data['type'] === 'string' ? data['type'] : msg.event;
@@ -243,7 +258,11 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
           }
           case 'content_block_delta': {
             const delta = data['delta'];
-            if (isRecord(delta) && delta['type'] === 'text_delta' && typeof delta['text'] === 'string') {
+            if (
+              isRecord(delta) &&
+              delta['type'] === 'text_delta' &&
+              typeof delta['text'] === 'string'
+            ) {
               if (delta['text'] !== '') yield { type: 'delta', text: delta['text'] };
             } else if (webSearch && isRecord(delta) && delta['type'] === 'citations_delta') {
               if (collectCitation(delta['citation'], citations)) {
@@ -254,7 +273,8 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
           }
           case 'message_delta': {
             const delta = data['delta'];
-            if (isRecord(delta) && typeof delta['stop_reason'] === 'string') stopReason = delta['stop_reason'];
+            if (isRecord(delta) && typeof delta['stop_reason'] === 'string')
+              stopReason = delta['stop_reason'];
             const usage = data['usage'];
             if (isRecord(usage)) {
               const u = usageOf(usage);
@@ -270,9 +290,12 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
             return;
           case 'error': {
             const err = data['error'];
-            const errType = isRecord(err) && typeof err['type'] === 'string' ? err['type'] : undefined;
+            const errType =
+              isRecord(err) && typeof err['type'] === 'string' ? err['type'] : undefined;
             const rawMessage =
-              isRecord(err) && typeof err['message'] === 'string' ? err['message'] : 'Provider stream error';
+              isRecord(err) && typeof err['message'] === 'string'
+                ? err['message']
+                : 'Provider stream error';
             const code = codeForAnthropicType(errType, rawMessage);
             yield { type: 'error', error: providerError(code, redact(rawMessage, secrets)) };
             return;
@@ -286,13 +309,19 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
     });
   }
 
-  async function countTokens(request: Omit<GenerateRequest, 'signal'> & { signal?: AbortSignal }): Promise<number> {
+  async function countTokens(
+    request: Omit<GenerateRequest, 'signal'> & { signal?: AbortSignal },
+  ): Promise<number> {
     const built = buildHeaders();
     if ('missing' in built) throw new ProviderFailure(missingSecretError(built.missing));
     const body: Record<string, unknown> = { model: request.model };
     if (request.system !== null) body['system'] = request.system;
     body['messages'] = messagesOf(request);
-    const init: RequestInit = { method: 'POST', headers: built.headers, body: JSON.stringify(body) };
+    const init: RequestInit = {
+      method: 'POST',
+      headers: built.headers,
+      body: JSON.stringify(body),
+    };
     if (request.signal) init.signal = request.signal;
     let res: Response;
     try {
@@ -301,10 +330,12 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
       if (request.signal?.aborted) throw e;
       throw new ProviderFailure(networkError(e, built.secrets));
     }
-    if (!res.ok) throw new ProviderFailure(await errorFromResponse(res, request.signal, built.secrets));
+    if (!res.ok)
+      throw new ProviderFailure(await errorFromResponse(res, request.signal, built.secrets));
     const json: unknown = await abortable(res.json(), request.signal);
     const n = isRecord(json) ? num(json['input_tokens']) : undefined;
-    if (n === undefined) throw new ProviderFailure(providerError('unknown', 'count_tokens returned no input_tokens'));
+    if (n === undefined)
+      throw new ProviderFailure(providerError('unknown', 'count_tokens returned no input_tokens'));
     return n;
   }
 
