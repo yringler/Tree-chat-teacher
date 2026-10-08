@@ -1133,7 +1133,6 @@ export class LessonStore {
     );
   }
 
-  /** Drops deleted branches and their messages, and stops following their replies. */
   /** Stops following the replies of a deleted tree (the server has no tree to stream them from). */
   private stopTreeStreams(treeId: string): void {
     for (const l of this.live().values()) {
@@ -1144,6 +1143,7 @@ export class LessonStore {
     }
   }
 
+  /** Drops deleted branches and their messages, and stops following their replies. */
   private removeBranches(res: DeleteBranchResponse): void {
     const branchIds = new Set(res.branchIds);
     const nodeIds = new Set(res.nodeIds);
