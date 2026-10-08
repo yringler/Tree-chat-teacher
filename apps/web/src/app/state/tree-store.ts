@@ -495,6 +495,7 @@ export class TreeStore {
 
   /** Called by the routed page whenever the URL changes. */
   setRoute(treeId: string | null, branchId: string | null, focusNodeId: string | null): void {
+    const branchBefore = this.selectedBranchId();
     this.routeBranchId.set(branchId);
     this.focusedNodeId.set(focusNodeId);
     if (treeId !== this.selectedTreeId()) {
@@ -505,6 +506,8 @@ export class TreeStore {
       if (treeId) void this.loadTree(treeId);
       else this.showDetail(null);
     }
+    // Branch settings edit the branch on screen: going to another (Back, a link) closes them.
+    if (this.selectedBranchId() !== branchBefore) this.ui.branchSettingsOpen.set(false);
   }
 
   go(branchId: string, focusNodeId: string | null = null, replace = false): void {
@@ -634,11 +637,9 @@ export class TreeStore {
     }
   }
 
-  async updateTree(req: UpdateTreeRequest): Promise<boolean> {
-    const d = this.detail();
-    if (!d) return false;
+  async updateTree(treeId: string, req: UpdateTreeRequest): Promise<boolean> {
     try {
-      const tree = await this.api.updateTree(d.tree.id, req);
+      const tree = await this.api.updateTree(treeId, req);
       this.detail.update((cur) => (cur && cur.tree.id === tree.id ? { ...cur, tree } : cur));
       this.trees.update((list) =>
         list.map((t) =>
