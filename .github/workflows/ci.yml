@@ -33,12 +33,20 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm lint
-      - run: pnpm format:check
+      - id: install
+        run: pnpm install --frozen-lockfile
+      # Every check runs whatever the earlier ones did, so a formatting nit can't hide a failing
+      # test; any failure still fails the job.
       - run: pnpm test
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       - run: pnpm build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      - run: pnpm typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      - run: pnpm lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      - run: pnpm format:check
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
 
   e2e:
     name: End-to-end
