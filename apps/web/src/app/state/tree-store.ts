@@ -503,10 +503,7 @@ export class TreeStore {
       // A comparison belongs to a branch of the tree left behind (Back while it was open).
       this.ui.compareDialog.set(null);
       if (treeId) void this.loadTree(treeId);
-      else {
-        this.detail.set(null);
-        this.detailError.set(null);
-      }
+      else this.showDetail(null);
     }
   }
 
@@ -584,11 +581,11 @@ export class TreeStore {
     if (this.detail()?.tree.id !== treeId) this.detail.set(null);
     try {
       const detail = await this.api.getTree(treeId);
-      if (seq !== this.detailSeq) return;
+      if (!this.loadCurrent(seq, treeId)) return;
       this.detail.set(detail);
       this.resumeStreaming(detail.nodes);
     } catch (err) {
-      if (seq !== this.detailSeq) return;
+      if (!this.loadCurrent(seq, treeId)) return;
       this.detailError.set(
         err instanceof ApiError && err.status === 404
           ? 'This conversation does not exist.'
@@ -597,6 +594,19 @@ export class TreeStore {
     } finally {
       if (seq === this.detailSeq) this.detailLoading.set(false);
     }
+  }
+
+  /** The load numbered `seq` of `treeId` is still the one wanted (no other tree, nor none, since). */
+  private loadCurrent(seq: number, treeId: string): boolean {
+    return seq === this.detailSeq && this.selectedTreeId() === treeId;
+  }
+
+  /** Shows `detail` (null: no tree), dropping whatever tree load is still in flight. */
+  private showDetail(detail: TreeDetail | null): void {
+    this.detailSeq++;
+    this.detailLoading.set(false);
+    this.detailError.set(null);
+    this.detail.set(detail);
   }
 
   /**
@@ -613,7 +623,7 @@ export class TreeStore {
         ...(route ? parseRouteKey(route) : {}),
         ...(model ? { model } : {}),
       });
-      this.detail.set(detail);
+      this.showDetail(detail);
       this.selectedTreeId.set(detail.tree.id);
       this.ui.clearLinkState();
       this.trees.update((list) => [this.summaryOf(detail), ...list]);

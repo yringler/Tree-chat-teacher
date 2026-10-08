@@ -283,11 +283,11 @@ export class LessonStore {
     if (this.detail()?.tree.id !== treeId) this.detail.set(null);
     try {
       const detail = await this.api.getTree(treeId);
-      if (seq !== this.detailSeq) return;
+      if (!this.loadCurrent(seq, treeId)) return;
       this.detail.set(detail);
       this.resumeStreaming(detail.nodes);
     } catch (err) {
-      if (seq !== this.detailSeq) return;
+      if (!this.loadCurrent(seq, treeId)) return;
       this.detailError.set(
         err instanceof ApiError && err.status === 404
           ? 'This lesson does not exist.'
@@ -296,6 +296,19 @@ export class LessonStore {
     } finally {
       if (seq === this.detailSeq) this.detailLoading.set(false);
     }
+  }
+
+  /** The load numbered `seq` of `treeId` is still the one wanted (no other tree, nor none, since). */
+  private loadCurrent(seq: number, treeId: string): boolean {
+    return seq === this.detailSeq && this.selectedTreeId() === treeId;
+  }
+
+  /** Shows `detail` (null: no tree), dropping whatever tree load is still in flight. */
+  private showDetail(detail: TreeDetail | null): void {
+    this.detailSeq++;
+    this.detailLoading.set(false);
+    this.detailError.set(null);
+    this.detail.set(detail);
   }
 
   // Routing (the URL is the source of truth for the selection)
@@ -318,10 +331,7 @@ export class LessonStore {
       this.linkReturn.set(null);
       this.selectedTreeId.set(treeId);
       if (treeId) void this.loadTree(treeId);
-      else {
-        this.detail.set(null);
-        this.detailError.set(null);
-      }
+      else this.showDetail(null);
     }
   }
 
@@ -386,7 +396,7 @@ export class LessonStore {
         ...(providerId ? { providerId } : {}),
         ...(model ? { model } : {}),
       });
-      this.detail.set(detail);
+      this.showDetail(detail);
       this.selectedTreeId.set(detail.tree.id);
       this.trees.update((list) => [summaryOf(detail), ...list]);
       await this.router.navigate(['/t', detail.tree.id]);

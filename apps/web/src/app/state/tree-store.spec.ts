@@ -1548,3 +1548,140 @@ describe('TreeStore a committed Compare pick', () => {
     expect(s.store.unsentDrafts().has('trunk')).toBe(false);
   });
 });
+
+/** Tree `id`: a trunk with one exchange, and a side branch off the reply with one of its own. */
+function smallTree(id: string): TreeDetail {
+  const at = '2026-10-01T00:00:00.000Z';
+  const branch = (over: Partial<Branch>): Branch => ({
+    id: `${id}-trunk`,
+    treeId: id,
+    parentBranchId: null,
+    branchPointNodeId: null,
+    contextMode: 'path',
+    anchorQuote: null,
+    title: 'Main thread',
+    titleSource: 'default',
+    isPrivate: false,
+    providerId: 'openrouter',
+    model: 'a/b',
+    funding: 'credit',
+    createdAt: at,
+    updatedAt: at,
+    ...over,
+  });
+  const node = (over: Partial<ChatNode>): ChatNode => ({
+    id: `${id}-u1`,
+    treeId: id,
+    branchId: `${id}-trunk`,
+    parentId: null,
+    seq: 0,
+    role: 'user',
+    content: 'What is light?',
+    status: 'complete',
+    error: null,
+    providerId: null,
+    model: null,
+    usage: null,
+    createdAt: at,
+    ...over,
+  });
+  return {
+    tree: {
+      id,
+      accountId: 'p_1',
+      title: `Tree ${id}`,
+      systemPrompt: null,
+      trunkBranchId: `${id}-trunk`,
+      createdAt: at,
+      updatedAt: at,
+    },
+    branches: [
+      branch({}),
+      branch({
+        id: `${id}-side`,
+        parentBranchId: `${id}-trunk`,
+        branchPointNodeId: `${id}-a1`,
+        title: 'Side',
+      }),
+    ],
+    nodes: [
+      node({}),
+      node({ id: `${id}-a1`, parentId: `${id}-u1`, seq: 1, role: 'assistant', content: 'A wave.' }),
+      node({ id: `${id}-u2`, branchId: `${id}-side`, parentId: `${id}-a1`, seq: 2, content: 'And?' }),
+      node({
+        id: `${id}-a2`,
+        branchId: `${id}-side`,
+        parentId: `${id}-u2`,
+        seq: 3,
+        role: 'assistant',
+        content: 'A particle.',
+      }),
+    ],
+    links: [],
+  };
+}
+
+/** A promise the test settles. */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+const emptyStream = () => new Response('', { headers: { 'content-type': 'text/event-stream' } });
+
+describe('TreeStore a tree load that lands late', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  function slowLoad() {
+    const s = setup();
+    const pending = deferred<TreeDetail>();
+    const getTree = vi.fn((_id: string) => pending.promise);
+    const sendMessage = vi.fn(async (_b: string, _req: unknown, _signal: AbortSignal) =>
+      emptyStream(),
+    );
+    Object.assign(s.api, {
+      getTree,
+      sendMessage,
+      streamNode: vi.fn(),
+      createTree: vi.fn(async () => smallTree('Y')),
+    });
+    s.store.setRoute('X', null, null);
+    expect(getTree).toHaveBeenCalledWith('X');
+    return { ...s, pending, sendMessage };
+  }
+
+  it('going home while it loads: home stays empty', async () => {
+    const s = slowLoad();
+    s.store.setRoute(null, null, null);
+    expect(s.store.detailLoading()).toBe(false);
+    s.pending.resolve(smallTree('X'));
+    await s.pending.promise;
+    await Promise.resolve();
+    expect(s.store.detail()).toBeNull();
+    expect(s.store.detailLoading()).toBe(false);
+  });
+
+  it('starting a new conversation while it loads: the new one stays open and gets the message', async () => {
+    const s = slowLoad();
+    await s.store.startConversation('Hello', null, null);
+    s.pending.resolve(smallTree('X'));
+    await s.pending.promise;
+    await Promise.resolve();
+    expect(s.store.detail()?.tree.id).toBe('Y');
+    expect(s.store.detailLoading()).toBe(false);
+    await vi.waitFor(() =>
+      expect(s.sendMessage).toHaveBeenCalledWith(
+        'Y-trunk',
+        expect.objectContaining({ content: 'Hello' }),
+        expect.any(AbortSignal),
+      ),
+    );
+    // The composer's next send goes to Y as well.
+    expect(s.store.selectedBranchId()).toBe('Y-trunk');
+  });
+});

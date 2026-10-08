@@ -986,3 +986,40 @@ describe('CanvasStore links between messages', () => {
     expect(s.ui.linkReturn()).toBeNull();
   });
 });
+
+describe('CanvasStore a tree load that lands late', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  function slowLoad() {
+    const s = setup();
+    s.store.detail.set(null);
+    let land!: (d: TreeDetail) => void;
+    s.api.getTree.mockReturnValue(new Promise<TreeDetail>((r) => (land = r)));
+    const other: TreeDetail = { ...detail(), tree: { ...detail().tree, id: 't2' } };
+    Object.assign(s.api, { createTree: vi.fn(async () => other) });
+    s.store.setRoute('t1', null, null);
+    return { ...s, land: (d: TreeDetail) => land(d) };
+  }
+
+  it('going home while it loads: home stays empty', async () => {
+    const s = slowLoad();
+    s.store.setRoute(null, null, null);
+    s.land(detail());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.store.detail()).toBeNull();
+    expect(s.store.detailLoading()).toBe(false);
+  });
+
+  it('starting a new conversation while it loads: the new one stays open', async () => {
+    const s = slowLoad();
+    await s.store.startConversation('Hello', null, null);
+    s.land(detail());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.store.detail()?.tree.id).toBe('t2');
+    expect(s.store.detailLoading()).toBe(false);
+  });
+});
