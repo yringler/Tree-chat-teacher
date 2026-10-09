@@ -1,4 +1,5 @@
 import {
+  foldSystemPrompt,
   type Citation,
   type GenerateRequest,
   type LlmProvider,
@@ -282,19 +283,14 @@ export function createOpenAiCompatibleProvider(
       const { signal } = request;
       const caps = capabilities(request.model);
 
-      const plain: { role: string; content: string }[] = request.messages.map((m) => ({
+      const prompt = { system: request.system, messages: request.messages };
+      const { system, messages: history } = caps.supportsSystemPrompt
+        ? prompt
+        : foldSystemPrompt(prompt);
+      const plain: { role: string; content: string }[] = history.map((m) => ({
         role: m.role,
         content: m.content,
       }));
-      let system: string | null = null;
-      if (request.system !== null) {
-        const first = plain[0];
-        if (caps.supportsSystemPrompt || !first || first.role !== 'user') {
-          system = request.system;
-        } else {
-          first.content = `${request.system}\n\n${first.content}`;
-        }
-      }
       const cache = promptCache && usesExplicitCacheControl(request.model);
       const messages = withTurnInstructions(
         cache ? markLastMessage(plain) : plain,
