@@ -383,7 +383,7 @@ export class CanvasPage implements OnDestroy {
     const q = this.selection.value();
     const node = q ? this.store.index()?.nodes.get(q.nodeId) : undefined;
     const lane = node ? this.store.index()?.branches.get(node.branchId) : undefined;
-    return !!lane && this.store.routeLocked(lane);
+    return !!lane && this.store.account.routeLocked(lane);
   });
 
   private selectedQuote(): MessageQuote | null {

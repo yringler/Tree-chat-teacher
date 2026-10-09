@@ -43,8 +43,8 @@ function open(builtInCredit: boolean) {
     ],
   });
   const store = injector.get(TreeStore);
-  store.me.set({ builtInCredit } as MeResponse);
-  store.providers.set([
+  store.account.me.set({ builtInCredit } as MeResponse);
+  store.account.providers.set([
     provider('openrouter'),
     provider('openrouter', {
       label: 'Tangent credit',
@@ -67,7 +67,7 @@ describe('Keys & credit dialog', () => {
     expect(d.view.keyProviders().map((p) => p.id)).toEqual(['openrouter']);
     expect(d.view.provider()).toBe('openrouter');
     expect(d.api.billing).toHaveBeenCalledTimes(1);
-    await vi.waitFor(() => expect(d.store.billing()?.availableMicros).toBe(1_000_000));
+    await vi.waitFor(() => expect(d.store.account.billing()?.availableMicros).toBe(1_000_000));
   });
 
   it('shows no credit row and asks for no balance otherwise', () => {

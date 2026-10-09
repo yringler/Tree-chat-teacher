@@ -15,13 +15,13 @@ import {
   type Branch,
   type ContextMode,
 } from '@tangent/shared';
-import { Icon, Modal } from '@tangent/web-shared';
+import { Icon, Modal, routeSuffix } from '@tangent/web-shared';
 import { MODE_LABEL } from '../canvas/lane';
 import { confirmDeleteLane } from '../canvas/delete-lane';
 import { laneTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore, type BranchSettingsState } from '../state/ui-store';
-import { ModelField, routeSuffix } from './model-field';
+import { ModelField } from './model-field';
 
 const MODE_HELP: Record<ContextMode, string> = {
   path: 'Everything the parent lane had at the fork, then this lane.',
@@ -74,22 +74,22 @@ const MODE_HELP: Record<ContextMode, string> = {
             <label class="field">
               <span class="field-label">Provider</span>
               <select #ps [value]="route()" (change)="pickProvider(ps.value)">
-                @if (!store.providerMap().has(route())) {
+                @if (!store.account.providerMap().has(route())) {
                   <option [value]="route()">{{ route() }} (not configured)</option>
                 }
-                @for (p of store.providers(); track key(p)) {
+                @for (p of store.account.providers(); track key(p)) {
                   <option
                     [value]="key(p)"
-                    [disabled]="!p.available || store.routeLocked(p)"
+                    [disabled]="!p.available || store.account.routeLocked(p)"
                     [selected]="key(p) === route()"
                   >
-                    {{ p.label }}{{ suffix(p, store.routeLocked(p)) }}
+                    {{ p.label }}{{ suffix(p, store.account.routeLocked(p)) }}
                   </option>
                 }
               </select>
             </label>
             <app-model-field
-              [provider]="store.providerMap().get(route()) ?? null"
+              [provider]="store.account.providerMap().get(route()) ?? null"
               [(model)]="model"
             />
           </div>
@@ -168,7 +168,7 @@ export class BranchSettings implements OnInit {
 
   protected pickProvider(route: string): void {
     this.route.set(route);
-    const p = this.store.providerMap().get(route);
+    const p = this.store.account.providerMap().get(route);
     if (p) this.model.set(p.defaultModel);
   }
 

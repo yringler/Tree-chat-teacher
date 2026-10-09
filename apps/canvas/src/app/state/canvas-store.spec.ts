@@ -369,7 +369,7 @@ describe('CanvasStore', () => {
 
       s.store.fail(new ApiError(402, 'payment_required', 'Not enough credit'));
       expect(s.ui.toasts()[0]?.link).toEqual({ label: 'Add credit', href: '/billing' });
-      await vi.waitFor(() => expect(s.store.billing()?.availableMicros).toBe(3_000_000));
+      await vi.waitFor(() => expect(s.store.account.billing()?.availableMicros).toBe(3_000_000));
       // Credit left: the notice can be dismissed.
       expect(s.store.membershipDismissible()).toBe(true);
       s.store.dismissMembershipNotice();
@@ -399,7 +399,7 @@ describe('CanvasStore', () => {
       topUpsEnabled: true,
     } as BillingSummary);
     await empty.store.init({ builtInCredit: true, membership: inactive } as MeResponse);
-    expect(empty.store.creditCarriesOn()).toBe(true);
+    expect(empty.store.account.creditCarriesOn()).toBe(true);
     expect(empty.store.membershipBlocked()).toBe(false);
 
     const used = setup();
@@ -448,27 +448,6 @@ describe('CanvasStore read-only lanes without a membership', () => {
     };
   }
 
-  it('locks the own-key lanes the server names while the user has no membership; credit lanes keep going', async () => {
-    const s = setup();
-    s.api.providers.mockResolvedValue([credit]);
-    await s.store.init({
-      builtInCredit: true,
-      membership: inactive,
-      membershipNeededFor: ['own-key'],
-    } as MeResponse);
-    s.store.detail.set(ownKeyTrunk());
-    const [trunk, lane] = s.store.detail()!.branches;
-    expect(s.store.routeLocked(trunk!)).toBe(true);
-    expect(s.store.routeLocked(lane!)).toBe(false);
-    expect(s.store.creditRoute()).toBe(credit);
-
-    // A member, or no membership required: nothing is locked.
-    s.store.membership.set({ ...inactive, status: 'active' });
-    expect(s.store.routeLocked(trunk!)).toBe(false);
-    s.store.membership.set({ ...inactive, required: false });
-    expect(s.store.routeLocked(trunk!)).toBe(false);
-  });
-
   it('a tangent of a locked lane opens no lane on its route; one already followed still opens', async () => {
     const s = setup();
     s.api.providers.mockResolvedValue([credit]);
@@ -498,48 +477,16 @@ describe('CanvasStore read-only lanes without a membership', () => {
     } as unknown as MeResponse);
     s.store.detail.set(ownKeyTrunk());
     const trunk = s.store.detail()!.branches[0]!;
-    expect(s.store.routeLocked(trunk)).toBe(false);
+    expect(s.store.account.routeLocked(trunk)).toBe(false);
     s.api.me.mockResolvedValue({
       builtInCredit: true,
       membership: inactive,
       membershipNeededFor: ['own-key'],
     } as MeResponse);
     s.store.fail(new ApiError(402, 'membership_required', 'Membership required'));
-    expect(s.store.routeLocked(trunk)).toBe(true);
+    expect(s.store.account.routeLocked(trunk)).toBe(true);
     await vi.waitFor(() => expect(s.api.me).toHaveBeenCalled());
-    await vi.waitFor(() => expect(s.store.membershipNeededFor()).toEqual(['own-key']));
-  });
-
-  it('offers a copy in Learn only where Learn can reply: on the pool while it is on, else on credit', async () => {
-    const locked = {
-      builtInCredit: true,
-      membership: inactive,
-      membershipNeededFor: ['own-key'],
-    } as MeResponse;
-    const s = setup();
-    await s.store.init(locked);
-    expect(s.api.poolStatus).toHaveBeenCalledTimes(1);
-    expect(s.store.learnCopyWay()).toBe('credit');
-
-    const pool = setup();
-    pool.api.poolStatus.mockResolvedValue({ enabled: true } as PoolStatusResponse);
-    await pool.store.init(locked);
-    expect(pool.store.poolOn()).toBe(true);
-    expect(pool.store.learnCopyWay()).toBe('pool');
-
-    // Credit that can neither be bought nor spent, and the pool off: no copy.
-    const stuck = setup();
-    stuck.api.billing.mockResolvedValue({
-      availableMicros: 0,
-      topUpsEnabled: false,
-    } as BillingSummary);
-    await stuck.store.init(locked);
-    expect(stuck.store.learnCopyWay()).toBeNull();
-    // Credit not offered, and the pool status unreadable: no copy either.
-    const none = setup();
-    none.api.poolStatus.mockRejectedValue(new Error('offline'));
-    await none.store.init({ ...locked, builtInCredit: false });
-    expect(none.store.learnCopyWay()).toBeNull();
+    await vi.waitFor(() => expect(s.store.account.membershipNeededFor()).toEqual(['own-key']));
   });
 
   it('"Continue with Tangent credit" moves a locked lane onto credit', async () => {
@@ -562,7 +509,7 @@ describe('CanvasStore read-only lanes without a membership', () => {
       funding: 'credit',
       model: 'max-model',
     });
-    expect(s.store.routeLocked(s.store.detail()!.branches[0]!)).toBe(false);
+    expect(s.store.account.routeLocked(s.store.detail()!.branches[0]!)).toBe(false);
   });
 
   it('a lane on the own key with no key here: a refused send waits for credit, and keeps its text', async () => {
@@ -582,7 +529,7 @@ describe('CanvasStore read-only lanes without a membership', () => {
       membershipNeededFor: ['own-key'],
     } as MeResponse);
     s.store.detail.set(ownKeyTrunk());
-    expect(s.store.keyMissing(s.store.detail()!.branches[0]!)).toBe(true);
+    expect(s.store.account.keyMissing(s.store.detail()!.branches[0]!)).toBe(true);
     const updateBranch = vi.fn(async (id: string, req: object) => ({
       ...ownKeyTrunk().branches.find((b) => b.id === id)!,
       ...req,
@@ -610,122 +557,6 @@ describe('CanvasStore read-only lanes without a membership', () => {
     expect(s.store.blockedSends()).toEqual([]);
     expect(s.store.unsentDrafts().has('trunk')).toBe(false);
     expect(s.ui.keysOpen()).toBe(false);
-  });
-});
-
-describe('CanvasStore the default route of a new conversation', () => {
-  const member = {
-    required: true,
-    status: 'active',
-    subscriptionStatus: 'active',
-    periodEnd: null,
-    cancelAtPeriodEnd: false,
-    priceCents: 1000,
-  } as const;
-  const own = (id: string, available = false): ProviderInfo => ({
-    id,
-    kind: id === 'anthropic' ? 'anthropic' : 'openai-compatible',
-    label: id,
-    models: [{ id: `${id}-model`, label: id }],
-    defaultModel: `${id}-model`,
-    openModels: id === 'openrouter',
-    available,
-    acceptsUserKey: true,
-    keySource: available ? 'user' : null,
-    funding: 'own-key',
-  });
-  const credit: ProviderInfo = {
-    ...own('openrouter', true),
-    label: 'Tangent credit',
-    acceptsUserKey: false,
-    keySource: 'server',
-    funding: 'credit',
-  };
-  const list = [own('anthropic'), own('openai'), own('openrouter'), credit];
-  const key = (p: ProviderInfo | null) => p && `${p.id}@${p.funding}`;
-
-  async function start(
-    providers: ProviderInfo[],
-    me: Partial<MeResponse>,
-    billing: BillingSummary | Error = { availableMicros: 3_000_000 } as BillingSummary,
-  ) {
-    const s = setup();
-    s.api.providers.mockResolvedValue(providers);
-    if (billing instanceof Error) s.api.billing.mockRejectedValue(billing);
-    else s.api.billing.mockResolvedValue(billing);
-    await s.store.init({ builtInCredit: true, membership: member, ...me } as MeResponse);
-    return s;
-  }
-
-  beforeEach(() => vi.spyOn(console, 'warn').mockImplementation(() => undefined));
-  afterEach(() => vi.restoreAllMocks());
-
-  it('no keys: Tangent credit while the balance can pay, else the user’s own OpenRouter', async () => {
-    expect(key((await start(list, {})).store.defaultProvider())).toBe('openrouter@credit');
-    const zero = await start(list, {}, { availableMicros: 0 } as BillingSummary);
-    expect(key(zero.store.defaultProvider())).toBe('openrouter@own-key');
-    expect(zero.api.billing).toHaveBeenCalled();
-    const unread = await start(list, {}, new Error('boom'));
-    expect(key(unread.store.defaultProvider())).toBe('openrouter@own-key');
-    const unsold = await start(list.slice(0, 3), { builtInCredit: false });
-    expect(key(unsold.store.defaultProvider())).toBe('openrouter@own-key');
-    expect(unsold.api.billing).not.toHaveBeenCalled();
-  });
-
-  it('a provider with a key first; own keys locked by the membership hand it to credit that can pay', async () => {
-    const keyed = [own('anthropic'), own('openai', true), own('openrouter'), credit];
-    expect(key((await start(keyed, {})).store.defaultProvider())).toBe('openai@own-key');
-    const lapsed = await start(keyed, {
-      membership: { ...member, status: 'inactive' },
-      membershipNeededFor: ['own-key'],
-    });
-    expect(key(lapsed.store.defaultProvider())).toBe('openrouter@credit');
-    // An empty balance, but top-ups are sold: still credit (anyone can buy), not a locked key.
-    const buyer = await start(
-      keyed,
-      { membership: { ...member, status: 'inactive' }, membershipNeededFor: ['own-key'] },
-      { availableMicros: 0, topUpsEnabled: true } as BillingSummary,
-    );
-    expect(key(buyer.store.defaultProvider())).toBe('openrouter@credit');
-    expect(buyer.store.creditRoute()?.funding).toBe('credit');
-  });
-
-  it('a non-member: credit only where it can pay or be bought, else the locked own key', async () => {
-    const lapsed = {
-      membership: { ...member, status: 'inactive' },
-      membershipNeededFor: ['own-key'],
-    } as Partial<MeResponse>;
-    // Credit offered, top-ups not sold, nothing left: a dead end, so the own-key route.
-    const stuck = await start(list, lapsed, {
-      availableMicros: 0,
-      topUpsEnabled: false,
-    } as BillingSummary);
-    expect(key(stuck.store.defaultProvider())).toBe('openrouter@own-key');
-    // Top-ups sold: credit, whatever the balance.
-    const buyer = await start(list, lapsed, {
-      availableMicros: 0,
-      topUpsEnabled: true,
-    } as BillingSummary);
-    expect(key(buyer.store.defaultProvider())).toBe('openrouter@credit');
-    // Top-ups off, but a balance left: credit.
-    const holder = await start(list, lapsed, {
-      availableMicros: 500_000,
-      topUpsEnabled: false,
-    } as BillingSummary);
-    expect(key(holder.store.defaultProvider())).toBe('openrouter@credit');
-  });
-
-  it('decides nothing before the balance is read', async () => {
-    const s = setup();
-    s.api.providers.mockResolvedValue(list);
-    let answer!: (b: BillingSummary) => void;
-    s.api.billing.mockReturnValue(new Promise<BillingSummary>((r) => (answer = r)));
-    const started = s.store.init({ builtInCredit: true, membership: member } as MeResponse);
-    await vi.waitFor(() => expect(s.store.providers()).toEqual(list));
-    expect(s.store.defaultProvider()).toBeNull();
-    answer({ availableMicros: 0 } as BillingSummary);
-    await started;
-    expect(key(s.store.defaultProvider())).toBe('openrouter@own-key');
   });
 });
 

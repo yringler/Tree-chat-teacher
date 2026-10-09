@@ -98,24 +98,6 @@ describe('TreeStore membership and credit', () => {
     vi.restoreAllMocks();
   });
 
-  it('keeps the membership and what needs it from me; loads the balance wherever credit is offered', async () => {
-    const s = setup();
-    await s.store.init(me({ builtInCredit: false }));
-    expect(s.store.membership()?.status).toBe('active');
-    expect(s.store.membershipNeededFor()).toEqual(['own-key']);
-    expect([...s.store.lockedFundings()]).toEqual([]);
-    expect(s.api.billing).not.toHaveBeenCalled();
-
-    // A member too: the default route of a new conversation needs the balance.
-    await s.store.init(me());
-    expect(s.api.billing).toHaveBeenCalledTimes(1);
-
-    await s.store.init(me({ membership: membership({ status: 'inactive' }) }));
-    expect(s.api.billing).toHaveBeenCalledTimes(2);
-    expect(s.store.creditCarriesOn()).toBe(true);
-    expect([...s.store.lockedFundings()]).toEqual(['own-key']);
-  });
-
   it('a 402 payment_required links to /billing and refreshes the balance', async () => {
     const s = setup();
     await s.store.init(me());
@@ -127,7 +109,7 @@ describe('TreeStore membership and credit', () => {
         link: { label: 'Add credit', path: '/billing' },
       }),
     ]);
-    await vi.waitFor(() => expect(s.store.billing()).toBe(summary));
+    await vi.waitFor(() => expect(s.store.account.billing()).toBe(summary));
   });
 
   it('key_required still opens the keys dialog', async () => {
@@ -136,16 +118,6 @@ describe('TreeStore membership and credit', () => {
     s.store.fail(new ApiError(401, 'key_required', 'Add your key'));
     expect(s.ui.keysDialog()).toEqual({ provider: null });
     expect(s.ui.toasts()[0]?.link).toBeUndefined();
-  });
-
-  it('refreshBilling keeps quiet when the summary fails', async () => {
-    const s = setup();
-    s.api.billing.mockRejectedValueOnce(new ApiError(500, 'internal', 'boom'));
-    await s.store.refreshBilling();
-    expect(s.store.billing()).toBeNull();
-    expect(s.ui.toasts()).toEqual([]);
-    await s.store.refreshBilling();
-    expect(s.store.billing()).toBe(summary);
   });
 });
 
@@ -270,25 +242,8 @@ describe('TreeStore read-only power without a membership', () => {
     const s = setup();
     await open(s, membership());
     expect(s.store.readOnly()).toBe(false);
-    expect(s.store.openRoutes()).toEqual([ownKey, credit]);
+    expect(s.store.account.openRoutes()).toEqual([ownKey, credit]);
     expect(s.store.canReview(s.store.selectedBranch())).toBe(true);
-  });
-
-  it('only the membership hides anything: not a missing key, nor a provider list not read yet', async () => {
-    const s = setup();
-    expect(s.store.canGenerate()).toBe(true);
-    s.api.providers.mockResolvedValue([{ ...ownKey, available: false }]);
-    await s.store.init(me());
-    expect(s.store.openRoutes()).toEqual([]);
-    expect(s.store.canGenerate()).toBe(true);
-
-    const t = setup();
-    t.api.billing.mockResolvedValue(spent);
-    t.store.membership.set(inactive());
-    t.store.membershipNeededFor.set(['own-key']);
-    expect(t.store.canGenerate()).toBe(true); // providers not read yet
-    await t.store.refreshKeys();
-    expect(t.store.canGenerate()).toBe(false);
   });
 
   it('without a membership, a branch on the own key is read-only; one on Tangent credit is not', async () => {
@@ -298,79 +253,14 @@ describe('TreeStore read-only power without a membership', () => {
     expect(s.store.readOnly()).toBe(true);
     expect(s.store.canReview(s.store.selectedBranch())).toBe(false);
     // Credit is left (the balance loaded on init), so it can still pay.
-    expect(s.store.openRoutes()).toEqual([credit]);
-    expect(s.store.canGenerate()).toBe(true);
-    expect(s.store.creditRoute()).toBe(credit);
-    expect(s.store.defaultProvider()).toBe(credit);
+    expect(s.store.account.openRoutes()).toEqual([credit]);
+    expect(s.store.account.canGenerate()).toBe(true);
+    expect(s.store.account.creditRoute()).toBe(credit);
+    expect(s.store.account.defaultProvider()).toBe(credit);
 
     s.store.setRoute('t1', 'side', null);
     expect(s.store.readOnly()).toBe(false);
     expect(s.store.canReview(s.store.selectedBranch())).toBe(true);
-  });
-
-  it('a non-member with an empty balance carries on on credit where top-ups are sold (they can buy)', async () => {
-    const s = setup();
-    s.api.billing.mockResolvedValue(empty);
-    await open(s, inactive({ subscriptionStatus: null }));
-    expect(s.store.creditCarriesOn()).toBe(true);
-    expect(s.store.readOnly()).toBe(true);
-    expect(s.store.openRoutes()).toEqual([credit]);
-    expect(s.store.canGenerate()).toBe(true);
-    expect(s.store.creditRoute()).toBe(credit);
-    // Credit, which can be bought, beats an own key the membership locks.
-    expect(s.store.defaultProvider()).toBe(credit);
-  });
-
-  it('where credit can be neither bought nor spent, power is read-only throughout', async () => {
-    const s = setup();
-    s.api.billing.mockResolvedValue(spent);
-    await open(s, inactive());
-    expect(s.store.readOnly()).toBe(true);
-    expect(s.store.openRoutes()).toEqual([]);
-    expect(s.store.canGenerate()).toBe(false);
-    expect(s.store.creditRoute()).toBeNull();
-    // A credit branch isn't read-only: its sends get the usual 402 payment_required.
-    s.store.setRoute('t1', 'side', null);
-    expect(s.store.readOnly()).toBe(false);
-  });
-
-  it('offers a copy in Learn only where Learn can reply: on the pool while it is on, else on credit', async () => {
-    const s = setup();
-    await open(s, inactive());
-    expect(s.api.poolStatus).toHaveBeenCalledTimes(1);
-    expect(s.store.poolOn()).toBe(false);
-    expect(s.store.learnCopyWay()).toBe('credit');
-
-    const pool = setup();
-    pool.api.poolStatus.mockResolvedValue({ enabled: true } as PoolStatusResponse);
-    await open(pool, inactive());
-    expect(pool.store.poolOn()).toBe(true);
-    expect(pool.store.learnCopyWay()).toBe('pool');
-
-    // Neither the pool nor credit that can pay or be bought: no copy (it could only be read).
-    const stuck = setup();
-    stuck.api.billing.mockResolvedValue(spent);
-    await open(stuck, inactive());
-    expect(stuck.store.learnCopyWay()).toBeNull();
-    // Nor where credit isn't offered at all, or the pool status can't be read.
-    const none = setup();
-    none.api.poolStatus.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
-    await open(none, inactive(), { builtInCredit: false });
-    expect(none.store.poolOn()).toBe(false);
-    expect(none.store.learnCopyWay()).toBeNull();
-  });
-
-  it('never read-only where no membership is required (the fee off, a server without billing)', async () => {
-    const s = setup();
-    await open(s, membership({ required: false, status: 'inactive', subscriptionStatus: null }), {
-      membershipNeededFor: [],
-    });
-    expect([...s.store.lockedFundings()]).toEqual([]);
-    expect(s.store.readOnly()).toBe(false);
-    expect(s.store.canGenerate()).toBe(true);
-    // Whatever a stale list said: without a requirement nothing is locked.
-    s.store.membershipNeededFor.set(['own-key']);
-    expect(s.store.readOnly()).toBe(false);
   });
 
   it('a 402 membership_required turns the branch read-only (no toast), and re-reads me and the balance', async () => {
@@ -385,7 +275,7 @@ describe('TreeStore read-only power without a membership', () => {
     s.store.fail(new ApiError(402, 'membership_required', 'Membership required'));
     expect(s.store.readOnly()).toBe(true);
     expect(s.ui.toasts()).toEqual([]);
-    await vi.waitFor(() => expect(s.store.me()).toBe(fresh));
+    await vi.waitFor(() => expect(s.store.account.me()).toBe(fresh));
     expect(s.store.readOnly()).toBe(true);
     expect(s.api.billing).toHaveBeenCalled();
   });
@@ -405,7 +295,7 @@ describe('TreeStore read-only power without a membership', () => {
     const s = setup();
     await open(s, inactive());
     expect(s.store.readOnly()).toBe(true);
-    s.store.applyBilling({ ...summary, membership: membership({ status: 'waived' }) });
+    s.store.account.applyBilling({ ...summary, membership: membership({ status: 'waived' }) });
     expect(s.store.readOnly()).toBe(false);
   });
 
@@ -446,8 +336,8 @@ describe('TreeStore read-only power without a membership', () => {
     // Not the membership: the credit branch keeps its composer, own keys stay as they were.
     expect(s.store.readOnly()).toBe(false);
     expect(s.store.selectedBranch()?.funding).toBe('credit');
-    expect([...s.store.lockedFundings()]).toEqual(['own-key']);
-    expect(s.store.membership()?.status).toBe('inactive');
+    expect([...s.store.account.lockedFundings()]).toEqual(['own-key']);
+    expect(s.store.account.membership()?.status).toBe('inactive');
     expect(s.ui.keysDialog()).toBeNull();
     expect(s.api.me).toHaveBeenCalledTimes(0);
     // The balance is read again.
@@ -514,9 +404,11 @@ describe('TreeStore read-only power without a membership', () => {
     it('says so before anything is sent', async () => {
       const s = await openNoKey();
       expect(s.store.readOnly()).toBe(false);
-      expect(s.store.keyMissing(s.store.selectedBranch()!)).toBe(true);
+      expect(s.store.account.keyMissing(s.store.selectedBranch()!)).toBe(true);
       // Tangent credit never needs a key.
-      expect(s.store.keyMissing({ providerId: 'openrouter', funding: 'credit' })).toBe(false);
+      expect(s.store.account.keyMissing({ providerId: 'openrouter', funding: 'credit' })).toBe(
+        false,
+      );
     });
 
     it('a refused send keeps the message and opens the keys dialog on the branch’s provider', async () => {
@@ -559,7 +451,7 @@ describe('TreeStore read-only power without a membership', () => {
 
       s.api.providers.mockResolvedValue([ownKey, credit]);
       s.sendMessage.mockImplementation(async () => sse([]));
-      await expect(s.store.saveKey('openrouter', 'sk-or-1')).resolves.toBe(true);
+      await expect(s.store.account.saveKey('openrouter', 'sk-or-1')).resolves.toBe(true);
       s.store.resumeAfterKey('openrouter');
       expect(s.sendMessage).toHaveBeenCalledTimes(2);
       expect(s.sendMessage).toHaveBeenLastCalledWith(
@@ -679,27 +571,16 @@ describe('TreeStore the default route of a new conversation (no keys)', () => {
     keySource: null,
     funding: 'own-key',
   }));
-  /** Tangent credit, as listed where it is offered. */
-  const credit: ProviderInfo = {
-    ...defaults[2]!,
-    label: 'Tangent credit',
-    defaultModel: 'max/model',
-    available: true,
-    acceptsUserKey: false,
-    keySource: 'server',
-    funding: 'credit',
-  };
-  const routeOf = (p: ProviderInfo | null) => p && providerRouteKey(p);
 
   it('no credit offered: the user’s own OpenRouter, and the first send asks for its key (not a sign-in)', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const s = setup();
     s.api.providers.mockResolvedValue(defaults);
     await s.store.init(me({ builtInCredit: false, membershipNeededFor: [] }));
-    expect(s.store.openRoutes()).toEqual([]);
+    expect(s.store.account.openRoutes()).toEqual([]);
     // Nothing to generate on yet, but a missing key never hides anything.
-    expect(s.store.canGenerate()).toBe(true);
-    const first = s.store.defaultProvider();
+    expect(s.store.account.canGenerate()).toBe(true);
+    const first = s.store.account.defaultProvider();
     expect(first).toBe(defaults[2]);
     expect(first?.defaultModel).toBe('deepseek/deepseek-v4-pro');
 
@@ -754,126 +635,6 @@ describe('TreeStore the default route of a new conversation (no keys)', () => {
     expect(s.ui.toasts()).toEqual([expect.objectContaining({ kind: 'error', text: message })]);
     expect(s.ui.toasts()[0]?.text).not.toMatch(/session|sign in/i);
   });
-
-  it('credit offered: Tangent credit only while the balance read is above zero', async () => {
-    const zero = setup();
-    zero.api.providers.mockResolvedValue([...defaults, credit]);
-    zero.api.billing.mockResolvedValue(empty);
-    await zero.store.init(me());
-    // Anyone could buy more, but for a member whose own keys are open, an empty balance would
-    // answer the first send with a 402 for nothing.
-    expect(zero.store.openRoutes()).toEqual([credit]);
-    expect(routeOf(zero.store.defaultProvider())).toBe('openrouter');
-
-    const some = setup();
-    some.api.providers.mockResolvedValue([...defaults, credit]);
-    await some.store.init(me());
-    expect(some.store.defaultProvider()).toBe(credit);
-
-    // A balance that couldn't be read counts as none.
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const unread = setup();
-    unread.api.providers.mockResolvedValue([...defaults, credit]);
-    unread.api.billing.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
-    await unread.store.init(me());
-    expect(routeOf(unread.store.defaultProvider())).toBe('openrouter');
-  });
-
-  it('decides nothing before the providers and the balance are read', async () => {
-    const s = setup();
-    let answer!: (b: BillingSummary) => void;
-    s.api.billing.mockReturnValue(new Promise<BillingSummary>((r) => (answer = r)));
-    s.api.providers.mockResolvedValue([...defaults, credit]);
-    expect(s.store.defaultProvider()).toBeNull();
-    const started = s.store.init(me());
-    await vi.waitFor(() => expect(s.store.providersLoaded()).toBe(true));
-    expect(s.store.defaultProvider()).toBeNull();
-    answer(summary);
-    await started;
-    expect(s.store.defaultProvider()).toBe(credit);
-  });
-
-  it('a provider with a key comes first; own keys locked by the membership hand it to credit', async () => {
-    const keyed = { ...defaults[1]!, available: true, keySource: 'user' as const };
-    const list = [defaults[0]!, keyed, defaults[2]!, credit];
-    const member = setup();
-    member.api.providers.mockResolvedValue(list);
-    await member.store.init(me());
-    expect(member.store.defaultProvider()).toBe(keyed);
-
-    const lapsed = setup();
-    lapsed.api.providers.mockResolvedValue(list);
-    await lapsed.store.init(me({ membership: membership({ status: 'inactive' }) }));
-    expect(lapsed.store.defaultProvider()).toBe(credit);
-
-    // An empty balance, but top-ups are sold: still credit (anyone can buy), not a locked key.
-    const buyer = setup();
-    buyer.api.providers.mockResolvedValue(list);
-    buyer.api.billing.mockResolvedValue(empty);
-    await buyer.store.init(me({ membership: membership({ status: 'inactive' }) }));
-    expect(buyer.store.canGenerate()).toBe(true);
-    expect(buyer.store.defaultProvider()).toBe(credit);
-
-    // A balance left where top-ups aren't sold: credit can pay, so still credit.
-    const holder = setup();
-    holder.api.providers.mockResolvedValue(list);
-    holder.api.billing.mockResolvedValue({
-      availableMicros: 1_000_000,
-      topUpsEnabled: false,
-    } as BillingSummary);
-    await holder.store.init(me({ membership: membership({ status: 'inactive' }) }));
-    expect(holder.store.canGenerate()).toBe(true);
-    expect(holder.store.defaultProvider()).toBe(credit);
-
-    // Nothing can generate (top-ups off, nothing left): the home page shows the notice
-    // instead of the picker. Credit that can neither pay nor be bought is a dead end: the
-    // locked own key stays the default, which at least leads to the membership.
-    const stuck = setup();
-    stuck.api.providers.mockResolvedValue(list);
-    stuck.api.billing.mockResolvedValue(spent);
-    await stuck.store.init(me({ membership: membership({ status: 'inactive' }) }));
-    expect(stuck.store.canGenerate()).toBe(false);
-    expect(stuck.store.defaultProvider()).toBe(keyed);
-  });
-
-  it('a non-member with no key saved: credit only where it can pay or be bought', async () => {
-    const lapsed = me({ membership: membership({ status: 'inactive' }) });
-    // Credit offered, top-ups not sold, nothing left: the own OpenRouter route, not credit.
-    const stuck = setup();
-    stuck.api.providers.mockResolvedValue([...defaults, credit]);
-    stuck.api.billing.mockResolvedValue(spent);
-    await stuck.store.init(lapsed);
-    expect(routeOf(stuck.store.defaultProvider())).toBe('openrouter');
-
-    // Top-ups sold: credit, whatever the balance.
-    const buyer = setup();
-    buyer.api.providers.mockResolvedValue([...defaults, credit]);
-    buyer.api.billing.mockResolvedValue(empty);
-    await buyer.store.init(lapsed);
-    expect(buyer.store.defaultProvider()).toBe(credit);
-
-    // Top-ups off, but a balance left: credit.
-    const holder = setup();
-    holder.api.providers.mockResolvedValue([...defaults, credit]);
-    holder.api.billing.mockResolvedValue({
-      availableMicros: 1,
-      topUpsEnabled: false,
-    } as BillingSummary);
-    await holder.store.init(lapsed);
-    expect(holder.store.defaultProvider()).toBe(credit);
-  });
-
-  it('never a test provider over a usable route', async () => {
-    const fake: ProviderInfo = { ...defaults[0]!, id: 'fake', kind: 'fake', available: true };
-    const s = setup();
-    s.api.providers.mockResolvedValue([fake, ...defaults, credit]);
-    await s.store.init(me());
-    expect(s.store.defaultProvider()).toBe(credit);
-    const t = setup();
-    t.api.providers.mockResolvedValue([fake, ...defaults]);
-    await t.store.init(me({ builtInCredit: false }));
-    expect(t.store.defaultProvider()).toBe(fake);
-  });
 });
 
 describe('TreeStore routes (provider + funding)', () => {
@@ -892,9 +653,12 @@ describe('TreeStore routes (provider + funding)', () => {
 
   it('tells the built-in endpoint on the user key from Tangent credit, and sends the funding', async () => {
     const s = setup();
-    s.store.providers.set([entry('own-key', 'OpenRouter'), entry('credit', 'Tangent credit')]);
-    expect(s.store.providerOf({ providerId: 'openrouter' })?.label).toBe('OpenRouter');
-    expect(s.store.providerOf({ providerId: 'openrouter', funding: 'credit' })?.label).toBe(
+    s.store.account.providers.set([
+      entry('own-key', 'OpenRouter'),
+      entry('credit', 'Tangent credit'),
+    ]);
+    expect(s.store.account.providerOf({ providerId: 'openrouter' })?.label).toBe('OpenRouter');
+    expect(s.store.account.providerOf({ providerId: 'openrouter', funding: 'credit' })?.label).toBe(
       'Tangent credit',
     );
     const createTree = vi.fn(async () => {

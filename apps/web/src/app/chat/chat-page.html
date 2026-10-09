@@ -108,8 +108,8 @@
           <app-read-only-composer
             [membership]="ro.membership"
             [treeId]="ro.treeId"
-            [credit]="store.creditRoute() !== null"
-            [learn]="store.learnCopyWay()"
+            [credit]="store.account.creditRoute() !== null"
+            [learn]="store.account.learnCopyWay()"
             (useCredit)="useCredit()"
           />
         } @else {

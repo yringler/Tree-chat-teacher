@@ -22,7 +22,7 @@ export class SharesPage {
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
   /** Reachable only by URL then (the sidebar hides it); kept so old links can still be revoked. */
-  protected readonly sharingOff = computed(() => this.store.me()?.sharing === false);
+  protected readonly sharingOff = computed(() => this.store.account.me()?.sharing === false);
 
   constructor() {
     void this.load();

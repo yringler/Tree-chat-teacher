@@ -158,7 +158,7 @@ export class BranchSettings implements OnInit {
   protected readonly grounding = signal<GroundingMode>(DEFAULT_GROUNDING_MODE);
   protected readonly canSearch = computed(() => {
     const { providerId, funding } = parseRouteKey(this.route());
-    return this.store
+    return this.store.account
       .providers()
       .some(
         (p) => p.id === providerId && (p.funding ?? 'own-key') === funding && p.webSearch === true,

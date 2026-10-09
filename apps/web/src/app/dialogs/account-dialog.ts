@@ -18,7 +18,7 @@ import { UiStore } from '../state/ui-store';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal heading="Account" (closed)="close()">
-      @if (store.me(); as me) {
+      @if (store.account.me(); as me) {
         @if (me.devMode) {
           <p class="notice">Sign-in is disabled on this server (DEV_ALLOW_NO_AUTH).</p>
         } @else {
@@ -119,7 +119,7 @@ export class AccountDialog implements OnInit {
   protected readonly error = signal<string | null>(null);
 
   ngOnInit(): void {
-    if (!this.store.me()?.devMode) void this.reload();
+    if (!this.store.account.me()?.devMode) void this.reload();
   }
 
   protected close(): void {

@@ -143,7 +143,7 @@ describe('Canvas branch dialog: the route a new lane starts on', () => {
 
   it('a parent lane locked by the membership: the default route, keeping a model it serves', async () => {
     const { store, rows } = await open('inactive', [ownKey, credit]);
-    expect(store.defaultProvider()).toBe(credit);
+    expect(store.account.defaultProvider()).toBe(credit);
     expect(rows[0]).toMatchObject({
       providerId: 'openrouter',
       funding: 'credit',
@@ -154,7 +154,7 @@ describe('Canvas branch dialog: the route a new lane starts on', () => {
   it('a parent lane whose own key is missing here: the default route', async () => {
     const noKey = { ...ownKey, available: false, keySource: null };
     const { store, rows } = await open('active', [noKey, credit]);
-    expect(store.defaultProvider()).toBe(credit);
+    expect(store.account.defaultProvider()).toBe(credit);
     expect(rows[0]).toMatchObject({ funding: 'credit' });
   });
 });

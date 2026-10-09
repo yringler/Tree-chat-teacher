@@ -216,7 +216,7 @@ export class SettingsDialog implements OnInit {
   /** The open conversation's model, for the reply-length hint. */
   protected readonly outputCapTarget = computed<OutputCapModel | null>(() => {
     const branch = this.store.selectedBranch();
-    return branch ? { model: branch.model, provider: this.store.providerOf(branch) } : null;
+    return branch ? { model: branch.model, provider: this.store.account.providerOf(branch) } : null;
   });
 
   protected readonly maxChars = MAX_SYSTEM_PROMPT_CHARS;
@@ -259,7 +259,7 @@ export class SettingsDialog implements OnInit {
   protected suggestion(tier: ModelTier): string {
     const c = this.tiers.suggested(tier, this.store.selectedBranch());
     if (!c) return 'none (no provider lists one)';
-    const provider = this.store.providerOf(c)?.label ?? c.providerId;
+    const provider = this.store.account.providerOf(c)?.label ?? c.providerId;
     return `${this.tiers.modelLabel(c)} (${provider})`;
   }
 
@@ -305,7 +305,7 @@ export class SettingsDialog implements OnInit {
   protected customize(): void {
     if (!this.route()) {
       const start = this.reviews.defaultReviewer(this.store.selectedBranch());
-      const fallback = this.store.defaultProvider();
+      const fallback = this.store.account.defaultProvider();
       this.route.set(start ? routeKey(start) : fallback ? providerRouteKey(fallback) : '');
       this.modelId.set(start?.model ?? fallback?.defaultModel ?? '');
     }

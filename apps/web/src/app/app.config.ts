@@ -17,7 +17,7 @@ export const appConfig: ApplicationConfig = {
       provide: BILLING_SUMMARY_LISTENER,
       useFactory: () => {
         const store = inject(TreeStore);
-        return (summary: BillingSummary) => store.applyBilling(summary);
+        return (summary: BillingSummary) => store.account.applyBilling(summary);
       },
     },
     provideRouter(routes, withInMemoryScrolling({ scrollPositionRestoration: 'disabled' })),

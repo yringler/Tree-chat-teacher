@@ -159,14 +159,14 @@ export const MODE_LABEL: Record<ContextMode, string> = {
           <app-card [node]="n" [focused]="n.id === store.focusedNodeId()" [lit]="litOf(n)" />
         }
       </div>
-      @if (store.routeLocked(b) && store.membership(); as membership) {
+      @if (store.account.routeLocked(b) && store.account.membership(); as membership) {
         <!-- The lane's funding needs the membership the user lacks: read it, renew, or copy it. -->
         <app-read-only-composer
           [compact]="true"
           [membership]="membership"
           [treeId]="b.treeId"
-          [credit]="store.creditRoute() !== null"
-          [learn]="store.learnCopyWay()"
+          [credit]="store.account.creditRoute() !== null"
+          [learn]="store.account.learnCopyWay()"
           (useCredit)="store.switchToCredit(b.id)"
           (pointerdown)="$event.stopPropagation()"
         />
@@ -229,7 +229,7 @@ export class Lane implements OnDestroy {
   protected readonly busy = computed(() => this.store.busyBranches().has(this.place().branch.id));
   protected readonly model = computed(() => {
     const b = this.place().branch;
-    return modelLabel(this.store.providers(), b, b.model);
+    return modelLabel(this.store.account.providers(), b, b.model);
   });
   protected readonly modeHelp = computed(() => {
     switch (this.place().branch.contextMode) {

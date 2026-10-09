@@ -234,7 +234,7 @@ export class Card {
     const n = this.node();
     if (n.role === 'user') return 'You';
     if (!n.model) return 'Assistant';
-    return modelLabel(this.store.providers(), { providerId: n.providerId ?? '' }, n.model);
+    return modelLabel(this.store.account.providers(), { providerId: n.providerId ?? '' }, n.model);
   });
   private readonly live = computed(() => this.store.live().get(this.node().id) ?? null);
   protected readonly streaming = computed(() => this.node().status === 'streaming');
@@ -261,7 +261,7 @@ export class Card {
   /** The card's lane can't generate (its funding needs the membership the user lacks). */
   protected readonly locked = computed(() => {
     const b = this.store.index()?.branches.get(this.node().branchId);
-    return !!b && this.store.routeLocked(b);
+    return !!b && this.store.account.routeLocked(b);
   });
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
   protected readonly followed = computed<ReadonlySet<string>>(
