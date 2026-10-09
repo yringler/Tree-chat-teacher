@@ -15,10 +15,12 @@ import type {
  * knows about D1; a Node port would add e.g. a better-sqlite3/Postgres one.
  *
  * All methods reject with a plain Error on storage failure. "Not found" is
- * signalled by `null` / `false`, never by throwing.
+ * signalled by `null` / `false`, never by throwing. Listings tie-break on
+ * ids in byte order (SQLite's text order). The behaviour every
+ * implementation shares is test/repository-contract.ts.
  */
 export interface TreeRepository {
-  /** Trees owned by `accountId`, most recently updated first. */
+  /** Trees owned by `accountId`, most recently updated first, ties by id. */
   listTrees(accountId: string): Promise<TreeSummary[]>;
   getTree(treeId: string): Promise<Tree | null>;
   /** Atomically inserts the tree and its trunk branch. */
@@ -31,6 +33,7 @@ export interface TreeRepository {
   deleteTree(treeId: string): Promise<boolean>;
 
   getBranch(branchId: string): Promise<Branch | null>;
+  /** Oldest first, ties by id. */
   listBranches(treeId: string): Promise<Branch[]>;
   /** Trunk → branch (inclusive), following parentBranchId. Empty if not found. */
   getBranchChain(branchId: string): Promise<Branch[]>;
@@ -67,6 +70,7 @@ export interface TreeRepository {
   ): Promise<void>;
 
   getNode(nodeId: string): Promise<ChatNode | null>;
+  /** By branch id, then seq. */
   listNodes(treeId: string): Promise<ChatNode[]>;
   /** Nodes of one branch ordered by seq. */
   listBranchNodes(branchId: string): Promise<ChatNode[]>;
@@ -88,10 +92,10 @@ export interface TreeRepository {
       sources: Citation[] | null;
     }>,
   ): Promise<void>;
-  /** Nodes left in `streaming` state (e.g. after a crash). */
+  /** Nodes left in `streaming` state (e.g. after a crash), oldest first, ties by id. */
   listStreamingNodes(treeId: string): Promise<ChatNode[]>;
 
-  /** The tree's links, oldest first. */
+  /** The tree's links, oldest first, ties by id. */
   listLinks(treeId: string): Promise<NodeLink[]>;
   getLink(linkId: string): Promise<NodeLink | null>;
   /**
@@ -132,7 +136,7 @@ export interface ShareWithTree extends Share {
 }
 
 export interface ShareRepository {
-  /** Shares owned by `accountId`, newest first. */
+  /** Shares owned by `accountId`, newest first, ties by id. */
   listShares(accountId: string): Promise<ShareWithTree[]>;
   getShare(shareId: string): Promise<ShareWithTree | null>;
   getShareByToken(token: string): Promise<ShareWithTree | null>;

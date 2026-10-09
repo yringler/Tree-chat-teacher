@@ -1,14 +1,13 @@
-import { ConflictError, NotFoundError } from '@tangent/core';
+import { ConflictError } from '@tangent/core';
 import {
-  DEFAULT_ACCOUNT_ID,
   REPLY_CANCELLED_ERROR,
   REPLY_CUT_OFF_ERROR,
   REPLY_EMPTY_ERROR,
   REPLY_THINKING_ONLY_ERROR,
   type Branch,
-  type ChatNode,
   type Tree,
 } from '@tangent/shared';
+import { describeRepositories } from '@tangent/core/repository-contract';
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { createD1Repositories, SNAPSHOT_CHUNK_CHARS } from '../src/db/d1-repositories.js';
@@ -24,6 +23,11 @@ import {
 } from './fixtures.js';
 
 const repos = createD1Repositories(env.DB);
+
+describeRepositories('D1', () => repos);
+
+// What only D1 can show: atomic batches, the parameter limit, snapshot chunks,
+// constraints and cascades in the schema, and how stored rows read back.
 
 async function count(table: string, column: string, value: string): Promise<number> {
   const row = await env.DB.prepare(`SELECT count(*) AS c FROM ${table} WHERE ${column} = ?1`)
@@ -64,57 +68,12 @@ async function seedMultiBranch() {
 }
 
 describe('trees', () => {
-  it('createTree / getTree round-trip including nullable system prompt', async () => {
-    const { tree, trunk } = await seedTree({ systemPrompt: 'Be terse.' });
-    expect(await repos.trees.getTree(tree.id)).toEqual(tree);
-    expect(await repos.trees.getBranch(trunk.id)).toEqual(trunk);
-
-    const { tree: t2 } = await seedTree({ systemPrompt: null });
-    expect((await repos.trees.getTree(t2.id))?.systemPrompt).toBeNull();
-    expect(await repos.trees.getTree('missing')).toBeNull();
-  });
-
   it('createTree is atomic: a failing trunk insert leaves no tree', async () => {
     const { trunk } = await seedTree();
     const tree = makeTree();
     // Reusing an existing branch id makes the second statement fail.
     await expect(repos.trees.createTree(tree, { ...trunk, treeId: tree.id })).rejects.toThrow();
     expect(await repos.trees.getTree(tree.id)).toBeNull();
-  });
-
-  it('updateTree applies partial patches and returns null for unknown ids', async () => {
-    const { tree } = await seedTree({ systemPrompt: 'x' });
-    const updated = await repos.trees.updateTree(tree.id, {
-      title: 'Renamed',
-      updatedAt: '2026-02-01T00:00:00.000Z',
-    });
-    expect(updated).toEqual({ ...tree, title: 'Renamed', updatedAt: '2026-02-01T00:00:00.000Z' });
-    const cleared = await repos.trees.updateTree(tree.id, { systemPrompt: null });
-    expect(cleared?.systemPrompt).toBeNull();
-    expect(await repos.trees.updateTree(tree.id, {})).toEqual(cleared);
-    expect(await repos.trees.updateTree('missing', { title: 'x' })).toBeNull();
-  });
-
-  it('listTrees returns counts ordered by updatedAt desc', async () => {
-    const multi = await seedMultiBranch();
-    const { tree: older } = await seedTree({ updatedAt: '2025-01-01T00:00:00.000Z' });
-    await repos.trees.updateTree(multi.tree.id, { updatedAt: '2030-01-01T00:00:00.000Z' });
-    const list = await repos.trees.listTrees(DEFAULT_ACCOUNT_ID);
-    const ids = list.map((t) => t.id);
-    expect(ids.indexOf(multi.tree.id)).toBeLessThan(ids.indexOf(older.id));
-    for (let i = 1; i < list.length; i++) {
-      expect(list[i - 1]!.updatedAt >= list[i]!.updatedAt).toBe(true);
-    }
-    const summary = list.find((t) => t.id === multi.tree.id);
-    expect(summary).toEqual({
-      id: multi.tree.id,
-      title: multi.tree.title,
-      createdAt: multi.tree.createdAt,
-      updatedAt: '2030-01-01T00:00:00.000Z',
-      branchCount: 3,
-      messageCount: 8,
-    });
-    expect(list.find((t) => t.id === older.id)).toMatchObject({ branchCount: 1, messageCount: 0 });
   });
 
   it('deleteTree cascades to branches, nodes, summaries, shares and snapshots', async () => {
@@ -144,54 +103,6 @@ describe('trees', () => {
 });
 
 describe('branches', () => {
-  it('createBranch / getBranch / listBranches round-trip booleans and nullables', async () => {
-    const { tree, trunk } = await seedTree();
-    const [n0] = makeChain(trunk, 1, null);
-    await repos.trees.appendNodes([n0!], 'x');
-    const b = makeBranch(tree, {
-      parentBranchId: trunk.id,
-      branchPointNodeId: n0!.id,
-      contextMode: 'summary',
-      anchorQuote: 'quoted text',
-      isPrivate: true,
-      titleSource: 'user',
-      createdAt: '2026-01-01T00:00:05.000Z',
-    });
-    await repos.trees.createBranch(b);
-    expect(await repos.trees.getBranch(b.id)).toEqual(b);
-    expect(await repos.trees.listBranches(tree.id)).toEqual([trunk, b]);
-    expect(await repos.trees.getBranch('missing')).toBeNull();
-  });
-
-  it('updateBranch patches fields including isPrivate and anchorQuote=null', async () => {
-    const { tree, trunk } = await seedTree();
-    const b = makeBranch(tree, { parentBranchId: trunk.id, anchorQuote: 'q', isPrivate: true });
-    await repos.trees.createBranch(b);
-    const updated = await repos.trees.updateBranch(b.id, {
-      isPrivate: false,
-      anchorQuote: null,
-      contextMode: 'independent',
-      title: 'New',
-      titleSource: 'auto',
-      providerId: 'anthropic',
-      model: 'claude-opus-5-5',
-      updatedAt: '2026-03-01T00:00:00.000Z',
-    });
-    expect(updated).toEqual({
-      ...b,
-      isPrivate: false,
-      anchorQuote: null,
-      contextMode: 'independent',
-      title: 'New',
-      titleSource: 'auto',
-      providerId: 'anthropic',
-      model: 'claude-opus-5-5',
-      updatedAt: '2026-03-01T00:00:00.000Z',
-    });
-    expect(await repos.trees.updateBranch(b.id, {})).toEqual(updated);
-    expect(await repos.trees.updateBranch('missing', { title: 'x' })).toBeNull();
-  });
-
   it('deleteBranches removes the branches with their nodes, summaries and targeted shares', async () => {
     const { tree, trunk, b1, b2, t, a, c } = await seedMultiBranch();
     const summary = {
@@ -225,82 +136,9 @@ describe('branches', () => {
     expect(await repos.shares.getShare(whole.id)).not.toBeNull();
     expect((await repos.trees.getTree(tree.id))?.updatedAt).toBe('2026-04-01T00:00:00.000Z');
   });
-
-  it('deleteBranches only touches the given tree', async () => {
-    const { tree, b1 } = await seedMultiBranch();
-    const other = await seedMultiBranch();
-    await repos.trees.deleteBranches(other.tree.id, [b1.id], 'x');
-    expect(await repos.trees.getBranch(b1.id)).toEqual(b1);
-    expect(await count('nodes', 'branch_id', b1.id)).toBe(2);
-    expect((await repos.trees.getTree(tree.id))?.updatedAt).not.toBe('x');
-  });
-
-  it('getBranchChain returns trunk → branch', async () => {
-    const { trunk, b1, b2 } = await seedMultiBranch();
-    expect((await repos.trees.getBranchChain(b2.id)).map((b) => b.id)).toEqual([
-      trunk.id,
-      b1.id,
-      b2.id,
-    ]);
-    expect(await repos.trees.getBranchChain(trunk.id)).toEqual([trunk]);
-    const chain = await repos.trees.getBranchChain(b1.id);
-    expect(chain[1]).toEqual(b1);
-    expect(await repos.trees.getBranchChain('missing')).toEqual([]);
-  });
 });
 
 describe('nodes', () => {
-  it('round-trips usage, nullables and roles', async () => {
-    const { trunk } = await seedTree();
-    const user = makeNode(trunk, 0, null, { role: 'user', content: 'hi' });
-    const asst = makeNode(trunk, 1, user.id, {
-      role: 'assistant',
-      providerId: 'anthropic',
-      model: 'claude-opus-5-5',
-      usage: { inputTokens: 12, outputTokens: 34 },
-      status: 'error',
-      error: 'boom',
-    });
-    await repos.trees.appendNodes([user, asst], 'x');
-    expect(await repos.trees.getNode(user.id)).toEqual(user);
-    expect(await repos.trees.getNode(asst.id)).toEqual(asst);
-    expect(await repos.trees.getNode('missing')).toBeNull();
-  });
-
-  it('appendNodes bumps the tree updatedAt', async () => {
-    const { tree, trunk } = await seedTree();
-    await repos.trees.appendNodes(makeChain(trunk, 2, null), '2026-05-05T00:00:00.000Z');
-    expect((await repos.trees.getTree(tree.id))?.updatedAt).toBe('2026-05-05T00:00:00.000Z');
-  });
-
-  it('listNodes and listBranchNodes', async () => {
-    const { tree, trunk, b1, t, a, c } = await seedMultiBranch();
-    expect((await repos.trees.listBranchNodes(trunk.id)).map((n) => n.id)).toEqual(
-      t.map((n) => n.id),
-    );
-    expect(await repos.trees.listBranchNodes(b1.id)).toEqual(a);
-    const all = await repos.trees.listNodes(tree.id);
-    expect(all).toHaveLength(8);
-    expect(new Set(all.map((n) => n.id))).toEqual(new Set([...t, ...a, ...c].map((n) => n.id)));
-  });
-
-  it('getAncestorPath follows parent ids across branches, root first', async () => {
-    const { t, a, c } = await seedMultiBranch();
-    const path = await repos.trees.getAncestorPath(c[1]!.id);
-    expect(path.map((n) => n.id)).toEqual([t[0]!.id, t[1]!.id, a[0]!.id, c[0]!.id, c[1]!.id]);
-    expect(path[4]).toEqual(c[1]);
-    expect((await repos.trees.getAncestorPath(t[3]!.id)).map((n) => n.id)).toEqual(
-      t.map((n) => n.id),
-    );
-    expect((await repos.trees.getAncestorPath(a[1]!.id)).map((n) => n.id)).toEqual([
-      t[0]!.id,
-      t[1]!.id,
-      a[0]!.id,
-      a[1]!.id,
-    ]);
-    expect(await repos.trees.getAncestorPath('missing')).toEqual([]);
-  });
-
   it('appendNodes is atomic and maps (branch_id, seq) conflicts to ConflictError', async () => {
     const { tree, trunk } = await seedTree();
     const [n0] = makeChain(trunk, 1, null);
@@ -335,73 +173,6 @@ describe('nodes', () => {
     expect(err).not.toBeInstanceOf(ConflictError);
   });
 
-  it('updateNode patches content/status/error/usage', async () => {
-    const { trunk } = await seedTree();
-    const n = makeNode(trunk, 0, null, { status: 'streaming', content: '' });
-    await repos.trees.appendNodes([n], 'x');
-    await repos.trees.updateNode(n.id, { content: 'partial' });
-    expect((await repos.trees.getNode(n.id))?.content).toBe('partial');
-    await repos.trees.updateNode(n.id, {
-      status: 'complete',
-      content: 'final',
-      usage: { inputTokens: 5, outputTokens: 7 },
-    });
-    expect(await repos.trees.getNode(n.id)).toEqual({
-      ...n,
-      status: 'complete',
-      content: 'final',
-      usage: { inputTokens: 5, outputTokens: 7 },
-    });
-    await repos.trees.updateNode(n.id, { status: 'error', error: 'interrupted', usage: null });
-    expect(await repos.trees.getNode(n.id)).toMatchObject({
-      status: 'error',
-      error: 'interrupted',
-      usage: null,
-    });
-    await repos.trees.updateNode(n.id, { error: null });
-    expect((await repos.trees.getNode(n.id))?.error).toBeNull();
-    await repos.trees.updateNode(n.id, {}); // no-op
-  });
-
-  it('listStreamingNodes returns only streaming nodes of the tree', async () => {
-    const { tree, trunk } = await seedTree();
-    const u = makeNode(trunk, 0, null);
-    const s = makeNode(trunk, 1, u.id, { status: 'streaming' });
-    await repos.trees.appendNodes([u, s], 'x');
-    const other = await seedTree();
-    await repos.trees.appendNodes([makeNode(other.trunk, 0, null, { status: 'streaming' })], 'x');
-    expect(await repos.trees.listStreamingNodes(tree.id)).toEqual([s]);
-    await repos.trees.updateNode(s.id, { status: 'complete' });
-    expect(await repos.trees.listStreamingNodes(tree.id)).toEqual([]);
-  });
-
-  it('importTree inserts 50 nodes and several branches atomically', async () => {
-    const tree = makeTree({ title: 'Imported', systemPrompt: 'sys' });
-    const trunk = makeTrunk(tree);
-    const trunkNodes = makeChain(trunk, 30, null);
-    const branchesList: Branch[] = [trunk];
-    const nodesList: ChatNode[] = [...trunkNodes];
-    for (let i = 0; i < 10; i++) {
-      const b = makeBranch(tree, {
-        parentBranchId: trunk.id,
-        branchPointNodeId: trunkNodes[i]!.id,
-        isPrivate: i % 2 === 0,
-        anchorQuote: i % 3 === 0 ? `q${i}` : null,
-      });
-      branchesList.push(b);
-      nodesList.push(...makeChain(b, 2, trunkNodes[i]!.id));
-    }
-    expect(nodesList).toHaveLength(50);
-    await repos.trees.importTree(tree, branchesList, nodesList);
-    expect(await repos.trees.getTree(tree.id)).toEqual(tree);
-    expect(await repos.trees.listBranches(tree.id)).toHaveLength(11);
-    const stored = await repos.trees.listNodes(tree.id);
-    expect(stored).toHaveLength(50);
-    const byId = new Map(stored.map((n) => [n.id, n]));
-    for (const n of nodesList) expect(byId.get(n.id)).toEqual(n);
-    for (const b of branchesList) expect(await repos.trees.getBranch(b.id)).toEqual(b);
-  });
-
   it('importTree rolls back entirely on failure', async () => {
     const tree = makeTree();
     const trunk = makeTrunk(tree);
@@ -414,66 +185,7 @@ describe('nodes', () => {
   });
 });
 
-describe('summaries', () => {
-  it('get/put round-trip and upsert on the (anchor, hash, model) key', async () => {
-    const { tree, trunk } = await seedTree();
-    const [n] = makeChain(trunk, 1, null);
-    await repos.trees.appendNodes([n!], 'x');
-    const rec = {
-      anchorNodeId: n!.id,
-      sourceHash: 'abc',
-      providerId: 'fake',
-      model: 'm1',
-      content: 'first',
-      treeId: tree.id,
-      createdAt: '2026-01-01T00:00:00.000Z',
-    };
-    expect(await repos.summaries.getSummary(n!.id, 'abc', 'm1')).toBeNull();
-    await repos.summaries.putSummary(rec);
-    expect(await repos.summaries.getSummary(n!.id, 'abc', 'm1')).toEqual(rec);
-
-    const replaced = {
-      ...rec,
-      content: 'second',
-      providerId: 'anthropic',
-      createdAt: '2026-02-01T00:00:00.000Z',
-    };
-    await repos.summaries.putSummary(replaced);
-    expect(await repos.summaries.getSummary(n!.id, 'abc', 'm1')).toEqual(replaced);
-
-    await repos.summaries.putSummary({ ...rec, model: 'm2', content: 'other model' });
-    expect((await repos.summaries.getSummary(n!.id, 'abc', 'm2'))?.content).toBe('other model');
-    expect((await repos.summaries.getSummary(n!.id, 'abc', 'm1'))?.content).toBe('second');
-    expect(await repos.summaries.getSummary(n!.id, 'other-hash', 'm1')).toBeNull();
-  });
-});
-
 describe('shares', () => {
-  it('create / get / getByToken / list with tree title and booleans', async () => {
-    const { tree, trunk } = await seedTree({ title: 'Shared tree' });
-    const [n] = makeChain(trunk, 1, null);
-    await repos.trees.appendNodes([n!], 'x');
-    const share = makeShare(tree, {
-      scope: 'subtree',
-      targetNodeId: n!.id,
-      includeAncestors: true,
-      mode: 'live',
-      title: 'Look',
-      expiresAt: '2027-01-01T00:00:00.000Z',
-      publishedAt: null,
-    });
-    await repos.shares.createShare(share, null);
-    const expected = { ...share, treeTitle: 'Shared tree' };
-    expect(await repos.shares.getShare(share.id)).toEqual(expected);
-    expect(await repos.shares.getShareByToken(share.token)).toEqual(expected);
-    expect(await repos.shares.getSnapshot(share.id)).toBeNull();
-    expect(
-      (await repos.shares.listShares(DEFAULT_ACCOUNT_ID)).find((s) => s.id === share.id),
-    ).toEqual(expected);
-    expect(await repos.shares.getShare('missing')).toBeNull();
-    expect(await repos.shares.getShareByToken('missing')).toBeNull();
-  });
-
   it('rejects duplicate tokens atomically (no orphan snapshot)', async () => {
     const { tree } = await seedTree();
     const a = makeShare(tree);
@@ -562,19 +274,6 @@ describe('shares', () => {
     expect(back === json).toBe(true);
     expect(() => JSON.parse(back!) as unknown).not.toThrow();
   });
-
-  it('incrementViewCount is additive', async () => {
-    const { tree } = await seedTree();
-    const share = makeShare(tree);
-    await repos.shares.createShare(share, '{}');
-    await Promise.all([
-      repos.shares.incrementViewCount(share.id),
-      repos.shares.incrementViewCount(share.id),
-      repos.shares.incrementViewCount(share.id),
-    ]);
-    expect((await repos.shares.getShare(share.id))?.viewCount).toBe(3);
-    await repos.shares.incrementViewCount('missing'); // no-op
-  });
 });
 
 describe('account settings', () => {
@@ -595,20 +294,6 @@ describe('account settings', () => {
 });
 
 describe('grounding columns', () => {
-  const sources = [{ url: 'https://example.org/a', title: 'A', excerpt: null }];
-
-  it('round-trips node sources (null, [] and a list) through insert, update and the ancestor path', async () => {
-    const { trunk } = await seedTree();
-    const n = makeNode(trunk, 0, null, { sources: [] });
-    await repos.trees.appendNodes([n], 'x');
-    expect((await repos.trees.getNode(n.id))?.sources).toEqual([]);
-    await repos.trees.updateNode(n.id, { sources });
-    expect((await repos.trees.getNode(n.id))?.sources).toEqual(sources);
-    expect((await repos.trees.getAncestorPath(n.id))[0]?.sources).toEqual(sources);
-    await repos.trees.updateNode(n.id, { sources: null });
-    expect((await repos.trees.getNode(n.id))?.sources).toBeNull();
-  });
-
   it('reads malformed stored sources as null', async () => {
     const { trunk } = await seedTree();
     const n = makeNode(trunk, 0, null);
@@ -635,17 +320,6 @@ describe('grounding columns', () => {
 });
 
 describe('node error kinds', () => {
-  it('round-trips errorKind through insert, update and the ancestor path', async () => {
-    const { trunk } = await seedTree();
-    const n = makeNode(trunk, 0, null, { status: 'error', error: 'x', errorKind: 'provider' });
-    await repos.trees.appendNodes([n], 'x');
-    expect((await repos.trees.getNode(n.id))?.errorKind).toBe('provider');
-    await repos.trees.updateNode(n.id, { errorKind: 'cut_off' });
-    expect((await repos.trees.getAncestorPath(n.id))[0]?.errorKind).toBe('cut_off');
-    await repos.trees.updateNode(n.id, { status: 'complete', error: null, errorKind: null });
-    expect((await repos.trees.getNode(n.id))?.errorKind).toBeNull();
-  });
-
   it('backfills the kind of rows written before the column from their copy', async () => {
     const { trunk } = await seedTree();
     const copies = {
@@ -674,31 +348,6 @@ describe('node error kinds', () => {
 });
 
 describe('links', () => {
-  it('createLink / getLink / listLinks round-trip, bump the tree and dedupe the pair either way', async () => {
-    const { tree, t, a } = await seedMultiBranch();
-    const link = makeLink(t[3]!, a[1]!, { note: 'why' });
-    expect(await repos.trees.createLink(link, '2026-05-01T00:00:00.000Z')).toEqual({
-      link,
-      created: true,
-    });
-    expect(await repos.trees.getLink(link.id)).toEqual(link);
-    expect((await repos.trees.getTree(tree.id))?.updatedAt).toBe('2026-05-01T00:00:00.000Z');
-
-    const reversed = makeLink(a[1]!, t[3]!);
-    expect(await repos.trees.createLink(reversed, '2026-06-01T00:00:00.000Z')).toEqual({
-      link,
-      created: false,
-    });
-    expect(await repos.trees.getLink(reversed.id)).toBeNull();
-    expect((await repos.trees.getTree(tree.id))?.updatedAt).toBe('2026-05-01T00:00:00.000Z');
-
-    const later = makeLink(t[0]!, t[1]!, { createdAt: '2026-01-04T00:00:00.000Z' });
-    await repos.trees.createLink(later, 'x');
-    expect(await repos.trees.listLinks(tree.id)).toEqual([link, later]);
-    expect(await repos.trees.listLinks('missing')).toEqual([]);
-    expect(await repos.trees.getLink('missing')).toBeNull();
-  });
-
   it('the table refuses a second row for a pair and a link to itself', async () => {
     const { t } = await seedMultiBranch();
     await repos.trees.createLink(makeLink(t[0]!, t[1]!), 'x');
@@ -717,44 +366,6 @@ describe('links', () => {
     const fresh = makeLink(t[2]!, t[3]!);
     await insert(fresh, [t[2]!.id, t[3]!.id].sort().join('|'));
     expect(await repos.trees.getLink(fresh.id)).toMatchObject({ origin: 'user', note: null });
-  });
-
-  it('createLink to a message that no longer exists is NotFoundError, and writes nothing', async () => {
-    const { tree, t } = await seedMultiBranch();
-    const ghost = makeNode(makeBranch(tree), 0, null);
-    await expect(
-      repos.trees.createLink(makeLink(t[0]!, ghost), '2031-01-01T00:00:00.000Z'),
-    ).rejects.toBeInstanceOf(NotFoundError);
-    expect(await repos.trees.listLinks(tree.id)).toEqual([]);
-    expect((await repos.trees.getTree(tree.id))?.updatedAt).not.toBe('2031-01-01T00:00:00.000Z');
-  });
-
-  it('updateLink patches the note; deleteLink removes it once', async () => {
-    const { t } = await seedMultiBranch();
-    const link = makeLink(t[0]!, t[2]!);
-    await repos.trees.createLink(link, 'x');
-    expect(await repos.trees.updateLink(link.id, { note: 'n', updatedAt: 'later' })).toEqual({
-      ...link,
-      note: 'n',
-      updatedAt: 'later',
-    });
-    expect(
-      await repos.trees.updateLink(link.id, { note: null, updatedAt: 'later2' }),
-    ).toMatchObject({ note: null });
-    expect(await repos.trees.updateLink('missing', { note: 'n', updatedAt: 'x' })).toBeNull();
-    expect(await repos.trees.deleteLink(link.id)).toBe(true);
-    expect(await repos.trees.deleteLink(link.id)).toBe(false);
-    expect(await repos.trees.getLink(link.id)).toBeNull();
-  });
-
-  it('deleteBranches drops the links touching the doomed nodes, at either end', async () => {
-    const { tree, b1, b2, t, a, c } = await seedMultiBranch();
-    const fromTrunk = makeLink(t[3]!, c[1]!);
-    const intoTrunk = makeLink(a[0]!, t[0]!);
-    const kept = makeLink(t[0]!, t[3]!);
-    for (const l of [fromTrunk, intoTrunk, kept]) await repos.trees.createLink(l, 'x');
-    await repos.trees.deleteBranches(tree.id, [b1.id, b2.id], 'y');
-    expect(await repos.trees.listLinks(tree.id)).toEqual([kept]);
   });
 
   it('deleteBranches over many branches stays under the parameter limit', async () => {
