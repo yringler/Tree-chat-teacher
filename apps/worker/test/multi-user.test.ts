@@ -21,6 +21,7 @@ import { deleteUser } from '../src/auth/delete-account.js';
 import { grantCredit } from '../src/billing/ledger.js';
 import { USAGE_HOLD_MICROS } from '../src/billing/service.js';
 import { rememberCustomer } from '../src/billing/payments/customers.js';
+import { createApp } from '../src/app.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
 import { makeNode } from './fixtures.js';
@@ -241,10 +242,98 @@ describe('account settings: the default system prompt', () => {
   });
 });
 
+/** A's ids that B's requests name. */
+interface ForeignIds {
+  treeId: string;
+  branchId: string;
+  nodeId: string;
+  shareId: string;
+  linkId: string;
+  candidateId: string;
+}
+
+/** How B pays in each try: power, then Learn on both payments. */
+type Mode = LearnPayment | undefined;
+const ALL_MODES: readonly Mode[] = [undefined, 'credit', 'own-key'];
+
+/**
+ * How another user tries each route of the app that takes an id in its path,
+ * keyed `METHOD path` as Hono registers it: the request (a valid body, so the
+ * 404 is the ownership check's, not validation's 400) and the modes B tries it
+ * in. A route with an id param is here or in `NOT_OWNED_DATA`, or the matrix
+ * below fails.
+ */
+const OWNED_ROUTES: Record<string, { init?: CallInit; modes?: readonly Mode[] }> = {
+  'GET /api/trees/:treeId': {},
+  'PATCH /api/trees/:treeId': { init: { method: 'PATCH', json: { title: 'Mine now' } } },
+  'GET /api/trees/:treeId/backup': {},
+  // Learn answers 400 before any lookup: only a power tree can be copied.
+  'POST /api/trees/:treeId/copy-to-learn': { init: { method: 'POST' }, modes: [undefined] },
+  'PATCH /api/branches/:branchId': { init: { method: 'PATCH', json: { title: 'Mine now' } } },
+  'GET /api/branches/:branchId/context': {},
+  'GET /api/branches/:branchId/input-budget': {},
+  'POST /api/branches/:branchId/messages': { init: { json: { content: 'hi' } } },
+  'GET /api/nodes/:nodeId/stream': {},
+  'POST /api/nodes/:nodeId/cancel': { init: { method: 'POST' } },
+  'POST /api/nodes/:nodeId/review': { init: { json: { providerId: 'fake', model: 'fake-1' } } },
+  'POST /api/branches/:branchId/candidates': {
+    init: { json: { content: 'hi', providerId: 'fake', model: 'fake-1' } },
+  },
+  'POST /api/branches/:branchId/candidates/:candidateId/commit': { init: { method: 'POST' } },
+  'PATCH /api/links/:linkId': { init: { method: 'PATCH', json: { note: 'Mine now' } } },
+  'PATCH /api/shares/:shareId': { init: { method: 'PATCH', json: { title: 'Mine now' } } },
+  'POST /api/shares/:shareId/republish': { init: { method: 'POST' } },
+  'POST /api/shares/:shareId/revoke': { init: { method: 'POST' } },
+  // The deletes last, though each is a 404 that deletes nothing.
+  'DELETE /api/links/:linkId': { init: { method: 'DELETE' } },
+  'DELETE /api/shares/:shareId': { init: { method: 'DELETE' } },
+  'DELETE /api/branches/:branchId': { init: { method: 'DELETE' } },
+  'DELETE /api/trees/:treeId': { init: { method: 'DELETE' } },
+};
+
+/** Routes with an id param that name no user's own data, and why. */
+const NOT_OWNED_DATA: Record<string, string> = {
+  'POST /api/webhooks/:provider': 'a payment provider name; deliveries are signature-checked',
+  'PATCH /api/admin/users/:userId': 'admins only (admin.test.ts)',
+  'GET /api/admin/users/:userId/shares': 'admins only (admin.test.ts)',
+  'POST /api/admin/shares/:shareId/revoke': 'admins only (admin.test.ts)',
+  'GET /s/:token': 'public share page, by its unguessable token (share.test.ts)',
+  'GET /s/:token/data.json': 'public share data, by its unguessable token (share.test.ts)',
+};
+
+/** The routes of the app that take an id in their path, as `METHOD path`. */
+function idRoutes(): string[] {
+  const keys = createApp()
+    .routes.filter((r) => r.method !== 'ALL' && /\/:/.test(r.path))
+    .map((r) => `${r.method} ${r.path}`);
+  return [...new Set(keys)];
+}
+
+/** `path` with its params filled in from `ids` (`:treeId` → ids.treeId). */
+function fill(path: string, ids: ForeignIds): string {
+  return path.replace(/:(\w+)/g, (_, name: string) => {
+    if (!(name in ids)) throw new Error(`No id for :${name} in ${path}`);
+    return ids[name as keyof ForeignIds];
+  });
+}
+
 describe('ownership across users', () => {
-  for (const [label, learn, review] of [
-    ['power', undefined, { providerId: 'fake', model: 'fake-1' }],
-    ['Learn', 'credit', { providerId: 'openrouter', model: 'max' }],
+  it('covers every route with an id param, or says why it needs none', () => {
+    const routes = idRoutes();
+    const listed = [...Object.keys(OWNED_ROUTES), ...Object.keys(NOT_OWNED_DATA)];
+    expect(
+      routes.filter((r) => !listed.includes(r)),
+      'routes missing from the matrix',
+    ).toEqual([]);
+    expect(
+      listed.filter((r) => !routes.includes(r)),
+      'listed routes that no longer exist',
+    ).toEqual([]);
+  });
+
+  for (const [label, learn] of [
+    ['power', undefined],
+    ['Learn', 'credit'],
   ] as const) {
     it(`every tree, branch, node and share route answers 404 for another user's data (${label})`, async () => {
       const a = await newUser();
@@ -268,33 +357,36 @@ describe('ownership across users', () => {
         201,
       );
 
-      const attempts: [string, CallInit][] = [
-        [`/api/trees/${treeId}`, {}],
-        [`/api/trees/${treeId}`, { method: 'PATCH', json: { title: 'Mine now' } }],
-        [`/api/trees/${treeId}/backup`, {}],
-        [`/api/export?treeId=${treeId}`, {}],
-        [`/api/branches/${trunk.id}`, { method: 'PATCH', json: { title: 'Mine now' } }],
-        [`/api/branches/${trunk.id}`, { method: 'DELETE' }],
-        [`/api/branches/${trunk.id}/context`, {}],
-        [`/api/branches/${trunk.id}/context?resolve=true`, {}],
-        [`/api/branches/${trunk.id}/input-budget`, {}],
-        [`/api/branches/${trunk.id}/messages`, { method: 'POST', json: { content: 'hi' } }],
-        [`/api/nodes/${assistant.id}/stream`, {}],
-        [`/api/nodes/${assistant.id}/cancel`, { method: 'POST' }],
-        [`/api/nodes/${assistant.id}/review`, { method: 'POST', json: review }],
-        ['/api/branches', { method: 'POST', json: { fromNodeId: user.id } }],
-        ['/api/shares', { method: 'POST', json: { treeId, scope: 'tree' } }],
-        [`/api/shares/${share.id}`, { method: 'PATCH', json: { title: 'Mine now' } }],
-        [`/api/shares/${share.id}/republish`, { method: 'POST' }],
-        [`/api/shares/${share.id}/revoke`, { method: 'POST' }],
-        ['/api/links', { method: 'POST', json: { fromNodeId: user.id, toNodeId: assistant.id } }],
-        [`/api/links/${link.id}`, { method: 'PATCH', json: { note: 'Mine now' } }],
-        [`/api/links/${link.id}`, { method: 'DELETE' }],
-        [`/api/trees/${treeId}`, { method: 'DELETE' }],
+      const ids: ForeignIds = {
+        treeId,
+        branchId: trunk.id,
+        nodeId: assistant.id,
+        shareId: share.id,
+        linkId: link.id,
+        candidateId: 'candidate-of-nobody',
+      };
+      const attempts: [string, CallInit, readonly Mode[]][] = [
+        ...Object.entries(OWNED_ROUTES).map(
+          ([key, { init = {}, modes = ALL_MODES }]): [string, CallInit, readonly Mode[]] => [
+            fill(key.slice(key.indexOf(' ') + 1), ids),
+            { method: key.slice(0, key.indexOf(' ')), ...init },
+            modes,
+          ],
+        ),
+        // The routes that take A's ids in the body or the query.
+        [`/api/branches/${trunk.id}/context?resolve=true`, {}, ALL_MODES],
+        [`/api/export?treeId=${treeId}`, {}, ALL_MODES],
+        ['/api/branches', { method: 'POST', json: { fromNodeId: user.id } }, ALL_MODES],
+        ['/api/shares', { method: 'POST', json: { treeId, scope: 'tree' } }, ALL_MODES],
+        [
+          '/api/links',
+          { method: 'POST', json: { fromNodeId: user.id, toNodeId: assistant.id } },
+          ALL_MODES,
+        ],
       ];
-      // B tries in both modes: neither of B's accounts owns A's data.
-      for (const bLearn of [undefined, 'credit', 'own-key'] as const) {
-        for (const [path, init] of attempts) {
+      // B tries in every mode: neither of B's accounts owns A's data.
+      for (const [path, init, modes] of attempts) {
+        for (const bLearn of modes) {
           const res = await b.call(path, { ...init, ...(bLearn ? { learn: bLearn } : {}) });
           expect(res.status, `${bLearn ?? 'power'} ${init.method ?? 'GET'} ${path}`).toBe(404);
           expect(await errorCode(res)).toBe('not_found');
