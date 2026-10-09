@@ -36,6 +36,10 @@ describe('KeyLockedNotice', () => {
     expect(t).toContain(`(click)="funding.switchTo('pool')"`);
     expect(t).toContain('@if (funding.keyLockedWays().credit) {');
     expect(t).toContain(`(click)="funding.switchTo('credit')"`);
+    // With no credit left while the pool is on, credit is bought first, never the pool unasked.
+    expect(t).toMatch(
+      /@if \(funding\.creditWouldWait\(\)\) \{[^}]*<a class="btn" routerLink="\/billing">Add Tangent credit<\/a>/,
+    );
     expect(t).toContain('routerLink="/billing"');
   });
 });

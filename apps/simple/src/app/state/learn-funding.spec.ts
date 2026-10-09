@@ -626,4 +626,116 @@ describe('LearnFunding paid-by pill', () => {
     expect(funding.payer()).toBe('credit');
     expect(choice.headers()).toEqual({ 'x-tangent-mode': 'simple', 'x-tangent-payment': 'credit' });
   });
+
+  it('forgets what the server said once a fact changes: a top-up, the pool, a new pick', async () => {
+    const { funding } = setup(async () => summary(membership({ status: 'active' }), 100));
+    signIn(funding, me(membership({ status: 'active' })));
+    await funding.refreshBalance();
+    funding.paidWith('pool');
+    expect(funding.paidBy().payer).toBe('pool');
+    // A top-up: credit can pay again, and the pill says so.
+    funding.applyBilling(summary(membership({ status: 'active' }), 5_000_000));
+    expect(funding.paidBy().payer).toBe('credit');
+    funding.paidWith('pool');
+    await funding.refreshPool();
+    expect(funding.paidBy().payer).toBe('credit');
+    funding.paidWith('pool');
+    funding.switchTo('credit');
+    expect(funding.paidBy().payer).toBe('credit');
+  });
+});
+
+describe('LearnFunding: credit picked but unable to pay', () => {
+  it('keeps the pick on credit while replies use the pool, and says so', async () => {
+    const { funding } = setup(async () => summary(membership(), 0));
+    signIn(funding, me(membership()));
+    await funding.refreshBalance();
+    await funding.refreshPool();
+    pick(funding, 'credit');
+    expect(funding.payer()).toBe('pool');
+    expect(funding.picked()).toBe('credit');
+    expect(funding.creditWaiting()).toBe(true);
+    // Credit that can pay: nothing is waiting.
+    funding.applyBilling(summary(membership(), 1_000_000));
+    expect(funding.payer()).toBe('credit');
+    expect(funding.creditWaiting()).toBe(false);
+  });
+
+  it('says when picking credit would reply on the pool, so the locked key asks for credit first', async () => {
+    const { funding } = setup(async () => summary(membership(), 0));
+    signIn(funding, me(membership()));
+    expect(funding.creditWouldWait()).toBe(false); // nothing known yet
+    await funding.refreshBalance();
+    await funding.refreshPool();
+    expect(funding.creditWouldWait()).toBe(true);
+    funding.applyBilling(summary(membership(), 1_000_000));
+    expect(funding.creditWouldWait()).toBe(false);
+  });
+
+  it('a pick that applies is the pick; none yet shows the payer', async () => {
+    const { funding } = setup(async () => summary(membership(), 0));
+    signIn(funding, me(membership()));
+    await funding.refreshPool();
+    expect(funding.picked()).toBe(funding.payer());
+    pick(funding, 'pool');
+    expect(funding.picked()).toBe('pool');
+  });
+});
+
+describe('LearnFunding membership refusals', () => {
+  it('a way off the own key lifts a refusal at once, without waiting for the billing summary', () => {
+    const { funding } = setup(() => new Promise<BillingSummary>(() => undefined));
+    pick(funding, 'own-key');
+    // No membership known yet: the refusal alone locks the key.
+    funding.membershipRequired();
+    expect(funding.membershipBlocked()).toBe(true);
+    funding.switchTo('pool');
+    pick(funding, 'own-key');
+    expect(funding.membershipBlocked()).toBe(false);
+  });
+
+  it('a fresh /api/me outranks an earlier refusal, as a renewed membership does', () => {
+    const { funding } = setup(() => new Promise<BillingSummary>(() => undefined));
+    pick(funding, 'own-key');
+    funding.membershipRequired();
+    expect(funding.membershipBlocked()).toBe(true);
+    signIn(funding, me(membership({ status: 'active' })));
+    expect(funding.membershipBlocked()).toBe(false);
+  });
+});
+
+describe('LearnFunding in the demo, and the remembered pick', () => {
+  it('the demo always runs on its pretend credit, whatever was picked', () => {
+    const injector = Injector.create({
+      providers: [
+        { provide: AccountStore },
+        { provide: PaymentChoice },
+        { provide: LearnFunding },
+        { provide: DEMO_MODE, useValue: true },
+        { provide: ApiClient, useValue: {} },
+      ],
+    });
+    injector.get(PaymentChoice).choose('own-key');
+    expect(injector.get(LearnFunding).payer()).toBe('credit');
+    expect(injector.get(PaymentChoice).headers()['x-tangent-payment']).toBe('credit');
+  });
+
+  it('remembers each pick in this browser, and ignores anything unknown', () => {
+    const storage = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => void storage.set(k, v),
+    });
+    try {
+      for (const payer of ['own-key', 'credit', 'pool'] as const) {
+        new PaymentChoice().choose(payer);
+        expect(storage.get('tangent.learn.payment')).toBe(payer);
+        expect(new PaymentChoice().chosen()).toBe(payer);
+      }
+      storage.set('tangent.learn.payment', 'free');
+      expect(new PaymentChoice().chosen()).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

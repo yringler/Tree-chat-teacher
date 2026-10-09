@@ -68,9 +68,19 @@ export class LearnFunding {
   /** The learner's caps and use of the pool today; null until loaded, or while the pool is off. */
   readonly poolMe = signal<PoolMeResponse | null>(null);
 
-  /** The server refused a reply for want of a membership (402 `membership_required`). */
-  private readonly gateForced = signal(false);
-  /** The payer the server said the latest reply used, and the one it was asked for. */
+  /**
+   * The server refused a reply for want of a membership (402
+   * `membership_required`); a fresh /api/me outranks it, as a membership
+   * active again does.
+   */
+  private readonly gateForced = linkedSignal(() => {
+    this.account.me();
+    return false;
+  });
+  /**
+   * The payer the server said the latest reply used, and the one it was
+   * asked for; forgotten once a fact it went by changes (`factsChanged`).
+   */
   private readonly reported = signal<{ asked: Payer; used: Payer } | null>(null);
   /** The open lesson's part in a switch (LessonStore): true when it sent a waiting message. */
   private switched: (payer: Payer) => boolean = () => false;
@@ -115,6 +125,39 @@ export class LearnFunding {
   constructor() {
     this.choice.resolveWith(() => this.payer());
   }
+
+  /**
+   * Credit was picked but can't pay (the balance read and used up) while the
+   * pool is on: replies use the pool until credit is added (`payer`), and
+   * the pickers still show credit, saying so.
+   */
+  readonly creditWaiting = computed(() => {
+    const billing = this.billing();
+    return (
+      this.choice.chosen() === 'credit' &&
+      this.payer() === 'pool' &&
+      billing !== null &&
+      !creditCanPay(this.creditOffered(), billing) &&
+      this.creditUsable()
+    );
+  });
+
+  /** The way to pay the pickers show: the learner's pick where it applies, else the payer. */
+  readonly picked = computed<Payer>(() => (this.creditWaiting() ? 'credit' : this.payer()));
+
+  /**
+   * Picking credit now would run replies on the pool (it can't pay, the pool
+   * is on): the locked-key notice sends the learner to add credit instead.
+   */
+  readonly creditWouldWait = computed(() => {
+    const billing = this.billing();
+    return (
+      this.poolOn() &&
+      billing !== null &&
+      !creditCanPay(this.creditOffered(), billing) &&
+      this.creditUsable()
+    );
+  });
 
   /**
    * Replies can't run on the own key: they run on it (which needs a
@@ -262,6 +305,7 @@ export class LearnFunding {
    */
   switchTo(payer: Payer): boolean {
     this.choice.choose(payer);
+    this.factsChanged();
     if (payer !== 'own-key') this.gateForced.set(false);
     if (payer === 'credit') void this.refreshBalance();
     if (payer === 'pool') void this.refreshPool();
@@ -281,6 +325,7 @@ export class LearnFunding {
   /** A fresh billing summary (also from the billing page): balance and membership. */
   applyBilling(summary: BillingSummary): void {
     this.billing.set(summary);
+    this.factsChanged();
     this.useMembership(summary.membership);
   }
 
@@ -303,8 +348,14 @@ export class LearnFunding {
     void this.refreshBalance();
   }
 
+  /** What the server said the latest reply ran on may no longer hold. */
+  private factsChanged(): void {
+    this.reported.set(null);
+  }
+
   private useMembership(membership: MembershipInfo): void {
     this.membership.set(membership);
+    this.factsChanged();
     // A membership active again (renewed, a waiver redeemed) outranks an earlier refusal.
     if (!membershipBlocks(membership)) this.gateForced.set(false);
   }
@@ -327,6 +378,7 @@ export class LearnFunding {
     try {
       const status = await this.api.poolStatus();
       this.poolStatus.set(status);
+      this.factsChanged();
       this.poolMe.set(status.enabled ? await this.api.poolMe() : null);
     } catch (err) {
       console.warn('Could not load the open pool', err);
@@ -336,6 +388,7 @@ export class LearnFunding {
   async refreshKey(): Promise<void> {
     try {
       this.keyStatus.set(await this.api.keyStatus());
+      this.factsChanged();
     } catch (err) {
       console.warn('Could not load the key status', err);
     }

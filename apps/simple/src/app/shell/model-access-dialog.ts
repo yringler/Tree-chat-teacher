@@ -147,8 +147,13 @@ import { LearnFunding } from '../state/learn-funding';
           <a href="/pool" target="_blank" rel="noopener">How the pool works</a>
         </p>
       } @else if (payment() === 'credit') {
+        @if (funding.creditWaiting()) {
+          <p class="notice" role="status">
+            Your credit is used up, so replies use the open pool until you add credit.
+          </p>
+        }
         <p class="small">
-          @if (funding.balanceLabel(); as balance) {
+          @if (funding.balanceText(); as balance) {
             <span>{{ balance }} available · </span>
           }
           <a routerLink="/billing" (click)="close()">Add credit</a>
@@ -223,7 +228,8 @@ export class ModelAccessDialog {
   protected readonly waiting = computed(() => this.lessons.unsentDraft()?.needsKey ?? false);
   private readonly keyInput = viewChild<ElementRef<HTMLInputElement>>('keyInput');
 
-  protected readonly payment = this.funding.payer;
+  /** The way to pay the radios show: the learner's pick (credit that can't pay stays picked). */
+  protected readonly payment = this.funding.picked;
   /** The membership is required here (the fee is on). */
   protected readonly membershipRequired = computed(
     () => this.funding.membership()?.required ?? false,

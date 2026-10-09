@@ -419,11 +419,13 @@ export class LessonStore extends ConversationStore<ApiClient> {
   /**
    * The learner switched who pays (`LearnFunding.switchTo`): the pool's
    * notice goes, and on a payer that needs no key, a message refused for
-   * want of the own key is sent. True when it was.
+   * want of the own key is sent, on what they picked only (credit that
+   * can't pay while the pool is on would send it on the pool). True when
+   * it was.
    */
   private paymentSwitched(payer: Payer): boolean {
     this.dismissPoolBlock();
-    return payer !== 'own-key' && this.resumeUnsent();
+    return payer !== 'own-key' && this.funding.payer() === payer && this.resumeUnsent();
   }
 
   dismissPoolBlock(): void {

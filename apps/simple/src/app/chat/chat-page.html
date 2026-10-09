@@ -160,6 +160,13 @@
       @if (maxNote(); as note) {
         <p class="tier-note" role="status">{{ note }}</p>
       }
+      @if (funding.creditWaiting()) {
+        <!-- Credit was picked but is used up: replies run on the pool meanwhile, without its extras. -->
+        <p class="tier-note" role="status">
+          Your credit is used up, so replies use the open pool, which can't compare answers or check
+          sources. <a routerLink="/billing">Add credit</a>
+        </p>
+      }
       @if (funding.fundingChoice()) {
         <app-segmented
           class="funding-toggle"

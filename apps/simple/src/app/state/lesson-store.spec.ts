@@ -334,6 +334,26 @@ describe('LessonStore', () => {
     expect(s.store.treesLoaded()).toBe(true);
   });
 
+  it('hands the payer the server used, from the start event, to the "Paid by" pill', async () => {
+    const s = setup();
+    await open(s, detail());
+    const funding = s.injector.get(LearnFunding);
+    expect(funding.paidBy().payer).not.toBe('pool');
+    s.api.sendMessage.mockResolvedValue(
+      controlledStream([
+        {
+          type: 'start',
+          userNode,
+          assistantNode: replyNode,
+          branch: branch('trunk'),
+          funding: 'pool',
+        },
+      ]).response,
+    );
+    void s.store.send('trunk', 'What is light?');
+    await vi.waitFor(() => expect(funding.paidBy().payer).toBe('pool'));
+  });
+
   it('applies start, status, delta and done events to the open lesson', async () => {
     const s = setup();
     await open(s, detail());
@@ -476,6 +496,18 @@ describe('LessonStore', () => {
     // The own key needs a key first: nothing is sent yet.
     expect(funding.switchTo('own-key')).toBe(false);
     expect(s.store.poolBlock()).toBeNull();
+    expect(s.api.sendMessage).toHaveBeenCalledTimes(1);
+
+    // Credit picked with nothing left and the pool on: replies would use the
+    // pool, which the learner didn't pick, so the message waits for credit.
+    s.injector.get(AccountStore).me.set({
+      userId: 'u1',
+      builtInCredit: true,
+      membership: { ...BILLING.membership, required: false },
+    } as MeResponse);
+    await funding.refreshBalance();
+    await funding.refreshPool();
+    expect(funding.switchTo('credit')).toBe(false);
     expect(s.api.sendMessage).toHaveBeenCalledTimes(1);
 
     expect(funding.switchTo('pool')).toBe(true);

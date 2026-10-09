@@ -70,9 +70,14 @@ export function keyLockedText(
             </button>
           }
           @if (funding.keyLockedWays().credit) {
-            <button type="button" class="btn" (click)="funding.switchTo('credit')">
-              Continue on Tangent credit
-            </button>
+            @if (funding.creditWouldWait()) {
+              <!-- No credit left while the pool is on: picking credit would reply on the pool. -->
+              <a class="btn" routerLink="/billing">Add Tangent credit</a>
+            } @else {
+              <button type="button" class="btn" (click)="funding.switchTo('credit')">
+                Continue on Tangent credit
+              </button>
+            }
           }
           <a class="btn btn-ghost" routerLink="/billing">See billing</a>
         </div>
