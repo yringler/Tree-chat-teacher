@@ -1,10 +1,3 @@
-import { defineConfig } from 'vitest/config';
-import { coverage } from '../../vitest.coverage.js';
+import { angularVitestConfig } from '../../packages/web-shared/src/testing/vitest-config.js';
 
-export default defineConfig({
-  test: {
-    environment: 'node',
-    include: ['src/**/*.spec.ts'],
-    coverage: coverage(),
-  },
-});
+export default angularVitestConfig();
