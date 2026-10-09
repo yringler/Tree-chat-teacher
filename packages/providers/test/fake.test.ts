@@ -123,6 +123,7 @@ describe('fake provider', () => {
       supportsTokenCount: true,
       supportsWebSearch: false,
       reasoning: false,
+      titles: false,
     });
     const p2 = createFakeProvider(
       {
@@ -141,6 +142,7 @@ describe('fake provider', () => {
       supportsTokenCount: true,
       supportsWebSearch: false,
       reasoning: false,
+      titles: false,
     });
   });
 

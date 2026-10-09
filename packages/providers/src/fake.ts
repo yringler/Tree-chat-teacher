@@ -216,7 +216,11 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
     label: config.label,
     models: () => models.map((m) => ({ ...m })),
     defaultModel: () => defaultModel,
-    capabilities: (model: string) => resolveCapabilities(effectiveConfig, model, DEFAULTS, true),
+    // Its text echoes the prompt, so it can't name a conversation.
+    capabilities: (model: string) => ({
+      ...resolveCapabilities(effectiveConfig, model, DEFAULTS, true),
+      titles: false,
+    }),
     stream,
     countTokens: async (request) => {
       if (request.signal?.aborted) throw abortError();

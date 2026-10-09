@@ -351,6 +351,19 @@ describe('ChatService sending', () => {
     expect(again.last.type).toBe('done');
   });
 
+  it("keeps the default titles on a provider that can't title (capability `titles: false`)", async () => {
+    const { chat, repos, provider } = setup();
+    const capabilities = provider.capabilities.bind(provider);
+    provider.capabilities = () => ({ ...capabilities(), titles: false });
+    const { tree } = await chat.createTree({});
+    const root = await send(chat, tree.trunkBranchId, 'q');
+    expect((await repos.trees.getTree(tree.id))?.title).toBe(DEFAULT_TREE_TITLE);
+    const b = await chat.createBranch({ fromNodeId: root.begin.assistantNode.id });
+    const { last } = await send(chat, b.id, 'side');
+    expect(last).toMatchObject({ type: 'done', branch: { titleSource: 'default' } });
+    expect(provider.calls.filter((c) => provider.kindOf(c) === 'title')).toEqual([]);
+  });
+
   it('recovers interrupted streaming nodes', async () => {
     const { chat, repos } = setup();
     const { tree } = await chat.createTree({});

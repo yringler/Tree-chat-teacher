@@ -864,7 +864,13 @@ describe('TreeStore the default route of a new conversation (no keys)', () => {
   });
 
   it('never a test provider over a usable route', async () => {
-    const fake: ProviderInfo = { ...defaults[0]!, id: 'fake', kind: 'fake', available: true };
+    const fake: ProviderInfo = {
+      ...defaults[0]!,
+      id: 'fake',
+      kind: 'fake',
+      available: true,
+      scripted: true,
+    };
     const s = setup();
     s.api.providers.mockResolvedValue([fake, ...defaults, credit]);
     await s.store.init(me());

@@ -26,6 +26,12 @@ export interface ProviderCapabilities {
    * Absent = false.
    */
   reasoning?: boolean;
+  /**
+   * False when the model's text can't name a conversation (the scripted test
+   * provider, which echoes the prompt): branches keep their default titles.
+   * Absent = true.
+   */
+  titles?: boolean;
 }
 
 /**
@@ -299,6 +305,12 @@ export interface ProviderInfo {
   keySource: 'user' | 'server' | null;
   /** True when replies can be grounded with web search ("Check sources"); absent = false. */
   webSearch?: boolean;
+  /**
+   * True for a test provider whose replies are scripted (kind `fake`): it
+   * needs no key and takes none, and a new tree's default route never
+   * prefers it over a real provider. Absent = false.
+   */
+  scripted?: boolean;
   /**
    * Who pays for calls through this entry. Power lists the built-in endpoint
    * (`openrouter`) a second time with `credit` (Tangent credit, on the

@@ -42,8 +42,8 @@ export class Titler {
     if (!titleBranch && !titleTree) return null;
     try {
       const { provider, model } = this.ctx.routes.summaryTarget(branch);
-      // The test provider (kind `fake`) would just echo the prompt; keep the readable default title.
-      if (provider.kind === 'fake') return null;
+      // A provider that can't title (the scripted test one): keep the readable default title.
+      if (provider.capabilities(model).titles === false) return null;
       const messages: ChatMessage[] = [];
       if (branch.anchorQuote)
         messages.push({ role: 'user', content: `Focus: ${branch.anchorQuote}` });
