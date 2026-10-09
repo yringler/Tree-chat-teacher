@@ -33,65 +33,8 @@ import {
 } from '@tangent/web-shared';
 import { lessonTitle } from '../chat/titles';
 import { AccountStore } from './account-store';
+import { storedDraft, storeDraft, type UnsentDraft } from './unsent-draft';
 import { UiStore } from './ui-store';
-
-/**
- * A message that didn't reach the lesson (refused, e.g. out of credit or for
- * want of the own key, or a failed request), offered back to the composer
- * of its branch. Kept for the tab and its user (`UNSENT_STORAGE_KEY`):
- * a top-up (checkout) and the human check leave the page and come back to it.
- */
-export interface UnsentDraft {
-  treeId: string;
-  branchId: string;
-  text: string;
-  /** Sent as a "Check sources" request: resent as one, never offered as typed text. */
-  ground?: 'required';
-  /**
-   * Refused for want of the learner's own key (401 `key_required`): once
-   * "How replies are paid for" is settled (a key saved, credit or the pool
-   * picked), it is sent (`resumeUnsent`).
-   */
-  needsKey?: boolean;
-}
-
-/** Where the unsent message waits in sessionStorage (this tab only, like the page it left). */
-const UNSENT_STORAGE_KEY = 'tangent.learn.unsent';
-
-/** The message `userId` left unsent in this tab; one left by anyone else is dropped. */
-function storedDraft(userId: string): UnsentDraft | null {
-  try {
-    const raw = sessionStorage.getItem(UNSENT_STORAGE_KEY);
-    const d: unknown = raw ? JSON.parse(raw) : null;
-    if (typeof d !== 'object' || d === null) return null;
-    const { owner, treeId, branchId, text, ground, needsKey } = d as Record<string, unknown>;
-    if (owner !== userId) {
-      storeDraft(null, null);
-      return null;
-    }
-    if (typeof treeId !== 'string' || typeof branchId !== 'string' || typeof text !== 'string')
-      return null;
-    return {
-      treeId,
-      branchId,
-      text,
-      ...(ground === 'required' ? { ground } : {}),
-      ...(needsKey === true ? { needsKey } : {}),
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** Keeps `d` for the tab as `owner`'s (no one signed in: for this page only). */
-function storeDraft(d: UnsentDraft | null, owner: string | null): void {
-  try {
-    if (d && owner) sessionStorage.setItem(UNSENT_STORAGE_KEY, JSON.stringify({ ...d, owner }));
-    else sessionStorage.removeItem(UNSENT_STORAGE_KEY);
-  } catch {
-    // Storage unavailable: the message waits for this page only.
-  }
-}
 
 /**
  * A message the open pool refused (402 `pool_empty`, 429
@@ -138,17 +81,16 @@ const COMPARE_GONE_STATUSES: ReadonlySet<number> = new Set([404, 409, 410]);
 export type CompareCommitOutcome = 'kept' | 'out-of-date' | 'refused' | 'failed';
 
 /**
- * Learner state: lessons (trees), the open lesson, the selected branch, and
- * live replies. Streaming, reconnect and cancel follow the power app's
- * TreeStore: `runStream` reconnects through `GET /api/nodes/:id/stream`, Stop
- * asks the server to cancel (the stream then ends with an `error` event),
- * and replies still running when a lesson is opened are re-attached.
+ * Learner state: the shared conversation engine (`ConversationStore`), with
+ * what Learn adds: its one provider and the Normal/Max models, the lesson
+ * library (export, import), connections' "Back to …", Compare, and who pays.
  * A 402 `payment_required` (out of credit) sends the learner to the billing
  * page; a 402 `membership_required` locks the own key (`KeyLockedNotice`). The open
  * pool's refusals are states, not errors: empty (402 `pool_empty`) and cap
  * reached (429 `pool_cap_reached`) show inline in the chat (`poolBlock`),
  * and a first pool message without a human check on record opens the check.
- * All of them arrive before the message is written, so it is kept.
+ * All of them arrive before the message is written, so it is kept
+ * (`unsentDraft`, for the tab and its user).
  */
 @Injectable({ providedIn: 'root' })
 export class LessonStore extends ConversationStore<ApiClient> {
