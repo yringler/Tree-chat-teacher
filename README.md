@@ -322,7 +322,7 @@ Payments go through [Polar](https://polar.sh), the **merchant of record**: Polar
    npx wrangler secret put POLAR_WEBHOOK_SECRET   # whsec_… of the endpoint above
    ```
    `PAYMENT_PROVIDER` defaults to `polar`, and `wrangler.jsonc` sets `POLAR_SERVER` to `"production"` (unset, it is Polar's sandbox).
-4. **Membership.** In `wrangler.jsonc`, set `POLAR_MEMBERSHIP_PRODUCT_ID` to the yearly product above and `ANNUAL_FEE_ENABLED` to `"true"` (either unset = no membership: everyone may use their own keys in both apps). Credit and the pool's caps are the same either way. With the flag off, a membership renewal paid anyway (an existing subscriber's) still grants its included credit, if any. `MEMBERSHIP_PRICE_CENTS` (default `1000`) is only what the apps display; Polar charges its product's price. `MEMBERSHIP_CREDIT_CENTS` (default and deployed `0` = none) is the credit each paid membership year includes, granted only while the built-in provider is offered. Optionally, a waiver code for friends (see [Waiving the membership](#waiving-the-membership)):
+4. **Membership.** In `wrangler.jsonc`, set `POLAR_MEMBERSHIP_PRODUCT_ID` to the yearly product above and `ANNUAL_FEE_ENABLED` to `"true"` (either unset = no membership: everyone may use their own keys in both apps). Credit and the pool's caps are the same either way. `MEMBERSHIP_PRICE_CENTS` (default `1000`) is only what the apps display; Polar charges its product's price. The membership includes no credit. Optionally, a waiver code for friends (see [Waiving the membership](#waiving-the-membership)):
    ```bash
    npx wrangler secret put MEMBERSHIP_WAIVER_CODE
    ```
