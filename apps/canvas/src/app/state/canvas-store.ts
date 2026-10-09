@@ -6,10 +6,8 @@ import {
   branchLeaf,
   branchPath,
   descendantBranches,
-  indexTree,
   navigate,
   type NavDirection,
-  type TreeIndex,
 } from '@tangent/core/tree';
 import {
   isModelAllowed,
@@ -32,7 +30,6 @@ import type {
   MembershipInfo,
   NodeLink,
   ProviderInfo,
-  StreamEvent,
   TreeDetail,
   TreeSummary,
   UpdateBranchRequest,
@@ -42,6 +39,7 @@ import {
   ApiClient,
   ApiError,
   coalesced,
+  ConversationStore,
   creditBuyable,
   creditCanPay,
   creditCarriesOn,
@@ -60,17 +58,6 @@ import {
 } from '@tangent/web-shared';
 import { laneTitle } from '../canvas/titles';
 import { UiStore } from './ui-store';
-
-/** Live state of a reply, kept apart from `detail` so deltas don't re-index the tree. */
-export interface LiveReply {
-  nodeId: string;
-  treeId: string;
-  branchId: string;
-  content: string;
-  /** Latest `status` event (e.g. "Summarizing parent context…"). */
-  status: string | null;
-  reconnecting: boolean;
-}
 
 /** One branch to create in a fan-out: the same message asked N ways. */
 export interface BranchVariant {
@@ -108,16 +95,6 @@ export interface Lineage {
   dropped: ReadonlySet<string>;
 }
 
-function upsertById<T extends { id: string }>(list: readonly T[], items: readonly T[]): T[] {
-  const out = [...list];
-  for (const item of items) {
-    const i = out.findIndex((x) => x.id === item.id);
-    if (i === -1) out.push(item);
-    else out[i] = item;
-  }
-  return out;
-}
-
 /**
  * Short label of a model id: its listed label on the route's provider (or, for
  * a reply, which records no funding, any entry of that provider), else the
@@ -145,10 +122,13 @@ export function modelLabel(
  * into a branch whose leaf is still streaming), and `live` holds them all.
  */
 @Injectable({ providedIn: 'root' })
-export class CanvasStore {
-  private readonly api = inject(ApiClient);
+export class CanvasStore extends ConversationStore<ApiClient> {
   private readonly router = inject(Router);
   private readonly ui = inject(UiStore);
+
+  constructor() {
+    super(inject(ApiClient));
+  }
 
   // Global data
   readonly me = signal<MeResponse | null>(null);
@@ -175,19 +155,14 @@ export class CanvasStore {
 
   // The open tree
   readonly selectedTreeId = signal<string | null>(null);
-  readonly detail = signal<TreeDetail | null>(null);
   readonly detailLoading = signal(false);
   readonly detailError = signal<string | null>(null);
   private readonly routeBranchId = signal<string | null>(null);
   readonly focusedNodeId = signal<string | null>(null);
-
-  // Replies
-  readonly live = signal<ReadonlyMap<string, LiveReply>>(new Map());
   /** Branches whose POST is in flight (before `start` arrives). */
   readonly sending = signal<ReadonlySet<string>>(new Set());
   /** Bumped whenever a generation finishes; the lineage refreshes on it. */
   readonly completions = signal(0);
-  private readonly controllers = new Map<string, AbortController>();
   private detailSeq = 0;
   private treesSeq = 0;
 
@@ -199,17 +174,6 @@ export class CanvasStore {
   private readonly lineageInFlight = new Set<string>();
   /** `branch|leaf` keys whose request failed: not retried until the tree or the lane changes. */
   private readonly lineageFailed = new Set<string>();
-
-  readonly index = computed<TreeIndex | null>(() => {
-    const d = this.detail();
-    if (!d) return null;
-    try {
-      return indexTree(d.branches, d.nodes);
-    } catch (err) {
-      console.error('indexTree failed', err);
-      return null;
-    }
-  });
 
   /** The tree's links between messages, oldest first. */
   readonly links = computed<readonly NodeLink[]>(() => this.detail()?.links ?? []);
@@ -1101,78 +1065,7 @@ export class CanvasStore {
     });
   }
 
-  /** After loading a tree: re-attach to replies still generating server-side. */
-  private resumeStreaming(nodes: readonly ChatNode[]): void {
-    for (const n of nodes) {
-      if (n.status !== 'streaming' || n.role !== 'assistant' || this.controllers.has(n.id))
-        continue;
-      const ctrl = new AbortController();
-      this.controllers.set(n.id, ctrl);
-      this.setLive({
-        nodeId: n.id,
-        treeId: n.treeId,
-        branchId: n.branchId,
-        content: n.content,
-        status: null,
-        reconnecting: false,
-      });
-      void runStream(
-        { open: null, reconnect: (id, signal) => this.api.streamNode(id, signal) },
-        (event) => this.apply(event, n.id),
-        { nodeId: n.id, signal: ctrl.signal, baseDelayMs: 1000 },
-      )
-        .then((outcome) => this.finish(n.id, outcome))
-        .finally(() => this.controllers.delete(n.id));
-    }
-  }
-
-  private apply(event: StreamEvent, streamNodeId: string | null): void {
-    switch (event.type) {
-      case 'start':
-        this.applyNodes([event.userNode, event.assistantNode]);
-        this.applyBranch(event.branch);
-        this.setLive({
-          nodeId: event.assistantNode.id,
-          treeId: event.assistantNode.treeId,
-          branchId: event.assistantNode.branchId,
-          content: event.assistantNode.content,
-          status: null,
-          reconnecting: false,
-        });
-        break;
-      case 'snapshot':
-        this.patchLive(event.node.id, { content: event.node.content, reconnecting: false });
-        if (event.node.status !== 'streaming') this.applyNodes([event.node]);
-        break;
-      case 'status':
-        if (streamNodeId) this.patchLive(streamNodeId, { status: event.message });
-        break;
-      case 'delta': {
-        const s = this.live().get(event.nodeId);
-        if (s)
-          this.patchLive(event.nodeId, {
-            content: s.content + event.text,
-            status: null,
-            reconnecting: false,
-          });
-        break;
-      }
-      case 'usage':
-        break;
-      case 'done':
-        this.applyNodes([event.node]);
-        this.applyBranch(event.branch);
-        this.dropLive(event.node.id);
-        break;
-      case 'error':
-        if (event.node) this.applyNodes([event.node]);
-        else if (event.nodeId) this.markError(event.nodeId, event.message);
-        if (event.nodeId) this.dropLive(event.nodeId);
-        break;
-    }
-  }
-
-  private finish(nodeId: string | null, outcome: StreamOutcome): void {
+  protected finish(nodeId: string | null, outcome: StreamOutcome): void {
     if (outcome.kind === 'lost') {
       this.ui.notify(
         `Lost the connection to the reply: ${outcome.message}. Reload to check on it.`,
@@ -1209,59 +1102,10 @@ export class CanvasStore {
     }
   });
 
-  private markError(nodeId: string, message: string): void {
-    const node = this.index()?.nodes.get(nodeId);
-    if (node)
-      this.applyNodes([
-        {
-          ...node,
-          status: 'error',
-          error: message,
-          content: this.live().get(nodeId)?.content ?? node.content,
-        },
-      ]);
-  }
-
-  private applyNodes(nodes: ChatNode[]): void {
-    this.detail.update((d) => {
-      if (!d) return d;
-      const mine = nodes.filter((n) => n.treeId === d.tree.id);
-      return mine.length ? { ...d, nodes: upsertById(d.nodes, mine) } : d;
-    });
-  }
-
-  private applyBranch(branch: Branch): void {
-    this.detail.update((d) =>
-      d && d.tree.id === branch.treeId ? { ...d, branches: upsertById(d.branches, [branch]) } : d,
-    );
-  }
-
-  private applyLinks(links: NodeLink[]): void {
-    this.detail.update((d) => {
-      if (!d) return d;
-      const mine = links.filter((l) => l.treeId === d.tree.id);
-      return mine.length ? { ...d, links: upsertById(d.links, mine) } : d;
-    });
-  }
-
-  /** Stops following the replies of a deleted tree (the server has no tree to stream them from). */
-  private stopTreeStreams(treeId: string): void {
-    for (const l of this.live().values()) {
-      if (l.treeId !== treeId) continue;
-      this.controllers.get(l.nodeId)?.abort();
-      this.controllers.delete(l.nodeId);
-      this.dropLive(l.nodeId);
-    }
-  }
-
   private removeBranches(res: DeleteBranchResponse): void {
     const branchIds = new Set(res.branchIds);
     const nodeIds = new Set(res.nodeIds);
-    for (const id of nodeIds) {
-      this.controllers.get(id)?.abort();
-      this.controllers.delete(id);
-      this.dropLive(id);
-    }
+    for (const id of nodeIds) this.stopFollowing(id);
     for (const id of branchIds) this.dropLineage(id);
     if (this.blockedSends().some((s) => branchIds.has(s.branchId))) {
       this.blockedSends.update((list) => list.filter((s) => !branchIds.has(s.branchId)));
@@ -1305,24 +1149,6 @@ export class CanvasStore {
     if (back && (branchIds.has(back.branchId) || branchIds.has(back.toBranchId))) {
       this.ui.linkReturn.set(null);
     }
-  }
-
-  private setLive(s: LiveReply): void {
-    this.live.update((m) => new Map(m).set(s.nodeId, s));
-  }
-
-  private patchLive(nodeId: string, patch: Partial<LiveReply>): void {
-    const cur = this.live().get(nodeId);
-    if (cur) this.setLive({ ...cur, ...patch });
-  }
-
-  private dropLive(nodeId: string): void {
-    if (!this.live().has(nodeId)) return;
-    this.live.update((m) => {
-      const next = new Map(m);
-      next.delete(nodeId);
-      return next;
-    });
   }
 }
 

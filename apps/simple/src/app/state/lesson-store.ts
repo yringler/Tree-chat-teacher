@@ -2,7 +2,7 @@ import { computed, inject, Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
 // The tree helpers only: the rest of @tangent/core (the ChatService) is for the lazy demo chunk.
 import { indexLinks, linkTarget } from '@tangent/core/links';
-import { branchChain, branchPath, indexTree, type TreeIndex } from '@tangent/core/tree';
+import { branchChain, branchPath } from '@tangent/core/tree';
 import {
   checkSourcesMessage,
   BUILT_IN_PROVIDER_ID,
@@ -15,7 +15,6 @@ import {
   type ModelInfo,
   type NodeLink,
   type ProviderInfo,
-  type StreamEvent,
   type TreeBackupInput,
   type TreeDetail,
   type TreeSummary,
@@ -24,6 +23,7 @@ import {
   ApiClient,
   ApiError,
   coalesced,
+  ConversationStore,
   backupFile,
   CompareRun,
   errorMessage,
@@ -42,17 +42,6 @@ import {
 import { lessonTitle } from '../chat/titles';
 import { AccountStore } from './account-store';
 import { UiStore } from './ui-store';
-
-/** Live state of a reply, kept apart from `detail` so deltas don't re-index the tree. */
-export interface LiveReply {
-  nodeId: string;
-  treeId: string;
-  branchId: string;
-  content: string;
-  /** Latest `status` event (e.g. "Summarizing…"). */
-  status: string | null;
-  reconnecting: boolean;
-}
 
 /**
  * A message that didn't reach the lesson (refused, e.g. out of credit or for
@@ -156,16 +145,6 @@ const COMPARE_GONE_STATUSES: ReadonlySet<number> = new Set([404, 409, 410]);
  */
 export type CompareCommitOutcome = 'kept' | 'out-of-date' | 'refused' | 'failed';
 
-function upsertById<T extends { id: string }>(list: readonly T[], items: readonly T[]): T[] {
-  const out = [...list];
-  for (const item of items) {
-    const i = out.findIndex((x) => x.id === item.id);
-    if (i === -1) out.push(item);
-    else out[i] = item;
-  }
-  return out;
-}
-
 /**
  * Learner state: lessons (trees), the open lesson, the selected branch, and
  * live replies. Streaming, reconnect and cancel follow the power app's
@@ -180,12 +159,15 @@ function upsertById<T extends { id: string }>(list: readonly T[], items: readonl
  * All of them arrive before the message is written, so it is kept.
  */
 @Injectable({ providedIn: 'root' })
-export class LessonStore {
-  private readonly api = inject(ApiClient);
+export class LessonStore extends ConversationStore<ApiClient> {
   private readonly router = inject(Router);
   private readonly ui = inject(UiStore);
   private readonly account = inject(AccountStore);
   private readonly saveFile = inject(SAVE_FILE);
+
+  constructor() {
+    super(inject(ApiClient));
+  }
 
   // Providers (Learn accounts: one provider with a Normal and a Max model, `ModelInfo.tier`)
   readonly providers = signal<ProviderInfo[]>([]);
@@ -204,7 +186,6 @@ export class LessonStore {
 
   // The open lesson
   readonly selectedTreeId = signal<string | null>(null);
-  readonly detail = signal<TreeDetail | null>(null);
   readonly detailLoading = signal(false);
   readonly detailError = signal<string | null>(null);
   private readonly routeBranchId = signal<string | null>(null);
@@ -212,9 +193,6 @@ export class LessonStore {
   readonly focusedNodeId = signal<string | null>(null);
   /** Where the latest followed connection came from ("Back to …"); cleared on the way back. */
   readonly linkReturn = signal<LinkReturn | null>(null);
-
-  // Replies
-  readonly live = signal<ReadonlyMap<string, LiveReply>>(new Map());
   /** Branches whose POST is in flight (before `start` arrives). */
   readonly sending = signal<ReadonlySet<string>>(new Set());
   readonly unsentDraft = signal<UnsentDraft | null>(null);
@@ -226,20 +204,8 @@ export class LessonStore {
   readonly poolBlock = signal<LessonPoolBlock | null>(null);
   /** The Compare sheet is open (its answers stream): the composer waits. */
   readonly comparing = signal(false);
-  private readonly controllers = new Map<string, AbortController>();
   private detailSeq = 0;
   private treesSeq = 0;
-
-  readonly index = computed<TreeIndex | null>(() => {
-    const d = this.detail();
-    if (!d) return null;
-    try {
-      return indexTree(d.branches, d.nodes);
-    } catch (err) {
-      console.error('indexTree failed', err);
-      return null;
-    }
-  });
 
   /** The open lesson's connections between messages (NodeLink). */
   readonly links = computed<readonly NodeLink[]>(() => this.detail()?.links ?? []);
@@ -709,7 +675,7 @@ export class LessonStore {
   ): Promise<NodeLink | null> {
     try {
       const { link, created } = await this.api.createLink({ fromNodeId, toNodeId, note });
-      this.applyLink(link);
+      this.applyLinks([link]);
       this.ui.notify(created ? 'Connected' : 'Already connected');
       return link;
     } catch (err) {
@@ -721,7 +687,7 @@ export class LessonStore {
   /** Changes a connection's note (null clears it). */
   async updateLink(linkId: string, note: string | null): Promise<boolean> {
     try {
-      this.applyLink(await this.api.updateLink(linkId, { note }));
+      this.applyLinks([await this.api.updateLink(linkId, { note })]);
       this.ui.notify('Note saved');
       return true;
     } catch (err) {
@@ -971,78 +937,7 @@ export class LessonStore {
     this.ui.notify(errorMessage(err), 'error');
   }
 
-  /** After loading a lesson: re-attach to replies still generating server-side. */
-  private resumeStreaming(nodes: readonly ChatNode[]): void {
-    for (const n of nodes) {
-      if (n.status !== 'streaming' || n.role !== 'assistant' || this.controllers.has(n.id))
-        continue;
-      const ctrl = new AbortController();
-      this.controllers.set(n.id, ctrl);
-      this.setLive({
-        nodeId: n.id,
-        treeId: n.treeId,
-        branchId: n.branchId,
-        content: n.content,
-        status: null,
-        reconnecting: false,
-      });
-      void runStream(
-        { open: null, reconnect: (id, signal) => this.api.streamNode(id, signal) },
-        (event) => this.apply(event, n.id),
-        { nodeId: n.id, signal: ctrl.signal, baseDelayMs: 1000 },
-      )
-        .then((outcome) => this.finish(n.id, outcome))
-        .finally(() => this.controllers.delete(n.id));
-    }
-  }
-
-  private apply(event: StreamEvent, streamNodeId: string | null): void {
-    switch (event.type) {
-      case 'start':
-        this.applyNodes([event.userNode, event.assistantNode]);
-        this.applyBranch(event.branch);
-        this.setLive({
-          nodeId: event.assistantNode.id,
-          treeId: event.assistantNode.treeId,
-          branchId: event.assistantNode.branchId,
-          content: event.assistantNode.content,
-          status: null,
-          reconnecting: false,
-        });
-        break;
-      case 'snapshot':
-        this.patchLive(event.node.id, { content: event.node.content, reconnecting: false });
-        if (event.node.status !== 'streaming') this.applyNodes([event.node]);
-        break;
-      case 'status':
-        if (streamNodeId) this.patchLive(streamNodeId, { status: event.message });
-        break;
-      case 'delta': {
-        const s = this.live().get(event.nodeId);
-        if (s)
-          this.patchLive(event.nodeId, {
-            content: s.content + event.text,
-            status: null,
-            reconnecting: false,
-          });
-        break;
-      }
-      case 'usage':
-        break;
-      case 'done':
-        this.applyNodes([event.node]);
-        this.applyBranch(event.branch);
-        this.dropLive(event.node.id);
-        break;
-      case 'error':
-        if (event.node) this.applyNodes([event.node]);
-        else if (event.nodeId) this.markError(event.nodeId, event.message);
-        if (event.nodeId) this.dropLive(event.nodeId);
-        break;
-    }
-  }
-
-  private finish(nodeId: string | null, outcome: StreamOutcome): void {
+  protected finish(nodeId: string | null, outcome: StreamOutcome): void {
     if (outcome.kind === 'lost') {
       this.ui.notify(
         `Lost the connection to the reply: ${outcome.message}. Reload to check on it.`,
@@ -1086,58 +981,11 @@ export class LessonStore {
     }
   });
 
-  private markError(nodeId: string, message: string): void {
-    const node = this.index()?.nodes.get(nodeId);
-    if (node)
-      this.applyNodes([
-        {
-          ...node,
-          status: 'error',
-          error: message,
-          content: this.live().get(nodeId)?.content ?? node.content,
-        },
-      ]);
-  }
-
-  private applyNodes(nodes: ChatNode[]): void {
-    this.detail.update((d) => {
-      if (!d) return d;
-      const mine = nodes.filter((n) => n.treeId === d.tree.id);
-      return mine.length ? { ...d, nodes: upsertById(d.nodes, mine) } : d;
-    });
-  }
-
-  private applyBranch(branch: Branch): void {
-    this.detail.update((d) =>
-      d && d.tree.id === branch.treeId ? { ...d, branches: upsertById(d.branches, [branch]) } : d,
-    );
-  }
-
-  private applyLink(link: NodeLink): void {
-    this.detail.update((d) =>
-      d && d.tree.id === link.treeId ? { ...d, links: upsertById(d.links, [link]) } : d,
-    );
-  }
-
-  /** Stops following the replies of a deleted tree (the server has no tree to stream them from). */
-  private stopTreeStreams(treeId: string): void {
-    for (const l of this.live().values()) {
-      if (l.treeId !== treeId) continue;
-      this.controllers.get(l.nodeId)?.abort();
-      this.controllers.delete(l.nodeId);
-      this.dropLive(l.nodeId);
-    }
-  }
-
   /** Drops deleted branches and their messages, and stops following their replies. */
   private removeBranches(res: DeleteBranchResponse): void {
     const branchIds = new Set(res.branchIds);
     const nodeIds = new Set(res.nodeIds);
-    for (const id of nodeIds) {
-      this.controllers.get(id)?.abort();
-      this.controllers.delete(id);
-      this.dropLive(id);
-    }
+    for (const id of nodeIds) this.stopFollowing(id);
     const draft = this.unsentDraft();
     if (draft && branchIds.has(draft.branchId)) this.setUnsent(null);
     const block = this.poolBlock();
@@ -1180,24 +1028,6 @@ export class LessonStore {
       const next = new Set(set);
       if (on) next.add(branchId);
       else next.delete(branchId);
-      return next;
-    });
-  }
-
-  private setLive(s: LiveReply): void {
-    this.live.update((m) => new Map(m).set(s.nodeId, s));
-  }
-
-  private patchLive(nodeId: string, patch: Partial<LiveReply>): void {
-    const cur = this.live().get(nodeId);
-    if (cur) this.setLive({ ...cur, ...patch });
-  }
-
-  private dropLive(nodeId: string): void {
-    if (!this.live().has(nodeId)) return;
-    this.live.update((m) => {
-      const next = new Map(m);
-      next.delete(nodeId);
       return next;
     });
   }

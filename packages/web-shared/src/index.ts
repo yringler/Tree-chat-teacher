@@ -21,6 +21,11 @@ export {
 } from './core/api-client';
 export { API_FETCH, API_HEADERS, defaultApiFetch } from './core/api-fetch';
 export { coalesced } from './core/coalesced';
+export {
+  ConversationStore,
+  type ConversationApi,
+  type LiveReply,
+} from './conversation/conversation-store';
 export { CompareRun, type CompareCandidateState, type CompareSpec } from './core/compare-run';
 export {
   backupFile,
