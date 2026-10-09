@@ -5,12 +5,15 @@ import {
   APP_PATHS,
   AuthService,
   DEMO_MODE,
-  dispatchShortcut,
+  Modal,
   PoolFirstUseDialog,
+  ShortcutsTable,
   Toasts,
 } from '@tangent/web-shared';
 import { CompareDialog } from './chat/compare-dialog';
 import { ConnectDialog } from './chat/connect-dialog';
+import { LessonMap } from './chat/lesson-map';
+import { Keyboard, SHORTCUTS } from './core/keyboard';
 import { RouteSync } from './core/route-sync';
 import { DEMO_SIGNUP_URL } from './demo/demo-mode';
 import { AppHeader } from './shell/app-header';
@@ -34,6 +37,9 @@ import { LearnFunding } from './state/learn-funding';
     PoolFirstUseDialog,
     ConnectDialog,
     CompareDialog,
+    LessonMap,
+    Modal,
+    ShortcutsTable,
     Toasts,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -75,6 +81,14 @@ import { LearnFunding } from './state/learn-funding';
           @case ('compare') {
             <app-compare-dialog [branchId]="d.branchId" [content]="d.content" />
           }
+          @case ('map') {
+            <app-lesson-map />
+          }
+          @case ('shortcuts') {
+            <app-modal heading="Keyboard shortcuts" (closed)="ui.dialogs.close('shortcuts')">
+              <app-shortcuts-table [shortcuts]="shortcuts" />
+            </app-modal>
+          }
           @case ('pool-verify') {
             <app-pool-first-use-dialog (closed)="ui.dialogs.close('pool-verify')" />
           }
@@ -92,6 +106,8 @@ export class App {
   protected readonly account = inject(AccountStore);
   protected readonly funding = inject(LearnFunding);
   private readonly routeSync = inject(RouteSync);
+  private readonly keyboard = inject(Keyboard);
+  protected readonly shortcuts = SHORTCUTS;
   private readonly auth = inject(AuthService);
   private readonly api = inject(ApiClient);
   /** `/learn/demo/`: an in-browser backend, no sign-in (see @tangent/web-shared/demo). */
@@ -112,12 +128,8 @@ export class App {
     void this.boot();
   }
 
-  /** Learn has no shortcuts: Escape closes the top-most dialog or the menu. */
   protected onKey(e: KeyboardEvent): void {
-    dispatchShortcut(e, {
-      closeTop: () => this.ui.closeTop(),
-      dialogOpen: () => this.ui.dialogs.anyOpen(),
-    });
+    this.keyboard.handle(e);
   }
 
   private async boot(): Promise<void> {

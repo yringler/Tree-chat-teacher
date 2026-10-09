@@ -6,9 +6,12 @@ import {
   branchChain,
   branchLeaf,
   branchPath,
+  buildOutline,
+  flattenOutline,
   indexTree,
   navigate,
   type NavDirection,
+  type OutlineItem,
   type TreeIndex,
 } from '@tangent/core/tree';
 import type {
@@ -61,6 +64,22 @@ export type ConversationApi = Pick<
   | 'streamNode'
   | 'cancelNode'
 >;
+
+/** One step of the path from the trunk to the open branch. */
+export interface Crumb {
+  branch: Branch;
+  /** Message in this crumb's branch where the next branch in the chain forks off. */
+  focusNodeId: string | null;
+  current: boolean;
+}
+
+/** A message of the open path, with the fork divider shown above it when a branch starts there. */
+export interface PathEntry {
+  node: ChatNode;
+  /** It belongs to an ancestor branch, not the open one. */
+  ancestor: boolean;
+  divider: Branch | null;
+}
 
 /** How a message is asked: a "Check sources" request is web-searched (`ground`). */
 export interface SendOptions {
@@ -193,6 +212,30 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     return idx && id ? branchChain(idx, id) : [];
   });
 
+  /** Ids of the branches on the chain, to mark the way to the open branch. */
+  readonly chainIds = computed<ReadonlySet<string>>(() => new Set(this.chain().map((b) => b.id)));
+
+  /** The chain as breadcrumbs: each goes back to where the branch after it forks off. */
+  readonly crumbs = computed<Crumb[]>(() => {
+    const chain = this.chain();
+    return chain.map((branch, i) => ({
+      branch,
+      focusNodeId: chain[i + 1]?.branchPointNodeId ?? null,
+      current: i === chain.length - 1,
+    }));
+  });
+
+  readonly outline = computed<OutlineItem | null>(() => {
+    const idx = this.index();
+    return idx ? buildOutline(idx) : null;
+  });
+
+  /** Every branch of the open tree, depth first, as the outline lists them. */
+  readonly flatOutline = computed<OutlineItem[]>(() => {
+    const root = this.outline();
+    return root ? flattenOutline(root) : [];
+  });
+
   /** Root → leaf of the selected branch (ancestor branches' messages first). */
   readonly path = computed<ChatNode[]>(() => {
     const idx = this.index();
@@ -205,6 +248,33 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     const idx = this.index();
     const id = this.selectedBranchId();
     return idx && id ? branchLeaf(idx, id) : null;
+  });
+
+  /** The focused message if it is on the displayed path, else null. */
+  readonly focusedInPath = computed<ChatNode | null>(() => {
+    const id = this.focusedNodeId();
+    return (id && this.path().find((n) => n.id === id)) || null;
+  });
+
+  readonly pathEntries = computed<PathEntry[]>(() => {
+    const selected = this.selectedBranchId();
+    const idx = this.index();
+    let prevBranch: string | null = null;
+    return this.path().map((node) => {
+      const divider =
+        prevBranch !== null && node.branchId !== prevBranch
+          ? (idx?.branches.get(node.branchId) ?? null)
+          : null;
+      prevBranch = node.branchId;
+      return { node, ancestor: node.branchId !== selected, divider };
+    });
+  });
+
+  /** A branch off the trunk without messages of its own: its fork divider shows at the end. */
+  readonly emptyBranch = computed<Branch | null>(() => {
+    const b = this.selectedBranch();
+    if (!b?.parentBranchId) return null;
+    return (this.index()?.nodesByBranch.get(b.id)?.length ?? 0) === 0 ? b : null;
   });
 
   /** The reply generating in the selected branch. */
@@ -266,11 +336,6 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
 
   /** A branch made here was opened (`createBranch`): its composer takes the focus. */
   protected branchOpened(_branchId: string): void {}
-
-  /** Opens a tangent already followed (`followTangent`): its branch, by default where it ends. */
-  protected openFollowed(branch: Branch): void {
-    this.go(branch.id);
-  }
 
   /** A branch may be made from `nodeId` (power's: not from a branch the user can't generate on). */
   protected canBranchFrom(_nodeId: string): boolean {
@@ -361,6 +426,31 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     if (!target) return false;
     this.go(target.branchId, target.focusNodeId);
     return true;
+  }
+
+  /** j/k: moves the focus along the displayed path; false when there is no message to move to. */
+  moveFocus(delta: 1 | -1): boolean {
+    const path = this.path();
+    if (path.length === 0) return false;
+    const current = this.focusedInPath();
+    let i = current ? path.indexOf(current) + delta : delta > 0 ? 0 : path.length - 1;
+    i = Math.max(0, Math.min(path.length - 1, i));
+    const target = path[i];
+    if (!target || target === current) return false;
+    this.focus(target.id);
+    return true;
+  }
+
+  firstNodeOf(branchId: string): ChatNode | null {
+    return this.index()?.nodesByBranch.get(branchId)?.[0] ?? null;
+  }
+
+  /**
+   * Opens a branch where it starts (its first message), so what it is about
+   * reads first; where it ends while it has none.
+   */
+  openAtStart(branchId: string): void {
+    this.go(branchId, this.firstNodeOf(branchId)?.id ?? null);
   }
 
   /** The branch message `nodeId` is in, or null when the open tree hasn't it. */
@@ -487,12 +577,12 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
    * branch titled after it (a user title, so auto-titling keeps it), on the
    * route new branches from that message take (`newBranchRoute`), whose
    * first message is the title. A tangent already followed from that
-   * message just opens its branch (`openFollowed`).
+   * message just opens its branch at its start.
    */
   async followTangent(fromNodeId: string, title: string): Promise<Branch | null> {
     const existing = this.childBranchesAt(fromNodeId).find((b) => b.title === title);
     if (existing) {
-      this.openFollowed(existing);
+      this.openAtStart(existing.id);
       return existing;
     }
     if (!this.canBranchFrom(fromNodeId)) return null;

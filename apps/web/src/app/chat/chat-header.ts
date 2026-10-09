@@ -1,18 +1,11 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { clip, type Branch } from '@tangent/shared';
+import { clip } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { DEMO_MODE, Icon, TextSizeMenu } from '@tangent/web-shared';
 import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { ModeBadge } from '../ui/mode-badge';
 import { ExportMenu } from './export-menu';
-
-interface Crumb {
-  branch: Branch;
-  /** Message in this crumb's branch where the next branch in the chain forks off. */
-  focusNodeId: string | null;
-  current: boolean;
-}
 
 @Component({
   selector: 'app-chat-header',
@@ -102,7 +95,7 @@ interface Crumb {
         }
         <nav aria-label="Branch path" class="crumbs">
           <ol>
-            @for (c of crumbs(); track c.branch.id; let last = $last) {
+            @for (c of store.crumbs(); track c.branch.id; let last = $last) {
               <li>
                 @if (c.current) {
                   <span class="crumb crumb-current" aria-current="page">{{ c.branch.title }}</span>
@@ -135,7 +128,7 @@ interface Crumb {
             <button
               type="button"
               class="btn btn-ghost btn-sm"
-              (click)="toParent()"
+              (click)="store.navigate('parent')"
               title="Parent message (Alt+↑ or [)"
             >
               <app-icon name="back" /> Parent message
@@ -175,15 +168,6 @@ export class ChatHeader {
   protected readonly ui = inject(UiStore);
   protected readonly demo = inject(DEMO_MODE);
 
-  protected readonly crumbs = computed<Crumb[]>(() => {
-    const chain = this.store.chain();
-    return chain.map((branch, i) => ({
-      branch,
-      focusNodeId: chain[i + 1]?.branchPointNodeId ?? null,
-      current: i === chain.length - 1,
-    }));
-  });
-
   /** The return pill, while the view is still where the link went. */
   protected readonly linkReturn = computed(() => {
     const back = this.ui.linkReturn();
@@ -215,10 +199,5 @@ export class ChatHeader {
 
   protected async remove(branchId: string): Promise<void> {
     await confirmDeleteBranch(this.store, branchId);
-  }
-
-  protected toParent(): void {
-    const b = this.store.selectedBranch();
-    if (b?.parentBranchId) this.store.go(b.parentBranchId, b.branchPointNodeId);
   }
 }

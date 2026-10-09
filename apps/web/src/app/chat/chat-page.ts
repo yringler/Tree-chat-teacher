@@ -12,7 +12,7 @@ import {
 } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
-import { clip, type Branch, type ChatNode, type MembershipInfo } from '@tangent/shared';
+import { clip, type MembershipInfo } from '@tangent/shared';
 import { describeEndpoint } from '@tangent/core';
 import {
   Composer,
@@ -33,13 +33,6 @@ import { ModeBadge } from '../ui/mode-badge';
 import { ChatHeader } from './chat-header';
 import { MessageItem } from './message-item';
 import { RouteBar } from './route-bar';
-
-interface Entry {
-  node: ChatNode;
-  ancestor: boolean;
-  /** Set on the first message of each branch after the trunk: the branch it starts. */
-  divider: Branch | null;
-}
 
 /** `/t/:treeId[/b/:branchId]`: linear view of the selected branch path. */
 @Component({
@@ -81,31 +74,6 @@ export class ChatPage implements OnDestroy {
   protected readonly selection = new PendingQuote(() => this.quoteToAsk());
   protected readonly asking = signal(false);
 
-  protected readonly chainIds = computed<ReadonlySet<string>>(
-    () => new Set(this.store.chain().map((b) => b.id)),
-  );
-
-  protected readonly entries = computed<Entry[]>(() => {
-    const selected = this.store.selectedBranchId();
-    const idx = this.store.index();
-    let prevBranch: string | null = null;
-    return this.store.path().map((node) => {
-      const divider =
-        prevBranch !== null && node.branchId !== prevBranch
-          ? (idx?.branches.get(node.branchId) ?? null)
-          : null;
-      prevBranch = node.branchId;
-      return { node, ancestor: node.branchId !== selected, divider };
-    });
-  });
-
-  /** Non-trunk branch without messages of its own: show its fork divider at the end. */
-  protected readonly emptyBranch = computed<Branch | null>(() => {
-    const b = this.store.selectedBranch();
-    if (!b?.parentBranchId) return null;
-    return (this.store.index()?.nodesByBranch.get(b.id)?.length ?? 0) === 0 ? b : null;
-  });
-
   /**
    * The composer continues the open branch; asking about something new is a
    * branch ("Ask your own question…" under the reply, "Ask about this" on a
@@ -116,7 +84,7 @@ export class ChatPage implements OnDestroy {
     if (!b) return 'Message…';
     if (this.store.path().length === 0) return 'Start the conversation…';
     // A new branch without messages: the next one starts it.
-    if (this.emptyBranch()) return 'Ask your question…';
+    if (this.store.emptyBranch()) return 'Ask your question…';
     return 'Continue this thread…';
   });
 

@@ -2,6 +2,7 @@ import { inject, Injectable } from '@angular/core';
 import {
   ComposerController,
   dispatchShortcut,
+  pathKeys,
   TextSizeStore,
   type ShortcutHelp,
 } from '@tangent/web-shared';
@@ -41,10 +42,7 @@ export class Keyboard {
   }
 
   private readonly keys: Readonly<Record<string, () => unknown>> = {
-    '[': this.onTree(() => this.store.navigate('parent')),
-    ']': this.onTree(() => this.store.navigate('firstChild')),
-    j: () => this.store.moveFocus(1),
-    k: () => this.store.moveFocus(-1),
+    ...pathKeys(this.store),
     b: () => {
       const node = this.store.focusedInPath() ?? this.store.leaf();
       // Nothing to branch onto without a route to generate on (power is read-only).

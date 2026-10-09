@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { dispatchShortcut, type ShortcutEvent, type ShortcutFrame } from './shortcuts';
+import { dispatchShortcut, pathKeys, type ShortcutEvent, type ShortcutFrame } from './shortcuts';
 
 /** The DOM classes the dispatcher checks targets against (the suite runs in Node). */
 class FakeElement {
@@ -100,5 +100,26 @@ describe('dispatchShortcut', () => {
     dispatchShortcut(key('Escape', { isComposing: true }), f);
     expect(f.keys.j).not.toHaveBeenCalled();
     expect(f.closeTop).not.toHaveBeenCalled();
+  });
+});
+
+describe('pathKeys', () => {
+  it('moves up and down the tree with [ and ], along the path with j and k', () => {
+    const nav = { navigate: vi.fn(() => true), moveFocus: vi.fn(() => true) };
+    const keys = pathKeys(nav);
+    keys['[']?.();
+    keys[']']?.();
+    keys.j?.();
+    keys.k?.();
+    expect(nav.navigate.mock.calls).toEqual([['parent'], ['firstChild']]);
+    expect(nav.moveFocus.mock.calls).toEqual([[1], [-1]]);
+  });
+
+  it('leaves the key to the browser when there is nowhere to go', () => {
+    const nav = { navigate: vi.fn(() => false), moveFocus: vi.fn(() => false) };
+    const j = key('j');
+    dispatchShortcut(j, { closeTop: () => false, dialogOpen: () => false, keys: pathKeys(nav) });
+    expect(nav.moveFocus).toHaveBeenCalledWith(1);
+    expect(j.defaultPrevented).toBe(false);
   });
 });
