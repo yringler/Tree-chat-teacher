@@ -47,6 +47,16 @@ export const PROVIDER_FACTORIES: Record<ProviderKind, ProviderFactory> = {
 
 const KINDS = Object.keys(PROVIDER_FACTORIES) as ProviderKind[];
 
+/**
+ * Kinds whose replies are scripted (the test provider): they need no key and
+ * take none, and are the default provider only when nothing real is usable.
+ */
+const SCRIPTED: Record<ProviderKind, boolean> = {
+  anthropic: false,
+  'openai-compatible': false,
+  fake: true,
+};
+
 const CONFIG_KEYS: ReadonlySet<string> = new Set([
   'id',
   'kind',
@@ -342,7 +352,7 @@ function unavailableReason(config: ProviderConfig, env: ProviderEnv): ProviderEr
   for (const name of Object.values(config.extraHeaderSecrets ?? {})) {
     if (!env.secrets[name]) return missingSecretError(name);
   }
-  if (config.kind === 'fake') return undefined;
+  if (SCRIPTED[config.kind]) return undefined;
   if (resolveApiKey(config, env)) return undefined;
   if (config.apiKeySecret)
     return env.secrets[config.apiKeySecret] ? undefined : missingSecretError(config.apiKeySecret);
@@ -370,9 +380,9 @@ function unavailableProvider(inner: LlmProvider, error: ProviderError): LlmProvi
   };
 }
 
-/** Whether a user-supplied key can be used with this config (every kind but fake). */
+/** Whether a user-supplied key can be used with this config (every kind but a scripted one). */
 export function acceptsUserKey(config: Pick<ProviderConfig, 'kind'>): boolean {
-  return config.kind !== 'fake';
+  return !SCRIPTED[config.kind];
 }
 
 function keySourceOf(config: ProviderConfig, env: ProviderEnv): ProviderInfo['keySource'] {
@@ -383,7 +393,7 @@ function keySourceOf(config: ProviderConfig, env: ProviderEnv): ProviderInfo['ke
 }
 
 /**
- * A provider is `available` when its kind needs no key (fake), the caller
+ * A provider is `available` when its kind needs no key (scripted), the caller
  * supplied a key for it (`env.apiKeys`) or its apiKeySecret resolves to a
  * non-empty secret. Unavailable providers are
  * still listed (so the UI can explain), and `get` returns an instance whose
@@ -418,8 +428,8 @@ export function createProviderRegistry(
   }
   const all = [...entries.values()];
   const defaultId =
-    all.find((e) => e.available && e.config.kind !== 'fake')?.config.id ??
-    all.find((e) => e.config.kind === 'fake')?.config.id ??
+    all.find((e) => e.available && !SCRIPTED[e.config.kind])?.config.id ??
+    all.find((e) => SCRIPTED[e.config.kind])?.config.id ??
     all[0]!.config.id;
 
   return {
@@ -436,6 +446,7 @@ export function createProviderRegistry(
         acceptsUserKey: acceptsUserKey(config),
         keySource,
         webSearch: provider.capabilities(provider.defaultModel()).supportsWebSearch,
+        ...(SCRIPTED[config.kind] ? { scripted: true } : {}),
       })),
     defaultProviderId: () => defaultId,
   };

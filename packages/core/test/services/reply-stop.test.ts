@@ -29,6 +29,7 @@ describe('replies cut off or empty', () => {
         role: 'assistant',
         status: 'error',
         error: REPLY_CUT_OFF_ERROR,
+        errorKind: 'cut_off',
         content: 'Half of the deriv',
       });
       expect(node.usage).not.toBeNull();
@@ -57,14 +58,19 @@ describe('replies cut off or empty', () => {
   it('tells a reply cut off before any text (all thinking) apart', async () => {
     const { last, node } = await replyWith('length', '');
     expect(last).toMatchObject({ type: 'error', message: REPLY_THINKING_ONLY_ERROR });
-    expect(node).toMatchObject({ status: 'error', error: REPLY_THINKING_ONLY_ERROR, content: '' });
+    expect(node).toMatchObject({
+      status: 'error',
+      error: REPLY_THINKING_ONLY_ERROR,
+      errorKind: 'thinking_only',
+      content: '',
+    });
     expect(isCutOffReply(node)).toBe(false);
   });
 
   it('fails a reply that finished without any text', async () => {
     const { last, node } = await replyWith('stop', '  \n');
     expect(last).toMatchObject({ type: 'error', message: REPLY_EMPTY_ERROR });
-    expect(node).toMatchObject({ status: 'error', error: REPLY_EMPTY_ERROR });
+    expect(node).toMatchObject({ status: 'error', error: REPLY_EMPTY_ERROR, errorKind: 'empty' });
   });
 
   it('completes a reply that stopped on its own', async () => {

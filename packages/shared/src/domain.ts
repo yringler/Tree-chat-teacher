@@ -26,6 +26,31 @@ export type Role = 'user' | 'assistant' | 'system';
 export type NodeStatus = 'streaming' | 'complete' | 'error';
 
 /**
+ * Why a node is `error`, for the apps to act on (the copy in `error` is for
+ * people, and may change):
+ * - `cut_off`: the reply reached its output cap; its partial text is kept;
+ * - `thinking_only`: a reasoning model used the whole cap thinking, no text;
+ * - `empty`: the model finished without any text;
+ * - `cancelled`: the learner stopped it;
+ * - `interrupted`: the generation was lost before it finished (a restart);
+ * - `provider`: the provider failed, or its stream ended early (`error` says how);
+ * - `failed`: the generation failed before or after the provider call.
+ */
+export type NodeErrorKind =
+  'cut_off' | 'thinking_only' | 'empty' | 'cancelled' | 'interrupted' | 'provider' | 'failed';
+
+/** Every `NodeErrorKind`. */
+export const NODE_ERROR_KINDS: readonly NodeErrorKind[] = [
+  'cut_off',
+  'thinking_only',
+  'empty',
+  'cancelled',
+  'interrupted',
+  'provider',
+  'failed',
+];
+
+/**
  * What a branch's subtree sends to the model *before* its own messages.
  * - `path`: whatever the parent branch sent at the branch point (transitively),
  *   i.e. the full root→node path unless an ancestor branch narrowed it.
@@ -117,6 +142,8 @@ export interface ChatNode {
   content: string;
   status: NodeStatus;
   error: string | null;
+  /** Why it is `error` (absent or null otherwise); detection keys on this, never on `error`. */
+  errorKind?: NodeErrorKind | null;
   /** Set on assistant nodes: which provider/model produced them. */
   providerId: string | null;
   model: string | null;

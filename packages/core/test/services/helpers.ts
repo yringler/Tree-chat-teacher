@@ -59,6 +59,7 @@ export class ScriptedProvider implements LlmProvider {
       supportsSystemPrompt: true,
       supportsTokenCount: false,
       supportsWebSearch: this.webSearch,
+      requiredWebSearch: this.webSearch,
       reasoning: this.reasoning,
     };
   }

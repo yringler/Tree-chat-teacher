@@ -7,7 +7,7 @@ import {
   type OnInit,
   signal,
 } from '@angular/core';
-import { plainText } from '@tangent/core';
+import { plainText } from '@tangent/shared';
 import {
   isModelAllowed,
   parseRouteKey,

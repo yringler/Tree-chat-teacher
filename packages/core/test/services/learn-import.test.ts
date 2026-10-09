@@ -23,7 +23,7 @@ class LearnProvider extends ScriptedProvider {
 
 /**
  * A power service (own keys: `ant` and `openrouter`; credit) and a Learn
- * service (its one provider, `fixedFunding`, `adaptImportsForLearn`) over the
+ * service (its one provider, profile `learn`) over the
  * same storage, as the power (`p_`) and Learn (`u_`) accounts of one user.
  */
 function setup() {
@@ -39,7 +39,7 @@ function setup() {
     repos,
     accountId: 'p_user',
     providers: registryOf(ant, own),
-    creditProviders: registryOf(credit),
+    profile: { kind: 'power', credit: { providers: registryOf(credit) } },
     settings,
     defaultSystemPrompt: 'BUILT-IN',
     newId,
@@ -48,8 +48,7 @@ function setup() {
     repos,
     accountId: 'u_user',
     providers: registryOf(learnProvider),
-    fixedFunding: 'own-key',
-    adaptImportsForLearn: true,
+    profile: { kind: 'learn' },
     settings,
     defaultSystemPrompt: 'TUTOR',
     newId,
@@ -84,7 +83,7 @@ async function powerTree(power: ChatService): Promise<TreeDetail> {
 const routes = (d: Pick<TreeDetail, 'branches'>) =>
   d.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode, b.funding]);
 
-describe('importing into Learn (adaptImportsForLearn)', () => {
+describe('importing into Learn (profile learn)', () => {
   it('adapts a power backup to Learn: its provider and models, path context, its prompt, own-key', async () => {
     const { power, learn } = setup();
     const original = await powerTree(power);

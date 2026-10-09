@@ -169,6 +169,18 @@ describe('provider registry', () => {
     ]);
   });
 
+  it('marks only the scripted test provider `scripted`, and it titles nothing', () => {
+    const reg = createProviderRegistry([...DEFAULT_PROVIDER_CONFIGS, FAKE], { secrets: {} });
+    expect(reg.list().map((p) => [p.id, p.scripted === true])).toEqual([
+      ['anthropic', false],
+      ['openai', false],
+      ['openrouter', false],
+      ['fake', true],
+    ]);
+    expect(reg.get('fake')!.capabilities('fake-1').titles).toBe(false);
+    expect(reg.get('openrouter')!.capabilities('openai/gpt-5').titles).toBeUndefined();
+  });
+
   it('streams through an available fake provider', async () => {
     const reg = createProviderRegistry([FAKE], { secrets: {} });
     const events = await collect(

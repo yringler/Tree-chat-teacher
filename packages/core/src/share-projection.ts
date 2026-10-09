@@ -7,6 +7,7 @@ import type {
   ShareScope,
   Tree,
 } from '@tangent/shared';
+import { plainText } from '@tangent/shared';
 import { indexTree, isEffectivelyPrivate, pathToNode, type TreeIndex } from './tree.js';
 
 export interface ProjectShareInput {
@@ -168,7 +169,7 @@ export function projectShare(input: ProjectShareInput): ProjectShareResult {
       v: 1,
       title,
       description:
-        first === undefined ? '' : plainTextExcerpt(first.content, SHARE_DESCRIPTION_MAX),
+        first === undefined ? '' : plainText(first.content, { max: SHARE_DESCRIPTION_MAX }),
       scope: input.scope,
       generatedAt: input.now,
       context: contextMessages,
@@ -206,36 +207,4 @@ function draftSubtree(
     draft.children.push(draftSubtree(index, child, 0, false, allowed));
   }
   return draft;
-}
-
-/**
- * Markdown → single-line plain text: drops code-fence markers, heading /
- * quote / list markers, emphasis and inline-code characters; links and images
- * become their text; whitespace is collapsed. Truncated to `max` chars
- * (including a trailing ellipsis when cut).
- */
-export function plainTextExcerpt(markdown: string, max: number): string {
-  let text = markdown
-    .replace(/^[ \t]*(```|~~~)[^\n]*$/gm, ' ')
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/<((?:https?|mailto):[^>\s]*)>/g, '$1')
-    .replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, '')
-    .replace(/^[ \t]*>[ \t]?/gm, '')
-    .replace(/^[ \t]*(?:[-+*]|\d+[.)])[ \t]+/gm, '')
-    .replace(/[*`]+/g, '')
-    .replace(/(^|[^\p{L}\p{N}])_+/gu, '$1')
-    .replace(/_+(?=[^\p{L}\p{N}]|$)/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (text.length > max) {
-    const chars = Array.from(text);
-    if (chars.length > max)
-      text =
-        chars
-          .slice(0, Math.max(0, max - 1))
-          .join('')
-          .trimEnd() + '…';
-  }
-  return text;
 }

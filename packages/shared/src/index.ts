@@ -19,3 +19,4 @@ export * from './output-tokens.js';
 export * from './input-limit.js';
 export * from './token-size.js';
 export * from './stop-reason.js';
+export * from './text.js';

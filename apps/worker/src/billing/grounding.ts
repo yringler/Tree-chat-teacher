@@ -6,7 +6,7 @@ import {
   type GroundingPolicy,
   type GroundingSettings,
 } from '@tangent/core';
-import type { ProviderRoute } from '@tangent/shared';
+import type { ProviderConfig, ProviderRoute } from '@tangent/shared';
 import { appConfig } from '../config.js';
 import { isMetered, type AccountContext, type AppEnv } from '../env.js';
 
@@ -17,14 +17,28 @@ export function groundingPolicy(env: AppEnv): GroundingPolicy {
 
 /** Grounding settings from the `GROUNDING*` vars. Learn ignores the per-branch setting. */
 export function groundingSettings(env: AppEnv, mode: AccountContext['mode']): GroundingSettings {
-  const { policy, maxResults, engine } = appConfig(env).grounding;
   return {
     ...DEFAULT_GROUNDING_SETTINGS,
-    policy,
-    maxResults,
-    engine,
+    policy: appConfig(env).grounding.policy,
     ignoreBranchSetting: mode === 'simple',
   };
+}
+
+/**
+ * `configs` with `GROUNDING_ENGINE` and `GROUNDING_MAX_RESULTS` as the search
+ * options of every openai-compatible config that searches: OpenRouter runs
+ * the search on them. A config's own options win.
+ */
+export function withSearchOptions(env: AppEnv, configs: ProviderConfig[]): ProviderConfig[] {
+  const { engine, maxResults } = appConfig(env).grounding;
+  return configs.map((config) =>
+    config.kind === 'openai-compatible' && config.options?.['webSearch'] === true
+      ? {
+          ...config,
+          options: { webSearchEngine: engine, webSearchMaxResults: maxResults, ...config.options },
+        }
+      : config,
+  );
 }
 
 /** Automatic searches per user per UTC day on credit; 0 = no cap. */

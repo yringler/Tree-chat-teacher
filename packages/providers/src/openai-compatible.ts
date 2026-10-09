@@ -1,10 +1,9 @@
 import {
-  CITATIONS_MAX,
-  CITATION_EXCERPT_MAX,
-  isCitableUrl,
+  foldSystemPrompt,
   type Citation,
   type GenerateRequest,
   type LlmProvider,
+  type ProviderCapabilities,
   type ProviderConfig,
   type ProviderErrorCode,
   type ProviderEvent,
@@ -21,18 +20,16 @@ import {
   withTurnInstructions,
 } from './prompt-cache.js';
 import type { ProviderEnv } from './registry.js';
+import { addCitation, num, postJson, streamBody } from './http.js';
 import { parseSse } from './sse.js';
 import {
   ProviderFailure,
-  abortable,
   codeForStatus,
-  errorFromResponse,
   getFetch,
   guardStream,
   isRecord,
   looksLikeContextLength,
   missingSecretError,
-  networkError,
   providerError,
   redact,
   resolveCapabilities,
@@ -75,13 +72,31 @@ function readExtraBody(options: Record<string, unknown> | undefined): Record<str
 /** Body keys a web search sets; `extraBody` can't override them while one is requested. */
 const WEB_SEARCH_BODY_KEYS: readonly string[] = ['tools', 'tool_choice', 'plugins'];
 
+/** How OpenRouter runs a search: `options.webSearchEngine` and `options.webSearchMaxResults`. */
+interface SearchConfig {
+  engine: string;
+  maxResults: number;
+}
+
+function readSearchConfig(options: Record<string, unknown> | undefined): SearchConfig {
+  const engine = options?.['webSearchEngine'];
+  const maxResults = options?.['webSearchMaxResults'];
+  return {
+    engine: typeof engine === 'string' && engine.trim() !== '' ? engine.trim() : 'exa',
+    maxResults:
+      typeof maxResults === 'number' && Number.isInteger(maxResults) && maxResults > 0
+        ? maxResults
+        : 5,
+  };
+}
+
 /** OpenRouter's web search server tool (https://openrouter.ai/docs/guides/features/server-tools/web-search). */
-function webSearchBody(ws: WebSearchRequest): Record<string, unknown> {
+function webSearchBody(ws: WebSearchRequest, search: SearchConfig): Record<string, unknown> {
   return {
     tools: [
       {
         type: 'openrouter:web_search',
-        parameters: { engine: ws.engine, max_results: ws.maxResults, max_uses: ws.maxUses },
+        parameters: { engine: search.engine, max_results: search.maxResults, max_uses: ws.maxUses },
       },
     ],
     tool_choice: ws.mode === 'required' ? 'required' : 'auto',
@@ -104,8 +119,8 @@ function pinnedRouting(routing: unknown, order: readonly string[]): Record<strin
 }
 
 /**
- * Adds the `url_citation` annotations in `raw` to `into` (deduplicated by
- * URL, http(s) only, excerpt clipped). Returns true if anything was added.
+ * Adds the `url_citation` annotations in `raw` to `into` (`addCitation`).
+ * Returns true if anything was added.
  */
 function collectCitations(raw: unknown, into: Map<string, Citation>): boolean {
   if (!Array.isArray(raw)) return false;
@@ -113,20 +128,8 @@ function collectCitations(raw: unknown, into: Map<string, Citation>): boolean {
   for (const a of raw) {
     if (!isRecord(a) || a['type'] !== 'url_citation') continue;
     const c = a['url_citation'];
-    if (!isRecord(c) || typeof c['url'] !== 'string') continue;
-    const url = c['url'].trim();
-    if (!isCitableUrl(url) || into.has(url) || into.size >= CITATIONS_MAX) continue;
-    const title =
-      typeof c['title'] === 'string' && c['title'].trim() ? c['title'].trim().slice(0, 500) : null;
-    const content =
-      typeof c['content'] === 'string' ? c['content'].replace(/\s+/g, ' ').trim() : '';
-    const excerpt = content
-      ? content.length > CITATION_EXCERPT_MAX
-        ? `${content.slice(0, CITATION_EXCERPT_MAX - 1)}…`
-        : content
-      : null;
-    into.set(url, { url, title, excerpt });
-    added = true;
+    if (!isRecord(c)) continue;
+    if (addCitation(into, { url: c['url'], title: c['title'], text: c['content'] })) added = true;
   }
   return added;
 }
@@ -140,10 +143,6 @@ function isWebSearchCall(raw: unknown): boolean {
     const name = isRecord(fn) ? fn['name'] : t['type'];
     return typeof name === 'string' && name.includes('web_search');
   });
-}
-
-function num(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 
 /**
@@ -198,7 +197,9 @@ function codeForStreamError(err: Record<string, unknown>, message: string): Prov
  *
  * Web search (OpenRouter, when `options.webSearch` is true and the request
  * has `webSearch`): sends the `openrouter:web_search` server tool with
- * `tool_choice` auto/required; `extraBody` can't override `tools`,
+ * `tool_choice` auto/required (so `requiredWebSearch` holds), on
+ * `options.webSearchEngine` (default `exa`) with
+ * `options.webSearchMaxResults` results per search (default 5); `extraBody` can't override `tools`,
  * `tool_choice` or `plugins` then. `url_citation` annotations (in
  * `delta.annotations` or `message.annotations`) become `citations` events, a
  * streamed web-search tool call an `activity` event, and
@@ -255,7 +256,12 @@ export function createOpenAiCompatibleProvider(
   const openRouter = isOpenRouterBaseUrl(baseUrl);
   const promptCache = promptCacheOption(config.options) ?? openRouter;
 
-  const capabilities = (model: string) => resolveCapabilities(config, model, DEFAULTS, false);
+  const search = readSearchConfig(config.options);
+
+  const capabilities = (model: string): ProviderCapabilities => {
+    const caps = resolveCapabilities(config, model, DEFAULTS, false);
+    return { ...caps, requiredWebSearch: caps.supportsWebSearch };
+  };
 
   function stream(request: GenerateRequest): AsyncIterable<ProviderEvent> {
     const resolved = resolveConfigHeaders(config, env);
@@ -277,19 +283,14 @@ export function createOpenAiCompatibleProvider(
       const { signal } = request;
       const caps = capabilities(request.model);
 
-      const plain: { role: string; content: string }[] = request.messages.map((m) => ({
+      const prompt = { system: request.system, messages: request.messages };
+      const { system, messages: history } = caps.supportsSystemPrompt
+        ? prompt
+        : foldSystemPrompt(prompt);
+      const plain: { role: string; content: string }[] = history.map((m) => ({
         role: m.role,
         content: m.content,
       }));
-      let system: string | null = null;
-      if (request.system !== null) {
-        const first = plain[0];
-        if (caps.supportsSystemPrompt || !first || first.role !== 'user') {
-          system = request.system;
-        } else {
-          first.content = `${request.system}\n\n${first.content}`;
-        }
-      }
       const cache = promptCache && usesExplicitCacheControl(request.model);
       const messages = withTurnInstructions(
         cache ? markLastMessage(plain) : plain,
@@ -310,7 +311,7 @@ export function createOpenAiCompatibleProvider(
       const body: Record<string, unknown> = {
         stream_options: { include_usage: true },
         ...extra,
-        ...(webSearch ? webSearchBody(webSearch) : {}),
+        ...(webSearch ? webSearchBody(webSearch, search) : {}),
         ...(openRouter && effort !== undefined ? { reasoning: reasoningBody(effort) } : {}),
         ...(openRouter && order.length > 0
           ? { provider: pinnedRouting(extra['provider'], order) }
@@ -321,31 +322,13 @@ export function createOpenAiCompatibleProvider(
         [maxTokensParam]: request.maxOutputTokens ?? caps.maxOutputTokens,
       };
 
-      let res: Response;
-      try {
-        res = await abortable(
-          doFetch(`${baseUrl}/chat/completions`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
-            signal,
-          }),
-          signal,
-        );
-      } catch (e) {
-        if (signal.aborted) throw e;
-        throw new ProviderFailure({ ...networkError(e, secrets), upstream: 'not_sent' });
-      }
-      if (!res.ok)
-        throw new ProviderFailure({
-          ...(await errorFromResponse(res, signal, secrets)),
-          upstream: 'rejected',
-        });
-      if (!res.body)
-        throw new ProviderFailure({
-          ...providerError('network', 'Response has no body'),
-          upstream: 'stream',
-        });
+      const res = await postJson(
+        doFetch,
+        `${baseUrl}/chat/completions`,
+        { headers, body, signal },
+        secrets,
+      );
+      const responseBody = streamBody(res);
 
       const headerId = res.headers.get('x-generation-id')?.trim();
       let generationId: string | undefined = headerId || undefined;
@@ -356,7 +339,7 @@ export function createOpenAiCompatibleProvider(
       let servedBy: string | undefined;
       const citations = new Map<string, Citation>();
       let searchReported = false;
-      for await (const msg of parseSse(res.body, signal)) {
+      for await (const msg of parseSse(responseBody, signal)) {
         const raw = msg.data.trim();
         if (raw === '[DONE]') {
           yield { type: 'done', stopReason: finishReason };

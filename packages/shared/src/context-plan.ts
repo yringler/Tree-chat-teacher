@@ -165,3 +165,20 @@ export interface RenderedPrompt {
   system: string | null;
   messages: ChatMessage[];
 }
+
+/**
+ * `prompt` for a model without a system prompt: the system text goes in
+ * front of the first message when that is the user's, else in a user
+ * message of its own before it.
+ */
+export function foldSystemPrompt(prompt: RenderedPrompt): RenderedPrompt {
+  if (prompt.system === null) return prompt;
+  const [first, ...rest] = prompt.messages;
+  if (first?.role === 'user') {
+    return {
+      system: null,
+      messages: [{ ...first, content: `${prompt.system}\n\n${first.content}` }, ...rest],
+    };
+  }
+  return { system: null, messages: [{ role: 'user', content: prompt.system }, ...prompt.messages] };
+}

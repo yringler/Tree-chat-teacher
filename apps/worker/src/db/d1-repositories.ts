@@ -13,6 +13,7 @@ import {
   type ChatNode,
   type Citation,
   type GroundingMode,
+  type NodeErrorKind,
   type NodeLink,
   type Share,
   type SummaryRecord,
@@ -40,7 +41,7 @@ export const SNAPSHOT_CHUNK_CHARS = 256_000;
 
 /** D1 rejects statements with more than 100 bound parameters. */
 const MAX_BOUND_PARAMS = 100;
-const NODE_COLUMNS = 15;
+const NODE_COLUMNS = 16;
 const BRANCH_COLUMNS = 15;
 const LINK_COLUMNS = 9;
 const NODE_ROWS_PER_INSERT = Math.floor(MAX_BOUND_PARAMS / NODE_COLUMNS); // 6
@@ -142,6 +143,7 @@ function toNode(r: NodeRow): ChatNode {
     content: r.content,
     status: r.status,
     error: r.error,
+    errorKind: r.errorKind,
     providerId: r.providerId,
     model: r.model,
     usage: toUsage(r.inputTokens, r.outputTokens),
@@ -227,6 +229,7 @@ function nodeInsert(n: ChatNode): NodeInsert {
     content: n.content,
     status: n.status,
     error: n.error,
+    errorKind: n.errorKind ?? null,
     providerId: n.providerId,
     model: n.model,
     inputTokens: n.usage?.inputTokens ?? null,
@@ -285,6 +288,7 @@ interface RawNodeRow {
   content: string;
   status: ChatNode['status'];
   error: string | null;
+  error_kind: NodeErrorKind | null;
   provider_id: string | null;
   model: string | null;
   input_tokens: number | null;
@@ -324,6 +328,7 @@ function rawToNode(r: RawNodeRow): ChatNode {
     content: r.content,
     status: r.status,
     error: r.error,
+    errorKind: r.error_kind,
     providerId: r.provider_id,
     model: r.model,
     usage: toUsage(r.input_tokens, r.output_tokens),
@@ -633,6 +638,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
         content: patch.content,
         status: patch.status,
         error: patch.error,
+        errorKind: patch.errorKind,
       });
       if (patch.usage !== undefined) {
         set.inputTokens = patch.usage?.inputTokens ?? null;

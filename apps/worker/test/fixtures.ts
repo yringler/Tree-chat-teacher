@@ -69,6 +69,7 @@ export function makeNode(
     content: `content ${seq}`,
     status: 'complete',
     error: null,
+    errorKind: null,
     providerId: null,
     model: null,
     usage: null,
