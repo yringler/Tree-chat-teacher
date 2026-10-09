@@ -74,7 +74,7 @@ Learn keeps only the essentials:
 - finding your way: a side question opens at its first message. Inside one, the path (**Lesson** › … › here) and **Back to…** return to the message it started from; on a phone the path shows its start and its last steps. **Lesson map** (the branch icon in the lesson's header, or `m`) lists the lesson and every side question in it. Click a message to mark it (the URL then points at it). On a keyboard: `Alt`+arrows or `[` / `]` between side questions, `j` / `k` between messages, `/` the message box, `?` lists them all;
 - deleting a side question with everything below it (the trash beside it, or beside **Back to…** while it is open);
 - **Aa** for the lesson's text size;
-- **Your instructions** (the pencil in a lesson's header, while replies are paid with your own key or credit): instructions of your own for that lesson, such as "Answer in French", added after the tutor's. The open pool ignores them;
+- **Your instructions** (the pencil in a lesson's header, while replies are paid with your own key or credit): instructions of your own for that lesson, such as "Answer in French", added after the tutor's. The open pool ignores them, and so does power;
 - **How replies are paid for** (account menu): your own OpenRouter key, **Tangent credit** (prepaid; the header shows the balance), or the **open pool** (free within daily limits, while it has credit). Where the membership is required, your own key needs it; credit and the pool never do. A message refused for want of a key, credit or membership is kept and sent once you pick a way on;
 - **Billing** (`/learn/billing`): the membership, and with credit the balance, top-ups and recent usage.
 

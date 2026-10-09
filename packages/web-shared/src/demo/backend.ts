@@ -154,7 +154,7 @@ interface Held {
 }
 
 /** The shape of a mirrored session; a session saved in another shape is discarded. */
-const SAVED_VERSION = 2;
+const SAVED_VERSION = 3;
 
 interface Saved {
   version: typeof SAVED_VERSION;
@@ -277,7 +277,7 @@ export class DemoBackend {
       providers: registry,
       // Like the Worker: Learn pays per request, so its branches are written `own-key`,
       // and imports are adapted to its provider, models, context and prompt. The demo
-      // runs on pretend credit, so a lesson's custom prompt applies.
+      // runs on pretend credit, so a lesson's learner instructions apply.
       profile: this.mode === 'simple' ? { kind: 'learn', customPrompt: true } : { kind: 'power' },
       // As a server with the default config, summarizing on each branch's own route.
       settings: appChatSettings(this.mode === 'simple' ? 'learn' : 'power', {

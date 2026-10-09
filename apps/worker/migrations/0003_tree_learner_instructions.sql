@@ -1,0 +1,1 @@
+ALTER TABLE `trees` ADD `learner_instructions` text;

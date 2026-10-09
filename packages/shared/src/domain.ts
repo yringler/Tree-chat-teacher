@@ -105,6 +105,13 @@ export interface Tree {
   title: string;
   /** Tree-wide system prompt; sent in every mode, including `independent`. */
   systemPrompt: string | null;
+  /**
+   * The learner's own instructions, which Learn adds after its tutor prompt
+   * where the learner pays with their own key or credit; power ignores them.
+   * Kept apart from `systemPrompt` so a changed tutor prompt never reads as
+   * the learner's text.
+   */
+  learnerInstructions: string | null;
   trunkBranchId: string;
   createdAt: string;
   updatedAt: string;

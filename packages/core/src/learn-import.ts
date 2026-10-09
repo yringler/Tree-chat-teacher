@@ -31,9 +31,10 @@ export interface LearnImportTarget {
  * - every branch is `own-key`: Learn decides who pays per request, and an
  *   import never moves anything onto credit or the pool.
  *
- * Messages, titles, anchor quotes and privacy are kept as they are, and so is
- * the provider each reply ran on (it is history). Pure: the input is not
- * changed, and adapting a Learn backup again changes nothing.
+ * Messages, titles, anchor quotes, privacy and the learner's instructions are
+ * kept as they are, and so is the provider each reply ran on (it is history).
+ * Pure: the input is not changed, and adapting a Learn backup again changes
+ * nothing.
  */
 export function adaptBackupForLearn(
   backup: TreeBackupInput,

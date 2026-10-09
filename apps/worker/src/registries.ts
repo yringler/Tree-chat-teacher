@@ -344,7 +344,7 @@ export function chatService(
           // A client-set anchor quote gets no more room than a message.
           anchorQuoteMaxChars: pool.maxMessageChars,
         }
-      : // The tree's own prompt only where the learner pays: the pool keeps its locked prompt.
+      : // The tree's learner instructions only where the learner pays: the pool keeps its locked prompt.
         { kind: 'learn', customPrompt: account.payer !== 'pool' };
   } else {
     // Power: own keys unmetered; Tangent credit, every call metered.

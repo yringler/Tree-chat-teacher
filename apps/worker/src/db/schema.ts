@@ -39,6 +39,7 @@ export const trees = sqliteTable(
     id: text('id').primaryKey(),
     title: text('title').notNull(),
     systemPrompt: text('system_prompt'),
+    learnerInstructions: text('learner_instructions'),
     // No FK: trees and trunk branches reference each other; inserted in one batch.
     trunkBranchId: text('trunk_branch_id').notNull(),
     // No FK: SQLite cannot ALTER TABLE ADD COLUMN with REFERENCES and a non-null default.

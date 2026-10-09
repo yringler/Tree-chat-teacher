@@ -1,24 +1,15 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  effect,
-  inject,
-  type OnInit,
-  signal,
-} from '@angular/core';
-import { customInstructions, type Tree } from '@tangent/shared';
-import { ApiClient, Modal } from '@tangent/web-shared';
+import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
+import type { Tree } from '@tangent/shared';
+import { Modal } from '@tangent/web-shared';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
 
 /**
- * "Your instructions" for the open lesson: the lesson's own prompt, which
- * the server adds after the tutor's own where the learner pays with their own
- * key or credit, and ignores on the open pool. The lesson's stored prompt
- * starts as the tutor prompt, so the box shows only what the learner wrote
- * (`customInstructions`); clearing what they wrote puts the tutor prompt
- * back, which power then keeps sending. Opened from the lesson's header
- * (`UiStore.dialogs`, kind `instructions`); closes when the lesson does.
+ * "Your instructions" for the open lesson: its learner instructions, which
+ * the server adds after the tutor prompt where the learner pays with their
+ * own key or credit, and ignores on the open pool. A blank box saves none.
+ * Opened from the lesson's header (`UiStore.dialogs`, kind `instructions`);
+ * closes when the lesson does.
  */
 @Component({
   selector: 'app-instructions-dialog',
@@ -35,7 +26,6 @@ import { UiStore } from '../state/ui-store';
             rows="6"
             maxlength="20000"
             placeholder="E.g. Answer in French. I already know calculus."
-            [disabled]="tutorPrompt() === undefined"
             [value]="text()"
             (input)="text.set(box.value)"
             #box
@@ -44,11 +34,7 @@ import { UiStore } from '../state/ui-store';
         <p class="muted small">Used while replies are paid with your own key or credit.</p>
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" (click)="close()">Cancel</button>
-          <button
-            type="submit"
-            class="btn btn-primary"
-            [disabled]="saving() || tutorPrompt() === undefined"
-          >
+          <button type="submit" class="btn btn-primary" [disabled]="saving()">
             {{ saving() ? 'Saving…' : 'Save' }}
           </button>
         </div>
@@ -56,16 +42,13 @@ import { UiStore } from '../state/ui-store';
     </app-modal>
   `,
 })
-export class InstructionsDialog implements OnInit {
+export class InstructionsDialog {
   private readonly store = inject(LessonStore);
   private readonly ui = inject(UiStore);
-  private readonly api = inject(ApiClient);
 
   /** The lesson the box was opened for, as it was then. */
   private readonly opened: Tree | null = this.store.detail()?.tree ?? null;
-  /** The prompt a new lesson gets (from the account's settings); undefined until read. */
-  protected readonly tutorPrompt = signal<string | null | undefined>(undefined);
-  protected readonly text = signal('');
+  protected readonly text = signal(this.opened?.learnerInstructions ?? '');
   protected readonly saving = signal(false);
 
   constructor() {
@@ -76,40 +59,20 @@ export class InstructionsDialog implements OnInit {
     });
   }
 
-  ngOnInit(): void {
-    void this.load();
-  }
-
-  /** Reads the tutor prompt, then fills the box with what the learner wrote. */
-  private async load(): Promise<void> {
-    if (!this.opened) return;
-    try {
-      const tutor = (await this.api.settings()).defaultSystemPrompt || null;
-      this.text.set(customInstructions(this.opened.systemPrompt, tutor) ?? '');
-      this.tutorPrompt.set(tutor);
-    } catch (err) {
-      this.store.fail(err);
-      this.close();
-    }
-  }
-
   protected close(): void {
     this.ui.dialogs.close('instructions');
   }
 
   protected async save(): Promise<void> {
     const tree = this.opened;
-    const tutor = this.tutorPrompt();
-    if (!tree || tutor === undefined) return;
-    const text = this.text().trim() ? this.text() : null;
-    // Unchanged instructions leave the stored prompt alone (power sends it as it is).
-    if (text === customInstructions(tree.systemPrompt, tutor)) {
+    if (!tree) return;
+    const learnerInstructions = this.text().trim() ? this.text() : null;
+    if (learnerInstructions === tree.learnerInstructions) {
       this.close();
       return;
     }
-    const systemPrompt = text ?? tutor;
     this.saving.set(true);
-    const ok = await this.store.updateTree(tree.id, { systemPrompt });
+    const ok = await this.store.updateTree(tree.id, { learnerInstructions });
     this.saving.set(false);
     if (ok) this.close();
   }

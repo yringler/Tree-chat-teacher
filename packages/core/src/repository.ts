@@ -19,16 +19,18 @@ import type {
  * ids in byte order (SQLite's text order). The behaviour every
  * implementation shares is test/repository-contract.ts.
  */
+/** The fields of a tree that can change after it is made. */
+export type TreePatch = Partial<
+  Pick<Tree, 'title' | 'systemPrompt' | 'learnerInstructions' | 'updatedAt'>
+>;
+
 export interface TreeRepository {
   /** Trees owned by `accountId`, most recently updated first, ties by id. */
   listTrees(accountId: string): Promise<TreeSummary[]>;
   getTree(treeId: string): Promise<Tree | null>;
   /** Atomically inserts the tree and its trunk branch. */
   createTree(tree: Tree, trunk: Branch): Promise<void>;
-  updateTree(
-    treeId: string,
-    patch: Partial<Pick<Tree, 'title' | 'systemPrompt' | 'updatedAt'>>,
-  ): Promise<Tree | null>;
+  updateTree(treeId: string, patch: TreePatch): Promise<Tree | null>;
   /** Deletes the tree with all branches, nodes, links, summaries and shares. */
   deleteTree(treeId: string): Promise<boolean>;
 

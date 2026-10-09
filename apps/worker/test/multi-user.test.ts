@@ -12,6 +12,7 @@ import {
   type SettingsResponse,
   type ShareSummary,
   type StreamEvent,
+  type Tree,
   type TreeDetail,
   type TreeSummary,
 } from '@tangent/shared';
@@ -294,12 +295,18 @@ describe('account settings: the default system prompt', () => {
     expect((await newTree(u, 'credit')).systemPrompt).toBe('Operator tutor prompt.');
   });
 
-  it("Learn adds a tree's own prompt after the tutor prompt on its own key or credit, never on the pool", async () => {
+  it("Learn adds a tree's learner instructions after the tutor prompt on its own key or credit, never on the pool", async () => {
     const u = await poolReadyUser();
     const c = u.client;
     const detail = await ok<TreeDetail>(
-      await c.call('/api/trees', { method: 'POST', json: { systemPrompt: 'Answer in French.' } }),
+      await c.call('/api/trees', { method: 'POST', json: { systemPrompt: 'Be brief.' } }),
       201,
+    );
+    await ok<Tree>(
+      await c.call(`/api/trees/${detail.tree.id}`, {
+        method: 'PATCH',
+        json: { learnerInstructions: 'Answer in French.' },
+      }),
     );
     const trunk = detail.branches[0]!;
     await grantCredit(env.DB, {
@@ -323,6 +330,7 @@ describe('account settings: the default system prompt', () => {
       const echoed = await systemSent(learn);
       expect(echoed).toContain(tutor);
       expect(echoed).toContain('\\n\\nAnswer in French.');
+      expect(echoed).not.toContain('Be brief.');
     }
     const pooled = await systemSent('pool');
     expect(pooled).not.toContain('Answer in French.');

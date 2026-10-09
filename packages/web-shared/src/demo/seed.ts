@@ -89,6 +89,7 @@ export function seedDemoLesson(
     accountId,
     title: 'How do kittens learn to whistle?',
     systemPrompt: null,
+    learnerInstructions: null,
     trunkBranchId: newId(),
     createdAt: created,
     updatedAt: created,

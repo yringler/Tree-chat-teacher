@@ -84,6 +84,7 @@ export class BackupService {
     const { accountId: _ignored, ...backupTree } = data.tree;
     const tree: Tree = {
       ...backupTree,
+      learnerInstructions: backupTree.learnerInstructions ?? null,
       id: treeId,
       accountId: this.ctx.accountId,
       trunkBranchId: mapBranch(data.tree.trunkBranchId),
