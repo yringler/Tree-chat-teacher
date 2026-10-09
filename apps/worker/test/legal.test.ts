@@ -82,14 +82,18 @@ describe('legal pages', () => {
     );
   });
 
-  it('says what the open pool keeps, and that it outlives an account deletion', async () => {
+  it('says what the open pool keeps, and what of it outlives an account deletion', async () => {
     const privacy = await (await setup()('/privacy')).text();
     expect(privacy).toContain('<tr><td>Open pool (if you use it)</td>');
     expect(privacy).toContain('a keyed hash of your IP address');
     expect(privacy).toContain('a SHA-256 hash of your email address');
     expect(privacy).toContain(
-      "Open pool records (the pool's usage records and your pool identity): kept after your account is deleted",
+      "Open pool records: when your account is deleted, the pool's usage records are kept without your user id or network key",
     );
+    expect(privacy).toContain(
+      "Your pool identity is kept for 90 days after the deletion, so that deleting an account and signing up again with the same mailbox neither lifts a suspension nor resets that day's caps, and then deleted.",
+    );
+    expect(privacy).not.toContain('with no set end');
   });
 
   it('the terms promise no credit with the membership', async () => {
