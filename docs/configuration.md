@@ -18,7 +18,7 @@ To run your own copy with sign-in and bring-your-own-key, set at least:
 2. The secrets `BETTER_AUTH_SECRET`, `KEY_ENCRYPTION_SECRET`, `RESEND_API_KEY` and `TURNSTILE_SECRET_KEY`.
 3. `ADMIN_USER_IDS` once you have signed in.
 
-Selling Tangent credit adds `BUILT_IN_API_KEY` and Polar (`POLAR_*`); the membership adds `ANNUAL_FEE_ENABLED`; the open pool adds `POOL_ENABLED`. The README's [Deploying](../README.md#deploying) walks through each.
+Selling Tangent credit adds `BUILT_IN_API_KEY` and Polar (`POLAR_*`); the membership adds `ANNUAL_FEE_ENABLED`; the open pool adds `POOL_ENABLED`. [operating.md](operating.md) walks through each.
 
 ## Deployment
 
@@ -51,7 +51,7 @@ Selling Tangent credit adds `BUILT_IN_API_KEY` and Polar (`POLAR_*`); the member
 
 ## Web search
 
-Grounding runs through OpenRouter's search tool, on the built-in provider and on OpenRouter with the user's own key ([DECISIONS.md](DECISIONS.md), Grounding).
+Grounding runs through OpenRouter's search tool, on the built-in provider and on OpenRouter with the user's own key ([DECISIONS.md](DECISIONS.md#web-search-grounding)).
 
 - `GROUNDING`: var; default `auto`. `auto` (offered on turns a free check picks; the model decides), `always-offer`, `explicit` (only **Check sources**) or `off`.
 - `GROUNDING_MAX_RESULTS`: var; default `5`; 1 to 25. Results per search. OpenRouter's Exa fee covers up to 10.
@@ -77,7 +77,7 @@ The built-in provider is OpenRouter on the operator's key (the endpoint `openrou
 
 ## Credit, membership and payments
 
-How pricing works is in the README ([Membership, credit and billing](../README.md#membership-credit-and-billing)).
+How pricing works is in [operating.md](operating.md#how-pricing-works).
 
 - `MARKUP_BPS`: var; default `1000` (+10%). Margin on the true provider cost of a call on Tangent credit.
 - `OPENROUTER_FEE_BPS`: var; default `550` (5.5%). OpenRouter's fee on credit purchases, added to each call's reported cost before the markup. Raise it if you top OpenRouter up in amounts under ~$15, where its $0.80 minimum fee is more than 5.5%.
@@ -95,7 +95,7 @@ How pricing works is in the README ([Membership, credit and billing](../README.m
 
 ## The open pool
 
-Free credit the operator funds with admin adjustments, for Learn users who can't pay, within daily caps that are the same for everyone ([pool/SPEC.md](pool/SPEC.md)). A pool reply's ceiling hold (`POOL_MAX_INPUT_TOKENS` in and `POOL_MAX_OUTPUT_TOKENS` out at the model's price) must fit under every daily spend cap, or the pool reports itself off and logs `pool_misconfigured`.
+Free credit the operator funds with admin adjustments, for Learn users who can't pay, within daily caps that are the same for everyone ([operating.md](operating.md#the-open-pool)). A pool reply's ceiling hold (`POOL_MAX_INPUT_TOKENS` in and `POOL_MAX_OUTPUT_TOKENS` out at the model's price) must fit under every daily spend cap, or the pool reports itself off and logs `pool_misconfigured`.
 
 - `POOL_ENABLED`: var; default `false`. `true` turns the pool on; off, nothing spends from it.
 - `POOL_MODEL`: var; default `BACKGROUND_MODEL`. The one model pool replies use. It must have a price.
