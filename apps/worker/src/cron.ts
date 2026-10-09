@@ -4,6 +4,7 @@ import { pollDisputes } from './billing/payments/disputes.js';
 import { reconcilePendingUsage, reconcilePoolUsage } from './billing/reconcile.js';
 import type { AppEnv } from './env.js';
 import { syncModelPrices } from './pool/model-prices.js';
+import { logEvent } from './log.js';
 
 /**
  * Every 10 minutes: usage reconciliation, pool reservation expiry and the
@@ -46,17 +47,17 @@ export function cronTasks(
         jobs.poolExpiry(env, now),
         // A provider outage must never block reconciliation.
         jobs.paymentDisputes(env, now).catch((e: unknown) => {
-          console.error('Payment dispute poll failed', e);
+          logEvent('error', 'dispute_poll_failed', { error: e });
         }),
       ];
     case CRON_DAILY:
       return [
         jobs.priceSync(env, now).catch((e: unknown) => {
-          console.error('Model price sync failed; the stored prices stay', e);
+          logEvent('error', 'price_sync_failed', { error: e });
         }),
       ];
     default:
-      console.warn(JSON.stringify({ event: 'cron_unknown', cron }));
+      logEvent('warn', 'cron_unknown', { cron });
       return [];
   }
 }

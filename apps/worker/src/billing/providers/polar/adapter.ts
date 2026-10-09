@@ -31,6 +31,7 @@ import {
   orderIdOf,
   refundEvent,
 } from './map.js';
+import { logEvent } from '../../../log.js';
 
 /** Bumped when the checkout metadata this adapter writes changes shape. */
 const METADATA_VERSION = 1;
@@ -242,7 +243,7 @@ export function createPolarProvider(config: PolarConfig): PaymentProvider {
         if (err instanceof webhooks.PolarWebhookUnknownTypeError)
           return { kind: 'ignored', deliveryId, reason: `unknown type ${err.eventType ?? '?'}` };
         // Signed, but unreadable: retrying the same bytes can't help.
-        console.error(JSON.stringify({ event: 'polar_webhook_unreadable', deliveryId }));
+        logEvent('error', 'polar_webhook_unreadable', { deliveryId });
         return { kind: 'ignored', deliveryId, reason: 'unreadable payload' };
       }
       if (!deliveryId) throw new WebhookSignatureError('Missing webhook-id');
@@ -288,9 +289,7 @@ function toEvents(payload: webhooks.WebhookPayload, config: PolarConfig): Paymen
       const sub = payload.data as models.Subscription;
       const event = membershipEvent(sub, config, occurredAt);
       if (!event && sub.metadata?.['kind'] === MEMBERSHIP_KIND)
-        console.error(
-          JSON.stringify({ event: 'polar_membership_without_user', subscriptionId: sub.id }),
-        );
+        logEvent('error', 'polar_membership_without_user', { subscriptionId: sub.id });
       return event ? [{ ...event, provider: 'polar' }] : [];
     }
   }

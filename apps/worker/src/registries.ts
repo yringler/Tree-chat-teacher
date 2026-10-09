@@ -41,6 +41,7 @@ import {
   simpleProviderConfig,
   simpleSystemPrompt,
 } from './simple-mode.js';
+import { logEvent } from './log.js';
 
 /** Keeps background work alive past the response (`waitUntil` of the Worker or the Durable Object). */
 export type Defer = (p: Promise<unknown>) => void;
@@ -217,7 +218,7 @@ export interface ChatServiceOptions extends ServiceScope {
 
 /** Last resort when a caller has no `waitUntil`: the work still runs, failures are logged. */
 const detach: Defer = (p) => {
-  p.catch((err: unknown) => console.error('Deferred usage work failed', err));
+  p.catch((err: unknown) => logEvent('error', 'deferred_work_failed', { error: err }));
 };
 
 /**
@@ -351,7 +352,7 @@ export function chatService(
       : {}),
     groundingAllowance: groundingAllowance(env, account),
     // Failures the service recovers from on its own, as structured log lines.
-    log: (event, fields) => console.error(JSON.stringify({ event, ...fields })),
+    log: (event, fields) => logEvent('error', event, fields),
   });
 }
 

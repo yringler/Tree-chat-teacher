@@ -4,6 +4,7 @@ import { createMiddleware } from 'hono/factory';
 import { isMetered, type AppBindings, type AppContext } from '../env.js';
 import { fingerprint } from './seal.js';
 import type { UserKeys } from './keys.js';
+import { logEvent } from '../log.js';
 
 /**
  * Controls on the routes that spend the user's provider credit. An XSS on
@@ -110,10 +111,10 @@ export async function enforceRateLimit(
   try {
     ({ success } = await limiter.limit({ key: `${scope}:${who}` }));
   } catch (err) {
-    console.warn(
-      `${scope} rate limiter failed; allowing request`,
-      err instanceof Error ? err.name : 'unknown',
-    );
+    logEvent('warn', 'rate_limiter_failed', {
+      scope,
+      error: err instanceof Error ? err.name : 'unknown',
+    });
   }
   if (!success)
     throw new DomainError('rate_limited', 'Too many requests. Wait a minute and try again.');

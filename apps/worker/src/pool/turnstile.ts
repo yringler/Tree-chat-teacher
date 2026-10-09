@@ -5,6 +5,7 @@
 // error or an unexpected answer all mean "not verified".
 import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
+import { logEvent } from '../log.js';
 
 export const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 /** Longest token Turnstile issues (its docs: 2048 characters). */
@@ -51,7 +52,7 @@ export async function verifyTurnstile(
     if (!res.ok) return false;
     body = await res.json();
   } catch (err) {
-    console.error('Turnstile Siteverify failed', err);
+    logEvent('error', 'turnstile_failed', { error: err });
     return false;
   }
   if (body.success !== true) return false;

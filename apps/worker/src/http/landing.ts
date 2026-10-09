@@ -25,6 +25,7 @@ import { cachedPoolStatus } from '../pool/status.js';
 import { waitUntilOf } from '../routes/pool.js';
 import { creditSold, ownKeyProviders } from '../availability.js';
 import { learnOffer } from '../simple-mode.js';
+import { logEvent } from '../log.js';
 
 /**
  * Better Auth's session cookie (`cookiePrefix: 'tangent'` in auth/auth.ts),
@@ -515,7 +516,7 @@ async function landingPool(c: Context<AppBindings>): Promise<PoolStatusResponse 
     const status = await cachedPoolStatus(c.env, waitUntilOf(c));
     return status.enabled ? status : undefined;
   } catch (err) {
-    console.warn('Landing page: the pool meter could not be read', err);
+    logEvent('warn', 'pool_meter_unreadable', { page: 'landing', error: err });
     return undefined;
   }
 }

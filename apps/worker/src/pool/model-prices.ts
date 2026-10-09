@@ -43,6 +43,7 @@ import {
   type ListPrice,
   type PriceRow,
 } from './price-table.js';
+import { logEvent } from '../log.js';
 
 export const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
 /** A synced price below 1/this of the stored one is held back as an anomaly. */
@@ -159,7 +160,7 @@ async function syncOnDemand(env: AppEnv): Promise<boolean> {
       ok: syncModelPrices(env, new Date(now)).then(
         () => true,
         (e: unknown) => {
-          console.error('On-demand price sync failed', e);
+          logEvent('error', 'price_sync_failed', { onDemand: true, error: e });
           return false;
         },
       ),
@@ -317,7 +318,7 @@ async function syncUntrackedPrices(
   }
   if (anomalies.length > 0) {
     // One line for all of them: a list-wide glitch would otherwise log hundreds.
-    console.error(JSON.stringify({ event: 'price_sync_anomaly', models: anomalies }));
+    logEvent('error', 'price_sync_anomaly', { models: anomalies });
   }
   const writes: D1PreparedStatement[] = [];
   for (let i = 0; i < rows.length; i += PRICE_ROWS_PER_INSERT) {
@@ -366,23 +367,19 @@ export async function syncModelPrices(
     const next = list.get(model);
     if (!next) {
       result.missing.push(model);
-      console.warn(JSON.stringify({ event: 'price_sync_missing', model }));
+      logEvent('warn', 'price_sync_missing', { model });
       continue;
     }
     const prev = await storedPrice(env.DB, model);
     if (prev && isAnomalousDrop(prev, next)) {
       result.anomalies.push(model);
-      console.error(
-        JSON.stringify({ event: 'price_sync_anomaly', model, stored: prev, listed: next }),
-      );
+      logEvent('error', 'price_sync_anomaly', { model, stored: prev, listed: next });
       continue;
     }
     // An override below the list price under-holds: real costs exceed the holds.
     const override = config.priceOverrides.includes(model) ? config.prices[model] : undefined;
     if (override && isBelowList(override, next)) {
-      console.warn(
-        JSON.stringify({ event: 'price_override_below_list', model, override, listed: next }),
-      );
+      logEvent('warn', 'price_override_below_list', { model, override, listed: next });
     }
     const changed = !prev || !samePrice(prev, next);
     (changed ? result.changed : result.unchanged).push(model);
@@ -399,18 +396,17 @@ export async function syncModelPrices(
            fetched_at = excluded.fetched_at`,
       ).bind(...priceColumns(model, next), at),
     );
-    if (changed && prev)
-      console.warn(JSON.stringify({ event: 'price_changed', model, from: prev, to: next }));
+    if (changed && prev) logEvent('warn', 'price_changed', { model, from: prev, to: next });
   }
 
   if (writes.length > 0) await env.DB.batch(writes);
   const others = await syncUntrackedPrices(env, list, new Set(models), at).catch((e: unknown) => {
-    console.error('Syncing the other models’ prices failed; their stored prices stay', e);
+    logEvent('error', 'price_sync_failed', { untracked: true, error: e });
     return 0;
   });
-  console.log(JSON.stringify({ event: 'price_sync', ...result, others }));
+  logEvent('info', 'price_sync', { ...result, others });
   await syncModelWindows(env, now, body).catch((e: unknown) => {
-    console.error('Model window sync failed; the stored windows stay', e);
+    logEvent('error', 'window_sync_failed', { error: e });
   });
   return result;
 }

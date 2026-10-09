@@ -24,6 +24,7 @@ import type {
   PoolReserveRequest,
 } from './pool-bank.js';
 import { ceilingHoldMicros } from './pricing.js';
+import { logEvent } from '../log.js';
 
 // The pool's timings and breaker: internal mechanics, the same for every
 // deployment. The expiry needs a call to have timed out a while before its
@@ -173,7 +174,7 @@ function reportCeilingProblem(
   const problem = ceilingProblem(pool, model, price);
   if (problem !== null && !reported.has(problem)) {
     reported.add(problem);
-    console.error(JSON.stringify({ event: 'pool_misconfigured', problem }));
+    logEvent('error', 'pool_misconfigured', { problem });
   }
   return problem;
 }

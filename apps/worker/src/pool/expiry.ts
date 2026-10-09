@@ -8,6 +8,7 @@ import { settleUsage } from '../billing/usage-store.js';
 import type { AppEnv } from '../env.js';
 import { simpleApiKey } from '../simple-mode.js';
 import { poolSettlement } from './settle-policy.js';
+import { logEvent } from '../log.js';
 
 /** One generation lookup per expired row, with this timeout: an alarm never waits on a slow upstream for long. */
 export const EXPIRY_LOOKUP_TIMEOUT_MS = 5_000;
@@ -64,11 +65,7 @@ async function lookupOnce(
   try {
     return await fetchOpenRouterGeneration(generationId, key, timedFetch(fetchImpl));
   } catch (e) {
-    console.warn(
-      'Pool expiry: generation lookup failed',
-      generationId,
-      e instanceof Error ? e.message : e,
-    );
+    logEvent('warn', 'generation_lookup_failed', { generationId, source: 'pool_expiry', error: e });
     return null;
   }
 }
@@ -155,17 +152,14 @@ export async function expirePoolReservations(
         if (settlement.reason === 'released') result.released++;
         else result.charged++;
         if (settlement.reason === 'hold') {
-          console.warn(
-            JSON.stringify({
-              event: 'pool_reservation_expired',
-              poolId,
-              usageId: row.id,
-              reason: 'hold',
-            }),
-          );
+          logEvent('warn', 'pool_reservation_expired', {
+            poolId,
+            usageId: row.id,
+            reason: 'hold',
+          });
         }
       } catch (e) {
-        console.error('Pool expiry failed for row', row.id, e);
+        logEvent('error', 'pool_expiry_failed', { usageId: row.id, error: e });
       }
     }),
   );

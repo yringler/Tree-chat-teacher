@@ -28,6 +28,7 @@ import { validateJson } from '../http/errors.js';
 import { sseFromAsyncIterable } from '../http/sse.js';
 import { generationLimits } from '../input-limit.js';
 import { chatOf, keysOf, type OpenKeys } from './request-chat.js';
+import { logEvent } from '../log.js';
 
 /**
  * What a send on Tangent credit reserves before its nodes are written (the
@@ -222,7 +223,7 @@ export function generationRoutes(): Hono<AppBindings> {
           expiresAt,
         };
       } catch (err) {
-        console.error('Holding a compare candidate failed', err);
+        logEvent('error', 'candidate_hold_failed', { error: err });
         return { type: 'error', message: 'This answer could not be kept; try again.' };
       }
     };

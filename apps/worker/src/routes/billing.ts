@@ -21,6 +21,7 @@ import { enforceRateLimit } from '../byok/guard.js';
 import { appConfig } from '../config.js';
 import type { AppBindings, AppContext } from '../env.js';
 import { apiError, validateJson, validateQuery } from '../http/errors.js';
+import { logEvent } from '../log.js';
 
 const DEFAULT_USAGE_PAGE = 50;
 
@@ -40,7 +41,7 @@ async function viaProvider<T>(run: () => Promise<T>): Promise<T> {
     return await run();
   } catch (err) {
     if (!(err instanceof PaymentProviderError)) throw err;
-    console.error(JSON.stringify({ event: 'payment_provider_error', error: err.message }));
+    logEvent('error', 'payment_provider_error', { error: err.message });
     throw new DomainError(
       'provider_error',
       "Couldn't reach the payment provider. Please try again in a moment.",

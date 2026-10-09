@@ -14,6 +14,7 @@ import { chargeMicros } from './billing/pricing.js';
 import { markupFor, openRouterFeeBps } from './billing/service.js';
 import { providerConfigs } from './provider-configs.js';
 import { isOpenRouter, simpleMaxInputTokens, simpleProviderConfig } from './simple-mode.js';
+import { logEvent } from './log.js';
 
 /** USD per million tokens, from the price table's micro-USD per million. */
 const MICROS_PER_USD = 1_000_000;
@@ -77,7 +78,7 @@ export async function inputBudgetResponse(
   const priced = credit || ownKeyOnOpenRouter(env, account, budget.providerId);
   const price = priced
     ? await modelPrice(env, budget.model).catch((err: unknown) => {
-        console.error(`Price of ${budget.model} could not be read`, err);
+        logEvent('error', 'price_read_failed', { model: budget.model, error: err });
         return null;
       })
     : null;

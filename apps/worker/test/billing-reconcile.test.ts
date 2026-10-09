@@ -83,10 +83,8 @@ describe('usage reconciliation cron', () => {
     });
     expect(await usageRow(env, notYet)).toMatchObject({ status: 'pending', charge_micros: null });
     expect(await usageRow(env, lost)).toMatchObject({ status: 'unresolved', charge_micros: 0 });
-    expect(error).toHaveBeenCalledWith(
-      expect.stringContaining('unresolved'),
-      expect.objectContaining({ usageId: lost }),
-    );
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('"event":"usage_unresolved"'));
+    expect(error).toHaveBeenCalledWith(expect.stringContaining(`"usageId":"${lost}"`));
     expect(await usageRow(env, fresh)).toMatchObject({ status: 'pending' });
     expect((await generationCalls(genFresh)).count).toBe(0);
     expect(await usageRow(env, noIdOld)).toMatchObject({

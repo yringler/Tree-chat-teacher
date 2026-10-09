@@ -25,6 +25,7 @@ import { creditSold, ownKeyProviders, poolAvailable } from '../availability.js';
 import { learnOffer, type LearnOffer } from '../simple-mode.js';
 import { joinList, LANDING_STYLE, MARK, poolStepsHtml, styleCsp } from './landing.js';
 import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';
+import { logEvent } from '../log.js';
 
 /**
  * `/pricing`: what each way to pay gets you, as a pricing chart. Plan cards up
@@ -649,7 +650,7 @@ async function poolAvailableMicros(c: Context<AppBindings>): Promise<number | nu
   try {
     return (await cachedPoolStatus(c.env, waitUntilOf(c))).availableMicros;
   } catch (err) {
-    console.warn('/pricing: the pool meter could not be read', err);
+    logEvent('warn', 'pool_meter_unreadable', { page: 'pricing', error: err });
     return null;
   }
 }

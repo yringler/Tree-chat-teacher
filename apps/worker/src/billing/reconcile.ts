@@ -10,6 +10,7 @@ import { POOL_EXPIRE_BATCH, POOL_GIVE_UP_MS, POOL_RESERVATION_TTL_MS } from '../
 import { simpleApiKey } from '../simple-mode.js';
 import { costUsdToNanos } from './pricing.js';
 import { markUnresolved, settleUsage } from './usage-store.js';
+import { logEvent } from '../log.js';
 
 /** Backoff after a stream ends without a cost: OpenRouter 404s for a few seconds. */
 export const RECONCILE_RETRY_DELAYS_MS: readonly number[] = [1_000, 3_000, 10_000, 30_000];
@@ -37,11 +38,7 @@ async function lookup(
   try {
     return await fetchOpenRouterGeneration(generationId, key, fetchImpl);
   } catch (e) {
-    console.warn(
-      'OpenRouter generation lookup failed',
-      generationId,
-      e instanceof Error ? e.message : e,
-    );
+    logEvent('warn', 'generation_lookup_failed', { generationId, error: e });
     return null;
   }
 }
@@ -76,10 +73,7 @@ export async function reconcileGeneration(
 ): Promise<boolean> {
   const key = simpleApiKey(env);
   if (!key) {
-    console.warn(
-      'No OpenRouter key for usage reconciliation; leaving usage pending',
-      target.usageId,
-    );
+    logEvent('warn', 'reconcile_no_key', { usageId: target.usageId });
     return false;
   }
   let cost: GenerationCost | null = null;
@@ -99,7 +93,7 @@ export async function reconcileGeneration(
       });
       return true;
     } catch (e) {
-      console.error('Usage settle failed; retrying', target.usageId, e);
+      logEvent('error', 'usage_settle_failed', { usageId: target.usageId, error: e });
     }
   }
   return false;
@@ -159,7 +153,7 @@ export async function reconcilePendingUsage(
         } else if (age > CRON_GIVE_UP_AGE_MS) {
           if (await markUnresolved(env.DB, row.id, now)) {
             unresolved++;
-            console.error('Usage unresolved after 24 h; charged 0, review manually', {
+            logEvent('error', 'usage_unresolved', {
               usageId: row.id,
               generationId: row.generation_id,
             });
@@ -176,7 +170,7 @@ export async function reconcilePendingUsage(
         if ((await settleUsage(env.DB, row.id, zero)).changed) settled++;
       }
     } catch (e) {
-      console.error('Usage reconciliation failed for row', row.id, e);
+      logEvent('error', 'usage_reconcile_failed', { usageId: row.id, error: e });
     }
   }
   return { settled, unresolved };
@@ -210,11 +204,11 @@ export async function reconcilePoolUsage(
       try {
         out[poolId] = await expirePoolReservations(env, poolId, now, options);
       } catch (e) {
-        console.error('Pool expiry failed', poolId, e);
+        logEvent('error', 'pool_expiry_failed', { poolId, error: e });
       }
     }
   } catch (e) {
-    console.error('Pool expiry backstop failed', e);
+    logEvent('error', 'pool_expiry_failed', { error: e });
   }
   if (appConfig(env).flags.poolEnabled) {
     try {
@@ -224,7 +218,7 @@ export async function reconcilePoolUsage(
         now: now.getTime(),
       });
     } catch (e) {
-      console.error('Pool checkpoint maintenance failed', e);
+      logEvent('error', 'pool_maintenance_failed', { error: e });
     }
   }
   return out;

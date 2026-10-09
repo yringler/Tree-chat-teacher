@@ -5,6 +5,7 @@ import { HTTPException } from 'hono/http-exception';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { validator } from 'hono/validator';
 import { ZodError, type z } from 'zod';
+import { logEvent } from '../log.js';
 
 export function apiError(
   c: Context,
@@ -69,7 +70,11 @@ export const onError: ErrorHandler = (err, c) => {
     // Hono's own exceptions carry safe, user-facing messages (e.g. malformed JSON).
     return apiError(c, code, code === 'internal' ? 'Internal error' : err.message || code);
   }
-  console.error('Unhandled error', c.req.method, new URL(c.req.url).pathname, err);
+  logEvent('error', 'unhandled_error', {
+    method: c.req.method,
+    path: new URL(c.req.url).pathname,
+    error: err,
+  });
   return apiError(c, 'internal', 'Internal error');
 };
 

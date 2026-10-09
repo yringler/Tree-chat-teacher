@@ -37,10 +37,7 @@ describe('cron dispatch', () => {
     const failing = spies();
     failing.priceSync.mockImplementation(() => Promise.reject(new Error('down')));
     await expect(Promise.all(cronTasks(CRON_DAILY, env, now, failing))).resolves.toBeDefined();
-    expect(error).toHaveBeenCalledWith(
-      expect.stringContaining('price sync failed'),
-      expect.any(Error),
-    );
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('"event":"price_sync_failed"'));
     error.mockRestore();
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

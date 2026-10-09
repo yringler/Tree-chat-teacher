@@ -14,6 +14,7 @@ import { validateJson } from '../http/errors.js';
 import { poolIdentity } from '../pool/identity.js';
 import { purgeShare } from '../share/cache.js';
 import { accountIdForUser, POWER_ACCOUNT_PREFIX } from './account.js';
+import { logEvent } from '../log.js';
 
 /**
  * Better Auth's cookies (`cookiePrefix: 'tangent'` in auth/auth.ts), plain on
@@ -128,16 +129,18 @@ async function deleteBillingCustomer(env: AppEnv, userId: string): Promise<boole
     // Payments were switched off since this customer was created: nothing here can reach the
     // provider, so the operator has to delete the customer by hand.
     if (held.length > 0)
-      console.error(
-        `Account deletion: payments are not configured; delete user ${userId}'s customer at ${held.join(', ')} by hand`,
-      );
+      logEvent('error', 'account_deletion_customer_left', {
+        userId,
+        providers: held,
+        reason: 'payments not configured: delete the customer by hand',
+      });
     return false;
   }
   try {
     const customerRef = await customerRefFor(env.DB, provider.id, userId);
     return (await provider.deleteCustomer({ userId, customerRef })) === 'deleted';
   } catch (err) {
-    console.error('Account deletion: payment customer deletion failed', err);
+    logEvent('error', 'account_deletion_customer_failed', { userId, error: err });
     throw new DomainError(
       'internal',
       "Couldn't cancel your billing with our payment provider, so nothing was deleted. Please try again.",

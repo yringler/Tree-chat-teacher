@@ -38,6 +38,7 @@ import { poolOverageMicros } from '../pool/pool-bank.js';
 import { purgeShare } from '../share/cache.js';
 import { poolAvailable, sharingEnabled } from '../availability.js';
 import { shareService } from '../registries.js';
+import { logEvent } from '../log.js';
 
 interface UserRow {
   id: string;
@@ -235,16 +236,13 @@ export function adminRoutes(): Hono<AppBindings> {
     ]);
     if (!updated!.meta.changes) throw new NotFoundError('User');
     if (poolSuspended !== undefined)
-      console.log(JSON.stringify({ event: 'pool_suspension_set', userId, poolSuspended }));
+      logEvent('info', 'pool_suspension_set', { userId, poolSuspended });
     if (membershipWaived !== undefined)
-      console.log(
-        JSON.stringify({
-          event: 'membership_waiver_set',
-          adminId: c.var.identity.userId,
-          userId,
-          membershipWaived,
-        }),
-      );
+      logEvent('info', 'membership_waiver_set', {
+        adminId: c.var.identity.userId,
+        userId,
+        membershipWaived,
+      });
     return c.json((await getUser(c.env, userId)) satisfies AdminUser);
   });
 
@@ -373,18 +371,15 @@ export function adminRoutes(): Hono<AppBindings> {
     // The row as written (now, or by the first request with this key).
     const row = await grantByRef(db, ref);
     const { balanceMicros } = await getBalance(db, row?.account_id ?? accountId);
-    console.log(
-      JSON.stringify({
-        event: 'admin_credit',
-        adminId: c.var.identity.userId,
-        target: req.target,
-        userId: req.userId,
-        mode: req.mode,
-        ref,
-        credited,
-        amountMicros: row?.amount_micros ?? 0,
-      }),
-    );
+    logEvent('info', 'admin_credit', {
+      adminId: c.var.identity.userId,
+      target: req.target,
+      userId: req.userId,
+      mode: req.mode,
+      ref,
+      credited,
+      amountMicros: row?.amount_micros ?? 0,
+    });
     return c.json({
       credited,
       amountMicros: row?.amount_micros ?? 0,

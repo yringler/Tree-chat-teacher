@@ -104,10 +104,7 @@ describe('syncModelWindows', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const broken = envWithFailingDb(env, /model_windows/);
     await expect(syncModelPrices(broken, T1, fetchImpl)).resolves.toBeDefined();
-    expect(error).toHaveBeenCalledWith(
-      'Model window sync failed; the stored windows stay',
-      expect.any(Error),
-    );
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('"event":"window_sync_failed"'));
   });
 });
 

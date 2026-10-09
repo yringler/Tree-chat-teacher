@@ -86,6 +86,7 @@ import {
   shrinkHold,
   type Settlement,
 } from './usage-store.js';
+import { logEvent } from '../log.js';
 
 export interface UsageMeter {
   /** Who pays: the user's credit or the open pool (logged with each call). */
@@ -207,7 +208,7 @@ abstract class ObservedRun implements MeterRun {
           this.idWrite = this.idWrite
             .then(() => setGenerationId(this.env.DB, this.usageId, id))
             .catch((e: unknown) =>
-              console.error('Recording the generation id failed', this.usageId, e),
+              logEvent('error', 'usage_generation_id_failed', { usageId: this.usageId, error: e }),
             );
           this.defer(this.idWrite);
         }
@@ -238,7 +239,7 @@ abstract class ObservedRun implements MeterRun {
         this.upstream = event.error.upstream ?? null;
       }
     } catch (e) {
-      console.error('Usage meter observe failed', e);
+      logEvent('error', 'usage_observe_failed', { error: e });
     }
   }
 
@@ -248,7 +249,7 @@ abstract class ObservedRun implements MeterRun {
     try {
       await this.settleRun();
     } catch (e) {
-      console.error('Usage meter finish failed', this.usageId, e);
+      logEvent('error', 'usage_finish_failed', { usageId: this.usageId, error: e });
     }
   }
 
@@ -283,9 +284,7 @@ abstract class ObservedRun implements MeterRun {
     };
     const result = await settleUsage(this.env.DB, this.usageId, settlement);
     if (result.clamped) {
-      console.warn(
-        JSON.stringify({ event: 'pool_overage', usageId: this.usageId, reason: settlement.reason }),
-      );
+      logEvent('warn', 'pool_overage', { usageId: this.usageId, reason: settlement.reason });
     }
   }
 
@@ -293,7 +292,7 @@ abstract class ObservedRun implements MeterRun {
     try {
       await this.settle(s);
     } catch (e) {
-      console.error('Usage settle failed; retrying in the background', this.usageId, e);
+      logEvent('error', 'usage_settle_failed', { usageId: this.usageId, retrying: true, error: e });
       this.defer(
         (async () => {
           for (const delay of this.options.settleRetryDelaysMs ?? SETTLE_RETRY_DELAYS_MS) {
@@ -302,7 +301,7 @@ abstract class ObservedRun implements MeterRun {
               await this.settle(s);
               return;
             } catch (err) {
-              console.error('Usage settle retry failed', this.usageId, err);
+              logEvent('error', 'usage_settle_retry_failed', { usageId: this.usageId, error: err });
             }
           }
         })(),
@@ -510,15 +509,12 @@ export function createPoolUsageMeter(
       const limitTokens = poolInputLimitTokens(price, pool.maxInputTokens);
       if (exceedsInputLimit(limitTokens, request)) {
         const bound = inputBoundTokens(request);
-        console.warn(
-          JSON.stringify({
-            event: 'pool_request_too_large',
-            userId,
-            purpose: tag?.purpose ?? 'other',
-            inputBoundTokens: bound,
-            limitTokens,
-          }),
-        );
+        logEvent('warn', 'pool_request_too_large', {
+          userId,
+          purpose: tag?.purpose ?? 'other',
+          inputBoundTokens: bound,
+          limitTokens,
+        });
         throw new PoolRequestTooLargeError(bound);
       }
       const holdMicros = worstCaseHoldMicros(price, request, maxOutput, price.feeBps);
@@ -591,8 +587,7 @@ class CallLog {
       const { request } = this;
       const listed = this.provider.models().find((m) => m.id === request.model);
       const truncated = isLengthStop(this.stopReason);
-      const line = JSON.stringify({
-        event: 'llm_call',
+      logEvent(truncated ? 'warn' : 'info', 'llm_call', {
         usageId,
         funding: this.funding,
         purpose: request.usageTag?.purpose ?? 'other',
@@ -613,10 +608,8 @@ class CallLog {
         truncated,
         error: this.error,
       });
-      if (truncated) console.warn(line);
-      else console.log(line);
     } catch (e) {
-      console.error('Logging the call failed', usageId, e);
+      logEvent('error', 'llm_call_log_failed', { usageId, error: e });
     }
   }
 }
@@ -676,7 +669,7 @@ async function* meteredStream(
       };
       return;
     }
-    console.error('Usage metering unavailable', e);
+    logEvent('error', 'usage_meter_unavailable', { error: e });
     yield {
       type: 'error',
       error: {
@@ -696,7 +689,7 @@ async function* meteredStream(
     try {
       dispatched = await run.dispatch();
     } catch (e) {
-      console.error('Recording the dispatch failed; not calling upstream', e);
+      logEvent('error', 'usage_dispatch_failed', { error: e });
     }
     if (!dispatched) {
       // Nothing was sent: the reservation (if it still exists) is released.

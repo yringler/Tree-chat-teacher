@@ -48,6 +48,7 @@ import {
   type RefundSucceeded,
 } from './port.js';
 import { reinstatedRef } from './refs.js';
+import { logEvent } from '../../log.js';
 
 /**
  * Thrown when the provider should deliver the event again later (a fee not
@@ -67,7 +68,7 @@ export interface ApplyDeps {
 }
 
 function log(event: string, fields: Record<string, unknown>): void {
-  console.warn(JSON.stringify({ event, ...fields }));
+  logEvent('warn', event, fields);
 }
 
 function written(changed: boolean): ApplyResult {

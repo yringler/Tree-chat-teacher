@@ -38,6 +38,7 @@ import {
 } from '../pool/params.js';
 import { chatService } from '../registries.js';
 import { BUILT_IN_PROVIDER_ID } from '../simple-mode.js';
+import { logEvent } from '../log.js';
 
 const KEEPALIVE_MS = 15_000;
 const encoder = new TextEncoder();
@@ -215,7 +216,7 @@ export class TreeSession extends DurableObject<AppEnv> {
       return errorResponse(new DomainError('not_found', 'Unknown session route'));
     } catch (err) {
       if (err instanceof DomainError) return errorResponse(err);
-      console.error('TreeSession error', err);
+      logEvent('error', 'tree_session_error', { error: err });
       return errorResponse(new DomainError('internal', 'Internal error'));
     }
   }
@@ -333,7 +334,7 @@ export class TreeSession extends DurableObject<AppEnv> {
     try {
       await releaseUndispatched(this.env.DB, reservationId);
     } catch (err) {
-      console.error('Releasing a reservation failed; the backstops will', reservationId, err);
+      logEvent('error', 'reservation_release_failed', { reservationId, error: err });
     }
   }
 

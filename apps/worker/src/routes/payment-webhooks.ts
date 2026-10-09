@@ -3,6 +3,7 @@ import { applyPaymentEvent } from '../billing/payments/apply.js';
 import { webhookProvider, WebhookSignatureError } from '../billing/payments/index.js';
 import type { AppBindings } from '../env.js';
 import { apiError } from '../http/errors.js';
+import { logEvent } from '../log.js';
 
 /**
  * `POST /api/webhooks/:provider` (public; registered before the session
@@ -29,9 +30,7 @@ export async function paymentWebhookRoute(c: Context<AppBindings>): Promise<Resp
     parsed = await provider.parseWebhook({ rawBody, headers: c.req.raw.headers });
   } catch (err) {
     if (err instanceof WebhookSignatureError) {
-      console.warn(
-        JSON.stringify({ event: 'payment_webhook_rejected', provider: id, reason: err.message }),
-      );
+      logEvent('warn', 'payment_webhook_rejected', { provider: id, reason: err.message });
       return apiError(c, 'forbidden', 'Invalid webhook signature');
     }
     throw err;
@@ -40,14 +39,11 @@ export async function paymentWebhookRoute(c: Context<AppBindings>): Promise<Resp
   try {
     for (const event of parsed.events) await applyPaymentEvent(c.env, event, { provider });
   } catch (err) {
-    console.error(
-      JSON.stringify({
-        event: 'payment_webhook_failed',
-        provider: id,
-        deliveryId: parsed.deliveryId,
-        error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
-      }),
-    );
+    logEvent('error', 'payment_webhook_failed', {
+      provider: id,
+      deliveryId: parsed.deliveryId,
+      error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+    });
     return c.json({ received: false }, 500);
   }
   return c.json({ received: true });

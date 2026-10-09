@@ -5,6 +5,7 @@
 import { EXPLICIT_CACHE_WRITE_MULTIPLIER, usesExplicitCacheControl } from '@tangent/providers';
 import { appConfig, type ModelPrice } from '../config.js';
 import type { AppEnv } from '../env.js';
+import { logEvent } from '../log.js';
 
 /** A list price in the price table's units. */
 export interface ListPrice {
@@ -63,7 +64,7 @@ export async function modelPrice(env: AppEnv, model: string): Promise<ModelPrice
   try {
     synced = await storedPrice(env.DB, model);
   } catch (e) {
-    console.error(`Synced price of ${model} could not be read; using the configured one`, e);
+    logEvent('error', 'price_read_failed', { model, fallback: 'configured', error: e });
     return withCacheWritePrice(model, entry);
   }
   if (!synced) return withCacheWritePrice(model, entry);

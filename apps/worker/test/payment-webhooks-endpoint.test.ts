@@ -183,7 +183,7 @@ describe('the dispute cron job', () => {
       Promise.all(cronTasks(CRON_FREQUENT, base, new Date(), jobs)),
     ).resolves.toBeDefined();
     expect(jobs.paymentDisputes).toHaveBeenCalledOnce();
-    expect(error).toHaveBeenCalledWith('Payment dispute poll failed', expect.any(Error));
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('"event":"dispute_poll_failed"'));
     error.mockRestore();
   });
 });

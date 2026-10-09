@@ -38,6 +38,7 @@ import {
   nextExpiryAt,
   type ExpiryResult,
 } from './expiry.js';
+import { logEvent } from '../log.js';
 
 const DAY_MS = 24 * 60 * 60_000;
 
@@ -253,16 +254,13 @@ function refusal(
     resetAt: fields.resetAt ?? null,
     limit: fields.limit ?? null,
   };
-  console.log(
-    JSON.stringify({
-      event: 'pool_refused',
-      poolId: req.poolId,
-      userId: req.userId,
-      purpose: req.purpose ?? 'admit',
-      holdMicros: req.holdMicros ?? 0,
-      ...refused,
-    }),
-  );
+  logEvent('info', 'pool_refused', {
+    poolId: req.poolId,
+    userId: req.userId,
+    purpose: req.purpose ?? 'admit',
+    holdMicros: req.holdMicros ?? 0,
+    ...refused,
+  });
   return refused;
 }
 
@@ -437,16 +435,13 @@ export class PoolBank extends DurableObject<AppEnv> {
       note: `${req.note} (requested=${requested};shortfall=${shortfall})`,
     });
     if (debited && shortfall > 0) {
-      console.warn(
-        JSON.stringify({
-          event: 'pool_debit_shortfall',
-          poolId: req.poolId,
-          refId: req.refId,
-          requestedMicros: requested,
-          debitedMicros: amount,
-          shortfallMicros: shortfall,
-        }),
-      );
+      logEvent('warn', 'pool_debit_shortfall', {
+        poolId: req.poolId,
+        refId: req.refId,
+        requestedMicros: requested,
+        debitedMicros: amount,
+        shortfallMicros: shortfall,
+      });
     }
     if (!debited) {
       // Lost a race with another writer of the same ref (not through this lock): report its row.
@@ -568,14 +563,11 @@ export class PoolBank extends DurableObject<AppEnv> {
       const fromCheckpoint = readBalance(sinceRes!.results[0]);
       mismatchMicros = full.balanceMicros - fromCheckpoint.balanceMicros;
       if (mismatchMicros !== 0) {
-        console.error(
-          JSON.stringify({
-            event: 'pool_checkpoint_mismatch',
-            poolId: req.poolId,
-            fullMicros: full.balanceMicros,
-            checkpointedMicros: fromCheckpoint.balanceMicros,
-          }),
-        );
+        logEvent('error', 'pool_checkpoint_mismatch', {
+          poolId: req.poolId,
+          fullMicros: full.balanceMicros,
+          checkpointedMicros: fromCheckpoint.balanceMicros,
+        });
         // The ledger is the authority: drop the checkpoint, so reservations sum every row until the next advance.
         await this.ctx.storage.delete('checkpoint');
         checkpoint = null;
@@ -681,9 +673,7 @@ export class PoolBank extends DurableObject<AppEnv> {
         );
       return null;
     } catch (err) {
-      console.error(
-        JSON.stringify({ event: 'pool_rate_unavailable', poolId: req.poolId, error: String(err) }),
-      );
+      logEvent('error', 'pool_rate_unavailable', { poolId: req.poolId, error: String(err) });
       return refusal(req, 'rate', { resetAt });
     }
   }
@@ -706,15 +696,12 @@ export class PoolBank extends DurableObject<AppEnv> {
       const overageMicros = await poolOverageMicros(this.env.DB, poolId, overage.windowMs, now);
       this.breaker = { poolId, overageMicros, readAt: t };
       if (this.breaker.overageMicros > overage.maxMicros) {
-        console.error(
-          JSON.stringify({
-            event: 'pool_breaker_tripped',
-            poolId,
-            overageMicros: this.breaker.overageMicros,
-            maxMicros: overage.maxMicros,
-            windowMs: overage.windowMs,
-          }),
-        );
+        logEvent('error', 'pool_breaker_tripped', {
+          poolId,
+          overageMicros: this.breaker.overageMicros,
+          maxMicros: overage.maxMicros,
+          windowMs: overage.windowMs,
+        });
       }
     }
     return this.breaker!.overageMicros > overage.maxMicros;
