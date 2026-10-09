@@ -20,7 +20,7 @@ import { overflowBudget } from '../context/overflow.js';
 import { buildSummaryPrompt, renderPlan } from '../context/render.js';
 import { ValidationError } from '../errors.js';
 import { errorText, type ServiceContext } from '../services/context.js';
-import type { TokenEstimator } from '../tokens.js';
+import type { GenerationProfile, PoolProfile } from '../services/profile.js';
 
 /**
  * The most summaries one send generates. Each is a paid call the reply waits
@@ -92,13 +92,6 @@ export interface PlanInputs {
   provider: LlmProvider;
 }
 
-/** The open pool's bounds on what a generation may send (`ChatServiceDeps`). */
-export interface ContextBounds {
-  systemPromptOverride?: string;
-  inputBound?: { estimateTokens: TokenEstimator };
-  anchorQuoteMaxChars?: number;
-}
-
 /** A status line while a reply is prepared (a summary being written, …). */
 export interface StatusEvent {
   type: 'status';
@@ -152,10 +145,15 @@ function clipAnchorQuote(branch: Branch, maxChars: number | undefined): Branch {
  * summaries its context needs (generating and caching the missing ones).
  */
 export class ContextResolver {
+  /** The open pool's bounds on what a generation sends; null elsewhere. */
+  private readonly pool: PoolProfile | null;
+
   constructor(
     private readonly ctx: ServiceContext,
-    private readonly bounds: ContextBounds,
-  ) {}
+    profile: GenerationProfile,
+  ) {
+    this.pool = profile.kind === 'pool' ? profile : null;
+  }
 
   /**
    * Plans the context for replying at `nodeId` (default: branch leaf). With
@@ -224,9 +222,9 @@ export class ContextResolver {
     const repo = this.ctx.repos.trees;
     const owned = await this.ctx.owned.branch(branchId);
     // The only way into the context's system prompt (the `tree-system-prompt` segment).
-    const override = this.bounds.systemPromptOverride;
+    const override = this.pool?.systemPrompt;
     const tree = override === undefined ? owned.tree : { ...owned.tree, systemPrompt: override };
-    const clip = (b: Branch): Branch => clipAnchorQuote(b, this.bounds.anchorQuoteMaxChars);
+    const clip = (b: Branch): Branch => clipAnchorQuote(b, this.pool?.anchorQuoteMaxChars);
     const route = extra.route;
     const routed = (b: Branch): Branch =>
       route && b.id === branchId
@@ -366,7 +364,7 @@ export class ContextResolver {
       limits.maxInputTokens,
     );
     const lookedUp = new Set<string>();
-    const estimateTokens = this.bounds.inputBound?.estimateTokens;
+    const estimateTokens = this.pool?.estimateTokens;
 
     const plan = (): ContextPlan =>
       assembleContext({
@@ -461,13 +459,15 @@ export class ContextResolver {
     target: { treeId: string; branchId: string },
     signal?: AbortSignal,
   ): Promise<string | null> {
-    const bound = this.bounds.inputBound;
+    const pool = this.pool;
     const prompt = buildSummaryPrompt(
       request,
-      bound && {
-        maxInputTokens: (await this.budgetFor(provider, model)).maxInputTokens,
-        estimateTokens: bound.estimateTokens,
-      },
+      pool
+        ? {
+            maxInputTokens: (await this.budgetFor(provider, model)).maxInputTokens,
+            estimateTokens: pool.estimateTokens,
+          }
+        : undefined,
     );
     if (prompt === null) return null;
     const text = await collectText(

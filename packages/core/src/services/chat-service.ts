@@ -3,7 +3,6 @@ import {
   DEFAULT_TREE_TITLE,
   TRUNK_TITLE,
   type Branch,
-  type BranchFunding,
   type CandidateRequest,
   type ChatNode,
   type CommitCandidateResponse,
@@ -11,11 +10,9 @@ import {
   type CreateBranchRequest,
   type CreateLinkRequest,
   type CreateTreeRequest,
-  type DefaultRouteFacts,
   type DeleteBranchResponse,
   type NodeLink,
   type ProviderRegistry,
-  type ProviderRoute,
   type ReviewEvent,
   type ReviewRequest,
   type SettingsResponse,
@@ -41,7 +38,7 @@ import {
   type BranchInputBudget,
   type GenerationLimits,
 } from '../generation/context-resolver.js';
-import { Replier } from '../generation/reply.js';
+import { Replier, type GroundingAllowance } from '../generation/reply.js';
 import { ReviewService, type PreparedReview } from '../generation/review.js';
 import {
   SendService,
@@ -50,16 +47,17 @@ import {
 } from '../generation/send.js';
 import { Titler } from '../generation/titler.js';
 import type { Repositories } from '../repository.js';
-import type { TokenEstimator } from '../tokens.js';
 import { newId as defaultNewId, systemClock, type Clock } from '../util.js';
 import { BackupService } from './backup.js';
 import type { ServiceContext } from './context.js';
 import { Ownership } from './ownership.js';
+import { paysPerRequest, type GenerationProfile } from './profile.js';
 import { RouteResolver } from './routing.js';
 import type { ChatSettings } from './settings.js';
 import { TreeService } from './tree-service.js';
 
 export * from './settings.js';
+export type { GenerationProfile, LearnProfile, PoolProfile, PowerProfile } from './profile.js';
 export {
   pickGenerationLimits,
   type BranchInputBudget,
@@ -75,37 +73,12 @@ export interface ChatServiceDeps {
   /** Account acting through this service instance. Default DEFAULT_ACCOUNT_ID. */
   accountId?: string;
   /**
-   * The providers of `own-key` routes: the user's own keys (power), or, with
-   * `fixedFunding`, every route of the request whoever pays (Learn).
+   * The providers of `own-key` routes: the user's own keys (power), or every
+   * route of the request whoever pays (Learn, which pays per request).
    */
   providers: ProviderRegistry;
-  /**
-   * The providers of `credit` routes (power: the built-in endpoint on the
-   * operator's key, metered). Absent where Tangent credit isn't offered: a
-   * branch on credit then has no provider. Unused with `fixedFunding`.
-   */
-  creditProviders?: ProviderRegistry;
-  /**
-   * Learn: how a request pays is decided per request, outside the branch, so
-   * every route comes from `providers` whatever a branch's funding says, and
-   * every branch this instance writes gets this funding (`own-key`).
-   */
-  fixedFunding?: BranchFunding;
-  /**
-   * Learn: imported backups are adapted to what Learn can show and continue
-   * (`adaptBackupForLearn`): onto this instance's provider (`providers`'
-   * default) and its models, `path` context, and the prompt a new tree gets.
-   */
-  adaptImportsForLearn?: boolean;
-  /**
-   * Power: what the default route of a new tree needs beyond the provider
-   * lists (`pickDefaultRoute`): whether Tangent credit can pay now and
-   * whether own keys need a membership the user lacks. Asked only for a new
-   * tree that names neither a provider nor a funding, where credit is
-   * offered. Absent: credit can't pay and nothing is locked, so a new tree
-   * never defaults onto credit.
-   */
-  defaultRouteFacts?: () => Promise<DefaultRouteFacts>;
+  /** Which product this instance serves (`GenerationProfile`). Default: power without credit. */
+  profile?: GenerationProfile;
   settings: ChatSettings;
   /**
    * Built-in system prompt of new trees, used when neither the request nor
@@ -117,31 +90,7 @@ export interface ChatServiceDeps {
    * daily cap on Tangent credit). Absent = always allowed. Explicit checks
    * ignore it.
    */
-  groundingAllowance?: (route: ProviderRoute) => Promise<boolean>;
-  /**
-   * The one model every generation of this instance uses (replies, budgets,
-   * summaries and titles without a configured summary model), whatever the
-   * branch says; the branch row is not changed. The open pool sets it.
-   */
-  pinnedModel?: string;
-  /**
-   * The system prompt every generation of this instance uses instead of the
-   * tree's own (the open pool's locked prompt). The tree is not changed.
-   */
-  systemPromptOverride?: string;
-  /**
-   * Makes the input budget a hard bound (the open pool): context budgets
-   * are measured with `estimateTokens` instead of the default chars/3.5, and
-   * every summary prompt is clipped to the summary model's input budget,
-   * measured the same way, so no request of this instance exceeds it.
-   */
-  inputBound?: { estimateTokens: TokenEstimator };
-  /**
-   * The longest anchor quote generations of this instance use; longer ones
-   * are clipped (the open pool: the quote is client-set free text, so it
-   * gets no more room than a message). Default: unlimited.
-   */
-  anchorQuoteMaxChars?: number;
+  groundingAllowance?: GroundingAllowance;
   /**
    * Where the service reports the failures it recovers from on its own (a
    * summary or title the provider failed, a token count, the grounding
@@ -175,12 +124,13 @@ export class ChatService {
     this.accountId = deps.accountId ?? DEFAULT_ACCOUNT_ID;
     const clock = deps.clock ?? systemClock;
     const newId = deps.newId ?? (() => defaultNewId());
+    const profile = deps.profile ?? { kind: 'power' };
     this.owned = new Ownership(deps.repos.trees, this.accountId);
     const ctx: ServiceContext = {
       repos: deps.repos,
       accountId: this.accountId,
       owned: this.owned,
-      routes: new RouteResolver(deps),
+      routes: new RouteResolver(deps.providers, profile, deps.settings),
       settings: deps.settings,
       defaultSystemPrompt: deps.defaultSystemPrompt ?? null,
       now: () => clock().toISOString(),
@@ -191,9 +141,9 @@ export class ChatService {
     this.backups = new BackupService(
       ctx,
       this.trees,
-      deps.adaptImportsForLearn ? deps.providers : null,
+      paysPerRequest(profile) ? deps.providers : null,
     );
-    this.resolver = new ContextResolver(ctx, deps);
+    this.resolver = new ContextResolver(ctx, profile);
     this.replier = new Replier(ctx, this.resolver, deps.groundingAllowance);
     const titler = new Titler(ctx);
     this.sends = new SendService(ctx, this.resolver, this.replier, titler);

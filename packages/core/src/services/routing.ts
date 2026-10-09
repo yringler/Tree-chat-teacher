@@ -10,33 +10,36 @@ import {
   type ProviderRoute,
 } from '@tangent/shared';
 import { ValidationError } from '../errors.js';
+import { paysPerRequest, type GenerationProfile, type PowerProfile } from './profile.js';
 import type { ChatSettings } from './settings.js';
-
-/** What `RouteResolver` resolves routes with (see `ChatServiceDeps`). */
-export interface RoutingDeps {
-  providers: ProviderRegistry;
-  creditProviders?: ProviderRegistry;
-  fixedFunding?: BranchFunding;
-  defaultRouteFacts?: () => Promise<DefaultRouteFacts>;
-  pinnedModel?: string;
-  settings: ChatSettings;
-}
 
 /**
  * Turns routes (a provider and who pays) into providers and models: what a
  * request names, a new tree's default, and where summaries and titles run.
  */
 export class RouteResolver {
-  constructor(private readonly deps: RoutingDeps) {}
+  /** Learn's funding of every route: payment is decided per request, outside the branch. */
+  private readonly fixedFunding: BranchFunding | undefined;
+  /** Power's Tangent credit, where offered. */
+  private readonly credit: PowerProfile['credit'];
 
-  /** The model generations on `branch` use: the pinned one, else the branch's. */
+  constructor(
+    private readonly providers: ProviderRegistry,
+    private readonly profile: GenerationProfile,
+    private readonly settings: ChatSettings,
+  ) {
+    this.fixedFunding = paysPerRequest(profile) ? 'own-key' : undefined;
+    this.credit = profile.kind === 'power' ? profile.credit : undefined;
+  }
+
+  /** The model generations on `branch` use: the pool's, else the branch's. */
   modelOf(branch: Pick<Branch, 'model'>): string {
-    return this.deps.pinnedModel ?? branch.model;
+    return this.profile.kind === 'pool' ? this.profile.model : branch.model;
   }
 
   /** How calls on `branch` are paid as far as this instance knows: Learn's fixed funding, else the branch's. */
   fundingOf(branch: Pick<Branch, 'funding'>): BranchFunding {
-    return this.deps.fixedFunding ?? branch.funding;
+    return this.fixedFunding ?? branch.funding;
   }
 
   /**
@@ -64,7 +67,7 @@ export class RouteResolver {
   }
 
   withFixedFunding(route: ProviderRoute): ProviderRoute {
-    const fixed = this.deps.fixedFunding;
+    const fixed = this.fixedFunding;
     return fixed === undefined ? route : { ...route, funding: fixed };
   }
 
@@ -81,14 +84,14 @@ export class RouteResolver {
    * The route of a new tree that names no provider (docs/DECISIONS.md
    * "Default route of a new tree"): `pickDefaultRoute` over the own-key
    * providers and, where it is offered and nothing named a funding, Tangent
-   * credit, with what `deps.defaultRouteFacts` says about the balance and the
+   * credit, with what the profile's `defaultRouteFacts` says about the balance and the
    * membership (asked only then; without it, credit is never the default).
    * Naming only `credit` picks the credit registry's default provider;
    * naming only `own-key` leaves credit out.
    */
   async defaultRoute(funding: BranchFunding | undefined): Promise<ProviderRoute> {
-    const own = this.deps.providers;
-    const credit = this.deps.fixedFunding === undefined ? this.deps.creditProviders : undefined;
+    const own = this.providers;
+    const credit = this.credit?.providers;
     // Credit asked for where it isn't offered: `requireProvider` refuses the route.
     if (funding === 'credit') return { providerId: (credit ?? own).defaultProviderId(), funding };
     const withCredit = funding === undefined && credit !== undefined;
@@ -96,7 +99,7 @@ export class RouteResolver {
       ...own.list().map((p) => ({ ...p, funding: 'own-key' as const })),
       ...(withCredit ? credit.list().map((p) => ({ ...p, funding: 'credit' as const })) : []),
     ];
-    const facts: DefaultRouteFacts = (withCredit && (await this.deps.defaultRouteFacts?.())) || {
+    const facts: DefaultRouteFacts = (withCredit && (await this.credit?.defaultRouteFacts?.())) || {
       creditCanPay: false,
       creditBuyable: false,
       ownKeyLocked: false,
@@ -110,13 +113,13 @@ export class RouteResolver {
   requireProvider(route: Pick<Branch, 'providerId' | 'funding'>): LlmProvider {
     const funding = this.fundingOf(route);
     const registry =
-      this.deps.fixedFunding !== undefined || funding === 'own-key'
-        ? this.deps.providers
-        : this.deps.creditProviders;
+      this.fixedFunding !== undefined || funding === 'own-key'
+        ? this.providers
+        : this.credit?.providers;
     const provider = registry?.get(route.providerId);
     if (!provider) {
       throw new ValidationError(
-        funding === 'credit' && this.deps.fixedFunding === undefined
+        funding === 'credit' && this.fixedFunding === undefined
           ? `Unknown provider "${route.providerId}" on Tangent credit`
           : `Unknown provider "${route.providerId}"`,
       );
@@ -126,8 +129,8 @@ export class RouteResolver {
 
   /** Where summaries and titles of `branch` run: the configured summary route, else the branch's. */
   summaryTarget(branch: Branch): { provider: LlmProvider; model: string } {
-    const { summaryProviderId, summaryModel } = this.deps.settings;
-    const providers = this.deps.providers;
+    const { summaryProviderId, summaryModel } = this.settings;
+    const providers = this.providers;
     // A configured summary provider is an own-key route (never credit, in power).
     if (summaryProviderId && isProviderAvailable(providers, summaryProviderId)) {
       const provider = providers.get(summaryProviderId);
