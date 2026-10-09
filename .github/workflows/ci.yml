@@ -70,7 +70,7 @@ jobs:
       - run: pnpm e2e
       - name: Upload report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: e2e-report
           path: |
