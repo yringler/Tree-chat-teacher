@@ -226,6 +226,39 @@ describe('bring-your-own-key API', () => {
     }
   });
 
+  it('renews the cookie when it is used and more than a day old', async () => {
+    const tree = await antTree();
+    const now = Math.floor(Date.now() / 1000);
+    const aging = await seal(
+      JSON.stringify({
+        keys: { ant: 'sk-ant-good-echo-0123456789' },
+        exp: now + 2 * 86400,
+        uid: null,
+      }),
+      SECRET,
+    );
+    for (const res of [
+      await call('/api/key/status', { cookie: aging }),
+      await call(`/api/branches/${tree.tree.trunkBranchId}/messages`, {
+        method: 'POST',
+        json: { content: 'hi' },
+        cookie: aging,
+      }),
+    ]) {
+      expect(res.status).toBeLessThan(300);
+      await res.text();
+      expect(setCookieOf(res)).toContain('Max-Age=604800');
+      const renewed = JSON.parse(await open(sealedFrom(res), SECRET)) as { exp: number };
+      expect(renewed.exp).toBeGreaterThanOrEqual(now + 604800);
+    }
+
+    // A cookie under a day old is left alone, so most requests set no cookie.
+    const fresh = await saveKey('sk-ant-good-echo-0123456789');
+    const status = await call('/api/key/status', { cookie: fresh });
+    expect(status.status).toBe(200);
+    expect(setCookieOf(status)).toBeNull();
+  });
+
   it('forgets a key', async () => {
     const sealed = await saveKey('sk-ant-good-delta-0123456789');
     const res = await call('/api/key', {

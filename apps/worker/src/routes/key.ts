@@ -15,6 +15,7 @@ import {
   keyShapeProblem,
   KeyTooLargeError,
   readKeys,
+  renewKeys,
   writeKeys,
 } from '../byok/keys.js';
 import type { AppBindings, AppContext } from '../env.js';
@@ -40,6 +41,7 @@ export function keyRoutes(): Hono<AppBindings> {
     const keys = await readKeys(c);
     // An unreadable cookie (rotated secret, expired, tampered) is dropped so the UI asks again.
     if (keys.state === 'invalid') clearKeyCookie(c);
+    if (keys.state === 'ok') renewKeys(c, keys);
     const providers = keys.state === 'ok' ? Object.keys(keys.keys) : [];
     return c.json({
       enabled: keySecret(c.env) !== null,

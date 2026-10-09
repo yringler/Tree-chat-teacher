@@ -314,7 +314,7 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           <code>tangent-remember</code>: your "remember me" choice while you sign in (15 minutes).
         </li>
         <li>
-          <code>__Host-llmkey</code>: your own AI provider keys, encrypted (7 days).
+          <code>__Host-llmkey</code>: your own AI provider keys, encrypted (until 7 days unused).
         </li>
       </ul>
       <p>

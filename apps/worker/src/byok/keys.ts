@@ -3,7 +3,8 @@ import type { ProviderConfig } from '@tangent/shared';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod';
 import { appConfig } from '../config.js';
-import type { AppContext, AppEnv } from '../env.js';
+import type { MiddlewareHandler } from 'hono';
+import type { AppBindings, AppContext, AppEnv } from '../env.js';
 import { open, seal, UnsealError } from './seal.js';
 
 /**
@@ -21,12 +22,17 @@ import { open, seal, UnsealError } from './seal.js';
  * sealed for anyone else counts as unreadable (and is cleared), and signing
  * out clears it (auth/auth.ts), so on a shared browser the next user never
  * generates on the previous one's keys.
+ *
+ * The expiry slides: using the keys reseals the cookie for another
+ * KEY_TTL_SECONDS once it is a day old, so the keys lapse after a week unused
+ * rather than a week after they were saved, and most requests set no cookie.
  */
 
 /** Cookie name without the `__Host-` prefix, which hono adds (and enforces Secure + Path=/). */
 const COOKIE = 'llmkey';
 export const KEY_COOKIE_NAME = `__Host-${COOKIE}`;
 export const KEY_TTL_SECONDS = 7 * 24 * 60 * 60;
+const RENEW_AFTER_SECONDS = 24 * 60 * 60;
 /** Stay under the ~4096-byte per-cookie limit browsers enforce. */
 const MAX_SEALED_LENGTH = 3800;
 
@@ -92,7 +98,10 @@ export async function requireReadableKeys(
   c: AppContext,
 ): Promise<Extract<UserKeys, { state: 'ok' }> | null> {
   const keys = await readKeys(c);
-  if (keys.state === 'ok') return keys;
+  if (keys.state === 'ok') {
+    renewKeys(c, keys);
+    return keys;
+  }
   if (keys.state === 'invalid') {
     clearKeyCookie(c);
     throw new KeyRequiredError(
@@ -127,6 +136,26 @@ export async function writeKeys(
 export function freshExpiry(): number {
   return nowSeconds() + KEY_TTL_SECONDS;
 }
+
+/**
+ * Marks readable keys for resealing with a fresh expiry once the cookie is
+ * more than a day old; `keyRenewal` writes the cookie after the handler.
+ */
+export function renewKeys(c: AppContext, keys: Extract<UserKeys, { state: 'ok' }>): void {
+  if (keys.exp - nowSeconds() > KEY_TTL_SECONDS - RENEW_AFTER_SECONDS) return;
+  c.set('renewKeys', keys.keys);
+}
+
+/**
+ * Writes a renewal marked by `renewKeys` onto the finished response. It runs
+ * after the handler because a route that returns a Durable Object's response
+ * as is drops cookies set on the context before it.
+ */
+export const keyRenewal: MiddlewareHandler<AppBindings> = async (c, next) => {
+  await next();
+  const keys = c.get('renewKeys');
+  if (keys && !c.error) await writeKeys(c, { ...keys }, freshExpiry());
+};
 
 /** The cookie's attributes, shared by every write and by sign-out's clear (auth/auth.ts). */
 export const KEY_COOKIE_ATTRIBUTES = {
