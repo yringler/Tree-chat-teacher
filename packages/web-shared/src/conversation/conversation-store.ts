@@ -887,7 +887,6 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     }
   }
 
-  /** Marks a reply failed, keeping the text it streamed. */
   /** A reply begins: the message and the reply join the tree, and the reply goes live. */
   private startReply(userNode: ChatNode, assistantNode: ChatNode, branch: Branch): void {
     this.applyNodes([userNode, assistantNode]);
@@ -902,6 +901,7 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     });
   }
 
+  /** Marks a reply failed, keeping the text it streamed. */
   protected markError(nodeId: string, message: string): void {
     const node = this.index()?.nodes.get(nodeId);
     if (node)

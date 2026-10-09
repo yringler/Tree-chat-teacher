@@ -51,13 +51,14 @@ export interface LearnPayerFacts {
  * 5. the own key (a non-member then meets the locked-key notice).
  */
 export function learnPayer(f: LearnPayerFacts): Payer {
-  const creditUsable = f.creditOffered && (f.creditCanPay === true || f.creditBuyable);
+  const canPay = f.creditOffered && f.creditCanPay === true;
+  const buyable = f.creditOffered && f.creditBuyable;
   if (f.chosen === 'own-key') return 'own-key';
   if (f.chosen === 'pool' && f.poolOn) return 'pool';
-  if (f.chosen === 'credit' && creditUsable)
+  if (f.chosen === 'credit' && (canPay || buyable))
     return f.creditCanPay === false && f.poolOn ? 'pool' : 'credit';
-  if (f.creditOffered && f.creditCanPay === true) return 'credit';
+  if (canPay) return 'credit';
   if (f.ownKeyReady) return 'own-key';
-  if (f.poolOn) return creditUsable && f.creditCanPay === null ? 'credit' : 'pool';
-  return creditUsable ? 'credit' : 'own-key';
+  if (f.poolOn) return buyable && f.creditCanPay === null ? 'credit' : 'pool';
+  return buyable ? 'credit' : 'own-key';
 }
