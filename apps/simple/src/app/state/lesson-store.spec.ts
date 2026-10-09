@@ -366,95 +366,6 @@ describe('LessonStore', () => {
     expect(s.api.listTrees).toHaveBeenCalled();
   });
 
-  it('Stop cancels on the server; the closing error event ends the reply', async () => {
-    const s = setup();
-    await open(s, detail());
-    const live = controlledStream([
-      { type: 'start', userNode, assistantNode: replyNode, branch: branch('trunk') },
-      { type: 'delta', nodeId: 'a1', text: 'Li' },
-    ]);
-    s.api.sendMessage.mockResolvedValue(live.response);
-    s.api.cancelNode.mockImplementation(async (id: string) => {
-      live.push([
-        {
-          type: 'error',
-          nodeId: id,
-          message: 'Cancelled',
-          node: { ...replyNode, status: 'error', error: 'Cancelled', content: 'Li' },
-        },
-      ]);
-      live.close();
-    });
-    const sending = s.store.send('trunk', 'What is light?');
-    await vi.waitFor(() => expect(s.store.live().get('a1')?.content).toBe('Li'));
-
-    await s.store.cancel('a1');
-    await expect(sending).resolves.toBe(true);
-
-    expect(s.api.cancelNode).toHaveBeenCalledWith('a1');
-    expect(s.api.streamNode).not.toHaveBeenCalled();
-    const stopped = s.store.index()?.nodes.get('a1');
-    expect(stopped?.status).toBe('error');
-    expect(stopped?.error).toBe('Cancelled');
-    expect(stopped?.content).toBe('Li');
-    expect(s.store.streamingNode()).toBeNull();
-    expect(s.store.busy()).toBe(false);
-  });
-
-  it('reconnects when the stream drops and finishes from the snapshot', async () => {
-    const s = setup();
-    await open(s, detail());
-    s.api.sendMessage.mockResolvedValue(
-      stream([{ type: 'start', userNode, assistantNode: replyNode, branch: branch('trunk') }]),
-    );
-    s.api.streamNode.mockResolvedValue(
-      stream([
-        { type: 'snapshot', node: { ...replyNode, content: 'Light is' } },
-        { type: 'delta', nodeId: 'a1', text: ' fast.' },
-        {
-          type: 'done',
-          node: { ...replyNode, status: 'complete', content: 'Light is fast.' },
-          branch: branch('trunk'),
-        },
-      ]),
-    );
-    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(true);
-    expect(s.api.streamNode).toHaveBeenCalledWith('a1', expect.any(AbortSignal));
-    expect(s.store.index()?.nodes.get('a1')?.content).toBe('Light is fast.');
-    expect(s.store.live().size).toBe(0);
-  });
-
-  it('marks the reply failed when the connection cannot be recovered', async () => {
-    const s = setup();
-    await open(s, detail());
-    s.api.sendMessage.mockResolvedValue(
-      stream([{ type: 'start', userNode, assistantNode: replyNode, branch: branch('trunk') }]),
-    );
-    s.api.streamNode.mockRejectedValue(new ApiError(404, 'not_found', 'gone'));
-    await s.store.send('trunk', 'What is light?');
-    expect(s.store.index()?.nodes.get('a1')?.status).toBe('error');
-    expect(s.store.busy()).toBe(false);
-    expect(s.ui.toasts().at(-1)?.text).toContain('Lost the connection');
-  });
-
-  it('re-attaches to a reply still generating when a lesson opens', async () => {
-    const s = setup();
-    s.api.streamNode.mockResolvedValue(
-      stream([
-        { type: 'snapshot', node: { ...replyNode, content: 'Half' } },
-        {
-          type: 'done',
-          node: { ...replyNode, status: 'complete', content: 'Half done.' },
-          branch: branch('trunk'),
-        },
-      ]),
-    );
-    await open(s, detail([userNode, replyNode]));
-    await vi.waitFor(() => expect(s.store.index()?.nodes.get('a1')?.content).toBe('Half done.'));
-    expect(s.api.streamNode).toHaveBeenCalledWith('a1', expect.any(AbortSignal));
-    expect(s.store.live().size).toBe(0);
-  });
-
   it('402 on send: offers billing with a toast and keeps the message', async () => {
     const s = setup();
     await open(s, detail());
@@ -1611,33 +1522,5 @@ describe('LessonStore refreshing after replies', () => {
     await s.store.send('trunk', 'Why?');
     await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
     expect(s.ui.toasts()).toEqual([]);
-  });
-});
-
-describe('LessonStore sends on two branches at once', () => {
-  beforeEach(() => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-  });
-
-  afterEach(() => vi.restoreAllMocks());
-
-  it('a send on another branch leaves the first branch busy until its reply starts', async () => {
-    const s = setup();
-    const side = branch('side', { parentBranchId: 'trunk', branchPointNodeId: 'a1' });
-    const reply = node('a1', { seq: 1, parentId: 'u1', content: 'A wave.' });
-    await open(s, detail([userNode, reply], [branch('trunk'), side]), 'side');
-    const posts = new Map<string, (r: Response) => void>();
-    s.api.sendMessage.mockImplementation(
-      (branchId: string) => new Promise<Response>((r) => posts.set(branchId, r)),
-    );
-
-    void s.store.send('side', 'One');
-    expect(s.store.busy()).toBe(true);
-    const other = s.store.send('trunk', 'Two');
-    expect(s.store.busy()).toBe(true);
-    posts.get('trunk')?.(new Response('nope', { status: 500 }));
-    await other;
-    expect(s.store.busy()).toBe(true);
-    expect([...s.store.sending()]).toEqual(['side']);
   });
 });

@@ -14,8 +14,10 @@ import {
 import type {
   Branch,
   ChatNode,
+  CommitCandidateResponse,
   CreateTreeRequest,
   NodeLink,
+  SendMessageRequest,
   StreamEvent,
   TreeDetail,
   TreeSummary,
@@ -38,8 +40,21 @@ export interface LiveReply {
 /** The server calls the conversation engine makes. */
 export type ConversationApi = Pick<
   ApiClient,
-  'listTrees' | 'getTree' | 'createTree' | 'streamNode'
+  'listTrees' | 'getTree' | 'createTree' | 'sendMessage' | 'streamNode' | 'cancelNode'
 >;
+
+/** How a message is asked: a "Check sources" request is web-searched (`ground`). */
+export interface SendOptions {
+  ground?: 'required';
+}
+
+/** A send that failed: what was asked, and whether its reply had started (it is in the tree then). */
+export interface FailedSend {
+  branchId: string;
+  content: string;
+  options: SendOptions;
+  started: boolean;
+}
 
 /** The app's words for what the engine reports. */
 export interface ConversationCopy {
@@ -91,6 +106,8 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   readonly focusedNodeId = signal<string | null>(null);
 
   readonly live = signal<ReadonlyMap<string, LiveReply>>(new Map());
+  /** Branches whose POST is in flight (before `start` arrives). */
+  readonly sending = signal<ReadonlySet<string>>(new Set());
   /** Bumped whenever a reply finishes. */
   readonly completions = signal(0);
   protected readonly controllers = new Map<string, AbortController>();
@@ -157,6 +174,18 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     return idx && id ? branchLeaf(idx, id) : null;
   });
 
+  /** The reply generating in the selected branch. */
+  readonly streamingNode = computed<ChatNode | null>(() => {
+    const id = this.selectedBranchId();
+    return id ? this.streamingIn(id) : null;
+  });
+
+  /** The selected branch can't take a message: its reply is generating, or its send is in flight. */
+  readonly busy = computed(() => {
+    const id = this.selectedBranchId();
+    return this.streamingNode() !== null || (id !== null && this.sending().has(id));
+  });
+
   constructor(
     protected readonly api: A,
     protected readonly router: Pick<Router, 'navigate'>,
@@ -175,6 +204,22 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   /** What else to refresh after a reply, alongside the tree list (e.g. the balance). */
   protected alsoRefreshAfterReply(): Promise<unknown> | null {
     return null;
+  }
+
+  /** What the app adds to every message it sends (e.g. power's reply length). */
+  protected sendExtras(): Partial<SendMessageRequest> {
+    return {};
+  }
+
+  /** A send into `branchId` starts: what waited for that branch to send again goes. */
+  protected sendStarting(_branchId: string, _options: SendOptions): void {}
+
+  /** The message is in the tree now: the composer may let its text go. */
+  protected sent(_branchId: string, _content: string): void {}
+
+  /** A send failed; by default the app's error policy reports it. */
+  protected sendFailed(err: unknown, _send: FailedSend): void {
+    this.fail(err);
   }
 
   // The tree list
@@ -309,6 +354,86 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   }
 
   // Replies
+
+  /**
+   * Sends `content` into `branchId` and follows the reply until it ends,
+   * reconnecting when the stream drops. Resolves false when the send failed
+   * (`sendFailed` has had it).
+   */
+  async send(branchId: string, content: string, options: SendOptions = {}): Promise<boolean> {
+    this.markSending(branchId, true);
+    this.sendStarting(branchId, options);
+    const ctrl = new AbortController();
+    let nodeId: string | null = null;
+    try {
+      const outcome = await runStream(
+        {
+          open: (signal) =>
+            this.api.sendMessage(branchId, { content, ...options, ...this.sendExtras() }, signal),
+          reconnect: (id, signal) => this.api.streamNode(id, signal),
+        },
+        (event) => {
+          if (event.type === 'start') {
+            nodeId = event.assistantNode.id;
+            this.controllers.set(nodeId, ctrl);
+            this.markSending(branchId, false);
+            this.sent(branchId, content);
+          }
+          this.apply(event, nodeId);
+        },
+        {
+          signal: ctrl.signal,
+          onReconnect: () => nodeId && this.patchLive(nodeId, { reconnecting: true }),
+        },
+      );
+      this.finish(nodeId, outcome);
+      return true;
+    } catch (err) {
+      this.sendFailed(err, { branchId, content, options, started: nodeId !== null });
+      return false;
+    } finally {
+      this.markSending(branchId, false);
+      if (nodeId) this.controllers.delete(nodeId);
+    }
+  }
+
+  /** Stop: the server cancels the generation and the stream ends with an `error` event. */
+  async cancel(nodeId: string): Promise<void> {
+    try {
+      await this.api.cancelNode(nodeId);
+    } catch (err) {
+      this.fail(err);
+    }
+  }
+
+  /**
+   * A Compare pick the server committed (`POST …/candidates/:id/commit`): the
+   * question and the kept answer join the tree as a finished send's `start`
+   * and `done` would add them, and the same refresh follows (auto-titling).
+   */
+  applyCommitted(result: CommitCandidateResponse): void {
+    const { userNode, assistantNode, branch } = result;
+    this.apply({ type: 'start', userNode, assistantNode, branch }, null);
+    this.apply({ type: 'done', node: assistantNode, branch }, assistantNode.id);
+    this.finish(assistantNode.id, { kind: 'done' });
+  }
+
+  /** The reply generating in `branchId`, if any. */
+  streamingIn(branchId: string): ChatNode | null {
+    const idx = this.index();
+    if (!idx) return null;
+    return (idx.nodesByBranch.get(branchId) ?? []).find((n) => n.status === 'streaming') ?? null;
+  }
+
+  private markSending(branchId: string, on: boolean): void {
+    if (this.sending().has(branchId) === on) return;
+    this.sending.update((set) => {
+      const next = new Set(set);
+      if (on) next.add(branchId);
+      else next.delete(branchId);
+      return next;
+    });
+  }
 
   /** A reply's stream ended (`nodeId` null: it never started). */
   protected finish(nodeId: string | null, outcome: StreamOutcome): void {

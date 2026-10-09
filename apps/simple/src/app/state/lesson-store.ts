@@ -8,7 +8,6 @@ import {
   TIER_LABELS,
   tierModel,
   type Branch,
-  type ChatNode,
   type CommitCandidateResponse,
   type DeleteBranchResponse,
   type ModelInfo,
@@ -20,6 +19,8 @@ import {
   ApiClient,
   ApiError,
   ConversationStore,
+  type FailedSend,
+  type SendOptions,
   backupFile,
   CompareRun,
   errorMessage,
@@ -29,7 +30,6 @@ import {
   isPoolUnavailable,
   poolBlockOf,
   readBackupFile,
-  runStream,
   SAVE_FILE,
   type BackupFile,
   type PoolBlock,
@@ -175,8 +175,6 @@ export class LessonStore extends ConversationStore<ApiClient> {
   readonly importing = signal(false);
   /** Where the latest followed connection came from ("Back to …"); cleared on the way back. */
   readonly linkReturn = signal<LinkReturn | null>(null);
-  /** Branches whose POST is in flight (before `start` arrives). */
-  readonly sending = signal<ReadonlySet<string>>(new Set());
   readonly unsentDraft = signal<UnsentDraft | null>(null);
   /** The text the open branch's composer takes back: only what the learner typed. */
   readonly composerDraft = computed(() => {
@@ -186,15 +184,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
   readonly poolBlock = signal<LessonPoolBlock | null>(null);
   /** The Compare sheet is open (its answers stream): the composer waits. */
   readonly comparing = signal(false);
-  /** The reply currently generating in the selected branch. */
-  readonly streamingNode = computed<ChatNode | null>(() => {
-    const id = this.selectedBranchId();
-    const idx = this.index();
-    if (!id || !idx) return null;
-    return (idx.nodesByBranch.get(id) ?? []).find((n) => n.status === 'streaming') ?? null;
-  });
-
-  readonly busy = computed(() => {
+  override readonly busy = computed(() => {
     const id = this.selectedBranchId();
     return (
       this.comparing() || this.streamingNode() !== null || (id !== null && this.sending().has(id))
@@ -597,65 +587,36 @@ export class LessonStore extends ConversationStore<ApiClient> {
 
   // Messages and replies
 
-  async send(
-    branchId: string,
-    content: string,
-    options: { ground?: 'required' } = {},
-  ): Promise<boolean> {
-    this.markSending(branchId, true);
+  protected override sendStarting(branchId: string, options: SendOptions): void {
     // Sent again: let it go. A "Check sources" request leaves the learner's own message be.
     const draft = this.unsentDraft();
     if (draft?.branchId === branchId && !draft.ground === !options.ground) this.setUnsent(null);
     if (this.poolBlock()?.branchId === branchId) this.poolBlock.set(null);
-    const ctrl = new AbortController();
-    let nodeId: string | null = null;
-    try {
-      const outcome = await runStream(
-        {
-          open: (signal) => this.api.sendMessage(branchId, { content, ...options }, signal),
-          reconnect: (id, signal) => this.api.streamNode(id, signal),
-        },
-        (event) => {
-          if (event.type === 'start') {
-            nodeId = event.assistantNode.id;
-            this.controllers.set(nodeId, ctrl);
-            this.markSending(branchId, false);
-            // In the lesson now: the composer may let the text go.
-            this.ui.markSent(content);
-          }
-          this.apply(event, nodeId);
-        },
-        {
-          signal: ctrl.signal,
-          onReconnect: () => nodeId && this.patchLive(nodeId, { reconnecting: true }),
-        },
-      );
-      this.finish(nodeId, outcome);
-      return true;
-    } catch (err) {
-      const block = poolBlockOf(err);
-      if (block) {
-        // The pool's empty and cap-reached states: inline, never a toast or a navigation.
-        // A "Check sources" request isn't text the learner typed: not offered back.
-        if (!options.ground) this.keepUnsent(branchId, content, options);
-        this.poolBlock.set({ ...block, branchId });
-        void this.account.refreshPool();
-        return false;
-      }
-      const needsKey = err instanceof ApiError && err.code === 'key_required';
-      if (nodeId === null && (!options.ground || needsKey)) {
-        // Any refusal or failure before the reply started (out of credit, no key or
-        // membership, the pool's checks, a network error…): nothing was written, so
-        // the text goes back to the composer. "Check sources" asks no typed text: it
-        // is kept only to be resumed once the key is settled.
-        this.keepUnsent(branchId, content, options, needsKey);
-      }
-      this.fail(err);
-      return false;
-    } finally {
-      this.markSending(branchId, false);
-      if (nodeId) this.controllers.delete(nodeId);
+  }
+
+  protected override sent(_branchId: string, content: string): void {
+    this.ui.markSent(content);
+  }
+
+  protected override sendFailed(err: unknown, s: FailedSend): void {
+    const block = poolBlockOf(err);
+    if (block) {
+      // The pool's empty and cap-reached states: inline, never a toast or a navigation.
+      // A "Check sources" request isn't text the learner typed: not offered back.
+      if (!s.options.ground) this.keepUnsent(s.branchId, s.content, s.options);
+      this.poolBlock.set({ ...block, branchId: s.branchId });
+      void this.account.refreshPool();
+      return;
     }
+    const needsKey = err instanceof ApiError && err.code === 'key_required';
+    if (!s.started && (!s.options.ground || needsKey)) {
+      // Any refusal or failure before the reply started (out of credit, no key or
+      // membership, the pool's checks, a network error…): nothing was written, so
+      // the text goes back to the composer. "Check sources" asks no typed text: it
+      // is kept only to be resumed once the key is settled.
+      this.keepUnsent(s.branchId, s.content, s.options, needsKey);
+    }
+    this.fail(err);
   }
 
   // Compare (Normal and Max answer the same question; one is kept)
@@ -699,13 +660,10 @@ export class LessonStore extends ConversationStore<ApiClient> {
         ? 'refused'
         : 'failed';
     }
-    const { userNode, assistantNode, branch } = res;
-    this.apply({ type: 'start', userNode, assistantNode, branch }, null);
-    this.apply({ type: 'done', node: assistantNode, branch }, assistantNode.id);
     if (this.unsentDraft()?.branchId === run.branchId) this.setUnsent(null);
     if (this.poolBlock()?.branchId === run.branchId) this.poolBlock.set(null);
     this.ui.markSent(run.question);
-    this.finish(assistantNode.id, { kind: 'done' });
+    this.applyCommitted(res);
     return 'kept';
   }
 
@@ -741,12 +699,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
     return this.send(d.branchId, d.text, d.ground ? { ground: d.ground } : {});
   }
 
-  private keepUnsent(
-    branchId: string,
-    text: string,
-    options: { ground?: 'required' },
-    needsKey = false,
-  ): void {
+  private keepUnsent(branchId: string, text: string, options: SendOptions, needsKey = false): void {
     const treeId = this.index()?.branches.get(branchId)?.treeId ?? this.selectedTreeId();
     if (!treeId) return;
     // A "Check sources" request never takes the place of a message the learner typed.
@@ -763,15 +716,6 @@ export class LessonStore extends ConversationStore<ApiClient> {
   private setUnsent(d: UnsentDraft | null): void {
     this.unsentDraft.set(d);
     storeDraft(d, this.account.me()?.userId ?? null);
-  }
-
-  /** Stop: the server cancels the generation and the stream ends with an `error` event. */
-  async cancel(nodeId: string): Promise<void> {
-    try {
-      await this.api.cancelNode(nodeId);
-    } catch (err) {
-      this.fail(err);
-    }
   }
 
   /**
@@ -858,15 +802,5 @@ export class LessonStore extends ConversationStore<ApiClient> {
         ),
       );
     }
-  }
-
-  private markSending(branchId: string, on: boolean): void {
-    if (this.sending().has(branchId) === on) return;
-    this.sending.update((set) => {
-      const next = new Set(set);
-      if (on) next.add(branchId);
-      else next.delete(branchId);
-      return next;
-    });
   }
 }

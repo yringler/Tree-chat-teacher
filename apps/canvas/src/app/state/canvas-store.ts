@@ -13,7 +13,6 @@ import {
 import type {
   BillingSummary,
   Branch,
-  ChatNode,
   ContextMode,
   ContextPlan,
   CreateBranchRequest,
@@ -30,6 +29,7 @@ import {
   ApiClient,
   ApiError,
   ConversationStore,
+  type FailedSend,
   creditBuyable,
   creditCanPay,
   creditCarriesOn,
@@ -41,7 +41,6 @@ import {
   membershipBlocks,
   routeLocked,
   routeOpen,
-  runStream,
   type BlockedSend,
   type LearnCopyWay,
 } from '@tangent/web-shared';
@@ -138,8 +137,6 @@ export class CanvasStore extends ConversationStore<ApiClient> {
    * can't be.
    */
   readonly poolOn = signal(false);
-  /** Branches whose POST is in flight (before `start` arrives). */
-  readonly sending = signal<ReadonlySet<string>>(new Set());
   // Lineage (one plan per lane, cached by leaf)
   readonly lineages = signal<ReadonlyMap<string, Lineage>>(new Map());
   readonly lineageLoading = signal<string | null>(null);
@@ -805,68 +802,30 @@ export class CanvasStore extends ConversationStore<ApiClient> {
 
   // Messages and replies
 
-  async send(branchId: string, content: string): Promise<boolean> {
-    this.markSending(branchId, true);
+  protected override sendStarting(branchId: string): void {
     if (this.blockedSends().some((s) => s.branchId === branchId)) {
       this.blockedSends.update((list) => list.filter((s) => s.branchId !== branchId));
     }
     this.setUnsentDraft(branchId, null);
-    const ctrl = new AbortController();
-    let nodeId: string | null = null;
-    try {
-      const outcome = await runStream(
-        {
-          open: (signal) => this.api.sendMessage(branchId, { content }, signal),
-          reconnect: (id, signal) => this.api.streamNode(id, signal),
-        },
-        (event) => {
-          if (event.type === 'start') {
-            nodeId = event.assistantNode.id;
-            this.controllers.set(nodeId, ctrl);
-            this.markSending(branchId, false);
-            // In the tree now: the lane's box may let the text go.
-            this.ui.markSent(branchId, content);
-          }
-          this.apply(event, nodeId);
-        },
-        {
-          signal: ctrl.signal,
-          onReconnect: () => nodeId && this.patchLive(nodeId, { reconnecting: true }),
-        },
-      );
-      this.finish(nodeId, outcome);
-      return true;
-    } catch (err) {
-      if (nodeId === null) {
-        // Refused before anything was written: the text goes back to the lane's box
-        // and, for want of the key, waits for the keys dialog to carry it on.
-        this.setUnsentDraft(branchId, content);
-        if (err instanceof ApiError && err.code === 'key_required') {
-          this.blockedSends.update((list) => addBlockedSend(list, { branchId, content }));
-        }
+  }
+
+  protected override sent(branchId: string, content: string): void {
+    // In the tree now: the lane's box may let the text go.
+    this.ui.markSent(branchId, content);
+  }
+
+  protected override sendFailed(err: unknown, s: FailedSend): void {
+    if (!s.started) {
+      // Refused before anything was written: the text goes back to the lane's box
+      // and, for want of the key, waits for the keys dialog to carry it on.
+      this.setUnsentDraft(s.branchId, s.content);
+      if (err instanceof ApiError && err.code === 'key_required') {
+        this.blockedSends.update((list) =>
+          addBlockedSend(list, { branchId: s.branchId, content: s.content }),
+        );
       }
-      this.fail(err);
-      return false;
-    } finally {
-      this.markSending(branchId, false);
-      if (nodeId) this.controllers.delete(nodeId);
     }
-  }
-
-  /** Stop: the server cancels the generation and the stream ends with an `error` event. */
-  async cancel(nodeId: string): Promise<void> {
-    try {
-      await this.api.cancelNode(nodeId);
-    } catch (err) {
-      this.fail(err);
-    }
-  }
-
-  /** The reply generating in `branchId`, if any. */
-  streamingIn(branchId: string): ChatNode | null {
-    const idx = this.index();
-    if (!idx) return null;
-    return (idx.nodesByBranch.get(branchId) ?? []).find((n) => n.status === 'streaming') ?? null;
+    this.fail(err);
   }
 
   protected notify(text: string, kind?: 'info' | 'error'): void {
@@ -900,16 +859,6 @@ export class CanvasStore extends ConversationStore<ApiClient> {
   }
 
   // Internals
-
-  private markSending(branchId: string, on: boolean): void {
-    if (this.sending().has(branchId) === on) return;
-    this.sending.update((set) => {
-      const next = new Set(set);
-      if (on) next.add(branchId);
-      else next.delete(branchId);
-      return next;
-    });
-  }
 
   private removeBranches(res: DeleteBranchResponse): void {
     const branchIds = new Set(res.branchIds);

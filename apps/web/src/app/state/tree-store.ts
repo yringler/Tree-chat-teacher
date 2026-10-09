@@ -38,6 +38,7 @@ import {
   ApiClient,
   ApiError,
   ConversationStore,
+  type FailedSend,
   creditBuyable,
   creditCanPay,
   creditCarriesOn,
@@ -48,7 +49,6 @@ import {
   lockedFundings,
   routeLocked,
   routeOpen,
-  runStream,
   type BlockedSend,
   type LearnCopyWay,
 } from '@tangent/web-shared';
@@ -91,8 +91,6 @@ export class TreeStore extends ConversationStore<ApiClient> {
    * can't be.
    */
   readonly poolOn = signal(false);
-  /** Branches whose POST is in flight (before `start` arrives). */
-  readonly sending = signal<ReadonlySet<string>>(new Set());
   /**
    * Messages the server refused for want of their branch's own API key (401
    * `key_required`, before anything was written), while the keys dialog asks
@@ -130,20 +128,6 @@ export class TreeStore extends ConversationStore<ApiClient> {
   readonly focusedInPath = computed<ChatNode | null>(() => {
     const id = this.focusedNodeId();
     return (id && this.path().find((n) => n.id === id)) || null;
-  });
-
-  /** The assistant node currently generating in the selected branch. */
-  readonly streamingNode = computed<ChatNode | null>(() => {
-    const id = this.selectedBranchId();
-    const idx = this.index();
-    if (!id || !idx) return null;
-    const own = idx.nodesByBranch.get(id) ?? [];
-    return own.find((n) => n.status === 'streaming') ?? null;
-  });
-
-  readonly busy = computed(() => {
-    const id = this.selectedBranchId();
-    return this.streamingNode() !== null || (id !== null && this.sending().has(id));
   });
 
   /**
@@ -795,77 +779,39 @@ export class TreeStore extends ConversationStore<ApiClient> {
   // Messages and streams
 
   /** The reply length and input limit the user set (Settings), else nothing: the server's defaults. */
-  private sendLimits(): ReturnType<typeof generationLimits> {
+  protected override sendExtras(): ReturnType<typeof generationLimits> {
     return generationLimits(this.appSettings.settings());
   }
 
-  async send(
-    branchId: string,
-    content: string,
-    options: { ground?: 'required' } = {},
-  ): Promise<boolean> {
-    this.markSending(branchId, true);
+  protected override sendStarting(branchId: string): void {
     if (this.blockedSends().some((s) => s.branchId === branchId)) {
       this.blockedSends.update((list) => list.filter((s) => s.branchId !== branchId));
     }
     this.setUnsentDraft(branchId, null);
-    const ctrl = new AbortController();
-    let nodeId: string | null = null;
-    try {
-      const outcome = await runStream(
-        {
-          open: (signal) =>
-            this.api.sendMessage(branchId, { content, ...options, ...this.sendLimits() }, signal),
-          reconnect: (id, signal) => this.api.streamNode(id, signal),
-        },
-        (event) => {
-          if (event.type === 'start') {
-            nodeId = event.assistantNode.id;
-            this.controllers.set(nodeId, ctrl);
-            this.markSending(branchId, false);
-            // In the tree now: the composer may let the text go.
-            this.ui.markSent(content);
-          }
-          this.apply(event, nodeId);
-        },
-        {
-          signal: ctrl.signal,
-          onReconnect: () => nodeId && this.patchLive(nodeId, { reconnecting: true }),
-        },
-      );
-      this.finish(nodeId, outcome);
-      return true;
-    } catch (err) {
-      if (nodeId === null) {
-        // Refused before anything was written: the text goes back to the branch's
-        // composer (not a "Check sources" request, which the user didn't type) and,
-        // for want of the key, waits for the keys dialog to carry it on.
-        if (!options.ground) this.setUnsentDraft(branchId, content);
-        if (err instanceof ApiError && err.code === 'key_required') {
-          this.blockedSends.update((list) =>
-            addBlockedSend(list, { branchId, content, ...options }),
-          );
-        }
-      }
-      this.fail(err);
-      return false;
-    } finally {
-      this.markSending(branchId, false);
-      if (nodeId) this.controllers.delete(nodeId);
-    }
   }
 
-  /**
-   * A Compare pick the server committed (`POST …/candidates/:id/commit`): the
-   * question and the kept answer join the tree as a finished send's `start`
-   * and `done` would add them, and the same refresh follows (auto-titling).
-   */
-  applyCommitted(result: CommitCandidateResponse): void {
-    const { userNode, assistantNode, branch } = result;
-    this.setUnsentDraft(branch.id, null);
-    this.apply({ type: 'start', userNode, assistantNode, branch }, null);
-    this.apply({ type: 'done', node: assistantNode, branch }, assistantNode.id);
-    this.finish(assistantNode.id, { kind: 'done' });
+  protected override sent(_branchId: string, content: string): void {
+    this.ui.markSent(content);
+  }
+
+  protected override sendFailed(err: unknown, s: FailedSend): void {
+    if (!s.started) {
+      // Refused before anything was written: the text goes back to the branch's
+      // composer (not a "Check sources" request, which the user didn't type) and,
+      // for want of the key, waits for the keys dialog to carry it on.
+      if (!s.options.ground) this.setUnsentDraft(s.branchId, s.content);
+      if (err instanceof ApiError && err.code === 'key_required') {
+        this.blockedSends.update((list) =>
+          addBlockedSend(list, { branchId: s.branchId, content: s.content, ...s.options }),
+        );
+      }
+    }
+    this.fail(err);
+  }
+
+  override applyCommitted(result: CommitCandidateResponse): void {
+    this.setUnsentDraft(result.branch.id, null);
+    super.applyCommitted(result);
   }
 
   private setUnsentDraft(branchId: string, text: string | null): void {
@@ -875,14 +821,6 @@ export class TreeStore extends ConversationStore<ApiClient> {
     if (text === null) next.delete(branchId);
     else next.set(branchId, text);
     this.unsentDrafts.set(next);
-  }
-
-  async cancel(nodeId: string): Promise<void> {
-    try {
-      await this.api.cancelNode(nodeId);
-    } catch (err) {
-      this.fail(err);
-    }
   }
 
   private removeBranches(res: DeleteBranchResponse): void {
@@ -926,16 +864,6 @@ export class TreeStore extends ConversationStore<ApiClient> {
         ),
       );
     }
-  }
-
-  private markSending(branchId: string, on: boolean): void {
-    if (this.sending().has(branchId) === on) return;
-    this.sending.update((set) => {
-      const next = new Set(set);
-      if (on) next.add(branchId);
-      else next.delete(branchId);
-      return next;
-    });
   }
 
   protected notify(text: string, kind?: 'info' | 'error'): void {

@@ -25,7 +25,9 @@ export {
   ConversationStore,
   type ConversationApi,
   type ConversationCopy,
+  type FailedSend,
   type LiveReply,
+  type SendOptions,
 } from './conversation/conversation-store';
 export { CompareRun, type CompareCandidateState, type CompareSpec } from './core/compare-run';
 export {
