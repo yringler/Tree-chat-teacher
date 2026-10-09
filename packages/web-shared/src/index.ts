@@ -16,13 +16,20 @@ export {
 } from './core/api-client';
 export { API_FETCH, API_HEADERS, defaultApiFetch } from './core/api-fetch';
 export { coalesced } from './core/coalesced';
-export { dispatchShortcut, type ShortcutFrame, type ShortcutHelp } from './core/shortcuts';
+export {
+  dispatchShortcut,
+  pathKeys,
+  type ShortcutFrame,
+  type ShortcutHelp,
+} from './core/shortcuts';
 export {
   ConversationStore,
   type ConversationApi,
   type ConversationCopy,
+  type Crumb,
   type FailedSend,
   type LiveReply,
+  type PathEntry,
   type SendOptions,
 } from './conversation/conversation-store';
 export {
@@ -116,6 +123,7 @@ export {
   type RelatedLink,
 } from './ui/links-view';
 export { selectionText, TypesetMath, typesetMath } from './ui/math';
+export { ShortcutsTable } from './ui/shortcuts-table';
 export { TangentAsk } from './ui/tangent-ask';
 export { TextSizeMenu } from './ui/text-size-menu';
 export {

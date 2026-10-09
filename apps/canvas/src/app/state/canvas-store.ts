@@ -107,8 +107,6 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
   /** `branch|leaf` keys whose request failed: not retried until the tree or the lane changes. */
   private readonly lineageFailed = new Set<string>();
 
-  readonly chainIds = computed<ReadonlySet<string>>(() => new Set(this.chain().map((b) => b.id)));
-
   /** The server refused an own-key call for want of a membership (402 `membership_required`). */
   private readonly noticeForced = signal(false);
 

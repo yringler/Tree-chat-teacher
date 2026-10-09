@@ -746,6 +746,24 @@ textarea:focus-visible {
   }
 }
 
+/* Keyboard shortcuts help (ui/shortcuts-table.ts) */
+.shortcuts {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.shortcuts td {
+  padding: 5px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.shortcuts td:first-child {
+  white-space: nowrap;
+  width: 1%;
+  padding-right: 16px;
+}
+
 /* Segmented control (ui/segmented.ts; Learn's Normal / Max toggle) */
 
 .segmented {

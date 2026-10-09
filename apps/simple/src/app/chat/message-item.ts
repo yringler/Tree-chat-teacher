@@ -36,6 +36,8 @@ import { branchTitle } from './titles';
       [class.msg-error]="n.status === 'error'"
       [attr.id]="'msg-' + n.id"
       [attr.data-node-id]="n.id"
+      [attr.aria-current]="focused() ? 'true' : null"
+      (click)="onClick($event)"
     >
       <header class="msg-head">
         <span class="msg-role">{{ n.role === 'user' ? 'You' : 'Tutor' }}</span>
@@ -142,9 +144,9 @@ import { branchTitle } from './titles';
               <button
                 type="button"
                 class="chip"
-                [class.is-on]="chainIds().has(b.id)"
+                [class.is-on]="store.chainIds().has(b.id)"
                 [title]="b.anchorQuote ?? branchTitle(b)"
-                (click)="store.go(b.id)"
+                (click)="store.openAtStart(b.id)"
               >
                 {{ branchTitle(b) }}
               </button>
@@ -188,7 +190,6 @@ export class MessageItem {
   readonly node = input.required<ChatNode>();
   readonly ancestor = input(false);
   readonly focused = input(false);
-  readonly chainIds = input<ReadonlySet<string>>(new Set());
 
   private readonly live = computed(() => this.store.live().get(this.node().id) ?? null);
   protected readonly streaming = computed(() => this.node().status === 'streaming');
@@ -228,6 +229,15 @@ export class MessageItem {
     if (!this.canContinue()) return;
     void this.store.send(this.node().branchId, CONTINUE_MESSAGE);
   }
+  /** A click on the message marks it (`?m=`); a control in it does its own thing, and selecting text is not marking. */
+  protected onClick(e: MouseEvent): void {
+    if (e.target instanceof Element && e.target.closest('a, button, input, textarea, select'))
+      return;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    if (!this.focused()) this.store.focus(this.node().id);
+  }
+
   /** The tutor's suggested tangents, offered once the reply is complete. */
   protected readonly tangents = computed(() => (this.askable() ? this.split().tangents : []));
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
@@ -242,7 +252,7 @@ export class MessageItem {
   });
   /** Followed tangents on the current path. */
   protected readonly followedOn = computed<ReadonlySet<string>>(() => {
-    const on = this.chainIds();
+    const on = this.store.chainIds();
     return new Set(
       this.children()
         .filter((b) => on.has(b.id))

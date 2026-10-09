@@ -118,9 +118,9 @@ The rules the code follows today, and why. One section per area. When a rule cha
 
 - **Angular 22, standalone, signals, zoneless, OnPush.** Workspace packages export TypeScript source, so there is no library build.
 - **Shared logic lives once, in `packages/web-shared` or the `packages/*` below it, never copied between apps.** Three copies of the state engine drifted into bugs before October 2026. Today:
-  - `ConversationStore` (`web-shared/src/conversation/`) is the engine every app's store extends: tree list, open tree, live replies, the stream reducer, sends per branch, branch and link CRUD, resume. Apps supply hooks for their side effects.
+  - `ConversationStore` (`web-shared/src/conversation/`) is the engine every app's store extends: tree list, open tree, where the user is in it (path, crumbs, outline, focus on the path, opening a branch at its first message), live replies, the stream reducer, sends per branch, branch and link CRUD, resume. Apps supply hooks for their side effects.
   - `PowerConversationStore`, `PowerAccount` and the keys dialog (`web-shared/src/power/`) are shared by power and Canvas.
-  - The composer and its `ComposerController`, toasts, the dialog stack (`Overlays`), the shortcut dispatcher and the demo backend are shared by all three.
+  - The composer and its `ComposerController`, toasts, the dialog stack (`Overlays`), the shortcut dispatcher and the demo backend are shared by all three; the path keys (`pathKeys`) and the shortcut table by power and Learn.
 - **Each app holds its dialogs in one stack,** so Escape closes the top one and shortcuts never fire behind a modal.
 - **The HTTP API is one typed route table** (`packages/shared/src/api-routes.ts`): the apps' `ApiClient` calls it, the Worker validates with each entry's schemas, the demo backend must answer or refuse each route, and a test checks the Worker serves exactly those routes. Every JSON body is validated with zod (jitless, for the CSP).
 - **The demos run in the browser on the real `ChatService`** with in-memory repositories (`@tangent/core/memory`), the Worker's chat-settings builder and money math, and the same `GenerationHub` as the Durable Object. One repository contract suite runs against the memory and D1 repositories.

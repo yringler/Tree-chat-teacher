@@ -121,6 +121,8 @@ export class LessonStore extends ConversationStore<ApiClient> {
   /** The lesson whose backup is being downloaded (Export). */
   readonly exportingId = signal<string | null>(null);
   readonly importing = signal(false);
+  /** The open lesson has a side question: its map has more than the lesson to show. */
+  readonly hasSideQuestions = computed(() => (this.index()?.branches.size ?? 0) > 1);
   /** Where the latest followed connection came from ("Back to …"); cleared on the way back. */
   readonly linkReturn = signal<LinkReturn | null>(null);
   readonly unsentDraft = signal<UnsentDraft | null>(null);
@@ -191,12 +193,6 @@ export class LessonStore extends ConversationStore<ApiClient> {
       queryParams: focusNodeId ? { m: focusNodeId } : {},
       ...(replace ? { replaceUrl: true } : {}),
     });
-  }
-
-  /** Back to the parent branch, at the message the side question started from. */
-  goToParent(): void {
-    const b = this.selectedBranch();
-    if (b?.parentBranchId) this.go(b.parentBranchId, b.branchPointNodeId);
   }
 
   /**

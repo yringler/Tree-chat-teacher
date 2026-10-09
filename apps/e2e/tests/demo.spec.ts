@@ -246,6 +246,63 @@ test('Learn demo: a side question is deleted from its chip, or from the header w
   expect(errors).toEqual([]);
 });
 
+test('Learn demo: side questions open where they start; the path, map and keys find the way back', async ({
+  page,
+}) => {
+  const errors = collectErrors(page);
+  await page.goto('/learn/demo/');
+  await page.locator('.lesson-row a').first().click();
+  await expect(page.locator('.msg').first()).toBeVisible();
+
+  // A side question opens at its first message.
+  await page.locator('.side-questions .chip', { hasText: 'Why the owl hums first' }).click();
+  await expect(page).toHaveURL(/\/b\/[^?]+\?m=/);
+  await expect(page.locator('.msg-focused:not(.msg-ancestor)')).toBeVisible();
+
+  // The path goes back to the message it started from.
+  await page.locator('.crumbs').getByRole('button', { name: 'Lesson', exact: true }).click();
+  await expect(page).not.toHaveURL(/\/b\//);
+  await expect(page).toHaveURL(/[?&]m=/);
+  const startedFrom = page.locator('.msg-focused');
+  await expect(startedFrom).toBeVisible();
+
+  // j and k move the mark; Alt+arrows move between side questions.
+  const marked = () => page.locator('.msg-focused').getAttribute('id');
+  const before = await marked();
+  await page.keyboard.press('j');
+  await expect.poll(marked).not.toBe(before);
+  await page.keyboard.press('Alt+ArrowDown');
+  await expect(page).toHaveURL(/\/b\//);
+  const first = page.url();
+  await page.keyboard.press('Alt+ArrowRight');
+  await expect.poll(() => page.url()).not.toBe(first);
+  await expect(page).toHaveURL(/\/b\//);
+  await page.keyboard.press('Alt+ArrowUp');
+  await expect(page).not.toHaveURL(/\/b\//);
+
+  // The map lists every side question.
+  await page.keyboard.press('m');
+  const map = page.getByRole('dialog', { name: 'Lesson map' });
+  await expect(map).toBeVisible();
+  await map.getByRole('button', { name: /Why the owl hums first/ }).click();
+  await expect(map).toBeHidden();
+  await expect(page).toHaveURL(/\/b\//);
+
+  await page.keyboard.press('?');
+  const help = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+  await expect(help).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(help).toBeHidden();
+
+  // On a phone the path is still there.
+  await page.setViewportSize({ width: 390, height: 800 });
+  await expect(page.locator('.crumbs ol')).toBeVisible();
+  await expect(
+    page.locator('.crumbs').getByRole('button', { name: 'Lesson', exact: true }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('Learn demo: the lesson text size scales the messages only, and is remembered', async ({
   page,
 }) => {

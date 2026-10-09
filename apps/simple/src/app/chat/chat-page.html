@@ -32,6 +32,17 @@
             }
           }
         }
+        @if (store.hasSideQuestions()) {
+          <button
+            type="button"
+            class="icon-btn"
+            aria-label="Lesson map"
+            title="Lesson map (m)"
+            (click)="openMap()"
+          >
+            <app-icon name="branch" />
+          </button>
+        }
         <app-text-size-menu heading="Lesson text size" />
         <button
           type="button"
@@ -56,7 +67,7 @@
     </div>
     @if (store.parentBranch(); as parent) {
       <nav class="crumbs" aria-label="Side question path">
-        <button type="button" class="btn btn-ghost btn-sm" (click)="store.goToParent()">
+        <button type="button" class="btn btn-ghost btn-sm" (click)="store.navigate('parent')">
           <app-icon name="back" [size]="14" />
           @if (parent.parentBranchId) {
             Back to “{{ branchTitle(parent) }}”
@@ -76,17 +87,24 @@
           </button>
         }
         <ol>
-          @for (b of store.chain(); track b.id; let last = $last) {
-            <li>
-              @if (last) {
-                <span class="crumb crumb-current" aria-current="page">{{ branchTitle(b) }}</span>
+          @for (c of store.crumbs(); track c.branch.id; let first = $first, i = $index) {
+            <li [class.crumb-mid]="!first && i < store.crumbs().length - 2">
+              @if (c.current) {
+                <span class="crumb crumb-current" aria-current="page">{{
+                  branchTitle(c.branch)
+                }}</span>
               } @else {
-                <button type="button" class="crumb" (click)="store.go(b.id)">
-                  {{ $first ? 'Lesson' : branchTitle(b) }}
+                <button type="button" class="crumb" (click)="store.go(c.branch.id, c.focusNodeId)">
+                  {{ first ? 'Lesson' : branchTitle(c.branch) }}
                 </button>
                 <app-icon name="chevronRight" [size]="12" />
               }
             </li>
+            @if (first && store.crumbs().length > 3) {
+              <li class="crumb-gap" aria-hidden="true">
+                … <app-icon name="chevronRight" [size]="12" />
+              </li>
+            }
           }
         </ol>
       </nav>
@@ -112,7 +130,7 @@
           </p>
         </div>
       }
-      @for (e of entries(); track e.node.id) {
+      @for (e of store.pathEntries(); track e.node.id) {
         @if (e.divider; as b) {
           <ng-container
             *ngTemplateOutlet="
@@ -124,11 +142,10 @@
         <app-message-item
           [node]="e.node"
           [ancestor]="e.ancestor"
-          [focused]="e.node.id === store.focusedNodeId()"
-          [chainIds]="chainIds()"
+          [focused]="e.node.id === store.focusedInPath()?.id"
         />
       }
-      @if (emptyBranch(); as b) {
+      @if (store.emptyBranch(); as b) {
         <ng-container *ngTemplateOutlet="fork; context: { $implicit: b, current: true }" />
         <p class="muted small center">Ask your side question below.</p>
       }

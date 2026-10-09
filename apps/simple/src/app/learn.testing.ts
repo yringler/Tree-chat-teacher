@@ -5,8 +5,9 @@ import type {
   Payer,
   PoolMeResponse,
   PoolStatusResponse,
+  TreeDetail,
 } from '@tangent/shared';
-import { me, membership } from '@tangent/web-shared/testing';
+import { branch, detail, me, membership, node } from '@tangent/web-shared/testing';
 import { AccountStore } from './state/account-store';
 import { LearnFunding } from './state/learn-funding';
 import { PaymentChoice } from './state/payment-choice';
@@ -57,4 +58,43 @@ export function learner(
   });
   if (facts.chosen) TestBed.inject(PaymentChoice).chosen.set(facts.chosen);
   return funding;
+}
+
+/**
+ * "Light" with side questions: `side` from a1 (u2 a2), `deep` from a2 (u3 a3),
+ * and `other` from a1 (u4).
+ */
+export function branchyLesson(): TreeDetail {
+  return detail(
+    [
+      node('u1', { role: 'user', content: 'What is light?' }),
+      node('a1', { parentId: 'u1', seq: 1, content: 'A wave.' }),
+      node('u2', { parentId: 'a1', seq: 2, branchId: 'side', role: 'user', content: 'And?' }),
+      node('a2', { parentId: 'u2', seq: 3, branchId: 'side', content: 'A particle.' }),
+      node('u3', { parentId: 'a2', seq: 4, branchId: 'deep', role: 'user', content: 'Both?' }),
+      node('a3', { parentId: 'u3', seq: 5, branchId: 'deep', content: 'Both.' }),
+      node('u4', { parentId: 'a1', seq: 2, branchId: 'other', role: 'user', content: 'Why?' }),
+    ],
+    [
+      branch('trunk', { title: 'Main thread', model: 'normal-model' }),
+      branch('side', {
+        title: 'Particles',
+        titleSource: 'user',
+        parentBranchId: 'trunk',
+        branchPointNodeId: 'a1',
+      }),
+      branch('deep', {
+        title: 'Duality',
+        titleSource: 'user',
+        parentBranchId: 'side',
+        branchPointNodeId: 'a2',
+      }),
+      branch('other', {
+        title: 'Why waves',
+        titleSource: 'user',
+        parentBranchId: 'trunk',
+        branchPointNodeId: 'a1',
+      }),
+    ],
+  );
 }

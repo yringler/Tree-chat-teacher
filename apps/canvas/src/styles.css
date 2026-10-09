@@ -1417,22 +1417,6 @@ app-node-picker {
   font-size: 0.95rem;
 }
 
-.shortcuts {
-  border-collapse: collapse;
-  width: 100%;
-  font-size: 0.9rem;
-}
-
-.shortcuts td {
-  padding: 4px 8px 4px 0;
-  vertical-align: top;
-}
-
-.shortcuts td:first-child {
-  white-space: nowrap;
-  width: 1%;
-}
-
 .key-list {
   list-style: none;
   margin: 0 0 12px;
