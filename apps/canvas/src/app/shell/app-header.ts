@@ -26,7 +26,11 @@ import { UiStore } from '../state/ui-store';
           >{{ brandShort }}<span class="hide-narrow">{{ brandRest }}</span></span
         >
       </a>
-      <app-mode-switch current="canvas" />
+      <app-mode-switch
+        current="canvas"
+        [treeId]="store.selectedTreeId()"
+        [branchId]="store.selectedBranchId()"
+      />
       <span
         class="badge badge-experimental"
         title="Canvas is experimental: the same conversations and keys as Power mode, a very different way of looking at them"

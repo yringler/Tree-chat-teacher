@@ -16,7 +16,11 @@ import { OutlineItem } from './outline-item';
       <a routerLink="/" class="brand" (click)="ui.drawerOpen.set(false)">
         <app-logo [size]="20" /> Tangent
       </a>
-      <app-mode-switch current="power" />
+      <app-mode-switch
+        current="power"
+        [treeId]="store.selectedTreeId()"
+        [branchId]="store.selectedBranchId()"
+      />
       @if (store.account.me()?.devMode) {
         <span class="badge badge-warn" title="DEV_ALLOW_NO_AUTH is on">dev: auth disabled</span>
       }

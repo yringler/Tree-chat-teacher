@@ -45,8 +45,8 @@ export function createDemoAuthClient(): TangentAuthClient {
  * Extra root providers for an app's demo URL (added after its appConfig's,
  * so they win): the in-browser backend as the API transport, the router
  * based at the demo URL, sign-in paths that stay in the demo, and no auth
- * client. The backend acts as the app's account (Canvas shares the power
- * demo's conversations, as it shares the power account for real).
+ * client. The backend acts as the app's mode; every demo shares one store
+ * of conversations, as every app shares one account for real.
  */
 export function demoProviders(app: AppId): Provider[] {
   const base = DEMO_BASES[app];

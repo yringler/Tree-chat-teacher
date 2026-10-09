@@ -4,9 +4,9 @@ Tangent has three apps on one sign-in. The **Power | Learn | Canvas** switch (in
 
 - **Power** (`/`): every control. Your own API keys, or Tangent credit where it is sold.
 - **Learn** (`/learn/`): a tutor with nothing to configure.
-- **Canvas** (`/canvas/`): experimental. The power app's conversations as lanes on one surface.
+- **Canvas** (`/canvas/`): experimental. Your conversations as lanes on one surface.
 
-Power, Learn and Canvas share one account: a conversation started in one is listed and can be continued in the others. Learn replies on its own models: a branch on a provider or model Learn doesn't offer is answered by Normal there (or the open pool's model), and keeps its own model in power. Picking a model in Learn moves the branch onto it.
+Power, Learn and Canvas share one account: a conversation started in one is listed and can be continued in the others. They are views of the same conversations, so a conversation can be opened in any of them: with one open, the switch opens it, on the same branch, in the other app. Learn replies on its own models: a branch on a provider or model Learn doesn't offer is answered by Normal there (or the open pool's model), and keeps its own model in power. Picking a model in Learn moves the branch onto it.
 
 ## How Tangent answers
 
@@ -81,7 +81,7 @@ An import into Learn is adapted so it can be continued there: branches on a prov
 
 ## Canvas (experimental)
 
-A view of the power app's conversations: anything started in power opens on the canvas and the other way round.
+A view of the same conversations: anything started in power or Learn opens on the canvas and the other way round.
 
 - **Every branch is a lane** on one pannable, zoomable surface, hanging to the right of the message it forks from. The curve's stroke shows its context mode (solid `path`, dashed `summary`, dash-dot `message`, dotted `independent`).
 - **Every lane has its own message box and streams on its own;** the bar counts how many are writing.

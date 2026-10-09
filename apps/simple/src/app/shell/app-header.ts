@@ -34,7 +34,11 @@ import { LearnFunding } from '../state/learn-funding';
           >{{ brandShort }}<span class="hide-narrow">{{ brandRest }}</span></span
         >
       </a>
-      <app-mode-switch current="simple" />
+      <app-mode-switch
+        current="simple"
+        [treeId]="lessons.selectedTreeId()"
+        [branchId]="lessons.selectedBranchId()"
+      />
       <span class="spacer"></span>
       <app-paid-by variant="header" />
       <div class="menu-anchor">
@@ -101,7 +105,7 @@ import { LearnFunding } from '../state/learn-funding';
 export class AppHeader {
   protected readonly account = inject(AccountStore);
   protected readonly funding = inject(LearnFunding);
-  private readonly lessons = inject(LessonStore);
+  protected readonly lessons = inject(LessonStore);
   protected readonly ui = inject(UiStore);
   private readonly toast = inject(ToastStore);
   private readonly auth = inject(AuthService);

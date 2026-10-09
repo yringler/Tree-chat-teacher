@@ -1,5 +1,5 @@
 import type { BranchFunding, MembershipInfo, ProviderInfo } from '@tangent/shared';
-import { APP_BASES } from '../core/demo';
+import { APP_BASES, conversationHref } from '../core/demo';
 import { membershipBlocks } from './membership';
 
 /*
@@ -101,6 +101,5 @@ export function readOnlyText(
 
 /** The same conversation's address in Learn (`/learn/t/<treeId>/b/<branchId>`). */
 export function learnLessonHref(treeId: string, branchId: string | null = null): string {
-  const tree = `${APP_BASES.simple}t/${encodeURIComponent(treeId)}`;
-  return branchId === null ? tree : `${tree}/b/${encodeURIComponent(branchId)}`;
+  return conversationHref(APP_BASES.simple, treeId, branchId);
 }
