@@ -57,23 +57,28 @@ import { LearnFunding } from './state/learn-funding';
           }
         </main>
       </div>
-      @if (ui.dialogs.isOpen('passkeys')) {
-        <app-passkeys-dialog />
-      }
-      @if (ui.dialogs.isOpen('delete-account')) {
-        <app-delete-account-dialog />
-      }
-      @if (ui.dialogs.isOpen('access')) {
-        <app-model-access-dialog />
-      }
-      @if (ui.dialogs.get('connect'); as connect) {
-        <app-connect-dialog [sourceNodeId]="connect.sourceNodeId" />
-      }
-      @if (ui.dialogs.get('compare'); as c) {
-        <app-compare-dialog [branchId]="c.branchId" [content]="c.content" />
-      }
-      @if (ui.dialogs.isOpen('pool-verify')) {
-        <app-pool-first-use-dialog (closed)="ui.dialogs.close('pool-verify')" />
+      <!-- In stack order: the dialog opened last is on top, and Escape closes it. -->
+      @for (d of ui.dialogs.list(); track d.kind) {
+        @switch (d.kind) {
+          @case ('passkeys') {
+            <app-passkeys-dialog />
+          }
+          @case ('delete-account') {
+            <app-delete-account-dialog />
+          }
+          @case ('access') {
+            <app-model-access-dialog />
+          }
+          @case ('connect') {
+            <app-connect-dialog [sourceNodeId]="d.sourceNodeId" />
+          }
+          @case ('compare') {
+            <app-compare-dialog [branchId]="d.branchId" [content]="d.content" />
+          }
+          @case ('pool-verify') {
+            <app-pool-first-use-dialog (closed)="ui.dialogs.close('pool-verify')" />
+          }
+        }
       }
     }
 

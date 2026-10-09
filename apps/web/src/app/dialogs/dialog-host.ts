@@ -13,7 +13,7 @@ import { ShareDialog } from './share-dialog';
 import { ShortcutsHelp } from './shortcuts-help';
 import { TreeSettings } from './tree-settings';
 
-/** Renders whichever dialog UiStore says is open. */
+/** Renders the dialogs UiStore says are open, the top-most last. */
 @Component({
   selector: 'app-dialog-host',
   imports: [
@@ -31,40 +31,55 @@ import { TreeSettings } from './tree-settings';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (ui.dialogs.get('branch'); as state) {
-      <app-branch-dialog [state]="state" />
-    }
-    @if (store.index()) {
-      @if (ui.dialogs.isOpen('branch-settings') && store.selectedBranch(); as branch) {
-        <app-branch-settings [branch]="branch" />
+    <!-- In stack order: the dialog opened last is on top, and Escape closes it. -->
+    @for (d of ui.dialogs.list(); track d.kind) {
+      @switch (d.kind) {
+        @case ('branch') {
+          <app-branch-dialog [state]="d" />
+        }
+        @case ('branch-settings') {
+          @if (store.index() && store.selectedBranch(); as branch) {
+            <app-branch-settings [branch]="branch" />
+          }
+        }
+        @case ('tree-settings') {
+          @if (store.index() && store.detail(); as detail) {
+            <app-tree-settings [tree]="detail.tree" />
+          }
+        }
+        @case ('share') {
+          @if (store.index()) {
+            <app-share-dialog />
+          }
+        }
+        @case ('review') {
+          @if (store.index()) {
+            <app-review-dialog [nodeId]="d.nodeId" />
+          }
+        }
+        @case ('compare') {
+          @if (store.index()) {
+            <app-compare-dialog [branchId]="d.branchId" [content]="d.content" />
+          }
+        }
+        @case ('link') {
+          @if (store.index()) {
+            <app-link-dialog [state]="d" />
+          }
+        }
+        @case ('settings') {
+          <app-settings-dialog />
+        }
+        @case ('account') {
+          <app-account-dialog />
+        }
+        @case ('shortcuts') {
+          <app-shortcuts-help />
+        }
+        @case ('keys') {
+          <app-keys-dialog [initialProvider]="d.provider" (closed)="ui.dialogs.close('keys')" />
+        }
       }
-      @if (ui.dialogs.isOpen('tree-settings') && store.detail(); as detail) {
-        <app-tree-settings [tree]="detail.tree" />
-      }
-      @if (ui.dialogs.isOpen('share')) {
-        <app-share-dialog />
-      }
-      @if (ui.dialogs.get('review'); as review) {
-        <app-review-dialog [nodeId]="review.nodeId" />
-      }
-      @if (ui.dialogs.get('compare'); as compare) {
-        <app-compare-dialog [branchId]="compare.branchId" [content]="compare.content" />
-      }
-      @if (ui.dialogs.get('link'); as link) {
-        <app-link-dialog [state]="link" />
-      }
-    }
-    @if (ui.dialogs.isOpen('settings')) {
-      <app-settings-dialog />
-    }
-    @if (ui.dialogs.isOpen('account')) {
-      <app-account-dialog />
-    }
-    @if (ui.dialogs.isOpen('shortcuts')) {
-      <app-shortcuts-help />
-    }
-    @if (ui.dialogs.get('keys'); as keys) {
-      <app-keys-dialog [initialProvider]="keys.provider" (closed)="ui.dialogs.close('keys')" />
     }
   `,
 })

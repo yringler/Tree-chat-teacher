@@ -9,36 +9,43 @@ import { DeleteAccountDialog } from './delete-account-dialog';
 import { HelpDialog } from './help-dialog';
 import { LinkDialog } from './link-dialog';
 
-/** Renders whichever dialog the UiStore says is open. */
+/** Renders the dialogs the UiStore says are open, the top-most last. */
 @Component({
   selector: 'app-dialog-host',
   imports: [BranchDialog, BranchSettings, DeleteAccountDialog, HelpDialog, KeysDialog, LinkDialog],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (ui.dialogs.get('branch'); as s) {
-      <app-branch-dialog [state]="s" />
-    }
-    @if (ui.dialogs.get('branch-settings'); as s) {
-      <app-branch-settings [state]="s" />
-    }
-    @if (ui.dialogs.get('link'); as s) {
-      <app-link-dialog [state]="s" />
-    }
-    @if (ui.dialogs.isOpen('keys')) {
-      <!-- Billing is the power app's page. -->
-      <app-keys-dialog
-        noun="lane"
-        [titleOf]="laneTitle"
-        [initialProvider]="(store.blockedBranch() ?? store.selectedBranch())?.providerId ?? null"
-        billingHref="/billing"
-        (closed)="ui.dialogs.close('keys')"
-      />
-    }
-    @if (ui.dialogs.isOpen('help')) {
-      <app-help-dialog />
-    }
-    @if (ui.dialogs.isOpen('delete-account')) {
-      <app-delete-account-dialog />
+    <!-- In stack order: the dialog opened last is on top, and Escape closes it. -->
+    @for (d of ui.dialogs.list(); track d.kind) {
+      @switch (d.kind) {
+        @case ('branch') {
+          <app-branch-dialog [state]="d" />
+        }
+        @case ('branch-settings') {
+          <app-branch-settings [state]="d" />
+        }
+        @case ('link') {
+          <app-link-dialog [state]="d" />
+        }
+        @case ('keys') {
+          <!-- Billing is the power app's page. -->
+          <app-keys-dialog
+            noun="lane"
+            [titleOf]="laneTitle"
+            [initialProvider]="
+              (store.blockedBranch() ?? store.selectedBranch())?.providerId ?? null
+            "
+            billingHref="/billing"
+            (closed)="ui.dialogs.close('keys')"
+          />
+        }
+        @case ('help') {
+          <app-help-dialog />
+        }
+        @case ('delete-account') {
+          <app-delete-account-dialog />
+        }
+      }
     }
   `,
 })

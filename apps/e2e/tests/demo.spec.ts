@@ -34,6 +34,25 @@ async function selectText(scope: Locator, text: string): Promise<void> {
   }, text);
 }
 
+test('power demo: a dialog opened over another is on top, and Escape closes that one', async ({
+  page,
+}) => {
+  await page.goto('/demo');
+  await page.getByRole('button', { name: 'Settings' }).first().click();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await expect(settings).toBeVisible();
+  // `?` outside a field opens the shortcuts over it.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('?');
+  const help = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+  await expect(help).toBeVisible();
+  // Last in the page, so drawn on top of the settings.
+  await expect(page.getByRole('dialog').last()).toHaveAccessibleName('Keyboard shortcuts');
+  await page.keyboard.press('Escape');
+  await expect(help).toHaveCount(0);
+  await expect(settings).toBeVisible();
+});
+
 test('power demo: deleting from the conversation list asks first, and Cancel keeps it', async ({
   page,
 }) => {

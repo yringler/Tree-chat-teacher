@@ -10,6 +10,8 @@ import { computed, signal } from '@angular/core';
  */
 export class Overlays<D extends { readonly kind: string }> {
   private readonly stack = signal<readonly D[]>([]);
+  /** The open dialogs, bottom first: a host renders them in this order, so the top one is on top. */
+  readonly list = this.stack.asReadonly();
   readonly anyOpen = computed(() => this.stack().length > 0);
   readonly top = computed<D | null>(() => this.stack().at(-1) ?? null);
 

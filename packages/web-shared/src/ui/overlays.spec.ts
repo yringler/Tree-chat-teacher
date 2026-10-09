@@ -46,4 +46,13 @@ describe('Overlays', () => {
     o.toggle({ kind: 'help' });
     expect(o.isOpen('help')).toBe(false);
   });
+
+  it('lists the open dialogs bottom first, for hosts to render the top one last', () => {
+    const o = new Overlays<Dialog>();
+    o.open({ kind: 'keys', provider: null });
+    o.open({ kind: 'help' });
+    expect(o.list().map((d) => d.kind)).toEqual(['keys', 'help']);
+    o.open({ kind: 'keys', provider: 'x' });
+    expect(o.list().map((d) => d.kind)).toEqual(['help', 'keys']);
+  });
 });
