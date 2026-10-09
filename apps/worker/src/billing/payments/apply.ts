@@ -30,11 +30,11 @@
 //
 // Any event that names both our user and the provider's customer records
 // them in `billing_customers`.
+import { centsToMicros } from '@tangent/shared';
 import { accountIdForUser, userIdOfAccount } from '../../auth/account.js';
 import type { AppEnv } from '../../env.js';
 import { identitySuspensionStatement } from '../../pool/identity.js';
 import { grantByRef, grantTowardCap, hasGrant, type GrantRow } from '../ledger.js';
-import { centsToMicros } from '../pricing.js';
 import { fulfilPurchase } from '../purchases.js';
 import { rememberCustomer } from './customers.js';
 import { paymentProvider } from './index.js';

@@ -1,13 +1,14 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Locator, type Page } from '@playwright/test';
+import { withExampleLesson } from './example-lesson';
 
 /*
- * Links between messages in the Canvas demo (/canvas/demo): the seeded
- * conversation ("How do kittens learn to whistle?") has a main thread, a side
- * question lane ("Why the owl hums first"), a followed tangent lane ("Why
- * practice works better in the evening") and one link (the main thread's
- * second reply to that tangent's first message). Links are drawn as lines
- * between the lanes with a glyph halfway. Each test gets a fresh browser
- * context, so a fresh demo session.
+ * Links between messages in the Canvas, against the Worker: the demos'
+ * example conversation ("How do kittens learn to whistle?"), imported into
+ * the power account on Tangent credit, has a main thread, a side question
+ * lane ("Why the owl hums first"), a followed tangent lane ("Why practice
+ * works better in the evening") and one link (the main thread's second reply
+ * to that tangent's first message). Links are drawn as lines between the
+ * lanes with a glyph halfway. Each test is a new user.
  */
 
 function collectErrors(page: Page): string[] {
@@ -26,10 +27,9 @@ function card(page: Page, text: string): Locator {
     .filter({ has: page.locator('.card-body', { hasText: text }) });
 }
 
-async function openSeededConversation(page: Page): Promise<void> {
-  await page.goto('/canvas/demo/');
-  await page.locator('.tree-row a', { hasText: 'How do kittens learn' }).click();
-  await expect(page).toHaveURL(/\/canvas\/demo\/t\//);
+async function openSeededConversation(page: Page, context: BrowserContext, baseURL: string) {
+  const treeId = await withExampleLesson(context, baseURL, 'power');
+  await page.goto(`/canvas/t/${treeId}`);
   await expect(page.locator('app-lane')).toHaveCount(3);
   // The seeded link: one line, one glyph.
   await expect(page.locator('.xlink-path')).toHaveCount(1);
@@ -55,11 +55,13 @@ async function dragLink(page: Page, from: Locator, to: Locator): Promise<void> {
   await expect(page.locator('.xlink-rubber')).toHaveCount(0);
 }
 
-test('canvas demo: drag a link between cards, follow it from its glyph, come back, remove it', async ({
+test('canvas: drag a link between cards, follow it from its glyph, come back, remove it', async ({
   page,
+  context,
+  baseURL,
 }) => {
   const errors = collectErrors(page);
-  await openSeededConversation(page);
+  await openSeededConversation(page, context, baseURL!);
 
   const owls = card(page, 'Owls are courteous creatures');
   const kittens = card(page, 'How do kittens learn to whistle?');
@@ -123,11 +125,13 @@ test('canvas demo: drag a link between cards, follow it from its glyph, come bac
   expect(errors).toEqual([]);
 });
 
-test('canvas demo: link with the keyboard (R), by clicking a card or by searching', async ({
+test('canvas: link with the keyboard (R), by clicking a card or by searching', async ({
   page,
+  context,
+  baseURL,
 }) => {
   const errors = collectErrors(page);
-  await openSeededConversation(page);
+  await openSeededConversation(page, context, baseURL!);
   await page.locator('.canvas-title').click();
 
   // R on the main thread: links from its latest message.

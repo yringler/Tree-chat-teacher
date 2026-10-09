@@ -1,11 +1,7 @@
 // Grounding config and the daily cap on automatic web searches
 // (docs/DECISIONS.md § Grounding). Searches are billed like any other cost:
 // OpenRouter folds their fee into the generation's reported cost.
-import {
-  DEFAULT_GROUNDING_SETTINGS,
-  type GroundingPolicy,
-  type GroundingSettings,
-} from '@tangent/core';
+import type { GroundingPolicy } from '@tangent/core';
 import type { ProviderConfig, ProviderRoute } from '@tangent/shared';
 import { appConfig } from '../config.js';
 import { callPayer, type AccountContext, type AppEnv } from '../env.js';
@@ -13,15 +9,6 @@ import { callPayer, type AccountContext, type AppEnv } from '../env.js';
 /** The operator's `GROUNDING` ceiling (default `auto`). */
 export function groundingPolicy(env: AppEnv): GroundingPolicy {
   return appConfig(env).grounding.policy;
-}
-
-/** Grounding settings from the `GROUNDING*` vars. Learn ignores the per-branch setting. */
-export function groundingSettings(env: AppEnv, mode: AccountContext['mode']): GroundingSettings {
-  return {
-    ...DEFAULT_GROUNDING_SETTINGS,
-    policy: appConfig(env).grounding.policy,
-    ignoreBranchSetting: mode === 'simple',
-  };
 }
 
 /**

@@ -3,10 +3,9 @@
 // so a row settles at most once whoever gets there first (inline settle,
 // deferred reconcile, cron, the pool's expiry alarm), and a replay can never
 // double-charge.
-import type { Payer, UsagePurpose } from '@tangent/shared';
+import { chargeMicros, type Payer, type UsagePurpose } from '@tangent/shared';
 import type { SqlRow } from '../db/rows.js';
 import type { usageEvents } from '../db/schema.js';
-import { chargeMicros } from './pricing.js';
 
 /** Who pays for a metered call: never the user's own key, which is never metered. */
 export type MeteredPayer = Exclude<Payer, 'own-key'>;

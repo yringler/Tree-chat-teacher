@@ -2,6 +2,7 @@ import { DomainError } from '@tangent/core';
 import {
   createCheckoutRequestSchema,
   membershipWaiverRequestSchema,
+  usageQuerySchema,
   type BillingSummary,
   type CheckoutResponse,
   type MembershipInfo,
@@ -9,7 +10,6 @@ import {
   type UsageListResponse,
 } from '@tangent/shared';
 import { Hono } from 'hono';
-import { z } from 'zod';
 import {
   openBillingPortal,
   redeemWaiverCode,
@@ -24,11 +24,6 @@ import { apiError, validateJson, validateQuery } from '../http/errors.js';
 import { logEvent } from '../log.js';
 
 const DEFAULT_USAGE_PAGE = 50;
-
-const usageQuerySchema = z.object({
-  cursor: z.string().min(1).max(512).optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional(),
-});
 
 /** The base of the URLs the payment provider sends the browser back to. */
 function baseUrlOf(c: AppContext): string {

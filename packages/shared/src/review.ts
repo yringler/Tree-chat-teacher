@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from './zod.js';
 import { generationLimitsShape } from './api.js';
 import type { BranchFunding, TokenUsage } from './domain.js';
 

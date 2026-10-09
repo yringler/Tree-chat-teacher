@@ -11,10 +11,16 @@ import { ConflictError, NotFoundError } from '../errors.js';
 import { pairKey } from '../links.js';
 import type { AccountSettings, Repositories, ShareWithTree } from '../repository.js';
 
+/** Byte order, as SQLite compares text: the D1 adapter's tie-breaks on ids. */
+function byBytes(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /**
- * In-memory implementation of the repository ports. Used by service tests and
- * as a reference implementation for new storage adapters (a Node port can
- * start from it). Not optimized; everything is copied to avoid aliasing.
+ * In-memory implementation of the repository ports. Used by service tests,
+ * by the in-browser demos' backend, and as a reference implementation for
+ * new storage adapters (a Node port can start from it). Not optimized;
+ * everything is copied to avoid aliasing.
  */
 export function createMemoryRepositories(): Repositories & { dump(): MemoryState } {
   const state: MemoryState = {
@@ -53,7 +59,7 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
             branchCount: [...state.branches.values()].filter((b) => b.treeId === t.id).length,
             messageCount: [...state.nodes.values()].filter((n) => n.treeId === t.id).length,
           }))
-          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+          .sort((a, b) => byBytes(b.updatedAt, a.updatedAt) || byBytes(a.id, b.id));
       },
       async getTree(treeId) {
         const t = state.trees.get(treeId);
@@ -88,7 +94,10 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
         return b ? clone(b) : null;
       },
       async listBranches(treeId) {
-        return [...state.branches.values()].filter((b) => b.treeId === treeId).map(clone);
+        return [...state.branches.values()]
+          .filter((b) => b.treeId === treeId)
+          .sort((a, b) => byBytes(a.createdAt, b.createdAt) || byBytes(a.id, b.id))
+          .map(clone);
       },
       async getBranchChain(branchId) {
         const chain: Branch[] = [];
@@ -138,7 +147,10 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
         return n ? clone(n) : null;
       },
       async listNodes(treeId) {
-        return [...state.nodes.values()].filter((n) => n.treeId === treeId).map(clone);
+        return [...state.nodes.values()]
+          .filter((n) => n.treeId === treeId)
+          .sort((a, b) => byBytes(a.branchId, b.branchId) || a.seq - b.seq)
+          .map(clone);
       },
       async listBranchNodes(branchId) {
         return [...state.nodes.values()]
@@ -174,12 +186,13 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
       async listStreamingNodes(treeId) {
         return [...state.nodes.values()]
           .filter((n) => n.treeId === treeId && n.status === 'streaming')
+          .sort((a, b) => byBytes(a.createdAt, b.createdAt) || byBytes(a.id, b.id))
           .map(clone);
       },
       async listLinks(treeId) {
         return [...state.links.values()]
           .filter((l) => l.treeId === treeId)
-          .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+          .sort((a, b) => byBytes(a.createdAt, b.createdAt) || byBytes(a.id, b.id))
           .map(clone);
       },
       async getLink(linkId) {
@@ -232,7 +245,7 @@ export function createMemoryRepositories(): Repositories & { dump(): MemoryState
       async listShares(accountId) {
         return [...state.shares.values()]
           .filter((s) => s.accountId === accountId)
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          .sort((a, b) => byBytes(b.createdAt, a.createdAt) || byBytes(a.id, b.id))
           .map(withTree);
       },
       async getShare(shareId) {

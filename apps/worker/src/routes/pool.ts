@@ -18,7 +18,7 @@ import { TURNSTILE_ACTION, verifyTurnstile } from '../pool/turnstile.js';
 /**
  * Open pool API, mounted at /api/pool behind the session and account
  * middleware. The contract is in
- * packages/shared/src/pool.ts and the route list in api.ts.
+ * packages/shared/src/pool.ts and the route table in api-routes.ts.
  *
  * `GET /me`: the caller's caps (the same for everyone) and use today, their
  * verification and own credit (the Learn app's pool pill and funding toggle).

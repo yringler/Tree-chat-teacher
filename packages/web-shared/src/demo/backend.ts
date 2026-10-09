@@ -1,34 +1,38 @@
 import {
+  appChatSettings,
   ChatService,
-  DEFAULT_CHAT_SETTINGS,
-  DEFAULT_GROUNDING_SETTINGS,
+  DEFAULT_GROUNDING_POLICY,
   DomainError,
+  GenerationHub,
   HTTP_STATUS,
   newId,
+  replayEvents,
   systemClock,
   type BeginSendResult,
-  type GenerationLimits,
-  type HeldCandidate,
-  type RunGenerationOptions,
   type Clock,
+  type GenerationLimits,
+  type GenerationSink,
+  type HeldCandidate,
 } from '@tangent/core';
-import { createMemoryRepositories, type MemoryState } from '@tangent/core/testing';
+import { createMemoryRepositories, type MemoryState } from '@tangent/core/memory';
 import {
+  API_ROUTES,
   CANDIDATE_TTL_MS,
-  candidateRequestSchema,
-  contextLimitsQuerySchema,
-  createBranchRequestSchema,
-  createLinkRequestSchema,
-  createTreeRequestSchema,
+  matchRoute,
+  ROUTE_NAMES,
+  type ApiRoutes,
+  type RouteName,
+  type RouteParams,
+  type RouteSpec,
+  chargeMicros,
+  costUsdToNanos,
+  DEFAULT_BUILT_IN_MAX_INPUT_TOKENS,
+  DEFAULT_MARKUP_BPS,
+  DEFAULT_OPENROUTER_FEE_BPS,
   DEFAULT_SYSTEM_PROMPT,
   MAX_TOP_UP_CENTS,
   MICROS_PER_USD,
   MIN_TOP_UP_CENTS,
-  sendMessageRequestSchema,
-  updateBranchRequestSchema,
-  updateLinkRequestSchema,
-  updateSettingsRequestSchema,
-  updateTreeRequestSchema,
   type ApiError,
   type AccountMode,
   type ApiErrorCode,
@@ -53,11 +57,9 @@ import {
   type ProviderInfo,
   type ProviderRegistry,
   type ReviewEvent,
-  reviewRequestSchema,
   type StreamEvent,
   type SummaryRecord,
   type Tree,
-  treeBackupSchema,
   type UsageEntry,
   type UsageListResponse,
   usageFactorOf,
@@ -74,9 +76,10 @@ import { createLoremProvider, DEMO_MODEL_PRICES } from './lorem';
  * demo (`/learn/demo/`) acts as a simple account with pretend credit, the
  * Power demo (`/demo/`) as a power account; shares and keys aren't offered.
  *
- * Streaming mirrors the Worker's TreeSession Durable Object: a generation
- * runs detached from the request, `GET /api/nodes/:id/stream` re-attaches
- * with a `snapshot`, and cancel aborts it (the stream ends with `error`).
+ * Streaming runs on the Worker's TreeSession Durable Object's
+ * GenerationHub: a generation runs detached from the request,
+ * `GET /api/nodes/:id/stream` re-attaches with a `snapshot`, and cancel
+ * aborts it (the stream ends with `error`).
  * Reviews and Compare's candidate answers stream straight back as in the
  * Worker; a finished candidate is held in memory (as the Durable Object
  * holds it) until it is committed or expires.
@@ -88,8 +91,6 @@ export const DEMO_EMAIL = 'demo@example.com';
 export const DEMO_USER_ID = 'demo-user';
 /** Pretend credit the demo starts with ($4.20). */
 export const DEMO_START_BALANCE_MICROS = 4_200_000;
-/** +10%, the pay-as-you-go rate. */
-const MARKUP_BPS = 1000;
 /** The demos sell nothing: no membership is required. */
 const DEMO_MEMBERSHIP: MembershipInfo = {
   required: false,
@@ -118,8 +119,6 @@ const DEMO_POOL_ME: Omit<PoolMeResponse, 'personalAvailableMicros'> = {
     resetAt: '1970-01-02T00:00:00.000Z',
   },
 };
-/** OpenRouter's credit-purchase fee, part of the cost the markup applies to (as in the Worker). */
-const OPENROUTER_FEE_BPS = 550;
 /** Held per in-flight provider call, like the real meter's reservation. */
 const HOLD_MICROS = 20_000;
 /** Per mode, so the two demos keep separate conversations (like the two real accounts). */
@@ -147,14 +146,6 @@ export interface DemoBackendOptions {
   storage?: DemoStorage | null;
   /** Start with the example lesson (default true; ignored when a saved session is restored). */
   seed?: boolean;
-}
-
-interface Run {
-  /** Assistant node with the content so far (for reconnect snapshots). */
-  node: ChatNode;
-  subscribers: Set<ReadableStreamDefaultController<Uint8Array>>;
-  controller: AbortController;
-  finished: Promise<void>;
 }
 
 /** A finished compare candidate, waiting to be committed (in memory only, like the DO's TTL'd storage). */
@@ -236,6 +227,21 @@ function defaultStorage(): DemoStorage | null {
   }
 }
 
+const R = API_ROUTES;
+
+/** What a demo handler gets: the route's path parameters, and the request's JSON body. */
+interface DemoRequest<Route extends RouteSpec> {
+  params: RouteParams<Route>;
+  body: unknown;
+  url: URL;
+  signal: AbortSignal | null;
+}
+
+type DemoRoutes = {
+  [N in RouteName]:
+    ((request: DemoRequest<ApiRoutes[N]>) => Response | Promise<Response>) | 'unsupported';
+};
+
 /** The in-browser backend; `createDemoFetch` wraps it as a `fetch`. */
 export class DemoBackend {
   private readonly repos = createMemoryRepositories();
@@ -246,7 +252,7 @@ export class DemoBackend {
   private readonly storage: DemoStorage | null;
   private readonly mode: AccountMode;
   private readonly storageKey: string;
-  private readonly runs = new Map<string, Run>();
+  private readonly hub = new GenerationHub();
   /** Compare candidates by id. */
   private readonly held = new Map<string, Held>();
   private balanceMicros = DEMO_START_BALANCE_MICROS;
@@ -276,16 +282,13 @@ export class DemoBackend {
       // Like the Worker: Learn pays per request, so its branches are written `own-key`,
       // and imports are adapted to its provider, models, context and prompt.
       profile: { kind: this.mode === 'simple' ? 'learn' : 'power' },
-      settings: {
-        ...DEFAULT_CHAT_SETTINGS,
-        maxInputTokens: 60_000,
-        // As deployed (GROUNDING=auto); the demo only has Learn's view of the setting.
-        grounding: {
-          ...DEFAULT_GROUNDING_SETTINGS,
-          policy: 'auto',
-          ignoreBranchSetting: this.mode === 'simple',
-        },
-      },
+      // As a server with the default config, summarizing on each branch's own route.
+      settings: appChatSettings(this.mode === 'simple' ? 'learn' : 'power', {
+        summaryProviderId: null,
+        summaryModel: null,
+        maxInputTokens: DEFAULT_BUILT_IN_MAX_INPUT_TOKENS,
+        groundingPolicy: DEFAULT_GROUNDING_POLICY,
+      }),
       // New conversations get the same built-in prompt as on the server (both modes).
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
       clock: this.clock,
@@ -325,21 +328,21 @@ export class DemoBackend {
     }
   };
 
-  private async route(
-    method: string,
-    url: URL,
-    body: unknown,
-    signal: AbortSignal | null,
-  ): Promise<Response> {
-    const path = url.pathname;
-    const seg = (re: RegExp): string | null => {
-      const m = re.exec(path);
-      return m?.[1] !== undefined ? decodeURIComponent(m[1]) : null;
-    };
-    let id: string | null;
-
-    if (method === 'GET' && path === '/api/me') {
-      return json({
+  /**
+   * What the demo answers on each route of the API table: a handler, or
+   * `unsupported` (501 `not_implemented`). A record over every route name,
+   * so a route added to the table doesn't compile until the demo decides.
+   */
+  private readonly routes: DemoRoutes = {
+    loginOptions: () =>
+      json({
+        configured: false,
+        devMode: false,
+        social: { google: false, github: false },
+        turnstileSiteKey: null,
+      } satisfies LoginOptionsResponse),
+    me: () =>
+      json({
         email: DEMO_EMAIL,
         userId: DEMO_USER_ID,
         accountId: DEMO_ACCOUNT_ID,
@@ -353,158 +356,153 @@ export class DemoBackend {
         membership: { ...DEMO_MEMBERSHIP },
         // Nothing needs a membership here, so nothing is ever read-only.
         membershipNeededFor: [],
-      } satisfies MeResponse);
-    }
-    if (method === 'GET' && path === '/api/login-options') {
-      return json({
-        configured: false,
-        devMode: false,
-        social: { google: false, github: false },
-        turnstileSiteKey: null,
-      } satisfies LoginOptionsResponse);
-    }
-    if (method === 'POST' && path === '/api/auth/sign-out') return json({ success: true });
-    if (method === 'GET' && path === '/api/providers') {
-      return json([withUsageFactor(providerInfo(this.provider))]);
-    }
+      } satisfies MeResponse),
+    deleteAccount: 'unsupported',
+    providers: () => json([withUsageFactor(providerInfo(this.provider))]),
 
     // Keys and shares (power): nothing stored, nothing published
-    if (method === 'GET' && path === '/api/key/status') {
-      return json({ enabled: false, hasKey: false, providers: [] } satisfies KeyStatusResponse);
-    }
-    if (method === 'GET' && path === '/api/shares') return json([]);
-    if (path === '/api/key' || path.startsWith('/api/shares')) {
-      return apiError('bad_request', "That isn't available in the demo.");
-    }
+    keyStatus: () =>
+      json({ enabled: false, hasKey: false, providers: [] } satisfies KeyStatusResponse),
+    saveKey: 'unsupported',
+    forgetKey: 'unsupported',
+    listShares: () => json([]),
+    createShare: 'unsupported',
+    updateShare: 'unsupported',
+    republishShare: 'unsupported',
+    revokeShare: 'unsupported',
+    deleteShare: 'unsupported',
 
     // Billing (pretend credit; nothing can be bought)
-    if (method === 'GET' && path === '/api/billing') return json(this.billingSummary());
-    if (method === 'GET' && path === '/api/billing/usage') return json(this.usagePage(url));
-    if (method === 'POST' && path === '/api/billing/checkout') {
-      return apiError('bad_request', "Adding credit isn't available in the demo.");
-    }
+    billing: () => json(this.billingSummary()),
+    usage: ({ url }) => json(this.usagePage(url)),
+    createCheckout: 'unsupported',
+    membershipCheckout: 'unsupported',
+    redeemMembershipWaiver: 'unsupported',
+    billingPortal: 'unsupported',
 
     // The open pool: off in the demos (it runs on pretend credit and funds nothing)
-    if (method === 'GET' && path === '/api/pool/status') return json(DEMO_POOL_STATUS);
-    if (method === 'GET' && path === '/api/pool/me') {
-      return json({
+    poolStatus: () => json(DEMO_POOL_STATUS),
+    poolMe: () =>
+      json({
         ...DEMO_POOL_ME,
         personalAvailableMicros: this.balanceMicros - this.heldMicros,
-      } satisfies PoolMeResponse);
-    }
+      } satisfies PoolMeResponse),
+    poolVerify: 'unsupported',
 
     // Account settings (the default system prompt), kept with the session
-    if (path === '/api/settings') {
-      if (method === 'GET') return json(await this.chat.getSettings());
-      if (method === 'PATCH') {
-        const req = updateSettingsRequestSchema.parse(body ?? {});
-        return this.saved(json(await this.chat.updateSettings(req)));
-      }
-    }
+    settings: async () => json(await this.chat.getSettings()),
+    updateSettings: async ({ body }) =>
+      this.saved(json(await this.chat.updateSettings(R.updateSettings.body.parse(body ?? {})))),
 
     // Trees (without a prompt in the request: the saved one, else the built-in one)
-    if (path === '/api/trees') {
-      if (method === 'GET') return json(await this.chat.listTrees());
-      if (method === 'POST') {
-        const req = createTreeRequestSchema.parse(body ?? {});
-        return this.saved(json(await this.chat.createTree(req), 201));
-      }
-    }
-    if ((id = seg(/^\/api\/trees\/([^/]+)$/))) {
-      if (method === 'GET') return json(await this.chat.getTreeDetail(id));
-      if (method === 'PATCH') {
-        const req = updateTreeRequestSchema.parse(body ?? {});
-        return this.saved(json(await this.chat.updateTree(id, req)));
-      }
-      if (method === 'DELETE') {
-        await this.chat.getTreeDetail(id); // 404 before stopping anything
-        await this.stopRuns((run) => run.node.treeId === id);
-        await this.chat.deleteTree(id);
-        return this.saved(noContent());
-      }
-    }
-
-    if (method === 'GET' && (id = seg(/^\/api\/trees\/([^/]+)\/backup$/))) {
-      return json(await this.chat.exportBackup(id));
-    }
-    // "Create a copy in Learn" is offered only on a read-only power branch, which the
-    // demos never have (they require no membership): the two demos stay apart.
-    if (method === 'POST' && seg(/^\/api\/trees\/([^/]+)\/copy-to-learn$/)) {
-      return apiError('bad_request', "Copying to Learn isn't available in the demo.");
-    }
-    if (method === 'POST' && path === '/api/import') {
-      const backup = treeBackupSchema.parse(body ?? {});
-      return this.saved(json(await this.chat.importBackup(backup), 201));
-    }
+    listTrees: async () => json(await this.chat.listTrees()),
+    createTree: async ({ body }) =>
+      this.saved(json(await this.chat.createTree(R.createTree.body.parse(body ?? {})), 201)),
+    getTree: async ({ params }) => json(await this.chat.getTreeDetail(params.treeId)),
+    updateTree: async ({ params, body }) =>
+      this.saved(
+        json(await this.chat.updateTree(params.treeId, R.updateTree.body.parse(body ?? {}))),
+      ),
+    deleteTree: async ({ params: { treeId } }) => {
+      await this.chat.getTreeDetail(treeId); // 404 before stopping anything
+      await this.hub.stop((node) => node.treeId === treeId);
+      await this.chat.deleteTree(treeId);
+      return this.saved(noContent());
+    },
+    backup: async ({ params }) => json(await this.chat.exportBackup(params.treeId)),
+    importBackup: async ({ body }) =>
+      this.saved(json(await this.chat.importBackup(R.importBackup.body.parse(body ?? {})), 201)),
+    // Offered only on a read-only power branch, which the demos never have (they
+    // require no membership): the two demos stay apart.
+    copyToLearn: 'unsupported',
+    exportTree: 'unsupported',
 
     // Branches
-    if (method === 'POST' && path === '/api/branches') {
-      const req = createBranchRequestSchema.parse(body ?? {});
-      return this.saved(json(await this.chat.createBranch(req), 201));
-    }
-    if ((id = seg(/^\/api\/branches\/([^/]+)$/))) {
-      if (method === 'PATCH') {
-        const req = updateBranchRequestSchema.parse(body ?? {});
-        return this.saved(json(await this.chat.updateBranch(id, req)));
-      }
-      if (method === 'DELETE') return this.saved(json(await this.deleteBranch(id)));
-    }
-    if (method === 'GET' && (id = seg(/^\/api\/branches\/([^/]+)\/context$/))) {
-      const nodeId = url.searchParams.get('nodeId');
-      const resolve = url.searchParams.get('resolve') === 'true';
-      const limits = this.powerLimits(
-        contextLimitsQuerySchema.parse(Object.fromEntries(url.searchParams)),
+    createBranch: async ({ body }) =>
+      this.saved(json(await this.chat.createBranch(R.createBranch.body.parse(body ?? {})), 201)),
+    updateBranch: async ({ params, body }) =>
+      this.saved(
+        json(await this.chat.updateBranch(params.branchId, R.updateBranch.body.parse(body ?? {}))),
+      ),
+    deleteBranch: async ({ params }) => this.saved(json(await this.deleteBranch(params.branchId))),
+    getContext: async ({ params, url }) => {
+      const { nodeId, resolve, ...limits } = R.getContext.query.parse(
+        Object.fromEntries(url.searchParams),
       );
-      const res = await this.chat.planContext(id, nodeId, { resolveSummaries: resolve, limits });
+      const res = await this.chat.planContext(params.branchId, nodeId ?? null, {
+        resolveSummaries: resolve,
+        limits: this.powerLimits(limits),
+      });
       return resolve ? this.saved(json(res)) : json(res);
-    }
-    if (method === 'GET' && (id = seg(/^\/api\/branches\/([^/]+)\/input-budget$/))) {
-      return json(await this.inputBudget(id));
-    }
+    },
+    inputBudget: async ({ params }) => json(await this.inputBudget(params.branchId)),
 
     // Links
-    if (method === 'POST' && path === '/api/links') {
-      const req = createLinkRequestSchema.parse(body ?? {});
-      const { link, created } = await this.chat.createLink(req);
+    createLink: async ({ body }) => {
+      const { link, created } = await this.chat.createLink(R.createLink.body.parse(body ?? {}));
       return this.saved(json(link, created ? 201 : 200));
-    }
-    if ((id = seg(/^\/api\/links\/([^/]+)$/))) {
-      if (method === 'PATCH') {
-        const req = updateLinkRequestSchema.parse(body ?? {});
-        return this.saved(json(await this.chat.updateLink(id, req)));
-      }
-      if (method === 'DELETE') {
-        await this.chat.deleteLink(id);
-        return this.saved(noContent());
-      }
-    }
+    },
+    updateLink: async ({ params, body }) =>
+      this.saved(
+        json(await this.chat.updateLink(params.linkId, R.updateLink.body.parse(body ?? {}))),
+      ),
+    deleteLink: async ({ params }) => {
+      await this.chat.deleteLink(params.linkId);
+      return this.saved(noContent());
+    },
 
     // Messages and generations
-    if (method === 'POST' && (id = seg(/^\/api\/branches\/([^/]+)\/messages$/))) {
-      return this.send(id, body, signal);
-    }
-    if (method === 'GET' && (id = seg(/^\/api\/nodes\/([^/]+)\/stream$/))) {
-      return this.reconnect(id, signal);
-    }
-    if (method === 'POST' && (id = seg(/^\/api\/nodes\/([^/]+)\/review$/))) {
-      return this.review(id, body, signal);
-    }
-    if (method === 'POST' && (id = seg(/^\/api\/branches\/([^/]+)\/candidates$/))) {
-      return this.candidate(id, body, signal);
-    }
-    const commit = /^\/api\/branches\/([^/]+)\/candidates\/([^/]+)\/commit$/.exec(path);
-    if (method === 'POST' && commit) {
-      return this.commitCandidate(decodeURIComponent(commit[1]!), decodeURIComponent(commit[2]!));
-    }
-    if (method === 'POST' && (id = seg(/^\/api\/nodes\/([^/]+)\/cancel$/))) {
-      const node = await this.chat.getOwnedNode(id);
-      const run = this.runs.get(node.id);
-      if (run) run.controller.abort();
-      else await this.chat.recoverInterruptedNode(node.id);
+    sendMessage: ({ params, body, signal }) => this.send(params.branchId, body, signal),
+    streamNode: ({ params, signal }) => this.reconnect(params.nodeId, signal),
+    cancelNode: async ({ params }) => {
+      const node = await this.chat.getOwnedNode(params.nodeId);
+      if (!this.hub.cancel(node.id)) await this.chat.recoverInterruptedNode(node.id);
       return noContent();
-    }
+    },
+    reviewNode: ({ params, body, signal }) => this.review(params.nodeId, body, signal),
+    streamCandidate: ({ params, body, signal }) => this.candidate(params.branchId, body, signal),
+    commitCandidate: ({ params }) => this.commitCandidate(params.branchId, params.candidateId),
 
+    // Admin: the demos have no admin app
+    adminStatus: 'unsupported',
+    adminUsers: 'unsupported',
+    updateAdminUser: 'unsupported',
+    adminUserShares: 'unsupported',
+    adminPool: 'unsupported',
+    adminPoolUsage: 'unsupported',
+    adminCredit: 'unsupported',
+    adminRevokeShare: 'unsupported',
+  };
+
+  private async route(
+    method: string,
+    url: URL,
+    body: unknown,
+    signal: AbortSignal | null,
+  ): Promise<Response> {
+    // Better Auth's, outside the table: the apps sign out through it.
+    if (method === 'POST' && url.pathname === '/api/auth/sign-out') return json({ success: true });
+    for (const name of ROUTE_NAMES) {
+      const res = this.answer(name, method, url, { body, url, signal });
+      if (res) return res;
+    }
     return apiError('not_found', 'Not available in the demo');
+  }
+
+  /** The answer of route `name` when the request is for it; null when it isn't. */
+  private answer<N extends RouteName>(
+    name: N,
+    method: string,
+    url: URL,
+    request: Omit<DemoRequest<ApiRoutes[N]>, 'params'>,
+  ): Response | Promise<Response> | null {
+    const route = R[name];
+    const params = route.method === method ? matchRoute(route, url.pathname) : null;
+    if (!params) return null;
+    const handler = this.routes[name];
+    if (handler === 'unsupported')
+      return apiError('not_implemented', "That isn't available in the demo.");
+    return handler({ ...request, params });
   }
 
   // ------------------------------------------------------------ messages
@@ -514,39 +512,27 @@ export class DemoBackend {
     body: unknown,
     signal: AbortSignal | null,
   ): Promise<Response> {
-    const { content, ground, ...requested } = sendMessageRequestSchema.parse(body ?? {});
+    const { content, ground, ...requested } = R.sendMessage.body.parse(body ?? {});
     await this.chat.getOwnedBranch(branchId);
     if (this.outOfCredit()) return apiError('payment_required', 'Add credit to keep learning');
     const begin = this.lock.then(() => this.chat.beginSend(branchId, content));
     this.lock = begin.catch(() => undefined);
     const started: BeginSendResult = await begin;
 
-    const run: Run = {
-      node: { ...started.assistantNode },
-      subscribers: new Set(),
-      controller: new AbortController(),
-      finished: Promise.resolve(),
-    };
-    this.runs.set(run.node.id, run);
-    const response = this.subscribe(
-      run,
-      [
-        {
-          type: 'start',
-          userNode: started.userNode,
-          assistantNode: started.assistantNode,
-          branch: started.branch,
-          // The Learn demo runs on pretend credit; the power demo on each branch's route.
-          funding: this.mode === 'simple' ? 'credit' : started.branch.funding,
-        },
-      ],
-      signal,
-    );
-    // Detached, like the Durable Object: keeps going when the reader goes away.
-    run.finished = this.pump(run, started, {
+    const options = {
       ...(ground === 'required' ? { ground } : {}),
       ...this.powerLimits(requested),
-    });
+    };
+    const { sink, response } = this.sseSink(started.assistantNode.id, signal);
+    // Detached, like the Durable Object: keeps going when the reader goes away.
+    void this.hub.start(
+      started,
+      // The Learn demo runs on pretend credit; the power demo on each branch's route.
+      this.mode === 'simple' ? 'credit' : started.branch.funding,
+      sink,
+      (aborted) => this.chat.runGeneration(started, aborted, options),
+      { settle: () => this.save() },
+    );
     this.save();
     return response;
   }
@@ -593,7 +579,7 @@ export class DemoBackend {
     body: unknown,
     signal: AbortSignal | null,
   ): Promise<Response> {
-    const req = reviewRequestSchema.parse(body ?? {});
+    const req = R.reviewNode.body.parse(body ?? {});
     if (this.outOfCredit()) return apiError('payment_required', 'Add credit to keep learning');
     const prepared = await this.chat.prepareReview(nodeId, req, this.powerLimits(req));
     const controller = new AbortController();
@@ -623,7 +609,7 @@ export class DemoBackend {
     body: unknown,
     signal: AbortSignal | null,
   ): Promise<Response> {
-    const req = candidateRequestSchema.parse(body ?? {});
+    const req = R.streamCandidate.body.parse(body ?? {});
     if (this.outOfCredit()) return apiError('payment_required', 'Add credit to keep learning');
     const prepared = await this.chat.prepareCandidate(branchId, req, this.powerLimits(req));
     const controller = new AbortController();
@@ -691,51 +677,16 @@ export class DemoBackend {
     return this.saved(json(res));
   }
 
-  private async pump(
-    run: Run,
-    begin: BeginSendResult,
-    options: RunGenerationOptions,
-  ): Promise<void> {
-    try {
-      for await (const event of this.chat.runGeneration(begin, run.controller.signal, options)) {
-        if (event.type === 'delta')
-          run.node = { ...run.node, content: run.node.content + event.text };
-        if ((event.type === 'done' || event.type === 'error') && event.node) run.node = event.node;
-        this.broadcast(run, sseFrame(event));
-      }
-    } finally {
-      this.runs.delete(run.node.id);
-      for (const c of run.subscribers) {
-        try {
-          c.close();
-        } catch {
-          // Already closed or errored.
-        }
-      }
-      run.subscribers.clear();
-      this.save();
-    }
-  }
-
   private async reconnect(nodeId: string, signal: AbortSignal | null): Promise<Response> {
     const node = await this.chat.getOwnedNode(nodeId);
-    const run = this.runs.get(node.id);
-    if (run) return this.subscribe(run, [{ type: 'snapshot', node: run.node }], signal);
+    const { sink, response } = this.sseSink(node.id, signal);
+    if (this.hub.attach(node.id, sink)) return response;
 
     // Not running: replay the stored final state.
     // Still `streaming` means an orphan; only it is recovered (other branches may be live).
     const final = (await this.chat.recoverInterruptedNode(node.id)) ?? node;
     const branch = await this.repos.trees.getBranch(final.branchId);
-    const events: StreamEvent[] = [{ type: 'snapshot', node: final }];
-    if (final.status === 'complete' && branch) events.push({ type: 'done', node: final, branch });
-    else
-      events.push({
-        type: 'error',
-        nodeId: final.id,
-        message: final.error ?? 'Generation failed',
-        node: final,
-      });
-    const text = events.map(sseFrame).join('');
+    const text = replayEvents(final, branch).map(sseFrame).join('');
     return sseResponse(
       new ReadableStream({
         start(c) {
@@ -746,55 +697,46 @@ export class DemoBackend {
     );
   }
 
-  /** A new reader of `run`: `initial` first, then every live frame. Aborting `signal` errors it, like fetch. */
-  private subscribe(run: Run, initial: StreamEvent[], signal: AbortSignal | null): Response {
+  /**
+   * A response streaming the generation of `nodeId` to one reader, and the
+   * hub's reader that writes it. Aborting `signal` errors the stream, like fetch.
+   */
+  private sseSink(
+    nodeId: string,
+    signal: AbortSignal | null,
+  ): { sink: GenerationSink; response: Response } {
+    const hub = this.hub;
     let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const sink: GenerationSink = {
+      write: (event) => controller.enqueue(encoder.encode(sseFrame(event))),
+      close: () => controller.close(),
+    };
     const body = new ReadableStream<Uint8Array>({
       start(c) {
         controller = c;
-        c.enqueue(encoder.encode(initial.map(sseFrame).join('')));
-        run.subscribers.add(c);
       },
       cancel() {
-        run.subscribers.delete(controller);
+        hub.detach(nodeId, sink);
       },
     });
     signal?.addEventListener(
       'abort',
       () => {
-        if (run.subscribers.delete(controller)) controller.error(abortError());
+        if (hub.detach(nodeId, sink)) controller.error(abortError());
       },
       { once: true },
     );
-    return sseResponse(body);
-  }
-
-  private broadcast(run: Run, frame: string): void {
-    const bytes = encoder.encode(frame);
-    for (const c of run.subscribers) {
-      try {
-        c.enqueue(bytes);
-      } catch {
-        run.subscribers.delete(c); // the reader went away; the generation goes on
-      }
-    }
+    return { sink, response: sseResponse(body) };
   }
 
   private async deleteBranch(branchId: string) {
     const deleted = this.lock.then(() =>
       this.chat.deleteBranch(branchId, {
-        stopGenerations: (branchIds) => this.stopRuns((run) => branchIds.has(run.node.branchId)),
+        stopGenerations: (branchIds) => this.hub.stop((node) => branchIds.has(node.branchId)),
       }),
     );
     this.lock = deleted.catch(() => undefined);
     return deleted;
-  }
-
-  /** Cancels the matching generations and waits until they have stored their final state. */
-  private async stopRuns(match: (run: Run) => boolean): Promise<void> {
-    const doomed = [...this.runs.values()].filter(match);
-    for (const run of doomed) run.controller.abort();
-    await Promise.all(doomed.map((run) => run.finished));
   }
 
   // ------------------------------------------------------------- billing
@@ -804,7 +746,7 @@ export class DemoBackend {
     return this.mode === 'simple' && this.balanceMicros - this.heldMicros <= 0;
   }
 
-  /** Meters every provider call like the Worker's usage meter: hold, then settle at cost × fee × markup. */
+  /** Meters every provider call like the Worker's usage meter: hold, then settle at the default fee and markup. */
   private async *meter(
     inner: LlmProvider,
     request: GenerateRequest,
@@ -840,12 +782,10 @@ export class DemoBackend {
       if (costUsd === null) {
         entry.status = 'unresolved'; // cancelled or failed: not charged
       } else {
-        const charge = Math.max(
-          1,
-          Math.ceil(
-            (costUsd * MICROS_PER_USD * (10_000 + OPENROUTER_FEE_BPS) * (10_000 + MARKUP_BPS)) /
-              100_000_000,
-          ),
+        const charge = chargeMicros(
+          costUsdToNanos(costUsd),
+          DEFAULT_MARKUP_BPS,
+          DEFAULT_OPENROUTER_FEE_BPS,
         );
         entry.status = 'settled';
         entry.chargeMicros = charge;
@@ -864,8 +804,8 @@ export class DemoBackend {
       balanceMicros: this.balanceMicros,
       heldMicros: this.heldMicros,
       availableMicros: this.balanceMicros - this.heldMicros,
-      markupBps: MARKUP_BPS,
-      openRouterFeeBps: OPENROUTER_FEE_BPS,
+      markupBps: DEFAULT_MARKUP_BPS,
+      openRouterFeeBps: DEFAULT_OPENROUTER_FEE_BPS,
       lastPurchase: null,
       minTopUpCents: MIN_TOP_UP_CENTS,
       maxTopUpCents: MAX_TOP_UP_CENTS,

@@ -5,6 +5,7 @@ import {
   REPLY_CUT_OFF_ERROR,
   splitTangents,
   type CandidateEvent,
+  type LlmProvider,
   type ReviewEvent,
   type StreamEvent,
 } from '@tangent/shared';
@@ -242,6 +243,17 @@ describe('demo backend', () => {
     expect(replay.map((e) => e.type)).toEqual(['snapshot', 'done']);
   });
 
+  it("answers a route of the table it doesn't offer with 501, and any other path with 404", async () => {
+    const demoFetch = createDemoFetch({ storage: null });
+    const res = await demoFetch('/api/admin/users/u%2F1/shares', { method: 'GET' });
+    expect(res.status).toBe(501);
+    expect(await res.json()).toEqual({
+      error: { code: 'not_implemented', message: "That isn't available in the demo." },
+    });
+    // The method is part of the route.
+    expect((await demoFetch('/api/trees', { method: 'PUT' })).status).toBe(404);
+  });
+
   it('answers unknown routes with a JSON 404 in the API error shape', async () => {
     const demoFetch = createDemoFetch({ storage: null });
     const res = await demoFetch('/api/nope', { method: 'GET' });
@@ -270,6 +282,38 @@ describe('demo backend', () => {
       status: 400,
       code: 'bad_request',
     });
+  });
+
+  it("charges a call what the Worker would: nothing when it cost nothing, never float drift's extra micro", async () => {
+    for (const [costUsd, charge] of [
+      [0, 0],
+      // 300_000_000 nano-USD × 1.055 × 1.10 is exactly 348_150 micro-USD; float math says 348_150.00…01.
+      [0.1 + 0.2, 348_150],
+    ] as const) {
+      const lorem = createLoremProvider({ random: seededRandom(7), sleep: async () => undefined });
+      const provider: LlmProvider = {
+        ...lorem,
+        async *stream(request) {
+          for await (const e of lorem.stream(request))
+            yield e.type === 'billing' ? { ...e, costUsd } : e;
+        },
+      };
+      const { api } = setup({ seed: false, provider });
+      const tree = await api.createTree({});
+      await events(
+        await api.sendMessage(
+          tree.tree.trunkBranchId,
+          { content: 'Hi' },
+          new AbortController().signal,
+        ),
+      );
+      const { entries } = await api.usage();
+      expect(entries.map((e) => [e.status, e.chargeMicros])).toEqual([
+        ['settled', charge],
+        ['settled', charge],
+      ]);
+      expect((await api.billing()).balanceMicros).toBe(DEMO_START_BALANCE_MICROS - 2 * charge);
+    }
   });
 
   it('answers 402 when the pretend credit is used up', async () => {
@@ -479,10 +523,8 @@ describe('power demo backend', () => {
     });
     // So "Create a copy in Learn" is never offered: the two demos stay apart.
     const [tree] = await api.listTrees();
-    await expect(api.copyToLearn(tree!.id)).rejects.toMatchObject({
-      status: 400,
-      message: "Copying to Learn isn't available in the demo.",
-    });
+    const unsupported = { status: 501, code: 'not_implemented' };
+    await expect(api.copyToLearn(tree!.id)).rejects.toMatchObject(unsupported);
     await expect(api.keyStatus()).resolves.toEqual({
       enabled: false,
       hasKey: false,
@@ -491,8 +533,8 @@ describe('power demo backend', () => {
     await expect(api.listShares()).resolves.toEqual([]);
     await expect(
       api.createShare({ treeId: 'x', scope: 'tree' } as Parameters<ApiClient['createShare']>[0]),
-    ).rejects.toMatchObject({ status: 400 });
-    await expect(api.saveKey('openai', 'sk-x')).rejects.toMatchObject({ status: 400 });
+    ).rejects.toMatchObject(unsupported);
+    await expect(api.saveKey('openai', 'sk-x')).rejects.toMatchObject(unsupported);
   });
 
   it('starts conversations with the built-in prompt and is never out of credit', async () => {
@@ -598,7 +640,9 @@ describe('power demo backend', () => {
     );
     expect(lesson.branches[0]!.model).toBe('normal');
     expect(lesson.branches.slice(1).map((b) => b.model)).toEqual(rest.map((b) => b.model));
-    expect(lesson.nodes.map((n) => n.content)).toEqual(backup.nodes.map((n) => n.content));
+    // An import gets new ids, and the repositories list nodes by branch id.
+    const contents = (nodes: { content: string }[]) => nodes.map((n) => n.content).sort();
+    expect(contents(lesson.nodes)).toEqual(contents(backup.nodes));
     expect((await learn.api.listTrees()).map((t) => t.id)).toEqual([lesson.tree.id]);
 
     // Learn's Export (fetched through the API transport) imports back as the same lesson.
@@ -607,7 +651,7 @@ describe('power demo backend', () => {
     expect(again.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode])).toEqual(
       lesson.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode]),
     );
-    expect(again.nodes.map((n) => n.content)).toEqual(lesson.nodes.map((n) => n.content));
+    expect(contents(again.nodes)).toEqual(contents(lesson.nodes));
 
     // The Power demo imports the same file as it is.
     const copy = await power.api.importBackup(fromPower);

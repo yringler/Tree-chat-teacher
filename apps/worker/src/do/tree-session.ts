@@ -1,5 +1,6 @@
 import {
   DomainError,
+  GenerationHub,
   GoneError,
   HTTP_STATUS,
   KeyRequiredError,
@@ -7,8 +8,9 @@ import {
   PoolBlockedError,
   pickGenerationLimits,
   poolBlock,
-  type BeginSendResult,
+  replayEvents,
   type ChatService,
+  type GenerationSink,
   type GenerationLimits,
   type HeldCandidate,
 } from '@tangent/core';
@@ -16,9 +18,7 @@ import {
   CANDIDATE_TTL_MS,
   OPENROUTER_PROVIDER_ID,
   type ApiError,
-  type ChatNode,
   type CommitCandidateResponse,
-  type StreamEvent,
 } from '@tangent/shared';
 import { DurableObject } from 'cloudflare:workers';
 import { openKeys } from '../byok/keys.js';
@@ -112,19 +112,10 @@ interface SendTarget extends GenerationLimits {
   creditReply?: CreditReplyHold;
 }
 
-interface Run {
-  /** Assistant node with content accumulated so far (for reconnect snapshots). */
-  node: ChatNode;
-  subscribers: Set<WritableStreamDefaultWriter<Uint8Array>>;
-  controller: AbortController;
-  /** Settles when the generation has finished and persisted its final state. */
-  finished: Promise<void>;
-}
-
 /**
  * One instance per tree (idFromName(treeId)). Owns every generation in the
- * tree so it keeps running when the browser disconnects, lets clients
- * reconnect with a snapshot, and serializes sends per tree.
+ * tree (its GenerationHub) so it keeps running when the browser disconnects,
+ * lets clients reconnect with a snapshot, and serializes sends per tree.
  *
  * Internal protocol (called only by the Worker, never exposed; `&account`
  * is accountParams() of tree-session-client.ts, i.e. `account=<AccountContext as JSON>`):
@@ -148,7 +139,7 @@ interface Run {
  * question); an uncommitted one simply expires.
  */
 export class TreeSession extends DurableObject<AppEnv> {
-  private readonly runs = new Map<string, Run>();
+  private readonly hub = new GenerationHub({ keepAliveMs: KEEPALIVE_MS });
   private recovered = false;
   /** Serializes beginSend (and branch deletion, and candidate commits) within this tree. */
   private sendLock: Promise<unknown> = Promise.resolve();
@@ -233,7 +224,7 @@ export class TreeSession extends DurableObject<AppEnv> {
   private async recoverOnce(chat: ChatService, treeId: string): Promise<void> {
     if (this.recovered || !treeId) return;
     this.recovered = true;
-    if (this.runs.size === 0) await chat.recoverInterrupted(treeId);
+    if (this.hub.size === 0) await chat.recoverInterrupted(treeId);
   }
 
   /**
@@ -265,26 +256,23 @@ export class TreeSession extends DurableObject<AppEnv> {
     this.sendLock = begin.catch(() => undefined);
     const { started, reservationId } = await begin;
 
-    const run: Run = {
-      node: { ...started.assistantNode },
-      subscribers: new Set(),
-      controller: new AbortController(),
-      finished: Promise.resolve(),
+    const options = {
+      ...(reservationId ? { reservationId } : {}),
+      ...(target.ground ? { ground: target.ground } : {}),
+      ...pickGenerationLimits(target),
     };
-    this.runs.set(started.assistantNode.id, run);
-    const response = this.subscribe(run, [
-      {
-        type: 'start',
-        userNode: started.userNode,
-        assistantNode: started.assistantNode,
-        branch: started.branch,
-        // Who pays, as the gate decided: a Learn send may have moved from credit to the pool.
-        funding: callPayer(account, started.branch.funding),
-      },
-    ]);
+    const { sink, response } = sseSink();
     // Detached: keeps running after the client disconnects (DOs stay alive while I/O is in flight).
-    run.finished = this.pump(chat, run, started, reservationId, target);
-    this.ctx.waitUntil(run.finished);
+    const finished = this.hub.start(
+      started,
+      // Who pays, as the gate decided: a Learn send may have moved from credit to the pool.
+      callPayer(account, started.branch.funding),
+      sink,
+      (signal) => chat.runGeneration(started, signal, options),
+      // The reply never reached the provider (the meter settles a dispatched one).
+      reservationId ? { settle: () => this.release(reservationId) } : {},
+    );
+    this.ctx.waitUntil(finished);
     return response;
   }
 
@@ -328,11 +316,7 @@ export class TreeSession extends DurableObject<AppEnv> {
   private async deleteBranch(chat: ChatService, branchId: string): Promise<Response> {
     const deleted = this.sendLock.then(() =>
       chat.deleteBranch(branchId, {
-        stopGenerations: async (branchIds) => {
-          const doomed = [...this.runs.values()].filter((r) => branchIds.has(r.node.branchId));
-          for (const run of doomed) run.controller.abort();
-          await Promise.all(doomed.map((r) => r.finished));
-        },
+        stopGenerations: (branchIds) => this.hub.stop((node) => branchIds.has(node.branchId)),
       }),
     );
     this.sendLock = deleted.catch(() => undefined);
@@ -345,13 +329,7 @@ export class TreeSession extends DurableObject<AppEnv> {
    */
   private async deleteTree(chat: ChatService, treeId: string): Promise<Response> {
     const deleted = this.sendLock.then(async () => {
-      await chat.deleteTree(treeId, {
-        stopGenerations: async () => {
-          const runs = [...this.runs.values()];
-          for (const run of runs) run.controller.abort();
-          await Promise.all(runs.map((r) => r.finished));
-        },
-      });
+      await chat.deleteTree(treeId, { stopGenerations: () => this.hub.stop() });
       await this.ctx.storage.deleteAlarm();
       await this.ctx.storage.deleteAll();
     });
@@ -431,85 +409,37 @@ export class TreeSession extends DurableObject<AppEnv> {
     } satisfies CommitCandidateResponse);
   }
 
-  /**
-   * Runs the generation and broadcasts it. `reservationId` is the pool
-   * reservation of the reply, if any.
-   */
-  private async pump(
-    chat: ChatService,
-    run: Run,
-    begin: BeginSendResult,
-    reservationId: string | null,
-    { ground, ...limits }: Pick<SendTarget, 'ground'> & GenerationLimits = {},
-  ): Promise<void> {
-    const keepalive = setInterval(() => this.broadcastRaw(run, sseKeepAliveFrame()), KEEPALIVE_MS);
-    try {
-      const options = {
-        ...(reservationId ? { reservationId } : {}),
-        ...(ground ? { ground } : {}),
-        ...pickGenerationLimits(limits),
-      };
-      for await (const event of chat.runGeneration(begin, run.controller.signal, options)) {
-        if (event.type === 'delta')
-          run.node = { ...run.node, content: run.node.content + event.text };
-        if ((event.type === 'done' || event.type === 'error') && event.node) run.node = event.node;
-        this.broadcastRaw(run, sseFrame(event));
-      }
-    } finally {
-      clearInterval(keepalive);
-      // The reply never reached the provider (the meter settles a dispatched one).
-      if (reservationId) await this.release(reservationId);
-      this.runs.delete(begin.assistantNode.id);
-      for (const writer of run.subscribers) writer.close().catch(() => undefined);
-      run.subscribers.clear();
-    }
-  }
-
   private async reconnect(chat: ChatService, nodeId: string): Promise<Response> {
-    const run = this.runs.get(nodeId);
-    if (run) return this.subscribe(run, [{ type: 'snapshot', node: run.node }]);
+    const { sink, response } = sseSink();
+    if (this.hub.attach(nodeId, sink)) return response;
 
     // Not running here: serve the persisted final state. Still `streaming`
     // means an orphan; only it is recovered (other branches may be live).
     const final = await chat.recoverInterruptedNode(nodeId);
     if (!final) return errorResponse(new DomainError('not_found', 'Node not found'));
     const branch = await chat.deps.repos.trees.getBranch(final.branchId);
-    const events: StreamEvent[] = [{ type: 'snapshot', node: final }];
-    if (final.status === 'complete' && branch) events.push({ type: 'done', node: final, branch });
-    else
-      events.push({
-        type: 'error',
-        nodeId: final.id,
-        message: final.error ?? 'Generation failed',
-        node: final,
-      });
-    return sseResponse(streamOf(events.map(sseFrame).join('')));
+    return sseResponse(streamOf(replayEvents(final, branch).map(sseFrame).join('')));
   }
 
   /** Without a run here the node is finished or an orphan: only that node is recovered. */
   private async cancel(chat: ChatService, nodeId: string): Promise<Response> {
-    const run = this.runs.get(nodeId);
-    if (run) run.controller.abort();
-    else await chat.recoverInterruptedNode(nodeId);
+    if (!this.hub.cancel(nodeId)) await chat.recoverInterruptedNode(nodeId);
     return new Response(null, { status: 204 });
   }
+}
 
-  private subscribe(run: Run, initial: StreamEvent[]): Response {
-    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-    const writer = writable.getWriter();
-    const drop = () => run.subscribers.delete(writer);
-    writer.write(encoder.encode(initial.map(sseFrame).join(''))).catch(drop);
-    run.subscribers.add(writer);
-    return sseResponse(readable);
-  }
-
-  private broadcastRaw(run: Run, frame: string): void {
-    const bytes = encoder.encode(frame);
-    for (const writer of run.subscribers) {
-      // A failed write means the client went away; the generation continues regardless.
-      writer.write(bytes).catch(() => run.subscribers.delete(writer));
-    }
-  }
+/** A response streaming SSE to one client, and the hub's reader that writes it. */
+function sseSink(): { sink: GenerationSink; response: Response } {
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = writable.getWriter();
+  return {
+    response: sseResponse(readable),
+    sink: {
+      write: (event) => writer.write(encoder.encode(sseFrame(event))),
+      ping: () => writer.write(encoder.encode(sseKeepAliveFrame())),
+      close: () => writer.close(),
+    },
+  };
 }
 
 /** Storage deletes take at most 128 keys at a time. */

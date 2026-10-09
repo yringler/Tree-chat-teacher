@@ -5,8 +5,8 @@ import { membership, newEmail, paymentWebhook, sameOrigin, signIn, topUp } from 
  * Normal and Max in power, against the real Worker: serve.mjs lists Normal
  * (`normal`) and Max (`max`) as the built-in provider's tiers, which power
  * offers on Tangent credit. The switch under the message box moves the branch
- * between them; Compare asks both and keeps nothing until one is picked (the
- * provider points nowhere, so here both answers fail and nothing is kept).
+ * between them; Compare asks both and keeps nothing until one is picked
+ * (closed here, so nothing is kept; learn-compare.spec.ts keeps one).
  */
 
 interface TreeDetail {

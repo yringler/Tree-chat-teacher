@@ -1,13 +1,12 @@
 // Open pool money math, on top of the integer
-// helpers in billing/pricing.ts: worst-case holds from the price table, and
+// helpers in @tangent/shared's charge.ts: worst-case holds from the price table, and
 // token-priced costs when the provider reports none. Every pool charge is the
 // call's true cost, price × (1 + fee), with no markup (Tangent funds the
 // pool, so a markup on it would be meaningless), and every hold is priced the
 // same way, so a hold always covers its charge. Exact integer (BigInt) math,
 // rounded in the pool's favour.
 import { CHARS_PER_TOKEN, renderOverheadBytes, utf8Bytes } from '@tangent/core';
-import type { ChatMessage } from '@tangent/shared';
-import { BPS_SCALE, bpsOf, chargeMicros } from '../billing/pricing.js';
+import { BPS_SCALE, bpsOf, chargeMicros, type ChatMessage } from '@tangent/shared';
 import type { ModelPrice } from '../config.js';
 
 const TOKENS_PER_PRICE_UNIT = 1_000_000n;

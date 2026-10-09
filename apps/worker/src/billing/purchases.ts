@@ -13,10 +13,10 @@
 // admin's simulated purchases and nothing else call `fulfilPurchase`, the
 // only place purchase credit is computed. Every grant is idempotent on its
 // `ref` (a provider's payment ref such as `polar:order:<id>`, or `dev:<key>`).
+import { centsToMicros } from '@tangent/shared';
 import { billingAccountIdFor } from '../auth/account.js';
 import type { AppEnv } from '../env.js';
 import { grantCredit } from './ledger.js';
-import { centsToMicros } from './pricing.js';
 
 /** A purchase the processor reports as paid. */
 export interface PaidPurchase {

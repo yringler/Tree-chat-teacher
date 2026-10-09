@@ -1,10 +1,9 @@
 import {
-  contextLimitsQuerySchema,
+  contextQuerySchema,
   createBranchRequestSchema,
   updateBranchRequestSchema,
 } from '@tangent/shared';
 import { Hono } from 'hono';
-import { z } from 'zod';
 import { assertCanGenerate } from '../billing/gate.js';
 import { sameOriginOnly } from '../byok/guard.js';
 import { treeSession } from '../do/tree-session-client.js';
@@ -12,15 +11,6 @@ import type { AppBindings } from '../env.js';
 import { validateJson, validateQuery } from '../http/errors.js';
 import { generationLimits, inputBudgetResponse } from '../input-limit.js';
 import { chatOf, keysOf } from './request-chat.js';
-
-/** The preview plans like a send with power's limits (`contextLimitsQuerySchema`) when given. */
-const contextQuerySchema = contextLimitsQuerySchema.extend({
-  nodeId: z.string().min(1).max(64).optional(),
-  resolve: z
-    .enum(['true', 'false'])
-    .default('false')
-    .transform((v) => v === 'true'),
-});
 
 /**
  * Branches: creating, editing and deleting them, and what a send on one

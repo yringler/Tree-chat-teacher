@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
-import type { LoginOptionsResponse, MeResponse } from '@tangent/shared';
-import { ApiClient, ApiError, isSessionExpired } from './api-client';
+import { API_ROUTES, routeUrl, type LoginOptionsResponse, type MeResponse } from '@tangent/shared';
+import { ApiClient, ApiError, hasCode } from './api-client';
 import { API_FETCH, defaultApiFetch } from './api-fetch';
 import { AUTH_CLIENT, authErrorMessage as messageFor } from './auth-client';
 import { APP_PATHS } from './app-paths';
@@ -41,7 +41,7 @@ export class AuthService {
 
   async loginOptions(): Promise<LoginOptionsResponse> {
     const transport = this.transport;
-    const res = await transport('/api/login-options', { credentials: 'same-origin' });
+    const res = await transport(routeUrl(API_ROUTES.loginOptions), { credentials: 'same-origin' });
     if (!res.ok) throw new Error(`Couldn't load sign-in options (${res.status})`);
     return (await res.json()) as LoginOptionsResponse;
   }
@@ -57,7 +57,7 @@ export class AuthService {
       if (!me.devMode) void this.hasSession().catch(() => undefined);
       return me;
     } catch (err) {
-      if (isSessionExpired(err)) {
+      if (hasCode(err, 'unauthorized')) {
         location.replace(this.paths.login);
         return null;
       }

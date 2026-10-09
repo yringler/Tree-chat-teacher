@@ -1,10 +1,11 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { newEmail, paymentWebhook, signIn, topUp } from './helpers';
 
 /*
- * Learn's Compare ("ask Normal and Max, keep one"), against the in-browser
- * Learn demo (/learn/demo/): its backend runs the real ChatService on lorem
- * models, where the e2e Worker's built-in provider can't answer. Each test
- * gets a fresh browser context, so a fresh demo session.
+ * Learn's Compare ("ask Normal and Max, keep one"), against the Worker on
+ * Tangent credit: both answers stream from the scripted upstream (serve.mjs)
+ * through the billing gate, the picked one is held by the tree's Durable
+ * Object and committed. Each test is a new learner with $5 of credit.
  */
 
 const QUESTION = 'Why do owls hum before they hoot?';
@@ -19,8 +20,10 @@ function collectErrors(page: Page): string[] {
 }
 
 /** Starts an empty lesson and opens Compare on `QUESTION`; returns the sheet. */
-async function compareInNewLesson(page: Page) {
-  await page.goto('/learn/demo/');
+async function compareInNewLesson(page: Page, context: BrowserContext, baseURL: string) {
+  const userId = await signIn(context, baseURL, newEmail('learn-compare'));
+  await paymentWebhook(context.request, [topUp(userId, 500)]);
+  await page.goto('/learn/');
   await page.getByRole('button', { name: 'Start lesson' }).click();
   await expect(page).toHaveURL(/\/t\//);
   const composer = page.locator('#composer-input');
@@ -33,10 +36,12 @@ async function compareInNewLesson(page: Page) {
 
 test('Learn compare: side by side on a wide screen, and only the picked answer is kept', async ({
   page,
+  context,
+  baseURL,
 }) => {
   const errors = collectErrors(page);
   await page.setViewportSize({ width: 1280, height: 800 });
-  const sheet = await compareInNewLesson(page);
+  const sheet = await compareInNewLesson(page, context, baseURL!);
 
   await expect(sheet.locator('.compare-question')).toHaveText(QUESTION);
   await expect(sheet.getByText(/Only the answer you pick is kept\./)).toBeVisible();
@@ -56,7 +61,7 @@ test('Learn compare: side by side on a wide screen, and only the picked answer i
   });
   await expect(useMax).toBeEnabled({ timeout: 45_000 });
   const kept = (await max.locator('.compare-body').innerText()).trim();
-  expect(kept.length).toBeGreaterThan(0);
+  expect(kept).toBe(`Scripted reply (max): "${QUESTION}"`);
   await useMax.click();
 
   await expect(sheet).toBeHidden();
@@ -71,10 +76,12 @@ test('Learn compare: side by side on a wide screen, and only the picked answer i
 
 test('Learn compare: one answer at a time on a phone; closing keeps the question', async ({
   page,
+  context,
+  baseURL,
 }) => {
   const errors = collectErrors(page);
   await page.setViewportSize({ width: 390, height: 844 });
-  const sheet = await compareInNewLesson(page);
+  const sheet = await compareInNewLesson(page, context, baseURL!);
 
   // Narrow: a tab bar, one answer shown.
   const tabs = sheet.locator('.compare-tabs');

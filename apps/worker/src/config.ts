@@ -12,9 +12,12 @@
 // registry (the pool's default model, whether the built-in provider is
 // offered) is resolved by its caller, so this module imports nothing from
 // registries.ts or simple-mode.ts.
-import { GROUNDING_POLICIES, type GroundingPolicy } from '@tangent/core';
+import { DEFAULT_GROUNDING_POLICY, GROUNDING_POLICIES, type GroundingPolicy } from '@tangent/core';
 import {
   BUILT_IN_MAX_OUTPUT_TOKENS,
+  DEFAULT_BUILT_IN_MAX_INPUT_TOKENS,
+  DEFAULT_MARKUP_BPS,
+  DEFAULT_OPENROUTER_FEE_BPS,
   DEFAULT_SYSTEM_PROMPT,
   isReasoningEffort,
   type ReasoningEffort,
@@ -159,11 +162,7 @@ export const BUILT_IN_API_KEY_SECRET = 'BUILT_IN_API_KEY';
 
 // ---- Defaults
 
-export const DEFAULT_MARKUP_BPS = 1000;
-/** OpenRouter's fee on credit purchases (5.5%; higher for top-ups under ~$15, see docs/configuration.md). */
-export const DEFAULT_OPENROUTER_FEE_BPS = 550;
 export const DEFAULT_MEMBERSHIP_PRICE_CENTS = 1000;
-const DEFAULT_BUILT_IN_MAX_INPUT_TOKENS = 60_000;
 const DEFAULT_GROUNDING_AUTO_DAILY_CAP = 40;
 const DEFAULT_GROUNDING_MAX_RESULTS = 5;
 const DEFAULT_GROUNDING_ENGINE = 'exa';
@@ -759,7 +758,7 @@ function parse(env: AppEnv): AppConfig {
       autoTitle: bool('AUTO_TITLE', true),
     },
     grounding: {
-      policy: enumVar('GROUNDING', v('GROUNDING'), GROUNDING_POLICIES, 'auto'),
+      policy: enumVar('GROUNDING', v('GROUNDING'), GROUNDING_POLICIES, DEFAULT_GROUNDING_POLICY),
       maxResults: int('GROUNDING_MAX_RESULTS', DEFAULT_GROUNDING_MAX_RESULTS, {
         min: 1,
         max: MAX_GROUNDING_RESULTS,

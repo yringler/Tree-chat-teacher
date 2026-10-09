@@ -9,6 +9,8 @@ import type { GroundingMode } from '@tangent/shared';
  * - `off`: never.
  */
 export type GroundingPolicy = 'auto' | 'always-offer' | 'explicit' | 'off';
+/** What a server without GROUNDING runs, and what the demos run. */
+export const DEFAULT_GROUNDING_POLICY: GroundingPolicy = 'auto';
 export const GROUNDING_POLICIES: readonly GroundingPolicy[] = [
   'auto',
   'always-offer',

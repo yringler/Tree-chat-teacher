@@ -5,7 +5,7 @@ import {
   DEFAULT_CHAT_SETTINGS,
   type ChatServiceDeps,
 } from '../../src/services/chat-service.js';
-import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
+import { createMemoryRepositories } from '../../src/memory/memory-repositories.js';
 import { estimateTokens } from '../../src/tokens.js';
 import { collect, registryOf, ScriptedProvider, send } from './helpers.js';
 

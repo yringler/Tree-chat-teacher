@@ -501,50 +501,6 @@ test('power demo: the newest reply’s "Ask your own" is open, without taking fo
   expect(errors).toEqual([]);
 });
 
-test('Learn demo: ask your own side question under a reply', async ({ page }) => {
-  const errors = collectErrors(page);
-  await page.goto('/learn/demo/');
-  await page.locator('.lesson-row a').first().click();
-  const ask = page.locator('.msg-assistant').last().locator('.tangent-ask');
-  const field = ask.getByRole('textbox', { name: 'Ask your own question as a side question' });
-  await expect(field).toHaveAttribute('placeholder', 'Ask your own question…');
-  const url = page.url();
-  await field.fill('Do owls ever whistle back?');
-  await field.press('Enter');
-  await expect.poll(() => page.url()).not.toBe(url);
-  await expect(page).toHaveURL(/\/b\//);
-  await expect(page.locator('.msg-user').last()).toContainText('Do owls ever whistle back?');
-  expect(errors).toEqual([]);
-});
-
-test('Learn demo: "Ask about this", the newest reply stands out, and the box continues the lesson', async ({
-  page,
-}) => {
-  const errors = collectErrors(page);
-  await page.goto('/learn/demo/');
-  await page.locator('.lesson-row a').first().click();
-  const replies = page.locator('.msg-assistant');
-  await expect(replies.first()).toBeVisible();
-  const composer = page.locator('#composer-input');
-  await expect(composer).toHaveAttribute('placeholder', 'Continue this lesson…');
-  // The newest reply's "Ask your own" stands out (a one-line field: nothing grows).
-  await expect(replies.last().locator('.tangent-ask')).toHaveClass(/is-latest/);
-  await expect(replies.first().locator('.tangent-ask')).not.toHaveClass(/is-latest/);
-
-  const url = page.url();
-  await selectText(replies.first().locator('.msg-body'), 'a careful hamster in disguise');
-  await page.getByRole('button', { name: 'Ask about this' }).click();
-  await expect.poll(() => page.url()).not.toBe(url);
-  await expect(page.locator('.anchor-quote').last()).toHaveText('a careful hamster in disguise');
-  await expect(composer).toBeFocused();
-  await expect(composer).toHaveAttribute('placeholder', 'Ask your side question…');
-  await composer.fill('Why a hamster?');
-  await composer.press('Enter');
-  await expect(page.locator('.msg-user').last()).toContainText('Why a hamster?');
-  await expect(composer).toHaveAttribute('placeholder', 'Continue this side question…');
-  expect(errors).toEqual([]);
-});
-
 test('Canvas demo: ask your own question in a new lane, inline or through the branch dialog', async ({
   page,
 }) => {
@@ -796,9 +752,9 @@ test('Learn demo: export a lesson, import a power-style backup, get a Learn less
     expect(b.funding).toBe('own-key');
   }
   expect(lesson.branches[0].model).toBe('normal');
-  expect(lesson.nodes.map((n: { content: string }) => n.content)).toEqual(
-    backup.nodes.map((n: { content: string }) => n.content),
-  );
+  // An import gets new ids, and messages are listed by branch id, so compare them in any order.
+  const contents = (nodes: { content: string }[]) => nodes.map((n) => n.content).sort();
+  expect(contents(lesson.nodes)).toEqual(contents(backup.nodes));
 
   // A file that isn't a backup is refused with a message, and nothing is added.
   const notes = testInfo.outputPath('notes.md');

@@ -1,11 +1,12 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Locator, type Page } from '@playwright/test';
+import { withExampleLesson } from './example-lesson';
 
 /*
- * Links between messages in the power demo (/demo): the seeded lesson
- * ("How do kittens learn to whistle?") has a main thread, a side question
- * ("Why the owl hums first"), a followed tangent ("Why practice works better
- * in the evening") and one link (the main thread's second reply to that
- * tangent). Each test gets a fresh browser context, so a fresh demo session.
+ * Links between messages in power, against the Worker: the demos' example
+ * lesson ("How do kittens learn to whistle?"), imported on Tangent credit,
+ * has a main thread, a side question ("Why the owl hums first"), a followed
+ * tangent ("Why practice works better in the evening") and one link (the
+ * main thread's second reply to that tangent). Each test is a new user.
  */
 
 function collectErrors(page: Page): string[] {
@@ -22,10 +23,9 @@ function message(page: Page, text: string): Locator {
   return page.locator('article.msg').filter({ has: page.locator('.msg-body', { hasText: text }) });
 }
 
-async function openSeededLesson(page: Page): Promise<void> {
-  await page.goto('/demo');
-  await page.locator('.home-list .tree-row a', { hasText: 'How do kittens learn' }).click();
-  await expect(page).toHaveURL(/\/demo\/t\//);
+async function openSeededLesson(page: Page, context: BrowserContext, baseURL: string) {
+  const treeId = await withExampleLesson(context, baseURL, 'power');
+  await page.goto(`/t/${treeId}`);
   await expect(page.locator('article.msg').first()).toBeVisible();
 }
 
@@ -34,11 +34,13 @@ async function openBranch(page: Page, title: string): Promise<void> {
   await expect(page.locator('.crumb-current', { hasText: title })).toBeVisible();
 }
 
-test('power demo: link a nested branch message to the main thread through the search dialog', async ({
+test('power: link a nested branch message to the main thread through the search dialog', async ({
   page,
+  context,
+  baseURL,
 }) => {
   const errors = collectErrors(page);
-  await openSeededLesson(page);
+  await openSeededLesson(page, context, baseURL!);
 
   // A nested branch: follow one of the tangent's own suggested tangents.
   await openBranch(page, 'Why practice works better in the evening');
@@ -51,7 +53,8 @@ test('power demo: link a nested branch message to the main thread through the se
   await expect(page.locator('.msg .cursor')).toHaveCount(0, { timeout: 30_000 });
   const nestedUrl = page.url();
 
-  const source = message(page, 'Why rewards must arrive quickly');
+  // The question (the scripted reply quotes it).
+  const source = message(page, 'Why rewards must arrive quickly').and(page.locator('.msg-user'));
   const sourceId = await source.getAttribute('data-node-id');
   expect(sourceId).toBeTruthy();
   await source.hover();
@@ -124,9 +127,13 @@ test('power demo: link a nested branch message to the main thread through the se
   expect(errors).toEqual([]);
 });
 
-test('power demo: pick the other end on the page, across branches', async ({ page }) => {
+test('power: pick the other end on the page, across branches', async ({
+  page,
+  context,
+  baseURL,
+}) => {
   const errors = collectErrors(page);
-  await openSeededLesson(page);
+  await openSeededLesson(page, context, baseURL!);
   await openBranch(page, 'Why practice works better in the evening');
 
   const source = message(page, 'Because the lemon is louder in the evening');

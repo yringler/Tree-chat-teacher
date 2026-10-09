@@ -3,12 +3,14 @@ import { describe, expect, it } from 'vitest';
 import type { ProviderConfig } from '@tangent/shared';
 import {
   groundingAllowance,
-  groundingSettings,
+  groundingPolicy,
   searchesToday,
   withSearchOptions,
 } from '../src/billing/grounding.js';
 import { ConfigError } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
+import { chatSettingsFor } from '../src/registries.js';
+import { simpleChatSettings } from '../src/simple-mode.js';
 import { insertUsage, powerAccount, simpleAccount } from './mocks/billing-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
@@ -34,12 +36,15 @@ describe('grounding settings', () => {
       GROUNDING_MAX_RESULTS: '25',
       GROUNDING_ENGINE: 'parallel',
     } as AppEnv;
-    expect(groundingSettings(e, 'simple')).toEqual({
+    expect(simpleChatSettings(e).grounding).toEqual({
       policy: 'explicit',
       maxUses: 1,
       ignoreBranchSetting: true,
     });
-    expect(groundingSettings(e, 'power').ignoreBranchSetting).toBe(false);
+    expect(chatSettingsFor(e, powerAccount()).grounding).toMatchObject({
+      policy: 'explicit',
+      ignoreBranchSetting: false,
+    });
     // The engine and results per search are the searching openai-compatible configs' options.
     const [searching, plain, anthropic, own] = withSearchOptions(e, [
       { ...CONFIG, options: { webSearch: true } },
@@ -65,12 +70,12 @@ describe('grounding settings', () => {
       GROUNDING_MAX_RESULTS: '',
       GROUNDING_ENGINE: '',
     } as AppEnv;
-    expect(groundingSettings(empty, 'power')).toMatchObject({ policy: 'auto' });
+    expect(groundingPolicy(empty)).toBe('auto');
     expect(
       withSearchOptions(empty, [{ ...CONFIG, options: { webSearch: true } }])[0]?.options,
     ).toEqual({ webSearch: true, webSearchEngine: 'exa', webSearchMaxResults: 5 });
     for (const bad of [{ GROUNDING: 'sometimes' }, { GROUNDING_MAX_RESULTS: '99' }])
-      expect(() => groundingSettings({ ...env, ...bad } as AppEnv, 'power')).toThrow(ConfigError);
+      expect(() => groundingPolicy({ ...env, ...bad } as AppEnv)).toThrow(ConfigError);
   });
 });
 

@@ -13,7 +13,7 @@ The stages below are S2 to S8b. The spec's step 1 is this document. Each stage t
 | Spec asks for | What exists | Decision |
 |---|---|---|
 | Append-only ledger with entry types `purchase`, `reservation`, `settlement`, `refund_of_reservation`, `admin_adjustment` | `credit_grants` (kinds purchase/subscription/refund/adjustment, idempotent on `stripe_ref`) plus `usage_events` (pending → settled/unresolved) (`billing/ledger.ts`, `usage-store.ts`) | **Adapt.** The pool is another ledger account id in the same two tables. Spec entry types map onto them as shown in §1.1. A settlement and its release are one row transition, made auditable by `settle_reason` (§1.1). **Spec deviation, needs sign-off (D1).** |
-| Millicents | Integer micro-USD for the ledger, nano-USD for provider cost, BigInt rounding (`billing/pricing.ts`) | **Keep micro-USD.** 1 millicent = 10 micro-USD, so micro-USD is finer and already used everywhere. |
+| Millicents | Integer micro-USD for the ledger, nano-USD for provider cost, BigInt rounding (`packages/shared/src/charge.ts`) | **Keep micro-USD.** 1 millicent = 10 micro-USD, so micro-USD is finer and already used everywhere. |
 | `PoolBank` Durable Object for atomic spend | No money DO. Personal spend is check-then-insert and allows a bounded overdraft by design (`service.ts:34-38`, DECISIONS.md:155 and :222) | **Add `PoolBank`.** It serialises everything that can lower pool `available`. D1 is the authority; `PoolBank` keeps only a checkpointed sum of immutable rows (§1.2), verified by the cron. |
 | Worst-case reservation | Flat `USAGE_HOLD_MICROS` hold (meter.ts:175-193) | **Two-step hold.** The reply is reserved in `TreeSession.send` before any node is written, at a ceiling computed from config (§1.2). The meter then shrinks it to the exact worst case of the assembled request. Summary, title and tagging calls reserve their exact worst case in the meter. |
 | Release on failure or timeout (spec 2.4) | Personal: no cost and no generation id → settle at 0 | **Release only when nothing was sent upstream.** Once the request is dispatched, an abort or timeout settles from reported cost, then tokens × price, then the full hold. **Spec deviation, needs sign-off (D2):** the operator must not pay for upstream work the pool did not pay for. |
@@ -142,7 +142,7 @@ The cost of this design: the last `ceilingHold` (about $0.014 on the flash model
 
 So a cancel during prefill is charged the hold, never 0. When the generation id later appears in a reconcile, an inline settle wins only if it runs first; the cron's give-up settles at the hold. Personal rows keep today's rules.
 
-**Worst case** (`pool/pricing.ts`, extends `billing/pricing.ts`):
+**Worst case** (`pool/pricing.ts`, extends `packages/shared/src/charge.ts`):
 
 ```
 inputBound  = min(utf8Bytes(system + Σ message text) + 4·messages + 16, price.contextTokens)

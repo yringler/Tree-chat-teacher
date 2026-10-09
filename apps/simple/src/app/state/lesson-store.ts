@@ -22,9 +22,7 @@ import {
   ComposerController,
   ConversationStore,
   errorMessage,
-  isMembershipRequired,
-  isPaymentRequired,
-  isPoolUnavailable,
+  hasCode,
   poolBlockOf,
   readBackupFile,
   SAVE_FILE,
@@ -555,11 +553,11 @@ export class LessonStore extends ConversationStore<ApiClient> {
   }
 
   fail(err: unknown): void {
-    if (isMembershipRequired(err)) {
+    if (hasCode(err, 'membership_required')) {
       this.funding.membershipRequired();
       return;
     }
-    if (isPoolUnavailable(err) && err.pool?.reason === 'verify') {
+    if (hasCode(err, 'pool_unavailable') && err.pool?.reason === 'verify') {
       this.ui.dialogs.open({ kind: 'pool-verify' });
       return;
     }
@@ -569,7 +567,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
       this.ui.dialogs.open({ kind: 'access' });
       return;
     }
-    if (isPaymentRequired(err)) {
+    if (hasCode(err, 'payment_required')) {
       this.toast.notify(OUT_OF_CREDIT_MESSAGE, 'error');
       void this.funding.refreshBalance();
       void this.router.navigate(['/billing']);

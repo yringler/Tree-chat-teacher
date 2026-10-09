@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from './zod.js';
 import type { Branch, BranchFunding, ChatNode, TokenUsage } from './domain.js';
 import { generationLimitsShape } from './api.js';
 import type { Citation } from './grounding.js';
