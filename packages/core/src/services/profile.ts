@@ -28,7 +28,8 @@ export interface PowerProfile {
 /**
  * Learn: how a request pays is decided per request, outside the branch, so
  * every route comes from `ChatServiceDeps.providers` whatever a branch's
- * funding says, and every branch this instance writes is `own-key`. Imported
+ * funding, provider or model says (`RouteResolver.runnable`), and every
+ * branch this instance writes is `own-key`. Imported
  * backups are adapted to what Learn can show and continue
  * (`adaptBackupForLearn`): onto that registry's default provider and its
  * models, `path` context, and the prompt a new tree gets.

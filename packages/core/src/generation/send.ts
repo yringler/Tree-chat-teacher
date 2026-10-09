@@ -44,7 +44,8 @@ export class SendService {
   async beginSend(branchId: string, content: string): Promise<BeginSendResult> {
     const { branch } = await this.ctx.owned.branch(branchId);
     if (!content.trim()) throw new ValidationError('Message is empty');
-    this.ctx.routes.requireProvider(branch);
+    const route = this.ctx.routes.runnable(branch);
+    this.ctx.routes.requireProvider(route);
     const own = await this.ctx.repos.trees.listBranchNodes(branchId);
     const leaf = own.at(-1);
     if (leaf?.status === 'streaming') {
@@ -70,8 +71,8 @@ export class SendService {
       seq: seq + 1,
       role: 'assistant',
       status: 'streaming',
-      providerId: branch.providerId,
-      model: this.ctx.routes.modelOf(branch),
+      providerId: route.providerId,
+      model: this.ctx.routes.modelOf(route),
       createdAt: now,
     });
     await this.ctx.repos.trees.appendNodes([userNode, assistantNode], now);
@@ -113,7 +114,6 @@ export class SendService {
 
     try {
       const inputs = await this.resolver.loadPlanInputs(branch.id, userNode.id);
-      branch = inputs.branch;
       const limits = pickGenerationLimits(options);
       const reply = yield* this.replier.prepareReply(inputs, signal, limits, options.ground);
       const terminal = yield* this.replier.streamReply(
@@ -143,7 +143,8 @@ export class SendService {
       }
       const node = await finish(terminal);
       branch =
-        (await this.titler.titleFirstExchange(inputs.tree, branch, userNode, node)) ?? branch;
+        (await this.titler.titleFirstExchange(inputs.tree, inputs.branch, userNode, node)) ??
+        branch;
       yield { type: 'done', node, branch };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Generation failed';

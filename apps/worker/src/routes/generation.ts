@@ -79,7 +79,8 @@ export function generationRoutes(): Hono<AppBindings> {
     const keys = await keysOf(c);
     const req = c.req.valid('json');
     const chat = chatOf(c, keys);
-    const branch = await chat.getOwnedBranch(c.req.param('branchId'));
+    // The route and model the send runs on: Learn's own where the branch names one it can't run.
+    const branch = chat.runnableBranch(await chat.getOwnedBranch(c.req.param('branchId')));
     // The route is the Durable Object's only way in, so this gate covers it. On the
     // pool, the Durable Object reserves the reply before writing any node.
     const account = await assertCanGenerate(c, {
@@ -133,7 +134,7 @@ export function generationRoutes(): Hono<AppBindings> {
     const keys = await keysOf(c);
     let chat = chatOf(c, keys);
     const node = await chat.getOwnedNode(c.req.param('nodeId'));
-    const branch = await chat.getOwnedBranch(node.branchId);
+    const branch = chat.runnableBranch(await chat.getOwnedBranch(node.branchId));
     // The client picks the reviewer model here, so the allowlist is what bounds it.
     // The review is metered iff the reviewer is on Tangent credit (its funding). The
     // context is resolved like a send on the node's branch, so missing summaries are
@@ -167,7 +168,7 @@ export function generationRoutes(): Hono<AppBindings> {
     const req = c.req.valid('json');
     const keys = await keysOf(c);
     let chat = chatOf(c, keys);
-    const branch = await chat.getOwnedBranch(c.req.param('branchId'));
+    const branch = chat.runnableBranch(await chat.getOwnedBranch(c.req.param('branchId')));
     // The route as ChatService resolves it (`requestedRoute`): absent = the branch's,
     // and Learn's fixed funding (the branch's) always wins.
     const learn = c.var.account.mode === 'simple';

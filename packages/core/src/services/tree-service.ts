@@ -173,11 +173,15 @@ export class TreeService {
     const parent = await this.repo.getBranch(node.branchId);
     if (!parent) throw new NotFoundError('Branch');
 
-    const route = this.ctx.routes.requestedRoute(req, parent);
-    const provider = this.ctx.routes.requireProvider(route);
-    const model =
-      req.model ??
-      (route.providerId === parent.providerId ? parent.model : provider.defaultModel());
+    const requested = this.ctx.routes.requestedRoute(req, parent);
+    const provider = this.ctx.routes.requireProvider(requested);
+    // Learn writes only routes it can run (`RouteResolver.runnable`).
+    const route = this.ctx.routes.runnable({
+      ...requested,
+      model:
+        req.model ??
+        (requested.providerId === parent.providerId ? parent.model : provider.defaultModel()),
+    });
     const anchorQuote = emptyToNull(req.anchorQuote?.trim());
     const now = this.ctx.now();
     const branch: Branch = {
@@ -191,7 +195,7 @@ export class TreeService {
       titleSource: req.title ? 'user' : 'default',
       isPrivate: req.isPrivate ?? false,
       providerId: route.providerId,
-      model,
+      model: route.model,
       grounding: req.grounding ?? parent.grounding ?? DEFAULT_GROUNDING_MODE,
       funding: route.funding,
       createdAt: now,
@@ -223,11 +227,15 @@ export class TreeService {
     if (req.providerId !== undefined || req.funding !== undefined || req.model !== undefined) {
       const route = this.ctx.routes.requestedRoute(req, branch);
       const provider = this.ctx.routes.requireProvider(route);
-      patch.providerId = route.providerId;
-      patch.funding = route.funding;
-      patch.model =
-        req.model ??
-        (route.providerId === branch.providerId ? branch.model : provider.defaultModel());
+      const runnable = this.ctx.routes.runnable({
+        ...route,
+        model:
+          req.model ??
+          (route.providerId === branch.providerId ? branch.model : provider.defaultModel()),
+      });
+      patch.providerId = runnable.providerId;
+      patch.funding = runnable.funding;
+      patch.model = runnable.model;
     }
     const updated = await this.repo.updateBranch(branchId, patch);
     if (!updated) throw new NotFoundError('Branch');

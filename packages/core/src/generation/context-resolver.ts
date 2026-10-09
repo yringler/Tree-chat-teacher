@@ -227,7 +227,9 @@ export class ContextResolver {
     // The only way into the context's system prompt (the `tree-system-prompt` segment).
     const override = this.pool?.systemPrompt;
     const tree = override === undefined ? owned.tree : { ...owned.tree, systemPrompt: override };
-    const clip = (b: Branch): Branch => clipAnchorQuote(b, this.pool?.anchorQuoteMaxChars);
+    // Each branch on the route this instance runs it on (`RouteResolver.runnable`).
+    const clip = (b: Branch): Branch =>
+      this.ctx.routes.runnable(clipAnchorQuote(b, this.pool?.anchorQuoteMaxChars));
     const route = extra.route;
     const routed = (b: Branch): Branch =>
       route && b.id === branchId
@@ -322,7 +324,7 @@ export class ContextResolver {
    * the settings' input cap. `budgetFor` works the budget out from these.
    */
   async inputBudget(branchId: string): Promise<BranchInputBudget> {
-    const { branch } = await this.ctx.owned.branch(branchId);
+    const branch = this.ctx.routes.runnable((await this.ctx.owned.branch(branchId)).branch);
     const model = this.ctx.routes.modelOf(branch);
     const caps = await capabilitiesOf(this.ctx.routes.requireProvider(branch), model);
     return {

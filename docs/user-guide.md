@@ -6,7 +6,7 @@ Tangent has three apps on one sign-in. The **Power | Learn | Canvas** switch (in
 - **Learn** (`/learn/`): a tutor with nothing to configure.
 - **Canvas** (`/canvas/`): experimental. The power app's conversations as lanes on one surface.
 
-Power, Learn and Canvas share one account: a conversation started in one is listed and can be continued in the others.
+Power, Learn and Canvas share one account: a conversation started in one is listed and can be continued in the others. Learn replies on its own models: a branch on a provider or model Learn doesn't offer is answered by Normal there (or the open pool's model), and keeps its own model in power. Picking a model in Learn moves the branch onto it.
 
 ## How Tangent answers
 

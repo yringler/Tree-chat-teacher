@@ -112,6 +112,7 @@ export interface ChatServiceDeps {
 export class ChatService {
   readonly accountId: string;
   private readonly owned: Ownership;
+  private readonly routes: RouteResolver;
   private readonly trees: TreeService;
   private readonly backups: BackupService;
   private readonly resolver: ContextResolver;
@@ -126,11 +127,12 @@ export class ChatService {
     const newId = deps.newId ?? (() => defaultNewId());
     const profile = deps.profile ?? { kind: 'power' };
     this.owned = new Ownership(deps.repos.trees, this.accountId);
+    this.routes = new RouteResolver(deps.providers, profile, deps.settings);
     const ctx: ServiceContext = {
       repos: deps.repos,
       accountId: this.accountId,
       owned: this.owned,
-      routes: new RouteResolver(deps.providers, profile, deps.settings),
+      routes: this.routes,
       settings: deps.settings,
       defaultSystemPrompt: deps.defaultSystemPrompt ?? null,
       now: () => clock().toISOString(),
@@ -157,6 +159,15 @@ export class ChatService {
    */
   async getOwnedBranch(branchId: string): Promise<Branch> {
     return (await this.owned.branch(branchId)).branch;
+  }
+
+  /**
+   * `branch` on the route and model this service generates on it
+   * (`RouteResolver.runnable`: Learn's own where the branch names one Learn
+   * can't run). The stored branch is not changed.
+   */
+  runnableBranch(branch: Branch): Branch {
+    return this.routes.runnable(branch);
   }
 
   /**

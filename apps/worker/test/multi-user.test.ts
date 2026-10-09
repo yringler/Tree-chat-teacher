@@ -129,6 +129,59 @@ describe('switching modes', () => {
     }
   });
 
+  it("Learn continues a power branch on Learn's provider and model; the branch keeps power's route", async () => {
+    const u = await newUser(authEnv({ POOL_ENABLED: 'false' }));
+    const { trunk } = await treeWithNodes(u, undefined, { providerId: 'fake', model: 'fake-1' });
+    await grantCredit(env.DB, {
+      accountId: u.learn.accountId,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      providerRef: null,
+    });
+    const context = await ok<{ providerId: string; model: string }>(
+      await u.call(`/api/branches/${trunk.id}/context?resolve=true`, { learn: 'credit' }),
+    );
+    expect(context).toMatchObject({ providerId: 'openrouter', model: 'max' });
+    const res = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+      learn: 'credit',
+    });
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(parseSse(await res.text()).at(-1)).toMatchObject({
+      type: 'done',
+      node: { providerId: 'openrouter', model: 'max' },
+    });
+    expect(await usageRows(u.learn.accountId)).toBeGreaterThan(0);
+    const detail = await ok<TreeDetail>(await u.call(`/api/trees/${trunk.treeId}`));
+    expect(detail.branches[0]).toMatchObject({ providerId: 'fake', model: 'fake-1' });
+  });
+
+  it('power continues a Learn lesson on the same endpoint, here on Tangent credit', async () => {
+    const u = await newUser();
+    const { trunk } = await treeWithNodes(u, 'credit');
+    expect(trunk).toMatchObject({ providerId: 'openrouter', model: 'max', funding: 'own-key' });
+    await grantCredit(env.DB, {
+      accountId: u.power.accountId,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      providerRef: null,
+    });
+    // This test server's power has no own-key OpenRouter (a deployment's default has one).
+    await ok(
+      await u.call(`/api/branches/${trunk.id}`, { method: 'PATCH', json: { funding: 'credit' } }),
+    );
+    const res = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+    });
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(parseSse(await res.text()).at(-1)).toMatchObject({
+      type: 'done',
+      node: { providerId: 'openrouter', model: 'max' },
+    });
+  });
+
   it('new Learn trees use the built-in endpoint and the tutor prompt unless one is given', async () => {
     const u = await newUser();
     const plain = await ok<TreeDetail>(
