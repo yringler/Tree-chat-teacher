@@ -1,11 +1,25 @@
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-import { groundingAllowance, groundingSettings, searchesToday } from '../src/billing/grounding.js';
+import type { ProviderConfig } from '@tangent/shared';
+import {
+  groundingAllowance,
+  groundingSettings,
+  searchesToday,
+  withSearchOptions,
+} from '../src/billing/grounding.js';
 import { ConfigError } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { insertUsage, powerAccount, simpleAccount } from './mocks/billing-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
+
+const CONFIG: ProviderConfig = {
+  id: 'openrouter',
+  kind: 'openai-compatible',
+  label: 'OpenRouter',
+  models: [],
+  defaultModel: 'm',
+};
 
 async function searched(accountId: string, createdAt = new Date().toISOString()): Promise<void> {
   const id = await insertUsage(env, { accountId, status: 'settled', purpose: 'reply', createdAt });
@@ -22,12 +36,25 @@ describe('grounding settings', () => {
     } as AppEnv;
     expect(groundingSettings(e, 'simple')).toEqual({
       policy: 'explicit',
-      maxResults: 25,
       maxUses: 1,
-      engine: 'parallel',
       ignoreBranchSetting: true,
     });
     expect(groundingSettings(e, 'power').ignoreBranchSetting).toBe(false);
+    // The engine and results per search are the searching openai-compatible configs' options.
+    const [searching, plain, anthropic, own] = withSearchOptions(e, [
+      { ...CONFIG, options: { webSearch: true } },
+      CONFIG,
+      { ...CONFIG, kind: 'anthropic', options: { webSearch: true } },
+      { ...CONFIG, options: { webSearch: true, webSearchEngine: 'exa' } },
+    ]);
+    expect(searching?.options).toEqual({
+      webSearch: true,
+      webSearchEngine: 'parallel',
+      webSearchMaxResults: 25,
+    });
+    expect(plain?.options).toBeUndefined();
+    expect(anthropic?.options).toEqual({ webSearch: true });
+    expect(own?.options).toMatchObject({ webSearchEngine: 'exa', webSearchMaxResults: 25 });
   });
 
   it('defaults to auto with 5 Exa results, and refuses an unknown policy or too many results', () => {
@@ -37,11 +64,10 @@ describe('grounding settings', () => {
       GROUNDING_MAX_RESULTS: '',
       GROUNDING_ENGINE: '',
     } as AppEnv;
-    expect(groundingSettings(empty, 'power')).toMatchObject({
-      policy: 'auto',
-      maxResults: 5,
-      engine: 'exa',
-    });
+    expect(groundingSettings(empty, 'power')).toMatchObject({ policy: 'auto' });
+    expect(
+      withSearchOptions(empty, [{ ...CONFIG, options: { webSearch: true } }])[0]?.options,
+    ).toEqual({ webSearch: true, webSearchEngine: 'exa', webSearchMaxResults: 5 });
     for (const bad of [{ GROUNDING: 'sometimes' }, { GROUNDING_MAX_RESULTS: '99' }])
       expect(() => groundingSettings({ ...env, ...bad } as AppEnv, 'power')).toThrow(ConfigError);
   });

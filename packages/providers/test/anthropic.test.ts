@@ -160,6 +160,7 @@ describe('anthropic provider', () => {
       supportsSystemPrompt: true,
       supportsTokenCount: true,
       supportsWebSearch: false,
+      requiredWebSearch: false,
       reasoning: true,
     });
     // A reasoning model without a configured limit may write REASONING_MAX_OUTPUT_TOKENS.
@@ -531,7 +532,7 @@ describe('anthropic prompt caching', () => {
 
 describe('anthropic web search', () => {
   const WS: ProviderConfig = { ...CONFIG, options: { webSearch: true } };
-  const webSearch = { mode: 'auto', maxResults: 5, maxUses: 1, engine: 'exa' } as const;
+  const webSearch = { mode: 'auto', maxUses: 1 } as const;
   const cite = (url: string, title: string, citedText = '') => ({
     type: 'content_block_delta',
     index: 2,
@@ -611,8 +612,11 @@ describe('anthropic web search', () => {
     return { provider, calls: m.calls };
   }
 
-  it('reports the capability only with options.webSearch', () => {
-    expect(setupWs(WS).provider.capabilities('claude-opus-5-5').supportsWebSearch).toBe(true);
+  it('reports the capability only with options.webSearch, and never a required search', () => {
+    expect(setupWs(WS).provider.capabilities('claude-opus-5-5')).toMatchObject({
+      supportsWebSearch: true,
+      requiredWebSearch: false,
+    });
     expect(setupWs(CONFIG).provider.capabilities('claude-opus-5-5').supportsWebSearch).toBe(false);
   });
 

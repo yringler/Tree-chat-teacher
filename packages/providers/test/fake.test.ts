@@ -122,6 +122,7 @@ describe('fake provider', () => {
       supportsSystemPrompt: true,
       supportsTokenCount: true,
       supportsWebSearch: false,
+      requiredWebSearch: false,
       reasoning: false,
       titles: false,
     });
@@ -141,6 +142,7 @@ describe('fake provider', () => {
       supportsSystemPrompt: false,
       supportsTokenCount: true,
       supportsWebSearch: false,
+      requiredWebSearch: false,
       reasoning: false,
       titles: false,
     });
@@ -212,7 +214,7 @@ describe('fake provider', () => {
 });
 
 describe('fake provider web search', () => {
-  const webSearch = { mode: 'auto', maxResults: 5, maxUses: 1, engine: 'exa' } as const;
+  const webSearch = { mode: 'auto', maxUses: 1 } as const;
   const citations = [{ url: 'https://example.org/a', title: 'A', excerpt: 'x' }];
 
   it('scripts activity, citations and the search cost when offered and it has citations', async () => {

@@ -5,6 +5,7 @@ import {
   type Citation,
   type GenerateRequest,
   type LlmProvider,
+  type ProviderCapabilities,
   type ProviderConfig,
   type ProviderErrorCode,
   type ProviderEvent,
@@ -71,9 +72,9 @@ function num(v: unknown): number | undefined {
  * Anthropic's web search server tool, at most `maxUses` searches. The basic
  * `web_search_20250305` runs on every Claude model and platform; the
  * `_20260209` variant's dynamic filtering runs code over the results, which
- * one search per reply doesn't need. `tool_choice` stays `auto` even when a
- * search is required ("Check sources"): current models reject a forced tool
- * choice, and CHECK_SOURCES_INSTRUCTIONS asks for the search.
+ * one search per reply doesn't need. `tool_choice` stays `auto`: current
+ * models reject a forced tool choice, so a search can't be required
+ * (`requiredWebSearch` false), only asked for (CHECK_SOURCES_INSTRUCTIONS).
  */
 function webSearchTool(ws: WebSearchRequest): Record<string, unknown> {
   return { type: 'web_search_20250305', name: 'web_search', max_uses: ws.maxUses };
@@ -154,7 +155,10 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
   const baseUrl = stripTrailingSlash(config.baseUrl ?? DEFAULT_BASE_URL);
   const doFetch = getFetch(env);
 
-  const capabilities = (model: string) => resolveCapabilities(config, model, DEFAULTS, true);
+  const capabilities = (model: string): ProviderCapabilities => ({
+    ...resolveCapabilities(config, model, DEFAULTS, true),
+    requiredWebSearch: false,
+  });
 
   /** Request headers, or a missing-secret name. */
   const buildHeaders = ():

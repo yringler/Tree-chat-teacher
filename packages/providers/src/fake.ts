@@ -217,10 +217,10 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
     models: () => models.map((m) => ({ ...m })),
     defaultModel: () => defaultModel,
     // Its text echoes the prompt, so it can't name a conversation.
-    capabilities: (model: string) => ({
-      ...resolveCapabilities(effectiveConfig, model, DEFAULTS, true),
-      titles: false,
-    }),
+    capabilities: (model: string) => {
+      const caps = resolveCapabilities(effectiveConfig, model, DEFAULTS, true);
+      return { ...caps, requiredWebSearch: caps.supportsWebSearch, titles: false };
+    },
     stream,
     countTokens: async (request) => {
       if (request.signal?.aborted) throw abortError();

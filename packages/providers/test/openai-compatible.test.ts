@@ -364,6 +364,7 @@ describe('openai-compatible provider', () => {
       supportsSystemPrompt: true,
       supportsTokenCount: false,
       supportsWebSearch: false,
+      requiredWebSearch: false,
       reasoning: false,
     });
     // A reasoning model gets a larger limit unless the config names one.
@@ -624,7 +625,7 @@ describe('openai-compatible options.extraBody', () => {
 
 describe('openai-compatible web search (OpenRouter)', () => {
   const WS = { ...OPENROUTER, options: { webSearch: true } };
-  const webSearch = { mode: 'auto', maxResults: 5, maxUses: 1, engine: 'exa' } as const;
+  const webSearch = { mode: 'auto', maxUses: 1 } as const;
   const annotation = (url: string, title: string, content = '') => ({
     type: 'url_citation',
     url_citation: { url, title, content, start_index: 0, end_index: 1 },
@@ -666,11 +667,32 @@ describe('openai-compatible web search (OpenRouter)', () => {
     'data: [DONE]\n\n',
   ];
 
-  it('reports the capability only with options.webSearch', () => {
+  it('reports the capability only with options.webSearch, and can require a search', () => {
     const on = setup(WS, () => jsonResponse(500, {})).provider;
     const off = setup(OPENROUTER, () => jsonResponse(500, {})).provider;
-    expect(on.capabilities('x').supportsWebSearch).toBe(true);
-    expect(off.capabilities('x').supportsWebSearch).toBe(false);
+    expect(on.capabilities('x')).toMatchObject({
+      supportsWebSearch: true,
+      requiredWebSearch: true,
+    });
+    expect(off.capabilities('x')).toMatchObject({
+      supportsWebSearch: false,
+      requiredWebSearch: false,
+    });
+  });
+
+  it('runs the search on the configured engine and result count', async () => {
+    const config = {
+      ...WS,
+      options: { webSearch: true, webSearchEngine: 'parallel', webSearchMaxResults: 25 },
+    };
+    const { provider, calls } = setup(config, () => sseResponse(OPENROUTER_STREAM).response);
+    await collect(provider.stream(req({ webSearch: { mode: 'auto', maxUses: 2 } })));
+    expect(calls[0]!.body['tools']).toEqual([
+      {
+        type: 'openrouter:web_search',
+        parameters: { engine: 'parallel', max_results: 25, max_uses: 2 },
+      },
+    ]);
   });
 
   it('sends the server tool with auto tool_choice, and parses citations, activity and searches', async () => {

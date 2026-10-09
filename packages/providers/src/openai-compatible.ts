@@ -5,6 +5,7 @@ import {
   type Citation,
   type GenerateRequest,
   type LlmProvider,
+  type ProviderCapabilities,
   type ProviderConfig,
   type ProviderErrorCode,
   type ProviderEvent,
@@ -75,13 +76,31 @@ function readExtraBody(options: Record<string, unknown> | undefined): Record<str
 /** Body keys a web search sets; `extraBody` can't override them while one is requested. */
 const WEB_SEARCH_BODY_KEYS: readonly string[] = ['tools', 'tool_choice', 'plugins'];
 
+/** How OpenRouter runs a search: `options.webSearchEngine` and `options.webSearchMaxResults`. */
+interface SearchConfig {
+  engine: string;
+  maxResults: number;
+}
+
+function readSearchConfig(options: Record<string, unknown> | undefined): SearchConfig {
+  const engine = options?.['webSearchEngine'];
+  const maxResults = options?.['webSearchMaxResults'];
+  return {
+    engine: typeof engine === 'string' && engine.trim() !== '' ? engine.trim() : 'exa',
+    maxResults:
+      typeof maxResults === 'number' && Number.isInteger(maxResults) && maxResults > 0
+        ? maxResults
+        : 5,
+  };
+}
+
 /** OpenRouter's web search server tool (https://openrouter.ai/docs/guides/features/server-tools/web-search). */
-function webSearchBody(ws: WebSearchRequest): Record<string, unknown> {
+function webSearchBody(ws: WebSearchRequest, search: SearchConfig): Record<string, unknown> {
   return {
     tools: [
       {
         type: 'openrouter:web_search',
-        parameters: { engine: ws.engine, max_results: ws.maxResults, max_uses: ws.maxUses },
+        parameters: { engine: search.engine, max_results: search.maxResults, max_uses: ws.maxUses },
       },
     ],
     tool_choice: ws.mode === 'required' ? 'required' : 'auto',
@@ -198,7 +217,9 @@ function codeForStreamError(err: Record<string, unknown>, message: string): Prov
  *
  * Web search (OpenRouter, when `options.webSearch` is true and the request
  * has `webSearch`): sends the `openrouter:web_search` server tool with
- * `tool_choice` auto/required; `extraBody` can't override `tools`,
+ * `tool_choice` auto/required (so `requiredWebSearch` holds), on
+ * `options.webSearchEngine` (default `exa`) with
+ * `options.webSearchMaxResults` results per search (default 5); `extraBody` can't override `tools`,
  * `tool_choice` or `plugins` then. `url_citation` annotations (in
  * `delta.annotations` or `message.annotations`) become `citations` events, a
  * streamed web-search tool call an `activity` event, and
@@ -255,7 +276,12 @@ export function createOpenAiCompatibleProvider(
   const openRouter = isOpenRouterBaseUrl(baseUrl);
   const promptCache = promptCacheOption(config.options) ?? openRouter;
 
-  const capabilities = (model: string) => resolveCapabilities(config, model, DEFAULTS, false);
+  const search = readSearchConfig(config.options);
+
+  const capabilities = (model: string): ProviderCapabilities => {
+    const caps = resolveCapabilities(config, model, DEFAULTS, false);
+    return { ...caps, requiredWebSearch: caps.supportsWebSearch };
+  };
 
   function stream(request: GenerateRequest): AsyncIterable<ProviderEvent> {
     const resolved = resolveConfigHeaders(config, env);
@@ -310,7 +336,7 @@ export function createOpenAiCompatibleProvider(
       const body: Record<string, unknown> = {
         stream_options: { include_usage: true },
         ...extra,
-        ...(webSearch ? webSearchBody(webSearch) : {}),
+        ...(webSearch ? webSearchBody(webSearch, search) : {}),
         ...(openRouter && effort !== undefined ? { reasoning: reasoningBody(effort) } : {}),
         ...(openRouter && order.length > 0
           ? { provider: pinnedRouting(extra['provider'], order) }

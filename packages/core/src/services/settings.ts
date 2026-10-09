@@ -40,12 +40,8 @@ export interface ChatSettings {
 export interface GroundingSettings {
   /** Operator ceiling over the per-branch setting; see GroundingPolicy. */
   policy: GroundingPolicy;
-  /** Results per search. */
-  maxResults: number;
   /** Most searches per reply. */
   maxUses: number;
-  /** Search engine passed to the provider (OpenRouter: `exa`, …). */
-  engine: string;
   /**
    * True when the per-branch setting is ignored and every branch counts as
    * `auto` (Learn: the pedagogy is the operator's, not the learner's).
@@ -55,9 +51,7 @@ export interface GroundingSettings {
 
 export const DEFAULT_GROUNDING_SETTINGS: GroundingSettings = {
   policy: 'off',
-  maxResults: 5,
   maxUses: 1,
-  engine: 'exa',
   ignoreBranchSetting: false,
 };
 

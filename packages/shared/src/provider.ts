@@ -21,6 +21,13 @@ export interface ProviderCapabilities {
   /** True when the provider can run a web search for a reply (`GenerateRequest.webSearch`). */
   supportsWebSearch: boolean;
   /**
+   * True when it can also make the model search (`WebSearchRequest.mode`
+   * `required`). False where a search can only be offered (Anthropic, whose
+   * models reject a forced tool choice): a reply that must check its sources
+   * is then offered one and asked to use it. Absent = false.
+   */
+  requiredWebSearch?: boolean;
+  /**
    * True for a reasoning model (`ModelInfo.reasoning`, else `isReasoningModel`):
    * its thinking counts as output, so replies get a larger cap (output-tokens.ts).
    * Absent = false.
@@ -141,16 +148,19 @@ export interface GenerateRequest {
   reasoning?: ReasoningEffort;
 }
 
-/** A web search offered for one reply (OpenRouter's `openrouter:web_search` server tool). */
+/**
+ * A web search offered for one reply, as every provider with
+ * `supportsWebSearch` honours it. How a search runs (OpenRouter's engine and
+ * results per search) is the provider's own config.
+ */
 export interface WebSearchRequest {
-  /** `auto`: the model decides whether to search; `required`: it must search. */
+  /**
+   * `auto`: the model decides whether to search; `required`: it must search,
+   * sent only to a provider that can enforce it (`requiredWebSearch`).
+   */
   mode: 'auto' | 'required';
-  /** Results per search. */
-  maxResults: number;
   /** Most searches in this reply. */
   maxUses: number;
-  /** Search engine (OpenRouter: `exa`, `parallel`, `auto`, …). */
-  engine: string;
 }
 
 export type ProviderErrorCode =

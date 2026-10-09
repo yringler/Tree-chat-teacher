@@ -119,15 +119,18 @@ export class Replier {
     const { nodeId } = target;
     const { maxOutput } = await this.resolver.budgetFor(provider, model, target.maxOutputTokens);
     let terminal: ReplyTerminal | null = null;
-    let webSearch = this.webSearchRequest(reply.grounding);
+    let webSearch = this.webSearchRequest(reply.grounding, caps);
     for (let attempt = 0; attempt < 2; attempt++) {
       let retryWithoutSearch = false;
-      // After the history, not in the system prompt: see `replyInstructions`.
+      // After the history, not in the system prompt: see `replyInstructions`. A required
+      // search is asked for here even where the provider can't enforce it.
       const turnInstructions =
         webSearch === undefined
           ? undefined
           : replyInstructions(
-              webSearch.mode === 'required' ? CHECK_SOURCES_INSTRUCTIONS : GROUNDING_INSTRUCTIONS,
+              reply.grounding.mode === 'required'
+                ? CHECK_SOURCES_INSTRUCTIONS
+                : GROUNDING_INSTRUCTIONS,
             );
       const rendered = renderPlan(plan, { supportsSystemPrompt: caps.supportsSystemPrompt });
       let searched = false;
@@ -235,10 +238,18 @@ export class Replier {
     return allowed ? decision : decideGrounding({ ...input, autoAllowed: false });
   }
 
-  private webSearchRequest(decision: GroundingDecision): WebSearchRequest | undefined {
+  /**
+   * The search a reply is offered: `required` only where the provider can
+   * enforce it (`requiredWebSearch`), else offered and asked for in the
+   * reply's instructions.
+   */
+  private webSearchRequest(
+    decision: GroundingDecision,
+    caps: ProviderCapabilities,
+  ): WebSearchRequest | undefined {
     if (decision.mode === 'none') return undefined;
-    const { maxResults, maxUses, engine } = this.ctx.settings.grounding;
-    return { mode: decision.mode, maxResults, maxUses, engine };
+    const required = decision.mode === 'required' && caps.requiredWebSearch === true;
+    return { mode: required ? 'required' : 'auto', maxUses: this.ctx.settings.grounding.maxUses };
   }
 }
 

@@ -364,6 +364,7 @@ const CAPABILITIES: ProviderCapabilities = {
   supportsSystemPrompt: true,
   supportsTokenCount: false,
   supportsWebSearch: true,
+  requiredWebSearch: true,
   titles: true,
 };
 

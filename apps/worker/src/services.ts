@@ -22,7 +22,7 @@ import {
   type ProviderRegistry,
 } from '@tangent/shared';
 import { isAdminUserId } from './auth/admin.js';
-import { groundingAllowance, groundingSettings } from './billing/grounding.js';
+import { groundingAllowance, groundingSettings, withSearchOptions } from './billing/grounding.js';
 import { defaultRouteFacts } from './billing/gate.js';
 import { createPoolUsageMeter, createUsageMeter, meteredRegistry } from './billing/meter.js';
 import { paymentProvider, paymentsConfigured } from './billing/payments/index.js';
@@ -264,8 +264,9 @@ export function registryFor(
 
 /**
  * The providers of `configs`, with OpenRouter models budgeted on their real
- * context windows (model-windows.ts `withModelWindows`): every registry a
- * request generates through is built here. `apiKeys` and `withheld` as in
+ * context windows (model-windows.ts `withModelWindows`) and searching as the
+ * `GROUNDING_*` vars say (`withSearchOptions`): every registry a request
+ * generates through is built here. `apiKeys` and `withheld` as in
  * `providerEnv`.
  */
 function windowedRegistry(
@@ -274,8 +275,12 @@ function windowedRegistry(
   apiKeys?: UserApiKeys,
   withheld?: ReadonlySet<string>,
 ): ProviderRegistry {
-  const registry = createProviderRegistry(configs, providerEnv(env, configs, apiKeys, withheld));
-  return withModelWindows(registry, configs, env);
+  const searching = withSearchOptions(env, configs);
+  const registry = createProviderRegistry(
+    searching,
+    providerEnv(env, searching, apiKeys, withheld),
+  );
+  return withModelWindows(registry, searching, env);
 }
 
 /**
