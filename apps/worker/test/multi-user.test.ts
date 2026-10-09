@@ -292,6 +292,7 @@ describe('ownership across users', () => {
         [`/api/branches/${trunk.id}`, { method: 'DELETE' }],
         [`/api/branches/${trunk.id}/context`, {}],
         [`/api/branches/${trunk.id}/context?resolve=true`, {}],
+        [`/api/branches/${trunk.id}/input-budget`, {}],
         [`/api/branches/${trunk.id}/messages`, { method: 'POST', json: { content: 'hi' } }],
         [`/api/nodes/${assistant.id}/stream`, {}],
         [`/api/nodes/${assistant.id}/cancel`, { method: 'POST' }],

@@ -59,7 +59,7 @@ export interface SessionSendBody extends GenerationLimits {
   creditReply?: CreditReplyHold;
 }
 
-/** The reservation of a reply on Tangent credit, as the Worker priced it (routes/api.ts). */
+/** The reservation of a reply on Tangent credit, as the Worker priced it (routes/generation.ts). */
 export interface CreditReplyHold {
   providerId: string;
   model: string;
@@ -112,24 +112,9 @@ interface SendTarget extends GenerationLimits {
   creditReply?: CreditReplyHold;
 }
 
-/** The account as query parameters, for the internal routes without a body. */
-export function accountParams(account: AccountContext): Record<string, string> {
-  return {
-    accountId: account.id,
-    mode: account.mode,
-    billingAccountId: account.billingAccountId,
-    builtIn: account.builtIn ? '1' : '0',
-    operatorKeys: account.operatorKeys ? '1' : '0',
-    funding: account.funding,
-    ...(account.userId ? { userId: account.userId } : {}),
-    // One JSON param: the pool's parameters were resolved by the Worker (pool/params.ts).
-    ...(account.pool ? { pool: JSON.stringify(account.pool) } : {}),
-  };
-}
-
 const FUNDING: ReadonlySet<string> = new Set<FundingSource>(['own-key', 'personal', 'pool']);
 
-/** The inverse of `accountParams`. */
+/** The account `accountParams` (tree-session-client.ts) sent as query parameters. */
 export function accountFromParams(params: URLSearchParams): AccountContext {
   const userId = params.get('userId') || null;
   const funding = params.get('funding') ?? '';
@@ -161,7 +146,7 @@ interface Run {
  * reconnect with a snapshot, and serializes sends per tree.
  *
  * Internal protocol (called only by the Worker, never exposed; `&account`
- * is accountParams(), i.e. `accountId=&mode=&billingAccountId=&builtIn=&operatorKeys=&funding=[&userId=][&pool=]`):
+ * is accountParams() of tree-session-client.ts, i.e. `accountId=&mode=&billingAccountId=&builtIn=&operatorKeys=&funding=[&userId=][&pool=]`):
  *   POST /send?treeId=&branchId=   body SessionSendBody → SSE
  *   GET  /stream?treeId=&nodeId=&account            → SSE (snapshot, then live)
  *   POST /cancel?treeId=&nodeId=&account            → 204
