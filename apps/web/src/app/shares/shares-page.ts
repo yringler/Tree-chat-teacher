@@ -1,14 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import type { ShareSummary } from '@tangent/shared';
-import { ApiClient, Icon } from '@tangent/web-shared';
+import { ApiClient, Icon, SidebarToggle } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
-import { UiStore } from '../state/ui-store';
 import { ShareCard } from './share-card';
 
 /** `/shares`: every public link, with copy / open / edit / republish / revoke / delete (ShareCard). */
 @Component({
   selector: 'app-shares-page',
-  imports: [Icon, ShareCard],
+  imports: [Icon, ShareCard, SidebarToggle],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './shares-page.html',
   host: { class: 'page' },
@@ -16,7 +15,6 @@ import { ShareCard } from './share-card';
 export class SharesPage {
   private readonly api = inject(ApiClient);
   private readonly store = inject(TreeStore);
-  protected readonly ui = inject(UiStore);
 
   protected readonly shares = signal<ShareSummary[]>([]);
   protected readonly loading = signal(true);

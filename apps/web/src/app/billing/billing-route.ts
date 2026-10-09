@@ -1,6 +1,5 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { BillingPage, Icon } from '@tangent/web-shared';
-import { UiStore } from '../state/ui-store';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { BillingPage, SidebarToggle } from '@tangent/web-shared';
 
 /**
  * `/billing`: the shared billing page (membership, Tangent credit, usage).
@@ -11,25 +10,14 @@ import { UiStore } from '../state/ui-store';
  */
 @Component({
   selector: 'app-billing-route',
-  imports: [BillingPage, Icon],
+  imports: [BillingPage, SidebarToggle],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="page-head only-narrow">
-      <button
-        type="button"
-        class="icon-btn"
-        aria-label="Open menu"
-        aria-controls="sidebar"
-        [attr.aria-expanded]="ui.drawerOpen()"
-        (click)="ui.drawerOpen.set(true)"
-      >
-        <app-icon name="menu" />
-      </button>
+      <app-sidebar-toggle />
     </header>
     <app-billing-page homePath="/" homeLabel="Conversations" billingPath="/billing" />
   `,
   host: { class: 'page' },
 })
-export class BillingRoute {
-  protected readonly ui = inject(UiStore);
-}
+export class BillingRoute {}

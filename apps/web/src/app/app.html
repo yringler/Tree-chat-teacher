@@ -1,12 +1,12 @@
 @if (loginPage) {
   <router-outlet />
 } @else {
-  <div class="app" [class.drawer-open]="ui.drawerOpen()">
+  <div class="app" [class.drawer-open]="sidebar.drawerOpen()">
     <aside class="sidebar" id="sidebar" aria-label="Conversations">
       <app-sidebar />
     </aside>
-    @if (ui.drawerOpen()) {
-      <div class="scrim" (click)="ui.drawerOpen.set(false)"></div>
+    @if (sidebar.drawerOpen()) {
+      <div class="scrim" (click)="sidebar.drawerOpen.set(false)"></div>
     }
     <main class="main">
       @if (demo) {

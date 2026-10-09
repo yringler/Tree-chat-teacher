@@ -13,7 +13,6 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
   { keys: ['Alt+←', 'Alt+→'], label: 'Previous / next side question beside this one' },
   { keys: ['Alt+↓', ']'], label: 'Into the first side question from here' },
   { keys: ['j', 'k'], label: 'Next / previous message' },
-  { keys: ['m'], label: 'Lesson map' },
   { keys: ['/'], label: 'Focus the message box' },
   { keys: ['?'], label: 'Show this help' },
   { keys: ['Esc'], label: 'Close dialogs and menus' },
@@ -28,11 +27,6 @@ export class Keyboard {
 
   private readonly keys: Readonly<Record<string, () => unknown>> = {
     ...pathKeys(this.store),
-    m: () => {
-      if (!this.store.hasSideQuestions()) return false;
-      this.ui.dialogs.open({ kind: 'map' });
-      return true;
-    },
     '/': () => this.composer.focus(),
   };
 

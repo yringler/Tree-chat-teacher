@@ -2,28 +2,19 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { clip } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { DEMO_MODE, Icon, TextSizeMenu } from '@tangent/web-shared';
+import { DEMO_MODE, Icon, SidebarToggle, TextSizeMenu } from '@tangent/web-shared';
 import { confirmDeleteBranch } from '../dialogs/branch-settings';
 import { ModeBadge } from '../ui/mode-badge';
 import { ExportMenu } from './export-menu';
 
 @Component({
   selector: 'app-chat-header',
-  imports: [Icon, ModeBadge, ExportMenu, TextSizeMenu],
+  imports: [Icon, ModeBadge, ExportMenu, SidebarToggle, TextSizeMenu],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="chat-head">
       <div class="chat-head-row">
-        <button
-          type="button"
-          class="icon-btn only-narrow"
-          aria-label="Open menu"
-          aria-controls="sidebar"
-          [attr.aria-expanded]="ui.drawerOpen()"
-          (click)="ui.drawerOpen.set(true)"
-        >
-          <app-icon name="menu" />
-        </button>
+        <app-sidebar-toggle />
         <h1 class="tree-name" [attr.title]="store.detail()?.tree?.title">
           {{ store.detail()?.tree?.title }}
         </h1>

@@ -198,10 +198,6 @@ export class ChatPage implements OnDestroy {
     });
   }
 
-  protected openMap(): void {
-    this.ui.dialogs.open({ kind: 'map' });
-  }
-
   protected async setModel(branchId: string, model: string): Promise<void> {
     this.switching.set(true);
     try {

@@ -16,7 +16,13 @@ import type {
   UpdateBranchRequest,
 } from '@tangent/shared';
 import { providerRouteKey } from '@tangent/shared';
-import { ApiClient, ApiError, ComposerController, ToastStore } from '@tangent/web-shared';
+import {
+  ApiClient,
+  ApiError,
+  ComposerController,
+  SidebarState,
+  ToastStore,
+} from '@tangent/web-shared';
 import * as fixtures from '@tangent/web-shared/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeStore } from './tree-store';
@@ -79,6 +85,7 @@ function setup() {
     providers: [
       { provide: TreeStore },
       { provide: UiStore },
+      { provide: SidebarState },
       { provide: ComposerController },
       { provide: ToastStore },
       { provide: SettingsStore },

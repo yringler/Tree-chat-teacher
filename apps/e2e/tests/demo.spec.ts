@@ -246,7 +246,7 @@ test('Learn demo: a side question is deleted from its chip, or from the header w
   expect(errors).toEqual([]);
 });
 
-test('Learn demo: side questions open where they start; the path, map and keys find the way back', async ({
+test('Learn demo: side questions open where they start; the path, sidebar and keys find the way back', async ({
   page,
 }) => {
   const errors = collectErrors(page);
@@ -280,13 +280,11 @@ test('Learn demo: side questions open where they start; the path, map and keys f
   await page.keyboard.press('Alt+ArrowUp');
   await expect(page).not.toHaveURL(/\/b\//);
 
-  // The map lists every side question.
-  await page.keyboard.press('m');
-  const map = page.getByRole('dialog', { name: 'Lesson map' });
-  await expect(map).toBeVisible();
-  await map.getByRole('button', { name: /Why the owl hums first/ }).click();
-  await expect(map).toBeHidden();
+  // The sidebar lists every side question under the open lesson.
+  const outline = page.getByRole('tree', { name: 'Side questions' });
+  await outline.getByRole('button', { name: /^Why the owl hums first/ }).click();
   await expect(page).toHaveURL(/\/b\//);
+  await expect(page.locator('.msg-focused:not(.msg-ancestor)')).toBeVisible();
 
   await page.keyboard.press('?');
   const help = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
@@ -294,12 +292,18 @@ test('Learn demo: side questions open where they start; the path, map and keys f
   await page.keyboard.press('Escape');
   await expect(help).toBeHidden();
 
-  // On a phone the path is still there.
+  // On a phone the path is still there, and the sidebar is a drawer.
   await page.setViewportSize({ width: 390, height: 800 });
   await expect(page.locator('.crumbs ol')).toBeVisible();
   await expect(
     page.locator('.crumbs').getByRole('button', { name: 'Lesson', exact: true }),
   ).toBeVisible();
+  await expect(outline).not.toBeInViewport();
+  await page.getByRole('button', { name: 'Open menu' }).click();
+  await expect(outline).toBeInViewport();
+  await outline.getByRole('button', { name: /^Lesson/ }).click();
+  await expect(page).not.toHaveURL(/\/b\//);
+  await expect(outline).not.toBeInViewport();
   expect(errors).toEqual([]);
 });
 

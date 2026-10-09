@@ -16,7 +16,6 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { branchyLesson, learner, NOT_A_MEMBER, POOL_ON } from '../learn.testing';
 import { LessonStore } from '../state/lesson-store';
-import { UiStore } from '../state/ui-store';
 import { ChatPage } from './chat-page';
 
 const LEARN = provider({
@@ -195,16 +194,5 @@ describe('Learn: finding your way around a lesson', () => {
     vi.spyOn(p.store, 'createBranch').mockResolvedValue(null);
     await p.user.click(screen.getByRole('button', { name: /Side question/ }));
     expect(focus).not.toHaveBeenCalled();
-  });
-
-  it('offers the lesson map once there is a side question', async () => {
-    await page();
-    expect(screen.queryByRole('button', { name: 'Lesson map' })).toBeNull();
-  });
-
-  it('opens the lesson map', async () => {
-    const p = await page(branchyLesson());
-    await p.user.click(screen.getByRole('button', { name: 'Lesson map' }));
-    expect(TestBed.inject(UiStore).dialogs.list()).toEqual([{ kind: 'map' }]);
   });
 });

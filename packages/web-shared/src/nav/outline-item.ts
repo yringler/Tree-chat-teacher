@@ -1,27 +1,47 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  Directive,
   type ElementRef,
   inject,
   input,
   signal,
+  TemplateRef,
   viewChild,
 } from '@angular/core';
-import type { OutlineItem as OutlineNode } from '@tangent/core';
-import { TreeStore } from '../state/tree-store';
-import { UiStore } from '../state/ui-store';
-import { Icon } from '@tangent/web-shared';
-import { confirmDeleteBranch } from '../dialogs/branch-settings';
-import { ModeBadge } from '../ui/mode-badge';
+import type { OutlineItem } from '@tangent/core/tree';
+import { Icon } from '../ui/icon';
+import { SidebarHost, SidebarState } from './sidebar-host';
 
-/** One branch in the outline (recursive), with inline rename and delete. */
+/** What an app's badges template gets: the branch's outline item. */
+export interface BadgeContext {
+  $implicit: OutlineItem;
+}
+
+/**
+ * Marks the app's `<ng-template sidebarBadges let-item>` inside
+ * `app-conversation-sidebar`: extra marks after each branch's title, `item`
+ * typed as its outline item.
+ */
+@Directive({ selector: 'ng-template[sidebarBadges]' })
+export class SidebarBadges {
+  readonly template = inject<TemplateRef<BadgeContext>>(TemplateRef);
+
+  static ngTemplateContextGuard(_dir: SidebarBadges, _ctx: unknown): _ctx is BadgeContext {
+    return true;
+  }
+}
+
+/** One branch in the sidebar's outline (recursive), with rename (where the app allows) and delete. */
 @Component({
-  selector: 'app-outline-item',
-  imports: [Icon, ModeBadge, OutlineItem],
+  selector: 'app-sidebar-outline-item',
+  imports: [Icon, NgTemplateOutlet, SidebarOutlineItem],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let b = item().branch;
+    @let title = host.branchTitle(item());
     <li
       role="treeitem"
       [attr.aria-level]="item().depth + 1"
@@ -33,9 +53,9 @@ import { ModeBadge } from '../ui/mode-badge';
           <button
             type="button"
             class="icon-btn twisty"
-            [attr.aria-label]="(collapsed() ? 'Expand ' : 'Collapse ') + b.title"
+            [attr.aria-label]="(collapsed() ? 'Expand ' : 'Collapse ') + title"
             [attr.aria-expanded]="!collapsed()"
-            (click)="ui.toggleCollapsed(b.id)"
+            (click)="sidebar.toggleCollapsed(b.id)"
           >
             <app-icon [name]="collapsed() ? 'chevronRight' : 'chevronDown'" [size]="14" />
           </button>
@@ -48,7 +68,7 @@ import { ModeBadge } from '../ui/mode-badge';
             type="text"
             class="outline-rename"
             maxlength="200"
-            aria-label="Branch title"
+            aria-label="Title"
             [value]="b.title"
             (keydown.enter)="$event.preventDefault(); commitRename(titleInput.value)"
             (keydown.escape)="$event.preventDefault(); editing.set(false)"
@@ -59,56 +79,40 @@ import { ModeBadge } from '../ui/mode-badge';
             type="button"
             class="outline-link"
             [attr.aria-current]="selected() ? 'page' : null"
-            [attr.title]="b.title + ' (double-click to rename)'"
+            [attr.title]="host.canRename ? title + ' (double-click to rename)' : title"
             (click)="open()"
             (dblclick)="startRename()"
           >
-            <span class="outline-title">{{ b.title }}</span>
+            <span class="outline-title">{{ title }}</span>
             @if (streaming()) {
               <span class="dot-live" aria-label="generating"></span>
             }
-            @if (b.isPrivate) {
-              <span
-                class="lock"
-                title="Private: excluded from shares and exports"
-                aria-label="private"
-              >
-                <app-icon name="lock" [size]="12" />
-              </span>
-            }
-            @if (item().depth > 0) {
-              <app-mode-badge [mode]="b.contextMode" />
-            }
-            @if (linkCount(); as links) {
-              <span
-                class="outline-links"
-                [attr.aria-label]="links + (links === 1 ? ' link' : ' links')"
-                [title]="(links === 1 ? '1 link' : links + ' links') + ' to other messages'"
-              >
-                <app-icon name="link" [size]="12" />{{ links }}
-              </span>
+            @if (badges(); as tpl) {
+              <ng-container *ngTemplateOutlet="tpl; context: { $implicit: item() }" />
             }
             <span class="count" [attr.aria-label]="item().messageCount + ' messages'">{{
               item().messageCount
             }}</span>
           </button>
           <span class="outline-actions">
-            <button
-              type="button"
-              class="icon-btn"
-              [attr.aria-label]="'Rename ' + b.title"
-              title="Rename"
-              (click)="startRename()"
-            >
-              <app-icon name="edit" [size]="13" />
-            </button>
+            @if (host.canRename) {
+              <button
+                type="button"
+                class="icon-btn"
+                [attr.aria-label]="'Rename ' + title"
+                title="Rename"
+                (click)="startRename()"
+              >
+                <app-icon name="edit" [size]="13" />
+              </button>
+            }
             @if (item().depth > 0) {
               <button
                 type="button"
                 class="icon-btn icon-btn-danger"
-                [attr.aria-label]="'Delete ' + b.title"
-                title="Delete branch"
-                (click)="remove()"
+                [attr.aria-label]="'Delete ' + title"
+                [title]="'Delete ' + host.words.branch"
+                (click)="host.deleteBranch(b.id)"
               >
                 <app-icon name="trash" [size]="13" />
               </button>
@@ -119,7 +123,7 @@ import { ModeBadge } from '../ui/mode-badge';
       @if (hasChildren() && !collapsed()) {
         <ul role="group">
           @for (child of item().children; track child.branch.id) {
-            <app-outline-item [item]="child" />
+            <app-sidebar-outline-item [item]="child" [badges]="badges()" />
           }
         </ul>
       }
@@ -127,23 +131,22 @@ import { ModeBadge } from '../ui/mode-badge';
   `,
   host: { style: 'display: contents' },
 })
-export class OutlineItem {
-  protected readonly store = inject(TreeStore);
-  protected readonly ui = inject(UiStore);
-  readonly item = input.required<OutlineNode>();
+export class SidebarOutlineItem {
+  protected readonly host = inject(SidebarHost);
+  protected readonly sidebar = inject(SidebarState);
+  readonly item = input.required<OutlineItem>();
+  /** The app's extra marks after the title (e.g. power's context mode). */
+  readonly badges = input<TemplateRef<BadgeContext> | undefined>();
 
+  private readonly store = this.host.store;
   protected readonly hasChildren = computed(() => this.item().children.length > 0);
-  protected readonly collapsed = computed(() => this.ui.collapsed().has(this.item().branch.id));
+  protected readonly collapsed = computed(() =>
+    this.sidebar.collapsed().has(this.item().branch.id),
+  );
   protected readonly selected = computed(
     () => this.store.selectedBranchId() === this.item().branch.id,
   );
-  protected readonly inChain = computed(() =>
-    this.store.chain().some((b) => b.id === this.item().branch.id),
-  );
-  /** Links touching the branch's messages. */
-  protected readonly linkCount = computed(
-    () => this.store.linkCounts().get(this.item().branch.id) ?? 0,
-  );
+  protected readonly inChain = computed(() => this.store.chainIds().has(this.item().branch.id));
   protected readonly streaming = computed(() => {
     const id = this.item().branch.id;
     for (const s of this.store.live().values()) if (s.branchId === id) return true;
@@ -156,11 +159,12 @@ export class OutlineItem {
   private saving = false;
 
   protected open(): void {
-    const b = this.item().branch;
-    this.store.go(b.id, null);
+    this.sidebar.drawerOpen.set(false);
+    this.host.openBranch(this.item());
   }
 
   protected startRename(): void {
+    if (!this.host.canRename) return;
     this.editing.set(true);
     queueMicrotask(() => {
       const el = this.titleInput()?.nativeElement;
@@ -182,9 +186,5 @@ export class OutlineItem {
     this.saving = false;
     // On failure the error toast shows and the input stays open to retry or Esc.
     if (ok) this.editing.set(false);
-  }
-
-  protected async remove(): Promise<void> {
-    await confirmDeleteBranch(this.store, this.item().branch.id);
   }
 }

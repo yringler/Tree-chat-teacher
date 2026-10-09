@@ -10,8 +10,7 @@ import {
 import { RouterLink } from '@angular/router';
 import { sameChoice, TierStore, tierOptions } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
-import { UiStore } from '../state/ui-store';
-import { Composer, Icon, readOnlyText, Segmented } from '@tangent/web-shared';
+import { Composer, Icon, readOnlyText, Segmented, SidebarToggle } from '@tangent/web-shared';
 import {
   maxUsageNote,
   parseRouteKey,
@@ -31,20 +30,20 @@ import { ModelPicker } from '../ui/model-picker';
  */
 @Component({
   selector: 'app-home-page',
-  imports: [Composer, ModelPicker, RouterLink, Icon, ImportButton, DatePipe, Segmented],
+  imports: [
+    Composer,
+    ModelPicker,
+    RouterLink,
+    Icon,
+    ImportButton,
+    DatePipe,
+    Segmented,
+    SidebarToggle,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="page-head">
-      <button
-        type="button"
-        class="icon-btn only-narrow"
-        aria-label="Open menu"
-        aria-controls="sidebar"
-        [attr.aria-expanded]="ui.drawerOpen()"
-        (click)="ui.drawerOpen.set(true)"
-      >
-        <app-icon name="menu" />
-      </button>
+      <app-sidebar-toggle />
       <h1>New conversation</h1>
     </header>
     <div class="home">
@@ -132,7 +131,6 @@ import { ModelPicker } from '../ui/model-picker';
 })
 export class HomePage {
   protected readonly store = inject(TreeStore);
-  protected readonly ui = inject(UiStore);
   protected readonly tiers = inject(TierStore);
   /** The picked provider and funding, as a `routeKey`. */
   protected readonly route = signal('');

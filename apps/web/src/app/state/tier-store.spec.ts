@@ -13,7 +13,7 @@ import { DEFAULT_SETTINGS, type AppSettings, SettingsStore } from './settings-st
 import { TierStore, tierOptions } from './tier-store';
 import { TreeStore } from './tree-store';
 import { UiStore } from './ui-store';
-import { ComposerController, ToastStore } from '@tangent/web-shared';
+import { ComposerController, SidebarState, ToastStore } from '@tangent/web-shared';
 import * as fixtures from '@tangent/web-shared/testing';
 
 const PRO = 'deepseek/deepseek-v4-pro';
@@ -98,6 +98,7 @@ function setup(
     providers: [
       { provide: TierStore },
       { provide: UiStore },
+      { provide: SidebarState },
       { provide: ComposerController },
       { provide: ToastStore },
       { provide: TreeStore, useValue: tree },

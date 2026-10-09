@@ -13,6 +13,7 @@ import {
   ApiClient,
   ComposerController,
   DEMO_MODE,
+  SidebarState,
   ToastStore,
 } from '@tangent/web-shared';
 import { createDemoFetch } from '@tangent/web-shared/demo';
@@ -118,6 +119,7 @@ function setup(
       { provide: PaymentChoice },
       { provide: LearnFunding },
       { provide: UiStore },
+      { provide: SidebarState },
       { provide: ComposerController },
       { provide: ToastStore },
       { provide: DEMO_MODE, useValue: false },
@@ -537,6 +539,7 @@ describe('LearnFunding in the demo', () => {
         { provide: PaymentChoice },
         { provide: LearnFunding },
         { provide: UiStore },
+        { provide: SidebarState },
         { provide: ComposerController },
         { provide: ToastStore },
         { provide: ApiClient },
