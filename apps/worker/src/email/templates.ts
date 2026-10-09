@@ -1,13 +1,5 @@
+import { escapeHtml } from '@tangent/render';
 import type { EmailMessage } from './types.js';
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 export function magicLinkEmail(to: string, url: string, expiresInMinutes: number): EmailMessage {
   const href = escapeHtml(url);
