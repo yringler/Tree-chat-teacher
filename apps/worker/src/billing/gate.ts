@@ -3,14 +3,7 @@
 // credit, the open pool or the user's own key) and checks that they can,
 // before anything is written or sent upstream.
 import { DomainError, PoolBlockedError, poolBlock, ValidationError } from '@tangent/core';
-import {
-  BRANCH_FUNDINGS,
-  type BranchFunding,
-  type DefaultRouteFacts,
-  type MembershipInfo,
-  type PoolBlockDetails,
-  type ProviderRoute,
-} from '@tangent/shared';
+import type { BranchFunding, PoolBlockDetails, ProviderRoute } from '@tangent/shared';
 import { clientIp, withPoolParams } from '../auth/account.js';
 import { assertGenerationAllowed, enforceRateLimit } from '../byok/guard.js';
 import type { UserKeys } from '../byok/keys.js';
@@ -25,10 +18,11 @@ import {
 import { claimPoolIdentity, identitySuspended, poolIdentity } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
 import { poolAdmitRequest, poolBlockDetails } from '../pool/params.js';
-import { creditSold, poolAvailable, registryFor, routeRegistryFor } from '../services.js';
+import { poolAvailable } from '../availability.js';
+import { registryFor, routeRegistryFor } from '../registries.js';
 import { LEARN_KEY_LABEL } from '../simple-mode.js';
 import { getBalance } from './ledger.js';
-import { assertMember, membershipFor } from './membership.js';
+import { assertMember, needsMembership } from './membership.js';
 import { assertCanSpend, requireCreditPrice, USAGE_HOLD_MICROS } from './service.js';
 
 /** What a generating request is about to do. */
@@ -142,86 +136,6 @@ export async function assertPoolAccess(
 }
 
 /**
- * True when this request needs the membership (once the fee is on): any call
- * that isn't metered, that is on the user's own keys (by funding, never by
- * provider id), in either app. In Learn that is a request paid with the
- * user's key (`isMetered` by the request's payment, whatever `funding`
- * says); in power, a review counts both its reviewer (`funding`) and its
- * branch's summaries (`alsoSpendsOn`), so any own-key call in it needs the
- * membership, and a context resolve checks the branch's funding. Tangent
- * credit never needs it, to buy (`startTopUpCheckout`) or to spend, in either
- * app (it carries the markup instead), and neither does the open pool, which
- * returns before this is asked. See docs/DECISIONS.md "One membership rule: own keys".
- */
-export function needsMembership(
-  account: AccountContext,
-  check: Pick<GenerateCheck, 'funding' | 'alsoSpendsOn'>,
-): boolean {
-  const fundings = [check.funding, check.alsoSpendsOn?.funding].filter(
-    (f): f is BranchFunding => f !== undefined,
-  );
-  return fundings.some((f) => !isMetered(account, f));
-}
-
-/**
- * The fundings on which generating in `account` needs the membership,
- * whatever the user holds, and nothing at all where no membership is required
- * (`membership.required` false: the fee off, a server without billing, the
- * dev bypass). Power: `needsMembership` asked of each funding, so
- * `['own-key']` (plus `credit` where credit isn't offered, which the gate also
- * asks the membership for first). Learn: `['own-key']`, whichever payment this
- * request carries, since Learn picks its payment per request rather than per
- * branch and only its own-key requests need the membership. `/api/me` sends
- * it as `MeResponse.membershipNeededFor`, so the apps show a branch or lesson
- * read-only by the server's rule rather than a copy of it.
- */
-export function membershipNeededFor(
-  account: AccountContext,
-  membership: Pick<MembershipInfo, 'required'>,
-): BranchFunding[] {
-  if (!membership.required) return [];
-  if (account.mode === 'simple') return ['own-key'];
-  return BRANCH_FUNDINGS.filter((funding) => needsMembership(account, { funding }));
-}
-
-/**
- * What the default route of a new power tree needs to know beyond the
- * provider lists (`pickDefaultRoute` in `@tangent/shared`, docs/DECISIONS.md
- * "Default route of a new tree"), asked by `ChatService` only for a new tree
- * that names no route, where credit is offered (`account.builtIn`):
- * - `creditCanPay`: the available balance covers one call's hold, exactly
- *   what `assertCanSpend` asks of a send, so a tree started on credit gets
- *   its first reply rather than a 402;
- * - `creditBuyable`: more credit can be bought (`creditSold`: credit is
- *   offered and the payment provider sells top-ups, what the top-up checkout
- *   asks), so credit is a way forward even at a zero balance. Where credit
- *   only comes from operator grants, an empty balance stays empty, and a
- *   locked own key (which leads to the membership) is the better start;
- * - `ownKeyLocked`: own keys need the membership the user lacks (what
- *   `/api/me`'s `membershipNeededFor` and the membership tell the apps).
- * Two queries (the balance, the membership), and none where credit isn't
- * offered (credit can neither pay nor be bought; nothing else depends on the lock).
- */
-export async function defaultRouteFacts(
-  env: AppEnv,
-  account: AccountContext,
-): Promise<DefaultRouteFacts> {
-  if (account.mode === 'simple' || !account.builtIn)
-    return { creditCanPay: false, creditBuyable: false, ownKeyLocked: false };
-  const [{ balanceMicros, heldMicros }, membership] = await Promise.all([
-    getBalance(env.DB, account.billingAccountId),
-    membershipFor(env, account),
-  ]);
-  return {
-    creditCanPay: balanceMicros - heldMicros >= USAGE_HOLD_MICROS,
-    creditBuyable: creditSold(env),
-    ownKeyLocked:
-      membership.status === 'inactive' &&
-      membershipNeededFor(account, membership).includes('own-key'),
-  };
-}
-
-/**
  * Checks that the caller may generate, in order: who pays (`resolveFunding`);
  * then either the pool's own rules, which need no membership (no reviews or compare, the
  * message length, the account gates of `assertPoolAccess`, and for a context
@@ -251,7 +165,7 @@ export async function assertCanGenerate(
       throw new ValidationError(
         `Messages on the open pool can be at most ${pool.maxMessageChars} characters`,
       );
-    // Whatever the branch says, a pool call runs on the pool model (services.ts pins it).
+    // Whatever the branch says, a pool call runs on the pool model (registries.ts pins it).
     assertGenerationAllowed(
       registryFor(c.env, account, undefined, { generating: true }),
       check.providerId,

@@ -11,7 +11,7 @@
 // `appConfig` holds parsed values only. Anything that needs the provider
 // registry (the pool's default model, whether the built-in provider is
 // offered) is resolved by its caller, so this module imports nothing from
-// services.ts or simple-mode.ts.
+// registries.ts or simple-mode.ts.
 import { GROUNDING_POLICIES, type GroundingPolicy } from '@tangent/core';
 import {
   BUILT_IN_MAX_OUTPUT_TOKENS,
@@ -455,7 +455,7 @@ export interface AppConfig {
   power: {
     /** `KEY_ENCRYPTION_SECRET`; null = bring-your-own-key disabled. */
     keyEncryptionSecret: string | null;
-    /** `PROVIDERS` as JSON text (parsed by services.ts); null = the default configs. */
+    /** `PROVIDERS` as JSON text (parsed by provider-configs.ts); null = the default configs. */
     providers: string | null;
     summaryProviderId: string | null;
     summaryModel: string | null;

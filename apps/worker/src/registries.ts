@@ -1,3 +1,7 @@
+// The composition root: the provider registries a request generates through
+// (own keys, Tangent credit, the open pool; metered, pinned and windowed
+// where they pay on the operator's key) and the ChatService and ShareService
+// built on them. What the deployment offers at all is availability.ts.
 import {
   ChatService,
   DEFAULT_CHAT_SETTINGS,
@@ -5,12 +9,7 @@ import {
   ShareService,
   type ChatSettings,
 } from '@tangent/core';
-import {
-  createProviderRegistry,
-  DEFAULT_PROVIDER_CONFIGS,
-  parseProviderConfigs,
-  type ProviderEnv,
-} from '@tangent/providers';
+import { createProviderRegistry, decorateProvider } from '@tangent/providers';
 import {
   DEFAULT_SYSTEM_PROMPT,
   LEARN_KEY_PROVIDER,
@@ -20,16 +19,20 @@ import {
   type ProviderInfo,
   type ProviderRegistry,
 } from '@tangent/shared';
-import { isAdminUserId } from './auth/admin.js';
+import { defaultRouteFacts } from './billing/default-route.js';
 import { groundingAllowance, groundingSettings } from './billing/grounding.js';
-import { defaultRouteFacts } from './billing/gate.js';
 import { createPoolUsageMeter, createUsageMeter, meteredRegistry } from './billing/meter.js';
-import { paymentProvider, paymentsConfigured } from './billing/payments/index.js';
-import { appConfig, BUILT_IN_API_KEY_SECRET, namedSecrets } from './config.js';
+import { appConfig, BUILT_IN_API_KEY_SECRET } from './config.js';
 import { createD1Repositories } from './db/d1-repositories.js';
 import { withModelWindows } from './model-windows.js';
 import { isPoolFunded, type AccountContext, type AppEnv } from './env.js';
-import { poolConfigProblem, type PoolParams } from './pool/params.js';
+import type { PoolParams } from './pool/params.js';
+import {
+  apiKeySecrets,
+  providerConfigs,
+  providerEnv,
+  type UserApiKeys,
+} from './provider-configs.js';
 import {
   builtInPowerConfig,
   poolChatSettings,
@@ -37,169 +40,10 @@ import {
   simpleChatSettings,
   simpleProviderConfig,
   simpleSystemPrompt,
-  suggestedModels,
 } from './simple-mode.js';
-
-/** Provider id → user-supplied API key (bring-your-own-key, see byok/keys.ts). */
-export type UserApiKeys = Readonly<Record<string, string>>;
 
 /** Keeps background work alive past the response (`waitUntil` of the Worker or the Durable Object). */
 export type Defer = (p: Promise<unknown>) => void;
-
-/**
- * Power-mode provider configs, for the user's own keys: the PROVIDERS var, or
- * the defaults with OpenRouter opened up (`openrouterWithSuggestions`). The
- * built-in provider is not one of them: Tangent credit is a registry of its
- * own (`creditRegistryFor`), even where both name the endpoint `openrouter`.
- */
-export function providerConfigs(env: AppEnv): ProviderConfig[] {
-  const providers = appConfig(env).power.providers;
-  if (!providers) {
-    return DEFAULT_PROVIDER_CONFIGS.map((c) =>
-      c.id === LEARN_KEY_PROVIDER ? openrouterWithSuggestions(env, c) : c,
-    );
-  }
-  return parseProviderConfigs(providers);
-}
-
-/**
- * The providers power mode takes the user's own keys for, as the public pages
- * name them (`Anthropic`, `OpenAI`, `OpenRouter`), and whether each can search
- * the web; empty when PROVIDERS is invalid, so a page can fall back to a
- * generic phrase instead of failing.
- */
-export function ownKeyProviders(env: AppEnv): { id: string; label: string; search: boolean }[] {
-  try {
-    return providerConfigs(env).map(({ id, label, options }) => ({
-      id,
-      label,
-      search: options?.['webSearch'] === true,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-/**
- * The default `openrouter` config with the suggested models (Learn's Normal and
- * Max, tagged with their tier) first, Normal as its default, and any model id
- * allowed: the easy way to use the suggested defaults on one's own OpenRouter key.
- */
-function openrouterWithSuggestions(env: AppEnv, config: ProviderConfig): ProviderConfig {
-  const suggested = suggestedModels(env);
-  const ids = new Set(suggested.map((m) => m.id));
-  return {
-    ...config,
-    models: [...suggested, ...config.models.filter((m) => !ids.has(m.id))],
-    defaultModel: suggested[0]!.id,
-    openModels: true,
-  };
-}
-
-/**
- * The secrets `configs` name (`apiKeySecret`, `extraHeaderSecrets`), and no
- * others: secrets and vars share the env object, and the app's own (auth,
- * payments, cookie sealing) never reach provider code. `withheld` names
- * secrets this request may not use (the operator's keys, see registryFor):
- * providers that need one then report unavailable, or take the user's key.
- */
-export function providerEnv(
-  env: AppEnv,
-  configs: readonly ProviderConfig[],
-  apiKeys?: UserApiKeys,
-  withheld: ReadonlySet<string> = new Set(),
-): ProviderEnv {
-  const named = new Set(
-    [
-      ...apiKeySecrets(configs),
-      ...configs.flatMap((c) => Object.values(c.extraHeaderSecrets ?? {})),
-    ].filter((name) => !withheld.has(name)),
-  );
-  const secrets = namedSecrets(env, named);
-  return apiKeys ? { secrets, apiKeys } : { secrets };
-}
-
-function apiKeySecrets(configs: readonly ProviderConfig[]): string[] {
-  return configs.flatMap((c) => (c.apiKeySecret ? [c.apiKeySecret] : []));
-}
-
-/**
- * Public share links are offered only once the operator has registered a DMCA
- * designated agent (`DMCA_AGENT_REGISTERED` is true): without it, hosting
- * what users publish carries no safe harbor. Off = no links are created or
- * served; exporting a conversation as a file still works.
- */
-export function sharingEnabled(env: AppEnv): boolean {
-  return appConfig(env).site.sharingEnabled;
-}
-
-/**
- * Whether the user may publish share links, and whether their links open:
- * everyone while sharing is on (`sharingEnabled`); otherwise only admins
- * (ADMIN_USER_IDS) and the users the operator allowed on the admin page
- * (`auth_users.share_allowed`). `userId` null is the dev bypass, which follows
- * the global flag only (so the off path can be tried locally), like its
- * `default` / `default_simple` accounts' links. One query, none while sharing
- * is on.
- */
-export async function canShare(env: AppEnv, userId: string | null): Promise<boolean> {
-  if (sharingEnabled(env)) return true;
-  if (!userId) return false;
-  if (isAdminUserId(env, userId)) return true;
-  const row = await env.DB.prepare('SELECT share_allowed AS allowed FROM auth_users WHERE id = ?')
-    .bind(userId)
-    .first<{ allowed: number }>();
-  return row?.allowed === 1;
-}
-
-/**
- * True when the `tangent` provider is usable with the operator's key (the
- * BUILT_IN_PROVIDER override and its `apiKeySecret` respected), whoever pays.
- */
-export function builtInProviderUsable(env: AppEnv): boolean {
-  const configs = [simpleProviderConfig(env)];
-  const registry = createProviderRegistry(configs, providerEnv(env, configs));
-  return registry.list()[0]?.available ?? false;
-}
-
-/**
- * Personal credit may be spent: a payment provider is configured, or the
- * operator lets granted credit be spent without one (`PERSONAL_CREDIT_ENABLED`).
- */
-export function personalCreditReady(env: AppEnv): boolean {
-  return paymentsConfigured(env) || appConfig(env).flags.personalCreditEnabled;
-}
-
-/**
- * True when the built-in provider can be offered on credit: personal credit
- * is ready and the `tangent` provider is usable with the operator's key.
- * Otherwise it is in no power registry, and Learn is bring-your-own-key (or
- * the open pool) only.
- */
-export function builtInAvailable(env: AppEnv): boolean {
-  return personalCreditReady(env) && builtInProviderUsable(env);
-}
-
-/**
- * True when prepaid credit is sold: the built-in provider is offered and the
- * payment provider sells top-ups. The public pages offer credit only then.
- */
-export function creditSold(env: AppEnv): boolean {
-  return builtInAvailable(env) && (paymentProvider(env)?.capabilities.topUps ?? false);
-}
-
-/**
- * True when Learn may spend from the open pool: `POOL_ENABLED`, the
- * `tangent` provider is usable, and the pool's caps admit a reply
- * (`poolConfigProblem`, logged). Billing is not needed to spend from it.
- */
-export function poolAvailable(env: AppEnv): boolean {
-  return (
-    appConfig(env).flags.poolEnabled &&
-    builtInProviderUsable(env) &&
-    poolConfigProblem(env) === null
-  );
-}
 
 /** Which service a request builds: `generating` = it will call a model (sends, context resolve). */
 export interface ServiceScope {
@@ -421,25 +265,14 @@ export function pinnedModelRegistry(inner: ProviderRegistry, model: string): Pro
       if (!provider) return provider;
       let pinned = cache.get(provider);
       if (!pinned) {
-        pinned = {
-          get id() {
-            return provider.id;
-          },
-          get kind() {
-            return provider.kind;
-          },
-          get label() {
-            return provider.label;
-          },
-          models: () => provider.models(),
-          defaultModel: () => provider.defaultModel(),
+        const resolve = provider.resolveCapabilities?.bind(provider);
+        const count = provider.countTokens?.bind(provider);
+        pinned = decorateProvider(provider, {
           capabilities: () => provider.capabilities(model),
           stream: (request) => provider.stream({ ...request, model }),
-        };
-        const resolve = provider.resolveCapabilities?.bind(provider);
-        if (resolve) pinned.resolveCapabilities = () => resolve(model);
-        const count = provider.countTokens?.bind(provider);
-        if (count) pinned.countTokens = (request) => count({ ...request, model });
+          resolveCapabilities: resolve && (() => resolve(model)),
+          countTokens: count && ((request) => count({ ...request, model })),
+        });
         cache.set(provider, pinned);
       }
       return pinned;

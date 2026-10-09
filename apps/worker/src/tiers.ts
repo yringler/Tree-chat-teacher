@@ -11,7 +11,7 @@ import {
 } from '@tangent/shared';
 import type { ModelPrice } from './config.js';
 import type { AppEnv } from './env.js';
-import { modelPrice } from './pool/model-prices.js';
+import { modelPrice } from './pool/price-table.js';
 
 /**
  * `providers` with `usageFactor` set on the Max model of each entry that lists

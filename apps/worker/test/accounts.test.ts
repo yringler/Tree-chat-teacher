@@ -15,13 +15,8 @@ import {
   type AccountRequest,
 } from '../src/auth/account.js';
 import type { AppEnv } from '../src/env.js';
-import {
-  creditRegistryFor,
-  providerConfigs,
-  providerEnv,
-  providersFor,
-  registryFor,
-} from '../src/services.js';
+import { providerConfigs, providerEnv } from '../src/provider-configs.js';
+import { creditRegistryFor, providersFor, registryFor } from '../src/registries.js';
 
 const BASE = 'https://tangent.example.com';
 

@@ -36,7 +36,7 @@ import {
   replyCeilingMicros,
   type PoolParams,
 } from '../pool/params.js';
-import { chatService } from '../services.js';
+import { chatService } from '../registries.js';
 import { BUILT_IN_PROVIDER_ID } from '../simple-mode.js';
 
 const KEEPALIVE_MS = 15_000;

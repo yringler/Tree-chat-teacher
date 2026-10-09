@@ -41,8 +41,8 @@ import { resolveAccount } from '../auth/account.js';
 import { isAdmin } from '../auth/admin.js';
 import { accountDeletionRoutes } from '../auth/delete-account.js';
 import { enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
-import { assertCanGenerate, membershipNeededFor } from '../billing/gate.js';
-import { membershipFor } from '../billing/membership.js';
+import { assertCanGenerate } from '../billing/gate.js';
+import { membershipFor, membershipNeededFor } from '../billing/membership.js';
 import { assertCreditCovers, replyHoldMicros } from '../billing/service.js';
 import { readKeys, requireReadableKeys, type UserKeys } from '../byok/keys.js';
 import {
@@ -65,13 +65,8 @@ import { validateJson, validateQuery } from '../http/errors.js';
 import { generationLimits, inputBudgetResponse } from '../input-limit.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { purgeShare } from '../share/cache.js';
-import {
-  builtInAvailable,
-  canShare,
-  chatService,
-  providersFor,
-  shareService,
-} from '../services.js';
+import { builtInAvailable, canShare } from '../availability.js';
+import { chatService, providersFor, shareService } from '../registries.js';
 import { withUsageFactors } from '../tiers.js';
 import { keyRoutes } from './key.js';
 
@@ -214,7 +209,7 @@ export function apiRoutes(): Hono<AppBindings> {
   // ---- trees
   api.get('/trees', async (c) => c.json(await chatOf(c).listTrees()));
   // Without a system prompt in the request, the tree gets the account's saved
-  // default, else the built-in one (defaultSystemPromptFor in services.ts).
+  // default, else the built-in one (defaultSystemPromptFor in registries.ts).
   // A tree that names no provider starts on the default route, whose first choice is a
   // provider the user has a key for: the key cookie is read for it (leniently: an
   // unreadable cookie counts as no keys, since nothing is sent here).

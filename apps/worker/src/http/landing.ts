@@ -23,7 +23,7 @@ import { copyrightNotice, legalInfo } from './legal-info.js';
 import { LEARN_APP_CSP, LEARN_COMMON_HEADERS } from './learn-app.js';
 import { cachedPoolStatus } from '../pool/status.js';
 import { waitUntilOf } from '../routes/pool.js';
-import { creditSold, ownKeyProviders } from '../services.js';
+import { creditSold, ownKeyProviders } from '../availability.js';
 import { learnOffer } from '../simple-mode.js';
 
 /**

@@ -22,7 +22,7 @@ import {
   resolvePoolParams,
 } from '../src/pool/params.js';
 import { poolStatus } from '../src/pool/status.js';
-import { poolAvailable } from '../src/services.js';
+import { poolAvailable } from '../src/availability.js';
 import { simpleMaxInputTokens } from '../src/simple-mode.js';
 
 const env = rawEnv as unknown as AppEnv;

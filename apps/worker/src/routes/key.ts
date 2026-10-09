@@ -20,7 +20,7 @@ import {
 } from '../byok/keys.js';
 import type { AppBindings, AppContext } from '../env.js';
 import { validateJson } from '../http/errors.js';
-import { providerConfigs, providerEnv } from '../services.js';
+import { providerConfigs, providerEnv } from '../provider-configs.js';
 import { simpleProviderConfig } from '../simple-mode.js';
 
 /**

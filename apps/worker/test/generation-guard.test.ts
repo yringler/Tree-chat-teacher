@@ -1,6 +1,6 @@
 // The checks every generating route makes before it calls a provider
 // (`assertGenerationAllowed`, byok/guard.ts), and how SUMMARY_PROVIDER_ID is
-// read (`chatSettingsFor`, services.ts): the branches the API suites rarely
+// read (`chatSettingsFor`, registries.ts): the branches the API suites rarely
 // reach.
 import { KeyRequiredError, ValidationError } from '@tangent/core';
 import type { ProviderInfo, ProviderRegistry } from '@tangent/shared';
@@ -8,7 +8,7 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { assertGenerationAllowed } from '../src/byok/guard.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
-import { chatSettingsFor } from '../src/services.js';
+import { chatSettingsFor } from '../src/registries.js';
 
 const env = rawEnv as unknown as AppEnv;
 

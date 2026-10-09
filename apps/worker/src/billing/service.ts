@@ -26,10 +26,11 @@ import type { ModelPrice } from '../config.js';
 import { isMetered, type AccountContext, type AppEnv } from '../env.js';
 import { creditPrice } from '../pool/model-prices.js';
 import { chargeFromTokensMicros, renderAllowanceBytes, type InputOf } from '../pool/pricing.js';
-import { builtInAvailable, personalCreditReady } from '../services.js';
+import { builtInAvailable, personalCreditReady } from '../availability.js';
 import { getBalance } from './ledger.js';
 import { membershipFor } from './membership.js';
 import { buyerFor, rememberCustomer } from './payments/customers.js';
+import { checkoutReturnUrl } from './return-urls.js';
 import { paymentProvider, paymentsConfigured } from './payments/index.js';
 import { reservePersonalUsage } from './usage-store.js';
 import { appConfig } from '../config.js';
@@ -391,25 +392,6 @@ export async function listUsage(
     })),
     nextCursor: results.length > size && last ? encodeCursor(last.created_at, last.id) : null,
   };
-}
-
-/**
- * The page the payment provider's checkout returns to: the billing page of
- * the app the checkout started from (`/billing` in power, `/learn/billing` in
- * Learn).
- */
-export function checkoutReturnUrl(
-  baseUrl: string,
-  account: AccountContext,
-  outcome: 'success' | 'cancel',
-): string {
-  return `${billingPageUrl(baseUrl, account)}?checkout=${outcome}`;
-}
-
-/** The billing page of the app `account` is in, where the billing portal returns to. */
-export function billingPageUrl(baseUrl: string, account: AccountContext): string {
-  const base = baseUrl.replace(/\/+$/, '');
-  return `${base}${account.mode === 'simple' ? '/learn/billing' : '/billing'}`;
 }
 
 /**

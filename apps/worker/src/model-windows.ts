@@ -13,6 +13,7 @@
 // Tangent credit's and the pool's windows bound the size of their holds and
 // their input caps, so they stay the lower of theirs and the model's. An
 // output limit OpenRouter reports only ever lowers the configured one.
+import { decorateProvider } from '@tangent/providers';
 import type {
   LlmProvider,
   ProviderCapabilities,
@@ -20,7 +21,7 @@ import type {
   ProviderRegistry,
 } from '@tangent/shared';
 import type { AppEnv } from './env.js';
-import { modelPrice } from './pool/model-prices.js';
+import { modelPrice } from './pool/price-table.js';
 import { isOpenRouter } from './simple-mode.js';
 
 /** A model's real limits, as OpenRouter lists them. */
@@ -206,29 +207,14 @@ export function withModelWindows(
       let windowed = wrapped.get(providerId);
       if (!windowed) {
         const inner = provider;
-        windowed = {
-          get id() {
-            return inner.id;
-          },
-          get kind() {
-            return inner.kind;
-          },
-          get label() {
-            return inner.label;
-          },
-          models: () => inner.models(),
-          defaultModel: () => inner.defaultModel(),
-          capabilities: (model) => inner.capabilities(model),
+        windowed = decorateProvider(inner, {
           resolveCapabilities: async (model) =>
             withWindow(
               inner.capabilities(model),
               await windowOf(model),
               windowConfigured(config, model),
             ),
-          stream: (request) => inner.stream(request),
-        };
-        const count = inner.countTokens?.bind(inner);
-        if (count) windowed.countTokens = count;
+        });
         wrapped.set(providerId, windowed);
       }
       return windowed;

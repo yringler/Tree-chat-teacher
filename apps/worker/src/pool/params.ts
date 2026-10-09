@@ -16,7 +16,7 @@ import {
 } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
-import { modelPrice, withCacheWritePrice } from './model-prices.js';
+import { modelPrice, withCacheWritePrice } from './price-table.js';
 import type {
   PoolAdmitRequest,
   PoolOverage,

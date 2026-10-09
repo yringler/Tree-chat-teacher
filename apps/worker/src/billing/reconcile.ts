@@ -2,11 +2,12 @@
 // evicted generations): OpenRouter's generation endpoint, with retries right
 // after the stream and a cron backstop.
 import { fetchOpenRouterGeneration, type GenerationCost } from '@tangent/providers';
-import { appConfig, BUILT_IN_API_KEY_SECRET, namedSecrets } from '../config.js';
+import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { expirePoolReservations, type ExpiryResult } from '../pool/expiry.js';
 import { poolBank } from '../pool/ids.js';
 import { POOL_EXPIRE_BATCH, POOL_GIVE_UP_MS, POOL_RESERVATION_TTL_MS } from '../pool/params.js';
+import { simpleApiKey } from '../simple-mode.js';
 import { costUsdToNanos } from './pricing.js';
 import { markUnresolved, settleUsage } from './usage-store.js';
 
@@ -23,29 +24,6 @@ export const CRON_GIVE_UP_AGE_MS = 24 * 60 * MINUTE;
 const CRON_BATCH = 200;
 /** Pools the cron expires reservations for, at most, per run. */
 const CRON_POOL_LIMIT = 10;
-
-/**
- * The OpenRouter key the built-in provider spends: the secret named by
- * `BUILT_IN_PROVIDER.apiKeySecret` when set, else `BUILT_IN_API_KEY`.
- */
-export function simpleApiKey(env: AppEnv): string | null {
-  let secretName = BUILT_IN_API_KEY_SECRET;
-  const override = appConfig(env).builtIn.provider;
-  if (override) {
-    try {
-      const parsed: unknown = JSON.parse(override);
-      const config: unknown = Array.isArray(parsed) ? parsed[0] : parsed;
-      if (typeof config === 'object' && config !== null) {
-        const name = (config as Record<string, unknown>)['apiKeySecret'];
-        if (typeof name === 'string' && name) secretName = name;
-      }
-    } catch {
-      // Invalid BUILT_IN_PROVIDER fails loudly where the registry is built; keep the default here.
-    }
-  }
-  const value = namedSecrets(env, new Set([secretName]))[secretName];
-  return value?.trim() || null;
-}
 
 function sleep(ms: number): Promise<void> {
   return ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve();

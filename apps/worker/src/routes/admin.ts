@@ -36,7 +36,8 @@ import { poolBank } from '../pool/ids.js';
 import { POOL_OVERAGE } from '../pool/params.js';
 import { poolOverageMicros } from '../pool/pool-bank.js';
 import { purgeShare } from '../share/cache.js';
-import { poolAvailable, shareService, sharingEnabled } from '../services.js';
+import { poolAvailable, sharingEnabled } from '../availability.js';
+import { shareService } from '../registries.js';
 
 interface UserRow {
   id: string;

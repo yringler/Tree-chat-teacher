@@ -1,6 +1,7 @@
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { reconcilePendingUsage, simpleApiKey } from '../src/billing/reconcile.js';
+import { reconcilePendingUsage } from '../src/billing/reconcile.js';
+import { simpleApiKey } from '../src/simple-mode.js';
 import { CRON_JOBS } from '../src/cron.js';
 import type { AppEnv } from '../src/env.js';
 import {

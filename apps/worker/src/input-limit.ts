@@ -9,10 +9,10 @@
 import type { ChatService, GenerationLimits } from '@tangent/core';
 import type { BranchFunding, ContextLimitsQuery, InputBudgetResponse } from '@tangent/shared';
 import type { AccountContext, AppEnv } from './env.js';
-import { modelPrice } from './pool/model-prices.js';
+import { modelPrice } from './pool/price-table.js';
 import { chargeMicros } from './billing/pricing.js';
 import { markupFor, openRouterFeeBps } from './billing/service.js';
-import { providerConfigs } from './services.js';
+import { providerConfigs } from './provider-configs.js';
 import { isOpenRouter, simpleMaxInputTokens, simpleProviderConfig } from './simple-mode.js';
 
 /** USD per million tokens, from the price table's micro-USD per million. */

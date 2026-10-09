@@ -11,7 +11,7 @@ import {
 import { getBalance } from '../billing/ledger.js';
 import { appConfig } from '../config.js';
 import type { AccountContext, AppEnv } from '../env.js';
-import { poolAvailable } from '../services.js';
+import { poolAvailable } from '../availability.js';
 import { getCached, putCached } from '../share/cache.js';
 import {
   POOL_MODEL_LABEL,

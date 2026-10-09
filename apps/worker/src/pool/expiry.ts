@@ -4,9 +4,9 @@
 // only raises the pool's available balance, so this takes no lock and never
 // blocks a reservation.
 import { fetchOpenRouterGeneration, type GenerationCost } from '@tangent/providers';
-import { simpleApiKey } from '../billing/reconcile.js';
 import { settleUsage } from '../billing/usage-store.js';
 import type { AppEnv } from '../env.js';
+import { simpleApiKey } from '../simple-mode.js';
 import { poolSettlement } from './settle-policy.js';
 
 /** One generation lookup per expired row, with this timeout: an alarm never waits on a slow upstream for long. */

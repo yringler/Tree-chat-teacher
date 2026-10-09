@@ -11,7 +11,7 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { appConfig, DEFAULT_TIER_REQUESTS, effortVar } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
-import { modelPrice } from '../src/pool/model-prices.js';
+import { modelPrice } from '../src/pool/price-table.js';
 import { poolModel, resolvePoolParams } from '../src/pool/params.js';
 import {
   builtInPowerConfig,

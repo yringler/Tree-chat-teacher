@@ -5,7 +5,8 @@ import type { AppBindings } from '../env.js';
 import { getCached, putCached, shareCacheKey, type ShareCacheVariant } from '../share/cache.js';
 import { checkShareRateLimit } from '../share/rate-limit.js';
 import { userIdOfAccount } from '../auth/account.js';
-import { canShare, shareService } from '../services.js';
+import { canShare } from '../availability.js';
+import { shareService } from '../registries.js';
 
 const SNAPSHOT_TTL_SECONDS = 86_400;
 

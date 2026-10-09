@@ -21,7 +21,7 @@ import { appConfig, type PoolDailyCaps } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { cachedPoolStatus, poolModelInfo } from '../pool/status.js';
 import { waitUntilOf } from '../routes/pool.js';
-import { creditSold, ownKeyProviders, poolAvailable } from '../services.js';
+import { creditSold, ownKeyProviders, poolAvailable } from '../availability.js';
 import { learnOffer, type LearnOffer } from '../simple-mode.js';
 import { joinList, LANDING_STYLE, MARK, poolStepsHtml, styleCsp } from './landing.js';
 import { copyrightNotice, legalInfo, type LegalInfo } from './legal-info.js';

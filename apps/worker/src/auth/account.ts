@@ -11,7 +11,7 @@ import { appConfig } from '../config.js';
 import type { AccountContext, AppBindings, AppEnv, Identity } from '../env.js';
 import { ipKey, utcDay } from '../pool/ids.js';
 import { resolvePoolParams } from '../pool/params.js';
-import { builtInAvailable, poolAvailable } from '../services.js';
+import { builtInAvailable, poolAvailable } from '../availability.js';
 
 /** Prefix of power-mode account ids: `p_<Better Auth user id>`. */
 export const POWER_ACCOUNT_PREFIX = 'p_';

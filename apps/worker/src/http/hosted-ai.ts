@@ -1,7 +1,7 @@
 import type { ProviderConfig } from '@tangent/shared';
 import type { AppEnv } from '../env.js';
 import { poolModel, poolRequest } from '../pool/params.js';
-import { builtInAvailable, poolAvailable } from '../services.js';
+import { builtInAvailable, poolAvailable } from '../availability.js';
 import { isOpenRouter, simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
 
 /**

@@ -15,6 +15,7 @@ import {
   backgroundEffort,
   BUILT_IN_API_KEY_SECRET,
   DEFAULT_TIER_REQUESTS,
+  namedSecrets,
   withTierDefaults,
   type TierRequestConfig,
 } from './config.js';
@@ -39,7 +40,7 @@ export {
  * validation) apply unchanged; power lists it after the user's own providers
  * as "Tangent credit", with any OpenRouter model allowed
  * (`builtInPowerConfig`), in a registry of its own. Learn also runs this
- * config on the user's own OpenRouter key, unmetered (services.ts `registryFor`).
+ * config on the user's own OpenRouter key, unmetered (registries.ts `registryFor`).
  */
 
 export { BUILT_IN_PROVIDER_ID };
@@ -101,6 +102,29 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
         : m,
     ),
   };
+}
+
+/**
+ * The OpenRouter key the built-in provider spends: the secret named by
+ * `BUILT_IN_PROVIDER.apiKeySecret` when set, else `BUILT_IN_API_KEY`.
+ */
+export function simpleApiKey(env: AppEnv): string | null {
+  let secretName = BUILT_IN_API_KEY_SECRET;
+  const override = appConfig(env).builtIn.provider;
+  if (override) {
+    try {
+      const parsed: unknown = JSON.parse(override);
+      const config: unknown = Array.isArray(parsed) ? parsed[0] : parsed;
+      if (typeof config === 'object' && config !== null) {
+        const name = (config as Record<string, unknown>)['apiKeySecret'];
+        if (typeof name === 'string' && name) secretName = name;
+      }
+    } catch {
+      // Invalid BUILT_IN_PROVIDER fails loudly where the registry is built; keep the default here.
+    }
+  }
+  const value = namedSecrets(env, new Set([secretName]))[secretName];
+  return value?.trim() || null;
 }
 
 /**
