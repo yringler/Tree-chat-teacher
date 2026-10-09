@@ -170,7 +170,7 @@ async function syncOnDemand(env: AppEnv): Promise<boolean> {
 }
 
 /**
- * The price a Tangent credit call on `model` is held at (billing/meter.ts):
+ * The price a Tangent credit call on `model` is held at (billing/personal-meter.ts):
  * `modelPrice` for a configured model (every model the product offers has
  * one, built in or in `MODEL_PRICES`), else the list price the sync stored
  * for it (it stores every listed model's), or null when OpenRouter lists no

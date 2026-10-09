@@ -12,17 +12,15 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deleteUser } from '../src/auth/delete-account.js';
 import { getBalance } from '../src/billing/ledger.js';
-import {
-  createPoolUsageMeter,
-  meteredRegistry,
-  type UsageMeterOptions,
-} from '../src/billing/meter.js';
+import { meteredRegistry } from '../src/billing/meter.js';
+import type { UsageMeterOptions } from '../src/billing/meter-run.js';
 import { reconcilePendingUsage, reconcilePoolUsage } from '../src/billing/reconcile.js';
 import { markDispatched, setGenerationId, settleUsage } from '../src/billing/usage-store.js';
 import type { PoolCaps, PoolRateLimits } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { expirePoolReservations } from '../src/pool/expiry.js';
 import { poolBank } from '../src/pool/ids.js';
+import { createPoolUsageMeter } from '../src/pool/meter.js';
 import {
   POOL_CALL_TIMEOUT_MS,
   POOL_RESERVATION_TTL_MS,

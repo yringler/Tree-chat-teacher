@@ -11,7 +11,9 @@ import {
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getBalance, grantCredit } from '../src/billing/ledger.js';
-import { createUsageMeter, meteredRegistry, type UsageMeterOptions } from '../src/billing/meter.js';
+import { meteredRegistry } from '../src/billing/meter.js';
+import type { UsageMeterOptions } from '../src/billing/meter-run.js';
+import { createUsageMeter } from '../src/billing/personal-meter.js';
 import { USAGE_HOLD_MICROS } from '../src/billing/service.js';
 import { costFromTokensNanos } from '../src/pool/pricing.js';
 import type { AccountContext, AppEnv } from '../src/env.js';

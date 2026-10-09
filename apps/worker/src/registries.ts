@@ -22,10 +22,12 @@ import {
 } from '@tangent/shared';
 import { defaultRouteFacts } from './billing/default-route.js';
 import { groundingAllowance, groundingPolicy, withSearchOptions } from './billing/grounding.js';
-import { createPoolUsageMeter, createUsageMeter, meteredRegistry } from './billing/meter.js';
+import { meteredRegistry } from './billing/meter.js';
+import { createUsageMeter } from './billing/personal-meter.js';
 import { appConfig, BUILT_IN_API_KEY_SECRET } from './config.js';
 import { createD1Repositories } from './db/d1-repositories.js';
 import { withModelWindows } from './model-windows.js';
+import { createPoolUsageMeter } from './pool/meter.js';
 import {
   callPayer,
   isPoolFunded,
