@@ -394,3 +394,36 @@ About 4k test lines (~8%) can be deleted or consolidated without losing protecti
 - The clone is shallow; history before 2026-09-29 is cut off.
 - Production D1, the Cloudflare account and Polar were not queried. Whether Workers Builds is still connected, and whether `privacy@` exists, are inferred from repo evidence only.
 - The reproduction tests were throwaway and are not committed. Each bug above names where to add the permanent regression test.
+
+---
+
+## Cleanup status (2026-10-09)
+
+What the cleanup branch (`3a71bdc..` on `claude/stoic-rubin-vujfbw`, about 190 commits) did with the findings above. The commit log is the source; shipping it needs the owner's steps in [docs/runbooks/ship-the-cleanup.md](../runbooks/ship-the-cleanup.md).
+
+**Owner decisions (Phase 2):** keep both Tangent credit and the membership; keep the open pool as PoolBank; cut the impact feed and the revenue share; keep Canvas and share logic with the other apps; self-hostable open source (keep operator-meaningful config, the payment port, `PROVIDERS`); production D1 holds only the owner's data, so compat shims and the migration history go; deploy from GitHub Actions.
+
+### Fixed
+
+- **§1, every listed bug**, each with a regression test: the pool's ceiling hold now fits under the per-user cap, with a config invariant and an as-shipped test (1); credit holds are reserved atomically and priced per model (2); OAuth links only provider-verified emails (3); deploys run from GitHub Actions after CI, migrations first, with the token kept away from the build (4); Stop recovers only its own orphan node (5); nested summaries resolve at any depth, a keyless summary provider falls back to the branch's route, a failed compaction truncates and says so (6); a stale tree load is dropped (7); the canvas branch dialog never starts on a locked route, and its keys dialog is now the power app's (8); tree deletion goes through the Durable Object and Compare holds expire by alarm (9); the BYOK cookie is bound to its user and cleared at sign-out (10); imports are bounded and rate limited (11); Learn keeps a refused message across checkout (12); settings dialogs diff against what they opened on (13); Check sources on an ancestor's reply opens a visible branch (14); worker tests get 30 s and `pnpm -r` no longer bails (15); LEGAL.md names the live privacy mailbox (16). The lower-severity five too (share expiry, `gateForced`, malformed backups, the canvas list refresh, same-origin on every write).
+- **§2.1–2.4 scope:** the impact feed, the revenue share, the featured stub, credit included with the membership, legacy pool-purchase and Stripe-era paths, `MARKUP_PREPAID_BPS`, `model_price_history`, the `tier`/`margin_bps` columns and the write-only `accounts` table are gone; dispute markers moved to `billing_markers`. The `tangent` provider id, pre-tier config and demo session migrations are gone; the 27 migrations were squashed into one baseline (with a conversion runbook), and the one-off upgrade tests deleted.
+- **§2.5 config:** every var is read in `config.ts` with one parser per type and fails loudly when malformed; `wrangler.jsonc` lists 12 of 69 vars; `docs/configuration.md` is the one reference, kept in step by a test; `SIMPLE_*` became `BUILT_IN_*` / `LEARN_*` / `BACKGROUND_*`.
+- **§2.6 public pages:** rendered with `hono/jsx` in one layout (escaping by default); their tests check facts, not sentences.
+- **§3 duplication:** one `ConversationStore` in web-shared that all three apps' stores extend (tree list, loading, live replies, the reducer, sends per branch, branch and link CRUD, tangents, import); shared power account, keys dialog, composer with a `ComposerController`, toasts, dialog stack and shortcut dispatcher; one `LearnFunding` with the payer rule in `@tangent/shared`, shared with the gate, and the server reports the payer on `start`; one `clip()`/`plainText()`; one `decorateProvider`; the demos use the Worker's money math and chat-settings builder.
+- **§4 sprawl:** `ChatService` split into ownership, routing (a `GenerationProfile` in place of the flags), tree service, backup and a generation pipeline (2,060 → 320 lines); `routes/api.ts` split by resource; `services.ts` split, breaking the worker's import cycles; `MessageItem` split; the stores shrank to 278 (power), 425 (canvas) and 543 (Learn) lines.
+- **§5 maintainability:** a typed route table used by the client, the Worker's validators and the demo; one `GenerationHub` in the DO and the demo; Learn's sends, Compare and links e2e-tested against the Worker; one repository contract suite over memory and D1 (`@tangent/core/memory`); raw SQL rows typed from `schema.ts`; capability flags instead of kind checks, OpenRouter knobs in provider config; `errorKind` stored; a log port in core and one `logEvent` in the worker; one `Payer` type and `AccountContext` as a union; `normal`/`max` names in tests and demos; plan citations removed from comments.
+- **§6 tests and CI:** Prettier, type-aware promise lint, an import-cycle check and the migration check in `pnpm lint`; Dependabot; bundle budgets and `sideEffects` on web-shared; plain-Node worker suites and one shared workerd runtime; shared request helpers; the IDOR matrix generated from the routes; copy-pinning tests replaced by fact checks; a knip config.
+- **§7 process:** `CLAUDE.md` with commands, module map and hard rules; README cut to an overview (94 KB → about 100 lines) with `docs/operating.md` and `docs/user-guide.md`; `DECISIONS.md` rewritten as current rules (190 KB → 27 KB), the old log and finished plans in `docs/archive/`; `DEFERRED.md` re-checked; vendored skills cut from 16 to 6.
+
+### Deliberately not done
+
+- **Simplify the pool to a daily allowance, pick one money lever:** the owner kept PoolBank, credit and the membership.
+- **Freeze or fold Canvas:** the owner kept it as its own app on the shared engine.
+- **Write the public pages for one deployment:** the project stays self-hostable, so the pages are still built from the config, now with facts-only tests.
+- **Collapse the config to constants for a hosted product:** same reason; only knobs nobody sets became constants.
+- **Cut power's Normal/Max tiers, simplify grounding to on/off, input-limit presets, drop two of the three demos:** not decided by the owner; left as they are.
+
+### Left
+
+- **Owner:** the steps in `ship-the-cleanup.md` (secrets, deploy token, the `production` environment with its branch rule and reviewer, disconnecting Workers Builds, the baseline conversion); confirm `privacy@tangentailearning.com` exists and forwards; confirm the freeze on links and share links that CLAUDE.md states (the audit's recommendation).
+- **Code:** rendered component tests for the components with logic (in progress); seams in `billing/meter.ts` (760 lines) and `pool/pool-bank.ts` (745); the remaining small copies (`escapeHtml` in `email/templates.ts`, `REMEMBER_COOKIE` in web-shared, `isOpenRouter` in `simple-mode.ts`); `pnpm knip` in CI (it reports two unused exports today); the three e2e specs whose comments still cite old decision-log headings; `pool_identity_holders`, now unread, waits for a contract migration. The rest is in `docs/DEFERRED.md`.
