@@ -14,7 +14,7 @@ import type {
   Tree,
   UsageTag,
 } from '@tangent/shared';
-import { auxOutputTokens, replyOutputTokens } from '@tangent/shared';
+import { auxOutputTokens, clip, replyOutputTokens } from '@tangent/shared';
 import { assembleContext, summaryKeyString } from '../context/assemble.js';
 import { overflowBudget } from '../context/overflow.js';
 import { buildSummaryPrompt, renderPlan } from '../context/render.js';
@@ -137,7 +137,7 @@ export function capabilitiesOf(
 function clipAnchorQuote(branch: Branch, maxChars: number | undefined): Branch {
   const quote = branch.anchorQuote;
   if (maxChars === undefined || quote === null || quote.length <= maxChars) return branch;
-  return { ...branch, anchorQuote: `${quote.slice(0, Math.max(0, maxChars - 1))}…` };
+  return { ...branch, anchorQuote: clip(quote, maxChars) };
 }
 
 /**

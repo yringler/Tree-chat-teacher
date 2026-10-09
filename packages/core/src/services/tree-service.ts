@@ -11,6 +11,8 @@ import {
   updateLinkRequestSchema,
   updateSettingsRequestSchema,
   updateTreeRequestSchema,
+  clip,
+  plainText,
   type Branch,
   type ChatNode,
   type CreateBranchRequest,
@@ -27,7 +29,6 @@ import {
   type UpdateSettingsRequest,
   type UpdateTreeRequest,
 } from '@tangent/shared';
-import { plainText } from '../context/render.js';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
 import { pairKey } from '../links.js';
 import type { Repositories } from '../repository.js';
@@ -359,7 +360,6 @@ function defaultBranchTitle(anchorQuote: string | null, node: ChatNode): string 
   // A quote is plain text already; a message is Markdown ("**a confident kitten**").
   const source = anchorQuote ? anchorQuote.replace(/\s+/g, ' ').trim() : plainText(node.content);
   if (!source) return 'New branch';
-  const words = source.split(' ').slice(0, 6).join(' ');
-  const clipped = words.length > 48 ? `${words.slice(0, 47)}…` : words;
+  const clipped = clip(source.split(' ').slice(0, 6).join(' '), 48);
   return anchorQuote ? clipped : `${DEFAULT_BRANCH_TITLE_PREFIX}${clipped}`;
 }
