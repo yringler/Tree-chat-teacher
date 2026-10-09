@@ -378,7 +378,7 @@ describe('copying the same power tree to Learn twice', () => {
   });
 });
 
-describe('the default route of a new power tree (docs/DECISIONS.md "Default route of a new tree")', () => {
+describe('the default route of a new power tree', () => {
   /** The default providers (PROVIDERS unset: `fake` isn't among them), the fee off. */
   const DEFAULTS: Partial<AppEnv> = {
     PROVIDERS: '',

@@ -4,8 +4,8 @@ import { membership, newEmail, paymentWebhook, sameOrigin, signIn, topUp } from 
 /*
  * A power conversation started on the user's own key, opened in a browser that
  * has no key saved (another device, or it expired), by a member with Tangent
- * credit (docs/DECISIONS.md "A missing own key is a choice, not a wall"). The
- * route is `keyed` (serve.mjs), a provider on the user's own key that the tests
+ * credit. The refused send opens the keys dialog, which offers to carry on on
+ * credit, and no refusal loses the typed message. The route is `keyed` (serve.mjs), a provider on the user's own key that the tests
  * never save a key for: a send is refused with 401 `key_required` before
  * anything is written.
  * Tangent credit points nowhere here (serve.mjs), so a send carried on on credit
