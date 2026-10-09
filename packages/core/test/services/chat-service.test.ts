@@ -407,6 +407,7 @@ describe('ChatService backup', () => {
   it('round-trips a tree under fresh ids', async () => {
     const { chat } = setup({ autoTitle: false });
     const { tree } = await chat.createTree({ title: 'Backup me', systemPrompt: 'Be brief' });
+    await chat.updateTree(tree.id, { learnerInstructions: 'Answer in French.' });
     const root = await send(chat, tree.trunkBranchId, 'hello');
     const b = await chat.createBranch({ fromNodeId: root.begin.assistantNode.id, isPrivate: true });
     await send(chat, b.id, 'private stuff');
@@ -414,7 +415,11 @@ describe('ChatService backup', () => {
     expect(backup.nodes).toHaveLength(4);
     const restored = await chat.importBackup(backup);
     expect(restored.tree.id).not.toBe(tree.id);
-    expect(restored.tree.title).toBe('Backup me');
+    expect(restored.tree).toMatchObject({
+      title: 'Backup me',
+      systemPrompt: 'Be brief',
+      learnerInstructions: 'Answer in French.',
+    });
     expect(restored.branches).toHaveLength(2);
     const ids = new Set([...backup.nodes.map((n) => n.id), ...backup.branches.map((x) => x.id)]);
     for (const n of restored.nodes) {

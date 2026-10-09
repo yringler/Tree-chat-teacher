@@ -32,7 +32,7 @@ import {
 } from '@tangent/shared';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
 import { pairKey } from '../links.js';
-import type { Repositories } from '../repository.js';
+import type { Repositories, TreePatch } from '../repository.js';
 import { descendantBranches, indexTree } from '../tree.js';
 import { emptyToNull, type ServiceContext } from './context.js';
 
@@ -83,6 +83,7 @@ export class TreeService {
       accountId: this.ctx.accountId,
       title: req.title ?? DEFAULT_TREE_TITLE,
       systemPrompt,
+      learnerInstructions: null,
       trunkBranchId: this.ctx.newId(),
       createdAt: now,
       updatedAt: now,
@@ -121,11 +122,11 @@ export class TreeService {
   async updateTree(treeId: string, request: UpdateTreeRequest): Promise<Tree> {
     const req = updateTreeRequestSchema.parse(request);
     await this.ctx.owned.tree(treeId);
-    const patch: Partial<Pick<Tree, 'title' | 'systemPrompt' | 'updatedAt'>> = {
-      updatedAt: this.ctx.now(),
-    };
+    const patch: TreePatch = { updatedAt: this.ctx.now() };
     if (req.title !== undefined) patch.title = req.title;
     if (req.systemPrompt !== undefined) patch.systemPrompt = emptyToNull(req.systemPrompt);
+    if (req.learnerInstructions !== undefined)
+      patch.learnerInstructions = emptyToNull(req.learnerInstructions);
     const tree = await this.repo.updateTree(treeId, patch);
     if (!tree) throw new NotFoundError('Tree');
     return tree;

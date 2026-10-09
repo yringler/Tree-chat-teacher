@@ -176,8 +176,8 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           <tr>
             <td>Your content</td>
             <td>
-              Conversations (messages, replies, branch titles, summaries), system prompts, settings,
-              and share links you create.
+              Conversations (messages, replies, branch titles, summaries), system prompts, your
+              instructions for Learn lessons, settings, and share links you create.
             </td>
             <td>This is the service. Stored in our database until you delete it.</td>
           </tr>

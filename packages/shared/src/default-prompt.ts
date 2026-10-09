@@ -49,19 +49,3 @@ Format them exactly like this, as the last thing in your reply, so the app can t
 </tangents>
 
 Skip the tangents block for very short replies, clarifying questions, or when the user is just chatting.`;
-
-/**
- * The learner's own instructions in a tree's prompt, which Learn adds after
- * its tutor prompt: the prompt, unless it is blank or a built-in one
- * (DEFAULT_SYSTEM_PROMPT, or `tutorPrompt`, the prompt a new lesson gets),
- * since a built-in prompt there would only repeat the tutor's.
- */
-export function customInstructions(
-  treePrompt: string | null,
-  tutorPrompt: string | null,
-): string | null {
-  const text = treePrompt?.trim() ?? '';
-  if (text === '' || text === DEFAULT_SYSTEM_PROMPT.trim() || text === tutorPrompt?.trim())
-    return null;
-  return treePrompt;
-}

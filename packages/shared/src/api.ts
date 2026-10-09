@@ -183,7 +183,7 @@ const citationSchema = z.object({
 }) satisfies z.ZodType<Citation>;
 /** Who pays for a branch's calls in power mode (`Branch.funding`); Learn ignores it. */
 export const branchFundingSchema = z.enum(['own-key', 'credit']) satisfies z.ZodType<BranchFunding>;
-/** Longest system prompt a tree or the account settings may hold. */
+/** Longest system prompt (or learner instructions) a tree or the account settings may hold. */
 export const MAX_SYSTEM_PROMPT_CHARS = 20_000;
 
 /**
@@ -232,9 +232,11 @@ export const deleteAccountRequestSchema = z.object({
 });
 export type DeleteAccountRequest = z.infer<typeof deleteAccountRequestSchema>;
 
+/** A blank `systemPrompt` or `learnerInstructions` is stored as null. */
 export const updateTreeRequestSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable().optional(),
+  learnerInstructions: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable().optional(),
 });
 export type UpdateTreeRequest = z.infer<typeof updateTreeRequestSchema>;
 
@@ -571,6 +573,8 @@ export const treeBackupSchema = z.object({
     accountId: id.optional(),
     title: z.string().max(200),
     systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable(),
+    /** Optional: import reads a missing one as none. */
+    learnerInstructions: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable().optional(),
     trunkBranchId: id,
     createdAt: isoDate,
     updatedAt: isoDate,

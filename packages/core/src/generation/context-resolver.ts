@@ -14,7 +14,7 @@ import type {
   Tree,
   UsageTag,
 } from '@tangent/shared';
-import { auxOutputTokens, clipUtf16, customInstructions, replyOutputTokens } from '@tangent/shared';
+import { auxOutputTokens, clipUtf16, replyOutputTokens } from '@tangent/shared';
 import { assembleContext, summaryKeyString } from '../context/assemble.js';
 import { overflowBudget } from '../context/overflow.js';
 import { buildSummaryPrompt, renderPlan } from '../context/render.js';
@@ -144,26 +144,27 @@ function clipAnchorQuote(branch: Branch, maxChars: number | undefined): Branch {
 }
 
 /**
- * The system prompt a generation sends, from a tree's stored one: power
- * sends it as it is, the pool its locked prompt instead, and Learn its tutor
- * prompt (`tutor`, the prompt of its new lessons) followed by the tree's own
- * instructions (`customInstructions`) where the profile allows them. The
- * stored prompt is never changed, so power carries on with it.
+ * The system prompt a generation sends for a tree: power sends the tree's
+ * prompt as it is, the pool its locked prompt instead, and Learn its tutor
+ * prompt (`tutor`, the prompt of its new lessons) followed by the tree's
+ * learner instructions where the profile allows them. Learn never reads the
+ * tree's prompt, which holds whatever tutor prompt was current when the
+ * lesson began, so a changed tutor prompt is never sent twice.
  */
 function systemPromptFor(
   profile: GenerationProfile,
   tutor: string | null,
-): (stored: string | null) => string | null {
+): (tree: Pick<Tree, 'systemPrompt' | 'learnerInstructions'>) => string | null {
   switch (profile.kind) {
     case 'power':
-      return (stored) => stored;
+      return (tree) => tree.systemPrompt;
     case 'pool':
       return () => profile.systemPrompt;
     case 'learn':
-      return (stored) => {
-        const custom = profile.customPrompt ? customInstructions(stored, tutor) : null;
-        if (custom === null) return tutor;
-        return tutor === null ? custom : `${tutor}\n\n${custom}`;
+      return (tree) => {
+        const own = profile.customPrompt ? tree.learnerInstructions?.trim() : undefined;
+        if (!own) return tutor;
+        return tutor === null ? own : `${tutor}\n\n${own}`;
       };
   }
 }
@@ -175,8 +176,10 @@ function systemPromptFor(
 export class ContextResolver {
   /** The open pool's bounds on what a generation sends; null elsewhere. */
   private readonly pool: PoolProfile | null;
-  /** The system prompt this profile sends for a tree's stored one (`systemPromptFor`). */
-  private readonly systemPrompt: (stored: string | null) => string | null;
+  /** The system prompt this profile sends for a tree (`systemPromptFor`). */
+  private readonly systemPrompt: (
+    tree: Pick<Tree, 'systemPrompt' | 'learnerInstructions'>,
+  ) => string | null;
 
   constructor(
     private readonly ctx: ServiceContext,
@@ -253,7 +256,7 @@ export class ContextResolver {
     const repo = this.ctx.repos.trees;
     const owned = await this.ctx.owned.branch(branchId);
     // The only way into the context's system prompt (the `tree-system-prompt` segment).
-    const tree = { ...owned.tree, systemPrompt: this.systemPrompt(owned.tree.systemPrompt) };
+    const tree = { ...owned.tree, systemPrompt: this.systemPrompt(owned.tree) };
     // Each branch on the route this instance runs it on (`RouteResolver.runnable`).
     const clip = (b: Branch): Branch =>
       this.ctx.routes.runnable(clipAnchorQuote(b, this.pool?.anchorQuoteMaxChars));

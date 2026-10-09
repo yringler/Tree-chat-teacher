@@ -30,6 +30,7 @@ function makeTree(overrides: Partial<Tree> = {}): Tree {
     accountId: uid('acct'),
     title: 'Tree',
     systemPrompt: null,
+    learnerInstructions: null,
     trunkBranchId: overrides.trunkBranchId ?? `${id}_trunk`,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -196,7 +197,10 @@ export function describeRepositories(name: string, factory: () => Repositories):
 
     describe('trees', () => {
       it('createTree / getTree round-trip, including a null system prompt', async () => {
-        const { tree, trunk } = await seedTree({ systemPrompt: 'Be terse.' });
+        const { tree, trunk } = await seedTree({
+          systemPrompt: 'Be terse.',
+          learnerInstructions: 'Answer in French.',
+        });
         expect(await repos.trees.getTree(tree.id)).toEqual(tree);
         expect(await repos.trees.getBranch(trunk.id)).toEqual(trunk);
         const { tree: t2 } = await seedTree({ systemPrompt: null });
@@ -215,8 +219,15 @@ export function describeRepositories(name: string, factory: () => Repositories):
           title: 'Renamed',
           updatedAt: '2026-02-01T00:00:00.000Z',
         });
-        const cleared = await repos.trees.updateTree(tree.id, { systemPrompt: null });
+        const withOwn = await repos.trees.updateTree(tree.id, { learnerInstructions: 'Be brief.' });
+        expect(withOwn?.learnerInstructions).toBe('Be brief.');
+        expect(withOwn?.systemPrompt).toBe('x');
+        const cleared = await repos.trees.updateTree(tree.id, {
+          systemPrompt: null,
+          learnerInstructions: null,
+        });
         expect(cleared?.systemPrompt).toBeNull();
+        expect(cleared?.learnerInstructions).toBeNull();
         expect(await repos.trees.updateTree(tree.id, {})).toEqual(cleared);
         expect(await repos.trees.updateTree('missing', { title: 'x' })).toBeNull();
       });
@@ -501,7 +512,11 @@ export function describeRepositories(name: string, factory: () => Repositories):
       });
 
       it('importTree writes the tree, its branches, nodes and links', async () => {
-        const tree = makeTree({ title: 'Imported', systemPrompt: 'sys' });
+        const tree = makeTree({
+          title: 'Imported',
+          systemPrompt: 'sys',
+          learnerInstructions: 'own',
+        });
         const trunk = makeTrunk(tree);
         const trunkNodes = makeChain(trunk, 30, null);
         const branchesList: Branch[] = [trunk];

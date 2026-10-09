@@ -37,7 +37,7 @@ export interface PowerProfile {
 export interface LearnProfile {
   kind: 'learn';
   /**
-   * The tree's own prompt is added after Learn's tutor prompt
+   * The tree's learner instructions are added after Learn's tutor prompt
    * (`ChatServiceDeps.defaultSystemPrompt`), which is always sent: true where
    * the learner pays with their own key or credit, false on the pool.
    */
