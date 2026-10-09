@@ -5,9 +5,11 @@ The 27 migrations `0000_init` … `0026_model_windows` were squashed into one, `
 - moves the dispute markers (`<dispute>:ignored`, `<dispute>:lost`) out of `credit_grants` into the new `billing_markers` table;
 - relabels ledger rows of removed kinds as `adjustment` (`contribution`, `subscription`) and usage rows of the removed `tagging` purpose as `other`, keeping every amount, so every balance stays the same;
 - drops what the removed features left: the tables `accounts`, `pool_consents`, `pool_topic_tags`, `pool_impact_snapshots`, `pool_impact_topics`, `pool_topic_reviews` and `model_price_history`, the columns `usage_events.tier` and `credit_grants.margin_bps`, and their indexes;
-- rewrites wrangler's `d1_migrations` table to hold exactly `0000_baseline.sql`, so the deploy job's `wrangler d1 migrations apply` finds nothing to apply.
+- rewrites wrangler's `d1_migrations` table to hold exactly `0000_baseline.sql`, so the deploy job's `wrangler d1 migrations apply` skips the baseline and applies only the two migrations written after it, `0001_node_error_kind.sql` and `0002_pool_identity_deleted_at.sql`.
 
-The result is the same schema the baseline builds from scratch (column order aside, which nothing depends on).
+The result is the same schema the baseline builds from scratch (column order aside, which nothing depends on). The order is: convert by hand, then the deploy job applies `0001` and `0002`, then it deploys the new code.
+
+`0001` and `0002` only add: a nullable `nodes.error_kind` (backfilled from the stored error messages) and three `pool_identities` columns with defaults (`deleted_at`, and the day's usage of a deleted account), plus a one-time backfill that touches only what already-deleted accounts left behind (their user ids in `usage_events` and `credit_grants`, their `pool_identity_holders` rows). The old code never reads the new columns and has no use for rows of users who no longer exist, so both are safe to apply while it still serves; the new code reads a node without an `error_kind` from its message.
 
 **The pull request that carries the baseline must not deploy before `convert.sql` has run.** Its code reads `billing_markers`, which only the conversion creates: every dispute would fail with `no such table: billing_markers`. The steps below hold the deploy until then, and the deploy job stops on its own if it gets there first (see [If something goes wrong](#if-something-goes-wrong)).
 
@@ -15,7 +17,7 @@ Run every command from `apps/worker`, in a checkout of that pull request's branc
 
 ## 1. Export your conversations
 
-In the power app and in Learn, export a JSON backup of every conversation you want to keep (**Backup** in the README: the download icon on each conversation or lesson). Step 2's backup holds them too; these files can be imported into any Tangent, whatever its database.
+In the power app and in Learn, export a JSON backup of every conversation you want to keep (**Export → JSON backup (everything)** in the power app's chat header, the download icon on each lesson in Learn; see [the user guide](../user-guide.md)). Step 2's backup holds them too; these files can be imported into any Tangent, whatever its database.
 
 ## 2. Back up the database
 
@@ -55,7 +57,7 @@ It prints eight tables, in the order the file numbers them:
 ## 4. Hold the deploy
 
 1. **Disconnect Workers Builds** if it is still connected: in the Cloudflare dashboard, **Workers & Pages → tangent → Settings → Build**, disconnect the repository. Otherwise the merge deploys at once, without the workflow and before the conversion.
-2. **Make the Deploy job wait for you**: on GitHub, **Settings → Environments → production → Deployment protection rules**, tick **Required reviewers**, add yourself and save. Every Deploy now waits for your approval (you can remove the rule after step 7).
+2. **Make the Deploy job wait for you**: on GitHub, **Settings → Environments → production → Deployment protection rules**, tick **Required reviewers**, add yourself and save. Every Deploy now waits for your approval. Keep the rule afterwards: it is part of the setup in [operating.md](../operating.md#setting-it-up-once).
 
 ## 5. Merge
 
@@ -77,17 +79,18 @@ npx wrangler d1 execute tangent --remote --command="$(cat scripts/d1-baseline/ve
 npx wrangler d1 migrations list tangent --remote
 ```
 
-`verify.sql` prints: one `d1_migrations` row, `0000_baseline.sql`; an empty list (nothing the baseline lacks is left); the moved markers; and every ledger's balance, which must match the table you kept in step 3, except that the `payment-markers` line (always 0) is gone. `migrations list` prints `✅ No migrations to apply!`.
+`verify.sql` prints: one `d1_migrations` row, `0000_baseline.sql`; an empty list (nothing the baseline lacks is left); the moved markers; and every ledger's balance, which must match the table you kept in step 3, except that the `payment-markers` line (always 0) is gone. `migrations list` lists the two migrations still to apply, `0001_node_error_kind.sql` and `0002_pool_identity_deleted_at.sql`, and nothing else. If it lists `0000_baseline.sql`, the conversion didn't take: stop and send the output to Claude.
 
 **From here until step 7 finishes, the site is down for signed-in use.** The old code still serving writes `accounts` on every signed-in request and the dropped columns on every metered call, so those requests answer 500. Nothing is half-written: a failed statement writes nothing. Payment webhooks that fail are retried by the provider, and the crons run again on their schedule. Since you are the only user, a few minutes of this is acceptable; do it at a quiet time.
 
 ## 7. Deploy
 
-On the waiting run, **Review deployments → production → Approve and deploy**. Its **Apply D1 migrations** step prints `✅ No migrations to apply!`, and **Deploy** ships the new code, which ends the outage (the job takes a few minutes). Open the app, sign in, open a conversation and send a message. The Worker now hands the account to a conversation's Durable Object in a new encoding, so for the few seconds the deploy rolls out a request that meets an old and a new isolate can answer 500: that's expected and harmless, and a retry works.
+On the waiting run, **Review deployments → production → Approve and deploy**. Its **Apply D1 migrations** step lists `0001_node_error_kind.sql` and `0002_pool_identity_deleted_at.sql` and applies them (each marked ✅), and **Deploy** ships the new code, which ends the outage (the job takes a few minutes). Afterwards `npx wrangler d1 migrations list tangent --remote` prints `✅ No migrations to apply!`. Open the app, sign in, open a conversation and send a message. The Worker now hands the account to a conversation's Durable Object in a new encoding, so for the few seconds the deploy rolls out a request that meets an old and a new isolate can answer 500: that's expected and harmless, and a retry works.
 
 ## If something goes wrong
 
 - **The Deploy ran before `convert.sql`** (approved too early, or no required reviewer): **Apply D1 migrations** tries to run `0000_baseline.sql` on the old tables and fails on its first statement, `table account_settings already exists`. Nothing in the database changes, and the job stops there, before **Deploy** (a failed step skips the ones after it), so the old code keeps serving. Run step 6, then **Re-run failed jobs** on that run.
+- **Apply D1 migrations failed on `0001` or `0002` after converting:** the job stops before **Deploy**, so the old code keeps serving (with the outage of step 6). Wrangler rolls back the migration that failed and records only those that succeeded, so a re-run picks up where it stopped. Send the step's log to Claude; once fixed, **Re-run failed jobs**.
 - **Workers Builds deployed the new code before `convert.sql`:** the site works, but every dispute webhook and the dispute poller fail with `no such table: billing_markers` until you convert. Run step 6 now; the provider retries the webhooks.
 - **`convert.sql` stopped with `CHECK constraint failed: old_migrations_applied`:** the database is not at exactly `0000`–`0026` (or is already converted: run `verify.sql`). With `ledger_values_known`: a ledger row has a kind or purpose the script has no rule for. Nothing was applied either way; send the message and the precheck output to Claude.
 - **Anything else after converting:** restore with Time Travel (step 2) and redeploy the code from before the merge.

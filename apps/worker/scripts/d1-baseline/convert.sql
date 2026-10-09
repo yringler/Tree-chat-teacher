@@ -93,7 +93,7 @@ ALTER TABLE `usage_events` DROP COLUMN `tier`;
 ALTER TABLE `credit_grants` DROP COLUMN `margin_bps`;
 
 -- The record wrangler keeps of applied migrations now holds exactly the baseline, so
--- `wrangler d1 migrations apply` (the deploy job) finds nothing to apply.
+-- `wrangler d1 migrations apply` (the deploy job) skips it and applies only the later ones.
 DELETE FROM `d1_migrations`;
 INSERT INTO `d1_migrations` (`name`) VALUES ('0000_baseline.sql');
 

@@ -1,7 +1,7 @@
 -- Read-only. Run after convert.sql (docs/runbooks/d1-baseline.md, step 6), from apps/worker:
 --   npx wrangler d1 execute tangent --remote --command="$(cat scripts/d1-baseline/verify.sql)"
 
--- Exactly one row: 0000_baseline.sql.
+-- Exactly one row, 0000_baseline.sql, until the deploy job applies the later migrations.
 SELECT id, name, applied_at FROM d1_migrations ORDER BY id;
 
 -- Nothing the baseline lacks: expect no rows.

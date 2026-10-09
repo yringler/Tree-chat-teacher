@@ -38,7 +38,7 @@ New conversations in both apps start with the same built-in system prompt: it an
 - **Private branches** (a branch setting) are left out of every share and export, with everything below them.
 - **Sharing:** **Share…** in the chat header picks a scope (the whole tree, a subtree or one path) and a mode (a frozen snapshot or live), with an optional title and expiry. The dialog first lists the links the conversation already has. The **Shares** page lists every link; republish a snapshot in place or revoke a link, which takes effect at once. Until the operator turns sharing on for everyone, **Share…** appears only for allowed accounts.
 - **Export:** Markdown, or one offline HTML file with the same viewer as share links.
-- **Backup:** the JSON backup includes everything, private branches and links too. **Import** restores it as a new conversation. Files over 10 MB, Markdown or HTML exports and other JSON are refused with a message saying why.
+- **Backup:** **Export → JSON backup (everything)** includes everything, private branches and links too. **Import** restores it as a new conversation. Files over 10 MB, Markdown or HTML exports and other JSON are refused with a message saying why.
 - **Keys & credit** (sidebar): your own provider keys, and where credit is sold the balance and **Add credit**. **Billing** (`/billing`): the membership, balance, top-ups and recent usage.
 
 ### Keyboard shortcuts
