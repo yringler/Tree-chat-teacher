@@ -79,6 +79,6 @@ export class ForkList {
 
   protected jump(e: Event, b: Branch): void {
     e.stopPropagation();
-    this.store.go(b.id, this.store.firstNodeOf(b.id)?.id ?? null);
+    this.store.openAtStart(b.id);
   }
 }

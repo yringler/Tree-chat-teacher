@@ -14,8 +14,9 @@ import {
 import { screen, within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { learner, NOT_A_MEMBER, POOL_ON } from '../learn.testing';
+import { branchyLesson, learner, NOT_A_MEMBER, POOL_ON } from '../learn.testing';
 import { LessonStore } from '../state/lesson-store';
+import { UiStore } from '../state/ui-store';
 import { ChatPage } from './chat-page';
 
 const LEARN = provider({
@@ -41,15 +42,19 @@ function lesson(model = 'normal-model', reply: Partial<ChatNode> = {}): TreeDeta
   );
 }
 
-/** The lesson page on `d`, for what `facts` say of the learner. */
-async function page(d: TreeDetail = lesson(), facts: Parameters<typeof learner>[0] = {}) {
+/** The lesson page on `d` (at `branchId`), for what `facts` say of the learner. */
+async function page(
+  d: TreeDetail = lesson(),
+  facts: Parameters<typeof learner>[0] = {},
+  branchId: string | null = null,
+) {
   const r = await render(ChatPage, {
     providers: [...appProviders({}), { provide: BillingClient, useValue: {} }],
     setup: () => {
       learner(facts);
       const store = TestBed.inject(LessonStore);
       store.providers.set([LEARN]);
-      openTree(store, d);
+      openTree(store, d, branchId);
     },
   });
   return { ...r, store: TestBed.inject(LessonStore), user: userEvent.setup() };
@@ -158,5 +163,48 @@ describe('Learn: the lesson page', () => {
     const send = vi.spyOn(p.store, 'send').mockResolvedValue(true);
     await p.user.click(within(alert).getByRole('button', { name: 'Continue' }));
     expect(send).toHaveBeenCalledWith('trunk', CONTINUE_MESSAGE);
+  });
+});
+
+describe('Learn: finding your way around a lesson', () => {
+  it('the path goes back to the message each side question started from', async () => {
+    const p = await page(branchyLesson(), {}, 'deep');
+    const path = screen.getByRole('navigation', { name: 'Side question path' });
+    const go = vi.spyOn(p.store, 'go').mockImplementation(() => undefined);
+    await p.user.click(within(path).getByRole('button', { name: 'Lesson' }));
+    expect(go).toHaveBeenLastCalledWith('trunk', 'a1');
+    await p.user.click(within(path).getByRole('button', { name: 'Particles' }));
+    expect(go).toHaveBeenLastCalledWith('side', 'a2');
+    expect(within(path).getByText('Duality').getAttribute('aria-current')).toBe('page');
+  });
+
+  it('a side question opens at its first message', async () => {
+    const p = await page(branchyLesson());
+    const go = vi.spyOn(p.store, 'go').mockImplementation(() => undefined);
+    const list = screen.getByRole('navigation', { name: 'Side questions from this message' });
+    await p.user.click(within(list).getByRole('button', { name: 'Particles' }));
+    expect(go).toHaveBeenLastCalledWith('side', 'u2');
+  });
+
+  it('clicking a message marks it; clicking a control in it does not', async () => {
+    const p = await page();
+    const focus = vi.spyOn(p.store, 'focus').mockImplementation(() => undefined);
+    await p.user.click(screen.getByText('A wave.'));
+    expect(focus).toHaveBeenCalledWith('a1');
+    focus.mockClear();
+    vi.spyOn(p.store, 'createBranch').mockResolvedValue(null);
+    await p.user.click(screen.getByRole('button', { name: /Side question/ }));
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it('offers the lesson map once there is a side question', async () => {
+    await page();
+    expect(screen.queryByRole('button', { name: 'Lesson map' })).toBeNull();
+  });
+
+  it('opens the lesson map', async () => {
+    const p = await page(branchyLesson());
+    await p.user.click(screen.getByRole('button', { name: 'Lesson map' }));
+    expect(TestBed.inject(UiStore).dialogs.list()).toEqual([{ kind: 'map' }]);
   });
 });

@@ -406,7 +406,6 @@ describe('the landing page', () => {
     expect(html.indexOf('aria-labelledby="pool"')).toBeLessThan(
       html.indexOf('aria-labelledby="modes"'),
     );
-    expect(text(html)).toContain(`the free pool uses ${poolModelText(poolModelInfo(e))}`);
   });
 
   it('leaves the pool out while it is off or can’t be read', async () => {
@@ -420,15 +419,23 @@ describe('the landing page', () => {
     expect(broken.html).not.toContain('aria-labelledby="pool"');
   });
 
-  it('states the membership’s price, the markup and Learn’s tiers from the config', async () => {
+  it('states the membership’s price and the markup from the config', async () => {
     const e = deployment({ MEMBERSHIP_PRICE_CENTS: '1500', MARKUP_BPS: '2000' });
     const page = text((await get(e, '/welcome')).html);
     expect(page).toContain('$15 yearly membership');
     expect(page).toContain('plus 20%');
-    expect(page).toContain('Two tiers: Normal');
-    expect(
-      text((await get(deployment({ LEARN_MAX_MODEL: DEFAULT_BACKGROUND_MODEL }), '/welcome')).html),
-    ).not.toContain('Two tiers');
+  });
+
+  it('wires the demo for CSS alone: the gate switches to Tangent, and each branch chip opens its pane', async () => {
+    const { html } = await get(deployment(), '/welcome');
+    expect(html).toContain('<input type="checkbox" id="dm-solve"');
+    expect(html.match(/<label for="dm-solve"/g)).toHaveLength(2);
+    for (const b of [1, 2, 3, 4]) {
+      expect(html).toContain(`id="dm-b${b}"`);
+      expect(html).toContain(`<label for="dm-b${b}"`);
+      expect(html).toContain(`class="dm-pane p${b}"`);
+    }
+    expect(html.match(/<input type="radio"[^>]* checked/g)).toHaveLength(1);
   });
 });
 

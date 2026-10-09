@@ -1,14 +1,8 @@
 import { computed, inject, Injectable } from '@angular/core';
 import { Router } from '@angular/router';
-import {
-  branchesWithLinks,
-  buildOutline,
-  flattenOutline,
-  linkTarget,
-  type OutlineItem,
-} from '@tangent/core';
+import { branchesWithLinks, linkTarget } from '@tangent/core';
 import { type BranchFunding } from '@tangent/shared';
-import type { Branch, ChatNode, NodeLink, ShareScope } from '@tangent/shared';
+import type { Branch, NodeLink, ShareScope } from '@tangent/shared';
 import {
   ApiClient,
   ComposerController,
@@ -21,8 +15,7 @@ import { UiStore } from './ui-store';
 
 /**
  * Power's state: the shared conversation engine and account
- * (`PowerConversationStore`), with what power adds: the outline, focus on
- * the path, read-only branches, reviews, the Settings limits on every send,
+ * (`PowerConversationStore`), with what power adds: read-only branches, reviews, the Settings limits on every send,
  * and its dialogs and toasts.
  */
 @Injectable({ providedIn: 'root' })
@@ -45,22 +38,6 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
   readonly linkCounts = computed<ReadonlyMap<string, number>>(() => {
     const idx = this.index();
     return idx ? branchesWithLinks(idx, this.linksByNode()) : new Map<string, number>();
-  });
-
-  readonly outline = computed<OutlineItem | null>(() => {
-    const idx = this.index();
-    return idx ? buildOutline(idx) : null;
-  });
-
-  readonly flatOutline = computed<OutlineItem[]>(() => {
-    const root = this.outline();
-    return root ? flattenOutline(root) : [];
-  });
-
-  /** Focused node if it is on the displayed path, else null. */
-  readonly focusedInPath = computed<ChatNode | null>(() => {
-    const id = this.focusedNodeId();
-    return (id && this.path().find((n) => n.id === id)) || null;
   });
 
   /**
@@ -101,21 +78,6 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     this.ui.drawerOpen.set(false);
   }
 
-  /** j/k: move focus along the displayed path. */
-  moveFocus(delta: 1 | -1): void {
-    const path = this.path();
-    if (path.length === 0) return;
-    const current = this.focusedInPath();
-    let i = current ? path.indexOf(current) + delta : delta > 0 ? 0 : path.length - 1;
-    i = Math.max(0, Math.min(path.length - 1, i));
-    const target = path[i];
-    if (target) this.focus(target.id);
-  }
-
-  firstNodeOf(branchId: string): ChatNode | null {
-    return this.index()?.nodesByBranch.get(branchId)?.[0] ?? null;
-  }
-
   /**
    * Node a share/export of `scope` targets: the focused message when there is
    * one on the path; else the leaf (path) or the branch's first message (subtree).
@@ -134,11 +96,6 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
 
   protected override branchOpened(branchId: string): void {
     this.composer.focus(branchId);
-  }
-
-  /** A tangent already followed opens at its first message. */
-  protected override openFollowed(branch: Branch): void {
-    this.go(branch.id, this.firstNodeOf(branch.id)?.id ?? null);
   }
 
   /** Whether replies in `branchId` can be checked against web sources (its provider can search). */

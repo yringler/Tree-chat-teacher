@@ -42,7 +42,7 @@
               <p class="muted">No messages yet. Say something to start.</p>
             </div>
           }
-          @for (e of entries(); track e.node.id) {
+          @for (e of store.pathEntries(); track e.node.id) {
             @if (e.divider; as b) {
               <div class="fork-divider" [class.fork-current]="b.id === store.selectedBranchId()">
                 <span class="fork-line"></span>
@@ -65,10 +65,10 @@
               [node]="e.node"
               [ancestor]="e.ancestor"
               [focused]="e.node.id === store.focusedNodeId()"
-              [chainIds]="chainIds()"
+              [chainIds]="store.chainIds()"
             />
           }
-          @if (emptyBranch(); as b) {
+          @if (store.emptyBranch(); as b) {
             <div class="fork-divider fork-current">
               <span class="fork-line"></span>
               <span class="fork-label"

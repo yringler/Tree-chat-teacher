@@ -589,6 +589,78 @@ describe('ConversationStore loading and routing', () => {
   });
 });
 
+describe('ConversationStore moving around the tree', () => {
+  it('lists the chain as crumbs, each going back to where the next branch forks off', () => {
+    const s = showing('deep');
+    expect(s.store.crumbs().map((c) => [c.branch.id, c.focusNodeId, c.current])).toEqual([
+      ['trunk', 'a1', false],
+      ['side', 'a2', false],
+      ['deep', null, true],
+    ]);
+    expect([...s.store.chainIds()]).toEqual(['trunk', 'side', 'deep']);
+  });
+
+  it('lists every branch in the outline, depth first', () => {
+    const s = showing();
+    expect(s.store.flatOutline().map((o) => [o.branch.id, o.depth])).toEqual([
+      ['trunk', 0],
+      ['other', 1],
+      ['side', 1],
+      ['deep', 2],
+    ]);
+  });
+
+  it('marks fork dividers and ancestor messages along the path', () => {
+    const s = showing('deep');
+    expect(
+      s.store.pathEntries().map((e) => [e.node.id, e.ancestor, e.divider?.id ?? null]),
+    ).toEqual([
+      ['u1', true, null],
+      ['a1', true, null],
+      ['u2', true, 'side'],
+      ['a2', true, null],
+      ['u3', false, 'deep'],
+    ]);
+    expect(s.store.emptyBranch()).toBeNull();
+  });
+
+  it('keeps the focus only while the message is on the path', () => {
+    const s = showing();
+    s.store.setRoute('t1', 'deep', 'a1');
+    expect(s.store.focusedInPath()?.id).toBe('a1');
+    s.store.setRoute('t1', 'deep', 'u4');
+    expect(s.store.focusedInPath()).toBeNull();
+  });
+
+  it('moves the focus along the path, and says when it could not', () => {
+    const s = showing('deep');
+    expect(s.store.moveFocus(1)).toBe(true);
+    expect(s.go).toHaveBeenLastCalledWith('deep', 'u1', true);
+    expect(s.store.moveFocus(-1)).toBe(true);
+    expect(s.go).toHaveBeenLastCalledWith('deep', 'u3', true);
+    s.store.setRoute('t1', 'deep', 'u3');
+    expect(s.store.moveFocus(1)).toBe(false);
+    s.store.setRoute('t1', 'deep', 'u1');
+    expect(s.store.moveFocus(-1)).toBe(false);
+    expect(setup().store.moveFocus(1)).toBe(false);
+  });
+
+  it('opens a branch at its first message, or where it ends while it has none', () => {
+    const s = showing();
+    s.store.openAtStart('side');
+    expect(s.go).toHaveBeenLastCalledWith('side', 'u2');
+    s.store.openAtStart('nowhere');
+    expect(s.go).toHaveBeenLastCalledWith('nowhere', null);
+  });
+
+  it('opens a tangent already followed at its first message', async () => {
+    const s = showing();
+    await s.store.followTangent('a1', 'other');
+    expect(s.api.createBranch).not.toHaveBeenCalled();
+    expect(s.go).toHaveBeenLastCalledWith('other', 'u4');
+  });
+});
+
 describe('ConversationStore the tree list', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -803,7 +875,8 @@ describe('ConversationStore branches', () => {
     s.api.createBranch.mockClear();
     expect((await s.store.followTangent('a1', 'Why waves?'))?.id).toBe('new');
     expect(s.api.createBranch).not.toHaveBeenCalled();
-    expect(s.go).toHaveBeenLastCalledWith('new');
+    // It has no message in the tree yet: it opens where it ends.
+    expect(s.go).toHaveBeenLastCalledWith('new', null);
   });
 
   it("imports a backup, lists it and opens it, in the app's words", async () => {

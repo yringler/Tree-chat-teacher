@@ -207,23 +207,6 @@
   overflow: auto;
 }
 
-.shortcuts {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.shortcuts td {
-  padding: 5px 4px;
-  border-bottom: 1px solid var(--border);
-}
-
-.shortcuts td:first-child {
-  white-space: nowrap;
-  width: 1%;
-  padding-right: 16px;
-}
-
 /* Shares */
 
 .share-card.is-inactive {

@@ -7,7 +7,8 @@ import { Overlays } from '@tangent/web-shared';
  * human check before a first pool message (PoolFirstUseDialog); `connect`:
  * the Connect sheet (ConnectDialog) for the message a connection is made
  * from; `compare`: the Compare sheet (CompareDialog), the question to ask
- * Normal and Max in `branchId` (it stays in the composer meanwhile);
+ * Normal and Max in `branchId` (it stays in the composer meanwhile); `map`:
+ * the lesson map (LessonMap); `shortcuts`: the keyboard shortcuts;
  * `instructions`: the open lesson's own instructions (InstructionsDialog).
  */
 export type Dialog =
@@ -17,6 +18,8 @@ export type Dialog =
   | { kind: 'pool-verify' }
   | { kind: 'connect'; sourceNodeId: string }
   | { kind: 'compare'; branchId: string; content: string }
+  | { kind: 'map' }
+  | { kind: 'shortcuts' }
   | { kind: 'instructions' };
 
 /** View state that is not part of the URL: the account menu and dialogs. */

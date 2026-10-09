@@ -113,7 +113,10 @@ test('canvas: drag a link between cards, follow it from its glyph, come back, re
   await page.goForward();
   await expect(page).toHaveURL(new RegExp(`[?&]m=${owlsId}`));
 
-  // Remove: asks first, then both the line and the chips go.
+  // Remove: asks first, then both the line and the chips go. Centred on the
+  // Owls card, the glyph halfway to the main thread's first question can be
+  // above the viewport (how far depends on the fonts), so fit the tree first.
+  await page.getByTitle('Fit the whole tree (F)').click();
   await glyph.click();
   await expect(popover).toBeVisible();
   page.once('dialog', (d) => d.accept());

@@ -14,7 +14,7 @@ import {
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import { describeEndpoint } from '@tangent/core/links';
-import { maxUsageNote, tierModel, tierOf, type Branch, type ChatNode } from '@tangent/shared';
+import { maxUsageNote, tierModel, tierOf } from '@tangent/shared';
 import {
   Composer,
   Icon,
@@ -37,13 +37,6 @@ import { MessageItem } from './message-item';
 import { FUNDING_OPTIONS, tierSwitch, type FundingOption } from './switches';
 import { branchTitle, lessonTitle } from './titles';
 import { LearnFunding } from '../state/learn-funding';
-
-interface Entry {
-  node: ChatNode;
-  ancestor: boolean;
-  /** Set on the first message of each side question: the branch it starts. */
-  divider: Branch | null;
-}
 
 /** `/t/:treeId[/b/:branchId]`: the lesson, one branch at a time. */
 @Component({
@@ -102,31 +95,6 @@ export class ChatPage implements OnDestroy {
     return { label: from.snippet || connectionTitleOf(from.branch) };
   });
 
-  protected readonly chainIds = computed<ReadonlySet<string>>(
-    () => new Set(this.store.chain().map((b) => b.id)),
-  );
-
-  protected readonly entries = computed<Entry[]>(() => {
-    const selected = this.store.selectedBranchId();
-    const idx = this.store.index();
-    let prevBranch: string | null = null;
-    return this.store.path().map((node) => {
-      const divider =
-        prevBranch !== null && node.branchId !== prevBranch
-          ? (idx?.branches.get(node.branchId) ?? null)
-          : null;
-      prevBranch = node.branchId;
-      return { node, ancestor: node.branchId !== selected, divider };
-    });
-  });
-
-  /** A side question without messages yet: show where it starts at the end. */
-  protected readonly emptyBranch = computed<Branch | null>(() => {
-    const b = this.store.selectedBranch();
-    if (!b?.parentBranchId) return null;
-    return (this.store.index()?.nodesByBranch.get(b.id)?.length ?? 0) === 0 ? b : null;
-  });
-
   /**
    * The message box continues what is open; a new question is a side question
    * ("Ask your own question…" under the reply, "Ask about this" on a selection).
@@ -134,7 +102,7 @@ export class ChatPage implements OnDestroy {
   protected readonly placeholder = computed(() => {
     const b = this.store.selectedBranch();
     if (!b || this.store.path().length === 0) return 'What do you want to learn?';
-    if (b.parentBranchId && this.emptyBranch()) return 'Ask your side question…';
+    if (b.parentBranchId && this.store.emptyBranch()) return 'Ask your side question…';
     return b.parentBranchId ? 'Continue this side question…' : 'Continue this lesson…';
   });
 
@@ -190,7 +158,7 @@ export class ChatPage implements OnDestroy {
     let lastFocus: string | null = null;
     effect(() => {
       const branchId = this.store.selectedBranchId();
-      const focus = this.store.focusedNodeId();
+      const focus = this.store.focusedInPath()?.id ?? null;
       const count = this.store.path().length;
       if (!branchId || count === 0) return;
       const moved = branchId !== lastBranch || focus !== lastFocus;
@@ -228,6 +196,10 @@ export class ChatPage implements OnDestroy {
       contextMode: 'path',
       anchorQuote: q.quote,
     });
+  }
+
+  protected openMap(): void {
+    this.ui.dialogs.open({ kind: 'map' });
   }
 
   protected async setModel(branchId: string, model: string): Promise<void> {
@@ -314,7 +286,7 @@ export class ChatPage implements OnDestroy {
     if (nodeId) {
       document
         .getElementById(`msg-${nodeId}`)
-        ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     } else {
       el.scrollTop = el.scrollHeight;
     }

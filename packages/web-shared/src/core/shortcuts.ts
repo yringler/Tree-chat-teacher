@@ -69,3 +69,19 @@ export function dispatchShortcut(e: ShortcutEvent, frame: ShortcutFrame): void {
   const run = frame.keys?.[e.key];
   if (run && run() !== false) e.preventDefault();
 }
+
+/** What the path keys move: the open tree's branches and the focus on its path. */
+export interface PathNavigator {
+  navigate(step: NavDirection): boolean;
+  moveFocus(delta: 1 | -1): boolean;
+}
+
+/** `[` / `]` up to the parent and down to the first child branch, `j` / `k` along the path. */
+export function pathKeys(nav: PathNavigator): Readonly<Record<string, () => boolean>> {
+  return {
+    '[': () => nav.navigate('parent'),
+    ']': () => nav.navigate('firstChild'),
+    j: () => nav.moveFocus(1),
+    k: () => nav.moveFocus(-1),
+  };
+}

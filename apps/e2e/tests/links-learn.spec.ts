@@ -124,7 +124,7 @@ test('Learn: connect two messages, follow the connection, come back, remove it',
 
   // The side question's first message has no chip either.
   await firstReply.locator('.side-questions .chip', { hasText: 'Why the owl hums first' }).click();
-  await expect(page).toHaveURL(/\/b\/[^/?]+$/);
+  await expect(page).toHaveURL(/\/b\/[^/?]+\?m=/);
   await expect(message(page, 'Why does the owl hum first?')).toBeVisible();
   await expect(
     page.locator('.connections .related-chip', { hasText: 'By copying owls' }),

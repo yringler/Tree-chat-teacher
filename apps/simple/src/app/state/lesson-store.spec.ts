@@ -592,7 +592,7 @@ describe('LessonStore', () => {
     s.store.setRoute('t1', 'side', null);
     expect(s.store.parentBranch()?.id).toBe('trunk');
     expect(s.store.chain().map((b) => b.id)).toEqual(['trunk', 'side']);
-    s.store.goToParent();
+    s.store.navigate('parent');
     expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1'], { queryParams: { m: 'a1' } });
   });
 
