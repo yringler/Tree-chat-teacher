@@ -142,7 +142,7 @@ export class ApiClient {
   }
 
   me = () => this.call(R.me);
-  /** Permanently deletes the signed-in user (both accounts); `confirmEmail` must be their email. */
+  /** Permanently deletes the signed-in user and everything they own; `confirmEmail` must be their email. */
   deleteAccount = (confirmEmail: string) => this.call(R.deleteAccount, { body: { confirmEmail } });
   providers = () => this.call(R.providers);
 

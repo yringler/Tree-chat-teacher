@@ -116,7 +116,7 @@ The pool's ledger id (`pool`), its reservation timings and its overage breaker (
 
 These belong in `.dev.vars` only, never in a deployment.
 
-- `DEV_ALLOW_NO_AUTH`: var; default off. Exactly `true` skips sign-in, honoured only while `BETTER_AUTH_SECRET` is unset: power mode acts as the `default` account and may use the server keys, Learn as `default_simple`, and the bypass is an admin. Any other value but `false` or empty is an error.
+- `DEV_ALLOW_NO_AUTH`: var; default off. Exactly `true` skips sign-in, honoured only while `BETTER_AUTH_SECRET` is unset: every app acts as the `default_simple` account, power mode may use the server keys, and the bypass is an admin. Any other value but `false` or empty is an error.
 - `DEV_PURCHASES_ENABLED`: var; default `false`. `true` lets admins credit a user as a purchase would, without a payment (`POST /api/admin/credit`, mode `simulated_purchase`). Never on in production: it is spendable credit nobody paid for.
 
 ## Bindings and triggers

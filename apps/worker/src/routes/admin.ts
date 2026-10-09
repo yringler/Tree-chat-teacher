@@ -14,11 +14,7 @@ import {
   centsToMicros,
 } from '@tangent/shared';
 import { Hono } from 'hono';
-import {
-  billingAccountIdFor,
-  POWER_ACCOUNT_PREFIX,
-  SIMPLE_ACCOUNT_PREFIX,
-} from '../auth/account.js';
+import { ACCOUNT_PREFIX, accountIdForUser, billingAccountIdFor } from '../auth/account.js';
 import { adminOnly, adminUserIds } from '../auth/admin.js';
 import {
   balanceStatement,
@@ -60,7 +56,7 @@ type UserRow = Pick<
 
 /**
  * Columns of an AdminUser row, but its credit (`creditBalances`). Active
- * shares: of either of the user's accounts (`p_<id>`, `u_<id>`), neither
+ * shares: of the user's account (`u_<id>`), neither
  * revoked nor expired at `?1` (an ISO timestamp, compared as text like
  * ShareService does). Paid membership: a membership subscription in a status
  * that counts, as `membershipFor` reads it.
@@ -72,7 +68,7 @@ const USER_COLUMNS = `u.id, u.email, u.name, u.created_at, u.share_allowed, u.me
   (u.pool_suspended OR COALESCE((SELECT pi.suspended FROM pool_identities pi
     WHERE pi.identity = u.pool_identity), 0)) AS pool_suspended,
   (SELECT COUNT(*) FROM shares s
-    WHERE s.account_id IN ('${POWER_ACCOUNT_PREFIX}' || u.id, '${SIMPLE_ACCOUNT_PREFIX}' || u.id)
+    WHERE s.account_id = '${ACCOUNT_PREFIX}' || u.id
       AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > ?1)) AS active_shares`;
 
 /**
@@ -416,12 +412,7 @@ export function adminRoutes(): Hono<AppBindings> {
 
   r.get('/users/:userId/shares', async (c) => {
     const { id } = await getUser(c.env, c.req.param('userId'));
-    const lists = await Promise.all(
-      [POWER_ACCOUNT_PREFIX, SIMPLE_ACCOUNT_PREFIX].map((prefix) =>
-        shareService(c.env, c.req.url, prefix + id).list(),
-      ),
-    );
-    const shares = lists.flat().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const shares = await shareService(c.env, c.req.url, accountIdForUser(id)).list();
     return c.json(shares satisfies ShareSummary[]);
   });
 

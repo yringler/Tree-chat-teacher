@@ -3,8 +3,8 @@
 // their power conversations; only generating on their own keys is refused
 // (402 `membership_required`). `/api/me` says which fundings need the
 // membership, so the apps show those branches read-only, and
-// `POST /api/trees/:id/copy-to-learn` copies a power tree into the same user's
-// Learn account without a membership, a model call or any credit.
+// `POST /api/trees/:id/copy-to-learn` copies a power tree as a Learn lesson
+// without a membership, a model call or any credit.
 import {
   DEFAULT_SYSTEM_PROMPT,
   type ApiError,
@@ -217,7 +217,7 @@ describe('servers that require no membership are never read-only', () => {
 });
 
 describe('POST /api/trees/:id/copy-to-learn', () => {
-  it("copies a power tree into the user's Learn account, adapted, without a membership or credit", async () => {
+  it('copies a power tree as a Learn lesson, adapted, without a membership or credit', async () => {
     const u = await newUser();
     await insertSubscription(env, u.userId, 'canceled');
     const learnId = `u_${u.userId}`;
@@ -247,15 +247,15 @@ describe('POST /api/trees/:id/copy-to-learn', () => {
       ['user', 'What is a prime?'],
       ['assistant', 'A number with exactly two divisors.'],
     ]);
-    const lessons = await ok<TreeSummary[]>(await u.call('/api/trees', { learn: 'own-key' }));
-    expect(lessons.map((t) => t.id)).toEqual([res.treeId]);
-    // Not in the power account.
-    expect((await u.call(`/api/trees/${res.treeId}`)).status).toBe(404);
+    // One account: both apps list the tree and its copy.
+    const both = [tree.tree.id, res.treeId].sort();
+    for (const learn of ['own-key', undefined] as const) {
+      const list = await ok<TreeSummary[]>(await u.call('/api/trees', learn ? { learn } : {}));
+      expect(list.map((t) => t.id).sort()).toEqual(both);
+    }
 
     // The power tree is untouched, nothing was spent and no model was called.
     expect(await snapshot(u, tree.tree.id)).toEqual(before);
-    const power = await ok<TreeSummary[]>(await u.call('/api/trees'));
-    expect(power.map((t) => t.id)).toEqual([tree.tree.id]);
     expect(await getBalance(env.DB, learnId)).toEqual(balanceBefore);
     expect(await usageCount(learnId)).toBe(0);
 
@@ -264,7 +264,7 @@ describe('POST /api/trees/:id/copy-to-learn', () => {
     expect(again.treeId).not.toBe(res.treeId);
   });
 
-  it("only the caller's own power trees: another user's, a Learn lesson and unknown ids are 404", async () => {
+  it("only the caller's own trees: another user's and unknown ids are 404, and only from power", async () => {
     const owner = await newUser();
     const other = await newUser();
     const tree = await powerTree(owner);
@@ -275,9 +275,7 @@ describe('POST /api/trees/:id/copy-to-learn', () => {
     );
     expect((await ok<ApiError>(await copy(owner, 'nope'), 404)).error.code).toBe('not_found');
 
-    // A lesson isn't a power tree: from power it's unknown, and Learn can't send the request.
-    const { treeId } = await ok<CopyToLearnResponse>(await copy(owner, tree.tree.id), 201);
-    expect((await copy(owner, treeId)).status).toBe(404);
+    // Learn can't send the request.
     const fromLearn = await copy(owner, tree.tree.id, { learn: 'own-key' });
     expect((await ok<ApiError>(fromLearn, 400)).error.code).toBe('bad_request');
   });
@@ -342,7 +340,8 @@ describe('copying the same power tree to Learn twice', () => {
     expect([first.title, second.title]).toEqual(['Primes', 'Primes']);
 
     const lessons = await ok<TreeSummary[]>(await u.call('/api/trees', { learn: 'own-key' }));
-    expect(lessons.map((t) => t.id).sort()).toEqual([first.treeId, second.treeId].sort());
+    const all = [tree.tree.id, first.treeId, second.treeId].sort();
+    expect(lessons.map((t) => t.id).sort()).toEqual(all);
     const lesson = async (id: string) =>
       ok<TreeDetail>(await u.call(`/api/trees/${id}`, { learn: 'own-key' }));
     const a = await lesson(first.treeId);
@@ -372,9 +371,9 @@ describe('copying the same power tree to Learn twice', () => {
         .title,
     ).toBe('Primes');
     expect(await snapshot(u, tree.tree.id)).toEqual(before);
-    expect((await ok<TreeSummary[]>(await u.call('/api/trees'))).map((t) => t.id)).toEqual([
-      tree.tree.id,
-    ]);
+    expect((await ok<TreeSummary[]>(await u.call('/api/trees'))).map((t) => t.id).sort()).toEqual(
+      all,
+    );
   });
 });
 

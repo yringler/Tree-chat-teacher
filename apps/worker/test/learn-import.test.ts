@@ -80,7 +80,7 @@ const routes = (d: Pick<TreeDetail, 'branches'>) =>
   d.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode, b.funding]);
 
 describe('importing into Learn', () => {
-  it("adapts a power backup to Learn's provider, models, path context and prompt, in the Learn account", async () => {
+  it("adapts a power backup to Learn's provider, models, path context and prompt, in the user's account", async () => {
     const u = await newUser();
     const original = await powerTree(u);
     const backup = await ok<TreeBackup>(await u.call(`/api/trees/${original.tree.id}/backup`));
@@ -90,7 +90,6 @@ describe('importing into Learn', () => {
       201,
     );
     expect(lesson.tree.accountId).toBe(u.learn.accountId);
-    expect(lesson.tree.accountId).toBe(`u_${u.power.accountId.slice(2)}`);
     expect(lesson.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
     expect(routes(lesson)).toEqual([
       ['Main thread', 'openrouter', 'max', 'path', 'own-key'],
@@ -102,14 +101,16 @@ describe('importing into Learn', () => {
       ['A number with exactly two divisors.', 'ant'],
     ]);
 
-    // Stored that way, in the Learn account only.
+    // Stored that way, listed beside the original in both apps.
     const stored = await ok<TreeDetail>(
       await u.call(`/api/trees/${lesson.tree.id}`, { learn: 'own-key' }),
     );
     expect(routes(stored)).toEqual(routes(lesson));
-    const learnList = await ok<TreeSummary[]>(await u.call('/api/trees', { learn: 'credit' }));
-    expect(learnList.map((t) => t.id)).toEqual([lesson.tree.id]);
-    expect((await u.call(`/api/trees/${lesson.tree.id}`)).status).toBe(404);
+    const both = [original.tree.id, lesson.tree.id].sort();
+    for (const learn of ['credit', undefined] as const) {
+      const list = await ok<TreeSummary[]>(await u.call('/api/trees', learn ? { learn } : {}));
+      expect(list.map((t) => t.id).sort()).toEqual(both);
+    }
     const row = await env.DB.prepare('SELECT account_id FROM trees WHERE id = ?1')
       .bind(lesson.tree.id)
       .first<{ account_id: string }>();
@@ -200,8 +201,8 @@ describe('importing into Learn', () => {
     );
     const backup = await ok<TreeBackup>(res);
     expect(backup.format).toBe('tangent-tree-backup');
-    // The power app can't download it: it is the Learn account's tree.
-    expect((await u.call(`/api/trees/${created.tree.id}/backup`)).status).toBe(404);
+    // The power app downloads the same tree.
+    expect((await u.call(`/api/trees/${created.tree.id}/backup`)).status).toBe(200);
 
     const shape = (d: TreeDetail) => ({
       title: d.tree.title,

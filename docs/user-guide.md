@@ -6,7 +6,7 @@ Tangent has three apps on one sign-in. The **Power | Learn | Canvas** switch (in
 - **Learn** (`/learn/`): a tutor with nothing to configure.
 - **Canvas** (`/canvas/`): experimental. The power app's conversations as lanes on one surface.
 
-Power and Canvas share one account; Learn has its own, so power conversations and Learn lessons are kept apart. To move one across, export its JSON backup in one app and import it in the other, or use **Create a copy in Learn**.
+Power, Learn and Canvas share one account: a conversation started in one is listed and can be continued in the others.
 
 ## How Tangent answers
 

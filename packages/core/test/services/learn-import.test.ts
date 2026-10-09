@@ -23,8 +23,8 @@ class LearnProvider extends ScriptedProvider {
 
 /**
  * A power service (own keys: `ant` and `openrouter`; credit) and a Learn
- * service (its one provider, profile `learn`) over the
- * same storage, as the power (`p_`) and Learn (`u_`) accounts of one user.
+ * service (its one provider, profile `learn`) over the same storage, as two
+ * accounts so the assertions can tell each service's trees apart.
  */
 function setup() {
   const repos = createMemoryRepositories();

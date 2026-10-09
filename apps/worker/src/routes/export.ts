@@ -52,8 +52,8 @@ export function exportRoutes(): Hono<AppBindings> {
   );
   // "Create a copy in Learn", the way on for a power tree that is read-only
   // without a membership: the caller's power tree, exported by the power service (404
-  // for anyone else's), imported by the service of the same user's Learn
-  // account, so it is adapted like any import into Learn. Neither generates,
+  // for anyone else's), imported into the same account by a Learn-mode
+  // service, so it is adapted like any import into Learn. Neither generates,
   // so there is no gate: no membership, no credit, no model call. The power
   // tree is only read.
   api.post('/trees/:treeId/copy-to-learn', importLimited, async (c) => {
@@ -61,7 +61,7 @@ export function exportRoutes(): Hono<AppBindings> {
     if (account.mode !== 'power')
       throw new DomainError('bad_request', 'Only a power conversation can be copied into Learn');
     const backup = await chatOf(c).exportBackup(c.req.param('treeId'));
-    // Learn's account as Learn's own requests on the user's key resolve it: never on credit.
+    // The account as Learn's own requests on the user's key resolve it: never on credit.
     const learn = resolveAccount(c.env, identity, { mode: 'simple', payment: 'own-key' });
     const lesson = await chatService(c.env, learn, {
       defer: (p) => c.executionCtx.waitUntil(p),

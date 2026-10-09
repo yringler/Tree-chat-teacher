@@ -286,13 +286,6 @@ describe('billing summary in power mode', () => {
       status: 'settled',
       chargeMicros: 1_000_000,
     });
-    // The power account id itself holds no ledger.
-    await grantCredit(env.DB, {
-      accountId: power.id,
-      kind: 'adjustment',
-      amountMicros: 7_000_000,
-      providerRef: null,
-    });
     expect(await getBillingSummary(env, power)).toMatchObject({
       builtInCredit: true,
       balanceMicros: 2_000_000,

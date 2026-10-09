@@ -1,12 +1,5 @@
 import { DomainError } from '@tangent/core';
-import {
-  DEFAULT_ACCOUNT_ID,
-  MODE_HEADER,
-  PAYERS,
-  PAYMENT_HEADER,
-  type AccountMode,
-  type Payer,
-} from '@tangent/shared';
+import { MODE_HEADER, PAYERS, PAYMENT_HEADER, type AccountMode, type Payer } from '@tangent/shared';
 import { createMiddleware } from 'hono/factory';
 import { appConfig } from '../config.js';
 import type { AccountContext, AppBindings, AppEnv, Identity } from '../env.js';
@@ -14,38 +7,31 @@ import { ipKey, utcDay } from '../pool/ids.js';
 import { resolvePoolParams } from '../pool/params.js';
 import { builtInAvailable, poolAvailable } from '../availability.js';
 
-/** Prefix of power-mode account ids: `p_<Better Auth user id>`. */
-export const POWER_ACCOUNT_PREFIX = 'p_';
-/** Prefix of simple (Learn) account ids: `u_<Better Auth user id>`, also the user's ledger id. */
-export const SIMPLE_ACCOUNT_PREFIX = 'u_';
-/** The dev bypass's Learn account (its power account is DEFAULT_ACCOUNT_ID), and its ledger id. */
-export const DEV_SIMPLE_ACCOUNT_ID = 'default_simple';
+/** Prefix of account ids: `u_<Better Auth user id>`, also the user's ledger id. */
+export const ACCOUNT_PREFIX = 'u_';
+/** The dev bypass's account, and its ledger id. */
+export const DEV_ACCOUNT_ID = 'default_simple';
 
 /**
- * A Better Auth user's Learn account id, `u_<userId>`, which is also the
- * ledger id of their credit in both modes (`AccountContext.billingAccountId`).
+ * A Better Auth user's account id, `u_<userId>`, which is also the ledger id
+ * of their credit (`AccountContext.billingAccountId`).
  */
 export function accountIdForUser(userId: string): string {
-  return `${SIMPLE_ACCOUNT_PREFIX}${userId}`;
+  return `${ACCOUNT_PREFIX}${userId}`;
 }
 
 /**
- * The ledger id of a user's credit and usage, the same in both modes:
- * `u_<userId>`, or `default_simple` for the dev bypass (no user id).
+ * The account and ledger id of a user, the same in every mode: `u_<userId>`,
+ * or `default_simple` for the dev bypass (no user id).
  */
 export function billingAccountIdFor(userId: string | null): string {
-  return userId ? accountIdForUser(userId) : DEV_SIMPLE_ACCOUNT_ID;
+  return userId ? accountIdForUser(userId) : DEV_ACCOUNT_ID;
 }
 
-/**
- * The Better Auth user id behind an account id (`p_<userId>` / `u_<userId>`);
- * null for the dev bypass's `default` and `default_simple`.
- */
+/** The Better Auth user id behind an account id (`u_<userId>`); null for the dev bypass's. */
 export function userIdOfAccount(accountId: string): string | null {
-  for (const prefix of [POWER_ACCOUNT_PREFIX, SIMPLE_ACCOUNT_PREFIX]) {
-    if (accountId.startsWith(prefix) && accountId.length > prefix.length)
-      return accountId.slice(prefix.length);
-  }
+  if (accountId.startsWith(ACCOUNT_PREFIX) && accountId.length > ACCOUNT_PREFIX.length)
+    return accountId.slice(ACCOUNT_PREFIX.length);
   return null;
 }
 
@@ -66,14 +52,13 @@ export function accountRequest(headers: Headers): AccountRequest {
 
 /**
  * Maps the verified caller and the app it uses to the account whose data it
- * may touch, decided here and nowhere else:
- * every user has a power account `p_<userId>` and a Learn account
- * `u_<userId>`, so the two apps keep separate conversations. The ids are
- * derived, so resolving them needs no lookup and can't race. The dev bypass
- * uses `default` and `default_simple`.
+ * may touch, decided here and nowhere else: every user has one account,
+ * `u_<userId>`, whichever app the request comes from, so power, Canvas and
+ * Learn are views of the same conversations. The mode only picks how replies
+ * are generated and paid for. The id is derived, so resolving it needs no
+ * lookup and can't race. The dev bypass uses `default_simple`.
  *
- * Credit is per user: both accounts spend the ledger at `billingAccountId`
- * (`u_<userId>`, the Learn account's id, so Learn balances carry over).
+ * The account's id is also its ledger id (`billingAccountId`).
  *
  * Spending the operator's keys never follows from the request alone (see
  * AccountContext): Tangent credit needs the server to offer the built-in
@@ -97,18 +82,17 @@ export function resolveAccount(
 ): AccountContext {
   const userId = identity.userId;
   if (!identity.devMode && !userId) throw new DomainError('unauthorized', 'Sign in required');
-  const billingAccountId = billingAccountIdFor(userId);
+  const id = billingAccountIdFor(userId);
+  const ids = { id, userId, billingAccountId: id };
   if (request.mode === 'simple') {
-    const simple = { id: billingAccountId, mode: 'simple', userId, billingAccountId } as const;
+    const simple = { ...ids, mode: 'simple' } as const;
     if (request.payment === 'pool') return { ...simple, payer: 'pool', pool: null };
     const credit = request.payment === 'credit' && builtInAvailable(env);
     return { ...simple, payer: credit ? 'credit' : 'own-key' };
   }
   return {
-    id: userId ? POWER_ACCOUNT_PREFIX + userId : DEFAULT_ACCOUNT_ID,
+    ...ids,
     mode: 'power',
-    userId,
-    billingAccountId,
     creditOffered: builtInAvailable(env),
     operatorKeys: identity.devMode,
   };
