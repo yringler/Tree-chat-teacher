@@ -2,7 +2,6 @@ import '@angular/compiler'; // JIT: the component metadata below.
 import { compareUsageNote, FORBIDDEN_POOL_COPY, maxUsageNote } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { CompareDialog } from './chat/compare-dialog';
-import { Composer } from './chat/composer';
 import { FundingToggle, FUNDING_OPTIONS } from './chat/funding-toggle';
 import { ModelToggle } from './chat/model-toggle';
 import { HomePage } from './home/home-page';
@@ -82,11 +81,5 @@ describe('Learn copy rule (Normal and Max)', () => {
     expect(t).toMatch(
       /@if \(unlisted\(\); as hint\) \{\s*<span class="model-locked muted small">\{\{ hint \}\}<\/span>/,
     );
-  });
-
-  it('the composer offers Compare beside Send, saying it uses both', () => {
-    const t = templateOf(Composer);
-    expect(t).toContain('title="Ask Normal and Max, then keep one answer (uses both)"');
-    expect(t).toContain('<span class="hide-narrow">Compare</span>');
   });
 });

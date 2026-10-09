@@ -17,7 +17,13 @@ import type {
   TreeBackupInput,
   UpdateTreeRequest,
 } from '@tangent/shared';
-import { ApiClient, errorMessage, PowerConversationStore, ToastStore } from '@tangent/web-shared';
+import {
+  ApiClient,
+  ComposerController,
+  errorMessage,
+  PowerConversationStore,
+  ToastStore,
+} from '@tangent/web-shared';
 import { generationLimits, SettingsStore } from './settings-store';
 import { UiStore } from './ui-store';
 
@@ -30,6 +36,7 @@ import { UiStore } from './ui-store';
 @Injectable({ providedIn: 'root' })
 export class TreeStore extends PowerConversationStore<ApiClient> {
   private readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
   private readonly toast = inject(ToastStore);
   private readonly appSettings = inject(SettingsStore);
 
@@ -166,7 +173,7 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     const branch = await this.addBranch(req);
     if (branch) {
       this.go(branch.id);
-      this.ui.focusComposer();
+      this.composer.focus();
     }
     return branch;
   }
@@ -256,8 +263,8 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     return generationLimits(this.appSettings.settings());
   }
 
-  protected override sent(_branchId: string, content: string): void {
-    this.ui.markSent(content);
+  protected override sent(branchId: string, content: string): void {
+    this.composer.sent(branchId, content);
   }
 
   protected override branchesRemoved(
@@ -286,7 +293,7 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
 
   protected override movedToCredit(branch: Branch, modelLabel: string): void {
     this.toast.notify(`“${branch.title}” now uses Tangent credit (${modelLabel})`);
-    this.ui.focusComposer();
+    this.composer.focus();
   }
 
   fail(err: unknown): void {

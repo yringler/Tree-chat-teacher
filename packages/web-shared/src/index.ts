@@ -97,6 +97,7 @@ export {
 
 // UI
 export { Compare, type CompareCandidate } from './ui/compare';
+export { Composer, ComposerController } from './ui/composer';
 export { CONTEXT_MODE_META, type ContextModeMeta } from './ui/context-mode';
 export { Icon, type IconName } from './ui/icon';
 export { Toasts, ToastStore, type Toast, type ToastLink } from './ui/toasts';

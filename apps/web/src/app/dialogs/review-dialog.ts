@@ -10,7 +10,14 @@ import {
 import { plainText } from '@tangent/shared';
 import { parseReview, parseRouteKey, routeKey, type BranchFunding } from '@tangent/shared';
 import { copyText } from '../core/selection';
-import { Icon, MarkdownService, Modal, ToastStore, TypesetMath } from '@tangent/web-shared';
+import {
+  ComposerController,
+  Icon,
+  MarkdownService,
+  Modal,
+  ToastStore,
+  TypesetMath,
+} from '@tangent/web-shared';
 import { ReviewStore } from '../state/review-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
@@ -142,6 +149,7 @@ export class ReviewDialog implements OnInit {
   protected readonly store = inject(TreeStore);
   protected readonly reviews = inject(ReviewStore);
   protected readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
   private readonly toast = inject(ToastStore);
   private readonly md = inject(MarkdownService);
 
@@ -207,7 +215,7 @@ export class ReviewDialog implements OnInit {
   protected sendCorrections(): void {
     const r = this.review();
     if (!r) return;
-    this.ui.insertIntoComposer(
+    this.composer.insert(
       `A reviewer (${this.labelOf(r, r.model)}) checked your earlier answer and ` +
         `flagged the following. Please correct course where they are right:\n\n${this.parsed().body}`,
     );

@@ -10,8 +10,7 @@ import {
   type PoolStatusResponse,
   type TreeSummary,
 } from '@tangent/shared';
-import { Icon, PoolMeter } from '@tangent/web-shared';
-import { Composer } from '../chat/composer';
+import { Composer, Icon, PoolMeter } from '@tangent/web-shared';
 import { lessonTitle } from '../chat/titles';
 import { ModelToggle } from '../chat/model-toggle';
 import { KeyLockedNotice } from '../chat/key-locked-notice';
@@ -58,6 +57,7 @@ import { UiStore } from '../state/ui-store';
         </p>
         <form class="form" (submit)="$event.preventDefault(); start()">
           <app-composer
+            [maxHeight]="280"
             inputId="new-lesson-topic"
             label="Topic or first question"
             placeholder="e.g. Why is the sky blue?"

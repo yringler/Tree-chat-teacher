@@ -16,6 +16,7 @@ import {
   ApiError,
   Compare,
   CompareRun,
+  ComposerController,
   MarkdownService,
   Modal,
   ToastStore,
@@ -70,6 +71,7 @@ export class CompareDialog implements OnInit {
   private readonly tiers = inject(TierStore);
   private readonly settings = inject(SettingsStore);
   private readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
   private readonly toast = inject(ToastStore);
   private readonly md = inject(MarkdownService);
 
@@ -145,7 +147,7 @@ export class CompareDialog implements OnInit {
     try {
       const result = await run.commit(id);
       this.store.applyCommitted(result);
-      this.ui.markSent(run.question);
+      this.composer.sent(this.branchId(), run.question);
       this.close();
     } catch (err) {
       if (err instanceof ApiError && OUT_OF_DATE.has(err.status)) {

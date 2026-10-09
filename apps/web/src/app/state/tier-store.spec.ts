@@ -13,12 +13,19 @@ import { DEFAULT_SETTINGS, type AppSettings, SettingsStore } from './settings-st
 import { TierStore, tierOptions } from './tier-store';
 import { TreeStore } from './tree-store';
 import { UiStore } from './ui-store';
-import { ToastStore } from '@tangent/web-shared';
+import { ComposerController, ToastStore } from '@tangent/web-shared';
 
 const PRO = 'deepseek/deepseek-v4-pro';
 const SONNET = 'anthropic/claude-sonnet-5.5';
 
 /** An OpenRouter entry listing both tiers (power's suggestions, or Tangent credit). */
+/** The composer controller, its calls recorded. */
+function spyComposer(c: ComposerController): ComposerController {
+  vi.spyOn(c, 'sent');
+  vi.spyOn(c, 'focus');
+  return c;
+}
+
 function entry(funding: BranchFunding, over: Partial<ProviderInfo> = {}): ProviderInfo {
   return {
     id: 'openrouter',
@@ -107,6 +114,7 @@ function setup(
     providers: [
       { provide: TierStore },
       { provide: UiStore },
+      { provide: ComposerController },
       { provide: ToastStore },
       { provide: TreeStore, useValue: tree },
       { provide: SettingsStore, useValue: settings },
@@ -115,6 +123,7 @@ function setup(
   return {
     tiers: injector.get(TierStore),
     ui: injector.get(UiStore),
+    composer: spyComposer(injector.get(ComposerController)),
     toasts: injector.get(ToastStore),
     providers,
     settings,
@@ -265,7 +274,7 @@ describe('TierStore tierOfBranch, available and usageFactor', () => {
 describe('TierStore switchTier', () => {
   it('moves the branch onto the tier, says so and focuses the composer', async () => {
     const s = setup();
-    const focus = s.ui.composerFocus();
+    vi.mocked(s.composer.focus).mockClear();
     await expect(s.tiers.switchTier('b1', 'max')).resolves.toBe(true);
     expect(s.updateBranch).toHaveBeenCalledWith('b1', {
       providerId: 'openrouter',
@@ -273,7 +282,7 @@ describe('TierStore switchTier', () => {
       model: SONNET,
     });
     expect(s.toasts.toasts().at(-1)?.text).toBe('Replies now on Max');
-    expect(s.ui.composerFocus()).toBe(focus + 1);
+    expect(s.composer.focus).toHaveBeenCalledTimes(1);
   });
 
   it('sends the own key as such, and does nothing for an unknown branch', async () => {

@@ -13,6 +13,7 @@ import type {
 } from '@tangent/shared';
 import {
   ApiClient,
+  ComposerController,
   errorMessage,
   membershipBlocks,
   PowerConversationStore,
@@ -86,6 +87,7 @@ export function modelLabel(
 @Injectable({ providedIn: 'root' })
 export class CanvasStore extends PowerConversationStore<ApiClient> {
   private readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
   private readonly toast = inject(ToastStore);
 
   constructor() {
@@ -233,7 +235,7 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
     const branch = await this.addBranch(req);
     if (branch && open) {
       this.go(branch.id);
-      this.ui.focusComposer(branch.id);
+      this.composer.focus(branch.id);
     }
     return branch;
   }
@@ -275,7 +277,7 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
     if (message) {
       for (const b of created) void this.send(b.id, message);
     } else {
-      this.ui.focusComposer(first.id);
+      this.composer.focus(first.id);
     }
     return created;
   }
@@ -380,7 +382,7 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
 
   protected override sent(branchId: string, content: string): void {
     // In the tree now: the lane's box may let the text go.
-    this.ui.markSent(branchId, content);
+    this.composer.sent(branchId, content);
   }
 
   protected notify(text: string, kind?: 'info' | 'error'): void {

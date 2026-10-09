@@ -17,11 +17,18 @@ import type {
   UpdateBranchRequest,
 } from '@tangent/shared';
 import { providerRouteKey } from '@tangent/shared';
-import { ApiClient, ApiError, ToastStore } from '@tangent/web-shared';
+import { ApiClient, ApiError, ComposerController, ToastStore } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeStore } from './tree-store';
 import { SettingsStore } from './settings-store';
 import { UiStore } from './ui-store';
+
+/** The composer controller, its calls recorded. */
+function spyComposer(c: ComposerController): ComposerController {
+  vi.spyOn(c, 'sent');
+  vi.spyOn(c, 'focus');
+  return c;
+}
 
 function membership(over: Partial<MembershipInfo> = {}): MembershipInfo {
   return {
@@ -72,6 +79,7 @@ function setup() {
     providers: [
       { provide: TreeStore },
       { provide: UiStore },
+      { provide: ComposerController },
       { provide: ToastStore },
       { provide: SettingsStore },
       { provide: ApiClient, useValue: api },
@@ -81,6 +89,7 @@ function setup() {
   return {
     store: injector.get(TreeStore),
     ui: injector.get(UiStore),
+    composer: spyComposer(injector.get(ComposerController)),
     toasts: injector.get(ToastStore),
     settings: injector.get(SettingsStore),
     api,
@@ -421,7 +430,7 @@ describe('TreeStore read-only power without a membership', () => {
       expect(s.store.unsentDrafts().get('trunk')).toBe('Why primes?');
       expect(s.ui.dialogs.get('keys')).toEqual({ kind: 'keys', provider: 'openrouter' });
       // Nothing reached the tree: the composer keeps the text.
-      expect(s.ui.composerSent()).toBeNull();
+      expect(s.composer.sent).not.toHaveBeenCalled();
     });
 
     it('"Continue on Tangent credit" moves the branch onto credit and sends the message there', async () => {
@@ -548,7 +557,7 @@ describe('TreeStore read-only power without a membership', () => {
       );
       await s.store.send('side', 'And twins?');
       expect(s.store.unsentDrafts().has('side')).toBe(false);
-      expect(s.ui.composerSent()).toEqual({ seq: 1, text: 'And twins?' });
+      expect(s.composer.sent).toHaveBeenCalledWith('side', 'And twins?');
     });
   });
 });
@@ -810,7 +819,7 @@ describe('TreeStore branching with a first message', () => {
 
   it('"Ask about this" opens a path branch quoting the selection, ready to type and unsent', async () => {
     const s = open();
-    const before = s.ui.composerFocus();
+    vi.mocked(s.composer.focus).mockClear();
     const branch = await s.store.createBranch({
       fromNodeId: 'a1',
       contextMode: 'path',
@@ -823,7 +832,7 @@ describe('TreeStore branching with a first message', () => {
       anchorQuote: 'a wave',
     });
     expect(s.go).toHaveBeenCalledWith('side');
-    expect(s.ui.composerFocus()).toBe(before + 1);
+    expect(s.composer.focus).toHaveBeenCalledTimes(1);
     expect(s.sendMessage).not.toHaveBeenCalled();
   });
 

@@ -11,14 +11,19 @@ import {
 } from '@angular/core';
 import { branchLeaf } from '@tangent/core/tree';
 import type { ChatNode } from '@tangent/shared';
-import { CONTEXT_MODE_META, Icon, ReadOnlyComposer, TextSizeStore } from '@tangent/web-shared';
+import {
+  Composer,
+  CONTEXT_MODE_META,
+  Icon,
+  ReadOnlyComposer,
+  TextSizeStore,
+} from '@tangent/web-shared';
 import type { LanePlacement } from '../layout/layout';
 import { LayoutStore } from '../layout/layout-store';
 import { CanvasStore, modelLabel, type Lineage } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 import { Card, type Lit } from './card';
 import { confirmDeleteLane } from './delete-lane';
-import { LaneComposer } from './lane-composer';
 import { laneTitle } from './titles';
 
 /**
@@ -30,7 +35,7 @@ import { laneTitle } from './titles';
  */
 @Component({
   selector: 'app-lane',
-  imports: [Icon, Card, LaneComposer, ReadOnlyComposer],
+  imports: [Icon, Card, Composer, ReadOnlyComposer],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let b = place().branch;
@@ -164,13 +169,17 @@ import { laneTitle } from './titles';
           (pointerdown)="$event.stopPropagation()"
         />
       } @else {
-        <app-lane-composer
+        <!-- Typing in the box neither selects the lane nor starts a pan. -->
+        <app-composer
           [inputId]="'composer-' + b.id"
-          [laneId]="b.id"
+          [branchId]="b.id"
+          [compact]="true"
+          [maxHeight]="220"
           [placeholder]="nodes().length === 0 ? 'Ask here…' : 'Continue this lane…'"
           [disabled]="busy()"
           [busy]="streaming() !== null"
-          [selected]="selected"
+          [current]="selected"
+          (pointerdown)="boxDown($event)"
           [initial]="store.unsentDrafts().get(b.id) ?? ''"
           (send)="send($event)"
           (stop)="stop()"
@@ -274,6 +283,11 @@ export class Lane implements OnDestroy {
   }
 
   /** Pointer down anywhere on the lane selects it, without moving the camera mid-gesture. */
+  /** A pointer down in the lane's text box stays there: no lane select, no pan. */
+  protected boxDown(e: PointerEvent): void {
+    if (e.target instanceof HTMLTextAreaElement) e.stopPropagation();
+  }
+
   protected select(): void {
     if (this.isSelected()) return;
     const id = this.place().branch.id;

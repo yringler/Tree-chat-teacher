@@ -15,12 +15,13 @@ import { RouterLink } from '@angular/router';
 import { clip, type Branch, type ChatNode, type MembershipInfo } from '@tangent/shared';
 import { describeEndpoint } from '@tangent/core';
 import {
+  Composer,
   endpointTitle,
   Icon,
   PendingQuote,
   ReadOnlyComposer,
-  SelectionAsk,
   selectedMessageQuote,
+  SelectionAsk,
   TextSizeStore,
   type MessageQuote,
 } from '@tangent/web-shared';
@@ -30,7 +31,6 @@ import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ModeBadge } from '../ui/mode-badge';
 import { ChatHeader } from './chat-header';
-import { Composer } from './composer';
 import { MessageItem } from './message-item';
 import { RouteBar } from './route-bar';
 

@@ -17,28 +17,12 @@ export type Dialog =
   | { kind: 'connect'; sourceNodeId: string }
   | { kind: 'compare'; branchId: string; content: string };
 
-/** View state that is not part of the URL: the account menu, dialogs, composer focus requests. */
+/** View state that is not part of the URL: the account menu and dialogs. */
 @Injectable({ providedIn: 'root' })
 export class UiStore {
   readonly menuOpen = signal(false);
   /** The open dialogs (`Dialog`), top-most last. */
   readonly dialogs = new Overlays<Dialog>();
-  /** Bumped to ask the composer to take focus. */
-  readonly composerFocus = signal(0);
-  /**
-   * A message that reached the server (its reply started): a composer still
-   * holding exactly that text lets it go. Until then the text stays, so a
-   * refused or failed send never loses it.
-   */
-  readonly composerSent = signal<{ seq: number; text: string } | null>(null);
-
-  markSent(text: string): void {
-    this.composerSent.update((cur) => ({ seq: (cur?.seq ?? 0) + 1, text }));
-  }
-
-  focusComposer(): void {
-    this.composerFocus.update((n) => n + 1);
-  }
 
   /** Escape: closes the top-most dialog, else the account menu. Returns true if something closed. */
   closeTop(): boolean {

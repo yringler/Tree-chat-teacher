@@ -89,8 +89,6 @@ export class UiStore {
   readonly lineage = signal(true);
   /** Lanes whose subtree is folded into a capsule. */
   readonly collapsed = signal<ReadonlySet<string>>(new Set());
-  /** Bumped to ask the selected lane's composer to take focus. */
-  readonly composerFocus = signal(0);
   /** The lines between linked messages (and their glyphs) are drawn. */
   readonly showLinks = signal(true);
   readonly linkPick = signal<LinkPickState | null>(null);
@@ -98,28 +96,6 @@ export class UiStore {
   /** The link whose glyph was clicked: its popover (ends, note, remove). */
   readonly linkPopover = signal<{ linkId: string } | null>(null);
   readonly linkReturn = signal<LinkReturn | null>(null);
-  /**
-   * The lane the last focus request is for, when it names one: a lane just
-   * created isn't on the canvas yet when it is asked, so its composer takes
-   * the request once it renders (LaneComposer).
-   */
-  composerFocusLane: string | null = null;
-  /**
-   * A lane's message reached the server (its reply started): the lane's box,
-   * still holding exactly that text, lets it go. Until then the text stays,
-   * so a refused or failed send never loses it.
-   */
-  readonly composerSent = signal<{ seq: number; laneId: string; text: string } | null>(null);
-
-  /** Focus the selected lane's composer, or `laneId`'s (also once it first renders). */
-  focusComposer(laneId: string | null = null): void {
-    this.composerFocusLane = laneId;
-    this.composerFocus.update((n) => n + 1);
-  }
-
-  markSent(laneId: string, text: string): void {
-    this.composerSent.update((cur) => ({ seq: (cur?.seq ?? 0) + 1, laneId, text }));
-  }
 
   acknowledgeExperimental(): void {
     this.experimentalAck.set(true);

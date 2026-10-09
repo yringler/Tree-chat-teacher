@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import { branchLeaf, type TreeIndex } from '@tangent/core/tree';
-import { dispatchShortcut, type ShortcutHelp } from '@tangent/web-shared';
+import { ComposerController, dispatchShortcut, type ShortcutHelp } from '@tangent/web-shared';
 import { LayoutStore } from '../layout/layout-store';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
@@ -28,6 +28,7 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
 export class Keyboard {
   private readonly store = inject(CanvasStore);
   private readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
   private readonly geo = inject(LayoutStore);
 
   /** On an open tree only, with its index and the selected lane. */
@@ -72,7 +73,7 @@ export class Keyboard {
     '=': this.onTree(() => this.geo.zoomStep(1)),
     '-': this.onTree(() => this.geo.zoomStep(-1)),
     _: this.onTree(() => this.geo.zoomStep(-1)),
-    '/': this.onTree(() => this.ui.focusComposer()),
+    '/': this.onTree(() => this.composer.focus()),
   };
 
   handle(e: KeyboardEvent): void {

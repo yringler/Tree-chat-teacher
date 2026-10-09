@@ -10,7 +10,12 @@ import {
   type ModelTier,
   type ProviderInfo,
 } from '@tangent/shared';
-import { suggestionText, ToastStore, type SegmentedOption } from '@tangent/web-shared';
+import {
+  ComposerController,
+  suggestionText,
+  ToastStore,
+  type SegmentedOption,
+} from '@tangent/web-shared';
 import { type ModelChoice, SettingsStore } from './settings-store';
 import { TreeStore } from './tree-store';
 import { UiStore } from './ui-store';
@@ -56,6 +61,7 @@ export class TierStore {
   private readonly tree = inject(TreeStore);
   private readonly settings = inject(SettingsStore);
   private readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
   private readonly toast = inject(ToastStore);
 
   /**
@@ -174,7 +180,7 @@ export class TierStore {
         ? ` (${this.tree.account.providerOf(target)?.label ?? target.providerId})`
         : '';
       this.toast.notify(`Replies now on ${TIER_LABELS[tier]}${where}`);
-      this.ui.focusComposer();
+      this.composer.focus();
     }
     return ok;
   }

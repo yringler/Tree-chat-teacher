@@ -21,7 +21,13 @@ import type {
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
-import { ApiClient, ApiError, SAVE_FILE, ToastStore } from '@tangent/web-shared';
+import {
+  ApiClient,
+  ApiError,
+  ComposerController,
+  SAVE_FILE,
+  ToastStore,
+} from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
 import { COMPARE_OUT_OF_DATE_MESSAGE, LessonStore, OUT_OF_CREDIT_MESSAGE } from './lesson-store';
@@ -29,6 +35,13 @@ import { PaymentStore } from './payment-store';
 import { UiStore } from './ui-store';
 
 const T = '2026-01-01T00:00:00.000Z';
+
+/** The composer controller, its calls recorded. */
+function spyComposer(c: ComposerController): ComposerController {
+  vi.spyOn(c, 'sent');
+  vi.spyOn(c, 'focus');
+  return c;
+}
 
 function branch(id: string, over: Partial<Branch> = {}): Branch {
   return {
@@ -270,6 +283,7 @@ function setup() {
     providers: [
       { provide: LessonStore },
       { provide: UiStore },
+      { provide: ComposerController },
       { provide: ToastStore },
       { provide: AccountStore },
       { provide: PaymentStore },
@@ -280,8 +294,9 @@ function setup() {
   });
   const store = injector.get(LessonStore);
   const ui = injector.get(UiStore);
+  const composer = spyComposer(injector.get(ComposerController));
   const toasts = injector.get(ToastStore);
-  return { store, ui, toasts, api, router, injector, saveFile };
+  return { store, ui, composer, toasts, api, router, injector, saveFile };
 }
 
 /** Opens lesson t1 at `branchId` and waits for it to load. */
@@ -327,10 +342,10 @@ describe('LessonStore', () => {
     const sending = s.store.send('trunk', 'What is light?');
     expect(s.store.busy()).toBe(true);
     // The composer keeps the text until the message is in the lesson.
-    expect(s.ui.composerSent()).toBeNull();
+    expect(s.composer.sent).not.toHaveBeenCalled();
 
     await vi.waitFor(() => expect(s.store.live().get('a1')?.status).toBe('Thinking…'));
-    expect(s.ui.composerSent()).toEqual({ seq: 1, text: 'What is light?' });
+    expect(s.composer.sent).toHaveBeenCalledWith('trunk', 'What is light?');
     expect(s.store.streamingNode()?.id).toBe('a1');
     expect(s.store.sending().size).toBe(0);
 
@@ -578,7 +593,7 @@ describe('LessonStore', () => {
     expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still generating' });
     // Nothing was written: the message is offered back, not lost.
     expect(s.store.unsentDraft()).toEqual({ treeId: 't1', branchId: 'trunk', text: 'Hi' });
-    expect(s.ui.composerSent()).toBeNull();
+    expect(s.composer.sent).not.toHaveBeenCalled();
   });
 
   it('"Ask about this" branches with the quote, path context and the current model', async () => {
@@ -597,7 +612,7 @@ describe('LessonStore', () => {
     expect(created?.id).toBe('side');
     expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't1', 'b', 'side'], { queryParams: {} });
     expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['side']);
-    expect(s.ui.composerFocus()).toBe(1);
+    expect(s.composer.focus).toHaveBeenCalledTimes(1);
 
     // Following the route into the side question; back goes to the branch point.
     s.store.setRoute('t1', 'side', null);
@@ -727,7 +742,7 @@ describe('LessonStore', () => {
       expect(s.store.live().size).toBe(0);
       expect(s.store.streamingNode()).toBeNull();
       // The composer lets the question go, and the lesson list is refreshed (auto-title).
-      expect(s.ui.composerSent()).toMatchObject({ text: question });
+      expect(s.composer.sent).toHaveBeenCalledWith(expect.any(String), question);
       await vi.waitFor(() => expect(s.api.listTrees).toHaveBeenCalled());
     });
 
@@ -747,7 +762,7 @@ describe('LessonStore', () => {
         text: COMPARE_OUT_OF_DATE_MESSAGE,
       });
       expect(s.store.path()).toEqual([]);
-      expect(s.ui.composerSent()).toBeNull();
+      expect(s.composer.sent).not.toHaveBeenCalled();
       expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
     });
 

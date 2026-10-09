@@ -1,5 +1,10 @@
 import { inject, Injectable } from '@angular/core';
-import { dispatchShortcut, TextSizeStore, type ShortcutHelp } from '@tangent/web-shared';
+import {
+  ComposerController,
+  dispatchShortcut,
+  TextSizeStore,
+  type ShortcutHelp,
+} from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { selectionWithin } from './selection';
@@ -25,6 +30,7 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
 export class Keyboard {
   private readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
   private readonly textSize = inject(TextSizeStore);
 
   /** On an open conversation only. */
@@ -70,7 +76,7 @@ export class Keyboard {
       this.ui.dialogs.open({ kind: 'link', fromNodeId: node.id });
       return true;
     },
-    '/': () => this.ui.focusComposer(),
+    '/': () => this.composer.focus(),
     i: this.onTree(() => this.ui.toggleInspector()),
     // Text size: plain keys, so Ctrl/Cmd +/-/0 stay the browser's zoom. `=` is `+` unshifted.
     '+': this.onTree(() => this.textSize.increase()),

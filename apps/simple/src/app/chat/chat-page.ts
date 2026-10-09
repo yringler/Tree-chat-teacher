@@ -16,11 +16,12 @@ import { RouterLink } from '@angular/router';
 import { describeEndpoint } from '@tangent/core/links';
 import { maxUsageNote, tierModel, tierOf, type Branch, type ChatNode } from '@tangent/shared';
 import {
+  Composer,
   Icon,
   PendingQuote,
   PoolBlockNotice,
-  SelectionAsk,
   selectedMessageQuote,
+  SelectionAsk,
   TextSizeMenu,
   TextSizeStore,
   type MessageQuote,
@@ -29,7 +30,6 @@ import { BRAND } from '../brand';
 import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
-import { Composer } from './composer';
 import { connectionTitleOf } from './connections';
 import { confirmDeleteSideQuestion } from './delete-side-question';
 import { FundingToggle, type FundingOption } from './funding-toggle';

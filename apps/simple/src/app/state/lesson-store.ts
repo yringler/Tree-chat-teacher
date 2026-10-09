@@ -18,6 +18,7 @@ import {
   ApiError,
   backupFile,
   CompareRun,
+  ComposerController,
   ConversationStore,
   errorMessage,
   isMembershipRequired,
@@ -96,6 +97,7 @@ export type CompareCommitOutcome = 'kept' | 'out-of-date' | 'refused' | 'failed'
 @Injectable({ providedIn: 'root' })
 export class LessonStore extends ConversationStore<ApiClient> {
   private readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
   private readonly toast = inject(ToastStore);
   private readonly account = inject(AccountStore);
   private readonly saveFile = inject(SAVE_FILE);
@@ -240,7 +242,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
       });
       const first = topic.trim();
       if (first) void this.send(detail.tree.trunkBranchId, first);
-      else this.ui.focusComposer();
+      else this.composer.focus();
       return true;
     } catch (err) {
       this.fail(err);
@@ -313,7 +315,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
     });
     if (branch) {
       this.go(branch.id);
-      this.ui.focusComposer();
+      this.composer.focus();
     }
     return branch;
   }
@@ -397,8 +399,8 @@ export class LessonStore extends ConversationStore<ApiClient> {
     if (this.poolBlock()?.branchId === branchId) this.poolBlock.set(null);
   }
 
-  protected override sent(_branchId: string, content: string): void {
-    this.ui.markSent(content);
+  protected override sent(branchId: string, content: string): void {
+    this.composer.sent(branchId, content);
   }
 
   protected override sendFailed(err: unknown, s: FailedSend): void {
@@ -465,7 +467,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
     }
     if (this.unsentDraft()?.branchId === run.branchId) this.setUnsent(null);
     if (this.poolBlock()?.branchId === run.branchId) this.poolBlock.set(null);
-    this.ui.markSent(run.question);
+    this.composer.sent(run.branchId, run.question);
     this.applyCommitted(res);
     return 'kept';
   }

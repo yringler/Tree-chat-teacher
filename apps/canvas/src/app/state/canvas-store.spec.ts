@@ -17,12 +17,19 @@ import type {
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
-import { ApiClient, ApiError, ToastStore } from '@tangent/web-shared';
+import { ApiClient, ApiError, ComposerController, ToastStore } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CanvasStore, modelLabel } from './canvas-store';
 import { UiStore } from './ui-store';
 
 const T = '2026-01-01T00:00:00.000Z';
+
+/** The composer controller, its calls recorded. */
+function spyComposer(c: ComposerController): ComposerController {
+  vi.spyOn(c, 'sent');
+  vi.spyOn(c, 'focus');
+  return c;
+}
 
 function branch(id: string, over: Partial<Branch> = {}): Branch {
   return {
@@ -178,6 +185,7 @@ function setup() {
     providers: [
       { provide: CanvasStore },
       { provide: UiStore },
+      { provide: ComposerController },
       { provide: ToastStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: router },
@@ -185,7 +193,14 @@ function setup() {
   });
   const store = injector.get(CanvasStore);
   store.detail.set(detail());
-  return { store, api, router, ui: injector.get(UiStore), toasts: injector.get(ToastStore) };
+  return {
+    store,
+    api,
+    router,
+    ui: injector.get(UiStore),
+    composer: spyComposer(injector.get(ComposerController)),
+    toasts: injector.get(ToastStore),
+  };
 }
 
 describe('CanvasStore', () => {
@@ -269,7 +284,7 @@ describe('CanvasStore', () => {
     const s = setup();
     const createBranch = lanes(s);
     const go = vi.spyOn(s.store, 'go');
-    const before = s.ui.composerFocus();
+    vi.mocked(s.composer.focus).mockClear();
     const lane = await s.store.createBranch({
       fromNodeId: 'a1',
       contextMode: 'path',
@@ -282,8 +297,7 @@ describe('CanvasStore', () => {
     });
     expect(go).toHaveBeenCalledWith('c1');
     // The new lane isn't on the canvas yet: the request names it, for its box to take once rendered.
-    expect(s.ui.composerFocus()).toBe(before + 1);
-    expect(s.ui.composerFocusLane).toBe(lane?.id);
+    expect(s.composer.focus).toHaveBeenCalledWith(lane?.id);
     expect(s.api.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -542,7 +556,7 @@ describe('CanvasStore read-only lanes without a membership', () => {
     expect(s.ui.dialogs.isOpen('keys')).toBe(true);
     expect(s.store.blockedBranch()?.id).toBe('trunk');
     expect(s.store.unsentDrafts().get('trunk')).toBe('Why green?');
-    expect(s.ui.composerSent()).toBeNull();
+    expect(s.composer.sent).not.toHaveBeenCalled();
 
     await expect(s.store.resumeOnCredit()).resolves.toBe(true);
     expect(updateBranch).toHaveBeenCalledWith('trunk', {

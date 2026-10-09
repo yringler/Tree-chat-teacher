@@ -114,6 +114,8 @@
           />
         } @else {
           <app-composer
+            sendLabel="Send message"
+            stopLabel="Stop generating"
             [placeholder]="placeholder()"
             [initial]="initialDraft()"
             [disabled]="store.busy()"

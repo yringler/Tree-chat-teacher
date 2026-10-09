@@ -2,7 +2,13 @@ import '@angular/compiler'; // JIT: the component metadata and the DI below.
 import { Injector, runInInjectionContext } from '@angular/core';
 import { Router } from '@angular/router';
 import type { TreeSummary } from '@tangent/shared';
-import { ApiClient, ApiError, DEMO_MODE, ToastStore } from '@tangent/web-shared';
+import {
+  ApiClient,
+  ApiError,
+  ComposerController,
+  DEMO_MODE,
+  ToastStore,
+} from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeSettings } from '../dialogs/tree-settings';
 import { Sidebar } from '../sidebar/sidebar';
@@ -50,6 +56,7 @@ function setup() {
     providers: [
       { provide: TreeStore },
       { provide: UiStore },
+      { provide: ComposerController },
       { provide: ToastStore },
       { provide: SettingsStore },
       { provide: ApiClient, useValue: api },
