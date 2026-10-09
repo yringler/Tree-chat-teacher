@@ -551,6 +551,7 @@ describe('TreeStore read-only power without a membership', () => {
             userNode,
             assistantNode: { ...reply, status: 'streaming' },
             branch: side,
+            funding: 'own-key',
           },
           { type: 'done', node: { ...reply, content: 'Yes.' }, branch: side },
         ]),

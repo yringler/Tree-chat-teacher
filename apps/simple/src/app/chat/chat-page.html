@@ -148,24 +148,24 @@
     @if (poolBlock(); as block) {
       <app-pool-block-notice
         [block]="block"
-        [creditOpen]="account.creditOnSale()"
+        [creditOpen]="funding.creditOnSale()"
         billingPath="/billing"
         (dismissed)="store.dismissPoolBlock()"
       />
     }
-    @if (account.membershipBlocked()) {
+    @if (funding.membershipBlocked()) {
       <!-- The own key needs a membership the learner lacks: the ways out, not a composer. -->
       <app-key-locked-notice />
     } @else {
       @if (maxNote(); as note) {
         <p class="tier-note" role="status">{{ note }}</p>
       }
-      @if (account.fundingChoice()) {
+      @if (funding.fundingChoice()) {
         <app-segmented
           class="funding-toggle"
           label="Pay for replies with"
           [options]="fundingOptions"
-          [value]="funding()"
+          [value]="fundingOption()"
           [disabled]="store.busy()"
           (changed)="chooseFunding($event)"
         />

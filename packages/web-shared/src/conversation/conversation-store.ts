@@ -19,6 +19,7 @@ import type {
   CreateTreeRequest,
   DeleteBranchResponse,
   NodeLink,
+  Payer,
   SendMessageRequest,
   StreamEvent,
   TreeDetail,
@@ -242,8 +243,11 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   /** A send into `branchId` starts: what waited for that branch to send again goes. */
   protected sendStarting(_branchId: string, _options: SendOptions): void {}
 
-  /** The message is in the tree now: the composer may let its text go. */
-  protected sent(_branchId: string, _content: string): void {}
+  /**
+   * The message is in the tree now: the composer may let its text go.
+   * `funding`: who the server says pays for the reply.
+   */
+  protected sent(_branchId: string, _content: string, _funding: Payer): void {}
 
   /** A send failed; by default the app's error policy reports it. */
   protected sendFailed(err: unknown, _send: FailedSend): void {
@@ -645,7 +649,7 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
             nodeId = event.assistantNode.id;
             this.controllers.set(nodeId, ctrl);
             this.markSending(branchId, false);
-            this.sent(branchId, content);
+            this.sent(branchId, content, event.funding);
           }
           this.apply(event, nodeId);
         },
@@ -681,7 +685,7 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
    */
   applyCommitted(result: CommitCandidateResponse): void {
     const { userNode, assistantNode, branch } = result;
-    this.apply({ type: 'start', userNode, assistantNode, branch }, null);
+    this.startReply(userNode, assistantNode, branch);
     this.apply({ type: 'done', node: assistantNode, branch }, assistantNode.id);
     this.finish(assistantNode.id, { kind: 'done' });
   }
@@ -774,16 +778,7 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   protected apply(event: StreamEvent, streamNodeId: string | null): void {
     switch (event.type) {
       case 'start':
-        this.applyNodes([event.userNode, event.assistantNode]);
-        this.applyBranch(event.branch);
-        this.setLive({
-          nodeId: event.assistantNode.id,
-          treeId: event.assistantNode.treeId,
-          branchId: event.assistantNode.branchId,
-          content: event.assistantNode.content,
-          status: null,
-          reconnecting: false,
-        });
+        this.startReply(event.userNode, event.assistantNode, event.branch);
         break;
       case 'snapshot':
         this.patchLive(event.node.id, { content: event.node.content, reconnecting: false });
@@ -818,6 +813,20 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   }
 
   /** Marks a reply failed, keeping the text it streamed. */
+  /** A reply begins: the message and the reply join the tree, and the reply goes live. */
+  private startReply(userNode: ChatNode, assistantNode: ChatNode, branch: Branch): void {
+    this.applyNodes([userNode, assistantNode]);
+    this.applyBranch(branch);
+    this.setLive({
+      nodeId: assistantNode.id,
+      treeId: assistantNode.treeId,
+      branchId: assistantNode.branchId,
+      content: assistantNode.content,
+      status: null,
+      reconnecting: false,
+    });
+  }
+
   protected markError(nodeId: string, message: string): void {
     const node = this.index()?.nodes.get(nodeId);
     if (node)

@@ -32,10 +32,10 @@ describe('KeyLockedNotice', () => {
     expect(reflectComponentType(KeyLockedNotice)?.selector).toBe('app-key-locked-notice');
     const t = templateOf(KeyLockedNotice);
     expect(t).toContain('(click)="sub.subscribe()"');
-    expect(t).toContain('@if (account.keyLockedWays().pool) {');
-    expect(t).toContain(`(click)="account.continueOn('pool')"`);
-    expect(t).toContain('@if (account.keyLockedWays().credit) {');
-    expect(t).toContain(`(click)="account.continueOn('credit')"`);
+    expect(t).toContain('@if (funding.keyLockedWays().pool) {');
+    expect(t).toContain(`(click)="funding.switchTo('pool')"`);
+    expect(t).toContain('@if (funding.keyLockedWays().credit) {');
+    expect(t).toContain(`(click)="funding.switchTo('credit')"`);
     expect(t).toContain('routerLink="/billing"');
   });
 });

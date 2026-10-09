@@ -257,6 +257,7 @@ const start: StreamEvent = {
   userNode,
   assistantNode: replyNode,
   branch: branch('trunk'),
+  funding: 'own-key',
 };
 
 describe('ConversationStore streaming a reply', () => {

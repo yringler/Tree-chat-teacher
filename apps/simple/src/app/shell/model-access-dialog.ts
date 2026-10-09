@@ -18,9 +18,9 @@ import {
   PoolMeter,
   ToastStore,
 } from '@tangent/web-shared';
-import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
+import { LearnFunding } from '../state/learn-funding';
 
 /**
  * How replies are paid for: the learner's own OpenRouter key (they pay
@@ -49,7 +49,7 @@ import { UiStore } from '../state/ui-store';
           this browser. Save your key below, or pick another way to pay, and it is sent.
         </p>
       }
-      @if (account.payment.builtInCredit() || account.payment.poolAvailable()) {
+      @if (funding.creditOffered() || funding.poolOn()) {
         <fieldset class="access-choice">
           <legend class="sr-only">Pay with</legend>
           <label class="access-option">
@@ -76,20 +76,20 @@ import { UiStore } from '../state/ui-store';
               </span>
             </span>
           </label>
-          @if (account.payment.builtInCredit()) {
+          @if (funding.creditOffered()) {
             <label class="access-option">
               <input
                 type="radio"
                 name="payment"
                 value="credit"
                 [checked]="payment() === 'credit'"
-                [disabled]="!account.payment.creditUsable()"
+                [disabled]="!funding.creditUsable()"
                 (change)="choose('credit')"
               />
               <span>
                 <strong>Use Tangent credit</strong>
                 <span class="muted small">
-                  @if (!account.payment.creditUsable()) {
+                  @if (!funding.creditUsable()) {
                     No credit left, and top-ups aren't available right now.
                   } @else if (feeText(); as fee) {
                     Prepaid credit: each reply costs {{ fee }}.
@@ -100,7 +100,7 @@ import { UiStore } from '../state/ui-store';
               </span>
             </label>
           }
-          @if (account.payment.poolAvailable()) {
+          @if (funding.poolOn()) {
             <label class="access-option">
               <input
                 type="radio"
@@ -113,7 +113,7 @@ import { UiStore } from '../state/ui-store';
                 <strong>Use the open pool</strong>
                 <span class="muted small">
                   Free to you, within daily limits, on
-                  {{ account.poolStatus()?.model?.label ?? 'one economical model' }}. Free credit
+                  {{ funding.poolStatus()?.model?.label ?? 'one economical model' }}. Free credit
                   Tangent provides.
                 </span>
               </span>
@@ -137,7 +137,7 @@ import { UiStore } from '../state/ui-store';
       }
 
       @if (payment() === 'pool') {
-        @if (account.poolStatus(); as status) {
+        @if (funding.poolStatus(); as status) {
           <app-pool-meter [status]="status" />
         }
         <p class="small">
@@ -148,13 +148,13 @@ import { UiStore } from '../state/ui-store';
         </p>
       } @else if (payment() === 'credit') {
         <p class="small">
-          @if (account.balanceLabel(); as balance) {
+          @if (funding.balanceLabel(); as balance) {
             <span>{{ balance }} available · </span>
           }
           <a routerLink="/billing" (click)="close()">Add credit</a>
         </p>
       } @else {
-        @if (account.keyStatus(); as status) {
+        @if (funding.keyStatus(); as status) {
           @if (!status.enabled) {
             <p class="notice">
               This server can't store your own key (KEY_ENCRYPTION_SECRET is not set).
@@ -162,7 +162,7 @@ import { UiStore } from '../state/ui-store';
           } @else {
             <div class="key-row">
               <span class="key-name">OpenRouter key</span>
-              @if (account.hasOwnKey()) {
+              @if (funding.hasOwnKey()) {
                 <span class="badge badge-ok">saved</span>
                 <button
                   type="button"
@@ -179,7 +179,7 @@ import { UiStore } from '../state/ui-store';
             <form class="form" (submit)="$event.preventDefault(); save()">
               <label class="field">
                 <span class="field-label">
-                  {{ account.hasOwnKey() ? 'Replace your key' : 'Your OpenRouter API key' }}
+                  {{ funding.hasOwnKey() ? 'Replace your key' : 'Your OpenRouter API key' }}
                 </span>
                 <input
                   #keyInput
@@ -215,7 +215,7 @@ import { UiStore } from '../state/ui-store';
   `,
 })
 export class ModelAccessDialog {
-  protected readonly account = inject(AccountStore);
+  protected readonly funding = inject(LearnFunding);
   private readonly lessons = inject(LessonStore);
   private readonly ui = inject(UiStore);
   private readonly toast = inject(ToastStore);
@@ -223,25 +223,25 @@ export class ModelAccessDialog {
   protected readonly waiting = computed(() => this.lessons.unsentDraft()?.needsKey ?? false);
   private readonly keyInput = viewChild<ElementRef<HTMLInputElement>>('keyInput');
 
-  protected readonly payment = this.account.payment.payment;
+  protected readonly payment = this.funding.payer;
   /** The membership is required here (the fee is on). */
   protected readonly membershipRequired = computed(
-    () => this.account.membership()?.required ?? false,
+    () => this.funding.membership()?.required ?? false,
   );
   /** The own key needs a membership the learner lacks: the option is disabled. */
-  protected readonly ownKeyLocked = computed(() => !this.account.payment.member());
+  protected readonly ownKeyLocked = computed(() => !this.funding.member());
   /** The membership's yearly price, e.g. "$10". */
   protected readonly price = computed(() =>
-    formatCents(this.account.membership()?.priceCents ?? 0),
+    formatCents(this.funding.membership()?.priceCents ?? 0),
   );
   /** "the model's OpenRouter price + 5.5% OpenRouter fee + 10%", once billing is loaded. */
   protected readonly feeText = computed(() => {
-    const b = this.account.billing();
+    const b = this.funding.billing();
     return b ? creditFeeText(b.markupBps, b.openRouterFeeBps) : null;
   });
   /** "3 of 30 replies used today", once the learner's pool caps are loaded. */
   protected readonly poolUse = computed(() => {
-    const caps = this.account.poolMe()?.caps;
+    const caps = this.funding.poolMe()?.caps;
     return caps ? `${caps.usedRequests} of ${caps.requestsPerDay} replies used today` : null;
   });
   protected readonly busy = signal(false);
@@ -253,11 +253,8 @@ export class ModelAccessDialog {
 
   protected choose(payment: Payer): void {
     this.error.set(null);
-    this.account.payment.choose(payment);
-    if (payment === 'credit') void this.account.refreshBalance();
-    if (payment === 'pool') void this.account.refreshPool();
-    // A way that needs no key: the refused message goes now.
-    if (payment !== 'own-key' && this.lessons.resumeUnsent()) this.close();
+    // A way that needs no key sends the refused message: done here.
+    if (this.funding.switchTo(payment)) this.close();
   }
 
   protected async save(): Promise<void> {
@@ -266,14 +263,14 @@ export class ModelAccessDialog {
     if (input) input.value = '';
     if (!apiKey) return;
     await this.run(async () => {
-      await this.account.saveKey(apiKey);
+      await this.funding.saveKey(apiKey);
       this.toast.notify('Your OpenRouter key is saved');
       if (this.payment() === 'own-key' && this.lessons.resumeUnsent()) this.close();
     });
   }
 
   protected async forget(): Promise<void> {
-    await this.run(() => this.account.forgetKey());
+    await this.run(() => this.funding.forgetKey());
   }
 
   private async run(fn: () => Promise<void>): Promise<void> {

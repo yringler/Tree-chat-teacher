@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { RouterLink } from '@angular/router';
 import type { MembershipInfo } from '@tangent/shared';
 import { BillingClient, formatCents, MembershipSubscribe } from '@tangent/web-shared';
-import { AccountStore } from '../state/account-store';
+import { LearnFunding } from '../state/learn-funding';
 
 let uid = 0;
 
@@ -38,9 +38,9 @@ export function keyLockedText(
 /**
  * Stands where the composer (or the new lesson's Start button) would be while
  * replies run on the learner's own key and it needs a membership they lack
- * (`AccountStore.membershipBlocked`). The lesson stays readable; one click
+ * (`LearnFunding.membershipBlocked`). The lesson stays readable; one click
  * resolves it: subscribe (the hosted checkout), or carry on on the open pool
- * or Tangent credit (`AccountStore.continueOn`), which brings the composer
+ * or Tangent credit (`LearnFunding.switchTo`), which brings the composer
  * back with any message the server refused. Styles: `.read-only-composer` in
  * base.css, as power mode's read-only branches.
  */
@@ -64,13 +64,13 @@ export function keyLockedText(
           >
             {{ sub.pending() ? 'Opening…' : t.subscribe }}
           </button>
-          @if (account.keyLockedWays().pool) {
-            <button type="button" class="btn" (click)="account.continueOn('pool')">
+          @if (funding.keyLockedWays().pool) {
+            <button type="button" class="btn" (click)="funding.switchTo('pool')">
               Continue on the open pool
             </button>
           }
-          @if (account.keyLockedWays().credit) {
-            <button type="button" class="btn" (click)="account.continueOn('credit')">
+          @if (funding.keyLockedWays().credit) {
+            <button type="button" class="btn" (click)="funding.switchTo('credit')">
               Continue on Tangent credit
             </button>
           }
@@ -84,12 +84,12 @@ export function keyLockedText(
   `,
 })
 export class KeyLockedNotice {
-  protected readonly account = inject(AccountStore);
+  protected readonly funding = inject(LearnFunding);
   protected readonly sub = new MembershipSubscribe(inject(BillingClient));
   protected readonly leadId = `key-locked-lead-${++uid}`;
   protected readonly text = computed(() => {
-    const m = this.account.membership();
-    const ways = this.account.keyLockedWays();
+    const m = this.funding.membership();
+    const ways = this.funding.keyLockedWays();
     return m ? keyLockedText(m, ways.pool || ways.credit) : null;
   });
 

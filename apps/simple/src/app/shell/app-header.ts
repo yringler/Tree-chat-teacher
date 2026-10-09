@@ -15,6 +15,7 @@ import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
 import { PaidBy } from './paid-by';
+import { LearnFunding } from '../state/learn-funding';
 
 /**
  * Brand, the Power / Learn switch, what replies are paid by (own key, credit
@@ -61,13 +62,9 @@ import { PaidBy } from './paid-by';
                 How replies are paid for
               </button>
             }
-            @if (
-              account.payment.builtInCredit() ||
-              account.membership()?.required ||
-              account.payment.poolAvailable()
-            ) {
+            @if (funding.creditOffered() || funding.membership()?.required || funding.poolOn()) {
               <a routerLink="/billing" class="menu-item" role="menuitem" (click)="close()">
-                {{ account.payment.builtInCredit() ? 'Billing and credit' : 'Billing' }}
+                {{ funding.creditOffered() ? 'Billing and credit' : 'Billing' }}
               </a>
             }
             @if (!demo) {
@@ -103,6 +100,7 @@ import { PaidBy } from './paid-by';
 })
 export class AppHeader {
   protected readonly account = inject(AccountStore);
+  protected readonly funding = inject(LearnFunding);
   private readonly lessons = inject(LessonStore);
   protected readonly ui = inject(UiStore);
   private readonly toast = inject(ToastStore);

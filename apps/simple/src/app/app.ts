@@ -20,6 +20,7 @@ import { PasskeysDialog } from './shell/passkeys-dialog';
 import { AccountStore } from './state/account-store';
 import { LessonStore } from './state/lesson-store';
 import { UiStore } from './state/ui-store';
+import { LearnFunding } from './state/learn-funding';
 
 /** Simple-mode shell, served under /learn/. */
 @Component({
@@ -84,6 +85,7 @@ export class App {
   protected readonly ui = inject(UiStore);
   private readonly lessons = inject(LessonStore);
   protected readonly account = inject(AccountStore);
+  protected readonly funding = inject(LearnFunding);
   private readonly routeSync = inject(RouteSync);
   private readonly auth = inject(AuthService);
   private readonly api = inject(ApiClient);
@@ -118,13 +120,13 @@ export class App {
       // The demo's caller always exists; nothing to redirect to.
       const me = this.demo ? await this.api.me() : await this.auth.requireUser();
       if (!me) return;
-      this.account.setMe(me);
+      this.account.me.set(me);
       await Promise.all([
         this.lessons.init(),
-        this.account.refreshBalance(),
-        this.account.refreshPool(),
+        this.funding.refreshBalance(),
+        this.funding.refreshPool(),
         // The demo has no key cookie (and always runs on pretend credit).
-        this.demo ? Promise.resolve() : this.account.refreshKey(),
+        this.demo ? Promise.resolve() : this.funding.refreshKey(),
       ]);
     } catch (err) {
       this.lessons.fail(err);

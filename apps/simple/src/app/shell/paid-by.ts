@@ -1,8 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DEMO_MODE, formatMicros, Icon } from '@tangent/web-shared';
-import { AccountStore } from '../state/account-store';
 import { UiStore } from '../state/ui-store';
+import { LearnFunding } from '../state/learn-funding';
 
 /**
  * What replies run on (the learner's own OpenRouter key, Tangent credit or
@@ -17,7 +17,7 @@ import { UiStore } from '../state/ui-store';
   imports: [Icon, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @let p = account.paidBy();
+    @let p = funding.paidBy();
     @if (variant() === 'header') {
       @if (demo) {
         @if (p.detail) {
@@ -80,26 +80,26 @@ import { UiStore } from '../state/ui-store';
 })
 export class PaidBy {
   readonly variant = input<'header' | 'inline'>('inline');
-  protected readonly account = inject(AccountStore);
+  protected readonly funding = inject(LearnFunding);
   private readonly ui = inject(UiStore);
   protected readonly demo = inject(DEMO_MODE);
 
   /** The header pill's name: "Credit", "Pool", "Your key" or "Add your key". */
   protected readonly headerName = computed(() =>
-    this.account.needsKey() ? 'Add your key' : this.account.paidBy().short,
+    this.funding.needsKey() ? 'Add your key' : this.funding.paidBy().short,
   );
 
   /** The header pill's amount (hidden on narrow screens): the credit or the pool's dollars. */
   protected readonly headerAmount = computed(() => {
-    const p = this.account.paidBy();
-    if (p.payment === 'credit') return this.account.balanceText();
-    const status = this.account.poolStatus();
-    return p.payment === 'pool' && status?.enabled ? formatMicros(status.availableMicros) : null;
+    const p = this.funding.paidBy();
+    if (p.payer === 'credit') return this.funding.balanceText();
+    const status = this.funding.poolStatus();
+    return p.payer === 'pool' && status?.enabled ? formatMicros(status.availableMicros) : null;
   });
 
   /** "Tangent credit, $1.20 left", for screen readers. */
   protected readonly description = computed(() => {
-    const p = this.account.paidBy();
+    const p = this.funding.paidBy();
     return p.detail ? `${p.label}, ${p.detail}` : p.label;
   });
 

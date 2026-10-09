@@ -28,7 +28,6 @@ import {
   type MessageQuote,
 } from '@tangent/web-shared';
 import { BRAND } from '../brand';
-import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
 import { connectionTitleOf } from './connections';
@@ -37,6 +36,7 @@ import { KeyLockedNotice } from './key-locked-notice';
 import { MessageItem } from './message-item';
 import { FUNDING_OPTIONS, tierSwitch, type FundingOption } from './switches';
 import { branchTitle, lessonTitle } from './titles';
+import { LearnFunding } from '../state/learn-funding';
 
 interface Entry {
   node: ChatNode;
@@ -71,7 +71,7 @@ interface Entry {
 })
 export class ChatPage implements OnDestroy {
   protected readonly store = inject(LessonStore);
-  protected readonly account = inject(AccountStore);
+  protected readonly funding = inject(LearnFunding);
   protected readonly textSize = inject(TextSizeStore);
   private readonly ui = inject(UiStore);
   private readonly title = inject(Title);
@@ -144,8 +144,8 @@ export class ChatPage implements OnDestroy {
     return block && block.branchId === this.store.selectedBranchId() ? block : null;
   });
 
-  protected readonly funding = computed<FundingOption>(() =>
-    this.account.payment.payment() === 'pool' ? 'pool' : 'credit',
+  protected readonly fundingOption = computed<FundingOption>(() =>
+    this.funding.payer() === 'pool' ? 'pool' : 'credit',
   );
 
   /**
@@ -158,7 +158,7 @@ export class ChatPage implements OnDestroy {
       this.store.selectedBranch() !== null &&
       tierModel(models, 'normal') !== undefined &&
       tierModel(models, 'max') !== undefined &&
-      this.account.poolModel() === null &&
+      this.funding.poolModel() === null &&
       !this.store.busy()
     );
   });
@@ -167,7 +167,7 @@ export class ChatPage implements OnDestroy {
   protected readonly maxNote = computed(() => {
     const models = this.store.models();
     const b = this.store.selectedBranch();
-    if (!b || this.account.poolModel() || tierOf(models, b.model) !== 'max') return null;
+    if (!b || this.funding.poolModel() || tierOf(models, b.model) !== 'max') return null;
     return maxUsageNote(tierModel(models, 'max')?.usageFactor);
   });
 
@@ -241,18 +241,15 @@ export class ChatPage implements OnDestroy {
   protected tiers(model: string) {
     return tierSwitch(
       this.store.models(),
-      this.account.poolModel()?.id ?? model,
-      this.account.poolModelHint(),
+      this.funding.poolModel()?.id ?? model,
+      this.funding.poolModelHint(),
     );
   }
 
   protected chooseFunding(id: string): void {
     const option = FUNDING_OPTIONS.find((o) => o.id === id)?.id;
     if (!option) return;
-    this.account.payment.choose(option);
-    this.store.dismissPoolBlock();
-    if (option === 'pool') void this.account.refreshPool();
-    else void this.account.refreshBalance();
+    this.funding.switchTo(option);
   }
 
   protected exportLesson(): void {

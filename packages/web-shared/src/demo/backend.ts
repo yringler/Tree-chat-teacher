@@ -536,6 +536,8 @@ export class DemoBackend {
           userNode: started.userNode,
           assistantNode: started.assistantNode,
           branch: started.branch,
+          // The Learn demo runs on pretend credit; the power demo on each branch's route.
+          funding: this.mode === 'simple' ? 'credit' : started.branch.funding,
         },
       ],
       signal,

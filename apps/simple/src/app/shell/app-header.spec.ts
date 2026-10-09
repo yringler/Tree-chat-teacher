@@ -12,7 +12,8 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
-import { PaymentStore } from '../state/payment-store';
+import { LearnFunding } from '../state/learn-funding';
+import { PaymentChoice } from '../state/payment-choice';
 import { UiStore } from '../state/ui-store';
 import { AppHeader } from './app-header';
 
@@ -24,7 +25,8 @@ describe('Learn header: signing out', () => {
       providers: [
         { provide: LessonStore },
         { provide: AccountStore },
-        { provide: PaymentStore },
+        { provide: PaymentChoice },
+        { provide: LearnFunding },
         { provide: UiStore },
         { provide: ComposerController },
         { provide: ToastStore },

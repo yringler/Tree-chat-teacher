@@ -31,7 +31,7 @@ describe('Learn copy rule (open pool)', () => {
 
   it('says Tangent provides the pool’s credit, and never sells it', () => {
     const home = templateOf(HomePage);
-    expect(home).toContain('{{ funding }} Any signed-in learner can use it');
+    expect(home).toContain('{{ poolFunding }} Any signed-in learner can use it');
     const dialog = templateOf(ModelAccessDialog);
     expect(dialog).toMatch(/Free credit\s+Tangent provides\./);
     for (const t of [home, dialog]) {

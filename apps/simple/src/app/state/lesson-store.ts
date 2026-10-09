@@ -10,6 +10,7 @@ import {
   type CommitCandidateResponse,
   type CreateBranchRequest,
   type ModelInfo,
+  type Payer,
   type ProviderInfo,
   type TreeBackupInput,
 } from '@tangent/shared';
@@ -37,6 +38,7 @@ import { lessonTitle } from '../chat/titles';
 import { AccountStore } from './account-store';
 import { storedDraft, storeDraft, type UnsentDraft } from './unsent-draft';
 import { UiStore } from './ui-store';
+import { LearnFunding } from './learn-funding';
 
 /**
  * A message the open pool refused (402 `pool_empty`, 429
@@ -93,6 +95,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
   private readonly composer = inject(ComposerController);
   private readonly toast = inject(ToastStore);
   private readonly account = inject(AccountStore);
+  private readonly funding = inject(LearnFunding);
   private readonly saveFile = inject(SAVE_FILE);
 
   constructor() {
@@ -103,6 +106,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
       linked: { created: 'Connected', existing: 'Already connected' },
       noteSaved: 'Note saved',
     });
+    this.funding.whenSwitched((payer) => this.paymentSwitched(payer));
   }
 
   // Providers (Learn accounts: one provider with a Normal and a Max model, `ModelInfo.tier`).
@@ -138,7 +142,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
 
   // Loading
 
-  /** After `AccountStore.setMe`: whose message left unsent in this tab is offered back. */
+  /** After `AccountStore.me` is set: whose message left unsent in this tab is offered back. */
   async init(): Promise<void> {
     const userId = this.account.me()?.userId;
     if (userId && !this.unsentDraft()) this.unsentDraft.set(storedDraft(userId));
@@ -375,7 +379,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
   canCheckSources(branchId: string): boolean {
     const branch = this.index()?.branches.get(branchId);
     // The open pool can't pay for searches (its holds are priced from tokens alone).
-    if (!branch || this.account.payment.payment() === 'pool') return false;
+    if (!branch || this.funding.payer() === 'pool') return false;
     return this.providers().find((p) => p.id === branch.providerId)?.webSearch === true;
   }
 
@@ -395,8 +399,9 @@ export class LessonStore extends ConversationStore<ApiClient> {
     if (this.poolBlock()?.branchId === branchId) this.poolBlock.set(null);
   }
 
-  protected override sent(branchId: string, content: string): void {
+  protected override sent(branchId: string, content: string, funding: Payer): void {
     this.composer.sent(branchId, content);
+    this.funding.paidWith(funding);
   }
 
   protected override sendFailed(err: unknown, s: FailedSend): void {
@@ -406,7 +411,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
       // A "Check sources" request isn't text the learner typed: not offered back.
       if (!s.options.ground) this.keepUnsent(s.branchId, s.content, s.options);
       this.poolBlock.set({ ...block, branchId: s.branchId });
-      void this.account.refreshPool();
+      void this.funding.refreshPool();
       return;
     }
     const needsKey = err instanceof ApiError && err.code === 'key_required';
@@ -473,6 +478,16 @@ export class LessonStore extends ConversationStore<ApiClient> {
     this.fail(err);
   }
 
+  /**
+   * The learner switched who pays (`LearnFunding.switchTo`): the pool's
+   * notice goes, and on a payer that needs no key, a message refused for
+   * want of the own key is sent. True when it was.
+   */
+  private paymentSwitched(payer: Payer): boolean {
+    this.dismissPoolBlock();
+    return payer !== 'own-key' && this.resumeUnsent();
+  }
+
   dismissPoolBlock(): void {
     this.poolBlock.set(null);
   }
@@ -530,8 +545,8 @@ export class LessonStore extends ConversationStore<ApiClient> {
   /** After a reply: the balance, and the pool meter while the pool is offered. */
   protected override alsoRefreshAfterReply(): Promise<unknown> {
     return Promise.all([
-      this.account.refreshBalance(),
-      this.account.payment.poolAvailable() ? this.account.refreshPool() : null,
+      this.funding.refreshBalance(),
+      this.funding.poolOn() ? this.funding.refreshPool() : null,
     ]);
   }
 
@@ -541,7 +556,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
 
   fail(err: unknown): void {
     if (isMembershipRequired(err)) {
-      this.account.membershipRequired();
+      this.funding.membershipRequired();
       return;
     }
     if (isPoolUnavailable(err) && err.pool?.reason === 'verify') {
@@ -550,13 +565,13 @@ export class LessonStore extends ConversationStore<ApiClient> {
     }
     if (err instanceof ApiError && err.code === 'key_required') {
       this.toast.notify(err.message, 'error');
-      void this.account.refreshKey();
+      void this.funding.refreshKey();
       this.ui.dialogs.open({ kind: 'access' });
       return;
     }
     if (isPaymentRequired(err)) {
       this.toast.notify(OUT_OF_CREDIT_MESSAGE, 'error');
-      void this.account.refreshBalance();
+      void this.funding.refreshBalance();
       void this.router.navigate(['/billing']);
       return;
     }

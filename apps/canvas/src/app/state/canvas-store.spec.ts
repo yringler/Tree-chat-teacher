@@ -240,6 +240,7 @@ describe('CanvasStore', () => {
         userNode,
         assistantNode: reply,
         branch: branch('b', { parentBranchId: 'trunk', branchPointNodeId: 'a1' }),
+        funding: 'own-key',
       },
     ]);
     s.api.sendMessage.mockResolvedValue(live.response);

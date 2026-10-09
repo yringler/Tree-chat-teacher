@@ -298,7 +298,10 @@ describe('funding resolution', () => {
 
     const fallback = await send(u, trunk.id, 'Hi', { learn: 'credit' });
     expect(fallback.status).toBe(200);
-    expect(parseSse(await fallback.text()).at(-1)?.type).toBe('done');
+    const moved = parseSse(await fallback.text());
+    expect(moved.at(-1)?.type).toBe('done');
+    // The reply says who paid, so the client shows the pool, not the credit it asked for.
+    expect(moved[0]).toMatchObject({ type: 'start', funding: 'pool' });
     expect((await rows(u.poolId)).map((r) => [r.funding, r.purpose, r.user_id])).toEqual([
       ['pool', 'reply', u.userId],
     ]);
@@ -307,7 +310,9 @@ describe('funding resolution', () => {
     await giveCredit(u.userId);
     const paid = await send(u, trunk.id, 'Again', { learn: 'credit' });
     expect(paid.status).toBe(200);
-    expect(parseSse(await paid.text()).at(-1)?.type).toBe('done');
+    const kept = parseSse(await paid.text());
+    expect(kept.at(-1)?.type).toBe('done');
+    expect(kept[0]).toMatchObject({ type: 'start', funding: 'credit' });
     expect((await rows(`u_${u.userId}`)).map((r) => r.funding)).toEqual(['personal']);
     expect(await rows(u.poolId)).toHaveLength(1);
   });

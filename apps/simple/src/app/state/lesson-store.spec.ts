@@ -31,7 +31,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
 import { COMPARE_OUT_OF_DATE_MESSAGE, LessonStore, OUT_OF_CREDIT_MESSAGE } from './lesson-store';
-import { PaymentStore } from './payment-store';
+import { LearnFunding } from './learn-funding';
+import { PaymentChoice } from './payment-choice';
 import { UiStore } from './ui-store';
 
 const T = '2026-01-01T00:00:00.000Z';
@@ -286,7 +287,8 @@ function setup() {
       { provide: ComposerController },
       { provide: ToastStore },
       { provide: AccountStore },
-      { provide: PaymentStore },
+      { provide: PaymentChoice },
+      { provide: LearnFunding },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: router },
       { provide: SAVE_FILE, useValue: saveFile },
@@ -335,7 +337,13 @@ describe('LessonStore', () => {
     const s = setup();
     await open(s, detail());
     const live = controlledStream([
-      { type: 'start', userNode, assistantNode: replyNode, branch: branch('trunk') },
+      {
+        type: 'start',
+        userNode,
+        assistantNode: replyNode,
+        branch: branch('trunk'),
+        funding: 'credit',
+      },
       { type: 'status', message: 'Thinking…' },
     ]);
     s.api.sendMessage.mockResolvedValue(live.response);
@@ -451,10 +459,32 @@ describe('LessonStore', () => {
     expect(s.store.resumeUnsent()).toBe(false);
   });
 
+  it('switching who pays, from wherever, sends the message the key held back and clears the pool notice', async () => {
+    const s = setup();
+    await open(s, detail());
+    s.api.sendMessage.mockRejectedValueOnce(new ApiError(401, 'key_required', 'Add your key'));
+    await s.store.send('trunk', 'What is light?');
+    expect(s.store.unsentDraft()).toMatchObject({ needsKey: true });
+    s.store.poolBlock.set({
+      kind: 'empty',
+      details: { reason: 'empty', limit: null, resetAt: null },
+      branchId: 'trunk',
+    });
+    const funding = s.injector.get(LearnFunding);
+
+    // The own key needs a key first: nothing is sent yet.
+    expect(funding.switchTo('own-key')).toBe(false);
+    expect(s.store.poolBlock()).toBeNull();
+    expect(s.api.sendMessage).toHaveBeenCalledTimes(1);
+
+    expect(funding.switchTo('pool')).toBe(true);
+    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(2));
+  });
+
   it('402 membership_required on send: locks the own key, no toast, keeps the message', async () => {
     const s = setup();
-    const account = s.injector.get(AccountStore);
-    account.setMembership({ ...BILLING.membership, required: true, status: 'active' });
+    const funding = s.injector.get(LearnFunding);
+    funding.setMembership({ ...BILLING.membership, required: true, status: 'active' });
     s.api.billing.mockResolvedValue({
       ...BILLING,
       membership: { ...BILLING.membership, required: true, status: 'inactive' },
@@ -465,7 +495,7 @@ describe('LessonStore', () => {
     );
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
 
-    expect(account.membershipBlocked()).toBe(true);
+    expect(funding.membershipBlocked()).toBe(true);
     expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
     expect(s.toasts.toasts()).toEqual([]);
     expect(s.store.unsentDraft()).toEqual({
@@ -473,8 +503,8 @@ describe('LessonStore', () => {
       branchId: 'trunk',
       text: 'What is light?',
     });
-    await vi.waitFor(() => expect(account.billing()?.membership.status).toBe('inactive'));
-    expect(account.membershipBlocked()).toBe(true);
+    await vi.waitFor(() => expect(funding.billing()?.membership.status).toBe('inactive'));
+    expect(funding.membershipBlocked()).toBe(true);
   });
 
   it('402 pool_empty on send: the inline empty state, no toast, no navigation, message kept', async () => {
@@ -1140,7 +1170,7 @@ describe('LessonStore a refused message across leaving the page', () => {
   /** A new page (a new store) signed in as `userId`, booted as the app boots it. */
   async function page(userId: string) {
     const s = setup();
-    s.injector.get(AccountStore).setMe({
+    s.injector.get(AccountStore).me.set({
       userId,
       builtInCredit: true,
       membership: { ...BILLING.membership, required: false },
@@ -1303,6 +1333,7 @@ describe('LessonStore refreshing after replies', () => {
         userNode: ask,
         assistantNode: { ...reply, status: 'streaming' },
         branch: branch('trunk'),
+        funding: 'credit',
       },
       { type: 'done', node: reply, branch: branch('trunk') },
     ]);

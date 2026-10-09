@@ -278,6 +278,8 @@ export class TreeSession extends DurableObject<AppEnv> {
         userNode: started.userNode,
         assistantNode: started.assistantNode,
         branch: started.branch,
+        // Who pays, as the gate decided: a Learn send may have moved from credit to the pool.
+        funding: callPayer(account, started.branch.funding),
       },
     ]);
     // Detached: keeps running after the client disconnects (DOs stay alive while I/O is in flight).
