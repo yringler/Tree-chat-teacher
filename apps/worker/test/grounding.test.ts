@@ -45,7 +45,7 @@ describe('grounding settings', () => {
       { ...CONFIG, options: { webSearch: true } },
       CONFIG,
       { ...CONFIG, kind: 'anthropic', options: { webSearch: true } },
-      { ...CONFIG, options: { webSearch: true, webSearchEngine: 'exa' } },
+      { ...CONFIG, options: { webSearch: true, webSearchEngine: 'exa', webSearchMaxResults: 3 } },
     ]);
     expect(searching?.options).toEqual({
       webSearch: true,
@@ -54,7 +54,8 @@ describe('grounding settings', () => {
     });
     expect(plain?.options).toBeUndefined();
     expect(anthropic?.options).toEqual({ webSearch: true });
-    expect(own?.options).toMatchObject({ webSearchEngine: 'exa', webSearchMaxResults: 25 });
+    // The vars win over a config's own, so the search runs as the public pages describe it.
+    expect(own?.options).toMatchObject({ webSearchEngine: 'parallel', webSearchMaxResults: 25 });
   });
 
   it('defaults to auto with 5 Exa results, and refuses an unknown policy or too many results', () => {
