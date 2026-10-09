@@ -1,7 +1,7 @@
 // Test-side helpers for the billing tests (imported by test files, which run
 // in workerd; not by vitest.config.ts). Ids are unique per call, so files and
 // tests sharing a D1 database or the Node-side mocks never collide.
-import type { AppEnv, AccountContext } from '../../src/env.js';
+import type { AppEnv, LearnAccount, PowerAccount } from '../../src/env.js';
 import type { ScriptedGeneration } from './openrouter.js';
 
 let seq = 0;
@@ -11,42 +11,32 @@ export function uniq(prefix: string): string {
 }
 
 /** A simple (Learn) account `u_<userId>` on credit (the built-in provider), with a fresh user id. */
-export function simpleAccount(userId = uniq('user')): AccountContext {
+export function simpleAccount(userId = uniq('user')): LearnAccount {
   const id = `u_${userId}`;
-  return {
-    id,
-    mode: 'simple',
-    userId,
-    billingAccountId: id,
-    builtIn: true,
-    operatorKeys: false,
-    funding: 'credit',
-  };
+  return { id, mode: 'simple', userId, billingAccountId: id, payer: 'credit' };
 }
 
 /** The same user's power account `p_<userId>`, on the same ledger, with the built-in provider. */
-export function powerAccount(userId = uniq('user')): AccountContext {
+export function powerAccount(userId = uniq('user')): PowerAccount {
   return {
     id: `p_${userId}`,
     mode: 'power',
     userId,
     billingAccountId: `u_${userId}`,
-    builtIn: true,
+    creditOffered: true,
     operatorKeys: false,
-    funding: 'credit',
   };
 }
 
 /** The dev bypass's power account (`default`, ledger `default_simple`), server keys allowed. */
-export function devPowerAccount(overrides: Partial<AccountContext> = {}): AccountContext {
+export function devPowerAccount(overrides: Partial<PowerAccount> = {}): PowerAccount {
   return {
     id: 'default',
     mode: 'power',
     userId: null,
     billingAccountId: 'default_simple',
-    builtIn: true,
+    creditOffered: true,
     operatorKeys: true,
-    funding: 'credit',
     ...overrides,
   };
 }

@@ -1,7 +1,7 @@
 // The caller's ChatService and key cookie, as the /api route modules build them.
 import type { ChatService } from '@tangent/core';
 import { requireReadableKeys, type UserKeys } from '../byok/keys.js';
-import { usesUserKeys, type AppContext } from '../env.js';
+import { callPayer, type AppContext } from '../env.js';
 import { chatService } from '../registries.js';
 
 /** The user's provider keys, opened. */
@@ -32,5 +32,5 @@ export function chatOf(
  * power always reads it, for its other providers.
  */
 export async function keysOf(c: AppContext): Promise<OpenKeys | null> {
-  return usesUserKeys(c.var.account) ? requireReadableKeys(c) : null;
+  return callPayer(c.var.account, 'own-key') === 'own-key' ? requireReadableKeys(c) : null;
 }

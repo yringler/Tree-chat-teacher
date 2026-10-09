@@ -23,7 +23,7 @@ import {
   type UsagePurpose,
 } from '@tangent/shared';
 import type { ModelPrice } from '../config.js';
-import { isMetered, type AccountContext, type AppEnv } from '../env.js';
+import { callPayer, type AccountContext, type AppEnv } from '../env.js';
 import { creditPrice } from '../pool/model-prices.js';
 import { chargeFromTokensMicros, renderAllowanceBytes, type InputOf } from '../pool/pricing.js';
 import { builtInAvailable, personalCreditReady } from '../availability.js';
@@ -243,7 +243,7 @@ function notConfigured(): DomainError {
 
 /**
  * The early check of a request on a route of `funding`, before anything is
- * written or streamed: when it is metered (Tangent credit, see `isMetered`),
+ * written or streamed: when it is metered (Tangent credit, see `callPayer`),
  * 402 `payment_required` unless the available balance (balance − pending
  * holds) covers one more `USAGE_HOLD_MICROS`, then 429 `rate_limited` when
  * `USAGE_MAX_PENDING` credit calls are in flight. It is a read, so requests
@@ -256,7 +256,7 @@ export async function assertCanSpend(
   account: AccountContext,
   funding: BranchFunding,
 ): Promise<void> {
-  if (!isMetered(account, funding)) return;
+  if (callPayer(account, funding) === 'own-key') return;
   if (!personalCreditReady(env)) throw notConfigured();
   const { balanceMicros, heldMicros, pendingCalls } = await getBalance(
     env.DB,

@@ -1,21 +1,58 @@
 // The Worker's side of the tree's Durable Object protocol (tree-session.ts):
-// one method per internal route, so the routes never build its URLs.
+// one method per internal route, so the routes never build its URLs, and the
+// encoding of the account each call acts as, both ways.
+import { z } from 'zod';
 import type { AccountContext, AppEnv } from '../env.js';
+import type { PoolParams } from '../pool/params.js';
 import type { SessionCommitBody, SessionHoldBody, SessionSendBody } from './tree-session.js';
 
-/** The account as query parameters, for the internal routes without a body (`accountFromParams` reads them). */
+const ids = {
+  id: z.string().min(1),
+  userId: z.string().min(1).nullable(),
+  billingAccountId: z.string().min(1),
+};
+
+/**
+ * Every `AccountContext`, and nothing else. The pool's parameters were
+ * resolved by the Worker (pool/params.ts) and travel as they are.
+ */
+const accountSchema = z.union([
+  z.strictObject({
+    ...ids,
+    mode: z.literal('power'),
+    creditOffered: z.boolean(),
+    operatorKeys: z.boolean(),
+  }),
+  z.strictObject({ ...ids, mode: z.literal('simple'), payer: z.enum(['own-key', 'credit']) }),
+  z.strictObject({
+    ...ids,
+    userId: z.string().min(1),
+    mode: z.literal('simple'),
+    payer: z.literal('pool'),
+    pool: z.custom<PoolParams>((v) => typeof v === 'object' && v !== null && !Array.isArray(v)),
+  }),
+  z.strictObject({ ...ids, mode: z.literal('simple'), payer: z.literal('pool'), pool: z.null() }),
+]) satisfies z.ZodType<AccountContext>;
+
+/**
+ * The account an internal call acts as, checked whole: a missing or malformed
+ * one throws (a 500 from the Durable Object), never standing in for another
+ * account such as the dev bypass's.
+ */
+export function parseAccount(value: unknown): AccountContext {
+  return accountSchema.parse(value);
+}
+
+/** The account as a query parameter, for the internal routes without a body (`accountFromParams` reads it). */
 export function accountParams(account: AccountContext): Record<string, string> {
-  return {
-    accountId: account.id,
-    mode: account.mode,
-    billingAccountId: account.billingAccountId,
-    builtIn: account.builtIn ? '1' : '0',
-    operatorKeys: account.operatorKeys ? '1' : '0',
-    funding: account.funding,
-    ...(account.userId ? { userId: account.userId } : {}),
-    // One JSON param: the pool's parameters were resolved by the Worker (pool/params.ts).
-    ...(account.pool ? { pool: JSON.stringify(account.pool) } : {}),
-  };
+  return { account: JSON.stringify(account) };
+}
+
+/** The account `accountParams` sent; throws when it is missing or malformed (`parseAccount`). */
+export function accountFromParams(params: URLSearchParams): AccountContext {
+  const json = params.get('account');
+  if (json === null) throw new Error('The internal call names no account');
+  return parseAccount(JSON.parse(json));
 }
 
 /**

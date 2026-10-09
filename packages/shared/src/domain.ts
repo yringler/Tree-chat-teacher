@@ -81,6 +81,8 @@ export const CONTEXT_MODES: readonly ContextMode[] = ['path', 'summary', 'messag
  */
 export type Payer = 'own-key' | 'credit' | 'pool';
 
+export const PAYERS: readonly Payer[] = ['own-key', 'credit', 'pool'];
+
 /**
  * Who pays for a branch's model calls in power mode. A branch never names the
  * pool, which Learn alone picks, per request (its payment header); Learn

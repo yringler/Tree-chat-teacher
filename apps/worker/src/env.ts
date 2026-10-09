@@ -1,4 +1,4 @@
-import type { AccountMode, BranchFunding, Payer } from '@tangent/shared';
+import type { BranchFunding, Payer } from '@tangent/shared';
 import type { Context } from 'hono';
 import type { ConfigVars } from './config.js';
 import type { PoolParams } from './pool/params.js';
@@ -12,17 +12,10 @@ import type { PoolParams } from './pool/params.js';
  */
 export type AppEnv = Env & ConfigVars;
 
-/**
- * The account a request acts as (see auth/account.ts). Every user has one per mode,
- * each with its own conversations:
- * - `power`: `p_<userId>`, the full app (own keys, plus the built-in provider on credit).
- * - `simple`: `u_<userId>`, Tangent Learn.
- * Credit is per user: both accounts spend the one ledger at `billingAccountId`.
- */
-export interface AccountContext {
+/** What every account carries, whichever app it is in. */
+interface AccountIds {
   /** Owner of trees, shares and settings: `p_<userId>` | `u_<userId>` | `default` | `default_simple`. */
   id: string;
-  mode: AccountMode;
   /** Better Auth user id; null in dev bypass mode. */
   userId: string | null;
   /**
@@ -32,65 +25,92 @@ export interface AccountContext {
    * shared carry over without a migration.
    */
   billingAccountId: string;
+}
+
+/**
+ * The full app, `p_<userId>`: the user's own keys, plus Tangent credit per
+ * route (a branch's or reviewer's funding) where the server offers it. It
+ * never uses the pool.
+ */
+export interface PowerAccount extends AccountIds {
+  mode: 'power';
   /**
-   * The built-in provider (`tangent`, on BUILT_IN_API_KEY) is in this
-   * account's registry, on the operator's key and metered per call:
-   * - power: whenever the server offers it (`builtInAvailable`), next to the
-   *   user's own providers;
-   * - simple: when the request asks to pay with credit and it is offered;
-   *   Learn then ignores the user's keys.
+   * Tangent credit is offered (`builtInAvailable`): a route on `credit` runs
+   * on the built-in provider, on the operator's key and metered per call.
    */
-  builtIn: boolean;
+  creditOffered: boolean;
   /**
    * Dev bypass only: the power configs' server secrets (ANTHROPIC_API_KEY &
    * co.) may be used. Every signed-in user is bring-your-own-key for those.
    */
   operatorKeys: boolean;
-  /**
-   * Who pays for the built-in provider's calls (auth/account.ts): `credit`
-   * (the ledger at `billingAccountId`), `pool` (the open pool; Learn
-   * only, `builtIn` when the pool is on) or `own-key` (Learn on the user's
-   * key, where `builtIn` is false). Power is always `credit`.
-   */
-  funding: Payer;
-  /**
-   * Pool funding only: what pool calls run with, resolved Worker-side from
-   * the config (pool/params.ts). The Durable Objects read it from here, never
-   * from their own env.
-   */
-  pool?: PoolParams;
 }
+
+/**
+ * Tangent Learn, `u_<userId>`, paying per request whatever a branch says: on
+ * the user's own OpenRouter key, or on credit (the built-in provider on the
+ * operator's key, metered) where it is offered.
+ */
+export interface LearnAccount extends AccountIds {
+  mode: 'simple';
+  payer: 'own-key' | 'credit';
+}
+
+/** Learn on the open pool: a signed-in user, and what the pool's calls run with. */
+export interface PoolAccount extends AccountIds {
+  mode: 'simple';
+  payer: 'pool';
+  userId: string;
+  /**
+   * Resolved Worker-side from the config (pool/params.ts). The Durable
+   * Objects read it from here, never from their own env.
+   */
+  pool: PoolParams;
+}
+
+/**
+ * Learn asking for the pool where the pool can't pay: it is off, there is no
+ * signed-in user to cap, or its parameters aren't resolved yet
+ * (auth/account.ts `withPoolParams`). Such a request generates nothing (the
+ * gate refuses it, 403 `pool_unavailable`); everything else reads as on the
+ * user's own key.
+ */
+export interface UnfundedPoolAccount extends AccountIds {
+  mode: 'simple';
+  payer: 'pool';
+  pool: null;
+}
+
+/**
+ * The account a request acts as (see auth/account.ts). Every user has one per
+ * mode, each with its own conversations. Credit is per user: both accounts
+ * spend the one ledger at `billingAccountId`.
+ */
+export type AccountContext = PowerAccount | LearnAccount | PoolAccount | UnfundedPoolAccount;
 
 /** True when the account's metered calls are paid by the open pool. */
-export function isPoolFunded(
-  account: AccountContext,
-): account is AccountContext & { funding: 'pool'; pool: PoolParams } {
-  return account.funding === 'pool' && account.builtIn && account.pool !== undefined;
+export function isPoolFunded(account: AccountContext): account is PoolAccount {
+  return account.mode === 'simple' && account.payer === 'pool' && account.pool !== null;
 }
 
 /**
- * True when a call is metered: paid on the operator's key from the user's
- * credit or the open pool, never on the user's own key. Decided by
- * funding, never by the provider id (which names only the endpoint):
- * - Learn: by the request's payment (`account.builtIn`: credit or the pool),
- *   whatever the branch says; Learn ignores a branch's funding.
- * - power: by the funding of the route the call is on (the branch's, or a
- *   reviewer's), `credit`, and only where the server offers Tangent credit
- *   (`account.builtIn`). Metering is per call, not per account: a power
- *   account mixes its own keys with credit.
+ * Who pays for a call on a route of `funding`, decided by the account and
+ * never by the provider id (which names only the endpoint):
+ * - Learn: the request's payer, whatever the route says (Learn ignores a
+ *   branch's funding). A pool request the pool can't fund pays nothing
+ *   upstream, so it reads as on the user's own key.
+ * - power: the route's funding, `credit` only where the server offers
+ *   Tangent credit. A power account mixes its own keys with credit, per call.
+ * Every payer but `own-key` is metered, on the operator's key. Power's
+ * own-key routes are always on the user's keys, so `callPayer(account,
+ * 'own-key') === 'own-key'` says whether a request reads the key cookie at
+ * all: always in power, and in Learn on its own key only.
  */
-export function isMetered(account: AccountContext, funding: BranchFunding): boolean {
-  if (account.mode === 'simple') return account.builtIn;
-  return account.builtIn && funding === 'credit';
-}
-
-/**
- * Whether the request uses the user's key cookie. Learn on credit runs on the
- * operator's key alone and never reads it; power always does, since its other
- * providers need it even when the built-in one is present.
- */
-export function usesUserKeys(account: AccountContext): boolean {
-  return !(account.mode === 'simple' && account.builtIn);
+export function callPayer(account: AccountContext, funding: BranchFunding): Payer {
+  if (account.mode === 'power')
+    return account.creditOffered && funding === 'credit' ? 'credit' : 'own-key';
+  if (account.payer === 'pool' && account.pool === null) return 'own-key';
+  return account.payer;
 }
 
 /** Caller identity established by the session middleware for `/api/*`. */

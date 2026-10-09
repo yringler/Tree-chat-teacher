@@ -9,7 +9,7 @@ import { assertGenerationAllowed, enforceRateLimit } from '../byok/guard.js';
 import type { UserKeys } from '../byok/keys.js';
 import { appConfig } from '../config.js';
 import {
-  isMetered,
+  callPayer,
   isPoolFunded,
   type AccountContext,
   type AppContext,
@@ -64,7 +64,7 @@ export async function resolveFunding(
     purpose === 'review' ||
     purpose === 'compare' ||
     account.mode !== 'simple' ||
-    account.funding !== 'credit'
+    account.payer !== 'credit'
   )
     return account;
   if (!account.userId || !poolAvailable(c.env)) return account;
@@ -153,7 +153,7 @@ export async function assertCanGenerate(
   const account = await resolveFunding(c, c.var.account, check.purpose);
   c.set('account', account);
 
-  if (account.funding === 'pool') {
+  if (account.mode === 'simple' && account.payer === 'pool') {
     if (check.purpose === 'review')
       throw new DomainError('pool_unavailable', 'Reviews are not available on the open pool');
     if (check.purpose === 'compare')
@@ -176,7 +176,7 @@ export async function assertCanGenerate(
     if (check.purpose === 'resolve') {
       // A send is admitted by its reply's reservation; a resolve reserves nothing itself.
       const admitted = await poolBank(c.env, pool.accountId).admit(
-        poolAdmitRequest(pool, account.userId!),
+        poolAdmitRequest(pool, account.userId),
       );
       if (!admitted.ok) throw new PoolBlockedError(poolBlockDetails(admitted));
     }
@@ -191,14 +191,14 @@ export async function assertCanGenerate(
       check.providerId,
       check.model,
       {
-        userKeys: !isMetered(account, check.funding),
+        userKeys: callPayer(account, check.funding) === 'own-key',
         keyLabel: account.mode === 'simple' ? LEARN_KEY_LABEL : undefined,
       },
     );
   }
   await assertCanSpend(c.env, account, check.funding);
   // A credit call is held at its model's price: one without a known price can't run on credit.
-  if (check.model !== null && isMetered(account, check.funding))
+  if (check.model !== null && callPayer(account, check.funding) !== 'own-key')
     await requireCreditPrice(c.env, check.model);
   if (check.alsoSpendsOn !== undefined && check.alsoSpendsOn.funding !== check.funding)
     await assertCanSpend(c.env, account, check.alsoSpendsOn.funding);
