@@ -30,10 +30,11 @@
 // or looked-up cost already includes them. A cache price that drops to under
 // 1/`MAX_PRICE_DROP_FACTOR` of the stored one is held back like the others.
 import { DomainError } from '@tangent/core';
+import { isOpenRouterBaseUrl } from '@tangent/providers';
 import { appConfig, type ModelPrice } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { syncModelWindows } from '../model-windows.js';
-import { isOpenRouter, simpleProviderConfig } from '../simple-mode.js';
+import { simpleProviderConfig } from '../simple-mode.js';
 import { poolModel } from './params.js';
 import {
   listPriceOf,
@@ -143,7 +144,7 @@ let onDemandSync: { at: number; ok: Promise<boolean> } | null = null;
 async function syncOnDemand(env: AppEnv): Promise<boolean> {
   let openRouter: boolean;
   try {
-    openRouter = isOpenRouter(simpleProviderConfig(env).baseUrl);
+    openRouter = isOpenRouterBaseUrl(simpleProviderConfig(env).baseUrl);
   } catch {
     return true;
   }

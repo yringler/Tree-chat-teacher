@@ -10,7 +10,7 @@ import type { AppEnv } from '../env.js';
 import { expirePoolReservations, type ExpiryResult } from '../pool/expiry.js';
 import { poolBank } from '../pool/ids.js';
 import { POOL_EXPIRE_BATCH, POOL_GIVE_UP_MS, POOL_RESERVATION_TTL_MS } from '../pool/params.js';
-import { simpleApiKey } from '../simple-mode.js';
+import { builtInApiKey } from '../simple-mode.js';
 import { markUnresolved, settleUsage } from './usage-store.js';
 import { logEvent } from '../log.js';
 
@@ -73,7 +73,7 @@ export async function reconcileGeneration(
   generationId: string,
   options: { delaysMs?: readonly number[]; fetchImpl?: typeof fetch } = {},
 ): Promise<boolean> {
-  const key = simpleApiKey(env);
+  const key = builtInApiKey(env);
   if (!key) {
     logEvent('warn', 'reconcile_no_key', { usageId: target.usageId });
     return false;
@@ -135,7 +135,7 @@ export async function reconcilePendingUsage(
     .bind(new Date(nowMs - CRON_MIN_AGE_MS).toISOString(), CRON_BATCH)
     .all<PendingRow>();
 
-  const key = simpleApiKey(env);
+  const key = builtInApiKey(env);
   let settled = 0;
   let unresolved = 0;
   for (const row of results) {

@@ -1,7 +1,7 @@
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { reconcilePendingUsage } from '../src/billing/reconcile.js';
-import { simpleApiKey } from '../src/simple-mode.js';
+import { builtInApiKey } from '../src/simple-mode.js';
 import { CRON_JOBS } from '../src/cron.js';
 import type { AppEnv } from '../src/env.js';
 import {
@@ -125,15 +125,15 @@ describe('usage reconciliation cron', () => {
   });
 
   it('resolves the OpenRouter key from BUILT_IN_PROVIDER or BUILT_IN_API_KEY', () => {
-    expect(simpleApiKey({ ...env, BUILT_IN_PROVIDER: '' } as AppEnv)).toBe('sk-or-cron');
-    expect(simpleApiKey({ ...env, BUILT_IN_API_KEY: '' } as AppEnv)).toBeNull();
+    expect(builtInApiKey({ ...env, BUILT_IN_PROVIDER: '' } as AppEnv)).toBe('sk-or-cron');
+    expect(builtInApiKey({ ...env, BUILT_IN_API_KEY: '' } as AppEnv)).toBeNull();
     const named = {
       ...env,
       BUILT_IN_PROVIDER: JSON.stringify({ id: 'openrouter', apiKeySecret: 'OTHER_KEY' }),
       OTHER_KEY: ' sk-other ',
     } as AppEnv;
-    expect(simpleApiKey(named)).toBe('sk-other');
-    expect(simpleApiKey({ ...env, BUILT_IN_PROVIDER: '{bad json' } as AppEnv)).toBe('sk-or-cron');
+    expect(builtInApiKey(named)).toBe('sk-other');
+    expect(builtInApiKey({ ...env, BUILT_IN_PROVIDER: '{bad json' } as AppEnv)).toBe('sk-or-cron');
   });
 
   it('runs as the cron job at the time the trigger gives it', async () => {

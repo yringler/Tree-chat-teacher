@@ -1,5 +1,5 @@
 import { appChatSettings, DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
-import { parseProviderConfigs } from '@tangent/providers';
+import { isOpenRouterBaseUrl, parseProviderConfigs } from '@tangent/providers';
 import {
   OPENROUTER_PROVIDER_ID,
   DEFAULT_SYSTEM_PROMPT,
@@ -105,7 +105,7 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
  * The OpenRouter key the built-in provider spends: the secret named by
  * `BUILT_IN_PROVIDER.apiKeySecret` when set, else `BUILT_IN_API_KEY`.
  */
-export function simpleApiKey(env: AppEnv): string | null {
+export function builtInApiKey(env: AppEnv): string | null {
   let secretName = BUILT_IN_API_KEY_SECRET;
   const override = appConfig(env).builtIn.provider;
   if (override) {
@@ -258,7 +258,7 @@ export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfi
     maxContextTokens: pool.maxInputTokens + pool.maxOutputTokens,
     maxOutputTokens: pool.maxOutputTokens,
   };
-  if (base.kind !== 'openai-compatible' || !isOpenRouter(base.baseUrl) || !pool.price)
+  if (base.kind !== 'openai-compatible' || !isOpenRouterBaseUrl(base.baseUrl) || !pool.price)
     return config;
   const extraBody = asRecord(base.options?.['extraBody']);
   // Merged into the operator's own routing (e.g. `data_collection: 'deny'`),
@@ -282,25 +282,6 @@ export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfi
       },
     },
   };
-}
-
-/**
- * Whether an openai-compatible base URL reaches OpenRouter: openrouter.ai
- * itself, or the AI Gateway's OpenRouter route (`.../openrouter`). Unset means
- * the provider's own default, api.openai.com.
- */
-export function isOpenRouter(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false;
-  try {
-    const url = new URL(baseUrl);
-    if (url.hostname === 'openrouter.ai') return true;
-    return (
-      url.hostname === 'gateway.ai.cloudflare.com' &&
-      url.pathname.replace(/\/+$/, '').endsWith('/openrouter')
-    );
-  } catch {
-    return false;
-  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -363,7 +344,7 @@ export function learnOffer(env: AppEnv): LearnOffer | null {
   const tiers = [...config.models]
     .sort((a, b) => rank(a.tier) - rank(b.tier))
     .map(({ id, label, tier }) => ({ id, label, ...(tier ? { tier } : {}) }));
-  const openRouter = config.kind === 'openai-compatible' && isOpenRouter(config.baseUrl);
+  const openRouter = config.kind === 'openai-compatible' && isOpenRouterBaseUrl(config.baseUrl);
   const { engine, maxResults } = appConfig(env).grounding;
   return {
     tiers,

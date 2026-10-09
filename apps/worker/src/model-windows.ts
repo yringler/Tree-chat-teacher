@@ -13,7 +13,7 @@
 // Tangent credit's and the pool's windows bound the size of their holds and
 // their input caps, so they stay the lower of theirs and the model's. An
 // output limit OpenRouter reports only ever lowers the configured one.
-import { decorateProvider } from '@tangent/providers';
+import { decorateProvider, isOpenRouterBaseUrl } from '@tangent/providers';
 import type {
   LlmProvider,
   ProviderCapabilities,
@@ -24,7 +24,6 @@ import type { SqlRow } from './db/rows.js';
 import type { modelWindows } from './db/schema.js';
 import type { AppEnv } from './env.js';
 import { modelPrice } from './pool/price-table.js';
-import { isOpenRouter } from './simple-mode.js';
 import { logEvent } from './log.js';
 
 /** A model's real limits, as OpenRouter lists them. */
@@ -187,7 +186,7 @@ export function withModelWindows(
 ): ProviderRegistry {
   const openRouter = new Map(
     configs
-      .filter((c) => c.kind === 'openai-compatible' && isOpenRouter(c.baseUrl))
+      .filter((c) => c.kind === 'openai-compatible' && isOpenRouterBaseUrl(c.baseUrl))
       .map((c) => [c.id, c]),
   );
   if (openRouter.size === 0) return registry;

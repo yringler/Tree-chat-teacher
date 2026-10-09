@@ -7,6 +7,7 @@
 // or without a setting, so one credit call costs at most what Learn's does.
 // Learn ignores the settings: its own caps apply (simple-mode.ts).
 import type { ChatService, GenerationLimits } from '@tangent/core';
+import { isOpenRouterBaseUrl } from '@tangent/providers';
 import {
   chargeMicros,
   type BranchFunding,
@@ -17,7 +18,7 @@ import type { AccountContext, AppEnv } from './env.js';
 import { modelPrice } from './pool/price-table.js';
 import { markupFor, openRouterFeeBps } from './billing/service.js';
 import { providerConfigs } from './provider-configs.js';
-import { isOpenRouter, simpleMaxInputTokens, simpleProviderConfig } from './simple-mode.js';
+import { simpleMaxInputTokens, simpleProviderConfig } from './simple-mode.js';
 import { logEvent } from './log.js';
 
 /** USD per million tokens, from the price table's micro-USD per million. */
@@ -112,7 +113,7 @@ function ownKeyOnOpenRouter(env: AppEnv, account: AccountContext, providerId: st
   try {
     const configs = account.mode === 'simple' ? [simpleProviderConfig(env)] : providerConfigs(env);
     const config = configs.find((c) => c.id === providerId);
-    return !!config && config.kind === 'openai-compatible' && isOpenRouter(config.baseUrl);
+    return !!config && config.kind === 'openai-compatible' && isOpenRouterBaseUrl(config.baseUrl);
   } catch {
     return false;
   }

@@ -8,7 +8,7 @@ import { settleUsage } from '../billing/usage-store.js';
 import type { SqlRow } from '../db/rows.js';
 import type { usageEvents } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
-import { simpleApiKey } from '../simple-mode.js';
+import { builtInApiKey } from '../simple-mode.js';
 import type { PoolExpiryParams } from './pool-bank.js';
 import { poolSettlement } from './settle-policy.js';
 import { logEvent } from '../log.js';
@@ -61,7 +61,7 @@ async function lookupOnce(
   generationId: string,
   fetchImpl: typeof fetch | undefined,
 ): Promise<GenerationCost | null> {
-  const key = simpleApiKey(env);
+  const key = builtInApiKey(env);
   if (!key) return null;
   try {
     return await fetchOpenRouterGeneration(generationId, key, timedFetch(fetchImpl));
