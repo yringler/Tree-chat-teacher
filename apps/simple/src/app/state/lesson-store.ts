@@ -1,8 +1,7 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
 // The tree helpers only: the rest of @tangent/core (the ChatService) is for the lazy demo chunk.
-import { indexLinks, linkTarget } from '@tangent/core/links';
-import { branchChain, branchPath } from '@tangent/core/tree';
+import { linkTarget } from '@tangent/core/links';
 import {
   checkSourcesMessage,
   BUILT_IN_PROVIDER_ID,
@@ -16,13 +15,10 @@ import {
   type NodeLink,
   type ProviderInfo,
   type TreeBackupInput,
-  type TreeDetail,
-  type TreeSummary,
 } from '@tangent/shared';
 import {
   ApiClient,
   ApiError,
-  coalesced,
   ConversationStore,
   backupFile,
   CompareRun,
@@ -37,7 +33,6 @@ import {
   SAVE_FILE,
   type BackupFile,
   type PoolBlock,
-  type StreamOutcome,
 } from '@tangent/web-shared';
 import { lessonTitle } from '../chat/titles';
 import { AccountStore } from './account-store';
@@ -160,13 +155,12 @@ export type CompareCommitOutcome = 'kept' | 'out-of-date' | 'refused' | 'failed'
  */
 @Injectable({ providedIn: 'root' })
 export class LessonStore extends ConversationStore<ApiClient> {
-  private readonly router = inject(Router);
   private readonly ui = inject(UiStore);
   private readonly account = inject(AccountStore);
   private readonly saveFile = inject(SAVE_FILE);
 
   constructor() {
-    super(inject(ApiClient));
+    super(inject(ApiClient), inject(Router), { treeMissing: 'This lesson does not exist.' });
   }
 
   // Providers (Learn accounts: one provider with a Normal and a Max model, `ModelInfo.tier`)
@@ -176,21 +170,9 @@ export class LessonStore extends ConversationStore<ApiClient> {
   );
   readonly models = computed<readonly ModelInfo[]>(() => this.provider()?.models ?? []);
   readonly defaultModel = computed<string | null>(() => this.provider()?.defaultModel ?? null);
-
-  // Lessons
-  readonly trees = signal<TreeSummary[]>([]);
-  readonly treesLoaded = signal(false);
   /** The lesson whose backup is being downloaded (Export). */
   readonly exportingId = signal<string | null>(null);
   readonly importing = signal(false);
-
-  // The open lesson
-  readonly selectedTreeId = signal<string | null>(null);
-  readonly detailLoading = signal(false);
-  readonly detailError = signal<string | null>(null);
-  private readonly routeBranchId = signal<string | null>(null);
-  /** Message to scroll to (e.g. the branch point after going back to the parent). */
-  readonly focusedNodeId = signal<string | null>(null);
   /** Where the latest followed connection came from ("Back to …"); cleared on the way back. */
   readonly linkReturn = signal<LinkReturn | null>(null);
   /** Branches whose POST is in flight (before `start` arrives). */
@@ -204,47 +186,6 @@ export class LessonStore extends ConversationStore<ApiClient> {
   readonly poolBlock = signal<LessonPoolBlock | null>(null);
   /** The Compare sheet is open (its answers stream): the composer waits. */
   readonly comparing = signal(false);
-  private detailSeq = 0;
-  private treesSeq = 0;
-
-  /** The open lesson's connections between messages (NodeLink). */
-  readonly links = computed<readonly NodeLink[]>(() => this.detail()?.links ?? []);
-  /** Connections by message, each under both of its ends. */
-  readonly linksByNode = computed(() => indexLinks(this.links()));
-
-  readonly selectedBranchId = computed<string | null>(() => {
-    const idx = this.index();
-    if (!idx) return null;
-    const id = this.routeBranchId();
-    return id && idx.branches.has(id) ? id : idx.trunk.id;
-  });
-
-  readonly selectedBranch = computed<Branch | null>(() => {
-    const idx = this.index();
-    const id = this.selectedBranchId();
-    return (idx && id && idx.branches.get(id)) || null;
-  });
-
-  readonly parentBranch = computed<Branch | null>(() => {
-    const b = this.selectedBranch();
-    const idx = this.index();
-    return (b?.parentBranchId && idx?.branches.get(b.parentBranchId)) || null;
-  });
-
-  /** Trunk → selected branch. */
-  readonly chain = computed<Branch[]>(() => {
-    const idx = this.index();
-    const id = this.selectedBranchId();
-    return idx && id ? branchChain(idx, id) : [];
-  });
-
-  /** Root → leaf of the selected branch (ancestor branches' messages first). */
-  readonly path = computed<ChatNode[]>(() => {
-    const idx = this.index();
-    const id = this.selectedBranchId();
-    return idx && id ? branchPath(idx, id) : [];
-  });
-
   /** The reply currently generating in the selected branch. */
   readonly streamingNode = computed<ChatNode | null>(() => {
     const id = this.selectedBranchId();
@@ -277,71 +218,15 @@ export class LessonStore extends ConversationStore<ApiClient> {
     }
   }
 
-  async loadTrees(): Promise<void> {
-    try {
-      await this.readTrees();
-    } catch (err) {
-      this.fail(err);
-    } finally {
-      this.treesLoaded.set(true);
-    }
-  }
-
-  /** Reads the list; a read answering after one started later is dropped. */
-  private async readTrees(): Promise<void> {
-    const seq = ++this.treesSeq;
-    const list = await this.api.listTrees();
-    if (seq === this.treesSeq) this.trees.set(list);
-  }
-
-  /** A change made here (created, deleted, renamed): a read sent before it would undo it. */
-  private editTrees(change: (list: TreeSummary[]) => TreeSummary[]): void {
-    this.treesSeq++;
-    this.trees.update(change);
-  }
-
-  async loadTree(treeId: string, force = false): Promise<void> {
-    if (!force && this.detail()?.tree.id === treeId) return;
-    const seq = ++this.detailSeq;
-    this.detailLoading.set(true);
-    this.detailError.set(null);
-    if (this.detail()?.tree.id !== treeId) this.detail.set(null);
-    try {
-      const detail = await this.api.getTree(treeId);
-      if (!this.loadCurrent(seq, treeId)) return;
-      this.detail.set(detail);
-      this.resumeStreaming(detail.nodes);
-    } catch (err) {
-      if (!this.loadCurrent(seq, treeId)) return;
-      this.detailError.set(
-        err instanceof ApiError && err.status === 404
-          ? 'This lesson does not exist.'
-          : errorMessage(err),
-      );
-    } finally {
-      if (seq === this.detailSeq) this.detailLoading.set(false);
-    }
-  }
-
-  /** The load numbered `seq` of `treeId` is still the one wanted (no other tree, nor none, since). */
-  private loadCurrent(seq: number, treeId: string): boolean {
-    return seq === this.detailSeq && this.selectedTreeId() === treeId;
-  }
-
-  /** Shows `detail` (null: no tree), dropping whatever tree load is still in flight. */
-  private showDetail(detail: TreeDetail | null): void {
-    this.detailSeq++;
-    this.detailLoading.set(false);
-    this.detailError.set(null);
-    this.detail.set(detail);
-  }
-
-  // Routing (the URL is the source of truth for the selection)
+  // Routing
 
   /** Called after every navigation (RouteSync). */
-  setRoute(treeId: string | null, branchId: string | null, focusNodeId: string | null): void {
-    this.routeBranchId.set(branchId);
-    this.focusedNodeId.set(focusNodeId);
+  override setRoute(
+    treeId: string | null,
+    branchId: string | null,
+    focusNodeId: string | null,
+  ): void {
+    super.setRoute(treeId, branchId, focusNodeId);
     const back = this.linkReturn();
     const branch = this.selectedBranchId();
     if (
@@ -352,15 +237,14 @@ export class LessonStore extends ConversationStore<ApiClient> {
     ) {
       this.linkReturn.set(null);
     }
-    if (treeId !== this.selectedTreeId()) {
-      this.linkReturn.set(null);
-      this.selectedTreeId.set(treeId);
-      if (treeId) void this.loadTree(treeId);
-      else this.showDetail(null);
-    }
   }
 
-  go(branchId: string, focusNodeId: string | null = null, replace = false): void {
+  protected override treeChanged(): void {
+    this.linkReturn.set(null);
+  }
+
+  /** Learn's URLs: the trunk is the lesson's own, focused or not. */
+  override go(branchId: string, focusNodeId: string | null = null, replace = false): void {
     const treeId = this.selectedTreeId();
     if (!treeId) return;
     const trunk = this.index()?.trunk.id;
@@ -407,24 +291,16 @@ export class LessonStore extends ConversationStore<ApiClient> {
     this.go(back.branchId, back.nodeId);
   }
 
-  childBranchesAt(nodeId: string): readonly Branch[] {
-    return this.index()?.branchesAtNode.get(nodeId) ?? [];
-  }
-
   // Lessons
 
   /** Creates a lesson, opens it, and sends `topic` as the first message when there is one. */
   async startLesson(model: string | null, topic: string): Promise<boolean> {
     const providerId = this.provider()?.id;
     try {
-      const detail = await this.api.createTree({
+      const detail = await this.openNewTree({
         ...(providerId ? { providerId } : {}),
         ...(model ? { model } : {}),
       });
-      this.showDetail(detail);
-      this.selectedTreeId.set(detail.tree.id);
-      this.editTrees((list) => [summaryOf(detail), ...list]);
-      await this.router.navigate(['/t', detail.tree.id]);
       const first = topic.trim();
       if (first) void this.send(detail.tree.trunkBranchId, first);
       else this.ui.focusComposer();
@@ -489,7 +365,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
         return false;
       }
       const detail = await this.api.importBackup(backup);
-      this.editTrees((list) => [summaryOf(detail), ...list]);
+      this.listNewTree(detail);
       this.ui.notify(`Imported “${lessonTitle(detail.tree.title)}”`);
       await this.router.navigate(['/t', detail.tree.id]);
       return true;
@@ -598,12 +474,6 @@ export class LessonStore extends ConversationStore<ApiClient> {
       this.fail(err);
       return false;
     }
-  }
-
-  /** Depth of a branch: 0 for the main thread, 1 for a side question of it, … */
-  depthOf(branchId: string): number {
-    const idx = this.index();
-    return idx ? Math.max(0, branchChain(idx, branchId).length - 1) : 0;
   }
 
   /** Whether replies in `branchId` can be checked against web sources (not on the pool). */
@@ -912,6 +782,18 @@ export class LessonStore extends ConversationStore<ApiClient> {
    * account without a human check on record (403 pool_unavailable, `verify`)
    * opens the check.
    */
+  /** After a reply: the balance, and the pool meter while the pool is offered. */
+  protected override alsoRefreshAfterReply(): Promise<unknown> {
+    return Promise.all([
+      this.account.refreshBalance(),
+      this.account.payment.poolAvailable() ? this.account.refreshPool() : null,
+    ]);
+  }
+
+  protected notify(text: string, kind?: 'info' | 'error'): void {
+    this.ui.notify(text, kind);
+  }
+
   fail(err: unknown): void {
     if (isMembershipRequired(err)) {
       this.account.membershipRequired();
@@ -936,50 +818,6 @@ export class LessonStore extends ConversationStore<ApiClient> {
     console.error(err);
     this.ui.notify(errorMessage(err), 'error');
   }
-
-  protected finish(nodeId: string | null, outcome: StreamOutcome): void {
-    if (outcome.kind === 'lost') {
-      this.ui.notify(
-        `Lost the connection to the reply: ${outcome.message}. Reload to check on it.`,
-        'error',
-      );
-      if (nodeId) {
-        // Unblock the composer; the server answers a racing send with 409 if it is still generating.
-        this.markError(nodeId, 'Connection lost. Reload to see the final reply.');
-        this.dropLive(nodeId);
-      }
-    }
-    void this.refreshAfterCompletion();
-  }
-
-  /**
-   * After a reply: the balance, the pool meter while the pool is offered, and
-   * the lessons, titled after the first reply (the list and the open
-   * lesson's title). Replies finishing together share one refresh, plus one
-   * more if asked meanwhile. Quiet on failure: the next reply refreshes again.
-   */
-  private readonly refreshAfterCompletion = coalesced(async () => {
-    const lessons = this.readTrees().then(
-      () => true,
-      (err: unknown) => {
-        console.warn('lesson list refresh failed', err);
-        return false;
-      },
-    );
-    const [listed] = await Promise.all([
-      lessons,
-      this.account.refreshBalance(),
-      this.account.payment.poolAvailable() ? this.account.refreshPool() : null,
-    ]);
-    if (!listed) return;
-    const d = this.detail();
-    const summary = d && this.trees().find((t) => t.id === d.tree.id);
-    if (d && summary && summary.title !== d.tree.title) {
-      this.detail.update((cur) =>
-        cur ? { ...cur, tree: { ...cur.tree, title: summary.title } } : cur,
-      );
-    }
-  });
 
   /** Drops deleted branches and their messages, and stops following their replies. */
   private removeBranches(res: DeleteBranchResponse): void {
@@ -1031,15 +869,4 @@ export class LessonStore extends ConversationStore<ApiClient> {
       return next;
     });
   }
-}
-
-function summaryOf(d: TreeDetail): TreeSummary {
-  return {
-    id: d.tree.id,
-    title: d.tree.title,
-    createdAt: d.tree.createdAt,
-    updatedAt: d.tree.updatedAt,
-    branchCount: d.branches.length,
-    messageCount: d.nodes.length,
-  };
 }

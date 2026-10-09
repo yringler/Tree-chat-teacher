@@ -1,8 +1,27 @@
 import { computed, signal } from '@angular/core';
+import type { Router } from '@angular/router';
 // The tree helpers only: the rest of @tangent/core (the ChatService) is for the lazy demo chunk.
-import { indexTree, type TreeIndex } from '@tangent/core/tree';
-import type { Branch, ChatNode, NodeLink, StreamEvent, TreeDetail } from '@tangent/shared';
-import type { ApiClient } from '../core/api-client';
+import { indexLinks } from '@tangent/core/links';
+import {
+  branchChain,
+  branchLeaf,
+  branchPath,
+  indexTree,
+  navigate,
+  type NavDirection,
+  type TreeIndex,
+} from '@tangent/core/tree';
+import type {
+  Branch,
+  ChatNode,
+  CreateTreeRequest,
+  NodeLink,
+  StreamEvent,
+  TreeDetail,
+  TreeSummary,
+} from '@tangent/shared';
+import { ApiError, errorMessage, type ApiClient } from '../core/api-client';
+import { coalesced } from '../core/coalesced';
 import { runStream, type StreamOutcome } from '../sse/stream-runner';
 
 /** Live state of a reply, kept apart from `detail` so deltas don't re-index the tree. */
@@ -17,7 +36,27 @@ export interface LiveReply {
 }
 
 /** The server calls the conversation engine makes. */
-export type ConversationApi = Pick<ApiClient, 'streamNode'>;
+export type ConversationApi = Pick<
+  ApiClient,
+  'listTrees' | 'getTree' | 'createTree' | 'streamNode'
+>;
+
+/** The app's words for what the engine reports. */
+export interface ConversationCopy {
+  /** The error of a tree the server doesn't know, e.g. "This conversation does not exist." */
+  treeMissing: string;
+}
+
+function summaryOf(d: TreeDetail): TreeSummary {
+  return {
+    id: d.tree.id,
+    title: d.tree.title,
+    createdAt: d.tree.createdAt,
+    updatedAt: d.tree.updatedAt,
+    branchCount: d.branches.length,
+    messageCount: d.nodes.length,
+  };
+}
 
 function upsertById<T extends { id: string }>(list: readonly T[], items: readonly T[]): T[] {
   const out = [...list];
@@ -31,16 +70,32 @@ function upsertById<T extends { id: string }>(list: readonly T[], items: readonl
 
 /**
  * The conversation engine the apps' stores are built on (power's TreeStore,
- * the canvas's CanvasStore, Learn's LessonStore): the open tree and its
- * index, and every live reply. Any number of branches may generate at once
- * (the server only refuses a send into a branch whose leaf is still
- * streaming), and `live` holds them all. Plain signals and no DI, so it can
- * be unit tested; each app extends it with its own state and side effects.
+ * the canvas's CanvasStore, Learn's LessonStore): the tree list, the open
+ * tree and the selected branch (the URL is the source of truth for both),
+ * and every live reply. Any number of branches may generate at once (the
+ * server only refuses a send into a branch whose leaf is still streaming),
+ * and `live` holds them all. Plain signals and no DI, so it can be unit
+ * tested; each app extends it with its own state, and its side effects
+ * (toasts, dialogs) go through the hooks it implements.
  */
 export abstract class ConversationStore<A extends ConversationApi = ConversationApi> {
+  readonly trees = signal<TreeSummary[]>([]);
+  readonly treesLoaded = signal(false);
+
+  readonly selectedTreeId = signal<string | null>(null);
   readonly detail = signal<TreeDetail | null>(null);
+  readonly detailLoading = signal(false);
+  readonly detailError = signal<string | null>(null);
+  private readonly routeBranchId = signal<string | null>(null);
+  /** The message the URL points at (`?m=`), e.g. the branch point after going back to the parent. */
+  readonly focusedNodeId = signal<string | null>(null);
+
   readonly live = signal<ReadonlyMap<string, LiveReply>>(new Map());
+  /** Bumped whenever a reply finishes. */
+  readonly completions = signal(0);
   protected readonly controllers = new Map<string, AbortController>();
+  private detailSeq = 0;
+  private treesSeq = 0;
 
   readonly index = computed<TreeIndex | null>(() => {
     const d = this.detail();
@@ -53,10 +108,249 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     }
   });
 
-  constructor(protected readonly api: A) {}
+  /** The tree's links between messages, oldest first. */
+  readonly links = computed<readonly NodeLink[]>(() => this.detail()?.links ?? []);
+
+  /** Links by node id, each link under both of its ends. */
+  readonly linksByNode = computed<ReadonlyMap<string, readonly NodeLink[]>>(() =>
+    indexLinks(this.links()),
+  );
+
+  /** The branch in the URL while the tree has it, else the trunk. */
+  readonly selectedBranchId = computed<string | null>(() => {
+    const idx = this.index();
+    if (!idx) return null;
+    const id = this.routeBranchId();
+    return id && idx.branches.has(id) ? id : idx.trunk.id;
+  });
+
+  readonly selectedBranch = computed<Branch | null>(() => {
+    const idx = this.index();
+    const id = this.selectedBranchId();
+    return (idx && id && idx.branches.get(id)) || null;
+  });
+
+  readonly parentBranch = computed<Branch | null>(() => {
+    const b = this.selectedBranch();
+    const idx = this.index();
+    return (b?.parentBranchId && idx?.branches.get(b.parentBranchId)) || null;
+  });
+
+  /** Trunk → selected branch. */
+  readonly chain = computed<Branch[]>(() => {
+    const idx = this.index();
+    const id = this.selectedBranchId();
+    return idx && id ? branchChain(idx, id) : [];
+  });
+
+  /** Root → leaf of the selected branch (ancestor branches' messages first). */
+  readonly path = computed<ChatNode[]>(() => {
+    const idx = this.index();
+    const id = this.selectedBranchId();
+    return idx && id ? branchPath(idx, id) : [];
+  });
+
+  /** The selected branch's last message (null while it has none of its own). */
+  readonly leaf = computed<ChatNode | null>(() => {
+    const idx = this.index();
+    const id = this.selectedBranchId();
+    return idx && id ? branchLeaf(idx, id) : null;
+  });
+
+  constructor(
+    protected readonly api: A,
+    protected readonly router: Pick<Router, 'navigate'>,
+    private readonly copy: ConversationCopy,
+  ) {}
+
+  /** The app's error policy: every failed call ends here. */
+  abstract fail(err: unknown): void;
+
+  /** A toast. */
+  protected abstract notify(text: string, kind?: 'info' | 'error'): void;
+
+  /** The open tree changed (another one, none, or a new one): state about the old one goes. */
+  protected treeChanged(): void {}
+
+  /** What else to refresh after a reply, alongside the tree list (e.g. the balance). */
+  protected alsoRefreshAfterReply(): Promise<unknown> | null {
+    return null;
+  }
+
+  // The tree list
+
+  async loadTrees(): Promise<void> {
+    try {
+      await this.readTrees();
+    } catch (err) {
+      this.fail(err);
+    } finally {
+      this.treesLoaded.set(true);
+    }
+  }
+
+  /** Reads the list; a read answering after one started later is dropped. */
+  private async readTrees(): Promise<void> {
+    const seq = ++this.treesSeq;
+    const list = await this.api.listTrees();
+    if (seq === this.treesSeq) this.trees.set(list);
+  }
+
+  /** A change made here (created, deleted, renamed): a read sent before it would undo it. */
+  protected editTrees(change: (list: TreeSummary[]) => TreeSummary[]): void {
+    this.treesSeq++;
+    this.trees.update(change);
+  }
+
+  /** A tree made here (new, imported) goes first in the list. */
+  protected listNewTree(detail: TreeDetail): void {
+    this.editTrees((list) => [summaryOf(detail), ...list]);
+  }
+
+  // Routing (the URL is the source of truth for the selection)
+
+  /** Called by the routed page whenever the URL changes. */
+  setRoute(treeId: string | null, branchId: string | null, focusNodeId: string | null): void {
+    this.routeBranchId.set(branchId);
+    this.focusedNodeId.set(focusNodeId);
+    if (treeId !== this.selectedTreeId()) {
+      this.selectedTreeId.set(treeId);
+      this.treeChanged();
+      if (treeId) void this.loadTree(treeId);
+      else this.showDetail(null);
+    }
+  }
+
+  go(branchId: string, focusNodeId: string | null = null, replace = false): void {
+    const treeId = this.selectedTreeId();
+    if (!treeId) return;
+    const idx = this.index();
+    const commands =
+      idx && branchId === idx.trunk.id && !focusNodeId
+        ? ['/t', treeId]
+        : ['/t', treeId, 'b', branchId];
+    void this.router.navigate(commands, {
+      queryParams: focusNodeId ? { m: focusNodeId } : {},
+      replaceUrl: replace,
+    });
+  }
+
+  focus(nodeId: string | null): void {
+    const branchId = this.selectedBranchId();
+    if (branchId) this.go(branchId, nodeId, true);
+  }
+
+  /** Keyboard branch navigation (Alt+arrows, [ and ]). */
+  navigate(direction: NavDirection): boolean {
+    const idx = this.index();
+    const id = this.selectedBranchId();
+    if (!idx || !id) return false;
+    const target = navigate(idx, id, direction);
+    if (!target) return false;
+    this.go(target.branchId, target.focusNodeId);
+    return true;
+  }
+
+  childBranchesAt(nodeId: string): readonly Branch[] {
+    return this.index()?.branchesAtNode.get(nodeId) ?? [];
+  }
+
+  /** Depth of a branch: 0 for the main thread, 1 for a branch of it, … */
+  depthOf(branchId: string): number {
+    const idx = this.index();
+    return idx ? Math.max(0, branchChain(idx, branchId).length - 1) : 0;
+  }
+
+  // The open tree
+
+  async loadTree(treeId: string, force = false): Promise<void> {
+    if (!force && this.detail()?.tree.id === treeId) return;
+    const seq = ++this.detailSeq;
+    this.detailLoading.set(true);
+    this.detailError.set(null);
+    if (this.detail()?.tree.id !== treeId) this.detail.set(null);
+    try {
+      const detail = await this.api.getTree(treeId);
+      if (!this.loadCurrent(seq, treeId)) return;
+      this.detail.set(detail);
+      this.resumeStreaming(detail.nodes);
+    } catch (err) {
+      if (!this.loadCurrent(seq, treeId)) return;
+      this.detailError.set(
+        err instanceof ApiError && err.status === 404 ? this.copy.treeMissing : errorMessage(err),
+      );
+    } finally {
+      if (seq === this.detailSeq) this.detailLoading.set(false);
+    }
+  }
+
+  /** The load numbered `seq` of `treeId` is still the one wanted (no other tree, nor none, since). */
+  private loadCurrent(seq: number, treeId: string): boolean {
+    return seq === this.detailSeq && this.selectedTreeId() === treeId;
+  }
+
+  /** Shows `detail` (null: no tree), dropping whatever tree load is still in flight. */
+  private showDetail(detail: TreeDetail | null): void {
+    this.detailSeq++;
+    this.detailLoading.set(false);
+    this.detailError.set(null);
+    this.detail.set(detail);
+  }
+
+  /** Creates a tree and opens it, first in the list. Throws what the server refused. */
+  protected async openNewTree(req: CreateTreeRequest): Promise<TreeDetail> {
+    const detail = await this.api.createTree(req);
+    this.showDetail(detail);
+    this.selectedTreeId.set(detail.tree.id);
+    this.treeChanged();
+    this.listNewTree(detail);
+    await this.router.navigate(['/t', detail.tree.id]);
+    return detail;
+  }
+
+  // Replies
 
   /** A reply's stream ended (`nodeId` null: it never started). */
-  protected abstract finish(nodeId: string | null, outcome: StreamOutcome): void;
+  protected finish(nodeId: string | null, outcome: StreamOutcome): void {
+    if (outcome.kind === 'lost') {
+      this.notify(
+        `Lost the connection to the reply: ${outcome.message}. Reload to check on it.`,
+        'error',
+      );
+      if (nodeId) {
+        // Unblock the composer; the server answers a racing send with 409 if it is still generating.
+        this.markError(nodeId, 'Connection lost. Reload to see the final reply.');
+        this.dropLive(nodeId);
+      }
+    }
+    this.completions.update((n) => n + 1);
+    void this.refreshAfterCompletion();
+  }
+
+  /**
+   * Titles can change after the first reply (auto-titling): refresh the list
+   * and the tree title, with whatever else the app refreshes then. Replies
+   * finishing together (a fan-out) share one refresh, plus one more if asked
+   * meanwhile. Quiet on failure: the next reply refreshes again.
+   */
+  private readonly refreshAfterCompletion = coalesced(async () => {
+    const listed = this.readTrees().then(
+      () => true,
+      (err: unknown) => {
+        console.warn('tree list refresh failed', err);
+        return false;
+      },
+    );
+    const [ok] = await Promise.all([listed, this.alsoRefreshAfterReply()]);
+    if (!ok) return;
+    const d = this.detail();
+    const summary = d && this.trees().find((t) => t.id === d.tree.id);
+    if (d && summary && summary.title !== d.tree.title) {
+      this.detail.update((cur) =>
+        cur ? { ...cur, tree: { ...cur.tree, title: summary.title } } : cur,
+      );
+    }
+  });
 
   /** After loading a tree: re-attach to replies still generating server-side. */
   protected resumeStreaming(nodes: readonly ChatNode[]): void {

@@ -24,6 +24,7 @@ export { coalesced } from './core/coalesced';
 export {
   ConversationStore,
   type ConversationApi,
+  type ConversationCopy,
   type LiveReply,
 } from './conversation/conversation-store';
 export { CompareRun, type CompareCandidateState, type CompareSpec } from './core/compare-run';

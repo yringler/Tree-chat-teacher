@@ -1,16 +1,10 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import {
-  branchChain,
-  branchLeaf,
   branchesWithLinks,
-  branchPath,
   buildOutline,
   flattenOutline,
-  indexLinks,
   linkTarget,
-  navigate,
-  type NavDirection,
   type OutlineItem,
 } from '@tangent/core';
 import {
@@ -36,8 +30,6 @@ import type {
   ProviderInfo,
   ShareScope,
   TreeBackupInput,
-  TreeDetail,
-  TreeSummary,
   UpdateBranchRequest,
   UpdateTreeRequest,
 } from '@tangent/shared';
@@ -45,7 +37,6 @@ import {
   addBlockedSend,
   ApiClient,
   ApiError,
-  coalesced,
   ConversationStore,
   creditBuyable,
   creditCanPay,
@@ -60,7 +51,6 @@ import {
   runStream,
   type BlockedSend,
   type LearnCopyWay,
-  type StreamOutcome,
 } from '@tangent/web-shared';
 import { generationLimits, SettingsStore } from './settings-store';
 import { UiStore } from './ui-store';
@@ -68,12 +58,11 @@ import { UiStore } from './ui-store';
 /** Application state: tree list, the selected tree, selection, live streams. */
 @Injectable({ providedIn: 'root' })
 export class TreeStore extends ConversationStore<ApiClient> {
-  private readonly router = inject(Router);
   private readonly ui = inject(UiStore);
   private readonly appSettings = inject(SettingsStore);
 
   constructor() {
-    super(inject(ApiClient));
+    super(inject(ApiClient), inject(Router), { treeMissing: 'This conversation does not exist.' });
   }
 
   // Global data
@@ -102,19 +91,8 @@ export class TreeStore extends ConversationStore<ApiClient> {
    * can't be.
    */
   readonly poolOn = signal(false);
-  readonly trees = signal<TreeSummary[]>([]);
-  readonly treesLoaded = signal(false);
-
-  // Selected tree
-  readonly selectedTreeId = signal<string | null>(null);
-  readonly detailLoading = signal(false);
-  readonly detailError = signal<string | null>(null);
-  private readonly routeBranchId = signal<string | null>(null);
-  readonly focusedNodeId = signal<string | null>(null);
   /** Branches whose POST is in flight (before `start` arrives). */
   readonly sending = signal<ReadonlySet<string>>(new Set());
-  /** Bumped whenever a generation finishes; the inspector refreshes on it. */
-  readonly completions = signal(0);
   /**
    * Messages the server refused for want of their branch's own API key (401
    * `key_required`, before anything was written), while the keys dialog asks
@@ -132,17 +110,6 @@ export class TreeStore extends ConversationStore<ApiClient> {
    * when the branch sends again.
    */
   readonly unsentDrafts = signal<ReadonlyMap<string, string>>(new Map());
-  private detailSeq = 0;
-  private treesSeq = 0;
-
-  /** The tree's links between messages, oldest first. */
-  readonly links = computed<readonly NodeLink[]>(() => this.detail()?.links ?? []);
-
-  /** Links by node id, each link under both of its ends. */
-  readonly linksByNode = computed<ReadonlyMap<string, readonly NodeLink[]>>(() =>
-    indexLinks(this.links()),
-  );
-
   /** How many links touch each branch's messages (outline badges). */
   readonly linkCounts = computed<ReadonlyMap<string, number>>(() => {
     const idx = this.index();
@@ -157,44 +124,6 @@ export class TreeStore extends ConversationStore<ApiClient> {
   readonly flatOutline = computed<OutlineItem[]>(() => {
     const root = this.outline();
     return root ? flattenOutline(root) : [];
-  });
-
-  readonly selectedBranchId = computed<string | null>(() => {
-    const idx = this.index();
-    if (!idx) return null;
-    const id = this.routeBranchId();
-    return id && idx.branches.has(id) ? id : idx.trunk.id;
-  });
-
-  readonly selectedBranch = computed<Branch | null>(() => {
-    const idx = this.index();
-    const id = this.selectedBranchId();
-    return (idx && id && idx.branches.get(id)) || null;
-  });
-
-  readonly parentBranch = computed<Branch | null>(() => {
-    const b = this.selectedBranch();
-    const idx = this.index();
-    return (b?.parentBranchId && idx?.branches.get(b.parentBranchId)) || null;
-  });
-
-  /** Root → leaf of the selected branch. */
-  readonly path = computed<ChatNode[]>(() => {
-    const idx = this.index();
-    const id = this.selectedBranchId();
-    return idx && id ? branchPath(idx, id) : [];
-  });
-
-  readonly chain = computed<Branch[]>(() => {
-    const idx = this.index();
-    const id = this.selectedBranchId();
-    return idx && id ? branchChain(idx, id) : [];
-  });
-
-  readonly leaf = computed<ChatNode | null>(() => {
-    const idx = this.index();
-    const id = this.selectedBranchId();
-    return idx && id ? branchLeaf(idx, id) : null;
   });
 
   /** Focused node if it is on the displayed path, else null. */
@@ -445,77 +374,28 @@ export class TreeStore extends ConversationStore<ApiClient> {
     this.membership.set(summary.membership);
   }
 
-  async loadTrees(): Promise<void> {
-    try {
-      await this.readTrees();
-    } catch (err) {
-      this.fail(err);
-    } finally {
-      this.treesLoaded.set(true);
-    }
-  }
+  // Routing
 
-  /** Reads the list; a read answering after one started later is dropped. */
-  private async readTrees(): Promise<void> {
-    const seq = ++this.treesSeq;
-    const list = await this.api.listTrees();
-    if (seq === this.treesSeq) this.trees.set(list);
-  }
-
-  /** A change made here (created, deleted, renamed): a read sent before it would undo it. */
-  private editTrees(change: (list: TreeSummary[]) => TreeSummary[]): void {
-    this.treesSeq++;
-    this.trees.update(change);
-  }
-
-  // Routing (URL is the source of truth for selection)
-
-  /** Called by the routed page whenever the URL changes. */
-  setRoute(treeId: string | null, branchId: string | null, focusNodeId: string | null): void {
+  override setRoute(
+    treeId: string | null,
+    branchId: string | null,
+    focusNodeId: string | null,
+  ): void {
     const branchBefore = this.selectedBranchId();
-    this.routeBranchId.set(branchId);
-    this.focusedNodeId.set(focusNodeId);
-    if (treeId !== this.selectedTreeId()) {
-      this.selectedTreeId.set(treeId);
-      this.ui.clearLinkState();
-      // A comparison belongs to a branch of the tree left behind (Back while it was open).
-      this.ui.compareDialog.set(null);
-      if (treeId) void this.loadTree(treeId);
-      else this.showDetail(null);
-    }
+    super.setRoute(treeId, branchId, focusNodeId);
     // Branch settings edit the branch on screen: going to another (Back, a link) closes them.
     if (this.selectedBranchId() !== branchBefore) this.ui.branchSettingsOpen.set(false);
   }
 
-  go(branchId: string, focusNodeId: string | null = null, replace = false): void {
-    const treeId = this.selectedTreeId();
-    if (!treeId) return;
-    const idx = this.index();
-    const commands =
-      idx && branchId === idx.trunk.id && !focusNodeId
-        ? ['/t', treeId]
-        : ['/t', treeId, 'b', branchId];
-    void this.router.navigate(commands, {
-      queryParams: focusNodeId ? { m: focusNodeId } : {},
-      replaceUrl: replace,
-    });
+  protected override treeChanged(): void {
+    this.ui.clearLinkState();
+    // A comparison belongs to a branch of the tree left behind (Back while it was open).
+    this.ui.compareDialog.set(null);
+  }
+
+  override go(branchId: string, focusNodeId: string | null = null, replace = false): void {
+    super.go(branchId, focusNodeId, replace);
     this.ui.drawerOpen.set(false);
-  }
-
-  focus(nodeId: string | null): void {
-    const branchId = this.selectedBranchId();
-    if (branchId) this.go(branchId, nodeId, true);
-  }
-
-  /** Keyboard branch navigation (Alt+arrows, [ and ]). */
-  navigate(direction: NavDirection): boolean {
-    const idx = this.index();
-    const id = this.selectedBranchId();
-    if (!idx || !id) return false;
-    const target = navigate(idx, id, direction);
-    if (!target) return false;
-    this.go(target.branchId, target.focusNodeId);
-    return true;
   }
 
   /** j/k: move focus along the displayed path. */
@@ -547,47 +427,7 @@ export class TreeStore extends ConversationStore<ApiClient> {
     return this.firstNodeOf(b.id)?.id ?? b.branchPointNodeId;
   }
 
-  childBranchesAt(nodeId: string): readonly Branch[] {
-    return this.index()?.branchesAtNode.get(nodeId) ?? [];
-  }
-
   // Trees
-
-  async loadTree(treeId: string, force = false): Promise<void> {
-    if (!force && this.detail()?.tree.id === treeId) return;
-    const seq = ++this.detailSeq;
-    this.detailLoading.set(true);
-    this.detailError.set(null);
-    if (this.detail()?.tree.id !== treeId) this.detail.set(null);
-    try {
-      const detail = await this.api.getTree(treeId);
-      if (!this.loadCurrent(seq, treeId)) return;
-      this.detail.set(detail);
-      this.resumeStreaming(detail.nodes);
-    } catch (err) {
-      if (!this.loadCurrent(seq, treeId)) return;
-      this.detailError.set(
-        err instanceof ApiError && err.status === 404
-          ? 'This conversation does not exist.'
-          : errorMessage(err),
-      );
-    } finally {
-      if (seq === this.detailSeq) this.detailLoading.set(false);
-    }
-  }
-
-  /** The load numbered `seq` of `treeId` is still the one wanted (no other tree, nor none, since). */
-  private loadCurrent(seq: number, treeId: string): boolean {
-    return seq === this.detailSeq && this.selectedTreeId() === treeId;
-  }
-
-  /** Shows `detail` (null: no tree), dropping whatever tree load is still in flight. */
-  private showDetail(detail: TreeDetail | null): void {
-    this.detailSeq++;
-    this.detailLoading.set(false);
-    this.detailError.set(null);
-    this.detail.set(detail);
-  }
 
   /**
    * New tree from the empty state: creates it, opens it, sends the first
@@ -599,15 +439,10 @@ export class TreeStore extends ConversationStore<ApiClient> {
     model: string | null,
   ): Promise<void> {
     try {
-      const detail = await this.api.createTree({
+      const detail = await this.openNewTree({
         ...(route ? parseRouteKey(route) : {}),
         ...(model ? { model } : {}),
       });
-      this.showDetail(detail);
-      this.selectedTreeId.set(detail.tree.id);
-      this.ui.clearLinkState();
-      this.editTrees((list) => [this.summaryOf(detail), ...list]);
-      await this.router.navigate(['/t', detail.tree.id]);
       void this.send(detail.tree.trunkBranchId, content);
     } catch (err) {
       this.fail(err);
@@ -652,7 +487,7 @@ export class TreeStore extends ConversationStore<ApiClient> {
   async importBackup(backup: TreeBackupInput): Promise<void> {
     try {
       const detail = await this.api.importBackup(backup);
-      this.editTrees((list) => [this.summaryOf(detail), ...list]);
+      this.listNewTree(detail);
       this.ui.notify(`Imported “${detail.tree.title}”`);
       await this.router.navigate(['/t', detail.tree.id]);
     } catch (err) {
@@ -716,12 +551,6 @@ export class TreeStore extends ConversationStore<ApiClient> {
       this.fail(err);
       return null;
     }
-  }
-
-  /** Depth of a branch: 0 for the main thread, 1 for a branch of it, … */
-  depthOf(branchId: string): number {
-    const idx = this.index();
-    return idx ? Math.max(0, branchChain(idx, branchId).length - 1) : 0;
   }
 
   /** Whether replies in `branchId` can be checked against web sources (its provider can search). */
@@ -1056,44 +885,6 @@ export class TreeStore extends ConversationStore<ApiClient> {
     }
   }
 
-  protected finish(nodeId: string | null, outcome: StreamOutcome): void {
-    if (outcome.kind === 'lost') {
-      this.ui.notify(
-        `Lost the connection to the reply: ${outcome.message}. Reload to check on it.`,
-        'error',
-      );
-      if (nodeId) {
-        // Unblock the composer; the server rejects a racing send with 409 if it is still generating.
-        this.markError(nodeId, 'Connection lost. Reload to see the final reply.');
-        this.dropLive(nodeId);
-      }
-    }
-    this.completions.update((n) => n + 1);
-    void this.refreshAfterCompletion();
-  }
-
-  /**
-   * Titles can change after the first reply (auto-titling): refresh the list
-   * and the tree title. Replies finishing together (a fan-out) share one
-   * refresh, plus one more if asked meanwhile. Quiet on failure: the next
-   * reply refreshes again.
-   */
-  private readonly refreshAfterCompletion = coalesced(async () => {
-    try {
-      await this.readTrees();
-    } catch (err) {
-      console.warn('tree list refresh failed', err);
-      return;
-    }
-    const d = this.detail();
-    const summary = d && this.trees().find((t) => t.id === d.tree.id);
-    if (d && summary && summary.title !== d.tree.title) {
-      this.detail.update((cur) =>
-        cur ? { ...cur, tree: { ...cur.tree, title: summary.title } } : cur,
-      );
-    }
-  });
-
   private removeBranches(res: DeleteBranchResponse): void {
     const branchIds = new Set(res.branchIds);
     const nodeIds = new Set(res.nodeIds);
@@ -1147,15 +938,8 @@ export class TreeStore extends ConversationStore<ApiClient> {
     });
   }
 
-  private summaryOf(d: TreeDetail): TreeSummary {
-    return {
-      id: d.tree.id,
-      title: d.tree.title,
-      createdAt: d.tree.createdAt,
-      updatedAt: d.tree.updatedAt,
-      branchCount: d.branches.length,
-      messageCount: d.nodes.length,
-    };
+  protected notify(text: string, kind?: 'info' | 'error'): void {
+    this.ui.notify(text, kind);
   }
 
   fail(err: unknown): void {
