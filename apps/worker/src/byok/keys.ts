@@ -2,6 +2,7 @@ import { KeyRequiredError } from '@tangent/core';
 import type { ProviderConfig } from '@tangent/shared';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod';
+import { appConfig } from '../config.js';
 import type { AppContext, AppEnv } from '../env.js';
 import { open, seal, UnsealError } from './seal.js';
 
@@ -46,7 +47,7 @@ export type UserKeys =
 
 /** The configured secret, or null when bring-your-own-key is disabled. */
 export function keySecret(env: AppEnv): string | null {
-  return env.KEY_ENCRYPTION_SECRET?.trim() || null;
+  return appConfig(env).power.keyEncryptionSecret;
 }
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);

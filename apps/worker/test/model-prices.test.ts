@@ -212,7 +212,7 @@ describe('syncModelPrices', () => {
 
   it('prices a credit model the store does not know yet by syncing once, on demand', async () => {
     // The default built-in provider is OpenRouter; its model list is the mock's.
-    const openRouter = { ...env, SIMPLE_PROVIDER: '' } as AppEnv;
+    const openRouter = { ...env, BUILT_IN_PROVIDER: '' } as AppEnv;
     expect(await storedPrice(env.DB, ON_DEMAND_MODEL)).toBeNull();
     expect(await creditPrice(openRouter, ON_DEMAND_MODEL)).toEqual({
       inMicrosPerMTok: 1_000_000,

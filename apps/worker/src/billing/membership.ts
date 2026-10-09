@@ -205,7 +205,7 @@ export async function redeemWaiverCode(
   code: string,
 ): Promise<MembershipInfo> {
   if (!account.userId) throw new DomainError('unauthorized', 'Sign in to redeem a code');
-  const expected = env.MEMBERSHIP_WAIVER_CODE?.trim();
+  const expected = appConfig(env).billing.membershipWaiverCode;
   if (!expected) throw new DomainError('bad_request', 'Membership codes are not offered here');
   if (!(await codeMatches(code.trim(), expected)))
     throw new DomainError('forbidden', 'That code is not valid');

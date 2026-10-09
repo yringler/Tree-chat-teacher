@@ -230,10 +230,10 @@ describe('the input budget of an OpenRouter branch', () => {
     ...env,
     PROVIDERS: JSON.stringify([OPENROUTER]),
     OPENROUTER_API_KEY: 'sk-or-own',
-    SIMPLE_PROVIDER: JSON.stringify({
+    BUILT_IN_PROVIDER: JSON.stringify({
       ...OPENROUTER,
       label: 'Tangent',
-      apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
+      apiKeySecret: 'BUILT_IN_API_KEY',
       models: [{ id: 'x/big', label: 'Normal', tier: 'normal' }],
     }),
     PERSONAL_CREDIT_ENABLED: 'true',

@@ -29,7 +29,7 @@ import { creditSold, poolAvailable, registryFor, routeRegistryFor } from '../ser
 import { LEARN_KEY_LABEL } from '../simple-mode.js';
 import { getBalance } from './ledger.js';
 import { assertMember, membershipFor } from './membership.js';
-import { assertCanSpend, requireCreditPrice, usageHoldMicros } from './service.js';
+import { assertCanSpend, requireCreditPrice, USAGE_HOLD_MICROS } from './service.js';
 
 /** What a generating request is about to do. */
 export interface GenerateCheck {
@@ -75,7 +75,7 @@ export async function resolveFunding(
     return account;
   if (!account.userId || !poolAvailable(c.env)) return account;
   const { balanceMicros, heldMicros } = await getBalance(c.env.DB, account.billingAccountId);
-  if (balanceMicros - heldMicros >= usageHoldMicros(c.env)) return account;
+  if (balanceMicros - heldMicros >= USAGE_HOLD_MICROS) return account;
   return withPoolParams(c.env, account, clientIp(c.req.raw.headers), true);
 }
 
@@ -213,7 +213,7 @@ export async function defaultRouteFacts(
     membershipFor(env, account),
   ]);
   return {
-    creditCanPay: balanceMicros - heldMicros >= usageHoldMicros(env),
+    creditCanPay: balanceMicros - heldMicros >= USAGE_HOLD_MICROS,
     creditBuyable: creditSold(env),
     ownKeyLocked:
       membership.status === 'inactive' &&

@@ -2,7 +2,7 @@ import type { StreamEvent, TreeDetail } from '@tangent/shared';
 import { env as rawEnv, exports } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { grantCredit } from '../src/billing/ledger.js';
-import { usageHoldMicros } from '../src/billing/service.js';
+import { USAGE_HOLD_MICROS } from '../src/billing/service.js';
 import type { AppEnv } from '../src/env.js';
 import { resolvePoolParams } from '../src/pool/params.js';
 import {
@@ -135,6 +135,6 @@ describe('the built-in provider’s bounds', () => {
   it('keeps the personal-credit hold flat: a minimum balance, not the cap’s worst case', () => {
     // 16,384 tokens at $10/MTok would be a $0.16 hold; the hold stays USAGE_HOLD_MICROS and the
     // charge is the reported cost (billing-meter.test.ts), so a larger cap can't undercharge.
-    expect(usageHoldMicros(env)).toBe(20_000);
+    expect(USAGE_HOLD_MICROS).toBe(20_000);
   });
 });

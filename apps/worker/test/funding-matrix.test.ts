@@ -76,8 +76,8 @@ function matrixEnv(overrides: Partial<AppEnv> = {}): AppEnv {
       },
       openRouterLike('OpenRouter', 'OPENROUTER_API_KEY'),
     ]),
-    SIMPLE_PROVIDER: JSON.stringify(openRouterLike('Tangent', 'OPENROUTER_SIMPLE_API_KEY')),
-    OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR',
+    BUILT_IN_PROVIDER: JSON.stringify(openRouterLike('Tangent', 'BUILT_IN_API_KEY')),
+    BUILT_IN_API_KEY: 'sk-ant-goodOPERATOR',
     OPENROUTER_API_KEY: 'sk-ant-goodSERVER',
     ...overrides,
   });
@@ -393,10 +393,10 @@ describe('funding matrix: who pays, and with which key', () => {
 });
 
 describe('the provider id `tangent`', () => {
-  it('is an unknown provider: SIMPLE_PROVIDER may not use it, and a request naming it is refused', async () => {
+  it('is an unknown provider: BUILT_IN_PROVIDER may not use it, and a request naming it is refused', async () => {
     const named = {
       ...env,
-      SIMPLE_PROVIDER: JSON.stringify({ ...openRouterLike('Tangent', 'X'), id: 'tangent' }),
+      BUILT_IN_PROVIDER: JSON.stringify({ ...openRouterLike('Tangent', 'X'), id: 'tangent' }),
     } as AppEnv;
     expect(() => simpleProviderConfig(named)).toThrow(/id must be "openrouter"/);
     const { c } = await signedIn(authEnv());

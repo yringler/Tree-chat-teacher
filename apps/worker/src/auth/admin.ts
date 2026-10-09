@@ -1,4 +1,5 @@
 import { createMiddleware } from 'hono/factory';
+import { appConfig } from '../config.js';
 import type { AppBindings, AppEnv, Identity } from '../env.js';
 import { apiError } from '../http/errors.js';
 
@@ -8,12 +9,7 @@ import { apiError } from '../http/errors.js';
  * (`/admin/`, http/learn-app.ts) and `/api/admin/*` (routes/admin.ts).
  */
 export function adminUserIds(env: AppEnv): ReadonlySet<string> {
-  return new Set(
-    (env.ADMIN_USER_IDS ?? '')
-      .split(',')
-      .map((id) => id.trim())
-      .filter((id) => id.length > 0),
-  );
+  return new Set(appConfig(env).site.adminUserIds);
 }
 
 /** True when `userId` is listed in ADMIN_USER_IDS. */

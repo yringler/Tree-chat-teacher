@@ -156,7 +156,7 @@ describe('payment provider selection', () => {
       paymentProvider({ ...env, PAYMENT_PROVIDER: 'fake', TEST_SEAMS: '' } as AppEnv),
     ).toThrow(/only allowed in tests/);
     expect(() => paymentProvider({ ...env, PAYMENT_PROVIDER: 'paypal' } as AppEnv)).toThrow(
-      /Unknown PAYMENT_PROVIDER/,
+      'Invalid PAYMENT_PROVIDER="paypal": expected polar, fake',
     );
   });
 });

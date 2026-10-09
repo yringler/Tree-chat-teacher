@@ -4,6 +4,7 @@ import { authConfigured, getAuth, socialProviderFlags, type AuthDeps } from './a
 import { accountMiddleware } from './auth/account.js';
 import { sessionMiddleware } from './auth/session.js';
 import { sameOriginWrites } from './byok/guard.js';
+import { appConfig } from './config.js';
 import type { AppBindings } from './env.js';
 import { apiError, notFound, onError } from './http/errors.js';
 import { landingRoutes } from './http/landing.js';
@@ -70,11 +71,12 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
   });
   app.get('/api/login-options', (c) => {
     const configured = authConfigured(c.env);
+    const { auth } = appConfig(c.env);
     const body: LoginOptionsResponse = {
       configured,
-      devMode: !configured && c.env.DEV_ALLOW_NO_AUTH === 'true',
+      devMode: !configured && auth.devAllowNoAuth,
       social: configured ? socialProviderFlags(c.env) : { google: false, github: false },
-      turnstileSiteKey: c.env.TURNSTILE_SITE_KEY?.trim() || null,
+      turnstileSiteKey: auth.turnstileSiteKey,
     };
     return c.json(body);
   });

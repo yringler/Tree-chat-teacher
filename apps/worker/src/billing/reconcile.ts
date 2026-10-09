@@ -2,10 +2,11 @@
 // evicted generations): OpenRouter's generation endpoint, with retries right
 // after the stream and a cron backstop.
 import { fetchOpenRouterGeneration, type GenerationCost } from '@tangent/providers';
-import { appConfig } from '../config.js';
+import { appConfig, BUILT_IN_API_KEY_SECRET, namedSecrets } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { expirePoolReservations, type ExpiryResult } from '../pool/expiry.js';
 import { poolBank } from '../pool/ids.js';
+import { POOL_EXPIRE_BATCH, POOL_GIVE_UP_MS, POOL_RESERVATION_TTL_MS } from '../pool/params.js';
 import { costUsdToNanos } from './pricing.js';
 import { markUnresolved, settleUsage } from './usage-store.js';
 
@@ -24,12 +25,12 @@ const CRON_BATCH = 200;
 const CRON_POOL_LIMIT = 10;
 
 /**
- * The OpenRouter key simple mode spends: the secret named by
- * `SIMPLE_PROVIDER.apiKeySecret` when set, else `OPENROUTER_SIMPLE_API_KEY`.
+ * The OpenRouter key the built-in provider spends: the secret named by
+ * `BUILT_IN_PROVIDER.apiKeySecret` when set, else `BUILT_IN_API_KEY`.
  */
 export function simpleApiKey(env: AppEnv): string | null {
-  let secretName = 'OPENROUTER_SIMPLE_API_KEY';
-  const override = env.SIMPLE_PROVIDER?.trim();
+  let secretName = BUILT_IN_API_KEY_SECRET;
+  const override = appConfig(env).builtIn.provider;
   if (override) {
     try {
       const parsed: unknown = JSON.parse(override);
@@ -39,11 +40,11 @@ export function simpleApiKey(env: AppEnv): string | null {
         if (typeof name === 'string' && name) secretName = name;
       }
     } catch {
-      // Invalid SIMPLE_PROVIDER fails loudly where the registry is built; keep the default here.
+      // Invalid BUILT_IN_PROVIDER fails loudly where the registry is built; keep the default here.
     }
   }
-  const value = (env as unknown as Record<string, unknown>)[secretName];
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
+  const value = namedSecrets(env, new Set([secretName]))[secretName];
+  return value?.trim() || null;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -206,8 +207,8 @@ export async function reconcilePendingUsage(
 /**
  * Cron backstop for the open pool: expires stale reservations of every
  * pool account with any (in case a PoolBank alarm was lost), then advances
- * and verifies the configured pool's balance checkpoint. Limits, TTLs and the
- * pool id come from `appConfig(env)`.
+ * and verifies the configured pool's balance checkpoint (its id from
+ * `appConfig(env)`).
  */
 export async function reconcilePoolUsage(
   env: AppEnv,
@@ -215,9 +216,9 @@ export async function reconcilePoolUsage(
 ): Promise<Record<string, ExpiryResult>> {
   const pool = appConfig(env).pool;
   const options = {
-    ttlMs: pool.reservationTtlMs,
-    giveUpMs: pool.giveUpMs,
-    batch: pool.expireBatch,
+    ttlMs: POOL_RESERVATION_TTL_MS,
+    giveUpMs: POOL_GIVE_UP_MS,
+    batch: POOL_EXPIRE_BATCH,
   };
   const out: Record<string, ExpiryResult> = {};
   try {
@@ -241,7 +242,7 @@ export async function reconcilePoolUsage(
     try {
       await poolBank(env, pool.accountId).maintain({
         poolId: pool.accountId,
-        giveUpMs: pool.giveUpMs,
+        giveUpMs: POOL_GIVE_UP_MS,
         now: now.getTime(),
       });
     } catch (e) {

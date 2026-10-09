@@ -96,7 +96,7 @@ function inputTokens(request: Input): number {
 
 /**
  * Deterministic provider for tests (worker tests configure it through
- * `PROVIDERS` / `SIMPLE_PROVIDER`). It is a test seam, not a feature: it is
+ * `PROVIDERS` / `BUILT_IN_PROVIDER`). It is a test seam, not a feature: it is
  * never among the default providers, so no user is offered it.
  *
  * Reply text, unless overridden:

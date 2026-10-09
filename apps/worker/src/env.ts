@@ -1,75 +1,16 @@
 import type { AccountMode, BranchFunding, FundingSource } from '@tangent/shared';
 import type { Context } from 'hono';
+import type { ConfigVars } from './config.js';
 import type { PoolParams } from './pool/params.js';
 
 /**
- * Worker environment: generated bindings/vars (`Env`, from wrangler types)
- * plus secrets, which `wrangler types` cannot see. Secrets are optional
- * because only the providers actually configured need theirs.
+ * Worker environment: the bindings and vars `wrangler types` generates from
+ * wrangler.jsonc (`Env`), plus every var and secret config.ts reads, each
+ * optional (secrets and vars left at their default aren't in wrangler.jsonc).
+ * Only config.ts reads the vars and secrets (docs/configuration.md); every
+ * other module reads bindings alone.
  */
-export interface AppEnv extends Env {
-  ANTHROPIC_API_KEY?: string;
-  OPENAI_API_KEY?: string;
-  OPENROUTER_API_KEY?: string;
-  AI_GATEWAY_TOKEN?: string;
-  /**
-   * 32 random bytes, base64 (`openssl rand -base64 32`). Seals user-supplied
-   * API keys into their cookie. Unset = bring-your-own-key disabled.
-   * Rotating it invalidates every stored key.
-   */
-  KEY_ENCRYPTION_SECRET?: string;
-  /**
-   * 32+ random bytes (`openssl rand -base64 32`). Signs Better Auth session
-   * cookies. Unset = authentication not configured: `/api/*` refuses every
-   * request unless DEV_ALLOW_NO_AUTH applies. Rotating it signs everyone out.
-   */
-  BETTER_AUTH_SECRET?: string;
-  /** OAuth apps. Each provider is offered only when both of its values are set. */
-  GOOGLE_CLIENT_ID?: string;
-  GOOGLE_CLIENT_SECRET?: string;
-  GITHUB_CLIENT_ID?: string;
-  GITHUB_CLIENT_SECRET?: string;
-  /** Cloudflare Turnstile secret. Without it the magic-link endpoint fails closed. */
-  TURNSTILE_SECRET_KEY?: string;
-  RESEND_API_KEY?: string;
-  /** Local dev only (.dev.vars): skip sign-in. Honoured only while BETTER_AUTH_SECRET is unset. */
-  DEV_ALLOW_NO_AUTH?: string;
-  /**
-   * OpenRouter key of the built-in provider (`openrouter`), sold as prepaid
-   * credit in both apps and used by the open pool. Never falls back to
-   * OPENROUTER_API_KEY; set a credit limit on it in OpenRouter.
-   * Its spend is billed at the reported cost grossed up by the `OPENROUTER_FEE_BPS`
-   * var (OpenRouter's credit-purchase fee), then marked up.
-   */
-  OPENROUTER_SIMPLE_API_KEY?: string;
-  /**
-   * Polar organization access token (`polar_oat_…`), for the `polar` payment
-   * provider (billing/providers/polar). Payments are on only when this and
-   * POLAR_WEBHOOK_SECRET are set. Sandbox and production tokens differ.
-   */
-  POLAR_ACCESS_TOKEN?: string;
-  /** Signing secret (`whsec_…`) of the Polar webhook endpoint `/api/webhooks/polar`. */
-  POLAR_WEBHOOK_SECRET?: string;
-  /**
-   * A code users redeem (`POST /api/billing/membership/waiver`) to have the
-   * membership fee waived. Empty = no code redemption. If it leaks, change it
-   * and clear `auth_users.membership_waived` for whoever shouldn't have it.
-   */
-  MEMBERSHIP_WAIVER_CODE?: string;
-  /**
-   * Comma-separated Better Auth user ids of the operator's own accounts: they
-   * may open the admin app (`/admin/`) and `/api/admin/*`, and may always
-   * publish share links. A user id is an identifier, not a credential (being
-   * admin still takes being signed in as that user), so it is stored as is; it
-   * is a secret only to keep it out of wrangler.jsonc. Empty = no admins
-   * (the local dev bypass is always admin, see auth/admin.ts).
-   */
-  ADMIN_USER_IDS?: string;
-  /** Tests only ("true"): enables test-only RPC methods such as `PoolBank.expire(now)`. */
-  TEST_SEAMS?: string;
-  /** Tests only (with `PAYMENT_PROVIDER=fake`): the fake provider's options, JSON (billing/providers/fake.ts). */
-  FAKE_PAYMENTS?: string;
-}
+export type AppEnv = Env & ConfigVars;
 
 /**
  * The account a request acts as (see auth/account.ts). Every user has one per mode,
@@ -92,7 +33,7 @@ export interface AccountContext {
    */
   billingAccountId: string;
   /**
-   * The built-in provider (`tangent`, on OPENROUTER_SIMPLE_API_KEY) is in this
+   * The built-in provider (`tangent`, on BUILT_IN_API_KEY) is in this
    * account's registry, on the operator's key and metered per call:
    * - power: whenever the server offers it (`builtInAvailable`), next to the
    *   user's own providers;

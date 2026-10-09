@@ -30,7 +30,7 @@ describe('PoolPage (balance, overage breaker, top-up)', () => {
     expect(t).toContain('money(p.heldMicros)');
     expect(t).toContain('@if (p.breaker.tripped)');
     expect(t).toContain('Overage breaker tripped:');
-    expect(t).toContain('POOL_OVERAGE_MAX_MICROS');
+    expect(t).toContain('money(p.breaker.maxMicros)');
   });
 
   it('only adjusts the pool: nobody buys pool credit', () => {

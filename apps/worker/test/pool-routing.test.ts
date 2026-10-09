@@ -619,12 +619,12 @@ describe('poolProviderConfig', () => {
     baseUrl = 'https://openrouter.ai/api/v1',
   ): AppEnv => ({
     ...env,
-    SIMPLE_PROVIDER: JSON.stringify({
+    BUILT_IN_PROVIDER: JSON.stringify({
       id: 'openrouter',
       kind: 'openai-compatible',
       label: 'Tangent',
       baseUrl,
-      apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
+      apiKeySecret: 'BUILT_IN_API_KEY',
       defaultModel: 'normal',
       models: [{ id: 'normal', label: 'Normal', tier: 'normal' }],
       options: { extraBody: { transforms: [], provider } },

@@ -4,6 +4,7 @@ import { authBaseUrl, turnstileHostname, type AuthDeps } from '../auth/auth.js';
 import { clientIp } from '../auth/account.js';
 import { optionalIdentity } from '../auth/session.js';
 import { sameOriginOnly } from '../byok/guard.js';
+import { appConfig } from '../config.js';
 import type { AppBindings } from '../env.js';
 import { markPoolVerified } from '../pool/identity.js';
 import {
@@ -94,6 +95,11 @@ async function pageResponse(html: string, status: 200 | 400): Promise<Response> 
   });
 }
 
+/** The Turnstile site key; set wherever the page is shown (`turnstileConfigured`). */
+function siteKey(c: Context<AppBindings>): string {
+  return appConfig(c.env).auth.turnstileSiteKey ?? '';
+}
+
 /** Whether `userId` has a Turnstile pass on record. */
 async function isVerified(c: Context<AppBindings>, userId: string): Promise<boolean> {
   const row = await c.env.DB.prepare('SELECT pool_verified_at FROM auth_users WHERE id = ?')
@@ -112,10 +118,7 @@ export function verifyPageRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
     const identity = await optionalIdentity(c.env, c.req.raw, deps);
     if (!identity?.userId || !turnstileConfigured(c.env) || (await isVerified(c, identity.userId)))
       return c.redirect(next, 303);
-    return pageResponse(
-      renderVerifyPage({ siteKey: c.env.TURNSTILE_SITE_KEY.trim(), next, failed: false }),
-      200,
-    );
+    return pageResponse(renderVerifyPage({ siteKey: siteKey(c), next, failed: false }), 200);
   });
 
   app.post(VERIFY_PAGE_PATH, sameOriginOnly, async (c) => {
@@ -133,10 +136,7 @@ export function verifyPageRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
         hostname: turnstileHostname(c.env, c.req.raw),
       }));
     if (!passed)
-      return pageResponse(
-        renderVerifyPage({ siteKey: c.env.TURNSTILE_SITE_KEY.trim(), next, failed: true }),
-        400,
-      );
+      return pageResponse(renderVerifyPage({ siteKey: siteKey(c), next, failed: true }), 400);
     // A mailbox another account already uses still continues; the pool gate refuses it.
     await markPoolVerified(c.env.DB, identity.userId, identity.email);
     return c.redirect(next, 303);

@@ -1,6 +1,7 @@
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { groundingAllowance, groundingSettings, searchesToday } from '../src/billing/grounding.js';
+import { ConfigError } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { insertUsage, powerAccount, simpleAccount } from './mocks/billing-helpers.js';
 
@@ -16,7 +17,7 @@ describe('grounding settings', () => {
     const e = {
       ...env,
       GROUNDING: 'explicit',
-      GROUNDING_MAX_RESULTS: '99',
+      GROUNDING_MAX_RESULTS: '25',
       GROUNDING_ENGINE: 'parallel',
     } as AppEnv;
     expect(groundingSettings(e, 'simple')).toEqual({
@@ -29,7 +30,7 @@ describe('grounding settings', () => {
     expect(groundingSettings(e, 'power').ignoreBranchSetting).toBe(false);
   });
 
-  it('defaults to auto with 5 Exa results, and turns an unknown policy off', () => {
+  it('defaults to auto with 5 Exa results, and refuses an unknown policy or too many results', () => {
     const empty = {
       ...env,
       GROUNDING: '',
@@ -41,9 +42,8 @@ describe('grounding settings', () => {
       maxResults: 5,
       engine: 'exa',
     });
-    expect(groundingSettings({ ...env, GROUNDING: 'sometimes' } as AppEnv, 'power').policy).toBe(
-      'off',
-    );
+    for (const bad of [{ GROUNDING: 'sometimes' }, { GROUNDING_MAX_RESULTS: '99' }])
+      expect(() => groundingSettings({ ...env, ...bad } as AppEnv, 'power')).toThrow(ConfigError);
   });
 });
 

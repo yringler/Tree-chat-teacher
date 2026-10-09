@@ -3,7 +3,7 @@
 // review runs with them: the user's settings, sent with each request, clamped
 // here and in ChatService `budgetFor` (never above the model's window less
 // the reply). On Tangent
-// credit the input is also capped at Learn's SIMPLE_MAX_INPUT_TOKENS, with
+// credit the input is also capped at BUILT_IN_MAX_INPUT_TOKENS, with
 // or without a setting, so one credit call costs at most what Learn's does.
 // Learn ignores the settings: its own caps apply (simple-mode.ts).
 import type { ChatService, GenerationLimits } from '@tangent/core';

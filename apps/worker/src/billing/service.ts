@@ -37,22 +37,19 @@ import { appConfig } from '../config.js';
 const MAX_USAGE_PAGE = 100;
 
 /**
- * The least a credit call holds, and the available balance a send needs to
- * start (`USAGE_HOLD_MICROS`); a call on a pricier model holds its own worst
- * case (`creditHoldMicros`).
+ * The least a credit call holds ($0.02), and the available balance a send
+ * needs to start; a call on a pricier model holds its own worst case
+ * (`creditHoldMicros`). Only a reservation: the charge is the call's cost.
  */
-export function usageHoldMicros(env: AppEnv): number {
-  return appConfig(env).billing.usageHoldMicros;
-}
+export const USAGE_HOLD_MICROS = 20_000;
 
 /**
- * Credit calls a user may start and have in flight at once
- * (`USAGE_MAX_PENDING`): replies, reviews and compare candidates. The
- * summaries and titles of one ride on it, bounded by the balance alone.
+ * Credit calls a user may start and have in flight at once: replies, reviews
+ * and compare candidates, as many as canvas fans out at once (one more is
+ * 429). The summaries and titles of one ride on it, bounded by the balance
+ * alone.
  */
-export function usageMaxPending(env: AppEnv): number {
-  return appConfig(env).billing.usageMaxPending;
-}
+export const USAGE_MAX_PENDING = 6;
 
 /**
  * The input tokens of `request` as credit holds count them: core's estimate
@@ -100,7 +97,7 @@ export function creditHoldMicros(
     rates.feeBps,
     rates.markupBps,
   );
-  return Math.max(usageHoldMicros(env), worst);
+  return Math.max(USAGE_HOLD_MICROS, worst);
 }
 
 /** The markup and OpenRouter fee a credit call is charged at now. */
@@ -220,7 +217,7 @@ export async function reserveCreditReply(
       ...creditRates(env),
       createdAt: new Date().toISOString(),
     },
-    usageMaxPending(env),
+    USAGE_MAX_PENDING,
   );
   if (!reserved) throw await creditRefusal(env, account.billingAccountId, holdMicros);
   return id;
@@ -264,8 +261,8 @@ export async function assertCanSpend(
     env.DB,
     account.billingAccountId,
   );
-  if (balanceMicros - heldMicros < usageHoldMicros(env)) throw new PaymentRequiredError();
-  if (pendingCalls >= usageMaxPending(env)) throw new DomainError('rate_limited', TOO_MANY_PENDING);
+  if (balanceMicros - heldMicros < USAGE_HOLD_MICROS) throw new PaymentRequiredError();
+  if (pendingCalls >= USAGE_MAX_PENDING) throw new DomainError('rate_limited', TOO_MANY_PENDING);
 }
 
 interface PurchaseRow {

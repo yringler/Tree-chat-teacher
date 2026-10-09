@@ -77,12 +77,12 @@ export interface AuthDeps {
 
 /** True when authentication is configured, i.e. the dev bypass can't apply. */
 export function authConfigured(env: AppEnv): boolean {
-  return !!env.BETTER_AUTH_SECRET?.trim();
+  return appConfig(env).auth.secret !== null;
 }
 
 /** PUBLIC_BASE_URL, or the request's origin when it's unset (local dev and tests). */
 export function authBaseUrl(env: AppEnv, request: Request): string {
-  const configured = env.PUBLIC_BASE_URL?.trim().replace(/\/+$/, '');
+  const configured = appConfig(env).site.publicBaseUrl?.replace(/\/+$/, '');
   return configured || new URL(request.url).origin;
 }
 
@@ -99,12 +99,6 @@ export function turnstileHostname(env: AppEnv, request: Request): string | null 
   return isLocalHost(hostname) ? null : hostname;
 }
 
-function oauthApp(id: string | undefined, secret: string | undefined) {
-  const clientId = id?.trim();
-  const clientSecret = secret?.trim();
-  return clientId && clientSecret ? { clientId, clientSecret } : null;
-}
-
 export interface SocialProviderFlags {
   google: boolean;
   github: boolean;
@@ -112,18 +106,17 @@ export interface SocialProviderFlags {
 
 export function socialProviderFlags(env: AppEnv): SocialProviderFlags {
   return {
-    google: !!oauthApp(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET),
-    github: !!oauthApp(env.GITHUB_CLIENT_ID, env.GITHUB_CLIENT_SECRET),
+    google: appConfig(env).auth.google !== null,
+    github: appConfig(env).auth.github !== null,
   };
 }
 
 /** Only providers with both credentials are registered (and offered on the login page). */
 function socialProviders(env: AppEnv): BetterAuthOptions['socialProviders'] {
-  const google = oauthApp(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET);
-  const github = oauthApp(env.GITHUB_CLIENT_ID, env.GITHUB_CLIENT_SECRET);
+  const { google, github } = appConfig(env).auth;
   return {
     ...(google ? { google: { ...google, prompt: 'select_account' as const } } : {}),
-    ...(github ? { github } : {}),
+    ...(github ? { github: { ...github } } : {}),
   };
 }
 
@@ -197,7 +190,7 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
     appName: 'Tangent',
     baseURL: base.origin,
     basePath: AUTH_BASE_PATH,
-    secret: env.BETTER_AUTH_SECRET,
+    secret: appConfig(env).auth.secret ?? undefined,
     database: drizzleAdapter(drizzle(env.DB), {
       provider: 'sqlite',
       schema: {
@@ -305,7 +298,7 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
       // TURNSTILE_SECRET_KEY the plugin rejects the request (fails closed).
       captcha({
         provider: 'cloudflare-turnstile',
-        secretKey: env.TURNSTILE_SECRET_KEY?.trim() ?? '',
+        secretKey: appConfig(env).auth.turnstileSecretKey ?? '',
         endpoints: ['/sign-in/magic-link'],
         // Turnstile's test keys report their own hostname, so only pin it in deployments.
         ...(local ? {} : { allowedHostnames: [base.hostname] }),

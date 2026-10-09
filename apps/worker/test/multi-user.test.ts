@@ -19,7 +19,7 @@ import { env } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { deleteUser } from '../src/auth/delete-account.js';
 import { grantCredit } from '../src/billing/ledger.js';
-import { usageHoldMicros } from '../src/billing/service.js';
+import { USAGE_HOLD_MICROS } from '../src/billing/service.js';
 import { rememberCustomer } from '../src/billing/payments/customers.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
@@ -230,8 +230,8 @@ describe('account settings: the default system prompt', () => {
     expect((await newTree(other)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
   });
 
-  it('SIMPLE_SYSTEM_PROMPT replaces the built-in prompt of Learn only', async () => {
-    const u = await newUser(authEnv({ SIMPLE_SYSTEM_PROMPT: 'Operator tutor prompt.' }));
+  it('LEARN_SYSTEM_PROMPT replaces the built-in prompt of Learn only', async () => {
+    const u = await newUser(authEnv({ LEARN_SYSTEM_PROMPT: 'Operator tutor prompt.' }));
     expect(
       (await json<SettingsResponse>(await u.call('/api/settings', { learn: 'credit' })))
         .defaultSystemPrompt,
@@ -431,7 +431,7 @@ describe('Learn mode on paid credit', () => {
     await grantCredit(env.DB, {
       accountId: u.learn.accountId,
       kind: 'adjustment',
-      amountMicros: usageHoldMicros(env as AppEnv),
+      amountMicros: USAGE_HOLD_MICROS,
       providerRef: null,
       note: 'one hold',
     });
@@ -583,7 +583,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
     // Not offered without billing, or without the operator's key.
     for (const e of [
       authEnv({ PAYMENT_PROVIDER: 'polar' }),
-      authEnv({ SIMPLE_PROVIDER: '', OPENROUTER_SIMPLE_API_KEY: '' }),
+      authEnv({ BUILT_IN_PROVIDER: '', BUILT_IN_API_KEY: '' }),
     ]) {
       const v = await newUser(e);
       expect(v.power.builtInCredit).toBe(false);
@@ -902,22 +902,22 @@ describe('membership', () => {
 });
 
 describe("Learn mode on the user's own OpenRouter key", () => {
-  /** The real shape of the built-in provider: OpenRouter-like, on the operator's OPENROUTER_SIMPLE_API_KEY. */
+  /** The real shape of the built-in provider: OpenRouter-like, on the operator's BUILT_IN_API_KEY. */
   const ownKeyEnv = () =>
     authEnv({
-      SIMPLE_PROVIDER: JSON.stringify({
+      BUILT_IN_PROVIDER: JSON.stringify({
         id: 'openrouter',
         kind: 'anthropic',
         label: 'Tangent',
         baseUrl: MOCK_UPSTREAM,
-        apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
+        apiKeySecret: 'BUILT_IN_API_KEY',
         defaultModel: 'max',
         models: [
           { id: 'max', label: 'Max', tier: 'max' },
           { id: 'normal', label: 'Normal', tier: 'normal' },
         ],
       }),
-      OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR-0123',
+      BUILT_IN_API_KEY: 'sk-ant-goodOPERATOR-0123',
     });
 
   it('sends without credit and without metering (the Durable Object path)', async () => {
@@ -1032,13 +1032,13 @@ describe('power-mode server keys', () => {
           kind: 'anthropic',
           label: 'Leak',
           baseUrl: MOCK_UPSTREAM,
-          apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
+          apiKeySecret: 'BUILT_IN_API_KEY',
           defaultModel: 'claude-test',
           models: [{ id: 'claude-test', label: 'Claude Test' }],
         },
       ]),
       ANTHROPIC_API_KEY: 'sk-ant-goodSERVER-0123',
-      OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR-0123',
+      BUILT_IN_API_KEY: 'sk-ant-goodOPERATOR-0123',
     });
 
   /** A review streams from the Worker, so it runs with this env (see the Learn own-key test). */

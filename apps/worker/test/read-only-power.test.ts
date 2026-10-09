@@ -22,7 +22,7 @@ import { describe, expect, it } from 'vitest';
 import { getBalance, grantCredit } from '../src/billing/ledger.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
-import { DEFAULT_SIMPLE_NORMAL_MODEL } from '../src/simple-mode.js';
+import { DEFAULT_LEARN_NORMAL_MODEL } from '../src/simple-mode.js';
 import { makeNode } from './fixtures.js';
 import { insertSubscription } from './mocks/billing-helpers.js';
 import { authEnv, client } from './session-client.js';
@@ -396,19 +396,19 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
    * default route skips fakes), on the mock upstream of vitest.config.ts.
    */
   const CREDIT: Partial<AppEnv> = {
-    SIMPLE_PROVIDER: JSON.stringify({
+    BUILT_IN_PROVIDER: JSON.stringify({
       id: 'openrouter',
       kind: 'anthropic',
       label: 'Tangent',
       baseUrl: 'https://llm.test',
-      apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
+      apiKeySecret: 'BUILT_IN_API_KEY',
       defaultModel: 'max',
       models: [
         { id: 'max', label: 'Max', tier: 'max' },
         { id: 'normal', label: 'Normal', tier: 'normal' },
       ],
     }),
-    OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR',
+    BUILT_IN_API_KEY: 'sk-ant-goodOPERATOR',
   };
 
   const newTree = async (u: User) =>
@@ -444,7 +444,7 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
     // OpenRouter's configured default model (the suggested Normal one).
     expect(tree.branches[0]).toMatchObject({
       providerId: 'openrouter',
-      model: DEFAULT_SIMPLE_NORMAL_MODEL,
+      model: DEFAULT_LEARN_NORMAL_MODEL,
       funding: 'own-key',
     });
     expect((await json<ApiError>(await firstSend(u, tree), 401)).error).toEqual({
@@ -498,7 +498,7 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
     // Never onto credit that can't pay.
     expect(tree.branches[0]).toMatchObject({
       providerId: 'openrouter',
-      model: DEFAULT_SIMPLE_NORMAL_MODEL,
+      model: DEFAULT_LEARN_NORMAL_MODEL,
       funding: 'own-key',
     });
     const send = await firstSend(u, tree);

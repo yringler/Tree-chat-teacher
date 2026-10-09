@@ -9,6 +9,7 @@ import { appConfig } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import { LANDING_STYLE } from '../src/http/landing.js';
 import { LEGAL_STYLE } from '../src/http/legal.js';
+import { POOL_SESSION_ESTIMATE_MICROS } from '../src/pool/params.js';
 import { poolStatus } from '../src/pool/status.js';
 import { envWithFailingDb, uniq } from './mocks/billing-helpers.js';
 import { fundPool, poolReadyUser } from './pool-helpers.js';
@@ -22,9 +23,9 @@ function visitor(e: AppEnv) {
   return (path: string) => app.request(`${ORIGIN}${path}`, {}, e);
 }
 
-/** An env (auth configured) whose pool is `poolId`. */
+/** An env (auth configured) whose pool is `poolId`, asking its model with a low effort as deployed. */
 function poolEnv(poolId: string, overrides: Partial<AppEnv> = {}): AppEnv {
-  return authEnv({ POOL_ACCOUNT_ID: poolId, ...overrides });
+  return authEnv({ TEST_POOL_ACCOUNT_ID: poolId, POOL_EFFORT: 'low', ...overrides });
 }
 
 /** A settled pool row of `userId` (no pending rows: other suites' crons would expire them). */
@@ -64,11 +65,10 @@ describe('GET /api/pool/status', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Cache-Control')).toBe('no-cache');
     const status = (await res.json()) as PoolStatusResponse;
-    const config = appConfig(poolEnv(poolId));
     expect(status).toEqual({
       enabled: true,
       availableMicros: 1_000_000,
-      sessionsRemaining: Math.floor(1_000_000 / config.pool.sessionEstimateMicros),
+      sessionsRemaining: Math.floor(1_000_000 / POOL_SESSION_ESTIMATE_MICROS),
       // The fake's Normal, asked with the pool's effort (`POOL_EFFORT`, which the fake's
       // listing doesn't set) and its shorter reply cap.
       model: { id: 'normal', label: 'Normal', thinking: 'other', replies: 'shorter' },
@@ -149,9 +149,7 @@ describe('the landing page’s pool meter', () => {
     const learner = uniq('user');
     await settledReply(poolId, learner, 8_000);
     const html = await (await visitor(poolEnv(poolId))('/welcome')).text();
-    const sessions = Math.floor(
-      (2_468_000 - 8_000) / appConfig(poolEnv(poolId)).pool.sessionEstimateMicros,
-    );
+    const sessions = Math.floor((2_468_000 - 8_000) / POOL_SESSION_ESTIMATE_MICROS);
     expect(html).toContain(`About ${sessions} learning sessions left`);
     expect(html).toContain('$2.46 in the pool');
     expect(html).toContain('<h2 id="pool">Curiosity shouldn’t need a credit card</h2>');

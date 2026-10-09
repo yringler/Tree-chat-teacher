@@ -9,7 +9,7 @@ const ORIGIN = 'https://tangent.example.com';
 const POWER_INDEX = '<!doctype html><title>power</title>';
 const SECRET = 'test-secret-test-secret-test-secret';
 /** The default own-key and built-in providers (OpenRouter, with web search), as deployed. */
-const DEFAULT_PROVIDERS: Partial<AppEnv> = { PROVIDERS: '', SIMPLE_PROVIDER: '' };
+const DEFAULT_PROVIDERS: Partial<AppEnv> = { PROVIDERS: '', BUILT_IN_PROVIDER: '' };
 
 /** Stand-in for Workers Static Assets: every path is the power app's index.html. */
 function fakeAssets() {
@@ -143,7 +143,7 @@ describe('landingRoutes', () => {
     // A pool of its own, so no other test's cached meter (which says it's on) is read.
     const noPool = {
       POOL_ENABLED: 'false',
-      POOL_ACCOUNT_ID: `pool_${Math.random().toString(36).slice(2)}`,
+      TEST_POOL_ACCOUNT_ID: `pool_${Math.random().toString(36).slice(2)}`,
     };
     const noTopUps = { FAKE_PAYMENTS: '{"topUps":false}' };
     // The fee on, no pool, no credit for sale: the own key is the way, and it costs the membership.

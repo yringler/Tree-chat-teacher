@@ -18,6 +18,7 @@ import {
 import { PaymentProviderError } from '../billing/payments/index.js';
 import { getBillingSummary, listUsage, startTopUpCheckout } from '../billing/service.js';
 import { enforceRateLimit } from '../byok/guard.js';
+import { appConfig } from '../config.js';
 import type { AppBindings, AppContext } from '../env.js';
 import { apiError, validateJson, validateQuery } from '../http/errors.js';
 
@@ -30,7 +31,7 @@ const usageQuerySchema = z.object({
 
 /** The base of the URLs the payment provider sends the browser back to. */
 function baseUrlOf(c: AppContext): string {
-  return c.env.PUBLIC_BASE_URL?.trim() || new URL(c.req.url).origin;
+  return appConfig(c.env).site.publicBaseUrl ?? new URL(c.req.url).origin;
 }
 
 /** A payment provider failure as 502 `provider_error`, so the UI can say "try again". */
