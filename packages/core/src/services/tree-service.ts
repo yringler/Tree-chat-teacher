@@ -38,6 +38,7 @@ import { emptyToNull, type ServiceContext } from './context.js';
 export const INTERRUPTED = {
   status: 'error',
   error: 'Interrupted before the reply finished',
+  errorKind: 'interrupted',
 } as const;
 
 /** Trees, branches, links and the account's settings: everything that never calls a model. */

@@ -924,7 +924,12 @@ export class DemoBackend {
       this.state.nodes.set(
         n.id,
         n.status === 'streaming'
-          ? { ...n, status: 'error', error: 'Interrupted before the reply finished' }
+          ? {
+              ...n,
+              status: 'error',
+              error: 'Interrupted before the reply finished',
+              errorKind: 'interrupted',
+            }
           : n,
       );
     }

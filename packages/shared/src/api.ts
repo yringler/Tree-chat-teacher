@@ -18,6 +18,7 @@ import type {
   TokenUsage,
   Tree,
 } from './domain.js';
+import { NODE_ERROR_KINDS } from './domain.js';
 import type { ProviderInfo } from './provider.js';
 import { MAX_REQUESTED_OUTPUT_TOKENS, MIN_REQUESTED_OUTPUT_TOKENS } from './output-tokens.js';
 import {
@@ -644,6 +645,7 @@ export function backupFileName(title: string): string {
 const isoDate = z.string().min(1).max(64);
 const role = z.enum(['user', 'assistant', 'system']);
 const nodeStatus = z.enum(['streaming', 'complete', 'error']);
+const nodeErrorKind = z.enum(NODE_ERROR_KINDS);
 const linkOrigin = z.enum(['user', 'ai']) satisfies z.ZodType<LinkOrigin>;
 
 /*
@@ -724,6 +726,7 @@ export const treeBackupSchema = z.object({
           .string()
           .transform((s) => s.slice(0, MAX_NODE_ERROR_CHARS))
           .nullable(),
+        errorKind: nodeErrorKind.nullable().optional(),
         providerId: z.string().max(64).nullable(),
         model: z.string().max(200).nullable(),
         usage: z.object({ inputTokens: z.number(), outputTokens: z.number() }).nullable(),

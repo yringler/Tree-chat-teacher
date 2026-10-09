@@ -1,4 +1,4 @@
-import type { Branch, ChatNode, StreamEvent } from '@tangent/shared';
+import type { Branch, ChatNode, NodeErrorKind, StreamEvent } from '@tangent/shared';
 import { ConflictError, ValidationError } from '../errors.js';
 import { errorText, type ServiceContext } from '../services/context.js';
 import {
@@ -98,12 +98,15 @@ export class SendService {
     let branch = begin.branch;
     const state = emptyReplyState();
     const finish = async (
-      status: 'complete' | 'error',
-      error: string | null,
+      outcome: { status: 'complete' } | { status: 'error'; message: string; kind: NodeErrorKind },
     ): Promise<ChatNode> => {
       const { content, sources } = state;
       const usage = finalTokenUsage(state.usage);
-      const patch = { content, status, error, usage, sources };
+      const { status } = outcome;
+      const failed = outcome.status === 'error' ? outcome : null;
+      const error = failed?.message ?? null;
+      const errorKind = failed?.kind ?? null;
+      const patch = { content, status, error, errorKind, usage, sources };
       await this.ctx.repos.trees.updateNode(assistantNode.id, patch);
       return { ...assistantNode, ...patch };
     };
@@ -134,11 +137,11 @@ export class SendService {
       );
 
       if (terminal.status === 'error') {
-        const node = await finish('error', terminal.message);
+        const node = await finish(terminal);
         yield { type: 'error', nodeId: node.id, message: terminal.message, node };
         return;
       }
-      const node = await finish('complete', null);
+      const node = await finish(terminal);
       branch =
         (await this.titler.titleFirstExchange(inputs.tree, branch, userNode, node)) ?? branch;
       yield { type: 'done', node, branch };
@@ -146,7 +149,7 @@ export class SendService {
       const message = err instanceof Error ? err.message : 'Generation failed';
       let node: ChatNode | null;
       try {
-        node = await finish('error', message);
+        node = await finish({ status: 'error', message, kind: 'failed' });
       } catch (saveErr) {
         node = null;
         this.ctx.log('reply_save_failed', {

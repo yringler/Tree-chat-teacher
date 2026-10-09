@@ -6,8 +6,9 @@ import type { ChatNode } from './domain.js';
  * model the thinking (billed as output) can use up the whole cap before any
  * answer is written. Such a reply is stored as an `error` node that keeps its
  * partial text (it stays in the context, so the learner can ask the tutor to
- * continue), with one of the fixed messages below as its `error`, so every
- * app can tell it from a failure.
+ * continue), with one of the fixed messages below as its `error` and its
+ * `errorKind` (`cut_off`, `thinking_only`), which is how every app tells it
+ * from a failure.
  */
 
 /** Upstream finish reasons of a reply cut off at its output cap (OpenAI/OpenRouter, Anthropic). */
@@ -39,11 +40,11 @@ export const REPLY_CANCELLED_ERROR = 'Cancelled';
 export const CONTINUE_MESSAGE = 'Please continue where you left off.';
 
 /** Whether `node` is a reply cut off at its length limit with some text kept. */
-export function isCutOffReply(node: Pick<ChatNode, 'status' | 'error'>): boolean {
-  return node.status === 'error' && node.error === REPLY_CUT_OFF_ERROR;
+export function isCutOffReply(node: Pick<ChatNode, 'status' | 'errorKind'>): boolean {
+  return node.status === 'error' && node.errorKind === 'cut_off';
 }
 
 /** Whether `node` is a reply the learner stopped. */
-export function isStoppedReply(node: Pick<ChatNode, 'status' | 'error'>): boolean {
-  return node.status === 'error' && node.error === REPLY_CANCELLED_ERROR;
+export function isStoppedReply(node: Pick<ChatNode, 'status' | 'errorKind'>): boolean {
+  return node.status === 'error' && node.errorKind === 'cancelled';
 }

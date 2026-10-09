@@ -315,7 +315,12 @@ describe('ChatService sending', () => {
     const { begin, last } = await send(chat, tree.trunkBranchId, 'hi');
     expect(last).toMatchObject({ type: 'error', message: 'boom' });
     const stored = await repos.trees.getNode(begin.assistantNode.id);
-    expect(stored).toMatchObject({ status: 'error', error: 'boom', content: 'reply' });
+    expect(stored).toMatchObject({
+      status: 'error',
+      error: 'boom',
+      errorKind: 'provider',
+      content: 'reply',
+    });
   });
 
   it('cancels via AbortSignal and keeps partial content', async () => {
@@ -331,7 +336,7 @@ describe('ChatService sending', () => {
     }
     expect(events.at(-1)).toMatchObject({ type: 'error', message: 'Cancelled' });
     const stored = await repos.trees.getNode(begin.assistantNode.id);
-    expect(stored?.status).toBe('error');
+    expect(stored).toMatchObject({ status: 'error', errorKind: 'cancelled' });
     expect(stored?.content.length).toBeGreaterThan(0);
   });
 
@@ -385,6 +390,7 @@ describe('ChatService sending', () => {
     expect(await chat.recoverInterruptedNode(orphan.assistantNode.id)).toMatchObject({
       status: 'error',
       error: 'Interrupted before the reply finished',
+      errorKind: 'interrupted',
     });
     expect((await repos.trees.getNode(orphan.assistantNode.id))?.status).toBe('error');
     expect((await repos.trees.getNode(live.assistantNode.id))?.status).toBe('streaming');

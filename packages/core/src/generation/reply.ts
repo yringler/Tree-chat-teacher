@@ -12,6 +12,7 @@ import {
   type Citation,
   type ContextPlan,
   type LlmProvider,
+  type NodeErrorKind,
   type ProviderCapabilities,
   type ProviderError,
   type ProviderRoute,
@@ -44,7 +45,8 @@ export function emptyReplyState(): ReplyState {
 }
 
 type ReplyEvent = Extract<StreamEvent, { type: 'status' | 'delta' | 'usage' }>;
-export type ReplyTerminal = { status: 'complete' } | { status: 'error'; message: string };
+export type ReplyTerminal =
+  { status: 'complete' } | { status: 'error'; message: string; kind: NodeErrorKind };
 
 /** A reply's planned context, and what it runs with (`prepareReply`). */
 export interface PreparedReply {
@@ -177,13 +179,23 @@ export class Replier {
           };
           break;
         } else {
-          terminal = { status: 'error', message: providerErrorMessage(event.error) };
+          terminal = {
+            status: 'error',
+            message: providerErrorMessage(event.error),
+            kind: event.error.code === 'aborted' ? 'cancelled' : 'provider',
+          };
         }
       }
       if (searched) state.sources = cited;
       if (!retryWithoutSearch) break;
     }
-    return terminal ?? { status: 'error', message: 'The provider stream ended unexpectedly' };
+    return (
+      terminal ?? {
+        status: 'error',
+        message: 'The provider stream ended unexpectedly',
+        kind: 'provider',
+      }
+    );
   }
 
   /** Whether replies on `branch` can run a web search ("Check sources"). */
@@ -262,6 +274,7 @@ export function chatNode(
     content: '',
     status: 'complete',
     error: null,
+    errorKind: null,
     providerId: null,
     model: null,
     usage: null,
@@ -289,13 +302,16 @@ function missesSummary(plan: ContextPlan): boolean {
  * The outcome of a reply the provider finished with `stopReason`: complete,
  * unless it stopped at its output cap (`isLengthStop`; with no text at all, a
  * reasoning model thought until the cap) or wrote nothing. Those are errors
- * with fixed messages (stop-reason.ts) the apps recognize.
+ * with fixed messages (stop-reason.ts) and kinds the apps recognize.
  */
 function replyOutcome(content: string, stopReason: string | null): ReplyTerminal {
   const empty = content.trim() === '';
-  if (isLengthStop(stopReason))
-    return { status: 'error', message: empty ? REPLY_THINKING_ONLY_ERROR : REPLY_CUT_OFF_ERROR };
-  if (empty) return { status: 'error', message: REPLY_EMPTY_ERROR };
+  if (isLengthStop(stopReason)) {
+    return empty
+      ? { status: 'error', message: REPLY_THINKING_ONLY_ERROR, kind: 'thinking_only' }
+      : { status: 'error', message: REPLY_CUT_OFF_ERROR, kind: 'cut_off' };
+  }
+  if (empty) return { status: 'error', message: REPLY_EMPTY_ERROR, kind: 'empty' };
   return { status: 'complete' };
 }
 
