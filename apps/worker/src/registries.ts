@@ -13,7 +13,7 @@ import {
 import { createProviderRegistry, decorateProvider } from '@tangent/providers';
 import {
   DEFAULT_SYSTEM_PROMPT,
-  LEARN_KEY_PROVIDER,
+  OPENROUTER_PROVIDER_ID,
   type BranchFunding,
   type LlmProvider,
   type ProviderConfig,
@@ -26,8 +26,13 @@ import { createPoolUsageMeter, createUsageMeter, meteredRegistry } from './billi
 import { appConfig, BUILT_IN_API_KEY_SECRET } from './config.js';
 import { createD1Repositories } from './db/d1-repositories.js';
 import { withModelWindows } from './model-windows.js';
-import { isPoolFunded, type AccountContext, type AppEnv } from './env.js';
-import type { PoolParams } from './pool/params.js';
+import {
+  callPayer,
+  isPoolFunded,
+  type AccountContext,
+  type AppEnv,
+  type PoolAccount,
+} from './env.js';
 import {
   apiKeySecrets,
   providerConfigs,
@@ -66,14 +71,14 @@ function poolScope(account: AccountContext, scope: ServiceScope) {
 /**
  * The providers of a request's own-key routes. Anyone can sign up, so the
  * operator's keys are withheld except through the built-in provider on a
- * funding that pays for it (`account.builtIn`, metered by chatService) and,
- * for the power configs, in the dev bypass (`operatorKeys`):
+ * payer that pays for it (`callPayer`: credit or the pool, metered by
+ * chatService) and, for the power configs, in the dev bypass (`operatorKeys`):
  * - simple, on credit or the pool: only the built-in config on the
  *   operator's key; user keys are ignored. A generating pool request gets the
  *   pool's config of it (`poolProviderConfig`). Learn pays per request, so
  *   this is its one registry, whatever a branch's funding says.
  * - simple, own key: the same provider config, on the user's OpenRouter key
- *   (key cookie entry LEARN_KEY_PROVIDER) and never the operator's.
+ *   (key cookie entry OPENROUTER_PROVIDER_ID) and never the operator's.
  * - power: the configured providers, user keys overriding server secrets.
  *   Server secrets only for operatorKeys (the local dev bypass), and never
  *   the built-in key. Tangent credit is not in it: a branch on `credit`
@@ -88,12 +93,13 @@ export function registryFor(
 ): ProviderRegistry {
   if (account.mode === 'simple') {
     const config = simpleProviderConfig(env);
-    if (account.builtIn) {
+    // Learn pays per request, whatever the route's funding.
+    if (callPayer(account, 'own-key') !== 'own-key') {
       // On the pool, a generating request sees only the pool model, with its caps.
       const pool = poolScope(account, scope);
       return windowedRegistry(env, [pool ? poolProviderConfig(env, pool) : config]);
     }
-    const own = apiKeys?.[LEARN_KEY_PROVIDER];
+    const own = apiKeys?.[OPENROUTER_PROVIDER_ID];
     return windowedRegistry(
       env,
       [config],
@@ -132,11 +138,11 @@ function windowedRegistry(
  * Power's Tangent credit: the built-in endpoint (`builtInPowerConfig`) on
  * the operator's key, for branches and reviewers whose funding is `credit`.
  * Built without the user's keys, so a credit call can never use them. Null
- * where the server doesn't offer credit (`account.builtIn` false), and for
+ * where the server doesn't offer credit (`creditOffered` false), and for
  * Learn, whose one registry (`registryFor`) serves every funding.
  */
 export function creditRegistryFor(env: AppEnv, account: AccountContext): ProviderRegistry | null {
-  if (account.mode === 'simple' || !account.builtIn) return null;
+  if (account.mode === 'simple' || !account.creditOffered) return null;
   return windowedRegistry(env, [builtInPowerConfig(env)]);
 }
 
@@ -245,7 +251,6 @@ function meteredLazily(
   let metered: ProviderRegistry | null = null;
   const meter = () => {
     if (!isPoolFunded(account)) return createUsageMeter(env, account, defer);
-    if (!account.userId) throw new Error('The open pool needs a signed-in user');
     return createPoolUsageMeter(env, account.pool, account.userId, defer);
   };
   return {
@@ -295,7 +300,7 @@ export function pinnedModelRegistry(inner: ProviderRegistry, model: string): Pro
  */
 function poolGeneratingRegistry(
   env: AppEnv,
-  account: AccountContext & { pool: PoolParams },
+  account: PoolAccount,
   defer: Defer,
   inner: ProviderRegistry = registryFor(env, account, undefined, { generating: true }),
 ): ProviderRegistry {
@@ -313,7 +318,8 @@ export function chatService(
   opts: ChatServiceOptions = {},
 ): ChatService {
   const scope: ServiceScope = { generating: opts.generating === true };
-  const pool = poolScope(account, scope);
+  const pooled = scope.generating && isPoolFunded(account) ? account : null;
+  const pool = pooled?.pool ?? null;
   const registry = registryFor(env, account, opts.apiKeys, scope);
   const defer = opts.defer ?? detach;
   let providers = registry;
@@ -321,8 +327,9 @@ export function chatService(
   if (account.mode === 'simple') {
     // Learn pays per request: its one registry is on the operator's key exactly when the
     // request pays with credit or the pool, and branch funding is ignored.
-    if (pool) providers = poolGeneratingRegistry(env, { ...account, pool }, defer, registry);
-    else if (account.builtIn) providers = meteredLazily(registry, env, account, defer);
+    if (pooled) providers = poolGeneratingRegistry(env, pooled, defer, registry);
+    else if (callPayer(account, 'own-key') !== 'own-key')
+      providers = meteredLazily(registry, env, account, defer);
     profile = pool
       ? {
           kind: 'pool',

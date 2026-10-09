@@ -1,7 +1,9 @@
 // Test-side helpers for the billing tests (imported by test files, which run
 // in workerd; not by vitest.config.ts). Ids are unique per call, so files and
 // tests sharing a D1 database or the Node-side mocks never collide.
-import type { AppEnv, AccountContext } from '../../src/env.js';
+import type { SqlRow } from '../../src/db/rows.js';
+import type { usageEvents } from '../../src/db/schema.js';
+import type { AppEnv, LearnAccount, PowerAccount } from '../../src/env.js';
 import type { ScriptedGeneration } from './openrouter.js';
 
 let seq = 0;
@@ -11,42 +13,32 @@ export function uniq(prefix: string): string {
 }
 
 /** A simple (Learn) account `u_<userId>` on credit (the built-in provider), with a fresh user id. */
-export function simpleAccount(userId = uniq('user')): AccountContext {
+export function simpleAccount(userId = uniq('user')): LearnAccount {
   const id = `u_${userId}`;
-  return {
-    id,
-    mode: 'simple',
-    userId,
-    billingAccountId: id,
-    builtIn: true,
-    operatorKeys: false,
-    funding: 'personal',
-  };
+  return { id, mode: 'simple', userId, billingAccountId: id, payer: 'credit' };
 }
 
 /** The same user's power account `p_<userId>`, on the same ledger, with the built-in provider. */
-export function powerAccount(userId = uniq('user')): AccountContext {
+export function powerAccount(userId = uniq('user')): PowerAccount {
   return {
     id: `p_${userId}`,
     mode: 'power',
     userId,
     billingAccountId: `u_${userId}`,
-    builtIn: true,
+    creditOffered: true,
     operatorKeys: false,
-    funding: 'personal',
   };
 }
 
 /** The dev bypass's power account (`default`, ledger `default_simple`), server keys allowed. */
-export function devPowerAccount(overrides: Partial<AccountContext> = {}): AccountContext {
+export function devPowerAccount(overrides: Partial<PowerAccount> = {}): PowerAccount {
   return {
     id: 'default',
     mode: 'power',
     userId: null,
     billingAccountId: 'default_simple',
-    builtIn: true,
+    creditOffered: true,
     operatorKeys: true,
-    funding: 'personal',
     ...overrides,
   };
 }
@@ -140,34 +132,8 @@ export async function insertUsage(env: AppEnv, row: UsageRowInput): Promise<stri
   return id;
 }
 
-export interface UsageRow {
-  id: string;
-  account_id: string;
-  tree_id: string | null;
-  node_id: string | null;
-  purpose: string;
-  provider_id: string;
-  model: string;
-  generation_id: string | null;
-  status: string;
-  hold_micros: number;
-  markup_bps: number;
-  fee_bps: number;
-  cost_nanos: number | null;
-  charge_micros: number | null;
-  input_tokens: number | null;
-  output_tokens: number | null;
-  web_searches: number;
-  created_at: string;
-  settled_at: string | null;
-  branch_id: string | null;
-  user_id: string | null;
-  funding: 'personal' | 'pool';
-  ip_key: string | null;
-  overage_micros: number;
-  settle_reason: string | null;
-  dispatched_at: string | null;
-}
+/** A `usage_events` row as `SELECT *` reads it. */
+export type UsageRow = SqlRow<typeof usageEvents>;
 
 export async function usageRows(env: AppEnv, accountId: string): Promise<UsageRow[]> {
   const { results } = await env.DB.prepare(

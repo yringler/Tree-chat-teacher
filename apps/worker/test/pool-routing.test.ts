@@ -3,7 +3,7 @@ import {
   type ApiError,
   type Branch,
   type ContextPlanResponse,
-  type LearnPayment,
+  type Payer,
   type ProviderInfo,
   type StreamEvent,
   type TreeDetail,
@@ -13,8 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { grantCredit } from '../src/billing/ledger.js';
 import type { PoolCaps } from '../src/config.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
-import { accountFromParams } from '../src/do/tree-session.js';
-import { accountParams } from '../src/do/tree-session-client.js';
+import { accountFromParams, accountParams } from '../src/do/tree-session-client.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import { poolBank } from '../src/pool/ids.js';
 import { poolReserveRequest, replyCeilingMicros, resolvePoolParams } from '../src/pool/params.js';
@@ -49,7 +48,7 @@ function echoed(text: string): { model: string; maxOutputTokens: string; system:
   return { model: m![1]!, maxOutputTokens: m![2]!, system: JSON.parse(m![3]!) as string | null };
 }
 
-async function createTree(u: User, learn: LearnPayment, req: Record<string, unknown> = {}) {
+async function createTree(u: User, learn: Payer, req: Record<string, unknown> = {}) {
   const detail = await ok<TreeDetail>(
     await u.client.call('/api/trees', { method: 'POST', json: { title: 'T', ...req }, learn }),
     201,
@@ -58,7 +57,7 @@ async function createTree(u: User, learn: LearnPayment, req: Record<string, unkn
 }
 
 /** A Learn tree with a user/assistant exchange on its trunk (written directly). */
-async function treeWithNodes(u: User, learn: LearnPayment, req: Record<string, unknown> = {}) {
+async function treeWithNodes(u: User, learn: Payer, req: Record<string, unknown> = {}) {
   const { detail, trunk } = await createTree(u, learn, req);
   const user = makeNode(trunk, 0, null, { role: 'user', content: 'What is a prime?' });
   const assistant = makeNode(trunk, 1, user.id, {
@@ -70,7 +69,7 @@ async function treeWithNodes(u: User, learn: LearnPayment, req: Record<string, u
 }
 
 /** A summary-mode branch off `nodeId`: its first send (or resolve) summarizes the parent. */
-async function summaryBranch(u: User, learn: LearnPayment, nodeId: string): Promise<Branch> {
+async function summaryBranch(u: User, learn: Payer, nodeId: string): Promise<Branch> {
   return ok<Branch>(
     await u.client.call('/api/branches', {
       method: 'POST',
@@ -330,7 +329,7 @@ describe('funding resolution', () => {
   it('a review never falls back: 402 without credit; refused outright on the pool (403)', async () => {
     const u = await poolReadyUser();
     const { assistant } = await treeWithNodes(u, 'credit');
-    const review = (learn: LearnPayment) =>
+    const review = (learn: Payer) =>
       u.client.call(`/api/nodes/${assistant.id}/review`, {
         method: 'POST',
         json: { providerId: 'openrouter', model: 'max' },
@@ -376,22 +375,54 @@ describe('funding resolution', () => {
     expect(await nodeCount(u, detail.tree.id)).toBe(0);
   });
 
-  it('funding and the pool parameters survive the trip to the Durable Object', async () => {
+  const ids = { id: 'u_x', userId: 'x', billingAccountId: 'u_x' };
+
+  it('every account survives the trip to the Durable Object, pool parameters included', async () => {
     const pool = await resolvePoolParams(env, 'abcd');
-    const account: AccountContext = {
-      id: 'u_x',
-      mode: 'simple',
-      userId: 'x',
-      billingAccountId: 'u_x',
-      builtIn: true,
-      operatorKeys: false,
-      funding: 'pool',
-      pool,
-    };
-    expect(accountFromParams(new URLSearchParams(accountParams(account)))).toEqual(account);
-    const personal: AccountContext = { ...account, funding: 'personal' };
-    delete personal.pool;
-    expect(accountFromParams(new URLSearchParams(accountParams(personal)))).toEqual(personal);
+    const accounts: AccountContext[] = [
+      { ...ids, mode: 'simple', payer: 'pool', pool },
+      { ...ids, mode: 'simple', payer: 'pool', pool: null },
+      { ...ids, mode: 'simple', payer: 'credit' },
+      { ...ids, mode: 'simple', payer: 'own-key' },
+      { ...ids, id: 'p_x', mode: 'power', creditOffered: true, operatorKeys: false },
+      {
+        ...ids,
+        id: 'default',
+        userId: null,
+        mode: 'power',
+        creditOffered: false,
+        operatorKeys: true,
+      },
+    ];
+    for (const account of accounts)
+      expect(accountFromParams(new URLSearchParams(accountParams(account)))).toEqual(account);
+  });
+
+  it('a missing or malformed account never reaches the Durable Object as another account', () => {
+    const decode = (query: Record<string, string>) => () =>
+      accountFromParams(new URLSearchParams({ treeId: 't', nodeId: 'n', ...query }));
+    const encoded = (account: object) => decode({ account: JSON.stringify(account) });
+    const valid: Record<string, unknown> = { ...ids, mode: 'simple', payer: 'own-key' };
+    expect(encoded(valid)).not.toThrow();
+    expect(decode({})).toThrow();
+    expect(decode({ account: '' })).toThrow();
+    expect(decode({ account: '{' })).toThrow();
+    for (const key of Object.keys(valid)) {
+      const { [key]: _dropped, ...rest } = valid;
+      expect(encoded(rest), key).toThrow();
+    }
+    expect(encoded({ ...valid, id: '' })).toThrow();
+    expect(encoded({ ...valid, payer: 'personal' })).toThrow();
+    expect(encoded({ ...valid, mode: 'Simple' })).toThrow();
+    // No state the account types rule out: power on a payer, a funded pool without a user.
+    expect(
+      encoded({ ...valid, mode: 'power', creditOffered: true, operatorKeys: false }),
+    ).toThrow();
+    expect(
+      encoded({ ...valid, payer: 'pool', userId: null, pool: { accountId: 'pool' } }),
+    ).toThrow();
+    expect(encoded({ ...valid, payer: 'pool' })).toThrow();
+    expect(encoded({ ...valid, payer: 'credit', pool: null })).toThrow();
   });
 });
 

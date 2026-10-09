@@ -87,9 +87,8 @@ describe('chatSettingsFor: SUMMARY_PROVIDER_ID', () => {
     mode: 'power',
     userId: 'settings',
     billingAccountId: 'u_settings',
-    builtIn: true,
+    creditOffered: true,
     operatorKeys: false,
-    funding: 'personal',
   };
   const settings = (id: string) =>
     chatSettingsFor({ ...env, SUMMARY_PROVIDER_ID: id } as AppEnv, power);

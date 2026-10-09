@@ -2,7 +2,7 @@
 // decorator that records one `usage_events` row per call on a metered
 // provider. Who pays is the meter's funding:
 //
-// - personal (`createUsageMeter`): the user's ledger (`AccountContext.billingAccountId`).
+// - credit (`createUsageMeter`): the user's ledger (`AccountContext.billingAccountId`).
 //   1. Before the upstream call: hold the call's worst case at its model's
 //      price (`creditHoldMicros`; a model without a known price is refused) at
 //      the markup and OpenRouter fee in force now: a pending row inserted only
@@ -84,13 +84,14 @@ import {
   setGenerationId,
   settleUsage,
   shrinkHold,
+  type MeteredPayer,
   type Settlement,
 } from './usage-store.js';
 import { logEvent } from '../log.js';
 
 export interface UsageMeter {
   /** Who pays: the user's credit or the open pool (logged with each call). */
-  readonly funding: 'personal' | 'pool';
+  readonly funding: MeteredPayer;
   /** Records (or claims) the pending row, awaited, before the upstream call starts. */
   begin(info: {
     tag: UsageTag | undefined;
@@ -421,7 +422,7 @@ export function createUsageMeter(
   options: UsageMeterOptions = {},
 ): UsageMeter {
   return {
-    funding: 'personal',
+    funding: 'credit',
     async begin({ tag, providerId, model, request, maxOutputTokens }) {
       const price = await creditPrice(env, model).catch((e: unknown) => {
         // The price couldn't be looked up just now (domain errors only; others fail as metering).

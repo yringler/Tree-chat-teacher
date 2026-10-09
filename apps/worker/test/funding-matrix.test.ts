@@ -1,7 +1,7 @@
 import {
   type ApiError,
   type Branch,
-  type LearnPayment,
+  type Payer,
   type MeResponse,
   type ProviderInfo,
   type TreeDetail,
@@ -107,7 +107,7 @@ async function signedIn(e: AppEnv): Promise<{ c: Client; userId: string }> {
   return { c, userId: me.userId! };
 }
 
-async function saveOwnOpenRouterKey(c: Client, learn?: LearnPayment): Promise<void> {
+async function saveOwnOpenRouterKey(c: Client, learn?: Payer): Promise<void> {
   const res = await c.call('/api/key', {
     method: 'POST',
     json: { provider: 'openrouter', apiKey: USER_KEY },
@@ -126,7 +126,7 @@ async function grant(accountId: string, micros = 1_000_000): Promise<void> {
 }
 
 /** A tree on `route` with a finished exchange; returns the reply to review. */
-async function replyOn(c: Client, route: Route, learn?: LearnPayment, as?: AppEnv) {
+async function replyOn(c: Client, route: Route, learn?: Payer, as?: AppEnv) {
   const detail = await ok<TreeDetail>(
     await c.call(
       '/api/trees',

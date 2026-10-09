@@ -110,12 +110,12 @@ describe('assertCanSpend', () => {
     await expect(assertCanSpend(env, powerAccount(), 'own-key')).resolves.toBeUndefined();
     // A power branch on credit where the server doesn't offer it never reaches the ledger.
     await expect(
-      assertCanSpend(env, devPowerAccount({ builtIn: false }), 'credit'),
+      assertCanSpend(env, devPowerAccount({ creditOffered: false }), 'credit'),
     ).resolves.toBeUndefined();
     // Learn on the user's own key, whatever a branch's funding says (Learn pays per request).
     for (const funding of ['own-key', 'credit'] as const) {
       await expect(
-        assertCanSpend(env, { ...simpleAccount(), builtIn: false }, funding),
+        assertCanSpend(env, { ...simpleAccount(), payer: 'own-key' }, funding),
       ).resolves.toBeUndefined();
     }
   });

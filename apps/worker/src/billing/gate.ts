@@ -8,8 +8,10 @@ import { clientIp, withPoolParams } from '../auth/account.js';
 import { assertGenerationAllowed, enforceRateLimit } from '../byok/guard.js';
 import type { UserKeys } from '../byok/keys.js';
 import { appConfig } from '../config.js';
+import type { SqlRow } from '../db/rows.js';
+import type { authUsers, poolIdentities } from '../db/schema.js';
 import {
-  isMetered,
+  callPayer,
   isPoolFunded,
   type AccountContext,
   type AppContext,
@@ -64,7 +66,7 @@ export async function resolveFunding(
     purpose === 'review' ||
     purpose === 'compare' ||
     account.mode !== 'simple' ||
-    account.funding !== 'personal'
+    account.payer !== 'credit'
   )
     return account;
   if (!account.userId || !poolAvailable(c.env)) return account;
@@ -73,15 +75,13 @@ export async function resolveFunding(
   return withPoolParams(c.env, account, clientIp(c.req.raw.headers), true);
 }
 
-interface PoolAccessRow {
-  email: string;
-  created_at: number;
-  pool_suspended: number;
-  pool_verified_at: string | null;
-  pool_identity: string | null;
+type PoolAccessRow = Pick<
+  SqlRow<typeof authUsers>,
+  'email' | 'created_at' | 'pool_suspended' | 'pool_verified_at' | 'pool_identity'
+> & {
   /** `pool_identities.suspended` of the user's identity (a deleted holder's suspension). */
-  identity_suspended: number | null;
-}
+  identity_suspended: SqlRow<typeof poolIdentities>['suspended'] | null;
+};
 
 const POOL_ACCESS_MESSAGES: Partial<Record<PoolBlockDetails['reason'], string>> = {
   suspended: 'Open pool access is suspended for this account',
@@ -126,7 +126,7 @@ export async function assertPoolAccess(
   if (row.pool_suspended || row.identity_suspended) refuseAccess('suspended');
   if (!row.pool_verified_at) refuseAccess('verify');
   if (!row.pool_identity) {
-    if ((await claimPoolIdentity(env.DB, userId, row.email, now)) === 'duplicate')
+    if ((await claimPoolIdentity(env.DB, userId, row.email)) === 'duplicate')
       refuseAccess('duplicate_identity');
     // A mailbox whose earlier account was suspended, then deleted.
     if (await identitySuspended(env.DB, await poolIdentity(row.email))) refuseAccess('suspended');
@@ -153,7 +153,7 @@ export async function assertCanGenerate(
   const account = await resolveFunding(c, c.var.account, check.purpose);
   c.set('account', account);
 
-  if (account.funding === 'pool') {
+  if (account.mode === 'simple' && account.payer === 'pool') {
     if (check.purpose === 'review')
       throw new DomainError('pool_unavailable', 'Reviews are not available on the open pool');
     if (check.purpose === 'compare')
@@ -176,7 +176,7 @@ export async function assertCanGenerate(
     if (check.purpose === 'resolve') {
       // A send is admitted by its reply's reservation; a resolve reserves nothing itself.
       const admitted = await poolBank(c.env, pool.accountId).admit(
-        poolAdmitRequest(pool, account.userId!),
+        poolAdmitRequest(pool, account.userId),
       );
       if (!admitted.ok) throw new PoolBlockedError(poolBlockDetails(admitted));
     }
@@ -191,14 +191,14 @@ export async function assertCanGenerate(
       check.providerId,
       check.model,
       {
-        userKeys: !isMetered(account, check.funding),
+        userKeys: callPayer(account, check.funding) === 'own-key',
         keyLabel: account.mode === 'simple' ? LEARN_KEY_LABEL : undefined,
       },
     );
   }
   await assertCanSpend(c.env, account, check.funding);
   // A credit call is held at its model's price: one without a known price can't run on credit.
-  if (check.model !== null && isMetered(account, check.funding))
+  if (check.model !== null && callPayer(account, check.funding) !== 'own-key')
     await requireCreditPrice(c.env, check.model);
   if (check.alsoSpendsOn !== undefined && check.alsoSpendsOn.funding !== check.funding)
     await assertCanSpend(c.env, account, check.alsoSpendsOn.funding);

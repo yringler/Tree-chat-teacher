@@ -23,12 +23,21 @@ import {
   SIMPLE_ACCOUNT_PREFIX,
 } from '../auth/account.js';
 import { adminOnly, adminUserIds } from '../auth/admin.js';
-import { getBalance, grantByRef, grantCredit } from '../billing/ledger.js';
+import {
+  balanceStatement,
+  getBalance,
+  grantByRef,
+  grantCredit,
+  readBalance,
+  type BalanceRow,
+} from '../billing/ledger.js';
 import { ACTIVE_STATUSES, membershipRequired } from '../billing/membership.js';
 import { MEMBERSHIP_KIND } from '../billing/payments/port.js';
 import { fulfilPurchase } from '../billing/purchases.js';
 import { appConfig } from '../config.js';
 import { createD1Repositories } from '../db/d1-repositories.js';
+import type { SqlRow } from '../db/rows.js';
+import type { authUsers, usageEvents } from '../db/schema.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { apiError, validateJson, validateQuery } from '../http/errors.js';
 import { identitySuspensionStatement } from '../pool/identity.js';
@@ -40,26 +49,24 @@ import { poolAvailable, sharingEnabled } from '../availability.js';
 import { shareService } from '../registries.js';
 import { logEvent } from '../log.js';
 
-interface UserRow {
-  id: string;
-  email: string;
-  name: string;
-  created_at: number;
-  share_allowed: number;
+type UsageSql = SqlRow<typeof usageEvents>;
+
+type UserRow = Pick<
+  SqlRow<typeof authUsers>,
+  'id' | 'email' | 'name' | 'created_at' | 'share_allowed' | 'membership_waived'
+> & {
+  /** The account's suspension, or its pool identity's. */
   pool_suspended: number;
   active_shares: number;
-  credit_balance: number;
-  membership_waived: number;
   membership_paid: number;
-}
+};
 
 /**
- * Columns of an AdminUser row. Active shares: of either of the user's accounts
- * (`p_<id>`, `u_<id>`), neither revoked nor expired at `?1` (an ISO timestamp,
- * compared as text like ShareService does). Credit balance: the user's ledger
- * (`u_<id>`, `billingAccountIdFor`) as ledger.ts sums it, holds not deducted.
- * Paid membership: a membership subscription in a status that counts, as
- * `membershipFor` reads it.
+ * Columns of an AdminUser row, but its credit (`creditBalances`). Active
+ * shares: of either of the user's accounts (`p_<id>`, `u_<id>`), neither
+ * revoked nor expired at `?1` (an ISO timestamp, compared as text like
+ * ShareService does). Paid membership: a membership subscription in a status
+ * that counts, as `membershipFor` reads it.
  */
 const USER_COLUMNS = `u.id, u.email, u.name, u.created_at, u.share_allowed, u.membership_waived,
   EXISTS (SELECT 1 FROM billing_subscriptions bs
@@ -69,13 +76,25 @@ const USER_COLUMNS = `u.id, u.email, u.name, u.created_at, u.share_allowed, u.me
     WHERE pi.identity = u.pool_identity), 0)) AS pool_suspended,
   (SELECT COUNT(*) FROM shares s
     WHERE s.account_id IN ('${POWER_ACCOUNT_PREFIX}' || u.id, '${SIMPLE_ACCOUNT_PREFIX}' || u.id)
-      AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > ?1)) AS active_shares,
-  (SELECT COALESCE(SUM(g.amount_micros), 0) FROM credit_grants g
-    WHERE g.account_id = '${SIMPLE_ACCOUNT_PREFIX}' || u.id)
-  - (SELECT COALESCE(SUM(e.charge_micros), 0) FROM usage_events e
-    WHERE e.account_id = '${SIMPLE_ACCOUNT_PREFIX}' || u.id AND e.status = 'settled') AS credit_balance`;
+      AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > ?1)) AS active_shares`;
 
-function toAdminUser(row: UserRow, admins: ReadonlySet<string>): AdminUser {
+/**
+ * Each user's credit balance, in `rows`' order: their ledger
+ * (`billingAccountIdFor`) as ledger.ts sums it, holds not deducted. One batch.
+ */
+async function creditBalances(db: D1Database, rows: readonly UserRow[]): Promise<number[]> {
+  if (rows.length === 0) return [];
+  const results = await db.batch<BalanceRow>(
+    rows.map((row) => balanceStatement(db, billingAccountIdFor(row.id))),
+  );
+  return results.map((r) => readBalance(r.results[0]).balanceMicros);
+}
+
+function toAdminUser(
+  row: UserRow,
+  creditBalanceMicros: number,
+  admins: ReadonlySet<string>,
+): AdminUser {
   return {
     id: row.id,
     email: row.email,
@@ -85,7 +104,7 @@ function toAdminUser(row: UserRow, admins: ReadonlySet<string>): AdminUser {
     isAdmin: admins.has(row.id),
     activeShares: row.active_shares,
     poolSuspended: row.pool_suspended === 1,
-    creditBalanceMicros: Number(row.credit_balance),
+    creditBalanceMicros,
     membershipWaived: row.membership_waived === 1,
     membershipPaid: row.membership_paid === 1,
   };
@@ -99,19 +118,24 @@ const POOL_USAGE_COLUMNS = `
   COUNT(CASE WHEN e.purpose = 'reply' AND COALESCE(e.settle_reason, '') <> 'released' THEN 1 END) AS requests,
   COALESCE(SUM(${SPENT}), 0) AS spend`;
 
-interface PoolUserRow {
-  user_id: string;
-  email: string | null;
+/** What `POOL_USAGE_COLUMNS` computes. */
+interface PoolUsage {
   requests: number;
   spend: number;
-  last_at: string;
 }
 
-interface PoolNetworkRow {
-  ip_key: string;
+interface PoolUserRow extends PoolUsage {
+  /** Set: the query asks for it. */
+  user_id: NonNullable<UsageSql['user_id']>;
+  /** Null once the user was deleted (LEFT JOIN). */
+  email: SqlRow<typeof authUsers>['email'] | null;
+  last_at: UsageSql['created_at'];
+}
+
+interface PoolNetworkRow extends PoolUsage {
+  /** Set: the query asks for it. */
+  ip_key: NonNullable<UsageSql['ip_key']>;
   users: number;
-  requests: number;
-  spend: number;
 }
 
 function encodeCursor(createdAt: number, id: string): string {
@@ -136,7 +160,8 @@ async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
     .bind(new Date().toISOString(), userId)
     .first<UserRow>();
   if (!row) throw new NotFoundError('User');
-  return toAdminUser(row, adminUserIds(env));
+  const [balance = 0] = await creditBalances(env.DB, [row]);
+  return toAdminUser(row, balance, adminUserIds(env));
 }
 
 /**
@@ -192,8 +217,9 @@ export function adminRoutes(): Hono<AppBindings> {
     const page = results.slice(0, ADMIN_USERS_PAGE);
     const last = page.at(-1);
     const admins = adminUserIds(c.env);
+    const balances = await creditBalances(c.env.DB, page);
     return c.json({
-      users: page.map((row) => toAdminUser(row, admins)),
+      users: page.map((row, i) => toAdminUser(row, balances[i] ?? 0, admins)),
       nextCursor:
         results.length > ADMIN_USERS_PAGE && last ? encodeCursor(last.created_at, last.id) : null,
     } satisfies AdminUsersResponse);
@@ -275,7 +301,7 @@ export function adminRoutes(): Hono<AppBindings> {
     const now = new Date();
     const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
     const since = new Date(today - (days - 1) * 86_400_000).toISOString();
-    const [users, networks] = await c.env.DB.batch<Record<string, unknown>>([
+    const [users, networks] = await Promise.all([
       c.env.DB.prepare(
         `SELECT e.user_id, u.email, ${POOL_USAGE_COLUMNS}, MAX(e.created_at) AS last_at
          FROM usage_events e LEFT JOIN auth_users u ON u.id = e.user_id
@@ -283,7 +309,9 @@ export function adminRoutes(): Hono<AppBindings> {
          GROUP BY e.user_id
          ORDER BY spend DESC, requests DESC, e.user_id
          LIMIT ?3`,
-      ).bind(poolId, since, limit),
+      )
+        .bind(poolId, since, limit)
+        .all<PoolUserRow>(),
       c.env.DB.prepare(
         `SELECT e.ip_key, COUNT(DISTINCT e.user_id) AS users, ${POOL_USAGE_COLUMNS}
          FROM usage_events e
@@ -291,18 +319,20 @@ export function adminRoutes(): Hono<AppBindings> {
          GROUP BY e.ip_key
          ORDER BY users DESC, spend DESC, e.ip_key
          LIMIT ?3`,
-      ).bind(poolId, new Date(today).toISOString(), limit),
+      )
+        .bind(poolId, new Date(today).toISOString(), limit)
+        .all<PoolNetworkRow>(),
     ]);
     return c.json({
       since,
-      rows: (users!.results as unknown as PoolUserRow[]).map((r): AdminPoolUsageRow => ({
+      rows: users.results.map((r): AdminPoolUsageRow => ({
         userId: r.user_id,
         email: r.email,
         requests: Number(r.requests),
         spendMicros: Number(r.spend),
         lastAt: r.last_at,
       })),
-      ipKeys: (networks!.results as unknown as PoolNetworkRow[]).map((r): AdminPoolIpKeyRow => ({
+      ipKeys: networks.results.map((r): AdminPoolIpKeyRow => ({
         ipKey: r.ip_key,
         users: Number(r.users),
         requests: Number(r.requests),
@@ -325,7 +355,7 @@ export function adminRoutes(): Hono<AppBindings> {
       const user = await db
         .prepare('SELECT id FROM auth_users WHERE id = ?')
         .bind(req.userId)
-        .first<{ id: string }>();
+        .first<Pick<SqlRow<typeof authUsers>, 'id'>>();
       if (!user) throw new NotFoundError('User');
     }
     const accountId =

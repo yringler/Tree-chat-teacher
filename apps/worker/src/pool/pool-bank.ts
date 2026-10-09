@@ -207,7 +207,7 @@ export interface DayRow {
 const SPEND_EXPR = `(CASE WHEN status = 'pending' THEN hold_micros ELSE COALESCE(charge_micros, 0) END)`;
 
 /** Day-to-date pool usage: replies (released ones excluded) and spend. */
-const DAY_USAGE_COLUMNS = `
+export const DAY_USAGE_COLUMNS = `
   COUNT(CASE WHEN purpose = 'reply' AND COALESCE(settle_reason, '') <> 'released' THEN 1 END) AS requests,
   COALESCE(SUM(${SPEND_EXPR}), 0) AS spend`;
 
@@ -222,9 +222,10 @@ export function dayResetAt(now: Date): string {
 }
 
 /**
- * `userId`'s pool usage since `day` (`requests`, `spend`), together with every
- * account that held their pool identity: deleting the account and signing up
- * again doesn't reset the day. Shared by `reserve` and `GET /api/pool/me`.
+ * `userId`'s pool usage since `day` (`requests`, `spend`), with what deleted
+ * accounts that held their pool identity used that day (pool/identity.ts
+ * `releasePoolIdentityStatement`): deleting the account and signing up again
+ * doesn't reset the day. Shared by `reserve` and `GET /api/pool/me`.
  */
 export function userDayUsageStatement(
   db: D1Database,
@@ -234,10 +235,13 @@ export function userDayUsageStatement(
 ): D1PreparedStatement {
   return db
     .prepare(
-      `SELECT ${DAY_USAGE_COLUMNS} FROM usage_events
-       WHERE account_id = ?1 AND created_at >= ?3 AND user_id IN (
-         SELECT ?2 UNION SELECT h.user_id FROM pool_identity_holders h
-           JOIN pool_identity_holders me ON me.identity = h.identity WHERE me.user_id = ?2)`,
+      `SELECT d.requests + COALESCE(c.deleted_day_requests, 0) AS requests,
+         d.spend + COALESCE(c.deleted_day_spend_micros, 0) AS spend
+       FROM (SELECT ${DAY_USAGE_COLUMNS} FROM usage_events
+             WHERE account_id = ?1 AND user_id = ?2 AND created_at >= ?3) d
+       LEFT JOIN (SELECT pi.deleted_day_requests, pi.deleted_day_spend_micros
+                  FROM auth_users u JOIN pool_identities pi ON pi.identity = u.pool_identity
+                  WHERE u.id = ?2 AND pi.deleted_at >= ?3) c ON 1`,
     )
     .bind(poolId, userId, day);
 }
@@ -648,14 +652,7 @@ export class PoolBank extends DurableObject<AppEnv> {
         this.rateFailures--;
         throw new Error('Rate counters unavailable (test)');
       }
-      const sql = this.ctx.storage.sql;
-      if (!this.rateTableReady) {
-        sql.exec(
-          `CREATE TABLE IF NOT EXISTS rate_windows (
-             key TEXT PRIMARY KEY, minute INTEGER NOT NULL, count INTEGER NOT NULL)`,
-        );
-        this.rateTableReady = true;
-      }
+      const sql = this.rateWindows();
       // Older windows are over: what remains is this minute's counts.
       sql.exec('DELETE FROM rate_windows WHERE minute <> ?', minute);
       for (const b of buckets) {
@@ -676,6 +673,37 @@ export class PoolBank extends DurableObject<AppEnv> {
       logEvent('error', 'pool_rate_unavailable', { poolId: req.poolId, error: String(err) });
       return refusal(req, 'rate', { resetAt });
     }
+  }
+
+  /** This object's SQLite storage, with the rate-limit table created on first use. */
+  private rateWindows(): SqlStorage {
+    const sql = this.ctx.storage.sql;
+    if (!this.rateTableReady) {
+      sql.exec(
+        `CREATE TABLE IF NOT EXISTS rate_windows (
+           key TEXT PRIMARY KEY, minute INTEGER NOT NULL, count INTEGER NOT NULL)`,
+      );
+      this.rateTableReady = true;
+    }
+    return sql;
+  }
+
+  /**
+   * Account deletion: drops `userId`'s per-minute counter, so this object's
+   * storage keeps no id of a deleted user. The network's counter isn't the
+   * user's and stays until its minute is over.
+   */
+  async forgetUser(userId: string): Promise<void> {
+    this.rateWindows().exec('DELETE FROM rate_windows WHERE key = ?', `u:${userId}`);
+  }
+
+  /** Tests only (`TEST_SEAMS`): the keys of the per-minute counters. */
+  async rateKeys(): Promise<string[]> {
+    this.assertTestSeams();
+    return this.rateWindows()
+      .exec<{ key: string }>('SELECT key FROM rate_windows ORDER BY key')
+      .toArray()
+      .map((r) => r.key);
   }
 
   /**

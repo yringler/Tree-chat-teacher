@@ -37,15 +37,10 @@ async function budgetOf(branchId: string, query: Record<string, string> = {}): P
 }
 
 function account(mode: 'power' | 'simple'): AccountContext {
-  return {
-    id: 'a',
-    mode,
-    userId: null,
-    billingAccountId: 'b',
-    builtIn: true,
-    operatorKeys: true,
-    funding: 'personal',
-  };
+  const ids = { id: 'a', userId: null, billingAccountId: 'b' };
+  return mode === 'power'
+    ? { ...ids, mode, creditOffered: true, operatorKeys: true }
+    : { ...ids, mode, payer: 'credit' };
 }
 
 describe('generationLimits', () => {

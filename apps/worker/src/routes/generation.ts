@@ -23,7 +23,7 @@ import type {
   SessionHoldResponse,
   SessionSendBody,
 } from '../do/tree-session.js';
-import { isMetered, isPoolFunded, type AppBindings, type AppContext } from '../env.js';
+import { callPayer, isPoolFunded, type AppBindings, type AppContext } from '../env.js';
 import { validateJson } from '../http/errors.js';
 import { sseFromAsyncIterable } from '../http/sse.js';
 import { generationLimits } from '../input-limit.js';
@@ -64,7 +64,7 @@ async function assertCreditCoversReply(
   prepared: Pick<PreparedReview, 'providerId' | 'funding' | 'model' | 'limits'>,
 ): Promise<void> {
   const account = c.var.account;
-  if (!isMetered(account, prepared.funding)) return;
+  if (callPayer(account, prepared.funding) === 'own-key') return;
   const budget = await chat.routeBudget(prepared, prepared.model, prepared.limits);
   await assertCreditCovers(c.env, account, await replyHoldMicros(c.env, prepared.model, budget));
 }
@@ -113,7 +113,7 @@ export function generationRoutes(): Hono<AppBindings> {
       ...limits,
       account,
       ...(keys ? { sealedKeys: keys.sealed } : {}),
-      ...(isMetered(account, branch.funding) && !isPoolFunded(account)
+      ...(callPayer(account, branch.funding) === 'credit'
         ? { creditReply: await creditReplyHold(c, keys, branch, limits) }
         : {}),
     };
@@ -236,7 +236,8 @@ export function generationRoutes(): Hono<AppBindings> {
   // along sealed, as for a send. 403 on the open pool, where compare is refused.
   api.post('/branches/:branchId/candidates/:candidateId/commit', async (c) => {
     const branch = await chatOf(c).getOwnedBranch(c.req.param('branchId'));
-    if (c.var.account.funding === 'pool')
+    const { account } = c.var;
+    if (account.mode === 'simple' && account.payer === 'pool')
       throw new DomainError('pool_unavailable', "Compare isn't available on the open pool");
     const keys = await keysOf(c);
     const body: SessionCommitBody = {

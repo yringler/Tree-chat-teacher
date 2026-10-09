@@ -9,7 +9,7 @@ import { USAGE_HOLD_MICROS } from './service.js';
  * What the default route of a new power tree needs to know beyond the
  * provider lists (`pickDefaultRoute` in `@tangent/shared`, docs/DECISIONS.md
  * "Default route of a new tree"), asked by `ChatService` only for a new tree
- * that names no route, where credit is offered (`account.builtIn`):
+ * that names no route, where credit is offered (`creditOffered`):
  * - `creditCanPay`: the available balance covers one call's hold, exactly
  *   what `assertCanSpend` asks of a send, so a tree started on credit gets
  *   its first reply rather than a 402;
@@ -27,7 +27,7 @@ export async function defaultRouteFacts(
   env: AppEnv,
   account: AccountContext,
 ): Promise<DefaultRouteFacts> {
-  if (account.mode === 'simple' || !account.builtIn)
+  if (account.mode === 'simple' || !account.creditOffered)
     return { creditCanPay: false, creditBuyable: false, ownKeyLocked: false };
   const [{ balanceMicros, heldMicros }, membership] = await Promise.all([
     getBalance(env.DB, account.billingAccountId),

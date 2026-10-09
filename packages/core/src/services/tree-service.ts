@@ -3,6 +3,7 @@ import {
   DEFAULT_GROUNDING_MODE,
   DEFAULT_TREE_TITLE,
   MAX_LINKS_PER_TREE,
+  REPLY_INTERRUPTED_ERROR,
   TRUNK_TITLE,
   createBranchRequestSchema,
   createLinkRequestSchema,
@@ -38,7 +39,7 @@ import { emptyToNull, type ServiceContext } from './context.js';
 /** What a node left `streaming` by a generation that is gone is marked as. */
 export const INTERRUPTED = {
   status: 'error',
-  error: 'Interrupted before the reply finished',
+  error: REPLY_INTERRUPTED_ERROR,
   errorKind: 'interrupted',
 } as const;
 

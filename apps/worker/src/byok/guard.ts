@@ -1,7 +1,7 @@
 import { DomainError, KeyRequiredError, ValidationError } from '@tangent/core';
 import { isModelAllowed, type BranchFunding, type ProviderRegistry } from '@tangent/shared';
 import { createMiddleware } from 'hono/factory';
-import { isMetered, type AppBindings, type AppContext } from '../env.js';
+import { callPayer, type AppBindings, type AppContext } from '../env.js';
 import { fingerprint } from './seal.js';
 import type { UserKeys } from './keys.js';
 import { logEvent } from '../log.js';
@@ -79,7 +79,7 @@ export function assertGenerationAllowed(
  * Rate limit on requests that spend a user's key. `chat`: per key cookie, the
  * bucket being a hash of the sealed value (never of the plaintext key);
  * power requests on server keys (dev bypass only) are not limited here.
- * A metered call (Tangent credit or the pool: its `funding`, see `isMetered`)
+ * A metered call (Tangent credit or the pool: its `funding`, see `callPayer`)
  * spends the operator's key, so its `chat` bucket is the user's ledger
  * (`billing:<billingAccountId>`), shared by both apps. `key`: saving a key
  * makes a verification call upstream, limited per account (a fresh cookie
@@ -103,7 +103,7 @@ export async function enforceRateLimit(
   if (!limiter || typeof limiter.limit !== 'function') return;
   let who: string;
   if (scope !== 'chat') who = `account:${c.var.accountId}`;
-  else if (funding !== undefined && isMetered(c.var.account, funding))
+  else if (funding !== undefined && callPayer(c.var.account, funding) !== 'own-key')
     who = `billing:${c.var.account.billingAccountId}`;
   else if (keys?.state === 'ok') who = `cookie:${await fingerprint(keys.sealed)}`;
   else return;

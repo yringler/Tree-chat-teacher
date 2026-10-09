@@ -19,9 +19,11 @@ import {
   type MembershipInfo,
   type SubscriptionStatus,
 } from '@tangent/shared';
-import { isMetered, type AccountContext, type AppEnv } from '../env.js';
+import { callPayer, type AccountContext, type AppEnv } from '../env.js';
 import { keySecret } from '../byok/keys.js';
 import { appConfig } from '../config.js';
+import type { SqlRow } from '../db/rows.js';
+import type { authUsers, billingSubscriptions } from '../db/schema.js';
 import { MEMBERSHIP_KIND } from './payments/port.js';
 import { buyerFor, rememberCustomer } from './payments/customers.js';
 import { paymentProvider, type PaymentProvider } from './payments/index.js';
@@ -59,11 +61,14 @@ function membershipPriceCents(env: AppEnv): number {
   return appConfig(env).billing.membershipPriceCents;
 }
 
+type SubscriptionSql = SqlRow<typeof billingSubscriptions>;
+
+/** The user's waiver, and the subscription columns the LEFT JOIN may leave null. */
 interface MembershipRow {
-  waived: number;
-  status: SubscriptionStatus | null;
-  current_period_end: string | null;
-  cancel_at_period_end: number | null;
+  waived: SqlRow<typeof authUsers>['membership_waived'];
+  status: SubscriptionSql['status'] | null;
+  current_period_end: SubscriptionSql['current_period_end'];
+  cancel_at_period_end: SubscriptionSql['cancel_at_period_end'] | null;
 }
 
 /**
@@ -230,7 +235,7 @@ export async function redeemWaiverCode(
  * True when this request needs the membership (once the fee is on): any call
  * that isn't metered, that is on the user's own keys (by funding, never by
  * provider id), in either app. In Learn that is a request paid with the
- * user's key (`isMetered` by the request's payment, whatever `funding`
+ * user's key (`callPayer` by the request's payer, whatever `funding`
  * says); in power, a review counts both its reviewer (`funding`) and its
  * branch's summaries (`alsoSpendsOn`), so any own-key call in it needs the
  * membership, and a context resolve checks the branch's funding. Tangent
@@ -245,7 +250,7 @@ export function needsMembership(
   const fundings = [check.funding, check.alsoSpendsOn?.funding].filter(
     (f): f is BranchFunding => f !== undefined,
   );
-  return fundings.some((f) => !isMetered(account, f));
+  return fundings.some((f) => callPayer(account, f) === 'own-key');
 }
 
 /**

@@ -8,7 +8,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import type { LearnPayment } from '@tangent/shared';
+import type { Payer } from '@tangent/shared';
 import {
   creditFeeText,
   errorMessage,
@@ -249,7 +249,7 @@ export class ModelAccessDialog {
     this.ui.accessOpen.set(false);
   }
 
-  protected choose(payment: LearnPayment): void {
+  protected choose(payment: Payer): void {
     this.error.set(null);
     this.account.payment.choose(payment);
     if (payment === 'credit') void this.account.refreshBalance();

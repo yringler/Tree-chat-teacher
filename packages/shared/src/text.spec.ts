@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clip, plainText } from './text.js';
+import { clip, clipUtf16, plainText } from './text.js';
 
 describe('clip', () => {
   it('keeps text within the limit and cuts longer text to the limit, ellipsis included', () => {
@@ -16,6 +16,20 @@ describe('clip', () => {
 
   it('drops the space the cut leaves before the ellipsis', () => {
     expect(clip('word word word', 6)).toBe('word…');
+  });
+});
+
+describe('clipUtf16', () => {
+  it('cuts to at most `max` UTF-16 units, ellipsis included, as JavaScript lengths count', () => {
+    expect(clipUtf16('short', 5)).toBe('short');
+    expect(clipUtf16('a longer text', 8)).toBe('a longe…');
+    expect(clipUtf16('😀'.repeat(10), 7).length).toBeLessThanOrEqual(7);
+  });
+
+  it('never splits a surrogate pair at the cut', () => {
+    // Units 0–3 are two emoji; a cut after unit 3 would split the second one.
+    expect(clipUtf16('😀😀😀', 4)).toBe('😀…');
+    expect(clipUtf16('😀😀😀', 5)).toBe('😀😀…');
   });
 });
 

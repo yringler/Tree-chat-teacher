@@ -4,6 +4,8 @@
 import { costUsdToNanos } from '@tangent/shared';
 import { fetchOpenRouterGeneration, type GenerationCost } from '@tangent/providers';
 import { appConfig } from '../config.js';
+import type { SqlRow } from '../db/rows.js';
+import type { usageEvents } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
 import { expirePoolReservations, type ExpiryResult } from '../pool/expiry.js';
 import { poolBank } from '../pool/ids.js';
@@ -99,15 +101,18 @@ export async function reconcileGeneration(
   return false;
 }
 
-interface PendingRow {
-  id: string;
-  generation_id: string | null;
-  markup_bps: number;
-  fee_bps: number;
-  created_at: string;
-  input_tokens: number | null;
-  output_tokens: number | null;
-}
+type UsageSql = SqlRow<typeof usageEvents>;
+
+type PendingRow = Pick<
+  UsageSql,
+  | 'id'
+  | 'generation_id'
+  | 'markup_bps'
+  | 'fee_bps'
+  | 'created_at'
+  | 'input_tokens'
+  | 'output_tokens'
+>;
 
 /**
  * Cron backstop (`scheduled`, every 10 minutes) for pending personal usage
@@ -199,7 +204,7 @@ export async function reconcilePoolUsage(
        WHERE status = 'pending' AND funding = 'pool' AND created_at < ? LIMIT ?`,
     )
       .bind(new Date(now.getTime() - options.ttlMs).toISOString(), CRON_POOL_LIMIT)
-      .all<{ account_id: string }>();
+      .all<Pick<UsageSql, 'account_id'>>();
     for (const { account_id: poolId } of results) {
       try {
         out[poolId] = await expirePoolReservations(env, poolId, now, options);

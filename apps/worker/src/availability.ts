@@ -6,6 +6,8 @@ import { createProviderRegistry } from '@tangent/providers';
 import { isAdminUserId } from './auth/admin.js';
 import { paymentProvider, paymentsConfigured } from './billing/payments/index.js';
 import { appConfig } from './config.js';
+import type { SqlRow } from './db/rows.js';
+import type { authUsers } from './db/schema.js';
 import type { AppEnv } from './env.js';
 import { poolConfigProblem } from './pool/params.js';
 import { providerConfigs, providerEnv } from './provider-configs.js';
@@ -54,7 +56,7 @@ export async function canShare(env: AppEnv, userId: string | null): Promise<bool
   if (isAdminUserId(env, userId)) return true;
   const row = await env.DB.prepare('SELECT share_allowed AS allowed FROM auth_users WHERE id = ?')
     .bind(userId)
-    .first<{ allowed: number }>();
+    .first<{ allowed: SqlRow<typeof authUsers>['share_allowed'] }>();
   return row?.allowed === 1;
 }
 

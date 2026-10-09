@@ -16,28 +16,27 @@ import {
 } from '@tangent/core';
 import {
   CANDIDATE_TTL_MS,
-  DEFAULT_ACCOUNT_ID,
+  OPENROUTER_PROVIDER_ID,
   type ApiError,
   type CommitCandidateResponse,
-  type FundingSource,
 } from '@tangent/shared';
 import { DurableObject } from 'cloudflare:workers';
 import { openKeys } from '../byok/keys.js';
-import { billingAccountIdFor } from '../auth/account.js';
 import { reserveCreditReply } from '../billing/service.js';
 import { releaseUndispatched } from '../billing/usage-store.js';
-import { isPoolFunded, usesUserKeys, type AccountContext, type AppEnv } from '../env.js';
+import {
+  callPayer,
+  isPoolFunded,
+  type AccountContext,
+  type AppEnv,
+  type PoolAccount,
+} from '../env.js';
 import { apiErrorBody } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { poolBank } from '../pool/ids.js';
-import {
-  poolBlockDetails,
-  poolReserveRequest,
-  replyCeilingMicros,
-  type PoolParams,
-} from '../pool/params.js';
+import { poolBlockDetails, poolReserveRequest, replyCeilingMicros } from '../pool/params.js';
 import { chatService } from '../registries.js';
-import { BUILT_IN_PROVIDER_ID } from '../simple-mode.js';
+import { accountFromParams, parseAccount } from './tree-session-client.js';
 import { logEvent } from '../log.js';
 
 const KEEPALIVE_MS = 15_000;
@@ -113,32 +112,13 @@ interface SendTarget extends GenerationLimits {
   creditReply?: CreditReplyHold;
 }
 
-const FUNDING: ReadonlySet<string> = new Set<FundingSource>(['own-key', 'personal', 'pool']);
-
-/** The account `accountParams` (tree-session-client.ts) sent as query parameters. */
-export function accountFromParams(params: URLSearchParams): AccountContext {
-  const userId = params.get('userId') || null;
-  const funding = params.get('funding') ?? '';
-  const pool = params.get('pool');
-  return {
-    id: params.get('accountId') || DEFAULT_ACCOUNT_ID,
-    mode: params.get('mode') === 'simple' ? 'simple' : 'power',
-    userId,
-    billingAccountId: params.get('billingAccountId') || billingAccountIdFor(userId),
-    builtIn: params.get('builtIn') === '1',
-    operatorKeys: params.get('operatorKeys') === '1',
-    funding: FUNDING.has(funding) ? (funding as FundingSource) : 'personal',
-    ...(pool ? { pool: JSON.parse(pool) as PoolParams } : {}),
-  };
-}
-
 /**
  * One instance per tree (idFromName(treeId)). Owns every generation in the
  * tree (its GenerationHub) so it keeps running when the browser disconnects,
  * lets clients reconnect with a snapshot, and serializes sends per tree.
  *
  * Internal protocol (called only by the Worker, never exposed; `&account`
- * is accountParams() of tree-session-client.ts, i.e. `accountId=&mode=&billingAccountId=&builtIn=&operatorKeys=&funding=[&userId=][&pool=]`):
+ * is accountParams() of tree-session-client.ts, i.e. `account=<AccountContext as JSON>`):
  *   POST /send?treeId=&branchId=   body SessionSendBody → SSE
  *   GET  /stream?treeId=&nodeId=&account            → SSE (snapshot, then live)
  *   POST /cancel?treeId=&nodeId=&account            → 204
@@ -169,7 +149,8 @@ export class TreeSession extends DurableObject<AppEnv> {
     const treeId = url.searchParams.get('treeId') ?? '';
     try {
       if (request.method === 'POST' && url.pathname === '/send') {
-        const body = (await request.json()) as SessionSendBody;
+        const sent = (await request.json()) as SessionSendBody;
+        const body = { ...sent, account: parseAccount(sent.account) };
         const { content, ground, account, creditReply } = body;
         await this.recoverOnce(chatService(this.env, account), treeId);
         const chat = await this.generatingChat(body);
@@ -186,7 +167,8 @@ export class TreeSession extends DurableObject<AppEnv> {
         return await this.holdCandidate((await request.json()) as SessionHoldBody);
       }
       if (request.method === 'POST' && url.pathname === '/commit-candidate') {
-        const body = (await request.json()) as SessionCommitBody;
+        const sent = (await request.json()) as SessionCommitBody;
+        const body = { ...sent, account: parseAccount(sent.account) };
         await this.recoverOnce(chatService(this.env, body.account), treeId);
         return await this.commitCandidate(await this.generatingChat(body), body);
       }
@@ -223,9 +205,10 @@ export class TreeSession extends DurableObject<AppEnv> {
     sealedKeys?: string;
   }): Promise<ChatService> {
     const { account, sealedKeys } = body;
-    const keys = usesUserKeys(account)
-      ? await openKeys(sealedKeys, this.env, account.userId)
-      : null;
+    const keys =
+      callPayer(account, 'own-key') === 'own-key'
+        ? await openKeys(sealedKeys, this.env, account.userId)
+        : null;
     if (keys?.state === 'invalid')
       throw new KeyRequiredError('Your stored API key could not be read. Enter it again.');
     // Keys stay in memory only for this generation (the ChatService closes over them).
@@ -259,7 +242,7 @@ export class TreeSession extends DurableObject<AppEnv> {
     const begin = this.sendLock.then(async () => {
       const credit = target.creditReply;
       const reservationId = isPoolFunded(account)
-        ? await this.reserveReply(account.pool, account.userId, target)
+        ? await this.reserveReply(account, target)
         : credit
           ? await reserveCreditReply(this.env, account, { ...target, ...credit }, credit.holdMicros)
           : null;
@@ -293,11 +276,9 @@ export class TreeSession extends DurableObject<AppEnv> {
 
   /** Reserves the reply's ceiling hold on the pool, or throws `PoolBlockedError`. */
   private async reserveReply(
-    pool: PoolParams,
-    userId: string | null,
+    { pool, userId }: PoolAccount,
     target: { treeId: string; branchId: string },
   ): Promise<string> {
-    if (!userId) throw new PoolBlockedError(poolBlock('verify'));
     if (!pool.price) throw new PoolBlockedError(poolBlock('unpriced'));
     const result = await poolBank(this.env, pool.accountId).reserve(
       poolReserveRequest(pool, userId, {
@@ -305,7 +286,7 @@ export class TreeSession extends DurableObject<AppEnv> {
         treeId: target.treeId,
         branchId: target.branchId,
         nodeId: null,
-        providerId: BUILT_IN_PROVIDER_ID,
+        providerId: OPENROUTER_PROVIDER_ID,
         holdMicros: replyCeilingMicros(pool, pool.price),
         feeBps: pool.price.feeBps,
       }),

@@ -6,15 +6,7 @@
  * on), so they agree.
  */
 import type { ProviderInfo } from './provider.js';
-import { BUILT_IN_PROVIDER_ID } from './route.js';
-
-/**
- * The OpenRouter endpoint, here on the user's own key (the id is the same as
- * `LEARN_KEY_PROVIDER`). Not imported from billing.ts: that module builds zod
- * schemas, and loading it from here would build them before api.ts turns
- * zod's eval probe off (a Trusted Types violation in the apps).
- */
-const OPENROUTER = BUILT_IN_PROVIDER_ID;
+import { OPENROUTER_PROVIDER_ID } from './route.js';
 
 /** What the rule reads of a provider entry (`/api/providers`, or a registry's list). */
 export type DefaultRouteCandidate = Pick<ProviderInfo, 'id' | 'available' | 'funding' | 'scripted'>;
@@ -73,7 +65,7 @@ export function pickDefaultRoute<P extends DefaultRouteCandidate>(
     own.find((p) => p.available && real(p)) ??
     credit ??
     own.find((p) => p.available) ??
-    own.find((p) => p.id === OPENROUTER && real(p)) ??
+    own.find((p) => p.id === OPENROUTER_PROVIDER_ID && real(p)) ??
     own.find(real) ??
     own[0] ??
     null

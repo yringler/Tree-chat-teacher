@@ -5,6 +5,8 @@
 // blocks a reservation.
 import { fetchOpenRouterGeneration, type GenerationCost } from '@tangent/providers';
 import { settleUsage } from '../billing/usage-store.js';
+import type { SqlRow } from '../db/rows.js';
+import type { usageEvents } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
 import { simpleApiKey } from '../simple-mode.js';
 import { poolSettlement } from './settle-policy.js';
@@ -37,14 +39,10 @@ export interface ExpiryResult {
   more: boolean;
 }
 
-interface ExpiredRow {
-  id: string;
-  generation_id: string | null;
-  dispatched_at: string | null;
-  fee_bps: number;
-  created_at: string;
-  lookup_only: number;
-}
+type ExpiredRow = Pick<
+  SqlRow<typeof usageEvents>,
+  'id' | 'generation_id' | 'dispatched_at' | 'fee_bps' | 'created_at'
+> & { lookup_only: number };
 
 function timedFetch(fetchImpl: typeof fetch | undefined): typeof fetch {
   const inner = fetchImpl ?? ((input, init) => globalThis.fetch(input, init));

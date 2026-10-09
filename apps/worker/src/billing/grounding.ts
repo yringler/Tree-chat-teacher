@@ -4,7 +4,7 @@
 import type { GroundingPolicy } from '@tangent/core';
 import type { ProviderConfig, ProviderRoute } from '@tangent/shared';
 import { appConfig } from '../config.js';
-import { isMetered, type AccountContext, type AppEnv } from '../env.js';
+import { callPayer, type AccountContext, type AppEnv } from '../env.js';
 
 /** The operator's `GROUNDING` ceiling (default `auto`). */
 export function groundingPolicy(env: AppEnv): GroundingPolicy {
@@ -14,7 +14,8 @@ export function groundingPolicy(env: AppEnv): GroundingPolicy {
 /**
  * `configs` with `GROUNDING_ENGINE` and `GROUNDING_MAX_RESULTS` as the search
  * options of every openai-compatible config that searches: OpenRouter runs
- * the search on them. A config's own options win.
+ * the search on them. They replace a config's own, so every search runs as
+ * the vars (and the public pages, `learnOffer`) say.
  */
 export function withSearchOptions(env: AppEnv, configs: ProviderConfig[]): ProviderConfig[] {
   const { engine, maxResults } = appConfig(env).grounding;
@@ -22,7 +23,7 @@ export function withSearchOptions(env: AppEnv, configs: ProviderConfig[]): Provi
     config.kind === 'openai-compatible' && config.options?.['webSearch'] === true
       ? {
           ...config,
-          options: { webSearchEngine: engine, webSearchMaxResults: maxResults, ...config.options },
+          options: { ...config.options, webSearchEngine: engine, webSearchMaxResults: maxResults },
         }
       : config,
   );
@@ -59,7 +60,7 @@ export function groundingAllowance(
   account: AccountContext,
 ): (route: ProviderRoute) => Promise<boolean> {
   return async (route) => {
-    if (!isMetered(account, route.funding)) return true;
+    if (callPayer(account, route.funding) === 'own-key') return true;
     const cap = groundingDailyCap(env);
     if (cap === 0) return true;
     return (await searchesToday(env, account.billingAccountId)) < cap;

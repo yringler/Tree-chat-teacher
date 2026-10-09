@@ -1,7 +1,7 @@
 import { appChatSettings, DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
 import { parseProviderConfigs } from '@tangent/providers';
 import {
-  BUILT_IN_PROVIDER_ID,
+  OPENROUTER_PROVIDER_ID,
   DEFAULT_SYSTEM_PROMPT,
   TIER_LABELS,
   TIERS,
@@ -29,8 +29,8 @@ export {
   DEFAULT_LEARN_NORMAL_MODEL,
 } from './config.js';
 
-/**
- * The built-in provider: the endpoint `openrouter` (BUILT_IN_PROVIDER_ID in
+/*
+ * The built-in provider: the endpoint `openrouter` (OPENROUTER_PROVIDER_ID in
  * @tangent/shared) on the operator's OpenRouter key, metered per call and
  * paid from the user's prepaid credit or the open pool. Its
  * provider id names only the endpoint; who pays is the funding (the request's
@@ -43,12 +43,9 @@ export {
  * config on the user's own OpenRouter key, unmetered (registries.ts `registryFor`).
  */
 
-export { BUILT_IN_PROVIDER_ID };
-/** Learn's provider id: the built-in endpoint (`openrouter`). */
-export const SIMPLE_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
 /** What the pool model is called where Learn's config doesn't list it (it is no tier). */
 export const POOL_MODEL_LABEL = 'Lite';
-/** What Learn's own key is: the user's OpenRouter key (cookie entry LEARN_KEY_PROVIDER). */
+/** What Learn's own key is: the user's OpenRouter key (cookie entry OPENROUTER_PROVIDER_ID). */
 export const LEARN_KEY_LABEL = 'OpenRouter';
 /** Output cap of a reply on a model that doesn't reason. */
 export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
@@ -83,12 +80,12 @@ export function simpleProviderConfig(env: AppEnv): ProviderConfig {
     if (configs.length !== 1)
       throw new Error('Invalid BUILT_IN_PROVIDER: expected exactly one provider config');
     const config = configs[0]!;
-    if (config.id !== SIMPLE_PROVIDER_ID)
-      throw new Error(`Invalid BUILT_IN_PROVIDER: id must be "${SIMPLE_PROVIDER_ID}"`);
+    if (config.id !== OPENROUTER_PROVIDER_ID)
+      throw new Error(`Invalid BUILT_IN_PROVIDER: id must be "${OPENROUTER_PROVIDER_ID}"`);
     return config;
   }
   return {
-    id: SIMPLE_PROVIDER_ID,
+    id: OPENROUTER_PROVIDER_ID,
     kind: 'openai-compatible',
     label: 'Tangent',
     baseUrl: 'https://openrouter.ai/api/v1',
@@ -326,7 +323,7 @@ function lowerPrice(prior: unknown, pool: number): number {
 export function poolChatSettings(pool: PoolParams): ChatSettings {
   return {
     ...DEFAULT_CHAT_SETTINGS,
-    summaryProviderId: SIMPLE_PROVIDER_ID,
+    summaryProviderId: OPENROUTER_PROVIDER_ID,
     summaryModel: pool.model,
     summaryEffort: pool.summaryEffort,
     maxInputTokens: pool.maxInputTokens,

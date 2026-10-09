@@ -2,6 +2,7 @@ import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classe
 import { Injector } from '@angular/core';
 import {
   DEFAULT_SYSTEM_PROMPT,
+  REPLY_CUT_OFF_ERROR,
   splitTangents,
   type CandidateEvent,
   type LlmProvider,
@@ -347,6 +348,33 @@ describe('demo backend', () => {
     expect(detail.nodes.map((n) => n.status)).toEqual(['complete', 'complete']);
     expect((await reloaded.listTrees()).map((t) => t.id)).toEqual([tree.tree.id]); // not re-seeded
     expect((await reloaded.billing()).balanceMicros).toBeLessThan(DEMO_START_BALANCE_MICROS);
+  });
+
+  it('gives a restored error reply saved without a kind the kind of its message', async () => {
+    const storage = memoryStorage();
+    const { api } = setup({ storage, seed: false });
+    const tree = await api.createTree({});
+    await events(
+      await api.sendMessage(
+        tree.tree.trunkBranchId,
+        { content: 'Hi' },
+        new AbortController().signal,
+      ),
+    );
+    await until(() => storage.data.has('tangent.learn-demo'));
+    const saved = JSON.parse(storage.data.get('tangent.learn-demo')!) as {
+      nodes: Record<string, unknown>[];
+    };
+    const nodes = saved.nodes.map((n) => {
+      if (n['role'] !== 'assistant') return n;
+      const { errorKind: _dropped, ...old } = n;
+      return { ...old, status: 'error', error: REPLY_CUT_OFF_ERROR };
+    });
+    storage.data.set('tangent.learn-demo', JSON.stringify({ ...saved, nodes }));
+
+    const { api: reloaded } = setup({ storage });
+    const reply = (await reloaded.getTree(tree.tree.id)).nodes.find((n) => n.role === 'assistant');
+    expect(reply).toMatchObject({ status: 'error', errorKind: 'cut_off' });
   });
 
   it('discards a session saved in another shape', async () => {
