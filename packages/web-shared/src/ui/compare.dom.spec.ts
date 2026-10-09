@@ -62,6 +62,15 @@ describe('Compare', () => {
     screen.getByRole('region', { name: 'Max' });
   });
 
+  it('goes back to tabs when the window narrows', async () => {
+    const c = await compare({}, true);
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    window.dispatchEvent(new Event('resize'));
+    await c.fixture.whenStable();
+    expect(screen.queryAllByRole('region')).toEqual([]);
+    screen.getByRole('tabpanel', { name: 'Normal' });
+  });
+
   it('a finished answer can be picked; one still writing, failed, or while a pick saves cannot', async () => {
     const c = await compare({
       candidates: [normal, max, { ...max, id: 'gone', label: 'Gone', state: 'error', error: '' }],
