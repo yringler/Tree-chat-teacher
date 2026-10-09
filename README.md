@@ -137,7 +137,8 @@ apps/admin/dist/admin/browser/**    → apps/worker/site/admin/   served at /adm
 Checks:
 
 ```bash
-pnpm test        # Vitest in every package; the worker suite runs inside workerd with real D1 + Durable Objects
+pnpm test        # Vitest in every package; the worker suite runs inside workerd with real D1 + Durable Objects,
+                 # and the Angular packages' *.dom.spec.ts render components with TestBed in happy-dom
 pnpm typecheck   # tsc everywhere (+ Angular strict templates)
 pnpm lint        # ESLint (typescript-eslint strict, plus the type-aware promise rules)
 pnpm format:check # Prettier (`pnpm format` rewrites); .prettierignore skips vendored and generated files
