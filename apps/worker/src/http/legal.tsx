@@ -176,8 +176,8 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           <tr>
             <td>Your content</td>
             <td>
-              Conversations (messages, replies, branch titles, summaries), system prompts, settings,
-              and share links you create.
+              Conversations (messages, replies, branch titles, summaries), system prompts, your
+              instructions for Learn lessons, settings, and share links you create.
             </td>
             <td>This is the service. Stored in our database until you delete it.</td>
           </tr>
@@ -371,12 +371,11 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
         </li>
         <li>
           <strong>Deletion:</strong> delete single conversations at any time, or your whole account
-          from the account menu in any of the apps ("Delete account"). That deletes both your Power
-          and Learn accounts (Canvas uses the Power account) with every conversation, share link and
-          setting, your sign-in methods and sessions, and your customer record at Polar (anonymised;
-          Polar keeps the order records tax law requires), which also cancels your membership.
-          Unused credit is forfeited. Payment records and open pool records are kept as described
-          above.
+          from the account menu in any of the apps ("Delete account"). That deletes your account,
+          which Power, Learn and Canvas share, with every conversation, share link and setting, your
+          sign-in methods and sessions, and your customer record at Polar (anonymised; Polar keeps
+          the order records tax law requires), which also cancels your membership. Unused credit is
+          forfeited. Payment records and open pool records are kept as described above.
         </li>
         <li>
           Depending on where you live (for example the EEA, UK or California) you may also have the

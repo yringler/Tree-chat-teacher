@@ -92,7 +92,7 @@ async function shareAllowedInDb(userId: string): Promise<number | undefined> {
 describe('admin identity', () => {
   it('reports the user id and admin status in /api/me', async () => {
     const { admin, user, asAdmin, asUser } = await setup();
-    expect(admin.id).toBe(admin.me.accountId.slice('p_'.length));
+    expect(admin.id).toBe(admin.me.accountId.slice('u_'.length));
     const a = await ok<MeResponse>(await asAdmin('/api/me'));
     expect(a).toMatchObject({ userId: admin.id, isAdmin: true, sharing: true });
     const u = await ok<MeResponse>(await asUser('/api/me'));

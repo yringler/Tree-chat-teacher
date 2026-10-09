@@ -129,7 +129,7 @@ async function giveCredit(userId: string, micros = 1_000_000): Promise<void> {
 }
 
 describe('the pool ignores client-supplied model and system-prompt overrides', () => {
-  it("pins the pool model, its locked prompt and output cap; personal credit keeps the tree's own", async () => {
+  it("pins the pool model, its locked prompt and output cap; personal credit adds the learner's instructions", async () => {
     const u = await poolReadyUser({ env: { POOL_SYSTEM_PROMPT: 'LOCKED POOL PROMPT' } });
     const { detail, trunk } = await createTree(u, 'pool', {
       systemPrompt: 'IGNORE ME',
@@ -140,7 +140,7 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
     await ok(
       await u.client.call(`/api/trees/${detail.tree.id}`, {
         method: 'PATCH',
-        json: { systemPrompt: 'IGNORE ME TOO' },
+        json: { systemPrompt: 'IGNORE ME TOO', learnerInstructions: 'MY INSTRUCTIONS' },
         learn: 'pool',
       }),
     );
@@ -161,6 +161,7 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
     expect(sent.maxOutputTokens).toBe(String(POOL_MAX_OUTPUT));
     expect(sent.system).toContain('LOCKED POOL PROMPT');
     expect(sent.system).not.toContain('IGNORE ME');
+    expect(sent.system).not.toContain('MY INSTRUCTIONS');
     const start = events[0]!;
     expect(start.type === 'start' && start.assistantNode.model).toBe('normal');
 
@@ -190,14 +191,16 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
     expect(row!.charge_micros).toBeLessThanOrEqual(row!.hold_micros);
     expect(await rows(`u_${u.userId}`)).toEqual([]);
 
-    // The same tree on personal credit: the tree's own model and prompt, Learn's output cap.
+    // The same tree on personal credit: the tree's own model, the tutor prompt with the
+    // learner's instructions, Learn's output cap.
     await giveCredit(u.userId);
     const personal = await send(u, trunk.id, `Again ${ECHO}`, { learn: 'credit' });
     expect(personal.status).toBe(200);
     const own = echoed(replyText(parseSse(await personal.text())));
     expect(own.model).toBe('max');
     expect(own.maxOutputTokens).toBe('4096');
-    expect(own.system).toContain('IGNORE ME TOO');
+    expect(own.system).toContain('\n\nMY INSTRUCTIONS');
+    expect(own.system).not.toContain('IGNORE ME');
     expect(own.system).not.toContain('LOCKED POOL PROMPT');
     expect((await rows(`u_${u.userId}`)).map((r) => [r.funding, r.model])).toEqual([
       ['personal', 'max'],

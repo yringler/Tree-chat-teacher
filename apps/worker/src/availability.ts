@@ -47,7 +47,7 @@ export function sharingEnabled(env: AppEnv): boolean {
  * (ADMIN_USER_IDS) and the users the operator allowed on the admin page
  * (`auth_users.share_allowed`). `userId` null is the dev bypass, which follows
  * the global flag only (so the off path can be tried locally), like its
- * `default` / `default_simple` accounts' links. One query, none while sharing
+ * account's links. One query, none while sharing
  * is on.
  */
 export async function canShare(env: AppEnv, userId: string | null): Promise<boolean> {

@@ -10,12 +10,12 @@ import type { AccountMode } from '@tangent/shared';
 
 /**
  * The three Angular apps. `power` and `simple` are also account modes; the
- * experimental `canvas` app is another view of the power account, so it has
- * no mode of its own (see `accountModeOf`).
+ * experimental `canvas` app replies as power does, so it has no mode of its
+ * own (see `accountModeOf`).
  */
 export type AppId = AccountMode | 'canvas';
 
-/** The account an app's requests act as. */
+/** The mode an app's requests generate in. */
 export function accountModeOf(app: AppId): AccountMode {
   return app === 'simple' ? 'simple' : 'power';
 }
@@ -33,6 +33,21 @@ export const DEMO_BASES: Readonly<Record<AppId, string>> = {
   simple: '/learn/demo/',
   canvas: '/canvas/demo/',
 };
+
+/**
+ * A conversation's address in the app at `base`: `t/<treeId>[/b/<branchId>]`
+ * under it, or the app's home when no conversation is open. Every app routes
+ * that path, so one conversation opens in any of them.
+ */
+export function conversationHref(
+  base: string,
+  treeId: string | null,
+  branchId: string | null = null,
+): string {
+  if (treeId === null) return base;
+  const tree = `${base}t/${encodeURIComponent(treeId)}`;
+  return branchId === null ? tree : `${tree}/b/${encodeURIComponent(branchId)}`;
+}
 
 /** True for `base` itself and everything under it, with or without the trailing slash. */
 export function isDemoPath(pathname: string, app: AppId): boolean {

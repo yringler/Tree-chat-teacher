@@ -19,7 +19,7 @@ function setup(options: { credit?: boolean; learn?: boolean } = {}) {
     repos: createMemoryRepositories(),
     providers: registryOf(own, ant),
     profile: options.learn
-      ? { kind: 'learn' }
+      ? { kind: 'learn', customPrompt: true }
       : {
           kind: 'power',
           ...(options.credit === false ? {} : { credit: { providers: registryOf(credit) } }),
@@ -223,7 +223,7 @@ describe('ChatService routes (provider + funding)', () => {
     const learn = new ChatService({
       repos: createMemoryRepositories(),
       providers: unavailable(registryOf(new ScriptedProvider('openrouter'))),
-      profile: { kind: 'learn' },
+      profile: { kind: 'learn', customPrompt: true },
       settings: DEFAULT_CHAT_SETTINGS,
     });
     expect((await learn.createTree({})).branches[0]).toMatchObject({
@@ -374,5 +374,135 @@ describe('ChatService routes (provider + funding)', () => {
     const learn = setup({ learn: true });
     const learned = await learn.chat.importBackup(backup);
     expect(learned.branches.map((b) => b.funding)).toEqual(['own-key', 'own-key']);
+  });
+});
+
+/** Learn's one provider: the endpoint `openrouter` with its tiers, Normal the default. */
+class TierProvider extends ScriptedProvider {
+  constructor() {
+    super('openrouter');
+  }
+  override models() {
+    return [
+      { id: 'normal', label: 'Normal' },
+      { id: 'max', label: 'Max' },
+    ];
+  }
+  override defaultModel() {
+    return 'normal';
+  }
+}
+
+/** One account's trees, generated on by power and by Learn (on credit or own key, and on the pool). */
+function sharedSetup() {
+  const repos = createMemoryRepositories();
+  const ant = new ScriptedProvider('ant');
+  const tiers = new TierProvider();
+  let n = 0;
+  const base = {
+    repos,
+    settings: { ...DEFAULT_CHAT_SETTINGS, autoTitle: false },
+    newId: () => `id${++n}`,
+  };
+  const power = new ChatService({
+    ...base,
+    providers: registryOf(ant, new ScriptedProvider('openrouter')),
+    profile: { kind: 'power' },
+  });
+  const learn = new ChatService({
+    ...base,
+    providers: registryOf(tiers),
+    profile: { kind: 'learn', customPrompt: true },
+  });
+  const pool = new ChatService({
+    ...base,
+    providers: registryOf(tiers),
+    profile: {
+      kind: 'pool',
+      model: 'pool-model',
+      systemPrompt: 'POOL',
+      estimateTokens: (text: string) => text.length,
+      anchorQuoteMaxChars: 1000,
+    },
+  });
+  return { repos, ant, tiers, power, learn, pool };
+}
+
+describe('Learn continues any branch of the account', () => {
+  it("runs a power branch on Learn's provider and model, without changing the branch", async () => {
+    const { power, learn, ant, tiers } = sharedSetup();
+    const { tree } = await power.createTree({ providerId: 'ant', model: 'm1' });
+    await send(power, tree.trunkBranchId, 'in power');
+    expect(ant.chatCalls()).toHaveLength(1);
+
+    const { begin, last } = await send(learn, tree.trunkBranchId, 'in Learn');
+    expect(last).toMatchObject({
+      type: 'done',
+      node: { providerId: 'openrouter', model: 'normal' },
+    });
+    expect(begin.assistantNode).toMatchObject({ providerId: 'openrouter', model: 'normal' });
+    expect(tiers.chatCalls().map((c) => c.model)).toEqual(['normal']);
+    expect(ant.chatCalls()).toHaveLength(1);
+    const plan = await learn.planContext(tree.trunkBranchId, null, { resolveSummaries: false });
+    expect(plan).toMatchObject({ providerId: 'openrouter', funding: 'own-key', model: 'normal' });
+    expect((await learn.inputBudget(tree.trunkBranchId)).model).toBe('normal');
+    // The stored branch keeps power's route, so power carries on where it was.
+    expect(await power.getOwnedBranch(tree.trunkBranchId)).toMatchObject({
+      providerId: 'ant',
+      model: 'm1',
+      funding: 'own-key',
+    });
+  });
+
+  it("keeps a branch's model where Learn's provider lists it, else uses Learn's default", async () => {
+    const { power, learn, tiers } = sharedSetup();
+    const listed = await power.createTree({ providerId: 'openrouter', model: 'max' });
+    const other = await power.createTree({
+      providerId: 'openrouter',
+      funding: 'own-key',
+      model: 'vendor/other',
+    });
+    await send(learn, listed.tree.trunkBranchId, 'listed');
+    await send(learn, other.tree.trunkBranchId, 'other');
+    expect(tiers.chatCalls().map((c) => c.model)).toEqual(['max', 'normal']);
+  });
+
+  it('on the pool, runs a power branch on the pool model', async () => {
+    const { power, pool, tiers } = sharedSetup();
+    const { tree } = await power.createTree({ providerId: 'ant', model: 'm1' });
+    const { last } = await send(pool, tree.trunkBranchId, 'on the pool');
+    expect(last).toMatchObject({
+      type: 'done',
+      node: { providerId: 'openrouter', model: 'pool-model' },
+    });
+    expect(tiers.chatCalls().map((c) => c.model)).toEqual(['pool-model']);
+  });
+
+  it("writes Learn's route when Learn changes a power branch's model or branches off it", async () => {
+    const { power, learn } = sharedSetup();
+    const { tree } = await power.createTree({ providerId: 'ant', model: 'm1' });
+    const { begin } = await send(power, tree.trunkBranchId, 'in power');
+    // Learn's side question names the branch's own route, as its client does.
+    const side = await learn.createBranch({
+      fromNodeId: begin.assistantNode.id,
+      contextMode: 'path',
+      providerId: 'ant',
+      model: 'm1',
+    });
+    expect(side).toMatchObject({ providerId: 'openrouter', model: 'normal', funding: 'own-key' });
+    const picked = await learn.updateBranch(tree.trunkBranchId, { model: 'max' });
+    expect(picked).toMatchObject({ providerId: 'openrouter', model: 'max', funding: 'own-key' });
+  });
+
+  it("honours a power branch's context mode", async () => {
+    const { power, learn, tiers } = sharedSetup();
+    const { tree } = await power.createTree({ providerId: 'ant', model: 'm1' });
+    const { begin } = await send(power, tree.trunkBranchId, 'ROOT');
+    const side = await power.createBranch({
+      fromNodeId: begin.assistantNode.id,
+      contextMode: 'independent',
+    });
+    await send(learn, side.id, 'fresh start');
+    expect(tiers.chatCalls()[0]!.messages.map((m) => m.content)).toEqual(['fresh start']);
   });
 });

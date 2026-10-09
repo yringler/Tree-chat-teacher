@@ -12,28 +12,29 @@ export function uniq(prefix: string): string {
   return `${prefix}_${seq}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** A simple (Learn) account `u_<userId>` on credit (the built-in provider), with a fresh user id. */
+/** A user's account `u_<userId>` in Learn mode on credit (the built-in provider), with a fresh user id. */
 export function simpleAccount(userId = uniq('user')): LearnAccount {
   const id = `u_${userId}`;
   return { id, mode: 'simple', userId, billingAccountId: id, payer: 'credit' };
 }
 
-/** The same user's power account `p_<userId>`, on the same ledger, with the built-in provider. */
+/** The same user's account `u_<userId>` in power mode, with the built-in provider. */
 export function powerAccount(userId = uniq('user')): PowerAccount {
+  const id = `u_${userId}`;
   return {
-    id: `p_${userId}`,
+    id,
     mode: 'power',
     userId,
-    billingAccountId: `u_${userId}`,
+    billingAccountId: id,
     creditOffered: true,
     operatorKeys: false,
   };
 }
 
-/** The dev bypass's power account (`default`, ledger `default_simple`), server keys allowed. */
+/** The dev bypass's account (`default_simple`) in power mode, server keys allowed. */
 export function devPowerAccount(overrides: Partial<PowerAccount> = {}): PowerAccount {
   return {
-    id: 'default',
+    id: 'default_simple',
     mode: 'power',
     userId: null,
     billingAccountId: 'default_simple',

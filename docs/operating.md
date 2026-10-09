@@ -72,7 +72,7 @@ Commit the `.sql` and its `meta/` snapshot together. Never edit a migration that
 
 ## Sign-in
 
-[Better Auth](https://better-auth.com) with no passwords: Google, GitHub, a magic link by email, or a passkey. Anyone with a verified email can sign up; each user gets a power account (`p_<userId>`) and a Learn account (`u_<userId>`). Without `BETTER_AUTH_SECRET`, every `/api/*` request answers 500 (fail closed). Rotating it signs everyone out.
+[Better Auth](https://better-auth.com) with no passwords: Google, GitHub, a magic link by email, or a passkey. Anyone with a verified email can sign up; each user gets one account (`u_<userId>`), the same in power, Learn and Canvas. Without `BETTER_AUTH_SECRET`, every `/api/*` request answers 500 (fail closed). Rotating it signs everyone out.
 
 - **Magic links** go through Resend: verify your sending domain there and set `EMAIL_FROM` to an address on it. To use another email service, implement `EmailSender` (`apps/worker/src/email/`) and add a case to `createEmailSender`.
 - **Turnstile** protects the magic-link form, the one endpoint that sends email. Create a widget for your hostname, put its site key in `TURNSTILE_SITE_KEY` and its secret in `TURNSTILE_SECRET_KEY`. Without the secret, magic-link requests are refused.

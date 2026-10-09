@@ -1,4 +1,5 @@
 import {
+  isModelAllowed,
   isProviderAvailable,
   pickDefaultRoute,
   type Branch,
@@ -16,6 +17,12 @@ import type { ChatSettings } from './settings.js';
 /**
  * Turns routes (a provider and who pays) into providers and models: what a
  * request names, a new tree's default, and where summaries and titles run.
+ *
+ * Learn runs every route on its one registry, whatever a branch says: a
+ * provider that registry lacks becomes its default provider, and a model
+ * that provider doesn't allow its default model (`runnable`). The stored
+ * branch keeps its route, so a branch made in power continues in Learn on
+ * Learn's choice and still continues in power as it was.
  */
 export class RouteResolver {
   /** Learn's funding of every route: payment is decided per request, outside the branch. */
@@ -43,13 +50,25 @@ export class RouteResolver {
   }
 
   /**
+   * `branch` as this instance generates on it, in memory: Learn's runnable
+   * route (`runnableRoute`) and a model its provider allows; power's as stored.
+   */
+  runnable<B extends Pick<Branch, 'providerId' | 'funding' | 'model'>>(branch: B): B {
+    if (this.fixedFunding === undefined) return branch;
+    const route = this.runnableRoute(branch);
+    const info = this.providers.list().find((p) => p.id === route.providerId);
+    const model = info && !isModelAllowed(info, branch.model) ? info.defaultModel : branch.model;
+    return { ...branch, ...route, model };
+  }
+
+  /**
    * The route a request names, completed from `base` (the parent branch, or
    * the branch being changed): nothing named keeps `base`'s route; a provider
    * without a funding is on the user's own key, so naming a provider never
    * spends credit implicitly; a funding without a provider keeps `base`'s
    * provider. Without a `base` (a reviewer) a provider must be named; a new
-   * tree that names none gets the default route (`newTreeRoute`). Learn's
-   * fixed funding always wins.
+   * tree that names none gets the default route (`newTreeRoute`). Learn
+   * always runs it as `runnableRoute` says.
    */
   requestedRoute(
     req: { providerId?: string | undefined; funding?: BranchFunding | undefined },
@@ -63,12 +82,21 @@ export class RouteResolver {
     } else {
       throw new ValidationError('Name a provider');
     }
-    return this.withFixedFunding(route);
+    return this.runnableRoute(route);
   }
 
-  withFixedFunding(route: ProviderRoute): ProviderRoute {
+  /**
+   * `route` as this instance runs it: in Learn, on its fixed funding and, for
+   * a provider its one registry lacks, on that registry's default provider.
+   */
+  runnableRoute(route: ProviderRoute): ProviderRoute {
     const fixed = this.fixedFunding;
-    return fixed === undefined ? route : { ...route, funding: fixed };
+    if (fixed === undefined) return route;
+    const known = this.providers.list().some((p) => p.id === route.providerId);
+    return {
+      providerId: known ? route.providerId : this.providers.defaultProviderId(),
+      funding: fixed,
+    };
   }
 
   /** The trunk route of a new tree: the one the request names, else the default route. */
@@ -77,7 +105,7 @@ export class RouteResolver {
     funding?: BranchFunding | undefined;
   }): Promise<ProviderRoute> {
     if (req.providerId !== undefined) return this.requestedRoute(req, null);
-    return this.withFixedFunding(await this.defaultRoute(req.funding));
+    return this.runnableRoute(await this.defaultRoute(req.funding));
   }
 
   /**

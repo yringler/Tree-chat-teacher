@@ -144,18 +144,49 @@ function clipAnchorQuote(branch: Branch, maxChars: number | undefined): Branch {
 }
 
 /**
+ * The system prompt a generation sends for a tree: power sends the tree's
+ * prompt as it is, the pool its locked prompt instead, and Learn its tutor
+ * prompt (`tutor`, the prompt of its new lessons) followed by the tree's
+ * learner instructions where the profile allows them. Learn never reads the
+ * tree's prompt, which holds whatever tutor prompt was current when the
+ * lesson began, so a changed tutor prompt is never sent twice.
+ */
+function systemPromptFor(
+  profile: GenerationProfile,
+  tutor: string | null,
+): (tree: Pick<Tree, 'systemPrompt' | 'learnerInstructions'>) => string | null {
+  switch (profile.kind) {
+    case 'power':
+      return (tree) => tree.systemPrompt;
+    case 'pool':
+      return () => profile.systemPrompt;
+    case 'learn':
+      return (tree) => {
+        const own = profile.customPrompt ? tree.learnerInstructions?.trim() : undefined;
+        if (!own) return tutor;
+        return tutor === null ? own : `${tutor}\n\n${own}`;
+      };
+  }
+}
+
+/**
  * Loads what a reply is planned from, works out its budgets, and resolves the
  * summaries its context needs (generating and caching the missing ones).
  */
 export class ContextResolver {
   /** The open pool's bounds on what a generation sends; null elsewhere. */
   private readonly pool: PoolProfile | null;
+  /** The system prompt this profile sends for a tree (`systemPromptFor`). */
+  private readonly systemPrompt: (
+    tree: Pick<Tree, 'systemPrompt' | 'learnerInstructions'>,
+  ) => string | null;
 
   constructor(
     private readonly ctx: ServiceContext,
     profile: GenerationProfile,
   ) {
     this.pool = profile.kind === 'pool' ? profile : null;
+    this.systemPrompt = systemPromptFor(profile, ctx.defaultSystemPrompt);
   }
 
   /**
@@ -225,9 +256,10 @@ export class ContextResolver {
     const repo = this.ctx.repos.trees;
     const owned = await this.ctx.owned.branch(branchId);
     // The only way into the context's system prompt (the `tree-system-prompt` segment).
-    const override = this.pool?.systemPrompt;
-    const tree = override === undefined ? owned.tree : { ...owned.tree, systemPrompt: override };
-    const clip = (b: Branch): Branch => clipAnchorQuote(b, this.pool?.anchorQuoteMaxChars);
+    const tree = { ...owned.tree, systemPrompt: this.systemPrompt(owned.tree) };
+    // Each branch on the route this instance runs it on (`RouteResolver.runnable`).
+    const clip = (b: Branch): Branch =>
+      this.ctx.routes.runnable(clipAnchorQuote(b, this.pool?.anchorQuoteMaxChars));
     const route = extra.route;
     const routed = (b: Branch): Branch =>
       route && b.id === branchId
@@ -254,7 +286,7 @@ export class ContextResolver {
     }
     // With a locked prompt, a stored `system` node (e.g. from an imported
     // backup) must not reach the system channel: it is planned as a user turn.
-    if (override !== undefined) {
+    if (this.pool) {
       path = path.map((n) => (n.role === 'system' ? { ...n, role: 'user' } : n));
     }
     const provider = this.ctx.routes.requireProvider(branch);
@@ -322,7 +354,7 @@ export class ContextResolver {
    * the settings' input cap. `budgetFor` works the budget out from these.
    */
   async inputBudget(branchId: string): Promise<BranchInputBudget> {
-    const { branch } = await this.ctx.owned.branch(branchId);
+    const branch = this.ctx.routes.runnable((await this.ctx.owned.branch(branchId)).branch);
     const model = this.ctx.routes.modelOf(branch);
     const caps = await capabilitiesOf(this.ctx.routes.requireProvider(branch), model);
     return {

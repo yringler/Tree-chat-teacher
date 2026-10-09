@@ -77,6 +77,7 @@ function toTree(r: TreeRow): Tree {
     accountId: r.accountId,
     title: r.title,
     systemPrompt: r.systemPrompt,
+    learnerInstructions: r.learnerInstructions,
     trunkBranchId: r.trunkBranchId,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
@@ -387,6 +388,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
           accountId: tree.accountId,
           title: tree.title,
           systemPrompt: tree.systemPrompt,
+          learnerInstructions: tree.learnerInstructions,
           trunkBranchId: tree.trunkBranchId,
           createdAt: tree.createdAt,
           updatedAt: tree.updatedAt,
@@ -399,6 +401,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
       const set = definedOnly({
         title: patch.title,
         systemPrompt: patch.systemPrompt,
+        learnerInstructions: patch.learnerInstructions,
         updatedAt: patch.updatedAt,
       });
       if (Object.keys(set).length === 0) return treeRepo.getTree(treeId);
@@ -646,6 +649,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
           accountId: tree.accountId,
           title: tree.title,
           systemPrompt: tree.systemPrompt,
+          learnerInstructions: tree.learnerInstructions,
           trunkBranchId: tree.trunkBranchId,
           createdAt: tree.createdAt,
           updatedAt: tree.updatedAt,

@@ -52,7 +52,7 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 
 ## Links between messages
 
-- **Links across trees.** Only two messages of one tree can be linked. Across trees needs rules for ownership (power and Learn are separate accounts), deleting either tree, and backups that hold one end.
+- **Links across trees.** Only two messages of one tree can be linked. Across trees needs rules for ownership, deleting either tree, and backups that hold one end.
 - **Links in shares and exports.** They leave links out. Including them means projecting only links with both ends in the shared scope (and not private), deciding whether notes are published, and rendering them.
 - **No realtime.** Another tab sees a new link on its next load of the tree, as with branches.
 - **Links don't reach the model.** A linked message isn't sent; injecting linked messages (or their summaries) into the context plan, and model-suggested links (`origin: 'ai'`), are the next steps.

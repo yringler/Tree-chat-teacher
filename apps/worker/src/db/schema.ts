@@ -22,9 +22,9 @@ import {
 /**
  * Per-account settings, one row per account, written on the first save
  * (`PATCH /api/settings`); no row = the defaults. An account is an id, not a
- * row: every user has a `power` account `p_<userId>` and a Learn account
- * `u_<userId>` (auth/account.ts), and the dev bypass uses `default` and
- * `default_simple`. No FK, like the other `account_id` columns.
+ * row: every user has one account `u_<userId>` in every app
+ * (auth/account.ts), and the dev bypass uses `default_simple`. No FK, like
+ * the other `account_id` columns.
  */
 export const accountSettings = sqliteTable('account_settings', {
   accountId: text('account_id').primaryKey(),
@@ -39,6 +39,7 @@ export const trees = sqliteTable(
     id: text('id').primaryKey(),
     title: text('title').notNull(),
     systemPrompt: text('system_prompt'),
+    learnerInstructions: text('learner_instructions'),
     // No FK: trees and trunk branches reference each other; inserted in one batch.
     trunkBranchId: text('trunk_branch_id').notNull(),
     // No FK: SQLite cannot ALTER TABLE ADD COLUMN with REFERENCES and a non-null default.

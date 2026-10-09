@@ -158,13 +158,14 @@ import { laneTitle } from './titles';
         }
       </div>
       @if (store.account.routeLocked(b) && store.account.membership(); as membership) {
-        <!-- The lane's funding needs the membership the user lacks: read it, renew, or copy it. -->
+        <!-- The lane's funding needs the membership the user lacks: read it, renew, or open it in Learn. -->
         <app-read-only-composer
           [compact]="true"
           [membership]="membership"
           [treeId]="b.treeId"
+          [branchId]="b.id"
           [credit]="store.account.creditRoute() !== null"
-          [learn]="store.account.learnCopyWay()"
+          [learn]="store.account.learnWay()"
           (useCredit)="store.switchToCredit(b.id)"
           (pointerdown)="$event.stopPropagation()"
         />

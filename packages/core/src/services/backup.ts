@@ -84,6 +84,7 @@ export class BackupService {
     const { accountId: _ignored, ...backupTree } = data.tree;
     const tree: Tree = {
       ...backupTree,
+      learnerInstructions: backupTree.learnerInstructions ?? null,
       id: treeId,
       accountId: this.ctx.accountId,
       trunkBranchId: mapBranch(data.tree.trunkBranchId),
@@ -95,7 +96,7 @@ export class BackupService {
       treeId,
       parentBranchId: b.parentBranchId === null ? null : mapBranch(b.parentBranchId),
       branchPointNodeId: b.branchPointNodeId === null ? null : mapNode(b.branchPointNodeId),
-      ...this.ctx.routes.withFixedFunding({
+      ...this.ctx.routes.runnableRoute({
         providerId: b.providerId,
         funding: b.funding ?? 'own-key',
       }),

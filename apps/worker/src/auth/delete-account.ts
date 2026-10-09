@@ -18,7 +18,7 @@ import { poolIdentity, releasePoolIdentityStatement } from '../pool/identity.js'
 import { poolBank } from '../pool/ids.js';
 import { dayStart } from '../pool/day-usage.js';
 import { purgeShare } from '../share/cache.js';
-import { accountIdForUser, POWER_ACCOUNT_PREFIX, SIMPLE_ACCOUNT_PREFIX } from './account.js';
+import { ACCOUNT_PREFIX, accountIdForUser } from './account.js';
 import { logEvent } from '../log.js';
 
 /**
@@ -39,7 +39,7 @@ function todaysIpKey(dayParam: string): string {
 
 /** What deleting a user removed, for the caller (and tests). */
 export interface DeletedUser {
-  accountIds: string[];
+  accountId: string;
   shareTokens: string[];
   /** The payment provider held a customer for the user, and it was deleted (or anonymised). */
   billingCustomerDeleted: boolean;
@@ -53,7 +53,7 @@ export interface DeletedUser {
  *    membership keeps charging a user who no longer exists. A failure here
  *    aborts the whole deletion: better a retry than a subscription with
  *    nobody behind it.
- * 2. In one D1 batch (a transaction): both accounts' trees (branches, nodes,
+ * 2. In one D1 batch (a transaction): their account's trees (branches, nodes,
  *    summaries and shares with their snapshots go by ON DELETE CASCADE),
  *    any share or setting left over, their subscription and payment-customer
  *    rows, and the auth user (sessions, linked OAuth identities and passkeys
@@ -88,7 +88,7 @@ export interface DeletedUser {
  * (http/legal.tsx, "How long we keep it") describes all of it.
  */
 export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUser> {
-  const accountIds = [POWER_ACCOUNT_PREFIX + userId, accountIdForUser(userId)];
+  const accountId = accountIdForUser(userId);
 
   const user = await env.DB.prepare(
     `SELECT email, pool_suspended, pool_identity FROM auth_users WHERE id = ?1`,
@@ -99,10 +99,8 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
 
   const billingCustomerDeleted = await deleteBillingCustomer(env, userId);
 
-  const shares = await env.DB.prepare(
-    'SELECT token, version FROM shares WHERE account_id IN (?1, ?2)',
-  )
-    .bind(...accountIds)
+  const shares = await env.DB.prepare('SELECT token, version FROM shares WHERE account_id = ?1')
+    .bind(accountId)
     .all<Pick<SqlRow<typeof sharesTable>, 'token' | 'version'>>();
 
   // The pool identity the user claimed; a suspension stays with the mailbox even before a claim.
@@ -111,7 +109,6 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
   const poolId = appConfig(env).pool.accountId;
   const now = new Date();
 
-  const [p, u] = accountIds;
   await env.DB.batch([
     ...(identity
       ? [
@@ -129,11 +126,11 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
     ).bind(userId, dayStart(now).toISOString()),
     env.DB.prepare(
       'UPDATE credit_grants SET user_id = NULL WHERE user_id = ?1 AND account_id <> ?2',
-    ).bind(userId, u),
+    ).bind(userId, accountId),
     env.DB.prepare('DELETE FROM pool_identity_holders WHERE user_id = ?1').bind(userId),
-    env.DB.prepare('DELETE FROM trees WHERE account_id IN (?1, ?2)').bind(p, u),
-    env.DB.prepare('DELETE FROM shares WHERE account_id IN (?1, ?2)').bind(p, u),
-    env.DB.prepare('DELETE FROM account_settings WHERE account_id IN (?1, ?2)').bind(p, u),
+    env.DB.prepare('DELETE FROM trees WHERE account_id = ?1').bind(accountId),
+    env.DB.prepare('DELETE FROM shares WHERE account_id = ?1').bind(accountId),
+    env.DB.prepare('DELETE FROM account_settings WHERE account_id = ?1').bind(accountId),
     env.DB.prepare('DELETE FROM billing_subscriptions WHERE user_id = ?1').bind(userId),
     forgetCustomersStatement(env.DB, userId),
     env.DB.prepare('DELETE FROM auth_users WHERE id = ?1').bind(userId),
@@ -146,7 +143,7 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
   ]);
 
   return {
-    accountIds,
+    accountId,
     shareTokens: shares.results.map((s) => s.token),
     billingCustomerDeleted,
   };
@@ -195,7 +192,7 @@ export async function sweepDeletedUsers(db: D1Database, now = new Date()): Promi
       .bind(day),
     db.prepare(
       `UPDATE credit_grants SET user_id = NULL
-       WHERE user_id IS NOT NULL AND account_id <> '${SIMPLE_ACCOUNT_PREFIX}' || user_id AND ${gone}`,
+       WHERE user_id IS NOT NULL AND account_id <> '${ACCOUNT_PREFIX}' || user_id AND ${gone}`,
     ),
     db.prepare(`DELETE FROM pool_identity_holders WHERE ${gone}`),
     db

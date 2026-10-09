@@ -32,7 +32,7 @@ import {
 } from '@tangent/shared';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
 import { pairKey } from '../links.js';
-import type { Repositories } from '../repository.js';
+import type { Repositories, TreePatch } from '../repository.js';
 import { descendantBranches, indexTree } from '../tree.js';
 import { emptyToNull, type ServiceContext } from './context.js';
 
@@ -45,7 +45,14 @@ export const INTERRUPTED = {
 
 /** Trees, branches, links and the account's settings: everything that never calls a model. */
 export class TreeService {
-  constructor(private readonly ctx: ServiceContext) {}
+  /**
+   * `savedPrompt`: the account's saved default prompt starts new trees (power);
+   * Learn's new lessons always start with its tutor prompt.
+   */
+  constructor(
+    private readonly ctx: ServiceContext,
+    private readonly savedPrompt: boolean,
+  ) {}
 
   private get repo() {
     return this.ctx.repos.trees;
@@ -61,7 +68,8 @@ export class TreeService {
    * Creates the tree and an empty trunk (on the route the request names, else
    * the default route, `defaultRoute`; the provider's default model unless
    * one is named). Without a system prompt in the request, the tree gets the
-   * account's saved default, else the built-in one (`deps.defaultSystemPrompt`).
+   * account's saved default (power only), else the built-in one
+   * (`deps.defaultSystemPrompt`).
    */
   async createTree(request: CreateTreeRequest): Promise<TreeDetail> {
     const req = createTreeRequestSchema.parse(request);
@@ -75,6 +83,7 @@ export class TreeService {
       accountId: this.ctx.accountId,
       title: req.title ?? DEFAULT_TREE_TITLE,
       systemPrompt,
+      learnerInstructions: null,
       trunkBranchId: this.ctx.newId(),
       createdAt: now,
       updatedAt: now,
@@ -113,11 +122,11 @@ export class TreeService {
   async updateTree(treeId: string, request: UpdateTreeRequest): Promise<Tree> {
     const req = updateTreeRequestSchema.parse(request);
     await this.ctx.owned.tree(treeId);
-    const patch: Partial<Pick<Tree, 'title' | 'systemPrompt' | 'updatedAt'>> = {
-      updatedAt: this.ctx.now(),
-    };
+    const patch: TreePatch = { updatedAt: this.ctx.now() };
     if (req.title !== undefined) patch.title = req.title;
     if (req.systemPrompt !== undefined) patch.systemPrompt = emptyToNull(req.systemPrompt);
+    if (req.learnerInstructions !== undefined)
+      patch.learnerInstructions = emptyToNull(req.learnerInstructions);
     const tree = await this.repo.updateTree(treeId, patch);
     if (!tree) throw new NotFoundError('Tree');
     return tree;
@@ -158,9 +167,11 @@ export class TreeService {
     return { systemPrompt, defaultSystemPrompt: this.ctx.defaultSystemPrompt ?? '' };
   }
 
-  /** The account's saved default prompt, else the built-in one. */
+  /** The account's saved default prompt (power only), else the built-in one. */
   async newTreeSystemPrompt(): Promise<string | null> {
-    const saved = await this.ctx.repos.settings.getSettings(this.ctx.accountId);
+    const saved = this.savedPrompt
+      ? await this.ctx.repos.settings.getSettings(this.ctx.accountId)
+      : null;
     return emptyToNull(saved?.systemPrompt) ?? emptyToNull(this.ctx.defaultSystemPrompt);
   }
 
@@ -173,11 +184,15 @@ export class TreeService {
     const parent = await this.repo.getBranch(node.branchId);
     if (!parent) throw new NotFoundError('Branch');
 
-    const route = this.ctx.routes.requestedRoute(req, parent);
-    const provider = this.ctx.routes.requireProvider(route);
-    const model =
-      req.model ??
-      (route.providerId === parent.providerId ? parent.model : provider.defaultModel());
+    const requested = this.ctx.routes.requestedRoute(req, parent);
+    const provider = this.ctx.routes.requireProvider(requested);
+    // Learn writes only routes it can run (`RouteResolver.runnable`).
+    const route = this.ctx.routes.runnable({
+      ...requested,
+      model:
+        req.model ??
+        (requested.providerId === parent.providerId ? parent.model : provider.defaultModel()),
+    });
     const anchorQuote = emptyToNull(req.anchorQuote?.trim());
     const now = this.ctx.now();
     const branch: Branch = {
@@ -191,7 +206,7 @@ export class TreeService {
       titleSource: req.title ? 'user' : 'default',
       isPrivate: req.isPrivate ?? false,
       providerId: route.providerId,
-      model,
+      model: route.model,
       grounding: req.grounding ?? parent.grounding ?? DEFAULT_GROUNDING_MODE,
       funding: route.funding,
       createdAt: now,
@@ -223,11 +238,15 @@ export class TreeService {
     if (req.providerId !== undefined || req.funding !== undefined || req.model !== undefined) {
       const route = this.ctx.routes.requestedRoute(req, branch);
       const provider = this.ctx.routes.requireProvider(route);
-      patch.providerId = route.providerId;
-      patch.funding = route.funding;
-      patch.model =
-        req.model ??
-        (route.providerId === branch.providerId ? branch.model : provider.defaultModel());
+      const runnable = this.ctx.routes.runnable({
+        ...route,
+        model:
+          req.model ??
+          (route.providerId === branch.providerId ? branch.model : provider.defaultModel()),
+      });
+      patch.providerId = runnable.providerId;
+      patch.funding = runnable.funding;
+      patch.model = runnable.model;
     }
     const updated = await this.repo.updateBranch(branchId, patch);
     if (!updated) throw new NotFoundError('Branch');

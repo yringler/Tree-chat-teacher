@@ -104,12 +104,13 @@
           </div>
         }
         @if (readOnly(); as ro) {
-          <!-- This branch's funding needs the membership the user lacks: read, renew, or copy to Learn. -->
+          <!-- This branch's funding needs the membership the user lacks: read, renew, or open in Learn. -->
           <app-read-only-composer
             [membership]="ro.membership"
             [treeId]="ro.treeId"
+            [branchId]="store.selectedBranchId()"
             [credit]="store.account.creditRoute() !== null"
-            [learn]="store.account.learnCopyWay()"
+            [learn]="store.account.learnWay()"
             (useCredit)="useCredit()"
           />
         } @else {

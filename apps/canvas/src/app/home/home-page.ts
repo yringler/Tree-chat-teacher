@@ -17,7 +17,7 @@ import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 import { ModelField } from '../dialogs/model-field';
 
-/** `/canvas/`: start a conversation and open the existing ones (the power account's). */
+/** `/canvas/`: start a conversation and open the existing ones. */
 @Component({
   selector: 'app-home-page',
   imports: [RouterLink, Icon, DatePipe, ModelField],

@@ -29,6 +29,7 @@ import type {
   TreeDetail,
   TreeSummary,
   UpdateBranchRequest,
+  UpdateTreeRequest,
 } from '@tangent/shared';
 import { checkSourcesMessage } from '@tangent/shared';
 import { ApiError, errorMessage, hasCode, type ApiClient } from '../core/api-client';
@@ -53,6 +54,7 @@ export type ConversationApi = Pick<
   | 'getTree'
   | 'createTree'
   | 'deleteTree'
+  | 'updateTree'
   | 'importBackup'
   | 'createBranch'
   | 'updateBranch'
@@ -524,6 +526,23 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     this.listNewTree(detail);
     await this.router.navigate(['/t', detail.tree.id]);
     return detail;
+  }
+
+  /** Renames a tree or changes its system prompt. Resolves true if it was saved. */
+  async updateTree(treeId: string, req: UpdateTreeRequest): Promise<boolean> {
+    try {
+      const tree = await this.api.updateTree(treeId, req);
+      this.detail.update((cur) => (cur && cur.tree.id === tree.id ? { ...cur, tree } : cur));
+      this.editTrees((list) =>
+        list.map((t) =>
+          t.id === tree.id ? { ...t, title: tree.title, updatedAt: tree.updatedAt } : t,
+        ),
+      );
+      return true;
+    } catch (err) {
+      this.fail(err);
+      return false;
+    }
   }
 
   /**

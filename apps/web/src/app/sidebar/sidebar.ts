@@ -38,7 +38,11 @@ import { ModeBadge } from '../ui/mode-badge';
   template: `
     <app-conversation-sidebar>
       <a routerLink="/" class="brand" (click)="close()"> <app-logo [size]="20" /> Tangent </a>
-      <app-mode-switch current="power" />
+      <app-mode-switch
+        current="power"
+        [treeId]="store.selectedTreeId()"
+        [branchId]="store.selectedBranchId()"
+      />
       @if (store.account.me()?.devMode) {
         <span class="badge badge-warn" title="DEV_ALLOW_NO_AUTH is on">dev: auth disabled</span>
       }

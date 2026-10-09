@@ -14,8 +14,8 @@ import type { UsagePurpose } from './provider.js';
  */
 
 /**
- * Which app a request comes from. Every user has one account per mode, so the
- * two apps keep separate conversations.
+ * Which app a request comes from. It picks how replies are generated and paid
+ * for, never which conversations the user sees: every user has one account.
  * - `power`: the full app at `/`: the user's own keys (unmetered), plus the
  *   built-in provider on credit where the server offers it.
  * - `simple`: Tangent Learn at `/learn/`, on the user's own OpenRouter key,

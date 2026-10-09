@@ -234,29 +234,29 @@ describe('PowerAccountStore entitlements without a membership', () => {
     expect(s.account.creditRoute()).toBeNull();
   });
 
-  it('offers a copy in Learn only where Learn can reply: on the pool while it is on, else on credit', async () => {
+  it('offers Learn only where Learn can reply: on the pool while it is on, else on credit', async () => {
     const s = setup();
     await s.account.init(me({ membership: inactive() }));
     expect(s.account.poolOn()).toBe(false);
-    expect(s.account.learnCopyWay()).toBe('credit');
+    expect(s.account.learnWay()).toBe('credit');
 
     const pool = setup();
     pool.api.poolStatus.mockResolvedValue({ enabled: true } as PoolStatusResponse);
     await pool.account.init(me({ membership: inactive() }));
     expect(pool.account.poolOn()).toBe(true);
-    expect(pool.account.learnCopyWay()).toBe('pool');
+    expect(pool.account.learnWay()).toBe('pool');
 
-    // Neither the pool nor credit that can pay or be bought: no copy (it could only be read).
+    // Neither the pool nor credit that can pay or be bought: no Learn (it could only show it).
     const stuck = setup();
     stuck.api.billing.mockResolvedValue(spent);
     await stuck.account.init(me({ membership: inactive() }));
-    expect(stuck.account.learnCopyWay()).toBeNull();
+    expect(stuck.account.learnWay()).toBeNull();
     // Nor where credit isn't offered at all, or the pool status can't be read.
     const none = setup();
     none.api.poolStatus.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
     await none.account.init(me({ membership: inactive(), builtInCredit: false }));
     expect(none.account.poolOn()).toBe(false);
-    expect(none.account.learnCopyWay()).toBeNull();
+    expect(none.account.learnWay()).toBeNull();
   });
 
   it('nothing locks where no membership is required (the fee off, a server without billing)', async () => {

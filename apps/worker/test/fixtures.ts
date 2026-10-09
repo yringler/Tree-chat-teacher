@@ -21,6 +21,7 @@ export function makeTree(overrides: Partial<Tree> = {}): Tree {
     accountId: DEFAULT_ACCOUNT_ID,
     title: 'Tree',
     systemPrompt: null,
+    learnerInstructions: null,
     trunkBranchId: overrides.trunkBranchId ?? `${id}_trunk`,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',

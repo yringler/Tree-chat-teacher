@@ -87,6 +87,7 @@ export function detail(
       accountId: 'u_1',
       title: 'Light',
       systemPrompt: null,
+      learnerInstructions: null,
       trunkBranchId: 'trunk',
       createdAt: T,
       updatedAt: T,

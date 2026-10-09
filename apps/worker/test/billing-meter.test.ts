@@ -456,7 +456,7 @@ describe('usage meter', () => {
     expect(registry.get('openrouter')).toBe(provider);
   });
 
-  it("records a power account's calls on the user's ledger (u_<userId>)", async () => {
+  it("records power mode's calls on the user's ledger (u_<userId>)", async () => {
     const account = powerAccount();
     const h = await harness(account);
     await h.run([
@@ -465,7 +465,6 @@ describe('usage meter', () => {
     ]);
     expect(account.billingAccountId).toBe(`u_${account.userId}`);
     expect(await h.rows()).toEqual([expect.objectContaining({ status: 'settled' })]);
-    expect(await usageRows(env, account.id)).toEqual([]);
   });
 });
 

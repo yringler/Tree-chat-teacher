@@ -12,6 +12,7 @@ import {
   type SettingsResponse,
   type ShareSummary,
   type StreamEvent,
+  type Tree,
   type TreeDetail,
   type TreeSummary,
 } from '@tangent/shared';
@@ -29,6 +30,7 @@ import { insertSubscription, insertUsage } from './mocks/billing-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
 import { ok, parseSse } from './http.js';
 import { MOCK_UPSTREAM } from './bindings.js';
+import { poolReadyUser } from './pool-helpers.js';
 
 async function errorCode(res: Response): Promise<string> {
   return ((await res.json()) as ApiError).error.code;
@@ -88,35 +90,98 @@ describe('open sign-up', () => {
     });
   });
 
-  it('anyone can sign up and gets a power account p_<id> and a Learn account u_<id>', async () => {
+  it('anyone can sign up and gets one account u_<id>, the same in power and Learn', async () => {
     const a = await newUser();
     const b = await newUser();
     for (const u of [a, b]) {
       expect(u.power).toMatchObject({ mode: 'power', devMode: false, operatorKeys: false });
       expect(u.learn).toMatchObject({ mode: 'simple', operatorKeys: false, builtInCredit: true });
       expect(u.power).toMatchObject({ builtInCredit: true });
-      expect(u.power.accountId).toMatch(/^p_.+/);
-      expect(u.learn.accountId).toBe(`u_${u.power.accountId.slice(2)}`);
+      expect(u.power.accountId).toBe(`u_${u.power.userId}`);
+      expect(u.learn.accountId).toBe(u.power.accountId);
     }
     expect(a.power.accountId).not.toBe(b.power.accountId);
   });
 });
 
 describe('switching modes', () => {
-  it('power and Learn keep separate conversations for the same user', async () => {
+  it('power and Learn see and change the same conversations of a user', async () => {
     const u = await newUser();
     const powerTree = (await treeWithNodes(u)).detail.tree;
     const learnTree = (await treeWithNodes(u, 'credit')).detail.tree;
+    const both = [learnTree.id, powerTree.id].sort();
 
     const powerList = await ok<TreeSummary[]>(await u.call('/api/trees'));
     const learnList = await ok<TreeSummary[]>(await u.call('/api/trees', { learn: 'own-key' }));
-    expect(powerList.map((t) => t.id)).toEqual([powerTree.id]);
-    expect(learnList.map((t) => t.id)).toEqual([learnTree.id]);
+    expect(powerList.map((t) => t.id).sort()).toEqual(both);
+    expect(learnList.map((t) => t.id).sort()).toEqual(both);
 
-    expect((await u.call(`/api/trees/${learnTree.id}`)).status).toBe(404);
-    expect((await u.call(`/api/trees/${powerTree.id}`, { learn: 'credit' })).status).toBe(404);
-    // The payment choice doesn't change the account.
-    expect((await u.call(`/api/trees/${learnTree.id}`, { learn: 'own-key' })).status).toBe(200);
+    // Each mode reads and renames the tree the other made, on any payment.
+    for (const [id, learn] of [
+      [learnTree.id, undefined],
+      [powerTree.id, 'credit'],
+      [powerTree.id, 'pool'],
+    ] as const) {
+      const opts = learn ? { learn } : {};
+      expect((await u.call(`/api/trees/${id}`, opts)).status).toBe(200);
+      const title = `Renamed in ${learn ?? 'power'}`;
+      await ok(await u.call(`/api/trees/${id}`, { method: 'PATCH', json: { title }, ...opts }));
+      const detail = await ok<TreeDetail>(await u.call(`/api/trees/${id}`));
+      expect(detail.tree.title).toBe(title);
+    }
+  });
+
+  it("Learn continues a power branch on Learn's provider and model; the branch keeps power's route", async () => {
+    const u = await newUser(authEnv({ POOL_ENABLED: 'false' }));
+    const { trunk } = await treeWithNodes(u, undefined, { providerId: 'fake', model: 'fake-1' });
+    await grantCredit(env.DB, {
+      accountId: u.learn.accountId,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      providerRef: null,
+    });
+    const context = await ok<{ providerId: string; model: string }>(
+      await u.call(`/api/branches/${trunk.id}/context?resolve=true`, { learn: 'credit' }),
+    );
+    expect(context).toMatchObject({ providerId: 'openrouter', model: 'max' });
+    const res = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+      learn: 'credit',
+    });
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(parseSse(await res.text()).at(-1)).toMatchObject({
+      type: 'done',
+      node: { providerId: 'openrouter', model: 'max' },
+    });
+    expect(await usageRows(u.learn.accountId)).toBeGreaterThan(0);
+    const detail = await ok<TreeDetail>(await u.call(`/api/trees/${trunk.treeId}`));
+    expect(detail.branches[0]).toMatchObject({ providerId: 'fake', model: 'fake-1' });
+  });
+
+  it('power continues a Learn lesson on the same endpoint, here on Tangent credit', async () => {
+    const u = await newUser();
+    const { trunk } = await treeWithNodes(u, 'credit');
+    expect(trunk).toMatchObject({ providerId: 'openrouter', model: 'max', funding: 'own-key' });
+    await grantCredit(env.DB, {
+      accountId: u.power.accountId,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      providerRef: null,
+    });
+    // This test server's power has no own-key OpenRouter (a deployment's default has one).
+    await ok(
+      await u.call(`/api/branches/${trunk.id}`, { method: 'PATCH', json: { funding: 'credit' } }),
+    );
+    const res = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+    });
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(parseSse(await res.text()).at(-1)).toMatchObject({
+      type: 'done',
+      node: { providerId: 'openrouter', model: 'max' },
+    });
   });
 
   it('new Learn trees use the built-in endpoint and the tutor prompt unless one is given', async () => {
@@ -199,17 +264,17 @@ describe('account settings: the default system prompt', () => {
     expect((await ok<SettingsResponse>(await patch(u, null))).systemPrompt).toBeNull();
   });
 
-  it('is per account: power and Learn, and other users, keep their own', async () => {
+  it('is per user and starts power trees only: new Learn lessons keep the tutor prompt', async () => {
     const u = await newUser();
     const other = await newUser();
-    await ok<SettingsResponse>(await patch(u, 'Power prompt.'));
-    expect(await ok<SettingsResponse>(await u.call('/api/settings', { learn: 'own-key' }))).toEqual(
-      { systemPrompt: null, defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT },
-    );
+    await ok<SettingsResponse>(await patch(u, 'My prompt.'));
+    expect(
+      (await ok<SettingsResponse>(await u.call('/api/settings', { learn: 'own-key' })))
+        .systemPrompt,
+    ).toBe('My prompt.');
     expect((await newTree(u, 'own-key')).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
-    await ok<SettingsResponse>(await patch(u, 'Learn prompt.', 'credit'));
-    expect((await newTree(u, 'credit')).systemPrompt).toBe('Learn prompt.');
-    expect((await newTree(u)).systemPrompt).toBe('Power prompt.');
+    await ok<SettingsResponse>(await patch(u, 'Saved in Learn.', 'credit'));
+    expect((await newTree(u)).systemPrompt).toBe('Saved in Learn.');
     expect((await ok<SettingsResponse>(await other.call('/api/settings'))).systemPrompt).toBeNull();
     expect((await newTree(other)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
   });
@@ -225,9 +290,50 @@ describe('account settings: the default system prompt', () => {
       DEFAULT_SYSTEM_PROMPT,
     );
     expect((await newTree(u)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
-    // A saved prompt still wins over the operator's.
+    // A saved prompt starts power trees only.
     await ok<SettingsResponse>(await patch(u, 'My own.', 'credit'));
-    expect((await newTree(u, 'credit')).systemPrompt).toBe('My own.');
+    expect((await newTree(u, 'credit')).systemPrompt).toBe('Operator tutor prompt.');
+  });
+
+  it("Learn adds a tree's learner instructions after the tutor prompt on its own key or credit, never on the pool", async () => {
+    const u = await poolReadyUser();
+    const c = u.client;
+    const detail = await ok<TreeDetail>(
+      await c.call('/api/trees', { method: 'POST', json: { systemPrompt: 'Be brief.' } }),
+      201,
+    );
+    await ok<Tree>(
+      await c.call(`/api/trees/${detail.tree.id}`, {
+        method: 'PATCH',
+        json: { learnerInstructions: 'Answer in French.' },
+      }),
+    );
+    const trunk = detail.branches[0]!;
+    await grantCredit(env.DB, {
+      accountId: `u_${u.userId}`,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      providerRef: null,
+    });
+    const systemSent = async (learn: Payer) => {
+      const sent = await c.call(`/api/branches/${trunk.id}/messages`, {
+        method: 'POST',
+        json: { content: `In ${learn} [echo-request]` },
+        learn,
+      });
+      const text = await sent.text();
+      expect(sent.status, text).toBe(200);
+      return replyText(parseSse(text));
+    };
+    const tutor = JSON.stringify(DEFAULT_SYSTEM_PROMPT).slice(1, 40);
+    for (const learn of ['own-key', 'credit'] as const) {
+      const echoed = await systemSent(learn);
+      expect(echoed).toContain(tutor);
+      expect(echoed).toContain('\\n\\nAnswer in French.');
+      expect(echoed).not.toContain('Be brief.');
+    }
+    const pooled = await systemSent('pool');
+    expect(pooled).not.toContain('Answer in French.');
   });
 
   it('rejects malformed updates and needs a session', async () => {
@@ -265,8 +371,6 @@ const OWNED_ROUTES: Record<string, { init?: CallInit; modes?: readonly Mode[] }>
   'GET /api/trees/:treeId': {},
   'PATCH /api/trees/:treeId': { init: { method: 'PATCH', json: { title: 'Mine now' } } },
   'GET /api/trees/:treeId/backup': {},
-  // Learn answers 400 before any lookup: only a power tree can be copied.
-  'POST /api/trees/:treeId/copy-to-learn': { init: { method: 'POST' }, modes: [undefined] },
   'PATCH /api/branches/:branchId': { init: { method: 'PATCH', json: { title: 'Mine now' } } },
   'GET /api/branches/:branchId/context': {},
   'GET /api/branches/:branchId/input-budget': {},
@@ -682,7 +786,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
     expect(short.status).toBe(402);
     expect(await errorCode(short)).toBe('payment_required');
 
-    // Credit is per user: a Learn grant pays for power calls.
+    // Credit is per user: a grant on the account's ledger pays for power calls.
     await grantCredit(env.DB, {
       accountId: `u_${userId}`,
       kind: 'adjustment',
@@ -694,7 +798,6 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
     expect(parseSse(await res.text()).at(-1)?.type).toBe('done');
     const metered = await usageRows(`u_${userId}`);
     expect(metered).toBeGreaterThan(0);
-    expect(await usageRows(u.power.accountId)).toBe(0);
 
     // A provider of the user's own (here the keyless fake) is never metered.
     const own = await powerTree(u, { providerId: 'fake' }, 'fake-1');
@@ -1202,7 +1305,7 @@ describe('account deletion', () => {
     return row?.n ?? 0;
   }
 
-  it('deletes both accounts, their data, sign-in and billing customer; keeps the ledger and other users', async () => {
+  it('deletes the account, its data, sign-in and billing customer; keeps the ledger and other users', async () => {
     const a = await newUser();
     const other = await newUser();
     const userId = a.power.accountId.slice(2);
@@ -1250,14 +1353,13 @@ describe('account deletion', () => {
     expect(cleared).toMatch(/__Secure-tangent\.session_token=;.*Max-Age=0/);
     expect(cleared).toMatch(/__Host-llmkey=;.*Max-Age=0/);
 
-    const ids = [a.power.accountId, a.learn.accountId];
     for (const [table, column] of [
       ['trees', 'account_id'],
       ['shares', 'account_id'],
       ['account_settings', 'account_id'],
     ] as const) {
       expect(
-        await count(`SELECT COUNT(*) AS n FROM ${table} WHERE ${column} IN (?1, ?2)`, ...ids),
+        await count(`SELECT COUNT(*) AS n FROM ${table} WHERE ${column} = ?1`, a.power.accountId),
         table,
       ).toBe(0);
     }

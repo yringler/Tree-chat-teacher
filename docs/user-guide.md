@@ -4,9 +4,9 @@ Tangent has three apps on one sign-in. The **Power | Learn | Canvas** switch (in
 
 - **Power** (`/`): every control. Your own API keys, or Tangent credit where it is sold.
 - **Learn** (`/learn/`): a tutor with nothing to configure.
-- **Canvas** (`/canvas/`): experimental. The power app's conversations as lanes on one surface.
+- **Canvas** (`/canvas/`): experimental. Your conversations as lanes on one surface.
 
-Power and Canvas share one account; Learn has its own, so power conversations and Learn lessons are kept apart. To move one across, export its JSON backup in one app and import it in the other, or use **Create a copy in Learn**.
+Power, Learn and Canvas share one account: a conversation started in one is listed and can be continued in the others. They are views of the same conversations, so a conversation can be opened in any of them: with one open, the switch opens it, on the same branch, in the other app. Learn replies on its own models: a branch on a provider or model Learn doesn't offer is answered by Normal there (or the open pool's model), and keeps its own model in power. Picking a model in Learn moves the branch onto it.
 
 ## How Tangent answers
 
@@ -33,7 +33,7 @@ New conversations in both apps start with the same built-in system prompt: it an
 - **The bar under the message box** shows the branch's route (provider, who pays, model) and opens its settings. If the branch is on your own key and this browser has no key for it, it says so before you send, with **Use Tangent credit** and **Add your key**.
 - **Links between messages:** **Link…** on any message (or `l`) links it to another message of the conversation, with an optional note: search or browse, or **Pick on the page instead**. Linked messages show **N related** chips at both ends; a chip opens the other end, with a **Back to ‘…’** pill. Links aren't sent to the model.
 - **Text size:** **Aa** in the chat header (85% to 140%), or `-`, `+` and `0` outside a text field. It applies to the messages and the message box, and is saved in this browser; Learn and Canvas have their own.
-- **Settings** (sidebar): your default system prompt for new conversations (saved to your account; **Use default** starts from the built-in one), and, saved in this browser, the default reviewer, the Normal and Max models, **Reply length** and **Input limit**. The input limit caps how much of a conversation each message sends (16,000 to 128,000 tokens, or a custom number); over it, the oldest messages are summarized (the default) or dropped. As you edit it, it shows what that means in words, pages and, where the price is known, dollars.
+- **Settings** (sidebar): your default system prompt for new conversations in power and Canvas (saved to your account; Learn's lessons keep the tutor prompt; **Use default** starts from the built-in one), and, saved in this browser, the default reviewer, the Normal and Max models, **Reply length** and **Input limit**. The input limit caps how much of a conversation each message sends (16,000 to 128,000 tokens, or a custom number); over it, the oldest messages are summarized (the default) or dropped. As you edit it, it shows what that means in words, pages and, where the price is known, dollars.
 - **Conversation settings:** the conversation's own system prompt (clear it for none) and title.
 - **Private branches** (a branch setting) are left out of every share and export, with everything below them.
 - **Sharing:** **Share…** in the chat header picks a scope (the whole tree, a subtree or one path) and a mode (a frozen snapshot or live), with an optional title and expiry. The dialog first lists the links the conversation already has. The **Shares** page lists every link; republish a snapshot in place or revoke a link, which takes effect at once. Until the operator turns sharing on for everyone, **Share…** appears only for allowed accounts.
@@ -61,7 +61,7 @@ New conversations in both apps start with the same built-in system prompt: it an
 
 ### Without a membership
 
-Where the operator charges a membership, replies on your own keys need one. Without it, nothing is locked away: conversations stay listed, readable, exportable and manageable. A branch on your own key shows a notice where the message box was: **Renew membership** (or **Become a member**), **Create a copy in Learn** (a free copy of the conversation in Learn), and, while credit can pay, **Continue with Tangent credit**, which moves that branch onto credit.
+Where the operator charges a membership, replies on your own keys need one. Without it, nothing is locked away: conversations stay listed, readable, exportable and manageable. A branch on your own key shows a notice where the message box was: **Renew membership** (or **Become a member**), **Open in Learn** (the same conversation in Learn, where the open pool or Tangent credit can reply), and, while credit can pay, **Continue with Tangent credit**, which moves that branch onto credit.
 
 ## Learn
 
@@ -74,6 +74,7 @@ Learn keeps only the essentials:
 - finding your way: a side question opens at its first message. Inside one, the path (**Lesson** › … › here) and **Back to…** return to the message it started from; on a phone the path shows its start and its last steps. The **sidebar** (the menu button on a phone) lists your lessons, and under the open one the lesson and every side question in it, nested under the one each came from; delete a lesson or side question from its trash. Click a message to mark it (the URL then points at it). On a keyboard: `Alt`+arrows or `[` / `]` between side questions, `j` / `k` between messages, `/` the message box, `?` lists them all;
 - deleting a side question with everything below it (the trash beside it, or beside **Back to…** while it is open);
 - **Aa** for the lesson's text size;
+- **Your instructions** (the pencil in a lesson's header, while replies are paid with your own key or credit): instructions of your own for that lesson, such as "Answer in French", added after the tutor's. The open pool ignores them, and so does power;
 - **How replies are paid for** (account menu): your own OpenRouter key, **Tangent credit** (prepaid; the header shows the balance), or the **open pool** (free within daily limits, while it has credit). Where the membership is required, your own key needs it; credit and the pool never do. A message refused for want of a key, credit or membership is kept and sent once you pick a way on;
 - **Billing** (`/learn/billing`): the membership, and with credit the balance, top-ups and recent usage.
 
@@ -81,7 +82,7 @@ An import into Learn is adapted so it can be continued there: branches on a prov
 
 ## Canvas (experimental)
 
-A view of the power app's conversations: anything started in power opens on the canvas and the other way round.
+A view of the same conversations: anything started in power or Learn opens on the canvas and the other way round.
 
 - **Every branch is a lane** on one pannable, zoomable surface, hanging to the right of the message it forks from. The curve's stroke shows its context mode (solid `path`, dashed `summary`, dash-dot `message`, dotted `independent`).
 - **Every lane has its own message box and streams on its own;** the bar counts how many are writing.

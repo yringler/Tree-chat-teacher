@@ -13,6 +13,7 @@ import {
 } from '@tangent/web-shared';
 import { CompareDialog } from './chat/compare-dialog';
 import { ConnectDialog } from './chat/connect-dialog';
+import { InstructionsDialog } from './chat/instructions-dialog';
 import { Keyboard, SHORTCUTS } from './core/keyboard';
 import { RouteSync } from './core/route-sync';
 import { DEMO_SIGNUP_URL } from './demo/demo-mode';
@@ -39,6 +40,7 @@ import { LearnFunding } from './state/learn-funding';
     ConnectDialog,
     CompareDialog,
     LessonSidebar,
+    InstructionsDialog,
     Modal,
     ShortcutsTable,
     Toasts,
@@ -89,6 +91,9 @@ import { LearnFunding } from './state/learn-funding';
           }
           @case ('compare') {
             <app-compare-dialog [branchId]="d.branchId" [content]="d.content" />
+          }
+          @case ('instructions') {
+            <app-instructions-dialog />
           }
           @case ('shortcuts') {
             <app-modal heading="Keyboard shortcuts" (closed)="ui.dialogs.close('shortcuts')">

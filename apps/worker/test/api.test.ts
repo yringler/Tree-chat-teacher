@@ -5,6 +5,7 @@ import type {
   ProviderInfo,
   ReviewEvent,
   StreamEvent,
+  Tree,
   TreeBackup,
   TreeDetail,
   TreeSummary,
@@ -282,6 +283,28 @@ describe('owner API', () => {
     await ok(
       call(`/api/trees/${detail.tree.id}`, { method: 'PATCH', json: { systemPrompt: 'Be terse' } }),
     );
+    const own = await ok<Tree>(
+      call(`/api/trees/${detail.tree.id}`, {
+        method: 'PATCH',
+        json: { learnerInstructions: 'Answer in French.' },
+      }),
+    );
+    expect(own).toMatchObject({
+      systemPrompt: 'Be terse',
+      learnerInstructions: 'Answer in French.',
+    });
+    expect(
+      (await ok<TreeDetail>(call(`/api/trees/${detail.tree.id}`))).tree.learnerInstructions,
+    ).toBe('Answer in French.');
+    const cleared = await ok<Tree>(
+      call(`/api/trees/${detail.tree.id}`, { method: 'PATCH', json: { learnerInstructions: ' ' } }),
+    );
+    expect(cleared.learnerInstructions).toBeNull();
+    const tooLong = await call(`/api/trees/${detail.tree.id}`, {
+      method: 'PATCH',
+      json: { learnerInstructions: 'x'.repeat(20_001) },
+    });
+    expect(tooLong.status).toBe(400);
     expect((await call(`/api/trees/${detail.tree.id}`, { method: 'DELETE' })).status).toBe(204);
     expect((await call(`/api/trees/${detail.tree.id}`)).status).toBe(404);
   });

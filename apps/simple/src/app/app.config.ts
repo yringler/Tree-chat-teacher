@@ -24,7 +24,7 @@ export const appConfig: ApplicationConfig = {
     provideAppPaths({ home: '/learn/', login: '/learn/login' }),
     // The lesson's text size ("Aa"), kept apart from the other apps'.
     provideTextSize('tangent.learn.chatFontScale'),
-    // Every API call acts as the learner's Learn account, paying as they chose.
+    // Every API call is in Learn mode, paying as they chose.
     {
       provide: API_HEADERS,
       useFactory: () => {

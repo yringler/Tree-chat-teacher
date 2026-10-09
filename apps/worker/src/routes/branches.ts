@@ -36,7 +36,7 @@ export function branchRoutes(): Hono<AppBindings> {
       const q = c.req.valid('query');
       const keys = await keysOf(c);
       let chat = chatOf(c, keys);
-      const branch = await chat.getOwnedBranch(c.req.param('branchId'));
+      const branch = chat.runnableBranch(await chat.getOwnedBranch(c.req.param('branchId')));
       // resolve=true may generate summaries (billed on the built-in provider, which
       // summarizes its own branches, or on the pool); a plain plan only counts tokens.
       if (q.resolve) {

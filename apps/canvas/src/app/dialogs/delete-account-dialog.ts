@@ -3,7 +3,7 @@ import { DeleteAccount, Modal } from '@tangent/web-shared';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 
-/** Permanent account deletion (both accounts), from the account menu. */
+/** Permanent account deletion, from the account menu. */
 @Component({
   selector: 'app-delete-account-dialog',
   imports: [Modal, DeleteAccount],
