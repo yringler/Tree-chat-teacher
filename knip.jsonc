@@ -16,6 +16,8 @@
     "apps/simple": { "ignoreDependencies": ["highlight.js"] },
     "apps/canvas": { "ignoreDependencies": ["highlight.js"] },
     "apps/worker": {
+      // The node test project's `cloudflare:workers`, reached through a vitest.config.ts alias.
+      "entry": ["test/node/cloudflare-workers.ts"],
       // `cloudflare:test` and `cloudflare:workers` are workerd's built-in modules, not a package.
       "ignoreDependencies": ["cloudflare"],
     },
