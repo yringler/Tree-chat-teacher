@@ -2,8 +2,8 @@
  * Grounding: web search through OpenRouter's `openrouter:web_search` server
  * tool, offered on the turns a free server-side gate picks (see
  * @tangent/core `decideGrounding`), with the model deciding whether to use it
- * (at most once per reply). The learner can force it with "Check sources".
- * See docs/DECISIONS.md § Grounding.
+ * (at most once per reply), since searching every turn would multiply a
+ * lesson's cost. The learner can force it with "Check sources".
  */
 import { clip } from './text.js';
 

@@ -1,5 +1,4 @@
-// Read-only power without a membership (docs/DECISIONS.md "Read-only power
-// without a membership"): with the annual fee on, a user without a membership
+// Read-only power without a membership: with the annual fee on, a user without a membership
 // (lapsed, cancelled or never paid) keeps reading, exporting and managing
 // their power conversations; only generating on their own keys is refused
 // (402 `membership_required`). `/api/me` says which fundings need the

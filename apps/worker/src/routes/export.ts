@@ -50,8 +50,8 @@ export function exportRoutes(): Hono<AppBindings> {
     validateJson(API_ROUTES.importBackup),
     async (c) => c.json(await chatOf(c).importBackup(c.req.valid('json')), 201),
   );
-  // "Create a copy in Learn" (docs/DECISIONS.md "Read-only power without a
-  // membership"): the caller's power tree, exported by the power service (404
+  // "Create a copy in Learn", the way on for a power tree that is read-only
+  // without a membership: the caller's power tree, exported by the power service (404
   // for anyone else's), imported by the service of the same user's Learn
   // account, so it is adapted like any import into Learn. Neither generates,
   // so there is no gate: no membership, no credit, no model call. The power

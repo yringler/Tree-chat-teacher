@@ -645,7 +645,7 @@ function PricingBody(props: { facts: PricingFacts }) {
       {pool && (
         // Why there's a free plan: the pool as Tangent's own policy, with its catch (one
         // model, daily limits, only while it has credit), never tied to the reader's
-        // purchase: paying for Tangent pays for Tangent (docs/DECISIONS.md).
+        // purchase: paying for Tangent pays for Tangent, so no sale reads as a donation.
         <section class="why" aria-labelledby="why">
           <div class="wrap">
             <p class="eyebrow">The open pool</p>

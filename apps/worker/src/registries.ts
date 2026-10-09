@@ -349,7 +349,8 @@ export function chatService(
           kind: 'power',
           credit: {
             providers: meteredLazily(credit, env, account, defer),
-            // A new tree's default route starts on credit only when it can pay (docs/DECISIONS.md).
+            // A new tree's default route starts on credit only when it can pay, so a first
+            // send is never a 402 for credit nobody bought.
             defaultRouteFacts: () => defaultRouteFacts(env, account),
           },
         }

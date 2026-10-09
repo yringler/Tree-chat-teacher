@@ -1,9 +1,8 @@
-// How each hosted tier asks its model (docs/DECISIONS.md "Hosted tier
-// config"): the `*_EFFORT`, `*_REPLY_TOKENS` and `*_PROVIDER_ORDER` vars of
+// How each hosted tier asks its model: the `*_EFFORT`, `*_REPLY_TOKENS` and `*_PROVIDER_ORDER` vars of
 // Learn's Normal and Max, the open pool and the background calls, and the
 // request each one sends upstream. An empty var is the default model's
-// evaluated setting while the tier runs that model (docs/DECISIONS.md "Hosted
-// models from the eval"), else the model's own: no effort, the default caps,
+// evaluated setting while the tier runs that model (a setting tuned for one
+// model says nothing about another), else the model's own: no effort, the default caps,
 // no pinning.
 import { createProviderRegistry } from '@tangent/providers';
 import type { GenerateRequest, ProviderConfig } from '@tangent/shared';

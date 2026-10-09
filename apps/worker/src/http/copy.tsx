@@ -70,7 +70,8 @@ export function joinList(items: readonly string[], word: 'and' | 'or'): string {
 /**
  * How the pool comes about, as numbered steps for the landing and pricing
  * pages. Tangent is the subject of every step that moves money: a customer
- * pays for Tangent, never for someone else's learning (docs/DECISIONS.md).
+ * pays for Tangent, never for someone else's learning, so no sale reads as a
+ * donation or as buying community access.
  * Where Tangent sells nothing, it claims no earnings.
  */
 export function PoolSteps(props: { offer: Offer }) {

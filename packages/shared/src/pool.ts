@@ -1,7 +1,7 @@
 import { z } from './zod.js';
 
 /**
- * The open credit pool (docs/pool/SPEC.md): free credit Tangent provides
+ * The open credit pool: free credit Tangent provides
  * at its discretion (`POOL_FUNDING_TEXT`; nobody buys pool credit), spent at
  * cost by signed-in Learn users on one economical model within daily caps.
  */
@@ -185,9 +185,9 @@ export function poolSessionsHeadline(sessions: number): string {
 }
 
 /**
- * Where the pool's credit comes from, as every public page states it
- * (docs/DECISIONS.md): Tangent adds it with admin adjustments. Nobody can buy
- * credit for the pool.
+ * Where the pool's credit comes from, as every public page states it:
+ * Tangent adds it with admin adjustments. Nobody can buy credit for the pool,
+ * so no sale is a donation or buys community access.
  */
 export const POOL_FUNDING_TEXT = 'The open pool is free credit Tangent provides.';
 
@@ -200,8 +200,8 @@ export const POOL_AT_COST_TEXT =
 
 /**
  * Words pool copy must never use: the pool is free credit Tangent provides,
- * not a donation, a sponsorship or anything people pay into (spec reasoning
- * 3; the payment provider's acceptable use policy, docs/DECISIONS.md).
+ * not a donation, a sponsorship or anything people pay into, and the payment
+ * provider's acceptable use policy prohibits selling those.
  * Tests run every pool page and template through it.
  */
 export const FORBIDDEN_POOL_COPY =

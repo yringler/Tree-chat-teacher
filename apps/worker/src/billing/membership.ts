@@ -4,9 +4,9 @@
 // (KEY_ENCRYPTION_SECRET; without it there is nothing for the membership to
 // unlock, so it is neither required nor shown). Nothing else needs it: Tangent
 // credit is bought and spent without one (it carries the markup instead), and
-// the open pool has one set of caps for everyone (`needsMembership`)
-// (docs/pool/PLAN.md S7; the flag ships off, gating, not deleting, everything
-// below). Its subscription is a snapshot in `billing_subscriptions`, kept by
+// the open pool has one set of caps for everyone (`needsMembership`). The
+// flag defaults to off, so a self-hosted deployment charges nothing unless its
+// operator opts in. Its subscription is a snapshot in `billing_subscriptions`, kept by
 // the provider's webhooks (billing/payments/apply.ts);
 // `auth_users.membership_waived` lets the operator waive the fee per user,
 // and wins over the subscription. Subscribing and managing it go through the
@@ -241,7 +241,8 @@ export async function redeemWaiverCode(
  * membership, and a context resolve checks the branch's funding. Tangent
  * credit never needs it, to buy (`startTopUpCheckout`) or to spend, in either
  * app (it carries the markup instead), and neither does the open pool, which
- * returns before this is asked. See docs/DECISIONS.md "One membership rule: own keys".
+ * returns before this is asked. One rule for both apps: the membership is
+ * what own keys pay Tangent, as the markup is what credit pays.
  */
 export function needsMembership(
   account: AccountContext,

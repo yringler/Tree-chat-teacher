@@ -1,4 +1,4 @@
-// Compare (shared/compare.ts, docs/DECISIONS.md "Compare"): each candidate
+// Compare (shared/compare.ts): each candidate
 // streams from the Worker and nothing enters the tree until one is committed;
 // the tree's Durable Object holds finished candidates (CANDIDATE_TTL_MS) and
 // appends the picked one under its send lock.

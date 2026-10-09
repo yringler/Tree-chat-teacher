@@ -1,6 +1,6 @@
 // The Polar adapter's configuration, parsed from its env vars by config.ts
 // (`appConfig(env).payments.polar`). Products, prices and portal settings are
-// created in the Polar dashboard (README, "Membership, credit and billing").
+// created in the Polar dashboard (docs/operating.md, "Credit, membership and billing").
 
 export type PolarServer = 'sandbox' | 'production';
 

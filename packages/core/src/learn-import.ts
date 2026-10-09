@@ -17,8 +17,7 @@ export interface LearnImportTarget {
 }
 
 /**
- * A backup as Learn imports it (docs/DECISIONS.md "Import and export in
- * Learn"). Learn runs on one provider with two models, shows each branch as
+ * A backup as Learn imports it. Learn runs on one provider with two models, shows each branch as
  * its whole path and has no system-prompt editor, so a tree made in power
  * mode is adapted to what Learn can show and continue:
  *

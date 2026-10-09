@@ -178,7 +178,7 @@ const DEFAULT_POLAR_FEE_FIXED_CENTS = 50;
  */
 export const POOL_ACCOUNT_ID = 'pool';
 
-// ---- The hosted models (docs/DECISIONS.md "Hosted models from the eval")
+// ---- The hosted models: the defaults a live eval of the candidates picked (2026-10-08)
 
 /** Learn's Normal tier, its default (`LEARN_NORMAL_MODEL`). */
 export const DEFAULT_LEARN_NORMAL_MODEL = 'deepseek/deepseek-v4.1-flash';
@@ -306,8 +306,7 @@ export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   // Normal and the pool. The price of StreamLake (and DeepSeek's own): $0.15 / $0.60, cache
   // read $0.003. OpenRouter's model-level list price ($0.0356 / $1.00) is no route's price, and
   // as the pool's `max_price` it would admit only fp4 endpoints, so wrangler.jsonc repeats this
-  // entry in `MODEL_PRICES`, where it wins over the daily sync (docs/DECISIONS.md "Hosted
-  // models from the eval").
+  // entry in `MODEL_PRICES`, where it wins over the daily sync.
   'deepseek/deepseek-v4.1-flash': {
     inMicrosPerMTok: 150_000,
     outMicrosPerMTok: 600_000,
@@ -331,7 +330,7 @@ export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
     contextTokens: 1_000_000,
   },
   // A fallback candidate, no default: priced so the pool (`POOL_MODEL`) or a
-  // tier can be moved to it by config alone (docs/DECISIONS.md "Hosted tier config").
+  // tier can be moved to it by config alone, without a code change.
   'minimax/minimax-m3': {
     inMicrosPerMTok: 300_000,
     outMicrosPerMTok: 1_200_000,

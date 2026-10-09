@@ -1,8 +1,8 @@
 // Pure translation of Polar objects (API version 2026-10) into the port's
 // normalised events. No I/O: the fixture tests run every mapping here.
 //
-// Field choices (the PLAUSIBLE ones are listed in
-// docs/polar-migration/04-verification.md for the sandbox check):
+// Field choices (some read from Polar's docs rather than seen on a live
+// order, so check them against a sandbox order when the API version changes):
 // - an order's pre-tax amount is `net_amount` (after discounts, before tax),
 //   never `total_amount`; its fee is `platform_fee_amount` (in
 //   `platform_fee_currency`), else the configured estimate;

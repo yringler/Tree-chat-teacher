@@ -81,8 +81,7 @@ export class RouteResolver {
   }
 
   /**
-   * The route of a new tree that names no provider (docs/DECISIONS.md
-   * "Default route of a new tree"): `pickDefaultRoute` over the own-key
+   * The route of a new tree that names no provider: `pickDefaultRoute` over the own-key
    * providers and, where it is offered and nothing named a funding, Tangent
    * credit, with what the profile's `defaultRouteFacts` says about the balance and the
    * membership (asked only then; without it, credit is never the default).

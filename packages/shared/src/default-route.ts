@@ -1,6 +1,6 @@
 /*
  * The route (provider + funding) a new power tree starts on when nobody picked
- * one (docs/DECISIONS.md "Default route of a new tree"). One pure rule, used
+ * one. One pure rule, used
  * by the Worker's ChatService (a new tree that names no provider) and by the
  * power and Canvas clients (the route their new-conversation pickers start
  * on), so they agree.

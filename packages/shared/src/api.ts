@@ -129,8 +129,8 @@ export interface MeResponse {
    * own keys; Tangent credit needs none); empty wherever no membership is
    * required (the fee off, a server without billing, the dev bypass). A
    * branch or lesson on one of these fundings is read-only while
-   * `membership.status` is `inactive` (docs/DECISIONS.md "Read-only power
-   * without a membership").
+   * `membership.status` is `inactive`. The server states the rule so the
+   * clients never copy it.
    */
   membershipNeededFor: BranchFunding[];
 }

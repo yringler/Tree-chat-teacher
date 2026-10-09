@@ -126,8 +126,7 @@ function PoolSection(props: { pool: PoolStatusResponse; page: Landing }) {
 }
 
 /**
- * The feature card on web-search grounding (docs/DECISIONS.md, "Grounding
- * (web search)"), worded for the operator's ceiling: offered when a reply
+ * The feature card on web-search grounding, worded for the operator's ceiling: offered when a reply
  * likely needs it and the model decides (`auto`, `always-offer`), or only on
  * request (`explicit`). Never promises that every answer is checked, and,
  * while the pool is shown, says that pool replies don't search.

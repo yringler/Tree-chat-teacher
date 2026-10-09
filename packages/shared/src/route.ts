@@ -3,7 +3,7 @@ import type { BranchFunding } from './domain.js';
 /**
  * A provider id names an endpoint (`openrouter`, `anthropic`, `openai`, …)
  * and means the same in both apps; who pays for a call is its funding,
- * decided separately (docs/DECISIONS.md, "Funding apart from the provider").
+ * decided separately, so a stored branch means the same thing in either app.
  * A route is the pair: which endpoint, paid how.
  */
 export interface ProviderRoute {

@@ -1,7 +1,7 @@
 // Fails when apps/worker/src/db/schema.ts and apps/worker/migrations disagree: drizzle-kit
 // generates against a copy of the migrations, and any migration it writes is a schema
-// change nobody wrote a migration for (README, "Database migrations"). The copy keeps the
-// check from touching the repository.
+// change nobody wrote a migration for (docs/operating.md, "Database migrations"). The
+// copy keeps the check from touching the repository.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';

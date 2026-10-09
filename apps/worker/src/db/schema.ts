@@ -16,7 +16,7 @@ import {
  * fails while a change here has no migration (scripts/check-migrations.mjs).
  *
  * Ancestor lookups use a recursive CTE over nodes.parent_id (PK lookups per
- * level, O(depth)); see docs/DECISIONS.md.
+ * level, O(depth)), so nothing has to be kept in step at write time.
  */
 
 /**

@@ -2,7 +2,8 @@
 // once paid, what it credits. Credit is bought only for the buyer's own
 // ledger (`u_<userId>`), spent with the usage-time markup (MARKUP_BPS).
 // Nobody buys credit for the open pool: Tangent funds it with admin
-// adjustments (docs/polar-migration/05-pool-framing.md).
+// adjustments, so every sale is the buyer's own usage, never a donation or
+// community access (which the payment provider's policy prohibits).
 //
 // A purchase is credited the pre-tax amount paid net of the payment
 // provider's actual processing fee (`netOfFee`). The operator earns on usage,

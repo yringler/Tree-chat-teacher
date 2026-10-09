@@ -90,8 +90,11 @@ interface Ctx {
 }
 
 /**
- * Pure context assembly. See docs/PLAN.md §"Context assembly" for the full
- * algorithm and nested-mode semantics.
+ * Pure context assembly: what a branch's model sees, from the branch's mode
+ * and its ancestors'. `path` inherits the parent's effective context at the
+ * branch point, so a path branch under a summary or independent ancestor
+ * doesn't re-expand what that ancestor dropped (the rules are in
+ * docs/DECISIONS.md, "Context modes").
  *
  * Throws `ValidationError` on inconsistent input (unknown target, broken chain,
  * target node not in target branch, missing path nodes).

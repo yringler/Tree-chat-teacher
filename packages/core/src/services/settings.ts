@@ -33,7 +33,7 @@ export interface ChatSettings {
   maxInputTokens: number | null;
   /** Generate a branch title after the first assistant reply. */
   autoTitle: boolean;
-  /** Web-search grounding of replies (docs/DECISIONS.md § Grounding). */
+  /** Web-search grounding of replies: the operator's ceiling and the daily cap. */
   grounding: GroundingSettings;
 }
 

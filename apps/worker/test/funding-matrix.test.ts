@@ -20,10 +20,9 @@ import { ok, parseSse } from './http.js';
 import { MOCK_UPSTREAM } from './bindings.js';
 
 /**
- * Who pays, and whose key is used, now that a provider id names only the
- * endpoint and funding is decided apart from it (docs/DECISIONS.md, "Funding
- * apart from the provider"). Every scenario that existed when `tangent` was a
- * provider id keeps the same payer and the same key:
+ * Who pays, and whose key is used: a provider id names only the endpoint,
+ * and funding is decided apart from it, so the same endpoint can be on the
+ * user's key or the operator's. Each scenario's payer and key:
  *
  * | scenario                  | key used               | metered on            |
  * | ------------------------- | ---------------------- | --------------------- |

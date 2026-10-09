@@ -78,7 +78,7 @@ export class PowerAccountStore {
    */
   readonly poolOn = signal(false);
 
-  /** The fundings the user can't generate on right now (docs/DECISIONS.md "Read-only power"). */
+  /** The fundings the user can't generate on right now: their branches show read-only. */
   readonly lockedFundings = computed(() =>
     lockedFundings(this.membershipNeededFor(), this.membership()),
   );
@@ -138,8 +138,7 @@ export class PowerAccountStore {
   /**
    * The route a new conversation starts on, and the fallback of a new branch
    * off one that can't generate (`startingRoute`): `pickDefaultRoute`, the
-   * server's rule for a new tree (docs/DECISIONS.md "Default route of a new
-   * tree"). A provider with a key first; else Tangent credit while the
+   * server's rule for a new tree. A provider with a key first; else Tangent credit while the
    * balance can pay; else the user's own OpenRouter (the first send asks for
    * its key). While own keys need a membership the user lacks, credit comes
    * first if it can pay or be bought (`creditBuyable`: offered and top-ups

@@ -1,5 +1,5 @@
-// Grounding config and the daily cap on automatic web searches
-// (docs/DECISIONS.md § Grounding). Searches are billed like any other cost:
+// Grounding config and the daily cap on automatic web searches, which bounds
+// what the free gate can spend of a user's credit. Searches are billed like any other cost:
 // OpenRouter folds their fee into the generation's reported cost.
 import type { GroundingPolicy } from '@tangent/core';
 import type { ProviderConfig, ProviderRoute } from '@tangent/shared';

@@ -1,5 +1,4 @@
-// Learn's tiers, Normal and Max (docs/DECISIONS.md "Learn tiers: Normal and
-// Max"): the built-in provider's models and their `tier`, the env vars, the
+// Learn's tiers, Normal and Max: the built-in provider's models and their `tier`, the env vars, the
 // background model, and the Max usage factor `/api/providers` sends.
 import { MAX_USAGE_FACTOR_FALLBACK, usageFactorOf, type ProviderInfo } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
@@ -52,7 +51,7 @@ describe("Learn's tiers", () => {
   it('Normal (the default) then Max, tagged with their tier', () => {
     const config = simpleProviderConfig(deployed());
     expect(config.defaultModel).toBe(DEFAULT_LEARN_NORMAL_MODEL);
-    // Each with its evaluated request settings (docs/DECISIONS.md "Hosted models from the eval").
+    // Each with the request settings the model eval picked for it.
     expect(config.models).toEqual([
       {
         id: 'deepseek/deepseek-v4.1-flash',

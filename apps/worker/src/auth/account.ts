@@ -66,7 +66,7 @@ export function accountRequest(headers: Headers): AccountRequest {
 
 /**
  * Maps the verified caller and the app it uses to the account whose data it
- * may touch. The one place that decides it (docs/DECISIONS.md "Accounts"):
+ * may touch, decided here and nowhere else:
  * every user has a power account `p_<userId>` and a Learn account
  * `u_<userId>`, so the two apps keep separate conversations. The ids are
  * derived, so resolving them needs no lookup and can't race. The dev bypass

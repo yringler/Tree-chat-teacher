@@ -1,5 +1,5 @@
-// How credit reaches the open pool now that nobody buys it
-// (docs/polar-migration/05-pool-framing.md, D1): a payment is never credited
+// How credit reaches the open pool, which nobody can buy (every sale is the
+// buyer's own usage, never a donation): a payment is never credited
 // to the pool, checkouts are personal only, and the admin's credit route and
 // pool panel are how the pool is funded.
 import {

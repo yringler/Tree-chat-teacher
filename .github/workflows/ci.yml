@@ -2,7 +2,7 @@
 # blocked by a branch rule on master that requires the "Checks" and "End-to-end"
 # jobs (repository Settings → Rules), not by this file. On master (a push, or a
 # manual run there), once both pass, the "Deploy" job applies the D1 migrations
-# and deploys the Worker (README, "Deploying from Git").
+# and deploys the Worker (docs/operating.md, "Deploying from GitHub").
 name: CI
 
 on:
@@ -97,7 +97,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "::error::Set the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets on the production environment (README, \"Deploying from Git\")."
+            echo "::error::Set the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets on the production environment (docs/operating.md, \"Deploying from GitHub\")."
             exit 1
           fi
       - uses: actions/checkout@v4

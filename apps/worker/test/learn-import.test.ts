@@ -17,8 +17,7 @@ import { authEnv, client } from './session-client.js';
 import { ok, parseSse } from './http.js';
 
 /*
- * Import and export in Learn (docs/DECISIONS.md "Import and export in
- * Learn"): the same backup format as power, imported into the account of the
+ * Import and export in Learn: the same backup format as power, imported into the account of the
  * app that sends it, and adapted to what Learn can run when that is Learn.
  */
 
