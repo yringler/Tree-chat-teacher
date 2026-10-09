@@ -156,16 +156,6 @@ export interface TreeSummary {
   messageCount: number;
 }
 
-/**
- * `POST /api/trees/:treeId/copy-to-learn`: the power tree was copied into the
- * caller's Learn account as a new lesson (adapted as any import into Learn).
- */
-export interface CopyToLearnResponse {
-  /** The new lesson's id in the Learn account (`/learn/t/<treeId>`). */
-  treeId: string;
-  title: string;
-}
-
 /** Whole tree in one response; the client builds the outline with @tangent/core. */
 export interface TreeDetail {
   tree: Tree;

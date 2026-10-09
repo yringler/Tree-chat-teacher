@@ -1,6 +1,5 @@
 import { TestBed } from '@angular/core/testing';
 import type { TreeDetail } from '@tangent/shared';
-import { LEAVE_PAGE } from '@tangent/web-shared';
 import {
   branch,
   detail,
@@ -42,9 +41,8 @@ function tree(): TreeDetail {
 const CREDIT = provider({ funding: 'credit', acceptsUserKey: false, keySource: 'server' });
 
 async function page(opts: { branchId?: string; lapsed?: boolean; d?: TreeDetail | null } = {}) {
-  const leave = vi.fn();
   const r = await render(ChatPage, {
-    providers: [...powerProviders(TreeStore, {}), { provide: LEAVE_PAGE, useValue: leave }],
+    providers: powerProviders(TreeStore, {}),
     setup: () => {
       const store = TestBed.inject(TreeStore);
       signIn(store.account, {

@@ -62,7 +62,7 @@ async function setUp(request: APIRequestContext, baseURL: string, userId: string
   };
 }
 
-test('a cancelled membership: own-key branches read-only, credit carries on, copy to Learn', async ({
+test('a cancelled membership: own-key branches read-only, credit carries on, open in Learn', async ({
   context,
   page,
   baseURL,
@@ -76,8 +76,8 @@ test('a cancelled membership: own-key branches read-only, credit carries on, cop
   const notice = page.locator('app-read-only-composer');
   await expect(notice).toBeVisible();
   await expect(notice).toContainText('Your membership has ended.');
-  // The pool is off here, so a copy in Learn would carry on on Tangent credit, which is sold.
-  await expect(notice).toContainText('create a copy to continue it in Learn on Tangent credit.');
+  // The pool is off here, so Learn would carry on on Tangent credit, which is sold.
+  await expect(notice).toContainText('or continue it in Learn on Tangent credit.');
   await expect(page.locator('#composer-input')).toHaveCount(0);
   await expect(page.getByText('What is a prime number?', { exact: true })).toBeVisible();
   const renew = notice.getByRole('link', { name: 'Renew membership' });
@@ -94,23 +94,18 @@ test('a cancelled membership: own-key branches read-only, credit carries on, cop
   await notice.getByRole('link', { name: 'Renew membership' }).click();
   await expect(page).toHaveURL(/\/billing$/);
 
-  // Create a copy in Learn: the lesson opens in Learn; the power tree is left as it was.
+  // Open in Learn: the same conversation, on the same branch; nothing is copied.
   await page.goto(`/t/${t.treeId}`);
   await Promise.all([
-    page.waitForURL(/\/learn\/t\/[^/]+/),
-    page
-      .locator('app-read-only-composer')
-      .getByRole('button', { name: 'Create a copy in Learn' })
-      .click(),
+    page.waitForURL(`/learn/t/${t.treeId}/b/${t.trunk}`),
+    page.locator('app-read-only-composer').getByRole('link', { name: 'Open in Learn' }).click(),
   ]);
-  const lessonId = /\/learn\/t\/([^/?#]+)/.exec(page.url())![1];
-  expect(lessonId).not.toBe(t.treeId);
   await expect(page.getByText('What is a prime number?', { exact: true })).toBeVisible();
   expect(await (await context.request.get(`/api/trees/${t.treeId}`)).json()).toEqual(before);
   const lessons = (await (
     await context.request.get('/api/trees', { headers: { 'x-tangent-mode': 'simple' } })
   ).json()) as { id: string }[];
-  expect(lessons.map((l) => l.id)).toEqual([lessonId]);
+  expect(lessons.map((l) => l.id)).toEqual([t.treeId]);
 
   // Continue with Tangent credit: the trunk moves onto credit and gets its composer back.
   await page.goto(`/t/${t.treeId}`);

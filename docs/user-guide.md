@@ -61,7 +61,7 @@ New conversations in both apps start with the same built-in system prompt: it an
 
 ### Without a membership
 
-Where the operator charges a membership, replies on your own keys need one. Without it, nothing is locked away: conversations stay listed, readable, exportable and manageable. A branch on your own key shows a notice where the message box was: **Renew membership** (or **Become a member**), **Create a copy in Learn** (a free copy of the conversation in Learn), and, while credit can pay, **Continue with Tangent credit**, which moves that branch onto credit.
+Where the operator charges a membership, replies on your own keys need one. Without it, nothing is locked away: conversations stay listed, readable, exportable and manageable. A branch on your own key shows a notice where the message box was: **Renew membership** (or **Become a member**), **Open in Learn** (the same conversation in Learn, where the open pool or Tangent credit can reply), and, while credit can pay, **Continue with Tangent credit**, which moves that branch onto credit.
 
 ## Learn
 

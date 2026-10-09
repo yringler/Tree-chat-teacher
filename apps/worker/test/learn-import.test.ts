@@ -406,7 +406,7 @@ describe('import limits', () => {
     return { keys, binding };
   }
 
-  it('rate limits import and copy-to-learn per account', async () => {
+  it('rate limits import per account', async () => {
     const u = await newUser();
     const original = await powerTree(u);
     const backup = await ok<TreeBackup>(await u.call(`/api/trees/${original.tree.id}/backup`));
@@ -415,11 +415,8 @@ describe('import limits', () => {
     const post = { method: 'POST', json: backup } as const;
 
     expect((await u.call('/api/import', post, limited)).status).toBe(429);
-    const copy = `/api/trees/${original.tree.id}/copy-to-learn`;
-    expect((await u.call(copy, { method: 'POST' }, limited)).status).toBe(429);
     expect((await u.call('/api/import', { ...post, learn: 'own-key' }, limited)).status).toBe(429);
     expect(refusing.keys).toEqual([
-      `import:account:${u.power.accountId}`,
       `import:account:${u.power.accountId}`,
       `import:account:${u.learn.accountId}`,
     ]);

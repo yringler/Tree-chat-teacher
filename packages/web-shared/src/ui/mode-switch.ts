@@ -4,9 +4,8 @@ import { APP_BASES, DEMO_BASES, DEMO_MODE, type AppId } from '../core/demo';
 /**
  * The Power / Learn / Canvas switch. The apps are served on one origin with
  * one sign-in, so switching is a full page load to the other app's home.
- * Power and Learn keep separate conversations (every user has one account
- * per mode); Canvas is an experimental view of the power account's
- * conversations. In a demo it switches between the demos.
+ * Every app shows the same conversations (one account per user); Canvas is
+ * an experimental view of them. In a demo it switches between the demos.
  */
 @Component({
   selector: 'app-mode-switch',

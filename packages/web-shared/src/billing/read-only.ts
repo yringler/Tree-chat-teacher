@@ -1,11 +1,4 @@
-import { signal } from '@angular/core';
-import type {
-  BranchFunding,
-  CopyToLearnResponse,
-  MembershipInfo,
-  ProviderInfo,
-} from '@tangent/shared';
-import { errorMessage } from '../core/api-client';
+import type { BranchFunding, MembershipInfo, ProviderInfo } from '@tangent/shared';
 import { APP_BASES } from '../core/demo';
 import { membershipBlocks } from './membership';
 
@@ -54,15 +47,16 @@ export function routeOpen(
 }
 
 /**
- * How a copy in Learn can get replies for a user without a membership: on
- * the open pool while it is on, else on Tangent credit where it carries on
- * (`creditCarriesOn`: the credit is per user, shared by both apps). Learn's
- * own key is locked just the same, so with neither a copy could only be read.
+ * How Learn can reply to the same conversation for a user without a
+ * membership: on the open pool while it is on, else on Tangent credit where
+ * it carries on (`creditCarriesOn`: the credit is per user, shared by every
+ * app). Learn's own key is locked just the same, so with neither Learn could
+ * only show it.
  */
-export type LearnCopyWay = 'pool' | 'credit';
+export type LearnWay = 'pool' | 'credit';
 
-/** How a copy in Learn carries on (`LearnCopyWay`); null when it can't, and no copy is offered. */
-export function learnCopyWay(poolOn: boolean, creditCarriesOn: boolean): LearnCopyWay | null {
+/** How Learn carries the conversation on (`LearnWay`); null when it can't, and Learn isn't offered. */
+export function learnWay(poolOn: boolean, creditCarriesOn: boolean): LearnWay | null {
   if (poolOn) return 'pool';
   return creditCarriesOn ? 'credit' : null;
 }
@@ -83,14 +77,14 @@ export interface ReadOnlyText {
  * What the notice that replaces the composer of a read-only branch says. A
  * user who had a membership (a subscription on record) is asked to renew it;
  * one who never had one, to become a member. `credit`: the branch can carry
- * on with Tangent credit instead, which needs no membership. `learn`: a copy
- * in Learn can get replies there (`learnCopyWay`), so the notice offers one;
- * null leaves the copy out.
+ * on with Tangent credit instead, which needs no membership. `learn`: Learn
+ * can reply to the same conversation (`learnWay`), so the notice offers to
+ * open it there; null leaves Learn out.
  */
 export function readOnlyText(
   m: Pick<MembershipInfo, 'subscriptionStatus'>,
   credit = false,
-  learn: LearnCopyWay | null = null,
+  learn: LearnWay | null = null,
 ): ReadOnlyText {
   const ended = m.subscriptionStatus !== null;
   const lead = ended
@@ -99,47 +93,14 @@ export function readOnlyText(
   const act = ended ? 'Renew your membership' : 'Become a member';
   const where = learn === 'pool' ? 'on the open pool' : 'on Tangent credit';
   let body = learn
-    ? `${act} to continue this conversation, or create a copy to continue it in Learn ${where}.`
+    ? `${act} to continue this conversation, or continue it in Learn ${where}.`
     : `${act} to continue this conversation.`;
   if (credit) body += ' You can also continue it on Tangent credit, which needs no membership.';
   return { lead, body, act, renew: ended ? 'Renew membership' : 'Become a member' };
 }
 
-/** A lesson's address in Learn (`/learn/t/<id>`). */
-export function learnLessonHref(treeId: string): string {
-  return `${APP_BASES.simple}t/${encodeURIComponent(treeId)}`;
-}
-
-/**
- * "Create a copy in Learn": the server copies the power tree into the user's
- * Learn account (`POST /api/trees/:id/copy-to-learn`), then the browser opens
- * the new lesson in Learn.
- */
-export class LearnCopy {
-  /** Stays true on success: the page is leaving for Learn (no second copy meanwhile). */
-  readonly pending = signal(false);
-  readonly error = signal<string | null>(null);
-
-  constructor(
-    private readonly api: { copyToLearn(treeId: string): Promise<CopyToLearnResponse> },
-    private readonly leave: (href: string) => void,
-  ) {}
-
-  async copy(treeId: string): Promise<void> {
-    if (this.pending()) return;
-    this.pending.set(true);
-    this.error.set(null);
-    try {
-      const lesson = await this.api.copyToLearn(treeId);
-      this.leave(learnLessonHref(lesson.treeId));
-    } catch (err) {
-      this.error.set(`Couldn't copy it to Learn: ${errorMessage(err)}`);
-      this.pending.set(false);
-    }
-  }
-
-  /** Back from Learn through the back/forward cache: the button works again. */
-  reset(): void {
-    this.pending.set(false);
-  }
+/** The same conversation's address in Learn (`/learn/t/<treeId>/b/<branchId>`). */
+export function learnLessonHref(treeId: string, branchId: string | null = null): string {
+  const tree = `${APP_BASES.simple}t/${encodeURIComponent(treeId)}`;
+  return branchId === null ? tree : `${tree}/b/${encodeURIComponent(branchId)}`;
 }

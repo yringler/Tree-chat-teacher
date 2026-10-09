@@ -275,8 +275,6 @@ const OWNED_ROUTES: Record<string, { init?: CallInit; modes?: readonly Mode[] }>
   'GET /api/trees/:treeId': {},
   'PATCH /api/trees/:treeId': { init: { method: 'PATCH', json: { title: 'Mine now' } } },
   'GET /api/trees/:treeId/backup': {},
-  // Learn answers 400 before any lookup: only a power tree can be copied.
-  'POST /api/trees/:treeId/copy-to-learn': { init: { method: 'POST' }, modes: [undefined] },
   'PATCH /api/branches/:branchId': { init: { method: 'PATCH', json: { title: 'Mine now' } } },
   'GET /api/branches/:branchId/context': {},
   'GET /api/branches/:branchId/input-budget': {},

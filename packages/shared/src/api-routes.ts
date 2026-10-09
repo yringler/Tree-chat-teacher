@@ -30,7 +30,6 @@ import {
   updateTreeRequestSchema,
   usageQuerySchema,
   type ContextPlanResponse,
-  type CopyToLearnResponse,
   type DeleteBranchResponse,
   type KeyStatusResponse,
   type LoginOptionsResponse,
@@ -317,12 +316,6 @@ export const API_ROUTES = {
     path: '/import',
     body: treeBackupSchema,
     reply: json<TreeDetail>(),
-  },
-  /** A power tree into the same user's Learn account; power only. */
-  copyToLearn: {
-    method: 'POST',
-    path: '/trees/:treeId/copy-to-learn',
-    reply: json<CopyToLearnResponse>(),
   },
 
   // Admin: admins only, `not_found` to anyone else.

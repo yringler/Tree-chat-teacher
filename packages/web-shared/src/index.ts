@@ -43,7 +43,6 @@ export {
   type SaveFile,
 } from './core/backup-file';
 export { APP_PATHS, provideAppPaths, type AppPaths } from './core/app-paths';
-export { LEAVE_PAGE, type LeavePage } from './core/leave-page';
 export {
   AUTH_CLIENT,
   authErrorMessage,
@@ -146,14 +145,13 @@ export {
   type KeyMissingText,
 } from './billing/key-missing';
 export {
-  LearnCopy,
-  learnCopyWay,
   learnLessonHref,
+  learnWay,
   lockedFundings,
   readOnlyText,
   routeLocked,
   routeOpen,
-  type LearnCopyWay,
+  type LearnWay,
   type ReadOnlyText,
 } from './billing/read-only';
 export {

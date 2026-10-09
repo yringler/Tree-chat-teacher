@@ -65,7 +65,7 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
 
   /**
    * The selected branch is read-only: its funding needs the membership the
-   * user lacks. Its composer becomes the notice (renew, copy to Learn).
+   * user lacks. Its composer becomes the notice (renew, open in Learn).
    */
   readonly readOnly = computed(() => {
     const b = this.selectedBranch();

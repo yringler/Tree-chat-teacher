@@ -289,13 +289,13 @@ describe('/pricing', () => {
       );
   });
 
-  it('offers a copy in Learn without a membership only where Learn can reply without one', async () => {
+  it('offers Learn without a membership only where Learn can reply without one', async () => {
     for (const [name, overrides] of Object.entries(CONFIGS)) {
       if (overrides.ANNUAL_FEE_ENABLED === 'false') continue;
       const pool = overrides.POOL_ENABLED !== 'false';
       const credit = overrides.POLAR_CREDITS_PRODUCT_ID !== '';
       const note = notes((await get(deployment(overrides), '/pricing')).html).get('power-read')!;
-      expect(note.includes('Create a copy in Learn'), name).toBe(pool || credit);
+      expect(note.includes('Open in Learn'), name).toBe(pool || credit);
       expect(note.includes('open pool'), name).toBe(pool);
       expect(note.includes('Tangent credit'), name).toBe(credit);
     }

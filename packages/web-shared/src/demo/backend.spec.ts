@@ -320,10 +320,10 @@ describe('demo backend', () => {
     const storage = memoryStorage();
     const { api } = setup({ storage });
     const tree = await api.createTree({});
-    const saved = JSON.parse(storage.data.get('tangent.learn-demo')!) as {
+    const saved = JSON.parse(storage.data.get('tangent.demo')!) as {
       balanceMicros: number;
     };
-    storage.data.set('tangent.learn-demo', JSON.stringify({ ...saved, balanceMicros: 0 }));
+    storage.data.set('tangent.demo', JSON.stringify({ ...saved, balanceMicros: 0 }));
     const { api: next } = setup({ storage });
     await expect(
       next.sendMessage(tree.tree.trunkBranchId, { content: 'Hi' }, new AbortController().signal),
@@ -341,7 +341,7 @@ describe('demo backend', () => {
         new AbortController().signal,
       ),
     );
-    await until(() => storage.data.has('tangent.learn-demo'));
+    await until(() => storage.data.has('tangent.demo'));
 
     const { api: reloaded } = setup({ storage });
     const detail = await reloaded.getTree(tree.tree.id);
@@ -361,8 +361,8 @@ describe('demo backend', () => {
         new AbortController().signal,
       ),
     );
-    await until(() => storage.data.has('tangent.learn-demo'));
-    const saved = JSON.parse(storage.data.get('tangent.learn-demo')!) as {
+    await until(() => storage.data.has('tangent.demo'));
+    const saved = JSON.parse(storage.data.get('tangent.demo')!) as {
       nodes: Record<string, unknown>[];
     };
     const nodes = saved.nodes.map((n) => {
@@ -370,7 +370,7 @@ describe('demo backend', () => {
       const { errorKind: _dropped, ...old } = n;
       return { ...old, status: 'error', error: REPLY_CUT_OFF_ERROR };
     });
-    storage.data.set('tangent.learn-demo', JSON.stringify({ ...saved, nodes }));
+    storage.data.set('tangent.demo', JSON.stringify({ ...saved, nodes }));
 
     const { api: reloaded } = setup({ storage });
     const reply = (await reloaded.getTree(tree.tree.id)).nodes.find((n) => n.role === 'assistant');
@@ -381,9 +381,9 @@ describe('demo backend', () => {
     const storage = memoryStorage();
     const { api } = setup({ storage, seed: false });
     const tree = await api.createTree({});
-    await until(() => storage.data.has('tangent.learn-demo'));
-    const saved = JSON.parse(storage.data.get('tangent.learn-demo')!) as object;
-    storage.data.set('tangent.learn-demo', JSON.stringify({ ...saved, version: 1 }));
+    await until(() => storage.data.has('tangent.demo'));
+    const saved = JSON.parse(storage.data.get('tangent.demo')!) as object;
+    storage.data.set('tangent.demo', JSON.stringify({ ...saved, version: 1 }));
 
     const { api: reloaded } = setup({ storage, seed: false });
     await expect(reloaded.getTree(tree.tree.id)).rejects.toMatchObject({ status: 404 });
@@ -488,10 +488,10 @@ describe('demo backend', () => {
       code: 'conflict',
     });
 
-    const saved = JSON.parse(storage.data.get('tangent.learn-demo')!) as {
+    const saved = JSON.parse(storage.data.get('tangent.demo')!) as {
       balanceMicros: number;
     };
-    storage.data.set('tangent.learn-demo', JSON.stringify({ ...saved, balanceMicros: 0 }));
+    storage.data.set('tangent.demo', JSON.stringify({ ...saved, balanceMicros: 0 }));
     const { api: broke } = setup({ storage });
     await expect(
       broke.streamCandidate(
@@ -521,10 +521,7 @@ describe('power demo backend', () => {
       // Nothing needs a membership, so no power branch is ever read-only here.
       membershipNeededFor: [],
     });
-    // So "Create a copy in Learn" is never offered: the two demos stay apart.
-    const [tree] = await api.listTrees();
     const unsupported = { status: 501, code: 'not_implemented' };
-    await expect(api.copyToLearn(tree!.id)).rejects.toMatchObject(unsupported);
     await expect(api.keyStatus()).resolves.toEqual({
       enabled: false,
       hasKey: false,
@@ -542,8 +539,8 @@ describe('power demo backend', () => {
     const { api } = setup({ mode: 'power', storage, seed: false });
     const tree = await api.createTree({});
     expect(tree.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
-    const saved = JSON.parse(storage.data.get('tangent.power-demo')!) as object;
-    storage.data.set('tangent.power-demo', JSON.stringify({ ...saved, balanceMicros: 0 }));
+    const saved = JSON.parse(storage.data.get('tangent.demo')!) as object;
+    storage.data.set('tangent.demo', JSON.stringify({ ...saved, balanceMicros: 0 }));
     const { api: next } = setup({ mode: 'power', storage });
     const stream = await events(
       await next.sendMessage(
@@ -553,7 +550,22 @@ describe('power demo backend', () => {
       ),
     );
     expect(stream.at(-1)?.type).toBe('done');
-    expect(storage.data.has('tangent.learn-demo')).toBe(false);
+  });
+
+  it('shares its conversations with the Learn demo, which can continue them', async () => {
+    const storage = memoryStorage();
+    const { api: power } = setup({ mode: 'power', storage, seed: false });
+    const tree = await power.createTree({ title: 'Made in power' });
+    const { api: learn } = setup({ mode: 'simple', storage });
+    expect((await learn.listTrees()).map((t) => t.id)).toEqual([tree.tree.id]);
+    const stream = await events(
+      await learn.sendMessage(
+        tree.tree.trunkBranchId,
+        { content: 'Hi' },
+        new AbortController().signal,
+      ),
+    );
+    expect(stream.at(-1)?.type).toBe('done');
   });
 
   it('saves a default system prompt in Settings, keeps it across a reload, and resets it', async () => {
@@ -747,7 +759,7 @@ describe('demo backend links', () => {
       note: 'n',
     });
     expect(created).toBe(true);
-    await until(() => storage.data.get('tangent.learn-demo')?.includes(link.id) ?? false);
+    await until(() => storage.data.get('tangent.demo')?.includes(link.id) ?? false);
 
     const { api: reloaded } = setup({ storage });
     expect((await reloaded.getTree(detail.tree.id)).links).toEqual([link]);

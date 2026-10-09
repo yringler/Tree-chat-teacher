@@ -285,7 +285,6 @@ describe('ApiClient', () => {
           nodes: [],
         },
       ],
-      ['copyToLearn', (a) => a.copyToLearn('t'), 'POST', '/api/trees/t/copy-to-learn'],
     ];
 
   it.each(calls)('%s sends %s %s', async (_name, run, method, url, body) => {

@@ -77,7 +77,7 @@ The rules the code follows today, and why. One section per area. When a rule cha
 
 - **The membership is required for generating on the user's own keys, and for nothing else** ($10 a year plus tax, one per user for both apps). Tangent earns from own keys through the membership and from credit through the markup; a member who also uses credit pays both, each for what it covers. Credit is bought and spent without one; the pool never needs one.
 - **It is off unless `ANNUAL_FEE_ENABLED` is on, a membership product is set and user keys can be stored** (`KEY_ENCRYPTION_SECRET`). With nothing to unlock, nothing requires or sells it. No credit comes with it.
-- **Without a membership, nothing is locked away.** A power branch on an own key turns read-only: a notice where the composer was, offering renewal, **Create a copy in Learn** and, while credit can pay, **Continue with Tangent credit**. Reading, export, backups, settings, delete and links stay. The server states the rule (`MeResponse.membershipNeededFor`), the clients don't copy it, and the server's gate stays the source of truth.
+- **Without a membership, nothing is locked away.** A power branch on an own key turns read-only: a notice where the composer was, offering renewal, **Open in Learn** (the same conversation, where Learn can reply on the pool or credit) and, while credit can pay, **Continue with Tangent credit**. Reading, export, backups, settings, delete and links stay. The server states the rule (`MeResponse.membershipNeededFor`), the clients don't copy it, and the server's gate stays the source of truth.
 - **Waivers:** `auth_users.membership_waived`, set from the admin page or by the `MEMBERSHIP_WAIVER_CODE` code. A waived user is a member.
 
 ### The open pool
@@ -111,7 +111,7 @@ The rules the code follows today, and why. One section per area. When a rule cha
 - **The public viewer is a self-contained, server-rendered page, the same function as the HTML export.** It needs no session, has a strict hash-based CSP and lives on `/s/*` of the same hostname. Revocation is checked against D1 on every view, and cache keys include the version, so revoke and republish take effect at once.
 - **Private branches never enter a share or export payload** (the pure projection drops them and everything below them). JSON backups include everything.
 - **Share links are off for everyone but admins and allowed users until a DMCA designated agent is registered** (`DMCA_AGENT_REGISTERED`). A share's expiry changes only when the user picks one.
-- **One backup format for both apps.** An import into Learn is adapted server-side (`adaptBackupForLearn`): Learn's provider and models, every branch `path`, Learn's prompt, every branch `own-key`. Nothing is charged by an import or a copy.
+- **One backup format for both apps.** An import into Learn is adapted server-side (`adaptBackupForLearn`): Learn's provider and models, every branch `path`, Learn's prompt, every branch `own-key`. Nothing is charged by an import.
 - **Links join two messages of one tree,** stored directed and shown on both ends, at most once per pair. They are owner data: in backups, not in shares or exports, and never sent to the model. They need no membership.
 
 ## Frontends and the shared engine

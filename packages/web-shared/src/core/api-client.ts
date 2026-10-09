@@ -274,8 +274,6 @@ export class ApiClient {
    */
   backup = (treeId: string) => this.call(R.backup, { params: { treeId } });
   importBackup = (backup: TreeBackupInput) => this.call(R.importBackup, { body: backup });
-  /** Copies one of the caller's power trees into their Learn account as a new lesson. */
-  copyToLearn = (treeId: string) => this.call(R.copyToLearn, { params: { treeId } });
 
   // Plumbing
 
