@@ -93,4 +93,12 @@ describe('dispatchShortcut', () => {
     dispatchShortcut(q, { closeTop: () => false, dialogOpen: () => false });
     expect(q.defaultPrevented).toBe(false);
   });
+
+  it('leaves keys that are composing text (an input method) alone, Escape too', () => {
+    const f = frame({ closeTop: vi.fn(() => true) });
+    dispatchShortcut(key('j', { isComposing: true }), f);
+    dispatchShortcut(key('Escape', { isComposing: true }), f);
+    expect(f.keys.j).not.toHaveBeenCalled();
+    expect(f.closeTop).not.toHaveBeenCalled();
+  });
 });

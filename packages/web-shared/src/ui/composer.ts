@@ -16,7 +16,7 @@ import {
 import { Icon } from './icon';
 
 /** What the controller can ask of one message box. */
-interface ComposerBox {
+export interface ComposerBox {
   /** The branch the box writes in; null: whichever branch is open (one box per page). */
   branchId(): string | null;
   /** The box a focus request that names no branch goes to (the selected lane's, or the only one). */
@@ -85,6 +85,42 @@ export class ComposerController {
       branchId === null ? b.current() : b.branchId() === branchId,
     );
   }
+}
+
+/**
+ * Joins `box` to `controller` once it has rendered (`afterRender`), when its
+ * inputs are set: a focus request for its branch, made before the box
+ * existed, can only be matched then. Leaves on `onDestroy`.
+ */
+export function joinWhenRendered(
+  controller: ComposerController,
+  box: ComposerBox,
+  afterRender: (fn: () => void) => void,
+  onDestroy: (fn: () => void) => void,
+): void {
+  let detach: (() => void) | null = null;
+  afterRender(() => (detach = controller.attach(box)));
+  onDestroy(() => detach?.());
+}
+
+/** A sent `text` lets the box's `draft` go: only where the box clears on send, and only unedited. */
+export function releasesDraft(draft: string, text: string, clearOnSend: boolean): boolean {
+  return clearOnSend && draft.trim() === text;
+}
+
+/**
+ * The box takes the focus back when it is enabled again after a reply: the
+ * page's one box only (a canvas lane's box leaves the focus where the user
+ * put it), when nothing else has it, and where focusing doesn't pop up an
+ * on-screen keyboard.
+ */
+export function refocusesWhenEnabled(o: {
+  disabled: boolean;
+  branchId: string | null;
+  nothingFocused: boolean;
+  hovers: boolean;
+}): boolean {
+  return !o.disabled && o.branchId === null && o.nothingFocused && o.hovers;
 }
 
 /** Focusing pops up the on-screen keyboard on touch devices, so only pointers that hover autofocus. */
@@ -200,19 +236,22 @@ export class Composer {
   private readonly box = viewChild.required<ElementRef<HTMLTextAreaElement>>('box');
 
   constructor() {
-    const box = {
-      branchId: () => untracked(this.branchId),
-      current: () => untracked(this.current),
-      focus: () => queueMicrotask(() => this.box().nativeElement.focus({ preventScroll: true })),
-      insert: (text: string) => this.append(text),
-      release: (text: string) => {
-        if (untracked(this.clearOnSend) && untracked(this.text).trim() === text) this.setText('');
+    const destroyRef = inject(DestroyRef);
+    joinWhenRendered(
+      this.controller,
+      {
+        branchId: () => untracked(this.branchId),
+        current: () => untracked(this.current),
+        focus: () => queueMicrotask(() => this.box().nativeElement.focus({ preventScroll: true })),
+        insert: (text) => this.append(text),
+        release: (text) => {
+          if (releasesDraft(untracked(this.text), text, untracked(this.clearOnSend)))
+            this.setText('');
+        },
       },
-    };
-    // Once rendered, with its inputs: a request for its branch made before it existed is taken then.
-    let detach: (() => void) | null = null;
-    afterNextRender(() => (detach = this.controller.attach(box)));
-    inject(DestroyRef).onDestroy(() => detach?.());
+      (fn) => afterNextRender(fn),
+      (fn) => destroyRef.onDestroy(fn),
+    );
     afterNextRender(() => {
       if (this.autofocus() && hovers()) this.box().nativeElement.focus();
     });
@@ -222,14 +261,15 @@ export class Composer {
       if (!initial || untracked(this.text)) return;
       this.setText(initial);
     });
-    // Re-focus when the composer is enabled again after a reply: the page's
-    // one box (a canvas lane's box leaves the focus where the user put it).
+    // Re-focus when the composer is enabled again after a reply.
     effect(() => {
       if (
-        !this.disabled() &&
-        untracked(this.branchId) === null &&
-        document.activeElement === document.body &&
-        hovers()
+        refocusesWhenEnabled({
+          disabled: this.disabled(),
+          branchId: untracked(this.branchId),
+          nothingFocused: document.activeElement === document.body,
+          hovers: hovers(),
+        })
       ) {
         queueMicrotask(() => this.box().nativeElement.focus({ preventScroll: true }));
       }

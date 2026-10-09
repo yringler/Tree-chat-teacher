@@ -50,7 +50,8 @@ describe('owner API', () => {
   it('creates a tree, streams a reply over SSE and persists it', async () => {
     const detail = await newTree();
     const events = await sendMessage(detail.tree.trunkBranchId, 'Hello worker');
-    expect(events[0]?.type).toBe('start');
+    // Who pays, as the server decided: a power branch on the user's own key.
+    expect(events[0]).toMatchObject({ type: 'start', funding: 'own-key' });
     expect(events.at(-1)?.type).toBe('done');
     const reply = textOf(events);
     expect(reply).toContain('Hello worker');

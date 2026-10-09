@@ -1,6 +1,11 @@
 import '@angular/compiler'; // JIT: the component in the same module.
 import { describe, expect, it, vi } from 'vitest';
-import { ComposerController } from './composer';
+import {
+  ComposerController,
+  joinWhenRendered,
+  refocusesWhenEnabled,
+  releasesDraft,
+} from './composer';
 
 function box(branchId: string | null, current = true) {
   return {
@@ -63,5 +68,61 @@ describe('ComposerController', () => {
     c.sent('a', 'x');
     expect(b.focus).not.toHaveBeenCalled();
     expect(b.release).not.toHaveBeenCalled();
+  });
+});
+
+describe('ComposerController and a page with one box', () => {
+  it("focuses the page's one box for a request that names a branch (a branch just made)", () => {
+    const c = new ComposerController();
+    const single = box(null);
+    c.attach(single);
+    c.focus('new');
+    expect(single.focus).toHaveBeenCalledTimes(1);
+    // Nothing is left waiting for a box of 'new'.
+    const later = box('new', false);
+    c.attach(later);
+    expect(later.focus).not.toHaveBeenCalled();
+  });
+});
+
+describe('Composer helpers', () => {
+  it('a box joins once rendered, so a request for its branch made before it existed is matched', () => {
+    const c = new ComposerController();
+    let lane: string | null = null;
+    const lanes = { ...box(null, false), branchId: () => lane };
+    const rendered: (() => void)[] = [];
+    const destroyed: (() => void)[] = [];
+    joinWhenRendered(
+      c,
+      lanes,
+      (fn) => rendered.push(fn),
+      (fn) => destroyed.push(fn),
+    );
+    // Asked for the new lane before its box rendered: nothing to focus yet.
+    c.focus('lane-1');
+    expect(lanes.focus).not.toHaveBeenCalled();
+    // Its inputs are set, then it renders: it takes the request.
+    lane = 'lane-1';
+    for (const fn of rendered) fn();
+    expect(lanes.focus).toHaveBeenCalledTimes(1);
+    // Destroyed: it leaves.
+    for (const fn of destroyed) fn();
+    c.sent('lane-1', 'x');
+    expect(lanes.release).not.toHaveBeenCalled();
+  });
+
+  it('lets a sent draft go only where the box clears on send, and only unedited', () => {
+    expect(releasesDraft(' Why? ', 'Why?', true)).toBe(true);
+    expect(releasesDraft('Why? And how?', 'Why?', true)).toBe(false);
+    expect(releasesDraft('Why?', 'Why?', false)).toBe(false);
+  });
+
+  it("takes the focus back after a reply in the page's one box only, when nothing has it, on hover", () => {
+    const at = { disabled: false, branchId: null, nothingFocused: true, hovers: true };
+    expect(refocusesWhenEnabled(at)).toBe(true);
+    expect(refocusesWhenEnabled({ ...at, branchId: 'lane' })).toBe(false);
+    expect(refocusesWhenEnabled({ ...at, disabled: true })).toBe(false);
+    expect(refocusesWhenEnabled({ ...at, nothingFocused: false })).toBe(false);
+    expect(refocusesWhenEnabled({ ...at, hovers: false })).toBe(false);
   });
 });
