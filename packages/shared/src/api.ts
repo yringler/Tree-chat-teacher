@@ -1,9 +1,4 @@
-import { z } from 'zod';
-
-// Neither the web app's CSP nor workerd allows eval. Skip zod's `new Function`
-// JIT probe, which a strict CSP / Trusted Types reports as a violation even
-// though zod catches the error.
-z.config({ jitless: true });
+import { z } from './zod.js';
 import type { ContextPlan } from './context-plan.js';
 import type {
   Branch,
@@ -11,6 +6,7 @@ import type {
   ChatNode,
   ContextMode,
   LinkOrigin,
+  Payer,
   NodeLink,
   Share,
   ShareMode,
@@ -18,8 +14,8 @@ import type {
   TokenUsage,
   Tree,
 } from './domain.js';
+import { NODE_ERROR_KINDS } from './domain.js';
 import type { ProviderInfo } from './provider.js';
-import { fromLegacyRoute } from './route.js';
 import { MAX_REQUESTED_OUTPUT_TOKENS, MIN_REQUESTED_OUTPUT_TOKENS } from './output-tokens.js';
 import {
   INPUT_OVERFLOWS,
@@ -34,142 +30,12 @@ import {
   type Citation,
   type GroundingMode,
 } from './grounding.js';
-import type { PoolBlockDetails, PoolConsentDetails } from './pool.js';
+import type { PoolBlockDetails } from './pool.js';
 
-/**
- * HTTP API contract between the Angular app and the Worker.
- *
- * Authentication (Better Auth, apps/worker/src/auth/auth.ts):
- *
- *   /api/auth/*                                  Better Auth endpoints (sign-in, callbacks, session, passkeys)
- *   GET    /api/login-options                    -> LoginOptionsResponse (public)
- *
- * Owner API (signed-in session required), all JSON unless noted. Each request
- * acts as the caller's account for the app named by the MODE_HEADER (power
- * when absent); Learn requests also send the PAYMENT_HEADER (billing.ts):
- *
- *   GET    /api/me                               -> MeResponse
- *   DELETE /api/account          DeleteAccountRequest -> 204 + cleared cookies (both accounts, same-origin only)
- *   GET    /api/providers                        -> ProviderInfo[]
- *   GET    /api/trees                            -> TreeSummary[]
- *   POST   /api/trees            CreateTreeRequest -> TreeDetail
- *   GET    /api/trees/:treeId                    -> TreeDetail
- *   PATCH  /api/trees/:treeId     UpdateTreeRequest -> Tree
- *   DELETE /api/trees/:treeId                    -> 204
- *   POST   /api/branches          CreateBranchRequest -> Branch
- *   PATCH  /api/branches/:branchId UpdateBranchRequest -> Branch
- *   DELETE /api/branches/:branchId               -> DeleteBranchResponse (not the trunk)
- *   POST   /api/branches/:branchId/messages SendMessageRequest -> text/event-stream of StreamEvent
- *   GET    /api/nodes/:nodeId/stream              -> text/event-stream of StreamEvent (reconnect)
- *   POST   /api/nodes/:nodeId/cancel              -> 204
- *   POST   /api/nodes/:nodeId/review ReviewRequest -> text/event-stream of ReviewEvent (review.ts)
- *   POST   /api/links             CreateLinkRequest -> NodeLink (201 new; 200 with the existing link
- *                                                when the two messages are already linked, either way round)
- *   PATCH  /api/links/:linkId     UpdateLinkRequest -> NodeLink
- *   DELETE /api/links/:linkId                    -> 204
- *   GET    /api/branches/:branchId/context?nodeId=&resolve=true|false -> ContextPlanResponse
- *   GET    /api/shares                            -> ShareSummary[]
- *   POST   /api/shares            CreateShareRequest -> ShareSummary
- *   PATCH  /api/shares/:shareId   UpdateShareRequest -> ShareSummary
- *   POST   /api/shares/:shareId/republish         -> ShareSummary
- *   POST   /api/shares/:shareId/revoke            -> ShareSummary
- *   DELETE /api/shares/:shareId                   -> 204 (the link 404s from then on)
- *   GET    /api/export?treeId=&scope=&nodeId=&format=md|html&includeAncestors= -> file download
- *   GET    /api/trees/:treeId/backup              -> TreeBackup (JSON download)
- *   POST   /api/import            TreeBackup      -> TreeDetail (new ids)
- *   POST   /api/trees/:treeId/copy-to-learn       -> CopyToLearnResponse (power only, same-origin only)
- *   GET    /api/settings                          -> SettingsResponse (the account's own settings)
- *   PATCH  /api/settings         UpdateSettingsRequest -> SettingsResponse
- *   GET    /api/key/status                        -> KeyStatusResponse
- *   POST   /api/key              SaveKeyRequest  -> 204 + Set-Cookie (sealed, HttpOnly)
- *   DELETE /api/key              ForgetKeyRequest -> 204 + Set-Cookie (cleared or re-sealed)
- *                                                (simple: only the `openrouter` key, used as Learn's own key)
- *
- * Billing (both apps; membership and credit are per user, shared by both; billing.ts):
- *
- *   GET    /api/billing                          -> BillingSummary
- *   GET    /api/billing/usage?cursor=&limit=     -> UsageListResponse (newest first, limit <= 100, default 50)
- *   POST   /api/billing/checkout CreateCheckoutRequest -> CheckoutResponse (same-origin only;
- *                                                personal credit only; `target` other than `personal` is 400)
- *   POST   /api/billing/membership/waiver MembershipWaiverRequest -> MembershipInfo (same-origin only;
- *                                                400 no code configured, 403 wrong code, 429 rate limited)
- *   POST   /api/billing/membership/checkout       -> CheckoutResponse (same-origin only; the yearly
- *                                                membership's hosted checkout, or the billing portal
- *                                                when the user already has a paid membership)
- *   POST   /api/billing/portal                    -> PortalResponse (same-origin only; the payment
- *                                                provider's billing portal; 404 `no_customer` when the
- *                                                provider has no customer for the user yet)
- *   POST   /api/webhooks/:provider                Payment provider webhooks (public, signed by the
- *                                                active provider; see the README)
- *
- * Admin (admins only: ADMIN_USER_IDS, or the local dev bypass; 404 `not_found`
- * to anyone else; admin.ts):
- *
- *   GET    /api/admin/status                     -> AdminStatusResponse
- *   GET    /api/admin/users?q=&cursor=           -> AdminUsersResponse (newest first, ADMIN_USERS_PAGE per page,
- *                                                q = email substring)
- *   PATCH  /api/admin/users/:userId UpdateAdminUserRequest -> AdminUser (same-origin only;
- *                                                share permission, pool suspension and/or membership waiver)
- *   GET    /api/admin/pool/usage?days=&limit=    -> AdminPoolUsageResponse (per-user pool consumption,
- *                                                most spend first; today's busiest network keys)
- *   GET    /api/admin/pool                       -> AdminPoolResponse (the pool's balance, holds and
- *                                                overage breaker state)
- *   GET    /api/admin/pool/topics?status=        -> AdminPoolTopicsResponse (the impact feed's review queue)
- *   POST   /api/admin/pool/topics/:topicId AdminPoolTopicDecision -> AdminPoolTopic (same-origin only;
- *                                                404 for a topic never queued)
- *   GET    /api/admin/users/:userId/shares       -> ShareSummary[] (both of the user's accounts, newest first)
- *   POST   /api/admin/shares/:shareId/revoke     -> ShareSummary (any owner's share; same-origin only)
- *   POST   /api/admin/credit AdminCreditRequest -> AdminCreditResponse (same-origin only; personal
- *                                                or pool, idempotent; simulated purchases 404 unless
- *                                                DEV_PURCHASES_ENABLED)
- *
- * Generating routes (messages, review, context?resolve=true) answer 402
- * `membership_required` when the membership is required, the user has none
- * (`MembershipInfo`) and the request runs on the user's own keys, in either
- * app (the open pool and Tangent credit need no membership), then 402 `payment_required` when a call on the
- * built-in provider (`tangent`, on credit) finds the available credit too
- * low. Calls on the user's own keys never touch credit. Every other route
- * stays open without a membership: nobody is locked out of their data.
- *
- * Open pool (pool.ts; Learn only, PAYMENT_HEADER `pool`, or `credit`
- * whose credit can't cover a call): the server pins the pool's model, system
- * prompt, output cap and context cap, whatever the tree or branch says.
- *
- *   POST /api/branches/:branchId/messages       402 `pool_empty`, 429 `pool_cap_reached`,
- *                                                403 `pool_unavailable` (with `error.pool`), always
- *                                                before any message is written; 400 for a message
- *                                                longer than the pool accepts
- *   GET  /api/branches/:branchId/context?resolve=true   gated the same way; summaries run on the pool
- *   POST /api/nodes/:nodeId/review               403 `pool_unavailable` on the `pool` header (no
- *                                                reviews on the pool); `credit` never falls back
- *   POST /api/pool/verify  PoolVerifyRequest  -> PoolVerifyResponse (same-origin only; a Turnstile
- *                                                pass for accounts with none on record; 400 when the
- *                                                token fails, 403 `pool_unavailable` reason
- *                                                `duplicate_identity` when another account uses the
- *                                                same mailbox)
- *   GET  /api/pool/me                         -> PoolMeResponse (today's caps and use, verified,
- *                                                member, the caller's own credit, the notice
- *                                                version acknowledged and the current one)
- *   POST /api/pool/consent PoolConsentRequest -> PoolConsentResponse (same-origin only; records the
- *                                                acknowledgment of POOL_NOTICE_TEXT; 409 `conflict`
- *                                                for any version but the current one)
- *
- * A pool send or resolve is refused (403 `pool_unavailable`, before anything
- * is written) for an account that is `suspended` by an admin, has no
- * Turnstile pass on record (`verify`), shares its mailbox with another pool
- * account (`duplicate_identity`) or is newer than POOL_MIN_ACCOUNT_AGE_MS
- * (`too_new`); with 403 `pool_consent_required` (`error.consent`) until the
- * current pool notice is acknowledged (again after every version bump); and
- * with 429 `pool_cap_reached` past a daily cap or a per-minute limit (`rate`). There is no OpenAI-compatible endpoint: the
- * pool is only reachable through the routes above.
- *
- * Public (no sign-in; rate-limited; read-only):
- *
- *   GET /api/pool/status     -> PoolStatusResponse (the pool meter; aggregates only, cached 60 s)
- *   GET /s/:token            -> text/html viewer page (Open Graph tags, self-contained)
- *   GET /s/:token/data.json  -> SharePayload
- *
- * Errors: non-2xx responses carry ApiError.
+/*
+ * The HTTP API's request schemas and reply types. Its routes, with which
+ * schema and type each takes and answers, are API_ROUTES (api-routes.ts).
+ * Every non-2xx response carries an ApiError body.
  */
 
 export interface ApiError {
@@ -178,8 +44,6 @@ export interface ApiError {
     message: string;
     /** Pool refusals (`pool_*` codes): what was hit, for the empty and cap-reached states. */
     pool?: PoolBlockDetails;
-    /** 403 `pool_consent_required`: the notice version to acknowledge (`POST /api/pool/consent`). */
-    consent?: PoolConsentDetails;
   };
 }
 
@@ -203,12 +67,12 @@ export type ApiErrorCode =
   | 'pool_empty'
   /** 429: a daily pool cap or rate limit was reached (`error.pool` says which, and when it resets). */
   | 'pool_cap_reached'
-  /** 403: the current pool notice must be acknowledged first. */
-  | 'pool_consent_required'
   /** 403: the pool can't be used for this request or by this account. */
   | 'pool_unavailable'
   /** 404: the payment provider has no customer for the user yet (`POST /api/billing/portal`). */
-  | 'no_customer';
+  | 'no_customer'
+  /** 501: a route the in-browser demos don't offer (sharing, keys, payments, admin). */
+  | 'not_implemented';
 
 export interface MeResponse {
   /** Signed-in user's email; null only in dev bypass mode. */
@@ -234,7 +98,7 @@ export interface MeResponse {
    */
   operatorKeys: boolean;
   /**
-   * True when the server offers the built-in provider (`tangent`, the
+   * True when the server offers the built-in provider (`openrouter`, the
    * operator's OpenRouter key) on prepaid credit: payments and the operator's
    * key are set up. Power lists it among its providers; Learn offers it as
    * "Use Tangent credit". The credit is per user, shared by both apps.
@@ -265,16 +129,10 @@ export interface MeResponse {
    * own keys; Tangent credit needs none); empty wherever no membership is
    * required (the fee off, a server without billing, the dev bypass). A
    * branch or lesson on one of these fundings is read-only while
-   * `membership.status` is `inactive` (docs/DECISIONS.md "Read-only power
-   * without a membership").
+   * `membership.status` is `inactive`. The server states the rule so the
+   * clients never copy it.
    */
   membershipNeededFor: BranchFunding[];
-  /**
-   * The "featured learning" wall of conversations users publish. Always false:
-   * only a stub exists (FEATURED_CONVERSATIONS_ENABLED, docs/DEFERRED.md), so
-   * no app renders an entry point.
-   */
-  featuredConversations: false;
 }
 
 /** What the login page offers. Magic links and passkeys are always available once auth is configured. */
@@ -298,7 +156,6 @@ export interface TreeSummary {
   messageCount: number;
 }
 
-/** Whole tree in one response; the client builds the outline with @tangent/core. */
 /**
  * `POST /api/trees/:treeId/copy-to-learn`: the power tree was copied into the
  * caller's Learn account as a new lesson (adapted as any import into Learn).
@@ -309,6 +166,7 @@ export interface CopyToLearnResponse {
   title: string;
 }
 
+/** Whole tree in one response; the client builds the outline with @tangent/core. */
 export interface TreeDetail {
   tree: Tree;
   branches: Branch[];
@@ -342,16 +200,14 @@ export const MAX_SYSTEM_PROMPT_CHARS = 20_000;
  * Without a (non-blank) `systemPrompt`, the tree gets the account's saved
  * default (SettingsResponse.systemPrompt), else the built-in one.
  */
-export const createTreeRequestSchema = z
-  .object({
-    title: z.string().trim().min(1).max(200).optional(),
-    systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable().optional(),
-    /** The trunk's endpoint and how power pays for it; both default to the account's default route. */
-    providerId: id.optional(),
-    funding: branchFundingSchema.optional(),
-    model: z.string().min(1).max(200).optional(),
-  })
-  .transform(fromLegacyRoute);
+export const createTreeRequestSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).nullable().optional(),
+  /** The trunk's endpoint and how power pays for it; both default to the account's default route. */
+  providerId: id.optional(),
+  funding: branchFundingSchema.optional(),
+  model: z.string().min(1).max(200).optional(),
+});
 export type CreateTreeRequest = z.infer<typeof createTreeRequestSchema>;
 
 /**
@@ -392,41 +248,37 @@ export const updateTreeRequestSchema = z.object({
 });
 export type UpdateTreeRequest = z.infer<typeof updateTreeRequestSchema>;
 
-export const createBranchRequestSchema = z
-  .object({
-    /** The branch point: any node of the tree. */
-    fromNodeId: id,
-    contextMode: contextMode.default('path'),
-    anchorQuote: z.string().max(10_000).nullable().optional(),
-    title: z.string().trim().min(1).max(200).optional(),
-    /**
-     * Defaults to the parent branch's provider, funding and model. A provider
-     * without a funding is on the user's own key (`own-key`); a funding
-     * without a provider keeps the parent's provider.
-     */
-    providerId: id.optional(),
-    funding: branchFundingSchema.optional(),
-    model: z.string().min(1).max(200).optional(),
-    isPrivate: z.boolean().optional(),
-    /** Defaults to the parent branch's setting. */
-    grounding: groundingMode.optional(),
-  })
-  .transform(fromLegacyRoute);
+export const createBranchRequestSchema = z.object({
+  /** The branch point: any node of the tree. */
+  fromNodeId: id,
+  contextMode: contextMode.default('path'),
+  anchorQuote: z.string().max(10_000).nullable().optional(),
+  title: z.string().trim().min(1).max(200).optional(),
+  /**
+   * Defaults to the parent branch's provider, funding and model. A provider
+   * without a funding is on the user's own key (`own-key`); a funding
+   * without a provider keeps the parent's provider.
+   */
+  providerId: id.optional(),
+  funding: branchFundingSchema.optional(),
+  model: z.string().min(1).max(200).optional(),
+  isPrivate: z.boolean().optional(),
+  /** Defaults to the parent branch's setting. */
+  grounding: groundingMode.optional(),
+});
 export type CreateBranchRequest = z.input<typeof createBranchRequestSchema>;
 
-export const updateBranchRequestSchema = z
-  .object({
-    title: z.string().trim().min(1).max(200).optional(),
-    contextMode: contextMode.optional(),
-    anchorQuote: z.string().max(10_000).nullable().optional(),
-    isPrivate: z.boolean().optional(),
-    /** As in createBranchRequestSchema: a provider without a funding is `own-key`. */
-    providerId: id.optional(),
-    funding: branchFundingSchema.optional(),
-    model: z.string().min(1).max(200).optional(),
-    grounding: groundingMode.optional(),
-  })
-  .transform(fromLegacyRoute);
+export const updateBranchRequestSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  contextMode: contextMode.optional(),
+  anchorQuote: z.string().max(10_000).nullable().optional(),
+  isPrivate: z.boolean().optional(),
+  /** As in createBranchRequestSchema: a provider without a funding is `own-key`. */
+  providerId: id.optional(),
+  funding: branchFundingSchema.optional(),
+  model: z.string().min(1).max(200).optional(),
+  grounding: groundingMode.optional(),
+});
 export type UpdateBranchRequest = z.infer<typeof updateBranchRequestSchema>;
 
 /**
@@ -528,6 +380,21 @@ export const contextLimitsQuerySchema = z.object({
 });
 export type ContextLimitsQuery = z.infer<typeof contextLimitsQuerySchema>;
 
+/** `GET /api/branches/:id/context`: plan before `nodeId` (default: the leaf), `resolve` missing summaries. */
+export const contextQuerySchema = contextLimitsQuerySchema.extend({
+  nodeId: z.string().min(1).max(64).optional(),
+  resolve: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+});
+
+/** `GET /api/billing/usage`: newest first, from `cursor` (the previous page's `nextCursor`). */
+export const usageQuerySchema = z.object({
+  cursor: z.string().min(1).max(512).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+
 /**
  * Bring-your-own-key. The key is sent once, sealed by the Worker into an
  * HttpOnly cookie, and never returned by any endpoint.
@@ -560,7 +427,14 @@ export interface KeyStatusResponse {
  * A reconnect (`GET /api/nodes/:id/stream`) starts with `snapshot` instead of `start`.
  */
 export type StreamEvent =
-  | { type: 'start'; userNode: ChatNode; assistantNode: ChatNode; branch: Branch }
+  | {
+      type: 'start';
+      userNode: ChatNode;
+      assistantNode: ChatNode;
+      branch: Branch;
+      /** Who pays for the reply, as the server decided (a Learn send may move from credit to the pool). */
+      funding: Payer;
+    }
   | { type: 'snapshot'; node: ChatNode }
   | { type: 'status'; message: string }
   | { type: 'delta'; nodeId: string; text: string }
@@ -670,7 +544,29 @@ export function backupFileName(title: string): string {
 const isoDate = z.string().min(1).max(64);
 const role = z.enum(['user', 'assistant', 'system']);
 const nodeStatus = z.enum(['streaming', 'complete', 'error']);
+const nodeErrorKind = z.enum(NODE_ERROR_KINDS);
 const linkOrigin = z.enum(['user', 'ai']) satisfies z.ZodType<LinkOrigin>;
+
+/*
+ * What one import may write. An import lands in D1 in one batch, so these
+ * (with the per-account import rate limit, byok/guard.ts) bound what a
+ * request can add to the database; each sits well above what using the app
+ * produces, so any exported tree imports again.
+ */
+/** A backup's JSON: a long conversation (1,000 exchanges with 4 KB replies) is about 5 MB. */
+export const MAX_BACKUP_BYTES = 10 * 1024 * 1024;
+/** Branches of one tree, as many as the links it may hold. */
+export const MAX_BACKUP_BRANCHES = 1_000;
+/** Messages of one tree: 5,000 exchanges. */
+export const MAX_BACKUP_NODES = 10_000;
+/**
+ * One message: a reply at the largest output cap (128k tokens of ~4
+ * characters) fits, and even at 3 UTF-8 bytes a character the row stays
+ * under D1's 2 MB limit.
+ */
+export const MAX_BACKUP_NODE_CHARS = 600_000;
+/** A failed reply's error as imported: provider errors are kept whole, so a longer one is cut, not refused. */
+export const MAX_NODE_ERROR_CHARS = 2_000;
 
 /** A parsed backup as accepted by import (owner fields optional). */
 export type TreeBackupInput = z.infer<typeof treeBackupSchema>;
@@ -689,47 +585,56 @@ export const treeBackupSchema = z.object({
     createdAt: isoDate,
     updatedAt: isoDate,
   }),
-  branches: z.array(
-    z.object({
-      id,
-      treeId: id,
-      parentBranchId: id.nullable(),
-      branchPointNodeId: id.nullable(),
-      contextMode,
-      anchorQuote: z.string().max(10_000).nullable(),
-      title: z.string().max(200),
-      titleSource: z.enum(['default', 'auto', 'user']),
-      isPrivate: z.boolean(),
-      providerId: z.string().max(64),
-      model: z.string().max(200),
-      grounding: groundingMode.optional(),
-      /**
-       * Absent in backups made before funding was split from the provider;
-       * import reads a missing one as `own-key` (ChatService.importBackup).
-       */
-      funding: branchFundingSchema.optional(),
-      createdAt: isoDate,
-      updatedAt: isoDate,
-    }),
-  ),
-  nodes: z.array(
-    z.object({
-      id,
-      treeId: id,
-      branchId: id,
-      parentId: id.nullable(),
-      seq: z.number().int().min(0),
-      role,
-      content: z.string().max(1_000_000),
-      status: nodeStatus,
-      error: z.string().nullable(),
-      providerId: z.string().nullable(),
-      model: z.string().nullable(),
-      usage: z.object({ inputTokens: z.number(), outputTokens: z.number() }).nullable(),
-      sources: z.array(citationSchema).max(CITATIONS_MAX).nullable().optional(),
-      createdAt: isoDate,
-    }),
-  ),
+  branches: z
+    .array(
+      z.object({
+        id,
+        treeId: id,
+        parentBranchId: id.nullable(),
+        branchPointNodeId: id.nullable(),
+        contextMode,
+        anchorQuote: z.string().max(10_000).nullable(),
+        title: z.string().max(200),
+        titleSource: z.enum(['default', 'auto', 'user']),
+        isPrivate: z.boolean(),
+        providerId: z.string().max(64),
+        model: z.string().max(200),
+        grounding: groundingMode.optional(),
+        /**
+         * Optional: import reads a missing one as `own-key`
+         * (ChatService.importBackup), so an import never spends credit implicitly.
+         */
+        funding: branchFundingSchema.optional(),
+        createdAt: isoDate,
+        updatedAt: isoDate,
+      }),
+    )
+    .max(MAX_BACKUP_BRANCHES),
+  nodes: z
+    .array(
+      z.object({
+        id,
+        treeId: id,
+        branchId: id,
+        parentId: id.nullable(),
+        seq: z.number().int().min(0),
+        role,
+        content: z.string().max(MAX_BACKUP_NODE_CHARS),
+        status: nodeStatus,
+        error: z
+          .string()
+          .transform((s) => s.slice(0, MAX_NODE_ERROR_CHARS))
+          .nullable(),
+        // A kind from a later version reads as none: import takes the kind from the message.
+        errorKind: nodeErrorKind.nullable().optional().catch(null),
+        providerId: z.string().max(64).nullable(),
+        model: z.string().max(200).nullable(),
+        usage: z.object({ inputTokens: z.number(), outputTokens: z.number() }).nullable(),
+        sources: z.array(citationSchema).max(CITATIONS_MAX).nullable().optional(),
+        createdAt: isoDate,
+      }),
+    )
+    .max(MAX_BACKUP_NODES),
   /**
    * Absent in backups made before links existed. Import drops a link whose
    * ends aren't both in `nodes`, a self-link and a repeated pair.

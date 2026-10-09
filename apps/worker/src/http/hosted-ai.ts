@@ -1,8 +1,9 @@
+import { isOpenRouterBaseUrl } from '@tangent/providers';
 import type { ProviderConfig } from '@tangent/shared';
 import type { AppEnv } from '../env.js';
 import { poolModel, poolRequest } from '../pool/params.js';
-import { builtInAvailable, poolAvailable } from '../services.js';
-import { isOpenRouter, simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
+import { builtInAvailable, poolAvailable } from '../availability.js';
+import { simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
 
 /**
  * Who handles the text of a request paid by Tangent (credit or the open
@@ -104,7 +105,7 @@ export function hostedAi(env: AppEnv): HostedAi | null {
   } catch {
     return null;
   }
-  const openRouter = config.kind === 'openai-compatible' && isOpenRouter(config.baseUrl);
+  const openRouter = config.kind === 'openai-compatible' && isOpenRouterBaseUrl(config.baseUrl);
   const routing = asRecord(asRecord(config.options?.['extraBody'])['provider']);
   // The operator's explicit `allow_fallbacks` wins over the pinning's default (openai-compatible.ts).
   const fallbacks = routing['allow_fallbacks'] !== false;

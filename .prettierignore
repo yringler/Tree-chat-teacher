@@ -1,0 +1,14 @@
+# Prettier also reads .gitignore, so build output, coverage and end-to-end runs are skipped already.
+
+# Vendored Cloudflare skills (skills-lock.json), kept byte-identical to upstream.
+.agents/
+.claude/skills/
+
+# Generated: pnpm, `wrangler types` and drizzle-kit write these.
+pnpm-lock.yaml
+apps/worker/worker-configuration.d.ts
+apps/worker/migrations/meta/
+
+# Records of finished plans and audits, kept as written.
+docs/archive/
+docs/audits/

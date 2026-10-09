@@ -12,7 +12,6 @@ import {
   type Branch,
   type ChatNode,
   type Citation,
-  type GroundingMode,
   type NodeLink,
   type Share,
   type SummaryRecord,
@@ -20,9 +19,10 @@ import {
   type Tree,
   type TreeSummary,
 } from '@tangent/shared';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
 import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
+import { fromSqlRow, type SqlRow } from './rows.js';
 import * as schema from './schema.js';
 import {
   accountSettings,
@@ -40,12 +40,16 @@ export const SNAPSHOT_CHUNK_CHARS = 256_000;
 
 /** D1 rejects statements with more than 100 bound parameters. */
 const MAX_BOUND_PARAMS = 100;
-const NODE_COLUMNS = 15;
-const BRANCH_COLUMNS = 15;
-const LINK_COLUMNS = 9;
-const NODE_ROWS_PER_INSERT = Math.floor(MAX_BOUND_PARAMS / NODE_COLUMNS); // 6
-const BRANCH_ROWS_PER_INSERT = Math.floor(MAX_BOUND_PARAMS / BRANCH_COLUMNS); // 6
-const LINK_ROWS_PER_INSERT = Math.floor(MAX_BOUND_PARAMS / LINK_COLUMNS); // 11
+/**
+ * Rows per multi-row insert: each row binds one parameter per column of its
+ * table, since its insert sets every column (`Required<…Insert>` below).
+ */
+function rowsPerInsert(table: typeof nodes | typeof branches | typeof nodeLinks): number {
+  return Math.floor(MAX_BOUND_PARAMS / Object.keys(getTableColumns(table)).length);
+}
+const NODE_ROWS_PER_INSERT = rowsPerInsert(nodes);
+const BRANCH_ROWS_PER_INSERT = rowsPerInsert(branches);
+const LINK_ROWS_PER_INSERT = rowsPerInsert(nodeLinks);
 
 /** Guards the recursive CTEs against a corrupted (cyclic) parent chain. */
 const MAX_CTE_DEPTH = 100_000;
@@ -142,6 +146,7 @@ function toNode(r: NodeRow): ChatNode {
     content: r.content,
     status: r.status,
     error: r.error,
+    errorKind: r.errorKind,
     providerId: r.providerId,
     model: r.model,
     usage: toUsage(r.inputTokens, r.outputTokens),
@@ -163,8 +168,7 @@ function toLink(r: LinkRow): NodeLink {
   };
 }
 
-function linkInsert(l: NodeLink): LinkInsert {
-  // Every column is set explicitly so each row binds exactly LINK_COLUMNS params.
+function linkInsert(l: NodeLink): Required<LinkInsert> {
   return {
     id: l.id,
     treeId: l.treeId,
@@ -215,8 +219,7 @@ function toSummary(r: SummaryRow): SummaryRecord {
   };
 }
 
-function nodeInsert(n: ChatNode): NodeInsert {
-  // Every column is set explicitly so each row binds exactly NODE_COLUMNS params.
+function nodeInsert(n: ChatNode): Required<NodeInsert> {
   return {
     id: n.id,
     treeId: n.treeId,
@@ -227,6 +230,7 @@ function nodeInsert(n: ChatNode): NodeInsert {
     content: n.content,
     status: n.status,
     error: n.error,
+    errorKind: n.errorKind ?? null,
     providerId: n.providerId,
     model: n.model,
     inputTokens: n.usage?.inputTokens ?? null,
@@ -236,7 +240,7 @@ function nodeInsert(n: ChatNode): NodeInsert {
   };
 }
 
-function branchInsert(b: Branch): BranchInsert {
+function branchInsert(b: Branch): Required<BranchInsert> {
   return {
     id: b.id,
     treeId: b.treeId,
@@ -253,82 +257,6 @@ function branchInsert(b: Branch): BranchInsert {
     grounding: b.grounding ?? DEFAULT_GROUNDING_MODE,
     createdAt: b.createdAt,
     updatedAt: b.updatedAt,
-  };
-}
-
-// Raw rows returned by the recursive CTEs (snake_case columns, 0/1 booleans).
-interface RawBranchRow {
-  id: string;
-  tree_id: string;
-  parent_branch_id: string | null;
-  branch_point_node_id: string | null;
-  context_mode: Branch['contextMode'];
-  anchor_quote: string | null;
-  title: string;
-  title_source: Branch['titleSource'];
-  is_private: number;
-  provider_id: string;
-  model: string;
-  funding: Branch['funding'];
-  grounding: GroundingMode;
-  created_at: string;
-  updated_at: string;
-}
-
-interface RawNodeRow {
-  id: string;
-  tree_id: string;
-  branch_id: string;
-  parent_id: string | null;
-  seq: number;
-  role: ChatNode['role'];
-  content: string;
-  status: ChatNode['status'];
-  error: string | null;
-  provider_id: string | null;
-  model: string | null;
-  input_tokens: number | null;
-  output_tokens: number | null;
-  sources: string | null;
-  created_at: string;
-}
-
-function rawToBranch(r: RawBranchRow): Branch {
-  return {
-    id: r.id,
-    treeId: r.tree_id,
-    parentBranchId: r.parent_branch_id,
-    branchPointNodeId: r.branch_point_node_id,
-    contextMode: r.context_mode,
-    anchorQuote: r.anchor_quote,
-    title: r.title,
-    titleSource: r.title_source,
-    isPrivate: r.is_private !== 0,
-    providerId: r.provider_id,
-    model: r.model,
-    funding: r.funding,
-    grounding: r.grounding,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  };
-}
-
-function rawToNode(r: RawNodeRow): ChatNode {
-  return {
-    id: r.id,
-    treeId: r.tree_id,
-    branchId: r.branch_id,
-    parentId: r.parent_id,
-    seq: r.seq,
-    role: r.role,
-    content: r.content,
-    status: r.status,
-    error: r.error,
-    providerId: r.provider_id,
-    model: r.model,
-    usage: toUsage(r.input_tokens, r.output_tokens),
-    sources: parseSources(r.sources),
-    createdAt: r.created_at,
   };
 }
 
@@ -512,8 +440,8 @@ export function createD1Repositories(d1: D1Database): Repositories {
            ORDER BY chain.depth DESC`,
         )
         .bind(branchId, MAX_CTE_DEPTH)
-        .all<RawBranchRow>();
-      return results.map(rawToBranch);
+        .all<SqlRow<typeof branches>>();
+      return results.map((r) => toBranch(fromSqlRow(branches, r)));
     },
 
     async createBranch(branch) {
@@ -605,8 +533,8 @@ export function createD1Repositories(d1: D1Database): Repositories {
            ORDER BY anc.depth DESC`,
         )
         .bind(nodeId, MAX_CTE_DEPTH)
-        .all<RawNodeRow>();
-      return results.map(rawToNode);
+        .all<SqlRow<typeof nodes>>();
+      return results.map((r) => toNode(fromSqlRow(nodes, r)));
     },
 
     async appendNodes(list, treeUpdatedAt) {
@@ -633,6 +561,7 @@ export function createD1Repositories(d1: D1Database): Repositories {
         content: patch.content,
         status: patch.status,
         error: patch.error,
+        errorKind: patch.errorKind,
       });
       if (patch.usage !== undefined) {
         set.inputTokens = patch.usage?.inputTokens ?? null;

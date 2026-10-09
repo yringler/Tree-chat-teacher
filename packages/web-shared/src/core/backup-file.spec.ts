@@ -1,40 +1,14 @@
 import type { TreeBackup } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
-import { backupFile, MAX_BACKUP_BYTES, readBackupFile } from './backup-file';
-
-const AT = '2026-01-01T00:00:00.000Z';
+import { backupFile, readBackupFile } from './backup-file';
+import { branch, detail, T } from '../testing';
 
 const BACKUP: TreeBackup = {
   format: 'tangent-tree-backup',
   version: 1,
-  exportedAt: AT,
-  tree: {
-    id: 't',
-    accountId: 'u_1',
-    title: 'Why is the sky blue?',
-    systemPrompt: null,
-    trunkBranchId: 'b',
-    createdAt: AT,
-    updatedAt: AT,
-  },
-  branches: [
-    {
-      id: 'b',
-      treeId: 't',
-      parentBranchId: null,
-      branchPointNodeId: null,
-      contextMode: 'path',
-      anchorQuote: null,
-      title: 'Main thread',
-      titleSource: 'default',
-      isPrivate: false,
-      providerId: 'openrouter',
-      model: 'smart',
-      funding: 'own-key',
-      createdAt: AT,
-      updatedAt: AT,
-    },
-  ],
+  exportedAt: T,
+  tree: detail([], [], [], { id: 't', title: 'Why is the sky blue?', trunkBranchId: 'b' }).tree,
+  branches: [branch('b', { treeId: 't', title: 'Main thread', model: 'max' })],
   nodes: [],
 };
 
@@ -49,9 +23,8 @@ describe('readBackupFile', () => {
     await expect(readBackupFile(file(''))).rejects.toThrow('lesson.tangent.json is empty.');
     const big = { name: 'big.json', size: 60 * 1024 * 1024, text: () => Promise.reject() };
     await expect(readBackupFile(big)).rejects.toThrow(
-      'big.json is too large to import (60 MB; the limit is 50 MB).',
+      'big.json is too large to import (60 MB; the limit is 10 MB).',
     );
-    expect(MAX_BACKUP_BYTES).toBe(50 * 1024 * 1024);
     await expect(readBackupFile(file('{"a":1}'), 3)).rejects.toThrow(/too large/);
   });
 

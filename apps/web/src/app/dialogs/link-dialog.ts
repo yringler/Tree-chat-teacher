@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
-import { plainText } from '@tangent/core';
+import { plainText } from '@tangent/shared';
 import { splitTangents } from '@tangent/shared';
 import { Modal, NodePicker, type LinkPick } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
@@ -49,14 +49,13 @@ export class LinkDialog {
   protected readonly source = computed(
     () => this.store.index()?.nodes.get(this.state().fromNodeId) ?? null,
   );
-  protected readonly excerpt = computed(() => {
-    const text = plainText(splitTangents(this.source()?.content ?? '').body);
-    return text.length > 200 ? `${text.slice(0, 200)}…` : text;
-  });
+  protected readonly excerpt = computed(() =>
+    plainText(splitTangents(this.source()?.content ?? '').body, { max: 200 }),
+  );
   private readonly saving = signal(false);
 
   protected close(): void {
-    this.ui.linkDialog.set(null);
+    this.ui.dialogs.close('link');
   }
 
   protected pickOnPage(): void {

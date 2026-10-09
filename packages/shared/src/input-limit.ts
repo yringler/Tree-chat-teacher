@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from './zod.js';
 import type { BranchFunding } from './domain.js';
 import { replyOutputTokens } from './output-tokens.js';
 
@@ -23,17 +23,16 @@ export type InputOverflow = (typeof INPUT_OVERFLOWS)[number];
 export const INPUT_OVERFLOWS = ['compact', 'truncate'] as const;
 export const DEFAULT_INPUT_OVERFLOW: InputOverflow = 'compact';
 
+/** The most input one call on the built-in provider sends, unless BUILT_IN_MAX_INPUT_TOKENS says otherwise. */
+export const DEFAULT_BUILT_IN_MAX_INPUT_TOKENS = 60_000;
+
 /** Smallest and largest input limit a client may ask for (`SendMessageRequest.maxInputTokens`). */
 export const MIN_REQUESTED_INPUT_TOKENS = 1000;
 export const MAX_REQUESTED_INPUT_TOKENS = 2_000_000;
 /** The presets power offers; anything else in range is a custom value. */
 export const INPUT_TOKEN_PRESETS: readonly number[] = [16_000, 32_000, 64_000, 128_000];
 
-/**
- * Zod field of a requested input limit (JSON body). Object schemas that use it
- * live in api.ts, after its `z.config({ jitless: true })`: an object schema
- * built before that would still probe `new Function` (a CSP violation).
- */
+/** Zod field of a requested input limit (JSON body). */
 export const requestedInputTokens = z
   .number()
   .int()
@@ -55,7 +54,7 @@ export interface InputBudgetResponse {
   reasoning: boolean;
   /**
    * The most input the server sends on this route whatever the setting
-   * (Tangent credit: SIMPLE_MAX_INPUT_TOKENS); null = only the window bounds it.
+   * (Tangent credit: BUILT_IN_MAX_INPUT_TOKENS); null = only the window bounds it.
    */
   serverMaxInputTokens: number | null;
   /**

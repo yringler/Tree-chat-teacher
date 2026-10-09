@@ -48,7 +48,7 @@ describe('isReasoningModel', () => {
       'meta-llama/llama-3.3-70b-instruct',
       'mistralai/mistral-large',
       'fake-1',
-      'smart',
+      'max',
       'm1',
     ])
       expect(isReasoningModel(id), id).toBe(false);

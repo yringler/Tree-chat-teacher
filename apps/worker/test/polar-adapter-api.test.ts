@@ -44,7 +44,6 @@ describe('Polar checkouts', () => {
     const b = buyer();
     const session = await polar.createTopUpCheckout({
       buyer: b,
-      accountId: `u_${b.userId}`,
       amountCents: 2500,
       successUrl: 'https://app.example/learn/billing?checkout=success',
       cancelUrl: 'https://app.example/learn/billing?checkout=cancel',
@@ -73,7 +72,6 @@ describe('Polar checkouts', () => {
       metadata: {
         kind: 'credits',
         target: 'personal',
-        accountId: `u_${b.userId}`,
         userId: b.userId,
         v: 1,
       },
@@ -104,7 +102,7 @@ describe('Polar checkouts', () => {
     });
   });
 
-  it('refuses what isn’t configured, and reports API failures as retryable', async () => {
+  it('refuses what isn’t configured, and reports API failures', async () => {
     const bare = createPolarProvider({
       ...CONFIG,
       creditsProductId: null,
@@ -113,18 +111,18 @@ describe('Polar checkouts', () => {
     expect(bare.capabilities).toEqual({ topUps: false, membership: false });
     await expect(
       bare.createMembershipCheckout({ buyer: buyer(), successUrl: 's', cancelUrl: 'c' }),
-    ).rejects.toMatchObject({ name: 'PaymentProviderError', retryable: false });
+    ).rejects.toMatchObject({ name: 'PaymentProviderError' });
     await expect(
       polar.createMembershipCheckout({
         buyer: buyer(uniq('fail_user')),
         successUrl: 's',
         cancelUrl: 'c',
       }),
-    ).rejects.toMatchObject({ name: 'PaymentProviderError', status: 503, retryable: true });
+    ).rejects.toMatchObject({ name: 'PaymentProviderError' });
     const unauthorized = createPolarProvider({ ...CONFIG, accessToken: 'nope' });
     await expect(
       unauthorized.createMembershipCheckout({ buyer: buyer(), successUrl: 's', cancelUrl: 'c' }),
-    ).rejects.toMatchObject({ status: 401, retryable: false });
+    ).rejects.toMatchObject({ name: 'PaymentProviderError' });
   });
 });
 
@@ -176,7 +174,7 @@ describe('Polar payments and disputes', () => {
     await objects({ orders: [order({ id, externalId: 'user_7' })] });
     expect(await polar.getPayment(`polar:order:${id}` as ProviderRef)).toMatchObject({
       paymentRef: `polar:order:${id}`,
-      purpose: { kind: 'credits', target: 'personal' },
+      purpose: { kind: 'credits' },
       userId: 'user_7',
       netCents: 1000,
     });

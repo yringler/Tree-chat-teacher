@@ -98,13 +98,9 @@ describe('markupFor', () => {
     expect(markupFor({ ...env, MARKUP_BPS: '0' })).toBe(0);
   });
 
-  it('falls back to the deprecated MARKUP_PREPAID_BPS while MARKUP_BPS is empty, then to 1000', () => {
-    expect(markupFor({ ...env, MARKUP_BPS: '', MARKUP_PREPAID_BPS: '1500' })).toBe(1500);
-    expect(markupFor({ ...env, MARKUP_BPS: 'oops', MARKUP_PREPAID_BPS: '1500' })).toBe(1500);
-    // MARKUP_BPS wins when both are set.
-    expect(markupFor({ ...env, MARKUP_BPS: '800', MARKUP_PREPAID_BPS: '1500' })).toBe(800);
-    expect(markupFor({ ...env, MARKUP_BPS: '', MARKUP_PREPAID_BPS: 'oops' })).toBe(1000);
-    expect(markupFor({ ...env, MARKUP_BPS: '', MARKUP_PREPAID_BPS: '' })).toBe(1000);
+  it('is 1000 while MARKUP_BPS is empty, and refuses a malformed one', () => {
+    expect(markupFor({ ...env, MARKUP_BPS: '' })).toBe(1000);
+    expect(() => markupFor({ ...env, MARKUP_BPS: 'oops' })).toThrow('Invalid MARKUP_BPS="oops"');
   });
 });
 
@@ -114,12 +110,12 @@ describe('assertCanSpend', () => {
     await expect(assertCanSpend(env, powerAccount(), 'own-key')).resolves.toBeUndefined();
     // A power branch on credit where the server doesn't offer it never reaches the ledger.
     await expect(
-      assertCanSpend(env, devPowerAccount({ builtIn: false }), 'credit'),
+      assertCanSpend(env, devPowerAccount({ creditOffered: false }), 'credit'),
     ).resolves.toBeUndefined();
     // Learn on the user's own key, whatever a branch's funding says (Learn pays per request).
     for (const funding of ['own-key', 'credit'] as const) {
       await expect(
-        assertCanSpend(env, { ...simpleAccount(), builtIn: false }, funding),
+        assertCanSpend(env, { ...simpleAccount(), payer: 'own-key' }, funding),
       ).resolves.toBeUndefined();
     }
   });
@@ -210,10 +206,10 @@ describe('billing summary', () => {
     await insertUsage(env, { accountId: account.id, status: 'pending', holdMicros: 20_000 });
     // A subscription row doesn't matter while no membership is required.
     await insertSubscription(env, account.userId!, 'active');
-    // Membership credit (no gross amount) is a gift, not a purchase to show.
+    // An admin's credit (no gross amount) is not a purchase to show either.
     await grantCredit(env.DB, {
       accountId: account.id,
-      kind: 'subscription',
+      kind: 'adjustment',
       amountMicros: 2_000_000,
       grossMicros: null,
       providerRef: uniq('in'),
@@ -228,7 +224,6 @@ describe('billing summary', () => {
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
-        includedCreditCents: 0,
       },
       builtInCredit: true,
       topUpsEnabled: true,
@@ -239,7 +234,6 @@ describe('billing summary', () => {
       markupBps: 1000,
       openRouterFeeBps: 550,
       lastPurchase: {
-        kind: 'purchase',
         grossMicros: 10_670_000,
         feeMicros: 670_000,
         creditMicros: 10_000_000,
@@ -261,12 +255,12 @@ describe('billing summary', () => {
       markupBps: 1000,
       openRouterFeeBps: 550,
       lastPurchase: null,
-      membership: { required: false, includedCreditCents: 0 },
+      membership: { required: false },
     });
     const custom = await getBillingSummary({ ...env, OPENROUTER_FEE_BPS: '700' }, simpleAccount());
     expect(custom.openRouterFeeBps).toBe(700);
-    const bad = await getBillingSummary({ ...env, OPENROUTER_FEE_BPS: 'x' }, simpleAccount());
-    expect(bad.openRouterFeeBps).toBe(550);
+    const unset = await getBillingSummary({ ...env, OPENROUTER_FEE_BPS: '' }, simpleAccount());
+    expect(unset.openRouterFeeBps).toBe(550);
   });
 
   it('reports top-ups as unavailable without a credits product, though billing is enabled', async () => {
@@ -375,7 +369,7 @@ describe('usage history', () => {
     expect([...times].sort().reverse()).toEqual(times);
     expect(all.entries[0]).toMatchObject({
       purpose: 'reply',
-      model: 'smart',
+      model: 'max',
       treeId: 't1',
       status: 'settled',
       chargeMicros: 6,

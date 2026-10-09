@@ -7,9 +7,8 @@ import { membership, newEmail, paymentWebhook, signIn } from './helpers';
  * open pool don't.
  *
  * Without a key, the server answers 401 `key_required`, which is not a lost
- * session (docs/DECISIONS.md "API errors in the clients"): Learn says which
- * key is missing and opens "How replies are paid for", and the learner stays
- * signed in, with the message kept.
+ * session: Learn says which key is missing and opens "How replies are paid
+ * for", and the learner stays signed in, with the message kept.
  */
 
 /** Makes the own key the learner's explicit choice in this browser, before Learn loads. */

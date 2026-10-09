@@ -8,7 +8,10 @@
 //   (EMAIL_PROVIDER=log, localhost only) and Cloudflare's always-pass Turnstile test
 //   keys; the membership on, sold by the fake payment provider (allowed only with
 //   TEST_SEAMS, like the worker tests), so tests set memberships and credit through
-//   its signed webhook; no model is ever called (see PROVIDERS / SIMPLE_PROVIDER).
+//   its signed webhook. Power's own-key providers call no model (see PROVIDERS); the
+//   built-in provider (Learn, and power's Tangent credit) calls the scripted
+//   OpenRouter stand-in below, so sends, Compare and summaries on credit run
+//   through the Worker, the Durable Object and the billing gate.
 // - wrangler/: the local D1 database and Durable Objects, migrated before start.
 // - wrangler.log: the server's output, where tests read magic links (tests/helpers.ts).
 //
@@ -17,6 +20,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 
 const PORT = Number(process.env.E2E_PORT ?? 8790);
@@ -29,6 +33,64 @@ const envFile = path.join(state, 'e2e.env');
 
 fs.rmSync(state, { recursive: true, force: true });
 fs.mkdirSync(state, { recursive: true });
+
+/**
+ * A scripted stand-in for OpenRouter's chat API, the built-in provider's
+ * upstream: it streams `Scripted reply (<model>): "<the last line of the last
+ * user message>"` (a side question's excerpt comes before the question) in
+ * OpenAI's chunk format and reports a cost, as OpenRouter does, so the meter
+ * settles each call at once. `GET /models` (the key check when a key is
+ * saved) accepts any `sk-or-` key.
+ */
+function scriptedUpstream() {
+  let generation = 0;
+  return http.createServer((req, res) => {
+    const key = (req.headers.authorization ?? '').replace(/^Bearer /, '');
+    if (!key.startsWith('sk-or-')) {
+      res.writeHead(401, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'No auth credentials found', code: 401 } }));
+      return;
+    }
+    if (req.method === 'GET' && req.url === '/v1/models') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: [] }));
+      return;
+    }
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.writeHead(404).end();
+      return;
+    }
+    let raw = '';
+    req.on('data', (chunk) => (raw += chunk));
+    req.on('end', async () => {
+      const body = JSON.parse(raw);
+      const lastUser = [...body.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+      const asked = String(lastUser).trim().split('\n').at(-1) ?? '';
+      const text = `Scripted reply (${body.model}): "${asked.slice(0, 80)}"`;
+      const id = `gen-e2e-${++generation}`;
+      const frame = (chunk) => res.write(`data: ${JSON.stringify({ id, ...chunk })}\n\n`);
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      for (let i = 0; i < text.length; i += 8) {
+        frame({ choices: [{ index: 0, delta: { content: text.slice(i, i + 8) } }] });
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      frame({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] });
+      const prompt = JSON.stringify(body.messages).length;
+      frame({
+        choices: [],
+        usage: {
+          prompt_tokens: Math.ceil(prompt / 4),
+          completion_tokens: Math.ceil(text.length / 4),
+          cost: 0.0001,
+        },
+      });
+      res.end('data: [DONE]\n\n');
+    });
+  });
+}
+const upstream = scriptedUpstream();
+await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+const upstreamUrl = `http://127.0.0.1:${upstream.address().port}/v1`;
 
 const vars = {
   PUBLIC_BASE_URL: `http://localhost:${PORT}`,
@@ -76,24 +138,30 @@ const vars = {
       models: [{ id: 'keyed-1', label: 'Keyed 1' }],
     },
   ]),
-  // The built-in provider (Learn, and power's Tangent credit). It must need a key, so
-  // Learn on the user's own key asks for one (a fake needs none). It points nowhere:
-  // an own-key send without a key is refused before any call, and a send on credit
-  // (missing-key-power.spec.ts) gets its message written and its reply fails at once.
-  SIMPLE_PROVIDER: JSON.stringify({
+  // The built-in provider (Learn, and power's Tangent credit), on the scripted upstream.
+  // It must need a key, so Learn on the user's own key asks for one (the `fake` kind
+  // needs none): an own-key send without a key is refused before any call.
+  BUILT_IN_PROVIDER: JSON.stringify({
     id: 'openrouter',
     kind: 'openai-compatible',
     label: 'Tangent',
-    baseUrl: 'http://127.0.0.1:9/v1',
-    apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
-    // Learn's tiers (ids kept from when they were Smart and Simple): Normal is the default.
-    defaultModel: 'simple',
+    baseUrl: upstreamUrl,
+    apiKeySecret: 'BUILT_IN_API_KEY',
+    // Learn's tiers: Normal is the default.
+    defaultModel: 'normal',
     models: [
-      { id: 'simple', label: 'Normal', tier: 'normal' },
-      { id: 'smart', label: 'Max', tier: 'max' },
+      { id: 'normal', label: 'Normal', tier: 'normal' },
+      { id: 'max', label: 'Max', tier: 'max' },
     ],
   }),
-  OPENROUTER_SIMPLE_API_KEY: 'sk-or-e2e-unused',
+  BUILT_IN_API_KEY: 'sk-or-e2e-operator',
+  // Credit holds each call at its model's price, and refuses a model without one. The daily
+  // sync only lists OpenRouter, which this endpoint isn't, so the tiers are priced here, as a
+  // deployment on another endpoint must: Normal at V4.1 Flash's price, Max at Sonnet's.
+  MODEL_PRICES: JSON.stringify({
+    normal: { in: 150_000, out: 600_000, context: 1_048_576 },
+    max: { in: 2_000_000, out: 10_000_000, context: 1_000_000 },
+  }),
 };
 // dotenv: single quotes keep JSON's double quotes literal.
 fs.writeFileSync(
@@ -134,7 +202,13 @@ for (const stream of [child.stdout, child.stderr]) {
     process.stdout.write(chunk);
   });
 }
-const stop = () => child.kill('SIGTERM');
+const stop = () => {
+  child.kill('SIGTERM');
+  upstream.close();
+};
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
-child.on('exit', (code) => process.exit(code ?? 0));
+child.on('exit', (code) => {
+  upstream.close();
+  process.exit(code ?? 0);
+});

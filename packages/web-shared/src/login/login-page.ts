@@ -163,9 +163,14 @@ export class LoginPage implements OnInit {
     () => !this.busy() && !!this.captchaToken() && this.email().includes('@'),
   );
 
-  async ngOnInit(): Promise<void> {
+  ngOnInit(): void {
     // Inputs are set by now (not yet in the constructor).
     this.error.set(loginErrorMessage(this.errorCode, this.brand()));
+    // Angular doesn't await ngOnInit; load() reports its own errors.
+    void this.load();
+  }
+
+  private async load(): Promise<void> {
     try {
       const options = await this.auth.loginOptions();
       if (options.devMode) {

@@ -2,7 +2,6 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import type { AdminStatusResponse, MeResponse } from '@tangent/shared';
 import { ApiClient, AuthService, errorMessage, Logo } from '@tangent/web-shared';
 import { PoolPage } from './pool-page';
-import { PoolTopicsPage } from './pool-topics-page';
 import { PoolUsagePage } from './pool-usage-page';
 import { UsersPage } from './users-page';
 
@@ -11,12 +10,11 @@ import { UsersPage } from './users-page';
  * to anyone else; ADMIN_USER_IDS). One page: who may publish share links
  * while DMCA_AGENT_REGISTERED is off, taking any share down, suspending a
  * user's open pool access, waiving a user's membership, adding credit to a user, the pool's balance and overage breaker with
- * top-ups and corrections, who uses the pool most, and the review queue
- * of topics the pool's public impact feed may name.
+ * top-ups and corrections, and who uses the pool most.
  */
 @Component({
   selector: 'app-root',
-  imports: [Logo, PoolPage, PoolTopicsPage, PoolUsagePage, UsersPage],
+  imports: [Logo, PoolPage, PoolUsagePage, UsersPage],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="admin-head">
@@ -67,7 +65,6 @@ import { UsersPage } from './users-page';
         <app-users-page />
         <app-pool-page />
         <app-pool-usage-page />
-        <app-pool-topics-page />
       }
     </main>
   `,

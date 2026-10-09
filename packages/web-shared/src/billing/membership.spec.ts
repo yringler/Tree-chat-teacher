@@ -8,7 +8,6 @@ import {
   creditCarriesOn,
   creditFeeText,
   formatDay,
-  includedCreditText,
   membershipBlocks,
   membershipPriceText,
   membershipStatusText,
@@ -25,7 +24,6 @@ function membership(overrides: Partial<MembershipInfo> = {}): MembershipInfo {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
-    includedCreditCents: 200,
     ...overrides,
   };
 }
@@ -81,11 +79,6 @@ describe('membership copy', () => {
   it('prices the year before tax', () => {
     expect(membershipPriceText(membership())).toBe('$10 / year plus tax');
     expect(membershipPriceText(membership({ priceCents: 1250 }))).toBe('$12.50 / year plus tax');
-  });
-
-  it('mentions the included credit only when there is some', () => {
-    expect(includedCreditText(membership())).toBe('Includes $2 of credit each year.');
-    expect(includedCreditText(membership({ includedCreditCents: 0 }))).toBeNull();
   });
 
   it('says where the user stands', () => {

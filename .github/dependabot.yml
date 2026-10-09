@@ -1,0 +1,18 @@
+# Weekly update PRs, each run through CI like any other. Minor and patch bumps of npm packages
+# arrive as one grouped PR; major bumps come one PR per package, since they're the ones that break.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Pinned to the release whose Chromium build is installed (apps/e2e/playwright.config.ts).
+      - dependency-name: '@playwright/test'
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

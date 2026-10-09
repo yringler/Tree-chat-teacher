@@ -15,12 +15,14 @@ import {
   ApiClient,
   ApiError,
   Compare,
-  type CompareCandidate,
-  type CompareCandidateState,
   CompareRun,
-  type CompareSpec,
+  ComposerController,
   MarkdownService,
   Modal,
+  ToastStore,
+  type CompareCandidate,
+  type CompareCandidateState,
+  type CompareSpec,
 } from '@tangent/web-shared';
 import { generationLimits, SettingsStore } from '../state/settings-store';
 import { TierStore } from '../state/tier-store';
@@ -69,6 +71,8 @@ export class CompareDialog implements OnInit {
   private readonly tiers = inject(TierStore);
   private readonly settings = inject(SettingsStore);
   private readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
+  private readonly toast = inject(ToastStore);
   private readonly md = inject(MarkdownService);
 
   readonly branchId = input.required<string>();
@@ -143,11 +147,11 @@ export class CompareDialog implements OnInit {
     try {
       const result = await run.commit(id);
       this.store.applyCommitted(result);
-      this.ui.markSent(run.question);
+      this.composer.sent(this.branchId(), run.question);
       this.close();
     } catch (err) {
       if (err instanceof ApiError && OUT_OF_DATE.has(err.status)) {
-        this.ui.notify('That comparison is out of date. Your message is still in the box.');
+        this.toast.notify('That comparison is out of date. Your message is still in the box.');
         this.close();
         return;
       }
@@ -158,19 +162,19 @@ export class CompareDialog implements OnInit {
 
   private refused(err: ApiError): void {
     this.close();
-    if (err.code === 'key_required' && !this.ui.keysDialog()) {
+    if (err.code === 'key_required' && !this.ui.dialogs.get('keys')) {
       // Ask for the key of the answer that needed it.
       const id = this.run()
         ?.candidates()
         .find((c) => c.refusal === err)?.id;
       const spec = this.specs.find((s) => s.id === id);
-      this.ui.keysDialog.set({ provider: spec?.request.providerId ?? null });
+      this.ui.dialogs.open({ kind: 'keys', provider: spec?.request.providerId ?? null });
     }
     this.store.fail(err);
   }
 
   protected close(): void {
-    this.ui.compareDialog.set(null);
+    this.ui.dialogs.close('compare');
   }
 
   /** Rendered as a reply is (message-item.ts): Markdown, without the `<tangents>` block. */

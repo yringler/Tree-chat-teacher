@@ -1,7 +1,6 @@
 import { DomainError } from '@tangent/core';
 import {
-  createCheckoutRequestSchema,
-  membershipWaiverRequestSchema,
+  API_ROUTES,
   type BillingSummary,
   type CheckoutResponse,
   type MembershipInfo,
@@ -9,7 +8,6 @@ import {
   type UsageListResponse,
 } from '@tangent/shared';
 import { Hono } from 'hono';
-import { z } from 'zod';
 import {
   openBillingPortal,
   redeemWaiverCode,
@@ -17,20 +15,17 @@ import {
 } from '../billing/membership.js';
 import { PaymentProviderError } from '../billing/payments/index.js';
 import { getBillingSummary, listUsage, startTopUpCheckout } from '../billing/service.js';
-import { enforceRateLimit, sameOriginOnly } from '../byok/guard.js';
+import { enforceRateLimit } from '../byok/guard.js';
+import { appConfig } from '../config.js';
 import type { AppBindings, AppContext } from '../env.js';
 import { apiError, validateJson, validateQuery } from '../http/errors.js';
+import { logEvent } from '../log.js';
 
 const DEFAULT_USAGE_PAGE = 50;
 
-const usageQuerySchema = z.object({
-  cursor: z.string().min(1).max(512).optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional(),
-});
-
 /** The base of the URLs the payment provider sends the browser back to. */
 function baseUrlOf(c: AppContext): string {
-  return c.env.PUBLIC_BASE_URL?.trim() || new URL(c.req.url).origin;
+  return appConfig(c.env).site.publicBaseUrl ?? new URL(c.req.url).origin;
 }
 
 /** A payment provider failure as 502 `provider_error`, so the UI can say "try again". */
@@ -39,7 +34,7 @@ async function viaProvider<T>(run: () => Promise<T>): Promise<T> {
     return await run();
   } catch (err) {
     if (!(err instanceof PaymentProviderError)) throw err;
-    console.error(JSON.stringify({ event: 'payment_provider_error', error: err.message }));
+    logEvent('error', 'payment_provider_error', { error: err.message });
     throw new DomainError(
       'provider_error',
       "Couldn't reach the payment provider. Please try again in a moment.",
@@ -71,13 +66,13 @@ export function billingRoutes(): Hono<AppBindings> {
     c.json((await getBillingSummary(c.env, c.var.account)) satisfies BillingSummary),
   );
 
-  r.get('/usage', validateQuery(usageQuerySchema), async (c) => {
+  r.get('/usage', validateQuery(API_ROUTES.usage), async (c) => {
     const { cursor, limit } = c.req.valid('query');
     const page = await listUsage(c.env, c.var.account, cursor ?? null, limit ?? DEFAULT_USAGE_PAGE);
     return c.json(page satisfies UsageListResponse);
   });
 
-  r.post('/checkout', sameOriginOnly, validateJson(createCheckoutRequestSchema), async (c) => {
+  r.post('/checkout', validateJson(API_ROUTES.createCheckout), async (c) => {
     const { amountCents } = c.req.valid('json');
     const account = c.var.account;
     const userId = account.userId;
@@ -88,14 +83,14 @@ export function billingRoutes(): Hono<AppBindings> {
     return c.json(body satisfies CheckoutResponse);
   });
 
-  r.post('/membership/checkout', sameOriginOnly, async (c) => {
+  r.post('/membership/checkout', async (c) => {
     const body = await viaProvider(() =>
       startMembershipCheckout(c.env, c.var.account, baseUrlOf(c)),
     );
     return c.json(body satisfies CheckoutResponse);
   });
 
-  r.post('/portal', sameOriginOnly, async (c) => {
+  r.post('/portal', async (c) => {
     const body = await viaProvider(() => openBillingPortal(c.env, c.var.account, baseUrlOf(c)));
     if (!body)
       return apiError(c, 'no_customer', 'There is nothing to manage yet: no payment was made.');
@@ -103,18 +98,13 @@ export function billingRoutes(): Hono<AppBindings> {
   });
 
   // Rate limited per account before the comparison, so the code can't be brute-forced.
-  r.post(
-    '/membership/waiver',
-    sameOriginOnly,
-    validateJson(membershipWaiverRequestSchema),
-    async (c) => {
-      const account = c.var.account;
-      if (!account.userId) throw new DomainError('unauthorized', 'Sign in to redeem a code');
-      await enforceRateLimit(c, null, 'key');
-      const membership = await redeemWaiverCode(c.env, account, c.req.valid('json').code);
-      return c.json(membership satisfies MembershipInfo);
-    },
-  );
+  r.post('/membership/waiver', validateJson(API_ROUTES.redeemMembershipWaiver), async (c) => {
+    const account = c.var.account;
+    if (!account.userId) throw new DomainError('unauthorized', 'Sign in to redeem a code');
+    await enforceRateLimit(c, null, 'key');
+    const membership = await redeemWaiverCode(c.env, account, c.req.valid('json').code);
+    return c.json(membership satisfies MembershipInfo);
+  });
 
   return r;
 }

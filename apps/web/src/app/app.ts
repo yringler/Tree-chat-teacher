@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
-import { RouterLink, RouterOutlet } from '@angular/router';
-import { ApiClient, APP_PATHS, AuthService, DEMO_MODE, Icon } from '@tangent/web-shared';
+import { RouterOutlet } from '@angular/router';
+import { ApiClient, APP_PATHS, AuthService, DEMO_MODE, Toasts } from '@tangent/web-shared';
 import { Keyboard } from './core/keyboard';
 import { RouteSync } from './core/route-sync';
 import { DialogHost } from './dialogs/dialog-host';
@@ -10,7 +10,7 @@ import { UiStore } from './state/ui-store';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, Sidebar, DialogHost, Icon],
+  imports: [RouterOutlet, Sidebar, DialogHost, Toasts],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.html',
   host: { '(document:keydown)': 'loginPage || keyboard.handle($event)' },

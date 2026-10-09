@@ -17,12 +17,7 @@ import { Icon } from '../ui/icon';
 import { BillingController } from './billing-controller';
 import { BILLING_SUMMARY_LISTENER } from './billing-listener';
 import { formatCents, formatCharge, formatMicros } from './format';
-import {
-  creditFeeText,
-  includedCreditText,
-  membershipPriceText,
-  membershipStatusText,
-} from './membership';
+import { creditFeeText, membershipPriceText, membershipStatusText } from './membership';
 import { MembershipCodeForm } from './membership-code-form';
 import { PoolSection } from '../pool/pool-section';
 
@@ -31,7 +26,6 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
   summary: 'Summary',
   title: 'Title',
   review: 'Review',
-  tagging: 'Topic tag',
   other: 'Other',
 };
 
@@ -108,12 +102,7 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
           <section class="card billing-section" aria-labelledby="billing-membership-h">
             <h2 id="billing-membership-h" class="billing-h">Membership</h2>
             <p class="billing-status">{{ statusText(s.membership) }}</p>
-            <p class="muted small">
-              {{ priceText(s.membership) }}
-              @if (includedText(s); as included) {
-                · {{ included }}
-              }
-            </p>
+            <p class="muted small">{{ priceText(s.membership) }}</p>
             @if (s.membership.status === 'inactive' || s.membership.subscriptionStatus) {
               <div class="billing-actions">
                 @if (s.membership.status === 'inactive') {
@@ -160,7 +149,7 @@ const PURPOSE_LABELS: Record<UsagePurpose, string> = {
             <p class="muted small">Each call costs {{ feeText(s) }}.</p>
             @if (s.lastPurchase; as p) {
               <p class="muted small billing-last-purchase">
-                Last {{ p.kind === 'subscription' ? 'plan payment' : 'top-up' }}: paid
+                Last top-up: paid
                 {{ money(p.grossMicros) }}, credit {{ money(p.creditMicros) }} after payment
                 processing.
               </p>
@@ -396,11 +385,6 @@ export class BillingPage implements OnInit, OnDestroy {
 
   protected priceText(m: MembershipInfo): string {
     return membershipPriceText(m);
-  }
-
-  /** The yearly credit is only promised where credit can be spent. */
-  protected includedText(s: BillingSummary): string | null {
-    return s.builtInCredit ? includedCreditText(s.membership) : null;
   }
 
   protected feeText(s: BillingSummary): string {

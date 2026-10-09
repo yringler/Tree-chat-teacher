@@ -5,7 +5,7 @@ import type {
   TreeDetail,
 } from '@tangent/shared';
 import { ChatService } from '@tangent/core';
-import { env as rawEnv, exports } from 'cloudflare:workers';
+import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { grantCredit } from '../src/billing/ledger.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
@@ -13,25 +13,15 @@ import { generationLimits, serverInputCap } from '../src/input-limit.js';
 import { simpleMaxInputTokens } from '../src/simple-mode.js';
 import { uniq } from './mocks/billing-helpers.js';
 import { authEnv, client } from './session-client.js';
+import { call, parseSse } from './http.js';
 
 /**
  * Power's input limit (`SendMessageRequest.maxInputTokens`, `.inputOverflow`):
  * sent with each message and with the Context preview, clamped to the model's
- * window less the reply, and on Tangent credit to SIMPLE_MAX_INPUT_TOKENS.
+ * window less the reply, and on Tangent credit to BUILT_IN_MAX_INPUT_TOKENS.
  */
 const env = rawEnv as unknown as AppEnv;
-const BASE = 'https://tangent.example.com';
 const CREDIT_CAP = simpleMaxInputTokens(env);
-
-function call(path: string, init: { method?: string; json?: unknown } = {}): Promise<Response> {
-  return exports.default.fetch(
-    new Request(BASE + path, {
-      method: init.method ?? (init.json === undefined ? 'GET' : 'POST'),
-      headers: { 'Content-Type': 'application/json' },
-      ...(init.json === undefined ? {} : { body: JSON.stringify(init.json) }),
-    }),
-  );
-}
 
 async function trunk(route: Record<string, string>): Promise<string> {
   const res = await call('/api/trees', { json: { title: 'Limit', ...route } });
@@ -47,15 +37,10 @@ async function budgetOf(branchId: string, query: Record<string, string> = {}): P
 }
 
 function account(mode: 'power' | 'simple'): AccountContext {
-  return {
-    id: 'a',
-    mode,
-    userId: null,
-    billingAccountId: 'b',
-    builtIn: true,
-    operatorKeys: true,
-    funding: 'personal',
-  };
+  const ids = { id: 'a', userId: null, billingAccountId: 'b' };
+  return mode === 'power'
+    ? { ...ids, mode, creditOffered: true, operatorKeys: true }
+    : { ...ids, mode, payer: 'credit' };
 }
 
 describe('generationLimits', () => {
@@ -111,7 +96,7 @@ describe('power: the Context preview plans with the limits', () => {
   });
 
   it('on Tangent credit: never above the server’s cap', async () => {
-    const branchId = await trunk({ providerId: 'openrouter', funding: 'credit', model: 'simple' });
+    const branchId = await trunk({ providerId: 'openrouter', funding: 'credit', model: 'normal' });
     expect(await budgetOf(branchId)).toBe(CREDIT_CAP);
     expect(await budgetOf(branchId, { maxInputTokens: '200000' })).toBe(CREDIT_CAP);
     expect(await budgetOf(branchId, { maxInputTokens: '20000' })).toBe(20_000);
@@ -135,19 +120,11 @@ describe('power: the Context preview plans with the limits', () => {
 });
 
 describe('power: a send with an input limit', () => {
-  function events(text: string): StreamEvent[] {
-    return text
-      .split('\n\n')
-      .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-      .filter((l): l is string => !!l)
-      .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent);
-  }
-
   async function send(branchId: string, json: Record<string, unknown>) {
     const res = await call(`/api/branches/${branchId}/messages`, { json });
     const text = await res.text();
     expect(res.status, text).toBe(200);
-    return events(text);
+    return parseSse(text);
   }
 
   it('drops the oldest messages for truncate, and compacts them by default', async () => {
@@ -206,12 +183,12 @@ describe('GET /api/branches/:id/input-budget', () => {
 
     // `simple` is priced at 1 µ$ a token each way (vitest.config.ts MODEL_PRICES); credit
     // charges it with OpenRouter's fee (5.5%) and the markup (10%), as billing does.
-    const credit = await trunk({ providerId: 'openrouter', funding: 'credit', model: 'simple' });
+    const credit = await trunk({ providerId: 'openrouter', funding: 'credit', model: 'normal' });
     const body = (await (
       await call(`/api/branches/${credit}/input-budget`)
     ).json()) as InputBudgetResponse;
     expect(body).toMatchObject({
-      model: 'simple',
+      model: 'normal',
       funding: 'credit',
       serverMaxInputTokens: CREDIT_CAP,
       price: { inputUsdPerMTok: 1.1605, cacheReadUsdPerMTok: null, basis: 'credit' },
@@ -222,13 +199,8 @@ describe('GET /api/branches/:id/input-budget', () => {
 describe('Compare candidates and reviews take the limits like a send', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  function frames(text: string): { type: string; message?: string; text?: string }[] {
-    return text
-      .split('\n\n')
-      .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-      .filter((l): l is string => !!l)
-      .map((l) => JSON.parse(l.slice(5).trim()) as { type: string; message?: string });
-  }
+  const frames = (text: string) =>
+    parseSse<{ type: string; message?: string; text?: string }>(text);
   const compacting = (evs: { type: string; message?: string }[]) =>
     evs.some((e) => e.type === 'status' && /Compacting/.test(e.message ?? ''));
 
@@ -323,7 +295,7 @@ describe('Compare candidates and reviews take the limits like a send', () => {
     for (const [route, want] of [
       [{ providerId: 'fake', model: 'fake-1' }, asked],
       [
-        { providerId: 'openrouter', funding: 'credit', model: 'simple' },
+        { providerId: 'openrouter', funding: 'credit', model: 'normal' },
         { ...asked, maxInputTokens: CREDIT_CAP },
       ],
     ] as const) {
@@ -340,7 +312,7 @@ describe('Compare candidates and reviews take the limits like a send', () => {
       [{}, { maxInputTokens: CREDIT_CAP }],
     ] as const) {
       const res = await call(`/api/nodes/${replyId}/review`, {
-        json: { providerId: 'openrouter', funding: 'credit', model: 'simple', ...extra },
+        json: { providerId: 'openrouter', funding: 'credit', model: 'normal', ...extra },
       });
       await res.text();
       expect(reviews.mock.calls.at(-1)?.[2]).toEqual(want);
@@ -361,7 +333,7 @@ describe('Compare candidates and reviews take the limits like a send', () => {
     ).json()) as TreeDetail;
     const res = await c.call(`/api/branches/${lesson.tree.trunkBranchId}/candidates`, {
       method: 'POST',
-      json: { content: 'Q', model: 'simple', ...asked },
+      json: { content: 'Q', model: 'normal', ...asked },
       learn: 'credit',
     });
     expect(res.status).toBe(200);

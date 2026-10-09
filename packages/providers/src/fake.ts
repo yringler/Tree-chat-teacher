@@ -8,7 +8,14 @@ import type {
   ProviderEvent,
 } from '@tangent/shared';
 import type { ProviderEnv } from './registry.js';
-import { guardStream, isRecord, providerError, resolveCapabilities, sleep, abortError } from './internal.js';
+import {
+  guardStream,
+  isRecord,
+  providerError,
+  resolveCapabilities,
+  sleep,
+  abortError,
+} from './internal.js';
 
 const DEFAULTS = { maxContextTokens: 200_000, maxOutputTokens: 4096, supportsSystemPrompt: true };
 const DEFAULT_MODELS: ModelInfo[] = [{ id: 'fake-1', label: 'Fake 1' }];
@@ -27,7 +34,6 @@ const ERROR_CODES: ReadonlySet<string> = new Set<ProviderErrorCode>([
 
 interface FakeOptions {
   responses: [string, string][];
-  anyMessageResponses: [string, string][];
   stopReasons: [string, string][];
   chunkSize: number;
   delayMs: number;
@@ -68,14 +74,14 @@ function readOptions(options: Record<string, unknown> | undefined): FakeOptions 
   const echo = o['echoRequest'];
   return {
     responses: readResponses(o['responses']),
-    anyMessageResponses: readResponses(o['anyMessageResponses']),
     stopReasons: readResponses(o['stopReasons']),
     chunkSize: typeof cs === 'number' && Number.isInteger(cs) && cs > 0 ? cs : 8,
     delayMs: typeof dm === 'number' && dm > 0 ? dm : 0,
     failWith: typeof fw === 'string' && ERROR_CODES.has(fw) ? (fw as ProviderErrorCode) : null,
     costUsd: typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? cost : null,
     citations,
-    webSearchCostUsd: typeof wsCost === 'number' && Number.isFinite(wsCost) && wsCost >= 0 ? wsCost : 0,
+    webSearchCostUsd:
+      typeof wsCost === 'number' && Number.isFinite(wsCost) && wsCost >= 0 ? wsCost : 0,
     echoRequest: echo === true || (typeof echo === 'string' && echo !== '') ? echo : false,
   };
 }
@@ -90,7 +96,7 @@ function inputTokens(request: Input): number {
 
 /**
  * Deterministic provider for tests (worker tests configure it through
- * `PROVIDERS` / `SIMPLE_PROVIDER`). It is a test seam, not a feature: it is
+ * `PROVIDERS` / `BUILT_IN_PROVIDER`). It is a test seam, not a feature: it is
  * never among the default providers, so no user is offered it.
  *
  * Reply text, unless overridden:
@@ -100,9 +106,6 @@ function inputTokens(request: Input): number {
  * options (all optional):
  * - responses: Record<string, string> — if the last user message contains a
  *   key, reply with its value (first match in insertion order);
- * - anyMessageResponses: Record<string, string> (tests only) — the same, but a
- *   key found in ANY message of the request (any role) matches, and these are
- *   checked before `responses`: lets a test see whether earlier history was sent;
  * - stopReasons: Record<string, string> — if the last user message contains a
  *   key, end with its value as `done.stopReason` (e.g. `length`: a reply cut
  *   off at its cap) instead of `end_turn`;
@@ -149,8 +152,6 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
     if (echo === true || (typeof echo === 'string' && lastUser.includes(echo))) {
       return `ECHO model=${request.model} maxOutputTokens=${request.maxOutputTokens ?? 'none'} system=${JSON.stringify(request.system)}`;
     }
-    for (const [key, value] of opts.anyMessageResponses)
-      if (request.messages.some((m) => m.content.includes(key))) return value;
     for (const [key, value] of opts.responses) if (lastUser.includes(key)) return value;
     return `Fake reply (${request.model}) to ${request.messages.length} message(s): "${lastUser.slice(0, 80)}"`;
   };
@@ -173,14 +174,20 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
         if (request.signal.aborted) throw abortError();
         yield { type: 'delta', text: chars.slice(i, i + opts.chunkSize).join('') };
         if (first && opts.failWith) {
-          yield { type: 'error', error: providerError(opts.failWith, `Fake failure: ${opts.failWith}`) };
+          yield {
+            type: 'error',
+            error: providerError(opts.failWith, `Fake failure: ${opts.failWith}`),
+          };
           return;
         }
         first = false;
       }
       if (opts.failWith) {
         // Empty reply: still fail as configured.
-        yield { type: 'error', error: providerError(opts.failWith, `Fake failure: ${opts.failWith}`) };
+        yield {
+          type: 'error',
+          error: providerError(opts.failWith, `Fake failure: ${opts.failWith}`),
+        };
         return;
       }
       yield {
@@ -197,7 +204,8 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
         };
       }
       const lastUser = lastUserOf(request);
-      const stopReason = opts.stopReasons.find(([key]) => lastUser.includes(key))?.[1] ?? 'end_turn';
+      const stopReason =
+        opts.stopReasons.find(([key]) => lastUser.includes(key))?.[1] ?? 'end_turn';
       yield { type: 'done', stopReason };
     });
   }
@@ -208,7 +216,11 @@ export function createFakeProvider(config: ProviderConfig, env: ProviderEnv): Ll
     label: config.label,
     models: () => models.map((m) => ({ ...m })),
     defaultModel: () => defaultModel,
-    capabilities: (model: string) => resolveCapabilities(effectiveConfig, model, DEFAULTS, true),
+    // Its text echoes the prompt, so it can't name a conversation.
+    capabilities: (model: string) => {
+      const caps = resolveCapabilities(effectiveConfig, model, DEFAULTS, true);
+      return { ...caps, requiredWebSearch: caps.supportsWebSearch, titles: false };
+    },
     stream,
     countTokens: async (request) => {
       if (request.signal?.aborted) throw abortError();

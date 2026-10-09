@@ -1,3 +1,4 @@
+import { REPLY_CUT_OFF_ERROR } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { ConflictError, NotFoundError, ValidationError } from '../../src/errors.js';
 import { DEFAULT_TREE_TITLE, TRUNK_TITLE } from '../../src/services/chat-service.js';
@@ -315,7 +316,12 @@ describe('ChatService sending', () => {
     const { begin, last } = await send(chat, tree.trunkBranchId, 'hi');
     expect(last).toMatchObject({ type: 'error', message: 'boom' });
     const stored = await repos.trees.getNode(begin.assistantNode.id);
-    expect(stored).toMatchObject({ status: 'error', error: 'boom', content: 'reply' });
+    expect(stored).toMatchObject({
+      status: 'error',
+      error: 'boom',
+      errorKind: 'provider',
+      content: 'reply',
+    });
   });
 
   it('cancels via AbortSignal and keeps partial content', async () => {
@@ -331,7 +337,7 @@ describe('ChatService sending', () => {
     }
     expect(events.at(-1)).toMatchObject({ type: 'error', message: 'Cancelled' });
     const stored = await repos.trees.getNode(begin.assistantNode.id);
-    expect(stored?.status).toBe('error');
+    expect(stored).toMatchObject({ status: 'error', errorKind: 'cancelled' });
     expect(stored?.content.length).toBeGreaterThan(0);
   });
 
@@ -351,6 +357,19 @@ describe('ChatService sending', () => {
     expect(again.last.type).toBe('done');
   });
 
+  it("keeps the default titles on a provider that can't title (capability `titles: false`)", async () => {
+    const { chat, repos, provider } = setup();
+    const capabilities = provider.capabilities.bind(provider);
+    provider.capabilities = () => ({ ...capabilities(), titles: false });
+    const { tree } = await chat.createTree({});
+    const root = await send(chat, tree.trunkBranchId, 'q');
+    expect((await repos.trees.getTree(tree.id))?.title).toBe(DEFAULT_TREE_TITLE);
+    const b = await chat.createBranch({ fromNodeId: root.begin.assistantNode.id });
+    const { last } = await send(chat, b.id, 'side');
+    expect(last).toMatchObject({ type: 'done', branch: { titleSource: 'default' } });
+    expect(provider.calls.filter((c) => provider.kindOf(c) === 'title')).toEqual([]);
+  });
+
   it('recovers interrupted streaming nodes', async () => {
     const { chat, repos } = setup();
     const { tree } = await chat.createTree({});
@@ -359,6 +378,28 @@ describe('ChatService sending', () => {
     expect((await repos.trees.getNode(begin.assistantNode.id))?.status).toBe('error');
     // Branch is usable again.
     await expect(chat.beginSend(tree.trunkBranchId, 'again')).resolves.toBeDefined();
+  });
+
+  it('recovers one interrupted node, leaving other streaming nodes alone', async () => {
+    const { chat, repos } = setup();
+    const { tree } = await chat.createTree({});
+    const { begin: start } = await send(chat, tree.trunkBranchId, 'hi');
+    const b = await chat.createBranch({ fromNodeId: start.assistantNode.id, contextMode: 'path' });
+    const orphan = await chat.beginSend(tree.trunkBranchId, 'orphan');
+    const live = await chat.beginSend(b.id, 'live');
+
+    expect(await chat.recoverInterruptedNode(orphan.assistantNode.id)).toMatchObject({
+      status: 'error',
+      error: 'Interrupted before the reply finished',
+      errorKind: 'interrupted',
+    });
+    expect((await repos.trees.getNode(orphan.assistantNode.id))?.status).toBe('error');
+    expect((await repos.trees.getNode(live.assistantNode.id))?.status).toBe('streaming');
+    // A finished node is returned untouched.
+    expect(await chat.recoverInterruptedNode(start.assistantNode.id)).toMatchObject({
+      status: 'complete',
+    });
+    expect(await chat.recoverInterruptedNode('missing')).toBeNull();
   });
 });
 
@@ -385,6 +426,75 @@ describe('ChatService backup', () => {
     // Restored tree is fully usable.
     const detail = await chat.getTreeDetail(restored.tree.id);
     expect(detail.nodes).toHaveLength(4);
+  });
+
+  it('rejects a backup whose branch is missing a message, before importing anything', async () => {
+    const { chat, repos } = setup({ autoTitle: false });
+    const { tree } = await chat.createTree({});
+    await send(chat, tree.trunkBranchId, 'one');
+    await send(chat, tree.trunkBranchId, 'two');
+    const backup = await chat.exportBackup(tree.id);
+    // seq 0 → 2: the reply to "one" is gone, and the next message links past it.
+    const [first, , ...rest] = backup.nodes;
+    const broken = {
+      ...backup,
+      nodes: [first!, { ...rest[0]!, parentId: first!.id }, ...rest.slice(1)],
+    };
+    const trees = repos.dump().trees.size;
+    const rejected = chat.importBackup(broken);
+    await expect(rejected).rejects.toBeInstanceOf(ValidationError);
+    await expect(rejected).rejects.toThrow(
+      "This backup can't be restored: a branch is missing some of its messages",
+    );
+    expect(repos.dump().trees.size).toBe(trees);
+  });
+
+  it('rejects a backup whose message does not follow the one before it', async () => {
+    const { chat } = setup({ autoTitle: false });
+    const { tree } = await chat.createTree({});
+    await send(chat, tree.trunkBranchId, 'one');
+    const backup = await chat.exportBackup(tree.id);
+    const [question, reply] = backup.nodes;
+    const broken = { ...backup, nodes: [question!, { ...reply!, parentId: null }] };
+    await expect(chat.importBackup(broken)).rejects.toThrow(
+      "This backup can't be restored: a message does not follow the one before it",
+    );
+  });
+
+  it('gives an error reply from a backup without kinds the kind of its message', async () => {
+    const { chat, provider } = setup({ autoTitle: false });
+    const { tree } = await chat.createTree({});
+    provider.chatStopReason = 'length';
+    await send(chat, tree.trunkBranchId, 'one');
+    const backup = await chat.exportBackup(tree.id);
+    const old = {
+      ...backup,
+      nodes: backup.nodes.map(({ errorKind: _dropped, ...n }) => n),
+    };
+    const restored = await chat.importBackup(old);
+    expect(restored.nodes.find((n) => n.role === 'assistant')).toMatchObject({
+      status: 'error',
+      error: REPLY_CUT_OFF_ERROR,
+      errorKind: 'cut_off',
+    });
+  });
+
+  it('drops a kind it does not know, reading the kind from the message instead', async () => {
+    const { chat, provider } = setup({ autoTitle: false });
+    const { tree } = await chat.createTree({});
+    provider.chatStopReason = 'length';
+    await send(chat, tree.trunkBranchId, 'one');
+    const backup = await chat.exportBackup(tree.id);
+    const nodes = backup.nodes.map((n) =>
+      n.role === 'assistant' ? { ...n, errorKind: 'from_a_later_version' } : n,
+    );
+    const restored = await chat.importBackup({ ...backup, nodes } as never);
+    expect(restored.nodes.find((n) => n.role === 'assistant')?.errorKind).toBe('cut_off');
+    const unknownCopy = backup.nodes.map((n) =>
+      n.role === 'assistant' ? { ...n, error: 'Something new', errorKind: 'later' } : n,
+    );
+    const other = await chat.importBackup({ ...backup, nodes: unknownCopy } as never);
+    expect(other.nodes.find((n) => n.role === 'assistant')?.errorKind).toBeNull();
   });
 
   it('rejects malformed backups', async () => {

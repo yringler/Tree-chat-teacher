@@ -15,7 +15,7 @@ import {
   type RunGenerationOptions,
 } from '../../src/services/chat-service.js';
 import { ShareService } from '../../src/services/share-service.js';
-import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
+import { createMemoryRepositories } from '../../src/memory/memory-repositories.js';
 
 /**
  * Scripted provider: replies depend on the request so tests can tell
@@ -41,6 +41,8 @@ export class ScriptedProvider implements LlmProvider {
   chatStopReason = 'end_turn';
   /** Text of chat replies instead of the default echo (`''`: an empty reply). */
   chatText: string | null = null;
+  /** Set by a test that counts tokens (with capability `supportsTokenCount`). */
+  countTokens?: LlmProvider['countTokens'];
 
   constructor(readonly id = 'scripted') {}
 
@@ -57,6 +59,7 @@ export class ScriptedProvider implements LlmProvider {
       supportsSystemPrompt: true,
       supportsTokenCount: false,
       supportsWebSearch: this.webSearch,
+      requiredWebSearch: this.webSearch,
       reasoning: this.reasoning,
     };
   }
@@ -141,7 +144,7 @@ export function registryOf(...providers: LlmProvider[]): ProviderRegistry {
 
 export function setup(
   settings: Partial<ChatSettings> = {},
-  deps: Pick<ChatServiceDeps, 'groundingAllowance'> = {},
+  deps: Pick<ChatServiceDeps, 'groundingAllowance' | 'log'> = {},
 ) {
   const repos = createMemoryRepositories();
   const provider = new ScriptedProvider();

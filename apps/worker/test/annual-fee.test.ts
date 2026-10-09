@@ -1,4 +1,4 @@
-// ANNUAL_FEE_ENABLED (docs/pool/PLAN.md §S7): the yearly membership is
+// ANNUAL_FEE_ENABLED: the yearly membership is
 // required to generate only while the flag is on. Off (the default), the
 // membership code paths stay but require nothing, whatever the payment
 // provider sells: any signed-in user may learn from the pool (within its
@@ -11,7 +11,7 @@ import type {
   ApiError,
   BillingSummary,
   CheckoutResponse,
-  LearnPayment,
+  Payer,
   MeResponse,
   PoolMeResponse,
   StreamEvent,
@@ -27,6 +27,7 @@ import type { AppEnv } from '../src/env.js';
 import { makeNode } from './fixtures.js';
 import { insertSubscription } from './mocks/billing-helpers.js';
 import { poolReadyUser } from './pool-helpers.js';
+import { ok, parseSse } from './http.js';
 
 const env = rawEnv as unknown as AppEnv;
 /** Billing and the membership sold (the fake provider sells it); only the flag differs. */
@@ -36,19 +37,8 @@ const feeEnv = (on: boolean): Partial<AppEnv> => ({
 
 type User = Awaited<ReturnType<typeof poolReadyUser>>;
 
-async function json<T>(res: Response, status = 200): Promise<T> {
-  const text = await res.text();
-  expect(res.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
-}
-
 function lastEvent(text: string): StreamEvent | undefined {
-  return text
-    .split('\n\n')
-    .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-    .filter((l): l is string => !!l)
-    .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent)
-    .at(-1);
+  return parseSse(text).at(-1);
 }
 
 /** A power route on Tangent credit: the built-in endpoint, paid from the user's credit. */
@@ -61,13 +51,13 @@ const CREDIT = { providerId: 'openrouter', funding: 'credit' } as const;
  */
 async function treeWithNodes(
   u: User,
-  learn?: LearnPayment,
+  learn?: Payer,
   power: { providerId: string; funding?: 'own-key' | 'credit'; model: string } = {
     providerId: 'fake',
     model: 'fake-1',
   },
 ) {
-  const detail = await json<TreeDetail>(
+  const detail = await ok<TreeDetail>(
     await u.client.call(
       '/api/trees',
       learn
@@ -114,7 +104,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
     it('requires no membership: /api/me in both apps, and the pricing page sells none', async () => {
       const u = await poolReadyUser({ env: noKeys });
       for (const learn of [undefined, 'pool', 'own-key'] as const) {
-        const me = await json<MeResponse>(await u.client.call('/api/me', learn ? { learn } : {}));
+        const me = await ok<MeResponse>(await u.client.call('/api/me', learn ? { learn } : {}));
         expect(me.membership, learn).toMatchObject({ required: false, status: 'inactive' });
         expect(me.membershipNeededFor, learn).toEqual([]);
       }
@@ -134,7 +124,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
     it('/api/me requires no membership, in both apps', async () => {
       const u = await poolReadyUser({ env: feeEnv(false) });
       for (const learn of [undefined, 'pool'] as const) {
-        const me = await json<MeResponse>(await u.client.call('/api/me', learn ? { learn } : {}));
+        const me = await ok<MeResponse>(await u.client.call('/api/me', learn ? { learn } : {}));
         expect(me.membership).toMatchObject({ required: false, status: 'inactive' });
       }
     });
@@ -167,7 +157,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
         });
         statuses.push(res.status);
         if (res.status !== 200)
-          expect((await json<ApiError>(res, 429)).error.code).toBe('pool_cap_reached');
+          expect((await ok<ApiError>(res, 429)).error.code).toBe('pool_cap_reached');
         else await res.text();
       }
       expect(statuses).toEqual([200, 200, 200, 429]);
@@ -181,7 +171,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
           json: { amountCents: 500 },
           ...(learn ? { learn } : {}),
         });
-        expect((await json<CheckoutResponse>(res)).url).toMatch(
+        expect((await ok<CheckoutResponse>(res)).url).toMatch(
           /^https:\/\/fake-pay\.invalid\/checkout#/,
         );
       }
@@ -190,7 +180,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
 
   describe('on, with the membership price set', () => {
     /** A Learn send on `learn`: its status, the stream read through. */
-    async function sendStatus(u: User, learn: LearnPayment, content = 'Hi'): Promise<number> {
+    async function sendStatus(u: User, learn: Payer, content = 'Hi'): Promise<number> {
       const { trunk } = await treeWithNodes(u, learn);
       const res = await u.client.call(`/api/branches/${trunk.id}/messages`, {
         method: 'POST',
@@ -204,7 +194,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
     it('a non-member learns from the pool on the same caps as everyone; credit sends move to the pool', async () => {
       const u = await poolReadyUser({ env: feeEnv(true) });
       expect(
-        (await json<MeResponse>(await u.client.call('/api/me', { learn: 'pool' }))).membership,
+        (await ok<MeResponse>(await u.client.call('/api/me', { learn: 'pool' }))).membership,
       ).toMatchObject({ required: true, status: 'inactive' });
       for (const learn of ['pool', 'credit'] as const) {
         const { trunk } = await treeWithNodes(u, learn);
@@ -220,7 +210,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
         });
         expect(resolve.status, learn).toBe(200);
       }
-      const me = await json<PoolMeResponse>(await u.client.call('/api/pool/me', { learn: 'pool' }));
+      const me = await ok<PoolMeResponse>(await u.client.call('/api/pool/me', { learn: 'pool' }));
       expect(me).toMatchObject({ caps: { requestsPerDay: 3 } });
       expect(me).not.toHaveProperty('member');
     });
@@ -236,13 +226,13 @@ describe('ANNUAL_FEE_ENABLED', () => {
 
     it('Learn on their own key needs the membership: 402 for a non-member on every generating route', async () => {
       const u = await poolReadyUser({ env: feeEnv(true) });
-      const me = await json<MeResponse>(await u.client.call('/api/me', { learn: 'own-key' }));
+      const me = await ok<MeResponse>(await u.client.call('/api/me', { learn: 'own-key' }));
       expect(me.membership).toMatchObject({ required: true, status: 'inactive' });
       expect(me.membershipNeededFor).toEqual(['own-key']);
       const own = await treeWithNodes(u, 'own-key');
-      for (const [path, init] of generating(own, { providerId: 'openrouter', model: 'smart' })) {
+      for (const [path, init] of generating(own, { providerId: 'openrouter', model: 'max' })) {
         const res = await u.client.call(path, { ...init, learn: 'own-key' });
-        expect((await json<ApiError>(res, 402)).error.code, path).toBe('membership_required');
+        expect((await ok<ApiError>(res, 402)).error.code, path).toBe('membership_required');
       }
       // Reading the lesson stays open.
       expect(
@@ -262,7 +252,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
       const text = await send.text();
       expect(send.status, text).toBe(200);
       expect(lastEvent(text)?.type).toBe('done');
-      for (const [path, init] of generating(own, { providerId: 'openrouter', model: 'smart' })) {
+      for (const [path, init] of generating(own, { providerId: 'openrouter', model: 'max' })) {
         const res = await u.client.call(path, { ...init, learn: 'own-key' });
         const body = await res.text();
         expect(res.status, `${path} ${body}`).not.toBe(402);
@@ -275,7 +265,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
       const power = await treeWithNodes(u);
       for (const [path, init] of generating(power, { providerId: 'fake', model: 'fake-1' })) {
         const res = await u.client.call(path, init);
-        expect((await json<ApiError>(res, 402)).error.code, path).toBe('membership_required');
+        expect((await ok<ApiError>(res, 402)).error.code, path).toBe('membership_required');
       }
     });
 
@@ -302,7 +292,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
     }
 
     async function balanceMicros(u: User): Promise<number> {
-      return (await json<BillingSummary>(await u.client.call('/api/billing'))).balanceMicros;
+      return (await ok<BillingSummary>(await u.client.call('/api/billing'))).balanceMicros;
     }
 
     for (const who of ['lapsed member', 'never-member'] as const) {
@@ -310,13 +300,13 @@ describe('ANNUAL_FEE_ENABLED', () => {
         const u = await poolReadyUser({ env: feeEnv(true) });
         if (who === 'lapsed member') await insertSubscription(env, u.userId, 'canceled');
         await grant(u);
-        expect((await json<MeResponse>(await u.client.call('/api/me'))).membership).toMatchObject({
+        expect((await ok<MeResponse>(await u.client.call('/api/me'))).membership).toMatchObject({
           required: true,
           status: 'inactive',
         });
 
         // Power on Tangent credit: allowed, and metered.
-        const onCredit = await treeWithNodes(u, undefined, { ...CREDIT, model: 'smart' });
+        const onCredit = await treeWithNodes(u, undefined, { ...CREDIT, model: 'max' });
         const send = await u.client.call(`/api/branches/${onCredit.trunk.id}/messages`, {
           method: 'POST',
           json: { content: 'Explain primes' },
@@ -333,7 +323,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
           method: 'POST',
           json: { content: 'Hi' },
         });
-        expect((await json<ApiError>(refused, 402)).error.code).toBe('membership_required');
+        expect((await ok<ApiError>(refused, 402)).error.code).toBe('membership_required');
 
         // Learn on credit spends the credit, not the pool.
         const learn = await treeWithNodes(u, 'credit');
@@ -348,7 +338,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
         expect(await balanceMicros(u)).toBeLessThan(afterPower);
         const review = await u.client.call(`/api/nodes/${learn.assistant.id}/review`, {
           method: 'POST',
-          json: { providerId: 'openrouter', model: 'smart' },
+          json: { providerId: 'openrouter', model: 'max' },
           learn: 'credit',
         });
         expect(review.status, await review.text()).toBe(200);
@@ -360,34 +350,34 @@ describe('ANNUAL_FEE_ENABLED', () => {
           json: { content: 'Hi' },
           learn: 'own-key',
         });
-        expect((await json<ApiError>(ownLearnSend, 402)).error.code).toBe('membership_required');
+        expect((await ok<ApiError>(ownLearnSend, 402)).error.code).toBe('membership_required');
 
         // Buying more needs no membership; the pool has the same caps as for everyone.
         const checkout = await u.client.call('/api/billing/checkout', {
           method: 'POST',
           json: { amountCents: 500 },
         });
-        expect((await json<CheckoutResponse>(checkout)).url).toMatch(
+        expect((await ok<CheckoutResponse>(checkout)).url).toMatch(
           /^https:\/\/fake-pay\.invalid\/checkout#/,
         );
         expect(
-          await json<PoolMeResponse>(await u.client.call('/api/pool/me', { learn: 'pool' })),
+          await ok<PoolMeResponse>(await u.client.call('/api/pool/me', { learn: 'pool' })),
         ).toMatchObject({ caps: { requestsPerDay: 3 } });
       });
     }
 
     it('a non-member without a balance: 402 payment_required on credit, in power and Learn', async () => {
       const u = await poolReadyUser({ env: { ...feeEnv(true), POOL_ENABLED: 'false' } });
-      const power = await treeWithNodes(u, undefined, { ...CREDIT, model: 'smart' });
-      for (const [path, init] of generating(power, { ...CREDIT, model: 'smart' })) {
+      const power = await treeWithNodes(u, undefined, { ...CREDIT, model: 'max' });
+      for (const [path, init] of generating(power, { ...CREDIT, model: 'max' })) {
         const res = await u.client.call(path, init);
-        expect((await json<ApiError>(res, 402)).error.code, path).toBe('payment_required');
+        expect((await ok<ApiError>(res, 402)).error.code, path).toBe('payment_required');
       }
       // With the pool off a Learn credit send can't move to it either.
       const credit = await treeWithNodes(u, 'credit');
-      for (const [path, init] of generating(credit, { providerId: 'openrouter', model: 'smart' })) {
+      for (const [path, init] of generating(credit, { providerId: 'openrouter', model: 'max' })) {
         const res = await u.client.call(path, { ...init, learn: 'credit' });
-        expect((await json<ApiError>(res, 402)).error.code, path).toBe('payment_required');
+        expect((await ok<ApiError>(res, 402)).error.code, path).toBe('payment_required');
       }
     });
 
@@ -406,24 +396,24 @@ describe('ANNUAL_FEE_ENABLED', () => {
       // Reviewer on credit, the branch (and its summaries) on an own key.
       const own = await treeWithNodes(u);
       expect(
-        (await json<ApiError>(await review(own.assistant.id, CREDIT, 'smart'), 402)).error.code,
+        (await ok<ApiError>(await review(own.assistant.id, CREDIT, 'max'), 402)).error.code,
       ).toBe('membership_required');
       // Reviewer on an own key, the branch on credit.
-      const onCredit = await treeWithNodes(u, undefined, { ...CREDIT, model: 'smart' });
+      const onCredit = await treeWithNodes(u, undefined, { ...CREDIT, model: 'max' });
       expect(
         (
-          await json<ApiError>(
+          await ok<ApiError>(
             await review(onCredit.assistant.id, { providerId: 'fake' }, 'fake-1'),
             402,
           )
         ).error.code,
       ).toBe('membership_required');
       // Both on credit: fine.
-      const both = await review(onCredit.assistant.id, CREDIT, 'smart');
+      const both = await review(onCredit.assistant.id, CREDIT, 'max');
       expect(both.status, await both.text()).toBe(200);
       // A member may mix.
       await insertSubscription(env, u.userId, 'active');
-      const mixed = await review(own.assistant.id, CREDIT, 'smart');
+      const mixed = await review(own.assistant.id, CREDIT, 'max');
       expect(mixed.status, await mixed.text()).toBe(200);
     });
 
@@ -434,7 +424,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
       for (let i = 0; i < 4; i++) statuses.push(await sendStatus(u, 'pool', `Q${i}`));
       expect(statuses).toEqual([200, 200, 200, 429]);
       expect(
-        await json<PoolMeResponse>(await u.client.call('/api/pool/me', { learn: 'pool' })),
+        await ok<PoolMeResponse>(await u.client.call('/api/pool/me', { learn: 'pool' })),
       ).toMatchObject({ caps: { requestsPerDay: 3, usedRequests: 3 } });
     });
 
@@ -444,7 +434,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
         .bind(u.userId)
         .run();
       expect(
-        (await json<MeResponse>(await u.client.call('/api/me', { learn: 'own-key' }))).membership,
+        (await ok<MeResponse>(await u.client.call('/api/me', { learn: 'own-key' }))).membership,
       ).toMatchObject({ required: true, status: 'waived' });
       expect(await sendStatus(u, 'own-key')).toBe(200);
     });
@@ -453,7 +443,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
       const u = await poolReadyUser({
         env: { ...feeEnv(true), POOL_ENABLED: 'false', FAKE_PAYMENTS: '{"topUps":false}' },
       });
-      const me = await json<MeResponse>(await u.client.call('/api/me', { learn: 'own-key' }));
+      const me = await ok<MeResponse>(await u.client.call('/api/me', { learn: 'own-key' }));
       expect(me.membership).toMatchObject({ required: true, status: 'inactive' });
       expect(me.membershipNeededFor).toEqual(['own-key']);
       const own = await treeWithNodes(u, 'own-key');
@@ -463,7 +453,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
         learn: 'own-key',
       });
       // Intended: no free or paid alternative here, so the membership is what unlocks Learn.
-      expect((await json<ApiError>(send, 402)).error.code).toBe('membership_required');
+      expect((await ok<ApiError>(send, 402)).error.code).toBe('membership_required');
       // Credit (none granted, none for sale) can't pay either.
       expect(await sendStatus(u, 'credit')).toBe(402);
     });
@@ -472,7 +462,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
       const u = await poolReadyUser({
         env: { ...feeEnv(true), FAKE_PAYMENTS: JSON.stringify({ membership: false }) },
       });
-      const me = await json<MeResponse>(await u.client.call('/api/me', { learn: 'own-key' }));
+      const me = await ok<MeResponse>(await u.client.call('/api/me', { learn: 'own-key' }));
       expect(me.membership).toMatchObject({ required: false });
       expect(me.membershipNeededFor).toEqual([]);
       const own = await treeWithNodes(u, 'own-key');
@@ -494,7 +484,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
           json: { amountCents: 500 },
           ...(learn ? { learn } : {}),
         });
-        expect((await json<CheckoutResponse>(res)).url).toMatch(
+        expect((await ok<CheckoutResponse>(res)).url).toMatch(
           /^https:\/\/fake-pay\.invalid\/checkout#/,
         );
       }

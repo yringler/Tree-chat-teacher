@@ -1,8 +1,4 @@
-import {
-  BUILT_IN_PROVIDER_ID,
-  LEGACY_BUILT_IN_PROVIDER_ID,
-  type TreeBackupInput,
-} from '@tangent/shared';
+import type { TreeBackupInput } from '@tangent/shared';
 
 /**
  * What a backup imported into Learn is adapted to: Learn's one provider, the
@@ -21,8 +17,7 @@ export interface LearnImportTarget {
 }
 
 /**
- * A backup as Learn imports it (docs/DECISIONS.md "Import and export in
- * Learn"). Learn runs on one provider with two models, shows each branch as
+ * A backup as Learn imports it. Learn runs on one provider with two models, shows each branch as
  * its whole path and has no system-prompt editor, so a tree made in power
  * mode is adapted to what Learn can show and continue:
  *
@@ -45,7 +40,7 @@ export function adaptBackupForLearn(
   target: LearnImportTarget,
 ): TreeBackupInput {
   const runnable = (providerId: string, model: string): boolean =>
-    learnProviderId(providerId) === target.providerId && target.models.includes(model);
+    providerId === target.providerId && target.models.includes(model);
   return {
     ...backup,
     tree: { ...backup.tree, systemPrompt: target.systemPrompt },
@@ -57,9 +52,4 @@ export function adaptBackupForLearn(
       funding: 'own-key' as const,
     })),
   };
-}
-
-/** The legacy built-in id (`tangent`) names the built-in endpoint. */
-function learnProviderId(providerId: string): string {
-  return providerId === LEGACY_BUILT_IN_PROVIDER_ID ? BUILT_IN_PROVIDER_ID : providerId;
 }

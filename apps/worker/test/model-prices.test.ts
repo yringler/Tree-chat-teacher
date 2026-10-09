@@ -3,16 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_MODEL_PRICES } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import {
-  modelPrice,
-  withCacheWritePrice,
+  creditPrice,
   OPENROUTER_MODELS_URL,
   parseListPrices,
-  storedPrice,
   syncModelPrices,
   usdPerTokenToMicrosPerMTok,
 } from '../src/pool/model-prices.js';
+import { modelPrice, storedPrice, withCacheWritePrice } from '../src/pool/price-table.js';
 import { resolvePoolParams } from '../src/pool/params.js';
 import { envWithFailingDb } from './mocks/billing-helpers.js';
+import { ON_DEMAND_MODEL } from './mocks/openrouter.js';
 
 const FLASH = 'deepseek/deepseek-v4-flash';
 const PRO = 'deepseek/deepseek-v4-pro';
@@ -60,25 +60,13 @@ function listing(models: Listed[]) {
   return { fetchImpl, urls };
 }
 
-async function historyOf(model: string) {
-  const { results } = await env.DB.prepare(
-    'SELECT in_micros_per_mtok AS inp, out_micros_per_mtok AS out, recorded_at AS at FROM model_price_history WHERE model = ?1 ORDER BY recorded_at',
-  )
-    .bind(model)
-    .all<{ inp: number; out: number; at: string }>();
-  return results;
-}
-
 const T0 = new Date('2026-01-01T03:23:00Z');
 const T1 = new Date('2026-01-02T03:23:00Z');
 
 let warn: ReturnType<typeof vi.spyOn>;
 let error: ReturnType<typeof vi.spyOn>;
 beforeEach(async () => {
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM model_prices'),
-    env.DB.prepare('DELETE FROM model_price_history'),
-  ]);
+  await env.DB.prepare('DELETE FROM model_prices').run();
   vi.spyOn(console, 'log').mockImplementation(() => undefined);
   warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -218,8 +206,55 @@ describe('syncModelPrices', () => {
       cacheReadMicrosPerMTok: null,
       cacheWriteMicrosPerMTok: null,
     });
-    expect(await storedPrice(env.DB, 'someone/else')).toBeNull();
-    expect(await historyOf(PRO)).toEqual([{ inp: 600_000, out: 2_400_000, at: T0.toISOString() }]);
+  });
+
+  it('prices a credit model the store does not know yet by syncing once, on demand', async () => {
+    // The default built-in provider is OpenRouter; its model list is the mock's.
+    const openRouter = { ...env, BUILT_IN_PROVIDER: '' } as AppEnv;
+    expect(await storedPrice(env.DB, ON_DEMAND_MODEL)).toBeNull();
+    expect(await creditPrice(openRouter, ON_DEMAND_MODEL)).toEqual({
+      inMicrosPerMTok: 1_000_000,
+      outMicrosPerMTok: 2_000_000,
+      contextTokens: 32_000,
+    });
+    // Not on another endpoint, which the sync can't list.
+    expect(await creditPrice(env, 'vendor/elsewhere')).toBeNull();
+  });
+
+  it("stores every other listed model's price for credit, without history, and holds back a collapse", async () => {
+    const other = 'someone/else';
+    await syncModelPrices(
+      env,
+      T0,
+      listing([{ id: other, prompt: '0.001', completion: '0.002', context: 8_000 }]).fetchImpl,
+    );
+    expect(await storedPrice(env.DB, other)).toEqual({
+      inMicrosPerMTok: 1_000_000_000,
+      outMicrosPerMTok: 2_000_000_000,
+      contextTokens: 8_000,
+      cacheReadMicrosPerMTok: null,
+      cacheWriteMicrosPerMTok: null,
+    });
+    // The pool still prices only configured models; credit reads the stored list price.
+    expect(await modelPrice(env, other)).toBeNull();
+    expect(await creditPrice(env, other)).toEqual({
+      inMicrosPerMTok: 1_000_000_000,
+      outMicrosPerMTok: 2_000_000_000,
+      contextTokens: 8_000,
+    });
+    expect(await creditPrice(env, 'never/listed')).toBeNull();
+    // A drop to under a tenth is held back, as for a tracked model.
+    await syncModelPrices(
+      env,
+      T1,
+      listing([{ id: other, prompt: '0.00001', completion: '0.002' }]).fetchImpl,
+    );
+    expect((await storedPrice(env.DB, other))?.inMicrosPerMTok).toBe(1_000_000_000);
+    // Logged once for all the models held back, not a line each.
+    const anomalies = error.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes('"event":"price_sync_anomaly"'),
+    );
+    expect(anomalies).toEqual([[JSON.stringify({ event: 'price_sync_anomaly', models: [other] })]]);
   });
 
   it('confirms an unchanged price without a new history row; a change adds one and is logged', async () => {
@@ -234,8 +269,7 @@ describe('syncModelPrices', () => {
     ]);
     const result = await syncModelPrices(env, T1, day1.fetchImpl);
     expect(result).toMatchObject({ changed: [PRO], unchanged: [FLASH] });
-    expect(await historyOf(FLASH)).toHaveLength(1);
-    expect((await historyOf(PRO)).map((h) => h.inp)).toEqual([600_000, 900_000]);
+    expect((await storedPrice(env.DB, PRO))?.inMicrosPerMTok).toBe(900_000);
     const fetchedAt = await env.DB.prepare('SELECT fetched_at FROM model_prices WHERE model = ?1')
       .bind(FLASH)
       .first<string>('fetched_at');
@@ -302,7 +336,7 @@ describe('syncModelPrices', () => {
       cacheWriteMicrosPerMTok: null,
     });
     const day1 = listing([
-      // A cache read price change alone is a change (history row).
+      // A cache read price change alone is a change.
       { id: FLASH, prompt: '0.00000027', completion: '0.0000011', cacheRead: '0.00000004' },
       // A cache read price at under a tenth is held back like an input price.
       { id: PRO, prompt: '0.0000006', completion: '0.0000024', cacheRead: '0.000000005' },
@@ -311,12 +345,6 @@ describe('syncModelPrices', () => {
     expect(result).toMatchObject({ changed: [FLASH], anomalies: [PRO] });
     expect((await storedPrice(env.DB, FLASH))?.cacheReadMicrosPerMTok).toBe(40_000);
     expect((await storedPrice(env.DB, PRO))?.cacheReadMicrosPerMTok).toBe(60_000);
-    const { results } = await env.DB.prepare(
-      'SELECT cache_read_micros_per_mtok AS r FROM model_price_history WHERE model = ?1 ORDER BY recorded_at',
-    )
-      .bind(FLASH)
-      .all<{ r: number | null }>();
-    expect(results.map((h) => h.r)).toEqual([30_000, 40_000]);
   });
 
   it('throws and stores nothing when the list cannot be fetched', async () => {

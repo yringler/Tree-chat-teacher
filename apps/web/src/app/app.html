@@ -22,20 +22,4 @@
   <app-dialog-host />
 }
 
-<div class="toasts" role="status" aria-live="polite">
-  @for (t of ui.toasts(); track t.id) {
-    <div class="toast" [class.toast-error]="t.kind === 'error'">
-      <span
-        >{{ t.text }}
-        @if (t.link; as link) {
-          <a class="toast-link" [routerLink]="link.path" (click)="ui.dismiss(t.id)">{{
-            link.label
-          }}</a>
-        }
-      </span>
-      <button type="button" class="icon-btn" aria-label="Dismiss" (click)="ui.dismiss(t.id)">
-        <app-icon name="x" [size]="14" />
-      </button>
-    </div>
-  }
-</div>
+<app-toasts />

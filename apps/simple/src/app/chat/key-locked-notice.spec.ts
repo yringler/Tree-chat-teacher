@@ -1,13 +1,6 @@
-import '@angular/compiler'; // JIT: compiles the component below without the Angular CLI.
-import { reflectComponentType } from '@angular/core';
+import '@angular/compiler'; // JIT: the notice's module imports the router, which links on load.
 import { describe, expect, it } from 'vitest';
-import { KeyLockedNotice, keyLockedText } from './key-locked-notice';
-
-/** Template of a JIT-compiled component (the decorator's metadata). */
-function templateOf(type: object): string {
-  const annotations = (type as { __annotations__?: { template?: string }[] }).__annotations__;
-  return annotations?.[0]?.template ?? '';
-}
+import { keyLockedText } from './key-locked-notice';
 
 describe('keyLockedText', () => {
   it('asks a learner who never had a membership to become a member', () => {
@@ -24,18 +17,5 @@ describe('keyLockedText', () => {
       body: 'The membership is $10 a year; OpenRouter still bills you for the replies.',
       subscribe: 'Renew membership',
     });
-  });
-});
-
-describe('KeyLockedNotice', () => {
-  it('offers subscribing, the open pool and Tangent credit as one-click ways out', () => {
-    expect(reflectComponentType(KeyLockedNotice)?.selector).toBe('app-key-locked-notice');
-    const t = templateOf(KeyLockedNotice);
-    expect(t).toContain('(click)="sub.subscribe()"');
-    expect(t).toContain('@if (account.keyLockedWays().pool) {');
-    expect(t).toContain(`(click)="account.continueOn('pool')"`);
-    expect(t).toContain('@if (account.keyLockedWays().credit) {');
-    expect(t).toContain(`(click)="account.continueOn('credit')"`);
-    expect(t).toContain('routerLink="/billing"');
   });
 });

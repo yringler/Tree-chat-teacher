@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, model } from '@angular/core';
 import { CONTEXT_MODES, type ContextMode } from '@tangent/shared';
-import { MODE_INFO } from './mode-badge';
+import { CONTEXT_MODE_META } from '@tangent/web-shared';
 
 let uid = 0;
 
@@ -32,6 +32,6 @@ let uid = 0;
 export class ModePicker {
   readonly mode = model.required<ContextMode>();
   protected readonly modes = CONTEXT_MODES;
-  protected readonly info = MODE_INFO;
+  protected readonly info = CONTEXT_MODE_META;
   protected readonly name = `mode-${++uid}`;
 }

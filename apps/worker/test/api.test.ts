@@ -9,38 +9,8 @@ import type {
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
-import { exports } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-
-const BASE = 'https://tangent.example.com';
-
-function call(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
-  const { json, ...rest } = init;
-  const headers = new Headers(rest.headers);
-  if (json !== undefined) headers.set('Content-Type', 'application/json');
-  return exports.default.fetch(
-    new Request(BASE + path, {
-      ...rest,
-      headers,
-      body: json !== undefined ? JSON.stringify(json) : rest.body,
-    }),
-  );
-}
-
-async function ok<T>(res: Response | Promise<Response>, status = 200): Promise<T> {
-  const r = await res;
-  const text = await r.text();
-  expect(r.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
-}
-
-function parseSse(text: string): StreamEvent[] {
-  return text
-    .split('\n\n')
-    .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-    .filter((l): l is string => !!l)
-    .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent);
-}
+import { call, ok, parseSse } from './http.js';
 
 async function sendMessage(branchId: string, content: string): Promise<StreamEvent[]> {
   const res = await call(`/api/branches/${branchId}/messages`, {
@@ -80,7 +50,8 @@ describe('owner API', () => {
   it('creates a tree, streams a reply over SSE and persists it', async () => {
     const detail = await newTree();
     const events = await sendMessage(detail.tree.trunkBranchId, 'Hello worker');
-    expect(events[0]?.type).toBe('start');
+    // Who pays, as the server decided: a power branch on the user's own key.
+    expect(events[0]).toMatchObject({ type: 'start', funding: 'own-key' });
     expect(events.at(-1)?.type).toBe('done');
     const reply = textOf(events);
     expect(reply).toContain('Hello worker');
@@ -206,6 +177,49 @@ describe('owner API', () => {
     expect(replay.map((e) => e.type)).toEqual(['snapshot', 'error']);
   });
 
+  it("cancelling a finished reply leaves another branch's live reply running", async () => {
+    const detail = await newTree('slow');
+    const trunk = await sendMessage(detail.tree.trunkBranchId, 'short');
+    const trunkStart = trunk[0];
+    if (trunkStart?.type !== 'start') throw new Error('expected start');
+    expect(trunk.at(-1)?.type).toBe('done');
+    const b = await ok<Branch>(
+      call('/api/branches', {
+        method: 'POST',
+        json: { fromNodeId: trunkStart.assistantNode.id, contextMode: 'path' },
+      }),
+      201,
+    );
+    const live = await call(`/api/branches/${b.id}/messages`, {
+      method: 'POST',
+      json: { content: 'please write a long answer about everything' },
+    });
+    const reader = live.body!.getReader();
+    const start = parseSse(new TextDecoder().decode((await reader.read()).value))[0];
+    if (start?.type !== 'start') throw new Error('expected start');
+
+    expect(
+      (await call(`/api/nodes/${trunkStart.assistantNode.id}/cancel`, { method: 'POST' })).status,
+    ).toBe(204);
+    const after = await ok<TreeDetail>(call(`/api/trees/${detail.tree.id}`));
+    expect(after.nodes.find((n) => n.id === start.assistantNode.id)?.status).toBe('streaming');
+    expect(after.nodes.find((n) => n.id === trunkStart.assistantNode.id)?.status).toBe('complete');
+    const overlap = await call(`/api/branches/${b.id}/messages`, {
+      method: 'POST',
+      json: { content: 'overlap' },
+    });
+    expect(overlap.status).toBe(409);
+    await overlap.text();
+
+    let rest = '';
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      rest += new TextDecoder().decode(chunk.value);
+    }
+    expect(parseSse(rest).at(-1)?.type).toBe('done');
+  });
+
   it('finished generations continue after the client disconnects', async () => {
     const detail = await newTree('slow');
     const res = await call(`/api/branches/${detail.tree.trunkBranchId}/messages`, {
@@ -312,6 +326,65 @@ describe('owner API', () => {
     expect(
       (await call(`/api/branches/${detail.tree.trunkBranchId}`, { method: 'DELETE' })).status,
     ).toBe(400);
+  });
+
+  it('deletes a tree through its session, stopping a running reply', async () => {
+    const detail = await newTree('slow');
+    const res = await call(`/api/branches/${detail.tree.trunkBranchId}/messages`, {
+      method: 'POST',
+      json: { content: 'please write a long answer about everything' },
+    });
+    const reader = res.body!.getReader();
+    const start = parseSse(new TextDecoder().decode((await reader.read()).value))[0];
+    if (start?.type !== 'start') throw new Error('expected start');
+
+    expect((await call(`/api/trees/${detail.tree.id}`, { method: 'DELETE' })).status).toBe(204);
+    let rest = '';
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      rest += new TextDecoder().decode(chunk.value);
+    }
+    expect(parseSse(rest).at(-1)).toMatchObject({ type: 'error', message: 'Cancelled' });
+    expect((await call(`/api/trees/${detail.tree.id}`)).status).toBe(404);
+    expect((await call(`/api/trees/${detail.tree.id}`, { method: 'DELETE' })).status).toBe(404);
+  });
+
+  it('CSRF: refuses every cross-site write to the API, body or not', async () => {
+    const detail = await newTree();
+    const events = await sendMessage(detail.tree.trunkBranchId, 'hello');
+    const start = events[0];
+    if (start?.type !== 'start') throw new Error('expected start');
+    const from = (site: string) => ({ 'Sec-Fetch-Site': site });
+    for (const site of ['cross-site', 'same-site']) {
+      const del = await call(`/api/trees/${detail.tree.id}`, {
+        method: 'DELETE',
+        headers: from(site),
+      });
+      expect(del.status).toBe(403);
+      expect(await del.text()).toContain('Cross-origin requests are not allowed');
+      const cancel = await call(`/api/nodes/${start.assistantNode.id}/cancel`, {
+        method: 'POST',
+        headers: from(site),
+      });
+      expect(cancel.status).toBe(403);
+    }
+    expect(
+      (await call(`/api/trees/${detail.tree.id}`, { headers: from('cross-site') })).status,
+    ).toBe(200);
+    // Payment webhooks come from the provider's servers: left to their signature check.
+    const hook = await call('/api/webhooks/fake', {
+      method: 'POST',
+      headers: from('cross-site'),
+      json: {},
+    });
+    expect(await hook.text()).not.toContain('Cross-origin');
+
+    const del = await call(`/api/trees/${detail.tree.id}`, {
+      method: 'DELETE',
+      headers: from('same-origin'),
+    });
+    expect(del.status).toBe(204);
   });
 
   it('backs up and restores a tree', async () => {

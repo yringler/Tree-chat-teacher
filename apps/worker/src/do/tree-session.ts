@@ -1,5 +1,6 @@
 import {
   DomainError,
+  GenerationHub,
   GoneError,
   HTTP_STATUS,
   KeyRequiredError,
@@ -7,33 +8,36 @@ import {
   PoolBlockedError,
   pickGenerationLimits,
   poolBlock,
-  type BeginSendResult,
+  replayEvents,
   type ChatService,
+  type GenerationSink,
   type GenerationLimits,
   type HeldCandidate,
 } from '@tangent/core';
 import {
   CANDIDATE_TTL_MS,
-  DEFAULT_ACCOUNT_ID,
+  OPENROUTER_PROVIDER_ID,
   type ApiError,
-  type ChatNode,
   type CommitCandidateResponse,
-  type FundingSource,
-  type StreamEvent,
 } from '@tangent/shared';
 import { DurableObject } from 'cloudflare:workers';
 import { openKeys } from '../byok/keys.js';
-import { billingAccountIdFor } from '../auth/account.js';
+import { reserveCreditReply } from '../billing/service.js';
 import { releaseUndispatched } from '../billing/usage-store.js';
-import { isPoolFunded, usesUserKeys, type AccountContext, type AppEnv } from '../env.js';
+import {
+  callPayer,
+  isPoolFunded,
+  type AccountContext,
+  type AppEnv,
+  type PoolAccount,
+} from '../env.js';
 import { apiErrorBody } from '../http/errors.js';
 import { sseFrame, sseKeepAliveFrame, sseResponse } from '../http/sse.js';
 import { poolBank } from '../pool/ids.js';
-import { poolBlockDetails, poolReserveRequest, type PoolParams } from '../pool/params.js';
-import { ceilingHoldMicros } from '../pool/pricing.js';
-import { classifyPoolExchange } from '../pool/tagging.js';
-import { chatService } from '../services.js';
-import { BUILT_IN_PROVIDER_ID } from '../simple-mode.js';
+import { poolBlockDetails, poolReserveRequest, replyCeilingMicros } from '../pool/params.js';
+import { chatService } from '../registries.js';
+import { accountFromParams, parseAccount } from './tree-session-client.js';
+import { logEvent } from '../log.js';
 
 const KEEPALIVE_MS = 15_000;
 const encoder = new TextEncoder();
@@ -51,6 +55,16 @@ export interface SessionSendBody extends GenerationLimits {
   // GenerationLimits: power's reply length and input limit, as the Worker clamped them.
   account: AccountContext;
   sealedKeys?: string;
+  /** A reply on Tangent credit: what to reserve before any node is written. */
+  creditReply?: CreditReplyHold;
+}
+
+/** The reservation of a reply on Tangent credit, as the Worker priced it (routes/generation.ts). */
+export interface CreditReplyHold {
+  providerId: string;
+  model: string;
+  /** The reply's worst case before its prompt exists (`replyHoldMicros`). */
+  holdMicros: number;
 }
 
 /**
@@ -89,83 +103,43 @@ interface HeldEntry {
 
 const CANDIDATE_PREFIX = 'candidate:';
 
-/** What a send writes and generates (with power's limits). */
+/** What a send writes and generates (with power's limits), and its credit reservation if any. */
 interface SendTarget extends GenerationLimits {
   treeId: string;
   branchId: string;
   content: string;
   ground?: 'required';
-}
-
-/** The account as query parameters, for the internal routes without a body. */
-export function accountParams(account: AccountContext): Record<string, string> {
-  return {
-    accountId: account.id,
-    mode: account.mode,
-    billingAccountId: account.billingAccountId,
-    builtIn: account.builtIn ? '1' : '0',
-    operatorKeys: account.operatorKeys ? '1' : '0',
-    funding: account.funding,
-    ...(account.userId ? { userId: account.userId } : {}),
-    // One JSON param: the pool's parameters were resolved by the Worker (pool/params.ts).
-    ...(account.pool ? { pool: JSON.stringify(account.pool) } : {}),
-  };
-}
-
-const FUNDING: ReadonlySet<string> = new Set<FundingSource>(['own-key', 'personal', 'pool']);
-
-/** The inverse of `accountParams`. */
-export function accountFromParams(params: URLSearchParams): AccountContext {
-  const userId = params.get('userId') || null;
-  const funding = params.get('funding') ?? '';
-  const pool = params.get('pool');
-  return {
-    id: params.get('accountId') || DEFAULT_ACCOUNT_ID,
-    mode: params.get('mode') === 'simple' ? 'simple' : 'power',
-    userId,
-    billingAccountId: params.get('billingAccountId') || billingAccountIdFor(userId),
-    builtIn: params.get('builtIn') === '1',
-    operatorKeys: params.get('operatorKeys') === '1',
-    funding: FUNDING.has(funding) ? (funding as FundingSource) : 'personal',
-    ...(pool ? { pool: JSON.parse(pool) as PoolParams } : {}),
-  };
-}
-
-interface Run {
-  /** Assistant node with content accumulated so far (for reconnect snapshots). */
-  node: ChatNode;
-  subscribers: Set<WritableStreamDefaultWriter<Uint8Array>>;
-  controller: AbortController;
-  /** Settles when the generation has finished and persisted its final state. */
-  finished: Promise<void>;
+  creditReply?: CreditReplyHold;
 }
 
 /**
  * One instance per tree (idFromName(treeId)). Owns every generation in the
- * tree so it keeps running when the browser disconnects, lets clients
- * reconnect with a snapshot, and serializes sends per tree.
+ * tree (its GenerationHub) so it keeps running when the browser disconnects,
+ * lets clients reconnect with a snapshot, and serializes sends per tree.
  *
  * Internal protocol (called only by the Worker, never exposed; `&account`
- * is accountParams(), i.e. `accountId=&mode=&billingAccountId=&builtIn=&operatorKeys=&funding=[&userId=][&pool=]`):
+ * is accountParams() of tree-session-client.ts, i.e. `account=<AccountContext as JSON>`):
  *   POST /send?treeId=&branchId=   body SessionSendBody → SSE
  *   GET  /stream?treeId=&nodeId=&account            → SSE (snapshot, then live)
  *   POST /cancel?treeId=&nodeId=&account            → 204
  *   POST /delete-branch?treeId=&branchId=&account   → DeleteBranchResponse
+ *   POST /delete-tree?treeId=&account               → 204
  *   POST /hold-candidate?treeId=     body SessionHoldBody → SessionHoldResponse
  *   POST /commit-candidate?treeId=   body SessionCommitBody → CommitCandidateResponse
  * The Worker resolves every branch/node id through the caller's account
  * before calling in, so the DO doesn't re-check ownership except where the
- * ChatService does it anyway (beginSend, deleteBranch, commitCandidate).
+ * ChatService does it anyway (beginSend, deleteBranch, deleteTree,
+ * commitCandidate).
  *
  * Compare candidates stream from the Worker (like reviews), never through a
  * run here: a finished one is only held in this DO's storage for
- * `CANDIDATE_TTL_MS` (expired entries are pruned on each hold), and a commit
+ * `CANDIDATE_TTL_MS` (the alarm prunes expired entries), and a commit
  * appends it under the send lock, so it can't interleave with a send. A
  * commit drops the candidate and its siblings (the other answers to the same
  * question); an uncommitted one simply expires.
  */
 export class TreeSession extends DurableObject<AppEnv> {
-  private readonly runs = new Map<string, Run>();
+  private readonly hub = new GenerationHub({ keepAliveMs: KEEPALIVE_MS });
   private recovered = false;
   /** Serializes beginSend (and branch deletion, and candidate commits) within this tree. */
   private sendLock: Promise<unknown> = Promise.resolve();
@@ -175,8 +149,9 @@ export class TreeSession extends DurableObject<AppEnv> {
     const treeId = url.searchParams.get('treeId') ?? '';
     try {
       if (request.method === 'POST' && url.pathname === '/send') {
-        const body = (await request.json()) as SessionSendBody;
-        const { content, ground, account } = body;
+        const sent = (await request.json()) as SessionSendBody;
+        const body = { ...sent, account: parseAccount(sent.account) };
+        const { content, ground, account, creditReply } = body;
         await this.recoverOnce(chatService(this.env, account), treeId);
         const chat = await this.generatingChat(body);
         return await this.send(chat, account, {
@@ -184,6 +159,7 @@ export class TreeSession extends DurableObject<AppEnv> {
           branchId: url.searchParams.get('branchId') ?? '',
           content,
           ...(ground === 'required' ? { ground } : {}),
+          ...(creditReply ? { creditReply } : {}),
           ...pickGenerationLimits(body),
         });
       }
@@ -191,7 +167,8 @@ export class TreeSession extends DurableObject<AppEnv> {
         return await this.holdCandidate((await request.json()) as SessionHoldBody);
       }
       if (request.method === 'POST' && url.pathname === '/commit-candidate') {
-        const body = (await request.json()) as SessionCommitBody;
+        const sent = (await request.json()) as SessionCommitBody;
+        const body = { ...sent, account: parseAccount(sent.account) };
         await this.recoverOnce(chatService(this.env, body.account), treeId);
         return await this.commitCandidate(await this.generatingChat(body), body);
       }
@@ -201,15 +178,18 @@ export class TreeSession extends DurableObject<AppEnv> {
         return await this.reconnect(chat, url.searchParams.get('nodeId') ?? '');
       }
       if (request.method === 'POST' && url.pathname === '/cancel') {
-        return await this.cancel(chat, treeId, url.searchParams.get('nodeId') ?? '');
+        return await this.cancel(chat, url.searchParams.get('nodeId') ?? '');
       }
       if (request.method === 'POST' && url.pathname === '/delete-branch') {
         return await this.deleteBranch(chat, url.searchParams.get('branchId') ?? '');
       }
+      if (request.method === 'POST' && url.pathname === '/delete-tree') {
+        return await this.deleteTree(chat, treeId);
+      }
       return errorResponse(new DomainError('not_found', 'Unknown session route'));
     } catch (err) {
       if (err instanceof DomainError) return errorResponse(err);
-      console.error('TreeSession error', err);
+      logEvent('error', 'tree_session_error', { error: err });
       return errorResponse(new DomainError('internal', 'Internal error'));
     }
   }
@@ -225,7 +205,10 @@ export class TreeSession extends DurableObject<AppEnv> {
     sealedKeys?: string;
   }): Promise<ChatService> {
     const { account, sealedKeys } = body;
-    const keys = usesUserKeys(account) ? await openKeys(sealedKeys, this.env) : null;
+    const keys =
+      callPayer(account, 'own-key') === 'own-key'
+        ? await openKeys(sealedKeys, this.env, account.userId)
+        : null;
     if (keys?.state === 'invalid')
       throw new KeyRequiredError('Your stored API key could not be read. Enter it again.');
     // Keys stay in memory only for this generation (the ChatService closes over them).
@@ -241,15 +224,15 @@ export class TreeSession extends DurableObject<AppEnv> {
   private async recoverOnce(chat: ChatService, treeId: string): Promise<void> {
     if (this.recovered || !treeId) return;
     this.recovered = true;
-    if (this.runs.size === 0) await chat.recoverInterrupted(treeId);
+    if (this.hub.size === 0) await chat.recoverInterrupted(treeId);
   }
 
   /**
-   * On the pool, the reply is reserved (at its ceiling hold) under the send
-   * lock before `beginSend` writes any node, so a refusal is a plain 402/429
-   * and the branch is untouched. The reservation is released whenever the
-   * reply never reaches the provider: `beginSend` fails, or the run ends
-   * without dispatching it.
+   * On the pool or on Tangent credit, the reply is reserved (the pool's
+   * ceiling hold, credit's worst case as the Worker priced it) under the send lock before `beginSend`
+   * writes any node, so a refusal is a plain 402/429 and the branch is
+   * untouched. The reservation is released whenever the reply never reaches
+   * the provider: `beginSend` fails, or the run ends without dispatching it.
    */
   private async send(
     chat: ChatService,
@@ -257,9 +240,12 @@ export class TreeSession extends DurableObject<AppEnv> {
     target: SendTarget,
   ): Promise<Response> {
     const begin = this.sendLock.then(async () => {
+      const credit = target.creditReply;
       const reservationId = isPoolFunded(account)
-        ? await this.reserveReply(account.pool, account.userId, target)
-        : null;
+        ? await this.reserveReply(account, target)
+        : credit
+          ? await reserveCreditReply(this.env, account, { ...target, ...credit }, credit.holdMicros)
+          : null;
       try {
         return { started: await chat.beginSend(target.branchId, target.content), reservationId };
       } catch (err) {
@@ -270,34 +256,31 @@ export class TreeSession extends DurableObject<AppEnv> {
     this.sendLock = begin.catch(() => undefined);
     const { started, reservationId } = await begin;
 
-    const run: Run = {
-      node: { ...started.assistantNode },
-      subscribers: new Set(),
-      controller: new AbortController(),
-      finished: Promise.resolve(),
+    const options = {
+      ...(reservationId ? { reservationId } : {}),
+      ...(target.ground ? { ground: target.ground } : {}),
+      ...pickGenerationLimits(target),
     };
-    this.runs.set(started.assistantNode.id, run);
-    const response = this.subscribe(run, [
-      {
-        type: 'start',
-        userNode: started.userNode,
-        assistantNode: started.assistantNode,
-        branch: started.branch,
-      },
-    ]);
+    const { sink, response } = sseSink();
     // Detached: keeps running after the client disconnects (DOs stay alive while I/O is in flight).
-    run.finished = this.pump(chat, account, run, started, reservationId, target);
-    this.ctx.waitUntil(run.finished);
+    const finished = this.hub.start(
+      started,
+      // Who pays, as the gate decided: a Learn send may have moved from credit to the pool.
+      callPayer(account, started.branch.funding),
+      sink,
+      (signal) => chat.runGeneration(started, signal, options),
+      // The reply never reached the provider (the meter settles a dispatched one).
+      reservationId ? { settle: () => this.release(reservationId) } : {},
+    );
+    this.ctx.waitUntil(finished);
     return response;
   }
 
   /** Reserves the reply's ceiling hold on the pool, or throws `PoolBlockedError`. */
   private async reserveReply(
-    pool: PoolParams,
-    userId: string | null,
+    { pool, userId }: PoolAccount,
     target: { treeId: string; branchId: string },
   ): Promise<string> {
-    if (!userId) throw new PoolBlockedError(poolBlock('verify'));
     if (!pool.price) throw new PoolBlockedError(poolBlock('unpriced'));
     const result = await poolBank(this.env, pool.accountId).reserve(
       poolReserveRequest(pool, userId, {
@@ -305,8 +288,8 @@ export class TreeSession extends DurableObject<AppEnv> {
         treeId: target.treeId,
         branchId: target.branchId,
         nodeId: null,
-        providerId: BUILT_IN_PROVIDER_ID,
-        holdMicros: ceilingHoldMicros(pool.price, pool.maxOutputTokens, pool.price.feeBps),
+        providerId: OPENROUTER_PROVIDER_ID,
+        holdMicros: replyCeilingMicros(pool, pool.price),
         feeBps: pool.price.feeBps,
       }),
     );
@@ -314,12 +297,15 @@ export class TreeSession extends DurableObject<AppEnv> {
     return result.usageId;
   }
 
-  /** Releases an undispatched reservation; a failure is left to PoolBank's expiry. */
+  /**
+   * Releases an undispatched reservation; a failure is left to the backstops
+   * (PoolBank's expiry, the reconcile cron).
+   */
   private async release(reservationId: string): Promise<void> {
     try {
       await releaseUndispatched(this.env.DB, reservationId);
     } catch (err) {
-      console.error('Releasing a pool reservation failed; expiry will', reservationId, err);
+      logEvent('error', 'reservation_release_failed', { reservationId, error: err });
     }
   }
 
@@ -330,29 +316,57 @@ export class TreeSession extends DurableObject<AppEnv> {
   private async deleteBranch(chat: ChatService, branchId: string): Promise<Response> {
     const deleted = this.sendLock.then(() =>
       chat.deleteBranch(branchId, {
-        stopGenerations: async (branchIds) => {
-          const doomed = [...this.runs.values()].filter((r) => branchIds.has(r.node.branchId));
-          for (const run of doomed) run.controller.abort();
-          await Promise.all(doomed.map((r) => r.finished));
-        },
+        stopGenerations: (branchIds) => this.hub.stop((node) => branchIds.has(node.branchId)),
       }),
     );
     this.sendLock = deleted.catch(() => undefined);
     return Response.json(await deleted);
   }
 
-  /** Holds a finished candidate for `CANDIDATE_TTL_MS`, pruning the expired ones. */
+  /**
+   * Like `deleteBranch`, for the whole tree; then drops everything this DO
+   * stores for it (held candidates hold the user's question and answers).
+   */
+  private async deleteTree(chat: ChatService, treeId: string): Promise<Response> {
+    const deleted = this.sendLock.then(async () => {
+      await chat.deleteTree(treeId, { stopGenerations: () => this.hub.stop() });
+      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.deleteAll();
+    });
+    this.sendLock = deleted.catch(() => undefined);
+    await deleted;
+    return new Response(null, { status: 204 });
+  }
+
+  /** Holds a finished candidate for `CANDIDATE_TTL_MS`. */
   private async holdCandidate(body: SessionHoldBody): Promise<Response> {
     const now = Date.now();
-    const storage = this.ctx.storage;
-    const held = await storage.list<HeldEntry>({ prefix: CANDIDATE_PREFIX });
-    const expired = [...held].filter(([, entry]) => entry.expiresAt <= now).map(([key]) => key);
-    await deleteKeys(storage, expired);
     const entry: HeldEntry = { ...body, expiresAt: now + CANDIDATE_TTL_MS };
-    await storage.put(CANDIDATE_PREFIX + body.candidate.id, entry);
+    await this.ctx.storage.put(CANDIDATE_PREFIX + body.candidate.id, entry);
+    await this.pruneCandidates(now);
     return Response.json({
       expiresAt: new Date(entry.expiresAt).toISOString(),
     } satisfies SessionHoldResponse);
+  }
+
+  /** Unpicked candidates (the user's question and answers) go when they expire. */
+  override async alarm(): Promise<void> {
+    await this.pruneCandidates(Date.now());
+  }
+
+  /** Deletes the expired held candidates and sets the alarm for the next expiry, if any. */
+  private async pruneCandidates(now: number): Promise<void> {
+    const storage = this.ctx.storage;
+    const held = await storage.list<HeldEntry>({ prefix: CANDIDATE_PREFIX });
+    const expired: string[] = [];
+    let next: number | null = null;
+    for (const [key, entry] of held) {
+      if (entry.expiresAt <= now) expired.push(key);
+      else if (next === null || entry.expiresAt < next) next = entry.expiresAt;
+    }
+    await deleteKeys(storage, expired);
+    if (next === null) await storage.deleteAlarm();
+    else await storage.setAlarm(next);
   }
 
   /**
@@ -395,108 +409,37 @@ export class TreeSession extends DurableObject<AppEnv> {
     } satisfies CommitCandidateResponse);
   }
 
-  /**
-   * Runs the generation and broadcasts it. `account` is the one the send runs
-   * as (who pays); `reservationId` is the pool reservation of the reply, if
-   * any. A pool reply that completes has its exchange topic-tagged in the
-   * background (pool/tagging.ts): only its own user message is classified, so
-   * earlier messages of a branch paid some other way never reach the tagger.
-   */
-  private async pump(
-    chat: ChatService,
-    account: AccountContext,
-    run: Run,
-    begin: BeginSendResult,
-    reservationId: string | null,
-    { ground, ...limits }: Pick<SendTarget, 'ground'> & GenerationLimits = {},
-  ): Promise<void> {
-    const keepalive = setInterval(() => this.broadcastRaw(run, sseKeepAliveFrame()), KEEPALIVE_MS);
-    let completed = false;
-    try {
-      const options = {
-        ...(reservationId ? { reservationId } : {}),
-        ...(ground ? { ground } : {}),
-        ...pickGenerationLimits(limits),
-      };
-      for await (const event of chat.runGeneration(begin, run.controller.signal, options)) {
-        if (event.type === 'delta')
-          run.node = { ...run.node, content: run.node.content + event.text };
-        if (event.type === 'done' || event.type === 'error') {
-          if (event.node) run.node = event.node;
-          completed = event.type === 'done';
-        }
-        this.broadcastRaw(run, sseFrame(event));
-      }
-      if (completed && reservationId && isPoolFunded(account)) {
-        const defer = (p: Promise<unknown>) => this.ctx.waitUntil(p);
-        defer(
-          classifyPoolExchange(this.env, account, {
-            treeId: begin.userNode.treeId,
-            branchId: begin.userNode.branchId,
-            poolExchangeUserMessage: begin.userNode.content,
-            defer,
-          }),
-        );
-      }
-    } finally {
-      clearInterval(keepalive);
-      // The reply never reached the provider (the meter settles a dispatched one).
-      if (reservationId) await this.release(reservationId);
-      this.runs.delete(begin.assistantNode.id);
-      for (const writer of run.subscribers) writer.close().catch(() => undefined);
-      run.subscribers.clear();
-    }
-  }
-
   private async reconnect(chat: ChatService, nodeId: string): Promise<Response> {
-    const run = this.runs.get(nodeId);
-    if (run) return this.subscribe(run, [{ type: 'snapshot', node: run.node }]);
+    const { sink, response } = sseSink();
+    if (this.hub.attach(nodeId, sink)) return response;
 
-    // Not running here: serve the persisted final state.
-    const repo = chat.deps.repos.trees;
-    const node = await repo.getNode(nodeId);
-    if (!node) return errorResponse(new DomainError('not_found', 'Node not found'));
-    let final = node;
-    if (node.status === 'streaming') {
-      await chat.recoverInterrupted(node.treeId);
-      final = (await repo.getNode(nodeId)) ?? node;
-    }
-    const branch = await repo.getBranch(final.branchId);
-    const events: StreamEvent[] = [{ type: 'snapshot', node: final }];
-    if (final.status === 'complete' && branch) events.push({ type: 'done', node: final, branch });
-    else
-      events.push({
-        type: 'error',
-        nodeId: final.id,
-        message: final.error ?? 'Generation failed',
-        node: final,
-      });
-    return sseResponse(streamOf(events.map(sseFrame).join('')));
+    // Not running here: serve the persisted final state. Still `streaming`
+    // means an orphan; only it is recovered (other branches may be live).
+    const final = await chat.recoverInterruptedNode(nodeId);
+    if (!final) return errorResponse(new DomainError('not_found', 'Node not found'));
+    const branch = await chat.deps.repos.trees.getBranch(final.branchId);
+    return sseResponse(streamOf(replayEvents(final, branch).map(sseFrame).join('')));
   }
 
-  private async cancel(chat: ChatService, treeId: string, nodeId: string): Promise<Response> {
-    const run = this.runs.get(nodeId);
-    if (run) run.controller.abort();
-    else if (treeId) await chat.recoverInterrupted(treeId);
+  /** Without a run here the node is finished or an orphan: only that node is recovered. */
+  private async cancel(chat: ChatService, nodeId: string): Promise<Response> {
+    if (!this.hub.cancel(nodeId)) await chat.recoverInterruptedNode(nodeId);
     return new Response(null, { status: 204 });
   }
+}
 
-  private subscribe(run: Run, initial: StreamEvent[]): Response {
-    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-    const writer = writable.getWriter();
-    const drop = () => run.subscribers.delete(writer);
-    writer.write(encoder.encode(initial.map(sseFrame).join(''))).catch(drop);
-    run.subscribers.add(writer);
-    return sseResponse(readable);
-  }
-
-  private broadcastRaw(run: Run, frame: string): void {
-    const bytes = encoder.encode(frame);
-    for (const writer of run.subscribers) {
-      // A failed write means the client went away; the generation continues regardless.
-      writer.write(bytes).catch(() => run.subscribers.delete(writer));
-    }
-  }
+/** A response streaming SSE to one client, and the hub's reader that writes it. */
+function sseSink(): { sink: GenerationSink; response: Response } {
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = writable.getWriter();
+  return {
+    response: sseResponse(readable),
+    sink: {
+      write: (event) => writer.write(encoder.encode(sseFrame(event))),
+      ping: () => writer.write(encoder.encode(sseKeepAliveFrame())),
+      close: () => writer.close(),
+    },
+  };
 }
 
 /** Storage deletes take at most 128 keys at a time. */

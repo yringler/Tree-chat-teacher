@@ -1,5 +1,4 @@
-// How an open pool call is settled (docs/pool/PLAN.md §1.2, deviation D2):
-// one pure function shared by the meter, the expiry alarm and the cron.
+// How an open pool call is settled: one pure function shared by the meter, the expiry alarm and the cron.
 //
 // A reservation is released in full only when nothing can have been billed
 // upstream: the request was never dispatched, or it failed before it was sent
@@ -7,8 +6,7 @@
 // what it is known to have cost (reported cost, a generation lookup, tokens ×
 // the price table), and the full hold when nothing was observed: the operator
 // never pays for upstream work the pool did not pay for.
-import type { ProviderUpstream } from '@tangent/shared';
-import { costUsdToNanos } from '../billing/pricing.js';
+import { costUsdToNanos, type ProviderUpstream } from '@tangent/shared';
 import type { SettleReason } from '../billing/usage-store.js';
 import type { ModelPrice } from '../config.js';
 import { costFromTokensNanos } from './pricing.js';

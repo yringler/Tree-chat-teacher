@@ -51,8 +51,8 @@ export type Effort = 'off' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'x
 /**
  * Where a branch's anchor quote goes: quoted into the user turn as an
  * `<excerpt>` (what `renderPlan` does for every tier now, the default), or
- * appended to the system prompt (the old Learn rendering, kept to measure how
- * much prompt caching it cost: every new excerpt changes the system prompt).
+ * appended to the system prompt (to measure how much prompt caching that
+ * costs: every new excerpt changes the system prompt).
  */
 export type AnchorMode = 'system' | 'user';
 

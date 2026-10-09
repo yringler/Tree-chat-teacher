@@ -1,8 +1,7 @@
-import { z } from 'zod';
+import { z } from './zod.js';
 import type { Branch, BranchFunding, ChatNode, TokenUsage } from './domain.js';
 import { generationLimitsShape } from './api.js';
 import type { Citation } from './grounding.js';
-import { fromLegacyRoute } from './route.js';
 
 /**
  * Compare ("ask Normal and Max, keep one"). Each model answers the same
@@ -26,21 +25,17 @@ import { fromLegacyRoute } from './route.js';
 /** How long a finished candidate can still be committed. */
 export const CANDIDATE_TTL_MS = 30 * 60_000;
 
-export const candidateRequestSchema = z
-  .object({
-    /** The question, as the user would send it. */
-    content: z.string().min(1).max(200_000),
-    /** Absent = the branch's route (Learn always omits it). */
-    providerId: z.string().min(1).max(64).optional(),
-    /** How power pays for this candidate (default `own-key`); Learn pays per request. */
-    funding: z.enum(['own-key', 'credit']).optional() satisfies z.ZodType<
-      BranchFunding | undefined
-    >,
-    model: z.string().min(1).max(200),
-    /** Power's reply length and input limit, as on a send (Learn sends none). */
-    ...generationLimitsShape,
-  })
-  .transform(fromLegacyRoute);
+export const candidateRequestSchema = z.object({
+  /** The question, as the user would send it. */
+  content: z.string().min(1).max(200_000),
+  /** Absent = the branch's route (Learn always omits it). */
+  providerId: z.string().min(1).max(64).optional(),
+  /** How power pays for this candidate (default `own-key`); Learn pays per request. */
+  funding: z.enum(['own-key', 'credit']).optional() satisfies z.ZodType<BranchFunding | undefined>,
+  model: z.string().min(1).max(200),
+  /** Power's reply length and input limit, as on a send (Learn sends none). */
+  ...generationLimitsShape,
+});
 export type CandidateRequest = z.infer<typeof candidateRequestSchema>;
 
 /**

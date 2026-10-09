@@ -16,27 +16,27 @@ import { RouterLink } from '@angular/router';
 import { describeEndpoint } from '@tangent/core/links';
 import { maxUsageNote, tierModel, tierOf, type Branch, type ChatNode } from '@tangent/shared';
 import {
+  Composer,
   Icon,
   PendingQuote,
   PoolBlockNotice,
-  SelectionAsk,
+  Segmented,
   selectedMessageQuote,
+  SelectionAsk,
   TextSizeMenu,
   TextSizeStore,
   type MessageQuote,
 } from '@tangent/web-shared';
 import { BRAND } from '../brand';
-import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
-import { Composer } from './composer';
 import { connectionTitleOf } from './connections';
 import { confirmDeleteSideQuestion } from './delete-side-question';
-import { FundingToggle, type FundingOption } from './funding-toggle';
 import { KeyLockedNotice } from './key-locked-notice';
 import { MessageItem } from './message-item';
-import { ModelToggle } from './model-toggle';
+import { FUNDING_OPTIONS, tierSwitch, type FundingOption } from './switches';
 import { branchTitle, lessonTitle } from './titles';
+import { LearnFunding } from '../state/learn-funding';
 
 interface Entry {
   node: ChatNode;
@@ -50,9 +50,8 @@ interface Entry {
   selector: 'app-chat-page',
   imports: [
     Composer,
-    FundingToggle,
     MessageItem,
-    ModelToggle,
+    Segmented,
     Icon,
     PoolBlockNotice,
     RouterLink,
@@ -72,7 +71,7 @@ interface Entry {
 })
 export class ChatPage implements OnDestroy {
   protected readonly store = inject(LessonStore);
-  protected readonly account = inject(AccountStore);
+  protected readonly funding = inject(LearnFunding);
   protected readonly textSize = inject(TextSizeStore);
   private readonly ui = inject(UiStore);
   private readonly title = inject(Title);
@@ -145,8 +144,8 @@ export class ChatPage implements OnDestroy {
     return block && block.branchId === this.store.selectedBranchId() ? block : null;
   });
 
-  protected readonly funding = computed<FundingOption>(() =>
-    this.account.payment.payment() === 'pool' ? 'pool' : 'credit',
+  protected readonly fundingOption = computed<FundingOption>(() =>
+    this.funding.payer() === 'pool' ? 'pool' : 'credit',
   );
 
   /**
@@ -159,7 +158,7 @@ export class ChatPage implements OnDestroy {
       this.store.selectedBranch() !== null &&
       tierModel(models, 'normal') !== undefined &&
       tierModel(models, 'max') !== undefined &&
-      this.account.poolModel() === null &&
+      this.funding.poolModel() === null &&
       !this.store.busy()
     );
   });
@@ -168,15 +167,16 @@ export class ChatPage implements OnDestroy {
   protected readonly maxNote = computed(() => {
     const models = this.store.models();
     const b = this.store.selectedBranch();
-    if (!b || this.account.poolModel() || tierOf(models, b.model) !== 'max') return null;
+    if (!b || this.funding.poolModel() || tierOf(models, b.model) !== 'max') return null;
     return maxUsageNote(tierModel(models, 'max')?.usageFactor);
   });
 
-  /** A message refused for lack of credit, offered back after a top-up. */
-  protected readonly initialDraft = computed(() => {
-    const d = this.store.unsentDraft();
-    return d && d.branchId === this.store.selectedBranchId() ? d.text : '';
-  });
+  /**
+   * A message refused before it reached the lesson (no credit, the pool, a
+   * missing key…), offered back in its branch, also after a top-up or the
+   * human check (kept for the tab).
+   */
+  protected readonly initialDraft = this.store.composerDraft;
 
   constructor() {
     effect(() => {
@@ -223,7 +223,11 @@ export class ChatPage implements OnDestroy {
   protected async askAbout(q: MessageQuote): Promise<void> {
     this.pendingAsk.clear();
     window.getSelection()?.removeAllRanges();
-    await this.store.askAbout(q.nodeId, q.quote);
+    await this.store.createBranch({
+      fromNodeId: q.nodeId,
+      contextMode: 'path',
+      anchorQuote: q.quote,
+    });
   }
 
   protected async setModel(branchId: string, model: string): Promise<void> {
@@ -235,11 +239,21 @@ export class ChatPage implements OnDestroy {
     }
   }
 
-  protected chooseFunding(option: FundingOption): void {
-    this.account.payment.choose(option);
-    this.store.dismissPoolBlock();
-    if (option === 'pool') void this.account.switchToPool();
-    else void this.account.refreshBalance();
+  protected readonly fundingOptions = FUNDING_OPTIONS;
+
+  /** The Normal/Max switch for a branch on `model` (locked to the pool's model on the pool). */
+  protected tiers(model: string) {
+    return tierSwitch(
+      this.store.models(),
+      this.funding.poolModel()?.id ?? model,
+      this.funding.poolModelHint(),
+    );
+  }
+
+  protected chooseFunding(id: string): void {
+    const option = FUNDING_OPTIONS.find((o) => o.id === id)?.id;
+    if (!option) return;
+    this.funding.switchTo(option);
   }
 
   protected exportLesson(): void {
@@ -252,7 +266,7 @@ export class ChatPage implements OnDestroy {
     if (!d) return;
     if (!confirm(`Delete the lesson “${lessonTitle(d.tree.title)}” with all its side questions?`))
       return;
-    void this.store.deleteLesson(d.tree.id);
+    void this.store.deleteTree(d.tree.id);
   }
 
   /** The open side question, with every side question below it (the lesson stays). */
@@ -274,7 +288,7 @@ export class ChatPage implements OnDestroy {
     if (!id || !this.canCompare()) return;
     this.pinned.set(true);
     if (this.store.focusedNodeId()) this.store.go(id, null, true);
-    this.ui.compare.set({ branchId: id, content });
+    this.ui.dialogs.open({ kind: 'compare', branchId: id, content });
   }
 
   protected stop(): void {

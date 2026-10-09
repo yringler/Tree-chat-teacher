@@ -10,8 +10,7 @@ import { APP_BASES } from '../core/demo';
 import { membershipBlocks } from './membership';
 
 /*
- * Read-only power without a membership (docs/DECISIONS.md "Read-only power
- * without a membership"), as the power app and Canvas show it. The rule is
+ * Read-only power without a membership, as the power app and Canvas show it. The rule is
  * the server's: `MeResponse.membershipNeededFor` names the fundings that need
  * the membership (the user's own keys), and the membership says whether the
  * user has one. A branch on such a funding is read-only while they don't; a

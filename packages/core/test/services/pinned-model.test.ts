@@ -5,7 +5,8 @@ import {
   DEFAULT_CHAT_SETTINGS,
   type ChatServiceDeps,
 } from '../../src/services/chat-service.js';
-import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
+import { createMemoryRepositories } from '../../src/memory/memory-repositories.js';
+import { estimateTokens } from '../../src/tokens.js';
 import { collect, registryOf, ScriptedProvider, send } from './helpers.js';
 
 /** A scripted provider (not `fake`, so titles run) whose title calls can be refused. */
@@ -35,9 +36,17 @@ function setup(deps: Partial<ChatServiceDeps> = {}) {
   return { repos, provider, chat };
 }
 
-const PINNED = { pinnedModel: 'pool-model', systemPromptOverride: 'LOCKED PROMPT' };
+const PINNED: Partial<ChatServiceDeps> = {
+  profile: {
+    kind: 'pool',
+    model: 'pool-model',
+    systemPrompt: 'LOCKED PROMPT',
+    estimateTokens,
+    anchorQuoteMaxChars: 10_000,
+  },
+};
 
-describe('ChatService pinnedModel and systemPromptOverride', () => {
+describe('ChatService pool profile: pinned model and locked prompt', () => {
   it("replies, summaries and titles use the pinned model and prompt; the tree and branch don't change", async () => {
     const { chat, provider, repos } = setup(PINNED);
     const { tree } = await chat.createTree({ systemPrompt: 'IGNORE ME', model: 'm1' });
@@ -106,6 +115,29 @@ describe('ChatService pinnedModel and systemPromptOverride', () => {
     const reply = provider.calls[0]!;
     expect(reply.system).toBe('LOCKED PROMPT');
     expect(reply.messages[0]?.content).toContain('INJECTED RULES');
+  });
+
+  it('clips an anchor quote to the pool message limit in the same units as the message check', async () => {
+    const { chat } = setup({
+      profile: {
+        kind: 'pool',
+        model: 'pool-model',
+        systemPrompt: 'LOCKED PROMPT',
+        estimateTokens,
+        anchorQuoteMaxChars: 20,
+      },
+    });
+    const { tree } = await chat.createTree({});
+    const root = await send(chat, tree.trunkBranchId, 'ROOT');
+    const side = await chat.createBranch({
+      fromNodeId: root.begin.assistantNode.id,
+      anchorQuote: '😀'.repeat(40),
+    });
+    const plan = await chat.planContext(side.id, null, { resolveSummaries: false });
+    const anchor = plan.plan.segments.find((s) => s.kind === 'anchor');
+    // At most 20 UTF-16 units, as `content.length` counts a message: nine emoji (18 units)
+    // and the ellipsis, since a tenth would leave half a pair.
+    expect(anchor?.text).toBe(`${'😀'.repeat(9)}…`);
   });
 
   it('without them, the branch model and the tree prompt are used', async () => {

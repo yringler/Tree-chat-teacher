@@ -10,16 +10,20 @@
   "scripts": {
     "build": "pnpm --filter @tangent/web build && pnpm --filter @tangent/simple build && pnpm --filter @tangent/canvas build && pnpm --filter @tangent/admin build && node scripts/assemble-assets.mjs",
     "dev": "pnpm --filter @tangent/worker dev",
-    "test": "pnpm -r --workspace-concurrency=1 test",
-    "coverage": "pnpm -r --workspace-concurrency=1 coverage && node scripts/coverage-summary.mjs",
+    "test": "pnpm -r --workspace-concurrency=1 --no-bail test",
+    "coverage": "pnpm -r --workspace-concurrency=1 --no-bail coverage && node scripts/coverage-summary.mjs",
     "e2e": "pnpm --filter @tangent/e2e e2e",
-    "typecheck": "pnpm -r typecheck",
-    "lint": "eslint . && node scripts/check-provider-neutral.mjs",
-    "format": "prettier --write ."
+    "typecheck": "pnpm -r typecheck && tsc -p scripts/model-eval",
+    "lint": "eslint . && node scripts/check-provider-neutral.mjs && node scripts/check-migrations.mjs && node scripts/check-cycles.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "knip": "knip"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
     "eslint": "^10.11.0",
+    "knip": "^6.40.0",
+    "madge": "8.0.0",
     "prettier": "^3.6.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.71.0",

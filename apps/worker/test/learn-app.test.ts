@@ -11,8 +11,8 @@ import {
   LEARN_LOGIN_CSP,
   learnAppRoutes,
 } from '../src/http/learn-app.js';
+import { BASE } from './http.js';
 
-const ORIGIN = 'https://tangent.example.com';
 const SIMPLE_INDEX = '<!doctype html><title>simple</title>';
 const CANVAS_INDEX = '<!doctype html><title>canvas</title>';
 const POWER_INDEX = '<!doctype html><title>power</title>';
@@ -58,7 +58,7 @@ function setup() {
   app.get('/api/ping', (c) => c.json({ ok: true }));
   app.notFound((c) => c.json({ error: 'not_found' }, 404));
   const e = { ...env, ASSETS: assets.fetcher } as AppEnv;
-  const request = (path: string, init?: RequestInit) => app.request(`${ORIGIN}${path}`, init, e);
+  const request = (path: string, init?: RequestInit) => app.request(`${BASE}${path}`, init, e);
   return { request, seen: assets.seen };
 }
 

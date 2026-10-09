@@ -10,21 +10,33 @@ export {
   ApiClient,
   ApiError,
   errorMessage,
-  isMembershipRequired,
-  isNotFound,
-  isPaymentRequired,
-  isPoolCapReached,
-  isPoolConsentRequired,
-  isPoolEmpty,
-  isPoolUnavailable,
+  hasCode,
   type CreateLinkResult,
   type ExportParams,
 } from './core/api-client';
 export { API_FETCH, API_HEADERS, defaultApiFetch } from './core/api-fetch';
+export { coalesced } from './core/coalesced';
+export { dispatchShortcut, type ShortcutFrame, type ShortcutHelp } from './core/shortcuts';
+export {
+  ConversationStore,
+  type ConversationApi,
+  type ConversationCopy,
+  type FailedSend,
+  type LiveReply,
+  type SendOptions,
+} from './conversation/conversation-store';
+export {
+  PowerAccountStore,
+  type AccountRefusal,
+  type PowerAccountApi,
+  type RouteState,
+} from './power/power-account';
+export { PowerConversationStore, type PowerApi } from './power/power-conversation-store';
+export { creditFeeSentence, KeysDialog } from './power/keys-dialog';
+export { modelHint, routeSuffix, startingRoute } from './power/routes';
 export { CompareRun, type CompareCandidateState, type CompareSpec } from './core/compare-run';
 export {
   backupFile,
-  MAX_BACKUP_BYTES,
   readBackupFile,
   SAVE_FILE,
   type BackupFile,
@@ -80,9 +92,13 @@ export {
 
 // UI
 export { Compare, type CompareCandidate } from './ui/compare';
+export { Composer, ComposerController } from './ui/composer';
+export { CONTEXT_MODE_META, type ContextModeMeta } from './ui/context-mode';
 export { Icon, type IconName } from './ui/icon';
+export { Toasts, ToastStore, type Toast, type ToastLink } from './ui/toasts';
 export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';
+export { Overlays } from './ui/overlays';
 export { ModelSuggestions, suggestionText, type SuggestionText } from './ui/model-suggestions';
 export { DEEP_BRANCH_DEPTH, SourcesList } from './ui/sources-list';
 export { RelatedLinks, type LinkNoteEdit } from './ui/related-links';
@@ -145,7 +161,6 @@ export {
   creditCanPay,
   creditCarriesOn,
   creditFeeText,
-  includedCreditText,
   membershipBlocks,
   membershipPriceText,
   membershipStatusText,
@@ -163,14 +178,12 @@ export {
 // The open pool: the meter, the billing page's section, the inline empty/cap states and the first-use check
 export { PoolMeter } from './pool/pool-meter';
 export { PoolSection } from './pool/pool-section';
-export { ImpactFeed, loadLatestImpact } from './pool/impact-feed';
 export { PoolBlockNotice } from './pool/pool-block-notice';
 export { PoolFirstUseDialog, poolVerifyHref } from './pool/pool-first-use-dialog';
 export {
   poolBlockOf,
   poolBlockText,
   poolDollarsLabel,
-  poolWeekLabel,
   sessionsLabel,
   untilText,
   type PoolBlock,

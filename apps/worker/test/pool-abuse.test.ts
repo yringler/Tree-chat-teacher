@@ -1,4 +1,4 @@
-// Abuse controls of the open pool (docs/pool/PLAN.md §S4): daily caps (the
+// Abuse controls of the open pool: daily caps (the
 // same for everyone), per-minute rate limits per user and per network, the
 // per-network and global daily ceilings, the account gates (suspension,
 // Turnstile, one identity per mailbox, account age), the consumption report,
@@ -8,7 +8,7 @@ import type {
   AdminPoolUsageResponse,
   AdminUser,
   ApiError,
-  LearnPayment,
+  Payer,
   PoolBlockDetails,
   PoolMeResponse,
   StreamEvent,
@@ -16,21 +16,31 @@ import type {
 } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
+import { sweepDeletedUsers } from '../src/auth/delete-account.js';
+import { getBalance } from '../src/billing/ledger.js';
+import { CRON_JOBS } from '../src/cron.js';
+import type { SqlRow } from '../src/db/rows.js';
+import type { poolIdentities } from '../src/db/schema.js';
 import type { AppEnv } from '../src/env.js';
-import { normaliseEmail, poolIdentity } from '../src/pool/identity.js';
+import {
+  normaliseEmail,
+  POOL_IDENTITY_RETENTION_DAYS,
+  poolIdentity,
+  purgeReleasedPoolIdentities,
+} from '../src/pool/identity.js';
 import { poolBank } from '../src/pool/ids.js';
-import { resolvePoolParams } from '../src/pool/params.js';
-import { ceilingHoldMicros } from '../src/pool/pricing.js';
+import { POOL_GIVE_UP_MS, replyCeilingMicros, resolvePoolParams } from '../src/pool/params.js';
 import { insertSubscription, uniq } from './mocks/billing-helpers.js';
-import { poolAccess, poolReadyUser, taggingSettled } from './pool-helpers.js';
+import { failRateChecks, poolAccess, poolReadyUser, rateKeys } from './pool-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
+import { ok, parseSse } from './http.js';
 
 const env = rawEnv as unknown as AppEnv;
 const ECHO = '[echo-request]';
 const PARAMS = await resolvePoolParams(env, null);
 const PRICE = PARAMS.price!;
-/** The reply's ceiling hold on a test pool (POOL_MAX_OUTPUT_TOKENS 2048 in vitest.config.ts). */
-const CEILING = ceilingHoldMicros(PRICE, 2048, PRICE.feeBps);
+/** The reply's ceiling hold on a test pool. */
+const CEILING = replyCeilingMicros(PARAMS, PRICE);
 /** POOL_REQUESTS_PER_DAY in vitest.config.ts. */
 const DAILY_REPLIES = 3;
 
@@ -60,14 +70,8 @@ async function freshMinute(): Promise<void> {
   if (left < 20_000) await new Promise((r) => setTimeout(r, left + 50));
 }
 
-async function json<T>(res: Response, status = 200): Promise<T> {
-  const text = await res.text();
-  expect(res.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
-}
-
-async function newTree(u: User, learn: LearnPayment = 'pool') {
-  const detail = await json<TreeDetail>(
+async function newTree(u: User, learn: Payer = 'pool') {
+  const detail = await ok<TreeDetail>(
     await u.client.call('/api/trees', { method: 'POST', json: { title: 'T' }, learn }),
     201,
   );
@@ -88,11 +92,7 @@ async function sendOk(u: User, branchId: string, content = 'Hi'): Promise<Stream
   const res = await send(u, branchId, content);
   const text = await res.text();
   expect(res.status, text).toBe(200);
-  const events = text
-    .split('\n\n')
-    .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-    .filter((l): l is string => !!l)
-    .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent);
+  const events = parseSse(text);
   expect(events.at(-1)?.type).toBe('done');
   return events;
 }
@@ -107,7 +107,7 @@ async function refused(res: Response, status: number, code: string): Promise<Poo
 }
 
 async function nodeCount(u: User, treeId: string): Promise<number> {
-  const detail = await json<TreeDetail>(
+  const detail = await ok<TreeDetail>(
     await u.client.call(`/api/trees/${treeId}`, { learn: 'pool' }),
   );
   return detail.nodes.length;
@@ -184,7 +184,7 @@ describe('the same caps for everyone', () => {
     expect(await capped(other)).toEqual(expected);
     // /api/pool/me says the same.
     const caps = async (u: User) =>
-      (await json<PoolMeResponse>(await u.client.call('/api/pool/me', { learn: 'pool' }))).caps;
+      (await ok<PoolMeResponse>(await u.client.call('/api/pool/me', { learn: 'pool' }))).caps;
     expect(await caps(member)).toEqual(await caps(other));
   });
 
@@ -255,7 +255,7 @@ describe('rate limits', { timeout: 40_000 }, () => {
   it('fails closed: a PoolBank storage error refuses, with nothing written', async () => {
     const u = await poolReadyUser();
     const { treeId, branchId } = await newTree(u);
-    await poolBank(env, u.poolId).failRateChecks(1);
+    await failRateChecks(poolBank(env, u.poolId), 1);
     const pool = await refused(await send(u, branchId), 429, 'pool_cap_reached');
     expect(pool.reason).toBe('rate');
     expect(await nodeCount(u, treeId)).toBe(0);
@@ -318,11 +318,11 @@ describe('account gates', () => {
       admin.client.call(
         path,
         init,
-        authEnv({ POOL_ACCOUNT_ID: u.poolId, ADMIN_USER_IDS: admin.userId }),
+        authEnv({ TEST_POOL_ACCOUNT_ID: u.poolId, ADMIN_USER_IDS: admin.userId }),
       );
     const { treeId, branchId } = await newTree(u);
 
-    const suspended = await json<AdminUser>(
+    const suspended = await ok<AdminUser>(
       await asAdmin(`/api/admin/users/${u.userId}`, {
         method: 'PATCH',
         json: { poolSuspended: true },
@@ -339,7 +339,7 @@ describe('account gates', () => {
     expect((await u.client.call(`/api/trees/${treeId}`, { learn: 'pool' })).status).toBe(200);
 
     // Changing the share permission leaves the suspension alone.
-    await json<AdminUser>(
+    await ok<AdminUser>(
       await asAdmin(`/api/admin/users/${u.userId}`, {
         method: 'PATCH',
         json: { shareAllowed: true },
@@ -347,7 +347,7 @@ describe('account gates', () => {
     );
     expect((await poolAccess(u.userId))?.pool_suspended).toBe(1);
 
-    await json<AdminUser>(
+    await ok<AdminUser>(
       await asAdmin(`/api/admin/users/${u.userId}`, {
         method: 'PATCH',
         json: { poolSuspended: false },
@@ -376,7 +376,7 @@ describe('account gates', () => {
       u.client.call('/api/pool/verify', { method: 'POST', json: { token }, learn: 'pool' });
     expect((await verify('not-a-pass')).status).toBe(400);
     expect((await poolAccess(u.userId))?.pool_verified_at).toBeNull();
-    expect(await json<unknown>(await verify('pass'))).toEqual({ verified: true });
+    expect(await ok<unknown>(await verify('pass'))).toEqual({ verified: true });
     const access = await poolAccess(u.userId);
     expect(access?.pool_verified_at).toBeTruthy();
     expect(access?.pool_identity).toMatch(/^[0-9a-f]{64}$/);
@@ -398,7 +398,7 @@ describe('account gates', () => {
     const res = await u.client.call(
       '/api/pool/verify',
       { method: 'POST', json: { token: 'pass' } },
-      authEnv({ POOL_ACCOUNT_ID: u.poolId, TURNSTILE_SECRET_KEY: '' }),
+      authEnv({ TEST_POOL_ACCOUNT_ID: u.poolId, TURNSTILE_SECRET_KEY: '' }),
     );
     expect(res.status).toBe(400);
     expect((await poolAccess(u.userId))?.pool_verified_at).toBeNull();
@@ -443,13 +443,13 @@ describe('account gates', () => {
       admin.client.call(
         path,
         init,
-        authEnv({ POOL_ACCOUNT_ID: first.poolId, ADMIN_USER_IDS: admin.userId }),
+        authEnv({ TEST_POOL_ACCOUNT_ID: first.poolId, ADMIN_USER_IDS: admin.userId }),
       );
     for (const [u, email] of [
       [first, `ab${tag}@gmail.com`],
       [unverified, `cd${tag}@example.org`],
     ] as const) {
-      await json<AdminUser>(
+      await ok<AdminUser>(
         await asAdmin(`/api/admin/users/${u.userId}`, {
           method: 'PATCH',
           json: { poolSuspended: true },
@@ -482,7 +482,7 @@ describe('account gates', () => {
       expect(await nodeCount(u, treeId)).toBe(0);
     }
     // The admin page shows it on the new account.
-    const shown = await json<AdminUser>(
+    const shown = await ok<AdminUser>(
       await asAdmin(`/api/admin/users/${again.userId}`, {
         method: 'PATCH',
         json: { shareAllowed: false },
@@ -491,7 +491,7 @@ describe('account gates', () => {
     expect(shown.poolSuspended).toBe(true);
 
     // An admin can lift it for the new account.
-    await json<AdminUser>(
+    await ok<AdminUser>(
       await asAdmin(`/api/admin/users/${again.userId}`, {
         method: 'PATCH',
         json: { poolSuspended: false },
@@ -542,7 +542,7 @@ describe('account gates', () => {
 
   it('the dev bypass (no signed-in user) never reaches the pool', async () => {
     const dev = client(env);
-    const created = await json<TreeDetail>(
+    const created = await ok<TreeDetail>(
       await dev.call('/api/trees', { method: 'POST', json: { title: 'T' }, learn: 'pool' }),
       201,
     );
@@ -556,10 +556,295 @@ describe('account gates', () => {
   });
 });
 
+describe('account deletion', () => {
+  /** What a deletion must keep of the pool's rows: everything but who and from where. */
+  const LEDGER_COLUMNS =
+    'id, status, hold_micros, charge_micros, cost_nanos, overage_micros, model, input_tokens, output_tokens, created_at';
+
+  async function poolRows(poolId: string) {
+    const { results } = await env.DB.prepare(
+      `SELECT ${LEDGER_COLUMNS}, user_id, ip_key FROM usage_events WHERE account_id = ? ORDER BY id`,
+    )
+      .bind(poolId)
+      .all<Record<string, unknown>>();
+    return results;
+  }
+
+  /** The pool's rows once none is pending (a reply settles after its stream ends). */
+  async function settledRows(poolId: string) {
+    for (let i = 0; i < 50; i++) {
+      const rows = await poolRows(poolId);
+      if (rows.every((r) => r.status !== 'pending')) return rows;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error('pool rows still pending');
+  }
+
+  async function dayTotal(poolId: string): Promise<number> {
+    const day = new Date(nextUtcMidnight()).getTime() - 86_400_000;
+    const row = await env.DB.prepare(
+      `SELECT COALESCE(SUM(CASE WHEN status = 'pending' THEN hold_micros ELSE COALESCE(charge_micros, 0) END), 0) AS spend
+       FROM usage_events WHERE account_id = ? AND created_at >= ?`,
+    )
+      .bind(poolId, new Date(day).toISOString())
+      .first<{ spend: number }>();
+    return Number(row?.spend ?? 0);
+  }
+
+  async function identityRow(identity: string) {
+    return env.DB.prepare(
+      'SELECT suspended, deleted_at, deleted_day_requests FROM pool_identities WHERE identity = ?',
+    )
+      .bind(identity)
+      .first<
+        Pick<SqlRow<typeof poolIdentities>, 'suspended' | 'deleted_at' | 'deleted_day_requests'>
+      >();
+  }
+
+  async function deleteAccount(u: User, email: string): Promise<void> {
+    const res = await u.client.call('/api/account', {
+      method: 'DELETE',
+      json: { confirmEmail: email },
+    });
+    expect(res.status).toBe(204);
+  }
+
+  /** Moves the identity's deletion `days` into the past, as if that much time had gone by. */
+  async function ageDeletion(identity: string, days: number): Promise<void> {
+    await env.DB.prepare('UPDATE pool_identities SET deleted_at = ? WHERE identity = ?')
+      .bind(new Date(Date.now() - days * 86_400_000).toISOString(), identity)
+      .run();
+  }
+
+  it('strips the user id from the pool rows, the network key once the day is over, and leaves the pool’s sums alone', async () => {
+    const ip = freshIp();
+    const email = `gone-${Math.random().toString(36).slice(2, 8)}@example.org`;
+    const stays = await poolReadyUser({ ip });
+    const gone = await poolReadyUser({ ip, email, poolId: stays.poolId });
+    const admin = await poolReadyUser({ poolId: stays.poolId, ip: freshIp() });
+    const adminEnv = authEnv({ TEST_POOL_ACCOUNT_ID: stays.poolId, ADMIN_USER_IDS: admin.userId });
+    const poolId = stays.poolId;
+    await sendOk(stays, (await newTree(stays)).branchId);
+    const { branchId } = await newTree(gone);
+    await sendOk(gone, branchId, 'One');
+    await sendOk(gone, branchId, 'Two');
+    const bank = poolBank(env, poolId);
+    expect(await rateKeys(bank)).toContain(`u:${gone.userId}`);
+    // The network has its 3 replies of the day.
+    const neighbour = await poolReadyUser({
+      ip,
+      poolId,
+      env: { POOL_IP_REQUESTS_PER_DAY: '3' },
+    });
+    const neighbourTree = await newTree(neighbour);
+    expect(
+      (await refused(await send(neighbour, neighbourTree.branchId), 429, 'pool_cap_reached'))
+        .reason,
+    ).toBe('cap_ip');
+
+    const before = await settledRows(poolId);
+    expect(before.filter((r) => r.user_id === gone.userId)).toHaveLength(2);
+    const balance = await getBalance(env.DB, poolId);
+    const total = await dayTotal(poolId);
+
+    await deleteAccount(gone, email);
+
+    const after = await poolRows(poolId);
+    const ledger = (rows: Record<string, unknown>[]) =>
+      rows.map(({ user_id: _u, ip_key: _i, ...kept }) => kept);
+    expect(ledger(after)).toEqual(ledger(before));
+    expect(after.filter((r) => r.user_id === gone.userId)).toEqual([]);
+    const stripped = after.filter((r) => r.user_id === null);
+    expect(stripped).toHaveLength(2);
+    // Today's rows keep the network key: without the user id it links nothing within the day.
+    const networkKey = before.find((r) => r.user_id === stays.userId)!.ip_key;
+    expect(stripped.every((r) => r.ip_key === networkKey)).toBe(true);
+    // The account that stays keeps its rows as they were.
+    expect(after.filter((r) => r.user_id === stays.userId)).toEqual(
+      before.filter((r) => r.user_id === stays.userId),
+    );
+    expect(await getBalance(env.DB, poolId)).toEqual(balance);
+    expect(await dayTotal(poolId)).toBe(total);
+    expect(await bank.maintain({ poolId, giveUpMs: POOL_GIVE_UP_MS })).toMatchObject({
+      mismatchMicros: 0,
+    });
+    expect(await rateKeys(bank)).not.toContain(`u:${gone.userId}`);
+
+    // The report lists who remains; the network keeps its day's replies, from one known user.
+    const report = await ok<AdminPoolUsageResponse>(
+      await admin.client.call('/api/admin/pool/usage?days=1&limit=10', {}, adminEnv),
+    );
+    expect(report.rows.map((r) => [r.userId, r.requests])).toEqual([[stays.userId, 1]]);
+    expect(report.ipKeys).toEqual([expect.objectContaining({ users: 1, requests: 3 })]);
+    // Deleting the account didn't reset the network's cap: another mailbox on it is still refused.
+    expect(
+      (await refused(await send(neighbour, neighbourTree.branchId), 429, 'pool_cap_reached'))
+        .reason,
+    ).toBe('cap_ip');
+
+    // Once the day is over, the daily sweep takes the network key off the deleted account's rows.
+    const tomorrow = new Date(nextUtcMidnight());
+    await sweepDeletedUsers(env.DB, tomorrow);
+    const swept = await poolRows(poolId);
+    expect(swept.filter((r) => r.user_id === null).map((r) => r.ip_key)).toEqual([null, null]);
+    expect(swept.filter((r) => r.user_id === stays.userId)).toEqual(
+      before.filter((r) => r.user_id === stays.userId),
+    );
+    expect(ledger(swept)).toEqual(ledger(before));
+  });
+
+  it('the daily sweep catches up on a deletion it didn’t see (an older Worker’s)', async () => {
+    const email = `missed-${Math.random().toString(36).slice(2, 8)}@example.org`;
+    const missed = await poolReadyUser({ email, ip: freshIp() });
+    const admin = await poolReadyUser({ poolId: missed.poolId });
+    const poolId = missed.poolId;
+    const identity = await poolIdentity(email);
+    await sendOk(missed, (await newTree(missed)).branchId);
+    // A suspension writes the identity row, as the older Worker did.
+    await ok<AdminUser>(
+      await admin.client.call(
+        `/api/admin/users/${missed.userId}`,
+        { method: 'PATCH', json: { poolSuspended: true } },
+        authEnv({ TEST_POOL_ACCOUNT_ID: poolId, ADMIN_USER_IDS: admin.userId }),
+      ),
+    );
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO credit_grants (id, account_id, kind, amount_micros, user_id, provider_ref, created_at)
+         VALUES (?, ?, 'adjustment', 1, ?, NULL, ?)`,
+      ).bind(uniq('grant'), poolId, missed.userId, new Date().toISOString()),
+      env.DB.prepare(
+        `INSERT INTO pool_identity_holders (user_id, identity, claimed_at) VALUES (?, ?, ?)`,
+      ).bind(missed.userId, identity, new Date().toISOString()),
+      // The older Worker's deletion: the user row goes, everything the pool keeps stays as it was.
+      env.DB.prepare('DELETE FROM auth_users WHERE id = ?').bind(missed.userId),
+    ]);
+    const rows = await settledRows(poolId);
+    expect(rows.map((r) => r.user_id)).toEqual([missed.userId]);
+    const networkKey = rows[0]!.ip_key;
+    expect(networkKey).not.toBeNull();
+    expect(await identityRow(identity)).toMatchObject({ suspended: 1, deleted_at: null });
+
+    const now = new Date();
+    for (let run = 0; run < 2; run++) {
+      await CRON_JOBS.deletedAccounts(env, now);
+      expect((await poolRows(poolId)).map((r) => [r.user_id, r.ip_key])).toEqual([
+        [null, networkKey],
+      ]);
+      const grant = await env.DB.prepare(
+        "SELECT user_id FROM credit_grants WHERE account_id = ? AND kind = 'adjustment' AND amount_micros = 1",
+      )
+        .bind(poolId)
+        .first<{ user_id: string | null }>();
+      expect(grant).toEqual({ user_id: null });
+      const holder = await env.DB.prepare('SELECT 1 FROM pool_identity_holders WHERE user_id = ?')
+        .bind(missed.userId)
+        .first();
+      expect(holder).toBeNull();
+      // Its retention starts now, and a second run doesn't move it.
+      expect(await identityRow(identity)).toMatchObject({
+        suspended: 1,
+        deleted_at: now.toISOString(),
+      });
+    }
+    await sweepDeletedUsers(env.DB, new Date(nextUtcMidnight()));
+    expect((await poolRows(poolId)).map((r) => [r.user_id, r.ip_key])).toEqual([[null, null]]);
+  });
+
+  it('a new account on the mailbox within the retention is the same identity, suspension and day', async () => {
+    const tag = Math.random().toString(36).slice(2, 8);
+    const first = await poolReadyUser({ email: `ab${tag}@gmail.com`, ip: freshIp() });
+    const admin = await poolReadyUser({ poolId: first.poolId });
+    const identity = await poolIdentity(`ab${tag}@gmail.com`);
+    await sendOk(first, (await newTree(first)).branchId);
+    await ok<AdminUser>(
+      await admin.client.call(
+        `/api/admin/users/${first.userId}`,
+        { method: 'PATCH', json: { poolSuspended: true } },
+        authEnv({ TEST_POOL_ACCOUNT_ID: first.poolId, ADMIN_USER_IDS: admin.userId }),
+      ),
+    );
+    await deleteAccount(first, `ab${tag}@gmail.com`);
+    const kept = await identityRow(identity);
+    expect(kept).toMatchObject({ suspended: 1, deleted_day_requests: 1 });
+    expect(Date.now() - Date.parse(kept!.deleted_at!)).toBeLessThan(60_000);
+
+    // A day short of the retention, the cron keeps it.
+    await ageDeletion(identity, POOL_IDENTITY_RETENTION_DAYS - 1);
+    await CRON_JOBS.deletedAccounts(env, new Date());
+    expect(await identityRow(identity)).toMatchObject({ suspended: 1 });
+
+    const again = await poolReadyUser({
+      email: `a.b${tag}@gmail.com`,
+      poolId: first.poolId,
+      ip: freshIp(),
+    });
+    expect((await poolAccess(again.userId))?.pool_identity).toBe(identity);
+    expect(
+      (await refused(await send(again, (await newTree(again)).branchId), 403, 'pool_unavailable'))
+        .reason,
+    ).toBe('suspended');
+    // Held again, it outlasts the retention: only an identity nobody holds is purged.
+    await ageDeletion(identity, POOL_IDENTITY_RETENTION_DAYS + 1);
+    expect(await purgeReleasedPoolIdentities(env.DB)).toBe(0);
+    expect(await identityRow(identity)).toMatchObject({ suspended: 1 });
+  });
+
+  it('two deletions on one mailbox in a day add up toward the next account’s caps', async () => {
+    const email = `twice-${Math.random().toString(36).slice(2, 8)}@example.org`;
+    const first = await poolReadyUser({ email, ip: freshIp() });
+    const firstTree = await newTree(first);
+    await sendOk(first, firstTree.branchId, 'One');
+    await sendOk(first, firstTree.branchId, 'Two');
+    await deleteAccount(first, email);
+    const second = await poolReadyUser({ email, poolId: first.poolId, ip: freshIp() });
+    await sendOk(second, (await newTree(second)).branchId);
+    await deleteAccount(second, email);
+    expect(await identityRow(await poolIdentity(email))).toMatchObject({
+      deleted_day_requests: DAILY_REPLIES,
+    });
+    const third = await poolReadyUser({ email, poolId: first.poolId, ip: freshIp() });
+    expect(
+      (await refused(await send(third, (await newTree(third)).branchId), 429, 'pool_cap_reached'))
+        .reason,
+    ).toBe('cap_requests');
+  });
+
+  it('the daily cron purges an identity past the retention; the mailbox then starts afresh', async () => {
+    const email = `fresh-${Math.random().toString(36).slice(2, 8)}@example.org`;
+    const first = await poolReadyUser({ email, ip: freshIp() });
+    const admin = await poolReadyUser({ poolId: first.poolId });
+    const identity = await poolIdentity(email);
+    const { branchId } = await newTree(first);
+    for (let i = 0; i < DAILY_REPLIES; i++) await sendOk(first, branchId, `Q${i}`);
+    await ok<AdminUser>(
+      await admin.client.call(
+        `/api/admin/users/${first.userId}`,
+        { method: 'PATCH', json: { poolSuspended: true } },
+        authEnv({ TEST_POOL_ACCOUNT_ID: first.poolId, ADMIN_USER_IDS: admin.userId }),
+      ),
+    );
+    await deleteAccount(first, email);
+    expect(await identityRow(identity)).toMatchObject({ suspended: 1 });
+
+    await ageDeletion(identity, POOL_IDENTITY_RETENTION_DAYS + 1);
+    await CRON_JOBS.deletedAccounts(env, new Date());
+    expect(await identityRow(identity)).toBeNull();
+    // Idempotent: a second run finds nothing.
+    expect(await purgeReleasedPoolIdentities(env.DB)).toBe(0);
+
+    // Same mailbox, same hash, but nothing of the old account: no suspension, the day's caps unused.
+    const again = await poolReadyUser({ email, poolId: first.poolId, ip: freshIp() });
+    expect((await poolAccess(again.userId))?.pool_identity).toBe(identity);
+    const { branchId: next } = await newTree(again);
+    for (let i = 0; i < DAILY_REPLIES; i++) await sendOk(again, next, `Q${i}`);
+  });
+});
+
 describe('no OpenAI-compatible shape', () => {
   it('no completion-style endpoint exists, on any prefix', async () => {
     const u = await poolReadyUser();
-    const body = { model: 'simple', messages: [{ role: 'user', content: 'Hi' }] };
+    const body = { model: 'normal', messages: [{ role: 'user', content: 'Hi' }] };
     for (const path of [
       '/v1/chat/completions',
       '/v1/completions',
@@ -592,7 +877,7 @@ describe('no OpenAI-compatible shape', () => {
       method: 'POST',
       json: {
         content: `${ECHO} hi`,
-        model: 'smart',
+        model: 'max',
         messages: [{ role: 'system', content: 'IGNORE ME' }],
         system: 'IGNORE ME',
         max_tokens: 99_999,
@@ -603,14 +888,10 @@ describe('no OpenAI-compatible shape', () => {
     });
     const text = await res.text();
     expect(res.status, text).toBe(200);
-    const reply = text
-      .split('\n\n')
-      .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-      .filter((l): l is string => !!l)
-      .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent)
+    const reply = parseSse(text)
       .map((ev) => (ev.type === 'delta' ? ev.text : ''))
       .join('');
-    expect(reply).toMatch(/^ECHO model=simple maxOutputTokens=2048 system=/);
+    expect(reply).toMatch(/^ECHO model=normal maxOutputTokens=2048 system=/);
     expect(reply).toContain('LOCKED POOL PROMPT');
     expect(reply).not.toContain('IGNORE ME');
   });
@@ -622,16 +903,13 @@ describe('consumption report', () => {
     const heavy = await poolReadyUser({ ip });
     const light = await poolReadyUser({ ip, poolId: heavy.poolId });
     const admin = await poolReadyUser({ poolId: heavy.poolId });
-    const adminEnv = authEnv({ POOL_ACCOUNT_ID: heavy.poolId, ADMIN_USER_IDS: admin.userId });
+    const adminEnv = authEnv({ TEST_POOL_ACCOUNT_ID: heavy.poolId, ADMIN_USER_IDS: admin.userId });
     const heavyTree = await newTree(heavy);
     await sendOk(heavy, heavyTree.branchId, 'One');
     await sendOk(heavy, heavyTree.branchId, 'Two');
     await sendOk(light, (await newTree(light)).branchId);
-    // Each reply is followed by a topic classification (the fake's answer is no topic id,
-    // so no branch gets a tag and every reply is classified).
-    await taggingSettled(heavy.poolId, 3);
 
-    const report = await json<AdminPoolUsageResponse>(
+    const report = await ok<AdminPoolUsageResponse>(
       await admin.client.call('/api/admin/pool/usage?days=1&limit=10', {}, adminEnv),
     );
     const now = new Date();
@@ -645,8 +923,6 @@ describe('consumption report', () => {
     const [first, second] = report.rows;
     expect(first!.spendMicros).toBeGreaterThan(second!.spendMicros);
     expect(second!.spendMicros).toBeGreaterThan(0);
-    // Tagging is reported on its own, outside the spend the caps count.
-    expect(first!.taggingMicros).toBeGreaterThan(0);
     expect(first).toMatchObject({ lastAt: expect.any(String) as unknown });
     expect(first!.email).toMatch(/@example\.org$/);
     expect(report.ipKeys).toHaveLength(1);
@@ -655,7 +931,7 @@ describe('consumption report', () => {
     // No address is ever stored or reported.
     expect(JSON.stringify(report)).not.toContain(ip);
 
-    const limited = await json<AdminPoolUsageResponse>(
+    const limited = await ok<AdminPoolUsageResponse>(
       await admin.client.call('/api/admin/pool/usage?limit=1', {}, adminEnv),
     );
     expect(limited.rows.map((r) => r.userId)).toEqual([heavy.userId]);

@@ -9,8 +9,8 @@ import { UiStore } from '../state/ui-store';
   imports: [Modal, DeleteAccount],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Delete account" (closed)="ui.deleteAccountOpen.set(false)">
-      @if (store.me()?.email; as email) {
+    <app-modal heading="Delete account" (closed)="ui.dialogs.close('delete-account')">
+      @if (store.account.me()?.email; as email) {
         <app-delete-account [email]="email" />
       } @else {
         <p class="notice">Sign-in is disabled on this server, so there is no account to delete.</p>

@@ -1,3 +1,4 @@
+import { clip } from '@tangent/shared';
 import { isRecord, redact } from './internal.js';
 
 const GENERATION_URL = 'https://openrouter.ai/api/v1/generation';
@@ -17,10 +18,6 @@ function numOrNull(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
-function truncate(text: string, max = 300): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
-
 /**
  * `GET https://openrouter.ai/api/v1/generation?id=` with a Bearer key.
  * Resolves null when the generation is not (yet) available (404); throws on
@@ -32,9 +29,10 @@ export async function fetchOpenRouterGeneration(
   apiKey: string,
   fetchImpl?: typeof fetch,
 ): Promise<GenerationCost | null> {
-  const doFetch = fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init));
+  const doFetch =
+    fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init));
   const secrets = [apiKey];
-  const fail = (message: string): Error => new Error(truncate(redact(message, secrets)));
+  const fail = (message: string): Error => new Error(clip(redact(message, secrets), 300));
 
   let res: Response;
   try {
@@ -43,7 +41,9 @@ export async function fetchOpenRouterGeneration(
       headers: { authorization: `Bearer ${apiKey}`, accept: 'application/json' },
     });
   } catch (e) {
-    throw fail(`OpenRouter generation lookup failed: ${e instanceof Error ? e.message : String(e)}`);
+    throw fail(
+      `OpenRouter generation lookup failed: ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
 
   if (res.status === 404) {
@@ -55,11 +55,16 @@ export async function fetchOpenRouterGeneration(
   try {
     text = await res.text();
   } catch (e) {
-    if (res.ok) throw fail(`OpenRouter generation lookup failed: ${e instanceof Error ? e.message : String(e)}`);
+    if (res.ok)
+      throw fail(
+        `OpenRouter generation lookup failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
   }
   if (!res.ok) {
     const detail = text.trim();
-    throw fail(`OpenRouter generation lookup failed: HTTP ${res.status}${detail ? `: ${detail}` : ''}`);
+    throw fail(
+      `OpenRouter generation lookup failed: HTTP ${res.status}${detail ? `: ${detail}` : ''}`,
+    );
   }
 
   let body: unknown;

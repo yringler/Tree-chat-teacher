@@ -1,6 +1,13 @@
 import { inject, Injectable } from '@angular/core';
-import type { LoginOptionsResponse, MeResponse } from '@tangent/shared';
-import { ApiClient, ApiError, isSessionExpired } from './api-client';
+import {
+  API_ROUTES,
+  AUTH_BASE_PATH,
+  REMEMBER_COOKIE,
+  routeUrl,
+  type LoginOptionsResponse,
+  type MeResponse,
+} from '@tangent/shared';
+import { ApiClient, ApiError, hasCode } from './api-client';
 import { API_FETCH, defaultApiFetch } from './api-fetch';
 import { AUTH_CLIENT, authErrorMessage as messageFor } from './auth-client';
 import { APP_PATHS } from './app-paths';
@@ -15,8 +22,6 @@ export interface PasskeyInfo {
   backedUp: boolean;
 }
 
-/** Must match REMEMBER_COOKIE in apps/worker/src/auth/auth.ts. */
-const REMEMBER_COOKIE = 'tangent-remember';
 const REMEMBER_PREF_KEY = 'tangent.rememberMe';
 /** Long enough to finish an OAuth round trip or open the magic-link email. */
 const REMEMBER_COOKIE_SECONDS = 15 * 60;
@@ -41,7 +46,7 @@ export class AuthService {
 
   async loginOptions(): Promise<LoginOptionsResponse> {
     const transport = this.transport;
-    const res = await transport('/api/login-options', { credentials: 'same-origin' });
+    const res = await transport(routeUrl(API_ROUTES.loginOptions), { credentials: 'same-origin' });
     if (!res.ok) throw new Error(`Couldn't load sign-in options (${res.status})`);
     return (await res.json()) as LoginOptionsResponse;
   }
@@ -57,7 +62,7 @@ export class AuthService {
       if (!me.devMode) void this.hasSession().catch(() => undefined);
       return me;
     } catch (err) {
-      if (isSessionExpired(err)) {
+      if (hasCode(err, 'unauthorized')) {
         location.replace(this.paths.login);
         return null;
       }
@@ -99,7 +104,7 @@ export class AuthService {
       // Storage unavailable: the cookie below still carries the choice.
     }
     const secure = location.protocol === 'https:' ? '; Secure' : '';
-    document.cookie = `${REMEMBER_COOKIE}=${remember ? '1' : '0'}; Path=/api/auth; Max-Age=${REMEMBER_COOKIE_SECONDS}; SameSite=Lax${secure}`;
+    document.cookie = `${REMEMBER_COOKIE}=${remember ? '1' : '0'}; Path=${AUTH_BASE_PATH}; Max-Age=${REMEMBER_COOKIE_SECONDS}; SameSite=Lax${secure}`;
   }
 
   // ---- Sign-in. Each resolves with an error message, or navigates away on success.
@@ -137,7 +142,13 @@ export class AuthService {
     return null;
   }
 
+  /**
+   * Forgets the user's provider keys (an HttpOnly cookie, so only the server
+   * can), then ends the session. Sign-out clears the keys too; forgetting
+   * them first means a sign-out that fails leaves none behind either.
+   */
   async signOut(): Promise<void> {
+    await this.api.forgetKey().catch(() => undefined);
     await this.client.signOut();
     location.assign(this.paths.login);
   }

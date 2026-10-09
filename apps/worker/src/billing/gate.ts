@@ -1,19 +1,11 @@
-// The one gate in front of every route that generates (docs/pool/PLAN.md §3):
+// The one gate in front of every route that generates:
 // sends, reviews, compare candidates and `context?resolve=true`. It decides who pays (personal
 // credit, the open pool or the user's own key) and checks that they can,
 // before anything is written or sent upstream.
+import { DomainError, PoolBlockedError, poolBlock, ValidationError } from '@tangent/core';
 import {
-  DomainError,
-  PoolBlockedError,
-  PoolConsentRequiredError,
-  poolBlock,
-  ValidationError,
-} from '@tangent/core';
-import {
-  BRANCH_FUNDINGS,
+  learnPayer,
   type BranchFunding,
-  type DefaultRouteFacts,
-  type MembershipInfo,
   type PoolBlockDetails,
   type ProviderRoute,
 } from '@tangent/shared';
@@ -21,22 +13,24 @@ import { clientIp, withPoolParams } from '../auth/account.js';
 import { assertGenerationAllowed, enforceRateLimit } from '../byok/guard.js';
 import type { UserKeys } from '../byok/keys.js';
 import { appConfig } from '../config.js';
+import type { SqlRow } from '../db/rows.js';
+import type { authUsers, poolIdentities } from '../db/schema.js';
 import {
-  isMetered,
+  callPayer,
   isPoolFunded,
   type AccountContext,
   type AppContext,
   type AppEnv,
 } from '../env.js';
-import { hasCurrentConsent } from '../pool/consent.js';
 import { claimPoolIdentity, identitySuspended, poolIdentity } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
 import { poolAdmitRequest, poolBlockDetails } from '../pool/params.js';
-import { creditSold, poolAvailable, registryFor, routeRegistryFor } from '../services.js';
+import { creditSold, poolAvailable } from '../availability.js';
+import { registryFor, routeRegistryFor } from '../registries.js';
 import { LEARN_KEY_LABEL } from '../simple-mode.js';
 import { getBalance } from './ledger.js';
-import { assertMember, membershipFor } from './membership.js';
-import { assertCanSpend, usageHoldMicros } from './service.js';
+import { assertMember, needsMembership } from './membership.js';
+import { assertCanSpend, requireCreditPrice, USAGE_HOLD_MICROS } from './service.js';
 
 /** What a generating request is about to do. */
 export interface GenerateCheck {
@@ -77,24 +71,31 @@ export async function resolveFunding(
     purpose === 'review' ||
     purpose === 'compare' ||
     account.mode !== 'simple' ||
-    account.funding !== 'personal'
+    account.payer !== 'credit'
   )
     return account;
   if (!account.userId || !poolAvailable(c.env)) return account;
   const { balanceMicros, heldMicros } = await getBalance(c.env.DB, account.billingAccountId);
-  if (balanceMicros - heldMicros >= usageHoldMicros(c.env)) return account;
+  // The rule the Learn client asks by, so the payer it shows is the one used.
+  const payer = learnPayer({
+    chosen: 'credit',
+    creditOffered: true,
+    creditCanPay: balanceMicros - heldMicros >= USAGE_HOLD_MICROS,
+    creditBuyable: creditSold(c.env),
+    poolOn: true,
+    ownKeyReady: false,
+  });
+  if (payer !== 'pool') return account;
   return withPoolParams(c.env, account, clientIp(c.req.raw.headers), true);
 }
 
-interface PoolAccessRow {
-  email: string;
-  created_at: number;
-  pool_suspended: number;
-  pool_verified_at: string | null;
-  pool_identity: string | null;
+type PoolAccessRow = Pick<
+  SqlRow<typeof authUsers>,
+  'email' | 'created_at' | 'pool_suspended' | 'pool_verified_at' | 'pool_identity'
+> & {
   /** `pool_identities.suspended` of the user's identity (a deleted holder's suspension). */
-  identity_suspended: number | null;
-}
+  identity_suspended: SqlRow<typeof poolIdentities>['suspended'] | null;
+};
 
 const POOL_ACCESS_MESSAGES: Partial<Record<PoolBlockDetails['reason'], string>> = {
   suspended: 'Open pool access is suspended for this account',
@@ -113,7 +114,7 @@ function refuseAccess(reason: PoolBlockDetails['reason']): never {
 }
 
 /**
- * The pool's account gates (docs/pool/PLAN.md §S4), in order, each a 403
+ * The pool's account gates, in order, each a 403
  * `pool_unavailable` with its reason: a real signed-in user (the dev bypass
  * has none to cap); not `suspended` by an admin (the account, or its pool
  * identity, when a suspended account was deleted); a Turnstile pass on record
@@ -139,7 +140,7 @@ export async function assertPoolAccess(
   if (row.pool_suspended || row.identity_suspended) refuseAccess('suspended');
   if (!row.pool_verified_at) refuseAccess('verify');
   if (!row.pool_identity) {
-    if ((await claimPoolIdentity(env.DB, userId, row.email, now)) === 'duplicate')
+    if ((await claimPoolIdentity(env.DB, userId, row.email)) === 'duplicate')
       refuseAccess('duplicate_identity');
     // A mailbox whose earlier account was suspended, then deleted.
     if (await identitySuspended(env.DB, await poolIdentity(row.email))) refuseAccess('suspended');
@@ -149,91 +150,10 @@ export async function assertPoolAccess(
 }
 
 /**
- * True when this request needs the membership (once the fee is on): any call
- * that isn't metered, that is on the user's own keys (by funding, never by
- * provider id), in either app. In Learn that is a request paid with the
- * user's key (`isMetered` by the request's payment, whatever `funding`
- * says); in power, a review counts both its reviewer (`funding`) and its
- * branch's summaries (`alsoSpendsOn`), so any own-key call in it needs the
- * membership, and a context resolve checks the branch's funding. Tangent
- * credit never needs it, to buy (`startTopUpCheckout`) or to spend, in either
- * app (it carries the markup instead), and neither does the open pool, which
- * returns before this is asked. See docs/DECISIONS.md "One membership rule: own keys".
- */
-export function needsMembership(
-  account: AccountContext,
-  check: Pick<GenerateCheck, 'funding' | 'alsoSpendsOn'>,
-): boolean {
-  const fundings = [check.funding, check.alsoSpendsOn?.funding].filter(
-    (f): f is BranchFunding => f !== undefined,
-  );
-  return fundings.some((f) => !isMetered(account, f));
-}
-
-/**
- * The fundings on which generating in `account` needs the membership,
- * whatever the user holds, and nothing at all where no membership is required
- * (`membership.required` false: the fee off, a server without billing, the
- * dev bypass). Power: `needsMembership` asked of each funding, so
- * `['own-key']` (plus `credit` where credit isn't offered, which the gate also
- * asks the membership for first). Learn: `['own-key']`, whichever payment this
- * request carries, since Learn picks its payment per request rather than per
- * branch and only its own-key requests need the membership. `/api/me` sends
- * it as `MeResponse.membershipNeededFor`, so the apps show a branch or lesson
- * read-only by the server's rule rather than a copy of it.
- */
-export function membershipNeededFor(
-  account: AccountContext,
-  membership: Pick<MembershipInfo, 'required'>,
-): BranchFunding[] {
-  if (!membership.required) return [];
-  if (account.mode === 'simple') return ['own-key'];
-  return BRANCH_FUNDINGS.filter((funding) => needsMembership(account, { funding }));
-}
-
-/**
- * What the default route of a new power tree needs to know beyond the
- * provider lists (`pickDefaultRoute` in `@tangent/shared`, docs/DECISIONS.md
- * "Default route of a new tree"), asked by `ChatService` only for a new tree
- * that names no route, where credit is offered (`account.builtIn`):
- * - `creditCanPay`: the available balance covers one call's hold, exactly
- *   what `assertCanSpend` asks of a send, so a tree started on credit gets
- *   its first reply rather than a 402;
- * - `creditBuyable`: more credit can be bought (`creditSold`: credit is
- *   offered and the payment provider sells top-ups, what the top-up checkout
- *   asks), so credit is a way forward even at a zero balance. Where credit
- *   only comes from operator grants, an empty balance stays empty, and a
- *   locked own key (which leads to the membership) is the better start;
- * - `ownKeyLocked`: own keys need the membership the user lacks (what
- *   `/api/me`'s `membershipNeededFor` and the membership tell the apps).
- * Two queries (the balance, the membership), and none where credit isn't
- * offered (credit can neither pay nor be bought; nothing else depends on the lock).
- */
-export async function defaultRouteFacts(
-  env: AppEnv,
-  account: AccountContext,
-): Promise<DefaultRouteFacts> {
-  if (account.mode === 'simple' || !account.builtIn)
-    return { creditCanPay: false, creditBuyable: false, ownKeyLocked: false };
-  const [{ balanceMicros, heldMicros }, membership] = await Promise.all([
-    getBalance(env.DB, account.billingAccountId),
-    membershipFor(env, account),
-  ]);
-  return {
-    creditCanPay: balanceMicros - heldMicros >= usageHoldMicros(env),
-    creditBuyable: creditSold(env),
-    ownKeyLocked:
-      membership.status === 'inactive' &&
-      membershipNeededFor(account, membership).includes('own-key'),
-  };
-}
-
-/**
  * Checks that the caller may generate, in order: who pays (`resolveFunding`);
  * then either the pool's own rules, which need no membership (no reviews or compare, the
- * message length, the account gates of `assertPoolAccess`, the acknowledgment
- * of the current pool notice (403 `pool_consent_required`, gate step 5), and
- * for a context resolve PoolBank's rate check; a reply itself is reserved, or refused with
+ * message length, the account gates of `assertPoolAccess`, and for a context
+ * resolve PoolBank's rate check; a reply itself is reserved, or refused with
  * 402/429, by the tree's Durable Object before any node is written) or the
  * existing checks: the membership where `needsMembership` says so (the
  * user's own keys, in Learn or power; Tangent credit needs none), allowed
@@ -247,7 +167,7 @@ export async function assertCanGenerate(
   const account = await resolveFunding(c, c.var.account, check.purpose);
   c.set('account', account);
 
-  if (account.funding === 'pool') {
+  if (account.mode === 'simple' && account.payer === 'pool') {
     if (check.purpose === 'review')
       throw new DomainError('pool_unavailable', 'Reviews are not available on the open pool');
     if (check.purpose === 'compare')
@@ -259,7 +179,7 @@ export async function assertCanGenerate(
       throw new ValidationError(
         `Messages on the open pool can be at most ${pool.maxMessageChars} characters`,
       );
-    // Whatever the branch says, a pool call runs on the pool model (services.ts pins it).
+    // Whatever the branch says, a pool call runs on the pool model (registries.ts pins it).
     assertGenerationAllowed(
       registryFor(c.env, account, undefined, { generating: true }),
       check.providerId,
@@ -267,12 +187,10 @@ export async function assertCanGenerate(
       { userKeys: false },
     );
     await assertPoolAccess(c.env, account.userId);
-    if (!(await hasCurrentConsent(c.env.DB, account.userId!, pool.noticeVersion)))
-      throw new PoolConsentRequiredError(pool.noticeVersion);
     if (check.purpose === 'resolve') {
       // A send is admitted by its reply's reservation; a resolve reserves nothing itself.
       const admitted = await poolBank(c.env, pool.accountId).admit(
-        poolAdmitRequest(pool, account.userId!),
+        poolAdmitRequest(pool, account.userId),
       );
       if (!admitted.ok) throw new PoolBlockedError(poolBlockDetails(admitted));
     }
@@ -287,12 +205,15 @@ export async function assertCanGenerate(
       check.providerId,
       check.model,
       {
-        userKeys: !isMetered(account, check.funding),
+        userKeys: callPayer(account, check.funding) === 'own-key',
         keyLabel: account.mode === 'simple' ? LEARN_KEY_LABEL : undefined,
       },
     );
   }
   await assertCanSpend(c.env, account, check.funding);
+  // A credit call is held at its model's price: one without a known price can't run on credit.
+  if (check.model !== null && callPayer(account, check.funding) !== 'own-key')
+    await requireCreditPrice(c.env, check.model);
   if (check.alsoSpendsOn !== undefined && check.alsoSpendsOn.funding !== check.funding)
     await assertCanSpend(c.env, account, check.alsoSpendsOn.funding);
   await enforceRateLimit(c, check.keys, 'chat', check.funding);

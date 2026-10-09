@@ -10,15 +10,10 @@
 //   `validateEvent` over the raw body. `order.paid`, `refund.created/updated`
 //   and `subscription.*` are mapped; every other signed type is ignored.
 // - Disputes have no webhooks: `disputes.poll` lists them for the cron.
-import {
-  PolarClientError,
-  PolarError,
-  PolarNetworkError,
-  PolarRateLimitError,
-  PolarServerError,
-} from '@polar-sh/sdk';
+import { PolarClientError, PolarRateLimitError } from '@polar-sh/sdk';
 import { webhooks, type models } from '@polar-sh/sdk/2026-10';
 import {
+  MEMBERSHIP_KIND,
   PaymentProviderError,
   WebhookSignatureError,
   type DisputeEvent,
@@ -31,12 +26,12 @@ import type { PolarConfig } from './config.js';
 import {
   CREDITS_KIND,
   disputeEvent,
-  MEMBERSHIP_KIND,
   membershipEvent,
   orderFacts,
   orderIdOf,
   refundEvent,
 } from './map.js';
+import { logEvent } from '../../../log.js';
 
 /** Bumped when the checkout metadata this adapter writes changes shape. */
 const METADATA_VERSION = 1;
@@ -64,22 +59,13 @@ const SUBSCRIPTION_EVENTS = new Set<string>([
   'subscription.cycled',
 ]);
 
-/** Any SDK failure as a PaymentProviderError (429, 5xx and network errors are retryable). */
+/** Any SDK failure (an API error, the network, a timeout) as a PaymentProviderError. */
 function providerError(action: string, err: unknown): PaymentProviderError {
   if (err instanceof PaymentProviderError) return err;
   if (err instanceof PolarRateLimitError)
-    return new PaymentProviderError(`Polar ${action}: rate limited`, 429, true);
-  if (err instanceof PolarServerError)
-    return new PaymentProviderError(`Polar ${action}: ${err.message}`, err.statusCode, true);
-  if (err instanceof PolarNetworkError)
-    return new PaymentProviderError(`Polar ${action}: ${err.message}`, null, true);
-  if (err instanceof PolarClientError)
-    return new PaymentProviderError(`Polar ${action}: ${err.message}`, err.statusCode, false);
-  if (err instanceof PolarError)
-    return new PaymentProviderError(`Polar ${action}: ${err.message}`, null, false);
+    return new PaymentProviderError(`Polar ${action}: rate limited`);
   const message = err instanceof Error ? err.message : String(err);
-  // Timeouts surface as DOMException (AbortSignal.timeout): worth a retry.
-  return new PaymentProviderError(`Polar ${action}: ${message}`, null, true);
+  return new PaymentProviderError(`Polar ${action}: ${message}`);
 }
 
 function isNotFound(err: unknown): boolean {
@@ -104,7 +90,7 @@ function isUnknownCustomer(err: unknown): boolean {
 }
 
 function notConfigured(what: string): PaymentProviderError {
-  return new PaymentProviderError(`Polar: no ${what} product is configured`, null, false);
+  return new PaymentProviderError(`Polar: no ${what} product is configured`);
 }
 
 export function createPolarProvider(config: PolarConfig): PaymentProvider {
@@ -166,7 +152,6 @@ export function createPolarProvider(config: PolarConfig): PaymentProvider {
           metadata: {
             kind: CREDITS_KIND,
             target: 'personal',
-            accountId: input.accountId,
             userId: input.buyer.userId,
             v: METADATA_VERSION,
           },
@@ -258,7 +243,7 @@ export function createPolarProvider(config: PolarConfig): PaymentProvider {
         if (err instanceof webhooks.PolarWebhookUnknownTypeError)
           return { kind: 'ignored', deliveryId, reason: `unknown type ${err.eventType ?? '?'}` };
         // Signed, but unreadable: retrying the same bytes can't help.
-        console.error(JSON.stringify({ event: 'polar_webhook_unreadable', deliveryId }));
+        logEvent('error', 'polar_webhook_unreadable', { deliveryId });
         return { kind: 'ignored', deliveryId, reason: 'unreadable payload' };
       }
       if (!deliveryId) throw new WebhookSignatureError('Missing webhook-id');
@@ -304,9 +289,7 @@ function toEvents(payload: webhooks.WebhookPayload, config: PolarConfig): Paymen
       const sub = payload.data as models.Subscription;
       const event = membershipEvent(sub, config, occurredAt);
       if (!event && sub.metadata?.['kind'] === MEMBERSHIP_KIND)
-        console.error(
-          JSON.stringify({ event: 'polar_membership_without_user', subscriptionId: sub.id }),
-        );
+        logEvent('error', 'polar_membership_without_user', { subscriptionId: sub.id });
       return event ? [{ ...event, provider: 'polar' }] : [];
     }
   }

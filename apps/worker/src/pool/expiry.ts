@@ -1,18 +1,24 @@
-// Expiry of stale open pool reservations (docs/pool/PLAN.md §1.2): run
+// Expiry of stale open pool reservations: run
 // by PoolBank's alarm and, as a backstop, by the cron. A reservation older
 // than its TTL belongs to a request that crashed or was evicted; settling it
 // only raises the pool's available balance, so this takes no lock and never
 // blocks a reservation.
 import { fetchOpenRouterGeneration, type GenerationCost } from '@tangent/providers';
-import { simpleApiKey } from '../billing/reconcile.js';
 import { settleUsage } from '../billing/usage-store.js';
+import type { SqlRow } from '../db/rows.js';
+import type { usageEvents } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
+import { builtInApiKey } from '../simple-mode.js';
+import type { PoolExpiryParams } from './pool-bank.js';
 import { poolSettlement } from './settle-policy.js';
+import { logEvent } from '../log.js';
 
 /** One generation lookup per expired row, with this timeout: an alarm never waits on a slow upstream for long. */
 export const EXPIRY_LOOKUP_TIMEOUT_MS = 5_000;
 /** How soon the alarm comes back for rows whose cost is still unknown. */
-export const EXPIRY_RETRY_MS = 60_000;
+const EXPIRY_RETRY_MS = 60_000;
+/** When an expiry pass left more expired rows than its batch, the alarm comes back after this. */
+const REARM_SOON_MS = 1_000;
 
 export interface ExpiryOptions {
   /** Reservations older than this are expired. */
@@ -36,15 +42,10 @@ export interface ExpiryResult {
   more: boolean;
 }
 
-interface ExpiredRow {
-  id: string;
-  generation_id: string | null;
-  dispatched_at: string | null;
-  fee_bps: number;
-  markup_bps: number;
-  created_at: string;
-  lookup_only: number;
-}
+type ExpiredRow = Pick<
+  SqlRow<typeof usageEvents>,
+  'id' | 'generation_id' | 'dispatched_at' | 'fee_bps' | 'created_at'
+> & { lookup_only: number };
 
 function timedFetch(fetchImpl: typeof fetch | undefined): typeof fetch {
   const inner = fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
@@ -60,16 +61,12 @@ async function lookupOnce(
   generationId: string,
   fetchImpl: typeof fetch | undefined,
 ): Promise<GenerationCost | null> {
-  const key = simpleApiKey(env);
+  const key = builtInApiKey(env);
   if (!key) return null;
   try {
     return await fetchOpenRouterGeneration(generationId, key, timedFetch(fetchImpl));
   } catch (e) {
-    console.warn(
-      'Pool expiry: generation lookup failed',
-      generationId,
-      e instanceof Error ? e.message : e,
-    );
+    logEvent('warn', 'generation_lookup_failed', { generationId, source: 'pool_expiry', error: e });
     return null;
   }
 }
@@ -102,7 +99,7 @@ export async function expirePoolReservations(
   const giveUpCut = new Date(nowMs - options.giveUpMs).toISOString();
   const batch = Math.max(1, Math.floor(options.batch));
   const { results } = await env.DB.prepare(
-    `SELECT id, generation_id, dispatched_at, fee_bps, markup_bps, created_at,
+    `SELECT id, generation_id, dispatched_at, fee_bps, created_at,
             (generation_id IS NOT NULL AND dispatched_at IS NOT NULL AND created_at >= ?3) AS lookup_only
      FROM usage_events
      WHERE account_id = ?1 AND status = 'pending' AND funding = 'pool' AND created_at < ?2
@@ -135,7 +132,8 @@ export async function expirePoolReservations(
         });
         const { changed } = await settleUsage(env.DB, row.id, {
           costNanos: settlement.costNanos ?? 0,
-          markupBps: row.markup_bps,
+          // The pool pays the true cost: no markup.
+          markupBps: 0,
           feeBps: row.fee_bps,
           reason: settlement.reason,
           chargeHold: settlement.reason === 'hold',
@@ -155,17 +153,14 @@ export async function expirePoolReservations(
         if (settlement.reason === 'released') result.released++;
         else result.charged++;
         if (settlement.reason === 'hold') {
-          console.warn(
-            JSON.stringify({
-              event: 'pool_reservation_expired',
-              poolId,
-              usageId: row.id,
-              reason: 'hold',
-            }),
-          );
+          logEvent('warn', 'pool_reservation_expired', {
+            poolId,
+            usageId: row.id,
+            reason: 'hold',
+          });
         }
       } catch (e) {
-        console.error('Pool expiry failed for row', row.id, e);
+        logEvent('error', 'pool_expiry_failed', { usageId: row.id, error: e });
       }
     }),
   );
@@ -188,4 +183,38 @@ export async function nextExpiryAt(
     .bind(poolId)
     .first<{ oldest: string | null }>();
   return row?.oldest ? Date.parse(row.oldest) + ttlMs : null;
+}
+
+/** The expiry parameters PoolBank's alarm runs with: the latest a reservation brought. */
+export interface StoredExpiry extends PoolExpiryParams {
+  poolId: string;
+}
+
+/** What PoolBank's `storage` holds for its alarm, or null before its first reservation. */
+export async function storedExpiry(storage: DurableObjectStorage): Promise<StoredExpiry | null> {
+  return (await storage.get<StoredExpiry>('expiry')) ?? null;
+}
+
+/** Sets the alarm of `storage` to `at` unless one is already due earlier. */
+export async function ensureAlarmBy(storage: DurableObjectStorage, at: number): Promise<void> {
+  const current = await storage.getAlarm();
+  if (current === null || current > at) await storage.setAlarm(at);
+}
+
+/** PoolBank's alarm at `now`: expires stale reservations, then re-arms for the next one. */
+export async function runExpiry(
+  env: AppEnv,
+  storage: DurableObjectStorage,
+  expiry: StoredExpiry,
+  now: Date,
+): Promise<ExpiryResult> {
+  const result = await expirePoolReservations(env, expiry.poolId, now, expiry);
+  if (result.more) {
+    await ensureAlarmBy(storage, Date.now() + REARM_SOON_MS);
+  } else {
+    const due = await nextExpiryAt(env, expiry.poolId, expiry.ttlMs);
+    // Rows already past their TTL here are waiting on a lookup: come back in a minute.
+    if (due !== null) await ensureAlarmBy(storage, Math.max(due, Date.now() + EXPIRY_RETRY_MS));
+  }
+  return result;
 }

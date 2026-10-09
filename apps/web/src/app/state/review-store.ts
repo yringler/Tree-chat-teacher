@@ -62,12 +62,12 @@ export class ReviewStore {
   ): ModelChoice | null {
     // Routes whose funding needs the membership the user lacks are skipped.
     const open = (p: ProviderInfo | undefined): p is ProviderInfo =>
-      !!p && p.available && !this.tree.routeLocked(p);
+      !!p && p.available && !this.tree.account.routeLocked(p);
     const saved = this.settings.settings().reviewer;
-    const savedProvider = saved ? this.tree.providerOf(saved) : undefined;
+    const savedProvider = saved ? this.tree.account.providerOf(saved) : undefined;
     if (saved && offers(savedProvider, saved.model) && open(savedProvider)) return saved;
-    const own = branch ? this.tree.providerOf(branch) : undefined;
-    const fallback = open(own) ? own : this.tree.providers().find(open);
+    const own = branch ? this.tree.account.providerOf(branch) : undefined;
+    const fallback = open(own) ? own : this.tree.account.providers().find(open);
     if (!fallback) return null;
     return {
       providerId: fallback.id,
@@ -125,8 +125,8 @@ export class ReviewStore {
     } catch (err) {
       if (!current()) return;
       patch({ phase: 'error', status: null, error: errorMessage(err) });
-      if (err instanceof ApiError && err.code === 'key_required' && !this.ui.keysDialog()) {
-        this.ui.keysDialog.set({ provider: choice.providerId });
+      if (err instanceof ApiError && err.code === 'key_required' && !this.ui.dialogs.get('keys')) {
+        this.ui.dialogs.open({ kind: 'keys', provider: choice.providerId });
       }
       this.tree.fail(err);
     } finally {

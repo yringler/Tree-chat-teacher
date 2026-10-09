@@ -2,15 +2,17 @@ import { DomainError } from '@tangent/core';
 import {
   DEFAULT_ACCOUNT_ID,
   MODE_HEADER,
+  PAYERS,
   PAYMENT_HEADER,
   type AccountMode,
-  type LearnPayment,
+  type Payer,
 } from '@tangent/shared';
 import { createMiddleware } from 'hono/factory';
+import { appConfig } from '../config.js';
 import type { AccountContext, AppBindings, AppEnv, Identity } from '../env.js';
 import { ipKey, utcDay } from '../pool/ids.js';
 import { resolvePoolParams } from '../pool/params.js';
-import { builtInAvailable, poolAvailable } from '../services.js';
+import { builtInAvailable, poolAvailable } from '../availability.js';
 
 /** Prefix of power-mode account ids: `p_<Better Auth user id>`. */
 export const POWER_ACCOUNT_PREFIX = 'p_';
@@ -50,23 +52,21 @@ export function userIdOfAccount(accountId: string): string | null {
 /** What the request asks for: the app it comes from, and how a Learn request pays. */
 export interface AccountRequest {
   mode: AccountMode;
-  payment: LearnPayment;
+  payment: Payer;
 }
-
-const PAYMENTS: ReadonlySet<string> = new Set<LearnPayment>(['own-key', 'credit', 'pool']);
 
 /** Reads MODE_HEADER and PAYMENT_HEADER; anything unexpected means power / own-key. */
 export function accountRequest(headers: Headers): AccountRequest {
-  const payment = headers.get(PAYMENT_HEADER) ?? '';
+  const payment = headers.get(PAYMENT_HEADER);
   return {
     mode: headers.get(MODE_HEADER) === 'simple' ? 'simple' : 'power',
-    payment: PAYMENTS.has(payment) ? (payment as LearnPayment) : 'own-key',
+    payment: PAYERS.find((payer) => payer === payment) ?? 'own-key',
   };
 }
 
 /**
  * Maps the verified caller and the app it uses to the account whose data it
- * may touch. The one place that decides it (docs/DECISIONS.md "Accounts"):
+ * may touch, decided here and nowhere else:
  * every user has a power account `p_<userId>` and a Learn account
  * `u_<userId>`, so the two apps keep separate conversations. The ids are
  * derived, so resolving them needs no lookup and can't race. The dev bypass
@@ -76,20 +76,19 @@ export function accountRequest(headers: Headers): AccountRequest {
  * (`u_<userId>`, the Learn account's id, so Learn balances carry over).
  *
  * Spending the operator's keys never follows from the request alone (see
- * AccountContext): `builtIn` needs the server to offer the built-in provider
- * (`builtInAvailable`), and Learn also has to ask for credit; asking where it
- * isn't offered falls back to the user's own key, which never costs the
- * operator anything. `operatorKeys` (the power configs' server secrets) is
- * the local dev bypass only.
+ * AccountContext): Tangent credit needs the server to offer the built-in
+ * provider (`builtInAvailable`), and Learn also has to ask for it; asking
+ * where it isn't offered falls back to the user's own key, which never costs
+ * the operator anything. `operatorKeys` (the power configs' server secrets)
+ * is the local dev bypass only.
  *
- * Funding (`AccountContext.funding`): Learn's `credit` is `personal` where
- * credit is offered (else `own-key`, as above); `pool` is the open pool,
- * `builtIn` only while the pool is on (`poolAvailable`) and for a signed-in
- * user (the dev bypass has no user to cap); `own-key` otherwise. Power is
- * always `personal` and never uses the pool, whatever the header says. The
- * pool's parameters are added by `withPoolParams` (they need the caller's
- * network), and a send whose credit runs out may still move to the pool
- * (billing/gate.ts `resolveFunding`).
+ * Learn's payer is the payment header's: `own-key`, `credit` where credit is
+ * offered (else `own-key`, as above), or `pool`, which the pool funds only
+ * while it is on (`poolAvailable`) and for a signed-in user (the dev bypass
+ * has no user to cap). Power pays per route and never uses the pool, whatever
+ * the header says. The pool's parameters are added by `withPoolParams` (they
+ * need the caller's network), and a send whose credit runs out may still
+ * move to the pool (billing/gate.ts `resolveFunding`).
  */
 export function resolveAccount(
   env: AppEnv,
@@ -101,41 +100,33 @@ export function resolveAccount(
   const billingAccountId = billingAccountIdFor(userId);
   if (request.mode === 'simple') {
     const simple = { id: billingAccountId, mode: 'simple', userId, billingAccountId } as const;
-    if (request.payment === 'pool') {
-      const builtIn = userId !== null && poolAvailable(env);
-      return { ...simple, builtIn, operatorKeys: false, funding: 'pool' };
-    }
+    if (request.payment === 'pool') return { ...simple, payer: 'pool', pool: null };
     const credit = request.payment === 'credit' && builtInAvailable(env);
-    return {
-      ...simple,
-      builtIn: credit,
-      operatorKeys: false,
-      funding: credit ? 'personal' : 'own-key',
-    };
+    return { ...simple, payer: credit ? 'credit' : 'own-key' };
   }
   return {
     id: userId ? POWER_ACCOUNT_PREFIX + userId : DEFAULT_ACCOUNT_ID,
     mode: 'power',
     userId,
     billingAccountId,
-    builtIn: builtInAvailable(env),
+    creditOffered: builtInAvailable(env),
     operatorKeys: identity.devMode,
-    funding: 'personal',
   };
 }
 
 /** The caller's network key for the pool's per-network caps; null without an address or a secret. */
 async function poolIpKey(env: AppEnv, ip: string | null, now = new Date()): Promise<string | null> {
-  const secret = env.BETTER_AUTH_SECRET?.trim();
+  const secret = appConfig(env).auth.secret?.trim();
   if (!secret || !ip?.trim()) return null;
   return ipKey(secret, utcDay(now), ip);
 }
 
 /**
- * `account` as the open pool funds it: the pool's parameters resolved
- * from this request's env and the caller's network (`ip`), `builtIn` while
- * the pool is on and the caller is signed in. A no-op for power, and for an
- * account that is not pool-funded and not asked to become so (`toPool`).
+ * `account` as the open pool funds it: the pool's parameters resolved from
+ * this request's env and the caller's network (`ip`), while the pool is on
+ * and the caller is signed in (else unfunded, `pool: null`). A no-op for
+ * power, and for a Learn account that doesn't ask for the pool and isn't
+ * asked to move to it (`toPool`).
  */
 export async function withPoolParams(
   env: AppEnv,
@@ -143,50 +134,16 @@ export async function withPoolParams(
   ip: string | null,
   toPool = false,
 ): Promise<AccountContext> {
-  if (account.mode !== 'simple' || (account.funding !== 'pool' && !toPool)) return account;
-  const builtIn = account.userId !== null && poolAvailable(env);
-  if (!builtIn) return { ...account, funding: 'pool', builtIn: false };
-  return {
-    ...account,
-    funding: 'pool',
-    builtIn,
-    pool: await resolvePoolParams(env, await poolIpKey(env, ip)),
-  };
+  if (account.mode !== 'simple' || (account.payer !== 'pool' && !toPool)) return account;
+  const { id, userId, billingAccountId } = account;
+  const pooled = { id, mode: 'simple', billingAccountId, payer: 'pool' } as const;
+  if (userId === null || !poolAvailable(env)) return { ...pooled, userId, pool: null };
+  return { ...pooled, userId, pool: await resolvePoolParams(env, await poolIpKey(env, ip)) };
 }
 
 /** The address the request comes from (Cloudflare's `cf-connecting-ip`). */
 export function clientIp(headers: Headers): string | null {
   return headers.get('cf-connecting-ip');
-}
-
-// Account rows known to exist, per D1 binding, for this isolate's lifetime.
-const ensured = new WeakMap<D1Database, Set<string>>();
-
-/**
- * Creates the account row on first use (`INSERT OR IGNORE`, so concurrent
- * first requests are harmless). The `default` row is seeded by migration 0001
- * and carries no user id; so does the dev bypass's `default_simple`.
- */
-export async function ensureAccountRow(db: D1Database, account: AccountContext): Promise<void> {
-  let known = ensured.get(db);
-  if (!known) {
-    known = new Set();
-    ensured.set(db, known);
-  }
-  if (known.has(account.id)) return;
-  await db
-    .prepare(
-      'INSERT OR IGNORE INTO accounts (id, name, created_at, user_id, mode) VALUES (?1, ?2, ?3, ?4, ?5)',
-    )
-    .bind(
-      account.id,
-      account.mode === 'simple' ? 'Learn account' : 'Power account',
-      new Date().toISOString(),
-      account.userId,
-      account.mode,
-    )
-    .run();
-  known.add(account.id);
 }
 
 /** Sets `c.var.account` / `c.var.accountId` for owner routes. Must run after the session middleware. */
@@ -197,7 +154,6 @@ export const accountMiddleware = createMiddleware<AppBindings>(async (c, next) =
     resolveAccount(c.env, c.var.identity, accountRequest(headers)),
     clientIp(headers),
   );
-  await ensureAccountRow(c.env.DB, account);
   c.set('account', account);
   c.set('accountId', account.id);
   await next();

@@ -5,7 +5,7 @@ import { membership, newEmail, paymentWebhook, sameOrigin, signIn, topUp } from 
  * The model of an open-models route (Tangent credit here; OpenRouter on the
  * user's own key works the same) is a free-text id with every suggested model
  * as a chip under it, against the real Worker: serve.mjs lists Normal
- * (`simple`, the default) and Max (`smart`) as the built-in provider's models,
+ * (`normal`, the default) and Max (`max`) as the built-in provider's models,
  * labelled "Normal (suggested)" and "Max (suggested)" on Tangent credit; the
  * chips drop the note. A `<datalist>` filtered its options by the field's
  * text, so with the default id in it only that model was offered.
@@ -43,14 +43,14 @@ async function pickMax(scope: Locator, field: Locator) {
   const suggestions = scope.getByRole('group', { name: /suggest/i });
   const normal = suggestions.getByRole('button', { name: 'Normal' });
   const max = suggestions.getByRole('button', { name: 'Max' });
-  await expect(field).toHaveValue('simple');
+  await expect(field).toHaveValue('normal');
   await expect(normal).toBeVisible();
   await expect(max).toBeVisible();
   await expect(normal).toHaveAttribute('aria-pressed', 'true');
   await expect(max).toHaveAttribute('aria-pressed', 'false');
 
   await max.click();
-  await expect(field).toHaveValue('smart');
+  await expect(field).toHaveValue('max');
   await expect(max).toHaveAttribute('aria-pressed', 'true');
   await expect(normal).toHaveAttribute('aria-pressed', 'false');
 
@@ -61,7 +61,7 @@ async function pickMax(scope: Locator, field: Locator) {
   // Keyboard: the chips are buttons.
   await max.focus();
   await scope.page().keyboard.press('Enter');
-  await expect(field).toHaveValue('smart');
+  await expect(field).toHaveValue('max');
 }
 
 async function creditModels(page: Page, treeId: string): Promise<string[]> {
@@ -88,7 +88,7 @@ test('every suggested model stays in view under the model id, in power and Canva
   await pickMax(dialog, dialog.getByRole('textbox', { name: 'Model' }));
   await dialog.getByRole('button', { name: 'Create branch' }).click();
   await expect(dialog).toHaveCount(0);
-  expect(await creditModels(page, treeId)).toEqual(['smart']);
+  expect(await creditModels(page, treeId)).toEqual(['max']);
 
   // Canvas: the lanes dialog of the same conversation.
   await page.goto(`/canvas/t/${treeId}`);
@@ -102,5 +102,5 @@ test('every suggested model stays in view under the model id, in power and Canva
   await pickMax(dialog, dialog.getByRole('textbox', { name: 'Model of lane 1' }));
   await dialog.getByRole('button', { name: 'Open the lane' }).click();
   await expect(dialog).toHaveCount(0);
-  expect(await creditModels(page, treeId)).toEqual(['smart', 'smart']);
+  expect(await creditModels(page, treeId)).toEqual(['max', 'max']);
 });

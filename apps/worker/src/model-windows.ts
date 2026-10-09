@@ -13,15 +13,18 @@
 // Tangent credit's and the pool's windows bound the size of their holds and
 // their input caps, so they stay the lower of theirs and the model's. An
 // output limit OpenRouter reports only ever lowers the configured one.
+import { decorateProvider, isOpenRouterBaseUrl } from '@tangent/providers';
 import type {
   LlmProvider,
   ProviderCapabilities,
   ProviderConfig,
   ProviderRegistry,
 } from '@tangent/shared';
+import type { SqlRow } from './db/rows.js';
+import type { modelWindows } from './db/schema.js';
 import type { AppEnv } from './env.js';
-import { modelPrice } from './pool/model-prices.js';
-import { isOpenRouter } from './simple-mode.js';
+import { modelPrice } from './pool/price-table.js';
+import { logEvent } from './log.js';
 
 /** A model's real limits, as OpenRouter lists them. */
 export interface ModelWindow {
@@ -60,11 +63,10 @@ export function parseModelWindows(body: unknown): Map<string, ModelWindow> {
   return windows;
 }
 
-interface WindowRow {
-  model: string;
-  context_tokens: number;
-  max_output_tokens: number | null;
-}
+type WindowRow = Pick<
+  SqlRow<typeof modelWindows>,
+  'model' | 'context_tokens' | 'max_output_tokens'
+>;
 
 /** D1 binds at most 100 parameters a statement; four per row. */
 const ROWS_PER_INSERT = 25;
@@ -105,7 +107,7 @@ export async function syncModelWindows(
   }
   if (writes.length > 0) await env.DB.batch(writes);
   const result = { listed: listed.size, changed: changed.length };
-  console.log(JSON.stringify({ event: 'window_sync', ...result }));
+  logEvent('info', 'window_sync', result);
   return result;
 }
 
@@ -127,11 +129,11 @@ export async function storedWindow(db: D1Database, model: string): Promise<Model
 export async function modelWindow(env: AppEnv, model: string): Promise<ModelWindow | null> {
   const [price, synced] = await Promise.all([
     modelPrice(env, model).catch((err: unknown) => {
-      console.error(`Price of ${model} could not be read`, err);
+      logEvent('error', 'price_read_failed', { model, error: err });
       return null;
     }),
     storedWindow(env.DB, model).catch((err: unknown) => {
-      console.error(`Window of ${model} could not be read`, err);
+      logEvent('error', 'window_read_failed', { model, error: err });
       return null;
     }),
   ]);
@@ -184,7 +186,7 @@ export function withModelWindows(
 ): ProviderRegistry {
   const openRouter = new Map(
     configs
-      .filter((c) => c.kind === 'openai-compatible' && isOpenRouter(c.baseUrl))
+      .filter((c) => c.kind === 'openai-compatible' && isOpenRouterBaseUrl(c.baseUrl))
       .map((c) => [c.id, c]),
   );
   if (openRouter.size === 0) return registry;
@@ -206,29 +208,14 @@ export function withModelWindows(
       let windowed = wrapped.get(providerId);
       if (!windowed) {
         const inner = provider;
-        windowed = {
-          get id() {
-            return inner.id;
-          },
-          get kind() {
-            return inner.kind;
-          },
-          get label() {
-            return inner.label;
-          },
-          models: () => inner.models(),
-          defaultModel: () => inner.defaultModel(),
-          capabilities: (model) => inner.capabilities(model),
+        windowed = decorateProvider(inner, {
           resolveCapabilities: async (model) =>
             withWindow(
               inner.capabilities(model),
               await windowOf(model),
               windowConfigured(config, model),
             ),
-          stream: (request) => inner.stream(request),
-        };
-        const count = inner.countTokens?.bind(inner);
-        if (count) windowed.countTokens = count;
+        });
         wrapped.set(providerId, windowed);
       }
       return windowed;

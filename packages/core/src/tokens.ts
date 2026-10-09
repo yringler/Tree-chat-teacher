@@ -14,6 +14,11 @@ export const estimateTokens: TokenEstimator = (text) =>
 
 const utf8 = new TextEncoder();
 
+/** UTF-8 length of `text`, in bytes. */
+export function utf8Bytes(text: string): number {
+  return utf8.encode(text).length;
+}
+
 /**
  * Like `estimateTokens`, but counting UTF-8 bytes instead of characters, so a
  * budget of N "tokens" is a hard bound of 3.5·N bytes and therefore of 3.5·N
@@ -21,4 +26,4 @@ const utf8 = new TextEncoder();
  * whatever the script. Equal to `estimateTokens` for ASCII text.
  */
 export const estimateTokensUtf8: TokenEstimator = (text) =>
-  text.length === 0 ? 0 : Math.ceil(utf8.encode(text).length / CHARS_PER_TOKEN);
+  text.length === 0 ? 0 : Math.ceil(utf8Bytes(text) / CHARS_PER_TOKEN);

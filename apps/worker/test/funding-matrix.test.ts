@@ -1,10 +1,9 @@
 import {
   type ApiError,
   type Branch,
-  type LearnPayment,
+  type Payer,
   type MeResponse,
   type ProviderInfo,
-  type StreamEvent,
   type TreeDetail,
 } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
@@ -17,12 +16,13 @@ import { makeNode } from './fixtures.js';
 import { insertSubscription } from './mocks/billing-helpers.js';
 import { poolReadyUser } from './pool-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
+import { ok, parseSse } from './http.js';
+import { MOCK_UPSTREAM } from './bindings.js';
 
 /**
- * Who pays, and whose key is used, now that a provider id names only the
- * endpoint and funding is decided apart from it (docs/DECISIONS.md, "Funding
- * apart from the provider"). Every scenario that existed when `tangent` was a
- * provider id keeps the same payer and the same key:
+ * Who pays, and whose key is used: a provider id names only the endpoint,
+ * and funding is decided apart from it, so the same endpoint can be on the
+ * user's key or the operator's. Each scenario's payer and key:
  *
  * | scenario                  | key used               | metered on            |
  * | ------------------------- | ---------------------- | --------------------- |
@@ -40,11 +40,10 @@ import { authEnv, client, type CallInit } from './session-client.js';
  */
 
 const env = rawEnv as unknown as AppEnv;
-const MOCK_UPSTREAM = 'https://llm.test';
 const USER_KEY = 'sk-ant-goodUSER-0123456789';
 const MODELS = [
-  { id: 'smart', label: 'Max', tier: 'max' },
-  { id: 'simple', label: 'Normal', tier: 'normal' },
+  { id: 'max', label: 'Max', tier: 'max' },
+  { id: 'normal', label: 'Normal', tier: 'normal' },
 ];
 
 /** An OpenRouter-like endpoint on the mock upstream, keyed by `secret` (or a user key). */
@@ -55,7 +54,7 @@ function openRouterLike(label: string, secret: string) {
     label,
     baseUrl: MOCK_UPSTREAM,
     apiKeySecret: secret,
-    defaultModel: 'smart',
+    defaultModel: 'max',
     models: MODELS,
   };
 }
@@ -76,33 +75,21 @@ function matrixEnv(overrides: Partial<AppEnv> = {}): AppEnv {
       },
       openRouterLike('OpenRouter', 'OPENROUTER_API_KEY'),
     ]),
-    SIMPLE_PROVIDER: JSON.stringify(openRouterLike('Tangent', 'OPENROUTER_SIMPLE_API_KEY')),
-    OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR',
+    BUILT_IN_PROVIDER: JSON.stringify(openRouterLike('Tangent', 'BUILT_IN_API_KEY')),
+    BUILT_IN_API_KEY: 'sk-ant-goodOPERATOR',
     OPENROUTER_API_KEY: 'sk-ant-goodSERVER',
     ...overrides,
   });
 }
 
-async function json<T>(res: Response, status = 200): Promise<T> {
-  const text = await res.text();
-  expect(res.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
-}
-
 function replyOf(text: string): string {
-  return text
-    .split('\n\n')
-    .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-    .filter((l): l is string => !!l)
-    .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent)
+  return parseSse(text)
     .map((ev) => (ev.type === 'delta' ? ev.text : ''))
     .join('');
 }
 
 async function usageRows(accountId: string): Promise<number> {
-  const row = await env.DB.prepare(
-    "SELECT COUNT(*) AS n FROM usage_events WHERE account_id = ?1 AND purpose <> 'tagging'",
-  )
+  const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM usage_events WHERE account_id = ?1')
     .bind(accountId)
     .first<{ n: number }>();
   return row?.n ?? 0;
@@ -115,11 +102,11 @@ let seq = 0;
 async function signedIn(e: AppEnv): Promise<{ c: Client; userId: string }> {
   const c = client(e);
   await c.signIn(`matrix${++seq}-${Math.random().toString(36).slice(2, 8)}@example.org`);
-  const me = await json<MeResponse>(await c.call('/api/me'));
+  const me = await ok<MeResponse>(await c.call('/api/me'));
   return { c, userId: me.userId! };
 }
 
-async function saveOwnOpenRouterKey(c: Client, learn?: LearnPayment): Promise<void> {
+async function saveOwnOpenRouterKey(c: Client, learn?: Payer): Promise<void> {
   const res = await c.call('/api/key', {
     method: 'POST',
     json: { provider: 'openrouter', apiKey: USER_KEY },
@@ -138,13 +125,13 @@ async function grant(accountId: string, micros = 1_000_000): Promise<void> {
 }
 
 /** A tree on `route` with a finished exchange; returns the reply to review. */
-async function replyOn(c: Client, route: Route, learn?: LearnPayment, as?: AppEnv) {
-  const detail = await json<TreeDetail>(
+async function replyOn(c: Client, route: Route, learn?: Payer, as?: AppEnv) {
+  const detail = await ok<TreeDetail>(
     await c.call(
       '/api/trees',
       {
         method: 'POST',
-        json: { title: 'M', ...route, model: 'smart' },
+        json: { title: 'M', ...route, model: 'max' },
         ...(learn ? { learn } : {}),
       },
       as,
@@ -168,7 +155,7 @@ async function reviewWith(
 ): Promise<{ status: number; reply: string; code: string | null }> {
   const res = await c.call(
     `/api/nodes/${nodeId}/review`,
-    { method: 'POST', json: { ...route, model: 'smart' }, ...init },
+    { method: 'POST', json: { ...route, model: 'max' }, ...init },
     as,
   );
   const text = await res.text();
@@ -180,7 +167,7 @@ async function reviewWith(
 const OWN: Route = { providerId: 'openrouter', funding: 'own-key' };
 const CREDIT: Route = { providerId: 'openrouter', funding: 'credit' };
 
-describe('funding matrix: the same party pays with the same key as before the split', () => {
+describe('funding matrix: who pays, and with which key', () => {
   it("Learn on its own key: the user's OpenRouter key, never metered, whatever a branch's funding", async () => {
     const e = matrixEnv();
     const { c, userId } = await signedIn(e);
@@ -194,7 +181,7 @@ describe('funding matrix: the same party pays with the same key as before the sp
       code: 'key_required',
     });
     await saveOwnOpenRouterKey(c, 'own-key');
-    for (const route of [OWN, CREDIT, { providerId: 'tangent' }]) {
+    for (const route of [OWN, CREDIT]) {
       expect(await reviewWith(c, assistant.id, route, { learn: 'own-key' })).toEqual({
         status: 200,
         reply: 'key=USER-0123456789',
@@ -227,10 +214,10 @@ describe('funding matrix: the same party pays with the same key as before the sp
 
   it('Learn on the pool: the pinned model and locked prompt, charged to the pool, never the user', async () => {
     const u = await poolReadyUser({ env: { POOL_SYSTEM_PROMPT: 'LOCKED POOL PROMPT' } });
-    const detail = await json<TreeDetail>(
+    const detail = await ok<TreeDetail>(
       await u.client.call('/api/trees', {
         method: 'POST',
-        json: { title: 'P', systemPrompt: 'IGNORE ME', model: 'smart', funding: 'credit' },
+        json: { title: 'P', systemPrompt: 'IGNORE ME', model: 'max', funding: 'credit' },
         learn: 'pool',
       }),
       201,
@@ -238,7 +225,7 @@ describe('funding matrix: the same party pays with the same key as before the sp
     const trunk = detail.branches[0]!;
     // Learn writes `own-key` whatever it is asked: its payment is per request.
     expect(trunk).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
-    const patched = await json<Branch>(
+    const patched = await ok<Branch>(
       await u.client.call(`/api/branches/${trunk.id}`, {
         method: 'PATCH',
         json: { funding: 'credit' },
@@ -255,7 +242,7 @@ describe('funding matrix: the same party pays with the same key as before the sp
     const text = await res.text();
     expect(res.status, text).toBe(200);
     const echoed = replyOf(text);
-    expect(echoed).toMatch(/^ECHO model=simple maxOutputTokens=2048 /);
+    expect(echoed).toMatch(/^ECHO model=normal maxOutputTokens=2048 /);
     expect(echoed).toContain('LOCKED POOL PROMPT');
     expect(echoed).not.toContain('IGNORE ME');
     expect(await usageRows(u.poolId)).toBe(1);
@@ -301,18 +288,13 @@ describe('funding matrix: the same party pays with the same key as before the sp
       reply: 'key=OPERATOR',
       code: null,
     });
-    // The legacy id from an older client means the same: the endpoint on credit.
-    expect(await reviewWith(c, assistant.id, { providerId: 'tangent' })).toMatchObject({
-      status: 200,
-      reply: 'key=OPERATOR',
-    });
-    expect(await usageRows(`u_${userId}`)).toBe(2);
+    expect(await usageRows(`u_${userId}`)).toBe(1);
     // The same endpoint on the user's key, from the same branch, stays theirs and free.
     const own = await replyOn(c, OWN);
     expect(await reviewWith(c, own.assistant.id, OWN)).toMatchObject({
       reply: 'key=USER-0123456789',
     });
-    expect(await usageRows(`u_${userId}`)).toBe(2);
+    expect(await usageRows(`u_${userId}`)).toBe(1);
   });
 
   it('the membership gates own keys in both apps; credit never needs it', async () => {
@@ -352,7 +334,7 @@ describe('funding matrix: the same party pays with the same key as before the sp
     const e = matrixEnv({ PAYMENT_PROVIDER: 'polar', POOL_ENABLED: 'false' });
     const { c, userId } = await signedIn(e);
     await saveOwnOpenRouterKey(c);
-    const providers = await json<ProviderInfo[]>(await c.call('/api/providers'));
+    const providers = await ok<ProviderInfo[]>(await c.call('/api/providers'));
     expect(providers.map((p) => `${p.id}:${p.funding}`)).toEqual([
       'fake:own-key',
       'openrouter:own-key',
@@ -399,113 +381,21 @@ describe('funding matrix: the same party pays with the same key as before the sp
   });
 });
 
-describe('the legacy built-in id', () => {
-  it('SIMPLE_PROVIDER may still name `tangent`: it is read as the `openrouter` endpoint', () => {
-    const legacy = {
+describe('the provider id `tangent`', () => {
+  it('is an unknown provider: BUILT_IN_PROVIDER may not use it, and a request naming it is refused', async () => {
+    const named = {
       ...env,
-      SIMPLE_PROVIDER: JSON.stringify({ ...openRouterLike('Tangent', 'X'), id: 'tangent' }),
+      BUILT_IN_PROVIDER: JSON.stringify({ ...openRouterLike('Tangent', 'X'), id: 'tangent' }),
     } as AppEnv;
-    expect(simpleProviderConfig(legacy).id).toBe('openrouter');
-    const other = {
-      ...env,
-      SIMPLE_PROVIDER: JSON.stringify({ ...openRouterLike('Tangent', 'X'), id: 'other' }),
-    } as AppEnv;
-    expect(() => simpleProviderConfig(other)).toThrow(/id must be "openrouter"/);
-  });
-
-  it('an older power client naming `tangent` creates a branch on the endpoint on credit', async () => {
+    expect(() => simpleProviderConfig(named)).toThrow(/id must be "openrouter"/);
     const { c } = await signedIn(authEnv());
-    const detail = await json<TreeDetail>(
-      await c.call('/api/trees', {
-        method: 'POST',
-        json: { providerId: 'tangent', model: 'smart' },
-      }),
-      201,
-    );
-    expect(detail.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'credit' });
-    const branch = await json<Branch>(
-      await c.call('/api/branches', {
-        method: 'POST',
-        json: { fromNodeId: (await replyOn(c, CREDIT)).assistant.id, providerId: 'tangent' },
-      }),
-      201,
-    );
-    expect(branch).toMatchObject({ providerId: 'openrouter', funding: 'credit' });
-  });
-});
-
-describe('migration 0020: stored `tangent` branches', () => {
-  it('power branches on `tangent` become openrouter on credit; Learn ones openrouter on own key', async () => {
-    const migrations = (
-      env as unknown as { TEST_MIGRATIONS: { name: string; queries: string[] }[] }
-    ).TEST_MIGRATIONS;
-    const migration = migrations.find((m) => m.name.startsWith('0020_'))!;
-    expect(migration).toBeDefined();
-    const [addColumn, ...remap] = migration.queries;
-    expect(addColumn).toMatch(/ADD `funding`/);
-
-    const db = env.DB;
-    const at = new Date().toISOString();
-    const id = (p: string) => `${p}_${Math.random().toString(36).slice(2, 10)}`;
-    const power = id('p_mig');
-    const learn = id('u_mig');
-    await db.batch([
-      db
-        .prepare(
-          "INSERT INTO accounts (id, name, created_at, user_id, mode) VALUES (?, 'P', ?, ?, 'power')",
-        )
-        .bind(power, at, id('usr')),
-      db
-        .prepare(
-          "INSERT INTO accounts (id, name, created_at, user_id, mode) VALUES (?, 'L', ?, ?, 'simple')",
-        )
-        .bind(learn, at, id('usr')),
-    ]);
-    const rows: { account: string; provider: string; funding?: string }[] = [
-      { account: power, provider: 'tangent' },
-      { account: power, provider: 'ant' },
-      { account: learn, provider: 'tangent' },
-      // A tree whose account row is missing: the safe own-key.
-      { account: id('p_gone'), provider: 'tangent' },
-    ];
-    const ids: { tree: string; branch: string; node: string }[] = [];
-    for (const r of rows) {
-      const tree = id('t');
-      const branch = id('b');
-      const node = id('n');
-      ids.push({ tree, branch, node });
-      await db.batch([
-        db
-          .prepare(
-            'INSERT INTO trees (id, title, system_prompt, trunk_branch_id, account_id, created_at, updated_at) VALUES (?, ?, NULL, ?, ?, ?, ?)',
-          )
-          .bind(tree, 'T', branch, r.account, at, at),
-        db
-          .prepare(
-            "INSERT INTO branches (id, tree_id, parent_branch_id, branch_point_node_id, context_mode, anchor_quote, title, title_source, is_private, provider_id, model, created_at, updated_at) VALUES (?, ?, NULL, NULL, 'path', NULL, 'Main', 'default', 0, ?, 'smart', ?, ?)",
-          )
-          .bind(branch, tree, r.provider, at, at),
-        db
-          .prepare(
-            "INSERT INTO nodes (id, tree_id, branch_id, parent_id, seq, role, content, status, provider_id, model, created_at) VALUES (?, ?, ?, NULL, 0, 'assistant', 'A', 'complete', ?, 'smart', ?)",
-          )
-          .bind(node, tree, branch, r.provider, at),
-      ]);
-    }
-    for (const q of remap) await db.prepare(q).run();
-
-    const repos = createD1Repositories(db);
-    const got = await Promise.all(
-      ids.map(async ({ branch, node }) => ({
-        branch: await repos.trees.getBranch(branch),
-        node: await repos.trees.getNode(node),
-      })),
-    );
-    expect(got.map((g) => [g.branch!.providerId, g.branch!.funding, g.node!.providerId])).toEqual([
-      ['openrouter', 'credit', 'openrouter'],
-      ['ant', 'own-key', 'ant'],
-      ['openrouter', 'own-key', 'openrouter'],
-      ['openrouter', 'own-key', 'openrouter'],
-    ]);
+    const res = await c.call('/api/trees', {
+      method: 'POST',
+      json: { providerId: 'tangent', model: 'max' },
+    });
+    expect(await res.json()).toEqual({
+      error: { code: 'bad_request', message: 'Unknown provider "tangent"' },
+    });
+    expect(res.status).toBe(400);
   });
 });

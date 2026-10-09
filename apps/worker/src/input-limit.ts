@@ -3,17 +3,23 @@
 // review runs with them: the user's settings, sent with each request, clamped
 // here and in ChatService `budgetFor` (never above the model's window less
 // the reply). On Tangent
-// credit the input is also capped at Learn's SIMPLE_MAX_INPUT_TOKENS, with
+// credit the input is also capped at BUILT_IN_MAX_INPUT_TOKENS, with
 // or without a setting, so one credit call costs at most what Learn's does.
 // Learn ignores the settings: its own caps apply (simple-mode.ts).
 import type { ChatService, GenerationLimits } from '@tangent/core';
-import type { BranchFunding, ContextLimitsQuery, InputBudgetResponse } from '@tangent/shared';
+import { isOpenRouterBaseUrl } from '@tangent/providers';
+import {
+  chargeMicros,
+  type BranchFunding,
+  type ContextLimitsQuery,
+  type InputBudgetResponse,
+} from '@tangent/shared';
 import type { AccountContext, AppEnv } from './env.js';
-import { modelPrice } from './pool/model-prices.js';
-import { chargeMicros } from './billing/pricing.js';
+import { modelPrice } from './pool/price-table.js';
 import { markupFor, openRouterFeeBps } from './billing/service.js';
-import { providerConfigs } from './services.js';
-import { isOpenRouter, simpleMaxInputTokens, simpleProviderConfig } from './simple-mode.js';
+import { providerConfigs } from './provider-configs.js';
+import { simpleMaxInputTokens, simpleProviderConfig } from './simple-mode.js';
+import { logEvent } from './log.js';
 
 /** USD per million tokens, from the price table's micro-USD per million. */
 const MICROS_PER_USD = 1_000_000;
@@ -77,7 +83,7 @@ export async function inputBudgetResponse(
   const priced = credit || ownKeyOnOpenRouter(env, account, budget.providerId);
   const price = priced
     ? await modelPrice(env, budget.model).catch((err: unknown) => {
-        console.error(`Price of ${budget.model} could not be read`, err);
+        logEvent('error', 'price_read_failed', { model: budget.model, error: err });
         return null;
       })
     : null;
@@ -107,7 +113,7 @@ function ownKeyOnOpenRouter(env: AppEnv, account: AccountContext, providerId: st
   try {
     const configs = account.mode === 'simple' ? [simpleProviderConfig(env)] : providerConfigs(env);
     const config = configs.find((c) => c.id === providerId);
-    return !!config && config.kind === 'openai-compatible' && isOpenRouter(config.baseUrl);
+    return !!config && config.kind === 'openai-compatible' && isOpenRouterBaseUrl(config.baseUrl);
   } catch {
     return false;
   }

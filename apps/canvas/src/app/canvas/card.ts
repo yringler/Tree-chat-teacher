@@ -118,8 +118,14 @@ export type Lit = 'verbatim' | 'summarized' | 'dropped' | 'outside' | 'off';
               type="button"
               class="tangent"
               [class.is-followed]="followed().has(t.title)"
-              [disabled]="opening() !== null"
-              [title]="followed().has(t.title) ? 'Open this lane' : (t.why ?? t.title)"
+              [disabled]="opening() !== null || (locked() && !followed().has(t.title))"
+              [title]="
+                followed().has(t.title)
+                  ? 'Open this lane'
+                  : locked()
+                    ? 'Following it needs a membership (this lane is on your own key)'
+                    : (t.why ?? t.title)
+              "
               (click)="follow(t.title, $event)"
             >
               <app-icon [name]="followed().has(t.title) ? 'chevronRight' : 'branch'" [size]="14" />
@@ -228,7 +234,7 @@ export class Card {
     const n = this.node();
     if (n.role === 'user') return 'You';
     if (!n.model) return 'Assistant';
-    return modelLabel(this.store.providers(), { providerId: n.providerId ?? '' }, n.model);
+    return modelLabel(this.store.account.providers(), { providerId: n.providerId ?? '' }, n.model);
   });
   private readonly live = computed(() => this.store.live().get(this.node().id) ?? null);
   protected readonly streaming = computed(() => this.node().status === 'streaming');
@@ -244,10 +250,10 @@ export class Card {
       : { body: this.content(), tangents: [], partial: false },
   );
   protected readonly html = computed(() => this.md.render(this.split().body, !this.streaming()));
-  /** A finished reply: offers its tangents and "Ask your own". */
   /** A reply cut off at its length limit (it keeps its text, but isn't a whole answer). */
   protected readonly cutOff = computed(() => isCutOffReply(this.node()));
   protected readonly stopped = computed(() => isStoppedReply(this.node()));
+  /** A finished reply: offers its tangents and "Ask your own". */
   protected readonly complete = computed(
     () => this.node().role === 'assistant' && this.node().status === 'complete',
   );
@@ -255,7 +261,7 @@ export class Card {
   /** The card's lane can't generate (its funding needs the membership the user lacks). */
   protected readonly locked = computed(() => {
     const b = this.store.index()?.branches.get(this.node().branchId);
-    return !!b && this.store.routeLocked(b);
+    return !!b && this.store.account.routeLocked(b);
   });
   protected readonly children = computed(() => this.store.childBranchesAt(this.node().id));
   protected readonly followed = computed<ReadonlySet<string>>(
@@ -313,7 +319,8 @@ export class Card {
 
   /** The gear: the branch dialog (variants and all), asking the question once the lanes exist. */
   protected askWithSettings(text: string): void {
-    this.ui.branchDialog.set({
+    this.ui.dialogs.open({
+      kind: 'branch',
       fromNodeId: this.node().id,
       quote: null,
       ...(text ? { message: text, onCreated: () => this.askText.set('') } : {}),
@@ -322,7 +329,7 @@ export class Card {
 
   protected branch(e: Event): void {
     e.stopPropagation();
-    this.ui.branchDialog.set({ fromNodeId: this.node().id, quote: null });
+    this.ui.dialogs.open({ kind: 'branch', fromNodeId: this.node().id, quote: null });
   }
 
   protected open(branchId: string, e: Event): void {
@@ -426,7 +433,7 @@ export class Card {
 
   protected async follow(title: string, e: Event): Promise<void> {
     e.stopPropagation();
-    if (this.opening() !== null) return;
+    if (this.opening() !== null || (this.locked() && !this.followed().has(title))) return;
     this.opening.set(title);
     try {
       await this.store.followTangent(this.node().id, title);

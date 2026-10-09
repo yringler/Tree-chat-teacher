@@ -33,6 +33,7 @@ import { CrossLinkGlyphs, CrossLinks } from './cross-links';
 import { Lane } from './lane';
 import { LinkPopover } from './link-popover';
 import { Minimap } from './minimap';
+import { ResizeFollower } from './resize-follower';
 import { laneTitle, treeTitle } from './titles';
 
 /** Wheel without a modifier pans; with Ctrl or ⌘ (and a trackpad pinch) it zooms. */
@@ -93,7 +94,7 @@ export class CanvasPage implements OnDestroy {
    */
   protected readonly selection = new PendingQuote(() => this.selectedQuote());
   protected readonly asking = signal(false);
-  private observer: ResizeObserver | null = null;
+  private readonly resize = new ResizeFollower((el) => this.measureViewport(el));
   private fitted = false;
   /** Active pointers, for drag-panning and two-finger pinch. */
   private readonly pointers = new Map<number, { x: number; y: number }>();
@@ -186,23 +187,18 @@ export class CanvasPage implements OnDestroy {
       untracked(() => void this.store.loadLineage(branchId));
     });
 
-    afterRenderEffect(() => {
-      const el = this.viewport()?.nativeElement;
-      if (!el || this.observer) return;
-      this.observer = new ResizeObserver(() => this.measureViewport(el));
-      this.observer.observe(el);
-      this.measureViewport(el);
-    });
+    // The viewport is re-created when the page comes back from "Loading…" (another tree).
+    afterRenderEffect(() => this.resize.follow(this.viewport()?.nativeElement ?? null));
   }
 
   ngOnDestroy(): void {
     this.selection.destroy();
     clearTimeout(this.wheelTimer);
     this.dropPending();
-    this.observer?.disconnect();
+    this.resize.disconnect();
   }
 
-  private measureViewport(el: HTMLElement): void {
+  private measureViewport(el: Element): void {
     const before = this.geo.viewport();
     this.geo.setViewport({ width: el.clientWidth, height: el.clientHeight });
     // A resized window (or a rotated phone): keep the selected lane in view.
@@ -376,7 +372,7 @@ export class CanvasPage implements OnDestroy {
   protected moreAbout(q: MessageQuote): void {
     this.selection.clear();
     window.getSelection()?.removeAllRanges();
-    this.ui.branchDialog.set({ fromNodeId: q.nodeId, quote: q.quote });
+    this.ui.dialogs.open({ kind: 'branch', fromNodeId: q.nodeId, quote: q.quote });
   }
 
   /**
@@ -387,7 +383,7 @@ export class CanvasPage implements OnDestroy {
     const q = this.selection.value();
     const node = q ? this.store.index()?.nodes.get(q.nodeId) : undefined;
     const lane = node ? this.store.index()?.branches.get(node.branchId) : undefined;
-    return !!lane && this.store.routeLocked(lane);
+    return !!lane && this.store.account.routeLocked(lane);
   });
 
   private selectedQuote(): MessageQuote | null {
@@ -406,7 +402,7 @@ export class CanvasPage implements OnDestroy {
   /** Pick mode's "Search": the picker dialog instead of clicking a card. */
   protected searchInstead(fromNodeId: string): void {
     this.ui.linkPick.set(null);
-    this.ui.linkDialog.set({ fromNodeId });
+    this.ui.dialogs.open({ kind: 'link', fromNodeId });
   }
 
   protected deleteTree(): void {

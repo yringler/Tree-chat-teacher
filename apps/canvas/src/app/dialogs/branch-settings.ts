@@ -12,22 +12,15 @@ import {
   parseRouteKey,
   providerRouteKey,
   routeKey,
+  type Branch,
   type ContextMode,
 } from '@tangent/shared';
-import { Icon, Modal } from '@tangent/web-shared';
-import { MODE_LABEL } from '../canvas/lane';
+import { CONTEXT_MODE_META, Icon, Modal, routeSuffix } from '@tangent/web-shared';
 import { confirmDeleteLane } from '../canvas/delete-lane';
 import { laneTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore, type BranchSettingsState } from '../state/ui-store';
 import { ModelField } from './model-field';
-
-const MODE_HELP: Record<ContextMode, string> = {
-  path: 'Everything the parent lane had at the fork, then this lane.',
-  summary: 'A generated summary of the parent context (focused on the quote), then this lane.',
-  message: 'Only the message this lane forks from and the quote: no other earlier messages.',
-  independent: 'Only the system prompt and the quote: no earlier messages.',
-};
 
 /** A lane's title, context mode, anchor quote, model and privacy; and deleting it. */
 @Component({
@@ -56,8 +49,8 @@ const MODE_HELP: Record<ContextMode, string> = {
                     (change)="mode.set(m)"
                   />
                   <span>
-                    <strong class="mode-text-{{ m }}">{{ modeLabel[m] }}</strong>
-                    <span class="muted small">{{ help[m] }}</span>
+                    <strong class="mode-text-{{ m }}">{{ meta[m].label }}</strong>
+                    <span class="muted small">{{ meta[m].help }}</span>
                   </span>
                 </label>
               }
@@ -73,23 +66,22 @@ const MODE_HELP: Record<ContextMode, string> = {
             <label class="field">
               <span class="field-label">Provider</span>
               <select #ps [value]="route()" (change)="pickProvider(ps.value)">
-                @if (!store.providerMap().has(route())) {
+                @if (!store.account.providerMap().has(route())) {
                   <option [value]="route()">{{ route() }} (not configured)</option>
                 }
-                @for (p of store.providers(); track key(p)) {
+                @for (p of store.account.providers(); track key(p)) {
                   <option
                     [value]="key(p)"
-                    [disabled]="!p.available"
+                    [disabled]="!p.available || store.account.routeLocked(p)"
                     [selected]="key(p) === route()"
                   >
-                    {{ p.label
-                    }}{{ p.available ? '' : p.acceptsUserKey ? ' — no key' : ' — unavailable' }}
+                    {{ p.label }}{{ suffix(p, store.account.routeLocked(p)) }}
                   </option>
                 }
               </select>
             </label>
             <app-model-field
-              [provider]="store.providerMap().get(route()) ?? null"
+              [provider]="store.account.providerMap().get(route()) ?? null"
               [(model)]="model"
             />
           </div>
@@ -131,16 +123,22 @@ export class BranchSettings implements OnInit {
   private readonly ui = inject(UiStore);
   readonly state = input.required<BranchSettingsState>();
   protected readonly modes = CONTEXT_MODES;
-  protected readonly modeLabel = MODE_LABEL;
-  protected readonly help = MODE_HELP;
+  protected readonly meta = CONTEXT_MODE_META;
 
   protected readonly branch = computed(
     () => this.store.index()?.branches.get(this.state().branchId) ?? null,
   );
+  /**
+   * The lane as the form was filled from it. Saving sends what the user
+   * changed from this, not from the live lane: a reply finishing meanwhile
+   * may have retitled it.
+   */
+  private opened: Branch | null = null;
   protected readonly title = signal('');
   protected readonly mode = signal<ContextMode>('path');
   protected readonly quote = signal('');
   protected readonly key = providerRouteKey;
+  protected readonly suffix = routeSuffix;
   /** Provider and funding, as a `routeKey`. */
   protected readonly route = signal('');
   protected readonly model = signal('');
@@ -150,6 +148,7 @@ export class BranchSettings implements OnInit {
   ngOnInit(): void {
     const b = this.branch();
     if (!b) return;
+    this.opened = b;
     this.title.set(laneTitle(b));
     this.mode.set(b.contextMode);
     this.quote.set(b.anchorQuote ?? '');
@@ -160,16 +159,16 @@ export class BranchSettings implements OnInit {
 
   protected pickProvider(route: string): void {
     this.route.set(route);
-    const p = this.store.providerMap().get(route);
+    const p = this.store.account.providerMap().get(route);
     if (p) this.model.set(p.defaultModel);
   }
 
   protected close(): void {
-    this.ui.branchSettings.set(null);
+    this.ui.dialogs.close('branch-settings');
   }
 
   protected async save(): Promise<void> {
-    const b = this.branch();
+    const b = this.opened;
     if (!b) return;
     this.saving.set(true);
     const title = this.title().trim();

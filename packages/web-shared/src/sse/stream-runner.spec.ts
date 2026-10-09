@@ -1,49 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import type { Branch, ChatNode, StreamEvent } from '@tangent/shared';
+import type { ChatNode, StreamEvent } from '@tangent/shared';
 import { runStream } from './stream-runner';
+import * as fixtures from '../testing';
+import { sse } from '../testing';
 
-const branch: Branch = {
-  id: 'b1',
-  treeId: 't1',
-  parentBranchId: null,
-  branchPointNodeId: null,
-  contextMode: 'path',
-  anchorQuote: null,
-  title: 'Trunk',
-  titleSource: 'default',
-  isPrivate: false,
-  providerId: 'fake',
-  model: 'fake-1',
-  funding: 'own-key',
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: '2026-01-01T00:00:00.000Z',
-};
+const branch = fixtures.branch('b1', { title: 'Trunk' });
 
-function node(
+/** Message `id` of branch `b1`. */
+const node = (
   id: string,
   role: ChatNode['role'],
   content: string,
   status: ChatNode['status'],
-): ChatNode {
-  return {
-    id,
-    treeId: 't1',
-    branchId: 'b1',
-    parentId: null,
-    seq: 0,
-    role,
-    content,
-    status,
-    error: null,
-    providerId: null,
-    model: null,
-    usage: null,
-    createdAt: '2026-01-01T00:00:00.000Z',
-  };
-}
-
-const sse = (events: StreamEvent[]): string =>
-  events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+): ChatNode => fixtures.node(id, { branchId: 'b1', role, content, status });
 
 /** A Response whose body emits `text` and then either closes or errors. */
 function response(text: string, fail = false): Response {
@@ -66,6 +35,7 @@ const start: StreamEvent = {
   userNode: node('u1', 'user', 'hi', 'complete'),
   assistantNode: node('a1', 'assistant', '', 'streaming'),
   branch,
+  funding: 'own-key',
 };
 const noSleep = (): Promise<void> => Promise.resolve();
 

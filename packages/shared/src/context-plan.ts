@@ -90,11 +90,7 @@ export interface AnchorSegment extends SegmentBase {
 }
 
 export type ContextSegment =
-  | SystemSegment
-  | AncestorMessageSegment
-  | BranchMessageSegment
-  | SummarySegment
-  | AnchorSegment;
+  SystemSegment | AncestorMessageSegment | BranchMessageSegment | SummarySegment | AnchorSegment;
 
 /** A summary the assembler needs but was not given. The caller generates it and re-plans. */
 export interface SummaryRequest {
@@ -116,11 +112,19 @@ export interface CompactionRecord {
 }
 
 export interface TruncationRecord {
-  /** Segments dropped because even compaction could not fit the budget. */
+  /**
+   * Segments dropped, oldest first: compaction could not fit the budget, its
+   * summary failed, or the send asked to truncate instead.
+   */
   droppedSegmentIds: string[];
   droppedNodeIds: string[];
   tokensBefore: number;
   tokensAfter: number;
+  /**
+   * True when the context was to be compacted but the summary failed (or
+   * holds one that failed), so the oldest segments were dropped instead.
+   */
+  compactionFailed: boolean;
 }
 
 export interface ChainLink {
@@ -160,4 +164,21 @@ export interface ContextPlan {
 export interface RenderedPrompt {
   system: string | null;
   messages: ChatMessage[];
+}
+
+/**
+ * `prompt` for a model without a system prompt: the system text goes in
+ * front of the first message when that is the user's, else in a user
+ * message of its own before it.
+ */
+export function foldSystemPrompt(prompt: RenderedPrompt): RenderedPrompt {
+  if (prompt.system === null) return prompt;
+  const [first, ...rest] = prompt.messages;
+  if (first?.role === 'user') {
+    return {
+      system: null,
+      messages: [{ ...first, content: `${prompt.system}\n\n${first.content}` }, ...rest],
+    };
+  }
+  return { system: null, messages: [{ role: 'user', content: prompt.system }, ...prompt.messages] };
 }

@@ -1,13 +1,13 @@
 import { inject, Injectable } from '@angular/core';
-import { TextSizeStore } from '@tangent/web-shared';
+import {
+  ComposerController,
+  dispatchShortcut,
+  TextSizeStore,
+  type ShortcutHelp,
+} from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { selectionWithin } from './selection';
-
-export interface ShortcutHelp {
-  keys: string[];
-  label: string;
-}
 
 export const SHORTCUTS: readonly ShortcutHelp[] = [
   { keys: ['Alt+↑', '['], label: 'Parent branch (at the branch point)' },
@@ -25,114 +25,73 @@ export const SHORTCUTS: readonly ShortcutHelp[] = [
   { keys: ['Esc'], label: 'Close dialogs and panels, stop picking a message to link' },
 ];
 
-function isTyping(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  const tag = target.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-}
-
-/** Global shortcuts. Ignored while typing (except Escape) and while a dialog is open. */
+/** Global shortcuts (`dispatchShortcut`: not while typing, nor behind a dialog). */
 @Injectable({ providedIn: 'root' })
 export class Keyboard {
   private readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
   private readonly textSize = inject(TextSizeStore);
 
+  /** On an open conversation only. */
+  private onTree(run: () => void): () => void {
+    return () => {
+      if (this.store.index() !== null) run();
+    };
+  }
+
+  private readonly keys: Readonly<Record<string, () => unknown>> = {
+    '[': this.onTree(() => this.store.navigate('parent')),
+    ']': this.onTree(() => this.store.navigate('firstChild')),
+    j: () => this.store.moveFocus(1),
+    k: () => this.store.moveFocus(-1),
+    b: () => {
+      const node = this.store.focusedInPath() ?? this.store.leaf();
+      // Nothing to branch onto without a route to generate on (power is read-only).
+      if (!node || !this.store.account.canGenerate()) return false;
+      const body = document.getElementById(`msg-${node.id}`)?.querySelector('.msg-body') ?? null;
+      this.ui.dialogs.open({ kind: 'branch', fromNodeId: node.id, quote: selectionWithin(body) });
+      return true;
+    },
+    v: () => {
+      // The focused reply, else the last reply above the focused message (or overall).
+      const path = this.store.path();
+      const focused = this.store.focusedInPath();
+      const upTo = focused ? path.slice(0, path.indexOf(focused) + 1) : path;
+      const node = upTo.findLast((n) => n.role === 'assistant');
+      if (
+        !node ||
+        node.status !== 'complete' ||
+        !this.store.canReview(this.store.branchOf(node.id))
+      )
+        return false;
+      this.ui.dialogs.open({ kind: 'review', nodeId: node.id });
+      return true;
+    },
+    l: () => {
+      // Not a generating call: available while power is read-only.
+      const node = this.store.focusedInPath() ?? this.store.leaf();
+      if (!node) return false;
+      this.ui.linkPick.set(null);
+      this.ui.dialogs.open({ kind: 'link', fromNodeId: node.id });
+      return true;
+    },
+    '/': () => this.composer.focus(),
+    i: this.onTree(() => this.ui.toggleInspector()),
+    // Text size: plain keys, so Ctrl/Cmd +/-/0 stay the browser's zoom. `=` is `+` unshifted.
+    '+': this.onTree(() => this.textSize.increase()),
+    '=': this.onTree(() => this.textSize.increase()),
+    '-': this.onTree(() => this.textSize.decrease()),
+    '0': this.onTree(() => this.textSize.reset()),
+  };
+
   handle(e: KeyboardEvent): void {
-    if (e.defaultPrevented || e.isComposing) return;
-    if (e.key === 'Escape') {
-      if (this.ui.closeTop()) e.preventDefault();
-      else if (isTyping(e.target) && e.target instanceof HTMLElement) e.target.blur();
-      return;
-    }
-    if (isTyping(e.target) || e.ctrlKey || e.metaKey) return;
-    if (e.key === '?') {
-      this.ui.shortcutsOpen.update((v) => !v);
-      e.preventDefault();
-      return;
-    }
-    if (this.ui.anyDialogOpen()) return;
-    const onTree = this.store.index() !== null;
-
-    if (e.altKey) {
-      const dir =
-        e.key === 'ArrowUp'
-          ? 'parent'
-          : e.key === 'ArrowDown'
-            ? 'firstChild'
-            : e.key === 'ArrowLeft'
-              ? 'prevSibling'
-              : e.key === 'ArrowRight'
-                ? 'nextSibling'
-                : null;
-      if (dir && onTree) {
-        e.preventDefault();
-        this.store.navigate(dir);
-      }
-      return;
-    }
-
-    switch (e.key) {
-      case '[':
-        if (onTree) this.store.navigate('parent');
-        break;
-      case ']':
-        if (onTree) this.store.navigate('firstChild');
-        break;
-      case 'j':
-        this.store.moveFocus(1);
-        break;
-      case 'k':
-        this.store.moveFocus(-1);
-        break;
-      case 'b': {
-        const node = this.store.focusedInPath() ?? this.store.leaf();
-        // Nothing to branch onto without a route to generate on (power is read-only).
-        if (!node || !this.store.canGenerate()) return;
-        const body = document.getElementById(`msg-${node.id}`)?.querySelector('.msg-body') ?? null;
-        this.ui.branchDialog.set({ fromNodeId: node.id, quote: selectionWithin(body) });
-        break;
-      }
-      case 'v': {
-        // The focused reply, else the last reply above the focused message (or overall).
-        const path = this.store.path();
-        const focused = this.store.focusedInPath();
-        const upTo = focused ? path.slice(0, path.indexOf(focused) + 1) : path;
-        const node = upTo.findLast((n) => n.role === 'assistant');
-        if (!node || node.status !== 'complete') return;
-        if (!this.store.canReview(this.store.index()?.branches.get(node.branchId) ?? null)) return;
-        this.ui.reviewDialog.set({ nodeId: node.id });
-        break;
-      }
-      case 'l': {
-        // Not a generating call: available while power is read-only.
-        const node = this.store.focusedInPath() ?? this.store.leaf();
-        if (!node) return;
-        this.ui.linkPick.set(null);
-        this.ui.linkDialog.set({ fromNodeId: node.id });
-        break;
-      }
-      case '/':
-        this.ui.focusComposer();
-        break;
-      case 'i':
-        if (onTree) this.ui.toggleInspector();
-        break;
-      // Text size: plain keys, so Ctrl/Cmd +/-/0 stay the browser's zoom. `=` is `+` unshifted.
-      case '+':
-      case '=':
-        if (onTree) this.textSize.increase();
-        break;
-      case '-':
-        if (onTree) this.textSize.decrease();
-        break;
-      case '0':
-        if (onTree) this.textSize.reset();
-        break;
-      default:
-        return;
-    }
-    e.preventDefault();
+    dispatchShortcut(e, {
+      closeTop: () => this.ui.closeTop(),
+      dialogOpen: () => this.ui.dialogs.anyOpen(),
+      toggleHelp: () => this.ui.dialogs.toggle({ kind: 'shortcuts' }),
+      navigate: (step) => this.store.index() !== null && this.store.navigate(step),
+      keys: this.keys,
+    });
   }
 }

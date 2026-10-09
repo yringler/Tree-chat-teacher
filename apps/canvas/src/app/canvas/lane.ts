@@ -10,23 +10,21 @@ import {
   untracked,
 } from '@angular/core';
 import { branchLeaf } from '@tangent/core/tree';
-import type { ChatNode, ContextMode } from '@tangent/shared';
-import { Icon, ReadOnlyComposer, TextSizeStore } from '@tangent/web-shared';
+import type { ChatNode } from '@tangent/shared';
+import {
+  Composer,
+  CONTEXT_MODE_META,
+  Icon,
+  ReadOnlyComposer,
+  TextSizeStore,
+} from '@tangent/web-shared';
 import type { LanePlacement } from '../layout/layout';
 import { LayoutStore } from '../layout/layout-store';
 import { CanvasStore, modelLabel, type Lineage } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 import { Card, type Lit } from './card';
 import { confirmDeleteLane } from './delete-lane';
-import { LaneComposer } from './lane-composer';
 import { laneTitle } from './titles';
-
-export const MODE_LABEL: Record<ContextMode, string> = {
-  path: 'full path',
-  summary: 'summary',
-  message: 'parent message',
-  independent: 'independent',
-};
 
 /**
  * One branch as a column on the canvas: its head (title, context mode,
@@ -37,7 +35,7 @@ export const MODE_LABEL: Record<ContextMode, string> = {
  */
 @Component({
   selector: 'app-lane',
-  imports: [Icon, Card, LaneComposer, ReadOnlyComposer],
+  imports: [Icon, Card, Composer, ReadOnlyComposer],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let b = place().branch;
@@ -102,8 +100,8 @@ export const MODE_LABEL: Record<ContextMode, string> = {
         }
       </div>
       <div class="lane-meta">
-        <span class="badge mode-{{ b.contextMode }}" [attr.title]="modeHelp()">
-          {{ modeLabel[b.contextMode] }}
+        <span class="badge mode-{{ b.contextMode }}" [attr.title]="modes[b.contextMode].longHelp">
+          {{ modes[b.contextMode].label }}
         </span>
         <span
           class="badge"
@@ -159,25 +157,29 @@ export const MODE_LABEL: Record<ContextMode, string> = {
           <app-card [node]="n" [focused]="n.id === store.focusedNodeId()" [lit]="litOf(n)" />
         }
       </div>
-      @if (store.routeLocked(b) && store.membership(); as membership) {
+      @if (store.account.routeLocked(b) && store.account.membership(); as membership) {
         <!-- The lane's funding needs the membership the user lacks: read it, renew, or copy it. -->
         <app-read-only-composer
           [compact]="true"
           [membership]="membership"
           [treeId]="b.treeId"
-          [credit]="store.creditRoute() !== null"
-          [learn]="store.learnCopyWay()"
+          [credit]="store.account.creditRoute() !== null"
+          [learn]="store.account.learnCopyWay()"
           (useCredit)="store.switchToCredit(b.id)"
           (pointerdown)="$event.stopPropagation()"
         />
       } @else {
-        <app-lane-composer
+        <!-- Typing in the box neither selects the lane nor starts a pan. -->
+        <app-composer
           [inputId]="'composer-' + b.id"
-          [laneId]="b.id"
+          [branchId]="b.id"
+          [compact]="true"
+          [maxHeight]="220"
           [placeholder]="nodes().length === 0 ? 'Ask here…' : 'Continue this lane…'"
           [disabled]="busy()"
           [busy]="streaming() !== null"
-          [selected]="selected"
+          [current]="selected"
+          (pointerdown)="boxDown($event)"
           [initial]="store.unsentDrafts().get(b.id) ?? ''"
           (send)="send($event)"
           (stop)="stop()"
@@ -203,7 +205,7 @@ export class Lane implements OnDestroy {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly textSize = inject(TextSizeStore);
   protected readonly laneTitle = laneTitle;
-  protected readonly modeLabel = MODE_LABEL;
+  protected readonly modes = CONTEXT_MODE_META;
 
   readonly place = input.required<LanePlacement>();
   readonly lineage = input<Lineage | null>(null);
@@ -229,19 +231,7 @@ export class Lane implements OnDestroy {
   protected readonly busy = computed(() => this.store.busyBranches().has(this.place().branch.id));
   protected readonly model = computed(() => {
     const b = this.place().branch;
-    return modelLabel(this.store.providers(), b, b.model);
-  });
-  protected readonly modeHelp = computed(() => {
-    switch (this.place().branch.contextMode) {
-      case 'path':
-        return 'Full path: the model sees everything the parent lane had at the fork, then this lane';
-      case 'summary':
-        return 'Summary: the model sees a generated summary of the parent context, then this lane';
-      case 'message':
-        return 'Parent message: the model sees only the message this lane forks from, the quote and this lane';
-      case 'independent':
-        return 'Independent: the model sees only the system prompt, the quote and this lane';
-    }
+    return modelLabel(this.store.account.providers(), b, b.model);
   });
   protected readonly budgetPct = computed(() => {
     const l = this.lineage();
@@ -293,6 +283,11 @@ export class Lane implements OnDestroy {
   }
 
   /** Pointer down anywhere on the lane selects it, without moving the camera mid-gesture. */
+  /** A pointer down in the lane's text box stays there: no lane select, no pan. */
+  protected boxDown(e: PointerEvent): void {
+    if (e.target instanceof HTMLTextAreaElement) e.stopPropagation();
+  }
+
   protected select(): void {
     if (this.isSelected()) return;
     const id = this.place().branch.id;
@@ -313,7 +308,7 @@ export class Lane implements OnDestroy {
 
   protected settings(e: Event): void {
     e.stopPropagation();
-    this.ui.branchSettings.set({ branchId: this.place().branch.id });
+    this.ui.dialogs.open({ kind: 'branch-settings', branchId: this.place().branch.id });
   }
 
   /** The lane with every lane below it, after asking; the selection moves up if it was in there. */

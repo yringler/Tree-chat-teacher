@@ -22,7 +22,9 @@ const AFTER_DELETE_URL = '/welcome';
       undone, so download backups of anything you want to keep first.
     </p>
     <p class="muted small">
-      Payment records are kept as tax law requires; see the
+      Payment records are kept as tax law requires. Open pool usage records are kept without your
+      user id (and without your network key once the day is over), and your pool identity for 90
+      days, so its limits hold; see the
       <a href="/privacy" target="_blank" rel="noopener">privacy policy</a>.
     </p>
     <form class="form" (submit)="$event.preventDefault(); remove()">

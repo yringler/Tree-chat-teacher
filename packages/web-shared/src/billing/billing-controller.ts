@@ -250,7 +250,7 @@ export class BillingController {
   }
 }
 
-/** What a webhook changed since `before`; the membership wins (were it to include credit, the balance moves too). */
+/** What a webhook changed since `before`; a membership change wins over a balance change. */
 function changeOf(before: BillingSummary, after: BillingSummary): 'activated' | 'credited' | null {
   if (before.membership.status !== after.membership.status) return 'activated';
   if (before.balanceMicros !== after.balanceMicros) return 'credited';

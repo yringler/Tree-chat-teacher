@@ -1,13 +1,18 @@
 // Settling usage whose cost the stream didn't report (aborted, truncated or
 // evicted generations): OpenRouter's generation endpoint, with retries right
-// after the stream and a cron backstop (PLAN §2.4).
+// after the stream and a cron backstop.
+import { costUsdToNanos } from '@tangent/shared';
 import { fetchOpenRouterGeneration, type GenerationCost } from '@tangent/providers';
 import { appConfig } from '../config.js';
+import type { SqlRow } from '../db/rows.js';
+import type { usageEvents } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
 import { expirePoolReservations, type ExpiryResult } from '../pool/expiry.js';
 import { poolBank } from '../pool/ids.js';
-import { costUsdToNanos } from './pricing.js';
+import { POOL_EXPIRE_BATCH, POOL_GIVE_UP_MS, POOL_RESERVATION_TTL_MS } from '../pool/params.js';
+import { builtInApiKey } from '../simple-mode.js';
 import { markUnresolved, settleUsage } from './usage-store.js';
+import { logEvent } from '../log.js';
 
 /** Backoff after a stream ends without a cost: OpenRouter 404s for a few seconds. */
 export const RECONCILE_RETRY_DELAYS_MS: readonly number[] = [1_000, 3_000, 10_000, 30_000];
@@ -23,29 +28,6 @@ const CRON_BATCH = 200;
 /** Pools the cron expires reservations for, at most, per run. */
 const CRON_POOL_LIMIT = 10;
 
-/**
- * The OpenRouter key simple mode spends: the secret named by
- * `SIMPLE_PROVIDER.apiKeySecret` when set, else `OPENROUTER_SIMPLE_API_KEY`.
- */
-export function simpleApiKey(env: AppEnv): string | null {
-  let secretName = 'OPENROUTER_SIMPLE_API_KEY';
-  const override = env.SIMPLE_PROVIDER?.trim();
-  if (override) {
-    try {
-      const parsed: unknown = JSON.parse(override);
-      const config: unknown = Array.isArray(parsed) ? parsed[0] : parsed;
-      if (typeof config === 'object' && config !== null) {
-        const name = (config as Record<string, unknown>)['apiKeySecret'];
-        if (typeof name === 'string' && name) secretName = name;
-      }
-    } catch {
-      // Invalid SIMPLE_PROVIDER fails loudly where the registry is built; keep the default here.
-    }
-  }
-  const value = (env as unknown as Record<string, unknown>)[secretName];
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
 function sleep(ms: number): Promise<void> {
   return ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve();
 }
@@ -58,11 +40,7 @@ async function lookup(
   try {
     return await fetchOpenRouterGeneration(generationId, key, fetchImpl);
   } catch (e) {
-    console.warn(
-      'OpenRouter generation lookup failed',
-      generationId,
-      e instanceof Error ? e.message : e,
-    );
+    logEvent('warn', 'generation_lookup_failed', { generationId, error: e });
     return null;
   }
 }
@@ -95,12 +73,9 @@ export async function reconcileGeneration(
   generationId: string,
   options: { delaysMs?: readonly number[]; fetchImpl?: typeof fetch } = {},
 ): Promise<boolean> {
-  const key = simpleApiKey(env);
+  const key = builtInApiKey(env);
   if (!key) {
-    console.warn(
-      'No OpenRouter key for usage reconciliation; leaving usage pending',
-      target.usageId,
-    );
+    logEvent('warn', 'reconcile_no_key', { usageId: target.usageId });
     return false;
   }
   let cost: GenerationCost | null = null;
@@ -120,21 +95,24 @@ export async function reconcileGeneration(
       });
       return true;
     } catch (e) {
-      console.error('Usage settle failed; retrying', target.usageId, e);
+      logEvent('error', 'usage_settle_failed', { usageId: target.usageId, error: e });
     }
   }
   return false;
 }
 
-interface PendingRow {
-  id: string;
-  generation_id: string | null;
-  markup_bps: number;
-  fee_bps: number;
-  created_at: string;
-  input_tokens: number | null;
-  output_tokens: number | null;
-}
+type UsageSql = SqlRow<typeof usageEvents>;
+
+type PendingRow = Pick<
+  UsageSql,
+  | 'id'
+  | 'generation_id'
+  | 'markup_bps'
+  | 'fee_bps'
+  | 'created_at'
+  | 'input_tokens'
+  | 'output_tokens'
+>;
 
 /**
  * Cron backstop (`scheduled`, every 10 minutes) for pending personal usage
@@ -157,7 +135,7 @@ export async function reconcilePendingUsage(
     .bind(new Date(nowMs - CRON_MIN_AGE_MS).toISOString(), CRON_BATCH)
     .all<PendingRow>();
 
-  const key = simpleApiKey(env);
+  const key = builtInApiKey(env);
   let settled = 0;
   let unresolved = 0;
   for (const row of results) {
@@ -180,7 +158,7 @@ export async function reconcilePendingUsage(
         } else if (age > CRON_GIVE_UP_AGE_MS) {
           if (await markUnresolved(env.DB, row.id, now)) {
             unresolved++;
-            console.error('Usage unresolved after 24 h; charged 0, review manually', {
+            logEvent('error', 'usage_unresolved', {
               usageId: row.id,
               generationId: row.generation_id,
             });
@@ -197,7 +175,7 @@ export async function reconcilePendingUsage(
         if ((await settleUsage(env.DB, row.id, zero)).changed) settled++;
       }
     } catch (e) {
-      console.error('Usage reconciliation failed for row', row.id, e);
+      logEvent('error', 'usage_reconcile_failed', { usageId: row.id, error: e });
     }
   }
   return { settled, unresolved };
@@ -206,8 +184,8 @@ export async function reconcilePendingUsage(
 /**
  * Cron backstop for the open pool: expires stale reservations of every
  * pool account with any (in case a PoolBank alarm was lost), then advances
- * and verifies the configured pool's balance checkpoint. Limits, TTLs and the
- * pool id come from `appConfig(env)`.
+ * and verifies the configured pool's balance checkpoint (its id from
+ * `appConfig(env)`).
  */
 export async function reconcilePoolUsage(
   env: AppEnv,
@@ -215,9 +193,9 @@ export async function reconcilePoolUsage(
 ): Promise<Record<string, ExpiryResult>> {
   const pool = appConfig(env).pool;
   const options = {
-    ttlMs: pool.reservationTtlMs,
-    giveUpMs: pool.giveUpMs,
-    batch: pool.expireBatch,
+    ttlMs: POOL_RESERVATION_TTL_MS,
+    giveUpMs: POOL_GIVE_UP_MS,
+    batch: POOL_EXPIRE_BATCH,
   };
   const out: Record<string, ExpiryResult> = {};
   try {
@@ -226,26 +204,26 @@ export async function reconcilePoolUsage(
        WHERE status = 'pending' AND funding = 'pool' AND created_at < ? LIMIT ?`,
     )
       .bind(new Date(now.getTime() - options.ttlMs).toISOString(), CRON_POOL_LIMIT)
-      .all<{ account_id: string }>();
+      .all<Pick<UsageSql, 'account_id'>>();
     for (const { account_id: poolId } of results) {
       try {
         out[poolId] = await expirePoolReservations(env, poolId, now, options);
       } catch (e) {
-        console.error('Pool expiry failed', poolId, e);
+        logEvent('error', 'pool_expiry_failed', { poolId, error: e });
       }
     }
   } catch (e) {
-    console.error('Pool expiry backstop failed', e);
+    logEvent('error', 'pool_expiry_failed', { error: e });
   }
   if (appConfig(env).flags.poolEnabled) {
     try {
       await poolBank(env, pool.accountId).maintain({
         poolId: pool.accountId,
-        giveUpMs: pool.giveUpMs,
+        giveUpMs: POOL_GIVE_UP_MS,
         now: now.getTime(),
       });
     } catch (e) {
-      console.error('Pool checkpoint maintenance failed', e);
+      logEvent('error', 'pool_maintenance_failed', { error: e });
     }
   }
   return out;

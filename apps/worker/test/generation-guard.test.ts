@@ -1,14 +1,14 @@
 // The checks every generating route makes before it calls a provider
-// (`assertGenerationAllowed`, byok/guard.ts), and how the legacy built-in id
-// reads as a summary provider (`chatSettingsFor`, services.ts): the branches the
-// API suites rarely reach.
+// (`assertGenerationAllowed`, byok/guard.ts), and how SUMMARY_PROVIDER_ID is
+// read (`chatSettingsFor`, registries.ts): the branches the API suites rarely
+// reach.
 import { KeyRequiredError, ValidationError } from '@tangent/core';
 import type { ProviderInfo, ProviderRegistry } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { assertGenerationAllowed } from '../src/byok/guard.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
-import { chatSettingsFor } from '../src/services.js';
+import { chatSettingsFor } from '../src/registries.js';
 
 const env = rawEnv as unknown as AppEnv;
 
@@ -87,19 +87,13 @@ describe('chatSettingsFor: SUMMARY_PROVIDER_ID', () => {
     mode: 'power',
     userId: 'settings',
     billingAccountId: 'u_settings',
-    builtIn: true,
+    creditOffered: true,
     operatorKeys: false,
-    funding: 'personal',
   };
   const settings = (id: string) =>
     chatSettingsFor({ ...env, SUMMARY_PROVIDER_ID: id } as AppEnv, power);
 
-  it('the legacy `tangent` (Tangent credit) means no summary provider, so summaries never cost credit', () => {
-    expect(settings('tangent').summaryProviderId).toBeNull();
-    expect(settings(' tangent ').summaryProviderId).toBeNull();
-  });
-
-  it('any other id is kept, and blank is none', () => {
+  it('an id is kept, and blank is none', () => {
     expect(settings('ant').summaryProviderId).toBe('ant');
     expect(settings('openrouter').summaryProviderId).toBe('openrouter');
     expect(settings('  ').summaryProviderId).toBeNull();

@@ -1,38 +1,56 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { KeysDialog } from '@tangent/web-shared';
+import { laneTitle } from '../canvas/titles';
+import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 import { BranchDialog } from './branch-dialog';
 import { BranchSettings } from './branch-settings';
 import { DeleteAccountDialog } from './delete-account-dialog';
 import { HelpDialog } from './help-dialog';
-import { KeysDialog } from './keys-dialog';
 import { LinkDialog } from './link-dialog';
 
-/** Renders whichever dialog the UiStore says is open. */
+/** Renders the dialogs the UiStore says are open, the top-most last. */
 @Component({
   selector: 'app-dialog-host',
   imports: [BranchDialog, BranchSettings, DeleteAccountDialog, HelpDialog, KeysDialog, LinkDialog],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (ui.branchDialog(); as s) {
-      <app-branch-dialog [state]="s" />
-    }
-    @if (ui.branchSettings(); as s) {
-      <app-branch-settings [state]="s" />
-    }
-    @if (ui.linkDialog(); as s) {
-      <app-link-dialog [state]="s" />
-    }
-    @if (ui.keysOpen()) {
-      <app-keys-dialog />
-    }
-    @if (ui.helpOpen()) {
-      <app-help-dialog />
-    }
-    @if (ui.deleteAccountOpen()) {
-      <app-delete-account-dialog />
+    <!-- In stack order: the dialog opened last is on top, and Escape closes it. -->
+    @for (d of ui.dialogs.list(); track d.kind) {
+      @switch (d.kind) {
+        @case ('branch') {
+          <app-branch-dialog [state]="d" />
+        }
+        @case ('branch-settings') {
+          <app-branch-settings [state]="d" />
+        }
+        @case ('link') {
+          <app-link-dialog [state]="d" />
+        }
+        @case ('keys') {
+          <!-- Billing is the power app's page. -->
+          <app-keys-dialog
+            noun="lane"
+            [titleOf]="laneTitle"
+            [initialProvider]="
+              (store.blockedBranch() ?? store.selectedBranch())?.providerId ?? null
+            "
+            billingHref="/billing"
+            (closed)="ui.dialogs.close('keys')"
+          />
+        }
+        @case ('help') {
+          <app-help-dialog />
+        }
+        @case ('delete-account') {
+          <app-delete-account-dialog />
+        }
+      }
     }
   `,
 })
 export class DialogHost {
   protected readonly ui = inject(UiStore);
+  protected readonly store = inject(CanvasStore);
+  protected readonly laneTitle = laneTitle;
 }

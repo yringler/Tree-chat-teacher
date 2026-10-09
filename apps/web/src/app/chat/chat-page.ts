@@ -12,15 +12,16 @@ import {
 } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
-import type { Branch, ChatNode, MembershipInfo } from '@tangent/shared';
+import { clip, type Branch, type ChatNode, type MembershipInfo } from '@tangent/shared';
 import { describeEndpoint } from '@tangent/core';
 import {
+  Composer,
   endpointTitle,
   Icon,
   PendingQuote,
   ReadOnlyComposer,
-  SelectionAsk,
   selectedMessageQuote,
+  SelectionAsk,
   TextSizeStore,
   type MessageQuote,
 } from '@tangent/web-shared';
@@ -30,7 +31,6 @@ import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { ModeBadge } from '../ui/mode-badge';
 import { ChatHeader } from './chat-header';
-import { Composer } from './composer';
 import { MessageItem } from './message-item';
 import { RouteBar } from './route-bar';
 
@@ -126,9 +126,7 @@ export class ChatPage implements OnDestroy {
    */
   protected readonly selectionLocked = computed(() => {
     const q = this.selection.value();
-    const node = q ? this.store.index()?.nodes.get(q.nodeId) : undefined;
-    const branch = node ? this.store.index()?.branches.get(node.branchId) : undefined;
-    return !!branch && this.store.routeLocked(branch);
+    return !!q && this.store.nodeLocked(q.nodeId);
   });
 
   /** A message of the open branch that couldn't be sent: the composer takes it back. */
@@ -151,7 +149,7 @@ export class ChatPage implements OnDestroy {
     const title = endpointTitle(from);
     return {
       fromNodeId: pick.fromNodeId,
-      title: title.length > 60 ? `${title.slice(0, 59).trimEnd()}…` : title,
+      title: clip(title, 60),
     };
   });
 
@@ -161,7 +159,7 @@ export class ChatPage implements OnDestroy {
    */
   protected readonly readOnly = computed<{ membership: MembershipInfo; treeId: string } | null>(
     () => {
-      const membership = this.store.membership();
+      const membership = this.store.account.membership();
       const treeId = this.store.detail()?.tree.id;
       return this.store.readOnly() && membership && treeId ? { membership, treeId } : null;
     },
@@ -229,12 +227,12 @@ export class ChatPage implements OnDestroy {
   protected moreAbout(q: MessageQuote): void {
     this.selection.clear();
     window.getSelection()?.removeAllRanges();
-    this.ui.branchDialog.set({ fromNodeId: q.nodeId, quote: q.quote });
+    this.ui.dialogs.open({ kind: 'branch', fromNodeId: q.nodeId, quote: q.quote });
   }
 
   /** The quote under the selection, when it lies in one finished message and branches can be made. */
   private quoteToAsk(): MessageQuote | null {
-    if (!this.store.canGenerate() || this.ui.anyDialogOpen()) return null;
+    if (!this.store.account.canGenerate() || this.ui.dialogs.anyOpen()) return null;
     const found = selectedMessageQuote(this.scroller()?.nativeElement, window.getSelection());
     const node = found ? this.store.index()?.nodes.get(found.nodeId) : undefined;
     return node?.status === 'complete' ? found : null;
@@ -246,7 +244,7 @@ export class ChatPage implements OnDestroy {
 
   protected searchInstead(fromNodeId: string): void {
     this.ui.linkPick.set(null);
-    this.ui.linkDialog.set({ fromNodeId });
+    this.ui.dialogs.open({ kind: 'link', fromNodeId });
   }
 
   protected send(content: string): void {
@@ -261,7 +259,7 @@ export class ChatPage implements OnDestroy {
   protected compare(content: string): void {
     const branchId = this.store.selectedBranchId();
     if (!branchId) return;
-    this.ui.compareDialog.set({ branchId, content });
+    this.ui.dialogs.open({ kind: 'compare', branchId, content });
   }
 
   /** "Continue with Tangent credit": the selected branch moves onto credit and its composer returns. */

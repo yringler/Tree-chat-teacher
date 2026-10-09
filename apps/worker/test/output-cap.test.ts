@@ -1,8 +1,8 @@
-import type { StreamEvent, TreeDetail } from '@tangent/shared';
-import { env as rawEnv, exports } from 'cloudflare:workers';
+import type { TreeDetail } from '@tangent/shared';
+import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { grantCredit } from '../src/billing/ledger.js';
-import { usageHoldMicros } from '../src/billing/service.js';
+import { USAGE_HOLD_MICROS } from '../src/billing/service.js';
 import type { AppEnv } from '../src/env.js';
 import { resolvePoolParams } from '../src/pool/params.js';
 import {
@@ -12,6 +12,7 @@ import {
   simpleMaxInputTokens,
 } from '../src/simple-mode.js';
 import { poolReadyUser } from './pool-helpers.js';
+import { call, parseSse } from './http.js';
 
 /**
  * A reply's output cap (`SendMessageRequest.maxOutputTokens`): power sends
@@ -19,25 +20,10 @@ import { poolReadyUser } from './pool-helpers.js';
  * The fake providers echo the request's cap on `[echo-request]` (vitest.config.ts).
  */
 const env = rawEnv as unknown as AppEnv;
-const BASE = 'https://tangent.example.com';
 const ECHO = '[echo-request]';
 
-function call(path: string, json: unknown): Promise<Response> {
-  return exports.default.fetch(
-    new Request(BASE + path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(json),
-    }),
-  );
-}
-
 function replyOf(text: string): string {
-  return text
-    .split('\n\n')
-    .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-    .filter((l): l is string => !!l)
-    .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent)
+  return parseSse(text)
     .map((ev) => (ev.type === 'delta' ? ev.text : ''))
     .join('');
 }
@@ -51,7 +37,7 @@ function echoedCap(text: string): string {
 
 describe('power: the reply length setting', () => {
   async function trunk(): Promise<string> {
-    const res = await call('/api/trees', { title: 'Cap', providerId: 'fake' });
+    const res = await call('/api/trees', { json: { title: 'Cap', providerId: 'fake' } });
     expect(res.status).toBe(201);
     return ((await res.json()) as TreeDetail).tree.trunkBranchId;
   }
@@ -59,7 +45,9 @@ describe('power: the reply length setting', () => {
   it('sends the default without a setting, the setting within the model limit, and clamps above it', async () => {
     const branchId = await trunk();
     const send = async (extra: Record<string, unknown>) => {
-      const res = await call(`/api/branches/${branchId}/messages`, { content: ECHO, ...extra });
+      const res = await call(`/api/branches/${branchId}/messages`, {
+        json: { content: ECHO, ...extra },
+      });
       const text = await res.text();
       expect(res.status, text).toBe(200);
       return echoedCap(text);
@@ -74,8 +62,7 @@ describe('power: the reply length setting', () => {
     const branchId = await trunk();
     for (const maxOutputTokens of [100, 200_000, 1.5, '4096']) {
       const res = await call(`/api/branches/${branchId}/messages`, {
-        content: 'Hi',
-        maxOutputTokens,
+        json: { content: 'Hi', maxOutputTokens },
       });
       expect(res.status, String(maxOutputTokens)).toBe(400);
       await res.text();
@@ -88,7 +75,7 @@ describe('Learn ignores a requested cap', () => {
     const u = await poolReadyUser();
     const created = await u.client.call('/api/trees', {
       method: 'POST',
-      json: { title: 'L', model: 'smart' },
+      json: { title: 'L', model: 'max' },
       learn: 'credit',
     });
     expect(created.status).toBe(201);
@@ -135,6 +122,6 @@ describe('the built-in provider’s bounds', () => {
   it('keeps the personal-credit hold flat: a minimum balance, not the cap’s worst case', () => {
     // 16,384 tokens at $10/MTok would be a $0.16 hold; the hold stays USAGE_HOLD_MICROS and the
     // charge is the reported cost (billing-meter.test.ts), so a larger cap can't undercharge.
-    expect(usageHoldMicros(env)).toBe(20_000);
+    expect(USAGE_HOLD_MICROS).toBe(20_000);
   });
 });

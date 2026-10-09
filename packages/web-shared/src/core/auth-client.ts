@@ -2,6 +2,7 @@ import { InjectionToken } from '@angular/core';
 import { passkeyClient } from '@better-auth/passkey/client';
 import { createAuthClient } from 'better-auth/client';
 import { magicLinkClient } from 'better-auth/client/plugins';
+import { AUTH_BASE_PATH } from '@tangent/shared';
 
 /**
  * Better Auth's browser client for `/api/auth/*`, with the plugins the
@@ -11,7 +12,7 @@ import { magicLinkClient } from 'better-auth/client/plugins';
 export function createTangentAuthClient(baseURL: string = location.origin) {
   return createAuthClient({
     baseURL,
-    basePath: '/api/auth',
+    basePath: AUTH_BASE_PATH,
     plugins: [magicLinkClient(), passkeyClient()],
   });
 }

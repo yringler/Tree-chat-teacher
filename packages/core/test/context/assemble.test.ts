@@ -1080,6 +1080,7 @@ suite('token budget', () => {
       droppedNodeIds: ['T.0', 'T.1', 'T.2', 'T.3', 'T.4', 'T.5', 'T.6'],
       tokensBefore: 612,
       tokensAfter: 312,
+      compactionFailed: false,
     });
     expect(describe(plan)).toEqual([`br:${X}`, `br:${X}`, `br:${X}`]);
     expect(plan.budget.usedTokens).toBe(312);
@@ -1305,6 +1306,7 @@ suite('token budget', () => {
       droppedNodeIds: ['T.0', 'T.1'],
       tokensBefore: 2 + 3 * 304,
       tokensAfter: 2 + 304,
+      compactionFailed: false,
     });
     expect(plan.budget.usedTokens).toBe(306);
   });

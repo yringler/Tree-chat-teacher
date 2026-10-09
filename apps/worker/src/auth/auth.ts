@@ -6,6 +6,7 @@ import { setSessionCookie } from 'better-auth/cookies';
 import { captcha } from 'better-auth/plugins';
 import { magicLink } from 'better-auth/plugins/magic-link';
 import { drizzle } from 'drizzle-orm/d1';
+import { AUTH_BASE_PATH, REMEMBER_COOKIE } from '@tangent/shared';
 import {
   authAccounts,
   authPasskeys,
@@ -14,8 +15,10 @@ import {
   authUsers,
   authVerifications,
 } from '../db/schema.js';
+import { KEY_COOKIE_ATTRIBUTES, KEY_COOKIE_NAME } from '../byok/keys.js';
 import { appConfig } from '../config.js';
 import { createEmailSender, magicLinkEmail, type EmailSender } from '../email/index.js';
+import type { SqlRow } from '../db/rows.js';
 import type { AppEnv } from '../env.js';
 import { markPoolVerified } from '../pool/identity.js';
 import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnstile.js';
@@ -29,11 +32,11 @@ import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnst
  *
  * Anyone may sign up; abuse is bounded by Turnstile and the rate limits on
  * magic links. While the open pool is on, Turnstile runs on every first
- * sign-in (docs/pool/PLAN.md §9, D4): a magic link can only be requested with
+ * sign-in: a magic link can only be requested with
  * a Turnstile pass, so signing in with one records it
  * (`auth_users.pool_verified_at`); a first OAuth sign-in (or any OAuth
  * sign-in of a user with no pass on record) is sent through the Turnstile
- * interstitial (http/verify-page.ts) on its way to the app. A user needs a
+ * interstitial (http/verify-page.tsx) on its way to the app. A user needs a
  * verified email (OAuth providers report it, a magic link proves it):
  * unverified users are never created. Each user gets
  * their own accounts (auth/account.ts). Power mode is bring-your-own-key for
@@ -42,16 +45,6 @@ import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnst
  * Payments don't go through Better Auth: the membership, top-ups and the
  * payment provider's webhooks are billing routes (billing/payments).
  */
-
-export const AUTH_BASE_PATH = '/api/auth';
-
-/**
- * Set by the login page right before a sign-in starts: `1` = remember me
- * (a persistent session cookie), anything else = a browser-session cookie.
- * It's a plain preference cookie because the OAuth callback and the magic
- * link arrive as top-level navigations that can't carry a request body.
- */
-export const REMEMBER_COOKIE = 'tangent-remember';
 
 const DAY_SECONDS = 24 * 60 * 60;
 /** Remembered sessions: 30 days, extended by activity (at most once a day). */
@@ -76,12 +69,12 @@ export interface AuthDeps {
 
 /** True when authentication is configured, i.e. the dev bypass can't apply. */
 export function authConfigured(env: AppEnv): boolean {
-  return !!env.BETTER_AUTH_SECRET?.trim();
+  return appConfig(env).auth.secret !== null;
 }
 
 /** PUBLIC_BASE_URL, or the request's origin when it's unset (local dev and tests). */
 export function authBaseUrl(env: AppEnv, request: Request): string {
-  const configured = env.PUBLIC_BASE_URL?.trim().replace(/\/+$/, '');
+  const configured = appConfig(env).site.publicBaseUrl?.replace(/\/+$/, '');
   return configured || new URL(request.url).origin;
 }
 
@@ -98,12 +91,6 @@ export function turnstileHostname(env: AppEnv, request: Request): string | null 
   return isLocalHost(hostname) ? null : hostname;
 }
 
-function oauthApp(id: string | undefined, secret: string | undefined) {
-  const clientId = id?.trim();
-  const clientSecret = secret?.trim();
-  return clientId && clientSecret ? { clientId, clientSecret } : null;
-}
-
 export interface SocialProviderFlags {
   google: boolean;
   github: boolean;
@@ -111,18 +98,17 @@ export interface SocialProviderFlags {
 
 export function socialProviderFlags(env: AppEnv): SocialProviderFlags {
   return {
-    google: !!oauthApp(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET),
-    github: !!oauthApp(env.GITHUB_CLIENT_ID, env.GITHUB_CLIENT_SECRET),
+    google: appConfig(env).auth.google !== null,
+    github: appConfig(env).auth.github !== null,
   };
 }
 
 /** Only providers with both credentials are registered (and offered on the login page). */
 function socialProviders(env: AppEnv): BetterAuthOptions['socialProviders'] {
-  const google = oauthApp(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET);
-  const github = oauthApp(env.GITHUB_CLIENT_ID, env.GITHUB_CLIENT_SECRET);
+  const { google, github } = appConfig(env).auth;
   return {
     ...(google ? { google: { ...google, prompt: 'select_account' as const } } : {}),
-    ...(github ? { github } : {}),
+    ...(github ? { github: { ...github } } : {}),
   };
 }
 
@@ -172,7 +158,7 @@ async function recordFirstSignInCheck(
   if (!location) return;
   const row = await env.DB.prepare('SELECT pool_verified_at FROM auth_users WHERE id = ?')
     .bind(user.id)
-    .first<{ pool_verified_at: string | null }>();
+    .first<Pick<SqlRow<typeof authUsers>, 'pool_verified_at'>>();
   if (row?.pool_verified_at) return;
   // The callback's error redirects (`/login?error=…`) carry no session, so this is a sign-in.
   headers.set('location', verifyPageUrl(safeNextPath(location, origin)));
@@ -196,7 +182,7 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
     appName: 'Tangent',
     baseURL: base.origin,
     basePath: AUTH_BASE_PATH,
-    secret: env.BETTER_AUTH_SECRET,
+    secret: appConfig(env).auth.secret ?? undefined,
     database: drizzleAdapter(drizzle(env.DB), {
       provider: 'sqlite',
       schema: {
@@ -213,9 +199,12 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
     emailAndPassword: { enabled: false },
     socialProviders: socialProviders(env),
     account: {
-      // Google and GitHub both verify the email, so signing in with either
-      // (or a magic link) lands on the same user.
-      accountLinking: { enabled: true, trustedProviders: ['google', 'github'] },
+      // Signing in with Google, GitHub or a magic link lands on the same user,
+      // but a provider identity is linked to an existing user only when the
+      // provider reports the email verified (no `trustedProviders`: trusting
+      // a provider skips that check, letting anyone whose provider account
+      // claims the address unverified take over the user).
+      accountLinking: { enabled: true },
     },
     session: {
       expiresIn: SESSION_DAYS * DAY_SECONDS,
@@ -254,6 +243,11 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
       // browser-session cookie, and Better Auth's signed `dont_remember`
       // cookie so later refreshes don't extend it.
       after: createAuthMiddleware(async (ctx) => {
+        if (ctx.path === '/sign-out') {
+          // The user's provider keys go with their session (byok/keys.ts).
+          ctx.setCookie(KEY_COOKIE_NAME, '', { ...KEY_COOKIE_ATTRIBUTES, maxAge: 0 });
+          return;
+        }
         if (!isSignInCompletion(ctx.path)) return;
         const created = ctx.context.newSession;
         if (!created) return;
@@ -296,7 +290,7 @@ export function createAuth(env: AppEnv, baseUrl: string, deps: AuthDeps = {}) {
       // TURNSTILE_SECRET_KEY the plugin rejects the request (fails closed).
       captcha({
         provider: 'cloudflare-turnstile',
-        secretKey: env.TURNSTILE_SECRET_KEY?.trim() ?? '',
+        secretKey: appConfig(env).auth.turnstileSecretKey ?? '',
         endpoints: ['/sign-in/magic-link'],
         // Turnstile's test keys report their own hostname, so only pin it in deployments.
         ...(local ? {} : { allowedHostnames: [base.hostname] }),

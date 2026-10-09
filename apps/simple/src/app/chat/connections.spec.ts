@@ -1,70 +1,16 @@
 import '@angular/compiler'; // JIT: @tangent/web-shared's components, imported with relatedLinks.
 import { indexLinks } from '@tangent/core/links';
 import { indexTree } from '@tangent/core/tree';
-import {
-  DEFAULT_BRANCH_TITLE_PREFIX,
-  TRUNK_TITLE,
-  type Branch,
-  type ChatNode,
-  type NodeLink,
-} from '@tangent/shared';
+import { DEFAULT_BRANCH_TITLE_PREFIX, TRUNK_TITLE, type ChatNode } from '@tangent/shared';
 import { relatedLinks } from '@tangent/web-shared';
 import { describe, expect, it } from 'vitest';
 import { connectedLabel, connectionTitleOf, learnConnections, LESSON_CRUMB } from './connections';
+import { branch, link } from '@tangent/web-shared/testing';
+import * as fixtures from '@tangent/web-shared/testing';
 
-const T = '2026-01-01T00:00:00.000Z';
-
-function branch(id: string, over: Partial<Branch> = {}): Branch {
-  return {
-    id,
-    treeId: 't1',
-    parentBranchId: null,
-    branchPointNodeId: null,
-    contextMode: 'path',
-    anchorQuote: null,
-    title: id,
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'openrouter',
-    model: 'smart-model',
-    funding: 'own-key',
-    createdAt: T,
-    updatedAt: T,
-    ...over,
-  };
-}
-
-function node(id: string, branchId: string, seq: number, content: string): ChatNode {
-  return {
-    id,
-    treeId: 't1',
-    branchId,
-    parentId: null,
-    seq,
-    role: seq % 2 === 0 ? 'user' : 'assistant',
-    content,
-    status: 'complete',
-    error: null,
-    providerId: null,
-    model: null,
-    usage: null,
-    createdAt: T,
-  };
-}
-
-function link(id: string, sourceNodeId: string, targetNodeId: string, note: string | null) {
-  const l: NodeLink = {
-    id,
-    treeId: 't1',
-    sourceNodeId,
-    targetNodeId,
-    note,
-    origin: 'user',
-    createdAt: T,
-    updatedAt: T,
-  };
-  return l;
-}
+/** Message `id` of a branch: even `seq`s are the learner's. */
+const node = (id: string, branchId: string, seq: number, content: string): ChatNode =>
+  fixtures.node(id, { branchId, seq, content, role: seq % 2 === 0 ? 'user' : 'assistant' });
 
 const trunk = branch('trunk', { title: TRUNK_TITLE });
 const side = branch('side', {

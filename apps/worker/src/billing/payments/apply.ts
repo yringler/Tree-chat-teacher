@@ -1,4 +1,4 @@
-// The domain side of payments (03-architecture.md §2.3): what each normalised
+// The domain side of payments: what each normalised
 // `PaymentEvent` does to the ledger, the open pool and the membership.
 // Provider-independent: adapters (billing/providers/*) turn deliveries and
 // polls into events, and this module decides. Every write is idempotent on a
@@ -7,72 +7,50 @@
 // events are safe:
 //
 // - payment.succeeded, credits → `fulfilPurchase` (the buyer's own credit,
-//   net of the processing fee), once per payment ref. Non-USD payments,
-//   unknown targets (a legacy pool purchase) and any ledger but a personal one
-//   are logged and never credited; an unknown fee throws RetryLaterError.
-// - payment.succeeded, membership (first year or renewal) → the included
-//   credit (MEMBERSHIP_CREDIT_CENTS), a fixed gift with no gross or fee, and
-//   the open pool's revenue share of the payment after its fee
-//   (pool/revenue-share.ts), each once per payment; an unknown fee throws
-//   RetryLaterError once the included credit is in.
-// - refund.succeeded → a personal purchase: − the refunded pre-tax amount in
-//   full (the processor keeps its fee, so the refund passes it on); a legacy
-//   pool purchase (from before the pool became revenue-funded): − the share
-//   of what it credited, clamped by PoolBank.debit; a membership payment: its
-//   included credit, once per payment, and the refunded proportion of the
-//   pool's revenue share of it, clamped, once per refund. A refund (or
-//   dispute) of a payment not applied yet throws RetryLaterError only while
-//   that payment will grant something once applied (`grantsOnPayment`); a
-//   refund of one that never grants is logged (`refund_not_debited`) and
-//   acknowledged, so it can't fail every delivery.
+//   net of the processing fee), once per payment ref. Non-USD payments and
+//   payments naming no user are logged and never credited; an unknown fee
+//   throws RetryLaterError.
+// - payment.succeeded, membership → nothing on the ledger: the membership is
+//   its subscription snapshot (membership.changed below).
+// - refund.succeeded → a purchase on a user's ledger: − the refunded pre-tax
+//   amount in full (the processor keeps its fee, so the refund passes it on).
+//   A purchase on any other ledger is logged and left alone. A refund (or dispute) of
+//   a payment not applied yet throws RetryLaterError only while that payment
+//   will grant something once applied (`grantsOnPayment`); a refund of one
+//   that never grants (a membership payment) is logged (`refund_not_debited`)
+//   and acknowledged, so it can't fail every delivery.
 // - dispute.opened / dispute.lost → debited like a refund of the disputed
 //   amount (membership disputes are left to the operator); lost also
 //   suspends the buyer's pool access, once. dispute.won → what the dispute
 //   took is credited back, once. A dispute that will never be debited (not
-//   a purchase) gets a zero-amount `<disputeRef>:ignored` marker, so the
-//   poller neither asks the provider about it nor logs it again.
+//   a purchase on a user's ledger) gets a `<disputeRef>:ignored` marker
+//   (`billing_markers`), so the poller neither asks the provider about it nor
+//   logs it again.
 // - membership.changed → the `billing_subscriptions` snapshot, newest wins.
 //
 // Any event that names both our user and the provider's customer records
 // them in `billing_customers`.
-import { billingAccountIdFor, DEV_SIMPLE_ACCOUNT_ID, userIdOfAccount } from '../../auth/account.js';
+import { centsToMicros } from '@tangent/shared';
+import { accountIdForUser, userIdOfAccount } from '../../auth/account.js';
 import type { AppEnv } from '../../env.js';
 import { identitySuspensionStatement } from '../../pool/identity.js';
-import { poolBank } from '../../pool/ids.js';
-import { creditEquivalentMicros } from '../../pool/pricing.js';
-import {
-  grantMembershipShare,
-  membershipShareMicros,
-  reverseMembershipShare,
-  revenueShareBps,
-} from '../../pool/revenue-share.js';
-import { grantByRef, grantCredit, grantTowardCap, hasGrant, type GrantRow } from '../ledger.js';
-import { membershipCreditCents } from '../membership.js';
-import { centsToMicros } from '../pricing.js';
+import { grantByRef, grantTowardCap, hasGrant, type GrantRow } from '../ledger.js';
 import { fulfilPurchase } from '../purchases.js';
 import { rememberCustomer } from './customers.js';
 import { paymentProvider } from './index.js';
-import type {
-  DisputeEvent,
-  MembershipChanged,
-  PaymentEvent,
-  PaymentFacts,
-  PaymentProvider,
-  PaymentSucceeded,
-  ProviderRef,
-  RefundSucceeded,
-} from './port.js';
 import {
-  membershipPoolShareRef,
-  membershipRefundRef,
-  poolShareReversalRef,
-  reinstatedRef,
-} from './refs.js';
-
-/** The note on the credit a membership payment includes (and that a refund of it takes back). */
-export const MEMBERSHIP_CREDIT_NOTE = 'Included with membership';
-/** The `billing_subscriptions.kind` (and checkout metadata `kind`) of the yearly membership. */
-export const MEMBERSHIP_KIND = 'membership';
+  MEMBERSHIP_KIND,
+  type DisputeEvent,
+  type MembershipChanged,
+  type PaymentEvent,
+  type PaymentFacts,
+  type PaymentProvider,
+  type PaymentSucceeded,
+  type ProviderRef,
+  type RefundSucceeded,
+} from './port.js';
+import { reinstatedRef } from './refs.js';
+import { logEvent } from '../../log.js';
 
 /**
  * Thrown when the provider should deliver the event again later (a fee not
@@ -92,29 +70,11 @@ export interface ApplyDeps {
 }
 
 function log(event: string, fields: Record<string, unknown>): void {
-  console.warn(JSON.stringify({ event, ...fields }));
+  logEvent('warn', event, fields);
 }
 
 function written(changed: boolean): ApplyResult {
   return changed ? 'applied' : 'duplicate';
-}
-
-/**
- * True when `accountId` is a user's own ledger (`u_<userId>`, or the dev
- * bypass's `default_simple`); anything else that received a purchase is a
- * open pool account (a legacy pool purchase).
- */
-function isPersonalLedger(accountId: string): boolean {
-  return accountId === DEV_SIMPLE_ACCOUNT_ID || userIdOfAccount(accountId) !== null;
-}
-
-/** The personal ledger a credits payment is credited to; null = never credited (`no_account`). */
-function creditsAccountOf(
-  purpose: { accountId: string | null },
-  userId: string | null,
-): string | null {
-  const accountId = purpose.accountId || (userId ? billingAccountIdFor(userId) : null);
-  return accountId && isPersonalLedger(accountId) ? accountId : null;
 }
 
 /** Applies one normalised payment event. Throws RetryLaterError (or a D1 error) to be retried. */
@@ -146,7 +106,7 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
     log('payment_not_credited', { reason: 'other', paymentRef: e.paymentRef });
     return 'skipped';
   }
-  if (purpose.kind === 'membership') return membershipPayment(env, e);
+  if (purpose.kind === 'membership') return 'skipped';
 
   if (e.currency !== 'usd') {
     log('payment_not_credited', {
@@ -156,15 +116,10 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
     });
     return 'skipped';
   }
-  if (purpose.target === 'unknown') {
-    log('payment_not_credited', { reason: 'unknown_target', paymentRef: e.paymentRef });
-    return 'skipped';
-  }
   if (!(e.netCents > 0)) return 'skipped';
   if (await hasGrant(env.DB, e.paymentRef)) return 'duplicate';
   if (!e.fee) throw new RetryLaterError(`The fee of ${e.paymentRef} is not known yet`);
-  const accountId = creditsAccountOf(purpose, e.userId);
-  if (!accountId) {
+  if (!e.userId) {
     log('payment_not_credited', { reason: 'no_account', paymentRef: e.paymentRef });
     return 'skipped';
   }
@@ -172,8 +127,7 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
     log('fee_estimated', { paymentRef: e.paymentRef, feeCents: e.fee.cents, netCents: e.netCents });
   return written(
     await fulfilPurchase(env, {
-      userId: e.userId ?? userIdOfAccount(accountId),
-      accountId,
+      userId: e.userId,
       grossCents: e.netCents,
       processorFeeCents: e.fee.cents,
       ref: e.paymentRef,
@@ -182,104 +136,31 @@ async function paymentSucceeded(env: AppEnv, e: PaymentSucceeded): Promise<Apply
 }
 
 /**
- * A paid membership year (the first or a renewal) includes
- * MEMBERSHIP_CREDIT_CENTS of credit: a fixed gift, not a purchase, so no
- * gross amount or fee. Nothing when the built-in provider isn't offered (the
- * amount is then 0) or nothing was paid (a trial or a 100% discount). Then
- * the open pool's share of the payment (USD only), which needs the fee.
- */
-async function membershipPayment(env: AppEnv, e: PaymentSucceeded): Promise<ApplyResult> {
-  if (!(e.netCents > 0)) return 'skipped';
-  const cents = membershipCreditCents(env);
-  let credited: ApplyResult = 'skipped';
-  if (cents > 0) {
-    if (e.userId) {
-      credited = written(
-        await grantCredit(env.DB, {
-          accountId: billingAccountIdFor(e.userId),
-          kind: 'subscription',
-          amountMicros: centsToMicros(cents),
-          grossMicros: null,
-          feeMicros: 0,
-          userId: e.userId,
-          providerRef: e.paymentRef,
-          note: MEMBERSHIP_CREDIT_NOTE,
-        }),
-      );
-    } else {
-      log('payment_not_credited', { reason: 'no_user', paymentRef: e.paymentRef });
-    }
-  }
-  if (revenueShareBps(env) <= 0 || e.currency !== 'usd') return credited;
-  if (!e.fee) throw new RetryLaterError(`The fee of ${e.paymentRef} is not known yet`);
-  const shared = await grantMembershipShare(env, {
-    paymentRef: e.paymentRef,
-    netCents: e.netCents,
-    feeCents: e.fee.cents,
-  });
-  if (shared) return 'applied';
-  if (credited !== 'skipped') return credited;
-  return (await hasGrant(env.DB, membershipPoolShareRef(e.paymentRef))) ? 'duplicate' : 'skipped';
-}
-
-/**
- * True when `membershipPayment` adds the open pool's share of this membership
- * payment (as configured now): a USD payment, the share on, and a share
- * above zero after the fee (an unknown fee counts: the payment itself waits
- * for it).
- */
-function sharesOnPayment(env: AppEnv, facts: PaymentFacts): boolean {
-  if (facts.purpose.kind !== 'membership' || facts.currency !== 'usd') return false;
-  const bps = revenueShareBps(env);
-  if (bps <= 0) return false;
-  return facts.fee === null || membershipShareMicros(facts.netCents, facts.fee.cents, bps) > 0;
-}
-
-/**
  * True when applying this payment writes a grant (what `paidGrant` reads): a
  * credits payment `paymentSucceeded` credits on its own ref (every skip
- * there, `currency`, `unknown_target`, nothing paid and `no_account`, is
- * final), or, with `membership`, a membership payment whose included credit
- * (on its own ref) or pool share (`<paymentRef>:pool-share`)
- * `membershipPayment` grants (as configured now). The share counts even with
- * no included credit (MEMBERSHIP_CREDIT_CENTS 0, the default): a refund that
- * came first must wait for it, or the share added later is never taken back.
- * A payment that grants nothing is never waited for, so its refund can't be
- * retried forever.
+ * there, `currency`, nothing paid and `no_account`, is final). A payment that grants nothing is never waited for, so its refund
+ * can't be retried forever.
  */
-function grantsOnPayment(env: AppEnv, facts: PaymentFacts, membership: boolean): boolean {
+function grantsOnPayment(facts: PaymentFacts): boolean {
   if (!(facts.netCents > 0)) return false;
-  const purpose = facts.purpose;
-  if (purpose.kind === 'membership')
-    return (
-      membership &&
-      ((!!facts.userId && membershipCreditCents(env) > 0) || sharesOnPayment(env, facts))
-    );
-  if (purpose.kind !== 'credits' || purpose.target === 'unknown' || facts.currency !== 'usd')
-    return false;
-  return creditsAccountOf(purpose, facts.userId) !== null;
+  return facts.purpose.kind === 'credits' && facts.currency === 'usd' && facts.userId !== null;
 }
 
 /**
  * The grant a refund or dispute names. With none, asks the provider: a
- * payment that will grant once applied (`grantsOnPayment`; membership
- * payments only for a refund) means the event came first, so retry; a
- * payment that never grants anything (or one the provider doesn't know)
- * means there is nothing to take back. A membership payment whose pool share
- * is on record was applied: with no included credit, the share (which the
- * refund takes back itself) is all it granted.
+ * payment that will grant once applied (`grantsOnPayment`) means the event
+ * came first, so retry; a payment that never grants anything (or one the
+ * provider doesn't know) means there is nothing to take back.
  */
 async function paidGrant(
   env: AppEnv,
   paymentRef: ProviderRef,
   deps: ApplyDeps,
-  o: { membership: boolean },
 ): Promise<GrantRow | null> {
   const grant = await grantByRef(env.DB, paymentRef);
   if (grant) return grant;
-  if (o.membership && (await hasGrant(env.DB, membershipPoolShareRef(paymentRef)))) return null;
   const facts = deps.provider ? await deps.provider.getPayment(paymentRef) : null;
-  if (facts && grantsOnPayment(env, facts, o.membership))
+  if (facts && grantsOnPayment(facts))
     throw new RetryLaterError(`${paymentRef} is not applied yet`);
   return null;
 }
@@ -293,17 +174,25 @@ async function refundSucceeded(
     log('refund_not_debited', { reason: 'currency', refundRef: e.refundRef, currency: e.currency });
     return 'skipped';
   }
-  // A membership payment's pool share (none for any other payment) is taken back per refund.
-  const unshared = await reverseMembershipShare(env, {
-    paymentRef: e.paymentRef,
-    refundRef: e.refundRef,
-    netCents: e.netCents,
-  });
-  const result = await refundGrant(env, e, deps);
-  if (unshared) return 'applied';
-  // A redelivered refund whose share was already taken back (and nothing else to take).
-  if (result === 'skipped' && (await hasGrant(env.DB, poolShareReversalRef(e.refundRef))))
-    return 'duplicate';
+  const grant = await paidGrant(env, e.paymentRef, deps);
+  if (grant?.kind === 'purchase' && !onUserLedger(grant)) {
+    log('refund_not_debited', {
+      reason: 'not_a_user_ledger',
+      refundRef: e.refundRef,
+      paymentRef: e.paymentRef,
+      accountId: grant.account_id,
+    });
+    return 'skipped';
+  }
+  const result =
+    grant?.kind === 'purchase'
+      ? await debitPurchase(env, grant, {
+          paymentRef: e.paymentRef,
+          ref: e.refundRef,
+          netCents: e.netCents,
+          note: `Refund of ${e.paymentRef}`,
+        })
+      : 'skipped';
   if (result === 'skipped')
     log('refund_not_debited', {
       reason: 'nothing_granted',
@@ -313,31 +202,15 @@ async function refundSucceeded(
   return result;
 }
 
-async function refundGrant(env: AppEnv, e: RefundSucceeded, deps: ApplyDeps): Promise<ApplyResult> {
-  const grant = await paidGrant(env, e.paymentRef, deps, { membership: true });
-  if (!grant) return 'skipped';
-  if (grant.kind === 'subscription') {
-    // The membership's included credit is taken back once, whatever the refunded amount
-    // (a fixed gift, not a share of the price), so later partial refunds add nothing.
-    if (grant.amount_micros <= 0) return 'skipped';
-    return written(
-      await grantCredit(env.DB, {
-        accountId: grant.account_id,
-        kind: 'refund',
-        amountMicros: -grant.amount_micros,
-        userId: grant.user_id,
-        providerRef: membershipRefundRef(e.paymentRef),
-        note: `Refund of membership payment ${e.paymentRef}`,
-      }),
-    );
-  }
-  if (grant.kind !== 'purchase') return 'skipped';
-  return debitPurchase(env, grant, {
-    paymentRef: e.paymentRef,
-    ref: e.refundRef,
-    netCents: e.netCents,
-    note: `Refund of ${e.paymentRef}`,
-  });
+/**
+ * True when `grant` is on a user's own ledger (`u_<userId>`), the only
+ * ledger refunds and disputes debit here. A purchase on any other ledger (the
+ * pool's) would be debited outside PoolBank's lock, which every write that
+ * lowers the pool's balance must hold.
+ */
+function onUserLedger(grant: GrantRow): boolean {
+  const userId = userIdOfAccount(grant.account_id);
+  return userId !== null && grant.account_id === accountIdForUser(userId);
 }
 
 /**
@@ -352,12 +225,11 @@ function personalCapMicros(grant: GrantRow): number {
 }
 
 /**
- * Debits a purchase being refunded or disputed: a personal purchase by the
- * refunded pre-tax amount in full (it may go negative; the processor keeps
- * its fee, so the refund passes it on), a legacy pool purchase through
- * `debitPoolPurchase` (clamped). Keyed on `ref`. All of a purchase's refunds
- * and disputes together (net of won disputes) never take back more than it
- * paid (personal) or credited (pool): each row is linked to `paymentRef`.
+ * Debits a purchase being refunded or disputed by the refunded pre-tax amount
+ * in full (it may go negative; the processor keeps its fee, so the refund
+ * passes it on). Keyed on `ref`. All of a purchase's refunds and disputes
+ * together (net of won disputes) never take back more than it paid: each row
+ * is linked to `paymentRef`.
  */
 async function debitPurchase(
   env: AppEnv,
@@ -366,15 +238,6 @@ async function debitPurchase(
 ): Promise<ApplyResult> {
   const micros = centsToMicros(debit.netCents);
   if (micros <= 0) return 'skipped';
-  if (!isPersonalLedger(grant.account_id)) {
-    const { debited } = await debitPoolPurchase(env, grant, {
-      paymentRef: debit.paymentRef,
-      refId: debit.ref,
-      refundedGrossMicros: micros,
-      note: debit.note,
-    });
-    return written(debited);
-  }
   return written(
     await grantTowardCap(env.DB, {
       accountId: grant.account_id,
@@ -388,44 +251,25 @@ async function debitPurchase(
   );
 }
 
-/**
- * Debits the pool for `refundedGrossMicros` (pre-tax) of a legacy pool
- * purchase being refunded or disputed: the share of what the purchase actually
- * credited (`creditEquivalentMicros`, net of its fee), or, for an old row
- * without its gross amount, at most the refunded amount; capped at what is
- * left of what the purchase credited, then clamped to what the pool has
- * available. The row is always written (PoolBank.debit), so a redelivery is
- * a no-op.
- */
-async function debitPoolPurchase(
-  env: AppEnv,
-  grant: GrantRow,
-  d: { paymentRef: ProviderRef; refId: string; refundedGrossMicros: number; note: string },
-): Promise<{ debited: boolean }> {
-  if (d.refundedGrossMicros <= 0) return { debited: false };
-  const poolId = grant.account_id;
-  const requested =
-    grant.gross_micros !== null && grant.gross_micros > 0
-      ? creditEquivalentMicros(d.refundedGrossMicros, {
-          amountMicros: grant.amount_micros,
-          grossMicros: grant.gross_micros,
-        })
-      : d.refundedGrossMicros;
-  const result = await poolBank(env, poolId).debit({
-    poolId,
-    refId: d.refId,
-    requestedMicros: requested,
-    kind: 'refund',
-    userId: grant.user_id,
-    grossMicros: -d.refundedGrossMicros,
-    cap: { paymentRef: d.paymentRef, maxMicros: Math.max(0, grant.amount_micros) },
-    note: d.note,
-  });
-  return { debited: result.debited };
+/** True when `ref` is in `billing_markers`. */
+async function hasMarker(db: D1Database, ref: string): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT 1 AS one FROM billing_markers WHERE ref = ? LIMIT 1')
+    .bind(ref)
+    .first<{ one: number }>();
+  return row !== null;
 }
 
-/** The ledger of zero-amount markers that belong to no account (a dispute of a payment that granted nothing). */
-const NO_ACCOUNT_MARKERS = 'payment-markers';
+/** Records `ref` in `billing_markers`; false when it was already there. */
+async function markOnce(db: D1Database, ref: string): Promise<boolean> {
+  const result = await db
+    .prepare(
+      'INSERT INTO billing_markers (ref, created_at) VALUES (?, ?) ON CONFLICT(ref) DO NOTHING',
+    )
+    .bind(ref, new Date().toISOString())
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
 
 async function disputeDebited(env: AppEnv, e: DisputeEvent, deps: ApplyDeps): Promise<ApplyResult> {
   if (e.currency !== 'usd') {
@@ -433,21 +277,20 @@ async function disputeDebited(env: AppEnv, e: DisputeEvent, deps: ApplyDeps): Pr
     return 'skipped';
   }
   const ignoredRef = `${e.disputeRef}:ignored`;
-  if (await hasGrant(env.DB, ignoredRef)) return 'duplicate';
-  const grant = await paidGrant(env, e.paymentRef, deps, { membership: false });
-  if (!grant || grant.kind !== 'purchase') {
-    // A membership payment (or one that granted nothing): left to the operator. Final
-    // (`paidGrant` retries a payment that will grant), so recorded once, logged once.
-    const first = await grantCredit(env.DB, {
-      accountId: grant?.account_id ?? NO_ACCOUNT_MARKERS,
-      kind: 'adjustment',
-      amountMicros: 0,
-      userId: grant?.user_id ?? null,
-      providerRef: ignoredRef,
-      note: `Dispute ${e.disputeRef} of ${e.paymentRef} not debited: not a purchase`,
+  if (await hasMarker(env.DB, ignoredRef)) return 'duplicate';
+  const grant = await paidGrant(env, e.paymentRef, deps);
+  if (!grant || grant.kind !== 'purchase' || !onUserLedger(grant)) {
+    // A membership payment, one that granted nothing, or a purchase on another ledger: left
+    // to the operator. Final (`paidGrant` retries a payment that will grant), so recorded
+    // once, logged once.
+    if (!(await markOnce(env.DB, ignoredRef))) return 'duplicate';
+    const purchase = grant?.kind === 'purchase';
+    log('dispute_not_debited', {
+      reason: purchase ? 'not_a_user_ledger' : 'not_a_purchase',
+      disputeRef: e.disputeRef,
+      paymentRef: e.paymentRef,
+      ...(purchase ? { accountId: grant.account_id } : {}),
     });
-    if (!first) return 'duplicate';
-    log('dispute_not_debited', { reason: 'not_a_purchase', disputeRef: e.disputeRef });
     return 'skipped';
   }
   const result = await debitPurchase(env, grant, {
@@ -458,32 +301,23 @@ async function disputeDebited(env: AppEnv, e: DisputeEvent, deps: ApplyDeps): Pr
   });
   if (e.type !== 'dispute.lost') return result;
   const userId = grant.user_id ?? userIdOfAccount(grant.account_id);
-  const suspended = userId ? await suspendForLostDispute(env, grant, userId, e.disputeRef) : false;
+  const suspended = userId ? await suspendForLostDispute(env, userId, e.disputeRef) : false;
   return result === 'applied' || suspended ? 'applied' : result;
 }
 
 /**
  * A dispute of a credit purchase was lost: its buyer's open pool access
  * is suspended (on the account and its pool identity, as an admin's
- * suspension; an admin can lift it). Once per dispute: a zero-amount marker
- * row keyed `<disputeRef>:lost` records it, so a poller that keeps seeing
- * the dispute as lost never undoes an admin's lift.
+ * suspension; an admin can lift it). Once per dispute: the marker
+ * `<disputeRef>:lost` (`billing_markers`) records it, so a poller that keeps
+ * seeing the dispute as lost never undoes an admin's lift.
  */
 async function suspendForLostDispute(
   env: AppEnv,
-  grant: GrantRow,
   userId: string,
   disputeRef: ProviderRef,
 ): Promise<boolean> {
-  const first = await grantCredit(env.DB, {
-    accountId: grant.account_id,
-    kind: 'adjustment',
-    amountMicros: 0,
-    userId,
-    providerRef: `${disputeRef}:lost`,
-    note: `Dispute ${disputeRef} lost: pool access suspended`,
-  });
-  if (!first) return false;
+  if (!(await markOnce(env.DB, `${disputeRef}:lost`))) return false;
   await suspendPoolAccess(env, userId, disputeRef);
   return true;
 }
@@ -499,40 +333,24 @@ async function suspendPoolAccess(env: AppEnv, userId: string, disputeRef: string
 }
 
 /**
- * The dispute was won and its funds reinstated, once. A personal purchase:
- * its refunds alone (capped) are what is taken back now, so this credits
- * back what the dispute took beyond them (all of it unless a refund came
- * after the dispute and found nothing left). A legacy pool purchase: exactly
- * what the dispute debited (the clamped amount). Nothing when it never
- * debited anything (a poller may first see a dispute already won).
+ * The dispute was won and its funds reinstated, once. The purchase's refunds
+ * alone (capped) are what is taken back now, so this credits back what the
+ * dispute took beyond them (all of it unless a refund came after the dispute
+ * and found nothing left). Nothing when it never debited anything (a poller
+ * may first see a dispute already won).
  */
 async function disputeWon(env: AppEnv, e: DisputeEvent): Promise<ApplyResult> {
   const debited = await grantByRef(env.DB, e.disputeRef);
-  if (!debited) return 'skipped';
-  const purchase = isPersonalLedger(debited.account_id)
-    ? await grantByRef(env.DB, e.paymentRef)
-    : null;
-  if (purchase && debited.gross_micros !== null)
-    return written(
-      await grantTowardCap(env.DB, {
-        accountId: debited.account_id,
-        grossMicros: -debited.gross_micros,
-        capMicros: personalCapMicros(purchase),
-        paymentRef: e.paymentRef,
-        userId: debited.user_id,
-        providerRef: reinstatedRef(e.disputeRef),
-        note: `Dispute ${e.disputeRef} won`,
-      }),
-    );
+  const purchase = debited ? await grantByRef(env.DB, e.paymentRef) : null;
+  if (!debited || !purchase || debited.gross_micros === null) return 'skipped';
   return written(
-    await grantCredit(env.DB, {
+    await grantTowardCap(env.DB, {
       accountId: debited.account_id,
-      kind: 'refund',
-      amountMicros: -debited.amount_micros,
-      grossMicros: debited.gross_micros === null ? null : -debited.gross_micros,
+      grossMicros: -debited.gross_micros,
+      capMicros: personalCapMicros(purchase),
+      paymentRef: e.paymentRef,
       userId: debited.user_id,
       providerRef: reinstatedRef(e.disputeRef),
-      paymentRef: e.paymentRef,
       note: `Dispute ${e.disputeRef} won`,
     }),
   );

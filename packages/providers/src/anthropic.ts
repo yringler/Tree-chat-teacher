@@ -1,29 +1,31 @@
 import {
-  CITATION_EXCERPT_MAX,
-  CITATIONS_MAX,
-  isCitableUrl,
   type Citation,
   type GenerateRequest,
   type LlmProvider,
+  type ProviderCapabilities,
   type ProviderConfig,
   type ProviderErrorCode,
   type ProviderEvent,
   type ProviderUsage,
   type WebSearchRequest,
 } from '@tangent/shared';
-import { markLastMessage, promptCacheOption, withBreakpoint, withTurnInstructions } from './prompt-cache.js';
+import {
+  markLastMessage,
+  promptCacheOption,
+  withBreakpoint,
+  withTurnInstructions,
+} from './prompt-cache.js';
 import type { ProviderEnv } from './registry.js';
+import { addCitation, num, postJson, streamBody } from './http.js';
 import { parseSse } from './sse.js';
 import {
   ProviderFailure,
   abortable,
-  errorFromResponse,
   getFetch,
   guardStream,
   isRecord,
   looksLikeContextLength,
   missingSecretError,
-  networkError,
   providerError,
   redact,
   resolveCapabilities,
@@ -58,48 +60,33 @@ function codeForAnthropicType(type: string | undefined, message: string): Provid
   }
 }
 
-function num(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
-}
-
 /**
  * Anthropic's web search server tool, at most `maxUses` searches. The basic
  * `web_search_20250305` runs on every Claude model and platform; the
  * `_20260209` variant's dynamic filtering runs code over the results, which
- * one search per reply doesn't need. `tool_choice` stays `auto` even when a
- * search is required ("Check sources"): current models reject a forced tool
- * choice, and CHECK_SOURCES_INSTRUCTIONS asks for the search.
+ * one search per reply doesn't need. `tool_choice` stays `auto`: current
+ * models reject a forced tool choice, so a search can't be required
+ * (`requiredWebSearch` false), only asked for (CHECK_SOURCES_INSTRUCTIONS).
  */
 function webSearchTool(ws: WebSearchRequest): Record<string, unknown> {
   return { type: 'web_search_20250305', name: 'web_search', max_uses: ws.maxUses };
 }
 
-/**
- * Adds a streamed `web_search_result_location` citation to `into`
- * (deduplicated by URL, http(s) only, excerpt clipped). Returns true if added.
- */
+/** Adds a streamed `web_search_result_location` citation to `into` (`addCitation`). */
 function collectCitation(raw: unknown, into: Map<string, Citation>): boolean {
   if (!isRecord(raw) || raw['type'] !== 'web_search_result_location') return false;
-  if (typeof raw['url'] !== 'string') return false;
-  const url = raw['url'].trim();
-  if (!isCitableUrl(url) || into.has(url) || into.size >= CITATIONS_MAX) return false;
-  const title =
-    typeof raw['title'] === 'string' && raw['title'].trim() ? raw['title'].trim().slice(0, 500) : null;
-  const text = typeof raw['cited_text'] === 'string' ? raw['cited_text'].replace(/\s+/g, ' ').trim() : '';
-  const excerpt = text
-    ? text.length > CITATION_EXCERPT_MAX
-      ? `${text.slice(0, CITATION_EXCERPT_MAX - 1)}…`
-      : text
-    : null;
-  into.set(url, { url, title, excerpt });
-  return true;
+  return addCitation(into, { url: raw['url'], title: raw['title'], text: raw['cited_text'] });
 }
 
 /** Total input tokens (uncached + cache writes + cache reads), if reported. */
 function inputTokensOf(usage: Record<string, unknown>): number | undefined {
   const base = num(usage['input_tokens']);
   if (base === undefined) return undefined;
-  return base + (num(usage['cache_creation_input_tokens']) ?? 0) + (num(usage['cache_read_input_tokens']) ?? 0);
+  return (
+    base +
+    (num(usage['cache_creation_input_tokens']) ?? 0) +
+    (num(usage['cache_read_input_tokens']) ?? 0)
+  );
 }
 
 /** A `usage` object as our usage fields (only those reported). */
@@ -142,10 +129,14 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
   const baseUrl = stripTrailingSlash(config.baseUrl ?? DEFAULT_BASE_URL);
   const doFetch = getFetch(env);
 
-  const capabilities = (model: string) => resolveCapabilities(config, model, DEFAULTS, true);
+  const capabilities = (model: string): ProviderCapabilities => ({
+    ...resolveCapabilities(config, model, DEFAULTS, true),
+    requiredWebSearch: false,
+  });
 
   /** Request headers, or a missing-secret name. */
-  const buildHeaders = (): { headers: Record<string, string>; secrets: string[] } | { missing: string } => {
+  const buildHeaders = ():
+    { headers: Record<string, string>; secrets: string[] } | { missing: string } => {
     const resolved = resolveConfigHeaders(config, env);
     if (resolved.missing !== undefined) return { missing: resolved.missing };
     const headers = resolved.headers;
@@ -187,33 +178,25 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
       if (webSearch) body['tools'] = [webSearchTool(webSearch)];
       body['stream'] = true;
 
-      let res: Response;
-      try {
-        res = await abortable(
-          doFetch(`${baseUrl}/v1/messages`, {
-            method: 'POST',
-            headers: built.headers,
-            body: JSON.stringify(body),
-            signal,
-          }),
-          signal,
-        );
-      } catch (e) {
-        if (signal.aborted) throw e;
-        throw new ProviderFailure(networkError(e, secrets));
-      }
-      if (!res.ok) throw new ProviderFailure(await errorFromResponse(res, signal, secrets));
-      if (!res.body) throw new ProviderFailure(providerError('network', 'Response has no body'));
+      const res = await postJson(
+        doFetch,
+        `${baseUrl}/v1/messages`,
+        { headers: built.headers, body, signal },
+        secrets,
+      );
+      const responseBody = streamBody(res);
 
       let stopReason: string | null = null;
       const citations = new Map<string, Citation>();
       let searchReported = false;
-      for await (const msg of parseSse(res.body, signal)) {
+      for await (const msg of parseSse(responseBody, signal)) {
         let data: unknown;
         try {
           data = JSON.parse(msg.data);
         } catch {
-          throw new ProviderFailure(providerError('unknown', `Malformed ${msg.event} event from provider`));
+          throw new ProviderFailure(
+            providerError('unknown', `Malformed ${msg.event} event from provider`),
+          );
         }
         if (!isRecord(data)) continue;
         const type = typeof data['type'] === 'string' ? data['type'] : msg.event;
@@ -243,7 +226,11 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
           }
           case 'content_block_delta': {
             const delta = data['delta'];
-            if (isRecord(delta) && delta['type'] === 'text_delta' && typeof delta['text'] === 'string') {
+            if (
+              isRecord(delta) &&
+              delta['type'] === 'text_delta' &&
+              typeof delta['text'] === 'string'
+            ) {
               if (delta['text'] !== '') yield { type: 'delta', text: delta['text'] };
             } else if (webSearch && isRecord(delta) && delta['type'] === 'citations_delta') {
               if (collectCitation(delta['citation'], citations)) {
@@ -254,7 +241,8 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
           }
           case 'message_delta': {
             const delta = data['delta'];
-            if (isRecord(delta) && typeof delta['stop_reason'] === 'string') stopReason = delta['stop_reason'];
+            if (isRecord(delta) && typeof delta['stop_reason'] === 'string')
+              stopReason = delta['stop_reason'];
             const usage = data['usage'];
             if (isRecord(usage)) {
               const u = usageOf(usage);
@@ -270,11 +258,17 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
             return;
           case 'error': {
             const err = data['error'];
-            const errType = isRecord(err) && typeof err['type'] === 'string' ? err['type'] : undefined;
+            const errType =
+              isRecord(err) && typeof err['type'] === 'string' ? err['type'] : undefined;
             const rawMessage =
-              isRecord(err) && typeof err['message'] === 'string' ? err['message'] : 'Provider stream error';
+              isRecord(err) && typeof err['message'] === 'string'
+                ? err['message']
+                : 'Provider stream error';
             const code = codeForAnthropicType(errType, rawMessage);
-            yield { type: 'error', error: providerError(code, redact(rawMessage, secrets)) };
+            yield {
+              type: 'error',
+              error: { ...providerError(code, redact(rawMessage, secrets)), upstream: 'stream' },
+            };
             return;
           }
           default:
@@ -286,25 +280,24 @@ export function createAnthropicProvider(config: ProviderConfig, env: ProviderEnv
     });
   }
 
-  async function countTokens(request: Omit<GenerateRequest, 'signal'> & { signal?: AbortSignal }): Promise<number> {
+  async function countTokens(
+    request: Omit<GenerateRequest, 'signal'> & { signal?: AbortSignal },
+  ): Promise<number> {
     const built = buildHeaders();
     if ('missing' in built) throw new ProviderFailure(missingSecretError(built.missing));
     const body: Record<string, unknown> = { model: request.model };
     if (request.system !== null) body['system'] = request.system;
     body['messages'] = messagesOf(request);
-    const init: RequestInit = { method: 'POST', headers: built.headers, body: JSON.stringify(body) };
-    if (request.signal) init.signal = request.signal;
-    let res: Response;
-    try {
-      res = await abortable(doFetch(`${baseUrl}/v1/messages/count_tokens`, init), request.signal);
-    } catch (e) {
-      if (request.signal?.aborted) throw e;
-      throw new ProviderFailure(networkError(e, built.secrets));
-    }
-    if (!res.ok) throw new ProviderFailure(await errorFromResponse(res, request.signal, built.secrets));
+    const res = await postJson(
+      doFetch,
+      `${baseUrl}/v1/messages/count_tokens`,
+      { headers: built.headers, body, signal: request.signal },
+      built.secrets,
+    );
     const json: unknown = await abortable(res.json(), request.signal);
     const n = isRecord(json) ? num(json['input_tokens']) : undefined;
-    if (n === undefined) throw new ProviderFailure(providerError('unknown', 'count_tokens returned no input_tokens'));
+    if (n === undefined)
+      throw new ProviderFailure(providerError('unknown', 'count_tokens returned no input_tokens'));
     return n;
   }
 

@@ -1,16 +1,16 @@
-import type { DefaultRouteFacts, ProviderRegistry, TreeBackup } from '@tangent/shared';
+import type { DefaultRouteFacts, ProviderRegistry, TreeBackupInput } from '@tangent/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { ChatService, DEFAULT_CHAT_SETTINGS } from '../../src/services/chat-service.js';
-import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
+import { createMemoryRepositories } from '../../src/memory/memory-repositories.js';
 import { registryOf, ScriptedProvider, send } from './helpers.js';
 
 /**
  * A branch's provider id names the endpoint; its funding says who pays
  * (`own-key` or Tangent `credit`). Power resolves `credit` routes in a
- * registry of their own; Learn (`fixedFunding`) resolves every route in its
+ * registry of their own; Learn (profile `learn`) resolves every route in its
  * one registry and writes `own-key`.
  */
-function setup(options: { credit?: boolean; fixedFunding?: 'own-key' } = {}) {
+function setup(options: { credit?: boolean; learn?: boolean } = {}) {
   const own = new ScriptedProvider('openrouter');
   const ant = new ScriptedProvider('ant');
   const credit = new ScriptedProvider('openrouter');
@@ -18,8 +18,12 @@ function setup(options: { credit?: boolean; fixedFunding?: 'own-key' } = {}) {
   const chat = new ChatService({
     repos: createMemoryRepositories(),
     providers: registryOf(own, ant),
-    ...(options.credit === false ? {} : { creditProviders: registryOf(credit) }),
-    ...(options.fixedFunding ? { fixedFunding: options.fixedFunding } : {}),
+    profile: options.learn
+      ? { kind: 'learn' }
+      : {
+          kind: 'power',
+          ...(options.credit === false ? {} : { credit: { providers: registryOf(credit) } }),
+        },
     settings: { ...DEFAULT_CHAT_SETTINGS, autoTitle: false },
     newId: () => `id${++n}`,
   });
@@ -78,18 +82,11 @@ describe('ChatService routes (provider + funding)', () => {
     expect(await chat.updateBranch(own.id, { model: 'm1' })).toMatchObject({ funding: 'credit' });
   });
 
-  it('reads the legacy `tangent` id as the built-in endpoint on credit', async () => {
+  it('refuses the `tangent` id as an unknown provider', async () => {
     const { chat } = setup();
-    const { tree } = await chat.createTree({ providerId: 'tangent' });
-    expect(await chat.getOwnedBranch(tree.trunkBranchId)).toMatchObject({
-      providerId: 'openrouter',
-      funding: 'credit',
-    });
-    const updated = await chat.updateBranch(tree.trunkBranchId, {
-      providerId: 'tangent',
-      funding: 'own-key',
-    });
-    expect(updated).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
+    await expect(chat.createTree({ providerId: 'tangent' })).rejects.toThrow(
+      /Unknown provider "tangent"/,
+    );
   });
 
   it('refuses a credit route where credit is not offered, before anything is written', async () => {
@@ -115,8 +112,13 @@ describe('ChatService routes (provider + funding)', () => {
     const noKeys = new ChatService({
       repos: createMemoryRepositories(),
       providers: unavailable(registryOf(new ScriptedProvider('ant'))),
-      creditProviders: registryOf(new ScriptedProvider('openrouter')),
-      defaultRouteFacts: facts,
+      profile: {
+        kind: 'power',
+        credit: {
+          providers: registryOf(new ScriptedProvider('openrouter')),
+          defaultRouteFacts: facts,
+        },
+      },
       settings: DEFAULT_CHAT_SETTINGS,
     });
     expect((await noKeys.createTree({})).branches[0]).toMatchObject({
@@ -138,8 +140,13 @@ describe('ChatService routes (provider + funding)', () => {
       new ChatService({
         repos: createMemoryRepositories(),
         providers: unavailable(registryOf(...own)),
-        creditProviders: registryOf(new ScriptedProvider('openrouter')),
-        ...(facts ? { defaultRouteFacts: async () => facts } : {}),
+        profile: {
+          kind: 'power',
+          credit: {
+            providers: registryOf(new ScriptedProvider('openrouter')),
+            ...(facts ? { defaultRouteFacts: async () => facts } : {}),
+          },
+        },
         settings: DEFAULT_CHAT_SETTINGS,
       });
     const zero = { creditCanPay: false, creditBuyable: false, ownKeyLocked: false };
@@ -159,12 +166,17 @@ describe('ChatService routes (provider + funding)', () => {
     const locked = new ChatService({
       repos: createMemoryRepositories(),
       providers: registryOf(ant()),
-      creditProviders: registryOf(openrouter()),
-      defaultRouteFacts: async () => ({
-        creditCanPay: true,
-        creditBuyable: false,
-        ownKeyLocked: true,
-      }),
+      profile: {
+        kind: 'power',
+        credit: {
+          providers: registryOf(openrouter()),
+          defaultRouteFacts: async () => ({
+            creditCanPay: true,
+            creditBuyable: false,
+            ownKeyLocked: true,
+          }),
+        },
+      },
       settings: DEFAULT_CHAT_SETTINGS,
     });
     expect((await locked.createTree({})).branches[0]).toMatchObject({
@@ -182,12 +194,17 @@ describe('ChatService routes (provider + funding)', () => {
     const chat = new ChatService({
       repos: createMemoryRepositories(),
       providers: unavailable(registryOf(new ScriptedProvider('ant'), new ScriptedProvider('oai'))),
-      creditProviders: unavailable(registryOf(new ScriptedProvider('openrouter'))),
-      defaultRouteFacts: async () => ({
-        creditCanPay: true,
-        creditBuyable: false,
-        ownKeyLocked: false,
-      }),
+      profile: {
+        kind: 'power',
+        credit: {
+          providers: unavailable(registryOf(new ScriptedProvider('openrouter'))),
+          defaultRouteFacts: async () => ({
+            creditCanPay: true,
+            creditBuyable: false,
+            ownKeyLocked: false,
+          }),
+        },
+      },
       settings: DEFAULT_CHAT_SETTINGS,
     });
     // Sending then asks for the key (the Worker's gate); credit is never picked implicitly.
@@ -202,25 +219,17 @@ describe('ChatService routes (provider + funding)', () => {
     });
   });
 
-  it('Learn (fixed funding) ignores credit and the facts: its one provider, own-key', async () => {
-    const facts = vi.fn(async () => ({
-      creditCanPay: true,
-      creditBuyable: false,
-      ownKeyLocked: true,
-    }));
+  it('Learn starts a new tree on its one provider, own-key', async () => {
     const learn = new ChatService({
       repos: createMemoryRepositories(),
       providers: unavailable(registryOf(new ScriptedProvider('openrouter'))),
-      creditProviders: registryOf(new ScriptedProvider('credit-only')),
-      fixedFunding: 'own-key',
-      defaultRouteFacts: facts,
+      profile: { kind: 'learn' },
       settings: DEFAULT_CHAT_SETTINGS,
     });
     expect((await learn.createTree({})).branches[0]).toMatchObject({
       providerId: 'openrouter',
       funding: 'own-key',
     });
-    expect(facts).not.toHaveBeenCalled();
   });
 
   it('moving a branch to another provider takes that provider’s default model unless one is named', async () => {
@@ -261,12 +270,10 @@ describe('ChatService routes (provider + funding)', () => {
   });
 
   it('Learn (fixed funding) ignores a branch funding, writes own-key and keeps one registry', async () => {
-    const { chat, own, credit } = setup({ fixedFunding: 'own-key' });
+    const { chat, own, credit } = setup({ learn: true });
     const { tree } = await chat.createTree({ providerId: 'openrouter', funding: 'credit' });
     const trunk = await chat.getOwnedBranch(tree.trunkBranchId);
     expect(trunk).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
-    const legacy = await chat.updateBranch(trunk.id, { providerId: 'tangent' });
-    expect(legacy).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
     await send(chat, trunk.id, 'learn');
     expect(own.chatCalls()).toHaveLength(1);
     expect(credit.calls).toHaveLength(0);
@@ -275,10 +282,10 @@ describe('ChatService routes (provider + funding)', () => {
     );
   });
 
-  it('import maps legacy `tangent` to openrouter and a missing funding to own-key', async () => {
+  it('import reads a missing funding as own-key', async () => {
     const { chat } = setup();
     const at = '2026-01-01T00:00:00.000Z';
-    const backup: TreeBackup = {
+    const backup: TreeBackupInput = {
       format: 'tangent-tree-backup',
       version: 1,
       exportedAt: at,
@@ -292,7 +299,7 @@ describe('ChatService routes (provider + funding)', () => {
         updatedAt: at,
       },
       branches: [
-        // A pre-split backup: no funding, the legacy id.
+        // No funding.
         {
           id: 'b',
           treeId: 't',
@@ -303,11 +310,11 @@ describe('ChatService routes (provider + funding)', () => {
           title: 'Main',
           titleSource: 'default',
           isPrivate: false,
-          providerId: 'tangent',
+          providerId: 'openrouter',
           model: 'm1',
           createdAt: at,
           updatedAt: at,
-        } as unknown as TreeBackup['branches'][number],
+        },
         {
           id: 'c',
           treeId: 't',
@@ -351,7 +358,7 @@ describe('ChatService routes (provider + funding)', () => {
           content: 'a',
           status: 'complete',
           error: null,
-          providerId: 'tangent',
+          providerId: 'openrouter',
           model: 'm1',
           usage: null,
           createdAt: at,
@@ -364,7 +371,7 @@ describe('ChatService routes (provider + funding)', () => {
     expect(byTitle.get('Side')).toMatchObject({ providerId: 'openrouter', funding: 'credit' });
     expect(detail.nodes.find((n) => n.role === 'assistant')?.providerId).toBe('openrouter');
 
-    const learn = setup({ fixedFunding: 'own-key' });
+    const learn = setup({ learn: true });
     const learned = await learn.chat.importBackup(backup);
     expect(learned.branches.map((b) => b.funding)).toEqual(['own-key', 'own-key']);
   });

@@ -1,7 +1,7 @@
 import { DestroyRef, inject, Injectable, signal } from '@angular/core';
 import { type ActivatedRouteSnapshot, NavigationEnd, Router } from '@angular/router';
-import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
+import { LearnFunding } from '../state/learn-funding';
 
 /**
  * Pushes `/t/:treeId[/b/:branchId]?m=<nodeId>` into the LessonStore after
@@ -12,7 +12,7 @@ import { LessonStore } from '../state/lesson-store';
 export class RouteSync {
   private readonly router = inject(Router);
   private readonly store = inject(LessonStore);
-  private readonly account = inject(AccountStore);
+  private readonly funding = inject(LearnFunding);
   private lastUrl = '';
   /** The app URL (`/billing`, `/t/…`) after the latest navigation; '' before the first. */
   readonly url = signal('');
@@ -24,7 +24,7 @@ export class RouteSync {
       const wasBilling = this.lastUrl.startsWith('/billing');
       this.lastUrl = e.urlAfterRedirects;
       this.url.set(this.lastUrl);
-      if (wasBilling && !this.lastUrl.startsWith('/billing')) void this.account.refreshBalance();
+      if (wasBilling && !this.lastUrl.startsWith('/billing')) void this.funding.refreshBalance();
     });
     destroyRef.onDestroy(() => sub.unsubscribe());
   }

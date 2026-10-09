@@ -1,12 +1,6 @@
-import '@angular/compiler'; // JIT: compiles the components below without the Angular CLI.
+import '@angular/compiler'; // JIT: @tangent/web-shared, imported here, links its components on load.
 import { describe, expect, it } from 'vitest';
-import { UsersPage, userCreditRequest, type UserCreditForm } from './users-page';
-
-/** Template of a JIT-compiled component (the decorator's metadata). */
-function templateOf(type: object): string {
-  const annotations = (type as { __annotations__?: { template?: string }[] }).__annotations__;
-  return annotations?.[0]?.template ?? '';
-}
+import { userCreditRequest, type UserCreditForm } from './users-page';
 
 const form = (change: Partial<UserCreditForm> = {}): UserCreditForm => ({
   amount: '25',
@@ -14,19 +8,7 @@ const form = (change: Partial<UserCreditForm> = {}): UserCreditForm => ({
   ...change,
 });
 
-describe('UsersPage (per-user credit)', () => {
-  const t = templateOf(UsersPage);
-
-  it("shows each user's balance with a form to credit them", () => {
-    expect(t).toContain('money(u.creditBalanceMicros)');
-    expect(t).toContain('(click)="toggleCredit(u)"');
-    expect(t).toContain('credit(u)');
-  });
-
-  it('only adjusts: it never simulates a purchase', () => {
-    expect(t).not.toContain('simulated_purchase');
-  });
-
+describe('UsersPage: the credit request', () => {
   it("builds a request for the user's own ledger", () => {
     expect(
       userCreditRequest(form({ amount: '$10.25', note: ' Goodwill ' }), 'u1', 'key-1'),
@@ -50,15 +32,5 @@ describe('UsersPage (per-user credit)', () => {
     expect(userCreditRequest(form({ amount: '-500.01' }), 'u1', 'k')).toBe(
       'At most $500 at a time.',
     );
-  });
-});
-
-describe('UsersPage (membership)', () => {
-  const t = templateOf(UsersPage);
-
-  it('toggles the waiver per user and marks a paid membership', () => {
-    expect(t).toContain('[checked]="u.membershipWaived"');
-    expect(t).toContain('setMembershipWaived(u, $any($event.target))');
-    expect(t).toContain('@if (u.membershipPaid)');
   });
 });

@@ -17,7 +17,7 @@ import { OutlineItem } from './outline-item';
         <app-logo [size]="20" /> Tangent
       </a>
       <app-mode-switch current="power" />
-      @if (store.me()?.devMode) {
+      @if (store.account.me()?.devMode) {
         <span class="badge badge-warn" title="DEV_ALLOW_NO_AUTH is on">dev: auth disabled</span>
       }
       <button
@@ -88,7 +88,7 @@ import { OutlineItem } from './outline-item';
     <div class="sidebar-foot">
       <!-- The demo has no shares, keys, billing or account: nothing is published or signed in. -->
       @if (!demo) {
-        @if (store.me()?.sharing) {
+        @if (store.account.me()?.sharing) {
           <a
             routerLink="/shares"
             routerLinkActive="is-current"
@@ -102,10 +102,10 @@ import { OutlineItem } from './outline-item';
           type="button"
           class="btn btn-ghost"
           [attr.title]="keyTitle()"
-          (click)="ui.keysDialog.set({ provider: null }); ui.drawerOpen.set(false)"
+          (click)="ui.dialogs.open({ kind: 'keys', provider: null }); ui.drawerOpen.set(false)"
         >
-          <app-icon name="key" /> {{ store.me()?.builtInCredit ? 'Keys & credit' : 'Keys' }}
-          @if (store.keyStatus()?.hasKey) {
+          <app-icon name="key" /> {{ store.account.me()?.builtInCredit ? 'Keys & credit' : 'Keys' }}
+          @if (store.account.keyStatus()?.hasKey) {
             <span class="dot-key" aria-label="Your key is stored"></span>
           }
         </button>
@@ -118,7 +118,7 @@ import { OutlineItem } from './outline-item';
           Billing
         </a>
         <!-- The operator's accounts only (ADMIN_USER_IDS); a separate app, so a full page load. -->
-        @if (store.me()?.isAdmin) {
+        @if (store.account.me()?.isAdmin) {
           <a href="/admin/" class="btn btn-ghost"><app-icon name="lock" /> Admin</a>
         }
       }
@@ -126,7 +126,7 @@ import { OutlineItem } from './outline-item';
       <button
         type="button"
         class="btn btn-ghost"
-        (click)="ui.settingsOpen.set(true); ui.drawerOpen.set(false)"
+        (click)="ui.dialogs.open({ kind: 'settings' }); ui.drawerOpen.set(false)"
       >
         <app-icon name="gear" /> Settings
       </button>
@@ -136,8 +136,8 @@ import { OutlineItem } from './outline-item';
         <button
           type="button"
           class="btn btn-ghost"
-          [attr.title]="store.me()?.email ?? 'Account'"
-          (click)="ui.accountOpen.set(true); ui.drawerOpen.set(false)"
+          [attr.title]="store.account.me()?.email ?? 'Account'"
+          (click)="ui.dialogs.open({ kind: 'account' }); ui.drawerOpen.set(false)"
         >
           <app-icon name="user" /> Account
         </button>
@@ -153,9 +153,9 @@ export class Sidebar {
   /** The public landing page. */
   protected readonly exitUrl = '/welcome';
   protected readonly keyTitle = computed(() => {
-    const ids = this.store.keyStatus()?.providers ?? [];
+    const ids = this.store.account.keyStatus()?.providers ?? [];
     if (ids.length === 0) return 'API keys: none of your own stored';
-    const labels = ids.map((id) => this.store.providerMap().get(id)?.label ?? id);
+    const labels = ids.map((id) => this.store.account.providerMap().get(id)?.label ?? id);
     return `API keys: yours for ${labels.join(', ')}`;
   });
 

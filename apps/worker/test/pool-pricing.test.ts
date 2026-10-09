@@ -1,5 +1,6 @@
+import { chargeMicros } from '@tangent/shared';
+import { renderOverheadBytes, utf8Bytes } from '@tangent/core';
 import { describe, expect, it } from 'vitest';
-import { chargeMicros } from '../src/billing/pricing.js';
 import type { ModelPrice } from '../src/config.js';
 import { netOfFee } from '../src/billing/purchases.js';
 import { ipKey, ipPrefix } from '../src/pool/ids.js';
@@ -7,10 +8,10 @@ import {
   ceilingHoldMicros,
   chargeFromTokensMicros,
   costFromTokensNanos,
-  exceedsContext,
+  exceedsInputLimit,
   inputBoundTokens,
   maxInputMicrosPerMTok,
-  utf8Bytes,
+  poolInputLimitTokens,
   worstCaseHoldMicros,
 } from '../src/pool/pricing.js';
 import { poolSettlement } from '../src/pool/settle-policy.js';
@@ -33,14 +34,32 @@ describe('pool pricing', () => {
     expect(inputBoundTokens({ system: null, messages: [msg('漢字漢字')] })).toBe(12 + 4 + 16);
   });
 
-  it('flags requests whose input bound exceeds the context window (refused, never clamped)', () => {
-    const small = { ...FLASH, contextTokens: 4096 };
-    expect(exceedsContext(small, { system: null, messages: [msg('x'.repeat(10_000))] })).toBe(true);
-    expect(exceedsContext(small, { system: null, messages: [msg('x'.repeat(4096 - 20))] })).toBe(
+  it('counts per-reply instructions as a message of their own', () => {
+    expect(inputBoundTokens({ system: null, messages: [], turnInstructions: 'abc' })).toBe(
+      3 + 4 + 16,
+    );
+  });
+
+  it('flags requests whose input bound exceeds the limit (refused, never clamped)', () => {
+    expect(exceedsInputLimit(4096, { system: null, messages: [msg('x'.repeat(10_000))] })).toBe(
+      true,
+    );
+    expect(exceedsInputLimit(4096, { system: null, messages: [msg('x'.repeat(4096 - 20))] })).toBe(
       false,
     );
     // CJK counts bytes: 1_400 characters are 4_200 bytes.
-    expect(exceedsContext(small, { system: null, messages: [msg('漢'.repeat(1_400))] })).toBe(true);
+    expect(exceedsInputLimit(4096, { system: null, messages: [msg('漢'.repeat(1_400))] })).toBe(
+      true,
+    );
+  });
+
+  it("limits pool input to its budget in bytes plus what rendering adds, within the model's window", () => {
+    // A budget of 16_000 "tokens" of 3.5 bytes: 56_000 bytes, plus headings, tags and framing.
+    const limit = poolInputLimitTokens({ ...FLASH, contextTokens: 1_048_576 }, 16_000);
+    expect(limit).toBeGreaterThan(56_000 + renderOverheadBytes(1));
+    expect(limit).toBeLessThan(56_000 + 5_000);
+    // A smaller window wins.
+    expect(poolInputLimitTokens({ ...FLASH, contextTokens: 8_192 }, 16_000)).toBe(8_192);
   });
 
   it('rounds holds up and applies the fee, with no markup (the pool pays the true cost)', () => {
@@ -52,20 +71,20 @@ describe('pool pricing', () => {
     expect(worstCaseHoldMicros({ ...FLASH, feeBps: 0 }, request, 100, 550)).toBe(44);
   });
 
-  it('puts the ceiling hold above any exact hold of the same model and output cap', () => {
-    const ceiling = ceilingHoldMicros(FLASH, 1024, 550);
-    // About $0.014 on the flash model (the cost documented on /pool).
-    // (131_072 × 0.1 + 1024 × 0.4) µ$ = 13_516.8 µ$ × 1.055 = 14_260.224 → 14_261
-    expect(ceiling).toBe(14_261);
-    for (const n of [0, 1, 1000, 200_000]) {
-      const exact = worstCaseHoldMicros(
-        FLASH,
-        { system: 's', messages: [msg('y'.repeat(n))] },
-        1024,
-        550,
-      );
-      expect(exact).toBeLessThanOrEqual(ceiling);
+  it('puts the ceiling hold above any exact hold the input limit admits', () => {
+    const big = { ...FLASH, contextTokens: 1_048_576 };
+    const limit = poolInputLimitTokens(big, 16_000);
+    const ceiling = ceilingHoldMicros(big, 16_000, 1024, 550);
+    // The pool's input limit in, not the window: (limit × 0.1 + 1024 × 0.4) µ$ × 1.055.
+    expect(ceiling).toBe(Math.ceil((limit * 0.1 + 1024 * 0.4) * 1.055));
+    expect(ceiling).toBeLessThan(10_000);
+    for (const n of [0, 1, 1000, limit - 4 - 16 - 1]) {
+      const request = { system: 's', messages: [msg('y'.repeat(n))] };
+      expect(exceedsInputLimit(limit, request)).toBe(false);
+      expect(worstCaseHoldMicros(big, request, 1024, 550)).toBeLessThanOrEqual(ceiling);
     }
+    // On a window smaller than the limit, the window: (131_072 × 0.1 + 1024 × 0.4) µ$ × 1.055.
+    expect(ceilingHoldMicros(FLASH, 1_000_000, 1024, 550)).toBe(14_261);
   });
 
   it('prices tokens in nano-USD, and charges them with the per-model fee and the row’s markup', () => {
@@ -75,9 +94,9 @@ describe('pool pricing', () => {
     expect(chargeFromTokensMicros(FLASH, 1000, 500, 550, 500)).toBe(
       chargeMicros(300_000, 500, 550),
     );
-    // A row reserved before the pool went at-cost: 300 µ$ × 1.055 × 1.05 = 332.325 → 333
+    // A credit row: 300 µ$ × 1.055 × 1.05 = 332.325 → 333
     expect(chargeFromTokensMicros(FLASH, 1000, 500, 550, 500)).toBe(333);
-    // Since: 300 µ$ × 1.055 = 316.5 → 317
+    // A pool row, at cost: 300 µ$ × 1.055 = 316.5 → 317
     expect(chargeFromTokensMicros(FLASH, 1000, 500, 550, 0)).toBe(317);
     expect(chargeFromTokensMicros(FLASH, 1000, 500, 0, 0)).toBe(300);
   });
@@ -178,7 +197,7 @@ describe('pool pricing with prompt caching', () => {
       }
     }
     // (200_000 × 2.5 + 1024 × 10) µ$
-    expect(ceilingHoldMicros(CACHED, 1024, 0)).toBe(510_240);
+    expect(ceilingHoldMicros(CACHED, 1_000_000, 1024, 0)).toBe(510_240);
   });
 
   it('settles tokens with the reported cache share', () => {

@@ -121,7 +121,7 @@ export class CompareDialog implements OnInit {
   }
 
   protected close(): void {
-    this.ui.compare.set(null);
+    this.ui.dialogs.close('compare');
   }
 
   /** Rendered as a lesson reply is (message-item.ts): Markdown, without the tangents block. */

@@ -11,7 +11,7 @@ import {
   type ProviderRef,
   type TopUpCheckoutInput,
 } from '../src/billing/payments/index.js';
-import { membershipRefundRef, providerRef, reinstatedRef } from '../src/billing/payments/refs.js';
+import { providerRef, reinstatedRef } from '../src/billing/payments/refs.js';
 import {
   createFakeProvider,
   decodeFakeUrl,
@@ -25,7 +25,6 @@ describe('payment refs', () => {
   it('namespaces provider object ids and derives the secondary keys', () => {
     const order = providerRef('polar', 'order', '6c1e');
     expect(order).toBe('polar:order:6c1e');
-    expect(membershipRefundRef(order)).toBe('polar:order:6c1e:membership-refund');
     const dispute = providerRef('fake', 'dispute', 'd1');
     expect(reinstatedRef(dispute)).toBe('fake:dispute:d1:reinstated');
   });
@@ -40,7 +39,6 @@ describe('payment refs', () => {
 describe('fake payment provider', () => {
   const input: TopUpCheckoutInput = {
     buyer: { userId: 'u1', email: 'ada@example.com', name: 'Ada Ünïcode', customerRef: null },
-    accountId: 'u_u1',
     amountCents: 1234,
     successUrl: 'https://app.example/billing?checkout=success',
     cancelUrl: 'https://app.example/billing?checkout=cancel',
@@ -63,12 +61,11 @@ describe('fake payment provider', () => {
   it('follows its options', async () => {
     const payment: PaymentFacts = {
       paymentRef: 'fake:order:o1' as ProviderRef,
-      purpose: { kind: 'credits', target: 'personal', accountId: 'u_u1' },
+      purpose: { kind: 'credits' },
       userId: 'u1',
       customerRef: null,
       currency: 'usd',
       netCents: 1000,
-      taxCents: 0,
       fee: { cents: 80, estimated: false },
     };
     const fake = createFakeProvider({
@@ -92,7 +89,7 @@ describe('fake payment provider', () => {
         userId: 'u',
         customerRef: null,
       }),
-    ).rejects.toMatchObject({ name: 'PaymentProviderError', retryable: true });
+    ).rejects.toMatchObject({ name: 'PaymentProviderError' });
   });
 
   it('verifies and parses webhook deliveries', async () => {
@@ -105,7 +102,6 @@ describe('fake payment provider', () => {
       paymentRef: 'fake:order:o1' as ProviderRef,
       currency: 'usd',
       netCents: 100,
-      taxCents: 0,
     };
     const signed = new Headers({ [FAKE_SIGNATURE_HEADER]: FAKE_SIGNATURE });
     expect(
@@ -160,7 +156,7 @@ describe('payment provider selection', () => {
       paymentProvider({ ...env, PAYMENT_PROVIDER: 'fake', TEST_SEAMS: '' } as AppEnv),
     ).toThrow(/only allowed in tests/);
     expect(() => paymentProvider({ ...env, PAYMENT_PROVIDER: 'paypal' } as AppEnv)).toThrow(
-      /Unknown PAYMENT_PROVIDER/,
+      'Invalid PAYMENT_PROVIDER="paypal": expected polar, fake',
     );
   });
 });

@@ -50,7 +50,7 @@ describe('reply output caps', () => {
   it('gives titles 1,024 tokens, or 4,096 on a reasoning model', async () => {
     expect((await capsOf({ reasoning: false, limit: 40_000 })).titles).toEqual([1024]);
     expect((await capsOf({ reasoning: true, limit: 40_000 })).titles).toEqual([4096]);
-    // Never below the old 1,024, even under a lower model limit (the pool's meter caps it).
+    // Never below 1,024, even under a lower model limit (the pool's meter caps it).
     expect((await capsOf({ reasoning: true, limit: 512 })).titles).toEqual([1024]);
   });
 

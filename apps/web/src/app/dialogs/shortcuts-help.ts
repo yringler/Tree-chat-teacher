@@ -8,7 +8,7 @@ import { Modal } from '@tangent/web-shared';
   imports: [Modal],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Keyboard shortcuts" (closed)="ui.shortcutsOpen.set(false)">
+    <app-modal heading="Keyboard shortcuts" (closed)="ui.dialogs.close('shortcuts')">
       <table class="shortcuts">
         <tbody>
           @for (s of shortcuts; track s.label) {

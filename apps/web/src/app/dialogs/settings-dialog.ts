@@ -23,7 +23,7 @@ import { type ModelChoice, SettingsStore } from '../state/settings-store';
 import { TierStore } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { ApiClient, errorMessage, Modal } from '@tangent/web-shared';
+import { ApiClient, errorMessage, Modal, ToastStore } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
 import { InputLimitSetting } from '../ui/input-limit-setting';
 import { OutputCapSetting, type OutputCapModel } from '../ui/output-cap-setting';
@@ -186,6 +186,7 @@ export class SettingsDialog implements OnInit {
   private readonly store = inject(TreeStore);
   private readonly tiers = inject(TierStore);
   private readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
 
   protected readonly tierRows: readonly TierRow[] = TIERS.map((tier) => ({
     tier,
@@ -216,7 +217,7 @@ export class SettingsDialog implements OnInit {
   /** The open conversation's model, for the reply-length hint. */
   protected readonly outputCapTarget = computed<OutputCapModel | null>(() => {
     const branch = this.store.selectedBranch();
-    return branch ? { model: branch.model, provider: this.store.providerOf(branch) } : null;
+    return branch ? { model: branch.model, provider: this.store.account.providerOf(branch) } : null;
   });
 
   protected readonly maxChars = MAX_SYSTEM_PROMPT_CHARS;
@@ -259,7 +260,7 @@ export class SettingsDialog implements OnInit {
   protected suggestion(tier: ModelTier): string {
     const c = this.tiers.suggested(tier, this.store.selectedBranch());
     if (!c) return 'none (no provider lists one)';
-    const provider = this.store.providerOf(c)?.label ?? c.providerId;
+    const provider = this.store.account.providerOf(c)?.label ?? c.providerId;
     return `${this.tiers.modelLabel(c)} (${provider})`;
   }
 
@@ -305,7 +306,7 @@ export class SettingsDialog implements OnInit {
   protected customize(): void {
     if (!this.route()) {
       const start = this.reviews.defaultReviewer(this.store.selectedBranch());
-      const fallback = this.store.defaultProvider();
+      const fallback = this.store.account.defaultProvider();
       this.route.set(start ? routeKey(start) : fallback ? providerRouteKey(fallback) : '');
       this.modelId.set(start?.model ?? fallback?.defaultModel ?? '');
     }
@@ -313,7 +314,7 @@ export class SettingsDialog implements OnInit {
   }
 
   protected close(): void {
-    this.ui.settingsOpen.set(false);
+    this.ui.dialogs.close('settings');
   }
 
   protected async save(): Promise<void> {
@@ -343,7 +344,7 @@ export class SettingsDialog implements OnInit {
         this.saving.set(false);
       }
     }
-    this.ui.notify('Settings saved');
+    this.toast.notify('Settings saved');
     this.close();
   }
 }

@@ -16,15 +16,11 @@
     "@angular/common": "^22.2.0",
     "@angular/compiler": "^22.2.0",
     "@angular/core": "^22.2.0",
-    "@angular/forms": "^22.2.0",
     "@angular/platform-browser": "^22.2.0",
     "@angular/router": "^22.2.0",
-    "@better-auth/passkey": "1.7.7",
     "@tangent/core": "workspace:*",
-    "@tangent/render": "workspace:*",
     "@tangent/shared": "workspace:*",
     "@tangent/web-shared": "workspace:*",
-    "better-auth": "1.7.7",
     "highlight.js": "^11.12.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
@@ -33,7 +29,10 @@
     "@angular/build": "^22.2.0",
     "@angular/cli": "^22.2.0",
     "@angular/compiler-cli": "^22.2.0",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/user-event": "14.6.7",
     "@vitest/coverage-v8": "~4.1.11",
+    "happy-dom": "20.14.5",
     "typescript": "~6.0.3",
     "vitest": "~4.1.11"
   }

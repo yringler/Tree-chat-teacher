@@ -37,7 +37,7 @@
   <div class="inspector-body" [class.is-stale]="loading()" [attr.aria-busy]="loading()">
     <dl class="kv">
       <dt>Model</dt>
-      <dd>{{ store.providerOf(d)?.label ?? d.providerId }} · {{ d.model }}</dd>
+      <dd>{{ store.account.providerOf(d)?.label ?? d.providerId }} · {{ d.model }}</dd>
       <dt>Segments</dt>
       <dd>{{ d.plan.segments.length }}</dd>
       @if (d.exactInputTokens !== null) {
@@ -75,7 +75,9 @@
           t.tokensBefore.toLocaleString()
         }}
         → {{ t.tokensAfter.toLocaleString() }} tokens).
-        @if (dropsByChoice()) {
+        @if (t.compactionFailed) {
+          Their summary could not be generated, so they were dropped instead.
+        } @else if (dropsByChoice()) {
           Settings drop the oldest messages over the limit instead of summarizing them.
         }
       </p>

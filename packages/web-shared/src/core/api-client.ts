@@ -1,73 +1,38 @@
 import { inject, Injectable } from '@angular/core';
-import type {
-  AdminCreditRequest,
-  AdminCreditResponse,
-  AdminPoolResponse,
-  AdminPoolTopic,
-  AdminPoolTopicDecision,
-  AdminPoolTopicsResponse,
-  AdminPoolUsageResponse,
-  AdminStatusResponse,
-  AdminUser,
-  AdminUsersResponse,
-  ApiError as ApiErrorBody,
-  ApiErrorCode,
-  BillingSummary,
-  Branch,
-  CandidateRequest,
-  CheckoutResponse,
-  CommitCandidateResponse,
-  CopyToLearnResponse,
-  CreateCheckoutRequest,
-  ContextLimitsQuery,
-  ContextPlanResponse,
-  InputBudgetResponse,
-  CreateBranchRequest,
-  CreateLinkRequest,
-  CreateShareRequest,
-  CreateTreeRequest,
-  DeleteAccountRequest,
-  DeleteBranchResponse,
-  KeyStatusResponse,
-  MembershipInfo,
-  MembershipWaiverRequest,
-  MeResponse,
-  NodeLink,
-  PoolBlockDetails,
-  PoolConsentDetails,
-  PoolConsentRequest,
-  PoolConsentResponse,
-  PoolImpactResponse,
-  PoolImpactWeeksResponse,
-  PoolMeResponse,
-  PoolStatusResponse,
-  PortalResponse,
-  ProviderInfo,
-  PoolTopicReviewStatus,
-  ReviewRequest,
-  SendMessageRequest,
-  SettingsResponse,
-  ShareScope,
-  ShareSummary,
-  Tree,
-  TreeBackup,
-  TreeBackupInput,
-  TreeDetail,
-  TreeSummary,
-  UpdateAdminUserRequest,
-  UpdateBranchRequest,
-  UpdateLinkRequest,
-  UpdateSettingsRequest,
-  UpdateShareRequest,
-  UpdateTreeRequest,
-  UsageListResponse,
+import {
+  API_ROUTES,
+  routeUrl,
+  type AdminCreditRequest,
+  type ApiError as ApiErrorBody,
+  type ApiErrorCode,
+  type ApiRoute,
+  type CandidateRequest,
+  type ContextLimitsQuery,
+  type CreateBranchRequest,
+  type CreateLinkRequest,
+  type CreateShareRequest,
+  type CreateTreeRequest,
+  type NodeLink,
+  type PoolBlockDetails,
+  type ReviewRequest,
+  type RouteInput,
+  type RouteReply,
+  type RouteSpec,
+  type SendMessageRequest,
+  type ShareScope,
+  type TreeBackupInput,
+  type UpdateAdminUserRequest,
+  type UpdateBranchRequest,
+  type UpdateLinkRequest,
+  type UpdateSettingsRequest,
+  type UpdateShareRequest,
+  type UpdateTreeRequest,
 } from '@tangent/shared';
 import { API_FETCH, API_HEADERS, defaultApiFetch } from './api-fetch';
 
 /**
  * Thrown for every non-2xx API response (and for network failures, with
- * status 0). `pool` carries what an open pool refusal hit (`pool_*` codes);
- * `consent` the pool notice version to acknowledge (`pool_consent_required`).
+ * status 0). `pool` carries what an open pool refusal hit (`pool_*` codes).
  */
 export class ApiError extends Error {
   constructor(
@@ -75,7 +40,6 @@ export class ApiError extends Error {
     readonly code: ApiErrorCode | 'network',
     message: string,
     readonly pool: PoolBlockDetails | null = null,
-    readonly consent: PoolConsentDetails | null = null,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -105,8 +69,6 @@ function isErrorBody(value: unknown): value is ApiErrorBody {
   );
 }
 
-const enc = encodeURIComponent;
-
 /** What a 401 `unauthorized` (no session, or an expired one) says, whatever the server's text. */
 export const SESSION_EXPIRED_MESSAGE =
   'Your session has expired. Reload the page to sign in again.';
@@ -114,395 +76,225 @@ export const SESSION_EXPIRED_MESSAGE =
 /** Error code for a non-2xx response without our JSON error body (e.g. a proxy page). */
 function fallbackCode(status: number): ApiErrorCode {
   if (status === 402) return 'payment_required';
+  if (status === 404) return 'not_found';
   return status >= 500 ? 'internal' : 'bad_request';
 }
 
-/** Typed fetch wrapper for the owner API (`/api/*`), over the API_FETCH transport. */
+type JsonRoute = Extract<ApiRoute, { reply: { kind: 'json' | 'empty' } }>;
+type StreamRoute = Extract<ApiRoute, { reply: { kind: 'stream' } }>;
+/** A call's input argument, optional for a route that takes none. */
+type InputArgs<R extends RouteSpec> =
+  Record<never, never> extends RouteInput<R> ? [input?: RouteInput<R>] : [input: RouteInput<R>];
+
+/** Any route's input, as the plumbing handles it. */
+interface AnyInput {
+  params?: Readonly<Record<string, string>>;
+  body?: unknown;
+  query?: Readonly<Record<string, string | number | boolean | null | undefined>>;
+}
+
+const R = API_ROUTES;
+
+/**
+ * Typed fetch wrapper for the owner API (`/api/*`), over the API_FETCH
+ * transport. Every route is an entry of API_ROUTES (@tangent/shared), which
+ * says its method, path, body and reply; `call` and `stream` take an entry,
+ * so a route's reply type comes from the table. The named methods are one
+ * call each, for the apps and their test doubles.
+ */
 @Injectable({ providedIn: 'root' })
 export class ApiClient {
-  private readonly base = '/api';
   /** Optional so a bare `Injector.create` (tests) falls back to the global fetch. */
   private readonly transport = inject(API_FETCH, { optional: true }) ?? defaultApiFetch;
   private readonly extraHeaders = inject(API_HEADERS, { optional: true }) ?? (() => ({}));
 
-  me(): Promise<MeResponse> {
-    return this.json('GET', '/me');
+  /** Calls a JSON (or 204) route; resolves with its reply. */
+  call<R extends JsonRoute>(route: R, ...input: InputArgs<R>): Promise<RouteReply<R>>;
+  async call(route: JsonRoute, input: AnyInput = {}): Promise<unknown> {
+    return (await this.send(route, input)).reply;
   }
 
+  /** `call`, plus the status, for a route whose 2xx codes differ in meaning. */
+  callWithStatus<R extends JsonRoute>(
+    route: R,
+    ...input: InputArgs<R>
+  ): Promise<{ reply: RouteReply<R>; status: number }>;
+  callWithStatus(route: JsonRoute, input: AnyInput = {}): Promise<unknown> {
+    return this.send(route, input);
+  }
+
+  /** Opens a `text/event-stream` route; resolves with the open response. */
+  stream<R extends StreamRoute>(
+    route: R,
+    input: RouteInput<R>,
+    signal: AbortSignal,
+  ): Promise<Response>;
+  async stream(route: StreamRoute, input: AnyInput, signal: AbortSignal): Promise<Response> {
+    const res = await this.request(route, input, signal);
+    if (!res.body) throw new ApiError(res.status, 'internal', 'Empty stream response');
+    return res;
+  }
+
+  /** A route's URL, for a link or a download. */
+  url<R extends ApiRoute>(route: R, ...input: InputArgs<R>): string;
+  url(route: ApiRoute, { params, query }: AnyInput = {}): string {
+    return routeUrl(route, params, query);
+  }
+
+  me = () => this.call(R.me);
   /** Permanently deletes the signed-in user (both accounts); `confirmEmail` must be their email. */
-  deleteAccount(confirmEmail: string): Promise<void> {
-    return this.json('DELETE', '/account', { confirmEmail } satisfies DeleteAccountRequest);
-  }
+  deleteAccount = (confirmEmail: string) => this.call(R.deleteAccount, { body: { confirmEmail } });
+  providers = () => this.call(R.providers);
 
-  providers(): Promise<ProviderInfo[]> {
-    return this.json('GET', '/providers');
-  }
-
-  // Bring-your-own-key. The key goes to the Worker once and comes back only
+  // Bring-your-own-key: the key goes to the Worker once and comes back only
   // as a sealed HttpOnly cookie that this code can't read.
-
-  keyStatus(): Promise<KeyStatusResponse> {
-    return this.json('GET', '/key/status');
-  }
-
-  saveKey(provider: string, apiKey: string): Promise<void> {
-    return this.json('POST', '/key', { provider, apiKey });
-  }
-
+  keyStatus = () => this.call(R.keyStatus);
+  saveKey = (provider: string, apiKey: string) =>
+    this.call(R.saveKey, { body: { provider, apiKey } });
   /** Omit `provider` to forget every stored key. */
-  forgetKey(provider?: string): Promise<void> {
-    return this.json('DELETE', '/key', provider ? { provider } : {});
-  }
+  forgetKey = (provider?: string) => this.call(R.forgetKey, { body: provider ? { provider } : {} });
 
   // Billing (both apps: the membership and the credit are per user)
-
-  billing(): Promise<BillingSummary> {
-    return this.json('GET', '/billing');
-  }
-
+  billing = () => this.call(R.billing);
   /** One page of metered usage, newest first. Pass the previous page's `nextCursor` for the next. */
-  usage(cursor?: string | null, limit?: number): Promise<UsageListResponse> {
-    const q = new URLSearchParams();
-    if (cursor) q.set('cursor', cursor);
-    if (limit !== undefined) q.set('limit', String(limit));
-    const qs = q.toString();
-    return this.json('GET', qs ? `/billing/usage?${qs}` : '/billing/usage');
-  }
-
-  /**
-   * Starts a one-time top-up of the caller's own credit; resolves with the
-   * payment provider's checkout URL to send the browser to.
-   */
-  createCheckout(amountCents: number): Promise<CheckoutResponse> {
-    return this.json('POST', '/billing/checkout', {
-      amountCents,
-    } satisfies CreateCheckoutRequest);
-  }
-
-  /**
-   * Starts the yearly membership: resolves with the hosted checkout URL (or,
-   * for a user who already pays, the billing portal's). Both return to the
-   * calling app's billing page.
-   */
-  membershipCheckout(): Promise<CheckoutResponse> {
-    return this.json('POST', '/billing/membership/checkout');
-  }
-
-  /**
-   * The payment provider's billing portal (invoices, payment method, cancel),
-   * returning to the calling app's billing page. 404 `no_customer` while the
-   * provider has no customer for the user (nothing was ever paid).
-   */
-  billingPortal(): Promise<PortalResponse> {
-    return this.json('POST', '/billing/portal');
-  }
+  usage = (cursor?: string | null, limit?: number) =>
+    this.call(R.usage, { query: { cursor: cursor || null, limit } });
+  /** A one-time top-up of the caller's own credit: the payment provider's checkout URL. */
+  createCheckout = (amountCents: number) => this.call(R.createCheckout, { body: { amountCents } });
+  /** The yearly membership's checkout (or, for a user who already pays, the billing portal). */
+  membershipCheckout = () => this.call(R.membershipCheckout);
+  /** The payment provider's billing portal; 404 `no_customer` until something was paid. */
+  billingPortal = () => this.call(R.billingPortal);
+  /** Redeems the operator's code to waive the membership fee; resolves with the membership. */
+  redeemMembershipWaiver = (code: string) =>
+    this.call(R.redeemMembershipWaiver, { body: { code } });
 
   // The open pool
-
-  /** The pool meter (public; cached for a minute). */
-  poolStatus(): Promise<PoolStatusResponse> {
-    return this.json('GET', '/pool/status');
-  }
-
-  /** The caller's caps and use of the pool today. */
-  poolMe(): Promise<PoolMeResponse> {
-    return this.json('GET', '/pool/me');
-  }
-
-  /**
-   * A weekly impact snapshot of the pool (public): `week` (`YYYY-MM-DD`, its
-   * Monday) or the latest. 404 `not_found` when there is none yet.
-   */
-  poolImpact(week?: string): Promise<PoolImpactResponse> {
-    return this.json(
-      'GET',
-      week ? `/pool/impact?${new URLSearchParams({ week }).toString()}` : '/pool/impact',
-    );
-  }
-
-  /** The weeks with an impact snapshot, newest first (public). */
-  poolImpactWeeks(): Promise<PoolImpactWeeksResponse> {
-    return this.json('GET', '/pool/impact/weeks');
-  }
-
-  /**
-   * Acknowledges the pool notice at `version` (the one shown); a version that
-   * is no longer current is 409 `conflict`.
-   */
-  poolConsent(version: number): Promise<PoolConsentResponse> {
-    return this.json('POST', '/pool/consent', { version } satisfies PoolConsentRequest);
-  }
-
-  /**
-   * Redeems the operator's code to waive the membership fee; resolves with the
-   * new membership. A wrong code is 403 `forbidden`, too many tries 429
-   * `rate_limited`, and a server without a code 400 `bad_request`.
-   */
-  redeemMembershipWaiver(code: string): Promise<MembershipInfo> {
-    return this.json('POST', '/billing/membership/waiver', {
-      code,
-    } satisfies MembershipWaiverRequest);
-  }
+  poolStatus = () => this.call(R.poolStatus);
+  poolMe = () => this.call(R.poolMe);
 
   // Account settings (server-side, per account)
-
-  /** The account's saved settings and the built-in default system prompt. */
-  settings(): Promise<SettingsResponse> {
-    return this.json('GET', '/settings');
-  }
-
+  settings = () => this.call(R.settings);
   /** `systemPrompt: null` (or blank) goes back to the built-in default. */
-  updateSettings(req: UpdateSettingsRequest): Promise<SettingsResponse> {
-    return this.json('PATCH', '/settings', req);
-  }
+  updateSettings = (req: UpdateSettingsRequest) => this.call(R.updateSettings, { body: req });
 
-  // Trees
-
-  listTrees(): Promise<TreeSummary[]> {
-    return this.json('GET', '/trees');
-  }
-
-  createTree(req: CreateTreeRequest): Promise<TreeDetail> {
-    return this.json('POST', '/trees', req);
-  }
-
-  getTree(treeId: string): Promise<TreeDetail> {
-    return this.json('GET', `/trees/${enc(treeId)}`);
-  }
-
-  updateTree(treeId: string, req: UpdateTreeRequest): Promise<Tree> {
-    return this.json('PATCH', `/trees/${enc(treeId)}`, req);
-  }
-
-  deleteTree(treeId: string): Promise<void> {
-    return this.json('DELETE', `/trees/${enc(treeId)}`);
-  }
-
-  // Branches
-
-  createBranch(req: CreateBranchRequest): Promise<Branch> {
-    return this.json('POST', '/branches', req);
-  }
-
-  updateBranch(branchId: string, req: UpdateBranchRequest): Promise<Branch> {
-    return this.json('PATCH', `/branches/${enc(branchId)}`, req);
-  }
-
-  deleteBranch(branchId: string): Promise<DeleteBranchResponse> {
-    return this.json('DELETE', `/branches/${enc(branchId)}`);
-  }
-
+  // Trees, branches and links
+  listTrees = () => this.call(R.listTrees);
+  createTree = (req: CreateTreeRequest) => this.call(R.createTree, { body: req });
+  getTree = (treeId: string) => this.call(R.getTree, { params: { treeId } });
+  updateTree = (treeId: string, req: UpdateTreeRequest) =>
+    this.call(R.updateTree, { params: { treeId }, body: req });
+  deleteTree = (treeId: string) => this.call(R.deleteTree, { params: { treeId } });
+  createBranch = (req: CreateBranchRequest) => this.call(R.createBranch, { body: req });
+  updateBranch = (branchId: string, req: UpdateBranchRequest) =>
+    this.call(R.updateBranch, { params: { branchId }, body: req });
+  deleteBranch = (branchId: string) => this.call(R.deleteBranch, { params: { branchId } });
   /** `limits`: plan like a send with power's settings (the server ignores them in Learn). */
-  getContext(
+  getContext = (
     branchId: string,
     nodeId: string | null,
     resolve: boolean,
     limits: ContextLimitsQuery = {},
-  ): Promise<ContextPlanResponse> {
-    const q = new URLSearchParams();
-    if (nodeId) q.set('nodeId', nodeId);
-    q.set('resolve', String(resolve));
-    for (const [key, value] of Object.entries(limits)) {
-      if (value !== undefined) q.set(key, String(value));
-    }
-    return this.json('GET', `/branches/${enc(branchId)}/context?${q.toString()}`);
-  }
-
+  ) => this.call(R.getContext, { params: { branchId }, query: { nodeId, resolve, ...limits } });
   /** What bounds a message's input on the branch (power's input limit setting). */
-  inputBudget(branchId: string): Promise<InputBudgetResponse> {
-    return this.json('GET', `/branches/${enc(branchId)}/input-budget`);
-  }
-
-  // Links
-
+  inputBudget = (branchId: string) => this.call(R.inputBudget, { params: { branchId } });
   /** Resolves with the new link, or the existing one when the two messages are already linked. */
-  async createLink(req: CreateLinkRequest): Promise<CreateLinkResult> {
-    const { body, status } = await this.jsonWithStatus<NodeLink>('POST', '/links', req);
-    return { link: body, created: status === 201 };
-  }
+  createLink = async (req: CreateLinkRequest): Promise<CreateLinkResult> => {
+    const { reply, status } = await this.callWithStatus(R.createLink, { body: req });
+    return { link: reply, created: status === 201 };
+  };
+  updateLink = (linkId: string, req: UpdateLinkRequest) =>
+    this.call(R.updateLink, { params: { linkId }, body: req });
+  deleteLink = (linkId: string) => this.call(R.deleteLink, { params: { linkId } });
 
-  updateLink(linkId: string, req: UpdateLinkRequest): Promise<NodeLink> {
-    return this.json('PATCH', `/links/${enc(linkId)}`, req);
-  }
-
-  deleteLink(linkId: string): Promise<void> {
-    return this.json('DELETE', `/links/${enc(linkId)}`);
-  }
-
-  // Streaming
-
-  /** POST a message; resolves with the open `text/event-stream` response. */
-  sendMessage(branchId: string, req: SendMessageRequest, signal: AbortSignal): Promise<Response> {
-    return this.stream('POST', `/branches/${enc(branchId)}/messages`, req, signal);
-  }
-
+  // Generating: each resolves with the open event stream
+  sendMessage = (branchId: string, req: SendMessageRequest, signal: AbortSignal) =>
+    this.stream(R.sendMessage, { params: { branchId }, body: req }, signal);
   /** Reconnect to a generation: `snapshot`, then live events. */
-  streamNode(nodeId: string, signal: AbortSignal): Promise<Response> {
-    return this.stream('GET', `/nodes/${enc(nodeId)}/stream`, undefined, signal);
-  }
-
-  cancelNode(nodeId: string): Promise<void> {
-    return this.json('POST', `/nodes/${enc(nodeId)}/cancel`);
-  }
-
-  /** Review the conversation up to an assistant reply; resolves with the open event stream. */
-  reviewNode(nodeId: string, req: ReviewRequest, signal: AbortSignal): Promise<Response> {
-    return this.stream('POST', `/nodes/${enc(nodeId)}/review`, req, signal);
-  }
-
-  /**
-   * Compare: one model's candidate answer to `req.content` at the branch's
-   * leaf; resolves with the open event stream (CandidateEvent). Nothing is
-   * stored until `commitCandidate`.
-   */
-  streamCandidate(branchId: string, req: CandidateRequest, signal: AbortSignal): Promise<Response> {
-    return this.stream('POST', `/branches/${enc(branchId)}/candidates`, req, signal);
-  }
-
-  /**
-   * Keeps one finished candidate: appends the question and that answer to the
-   * branch. 404 unknown, 409 the branch moved on, 410 expired, 403 on the pool.
-   */
-  commitCandidate(branchId: string, candidateId: string): Promise<CommitCandidateResponse> {
-    return this.json('POST', `/branches/${enc(branchId)}/candidates/${enc(candidateId)}/commit`);
-  }
+  streamNode = (nodeId: string, signal: AbortSignal) =>
+    this.stream(R.streamNode, { params: { nodeId } }, signal);
+  cancelNode = (nodeId: string) => this.call(R.cancelNode, { params: { nodeId } });
+  /** Review the conversation up to an assistant reply. */
+  reviewNode = (nodeId: string, req: ReviewRequest, signal: AbortSignal) =>
+    this.stream(R.reviewNode, { params: { nodeId }, body: req }, signal);
+  /** Compare: one model's candidate answer at the branch's leaf; nothing is stored until committed. */
+  streamCandidate = (branchId: string, req: CandidateRequest, signal: AbortSignal) =>
+    this.stream(R.streamCandidate, { params: { branchId }, body: req }, signal);
+  /** Keeps one finished candidate: appends the question and that answer to the branch. */
+  commitCandidate = (branchId: string, candidateId: string) =>
+    this.call(R.commitCandidate, { params: { branchId, candidateId } });
 
   // Shares
-
-  listShares(): Promise<ShareSummary[]> {
-    return this.json('GET', '/shares');
-  }
-
-  createShare(req: CreateShareRequest): Promise<ShareSummary> {
-    return this.json('POST', '/shares', req);
-  }
-
-  updateShare(shareId: string, req: UpdateShareRequest): Promise<ShareSummary> {
-    return this.json('PATCH', `/shares/${enc(shareId)}`, req);
-  }
-
-  republishShare(shareId: string): Promise<ShareSummary> {
-    return this.json('POST', `/shares/${enc(shareId)}/republish`);
-  }
-
-  revokeShare(shareId: string): Promise<ShareSummary> {
-    return this.json('POST', `/shares/${enc(shareId)}/revoke`);
-  }
-
-  deleteShare(shareId: string): Promise<void> {
-    return this.json('DELETE', `/shares/${enc(shareId)}`);
-  }
+  listShares = () => this.call(R.listShares);
+  createShare = (req: CreateShareRequest) => this.call(R.createShare, { body: req });
+  updateShare = (shareId: string, req: UpdateShareRequest) =>
+    this.call(R.updateShare, { params: { shareId }, body: req });
+  republishShare = (shareId: string) => this.call(R.republishShare, { params: { shareId } });
+  revokeShare = (shareId: string) => this.call(R.revokeShare, { params: { shareId } });
+  deleteShare = (shareId: string) => this.call(R.deleteShare, { params: { shareId } });
 
   // Admin (the admin app; 404 for anyone but an admin)
-
-  adminStatus(): Promise<AdminStatusResponse> {
-    return this.json('GET', '/admin/status');
-  }
-
+  adminStatus = () => this.call(R.adminStatus);
   /** One page of users, newest first; `q` filters by email substring. */
-  adminUsers(q?: string, cursor?: string | null): Promise<AdminUsersResponse> {
-    const params = new URLSearchParams();
-    if (q) params.set('q', q);
-    if (cursor) params.set('cursor', cursor);
-    const qs = params.toString();
-    return this.json('GET', qs ? `/admin/users?${qs}` : '/admin/users');
-  }
-
-  updateAdminUser(userId: string, req: UpdateAdminUserRequest): Promise<AdminUser> {
-    return this.json('PATCH', `/admin/users/${enc(userId)}`, req);
-  }
-
+  adminUsers = (q?: string, cursor?: string | null) =>
+    this.call(R.adminUsers, { query: { q: q || null, cursor: cursor || null } });
+  updateAdminUser = (userId: string, req: UpdateAdminUserRequest) =>
+    this.call(R.updateAdminUser, { params: { userId }, body: req });
   /** The open pool's balance, holds and overage breaker state. */
-  adminPool(): Promise<AdminPoolResponse> {
-    return this.json('GET', '/admin/pool');
-  }
-
-  /**
-   * Credits (or debits) a user's personal ledger or the pool without a payment:
-   * an adjustment, or a simulated purchase where DEV_PURCHASES_ENABLED allows
-   * it. Idempotent on `idempotencyKey`.
-   */
-  adminCredit(req: AdminCreditRequest): Promise<AdminCreditResponse> {
-    return this.json('POST', '/admin/credit', req);
-  }
-
-  /** Pool consumption per user over the last `days`, most spend first, and today's busiest networks. */
-  adminPoolUsage(days?: number): Promise<AdminPoolUsageResponse> {
-    return this.json('GET', days ? `/admin/pool/usage?days=${days}` : '/admin/pool/usage');
-  }
-
-  /** The impact feed's review queue (`pending`, the default) or the decided topics. */
-  adminPoolTopics(status?: PoolTopicReviewStatus): Promise<AdminPoolTopicsResponse> {
-    return this.json('GET', status ? `/admin/pool/topics?status=${status}` : '/admin/pool/topics');
-  }
-
-  /** Approves (named from the next weekly snapshot on) or rejects a queued topic. */
-  decideAdminPoolTopic(
-    topicId: string,
-    decision: AdminPoolTopicDecision['decision'],
-  ): Promise<AdminPoolTopic> {
-    return this.json('POST', `/admin/pool/topics/${enc(topicId)}`, {
-      decision,
-    } satisfies AdminPoolTopicDecision);
-  }
-
-  adminUserShares(userId: string): Promise<ShareSummary[]> {
-    return this.json('GET', `/admin/users/${enc(userId)}/shares`);
-  }
-
+  adminPool = () => this.call(R.adminPool);
+  /** Credits (or debits) a user's personal ledger or the pool without a payment. */
+  adminCredit = (req: AdminCreditRequest) => this.call(R.adminCredit, { body: req });
+  /** Pool consumption per user over the last `days`, most spend first. */
+  adminPoolUsage = (days?: number) =>
+    this.call(R.adminPoolUsage, { query: { days: days || undefined } });
+  adminUserShares = (userId: string) => this.call(R.adminUserShares, { params: { userId } });
   /** Revokes any user's share (a takedown). */
-  adminRevokeShare(shareId: string): Promise<ShareSummary> {
-    return this.json('POST', `/admin/shares/${enc(shareId)}/revoke`);
-  }
+  adminRevokeShare = (shareId: string) => this.call(R.adminRevokeShare, { params: { shareId } });
 
   // Export / backup / import
 
   /** Download link for a Markdown or HTML export. */
-  exportUrl(p: ExportParams): string {
-    const q = new URLSearchParams({ treeId: p.treeId, scope: p.scope, format: p.format });
-    if (p.scope !== 'tree' && p.nodeId) q.set('nodeId', p.nodeId);
-    if (p.includeAncestors) q.set('includeAncestors', 'true');
-    if (p.includePrivate) q.set('includePrivate', 'true');
-    return `${this.base}/export?${q.toString()}`;
-  }
-
+  exportUrl = (p: ExportParams) =>
+    this.url(R.exportTree, {
+      query: {
+        treeId: p.treeId,
+        scope: p.scope,
+        format: p.format,
+        nodeId: p.scope !== 'tree' ? p.nodeId : null,
+        includeAncestors: p.includeAncestors || null,
+        includePrivate: p.includePrivate || null,
+      },
+    });
   /** Download link for the JSON backup of one tree. */
-  backupUrl(treeId: string): string {
-    return `${this.base}/trees/${enc(treeId)}/backup`;
-  }
-
+  backupUrl = (treeId: string) => this.url(R.backup, { params: { treeId } });
   /**
    * The JSON backup of one tree, fetched with this app's headers. Learn saves
    * it from here: a plain link sends no mode header, so the server would look
    * for the tree in the power account.
    */
-  backup(treeId: string): Promise<TreeBackup> {
-    return this.json('GET', `/trees/${enc(treeId)}/backup`);
-  }
-
-  importBackup(backup: TreeBackupInput): Promise<TreeDetail> {
-    return this.json('POST', '/import', backup);
-  }
-
-  /**
-   * Copies one of the caller's power trees into their Learn account as a new
-   * lesson (adapted like any import into Learn); resolves with its id. Sent
-   * from the power apps (power mode); needs no membership and spends nothing.
-   */
-  copyToLearn(treeId: string): Promise<CopyToLearnResponse> {
-    return this.json('POST', `/trees/${enc(treeId)}/copy-to-learn`);
-  }
+  backup = (treeId: string) => this.call(R.backup, { params: { treeId } });
+  importBackup = (backup: TreeBackupInput) => this.call(R.importBackup, { body: backup });
+  /** Copies one of the caller's power trees into their Learn account as a new lesson. */
+  copyToLearn = (treeId: string) => this.call(R.copyToLearn, { params: { treeId } });
 
   // Plumbing
 
+  private async send(
+    route: JsonRoute,
+    input: AnyInput,
+  ): Promise<{ reply: unknown; status: number }> {
+    const res = await this.request(route, input);
+    const text = res.status === 204 ? '' : await res.text();
+    return { reply: text ? JSON.parse(text) : undefined, status: res.status };
+  }
+
   private async request(
-    method: string,
-    path: string,
-    body: unknown,
+    route: RouteSpec,
+    { params, body, query }: AnyInput,
     signal?: AbortSignal,
   ): Promise<Response> {
     const init: RequestInit = {
-      method,
+      method: route.method,
       credentials: 'same-origin',
       headers: { ...this.extraHeaders(), accept: 'application/json, text/event-stream' },
     };
@@ -515,39 +307,12 @@ export class ApiClient {
     // Called detached: a provided bare `fetch` must not be invoked with `this` set.
     const transport = this.transport;
     try {
-      res = await transport(this.base + path, init);
+      res = await transport(routeUrl(route, params, query), init);
     } catch (err) {
       if (signal?.aborted) throw err;
       throw new ApiError(0, 'network', err instanceof Error ? err.message : 'Network error');
     }
     if (!res.ok) throw await this.toError(res);
-    return res;
-  }
-
-  private async json<T>(method: string, path: string, body?: unknown): Promise<T> {
-    return (await this.jsonWithStatus<T>(method, path, body)).body;
-  }
-
-  /** `json`, plus the status, for routes whose 2xx codes differ in meaning. */
-  private async jsonWithStatus<T>(
-    method: string,
-    path: string,
-    body?: unknown,
-  ): Promise<{ body: T; status: number }> {
-    const res = await this.request(method, path, body);
-    if (res.status === 204) return { body: undefined as T, status: res.status };
-    const text = await res.text();
-    return { body: (text ? JSON.parse(text) : undefined) as T, status: res.status };
-  }
-
-  private async stream(
-    method: string,
-    path: string,
-    body: unknown,
-    signal: AbortSignal,
-  ): Promise<Response> {
-    const res = await this.request(method, path, body, signal);
-    if (!res.body) throw new ApiError(res.status, 'internal', 'Empty stream response');
     return res;
   }
 
@@ -568,7 +333,6 @@ export class ApiClient {
         parsed.error.code,
         parsed.error.message,
         parsed.error.pool ?? null,
-        parsed.error.consent ?? null,
       );
     return new ApiError(res.status, fallbackCode(res.status), `${res.status} ${res.statusText}`);
   }
@@ -579,42 +343,11 @@ export function errorMessage(err: unknown): string {
   return String(err);
 }
 
-/** True for a 401 `unauthorized` ApiError: no session, or an expired one (not `key_required`). */
-export function isSessionExpired(err: unknown): err is ApiError {
-  return err instanceof ApiError && err.code === 'unauthorized';
-}
-
-/** True for a 404 ApiError: the thing asked for is gone (or was never the caller's). */
-export function isNotFound(err: unknown): err is ApiError {
-  return err instanceof ApiError && err.status === 404;
-}
-
-/** True for a 402 `payment_required` ApiError (out of credit for the built-in provider). */
-export function isPaymentRequired(err: unknown): boolean {
-  return err instanceof ApiError && err.code === 'payment_required';
-}
-
-/** True for a 402 `membership_required` ApiError (generating needs the yearly membership). */
-export function isMembershipRequired(err: unknown): boolean {
-  return err instanceof ApiError && err.code === 'membership_required';
-}
-
-/** True for a 402 `pool_empty`: the open pool can't cover a request right now. */
-export function isPoolEmpty(err: unknown): err is ApiError {
-  return err instanceof ApiError && err.code === 'pool_empty';
-}
-
-/** True for a 429 `pool_cap_reached`: a daily pool cap or per-minute limit (`err.pool` says which). */
-export function isPoolCapReached(err: unknown): err is ApiError {
-  return err instanceof ApiError && err.code === 'pool_cap_reached';
-}
-
-/** True for a 403 `pool_consent_required`: the current pool notice must be acknowledged first. */
-export function isPoolConsentRequired(err: unknown): err is ApiError {
-  return err instanceof ApiError && err.code === 'pool_consent_required';
-}
-
-/** True for a 403 `pool_unavailable`: this request or account can't use the pool (`err.pool?.reason`). */
-export function isPoolUnavailable(err: unknown): err is ApiError {
-  return err instanceof ApiError && err.code === 'pool_unavailable';
+/**
+ * True for an ApiError with `code`: `unauthorized` is a missing or expired
+ * session (not `key_required`), `not_found` something gone (or never the
+ * caller's), and the `pool_*` codes carry what the refusal hit in `err.pool`.
+ */
+export function hasCode(err: unknown, code: ApiErrorCode | 'network'): err is ApiError {
+  return err instanceof ApiError && err.code === code;
 }

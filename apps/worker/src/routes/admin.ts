@@ -1,16 +1,9 @@
 import { NotFoundError, ValidationError } from '@tangent/core';
 import {
+  API_ROUTES,
   ADMIN_USERS_PAGE,
-  adminCreditRequestSchema,
-  adminPoolTopicDecisionSchema,
-  adminPoolTopicsQuerySchema,
-  adminPoolUsageQuerySchema,
   type AdminPoolResponse,
-  type AdminPoolTopic,
-  type AdminPoolTopicsResponse,
   type AdminCreditResponse,
-  adminUsersQuerySchema,
-  updateAdminUserRequestSchema,
   type AdminPoolIpKeyRow,
   type AdminPoolUsageResponse,
   type AdminPoolUsageRow,
@@ -18,6 +11,7 @@ import {
   type AdminUser,
   type AdminUsersResponse,
   type ShareSummary,
+  centsToMicros,
 } from '@tangent/shared';
 import { Hono } from 'hono';
 import {
@@ -26,44 +20,50 @@ import {
   SIMPLE_ACCOUNT_PREFIX,
 } from '../auth/account.js';
 import { adminOnly, adminUserIds } from '../auth/admin.js';
-import { getBalance, grantByRef, grantCredit } from '../billing/ledger.js';
+import {
+  balanceStatement,
+  getBalance,
+  grantByRef,
+  grantCredit,
+  readBalance,
+  type BalanceRow,
+} from '../billing/ledger.js';
 import { ACTIVE_STATUSES, membershipRequired } from '../billing/membership.js';
-import { MEMBERSHIP_KIND } from '../billing/payments/apply.js';
-import { centsToMicros } from '../billing/pricing.js';
+import { MEMBERSHIP_KIND } from '../billing/payments/port.js';
 import { fulfilPurchase } from '../billing/purchases.js';
-import { sameOriginOnly } from '../byok/guard.js';
 import { appConfig } from '../config.js';
 import { createD1Repositories } from '../db/d1-repositories.js';
+import type { SqlRow } from '../db/rows.js';
+import type { authUsers, usageEvents } from '../db/schema.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { apiError, validateJson, validateQuery } from '../http/errors.js';
-import { isBlocklisted } from '../pool/impact.js';
 import { identitySuspensionStatement } from '../pool/identity.js';
-import { topicById } from '../pool/taxonomy.js';
 import { poolBank } from '../pool/ids.js';
-import { poolOverageMicros } from '../pool/pool-bank.js';
+import { POOL_OVERAGE } from '../pool/params.js';
+import { poolOverageMicros } from '../pool/day-usage.js';
 import { purgeShare } from '../share/cache.js';
-import { poolAvailable, shareService, sharingEnabled } from '../services.js';
+import { poolAvailable, sharingEnabled } from '../availability.js';
+import { shareService } from '../registries.js';
+import { logEvent } from '../log.js';
 
-interface UserRow {
-  id: string;
-  email: string;
-  name: string;
-  created_at: number;
-  share_allowed: number;
+type UsageSql = SqlRow<typeof usageEvents>;
+
+type UserRow = Pick<
+  SqlRow<typeof authUsers>,
+  'id' | 'email' | 'name' | 'created_at' | 'share_allowed' | 'membership_waived'
+> & {
+  /** The account's suspension, or its pool identity's. */
   pool_suspended: number;
   active_shares: number;
-  credit_balance: number;
-  membership_waived: number;
   membership_paid: number;
-}
+};
 
 /**
- * Columns of an AdminUser row. Active shares: of either of the user's accounts
- * (`p_<id>`, `u_<id>`), neither revoked nor expired at `?1` (an ISO timestamp,
- * compared as text like ShareService does). Credit balance: the user's ledger
- * (`u_<id>`, `billingAccountIdFor`) as ledger.ts sums it, holds not deducted.
- * Paid membership: a membership subscription in a status that counts, as
- * `membershipFor` reads it.
+ * Columns of an AdminUser row, but its credit (`creditBalances`). Active
+ * shares: of either of the user's accounts (`p_<id>`, `u_<id>`), neither
+ * revoked nor expired at `?1` (an ISO timestamp, compared as text like
+ * ShareService does). Paid membership: a membership subscription in a status
+ * that counts, as `membershipFor` reads it.
  */
 const USER_COLUMNS = `u.id, u.email, u.name, u.created_at, u.share_allowed, u.membership_waived,
   EXISTS (SELECT 1 FROM billing_subscriptions bs
@@ -73,13 +73,25 @@ const USER_COLUMNS = `u.id, u.email, u.name, u.created_at, u.share_allowed, u.me
     WHERE pi.identity = u.pool_identity), 0)) AS pool_suspended,
   (SELECT COUNT(*) FROM shares s
     WHERE s.account_id IN ('${POWER_ACCOUNT_PREFIX}' || u.id, '${SIMPLE_ACCOUNT_PREFIX}' || u.id)
-      AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > ?1)) AS active_shares,
-  (SELECT COALESCE(SUM(g.amount_micros), 0) FROM credit_grants g
-    WHERE g.account_id = '${SIMPLE_ACCOUNT_PREFIX}' || u.id)
-  - (SELECT COALESCE(SUM(e.charge_micros), 0) FROM usage_events e
-    WHERE e.account_id = '${SIMPLE_ACCOUNT_PREFIX}' || u.id AND e.status = 'settled') AS credit_balance`;
+      AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > ?1)) AS active_shares`;
 
-function toAdminUser(row: UserRow, admins: ReadonlySet<string>): AdminUser {
+/**
+ * Each user's credit balance, in `rows`' order: their ledger
+ * (`billingAccountIdFor`) as ledger.ts sums it, holds not deducted. One batch.
+ */
+async function creditBalances(db: D1Database, rows: readonly UserRow[]): Promise<number[]> {
+  if (rows.length === 0) return [];
+  const results = await db.batch<BalanceRow>(
+    rows.map((row) => balanceStatement(db, billingAccountIdFor(row.id))),
+  );
+  return results.map((r) => readBalance(r.results[0]).balanceMicros);
+}
+
+function toAdminUser(
+  row: UserRow,
+  creditBalanceMicros: number,
+  admins: ReadonlySet<string>,
+): AdminUser {
   return {
     id: row.id,
     email: row.email,
@@ -89,7 +101,7 @@ function toAdminUser(row: UserRow, admins: ReadonlySet<string>): AdminUser {
     isAdmin: admins.has(row.id),
     activeShares: row.active_shares,
     poolSuspended: row.pool_suspended === 1,
-    creditBalanceMicros: Number(row.credit_balance),
+    creditBalanceMicros,
     membershipWaived: row.membership_waived === 1,
     membershipPaid: row.membership_paid === 1,
   };
@@ -98,25 +110,29 @@ function toAdminUser(row: UserRow, admins: ReadonlySet<string>): AdminUser {
 /** What one pool row costs: its charge once settled, its hold while pending. */
 const SPENT = `(CASE WHEN e.status = 'pending' THEN e.hold_micros ELSE COALESCE(e.charge_micros, 0) END)`;
 
-/** Pool replies (released ones never reached the model) and spend, tagging excluded. */
+/** Pool replies (released ones never reached the model) and spend. */
 const POOL_USAGE_COLUMNS = `
   COUNT(CASE WHEN e.purpose = 'reply' AND COALESCE(e.settle_reason, '') <> 'released' THEN 1 END) AS requests,
-  COALESCE(SUM(CASE WHEN e.purpose <> 'tagging' THEN ${SPENT} END), 0) AS spend`;
+  COALESCE(SUM(${SPENT}), 0) AS spend`;
 
-interface PoolUserRow {
-  user_id: string;
-  email: string | null;
+/** What `POOL_USAGE_COLUMNS` computes. */
+interface PoolUsage {
   requests: number;
   spend: number;
-  tagging: number;
-  last_at: string;
 }
 
-interface PoolNetworkRow {
-  ip_key: string;
+interface PoolUserRow extends PoolUsage {
+  /** Set: the query asks for it. */
+  user_id: NonNullable<UsageSql['user_id']>;
+  /** Null once the user was deleted (LEFT JOIN). */
+  email: SqlRow<typeof authUsers>['email'] | null;
+  last_at: UsageSql['created_at'];
+}
+
+interface PoolNetworkRow extends PoolUsage {
+  /** Set: the query asks for it. */
+  ip_key: NonNullable<UsageSql['ip_key']>;
   users: number;
-  requests: number;
-  spend: number;
 }
 
 function encodeCursor(createdAt: number, id: string): string {
@@ -136,42 +152,20 @@ function decodeCursor(cursor: string): { createdAt: number; id: string } {
   throw new ValidationError('Invalid cursor');
 }
 
-interface TopicReviewRow {
-  topic_id: string;
-  status: AdminPoolTopic['status'];
-  first_seen_week: string;
-  decided_at: string | null;
-  decided_by: string | null;
-}
-
-function toAdminPoolTopic(row: TopicReviewRow, blocklist: readonly string[]): AdminPoolTopic {
-  const topic = topicById(row.topic_id);
-  const parent = topic?.parent ? topicById(topic.parent) : undefined;
-  return {
-    id: row.topic_id,
-    label: topic?.label ?? row.topic_id,
-    group: parent?.label ?? '',
-    status: row.status,
-    firstSeenWeek: row.first_seen_week,
-    decidedAt: row.decided_at,
-    decidedBy: row.decided_by,
-    blocklisted: isBlocklisted(row.topic_id, blocklist),
-  };
-}
-
 async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
   const row = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM auth_users u WHERE u.id = ?2`)
     .bind(new Date().toISOString(), userId)
     .first<UserRow>();
   if (!row) throw new NotFoundError('User');
-  return toAdminUser(row, adminUserIds(env));
+  const [balance = 0] = await creditBalances(env.DB, [row]);
+  return toAdminUser(row, balance, adminUserIds(env));
 }
 
 /**
  * Admin API, mounted at /api/admin by `createApp` behind the session and
  * account middleware. Every route is admins only (`adminOnly`: 404 to anyone
  * else); the mutating ones are same-origin only. The contract is in
- * packages/shared/src/admin.ts and the route list in api.ts.
+ * packages/shared/src/admin.ts and the route table in api-routes.ts.
  *
  * It manages who may publish share links while DMCA_AGENT_REGISTERED is off
  * (`auth_users.share_allowed`, see `canShare`), takes any share down
@@ -182,8 +176,7 @@ async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
  * consumes the pool, and credits a user's ledger or the pool without a payment
  * (`POST /credit`: adjustments, and simulated purchases where
  * DEV_PURCHASES_ENABLED allows them), showing the pool's balance and overage
- * breaker (`GET /pool`). It also runs the impact feed's review
- * queue (`/pool/topics`): a topic is named publicly only once approved here.
+ * breaker (`GET /pool`).
  */
 export function adminRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
@@ -196,7 +189,7 @@ export function adminRoutes(): Hono<AppBindings> {
     } satisfies AdminStatusResponse),
   );
 
-  r.get('/users', validateQuery(adminUsersQuerySchema), async (c) => {
+  r.get('/users', validateQuery(API_ROUTES.adminUsers), async (c) => {
     const { q, cursor } = c.req.valid('query');
     const after = cursor ? decodeCursor(cursor) : null;
     const where: string[] = [];
@@ -221,8 +214,9 @@ export function adminRoutes(): Hono<AppBindings> {
     const page = results.slice(0, ADMIN_USERS_PAGE);
     const last = page.at(-1);
     const admins = adminUserIds(c.env);
+    const balances = await creditBalances(c.env.DB, page);
     return c.json({
-      users: page.map((row) => toAdminUser(row, admins)),
+      users: page.map((row, i) => toAdminUser(row, balances[i] ?? 0, admins)),
       nextCursor:
         results.length > ADMIN_USERS_PAGE && last ? encodeCursor(last.created_at, last.id) : null,
     } satisfies AdminUsersResponse);
@@ -231,63 +225,54 @@ export function adminRoutes(): Hono<AppBindings> {
   // Revoking the share permission takes the user's links down at once: /s/* checks it per
   // request. A pool suspension applies from the user's next pool request (the gate reads it), and
   // a membership waiver from the user's next request (membershipFor reads it each time).
-  r.patch(
-    '/users/:userId',
-    sameOriginOnly,
-    validateJson(updateAdminUserRequestSchema),
-    async (c) => {
-      const userId = c.req.param('userId');
-      const { shareAllowed, poolSuspended, membershipWaived } = c.req.valid('json');
-      const sets: string[] = [];
-      const params: (number | string)[] = [];
-      if (shareAllowed !== undefined) {
-        sets.push('share_allowed = ?');
-        params.push(shareAllowed ? 1 : 0);
-      }
-      if (poolSuspended !== undefined) {
-        sets.push('pool_suspended = ?');
-        params.push(poolSuspended ? 1 : 0);
-      }
-      if (membershipWaived !== undefined) {
-        // Keeps the time it was first waived, like redeeming the code (billing/membership.ts).
-        if (membershipWaived) {
-          sets.push(
-            'membership_waived_at = CASE WHEN membership_waived = 1 THEN membership_waived_at ELSE ? END',
-          );
-          params.push(new Date().toISOString());
-        }
-        sets.push('membership_waived = ?');
-        params.push(membershipWaived ? 1 : 0);
-      }
-      const db = c.env.DB;
-      const [updated] = await db.batch([
-        db.prepare(`UPDATE auth_users SET ${sets.join(', ')} WHERE id = ?`).bind(...params, userId),
-        // On the pool identity too, so deleting the account doesn't lift it.
-        ...(poolSuspended !== undefined
-          ? [identitySuspensionStatement(db, userId, poolSuspended)]
-          : []),
-      ]);
-      if (!updated!.meta.changes) throw new NotFoundError('User');
-      if (poolSuspended !== undefined)
-        console.log(JSON.stringify({ event: 'pool_suspension_set', userId, poolSuspended }));
-      if (membershipWaived !== undefined)
-        console.log(
-          JSON.stringify({
-            event: 'membership_waiver_set',
-            adminId: c.var.identity.userId,
-            userId,
-            membershipWaived,
-          }),
+  r.patch('/users/:userId', validateJson(API_ROUTES.updateAdminUser), async (c) => {
+    const userId = c.req.param('userId');
+    const { shareAllowed, poolSuspended, membershipWaived } = c.req.valid('json');
+    const sets: string[] = [];
+    const params: (number | string)[] = [];
+    if (shareAllowed !== undefined) {
+      sets.push('share_allowed = ?');
+      params.push(shareAllowed ? 1 : 0);
+    }
+    if (poolSuspended !== undefined) {
+      sets.push('pool_suspended = ?');
+      params.push(poolSuspended ? 1 : 0);
+    }
+    if (membershipWaived !== undefined) {
+      // Keeps the time it was first waived, like redeeming the code (billing/membership.ts).
+      if (membershipWaived) {
+        sets.push(
+          'membership_waived_at = CASE WHEN membership_waived = 1 THEN membership_waived_at ELSE ? END',
         );
-      return c.json((await getUser(c.env, userId)) satisfies AdminUser);
-    },
-  );
+        params.push(new Date().toISOString());
+      }
+      sets.push('membership_waived = ?');
+      params.push(membershipWaived ? 1 : 0);
+    }
+    const db = c.env.DB;
+    const [updated] = await db.batch([
+      db.prepare(`UPDATE auth_users SET ${sets.join(', ')} WHERE id = ?`).bind(...params, userId),
+      // On the pool identity too, so deleting the account doesn't lift it.
+      ...(poolSuspended !== undefined
+        ? [identitySuspensionStatement(db, userId, poolSuspended)]
+        : []),
+    ]);
+    if (!updated!.meta.changes) throw new NotFoundError('User');
+    if (poolSuspended !== undefined)
+      logEvent('info', 'pool_suspension_set', { userId, poolSuspended });
+    if (membershipWaived !== undefined)
+      logEvent('info', 'membership_waiver_set', {
+        adminId: c.var.identity.userId,
+        userId,
+        membershipWaived,
+      });
+    return c.json((await getUser(c.env, userId)) satisfies AdminUser);
+  });
 
   // The pool's ledger and overage breaker, for the admin pool panel (top-ups: POST /credit).
   r.get('/pool', async (c) => {
-    const config = appConfig(c.env);
-    const poolId = config.pool.accountId;
-    const { overage } = config.pool;
+    const poolId = appConfig(c.env).pool.accountId;
+    const overage = POOL_OVERAGE;
     const [balance, overageMicros] = await Promise.all([
       getBalance(c.env.DB, poolId),
       poolOverageMicros(c.env.DB, poolId, overage.windowMs, new Date()),
@@ -307,23 +292,23 @@ export function adminRoutes(): Hono<AppBindings> {
   });
 
   // Who consumes the open pool, to spot outliers and account farms.
-  r.get('/pool/usage', validateQuery(adminPoolUsageQuerySchema), async (c) => {
+  r.get('/pool/usage', validateQuery(API_ROUTES.adminPoolUsage), async (c) => {
     const { days, limit } = c.req.valid('query');
     const poolId = appConfig(c.env).pool.accountId;
     const now = new Date();
     const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
     const since = new Date(today - (days - 1) * 86_400_000).toISOString();
-    const [users, networks] = await c.env.DB.batch<Record<string, unknown>>([
+    const [users, networks] = await Promise.all([
       c.env.DB.prepare(
-        `SELECT e.user_id, u.email, ${POOL_USAGE_COLUMNS},
-           COALESCE(SUM(CASE WHEN e.purpose = 'tagging' THEN ${SPENT} END), 0) AS tagging,
-           MAX(e.created_at) AS last_at
+        `SELECT e.user_id, u.email, ${POOL_USAGE_COLUMNS}, MAX(e.created_at) AS last_at
          FROM usage_events e LEFT JOIN auth_users u ON u.id = e.user_id
          WHERE e.account_id = ?1 AND e.created_at >= ?2 AND e.user_id IS NOT NULL
          GROUP BY e.user_id
          ORDER BY spend DESC, requests DESC, e.user_id
          LIMIT ?3`,
-      ).bind(poolId, since, limit),
+      )
+        .bind(poolId, since, limit)
+        .all<PoolUserRow>(),
       c.env.DB.prepare(
         `SELECT e.ip_key, COUNT(DISTINCT e.user_id) AS users, ${POOL_USAGE_COLUMNS}
          FROM usage_events e
@@ -331,19 +316,20 @@ export function adminRoutes(): Hono<AppBindings> {
          GROUP BY e.ip_key
          ORDER BY users DESC, spend DESC, e.ip_key
          LIMIT ?3`,
-      ).bind(poolId, new Date(today).toISOString(), limit),
+      )
+        .bind(poolId, new Date(today).toISOString(), limit)
+        .all<PoolNetworkRow>(),
     ]);
     return c.json({
       since,
-      rows: (users!.results as unknown as PoolUserRow[]).map((r): AdminPoolUsageRow => ({
+      rows: users.results.map((r): AdminPoolUsageRow => ({
         userId: r.user_id,
         email: r.email,
         requests: Number(r.requests),
         spendMicros: Number(r.spend),
-        taggingMicros: Number(r.tagging),
         lastAt: r.last_at,
       })),
-      ipKeys: (networks!.results as unknown as PoolNetworkRow[]).map((r): AdminPoolIpKeyRow => ({
+      ipKeys: networks.results.map((r): AdminPoolIpKeyRow => ({
         ipKey: r.ip_key,
         users: Number(r.users),
         requests: Number(r.requests),
@@ -352,56 +338,10 @@ export function adminRoutes(): Hono<AppBindings> {
     } satisfies AdminPoolUsageResponse);
   });
 
-  // The impact feed's review queue (pool/impact.ts): topics that first had enough learners to be
-  // named wait here; an approved one is named from the next weekly snapshot on, a rejected one
-  // never. A decision can be changed; it never alters a snapshot already written.
-  r.get('/pool/topics', validateQuery(adminPoolTopicsQuerySchema), async (c) => {
-    const { status } = c.req.valid('query');
-    const { results } = await c.env.DB.prepare(
-      `SELECT topic_id, status, first_seen_week, decided_at, decided_by FROM pool_topic_reviews
-       WHERE status = ? ORDER BY first_seen_week, topic_id`,
-    )
-      .bind(status)
-      .all<TopicReviewRow>();
-    const blocklist = appConfig(c.env).impact.topicBlocklist;
-    return c.json({
-      topics: results.map((row) => toAdminPoolTopic(row, blocklist)),
-    } satisfies AdminPoolTopicsResponse);
-  });
-
-  r.post(
-    '/pool/topics/:topicId',
-    sameOriginOnly,
-    validateJson(adminPoolTopicDecisionSchema),
-    async (c) => {
-      const topicId = c.req.param('topicId');
-      const { decision } = c.req.valid('json');
-      // Only a topic the weekly job queued (sensitive and unknown ids never are).
-      const row = await c.env.DB.prepare(
-        `UPDATE pool_topic_reviews SET status = ?, decided_at = ?, decided_by = ?
-         WHERE topic_id = ?
-         RETURNING topic_id, status, first_seen_week, decided_at, decided_by`,
-      )
-        .bind(decision, new Date().toISOString(), c.var.identity.userId, topicId)
-        .first<TopicReviewRow>();
-      if (!row) throw new NotFoundError('Topic');
-      console.log(
-        JSON.stringify({
-          event: 'pool_topic_review',
-          adminId: c.var.identity.userId,
-          topicId,
-          decision,
-        }),
-      );
-      const blocklist = appConfig(c.env).impact.topicBlocklist;
-      return c.json(toAdminPoolTopic(row, blocklist) satisfies AdminPoolTopic);
-    },
-  );
-
   // Credit without a payment: a signed adjustment of a user's ledger or the pool (a negative pool
   // adjustment is clamped to what the pool has available, under PoolBank's lock), or a simulated
   // purchase, fulfilled exactly as the webhook would. Idempotent on the key.
-  r.post('/credit', sameOriginOnly, validateJson(adminCreditRequestSchema), async (c) => {
+  r.post('/credit', validateJson(API_ROUTES.adminCredit), async (c) => {
     const req = c.req.valid('json');
     const config = appConfig(c.env);
     // Like an unknown route: a production deployment doesn't advertise the dev tool.
@@ -412,7 +352,7 @@ export function adminRoutes(): Hono<AppBindings> {
       const user = await db
         .prepare('SELECT id FROM auth_users WHERE id = ?')
         .bind(req.userId)
-        .first<{ id: string }>();
+        .first<Pick<SqlRow<typeof authUsers>, 'id'>>();
       if (!user) throw new NotFoundError('User');
     }
     const accountId =
@@ -421,10 +361,11 @@ export function adminRoutes(): Hono<AppBindings> {
     let ref: string;
     let credited: boolean;
     if (req.mode === 'simulated_purchase') {
+      // The schema gives a simulated purchase a personal target, so a user.
+      if (req.userId === null) throw new ValidationError('A simulated purchase needs a user');
       ref = `dev:${req.idempotencyKey}`;
       credited = await fulfilPurchase(c.env, {
         userId: req.userId,
-        accountId,
         grossCents: req.amountCents,
         processorFeeCents: 0,
         ref,
@@ -438,9 +379,7 @@ export function adminRoutes(): Hono<AppBindings> {
           poolId: accountId,
           refId: ref,
           requestedMicros: -amountMicros,
-          kind: 'adjustment',
           userId: req.userId,
-          grossMicros: null,
           note,
         });
         credited = debit.debited;
@@ -459,18 +398,15 @@ export function adminRoutes(): Hono<AppBindings> {
     // The row as written (now, or by the first request with this key).
     const row = await grantByRef(db, ref);
     const { balanceMicros } = await getBalance(db, row?.account_id ?? accountId);
-    console.log(
-      JSON.stringify({
-        event: 'admin_credit',
-        adminId: c.var.identity.userId,
-        target: req.target,
-        userId: req.userId,
-        mode: req.mode,
-        ref,
-        credited,
-        amountMicros: row?.amount_micros ?? 0,
-      }),
-    );
+    logEvent('info', 'admin_credit', {
+      adminId: c.var.identity.userId,
+      target: req.target,
+      userId: req.userId,
+      mode: req.mode,
+      ref,
+      credited,
+      amountMicros: row?.amount_micros ?? 0,
+    });
     return c.json({
       credited,
       amountMicros: row?.amount_micros ?? 0,
@@ -490,7 +426,7 @@ export function adminRoutes(): Hono<AppBindings> {
   });
 
   // A takedown: revokes any owner's share and purges its cached copies, like the owner's revoke.
-  r.post('/shares/:shareId/revoke', sameOriginOnly, async (c) => {
+  r.post('/shares/:shareId/revoke', async (c) => {
     const share = await createD1Repositories(c.env.DB).shares.getShare(c.req.param('shareId'));
     if (!share) throw new NotFoundError('Share');
     const s = await shareService(c.env, c.req.url, share.accountId).revoke(share.id);

@@ -1,6 +1,8 @@
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { reconcilePendingUsage, simpleApiKey } from '../src/billing/reconcile.js';
+import { reconcilePendingUsage } from '../src/billing/reconcile.js';
+import { builtInApiKey } from '../src/simple-mode.js';
+import { CRON_JOBS } from '../src/cron.js';
 import type { AppEnv } from '../src/env.js';
 import {
   generationCalls,
@@ -10,7 +12,7 @@ import {
   usageRow,
 } from './mocks/billing-helpers.js';
 
-const env = { ...(rawEnv as unknown as AppEnv), OPENROUTER_SIMPLE_API_KEY: 'sk-or-cron' } as AppEnv;
+const env = { ...(rawEnv as unknown as AppEnv), BUILT_IN_API_KEY: 'sk-or-cron' } as AppEnv;
 
 /**
  * A fixed clock in the past: every row other tests create (stamped with the
@@ -81,10 +83,8 @@ describe('usage reconciliation cron', () => {
     });
     expect(await usageRow(env, notYet)).toMatchObject({ status: 'pending', charge_micros: null });
     expect(await usageRow(env, lost)).toMatchObject({ status: 'unresolved', charge_micros: 0 });
-    expect(error).toHaveBeenCalledWith(
-      expect.stringContaining('unresolved'),
-      expect.objectContaining({ usageId: lost }),
-    );
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('"event":"usage_unresolved"'));
+    expect(error).toHaveBeenCalledWith(expect.stringContaining(`"usageId":"${lost}"`));
     expect(await usageRow(env, fresh)).toMatchObject({ status: 'pending' });
     expect((await generationCalls(genFresh)).count).toBe(0);
     expect(await usageRow(env, noIdOld)).toMatchObject({
@@ -114,7 +114,7 @@ describe('usage reconciliation cron', () => {
     await reconcilePendingUsage(env, NOW);
     expect(await usageRow(env, erroring)).toMatchObject({ status: 'pending' });
 
-    const noKey = { ...env, OPENROUTER_SIMPLE_API_KEY: '' } as AppEnv;
+    const noKey = { ...env, BUILT_IN_API_KEY: '' } as AppEnv;
     const old = await insertUsage(env, {
       accountId,
       generationId: uniq('gen'),
@@ -124,15 +124,22 @@ describe('usage reconciliation cron', () => {
     expect(await usageRow(env, old)).toMatchObject({ status: 'unresolved', charge_micros: 0 });
   });
 
-  it('resolves the OpenRouter key from SIMPLE_PROVIDER or OPENROUTER_SIMPLE_API_KEY', () => {
-    expect(simpleApiKey({ ...env, SIMPLE_PROVIDER: '' } as AppEnv)).toBe('sk-or-cron');
-    expect(simpleApiKey({ ...env, OPENROUTER_SIMPLE_API_KEY: '' } as AppEnv)).toBeNull();
+  it('resolves the OpenRouter key from BUILT_IN_PROVIDER or BUILT_IN_API_KEY', () => {
+    expect(builtInApiKey({ ...env, BUILT_IN_PROVIDER: '' } as AppEnv)).toBe('sk-or-cron');
+    expect(builtInApiKey({ ...env, BUILT_IN_API_KEY: '' } as AppEnv)).toBeNull();
     const named = {
       ...env,
-      SIMPLE_PROVIDER: JSON.stringify({ id: 'openrouter', apiKeySecret: 'OTHER_KEY' }),
+      BUILT_IN_PROVIDER: JSON.stringify({ id: 'openrouter', apiKeySecret: 'OTHER_KEY' }),
       OTHER_KEY: ' sk-other ',
     } as AppEnv;
-    expect(simpleApiKey(named)).toBe('sk-other');
-    expect(simpleApiKey({ ...env, SIMPLE_PROVIDER: '{bad json' } as AppEnv)).toBe('sk-or-cron');
+    expect(builtInApiKey(named)).toBe('sk-other');
+    expect(builtInApiKey({ ...env, BUILT_IN_PROVIDER: '{bad json' } as AppEnv)).toBe('sk-or-cron');
+  });
+
+  it('runs as the cron job at the time the trigger gives it', async () => {
+    // Five minutes old at NOW: too young to give up on, whatever today's date.
+    const young = await insertUsage(env, { accountId: uniq('acct'), createdAt: ago(5 * MIN) });
+    await CRON_JOBS.reconcile(env, NOW);
+    expect(await usageRow(env, young)).toMatchObject({ status: 'pending' });
   });
 });

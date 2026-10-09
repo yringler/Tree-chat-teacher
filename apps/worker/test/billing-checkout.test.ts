@@ -7,18 +7,19 @@ import { describe, expect, it } from 'vitest';
 import { openBillingPortal, startMembershipCheckout } from '../src/billing/membership.js';
 import { customerRefFor } from '../src/billing/payments/customers.js';
 import { decodeFakeUrl, type FakeProviderOptions } from '../src/billing/providers/fake.js';
-import { checkoutReturnUrl, startTopUpCheckout } from '../src/billing/service.js';
-import type { AppEnv } from '../src/env.js';
+import { checkoutReturnUrl } from '../src/billing/return-urls.js';
+import { startTopUpCheckout } from '../src/billing/service.js';
+import type { AccountContext, AppEnv } from '../src/env.js';
 import { insertUser, powerAccount, simpleAccount, uniq } from './mocks/billing-helpers.js';
 import { membership } from './mocks/payment-events.js';
 import { applyPaymentEvent } from '../src/billing/payments/apply.js';
+import { BASE } from './http.js';
 
 const env = rawEnv as unknown as AppEnv;
-const BASE = 'https://tangent.example.com';
 const withFake = (o: FakeProviderOptions, e: AppEnv = env) =>
   ({ ...e, FAKE_PAYMENTS: JSON.stringify(o) }) as AppEnv;
 
-async function newUser(account = simpleAccount()) {
+async function newUser(account: AccountContext = simpleAccount()) {
   const user = await insertUser(env, {
     id: account.userId!,
     email: `${uniq('buyer')}@example.com`,
@@ -44,7 +45,6 @@ describe('credit checkout', () => {
       page: 'checkout',
       input: {
         buyer: { userId: user.id, email: user.email, name: 'Ada', customerRef: null },
-        accountId: account.id,
         amountCents: 500,
         successUrl: `${BASE}/learn/billing?checkout=success`,
         cancelUrl: `${BASE}/learn/billing?checkout=cancel`,
@@ -52,11 +52,11 @@ describe('credit checkout', () => {
     });
   });
 
-  it("works from power mode: credits the user's ledger and returns to /billing", async () => {
+  it('works from power mode: buys for the same user and returns to /billing', async () => {
     const { user } = await newUser(powerAccount());
     const { url } = await startTopUpCheckout(env, powerAccount(user.id), user.id, 1000, BASE);
     expect(decodeFakeUrl(url).input).toMatchObject({
-      accountId: `u_${user.id}`,
+      buyer: { userId: user.id },
       successUrl: `${BASE}/billing?checkout=success`,
       cancelUrl: `${BASE}/billing?checkout=cancel`,
     });

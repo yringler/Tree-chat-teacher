@@ -19,9 +19,9 @@ import {
 } from './fixtures/polar.js';
 import { grantDetailsFor, insertUser, uniq } from './mocks/billing-helpers.js';
 import { factsOf, membership, paid, refunded } from './mocks/payment-events.js';
+import { BASE } from './http.js';
 
 const base = rawEnv as unknown as AppEnv;
-const ORIGIN = 'https://tangent.example.com';
 const app = createApp();
 /** Auth configured: the route must answer without a session. */
 const AUTH = { BETTER_AUTH_SECRET: 'test-secret-test-secret-test-secret-0123' };
@@ -44,7 +44,7 @@ const polarEnv = {
 const balance = async (accountId: string) => (await getBalance(base.DB, accountId)).balanceMicros;
 
 function post(path: string, body: string, headers: HeadersInit, env: AppEnv) {
-  return app.request(`${ORIGIN}${path}`, { method: 'POST', headers, body }, env);
+  return app.request(`${BASE}${path}`, { method: 'POST', headers, body }, env);
 }
 
 function deliverFake(events: PaymentEvent[], env: AppEnv, signature = FAKE_SIGNATURE) {
@@ -134,7 +134,7 @@ describe('POST /api/webhooks/polar (smoke, signed synthetic deliveries)', () => 
     const paidOrder = order({
       id: orderId,
       externalId: userId,
-      metadata: { kind: 'credits', target: 'personal', accountId: `u_${userId}`, userId, v: 1 },
+      metadata: { kind: 'credits', target: 'personal', userId, v: 1 },
     });
     expect((await deliverPolar(envelope('order.paid', paidOrder))).status).toBe(200);
     expect(await grantDetailsFor(base, `u_${userId}`)).toEqual([
@@ -176,16 +176,15 @@ describe('the dispute cron job', () => {
     const jobs = {
       reconcile: vi.fn(() => Promise.resolve()),
       poolExpiry: vi.fn(() => Promise.resolve()),
-      poolImpact: vi.fn(() => Promise.resolve()),
       paymentDisputes: vi.fn(() => Promise.reject(new Error('Polar is down'))),
-      poolRevenueShare: vi.fn(() => Promise.resolve()),
       priceSync: vi.fn(() => Promise.resolve()),
+      deletedAccounts: vi.fn(() => Promise.resolve()),
     } satisfies CronJobs;
     await expect(
       Promise.all(cronTasks(CRON_FREQUENT, base, new Date(), jobs)),
     ).resolves.toBeDefined();
     expect(jobs.paymentDisputes).toHaveBeenCalledOnce();
-    expect(error).toHaveBeenCalledWith('Payment dispute poll failed', expect.any(Error));
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('"event":"dispute_poll_failed"'));
     error.mockRestore();
   });
 });

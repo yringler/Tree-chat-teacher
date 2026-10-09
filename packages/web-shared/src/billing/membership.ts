@@ -81,16 +81,6 @@ export function membershipPriceText(m: Pick<MembershipInfo, 'priceCents'>): stri
   return `${formatCents(m.priceCents)} / year plus tax`;
 }
 
-/**
- * The yearly credit gift, or null when the server promises none (the
- * membership includes no credit today: the server sends 0, so nothing shows).
- */
-export function includedCreditText(m: Pick<MembershipInfo, 'includedCreditCents'>): string | null {
-  return m.includedCreditCents > 0
-    ? `Includes ${formatCents(m.includedCreditCents)} of credit each year.`
-    : null;
-}
-
 /** `2027-10-02T…` → `Oct 2, 2027`; null when missing or unreadable. */
 export function formatDay(iso: string | null): string | null {
   if (!iso) return null;

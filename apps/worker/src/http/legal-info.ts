@@ -1,10 +1,10 @@
 import { authBaseUrl } from '../auth/auth.js';
+import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
-import { sharingEnabled } from '../services.js';
+import { sharingEnabled } from '../availability.js';
 
 /**
- * Who runs this deployment and how to reach them, from the LEGAL_* vars in
- * wrangler.jsonc: used by the legal pages (http/legal.ts) and the copyright
+ * Who runs this deployment and how to reach them, from the LEGAL_* vars: used by the legal pages (http/legal.tsx) and the copyright
  * line in every page footer.
  */
 
@@ -27,10 +27,11 @@ export interface LegalInfo {
 
 export function legalInfo(env: AppEnv, request: Request): LegalInfo {
   const origin = authBaseUrl(env, request);
+  const legal = appConfig(env).site.legal;
   return {
-    operator: env.LEGAL_OPERATOR?.trim() || `the operator of ${new URL(origin).host}`,
-    contactEmail: env.LEGAL_CONTACT_EMAIL?.trim() || `privacy@${new URL(origin).hostname}`,
-    jurisdiction: env.LEGAL_JURISDICTION?.trim() ?? '',
+    operator: legal.operator ?? `the operator of ${new URL(origin).host}`,
+    contactEmail: legal.contactEmail ?? `privacy@${new URL(origin).hostname}`,
+    jurisdiction: legal.jurisdiction,
     origin,
     sharing: sharingEnabled(env),
   };

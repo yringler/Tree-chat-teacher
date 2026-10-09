@@ -1,26 +1,6 @@
-import '@angular/compiler'; // JIT: the component metadata below.
-import {
-  FORBIDDEN_POOL_COPY,
-  POOL_NOTICE_TEXT,
-  poolFundingText,
-  poolImpactDepthText,
-  poolImpactHeadline,
-  poolImpactTopicText,
-  type PoolBlockDetails,
-} from '@tangent/shared';
+import { FORBIDDEN_POOL_COPY, POOL_FUNDING_TEXT, type PoolBlockDetails } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
-import { BillingPage } from '../billing/billing-page';
-import { ImpactFeed } from './impact-feed';
-import { PoolBlockNotice } from './pool-block-notice';
-import { PoolFirstUseDialog } from './pool-first-use-dialog';
 import { poolBlockText, sessionsLabel } from './pool-format';
-import { PoolMeter } from './pool-meter';
-import { PoolSection } from './pool-section';
-
-function templateOf(type: object): string {
-  const annotations = (type as { __annotations__?: { template?: string }[] }).__annotations__;
-  return annotations?.[0]?.template ?? '';
-}
 
 const REASONS: PoolBlockDetails['reason'][] = [
   'empty',
@@ -33,31 +13,9 @@ const REASONS: PoolBlockDetails['reason'][] = [
 ];
 
 describe('pool copy rule', () => {
-  it('never says donate, donation or tax-deductible (templates)', () => {
-    for (const type of [
-      PoolSection,
-      PoolMeter,
-      ImpactFeed,
-      PoolBlockNotice,
-      PoolFirstUseDialog,
-      BillingPage,
-    ])
-      expect(templateOf(type)).not.toMatch(FORBIDDEN_POOL_COPY);
-  });
-
-  it('never says it in generated text either', () => {
-    const texts = [
-      poolFundingText(2000),
-      sessionsLabel({ sessionsRemaining: 3 }),
-      POOL_NOTICE_TEXT,
-      poolImpactHeadline({ weekStart: '2026-09-28', exchanges: 2, learners: 1, topics: 1 }),
-      poolImpactDepthText({
-        avgDepth: 1.5,
-        maxDepth: 3,
-        deepest: { id: 'math.algebra', label: 'Algebra', avgDepth: 2 },
-      }),
-      poolImpactTopicText({ label: 'Algebra', learners: 5 }),
-    ];
+  // Templates: copy-rules.spec.ts.
+  it('never says donate, donation or tax-deductible in generated text', () => {
+    const texts = [POOL_FUNDING_TEXT, sessionsLabel({ sessionsRemaining: 3 })];
     for (const reason of REASONS) {
       const t = poolBlockText({
         kind: reason === 'empty' || reason === 'unpriced' ? 'empty' : 'cap',

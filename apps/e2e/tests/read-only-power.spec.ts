@@ -2,10 +2,11 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 import { membership, newEmail, paymentWebhook, sameOrigin, signIn, topUp } from './helpers';
 
 /*
- * Read-only power without a membership (docs/DECISIONS.md), against the real
- * Worker: the membership required (ANNUAL_FEE_ENABLED, sold by the fake payment
- * provider), a user whose membership was cancelled, with Tangent credit left.
- * The membership and the credit come from the payment webhook, as in production.
+ * Power without a membership, against the real Worker: own-key branches are
+ * read-only, Tangent credit carries on. The membership is required
+ * (ANNUAL_FEE_ENABLED, sold by the fake payment provider); the user's was
+ * cancelled, with Tangent credit left. The membership and the credit come
+ * from the payment webhook, as in production.
  */
 
 interface TreeDetail {
@@ -39,7 +40,7 @@ async function setUp(request: APIRequestContext, baseURL: string, userId: string
       fromNodeId: reply.id,
       providerId: 'openrouter',
       funding: 'credit',
-      model: 'smart',
+      model: 'max',
       contextMode: 'path',
       title: 'Twin primes (on credit)',
     },

@@ -51,35 +51,31 @@ describe('Polar webhooks: orders', () => {
         provider: 'polar',
         occurredAt: T0,
         paymentRef: 'polar:order:ord_a',
-        purpose: { kind: 'credits', target: 'personal', accountId: 'u_user_1' },
+        purpose: { kind: 'credits' },
         userId: 'user_1',
         customerRef: 'cus_of_user_1',
         currency: 'usd',
         netCents: 1000,
-        taxCents: 87,
         fee: { cents: 104, estimated: false },
       },
     ]);
   });
 
-  it('reads the personal target and account from the metadata; any other target is unknown', async () => {
+  it('reads a personal top-up from the metadata; an order for any other target is other', async () => {
     const personal = order({
-      metadata: { kind: 'credits', target: 'personal', accountId: 'u_user_1', userId: 'user_1' },
+      metadata: { kind: 'credits', target: 'personal', userId: 'user_1' },
     });
     expect((await eventsOf(envelope('order.paid', personal)))[0]).toMatchObject({
-      purpose: { kind: 'credits', target: 'personal', accountId: 'u_user_1' },
+      purpose: { kind: 'credits' },
     });
-    // A legacy pool purchase is never credited automatically.
-    const pool = order({
-      metadata: { kind: 'credits', target: 'pool', accountId: 'pool', userId: 'user_1', v: 1 },
-    });
+    // Nobody buys pool credit: such an order is never credited.
+    const pool = order({ metadata: { kind: 'credits', target: 'pool', userId: 'user_1', v: 1 } });
     expect((await eventsOf(envelope('order.paid', pool)))[0]).toMatchObject({
-      purpose: { kind: 'credits', target: 'unknown', accountId: 'pool' },
+      purpose: { kind: 'other' },
     });
     const odd = order({ metadata: { kind: 'credits', target: 'charity' } });
     expect((await eventsOf(envelope('order.paid', odd)))[0]).toMatchObject({
-      purpose: { kind: 'credits', target: 'unknown', accountId: null },
-      // No external id on the customer: the metadata's userId, here absent.
+      purpose: { kind: 'other' },
     });
   });
 
@@ -87,7 +83,7 @@ describe('Polar webhooks: orders', () => {
     const o = order({ externalId: null, metadata: { kind: 'credits', userId: 'user_9' } });
     expect((await eventsOf(envelope('order.paid', o)))[0]).toMatchObject({
       userId: 'user_9',
-      purpose: { kind: 'credits', target: 'personal', accountId: null },
+      purpose: { kind: 'credits' },
     });
   });
 
@@ -101,14 +97,10 @@ describe('Polar webhooks: orders', () => {
     const renewal = order({ ...base, billing_reason: 'subscription_cycle' });
     const update = order({ ...base, billing_reason: 'subscription_update' });
     expect((await eventsOf(envelope('order.paid', first)))[0]).toMatchObject({
-      purpose: {
-        kind: 'membership',
-        cycle: 'initial',
-        subscriptionRef: 'polar:subscription:sub_1',
-      },
+      purpose: { kind: 'membership' },
     });
     expect((await eventsOf(envelope('order.paid', renewal)))[0]).toMatchObject({
-      purpose: { kind: 'membership', cycle: 'renewal' },
+      purpose: { kind: 'membership' },
     });
     expect((await eventsOf(envelope('order.paid', update)))[0]).toMatchObject({
       purpose: { kind: 'other' },
@@ -116,7 +108,7 @@ describe('Polar webhooks: orders', () => {
     // A product change keeps renewals recognised through the metadata.
     const moved = order({ ...base, product_id: 'prod_old', billing_reason: 'subscription_cycle' });
     expect((await eventsOf(envelope('order.paid', moved)))[0]).toMatchObject({
-      purpose: { kind: 'membership', cycle: 'renewal' },
+      purpose: { kind: 'membership' },
     });
   });
 
@@ -165,7 +157,6 @@ describe('Polar webhooks: refunds', () => {
         paymentRef: 'polar:order:ord_1',
         currency: 'usd',
         netCents: 500,
-        taxCents: 44,
       },
     ]);
     for (const status of ['pending', 'failed', 'canceled'] as const)

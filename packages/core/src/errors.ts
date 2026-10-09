@@ -50,9 +50,9 @@ export const HTTP_STATUS: Record<ApiErrorCode, number> = {
   internal: 500,
   pool_empty: 402,
   pool_cap_reached: 429,
-  pool_consent_required: 403,
   pool_unavailable: 403,
   no_customer: 404,
+  not_implemented: 501,
 };
 
 /** No usable API key for the provider (missing, or an unreadable key cookie). */
@@ -104,18 +104,4 @@ export class PoolBlockedError extends DomainError {
 /** A refusal with no cap involved (`empty`, `unpriced`, or an account that may not use the pool). */
 export function poolBlock(reason: PoolBlockDetails['reason']): PoolBlockDetails {
   return { reason, limit: null, resetAt: null };
-}
-
-/**
- * 403 `pool_consent_required`: the user has not acknowledged the current pool
- * notice (`POOL_NOTICE_TEXT`). The HTTP layer sends the version to
- * acknowledge as `ApiError.error.consent`.
- */
-export class PoolConsentRequiredError extends DomainError {
-  constructor(readonly currentVersion: number) {
-    super(
-      'pool_consent_required',
-      'Read and acknowledge the open pool notice before using the pool',
-    );
-  }
 }

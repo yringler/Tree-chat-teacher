@@ -11,32 +11,11 @@ import type {
   TreeDetail,
 } from '@tangent/shared';
 import { MAX_LINK_NOTE_CHARS } from '@tangent/shared';
-import { env, exports } from 'cloudflare:workers';
+import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import { makeChain } from './fixtures.js';
-
-const BASE = 'https://tangent.example.com';
-
-function call(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
-  const { json, ...rest } = init;
-  const headers = new Headers(rest.headers);
-  if (json !== undefined) headers.set('Content-Type', 'application/json');
-  return exports.default.fetch(
-    new Request(BASE + path, {
-      ...rest,
-      headers,
-      body: json !== undefined ? JSON.stringify(json) : rest.body,
-    }),
-  );
-}
-
-async function ok<T>(res: Response | Promise<Response>, status = 200): Promise<T> {
-  const r = await res;
-  const text = await r.text();
-  expect(r.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
-}
+import { call, ok } from './http.js';
 
 const link = (fromNodeId: string, toNodeId: string, note?: string | null) =>
   call('/api/links', {

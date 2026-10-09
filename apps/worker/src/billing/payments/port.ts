@@ -1,18 +1,23 @@
-// The one interface between billing and a payment provider
-// (docs/polar-migration/03-architecture.md §2). It imports nothing but shared
-// types: adapters (billing/providers/*) implement it, and the domain
+// The one interface between billing and a payment provider. It imports
+// nothing but shared types: adapters (billing/providers/*) implement it, and the domain
 // (apply.ts, service.ts, membership.ts) depends on it only.
 //
 // Rules: adapters translate and never decide (no D1, no ledger, no business
 // settings; only their own env vars); the domain decides and never sees a
-// provider's types. Amounts cross the port as integer USD cents, already
-// split into pre-tax `netCents` and `taxCents`. Idempotency keys are minted
+// provider's types. Amounts cross the port as integer pre-tax USD cents
+// (`netCents`). Idempotency keys are minted
 // by the adapter (namespaced, refs.ts) and enforced by the ledger's unique
 // `credit_grants.provider_ref`.
 import type { SubscriptionStatus } from '@tangent/shared';
 
 /** Adapters that exist. A new provider = a literal here + its module + a case in index.ts. */
 export type ProviderId = 'polar' | 'fake';
+
+/**
+ * What the yearly membership is called across the port: the checkout
+ * metadata `kind` adapters set, and `billing_subscriptions.kind`.
+ */
+export const MEMBERSHIP_KIND = 'membership';
 
 /**
  * Namespaced, provider-minted idempotency key: `<provider>:<object>:<id>`,
@@ -31,9 +36,8 @@ export interface Buyer {
 }
 
 export interface TopUpCheckoutInput {
+  /** Credit is bought for the buyer's own ledger only. */
   buyer: Buyer;
-  /** The ledger to credit (the buyer's own, `u_<userId>`). It must come back in `PaymentSucceeded.purpose`. */
-  accountId: string;
   /** Pre-tax, whole USD cents. The domain has already validated the bounds. */
   amountCents: number;
   successUrl: string;
@@ -82,9 +86,7 @@ export interface ProviderCapabilities {
  * idempotent to call: the domain dedupes on the refs.
  */
 export type DisputeSource =
-  | { mode: 'webhook' }
-  | { mode: 'poll'; poll(now: Date): Promise<readonly DisputeEvent[]> }
-  | { mode: 'none' };
+  { mode: 'poll'; poll(now: Date): Promise<readonly DisputeEvent[]> } | { mode: 'none' };
 
 export interface PaymentProvider {
   readonly id: ProviderId;
@@ -115,20 +117,12 @@ export class WebhookSignatureError extends Error {
   override readonly name = 'WebhookSignatureError';
 }
 
+/** The provider couldn't do what was asked (the routes answer 502 `provider_error`). */
 export class PaymentProviderError extends Error {
   override readonly name = 'PaymentProviderError';
-  constructor(
-    message: string,
-    /** The provider's HTTP status, when the failure came from its API. */
-    readonly status: number | null,
-    /** true for 429 / 5xx / network errors. */
-    readonly retryable: boolean,
-  ) {
-    super(message);
-  }
 }
 
-// ---- Normalised domain events (03-architecture.md §2.2)
+// ---- Normalised domain events
 
 interface EventBase {
   provider: ProviderId;
@@ -136,17 +130,12 @@ interface EventBase {
   occurredAt: string;
 }
 
-/**
- * Who a credits payment is for: the buyer's own ledger (`personal`), or
- * `unknown` (any other target, such as a `pool` purchase from before the
- * pool became revenue-funded): logged, never credited.
- */
-export type CreditsTarget = 'personal' | 'unknown';
-
 /** What a payment was for, as the checkout metadata (or the product) says. */
 export type PaymentPurpose =
-  | { kind: 'credits'; target: CreditsTarget; accountId: string | null }
-  | { kind: 'membership'; cycle: 'initial' | 'renewal'; subscriptionRef: ProviderRef }
+  /** A top-up of the buyer's own credit. */
+  | { kind: 'credits' }
+  /** A paid membership year, the first or a renewal. */
+  | { kind: 'membership' }
   /** Anything else on the provider account: logged, never credited. */
   | { kind: 'other' };
 
@@ -161,10 +150,9 @@ export interface PaymentFacts {
   currency: string;
   /** Pre-tax, after discounts: what the goods cost. Enters the ledger as gross. Never includes tax. */
   netCents: number;
-  taxCents: number;
   /**
    * The processor's or MoR's fee in USD cents; `estimated` when the adapter
-   * fell back to its fee formula (D3). null = unknown, so retry.
+   * fell back to its fee formula. null = unknown, so retry.
    */
   fee: { cents: number; estimated: boolean } | null;
 }
@@ -174,7 +162,7 @@ export interface PaymentSucceeded extends EventBase, PaymentFacts {
   type: 'payment.succeeded';
 }
 
-/** A refund settled. Adapters emit only settled refunds (D10); pending and failed refunds produce nothing. */
+/** A refund settled. Adapters emit only settled refunds; pending and failed refunds produce nothing. */
 export interface RefundSucceeded extends EventBase {
   type: 'refund.succeeded';
   refundRef: ProviderRef;
@@ -182,7 +170,6 @@ export interface RefundSucceeded extends EventBase {
   currency: string;
   /** Refunded pre-tax amount. */
   netCents: number;
-  taxCents: number;
 }
 
 interface DisputeBase extends EventBase {

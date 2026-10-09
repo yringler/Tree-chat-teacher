@@ -8,8 +8,7 @@ export default {
   fetch: (request, env, ctx) => app.fetch(request, env, ctx),
   // Cron (wrangler.jsonc triggers.crons), dispatched on the schedule (src/cron.ts): every 10
   // minutes the usage reconciliation backstop and the open pool's expiry backstop and
-  // balance checkpoint; daily the OpenRouter model price sync; on Mondays the pool's weekly
-  // impact snapshot.
+  // balance checkpoint; daily the OpenRouter model price sync.
   scheduled: (controller, env, ctx) => {
     for (const task of cronTasks(controller.cron, env, new Date(controller.scheduledTime)))
       ctx.waitUntil(task);

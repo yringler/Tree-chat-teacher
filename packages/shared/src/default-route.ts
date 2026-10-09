@@ -1,23 +1,15 @@
 /*
  * The route (provider + funding) a new power tree starts on when nobody picked
- * one (docs/DECISIONS.md "Default route of a new tree"). One pure rule, used
+ * one. One pure rule, used
  * by the Worker's ChatService (a new tree that names no provider) and by the
  * power and Canvas clients (the route their new-conversation pickers start
  * on), so they agree.
  */
 import type { ProviderInfo } from './provider.js';
-import { BUILT_IN_PROVIDER_ID } from './route.js';
-
-/**
- * The OpenRouter endpoint, here on the user's own key (the id is the same as
- * `LEARN_KEY_PROVIDER`). Not imported from billing.ts: that module builds zod
- * schemas, and loading it from here would build them before api.ts turns
- * zod's eval probe off (a Trusted Types violation in the apps).
- */
-const OPENROUTER = BUILT_IN_PROVIDER_ID;
+import { OPENROUTER_PROVIDER_ID } from './route.js';
 
 /** What the rule reads of a provider entry (`/api/providers`, or a registry's list). */
-export type DefaultRouteCandidate = Pick<ProviderInfo, 'id' | 'kind' | 'available' | 'funding'>;
+export type DefaultRouteCandidate = Pick<ProviderInfo, 'id' | 'available' | 'funding' | 'scripted'>;
 
 /** What the rule needs to know beyond the provider list. */
 export interface DefaultRouteFacts {
@@ -50,7 +42,7 @@ export interface DefaultRouteFacts {
  * 2. an own-key provider the user can use (a saved key, or a server key in the
  *    dev bypass), in the configured order;
  * 3. Tangent credit, when it can pay;
- * 4. an own-key test provider (`fake`) the operator configured, which needs no
+ * 4. an own-key test provider (`scripted`) the operator configured, which needs no
  *    key (never offered by default: test and offline setups only);
  * 5. `openrouter` on the user's own key, when configured: one OpenRouter key
  *    unlocks every model and is the key Learn uses, so the first send asks for it;
@@ -65,7 +57,7 @@ export function pickDefaultRoute<P extends DefaultRouteCandidate>(
   facts: DefaultRouteFacts,
 ): P | null {
   const own = entries.filter((p) => p.funding !== 'credit');
-  const real = (p: P) => p.kind !== 'fake';
+  const real = (p: P) => p.scripted !== true;
   const offered = entries.find((p) => p.funding === 'credit' && p.available && real(p));
   if (facts.ownKeyLocked && offered && (facts.creditCanPay || facts.creditBuyable)) return offered;
   const credit = facts.creditCanPay ? offered : undefined;
@@ -73,7 +65,7 @@ export function pickDefaultRoute<P extends DefaultRouteCandidate>(
     own.find((p) => p.available && real(p)) ??
     credit ??
     own.find((p) => p.available) ??
-    own.find((p) => p.id === OPENROUTER && real(p)) ??
+    own.find((p) => p.id === OPENROUTER_PROVIDER_ID && real(p)) ??
     own.find(real) ??
     own[0] ??
     null

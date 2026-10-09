@@ -13,11 +13,20 @@ import { DEFAULT_SETTINGS, type AppSettings, SettingsStore } from './settings-st
 import { TierStore, tierOptions } from './tier-store';
 import { TreeStore } from './tree-store';
 import { UiStore } from './ui-store';
+import { ComposerController, ToastStore } from '@tangent/web-shared';
+import * as fixtures from '@tangent/web-shared/testing';
 
 const PRO = 'deepseek/deepseek-v4-pro';
 const SONNET = 'anthropic/claude-sonnet-5.5';
 
 /** An OpenRouter entry listing both tiers (power's suggestions, or Tangent credit). */
+/** The composer controller, its calls recorded. */
+function spyComposer(c: ComposerController): ComposerController {
+  vi.spyOn(c, 'sent');
+  vi.spyOn(c, 'focus');
+  return c;
+}
+
 function entry(funding: BranchFunding, over: Partial<ProviderInfo> = {}): ProviderInfo {
   return {
     id: 'openrouter',
@@ -49,26 +58,9 @@ const anthropic: ProviderInfo = {
   keySource: 'user',
 };
 
-const at = '2026-10-01T00:00:00.000Z';
-function branch(over: Partial<Branch> = {}): Branch {
-  return {
-    id: 'b1',
-    treeId: 't1',
-    parentBranchId: null,
-    branchPointNodeId: null,
-    contextMode: 'path',
-    anchorQuote: null,
-    title: 'Light',
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'openrouter',
-    model: PRO,
-    funding: 'credit',
-    createdAt: at,
-    updatedAt: at,
-    ...over,
-  };
-}
+/** Branch "Light" on Tangent credit and `PRO`, unless `over` says otherwise. */
+const branch = (over: Partial<Branch> = {}): Branch =>
+  fixtures.branch('b1', { title: 'Light', model: PRO, funding: 'credit', ...over });
 
 /** The bits of TreeStore that TierStore reads, over a plain provider list. */
 function setup(
@@ -86,11 +78,13 @@ function setup(
   const branches = new Map((opts.branches ?? [branch()]).map((b) => [b.id, b]));
   const updateBranch = vi.fn(async (_id: string, _req: UpdateBranchRequest) => true);
   const tree = {
-    providers,
-    providerOf: (r: { providerId: string; funding?: BranchFunding }) => map().get(routeKey(r)),
-    defaultProvider: () =>
-      opts.defaultRoute === null ? null : (map().get(opts.defaultRoute ?? 'openrouter') ?? null),
-    routeLocked: (r: { funding?: BranchFunding }) => locked.has(r.funding ?? 'own-key'),
+    account: {
+      providers,
+      providerOf: (r: { providerId: string; funding?: BranchFunding }) => map().get(routeKey(r)),
+      defaultProvider: () =>
+        opts.defaultRoute === null ? null : (map().get(opts.defaultRoute ?? 'openrouter') ?? null),
+      routeLocked: (r: { funding?: BranchFunding }) => locked.has(r.funding ?? 'own-key'),
+    },
     index: () => ({ branches }),
     updateBranch,
   };
@@ -104,6 +98,8 @@ function setup(
     providers: [
       { provide: TierStore },
       { provide: UiStore },
+      { provide: ComposerController },
+      { provide: ToastStore },
       { provide: TreeStore, useValue: tree },
       { provide: SettingsStore, useValue: settings },
     ],
@@ -111,6 +107,8 @@ function setup(
   return {
     tiers: injector.get(TierStore),
     ui: injector.get(UiStore),
+    composer: spyComposer(injector.get(ComposerController)),
+    toasts: injector.get(ToastStore),
     providers,
     settings,
     updateBranch,
@@ -260,15 +258,15 @@ describe('TierStore tierOfBranch, available and usageFactor', () => {
 describe('TierStore switchTier', () => {
   it('moves the branch onto the tier, says so and focuses the composer', async () => {
     const s = setup();
-    const focus = s.ui.composerFocus();
+    vi.mocked(s.composer.focus).mockClear();
     await expect(s.tiers.switchTier('b1', 'max')).resolves.toBe(true);
     expect(s.updateBranch).toHaveBeenCalledWith('b1', {
       providerId: 'openrouter',
       funding: 'credit',
       model: SONNET,
     });
-    expect(s.ui.toasts().at(-1)?.text).toBe('Replies now on Max');
-    expect(s.ui.composerFocus()).toBe(focus + 1);
+    expect(s.toasts.toasts().at(-1)?.text).toBe('Replies now on Max');
+    expect(s.composer.focus).toHaveBeenCalledTimes(1);
   });
 
   it('sends the own key as such, and does nothing for an unknown branch', async () => {
@@ -294,14 +292,14 @@ describe('TierStore switchTier', () => {
       funding: 'credit',
       model: SONNET,
     });
-    expect(s.ui.toasts().at(-1)?.text).toBe('Replies now on Max (Tangent credit)');
+    expect(s.toasts.toasts().at(-1)?.text).toBe('Replies now on Max (Tangent credit)');
   });
 
   it('a refused update changes nothing here (TreeStore reports it)', async () => {
     const s = setup();
     s.updateBranch.mockResolvedValueOnce(false);
     await expect(s.tiers.switchTier('b1', 'max')).resolves.toBe(false);
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.toasts.toasts()).toEqual([]);
   });
 });
 

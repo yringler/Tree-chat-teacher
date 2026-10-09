@@ -45,8 +45,8 @@ function newKey(): string {
  * every request until the window's overage falls back under the limit or the
  * price table is fixed). Below it, a top-up or correction of the pool
  * (`POST /api/admin/credit`, an adjustment; a negative one is clamped to what
- * is available): how the operator adds credit beyond the automatic revenue
- * share. Nobody buys pool credit, so there is no simulated pool purchase.
+ * is available): how the operator funds the pool. Nobody buys pool credit,
+ * so there is no simulated pool purchase.
  */
 @Component({
   selector: 'app-pool-page',
@@ -67,8 +67,8 @@ function newKey(): string {
           <span>
             <strong>Overage breaker tripped:</strong> the pool refuses every request. Settled
             overage in the last {{ hours(p.breaker.windowMs) }} h is
-            {{ money(p.breaker.overageMicros) }}, above the {{ money(p.breaker.maxMicros) }} limit
-            (POOL_OVERAGE_MAX_MICROS). Check the model price table.
+            {{ money(p.breaker.overageMicros) }}, above the {{ money(p.breaker.maxMicros) }} limit:
+            a price has drifted. Check the model price table.
           </span>
         </p>
       }

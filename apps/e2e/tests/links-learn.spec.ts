@@ -1,10 +1,11 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { withExampleLesson } from './example-lesson';
 
 /*
- * Connections between messages in the Learn demo (/learn/demo): the seeded
+ * Connections between messages in Learn, against the Worker: the example
  * lesson's connection, connecting two messages through the "Connect" sheet,
  * the chips at both ends, following one and coming back, and removing it.
- * Each test gets a fresh browser context, so a fresh demo session.
+ * Each test is a new learner with the demos' example lesson imported.
  */
 
 function collectErrors(page: Page): string[] {
@@ -16,22 +17,23 @@ function collectErrors(page: Page): string[] {
   return errors;
 }
 
-/** Opens the demo's example lesson on its main thread. */
-async function openExampleLesson(page: Page): Promise<void> {
-  await page.goto('/learn/demo/');
-  await page
-    .locator('.lesson-row a', { hasText: 'How do kittens learn to whistle?' })
-    .first()
-    .click();
-  await expect(page).toHaveURL(/\/learn\/demo\/t\/[^/?]+$/);
+/** Opens the example lesson on its main thread. */
+async function openExampleLesson(page: Page, context: BrowserContext, baseURL: string) {
+  const treeId = await withExampleLesson(context, baseURL, 'learn');
+  await page.goto(`/learn/t/${treeId}`);
+  await expect(page.locator('app-message-item').first()).toBeVisible();
 }
 
 const message = (page: Page, text: string) =>
   page.locator('app-message-item').filter({ hasText: text });
 
-test('Learn demo: the example lesson shows its connection at both ends', async ({ page }) => {
+test('Learn: the example lesson shows its connection at both ends', async ({
+  page,
+  context,
+  baseURL,
+}) => {
   const errors = collectErrors(page);
-  await openExampleLesson(page);
+  await openExampleLesson(page, context, baseURL!);
 
   const secondReply = message(page, 'that is how creative kittens are born');
   await expect(secondReply.locator('.related-label')).toHaveText(/Connected to 1 message/);
@@ -43,7 +45,7 @@ test('Learn demo: the example lesson shows its connection at both ends', async (
 
   // Following it opens the side question, focused on its first message, which links back.
   await chip.click();
-  await expect(page).toHaveURL(/\/learn\/demo\/t\/[^/]+\/b\/[^/?]+\?m=/);
+  await expect(page).toHaveURL(/\/learn\/t\/[^/]+\/b\/[^/?]+\?m=/);
   const head = page.locator('app-message-item .msg-focused');
   await expect(head).toContainText('Why practice works better in the evening');
   await expect(head.locator('.connections .related-chip')).toContainText(
@@ -52,11 +54,13 @@ test('Learn demo: the example lesson shows its connection at both ends', async (
   expect(errors).toEqual([]);
 });
 
-test('Learn demo: connect two messages, follow the connection, come back, remove it', async ({
+test('Learn: connect two messages, follow the connection, come back, remove it', async ({
   page,
+  context,
+  baseURL,
 }) => {
   const errors = collectErrors(page);
-  await openExampleLesson(page);
+  await openExampleLesson(page, context, baseURL!);
   const firstReply = message(page, 'By copying owls, mostly.');
   await expect(firstReply.locator('.connections')).not.toContainText('Connected to');
 
@@ -98,7 +102,7 @@ test('Learn demo: connect two messages, follow the connection, come back, remove
   await expect(back).toContainText('Back to “By copying owls, mostly.');
 
   await back.click();
-  await expect(page).toHaveURL(/\/learn\/demo\/t\/[^/]+\?m=/);
+  await expect(page).toHaveURL(/\/learn\/t\/[^/]+\?m=/);
   await expect(page.locator('.link-return')).toHaveCount(0);
   await expect(page.locator('app-message-item .msg-focused')).toContainText(
     'By copying owls, mostly.',

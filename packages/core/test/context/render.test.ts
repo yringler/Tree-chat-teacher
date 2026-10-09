@@ -1,4 +1,10 @@
-import type { ContextPlan, ContextSegment, SummaryRequest } from '@tangent/shared';
+import {
+  CHECK_SOURCES_INSTRUCTIONS,
+  GROUNDING_INSTRUCTIONS,
+  type ContextPlan,
+  type ContextSegment,
+  type SummaryRequest,
+} from '@tangent/shared';
 import { describe as suite, expect, it } from 'vitest';
 import { summaryKeyString } from '../../src/context/assemble.js';
 import {
@@ -8,12 +14,12 @@ import {
   cleanTitle,
   CLIPPED_TRANSCRIPT_MARKER,
   CONTINUATION_MESSAGE,
+  renderOverheadBytes,
   renderPlan,
   replyInstructions,
   SUMMARY_HEADING,
-  plainText,
 } from '../../src/context/render.js';
-import { estimateTokensUtf8, MESSAGE_OVERHEAD_TOKENS } from '../../src/tokens.js';
+import { estimateTokensUtf8, MESSAGE_OVERHEAD_TOKENS, utf8Bytes } from '../../src/tokens.js';
 import { Fixture, resolveAll } from './fixtures.js';
 
 const WITH_SYSTEM = { supportsSystemPrompt: true };
@@ -256,6 +262,60 @@ suite('renderPlan', () => {
   });
 });
 
+suite('renderOverheadBytes', () => {
+  /** What rendering `segments` (with the longest reply instructions after them) adds to their text. */
+  function addedBytes(segments: ContextSegment[], options: { supportsSystemPrompt: boolean }) {
+    const out = renderPlan(plan(segments), options);
+    const instructions = Math.max(
+      ...[GROUNDING_INSTRUCTIONS, CHECK_SOURCES_INSTRUCTIONS].map((t) =>
+        utf8Bytes(replyInstructions(t)),
+      ),
+    );
+    let sent = (out.system === null ? 0 : utf8Bytes(out.system)) + 2 + instructions;
+    for (const m of out.messages) sent += utf8Bytes(m.content);
+    let text = 0;
+    let merges = 0;
+    for (const s of segments) {
+      text += utf8Bytes(s.text ?? '');
+      if (s.kind === 'ancestor' || s.kind === 'branch') merges += 2;
+    }
+    return sent - text - merges;
+  }
+
+  it('bounds what rendering adds per system, summary and anchor section, whatever the shape', () => {
+    const shapes: { sections: number; segments: ContextSegment[] }[] = [
+      { sections: 0, segments: [] },
+      { sections: 0, segments: [msg('branch', 'assistant', 'a'), msg('branch', 'assistant', 'b')] },
+      { sections: 1, segments: [sys('S')] },
+      { sections: 1, segments: [summary('ready', 'σ')] },
+      { sections: 2, segments: [anchor('q'), msg('branch', 'user', 'u'), anchor('r')] },
+      {
+        sections: 6,
+        segments: [
+          sys('S'),
+          summary('ready', 'σ'),
+          summary('ready', 'τ'),
+          msg('ancestor', 'assistant', 'a'),
+          anchor('q'),
+          anchor('漢'),
+          msg('ancestor', 'user', 'u'),
+          msg('branch', 'user', 'v'),
+          anchor('r'),
+        ],
+      },
+    ];
+    for (const { sections, segments } of shapes) {
+      for (const options of [WITH_SYSTEM, NO_SYSTEM]) {
+        expect(addedBytes(segments, options)).toBeLessThanOrEqual(renderOverheadBytes(sections));
+      }
+    }
+    // Within a section's worth of the real overhead: a bound, not a guess.
+    const anchors = Array.from({ length: 8 }, (_, i) => anchor(`q${i}`));
+    const added = addedBytes([msg('branch', 'assistant', 'a'), ...anchors], NO_SYSTEM);
+    expect(renderOverheadBytes(8) - added).toBeLessThan(renderOverheadBytes(1));
+  });
+});
+
 suite('buildSummaryPrompt', () => {
   const request: SummaryRequest = {
     key: { anchorNodeId: 'n', sourceHash: 'h' },
@@ -399,24 +459,6 @@ suite('cleanTitle', () => {
   it('keeps an exactly 80-char title', () => {
     const t = 'a'.repeat(80);
     expect(cleanTitle(t)).toBe(t);
-  });
-});
-
-suite('plainText', () => {
-  it('drops Markdown markup and collapses whitespace', () => {
-    expect(
-      plainText(
-        "Good question! Let's start with **a confident kitten**.\n\n## Habits\n\n- **Listening**: an `owl` hums\n1. _second_ item\n> quoted [link](https://x.test) ![alt](i.png)\n\n```js\ncode();\n```\nend",
-      ),
-    ).toBe(
-      "Good question! Let's start with a confident kitten. Habits Listening: an owl hums second item quoted link alt end",
-    );
-  });
-
-  it('keeps underscores inside identifiers', () => {
-    expect(plainText('use snake_case names, _not_ emphasis')).toBe(
-      'use snake_case names, not emphasis',
-    );
   });
 });
 

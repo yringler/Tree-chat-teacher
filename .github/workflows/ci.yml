@@ -1,7 +1,8 @@
 # Runs every check on pull requests to master and on pushes to master. Merging is
 # blocked by a branch rule on master that requires the "Checks" and "End-to-end"
-# jobs (repository Settings → Rules), not by this file. Deploys stay on Workers
-# Builds, which only builds (README, "Deploying from Git").
+# jobs (repository Settings → Rules), not by this file. On master (a push, or a
+# manual run there), once both pass, the "Deploy" job applies the D1 migrations
+# and deploys the Worker (docs/operating.md, "Deploying from GitHub").
 name: CI
 
 on:
@@ -25,16 +26,29 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm lint
+      - id: install
+        run: pnpm install --frozen-lockfile
+      # Every check runs whatever the earlier ones did, so a formatting nit can't hide a failing
+      # test; any failure still fails the job.
       - run: pnpm test
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       - run: pnpm build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      - run: pnpm typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      - run: pnpm lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      - run: pnpm format:check
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      - run: pnpm knip
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
 
   e2e:
     name: End-to-end
@@ -42,6 +56,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -63,3 +79,65 @@ jobs:
             apps/e2e/.state/wrangler.log
           include-hidden-files: true
           retention-days: 7
+
+  deploy:
+    name: Deploy
+    needs: [checks, e2e]
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Holds the Cloudflare secrets; its deployment branch rule keeps them to master.
+    environment: production
+    # One deploy at a time; a newer one waits rather than cutting a running deploy or migration off.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Check the Cloudflare secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Set the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets on the production environment (docs/operating.md, \"Deploying from GitHub\")."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Runs wrangler.jsonc's build.command (the root `pnpm build`) and bundles the Worker, so a
+      # broken build stops here, before any migration. No secrets in this or any build step.
+      - name: Build
+        run: pnpm --filter @tangent/worker exec wrangler deploy --dry-run
+      # If wrangler ever skipped build.command, apps/worker/site would hold only .gitkeep, and that
+      # Worker would 404 every app page and asset.
+      - name: Check the assets
+        run: |
+          for app in . learn canvas admin; do
+            if [ ! -s "apps/worker/site/$app/index.html" ]; then
+              echo "::error::apps/worker/site/$app/index.html is missing: the apps weren't built."
+              exit 1
+            fi
+          done
+      # wrangler.jsonc without build.command, so the steps holding the token run no build: the
+      # deploy uploads the site checked above.
+      - name: Write the deploy config
+        run: node scripts/deploy-config.mjs
+      # Before the deploy, so new code never meets an old schema. Until the deploy finishes, the
+      # running code meets the new schema: migrations expand first and contract in a later release.
+      - name: Apply D1 migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm --filter @tangent/worker exec wrangler d1 migrations apply DB --remote --config wrangler.deploy.json
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm --filter @tangent/worker exec wrangler deploy --config wrangler.deploy.json

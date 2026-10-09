@@ -1,4 +1,4 @@
-// Compare (shared/compare.ts, docs/DECISIONS.md "Compare"): each candidate
+// Compare (shared/compare.ts): each candidate
 // streams from the Worker and nothing enters the tree until one is committed;
 // the tree's Durable Object holds finished candidates (CANDIDATE_TTL_MS) and
 // appends the picked one under its send lock.
@@ -9,7 +9,7 @@ import type {
   StreamEvent,
   TreeDetail,
 } from '@tangent/shared';
-import { runInDurableObject } from 'cloudflare:test';
+import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env as rawEnv, exports } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { grantCredit } from '../src/billing/ledger.js';
@@ -17,38 +17,11 @@ import type { AppEnv } from '../src/env.js';
 import { uniq, usageRows } from './mocks/billing-helpers.js';
 import { poolReadyUser } from './pool-helpers.js';
 import { authEnv, client } from './session-client.js';
+import { BASE, call, ok, parseSse } from './http.js';
 
 const env = rawEnv as unknown as AppEnv;
-const BASE = 'https://tangent.example.com';
-
 /** The dev bypass's power account (fake providers, vitest.config.ts). */
-function call(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
-  const { json, ...rest } = init;
-  const headers = new Headers(rest.headers);
-  if (json !== undefined) headers.set('Content-Type', 'application/json');
-  return exports.default.fetch(
-    new Request(BASE + path, {
-      ...rest,
-      headers,
-      body: json !== undefined ? JSON.stringify(json) : rest.body,
-    }),
-  );
-}
-
-async function ok<T>(res: Response | Promise<Response>, status = 200): Promise<T> {
-  const r = await res;
-  const text = await r.text();
-  expect(r.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
-}
-
-function events<T = CandidateEvent>(text: string): T[] {
-  return text
-    .split('\n\n')
-    .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-    .filter((l): l is string => !!l)
-    .map((l) => JSON.parse(l.slice(5).trim()) as T);
-}
+const events = <T = CandidateEvent>(text: string) => parseSse<T>(text);
 
 function textOf(evs: CandidateEvent[]): string {
   return evs.map((e) => (e.type === 'delta' ? e.text : '')).join('');
@@ -198,6 +171,66 @@ describe('compare candidates', () => {
     expect((await commit('no-such-branch', mine.candidateId)).status).toBe(404);
   });
 
+  it('the alarm deletes a candidate when it expires, with no later hold needed', async () => {
+    const detail = await treeWithExchange();
+    const stub = treeSession(detail.tree.id);
+    const { done } = await candidate(detail.tree.trunkBranchId, { content: 'Q', model: 'fake-1' });
+    const key = `candidate:${done.candidateId}`;
+    await runInDurableObject(stub, async (_, state) => {
+      expect(await state.storage.getAlarm()).toBe(Date.parse(done.expiresAt));
+      const entry = (await state.storage.get<{ expiresAt: number }>(key))!;
+      await state.storage.put(key, { ...entry, expiresAt: Date.now() - 1 });
+    });
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    await runInDurableObject(stub, async (_, state) => {
+      expect(await state.storage.get(key)).toBeUndefined();
+      expect(await state.storage.getAlarm()).toBeNull();
+    });
+  });
+
+  it('deleting the tree drops its held candidates', async () => {
+    const detail = await treeWithExchange();
+    await candidate(detail.tree.trunkBranchId, { content: 'Q', model: 'fake-1' });
+    expect((await call(`/api/trees/${detail.tree.id}`, { method: 'DELETE' })).status).toBe(204);
+    await runInDurableObject(treeSession(detail.tree.id), async (_, state) => {
+      expect((await state.storage.list()).size).toBe(0);
+      expect(await state.storage.getAlarm()).toBeNull();
+    });
+  });
+
+  it('after an account deletion, a held candidate still goes when it expires', async () => {
+    const c = client(authEnv());
+    const email = `compare-gone-${uniq('u')}@example.org`;
+    await c.signIn(email);
+    const detail = await ok<TreeDetail>(
+      c.call('/api/trees', { method: 'POST', json: { title: 'Gone', providerId: 'fake' } }),
+      201,
+    );
+    const branchId = detail.tree.trunkBranchId;
+    await c.call(`/api/branches/${branchId}/messages`, { method: 'POST', json: { content: 'Q1' } });
+    const held = await c.call(`/api/branches/${branchId}/candidates`, {
+      method: 'POST',
+      json: { content: 'Q2', model: 'fake-1' },
+    });
+    const done = events(await held.text()).at(-1);
+    if (done?.type !== 'done') throw new Error('expected done');
+
+    expect(
+      (await c.call('/api/account', { method: 'DELETE', json: { confirmEmail: email } })).status,
+    ).toBe(204);
+    const stub = treeSession(detail.tree.id);
+    const key = `candidate:${done.candidateId}`;
+    await runInDurableObject(stub, async (_, state) => {
+      expect(await state.storage.getAlarm()).toBe(Date.parse(done.expiresAt));
+      const entry = (await state.storage.get<{ expiresAt: number }>(key))!;
+      await state.storage.put(key, { ...entry, expiresAt: Date.now() - 1 });
+    });
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    await runInDurableObject(stub, async (_, state) => {
+      expect((await state.storage.list()).size).toBe(0);
+    });
+  });
+
   it('validates the request before any stream opens', async () => {
     const detail = await treeWithExchange();
     const branchId = detail.tree.trunkBranchId;
@@ -264,7 +297,7 @@ describe('compare in Learn', () => {
       c.call(`/api/branches/${branchId}/candidates`, { method: 'POST', json, learn: 'credit' });
 
     const dones: Extract<CandidateEvent, { type: 'done' }>[] = [];
-    for (const model of ['simple', 'smart']) {
+    for (const model of ['normal', 'max']) {
       const res = await ask({ content: 'Why is the sky blue?', model });
       const text = await res.text();
       expect(res.status, text).toBe(200);
@@ -277,8 +310,8 @@ describe('compare in Learn', () => {
       const rows = (await usageRows(env, billing)).filter((r) => r.purpose === 'reply');
       rows.sort((a, b) => a.model.localeCompare(b.model));
       expect(rows.map((r) => [r.model, r.node_id, r.status])).toEqual([
-        ['simple', null, 'settled'],
-        ['smart', null, 'settled'],
+        ['max', null, 'settled'],
+        ['normal', null, 'settled'],
       ]);
     });
 
@@ -292,10 +325,10 @@ describe('compare in Learn', () => {
     );
     const committed = (await res.json()) as CommitCandidateResponse;
     expect(res.status).toBe(200);
-    expect(committed.assistantNode).toMatchObject({ model: 'smart', providerId: 'openrouter' });
+    expect(committed.assistantNode).toMatchObject({ model: 'max', providerId: 'openrouter' });
     expect(committed.userNode.content).toBe('Why is the sky blue?');
     // The commit itself calls no model (titles are off in tests): still two rows.
-    expect((await usageRows(env, billing)).filter((r) => r.purpose !== 'tagging')).toHaveLength(2);
+    expect(await usageRows(env, billing)).toHaveLength(2);
   });
 
   it('is refused on the open pool, for both routes', async () => {
@@ -307,7 +340,7 @@ describe('compare in Learn', () => {
     const branchId = detail.tree.trunkBranchId;
     const ask = await u.client.call(`/api/branches/${branchId}/candidates`, {
       method: 'POST',
-      json: { content: 'Q', model: 'simple' },
+      json: { content: 'Q', model: 'normal' },
       learn: 'pool',
     });
     expect(ask.status).toBe(403);

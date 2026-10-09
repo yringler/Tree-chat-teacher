@@ -1,20 +1,18 @@
 import { ChangeDetectionStrategy, Component, inject, signal, type OnInit } from '@angular/core';
-import { poolFundingText, poolModelText, type PoolStatusResponse } from '@tangent/shared';
+import { POOL_FUNDING_TEXT, poolModelText, type PoolStatusResponse } from '@tangent/shared';
 import { ApiClient } from '../core/api-client';
 import { Icon } from '../ui/icon';
-import { ImpactFeed } from './impact-feed';
 import { PoolMeter } from './pool-meter';
 
 /**
- * "The open pool" on the billing page of both apps: the meter, last
- * week's impact feed once a snapshot exists, where the pool's credit comes
- * from (`poolFundingText`: Tangent's revenue share; nobody buys pool credit)
- * and a link to `/pool`. Nothing renders while the pool is off or its status
+ * "The open pool" on the billing page of both apps: the meter, where the
+ * pool's credit comes from (`POOL_FUNDING_TEXT`; nobody buys pool credit) and
+ * a link to `/pool`. Nothing renders while the pool is off or its status
  * can't be read.
  */
 @Component({
   selector: 'app-pool-section',
-  imports: [Icon, ImpactFeed, PoolMeter],
+  imports: [Icon, PoolMeter],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (status(); as s) {
@@ -22,10 +20,8 @@ import { PoolMeter } from './pool-meter';
         <section class="card billing-section pool-section" aria-labelledby="pool-section-h">
           <h2 id="pool-section-h" class="billing-h">The open pool</h2>
           <app-pool-meter [status]="s" />
-          <app-impact-feed />
           <p class="muted small">
-            {{ funding(s) }} Any signed-in learner can use it on {{ model(s) }}, within daily
-            limits.
+            {{ funding }} Any signed-in learner can use it on {{ model(s) }}, within daily limits.
           </p>
           <p class="small">
             <a href="/pool" target="_blank" rel="noopener">
@@ -53,7 +49,5 @@ export class PoolSection implements OnInit {
     return poolModelText(s.model);
   }
 
-  protected funding(s: PoolStatusResponse): string {
-    return poolFundingText(s.revenueShareBps);
-  }
+  protected readonly funding = POOL_FUNDING_TEXT;
 }

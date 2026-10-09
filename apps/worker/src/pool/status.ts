@@ -1,6 +1,6 @@
-// The pool meter (docs/pool/PLAN.md §S6): what `GET /api/pool/status`, the
+// The pool meter: what `GET /api/pool/status`, the
 // landing page and the apps show about the open pool. Aggregates only:
-// the balance, the sessions it covers and this week's counts, never a user.
+// the balance and the sessions it covers, never a user.
 import {
   isReasoningModel,
   type PoolMeResponse,
@@ -8,10 +8,12 @@ import {
   type PoolStatusResponse,
   type ReasoningEffort,
 } from '@tangent/shared';
-import { balanceStatement, getBalance, readBalance, type BalanceRow } from '../billing/ledger.js';
+import { getBalance } from '../billing/ledger.js';
 import { appConfig } from '../config.js';
+import type { SqlRow } from '../db/rows.js';
+import type { authUsers, poolIdentities } from '../db/schema.js';
 import type { AccountContext, AppEnv } from '../env.js';
-import { poolAvailable } from '../services.js';
+import { poolAvailable } from '../availability.js';
 import { getCached, putCached } from '../share/cache.js';
 import {
   POOL_MODEL_LABEL,
@@ -19,19 +21,16 @@ import {
   SIMPLE_RESERVED_OUTPUT_TOKENS,
   simpleProviderConfig,
 } from '../simple-mode.js';
-import { consentVersion } from './consent.js';
-import { poolModel, poolRequest } from './params.js';
-import { dayResetAt, dayStart, userDayUsageStatement, type DayRow } from './pool-bank.js';
+import {
+  POOL_SESSION_ESTIMATE_MICROS,
+  poolModel,
+  poolPriceProblem,
+  poolRequest,
+} from './params.js';
+import { dayResetAt, dayStart, userDayUsageStatement, type DayRow } from './day-usage.js';
 
 /** How long the meter is cached at the edge (`caches.default`) and by browsers. */
 export const POOL_STATUS_MAX_AGE_S = 60;
-
-/** Monday 00:00 UTC of `now`'s ISO week. */
-export function weekStart(now: Date): Date {
-  const day = dayStart(now);
-  const sinceMonday = (day.getUTCDay() + 6) % 7;
-  return new Date(day.getTime() - sinceMonday * 24 * 60 * 60_000);
-}
 
 /** Reasoning efforts from least to most thinking. */
 const EFFORT_RANK: Readonly<Record<ReasoningEffort, number>> = { none: 0, low: 1, high: 2 };
@@ -72,43 +71,31 @@ export function poolModelInfo(env: AppEnv): PoolModelInfo {
 }
 
 /**
- * The pool meter, read from D1. "Exchanges funded" are pool replies settled
- * at a charge above 0 since Monday 00:00 UTC (released and free ones never
- * reached the model, or cost nothing); "learners" the distinct users of those.
+ * Whether the pool can serve a reply now: `poolAvailable`, and its model's
+ * live price (`poolPriceProblem`) leaves a reply's ceiling hold within the
+ * daily caps. What the meter and `/api/pool/me` report.
  */
-export async function poolStatus(env: AppEnv, now = new Date()): Promise<PoolStatusResponse> {
+export async function poolUsable(env: AppEnv): Promise<boolean> {
+  return poolAvailable(env) && (await poolPriceProblem(env)) === null;
+}
+
+/** The pool meter, read from D1. */
+export async function poolStatus(env: AppEnv): Promise<PoolStatusResponse> {
   const config = appConfig(env);
   const pool = config.pool;
-  const week = weekStart(now).toISOString();
   const base: PoolStatusResponse = {
-    enabled: poolAvailable(env),
+    enabled: await poolUsable(env),
     availableMicros: 0,
     sessionsRemaining: 0,
     model: poolModelInfo(env),
-    week: { start: week, exchanges: 0, learners: 0 },
-    revenueShareBps: pool.revenueShareBps,
   };
   if (!base.enabled) return base;
-  const [balanceRes, countsRes] = await env.DB.batch<Record<string, unknown>>([
-    balanceStatement(env.DB, pool.accountId),
-    env.DB.prepare(
-      `SELECT COUNT(*) AS exchanges, COUNT(DISTINCT user_id) AS learners FROM usage_events
-       WHERE account_id = ? AND purpose = 'reply' AND status = 'settled'
-         AND charge_micros > 0 AND created_at >= ?`,
-    ).bind(pool.accountId, week),
-  ]);
-  const balance = readBalance(balanceRes!.results[0] as BalanceRow | undefined);
-  const counts = countsRes!.results[0] as { exchanges?: number; learners?: number } | undefined;
+  const balance = await getBalance(env.DB, pool.accountId);
   const available = Math.max(0, balance.balanceMicros - balance.heldMicros);
   return {
     ...base,
     availableMicros: available,
-    sessionsRemaining: Math.floor(available / pool.sessionEstimateMicros),
-    week: {
-      start: week,
-      exchanges: Number(counts?.exchanges ?? 0),
-      learners: Number(counts?.learners ?? 0),
-    },
+    sessionsRemaining: Math.floor(available / POOL_SESSION_ESTIMATE_MICROS),
   };
 }
 
@@ -134,11 +121,9 @@ export async function cachedPoolStatus(
   return status;
 }
 
-interface PoolAccountRow {
-  pool_suspended: number;
-  pool_verified_at: string | null;
-  identity_suspended: number | null;
-}
+type PoolAccountRow = Pick<SqlRow<typeof authUsers>, 'pool_suspended' | 'pool_verified_at'> & {
+  identity_suspended: SqlRow<typeof poolIdentities>['suspended'] | null;
+};
 
 /** `GET /api/pool/me`: the caller's standing with the pool today. */
 export async function poolMe(
@@ -149,7 +134,7 @@ export async function poolMe(
   const pool = appConfig(env).pool;
   const userId = account.userId;
   const day = dayStart(now).toISOString();
-  const [personal, row, usage, consent] = await Promise.all([
+  const [personal, row, usage, usable] = await Promise.all([
     getBalance(env.DB, account.billingAccountId),
     userId
       ? env.DB.prepare(
@@ -161,12 +146,12 @@ export async function poolMe(
           .first<PoolAccountRow>()
       : null,
     userId ? userDayUsageStatement(env.DB, pool.accountId, userId, day).first<DayRow>() : null,
-    userId ? consentVersion(env.DB, userId) : null,
+    poolUsable(env),
   ]);
   // The same caps for everyone, member or not.
   const caps = pool.caps.user;
   return {
-    available: poolAvailable(env) && userId !== null,
+    available: usable && userId !== null,
     verified: !!row?.pool_verified_at,
     suspended: !!row?.pool_suspended || !!row?.identity_suspended,
     caps: {
@@ -177,7 +162,5 @@ export async function poolMe(
       resetAt: dayResetAt(now),
     },
     personalAvailableMicros: personal.balanceMicros - personal.heldMicros,
-    consentVersion: consent,
-    currentNoticeVersion: pool.noticeVersion,
   };
 }

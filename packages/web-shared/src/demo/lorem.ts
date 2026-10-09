@@ -1,14 +1,15 @@
 import {
-  BUILT_IN_PROVIDER_ID,
+  OPENROUTER_PROVIDER_ID,
+  clip,
   formatTangents,
   REVIEW_ACCURACY_LABEL,
   REVIEW_RECOMMENDATION_LABEL,
   type Citation,
   type GenerateRequest,
-  LlmProvider,
-  ModelInfo,
-  ProviderCapabilities,
-  ProviderEvent,
+  type LlmProvider,
+  type ModelInfo,
+  type ProviderCapabilities,
+  type ProviderEvent,
   type Tangent,
   type TokenPrice,
 } from '@tangent/shared';
@@ -70,17 +71,14 @@ function sentence(): string {
 }
 
 /**
- * The demo provider's id and models, mirroring the real built-in provider
- * (`openrouter`): Normal (the default) and Max. The ids predate the Normal /
- * Max names and stay as they are, since stored demo lessons use them:
- * `simple` is Normal, `smart` is Max.
+ * The demo provider's models, on the real built-in provider's endpoint
+ * (`OPENROUTER_PROVIDER_ID`): Normal (the default) and Max.
  */
-export const DEMO_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
-export const DEMO_SMART_MODEL = 'smart';
-export const DEMO_SIMPLE_MODEL = 'simple';
+export const DEMO_NORMAL_MODEL = 'normal';
+export const DEMO_MAX_MODEL = 'max';
 export const DEMO_MODELS: readonly ModelInfo[] = [
-  { id: DEMO_SIMPLE_MODEL, label: 'Normal', tier: 'normal' },
-  { id: DEMO_SMART_MODEL, label: 'Max', tier: 'max' },
+  { id: DEMO_NORMAL_MODEL, label: 'Normal', tier: 'normal' },
+  { id: DEMO_MAX_MODEL, label: 'Max', tier: 'max' },
 ];
 
 /**
@@ -89,8 +87,8 @@ export const DEMO_MODELS: readonly ModelInfo[] = [
  * the app's does, about 14× Normal.
  */
 export const DEMO_MODEL_PRICES: Readonly<Record<string, TokenPrice>> = {
-  [DEMO_SIMPLE_MODEL]: { inMicrosPerMTok: 150_000, outMicrosPerMTok: 600_000 },
-  [DEMO_SMART_MODEL]: { inMicrosPerMTok: 2_000_000, outMicrosPerMTok: 10_000_000 },
+  [DEMO_NORMAL_MODEL]: { inMicrosPerMTok: 150_000, outMicrosPerMTok: 600_000 },
+  [DEMO_MAX_MODEL]: { inMicrosPerMTok: 2_000_000, outMicrosPerMTok: 10_000_000 },
 };
 
 /** A small deterministic RNG (mulberry32), for tests and reproducible demos. */
@@ -226,18 +224,18 @@ function boldSome(random: Random, text: string): string {
  */
 export function loremReply(model: string, random: Random = Math.random): string {
   return withRandom(random, () => {
-    const smart = model !== DEMO_SIMPLE_MODEL;
+    const max = model !== DEMO_NORMAL_MODEL;
     const paragraphs: string[] = [];
-    const count = smart ? between(random, 2, 3) : between(random, 1, 2);
+    const count = max ? between(random, 2, 3) : between(random, 1, 2);
     for (let i = 0; i < count; i++) {
-      let p = sentences(random, smart ? between(random, 2, 4) : between(random, 1, 3));
+      let p = sentences(random, max ? between(random, 2, 4) : between(random, 1, 3));
       if (i === 0 && random() < 0.5) p = `${pick(random, OPENERS)(words(random))} ${p}`;
       else if (random() < 0.35) p = boldSome(random, p);
       paragraphs.push(p);
     }
-    if (random() < (smart ? 0.5 : 0.3)) {
+    if (random() < (max ? 0.5 : 0.3)) {
       const items: string[] = [];
-      for (let i = between(random, 2, smart ? 4 : 3); i > 0; i--) {
+      for (let i = between(random, 2, max ? 4 : 3); i > 0; i--) {
         const w = words(random);
         items.push(`- **${capitalize(plural(w.noun))}**: ${sentence()}`);
       }
@@ -279,10 +277,8 @@ export function titleFor(messages: readonly { content: string }[], random: Rando
       const line = match[1]?.trim() ?? '';
       if (!line || line.startsWith('Focus: ')) continue;
       const words = line.replace(/\s+/g, ' ').split(' ');
-      let title = words.slice(0, TITLE_WORDS).join(' ');
-      if (title.length > TITLE_CHARS) title = `${title.slice(0, TITLE_CHARS - 1).trimEnd()}…`;
-      else if (words.length > TITLE_WORDS) title += '…';
-      return title;
+      const title = clip(words.slice(0, TITLE_WORDS).join(' '), TITLE_CHARS);
+      return words.length > TITLE_WORDS && !title.endsWith('…') ? `${title}…` : title;
     }
   }
   return loremTitle(random);
@@ -366,6 +362,8 @@ const CAPABILITIES: ProviderCapabilities = {
   supportsSystemPrompt: true,
   supportsTokenCount: false,
   supportsWebSearch: true,
+  requiredWebSearch: true,
+  titles: true,
 };
 
 /** Pretend web search fee per search (USD), like OpenRouter's Exa search. */
@@ -394,9 +392,9 @@ function tokens(text: string): number {
 
 /** Pretend price in USD (DEMO_MODEL_PRICES plus a base): a few thousandths of a dollar per reply. */
 function fakeCostUsd(model: string, inputTokens: number, outputTokens: number): number {
-  const smart = model !== DEMO_SIMPLE_MODEL;
-  const price = DEMO_MODEL_PRICES[smart ? DEMO_SMART_MODEL : DEMO_SIMPLE_MODEL]!;
-  const base = smart ? 0.002 : 0.001;
+  const max = model !== DEMO_NORMAL_MODEL;
+  const price = DEMO_MODEL_PRICES[max ? DEMO_MAX_MODEL : DEMO_NORMAL_MODEL]!;
+  const base = max ? 0.002 : 0.001;
   return (
     base + (inputTokens * price.inMicrosPerMTok + outputTokens * price.outMicrosPerMTok) / 1e12
   );
@@ -409,9 +407,8 @@ function fakeCostUsd(model: string, inputTokens: number, outputTokens: number): 
  * Follows the provider contract: never throws, ends with exactly one
  * `done` or `error` (`aborted` when the signal fires), reports `usage` and a
  * `billing` cost so the demo's balance moves.
- *
- * Its kind is `openai-compatible` (as the real `tangent` provider) rather
- * than `fake`: the ChatService skips auto-titles for fake providers.
+ * Its replies are scripted (kind `fake`), but its titles name the
+ * conversation, so it keeps the `titles` capability and branches get titled.
  */
 export function createLoremProvider(options: LoremProviderOptions = {}): LlmProvider {
   const random = options.random ?? Math.random;
@@ -488,11 +485,11 @@ export function createLoremProvider(options: LoremProviderOptions = {}): LlmProv
   }
 
   return {
-    id: DEMO_PROVIDER_ID,
-    kind: 'openai-compatible',
+    id: OPENROUTER_PROVIDER_ID,
+    kind: 'fake',
     label: 'Tangent',
     models: () => DEMO_MODELS.map((m) => ({ ...m })),
-    defaultModel: () => DEMO_SIMPLE_MODEL,
+    defaultModel: () => DEMO_NORMAL_MODEL,
     capabilities: () => ({ ...CAPABILITIES }),
     stream,
   };

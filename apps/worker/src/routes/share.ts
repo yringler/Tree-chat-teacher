@@ -5,7 +5,8 @@ import type { AppBindings } from '../env.js';
 import { getCached, putCached, shareCacheKey, type ShareCacheVariant } from '../share/cache.js';
 import { checkShareRateLimit } from '../share/rate-limit.js';
 import { userIdOfAccount } from '../auth/account.js';
-import { canShare, shareService } from '../services.js';
+import { canShare } from '../availability.js';
+import { shareService } from '../registries.js';
 
 const SNAPSHOT_TTL_SECONDS = 86_400;
 
@@ -39,7 +40,12 @@ async function serve(
   const check = await shares.checkPublic(token);
   if (!check.ok) {
     return check.reason === 'gone'
-      ? statusPage(variant, 410, 'Link no longer available', 'This shared conversation was revoked or has expired.')
+      ? statusPage(
+          variant,
+          410,
+          'Link no longer available',
+          'This shared conversation was revoked or has expired.',
+        )
       : statusPage(variant, 404, 'Not found', 'There is no shared conversation at this address.');
   }
   const { share } = check;
@@ -47,7 +53,12 @@ async function serve(
   // old ones included (no query while sharing is on). Checked before the cache: a cached
   // snapshot outlives the permission.
   if (!(await canShare(c.env, userIdOfAccount(share.accountId)))) {
-    return statusPage(variant, 404, 'Not found', 'Shared conversations are not available on this site.');
+    return statusPage(
+      variant,
+      404,
+      'Not found',
+      'Shared conversations are not available on this site.',
+    );
   }
   if (variant === 'html') {
     c.executionCtx.waitUntil(shares.recordView(share.id).catch(() => undefined));
@@ -62,7 +73,12 @@ async function serve(
 
   const resolved = await shares.resolvePublic(token);
   if (!resolved.ok) {
-    return statusPage(variant, 410, 'Link no longer available', 'This shared conversation is no longer available.');
+    return statusPage(
+      variant,
+      410,
+      'Link no longer available',
+      'This shared conversation is no longer available.',
+    );
   }
   const response =
     variant === 'json'

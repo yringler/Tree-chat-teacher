@@ -3,7 +3,7 @@ import {
   type ApiError,
   type BillingSummary,
   type Branch,
-  type LearnPayment,
+  type Payer,
   type LoginOptionsResponse,
   type MeResponse,
   type MembershipInfo,
@@ -19,32 +19,19 @@ import { env } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { deleteUser } from '../src/auth/delete-account.js';
 import { grantCredit } from '../src/billing/ledger.js';
+import { USAGE_HOLD_MICROS } from '../src/billing/service.js';
 import { rememberCustomer } from '../src/billing/payments/customers.js';
+import { createApp } from '../src/app.js';
 import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
 import { makeNode } from './fixtures.js';
 import { insertSubscription, insertUsage } from './mocks/billing-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
-
-/** The Anthropic-style mock upstream of vitest.config.ts: `sk-ant-good…` keys work, replies echo `key=<rest>`. */
-const MOCK_UPSTREAM = 'https://llm.test';
-
-async function json<T>(res: Response, status = 200): Promise<T> {
-  const text = await res.text();
-  expect(res.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
-}
+import { ok, parseSse } from './http.js';
+import { MOCK_UPSTREAM } from './bindings.js';
 
 async function errorCode(res: Response): Promise<string> {
   return ((await res.json()) as ApiError).error.code;
-}
-
-function parseSse(text: string): StreamEvent[] {
-  return text
-    .split('\n\n')
-    .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-    .filter((l): l is string => !!l)
-    .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent);
 }
 
 function replyText(events: StreamEvent[]): string {
@@ -58,15 +45,15 @@ async function newUser(e: AppEnv = authEnv(), email?: string) {
   await c.signIn(
     email ?? `user${++emailSeq}-${Math.random().toString(36).slice(2, 8)}@example.org`,
   );
-  const power = await json<MeResponse>(await c.call('/api/me'));
-  const learn = await json<MeResponse>(await c.call('/api/me', { learn: 'credit' }));
+  const power = await ok<MeResponse>(await c.call('/api/me'));
+  const learn = await ok<MeResponse>(await c.call('/api/me', { learn: 'credit' }));
   return { ...c, power, learn };
 }
 type User = Awaited<ReturnType<typeof newUser>>;
 
 /** A tree of `owner` (in the given mode) with a user/assistant exchange on its trunk. */
-async function treeWithNodes(owner: User, learn?: LearnPayment, req: Record<string, unknown> = {}) {
-  const detail = await json<TreeDetail>(
+async function treeWithNodes(owner: User, learn?: Payer, req: Record<string, unknown> = {}) {
+  const detail = await ok<TreeDetail>(
     await owner.call('/api/trees', {
       method: 'POST',
       json: { title: 'Mine', ...req },
@@ -93,7 +80,7 @@ async function usageRows(accountId: string): Promise<number> {
 
 describe('open sign-up', () => {
   it('login options no longer mention an allowlist', async () => {
-    expect(await json<LoginOptionsResponse>(await client().call('/api/login-options'))).toEqual({
+    expect(await ok<LoginOptionsResponse>(await client().call('/api/login-options'))).toEqual({
       configured: true,
       devMode: false,
       social: { google: false, github: false },
@@ -112,16 +99,6 @@ describe('open sign-up', () => {
       expect(u.learn.accountId).toBe(`u_${u.power.accountId.slice(2)}`);
     }
     expect(a.power.accountId).not.toBe(b.power.accountId);
-
-    const rows = await env.DB.prepare(
-      'SELECT a.id, a.mode, u.email FROM accounts a JOIN auth_users u ON u.id = a.user_id WHERE a.user_id = ?1 ORDER BY a.mode',
-    )
-      .bind(a.power.accountId.slice(2))
-      .all<{ id: string; mode: string; email: string }>();
-    expect(rows.results).toEqual([
-      { id: a.power.accountId, mode: 'power', email: a.power.email },
-      { id: a.learn.accountId, mode: 'simple', email: a.power.email },
-    ]);
   });
 });
 
@@ -131,8 +108,8 @@ describe('switching modes', () => {
     const powerTree = (await treeWithNodes(u)).detail.tree;
     const learnTree = (await treeWithNodes(u, 'credit')).detail.tree;
 
-    const powerList = await json<TreeSummary[]>(await u.call('/api/trees'));
-    const learnList = await json<TreeSummary[]>(await u.call('/api/trees', { learn: 'own-key' }));
+    const powerList = await ok<TreeSummary[]>(await u.call('/api/trees'));
+    const learnList = await ok<TreeSummary[]>(await u.call('/api/trees', { learn: 'own-key' }));
     expect(powerList.map((t) => t.id)).toEqual([powerTree.id]);
     expect(learnList.map((t) => t.id)).toEqual([learnTree.id]);
 
@@ -144,7 +121,7 @@ describe('switching modes', () => {
 
   it('new Learn trees use the built-in endpoint and the tutor prompt unless one is given', async () => {
     const u = await newUser();
-    const plain = await json<TreeDetail>(
+    const plain = await ok<TreeDetail>(
       await u.call('/api/trees', { method: 'POST', json: { title: 'A' }, learn: 'own-key' }),
       201,
     );
@@ -152,10 +129,10 @@ describe('switching modes', () => {
     // Learn pays per request: its branches are written `own-key`, whatever the payment.
     expect(plain.branches[0]).toMatchObject({
       providerId: 'openrouter',
-      model: 'smart',
+      model: 'max',
       funding: 'own-key',
     });
-    const own = await json<TreeDetail>(
+    const own = await ok<TreeDetail>(
       await u.call('/api/trees', {
         method: 'POST',
         json: { title: 'B', systemPrompt: 'Be brief.' },
@@ -166,7 +143,7 @@ describe('switching modes', () => {
     expect(own.tree.systemPrompt).toBe('Be brief.');
     expect(own.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
     // Power mode lists the configured providers, then the built-in endpoint on Tangent credit.
-    const providers = await json<ProviderInfo[]>(await u.call('/api/providers'));
+    const providers = await ok<ProviderInfo[]>(await u.call('/api/providers'));
     expect(providers.map((p) => `${p.id}:${p.funding}`)).toEqual([
       'fake:own-key',
       'slow:own-key',
@@ -177,14 +154,14 @@ describe('switching modes', () => {
 });
 
 describe('account settings: the default system prompt', () => {
-  const newTree = async (u: User, learn?: LearnPayment, body: Record<string, unknown> = {}) =>
+  const newTree = async (u: User, learn?: Payer, body: Record<string, unknown> = {}) =>
     (
-      await json<TreeDetail>(
+      await ok<TreeDetail>(
         await u.call('/api/trees', { method: 'POST', json: body, ...(learn ? { learn } : {}) }),
         201,
       )
     ).tree;
-  const patch = (u: User, systemPrompt: unknown, learn?: LearnPayment) =>
+  const patch = (u: User, systemPrompt: unknown, learn?: Payer) =>
     u.call('/api/settings', {
       method: 'PATCH',
       json: { systemPrompt },
@@ -193,17 +170,17 @@ describe('account settings: the default system prompt', () => {
 
   it('power trees start with the built-in prompt, then with the saved one', async () => {
     const u = await newUser();
-    expect(await json<SettingsResponse>(await u.call('/api/settings'))).toEqual({
+    expect(await ok<SettingsResponse>(await u.call('/api/settings'))).toEqual({
       systemPrompt: null,
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
     });
     expect((await newTree(u)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
 
-    expect(await json<SettingsResponse>(await patch(u, 'Answer in French.'))).toEqual({
+    expect(await ok<SettingsResponse>(await patch(u, 'Answer in French.'))).toEqual({
       systemPrompt: 'Answer in French.',
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
     });
-    expect((await json<SettingsResponse>(await u.call('/api/settings'))).systemPrompt).toBe(
+    expect((await ok<SettingsResponse>(await u.call('/api/settings'))).systemPrompt).toBe(
       'Answer in French.',
     );
     expect((await newTree(u)).systemPrompt).toBe('Answer in French.');
@@ -216,42 +193,40 @@ describe('account settings: the default system prompt', () => {
     );
 
     // A blank or null prompt goes back to the built-in one.
-    expect((await json<SettingsResponse>(await patch(u, ' '))).systemPrompt).toBeNull();
+    expect((await ok<SettingsResponse>(await patch(u, ' '))).systemPrompt).toBeNull();
     expect((await newTree(u)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
-    await json<SettingsResponse>(await patch(u, 'Again.'));
-    expect((await json<SettingsResponse>(await patch(u, null))).systemPrompt).toBeNull();
+    await ok<SettingsResponse>(await patch(u, 'Again.'));
+    expect((await ok<SettingsResponse>(await patch(u, null))).systemPrompt).toBeNull();
   });
 
   it('is per account: power and Learn, and other users, keep their own', async () => {
     const u = await newUser();
     const other = await newUser();
-    await json<SettingsResponse>(await patch(u, 'Power prompt.'));
-    expect(
-      await json<SettingsResponse>(await u.call('/api/settings', { learn: 'own-key' })),
-    ).toEqual({ systemPrompt: null, defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT });
+    await ok<SettingsResponse>(await patch(u, 'Power prompt.'));
+    expect(await ok<SettingsResponse>(await u.call('/api/settings', { learn: 'own-key' }))).toEqual(
+      { systemPrompt: null, defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT },
+    );
     expect((await newTree(u, 'own-key')).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
-    await json<SettingsResponse>(await patch(u, 'Learn prompt.', 'credit'));
+    await ok<SettingsResponse>(await patch(u, 'Learn prompt.', 'credit'));
     expect((await newTree(u, 'credit')).systemPrompt).toBe('Learn prompt.');
     expect((await newTree(u)).systemPrompt).toBe('Power prompt.');
-    expect(
-      (await json<SettingsResponse>(await other.call('/api/settings'))).systemPrompt,
-    ).toBeNull();
+    expect((await ok<SettingsResponse>(await other.call('/api/settings'))).systemPrompt).toBeNull();
     expect((await newTree(other)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
   });
 
-  it('SIMPLE_SYSTEM_PROMPT replaces the built-in prompt of Learn only', async () => {
-    const u = await newUser(authEnv({ SIMPLE_SYSTEM_PROMPT: 'Operator tutor prompt.' }));
+  it('LEARN_SYSTEM_PROMPT replaces the built-in prompt of Learn only', async () => {
+    const u = await newUser(authEnv({ LEARN_SYSTEM_PROMPT: 'Operator tutor prompt.' }));
     expect(
-      (await json<SettingsResponse>(await u.call('/api/settings', { learn: 'credit' })))
+      (await ok<SettingsResponse>(await u.call('/api/settings', { learn: 'credit' })))
         .defaultSystemPrompt,
     ).toBe('Operator tutor prompt.');
     expect((await newTree(u, 'credit')).systemPrompt).toBe('Operator tutor prompt.');
-    expect((await json<SettingsResponse>(await u.call('/api/settings'))).defaultSystemPrompt).toBe(
+    expect((await ok<SettingsResponse>(await u.call('/api/settings'))).defaultSystemPrompt).toBe(
       DEFAULT_SYSTEM_PROMPT,
     );
     expect((await newTree(u)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
     // A saved prompt still wins over the operator's.
-    await json<SettingsResponse>(await patch(u, 'My own.', 'credit'));
+    await ok<SettingsResponse>(await patch(u, 'My own.', 'credit'));
     expect((await newTree(u, 'credit')).systemPrompt).toBe('My own.');
   });
 
@@ -265,17 +240,105 @@ describe('account settings: the default system prompt', () => {
   });
 });
 
+/** A's ids that B's requests name. */
+interface ForeignIds {
+  treeId: string;
+  branchId: string;
+  nodeId: string;
+  shareId: string;
+  linkId: string;
+  candidateId: string;
+}
+
+/** How B pays in each try: power, then Learn on both payments. */
+type Mode = Payer | undefined;
+const ALL_MODES: readonly Mode[] = [undefined, 'credit', 'own-key'];
+
+/**
+ * How another user tries each route of the app that takes an id in its path,
+ * keyed `METHOD path` as Hono registers it: the request (a valid body, so the
+ * 404 is the ownership check's, not validation's 400) and the modes B tries it
+ * in. A route with an id param is here or in `NOT_OWNED_DATA`, or the matrix
+ * below fails.
+ */
+const OWNED_ROUTES: Record<string, { init?: CallInit; modes?: readonly Mode[] }> = {
+  'GET /api/trees/:treeId': {},
+  'PATCH /api/trees/:treeId': { init: { method: 'PATCH', json: { title: 'Mine now' } } },
+  'GET /api/trees/:treeId/backup': {},
+  // Learn answers 400 before any lookup: only a power tree can be copied.
+  'POST /api/trees/:treeId/copy-to-learn': { init: { method: 'POST' }, modes: [undefined] },
+  'PATCH /api/branches/:branchId': { init: { method: 'PATCH', json: { title: 'Mine now' } } },
+  'GET /api/branches/:branchId/context': {},
+  'GET /api/branches/:branchId/input-budget': {},
+  'POST /api/branches/:branchId/messages': { init: { json: { content: 'hi' } } },
+  'GET /api/nodes/:nodeId/stream': {},
+  'POST /api/nodes/:nodeId/cancel': { init: { method: 'POST' } },
+  'POST /api/nodes/:nodeId/review': { init: { json: { providerId: 'fake', model: 'fake-1' } } },
+  'POST /api/branches/:branchId/candidates': {
+    init: { json: { content: 'hi', providerId: 'fake', model: 'fake-1' } },
+  },
+  'POST /api/branches/:branchId/candidates/:candidateId/commit': { init: { method: 'POST' } },
+  'PATCH /api/links/:linkId': { init: { method: 'PATCH', json: { note: 'Mine now' } } },
+  'PATCH /api/shares/:shareId': { init: { method: 'PATCH', json: { title: 'Mine now' } } },
+  'POST /api/shares/:shareId/republish': { init: { method: 'POST' } },
+  'POST /api/shares/:shareId/revoke': { init: { method: 'POST' } },
+  // The deletes last, though each is a 404 that deletes nothing.
+  'DELETE /api/links/:linkId': { init: { method: 'DELETE' } },
+  'DELETE /api/shares/:shareId': { init: { method: 'DELETE' } },
+  'DELETE /api/branches/:branchId': { init: { method: 'DELETE' } },
+  'DELETE /api/trees/:treeId': { init: { method: 'DELETE' } },
+};
+
+/** Routes with an id param that name no user's own data, and why. */
+const NOT_OWNED_DATA: Record<string, string> = {
+  'POST /api/webhooks/:provider': 'a payment provider name; deliveries are signature-checked',
+  'PATCH /api/admin/users/:userId': 'admins only (admin.test.ts)',
+  'GET /api/admin/users/:userId/shares': 'admins only (admin.test.ts)',
+  'POST /api/admin/shares/:shareId/revoke': 'admins only (admin.test.ts)',
+  'GET /s/:token': 'public share page, by its unguessable token (share.test.ts)',
+  'GET /s/:token/data.json': 'public share data, by its unguessable token (share.test.ts)',
+};
+
+/** The routes of the app that take an id in their path, as `METHOD path`. */
+function idRoutes(): string[] {
+  const keys = createApp()
+    .routes.filter((r) => r.method !== 'ALL' && /\/:/.test(r.path))
+    .map((r) => `${r.method} ${r.path}`);
+  return [...new Set(keys)];
+}
+
+/** `path` with its params filled in from `ids` (`:treeId` → ids.treeId). */
+function fill(path: string, ids: ForeignIds): string {
+  return path.replace(/:(\w+)/g, (_, name: string) => {
+    if (!(name in ids)) throw new Error(`No id for :${name} in ${path}`);
+    return ids[name as keyof ForeignIds];
+  });
+}
+
 describe('ownership across users', () => {
-  for (const [label, learn, review] of [
-    ['power', undefined, { providerId: 'fake', model: 'fake-1' }],
-    ['Learn', 'credit', { providerId: 'openrouter', model: 'smart' }],
+  it('covers every route with an id param, or says why it needs none', () => {
+    const routes = idRoutes();
+    const listed = [...Object.keys(OWNED_ROUTES), ...Object.keys(NOT_OWNED_DATA)];
+    expect(
+      routes.filter((r) => !listed.includes(r)),
+      'routes missing from the matrix',
+    ).toEqual([]);
+    expect(
+      listed.filter((r) => !routes.includes(r)),
+      'listed routes that no longer exist',
+    ).toEqual([]);
+  });
+
+  for (const [label, learn] of [
+    ['power', undefined],
+    ['Learn', 'credit'],
   ] as const) {
     it(`every tree, branch, node and share route answers 404 for another user's data (${label})`, async () => {
       const a = await newUser();
       const b = await newUser();
       const { detail, trunk, user, assistant } = await treeWithNodes(a, learn);
       const treeId = detail.tree.id;
-      const share = await json<ShareSummary>(
+      const share = await ok<ShareSummary>(
         await a.call('/api/shares', {
           method: 'POST',
           json: { treeId, scope: 'tree' },
@@ -283,7 +346,7 @@ describe('ownership across users', () => {
         }),
         201,
       );
-      const link = await json<NodeLink>(
+      const link = await ok<NodeLink>(
         await a.call('/api/links', {
           method: 'POST',
           json: { fromNodeId: user.id, toNodeId: assistant.id, note: 'mine' },
@@ -292,32 +355,36 @@ describe('ownership across users', () => {
         201,
       );
 
-      const attempts: [string, CallInit][] = [
-        [`/api/trees/${treeId}`, {}],
-        [`/api/trees/${treeId}`, { method: 'PATCH', json: { title: 'Mine now' } }],
-        [`/api/trees/${treeId}/backup`, {}],
-        [`/api/export?treeId=${treeId}`, {}],
-        [`/api/branches/${trunk.id}`, { method: 'PATCH', json: { title: 'Mine now' } }],
-        [`/api/branches/${trunk.id}`, { method: 'DELETE' }],
-        [`/api/branches/${trunk.id}/context`, {}],
-        [`/api/branches/${trunk.id}/context?resolve=true`, {}],
-        [`/api/branches/${trunk.id}/messages`, { method: 'POST', json: { content: 'hi' } }],
-        [`/api/nodes/${assistant.id}/stream`, {}],
-        [`/api/nodes/${assistant.id}/cancel`, { method: 'POST' }],
-        [`/api/nodes/${assistant.id}/review`, { method: 'POST', json: review }],
-        ['/api/branches', { method: 'POST', json: { fromNodeId: user.id } }],
-        ['/api/shares', { method: 'POST', json: { treeId, scope: 'tree' } }],
-        [`/api/shares/${share.id}`, { method: 'PATCH', json: { title: 'Mine now' } }],
-        [`/api/shares/${share.id}/republish`, { method: 'POST' }],
-        [`/api/shares/${share.id}/revoke`, { method: 'POST' }],
-        ['/api/links', { method: 'POST', json: { fromNodeId: user.id, toNodeId: assistant.id } }],
-        [`/api/links/${link.id}`, { method: 'PATCH', json: { note: 'Mine now' } }],
-        [`/api/links/${link.id}`, { method: 'DELETE' }],
-        [`/api/trees/${treeId}`, { method: 'DELETE' }],
+      const ids: ForeignIds = {
+        treeId,
+        branchId: trunk.id,
+        nodeId: assistant.id,
+        shareId: share.id,
+        linkId: link.id,
+        candidateId: 'candidate-of-nobody',
+      };
+      const attempts: [string, CallInit, readonly Mode[]][] = [
+        ...Object.entries(OWNED_ROUTES).map(
+          ([key, { init = {}, modes = ALL_MODES }]): [string, CallInit, readonly Mode[]] => [
+            fill(key.slice(key.indexOf(' ') + 1), ids),
+            { method: key.slice(0, key.indexOf(' ')), ...init },
+            modes,
+          ],
+        ),
+        // The routes that take A's ids in the body or the query.
+        [`/api/branches/${trunk.id}/context?resolve=true`, {}, ALL_MODES],
+        [`/api/export?treeId=${treeId}`, {}, ALL_MODES],
+        ['/api/branches', { method: 'POST', json: { fromNodeId: user.id } }, ALL_MODES],
+        ['/api/shares', { method: 'POST', json: { treeId, scope: 'tree' } }, ALL_MODES],
+        [
+          '/api/links',
+          { method: 'POST', json: { fromNodeId: user.id, toNodeId: assistant.id } },
+          ALL_MODES,
+        ],
       ];
-      // B tries in both modes: neither of B's accounts owns A's data.
-      for (const bLearn of [undefined, 'credit', 'own-key'] as const) {
-        for (const [path, init] of attempts) {
+      // B tries in every mode: neither of B's accounts owns A's data.
+      for (const [path, init, modes] of attempts) {
+        for (const bLearn of modes) {
           const res = await b.call(path, { ...init, ...(bLearn ? { learn: bLearn } : {}) });
           expect(res.status, `${bLearn ?? 'power'} ${init.method ?? 'GET'} ${path}`).toBe(404);
           expect(await errorCode(res)).toBe('not_found');
@@ -325,26 +392,26 @@ describe('ownership across users', () => {
       }
       for (const bLearn of [undefined, 'credit'] as const) {
         const opts = bLearn ? { learn: bLearn } : {};
-        const trees = await json<TreeSummary[]>(await b.call('/api/trees', opts));
+        const trees = await ok<TreeSummary[]>(await b.call('/api/trees', opts));
         expect(trees.some((t) => t.id === treeId)).toBe(false);
-        const shares = await json<ShareSummary[]>(await b.call('/api/shares', opts));
+        const shares = await ok<ShareSummary[]>(await b.call('/api/shares', opts));
         expect(shares.some((s) => s.id === share.id)).toBe(false);
       }
 
       // Nothing changed, and A still has full access.
       const opts = learn ? { learn } : {};
-      const after = await json<TreeDetail>(await a.call(`/api/trees/${treeId}`, opts));
+      const after = await ok<TreeDetail>(await a.call(`/api/trees/${treeId}`, opts));
       expect(after.tree.title).toBe('Mine');
       expect(after.branches).toHaveLength(1);
       expect(after.branches[0]!.title).toBe(trunk.title);
       expect(after.nodes).toHaveLength(2);
       expect(after.links).toEqual([link]);
-      const aShares = await json<ShareSummary[]>(await a.call('/api/shares', opts));
+      const aShares = await ok<ShareSummary[]>(await a.call('/api/shares', opts));
       expect(aShares.find((s) => s.id === share.id)).toMatchObject({
         state: 'active',
         title: null,
       });
-      const renamed = await json<Branch>(
+      const renamed = await ok<Branch>(
         await a.call(`/api/branches/${trunk.id}`, {
           method: 'PATCH',
           json: { title: 'Primes' },
@@ -352,7 +419,7 @@ describe('ownership across users', () => {
         }),
       );
       expect(renamed.title).toBe('Primes');
-      const child = await json<Branch>(
+      const child = await ok<Branch>(
         await a.call('/api/branches', {
           method: 'POST',
           json: { fromNodeId: assistant.id },
@@ -380,7 +447,7 @@ describe('Learn mode on paid credit', () => {
       ],
       [
         `/api/nodes/${assistant.id}/review`,
-        { method: 'POST', json: { providerId: 'openrouter', model: 'smart' } },
+        { method: 'POST', json: { providerId: 'openrouter', model: 'max' } },
       ],
       [`/api/branches/${trunk.id}/context?resolve=true`, {}],
     ] as [string, CallInit][]) {
@@ -430,12 +497,116 @@ describe('Learn mode on paid credit', () => {
     }
   });
 
+  it('parallel sends on credit for one hold: exactly one is reserved, the rest get 402', async () => {
+    // Each reply's hold is taken in one conditional statement before its nodes are written,
+    // so sends racing on different trees (different Durable Objects) can't all pass.
+    const u = await newUser(authEnv({ POOL_ENABLED: 'false' }));
+    const trunks = await Promise.all(
+      Array.from({ length: 5 }, async () => (await treeWithNodes(u, 'credit')).trunk),
+    );
+    await grantCredit(env.DB, {
+      accountId: u.learn.accountId,
+      kind: 'adjustment',
+      amountMicros: USAGE_HOLD_MICROS,
+      providerRef: null,
+      note: 'one hold',
+    });
+    const responses = await Promise.all(
+      trunks.map((t) =>
+        u.call(`/api/branches/${t.id}/messages`, {
+          method: 'POST',
+          json: { content: 'Explain primes' },
+          learn: 'credit',
+        }),
+      ),
+    );
+    const statuses = responses.map((r) => r.status).sort();
+    expect(statuses).toEqual([200, 402, 402, 402, 402]);
+    for (const r of responses) {
+      if (r.status === 402) expect(await errorCode(r)).toBe('payment_required');
+      else await r.text();
+    }
+    // Nothing was written on the refused trees.
+    const replies = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM usage_events WHERE account_id = ?1 AND purpose = 'reply'",
+    )
+      .bind(u.learn.accountId)
+      .first<{ n: number }>();
+    expect(replies?.n).toBe(1);
+  });
+
+  /** Learn on credit with Max at Sonnet's price, the pool off (a spent balance would move to it). */
+  const priceyMax = () =>
+    authEnv({
+      POOL_ENABLED: 'false',
+      MODEL_PRICES: JSON.stringify({
+        normal: { in: 10_000, out: 10_000, context: 1_048_576 },
+        max: { in: 2_000_000, out: 10_000_000, context: 1_000_000 },
+      }),
+    });
+  const grant = (accountId: string, amountMicros: number) =>
+    grantCredit(env.DB, { accountId, kind: 'adjustment', amountMicros, providerRef: null });
+
+  it('a reply its balance cannot cover is a 402 naming what it needs, before any node is written', async () => {
+    const u = await newUser(priceyMax());
+    const { detail, trunk, assistant } = await treeWithNodes(u, 'credit', { model: 'max' });
+    await grant(u.learn.accountId, 100_000);
+    const res = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+      learn: 'credit',
+    });
+    expect(res.status).toBe(402);
+    const error = ((await res.json()) as ApiError).error;
+    expect(error.code).toBe('payment_required');
+    expect(error.message).toMatch(
+      /^This reply needs about \$0\.[1-9]\d of Tangent credit available\./,
+    );
+    const nodes = await ok<TreeDetail>(
+      await u.call(`/api/trees/${detail.tree.id}`, { learn: 'credit' }),
+    );
+    expect(nodes.nodes).toHaveLength(2);
+    // A review on Max, which streams from the Worker, is refused the same way, up front.
+    const review = await u.call(`/api/nodes/${assistant.id}/review`, {
+      method: 'POST',
+      json: { providerId: 'openrouter', model: 'max' },
+      learn: 'credit',
+    });
+    expect(review.status).toBe(402);
+    expect(((await review.json()) as ApiError).error.message).toMatch(/^This reply needs about/);
+    // And a compare answer on Max.
+    const candidate = await u.call(`/api/branches/${trunk.id}/candidates`, {
+      method: 'POST',
+      json: { content: 'Explain primes', model: 'max' },
+      learn: 'credit',
+    });
+    expect(candidate.status).toBe(402);
+    expect(((await candidate.json()) as ApiError).error.message).toMatch(/^This reply needs about/);
+    // Enough for it: the send streams, and its usage row names the reply's node.
+    await grant(u.learn.accountId, 1_000_000);
+    const sent = await u.call(`/api/branches/${trunk.id}/messages`, {
+      method: 'POST',
+      json: { content: 'Explain primes' },
+      learn: 'credit',
+    });
+    expect(sent.status).toBe(200);
+    const events = parseSse(await sent.text());
+    expect(events.at(-1)?.type).toBe('done');
+    const start = events[0] as Extract<StreamEvent, { type: 'start' }>;
+    const row = await env.DB.prepare(
+      "SELECT node_id, status FROM usage_events WHERE account_id = ?1 AND purpose = 'reply'",
+    )
+      .bind(u.learn.accountId)
+      .first<{ node_id: string | null; status: string }>();
+    expect(row).toEqual({ node_id: start.assistantNode.id, status: 'settled' });
+  });
+
   it('is hidden without billing: credit falls back to the own-key mode', async () => {
     const e = authEnv({ PAYMENT_PROVIDER: 'polar' });
     const u = await newUser(e);
     expect(u.learn).toMatchObject({ mode: 'simple', operatorKeys: false, builtInCredit: false });
     const res = await u.call('/api/billing', { learn: 'credit' });
-    expect(await json<{ enabled: boolean }>(res)).toMatchObject({ enabled: false });
+    expect(await ok<{ enabled: boolean }>(res)).toMatchObject({ enabled: false });
   });
 
   it('billing answers in power mode too, with the same per-user credit', async () => {
@@ -447,7 +618,7 @@ describe('Learn mode on paid credit', () => {
       providerRef: null,
     });
     for (const learn of [undefined, 'credit', 'own-key'] as const) {
-      const summary = await json<BillingSummary>(
+      const summary = await ok<BillingSummary>(
         await u.call('/api/billing', learn ? { learn } : {}),
       );
       expect(summary).toMatchObject({ builtInCredit: true, balanceMicros: 1_500_000 });
@@ -469,7 +640,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
 
   it('lists the built-in endpoint on credit after the own providers, with open models, when it is offered', async () => {
     const u = await newUser();
-    const providers = await json<ProviderInfo[]>(await u.call('/api/providers'));
+    const providers = await ok<ProviderInfo[]>(await u.call('/api/providers'));
     expect(providers.map((p) => p.id)).toEqual(['fake', 'slow', 'ant', 'openrouter']);
     expect(providers.at(-1)).toMatchObject({
       id: 'openrouter',
@@ -479,8 +650,8 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       acceptsUserKey: false,
       openModels: true,
       models: [
-        { id: 'smart', label: 'Max (suggested)', tier: 'max' },
-        { id: 'simple', label: 'Normal (suggested)', tier: 'normal' },
+        { id: 'max', label: 'Max (suggested)', tier: 'max' },
+        { id: 'normal', label: 'Normal (suggested)', tier: 'normal' },
       ],
     });
     expect(providers.filter((p) => p.openModels).map((p) => p.id)).toEqual(['openrouter']);
@@ -488,11 +659,11 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
     // Not offered without billing, or without the operator's key.
     for (const e of [
       authEnv({ PAYMENT_PROVIDER: 'polar' }),
-      authEnv({ SIMPLE_PROVIDER: '', OPENROUTER_SIMPLE_API_KEY: '' }),
+      authEnv({ BUILT_IN_PROVIDER: '', BUILT_IN_API_KEY: '' }),
     ]) {
       const v = await newUser(e);
       expect(v.power.builtInCredit).toBe(false);
-      const ids = (await json<ProviderInfo[]>(await v.call('/api/providers'))).map((p) => p.id);
+      const ids = (await ok<ProviderInfo[]>(await v.call('/api/providers'))).map((p) => p.id);
       expect(ids).toEqual(['fake', 'slow', 'ant']);
     }
   });
@@ -500,7 +671,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
   it("meters sends on Tangent credit to the user's ledger u_<userId>; BYOK sends are not metered", async () => {
     const u = await newUser();
     const userId = u.power.accountId.slice(2);
-    const onTangent = await powerTree(u, CREDIT, 'smart');
+    const onTangent = await powerTree(u, CREDIT, 'max');
     const send = (branchId: string) =>
       u.call(`/api/branches/${branchId}/messages`, {
         method: 'POST',
@@ -532,7 +703,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
     expect(parseSse(await free.text()).at(-1)?.type).toBe('done');
     expect(await usageRows(`u_${userId}`)).toBe(metered);
 
-    const billing = await json<BillingSummary>(await u.call('/api/billing'));
+    const billing = await ok<BillingSummary>(await u.call('/api/billing'));
     expect(billing.balanceMicros).toBeLessThan(1_000_000);
   });
 
@@ -546,7 +717,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
         json: { ...route, model },
       });
     expect((await review({ providerId: 'fake' }, 'fake-1')).status).toBe(200);
-    const onCredit = await review(CREDIT, 'smart');
+    const onCredit = await review(CREDIT, 'max');
     expect(onCredit.status).toBe(402);
     expect(await errorCode(onCredit)).toBe('payment_required');
     await grantCredit(env.DB, {
@@ -555,11 +726,11 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       amountMicros: 1_000_000,
       providerRef: null,
     });
-    expect((await review(CREDIT, 'smart')).status).toBe(200);
+    expect((await review(CREDIT, 'max')).status).toBe(200);
     expect(await usageRows(`u_${userId}`)).toBe(1);
   });
 
-  it('caps metered calls in flight per user (USAGE_MAX_PENDING, 3): 429, no new row; BYOK is not capped', async () => {
+  it('caps metered calls in flight per user (USAGE_MAX_PENDING, 6, as many as canvas fans out): 429, no new row; BYOK is not capped', async () => {
     const u = await newUser();
     const ledger = u.learn.accountId;
     await grantCredit(env.DB, {
@@ -568,21 +739,19 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       amountMicros: 1_000_000,
       providerRef: null,
     });
-    const onTangent = await powerTree(u, CREDIT, 'smart');
+    const onTangent = await powerTree(u, CREDIT, 'max');
     const own = await powerTree(u, { providerId: 'fake' }, 'fake-1');
     const send = (branchId: string) =>
       u.call(`/api/branches/${branchId}/messages`, {
         method: 'POST',
         json: { content: 'Explain primes' },
       });
-    // Two calls still in flight (e.g. in the other app): one more may start.
-    const inFlight = [
-      await insertUsage(env, { accountId: ledger }),
-      await insertUsage(env, { accountId: ledger }),
-    ];
-    const ok = await send(onTangent.trunk.id);
-    expect(ok.status).toBe(200);
-    expect(parseSse(await ok.text()).at(-1)?.type).toBe('done');
+    // Five calls still in flight (canvas's other lanes, or the other app): one more may start.
+    const inFlight: string[] = [];
+    for (let i = 0; i < 5; i++) inFlight.push(await insertUsage(env, { accountId: ledger }));
+    const sent = await send(onTangent.trunk.id);
+    expect(sent.status).toBe(200);
+    expect(parseSse(await sent.text()).at(-1)?.type).toBe('done');
 
     inFlight.push(await insertUsage(env, { accountId: ledger }));
     const rows = await usageRows(ledger);
@@ -600,7 +769,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
 
   it("a review of a reply on Tangent credit needs credit whoever reviews: its summaries run on the branch's route", async () => {
     const u = await newUser();
-    const { assistant } = await powerTree(u, CREDIT, 'smart');
+    const { assistant } = await powerTree(u, CREDIT, 'max');
     const res = await u.call(`/api/nodes/${assistant.id}/review`, {
       method: 'POST',
       json: { providerId: 'fake', model: 'fake-1' },
@@ -617,7 +786,7 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       amountMicros: 1_000_000,
       providerRef: null,
     });
-    const power = await powerTree(u, CREDIT, 'smart');
+    const power = await powerTree(u, CREDIT, 'max');
     const learn = await treeWithNodes(u, 'credit');
     const resolve = (branchId: string, init: CallInit = {}) =>
       u.call(`/api/branches/${branchId}/context?resolve=true`, init);
@@ -640,13 +809,18 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
       amountMicros: 1_000_000,
       providerRef: null,
     });
+    // Credit holds each call at its model's price: the daily sync stores every listed model's.
+    await env.DB.prepare(
+      `INSERT OR REPLACE INTO model_prices (model, in_micros_per_mtok, out_micros_per_mtok, fetched_at)
+       VALUES ('vendor/any-model:free', 0, 0, '2026-01-01T00:00:00.000Z')`,
+    ).run();
     const open = await powerTree(u, CREDIT, 'vendor/any-model:free');
-    const ok = await u.call(`/api/branches/${open.trunk.id}/messages`, {
+    const sent = await u.call(`/api/branches/${open.trunk.id}/messages`, {
       method: 'POST',
       json: { content: 'hi' },
     });
-    expect(ok.status).toBe(200);
-    expect(parseSse(await ok.text()).at(-1)?.type).toBe('done');
+    expect(sent.status).toBe(200);
+    expect(parseSse(await sent.text()).at(-1)?.type).toBe('done');
     const row = await env.DB.prepare('SELECT model FROM usage_events WHERE account_id = ?1')
       .bind(u.learn.accountId)
       .first<{ model: string }>();
@@ -655,6 +829,8 @@ describe('power mode with the built-in provider (Tangent credit)', () => {
     for (const [route, model] of [
       [CREDIT, 'not a model id'],
       [{ providerId: 'fake' }, 'vendor/any-model:free'],
+      // No price known: it can't be held, so it can't run on credit.
+      [CREDIT, 'vendor/unpriced-model'],
     ] as const) {
       const t = await powerTree(u, route, model);
       const res = await u.call(`/api/branches/${t.trunk.id}/messages`, {
@@ -678,12 +854,12 @@ describe('membership', () => {
     });
 
   /** The three generating requests on `owner`'s tree (power on the keyless fake provider, or Learn). */
-  async function generating(owner: User, learn?: LearnPayment) {
+  async function generating(owner: User, learn?: Payer) {
     const { trunk, assistant } = learn
       ? await treeWithNodes(owner, learn)
       : await treeWithNodes(owner, undefined, { providerId: 'fake', model: 'fake-1' });
     const review = learn
-      ? { providerId: 'openrouter', model: 'smart' }
+      ? { providerId: 'openrouter', model: 'max' }
       : { providerId: 'fake', model: 'fake-1' };
     return {
       trunk,
@@ -705,7 +881,6 @@ describe('membership', () => {
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
-        includedCreditCents: 0,
       } satisfies MembershipInfo);
     }
     const u = await newUser(memberEnv());
@@ -764,7 +939,7 @@ describe('membership', () => {
     const u = await newUser(memberEnv({ POOL_ENABLED: 'false' }));
     await insertSubscription(env, u.power.accountId.slice(2), 'past_due');
     expect(
-      (await json<MeResponse>(await u.call('/api/me', { learn: 'credit' }))).membership,
+      (await ok<MeResponse>(await u.call('/api/me', { learn: 'credit' }))).membership,
     ).toMatchObject({ required: true, status: 'active', subscriptionStatus: 'past_due' });
     const { requests } = await generating(u);
     const res = await u.call(...requests[0]!);
@@ -787,7 +962,7 @@ describe('membership', () => {
       json: { code: 'guess' },
     });
     expect(wrong.status).toBe(403);
-    const info = await json<MembershipInfo>(
+    const info = await ok<MembershipInfo>(
       await u.call('/api/billing/membership/waiver', {
         method: 'POST',
         json: { code: WAIVER },
@@ -795,7 +970,7 @@ describe('membership', () => {
       }),
     );
     expect(info).toMatchObject({ required: true, status: 'waived' });
-    expect((await json<MeResponse>(await u.call('/api/me'))).membership.status).toBe('waived');
+    expect((await ok<MeResponse>(await u.call('/api/me'))).membership.status).toBe('waived');
     const { requests } = await generating(u);
     const res = await u.call(...requests[1]!);
     expect(res.status).toBe(200);
@@ -803,22 +978,22 @@ describe('membership', () => {
 });
 
 describe("Learn mode on the user's own OpenRouter key", () => {
-  /** The real shape of the built-in provider: OpenRouter-like, on the operator's OPENROUTER_SIMPLE_API_KEY. */
+  /** The real shape of the built-in provider: OpenRouter-like, on the operator's BUILT_IN_API_KEY. */
   const ownKeyEnv = () =>
     authEnv({
-      SIMPLE_PROVIDER: JSON.stringify({
+      BUILT_IN_PROVIDER: JSON.stringify({
         id: 'openrouter',
         kind: 'anthropic',
         label: 'Tangent',
         baseUrl: MOCK_UPSTREAM,
-        apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
-        defaultModel: 'smart',
+        apiKeySecret: 'BUILT_IN_API_KEY',
+        defaultModel: 'max',
         models: [
-          { id: 'smart', label: 'Max', tier: 'max' },
-          { id: 'simple', label: 'Normal', tier: 'normal' },
+          { id: 'max', label: 'Max', tier: 'max' },
+          { id: 'normal', label: 'Normal', tier: 'normal' },
         ],
       }),
-      OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR-0123',
+      BUILT_IN_API_KEY: 'sk-ant-goodOPERATOR-0123',
     });
 
   it('sends without credit and without metering (the Durable Object path)', async () => {
@@ -857,15 +1032,15 @@ describe("Learn mode on the user's own OpenRouter key", () => {
     const u = await newUser(ownKeyEnv());
     expect(u.learn.builtInCredit).toBe(true);
     const { assistant } = await treeWithNodes(u, 'own-key');
-    const send = (learn: LearnPayment = 'own-key') =>
+    const send = (learn: Payer = 'own-key') =>
       u.call(`/api/nodes/${assistant.id}/review`, {
         method: 'POST',
-        json: { providerId: 'openrouter', model: 'smart' },
+        json: { providerId: 'openrouter', model: 'max' },
         learn,
       });
 
     // No key yet: asked for one (not 402), and the operator's key is not offered.
-    const providers = await json<ProviderInfo[]>(
+    const providers = await ok<ProviderInfo[]>(
       await u.call('/api/providers', { learn: 'own-key' }),
     );
     expect(providers).toEqual([
@@ -889,7 +1064,7 @@ describe("Learn mode on the user's own OpenRouter key", () => {
     });
     expect(saved.status, await saved.text()).toBe(204);
     expect(
-      await json<{ providers: string[] }>(await u.call('/api/key/status', { learn: 'own-key' })),
+      await ok<{ providers: string[] }>(await u.call('/api/key/status', { learn: 'own-key' })),
     ).toMatchObject({ hasKey: true, providers: ['openrouter'] });
 
     // No credit at all, yet the send streams, on the user's key.
@@ -933,13 +1108,13 @@ describe('power-mode server keys', () => {
           kind: 'anthropic',
           label: 'Leak',
           baseUrl: MOCK_UPSTREAM,
-          apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
+          apiKeySecret: 'BUILT_IN_API_KEY',
           defaultModel: 'claude-test',
           models: [{ id: 'claude-test', label: 'Claude Test' }],
         },
       ]),
       ANTHROPIC_API_KEY: 'sk-ant-goodSERVER-0123',
-      OPENROUTER_SIMPLE_API_KEY: 'sk-ant-goodOPERATOR-0123',
+      BUILT_IN_API_KEY: 'sk-ant-goodOPERATOR-0123',
     });
 
   /** A review streams from the Worker, so it runs with this env (see the Learn own-key test). */
@@ -957,7 +1132,7 @@ describe('power-mode server keys', () => {
   it('a signed-in user never spends them and is asked for their own key', async () => {
     const u = await newUser(serverKeyEnv(), 'owner@example.com');
     expect(u.power.operatorKeys).toBe(false);
-    const providers = await json<ProviderInfo[]>(await u.call('/api/providers'));
+    const providers = await ok<ProviderInfo[]>(await u.call('/api/providers'));
     for (const id of ['srv', 'leak']) {
       expect(providers.find((p) => p.id === id)).toMatchObject({
         available: false,
@@ -986,15 +1161,15 @@ describe('power-mode server keys', () => {
       BETTER_AUTH_SECRET: '',
       DEV_ALLOW_NO_AUTH: 'true',
     } as AppEnv;
-    const me = await json<MeResponse>(await dev.call('/api/me', {}, devEnv));
+    const me = await ok<MeResponse>(await dev.call('/api/me', {}, devEnv));
     expect(me).toMatchObject({ devMode: true, mode: 'power', operatorKeys: true });
-    const providers = await json<ProviderInfo[]>(await dev.call('/api/providers', {}, devEnv));
+    const providers = await ok<ProviderInfo[]>(await dev.call('/api/providers', {}, devEnv));
     expect(providers.find((p) => p.id === 'srv')).toMatchObject({
       available: true,
       keySource: 'server',
     });
     expect(providers.find((p) => p.id === 'leak')).toMatchObject({ available: false });
-    const detail = await json<TreeDetail>(
+    const detail = await ok<TreeDetail>(
       await dev.call(
         '/api/trees',
         { method: 'POST', json: { title: 'Dev', providerId: 'srv', model: 'claude-test' } },
@@ -1034,14 +1209,14 @@ describe('account deletion', () => {
     const { detail: powerTree } = await treeWithNodes(a);
     const { detail: learnTree } = await treeWithNodes(a, 'credit');
     const { detail: otherTree } = await treeWithNodes(other);
-    const share = await json<ShareSummary>(
+    const share = await ok<ShareSummary>(
       await a.call('/api/shares', {
         method: 'POST',
         json: { treeId: powerTree.tree.id, scope: 'tree' },
       }),
       201,
     );
-    await json(await a.call('/api/settings', { method: 'PATCH', json: { systemPrompt: 'Mine' } }));
+    await ok(await a.call('/api/settings', { method: 'PATCH', json: { systemPrompt: 'Mine' } }));
     await grantCredit(env.DB, {
       accountId: a.learn.accountId,
       kind: 'adjustment',
@@ -1080,7 +1255,6 @@ describe('account deletion', () => {
       ['trees', 'account_id'],
       ['shares', 'account_id'],
       ['account_settings', 'account_id'],
-      ['accounts', 'id'],
     ] as const) {
       expect(
         await count(`SELECT COUNT(*) AS n FROM ${table} WHERE ${column} IN (?1, ?2)`, ...ids),
@@ -1163,6 +1337,6 @@ describe('account deletion', () => {
 
     const second = await newUser(authEnv(), email);
     expect(second.power.accountId).not.toBe(first.power.accountId);
-    expect(await json<TreeSummary[]>(await second.call('/api/trees'))).toEqual([]);
+    expect(await ok<TreeSummary[]>(await second.call('/api/trees'))).toEqual([]);
   });
 });

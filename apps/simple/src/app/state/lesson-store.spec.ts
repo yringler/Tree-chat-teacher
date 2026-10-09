@@ -12,125 +12,47 @@ import type {
   ChatNode,
   CreateBranchRequest,
   CreateLinkRequest,
+  MeResponse,
   NodeLink,
   ProviderInfo,
-  StreamEvent,
   TreeBackup,
   TreeBackupInput,
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
-import { POOL_NOTICE_VERSION } from '@tangent/shared';
-import { ApiClient, ApiError, SAVE_FILE } from '@tangent/web-shared';
+import {
+  ApiClient,
+  ApiError,
+  ComposerController,
+  SAVE_FILE,
+  ToastStore,
+  type PoolBlock,
+} from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
 import { COMPARE_OUT_OF_DATE_MESSAGE, LessonStore, OUT_OF_CREDIT_MESSAGE } from './lesson-store';
-import { PaymentStore } from './payment-store';
+import { LearnFunding } from './learn-funding';
+import { PaymentChoice } from './payment-choice';
 import { UiStore } from './ui-store';
+import * as fixtures from '@tangent/web-shared/testing';
+import { controlledStream, link, node, stream, T } from '@tangent/web-shared/testing';
 
-const T = '2026-01-01T00:00:00.000Z';
+/** A branch on Normal's model, Learn's default. */
+const branch = (id: string, over: Partial<Branch> = {}): Branch =>
+  fixtures.branch(id, { model: 'normal-model', ...over });
 
-function branch(id: string, over: Partial<Branch> = {}): Branch {
-  return {
-    id,
-    treeId: 't1',
-    parentBranchId: null,
-    branchPointNodeId: null,
-    contextMode: 'path',
-    anchorQuote: null,
-    title: id,
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'openrouter',
-    model: 'normal-model',
-    funding: 'own-key',
-    createdAt: T,
-    updatedAt: T,
-    ...over,
-  };
-}
-
-function node(id: string, over: Partial<ChatNode> = {}): ChatNode {
-  return {
-    id,
-    treeId: 't1',
-    branchId: 'trunk',
-    parentId: null,
-    seq: 0,
-    role: 'assistant',
-    content: '',
-    status: 'complete',
-    error: null,
-    providerId: null,
-    model: null,
-    usage: null,
-    createdAt: T,
-    ...over,
-  };
-}
-
-function link(
-  id: string,
-  sourceNodeId: string,
-  targetNodeId: string,
-  note: string | null = null,
-): NodeLink {
-  return {
-    id,
-    treeId: 't1',
-    sourceNodeId,
-    targetNodeId,
-    note,
-    origin: 'user',
-    createdAt: T,
-    updatedAt: T,
-  };
-}
-
-function detail(
+/** The lesson "Photosynthesis". */
+const detail = (
   nodes: ChatNode[] = [],
   branches: Branch[] = [branch('trunk')],
   links: NodeLink[] = [],
-): TreeDetail {
-  return {
-    tree: {
-      id: 't1',
-      accountId: 'u_1',
-      title: 'Photosynthesis',
-      systemPrompt: null,
-      trunkBranchId: 'trunk',
-      createdAt: T,
-      updatedAt: T,
-    },
-    branches,
-    nodes,
-    links,
-  };
-}
+): TreeDetail => fixtures.detail(nodes, branches, links, { title: 'Photosynthesis' });
 
-const sse = (events: StreamEvent[]): string =>
-  events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
-
-/** A stream response that emits `events` and then closes. */
-function stream(events: StreamEvent[]): Response {
-  return new Response(sse(events), { headers: { 'content-type': 'text/event-stream' } });
-}
-
-/** A stream response the test drives: `push` more events, then `close`. */
-function controlledStream(first: StreamEvent[]) {
-  const enc = new TextEncoder();
-  let ctrl!: ReadableStreamDefaultController<Uint8Array>;
-  const body = new ReadableStream<Uint8Array>({
-    start(c) {
-      ctrl = c;
-      c.enqueue(enc.encode(sse(first)));
-    },
-  });
-  return {
-    response: new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
-    push: (events: StreamEvent[]) => ctrl.enqueue(enc.encode(sse(events))),
-    close: () => ctrl.close(),
-  };
+/** The composer controller, its calls recorded. */
+function spyComposer(c: ComposerController): ComposerController {
+  vi.spyOn(c, 'sent');
+  vi.spyOn(c, 'focus');
+  return c;
 }
 
 const PROVIDER: ProviderInfo = {
@@ -157,7 +79,6 @@ const BILLING: BillingSummary = {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
-    includedCreditCents: 0,
   },
   builtInCredit: true,
   currency: 'usd',
@@ -204,10 +125,6 @@ function fakeApi() {
     poolMe: vi.fn(async () => {
       throw new Error('not needed');
     }),
-    poolConsent: vi.fn(async (version: number) => ({
-      version,
-      acknowledgedAt: T,
-    })),
     backup: vi.fn(async (_id: string): Promise<TreeBackup> => backupOf(detail())),
     importBackup: vi.fn(async (_backup: TreeBackupInput) => detail()),
     createLink: vi.fn(async (req: CreateLinkRequest) => ({
@@ -265,8 +182,6 @@ const POOL_STATUS: PoolStatusResponse = {
   availableMicros: 0,
   sessionsRemaining: 0,
   model: { id: 'lite-model', label: 'Lite' },
-  week: { start: T, exchanges: 0, learners: 0 },
-  revenueShareBps: 2000,
 };
 
 function setup() {
@@ -277,8 +192,11 @@ function setup() {
     providers: [
       { provide: LessonStore },
       { provide: UiStore },
+      { provide: ComposerController },
+      { provide: ToastStore },
       { provide: AccountStore },
-      { provide: PaymentStore },
+      { provide: PaymentChoice },
+      { provide: LearnFunding },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: router },
       { provide: SAVE_FILE, useValue: saveFile },
@@ -286,7 +204,9 @@ function setup() {
   });
   const store = injector.get(LessonStore);
   const ui = injector.get(UiStore);
-  return { store, ui, api, router, injector, saveFile };
+  const composer = spyComposer(injector.get(ComposerController));
+  const toasts = injector.get(ToastStore);
+  return { store, ui, composer, toasts, api, router, injector, saveFile };
 }
 
 /** Opens lesson t1 at `branchId` and waits for it to load. */
@@ -321,23 +241,49 @@ describe('LessonStore', () => {
     expect(s.store.treesLoaded()).toBe(true);
   });
 
+  it('hands the payer the server used, from the start event, to the "Paid by" pill', async () => {
+    const s = setup();
+    await open(s, detail());
+    const funding = s.injector.get(LearnFunding);
+    expect(funding.paidBy().payer).not.toBe('pool');
+    s.api.sendMessage.mockResolvedValue(
+      controlledStream([
+        {
+          type: 'start',
+          userNode,
+          assistantNode: replyNode,
+          branch: branch('trunk'),
+          funding: 'pool',
+        },
+      ]).response,
+    );
+    void s.store.send('trunk', 'What is light?');
+    await vi.waitFor(() => expect(funding.paidBy().payer).toBe('pool'));
+  });
+
   it('applies start, status, delta and done events to the open lesson', async () => {
     const s = setup();
     await open(s, detail());
     const live = controlledStream([
-      { type: 'start', userNode, assistantNode: replyNode, branch: branch('trunk') },
+      {
+        type: 'start',
+        userNode,
+        assistantNode: replyNode,
+        branch: branch('trunk'),
+        funding: 'credit',
+      },
       { type: 'status', message: 'Thinking…' },
     ]);
     s.api.sendMessage.mockResolvedValue(live.response);
     const sending = s.store.send('trunk', 'What is light?');
     expect(s.store.busy()).toBe(true);
     // The composer keeps the text until the message is in the lesson.
-    expect(s.ui.composerSent()).toBeNull();
+    expect(s.composer.sent).not.toHaveBeenCalled();
 
     await vi.waitFor(() => expect(s.store.live().get('a1')?.status).toBe('Thinking…'));
-    expect(s.ui.composerSent()).toEqual({ seq: 1, text: 'What is light?' });
+    expect(s.composer.sent).toHaveBeenCalledWith('trunk', 'What is light?');
     expect(s.store.streamingNode()?.id).toBe('a1');
-    expect(s.store.sendingBranchId()).toBeNull();
+    expect(s.store.sending().size).toBe(0);
 
     live.push([
       { type: 'delta', nodeId: 'a1', text: 'Light is ' },
@@ -373,95 +319,6 @@ describe('LessonStore', () => {
     expect(s.api.listTrees).toHaveBeenCalled();
   });
 
-  it('Stop cancels on the server; the closing error event ends the reply', async () => {
-    const s = setup();
-    await open(s, detail());
-    const live = controlledStream([
-      { type: 'start', userNode, assistantNode: replyNode, branch: branch('trunk') },
-      { type: 'delta', nodeId: 'a1', text: 'Li' },
-    ]);
-    s.api.sendMessage.mockResolvedValue(live.response);
-    s.api.cancelNode.mockImplementation(async (id: string) => {
-      live.push([
-        {
-          type: 'error',
-          nodeId: id,
-          message: 'Cancelled',
-          node: { ...replyNode, status: 'error', error: 'Cancelled', content: 'Li' },
-        },
-      ]);
-      live.close();
-    });
-    const sending = s.store.send('trunk', 'What is light?');
-    await vi.waitFor(() => expect(s.store.live().get('a1')?.content).toBe('Li'));
-
-    await s.store.cancel('a1');
-    await expect(sending).resolves.toBe(true);
-
-    expect(s.api.cancelNode).toHaveBeenCalledWith('a1');
-    expect(s.api.streamNode).not.toHaveBeenCalled();
-    const stopped = s.store.index()?.nodes.get('a1');
-    expect(stopped?.status).toBe('error');
-    expect(stopped?.error).toBe('Cancelled');
-    expect(stopped?.content).toBe('Li');
-    expect(s.store.streamingNode()).toBeNull();
-    expect(s.store.busy()).toBe(false);
-  });
-
-  it('reconnects when the stream drops and finishes from the snapshot', async () => {
-    const s = setup();
-    await open(s, detail());
-    s.api.sendMessage.mockResolvedValue(
-      stream([{ type: 'start', userNode, assistantNode: replyNode, branch: branch('trunk') }]),
-    );
-    s.api.streamNode.mockResolvedValue(
-      stream([
-        { type: 'snapshot', node: { ...replyNode, content: 'Light is' } },
-        { type: 'delta', nodeId: 'a1', text: ' fast.' },
-        {
-          type: 'done',
-          node: { ...replyNode, status: 'complete', content: 'Light is fast.' },
-          branch: branch('trunk'),
-        },
-      ]),
-    );
-    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(true);
-    expect(s.api.streamNode).toHaveBeenCalledWith('a1', expect.any(AbortSignal));
-    expect(s.store.index()?.nodes.get('a1')?.content).toBe('Light is fast.');
-    expect(s.store.live().size).toBe(0);
-  });
-
-  it('marks the reply failed when the connection cannot be recovered', async () => {
-    const s = setup();
-    await open(s, detail());
-    s.api.sendMessage.mockResolvedValue(
-      stream([{ type: 'start', userNode, assistantNode: replyNode, branch: branch('trunk') }]),
-    );
-    s.api.streamNode.mockRejectedValue(new ApiError(404, 'not_found', 'gone'));
-    await s.store.send('trunk', 'What is light?');
-    expect(s.store.index()?.nodes.get('a1')?.status).toBe('error');
-    expect(s.store.busy()).toBe(false);
-    expect(s.ui.toasts().at(-1)?.text).toContain('Lost the connection');
-  });
-
-  it('re-attaches to a reply still generating when a lesson opens', async () => {
-    const s = setup();
-    s.api.streamNode.mockResolvedValue(
-      stream([
-        { type: 'snapshot', node: { ...replyNode, content: 'Half' } },
-        {
-          type: 'done',
-          node: { ...replyNode, status: 'complete', content: 'Half done.' },
-          branch: branch('trunk'),
-        },
-      ]),
-    );
-    await open(s, detail([userNode, replyNode]));
-    await vi.waitFor(() => expect(s.store.index()?.nodes.get('a1')?.content).toBe('Half done.'));
-    expect(s.api.streamNode).toHaveBeenCalledWith('a1', expect.any(AbortSignal));
-    expect(s.store.live().size).toBe(0);
-  });
-
   it('402 on send: offers billing with a toast and keeps the message', async () => {
     const s = setup();
     await open(s, detail());
@@ -471,8 +328,12 @@ describe('LessonStore', () => {
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
 
     expect(s.router.navigate).toHaveBeenCalledWith(['/billing']);
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: OUT_OF_CREDIT_MESSAGE });
-    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: OUT_OF_CREDIT_MESSAGE });
+    expect(s.store.unsentDraft()).toEqual({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'What is light?',
+    });
     expect(s.store.busy()).toBe(false);
     expect(s.store.path()).toEqual([]);
     await vi.waitFor(() => expect(s.api.billing).toHaveBeenCalled());
@@ -495,10 +356,11 @@ describe('LessonStore', () => {
     );
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
 
-    expect(s.ui.accessOpen()).toBe(true);
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error' });
+    expect(s.ui.dialogs.isOpen('access')).toBe(true);
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error' });
     expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
     expect(s.store.unsentDraft()).toEqual({
+      treeId: 't1',
       branchId: 'trunk',
       text: 'What is light?',
       needsKey: true,
@@ -516,15 +378,53 @@ describe('LessonStore', () => {
     );
     // Refused again for another reason: kept, but no longer waiting on a key.
     await vi.waitFor(() =>
-      expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' }),
+      expect(s.store.unsentDraft()).toEqual({
+        treeId: 't1',
+        branchId: 'trunk',
+        text: 'What is light?',
+      }),
     );
     expect(s.store.resumeUnsent()).toBe(false);
   });
 
+  it('switching who pays, from wherever, sends the message the key held back and clears the pool notice', async () => {
+    const s = setup();
+    await open(s, detail());
+    s.api.sendMessage.mockRejectedValueOnce(new ApiError(401, 'key_required', 'Add your key'));
+    await s.store.send('trunk', 'What is light?');
+    expect(s.store.unsentDraft()).toMatchObject({ needsKey: true });
+    s.store.poolBlock.set({
+      kind: 'empty',
+      details: { reason: 'empty', limit: null, resetAt: null },
+      branchId: 'trunk',
+    });
+    const funding = s.injector.get(LearnFunding);
+
+    // The own key needs a key first: nothing is sent yet.
+    expect(funding.switchTo('own-key')).toBe(false);
+    expect(s.store.poolBlock()).toBeNull();
+    expect(s.api.sendMessage).toHaveBeenCalledTimes(1);
+
+    // Credit picked with nothing left and the pool on: replies would use the
+    // pool, which the learner didn't pick, so the message waits for credit.
+    s.injector.get(AccountStore).me.set({
+      userId: 'u1',
+      builtInCredit: true,
+      membership: { ...BILLING.membership, required: false },
+    } as MeResponse);
+    await funding.refreshBalance();
+    await funding.refreshPool();
+    expect(funding.switchTo('credit')).toBe(false);
+    expect(s.api.sendMessage).toHaveBeenCalledTimes(1);
+
+    expect(funding.switchTo('pool')).toBe(true);
+    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(2));
+  });
+
   it('402 membership_required on send: locks the own key, no toast, keeps the message', async () => {
     const s = setup();
-    const account = s.injector.get(AccountStore);
-    account.setMembership({ ...BILLING.membership, required: true, status: 'active' });
+    const funding = s.injector.get(LearnFunding);
+    funding.setMembership({ ...BILLING.membership, required: true, status: 'active' });
     s.api.billing.mockResolvedValue({
       ...BILLING,
       membership: { ...BILLING.membership, required: true, status: 'inactive' },
@@ -535,12 +435,16 @@ describe('LessonStore', () => {
     );
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
 
-    expect(account.membershipBlocked()).toBe(true);
+    expect(funding.membershipBlocked()).toBe(true);
     expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
-    expect(s.ui.toasts()).toEqual([]);
-    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
-    await vi.waitFor(() => expect(account.billing()?.membership.status).toBe('inactive'));
-    expect(account.membershipBlocked()).toBe(true);
+    expect(s.toasts.toasts()).toEqual([]);
+    expect(s.store.unsentDraft()).toEqual({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'What is light?',
+    });
+    await vi.waitFor(() => expect(funding.billing()?.membership.status).toBe('inactive'));
+    expect(funding.membershipBlocked()).toBe(true);
   });
 
   it('402 pool_empty on send: the inline empty state, no toast, no navigation, message kept', async () => {
@@ -557,9 +461,13 @@ describe('LessonStore', () => {
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
 
     expect(s.store.poolBlock()).toEqual({ kind: 'empty', details: empty, branchId: 'trunk' });
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.toasts.toasts()).toEqual([]);
     expect(s.router.navigate).not.toHaveBeenCalled();
-    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
+    expect(s.store.unsentDraft()).toEqual({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'What is light?',
+    });
     // Refused before anything was written: no message in the lesson.
     expect(s.store.path()).toEqual([]);
     expect(s.store.busy()).toBe(false);
@@ -582,7 +490,7 @@ describe('LessonStore', () => {
 
     expect(s.store.poolBlock()).toEqual({ kind: 'cap', details: cap, branchId: 'trunk' });
     expect(s.store.poolBlock()?.details).toMatchObject({ limit: 30, resetAt: cap.resetAt });
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.toasts.toasts()).toEqual([]);
     expect(s.router.navigate).not.toHaveBeenCalled();
     expect(s.store.unsentDraft()?.text).toBe('What is light?');
 
@@ -606,65 +514,10 @@ describe('LessonStore', () => {
       }),
     );
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
-    expect(s.ui.poolVerifyOpen()).toBe(true);
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.ui.dialogs.isOpen('pool-verify')).toBe(true);
+    expect(s.toasts.toasts()).toEqual([]);
     expect(s.store.poolBlock()).toBeNull();
     expect(s.store.unsentDraft()?.text).toBe('What is light?');
-  });
-
-  it('403 pool_consent_required on send: opens the notice, then acknowledging records it and resends', async () => {
-    const s = setup();
-    await open(s, detail());
-    s.api.sendMessage.mockRejectedValueOnce(
-      new ApiError(403, 'pool_consent_required', 'Read the notice', null, {
-        currentVersion: POOL_NOTICE_VERSION,
-      }),
-    );
-    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
-    expect(s.ui.poolConsentVersion()).toBe(POOL_NOTICE_VERSION);
-    expect(s.ui.poolVerifyOpen()).toBe(false);
-    expect(s.ui.toasts()).toEqual([]);
-    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'What is light?' });
-
-    s.api.sendMessage.mockResolvedValueOnce(stream([]));
-    await expect(s.store.acknowledgePoolNotice()).resolves.toBe(true);
-    expect(s.api.poolConsent).toHaveBeenCalledWith(POOL_NOTICE_VERSION);
-    expect(s.ui.poolConsentVersion()).toBeNull();
-    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(2));
-    expect(s.api.sendMessage.mock.calls[1]!.slice(0, 2)).toEqual([
-      'trunk',
-      { content: 'What is light?' },
-    ]);
-  });
-
-  it('a notice that changed meanwhile (409) keeps the dialog open and says to reload', async () => {
-    const s = setup();
-    await open(s, detail());
-    s.ui.poolConsentVersion.set(POOL_NOTICE_VERSION);
-    s.api.poolConsent.mockRejectedValueOnce(new ApiError(409, 'conflict', 'Changed'));
-    await expect(s.store.acknowledgePoolNotice()).resolves.toBe(false);
-    expect(s.ui.poolConsentVersion()).toBe(POOL_NOTICE_VERSION);
-    expect(s.ui.toasts().at(-1)?.text).toMatch(/Reload the page/);
-    expect(s.api.sendMessage).not.toHaveBeenCalled();
-  });
-
-  it('never acknowledges a newer notice version than the text this build shows', async () => {
-    const s = setup();
-    await open(s, detail());
-    const newer = POOL_NOTICE_VERSION + 1;
-    s.api.sendMessage.mockRejectedValueOnce(
-      new ApiError(403, 'pool_consent_required', 'Read the notice', null, {
-        currentVersion: newer,
-      }),
-    );
-    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
-    expect(s.ui.poolConsentVersion()).toBe(newer);
-
-    await expect(s.store.acknowledgePoolNotice()).resolves.toBe(false);
-    expect(s.api.poolConsent).not.toHaveBeenCalled();
-    expect(s.ui.poolConsentVersion()).toBe(newer);
-    expect(s.ui.toasts().at(-1)?.text).toMatch(/Reload the page/);
-    expect(s.api.sendMessage).toHaveBeenCalledTimes(1);
   });
 
   it('other pool_unavailable reasons are reported as a toast', async () => {
@@ -674,8 +527,8 @@ describe('LessonStore', () => {
       new ApiError(403, 'pool_unavailable', 'Open pool access is suspended for this account'),
     );
     await s.store.send('trunk', 'What is light?');
-    expect(s.ui.poolVerifyOpen()).toBe(false);
-    expect(s.ui.toasts().at(-1)).toMatchObject({
+    expect(s.ui.dialogs.isOpen('pool-verify')).toBe(false);
+    expect(s.toasts.toasts().at(-1)).toMatchObject({
       kind: 'error',
       text: 'Open pool access is suspended for this account',
     });
@@ -707,17 +560,21 @@ describe('LessonStore', () => {
     s.api.sendMessage.mockRejectedValue(new ApiError(409, 'conflict', 'Still generating'));
     await expect(s.store.send('trunk', 'Hi')).resolves.toBe(false);
     expect(s.router.navigate).not.toHaveBeenCalled();
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still generating' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still generating' });
     // Nothing was written: the message is offered back, not lost.
-    expect(s.store.unsentDraft()).toEqual({ branchId: 'trunk', text: 'Hi' });
-    expect(s.ui.composerSent()).toBeNull();
+    expect(s.store.unsentDraft()).toEqual({ treeId: 't1', branchId: 'trunk', text: 'Hi' });
+    expect(s.composer.sent).not.toHaveBeenCalled();
   });
 
   it('"Ask about this" branches with the quote, path context and the current model', async () => {
     const s = setup();
     const done = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
     await open(s, detail([userNode, done], [branch('trunk', { model: 'max-model' })]));
-    const created = await s.store.askAbout('a1', 'a wave');
+    const created = await s.store.createBranch({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: 'a wave',
+    });
 
     expect(s.api.createBranch).toHaveBeenCalledWith({
       fromNodeId: 'a1',
@@ -729,7 +586,7 @@ describe('LessonStore', () => {
     expect(created?.id).toBe('side');
     expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't1', 'b', 'side'], { queryParams: {} });
     expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['side']);
-    expect(s.ui.composerFocus()).toBe(1);
+    expect(s.composer.focus).toHaveBeenCalledTimes(1);
 
     // Following the route into the side question; back goes to the branch point.
     s.store.setRoute('t1', 'side', null);
@@ -787,7 +644,7 @@ describe('LessonStore', () => {
     s.api.createBranch.mockRejectedValueOnce(new ApiError(500, 'internal', 'Nope'));
     await expect(s.store.askFrom('a1', 'Why?')).resolves.toBeNull();
     expect(s.api.sendMessage).not.toHaveBeenCalled();
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
   });
 
   it('the Normal/Max toggle updates the branch model', async () => {
@@ -859,7 +716,7 @@ describe('LessonStore', () => {
       expect(s.store.live().size).toBe(0);
       expect(s.store.streamingNode()).toBeNull();
       // The composer lets the question go, and the lesson list is refreshed (auto-title).
-      expect(s.ui.composerSent()).toMatchObject({ text: question });
+      expect(s.composer.sent).toHaveBeenCalledWith(expect.any(String), question);
       await vi.waitFor(() => expect(s.api.listTrees).toHaveBeenCalled());
     });
 
@@ -874,12 +731,12 @@ describe('LessonStore', () => {
       );
 
       await expect(s.store.commitCompare(run, 'normal')).resolves.toBe('out-of-date');
-      expect(s.ui.toasts().at(-1)).toMatchObject({
+      expect(s.toasts.toasts().at(-1)).toMatchObject({
         kind: 'error',
         text: COMPARE_OUT_OF_DATE_MESSAGE,
       });
       expect(s.store.path()).toEqual([]);
-      expect(s.ui.composerSent()).toBeNull();
+      expect(s.composer.sent).not.toHaveBeenCalled();
       expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
     });
 
@@ -891,7 +748,7 @@ describe('LessonStore', () => {
       await run.start();
       s.api.commitCandidate.mockRejectedValue(new ApiError(409, 'conflict', 'Moved on'));
       await expect(s.store.commitCompare(run, 'max')).resolves.toBe('out-of-date');
-      expect(s.ui.toasts().at(-1)?.text).toBe(COMPARE_OUT_OF_DATE_MESSAGE);
+      expect(s.toasts.toasts().at(-1)?.text).toBe(COMPARE_OUT_OF_DATE_MESSAGE);
     });
 
     it('a refusal is reported like a send’s (out of credit: billing)', async () => {
@@ -899,7 +756,10 @@ describe('LessonStore', () => {
       await s.store.init();
       await open(s, detail());
       s.store.compareRefused(new ApiError(402, 'payment_required', 'Too low'));
-      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: OUT_OF_CREDIT_MESSAGE });
+      expect(s.toasts.toasts().at(-1)).toMatchObject({
+        kind: 'error',
+        text: OUT_OF_CREDIT_MESSAGE,
+      });
       expect(s.router.navigate).toHaveBeenCalledWith(['/billing']);
 
       const run = s.store.newCompare('trunk', question)!;
@@ -908,7 +768,7 @@ describe('LessonStore', () => {
         new ApiError(403, 'pool_unavailable', 'Compare isn’t available on the open pool'),
       );
       await expect(s.store.commitCompare(run, 'max')).resolves.toBe('refused');
-      expect(s.ui.toasts().at(-1)?.text).toBe('Compare isn’t available on the open pool');
+      expect(s.toasts.toasts().at(-1)?.text).toBe('Compare isn’t available on the open pool');
       expect(s.store.path()).toEqual([]);
     });
 
@@ -920,7 +780,7 @@ describe('LessonStore', () => {
       await run.start();
       s.api.commitCandidate.mockRejectedValueOnce(new ApiError(503, 'internal', 'Try again'));
       await expect(s.store.commitCompare(run, 'max')).resolves.toBe('failed');
-      expect(s.ui.toasts().at(-1)?.text).toBe('Try again');
+      expect(s.toasts.toasts().at(-1)?.text).toBe('Try again');
       expect(run.committing()).toBe(false);
       s.api.commitCandidate.mockResolvedValue(committed());
       await expect(s.store.commitCompare(run, 'max')).resolves.toBe('kept');
@@ -947,33 +807,6 @@ describe('LessonStore', () => {
         ],
       );
 
-    it('takes the side questions below with it, and leaves the open one for where it started', async () => {
-      const s = setup();
-      await open(s, lesson(), 'deeper');
-      s.store.unsentDraft.set({ branchId: 'deeper', text: 'kept?' });
-      await expect(s.store.deleteSideQuestion('side')).resolves.toBe(true);
-      expect(s.api.deleteBranch).toHaveBeenCalledWith('side');
-      expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1'], {
-        queryParams: { m: 'a1' },
-        replaceUrl: true,
-      });
-      const idx = s.store.index();
-      expect([...(idx?.branches.keys() ?? [])].sort()).toEqual(['other', 'trunk']);
-      expect(idx?.nodes.has('u3')).toBe(false);
-      expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['other']);
-      expect(s.store.unsentDraft()).toBeNull();
-      expect(s.ui.toasts().at(-1)?.text).toBe('Deleted the side question and 1 below it');
-    });
-
-    it('a side question open elsewhere stays open', async () => {
-      const s = setup();
-      await open(s, lesson(), 'other');
-      s.router.navigate.mockClear();
-      await s.store.deleteSideQuestion('side');
-      expect(s.router.navigate).not.toHaveBeenCalled();
-      expect(s.store.selectedBranchId()).toBe('other');
-    });
-
     it('drops the connections touching its messages, and connecting from them', async () => {
       const s = setup();
       const d = lesson();
@@ -982,7 +815,7 @@ describe('LessonStore', () => {
         { ...d, links: [link('l1', 'a1', 'a2'), link('l2', 'u3', 'u4'), link('l3', 'a1', 'u4')] },
         'other',
       );
-      s.ui.linkDialog.set('a2');
+      s.ui.dialogs.open({ kind: 'connect', sourceNodeId: 'a2' });
       s.store.linkReturn.set({
         branchId: 'side',
         nodeId: 'a2',
@@ -992,8 +825,42 @@ describe('LessonStore', () => {
       await expect(s.store.deleteSideQuestion('side')).resolves.toBe(true);
       expect(s.store.links().map((l) => l.id)).toEqual(['l3']);
       expect(s.store.linksByNode().has('a2')).toBe(false);
-      expect(s.ui.linkDialog()).toBeNull();
+      expect(s.ui.dialogs.get('connect')).toBeNull();
       expect(s.store.linkReturn()).toBeNull();
+      // In Learn's words.
+      expect(s.toasts.toasts().at(-1)?.text).toBe('Deleted the side question and 1 below it');
+    });
+
+    it('drops the message left unsent there, and the pool notice, but not those elsewhere', async () => {
+      const s = setup();
+      await open(s, lesson(), 'other');
+      const block: PoolBlock = {
+        kind: 'empty',
+        details: { reason: 'empty', limit: null, resetAt: null },
+      };
+      s.store.unsentDraft.set({ treeId: 't1', branchId: 'side', text: 'Why?' });
+      s.store.poolBlock.set({ ...block, branchId: 'deeper' });
+      await expect(s.store.deleteSideQuestion('side')).resolves.toBe(true);
+      expect(s.store.unsentDraft()).toBeNull();
+      expect(s.store.poolBlock()).toBeNull();
+
+      const t = setup();
+      await open(t, lesson(), 'other');
+      t.store.unsentDraft.set({ treeId: 't1', branchId: 'other', text: 'Why?' });
+      t.store.poolBlock.set({ ...block, branchId: 'other' });
+      await expect(t.store.deleteSideQuestion('side')).resolves.toBe(true);
+      expect(t.store.unsentDraft()?.branchId).toBe('other');
+      expect(t.store.poolBlock()?.branchId).toBe('other');
+    });
+
+    it('says a connection is removed, or was already, in Learn’s words', async () => {
+      const s = setup();
+      await open(s, { ...lesson(), links: [link('l1', 'a1', 'a2'), link('l2', 'u3', 'u4')] });
+      await expect(s.store.deleteLink('l1')).resolves.toBe(true);
+      expect(s.toasts.toasts().at(-1)?.text).toBe('Connection removed');
+      s.api.deleteLink.mockRejectedValueOnce(new ApiError(404, 'not_found', 'Gone'));
+      await s.store.deleteLink('l2');
+      expect(s.toasts.toasts().at(-1)?.text).toBe('That connection was already removed');
     });
 
     it('never deletes the lesson itself; a refusal changes nothing', async () => {
@@ -1006,28 +873,8 @@ describe('LessonStore', () => {
       await expect(s.store.deleteSideQuestion('side')).resolves.toBe(false);
       expect(s.router.navigate).not.toHaveBeenCalled();
       expect(s.store.index()?.branches.size).toBe(4);
-      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still writing' });
+      expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still writing' });
     });
-  });
-
-  it('deleting the open lesson returns home', async () => {
-    const s = setup();
-    s.api.listTrees.mockResolvedValue([
-      {
-        id: 't1',
-        title: 'Photosynthesis',
-        createdAt: T,
-        updatedAt: T,
-        branchCount: 1,
-        messageCount: 0,
-      },
-    ]);
-    await s.store.init();
-    await open(s, detail());
-    await expect(s.store.deleteLesson('t1')).resolves.toBe(true);
-    expect(s.api.deleteTree).toHaveBeenCalledWith('t1');
-    expect(s.store.trees()).toEqual([]);
-    expect(s.router.navigate).toHaveBeenCalledWith(['/']);
   });
   it('Export downloads the lesson as the same JSON backup as power mode, named after it', async () => {
     const s = setup();
@@ -1054,7 +901,7 @@ describe('LessonStore', () => {
     s.api.backup.mockRejectedValue(new ApiError(404, 'not_found', 'Tree not found'));
     await expect(s.store.exportLesson('t1')).resolves.toBe(false);
     expect(s.saveFile).not.toHaveBeenCalled();
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Tree not found' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Tree not found' });
     expect(s.store.exportingId()).toBeNull();
   });
 
@@ -1066,7 +913,7 @@ describe('LessonStore', () => {
     await expect(s.store.importLesson(file)).resolves.toBe(true);
     expect(s.api.importBackup).toHaveBeenCalledWith(backupOf(detail()));
     expect(s.store.trees().map((t) => t.id)).toEqual(['t9']);
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Imported “Imported”' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Imported “Imported”' });
     expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't9']);
     expect(s.store.importing()).toBe(false);
   });
@@ -1079,7 +926,7 @@ describe('LessonStore', () => {
       [new File([''], 'empty.json'), /^empty\.json is empty\.$/],
     ] as const) {
       await expect(s.store.importLesson(file)).resolves.toBe(false);
-      expect(s.ui.toasts().at(-1)).toMatchObject({
+      expect(s.toasts.toasts().at(-1)).toMatchObject({
         kind: 'error',
         text: expect.stringMatching(text),
       });
@@ -1096,7 +943,7 @@ describe('LessonStore', () => {
     );
     const file = new File([JSON.stringify(backupOf(detail()))], 'lesson.json');
     await expect(s.store.importLesson(file)).resolves.toBe(false);
-    expect(s.ui.toasts().at(-1)).toMatchObject({
+    expect(s.toasts.toasts().at(-1)).toMatchObject({
       kind: 'error',
       text: 'Backup must contain exactly one trunk branch',
     });
@@ -1119,18 +966,6 @@ describe('LessonStore', () => {
       expect(s.store.depthOf('trunk')).toBe(0);
     });
 
-    it('appends a required check after the branch\u2019s last reply, quoting the question', async () => {
-      const s = setup();
-      await open(s, detail([userNode, done]));
-      await s.store.checkSources('a1');
-      expect(s.api.createBranch).not.toHaveBeenCalled();
-      expect(s.api.sendMessage).toHaveBeenCalledWith(
-        'trunk',
-        { content: 'Check your last answer against sources: "What is light?"', ground: 'required' },
-        expect.any(AbortSignal),
-      );
-    });
-
     it('checks an earlier reply in a side question', async () => {
       const s = setup();
       await open(s, detail([userNode, done, ...later]));
@@ -1142,6 +977,26 @@ describe('LessonStore', () => {
           contextMode: 'path',
         }),
       );
+      expect(s.api.sendMessage).toHaveBeenCalledWith(
+        'side',
+        expect.objectContaining({ ground: 'required' }),
+        expect.any(AbortSignal),
+      );
+    });
+
+    it('on the last reply of the branch a side question started from, opens a side question', async () => {
+      const s = setup();
+      const asked = branch('asked', { parentBranchId: 'trunk', branchPointNodeId: 'a1' });
+      const own = [
+        node('u2', { seq: 2, parentId: 'a1', branchId: 'asked', role: 'user' }),
+        node('a2', { seq: 3, parentId: 'u2', branchId: 'asked' }),
+      ];
+      await open(s, detail([userNode, done, ...own], [branch('trunk'), asked]), 'asked');
+      await s.store.checkSources('a1');
+      expect(s.api.createBranch).toHaveBeenCalledWith(
+        expect.objectContaining({ fromNodeId: 'a1', title: 'Checking sources' }),
+      );
+      expect(s.api.sendMessage).toHaveBeenCalledTimes(1);
       expect(s.api.sendMessage).toHaveBeenCalledWith(
         'side',
         expect.objectContaining({ ground: 'required' }),
@@ -1189,82 +1044,17 @@ describe('LessonStore', () => {
           .get('s2')
           ?.map((l) => l.id),
       ).toEqual(['l-new']);
-      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Connected' });
-    });
-
-    it('an already connected pair answers with the existing connection, not a second one', async () => {
-      const s = setup();
-      await open(s, lesson([link('l1', 's2', 'a1')]));
-      s.api.createLink.mockResolvedValue({ link: link('l1', 's2', 'a1'), created: false });
-      await s.store.createLink('a1', 's2', null);
-      expect(s.store.links().map((l) => l.id)).toEqual(['l1']);
-      expect(s.ui.toasts().at(-1)).toMatchObject({ text: 'Already connected' });
-    });
-
-    it('a refused connection is a toast and changes nothing', async () => {
-      const s = setup();
-      await open(s, lesson());
-      s.api.createLink.mockRejectedValue(new ApiError(404, 'not_found', 'Node not found'));
-      await expect(s.store.createLink('a1', 'gone', null)).resolves.toBeNull();
-      expect(s.store.links()).toEqual([]);
-      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Node not found' });
-    });
-
-    it('a connection of another lesson (opened meanwhile) is not applied', async () => {
-      const s = setup();
-      await open(s, lesson());
-      s.api.createLink.mockResolvedValue({
-        link: { ...link('l-new', 'a1', 's2'), treeId: 't2' },
-        created: true,
-      });
-      await s.store.createLink('a1', 's2', null);
-      expect(s.store.links()).toEqual([]);
+      expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Connected' });
     });
 
     it('edits and clears a note', async () => {
       const s = setup();
       await open(s, lesson([link('l1', 'a1', 'a2', 'Old')]));
-      await expect(s.store.updateLink('l1', 'New')).resolves.toBe(true);
+      await expect(s.store.updateLinkNote('l1', 'New')).resolves.toBe(true);
       expect(s.api.updateLink).toHaveBeenCalledWith('l1', { note: 'New' });
       expect(s.store.links()[0]?.note).toBe('New');
-      await s.store.updateLink('l1', null);
+      await s.store.updateLinkNote('l1', null);
       expect(s.store.links()[0]?.note).toBeNull();
-    });
-
-    it('removes a connection from both ends', async () => {
-      const s = setup();
-      await open(s, lesson([link('l1', 'a1', 's2'), link('l2', 'a2', 's1')]));
-      await expect(s.store.deleteLink('l1')).resolves.toBe(true);
-      expect(s.api.deleteLink).toHaveBeenCalledWith('l1');
-      expect(s.store.links().map((l) => l.id)).toEqual(['l2']);
-      expect(s.store.linksByNode().has('a1')).toBe(false);
-      expect(s.store.linksByNode().has('s2')).toBe(false);
-      expect(s.ui.toasts().at(-1)).toMatchObject({ text: 'Connection removed' });
-    });
-
-    it('a failed removal keeps the connection', async () => {
-      const s = setup();
-      await open(s, lesson([link('l1', 'a1', 's2')]));
-      s.api.deleteLink.mockRejectedValue(new ApiError(0, 'network', 'Network error'));
-      await expect(s.store.deleteLink('l1')).resolves.toBe(false);
-      expect(s.store.links().map((l) => l.id)).toEqual(['l1']);
-      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error' });
-    });
-
-    it('a connection already removed elsewhere (404) goes from both ends here too', async () => {
-      const s = setup();
-      await open(s, lesson([link('l1', 'a1', 's2'), link('l2', 'a2', 's1')]));
-      s.api.deleteLink.mockRejectedValue(new ApiError(404, 'not_found', 'Link not found'));
-      await expect(s.store.deleteLink('l1')).resolves.toBe(true);
-      expect(s.store.links().map((l) => l.id)).toEqual(['l2']);
-      expect(s.ui.toasts().at(-1)).toMatchObject({
-        kind: 'info',
-        text: 'That connection was already removed',
-      });
-
-      s.api.updateLink.mockRejectedValue(new ApiError(404, 'not_found', 'Link not found'));
-      await expect(s.store.updateLink('l2', 'Why')).resolves.toBe(false);
-      expect(s.store.links()).toEqual([]);
     });
 
     it('following a connection opens the other end and offers the way back', async () => {
@@ -1330,5 +1120,228 @@ describe('LessonStore', () => {
       expect(s.router.navigate).not.toHaveBeenCalled();
       expect(s.store.linkReturn()).toBeNull();
     });
+  });
+});
+
+describe('LessonStore a refused message across leaving the page', () => {
+  /** This tab's sessionStorage, across the "page loads" of a test. */
+  let tab: Map<string, string>;
+
+  beforeEach(() => {
+    tab = new Map();
+    vi.stubGlobal('sessionStorage', {
+      getItem: (k: string) => tab.get(k) ?? null,
+      setItem: (k: string, v: string) => void tab.set(k, v),
+      removeItem: (k: string) => void tab.delete(k),
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const reply = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
+  const lesson = () => detail([userNode, reply]);
+
+  /** A new page (a new store) signed in as `userId`, booted as the app boots it. */
+  async function page(userId: string) {
+    const s = setup();
+    s.injector.get(AccountStore).me.set({
+      userId,
+      builtInCredit: true,
+      membership: { ...BILLING.membership, required: false },
+    } as MeResponse);
+    await s.store.init();
+    return s;
+  }
+
+  it('a message refused for want of credit is back in its lesson after the checkout', async () => {
+    const before = await page('u1');
+    await open(before, lesson());
+    before.api.sendMessage.mockRejectedValue(
+      new ApiError(402, 'payment_required', 'Your balance is too low'),
+    );
+    await before.store.send('trunk', 'Why does it bend?');
+    expect(before.router.navigate).toHaveBeenCalledWith(['/billing']);
+
+    // Checkout is a full-page redirect: a new page, a new store.
+    const after = await page('u1');
+    expect(after.store.unsentDraft()).toEqual({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'Why does it bend?',
+    });
+    await open(after, lesson());
+    after.api.sendMessage.mockResolvedValue(stream([]));
+    await after.store.send('trunk', 'Why does it bend?');
+    expect(after.store.unsentDraft()).toBeNull();
+    expect((await page('u1')).store.unsentDraft()).toBeNull();
+  });
+
+  it('is never offered to someone else signed in on the tab, and goes with sign-out', async () => {
+    const first = await page('u1');
+    await open(first, lesson());
+    first.api.sendMessage.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
+    await first.store.send('trunk', 'Private question');
+    expect(tab.size).toBe(1);
+
+    const other = await page('u2');
+    expect(other.store.unsentDraft()).toBeNull();
+    expect(tab.size).toBe(0);
+
+    const again = await page('u1');
+    await open(again, lesson());
+    again.api.sendMessage.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
+    await again.store.send('trunk', 'Private question');
+    expect(tab.size).toBe(1);
+    again.store.forgetUnsent();
+    expect(again.store.unsentDraft()).toBeNull();
+    expect(tab.size).toBe(0);
+  });
+
+  it('a "Check sources" request the pool refuses is not kept as the learner’s message', async () => {
+    const s = setup();
+    await open(s, lesson());
+    s.store.unsentDraft.set({ treeId: 't1', branchId: 'trunk', text: 'Typed by the learner' });
+    s.api.sendMessage.mockRejectedValue(
+      new ApiError(402, 'pool_empty', 'The open pool is empty', {
+        reason: 'empty',
+        limit: null,
+        resetAt: null,
+      }),
+    );
+    await s.store.checkSources('a1');
+    expect(s.store.poolBlock()?.branchId).toBe('trunk');
+    expect(s.store.unsentDraft()).toEqual({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'Typed by the learner',
+    });
+  });
+
+  it('a "Check sources" refused for want of the key is resent as one once the key is settled', async () => {
+    const s = setup();
+    await open(s, lesson());
+    s.api.sendMessage.mockRejectedValueOnce(new ApiError(401, 'key_required', 'Add your key'));
+    await s.store.checkSources('a1');
+    expect(s.store.unsentDraft()).toMatchObject({ ground: 'required', needsKey: true });
+    s.api.sendMessage.mockResolvedValue(stream([]));
+    expect(s.store.resumeUnsent()).toBe(true);
+    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(2));
+    expect(s.api.sendMessage.mock.calls[1]![1]).toMatchObject({ ground: 'required' });
+  });
+
+  it('a refused "Check sources" never takes the place of the learner’s own message', async () => {
+    const s = setup();
+    await open(s, lesson());
+    s.api.sendMessage.mockRejectedValue(new ApiError(401, 'key_required', 'Add your key'));
+    await s.store.send('trunk', 'Why does it bend?');
+    await s.store.checkSources('a1');
+    expect(s.store.unsentDraft()).toEqual({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'Why does it bend?',
+      needsKey: true,
+    });
+    s.api.sendMessage.mockResolvedValue(stream([]));
+    expect(s.store.resumeUnsent()).toBe(true);
+    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(3));
+    expect(s.api.sendMessage.mock.calls[2]!.slice(0, 2)).toEqual([
+      'trunk',
+      { content: 'Why does it bend?' },
+    ]);
+  });
+
+  it('the composer takes back only text the learner typed, in its own branch', async () => {
+    const s = setup();
+    await open(s, lesson());
+    s.store.unsentDraft.set({ treeId: 't1', branchId: 'trunk', text: 'Typed' });
+    expect(s.store.composerDraft()).toBe('Typed');
+    s.store.unsentDraft.set({ treeId: 't1', branchId: 'side', text: 'Elsewhere' });
+    expect(s.store.composerDraft()).toBe('');
+    s.store.unsentDraft.set({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'Check your last answer against sources',
+      ground: 'required',
+    });
+    expect(s.store.composerDraft()).toBe('');
+  });
+
+  it('resending an unsent message keeps its options', async () => {
+    const s = setup();
+    await open(s, lesson());
+    s.store.unsentDraft.set({
+      treeId: 't1',
+      branchId: 'trunk',
+      text: 'Check it',
+      ground: 'required',
+      needsKey: true,
+    });
+    s.api.sendMessage.mockResolvedValue(stream([]));
+    expect(s.store.resumeUnsent()).toBe(true);
+    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(1));
+    expect(s.api.sendMessage.mock.calls[0]!.slice(0, 2)).toEqual([
+      'trunk',
+      { content: 'Check it', ground: 'required' },
+    ]);
+  });
+
+  it('a message of another lesson waits for its lesson', async () => {
+    const s = setup();
+    await open(s, lesson());
+    s.store.unsentDraft.set({ treeId: 't9', branchId: 'x', text: 'Elsewhere', needsKey: true });
+    expect(s.store.resumeUnsent()).toBe(false);
+    expect(s.api.sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('LessonStore refreshing after replies', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** A whole exchange on the trunk, streamed at once. */
+  function exchange(i: number): Response {
+    const ask = node(`u-${i}`, { seq: 10 + 2 * i, role: 'user', content: 'Why?' });
+    const reply = node(`r-${i}`, { seq: 11 + 2 * i, parentId: `u-${i}`, content: 'Because.' });
+    return stream([
+      {
+        type: 'start',
+        userNode: ask,
+        assistantNode: { ...reply, status: 'streaming' },
+        branch: branch('trunk'),
+        funding: 'credit',
+      },
+      { type: 'done', node: reply, branch: branch('trunk') },
+    ]);
+  }
+
+  const summaryOf = (title: string): TreeSummary => ({
+    id: 't1',
+    title,
+    createdAt: T,
+    updatedAt: T,
+    branchCount: 1,
+    messageCount: 2,
+  });
+
+  it('replies finishing together share one refresh of the lessons and the balance, plus one more', async () => {
+    const s = setup();
+    await open(s, detail());
+    let i = 0;
+    s.api.sendMessage.mockImplementation(async () => exchange(i++));
+    const reads: ((list: TreeSummary[]) => void)[] = [];
+    s.api.listTrees.mockImplementation(() => new Promise<TreeSummary[]>((r) => reads.push(r)));
+    s.api.billing.mockClear();
+    await Promise.all(Array.from({ length: 6 }, () => s.store.send('trunk', 'Why?')));
+    expect(reads).toHaveLength(1);
+    expect(s.api.billing).toHaveBeenCalledTimes(1);
+    reads[0]!([summaryOf('Light')]);
+    await vi.waitFor(() => expect(reads).toHaveLength(2));
+    reads[1]!([summaryOf('Light and waves')]);
+    await vi.waitFor(() => expect(s.store.detail()?.tree.title).toBe('Light and waves'));
+    expect(reads).toHaveLength(2);
+    expect(s.api.billing).toHaveBeenCalledTimes(2);
   });
 });

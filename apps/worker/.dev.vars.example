@@ -1,7 +1,9 @@
 # Copy to .dev.vars for `wrangler dev`. Never commit .dev.vars.
-# Values here override the production vars in wrangler.jsonc.
+# Values here override the production vars in wrangler.jsonc. Every name is documented in
+# docs/configuration.md; a malformed value fails every request with an error naming it.
 
-# --- Option A: no sign-in at all (quickest). Honoured only while BETTER_AUTH_SECRET is unset.
+# --- Option A: no sign-in at all (quickest). Honoured only while BETTER_AUTH_SECRET is unset, and
+# only for exactly `true`.
 # Power mode acts as the `default` account and may use the server keys below; Learn mode
 # (/learn/) acts as `default_simple`. Credit (Option C) is on `default_simple` for both.
 DEV_ALLOW_NO_AUTH=true
@@ -33,11 +35,11 @@ DEV_ALLOW_NO_AUTH=true
 #   openssl rand -base64 32
 # KEY_ENCRYPTION_SECRET=
 
-# --- The built-in provider on credit, and the membership, in both apps. See README "Membership, credit and billing".
+# --- The built-in provider on credit, and the membership, in both apps. See docs/operating.md, "Credit, membership and billing".
 # Without these, both apps run only on each user's own keys (needs KEY_ENCRYPTION_SECRET).
-# OpenRouter key that the built-in provider `tangent` spends (Learn's "Use Tangent credit", power's
+# OpenRouter key that the built-in provider (the endpoint `openrouter`) spends (Learn's "Use Tangent credit", power's
 # "Tangent credit"; give it a small credit limit). No fallback to OPENROUTER_API_KEY:
-# OPENROUTER_SIMPLE_API_KEY=sk-or-...
+# BUILT_IN_API_KEY=sk-or-...
 # Payments: Polar's sandbox (https://sandbox.polar.sh; test card 4242 4242 4242 4242). Both secrets
 # must be set for billing (and for the built-in provider to be offered at all). wrangler.jsonc says
 # POLAR_SERVER=production, so set the sandbox here:
@@ -46,48 +48,43 @@ DEV_ALLOW_NO_AUTH=true
 # POLAR_ACCESS_TOKEN=polar_oat_...
 # The secret of a sandbox webhook endpoint pointing at a public tunnel to localhost, e.g.
 # `cloudflared tunnel --url http://localhost:8787` → https://<random>.trycloudflare.com/api/webhooks/polar
-# (Polar has no local forwarding CLI; see docs/polar-migration/04-verification.md):
+# (Polar has no local forwarding CLI):
 # POLAR_WEBHOOK_SECRET=whsec_...
 # The sandbox credits product (one-time; each checkout sets its own USD price):
 # POLAR_CREDITS_PRODUCT_ID=...
 # The sandbox membership product (yearly; empty = no membership is sold), and the flag that charges it
-# (off in wrangler.jsonc: without it nobody needs a membership, whatever is sold). Both set = power mode
-# (and Canvas) on own keys and buying credit need a membership; Learn and spending held credit never do:
+# (true in wrangler.jsonc; false = nobody needs a membership, whatever is sold). Both set = generating on
+# own keys needs a membership, in Learn, power and Canvas; Tangent credit and the pool never do:
 # POLAR_MEMBERSHIP_PRODUCT_ID=...
-# ANNUAL_FEE_ENABLED=true
+# ANNUAL_FEE_ENABLED=false
 # A code that waives the membership fee for whoever enters it (empty = no code redemption):
 # MEMBERSHIP_WAIVER_CODE=
-# The markup is MARKUP_BPS (wrangler.jsonc); MARKUP_PREPAID_BPS is still read while it is empty (deprecated).
+# The markup is MARKUP_BPS (default 1000 = +10%).
 
 # --- Option C: the built-in provider on credit, offline (no OpenRouter, no payments). Works with Option A or B.
 # A fake built-in provider (Learn's Normal and Max tiers) that reports a fixed cost per call (the shape the worker tests use):
-# SIMPLE_PROVIDER='{"id":"openrouter","kind":"fake","label":"Tangent","defaultModel":"simple","models":[{"id":"simple","label":"Normal","tier":"normal"},{"id":"smart","label":"Max","tier":"max"}],"options":{"chunkSize":4,"costUsd":0.001234}}'
+# BUILT_IN_PROVIDER='{"id":"openrouter","kind":"fake","label":"Tangent","defaultModel":"normal","models":[{"id":"normal","label":"Normal","tier":"normal"},{"id":"max","label":"Max","tier":"max"}],"options":{"chunkSize":4,"costUsd":0.001234}}'
 # Placeholders so sends are allowed (top-ups and the membership checkout won't work with them;
-# leave POLAR_MEMBERSHIP_PRODUCT_ID empty, or waive yourself with the README's SQL), or instead
+# leave POLAR_MEMBERSHIP_PRODUCT_ID empty, or waive yourself on /admin/), or instead
 # PERSONAL_CREDIT_ENABLED=true (below):
 # POLAR_SERVER=sandbox
 # POLAR_ACCESS_TOKEN=polar_oat_placeholder
 # POLAR_WEBHOOK_SECRET=whsec_placeholder
-# Then grant yourself credit (5000000 = $5) with the SQL insert into credit_grants from the README
-# ("Manual credit or adjustments", with --local; the account is `default_simple` under Option A,
+# Then grant yourself credit (5000000 = $5) with the SQL insert into credit_grants in docs/operating.md
+# ("Manual credit and waivers", with --local; the account is `default_simple` under Option A,
 # `u_<your user id>` under Option B, for both apps), then pick "Use Tangent credit" and chat at
 # http://localhost:8787/learn/, or pick the "Tangent credit" provider in the power app.
 
-# --- The community credit pool (docs/pool/SPEC.md); off in wrangler.jsonc. Its caps, price table
-# and TTLs are the POOL_* vars there (parsed in src/config.ts). With Option C's fake provider,
-# price its "simple" model so the pool can reserve for it:
+# --- The open pool (docs/operating.md, "The open pool"); on in wrangler.jsonc. Its caps and model are the POOL_* vars,
+# its price table MODEL_PRICES (docs/configuration.md). With Option C's fake provider, price its
+# "normal" model so the pool can reserve for it:
 # POOL_ENABLED=true
-# POOL_MODEL=simple
-# MODEL_PRICES='{"simple":{"in":100000,"out":400000,"context":131072}}'
+# POOL_MODEL=normal
+# MODEL_PRICES='{"normal":{"in":100000,"out":400000,"context":131072}}'
 # Learn then spends from the pool when it picks the pool, or when its credit runs out (sends only).
 # Admin-granted personal credit without payments:
 # PERSONAL_CREDIT_ENABLED=true
 # Credit yourself as a purchase would, without a payment: POST /api/admin/credit with
 # "mode": "simulated_purchase" (personal only; fund the pool with "target": "pool", "mode":
-# "adjustment"; see the README's "Manual credit or adjustments"). Never in production.
+# "adjustment"; see docs/operating.md, "Manual credit and waivers"). Never in production.
 # DEV_PURCHASES_ENABLED=true
-# The weekly impact snapshot runs on the Monday cron; to run it locally, start `wrangler dev
-# --test-scheduled` and open
-# http://localhost:8787/cdn-cgi/handler/scheduled?cron=17+4+*+*+1. Topics appear on /pool only
-# once IMPACT_MIN_DISTINCT_USERS learners touched them and an admin approved them (the review
-# queue on /admin/).

@@ -1,11 +1,21 @@
 import { ChangeDetectionStrategy, Component, ElementRef, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { AccountId, AuthService, DEMO_MODE, Icon, Logo, ModeSwitch } from '@tangent/web-shared';
+import {
+  AccountId,
+  AuthService,
+  DEMO_MODE,
+  Icon,
+  Logo,
+  ModeSwitch,
+  ToastStore,
+} from '@tangent/web-shared';
 import { BRAND, BRAND_SHORT } from '../brand';
 import { DEMO_EXIT_URL } from '../demo/demo-mode';
 import { AccountStore } from '../state/account-store';
+import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
 import { PaidBy } from './paid-by';
+import { LearnFunding } from '../state/learn-funding';
 
 /**
  * Brand, the Power / Learn switch, what replies are paid by (own key, credit
@@ -52,13 +62,9 @@ import { PaidBy } from './paid-by';
                 How replies are paid for
               </button>
             }
-            @if (
-              account.payment.builtInCredit() ||
-              account.membership()?.required ||
-              account.payment.poolAvailable()
-            ) {
+            @if (funding.creditOffered() || funding.membership()?.required || funding.poolOn()) {
               <a routerLink="/billing" class="menu-item" role="menuitem" (click)="close()">
-                {{ account.payment.builtInCredit() ? 'Billing and credit' : 'Billing' }}
+                {{ funding.creditOffered() ? 'Billing and credit' : 'Billing' }}
               </a>
             }
             @if (!demo) {
@@ -94,7 +100,10 @@ import { PaidBy } from './paid-by';
 })
 export class AppHeader {
   protected readonly account = inject(AccountStore);
+  protected readonly funding = inject(LearnFunding);
+  private readonly lessons = inject(LessonStore);
   protected readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
   private readonly auth = inject(AuthService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly brand = BRAND;
@@ -117,17 +126,17 @@ export class AppHeader {
 
   protected openAccess(): void {
     this.close();
-    this.ui.accessOpen.set(true);
+    this.ui.dialogs.open({ kind: 'access' });
   }
 
   protected openPasskeys(): void {
     this.close();
-    this.ui.passkeysOpen.set(true);
+    this.ui.dialogs.open({ kind: 'passkeys' });
   }
 
   protected openDeleteAccount(): void {
     this.close();
-    this.ui.deleteAccountOpen.set(true);
+    this.ui.dialogs.open({ kind: 'delete-account' });
   }
 
   protected async signOut(): Promise<void> {
@@ -137,10 +146,11 @@ export class AppHeader {
       location.assign(DEMO_EXIT_URL);
       return;
     }
+    this.lessons.forgetUnsent();
     try {
       await this.auth.signOut();
     } catch (err) {
-      this.ui.notify(err instanceof Error ? err.message : String(err), 'error');
+      this.toast.notify(err instanceof Error ? err.message : String(err), 'error');
     }
   }
 }

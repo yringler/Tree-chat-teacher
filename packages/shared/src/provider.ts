@@ -21,11 +21,24 @@ export interface ProviderCapabilities {
   /** True when the provider can run a web search for a reply (`GenerateRequest.webSearch`). */
   supportsWebSearch: boolean;
   /**
+   * True when it can also make the model search (`WebSearchRequest.mode`
+   * `required`). False where a search can only be offered (Anthropic, whose
+   * models reject a forced tool choice): a reply that must check its sources
+   * is then offered one and asked to use it. Absent = false.
+   */
+  requiredWebSearch?: boolean;
+  /**
    * True for a reasoning model (`ModelInfo.reasoning`, else `isReasoningModel`):
    * its thinking counts as output, so replies get a larger cap (output-tokens.ts).
    * Absent = false.
    */
   reasoning?: boolean;
+  /**
+   * False when the model's text can't name a conversation (the scripted test
+   * provider, which echoes the prompt): branches keep their default titles.
+   * Absent = true.
+   */
+  titles?: boolean;
 }
 
 /**
@@ -87,11 +100,8 @@ export function isReasoningEffort(value: unknown): value is ReasoningEffort {
   return typeof value === 'string' && (REASONING_EFFORTS as readonly string[]).includes(value);
 }
 
-/**
- * Why a provider call is made; recorded with its usage for billing.
- * `tagging` is the open pool's topic classifier (charged to the pool).
- */
-export type UsagePurpose = 'reply' | 'summary' | 'title' | 'review' | 'tagging' | 'other';
+/** Why a provider call is made; recorded with its usage for billing. */
+export type UsagePurpose = 'reply' | 'summary' | 'title' | 'review' | 'other';
 
 /** Attribution of one provider call (billing). Providers ignore it. */
 export interface UsageTag {
@@ -102,8 +112,8 @@ export interface UsageTag {
   /** The node the call produces or is about (reply/review); null for summaries and titles. */
   nodeId: string | null;
   /**
-   * Open pool only: the pending usage row reserved for this call before
-   * it was assembled (the reply's ceiling hold). The meter shrinks that row's
+   * The pending usage row reserved for this call before it was assembled (a
+   * reply on the open pool or on Tangent credit). The meter sets that row's
    * hold to the call's exact worst case instead of reserving a second time.
    */
   reservationId?: string;
@@ -138,19 +148,24 @@ export interface GenerateRequest {
   reasoning?: ReasoningEffort;
 }
 
-/** A web search offered for one reply (OpenRouter's `openrouter:web_search` server tool). */
+/**
+ * A web search offered for one reply, as every provider with
+ * `supportsWebSearch` honours it. How a search runs (OpenRouter's engine and
+ * results per search) is the provider's own config.
+ */
 export interface WebSearchRequest {
-  /** `auto`: the model decides whether to search; `required`: it must search. */
+  /**
+   * `auto`: the model decides whether to search; `required`: it must search,
+   * sent only to a provider that can enforce it (`requiredWebSearch`).
+   */
   mode: 'auto' | 'required';
-  /** Results per search. */
-  maxResults: number;
   /** Most searches in this reply. */
   maxUses: number;
-  /** Search engine (OpenRouter: `exa`, `parallel`, `auto`, …). */
-  engine: string;
 }
 
 export type ProviderErrorCode =
+  /** The user's Tangent credit can't cover the call (the Worker's meter, before it is sent). */
+  | 'payment_required'
   | 'auth'
   | 'rate_limit'
   | 'overloaded'
@@ -176,7 +191,7 @@ export interface ProviderError {
   /** HTTP status, if the error came from an HTTP response. */
   status?: number;
   retryable: boolean;
-  /** Set by providers that know it (openai-compatible); read by the open pool's settlement. */
+  /** Set by the HTTP providers (anthropic, openai-compatible); read by the open pool's settlement. */
   upstream?: ProviderUpstream;
 }
 
@@ -301,6 +316,12 @@ export interface ProviderInfo {
   /** True when replies can be grounded with web search ("Check sources"); absent = false. */
   webSearch?: boolean;
   /**
+   * True for a test provider whose replies are scripted (kind `fake`): it
+   * needs no key and takes none, and a new tree's default route never
+   * prefers it over a real provider. Absent = false.
+   */
+  scripted?: boolean;
+  /**
    * Who pays for calls through this entry. Power lists the built-in endpoint
    * (`openrouter`) a second time with `credit` (Tangent credit, on the
    * operator's key) after the user's own providers; a branch picks an entry by
@@ -332,8 +353,19 @@ export function isModelAllowed(
 
 /** Looks up configured provider instances. Implemented in @tangent/providers. */
 export interface ProviderRegistry {
+  /**
+   * The provider configured as `providerId`; undefined when none is. One that
+   * can't be used here (no key) is still returned, and its calls fail with a
+   * `config` error that says why: a caller with another route to fall back on
+   * asks `isProviderAvailable` first.
+   */
   get(providerId: string): LlmProvider | undefined;
   list(): ProviderInfo[];
   /** First available provider (API key present), else the first configured. */
   defaultProviderId(): string;
+}
+
+/** Whether `registry` has `providerId` configured with what it needs to make calls (a key). */
+export function isProviderAvailable(registry: ProviderRegistry, providerId: string): boolean {
+  return registry.list().some((p) => p.id === providerId && p.available);
 }

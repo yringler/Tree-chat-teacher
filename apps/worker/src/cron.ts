@@ -1,41 +1,46 @@
 // The Worker's cron triggers (wrangler.jsonc `triggers.crons`), dispatched on
 // the cron string so each schedule runs only its own jobs.
+import { sweepDeletedUsers } from './auth/delete-account.js';
 import { pollDisputes } from './billing/payments/disputes.js';
 import { reconcilePendingUsage, reconcilePoolUsage } from './billing/reconcile.js';
 import type { AppEnv } from './env.js';
-import { aggregatePoolImpact } from './pool/impact.js';
+import { purgeReleasedPoolIdentities } from './pool/identity.js';
 import { syncModelPrices } from './pool/model-prices.js';
-import { accruePoolUsageShare } from './pool/revenue-share.js';
+import { logEvent } from './log.js';
 
 /**
  * Every 10 minutes: usage reconciliation, pool reservation expiry and the
- * balance checkpoint, the payment provider's disputes where it has to be
- * polled (billing/payments/disputes.ts), and the pool's revenue share of each
- * completed UTC day's markup (pool/revenue-share.ts; a no-op once a day is done).
+ * balance checkpoint, and the payment provider's disputes where it has to be
+ * polled (billing/payments/disputes.ts).
  */
 export const CRON_FREQUENT = '*/10 * * * *';
-/** Mondays 04:17 UTC: the pool's impact snapshot of the ISO week just ended, and tag retention. */
-export const CRON_WEEKLY = '17 4 * * 1';
-/** Daily 03:23 UTC: OpenRouter's list prices of the priced models (pool/model-prices.ts). */
+/**
+ * Daily 03:23 UTC: OpenRouter's list prices and model windows
+ * (pool/model-prices.ts), and what account deletion leaves for later: the
+ * sweep of deleted users' ids and past days' network keys
+ * (auth/delete-account.ts), then the purge of pool identities past their
+ * retention (pool/identity.ts).
+ */
 export const CRON_DAILY = '23 3 * * *';
 
 /** The jobs, by name (the tests swap them for spies). */
 export interface CronJobs {
   reconcile(env: AppEnv, now: Date): Promise<unknown>;
   poolExpiry(env: AppEnv, now: Date): Promise<unknown>;
-  poolImpact(env: AppEnv, now: Date): Promise<unknown>;
   paymentDisputes(env: AppEnv, now: Date): Promise<unknown>;
-  poolRevenueShare(env: AppEnv, now: Date): Promise<unknown>;
   priceSync(env: AppEnv, now: Date): Promise<unknown>;
+  deletedAccounts(env: AppEnv, now: Date): Promise<unknown>;
 }
 
 export const CRON_JOBS: CronJobs = {
-  reconcile: (env) => reconcilePendingUsage(env),
+  reconcile: (env, now) => reconcilePendingUsage(env, now),
   poolExpiry: (env, now) => reconcilePoolUsage(env, now),
-  poolImpact: (env, now) => aggregatePoolImpact(env, now),
   paymentDisputes: (env, now) => pollDisputes(env, now),
-  poolRevenueShare: (env, now) => accruePoolUsageShare(env, now),
   priceSync: (env, now) => syncModelPrices(env, now),
+  deletedAccounts: async (env, now) => {
+    await sweepDeletedUsers(env.DB, now);
+    await purgeReleasedPoolIdentities(env.DB, now);
+  },
 };
 
 /**
@@ -55,27 +60,21 @@ export function cronTasks(
         jobs.poolExpiry(env, now),
         // A provider outage must never block reconciliation.
         jobs.paymentDisputes(env, now).catch((e: unknown) => {
-          console.error('Payment dispute poll failed', e);
-        }),
-        // A failure is retried on the next run: missed days are caught up.
-        jobs.poolRevenueShare(env, now).catch((e: unknown) => {
-          console.error('Pool revenue share failed', e);
-        }),
-      ];
-    case CRON_WEEKLY:
-      return [
-        jobs.poolImpact(env, now).catch((e: unknown) => {
-          console.error('Pool impact aggregation failed', e);
+          logEvent('error', 'dispute_poll_failed', { error: e });
         }),
       ];
     case CRON_DAILY:
       return [
         jobs.priceSync(env, now).catch((e: unknown) => {
-          console.error('Model price sync failed; the stored prices stay', e);
+          logEvent('error', 'price_sync_failed', { error: e });
+        }),
+        // A missed day is caught up by the next run: both take everything that is due.
+        jobs.deletedAccounts(env, now).catch((e: unknown) => {
+          logEvent('error', 'deleted_accounts_sweep_failed', { error: e });
         }),
       ];
     default:
-      console.warn(JSON.stringify({ event: 'cron_unknown', cron }));
+      logEvent('warn', 'cron_unknown', { cron });
       return [];
   }
 }

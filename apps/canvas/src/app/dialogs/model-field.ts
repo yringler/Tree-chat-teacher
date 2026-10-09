@@ -1,21 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, input, model } from '@angular/core';
-import { isModelAllowed, type ProviderInfo } from '@tangent/shared';
-import { ModelSuggestions } from '@tangent/web-shared';
+import type { ProviderInfo } from '@tangent/shared';
+import { modelHint, ModelSuggestions } from '@tangent/web-shared';
 
 let uid = 0;
-
-/**
- * What is wrong with `model` for `provider`, or null when nothing is. Only an
- * `openModels` provider takes typed ids. (A copy of the power app's
- * ModelPicker rule: canvas doesn't import from apps/web.)
- */
-export function modelHint(provider: ProviderInfo | null, model: string): string | null {
-  if (!provider?.openModels) return null;
-  if (model.trim() === '') return 'Enter a model id, or pick one of the suggestions.';
-  if (!isModelAllowed(provider, model))
-    return 'Not a model id: use letters, digits and . _ - : / (like vendor/model-name).';
-  return null;
-}
 
 /**
  * The model of one provider. A provider with `openModels` (OpenRouter,

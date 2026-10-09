@@ -1,12 +1,11 @@
-import type { LoginOptionsResponse, MeResponse } from '@tangent/shared';
+import { REMEMBER_COOKIE, type LoginOptionsResponse, type MeResponse } from '@tangent/shared';
 import { env, exports } from 'cloudflare:workers';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
-import { REMEMBER_COOKIE } from '../src/auth/auth.js';
 import type { EmailMessage, EmailSender } from '../src/email/index.js';
 import type { AppEnv } from '../src/env.js';
+import { BASE } from './http.js';
 
-const ORIGIN = 'https://tangent.example.com';
 const SESSION_COOKIE = '__Secure-tangent.session_token';
 const DONT_REMEMBER_COOKIE = '__Secure-tangent.dont_remember';
 
@@ -43,7 +42,7 @@ function setup(e: AppEnv = authEnv()) {
   const call = (path: string, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
     headers.set('cf-connecting-ip', ip);
-    return app.request(`${ORIGIN}${path}`, { ...init, headers }, e);
+    return app.request(`${BASE}${path}`, { ...init, headers }, e);
   };
   return { app, mail, call, env: e };
 }
@@ -70,7 +69,7 @@ async function requestMagicLink(
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      origin: ORIGIN,
+      origin: BASE,
       ...(captcha === null ? {} : { 'x-captcha-response': captcha }),
     },
     body: JSON.stringify({ email, callbackURL: '/', errorCallbackURL: '/login' }),
@@ -100,7 +99,7 @@ async function signIn(
 
 describe('fail closed', () => {
   it('500 on /api/* and /api/auth/* with no BETTER_AUTH_SECRET and no dev bypass', async () => {
-    for (const dev of ['', 'false', '1', 'TRUE']) {
+    for (const dev of ['', 'false']) {
       const { call } = setup(authEnv({ BETTER_AUTH_SECRET: '', DEV_ALLOW_NO_AUTH: dev }));
       const me = await call('/api/me');
       expect(me.status).toBe(500);
@@ -109,6 +108,15 @@ describe('fail closed', () => {
       });
       expect((await call('/api/auth/get-session')).status).toBe(500);
     }
+    // A near miss is a config error, never the bypass.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    for (const dev of ['1', 'TRUE', ' true']) {
+      const { call } = setup(authEnv({ BETTER_AUTH_SECRET: '', DEV_ALLOW_NO_AUTH: dev }));
+      const me = await call('/api/me');
+      expect(me.status).toBe(500);
+      expect(((await me.json()) as { error: { code: string } }).error.code).toBe('internal');
+    }
+    error.mockRestore();
   });
 
   it('dev bypass applies only while BETTER_AUTH_SECRET is unset', async () => {
@@ -130,11 +138,9 @@ describe('fail closed', () => {
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
-        includedCreditCents: 0,
       },
       // The dev bypass requires no membership: nothing is ever read-only.
       membershipNeededFor: [],
-      featuredConversations: false,
     } satisfies MeResponse);
 
     // Secret set: DEV_ALLOW_NO_AUTH=true is ignored and a session is required.
@@ -152,7 +158,7 @@ describe('fail closed', () => {
   });
 
   it('the deployed entrypoint serves /api/me in dev-bypass mode (test config)', async () => {
-    const res = await exports.default.fetch(`${ORIGIN}/api/me`);
+    const res = await exports.default.fetch(`${BASE}/api/me`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       email: null,
@@ -171,10 +177,8 @@ describe('fail closed', () => {
         periodEnd: null,
         cancelAtPeriodEnd: false,
         priceCents: 1000,
-        includedCreditCents: 0,
       },
       membershipNeededFor: [],
-      featuredConversations: false,
     } satisfies MeResponse);
   });
 });
@@ -242,7 +246,7 @@ describe('magic link', () => {
     expect(s.mail.sent[0]!.html).toContain('/api/auth/magic-link/verify');
 
     expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toBe(`${ORIGIN}/`);
+    expect(res.headers.get('location')).toBe(`${BASE}/`);
     const me = await s.call('/api/me', { headers: { cookie: cookieHeader(res) } });
     expect(me.status).toBe(200);
     const body = (await me.json()) as MeResponse;
@@ -263,7 +267,7 @@ describe('magic link', () => {
     const link = new URL(linkFrom(s.mail.sent[0]!));
     const again = await s.call(link.pathname + link.search, { redirect: 'manual' });
     expect(again.status).toBe(302);
-    expect(again.headers.get('location')).toBe(`${ORIGIN}/login?error=INVALID_TOKEN`);
+    expect(again.headers.get('location')).toBe(`${BASE}/login?error=INVALID_TOKEN`);
     expect(findSetCookie(again, SESSION_COOKIE)).toBeUndefined();
   });
 
@@ -341,7 +345,7 @@ describe('social sign-in', () => {
     const { call } = setup(authEnv({ GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret' }));
     const res = await call('/api/auth/sign-in/social', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: ORIGIN },
+      headers: { 'content-type': 'application/json', origin: BASE },
       body: JSON.stringify({ provider: 'google', callbackURL: '/', errorCallbackURL: '/login' }),
     });
     expect(res.status).toBe(200);
@@ -349,14 +353,14 @@ describe('social sign-in', () => {
     const target = new URL(url);
     expect(target.hostname).toBe('accounts.google.com');
     expect(target.searchParams.get('client_id')).toBe('gid');
-    expect(target.searchParams.get('redirect_uri')).toBe(`${ORIGIN}/api/auth/callback/google`);
+    expect(target.searchParams.get('redirect_uri')).toBe(`${BASE}/api/auth/callback/google`);
   });
 
   /** Starts a Google sign-in and comes back through the callback as `email`. */
   async function googleSignIn(s: ReturnType<typeof setup>, email: string, remember: boolean) {
     const start = await s.call('/api/auth/sign-in/social', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: ORIGIN },
+      headers: { 'content-type': 'application/json', origin: BASE },
       body: JSON.stringify({ provider: 'google', callbackURL: '/', errorCallbackURL: '/login' }),
     });
     const state = new URL(((await start.json()) as { url: string }).url).searchParams.get('state')!;
@@ -417,6 +421,40 @@ describe('social sign-in', () => {
     expect(row).toBeNull();
   });
 
+  it('links Google to an existing user only when Google verified the email', async () => {
+    const googleAccounts = (email: string) =>
+      env.DB.prepare(
+        `SELECT a.account_id FROM auth_accounts a JOIN auth_users u ON u.id = a.user_id
+          WHERE u.email = ? AND a.provider_id = 'google'`,
+      )
+        .bind(email)
+        .all();
+    const userIdOf = async (res: Response, s: ReturnType<typeof setup>) => {
+      const me = await s.call('/api/me', { headers: { cookie: cookieHeader(res) } });
+      return ((await me.json()) as MeResponse).userId;
+    };
+
+    // The mock reports email_verified: false for an address starting with `unverified`.
+    const victim = 'unverified-victim@example.org';
+    const owner = setup(googleEnv());
+    const ownerId = await userIdOf(await signIn(owner, victim), owner);
+    const takeover = await googleSignIn(setup(googleEnv()), victim, true);
+    expect(takeover.status).toBe(302);
+    expect(takeover.headers.get('location')).toMatch(/^\/login\?error=/);
+    expect(findSetCookie(takeover, SESSION_COOKIE)).toBeUndefined();
+    expect((await googleAccounts(victim)).results).toHaveLength(0);
+
+    const linked = 'linked@example.org';
+    const magic = setup(googleEnv());
+    const linkedId = await userIdOf(await signIn(magic, linked), magic);
+    const s = setup(googleEnv());
+    const res = await googleSignIn(s, linked, true);
+    expect(res.headers.get('location')).toBe('/');
+    expect(await userIdOf(res, s)).toBe(linkedId);
+    expect((await googleAccounts(linked)).results).toHaveLength(1);
+    expect(ownerId).not.toBe(linkedId);
+  });
+
   it('keeps the Google account id but none of its tokens, on sign-up or later sign-ins', async () => {
     const email = 'tokens@example.org';
     const stored = () =>
@@ -448,21 +486,21 @@ describe('social sign-in', () => {
     const { call } = setup();
     const res = await call('/api/auth/sign-in/social', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: ORIGIN },
+      headers: { 'content-type': 'application/json', origin: BASE },
       body: JSON.stringify({ provider: 'github', callbackURL: '/' }),
     });
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 });
 
-describe('Turnstile on first sign-in (docs/pool/PLAN.md §9, D4)', () => {
+describe('Turnstile on first sign-in', () => {
   const poolOn = () =>
     authEnv({ GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret', POOL_ENABLED: 'true' });
 
   async function googleSignIn(s: ReturnType<typeof setup>, email: string) {
     const start = await s.call('/api/auth/sign-in/social', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: ORIGIN },
+      headers: { 'content-type': 'application/json', origin: BASE },
       body: JSON.stringify({
         provider: 'google',
         callbackURL: '/learn/',
@@ -493,7 +531,7 @@ describe('Turnstile on first sign-in (docs/pool/PLAN.md §9, D4)', () => {
       headers: {
         cookie,
         'content-type': 'application/x-www-form-urlencoded',
-        origin: ORIGIN,
+        origin: BASE,
         'sec-fetch-site': 'same-origin',
       },
       body: new URLSearchParams({ next, 'cf-turnstile-response': token }).toString(),
@@ -529,10 +567,16 @@ describe('Turnstile on first sign-in (docs/pool/PLAN.md §9, D4)', () => {
     expect(csp).toContain('frame-src https://challenges.cloudflare.com');
     expect(csp).toContain("form-action 'self'");
     const html = await page.text();
+    // The one inline stylesheet is the one the CSP allows by hash.
+    const style = /<style>([^]*?)<\/style>/.exec(html)![1]!;
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(style));
+    expect(csp).toContain(
+      `style-src 'sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}'`,
+    );
     expect(html).toContain(
       'class="cf-turnstile" data-sitekey="site-key" data-action="pool-verify"',
     );
-    expect(html).toContain('<input type="hidden" name="next" value="/learn/">');
+    expect(html).toContain('name="next" value="/learn/"');
     expect(html).not.toMatch(/donat|tax[- ]?deductible/i);
 
     const failed = await postVerify(s, cookie, 'not-a-pass');
@@ -643,7 +687,7 @@ describe('sign out', () => {
     const cookie = cookieHeader(await signIn(s));
     const out = await s.call('/api/auth/sign-out', {
       method: 'POST',
-      headers: { cookie, origin: ORIGIN },
+      headers: { cookie, origin: BASE },
     });
     expect(out.status).toBe(200);
     expect((await s.call('/api/me', { headers: { cookie } })).status).toBe(401);

@@ -1,43 +1,42 @@
-// How each hosted tier asks its model (docs/DECISIONS.md "Hosted tier
-// config"): the `*_EFFORT`, `*_REPLY_TOKENS` and `*_PROVIDER_ORDER` vars of
+// How each hosted tier asks its model: the `*_EFFORT`, `*_REPLY_TOKENS` and `*_PROVIDER_ORDER` vars of
 // Learn's Normal and Max, the open pool and the background calls, and the
 // request each one sends upstream. An empty var is the default model's
-// evaluated setting while the tier runs that model (docs/DECISIONS.md "Hosted
-// models from the eval"), else the model's own: no effort, the default caps,
+// evaluated setting while the tier runs that model (a setting tuned for one
+// model says nothing about another), else the model's own: no effort, the default caps,
 // no pinning.
 import { createProviderRegistry } from '@tangent/providers';
 import type { GenerateRequest, ProviderConfig } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-// @ts-expect-error -- `?raw` is a Vite import; the worker tsconfig has no vite/client types.
-import wranglerText from '../wrangler.jsonc?raw';
 import { appConfig, DEFAULT_TIER_REQUESTS, effortVar } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
-import { modelPrice } from '../src/pool/model-prices.js';
-import { resolvePoolParams } from '../src/pool/params.js';
+import { modelPrice } from '../src/pool/price-table.js';
+import { poolModel, resolvePoolParams } from '../src/pool/params.js';
 import {
   builtInPowerConfig,
-  DEFAULT_SIMPLE_FAST_MODEL,
-  DEFAULT_SIMPLE_MAX_MODEL,
-  DEFAULT_SIMPLE_NORMAL_MODEL,
+  DEFAULT_BACKGROUND_MODEL,
+  DEFAULT_LEARN_MAX_MODEL,
+  DEFAULT_LEARN_NORMAL_MODEL,
   poolChatSettings,
   poolProviderConfig,
   simpleChatSettings,
+  simpleFastModel,
   simpleProviderConfig,
   suggestedModels,
 } from '../src/simple-mode.js';
 import { withUsageFactors } from '../src/tiers.js';
-import { uniq } from './mocks/billing-helpers.js';
+import { envWithFailingDb, uniq } from './mocks/billing-helpers.js';
+import { shippedEnv } from './mocks/wrangler-vars.js';
 
 const env = rawEnv as unknown as AppEnv;
 const TIER_VARS = [
-  'SIMPLE_NORMAL_EFFORT',
-  'SIMPLE_NORMAL_REPLY_TOKENS',
-  'SIMPLE_NORMAL_PROVIDER_ORDER',
-  'SIMPLE_MAX_EFFORT',
-  'SIMPLE_MAX_REPLY_TOKENS',
-  'SIMPLE_MAX_PROVIDER_ORDER',
-  'SIMPLE_FAST_EFFORT',
+  'LEARN_NORMAL_EFFORT',
+  'LEARN_NORMAL_REPLY_TOKENS',
+  'LEARN_NORMAL_PROVIDER_ORDER',
+  'LEARN_MAX_EFFORT',
+  'LEARN_MAX_REPLY_TOKENS',
+  'LEARN_MAX_PROVIDER_ORDER',
+  'BACKGROUND_EFFORT',
   'POOL_EFFORT',
   'POOL_PROVIDER_ORDER',
 ] as const;
@@ -45,42 +44,19 @@ const TIER_VARS = [
 const deployed = (overrides: Partial<AppEnv> = {}) =>
   ({
     ...env,
-    SIMPLE_PROVIDER: '',
-    SIMPLE_NORMAL_MODEL: '',
-    SIMPLE_MAX_MODEL: '',
-    SIMPLE_SMART_MODEL: '',
-    SIMPLE_FAST_MODEL: '',
+    BUILT_IN_PROVIDER: '',
+    LEARN_NORMAL_MODEL: '',
+    LEARN_MAX_MODEL: '',
+    BACKGROUND_MODEL: '',
     POOL_MODEL: '',
     MODEL_PRICES: '',
-    POOL_ACCOUNT_ID: uniq('pool'),
+    TEST_POOL_ACCOUNT_ID: uniq('pool'),
     ...Object.fromEntries(TIER_VARS.map((k) => [k, ''])),
     ...overrides,
   }) as AppEnv;
 
-/** A var as wrangler.jsonc deploys it (the test env overrides several, e.g. the pool's). */
-function wranglerVar(name: string): string {
-  const m = new RegExp(`"${name}"\\s*:\\s*("(?:[^"\\\\]|\\\\.)*")`).exec(wranglerText as string);
-  if (!m) throw new Error(`${name} is not in wrangler.jsonc`);
-  return JSON.parse(m[1]!) as string;
-}
-
-/** `deployed()` with wrangler.jsonc's model, tier, pool and price vars. */
-const asShipped = () =>
-  deployed(
-    Object.fromEntries(
-      [
-        ...TIER_VARS,
-        'SIMPLE_NORMAL_MODEL',
-        'SIMPLE_MAX_MODEL',
-        'SIMPLE_FAST_MODEL',
-        'SIMPLE_NORMAL_REPLY_TOKENS',
-        'SIMPLE_MAX_REPLY_TOKENS',
-        'POOL_MODEL',
-        'POOL_MAX_OUTPUT_TOKENS',
-        'MODEL_PRICES',
-      ].map((k) => [k, wranglerVar(k)]),
-    ),
-  );
+/** As wrangler.jsonc deploys it, on a pool of its own. */
+const asShipped = () => shippedEnv(env, { TEST_POOL_ACCOUNT_ID: uniq('pool') });
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -100,7 +76,7 @@ async function sentBody(
     );
   }) as typeof globalThis.fetch;
   const registry = createProviderRegistry([config], {
-    secrets: { OPENROUTER_SIMPLE_API_KEY: 'sk-or-test' },
+    secrets: { BUILT_IN_API_KEY: 'sk-or-test' },
     fetch,
   });
   for await (const _event of registry.get(config.id)!.stream({
@@ -120,11 +96,11 @@ describe('tier config vars', () => {
   it('parse empty as unset; the default models fill it in later', () => {
     const c = appConfig(deployed());
     const none = { effort: null, maxOutputTokens: null, providerOrder: [] };
-    expect(c.simple.normal).toEqual(none);
-    expect(c.simple.max).toEqual(none);
-    expect(c.simple.backgroundEffort).toBeNull();
+    expect(c.learn.normal).toEqual(none);
+    expect(c.learn.max).toEqual(none);
+    expect(c.background.effort).toBeNull();
     expect(c.pool).toMatchObject({ effort: null, providerOrder: [] });
-    // What an empty var means on each default model (wrangler.jsonc sets the same).
+    // What an empty var means on each default model.
     expect(DEFAULT_TIER_REQUESTS).toEqual({
       normal: {
         model: 'deepseek/deepseek-v4.1-flash',
@@ -143,9 +119,8 @@ describe('tier config vars', () => {
 
   it('wrangler.jsonc ships the same models and settings as the code defaults', async () => {
     const live = asShipped();
-    expect(wranglerVar('SIMPLE_NORMAL_PROVIDER_ORDER')).toBe('streamlake/fp8,deepinfra/fp8');
     expect(simpleProviderConfig(live).models).toEqual(simpleProviderConfig(deployed()).models);
-    expect(simpleChatSettings(live).summaryModel).toBe(DEFAULT_SIMPLE_FAST_MODEL);
+    expect(simpleChatSettings(live).summaryModel).toBe(DEFAULT_BACKGROUND_MODEL);
     expect(simpleChatSettings(live).summaryEffort).toBe('low');
     const [pool, defaults] = await Promise.all([
       resolvePoolParams(live, null),
@@ -185,7 +160,7 @@ describe('tier config vars', () => {
           label,
           ...(tier ? { tier } : {}),
         })),
-        defaultModel: DEFAULT_SIMPLE_NORMAL_MODEL,
+        defaultModel: DEFAULT_LEARN_NORMAL_MODEL,
         openModels: false,
         available: true,
         acceptsUserKey: true,
@@ -198,62 +173,59 @@ describe('tier config vars', () => {
   it('parse efforts, reply caps and provider orders', () => {
     const c = appConfig(
       deployed({
-        SIMPLE_NORMAL_EFFORT: ' High ',
-        SIMPLE_NORMAL_REPLY_TOKENS: '12000',
-        SIMPLE_NORMAL_PROVIDER_ORDER: 'deepseek, novita ,',
-        SIMPLE_MAX_EFFORT: 'low',
-        SIMPLE_FAST_EFFORT: 'none',
+        LEARN_NORMAL_EFFORT: ' High ',
+        LEARN_NORMAL_REPLY_TOKENS: '12000',
+        LEARN_NORMAL_PROVIDER_ORDER: 'deepseek, novita ,',
+        LEARN_MAX_EFFORT: 'low',
+        BACKGROUND_EFFORT: 'none',
         POOL_EFFORT: 'low',
         POOL_PROVIDER_ORDER: 'deepseek',
       }),
     );
-    expect(c.simple.normal).toEqual({
+    expect(c.learn.normal).toEqual({
       effort: 'high',
       maxOutputTokens: 12_000,
       providerOrder: ['deepseek', 'novita'],
     });
-    expect(c.simple.max).toEqual({ effort: 'low', maxOutputTokens: null, providerOrder: [] });
-    expect(c.simple.backgroundEffort).toBe('none');
+    expect(c.learn.max).toEqual({ effort: 'low', maxOutputTokens: null, providerOrder: [] });
+    expect(c.background.effort).toBe('none');
     expect(c.pool).toMatchObject({ effort: 'low', providerOrder: ['deepseek'] });
   });
 
-  it('refuses max (and anything else) as an effort, logging it', () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  it('refuses max (and anything else) as an effort', () => {
     for (const bad of ['max', 'xhigh', 'medium', 'off', 'minimal'])
-      expect(effortVar('POOL_EFFORT', bad)).toBeNull();
-    expect(error).toHaveBeenCalledTimes(5);
-    expect(String(error.mock.calls[0]![0])).toMatch(/POOL_EFFORT=max/);
+      expect(() => effortVar('POOL_EFFORT', bad)).toThrow(
+        `Invalid POOL_EFFORT="${bad}": expected none, low or high`,
+      );
     expect(effortVar('POOL_EFFORT', undefined)).toBeNull();
     expect(effortVar('POOL_EFFORT', 'NONE')).toBe('none');
   });
 
-  it('clamps a reply cap to the per-call bound (16,384), logging it; a bad one is the default', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    expect(
-      appConfig(deployed({ SIMPLE_MAX_REPLY_TOKENS: '40000' })).simple.max.maxOutputTokens,
-    ).toBe(16_384);
-    expect(warn).toHaveBeenCalledWith('SIMPLE_MAX_REPLY_TOKENS=40000 is unsafe; using 16384');
-    for (const bad of ['0', '-5', '1.5', 'lots'])
-      expect(
-        appConfig(deployed({ SIMPLE_MAX_REPLY_TOKENS: bad })).simple.max.maxOutputTokens,
-      ).toBeNull();
+  it('refuses a reply cap above the per-call bound (16,384), or a malformed one', () => {
+    expect(appConfig(deployed({ LEARN_MAX_REPLY_TOKENS: '16384' })).learn.max.maxOutputTokens).toBe(
+      16_384,
+    );
+    for (const bad of ['40000', '0', '-5', '1.5', 'lots'])
+      expect(() => appConfig(deployed({ LEARN_MAX_REPLY_TOKENS: bad }))).toThrow(
+        'Invalid LEARN_MAX_REPLY_TOKENS=',
+      );
   });
 });
 
 describe("Learn's tiers with request settings", () => {
   const tuned = () =>
     deployed({
-      SIMPLE_NORMAL_EFFORT: 'high',
-      SIMPLE_NORMAL_REPLY_TOKENS: '12000',
-      SIMPLE_NORMAL_PROVIDER_ORDER: 'deepseek',
-      SIMPLE_MAX_EFFORT: 'low',
-      SIMPLE_FAST_EFFORT: 'none',
+      LEARN_NORMAL_EFFORT: 'high',
+      LEARN_NORMAL_REPLY_TOKENS: '12000',
+      LEARN_NORMAL_PROVIDER_ORDER: 'deepseek',
+      LEARN_MAX_EFFORT: 'low',
+      BACKGROUND_EFFORT: 'none',
     });
 
   it("put each tier's settings on its model only", () => {
     expect(simpleProviderConfig(tuned()).models).toEqual([
       {
-        id: DEFAULT_SIMPLE_NORMAL_MODEL,
+        id: DEFAULT_LEARN_NORMAL_MODEL,
         label: 'Normal',
         tier: 'normal',
         effort: 'high',
@@ -262,7 +234,7 @@ describe("Learn's tiers with request settings", () => {
       },
       // An empty reply cap is still the default model's.
       {
-        id: DEFAULT_SIMPLE_MAX_MODEL,
+        id: DEFAULT_LEARN_MAX_MODEL,
         label: 'Max',
         tier: 'max',
         effort: 'low',
@@ -277,15 +249,15 @@ describe("Learn's tiers with request settings", () => {
   it('cap the reply at the tier cap and send the effort and pinning upstream', async () => {
     const config = simpleProviderConfig(tuned());
     const registry = createProviderRegistry([config], { secrets: {} });
-    expect(registry.get(config.id)!.capabilities(DEFAULT_SIMPLE_NORMAL_MODEL).maxOutputTokens).toBe(
+    expect(registry.get(config.id)!.capabilities(DEFAULT_LEARN_NORMAL_MODEL).maxOutputTokens).toBe(
       12_000,
     );
-    const normal = await sentBody(config, { model: DEFAULT_SIMPLE_NORMAL_MODEL });
+    const normal = await sentBody(config, { model: DEFAULT_LEARN_NORMAL_MODEL });
     expect(normal).toMatchObject({
       reasoning: { effort: 'high' },
       provider: { order: ['deepseek'], allow_fallbacks: true },
     });
-    const max = await sentBody(config, { model: DEFAULT_SIMPLE_MAX_MODEL });
+    const max = await sentBody(config, { model: DEFAULT_LEARN_MAX_MODEL });
     expect(max['reasoning']).toEqual({ effort: 'low' });
     expect(max).not.toHaveProperty('provider');
   });
@@ -310,28 +282,28 @@ describe("Learn's tiers with request settings", () => {
     const config = simpleProviderConfig(deployed());
     expect(config.models).toEqual([
       {
-        id: DEFAULT_SIMPLE_NORMAL_MODEL,
+        id: DEFAULT_LEARN_NORMAL_MODEL,
         label: 'Normal',
         tier: 'normal',
         effort: 'high',
         maxOutputTokens: 16_384,
         providerOrder: PINNED,
       },
-      { id: DEFAULT_SIMPLE_MAX_MODEL, label: 'Max', tier: 'max', maxOutputTokens: 16_384 },
+      { id: DEFAULT_LEARN_MAX_MODEL, label: 'Max', tier: 'max', maxOutputTokens: 16_384 },
     ]);
-    const normal = await sentBody(config, { model: DEFAULT_SIMPLE_NORMAL_MODEL });
+    const normal = await sentBody(config, { model: DEFAULT_LEARN_NORMAL_MODEL });
     expect(normal).toMatchObject({
       reasoning: { effort: 'high' },
       provider: { order: PINNED, allow_fallbacks: true },
     });
-    const max = await sentBody(config, { model: DEFAULT_SIMPLE_MAX_MODEL });
+    const max = await sentBody(config, { model: DEFAULT_LEARN_MAX_MODEL });
     expect(max).not.toHaveProperty('reasoning');
     expect(max).not.toHaveProperty('provider');
   });
 
   it("ask another model with its own defaults: the default model's settings stay with it", async () => {
     const config = simpleProviderConfig(
-      deployed({ SIMPLE_NORMAL_MODEL: 'minimax/minimax-m3', SIMPLE_MAX_MODEL: 'x/other-max' }),
+      deployed({ LEARN_NORMAL_MODEL: 'minimax/minimax-m3', LEARN_MAX_MODEL: 'x/other-max' }),
     );
     expect(config.models).toEqual([
       { id: 'minimax/minimax-m3', label: 'Normal', tier: 'normal' },
@@ -348,16 +320,16 @@ describe('the open pool with request settings', () => {
     const e = deployed({
       POOL_EFFORT: 'low',
       POOL_PROVIDER_ORDER: 'deepseek',
-      SIMPLE_FAST_EFFORT: 'none',
+      BACKGROUND_EFFORT: 'none',
       // A tier on the same model keeps its own settings off the pool.
-      SIMPLE_NORMAL_MODEL: DEFAULT_SIMPLE_FAST_MODEL,
-      SIMPLE_NORMAL_EFFORT: 'high',
+      LEARN_NORMAL_MODEL: DEFAULT_BACKGROUND_MODEL,
+      LEARN_NORMAL_EFFORT: 'high',
     });
     const pool = await resolvePoolParams(e, null);
     const config = poolProviderConfig(e, pool);
     expect(config.models).toEqual([
       {
-        id: DEFAULT_SIMPLE_FAST_MODEL,
+        id: DEFAULT_BACKGROUND_MODEL,
         label: 'Normal',
         effort: 'low',
         providerOrder: ['deepseek'],
@@ -373,9 +345,9 @@ describe('the open pool with request settings', () => {
         completion: pool.price!.outMicrosPerMTok / 1_000_000,
       },
     });
-    // The topic classifier turns thinking off whatever the pool's effort.
-    const classifier = await sentBody(config, { model: pool.model, reasoning: 'none' });
-    expect(classifier['reasoning']).toEqual({ enabled: false });
+    // A call that asks for no thinking (a summary at `none`) turns it off whatever the pool's effort.
+    const unthinking = await sentBody(config, { model: pool.model, reasoning: 'none' });
+    expect(unthinking['reasoning']).toEqual({ enabled: false });
     expect(poolChatSettings(pool).summaryEffort).toBe('none');
   });
 
@@ -411,7 +383,25 @@ describe('MiniMax M3, a config-only fallback', () => {
     expect(simpleProviderConfig(deployed()).models.some((m) => m.id.startsWith('minimax/'))).toBe(
       false,
     );
-    const tier = simpleProviderConfig(deployed({ SIMPLE_NORMAL_MODEL: 'minimax/minimax-m3' }));
+    const tier = simpleProviderConfig(deployed({ LEARN_NORMAL_MODEL: 'minimax/minimax-m3' }));
     expect(tier.models[0]).toMatchObject({ id: 'minimax/minimax-m3', tier: 'normal' });
+  });
+});
+
+describe('prices as shipped', () => {
+  it('prices every model a user can pick or a hosted call runs on, before any sync', async () => {
+    // wrangler.jsonc's vars, and no synced price readable: what a fresh deploy holds credit at.
+    const shipped = shippedEnv(env, { DB: envWithFailingDb(env, /model_prices/).DB });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const models = new Set([
+      ...simpleProviderConfig(shipped).models.map((m) => m.id),
+      ...suggestedModels(shipped).map((m) => m.id),
+      simpleFastModel(shipped),
+      poolModel(shipped),
+    ]);
+    expect(models.size).toBeGreaterThan(1);
+    for (const model of models) {
+      expect(await modelPrice(shipped, model), model).not.toBeNull();
+    }
   });
 });

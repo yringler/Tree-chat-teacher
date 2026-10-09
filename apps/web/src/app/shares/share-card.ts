@@ -2,10 +2,9 @@ import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, input, output, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { ShareSummary } from '@tangent/shared';
-import { ApiClient, Icon } from '@tangent/web-shared';
+import { ApiClient, Icon, ToastStore } from '@tangent/web-shared';
 import { copyText } from '../core/selection';
 import { TreeStore } from '../state/tree-store';
-import { UiStore } from '../state/ui-store';
 import { ExpiryPicker } from '../ui/expiry-picker';
 import { SCOPE_LABEL } from './share-list';
 
@@ -123,7 +122,7 @@ import { SCOPE_LABEL } from './share-list';
 export class ShareCard {
   private readonly api = inject(ApiClient);
   private readonly store = inject(TreeStore);
-  private readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
 
   readonly share = input.required<ShareSummary>();
   /** Link to the conversation (the Shares page); the share dialog is already in it. */
@@ -142,7 +141,7 @@ export class ShareCard {
   protected readonly scopeLabel = SCOPE_LABEL;
 
   protected async copy(): Promise<void> {
-    if (await copyText(this.share().url)) this.ui.notify('Link copied');
+    if (await copyText(this.share().url)) this.toast.notify('Link copied');
   }
 
   protected republish(): Promise<boolean> {
@@ -173,7 +172,7 @@ export class ShareCard {
     try {
       await this.api.deleteShare(s.id);
       this.deleted.emit(s.id);
-      this.ui.notify('Share deleted');
+      this.toast.notify('Share deleted');
       return true;
     } catch (err) {
       this.store.fail(err);
@@ -205,7 +204,7 @@ export class ShareCard {
     this.busy.set(true);
     try {
       this.changed.emit(await op());
-      this.ui.notify(done);
+      this.toast.notify(done);
       return true;
     } catch (err) {
       this.store.fail(err);

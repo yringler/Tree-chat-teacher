@@ -1,19 +1,8 @@
-import { computed, Injectable, signal } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
+import { Overlays } from '@tangent/web-shared';
 import type { Point } from '../layout/layout-store';
 
 /** A link shown in a toast; `href` is a full page load (e.g. the power app's `/billing`). */
-export interface ToastLink {
-  label: string;
-  href: string;
-}
-
-export interface Toast {
-  id: number;
-  kind: 'info' | 'error';
-  text: string;
-  link?: ToastLink;
-}
-
 /** The "Branch from here" dialog: one or many variants off one message. */
 export interface BranchDialogState {
   fromNodeId: string;
@@ -66,6 +55,15 @@ export interface LinkReturn {
   toBranchId: string;
 }
 
+/** A dialog of the canvas, with what it was opened with. */
+export type Dialog =
+  | { kind: 'keys' }
+  | ({ kind: 'branch' } & BranchDialogState)
+  | ({ kind: 'branch-settings' } & BranchSettingsState)
+  | { kind: 'help' }
+  | { kind: 'delete-account' }
+  | ({ kind: 'link' } & LinkDialogState);
+
 const EXPERIMENTAL_KEY = 'tangent.canvas.experimental-ack';
 
 function storedAck(): boolean {
@@ -76,16 +74,12 @@ function storedAck(): boolean {
   }
 }
 
-/** View state that is not part of the URL: toasts, dialogs, the lineage toggle, collapsed lanes. */
+/** View state that is not part of the URL: dialogs, the lineage toggle, collapsed lanes. */
 @Injectable({ providedIn: 'root' })
 export class UiStore {
-  readonly toasts = signal<readonly Toast[]>([]);
   readonly menuOpen = signal(false);
-  readonly keysOpen = signal(false);
-  readonly branchDialog = signal<BranchDialogState | null>(null);
-  readonly branchSettings = signal<BranchSettingsState | null>(null);
-  readonly helpOpen = signal(false);
-  readonly deleteAccountOpen = signal(false);
+  /** The open dialogs (`Dialog`), top-most last. */
+  readonly dialogs = new Overlays<Dialog>();
   /** The "experimental" notice until it is dismissed (remembered in this browser). */
   readonly experimentalAck = signal(storedAck());
   /**
@@ -95,62 +89,13 @@ export class UiStore {
   readonly lineage = signal(true);
   /** Lanes whose subtree is folded into a capsule. */
   readonly collapsed = signal<ReadonlySet<string>>(new Set());
-  /** Bumped to ask the selected lane's composer to take focus. */
-  readonly composerFocus = signal(0);
   /** The lines between linked messages (and their glyphs) are drawn. */
   readonly showLinks = signal(true);
-  readonly linkDialog = signal<LinkDialogState | null>(null);
   readonly linkPick = signal<LinkPickState | null>(null);
   readonly linkDrag = signal<LinkDragState | null>(null);
   /** The link whose glyph was clicked: its popover (ends, note, remove). */
   readonly linkPopover = signal<{ linkId: string } | null>(null);
   readonly linkReturn = signal<LinkReturn | null>(null);
-  /**
-   * The lane the last focus request is for, when it names one: a lane just
-   * created isn't on the canvas yet when it is asked, so its composer takes
-   * the request once it renders (LaneComposer).
-   */
-  composerFocusLane: string | null = null;
-  /**
-   * A lane's message reached the server (its reply started): the lane's box,
-   * still holding exactly that text, lets it go. Until then the text stays,
-   * so a refused or failed send never loses it.
-   */
-  readonly composerSent = signal<{ seq: number; laneId: string; text: string } | null>(null);
-  private toastSeq = 0;
-
-  readonly anyDialogOpen = computed(
-    () =>
-      this.keysOpen() ||
-      this.branchDialog() !== null ||
-      this.branchSettings() !== null ||
-      this.helpOpen() ||
-      this.deleteAccountOpen() ||
-      this.linkDialog() !== null,
-  );
-
-  notify(text: string, kind: Toast['kind'] = 'info', link?: ToastLink): void {
-    const id = ++this.toastSeq;
-    this.toasts.update((list) => [
-      ...list.slice(-2),
-      { id, kind, text, ...(link ? { link } : {}) },
-    ]);
-    setTimeout(() => this.dismiss(id), kind === 'error' ? 8000 : 3500);
-  }
-
-  dismiss(id: number): void {
-    this.toasts.update((list) => list.filter((t) => t.id !== id));
-  }
-
-  /** Focus the selected lane's composer, or `laneId`'s (also once it first renders). */
-  focusComposer(laneId: string | null = null): void {
-    this.composerFocusLane = laneId;
-    this.composerFocus.update((n) => n + 1);
-  }
-
-  markSent(laneId: string, text: string): void {
-    this.composerSent.update((cur) => ({ seq: (cur?.seq ?? 0) + 1, laneId, text }));
-  }
 
   acknowledgeExperimental(): void {
     this.experimentalAck.set(true);
@@ -164,13 +109,13 @@ export class UiStore {
   /** Pick mode from `fromNodeId`; whatever else was linking from somewhere ends. */
   startLinkPick(fromNodeId: string): void {
     this.linkPopover.set(null);
-    this.linkDialog.set(null);
+    this.dialogs.close('link');
     this.linkPick.set({ fromNodeId });
   }
 
   /** Every link interaction ends (another tree opened). */
   clearLinkState(): void {
-    this.linkDialog.set(null);
+    this.dialogs.close('link');
     this.linkPick.set(null);
     this.linkDrag.set(null);
     this.linkPopover.set(null);
@@ -208,30 +153,7 @@ export class UiStore {
       this.linkPopover.set(null);
       return true;
     }
-    if (this.deleteAccountOpen()) {
-      this.deleteAccountOpen.set(false);
-      return true;
-    }
-    if (this.helpOpen()) {
-      this.helpOpen.set(false);
-      return true;
-    }
-    if (this.linkDialog()) {
-      this.linkDialog.set(null);
-      return true;
-    }
-    if (this.branchDialog()) {
-      this.branchDialog.set(null);
-      return true;
-    }
-    if (this.branchSettings()) {
-      this.branchSettings.set(null);
-      return true;
-    }
-    if (this.keysOpen()) {
-      this.keysOpen.set(false);
-      return true;
-    }
+    if (this.dialogs.closeTop()) return true;
     if (this.menuOpen()) {
       this.menuOpen.set(false);
       return true;

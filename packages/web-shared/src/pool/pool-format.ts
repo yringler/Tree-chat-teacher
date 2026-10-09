@@ -2,16 +2,15 @@ import {
   formatMicros,
   POOL_EMPTY_TEXT,
   poolSessionsHeadline,
-  poolWeekText,
   type PoolBlockDetails,
   type PoolStatusResponse,
 } from '@tangent/shared';
-import { ApiError, isPoolCapReached, isPoolEmpty } from '../core/api-client';
+import { hasCode } from '../core/api-client';
 
 /*
  * The open pool as both apps word it: the meter and the inline empty and
  * cap-reached states. Plain functions, so the specs check the exact copy.
- * The pool is free credit Tangent provides (`poolFundingText`); nothing here
+ * The pool is free credit Tangent provides (`POOL_FUNDING_TEXT`); nothing here
  * offers it for sale, and nothing calls it a donation.
  */
 
@@ -23,11 +22,6 @@ export function sessionsLabel(status: Pick<PoolStatusResponse, 'sessionsRemainin
 /** `$2.40 in the pool`, next to the sessions. */
 export function poolDollarsLabel(status: Pick<PoolStatusResponse, 'availableMicros'>): string {
   return `${formatMicros(status.availableMicros)} in the pool`;
-}
-
-/** `This week: 12 learners, 340 free replies`. */
-export function poolWeekLabel(status: Pick<PoolStatusResponse, 'week'>): string {
-  return poolWeekText(status.week);
 }
 
 /**
@@ -42,9 +36,9 @@ export interface PoolBlock {
 
 /** The inline state of a pool refusal; null for any other error. */
 export function poolBlockOf(err: unknown): PoolBlock | null {
-  if (!isPoolEmpty(err) && !isPoolCapReached(err)) return null;
-  const kind = isPoolEmpty(err) ? 'empty' : 'cap';
-  const details = (err as ApiError).pool ?? {
+  if (!hasCode(err, 'pool_empty') && !hasCode(err, 'pool_cap_reached')) return null;
+  const kind = hasCode(err, 'pool_empty') ? 'empty' : 'cap';
+  const details = err.pool ?? {
     reason: kind === 'empty' ? 'empty' : 'cap_requests',
     limit: null,
     resetAt: null,
@@ -74,7 +68,7 @@ function limitText(reason: PoolBlockDetails['reason'], limit: number): string {
 }
 
 /**
- * What the chat says when the pool refused a message (spec §8):
+ * What the chat says when the pool refused a message:
  * - empty: `POOL_EMPTY_TEXT` (Tangent refills it);
  * - a daily cap: the cap and when it resets (one set of caps for everyone,
  *   paying or not, so there is no higher tier to point to);

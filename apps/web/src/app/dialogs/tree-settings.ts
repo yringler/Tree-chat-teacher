@@ -69,22 +69,31 @@ export class TreeSettings implements OnInit {
   private readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
   readonly tree = input.required<Tree>();
+  /**
+   * The tree as the form was filled from it. Saving sends what the user
+   * changed from this, not from the live tree: the first reply may have
+   * titled it meanwhile.
+   */
+  private opened: Tree | null = null;
 
   protected readonly title = signal('');
   protected readonly systemPrompt = signal('');
   protected readonly saving = signal(false);
 
   ngOnInit(): void {
-    this.title.set(this.tree().title);
-    this.systemPrompt.set(this.tree().systemPrompt ?? '');
+    const t = this.tree();
+    this.opened = t;
+    this.title.set(t.title);
+    this.systemPrompt.set(t.systemPrompt ?? '');
   }
 
   protected close(): void {
-    this.ui.treeSettingsOpen.set(false);
+    this.ui.dialogs.close('tree-settings');
   }
 
   protected async save(): Promise<void> {
-    const t = this.tree();
+    const t = this.opened;
+    if (!t) return;
     const req: UpdateTreeRequest = {};
     const title = this.title().trim();
     if (title && title !== t.title) req.title = title;
@@ -95,7 +104,7 @@ export class TreeSettings implements OnInit {
       return;
     }
     this.saving.set(true);
-    const ok = await this.store.updateTree(req);
+    const ok = await this.store.updateTree(t.id, req);
     this.saving.set(false);
     if (ok) this.close();
   }

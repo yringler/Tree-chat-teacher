@@ -1,9 +1,8 @@
-import { DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
-import { parseProviderConfigs } from '@tangent/providers';
+import { appChatSettings, DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
+import { isOpenRouterBaseUrl, parseProviderConfigs } from '@tangent/providers';
 import {
-  BUILT_IN_PROVIDER_ID,
+  OPENROUTER_PROVIDER_ID,
   DEFAULT_SYSTEM_PROMPT,
-  LEGACY_BUILT_IN_PROVIDER_ID,
   TIER_LABELS,
   TIERS,
   BUILT_IN_MAX_OUTPUT_TOKENS,
@@ -14,28 +13,26 @@ import {
 import {
   appConfig,
   backgroundEffort,
-  DEFAULT_SIMPLE_NORMAL_MODEL,
-  DEFAULT_SIMPLE_MAX_MODEL,
-  DEFAULT_SIMPLE_FAST_MODEL,
+  BUILT_IN_API_KEY_SECRET,
   DEFAULT_TIER_REQUESTS,
+  namedSecrets,
   withTierDefaults,
   type TierRequestConfig,
 } from './config.js';
-import { groundingSettings } from './billing/grounding.js';
+import { groundingPolicy } from './billing/grounding.js';
 import type { AppEnv } from './env.js';
 import type { PoolParams } from './pool/params.js';
 
 export {
-  DEFAULT_SIMPLE_FAST_MODEL,
-  DEFAULT_SIMPLE_MAX_INPUT_TOKENS,
-  DEFAULT_SIMPLE_MAX_MODEL,
-  DEFAULT_SIMPLE_NORMAL_MODEL,
+  DEFAULT_BACKGROUND_MODEL,
+  DEFAULT_LEARN_MAX_MODEL,
+  DEFAULT_LEARN_NORMAL_MODEL,
 } from './config.js';
 
-/**
- * The built-in provider: the endpoint `openrouter` (BUILT_IN_PROVIDER_ID in
+/*
+ * The built-in provider: the endpoint `openrouter` (OPENROUTER_PROVIDER_ID in
  * @tangent/shared) on the operator's OpenRouter key, metered per call and
- * paid from the user's prepaid credit or the open pool (PLAN §13). Its
+ * paid from the user's prepaid credit or the open pool. Its
  * provider id names only the endpoint; who pays is the funding (the request's
  * payment in Learn, the branch's funding in power), never the id. It is the
  * only provider config in a Learn account's registry, so the generic provider
@@ -43,15 +40,12 @@ export {
  * validation) apply unchanged; power lists it after the user's own providers
  * as "Tangent credit", with any OpenRouter model allowed
  * (`builtInPowerConfig`), in a registry of its own. Learn also runs this
- * config on the user's own OpenRouter key, unmetered (services.ts `registryFor`).
+ * config on the user's own OpenRouter key, unmetered (registries.ts `registryFor`).
  */
 
-export { BUILT_IN_PROVIDER_ID };
-/** Learn's provider id: the built-in endpoint (`openrouter`). */
-export const SIMPLE_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
 /** What the pool model is called where Learn's config doesn't list it (it is no tier). */
 export const POOL_MODEL_LABEL = 'Lite';
-/** What Learn's own key is: the user's OpenRouter key (cookie entry LEARN_KEY_PROVIDER). */
+/** What Learn's own key is: the user's OpenRouter key (cookie entry OPENROUTER_PROVIDER_ID). */
 export const LEARN_KEY_LABEL = 'OpenRouter';
 /** Output cap of a reply on a model that doesn't reason. */
 export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
@@ -63,73 +57,71 @@ export const SIMPLE_RESERVED_OUTPUT_TOKENS = 4096;
 export const SIMPLE_MAX_OUTPUT_TOKENS = BUILT_IN_MAX_OUTPUT_TOKENS;
 
 /**
- * Normal: `SIMPLE_NORMAL_MODEL`, else the legacy `SIMPLE_SMART_MODEL` (the
- * old default tier, whose deployed value is Normal's model), else the default.
- */
-function normalModel(env: AppEnv): string {
-  return (
-    env.SIMPLE_NORMAL_MODEL?.trim() || env.SIMPLE_SMART_MODEL?.trim() || DEFAULT_SIMPLE_NORMAL_MODEL
-  );
-}
-
-/** Max: `SIMPLE_MAX_MODEL`, else the default. No legacy var ever names Max. */
-function maxModel(env: AppEnv): string {
-  return env.SIMPLE_MAX_MODEL?.trim() || DEFAULT_SIMPLE_MAX_MODEL;
-}
-
-function fastModel(env: AppEnv): string {
-  return env.SIMPLE_FAST_MODEL?.trim() || DEFAULT_SIMPLE_FAST_MODEL;
-}
-
-/**
  * The built-in provider's config, as Learn uses it: its tiers, Normal (the
- * default) then Max, each tagged with its `tier`. `SIMPLE_PROVIDER` (one
- * ProviderConfig as JSON, id `openrouter`, or the legacy `tangent`, read as
- * `openrouter`) replaces it wholesale, e.g. a fake provider in tests or the
- * AI Gateway; its models may name their `tier`, and when none does, its
- * default is Normal and it has no Max (an untagged override predates the
- * tiers: its second model was the cheaper one, so position can't name Max).
- * The id is fixed so that a branch's provider
- * id means the same endpoint in both apps. There is deliberately no fallback
+ * default) then Max, each tagged with its `tier`. `BUILT_IN_PROVIDER` (one
+ * ProviderConfig as JSON, id `openrouter`) replaces it wholesale, e.g. a fake
+ * provider in tests or the AI Gateway; its models name their own `tier`, and
+ * one that names none offers no tiers. The id is fixed so that a branch's
+ * provider id means the same endpoint in both apps. There is deliberately no fallback
  * to OPENROUTER_API_KEY: customer spend stays on its own key, which can carry
  * a hard credit limit.
  *
  * The default config's tier models carry their tier's request settings
- * (`SIMPLE_NORMAL_EFFORT`, `_REPLY_TOKENS`, `_PROVIDER_ORDER`, and Max's;
+ * (`LEARN_NORMAL_EFFORT`, `_REPLY_TOKENS`, `_PROVIDER_ORDER`, and Max's;
  * empty ones are the default model's evaluated settings, `withTierDefaults`), so
  * a tier is a model plus how it is asked, whoever pays (credit or the
  * learner's own key); an override's models carry their own.
  */
 export function simpleProviderConfig(env: AppEnv): ProviderConfig {
-  const override = env.SIMPLE_PROVIDER?.trim();
+  const { builtIn, learn } = appConfig(env);
+  const override = builtIn.provider;
   if (override) {
     const configs = parseProviderConfigs(override.startsWith('[') ? override : `[${override}]`);
     if (configs.length !== 1)
-      throw new Error('Invalid SIMPLE_PROVIDER: expected exactly one provider config');
-    const config = withDefaultTier(configs[0]!);
-    if (config.id === LEGACY_BUILT_IN_PROVIDER_ID) return { ...config, id: SIMPLE_PROVIDER_ID };
-    if (config.id !== SIMPLE_PROVIDER_ID)
-      throw new Error(`Invalid SIMPLE_PROVIDER: id must be "${SIMPLE_PROVIDER_ID}"`);
+      throw new Error('Invalid BUILT_IN_PROVIDER: expected exactly one provider config');
+    const config = configs[0]!;
+    if (config.id !== OPENROUTER_PROVIDER_ID)
+      throw new Error(`Invalid BUILT_IN_PROVIDER: id must be "${OPENROUTER_PROVIDER_ID}"`);
     return config;
   }
   return {
-    id: SIMPLE_PROVIDER_ID,
+    id: OPENROUTER_PROVIDER_ID,
     kind: 'openai-compatible',
     label: 'Tangent',
     baseUrl: 'https://openrouter.ai/api/v1',
-    apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
-    defaultModel: normalModel(env),
+    apiKeySecret: BUILT_IN_API_KEY_SECRET,
+    defaultModel: learn.normalModel,
     // OpenRouter's web search server tool (grounding, see billing/grounding.ts).
     options: { webSearch: true },
     models: tierModels(env, (tier) => TIER_LABELS[tier]).map((m) =>
       m.tier
-        ? withRequestConfig(
-            m,
-            withTierDefaults(appConfig(env).simple[m.tier], DEFAULT_TIER_REQUESTS[m.tier], m.id),
-          )
+        ? withRequestConfig(m, withTierDefaults(learn[m.tier], DEFAULT_TIER_REQUESTS[m.tier], m.id))
         : m,
     ),
   };
+}
+
+/**
+ * The OpenRouter key the built-in provider spends: the secret named by
+ * `BUILT_IN_PROVIDER.apiKeySecret` when set, else `BUILT_IN_API_KEY`.
+ */
+export function builtInApiKey(env: AppEnv): string | null {
+  let secretName = BUILT_IN_API_KEY_SECRET;
+  const override = appConfig(env).builtIn.provider;
+  if (override) {
+    try {
+      const parsed: unknown = JSON.parse(override);
+      const config: unknown = Array.isArray(parsed) ? parsed[0] : parsed;
+      if (typeof config === 'object' && config !== null) {
+        const name = (config as Record<string, unknown>)['apiKeySecret'];
+        if (typeof name === 'string' && name) secretName = name;
+      }
+    } catch {
+      // Invalid BUILT_IN_PROVIDER fails loudly where the registry is built; keep the default here.
+    }
+  }
+  const value = namedSecrets(env, new Set([secretName]))[secretName];
+  return value?.trim() || null;
 }
 
 /**
@@ -151,44 +143,29 @@ export function withRequestConfig(
 
 /** Normal then Max, labelled by `label`; Normal alone when both are the same model. */
 function tierModels(env: AppEnv, label: (tier: ModelTier) => string): ModelInfo[] {
-  const ids: Record<ModelTier, string> = { normal: normalModel(env), max: maxModel(env) };
+  const { normalModel, maxModel } = appConfig(env).learn;
+  const ids: Record<ModelTier, string> = { normal: normalModel, max: maxModel };
   const tiers = ids.normal === ids.max ? TIERS.slice(0, 1) : TIERS;
   return tiers.map((tier) => ({ id: ids[tier], label: label(tier), tier }));
 }
 
 /**
- * An override that tags no model with a tier: its default is Normal and the
- * rest are untiered. Pre-tier overrides listed `[Smart (default), Simple
- * (cheaper)]`, so reading the second model as Max would sell the cheaper one
- * as the strongest; Max must be named.
- */
-function withDefaultTier(config: ProviderConfig): ProviderConfig {
-  if (config.models.some((m) => m.tier !== undefined)) return config;
-  return {
-    ...config,
-    models: config.models.map((m) =>
-      m.id === config.defaultModel ? { ...m, tier: 'normal' as const } : m,
-    ),
-  };
-}
-
-/**
- * The suggested OpenRouter models, Normal first (SIMPLE_NORMAL_MODEL,
- * SIMPLE_MAX_MODEL): Learn's two tiers, and the models power lists first for
+ * The suggested OpenRouter models, Normal first (LEARN_NORMAL_MODEL,
+ * LEARN_MAX_MODEL): Learn's two tiers, and the models power lists first for
  * OpenRouter, on the user's own key or on credit.
  */
 export function suggestedModels(env: AppEnv): ModelInfo[] {
   return tierModels(env, (tier) => `${TIER_LABELS[tier]} (suggested)`);
 }
 
-/** Learn's per-call input cap (`SIMPLE_MAX_INPUT_TOKENS`). */
+/** Learn's per-call input cap (`BUILT_IN_MAX_INPUT_TOKENS`). */
 export function simpleMaxInputTokens(env: AppEnv): number {
-  return appConfig(env).simple.maxInputTokens;
+  return appConfig(env).builtIn.maxInputTokens;
 }
 
 /**
  * The built-in provider as power lists it: Learn's config (same key, same
- * SIMPLE_PROVIDER override), labelled "Tangent credit", with any model id
+ * BUILT_IN_PROVIDER override), labelled "Tangent credit", with any model id
  * allowed (its models are suggestions) and one call's cost bounded like
  * Learn's: the context window is Learn's input cap plus its output reserve,
  * and output is capped at SIMPLE_MAX_OUTPUT_TOKENS. Per-model limits are
@@ -212,9 +189,9 @@ export function builtInPowerConfig(env: AppEnv): ProviderConfig {
 
 /**
  * The background model of the simple provider (summaries, titles, and the
- * pool's default model): SIMPLE_FAST_MODEL, which the default config needn't
- * list (it is no tier, and OpenRouter takes any model id). A SIMPLE_PROVIDER
- * override is a closed list, so there it is SIMPLE_FAST_MODEL when the
+ * pool's default model): BACKGROUND_MODEL, which the default config needn't
+ * list (it is no tier, and OpenRouter takes any model id). A BUILT_IN_PROVIDER
+ * override is a closed list, so there it is BACKGROUND_MODEL when the
  * override lists it, else the override's default (never another tier, which
  * could be Max).
  */
@@ -222,8 +199,9 @@ export function simpleFastModel(
   env: AppEnv,
   config: ProviderConfig = simpleProviderConfig(env),
 ): string {
-  const wanted = fastModel(env);
-  if (!env.SIMPLE_PROVIDER?.trim()) return wanted;
+  const { background, builtIn } = appConfig(env);
+  const wanted = background.model;
+  if (!builtIn.provider) return wanted;
   return config.models.some((m) => m.id === wanted) ? wanted : config.defaultModel;
 }
 
@@ -231,31 +209,29 @@ export function simpleFastModel(
 export function simpleChatSettings(env: AppEnv): ChatSettings {
   const config = simpleProviderConfig(env);
   const summaryModel = simpleFastModel(env, config);
-  return {
-    ...DEFAULT_CHAT_SETTINGS,
+  return appChatSettings('learn', {
     summaryProviderId: config.id,
     summaryModel,
     summaryEffort: backgroundEffort(env, summaryModel),
     maxInputTokens: simpleMaxInputTokens(env),
     reservedOutputTokens: SIMPLE_RESERVED_OUTPUT_TOKENS,
     reasoningOutputTokens: SIMPLE_MAX_OUTPUT_TOKENS,
-    autoTitle: true,
-    grounding: groundingSettings(env, 'simple'),
-  };
+    groundingPolicy: groundingPolicy(env),
+  });
 }
 
 /**
  * Default system prompt for trees created by simple accounts that have no
- * saved prompt: SIMPLE_SYSTEM_PROMPT when set, else the built-in prompt
+ * saved prompt: LEARN_SYSTEM_PROMPT when set, else the built-in prompt
  * shared with power mode (DEFAULT_SYSTEM_PROMPT in @tangent/shared).
  */
 export function simpleSystemPrompt(env: AppEnv): string {
-  return env.SIMPLE_SYSTEM_PROMPT?.trim() || DEFAULT_SYSTEM_PROMPT;
+  return appConfig(env).learn.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
 }
 
 /**
  * The built-in provider as the open pool uses it: the simple config
- * (same key, same SIMPLE_PROVIDER override) with the pool model as its only
+ * (same key, same BUILT_IN_PROVIDER override) with the pool model as its only
  * model, and one call's cost bounded by the pool's caps: the context window
  * is the pool's input cap plus its output cap. On OpenRouter, routing is
  * capped at the price table's price (`provider.max_price`, $/MTok), so an
@@ -282,7 +258,7 @@ export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfi
     maxContextTokens: pool.maxInputTokens + pool.maxOutputTokens,
     maxOutputTokens: pool.maxOutputTokens,
   };
-  if (base.kind !== 'openai-compatible' || !isOpenRouter(base.baseUrl) || !pool.price)
+  if (base.kind !== 'openai-compatible' || !isOpenRouterBaseUrl(base.baseUrl) || !pool.price)
     return config;
   const extraBody = asRecord(base.options?.['extraBody']);
   // Merged into the operator's own routing (e.g. `data_collection: 'deny'`),
@@ -308,25 +284,6 @@ export function poolProviderConfig(env: AppEnv, pool: PoolParams): ProviderConfi
   };
 }
 
-/**
- * Whether an openai-compatible base URL reaches OpenRouter: openrouter.ai
- * itself, or the AI Gateway's OpenRouter route (`.../openrouter`). Unset means
- * the provider's own default, api.openai.com.
- */
-export function isOpenRouter(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false;
-  try {
-    const url = new URL(baseUrl);
-    if (url.hostname === 'openrouter.ai') return true;
-    return (
-      url.hostname === 'gateway.ai.cloudflare.com' &&
-      url.pathname.replace(/\/+$/, '').endsWith('/openrouter')
-    );
-  } catch {
-    return false;
-  }
-}
-
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -347,7 +304,7 @@ function lowerPrice(prior: unknown, pool: number): number {
 export function poolChatSettings(pool: PoolParams): ChatSettings {
   return {
     ...DEFAULT_CHAT_SETTINGS,
-    summaryProviderId: SIMPLE_PROVIDER_ID,
+    summaryProviderId: OPENROUTER_PROVIDER_ID,
     summaryModel: pool.model,
     summaryEffort: pool.summaryEffort,
     maxInputTokens: pool.maxInputTokens,
@@ -366,7 +323,7 @@ export function poolChatSettings(pool: PoolParams): ChatSettings {
  * takes "any OpenRouter model"), whether its replies can search the web, and
  * whether a search costs about 1¢ (OpenRouter's Exa price covers up to 10
  * results; other engines and more results cost differently). Null when
- * SIMPLE_PROVIDER is invalid, so a page falls back to wording that claims
+ * BUILT_IN_PROVIDER is invalid, so a page falls back to wording that claims
  * none of these.
  */
 export interface LearnOffer {
@@ -387,12 +344,12 @@ export function learnOffer(env: AppEnv): LearnOffer | null {
   const tiers = [...config.models]
     .sort((a, b) => rank(a.tier) - rank(b.tier))
     .map(({ id, label, tier }) => ({ id, label, ...(tier ? { tier } : {}) }));
-  const openRouter = config.kind === 'openai-compatible' && isOpenRouter(config.baseUrl);
-  const grounding = groundingSettings(env, 'simple');
+  const openRouter = config.kind === 'openai-compatible' && isOpenRouterBaseUrl(config.baseUrl);
+  const { engine, maxResults } = appConfig(env).grounding;
   return {
     tiers,
     openRouter,
     search: config.options?.['webSearch'] === true,
-    searchAboutOneCent: openRouter && grounding.engine === 'exa' && grounding.maxResults <= 10,
+    searchAboutOneCent: openRouter && engine === 'exa' && maxResults <= 10,
   };
 }

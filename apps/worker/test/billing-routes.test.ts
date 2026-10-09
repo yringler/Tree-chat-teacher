@@ -11,6 +11,7 @@ import { grantCredit } from '../src/billing/ledger.js';
 import { decodeFakeUrl } from '../src/billing/providers/fake.js';
 import type { AccountContext, AppBindings, AppEnv } from '../src/env.js';
 import { onError } from '../src/http/errors.js';
+import { sameOriginWrites } from '../src/byok/guard.js';
 import { billingRoutes } from '../src/routes/billing.js';
 import {
   insertUsage,
@@ -19,13 +20,13 @@ import {
   simpleAccount,
   uniq,
 } from './mocks/billing-helpers.js';
+import { BASE, ok } from './http.js';
 
 const env = rawEnv as unknown as AppEnv;
-const BASE = 'https://tangent.example.com';
-
 /**
- * billingRoutes() behind a stand-in for the session/account middleware, so
- * these tests don't depend on how accounts are resolved.
+ * billingRoutes() behind app.ts's CSRF guard and a stand-in for the
+ * session/account middleware, so these tests don't depend on how accounts
+ * are resolved.
  */
 function appAs(account: AccountContext, e: AppEnv = env) {
   const app = new Hono<AppBindings>();
@@ -35,6 +36,7 @@ function appAs(account: AccountContext, e: AppEnv = env) {
     c.set('accountId', account.id);
     await next();
   });
+  app.use('/api/*', sameOriginWrites);
   app.route('/api/billing', billingRoutes());
   return (path: string, init: RequestInit & { json?: unknown } = {}) => {
     const { json, ...rest } = init;
@@ -46,12 +48,6 @@ function appAs(account: AccountContext, e: AppEnv = env) {
       e,
     );
   };
-}
-
-async function body<T>(res: Response, status: number): Promise<T> {
-  const text = await res.text();
-  expect(res.status, text).toBe(status);
-  return JSON.parse(text) as T;
 }
 
 describe('billing routes', () => {
@@ -70,20 +66,20 @@ describe('billing routes', () => {
       chargeMicros: 500_000,
     });
     const call = appAs(account);
-    expect(await body<BillingSummary>(await call('/api/billing'), 200)).toMatchObject({
+    expect(await ok<BillingSummary>(await call('/api/billing'), 200)).toMatchObject({
       enabled: true,
       builtInCredit: true,
       balanceMicros: 1_500_000,
     });
     expect(
-      (await body<UsageListResponse>(await call('/api/billing/usage'), 200)).entries,
+      (await ok<UsageListResponse>(await call('/api/billing/usage'), 200)).entries,
     ).toHaveLength(1);
     const res = await call('/api/billing/checkout', {
       method: 'POST',
       json: { amountCents: 1000 },
       headers: { 'Sec-Fetch-Site': 'same-origin' },
     });
-    expect((await body<CheckoutResponse>(res, 200)).url).toMatch(
+    expect((await ok<CheckoutResponse>(res, 200)).url).toMatch(
       /^https:\/\/fake-pay\.invalid\/checkout#/,
     );
   });
@@ -98,7 +94,7 @@ describe('billing routes', () => {
     });
     const res = await appAs(account)('/api/billing');
     expect(res.headers.get('Cache-Control')).toBe('no-store');
-    const summary = await body<BillingSummary>(res, 200);
+    const summary = await ok<BillingSummary>(res, 200);
     expect(summary).toMatchObject({
       enabled: true,
       balanceMicros: 5_000_000,
@@ -112,21 +108,21 @@ describe('billing routes', () => {
     for (let i = 0; i < 3; i++)
       await insertUsage(env, { accountId: account.id, status: 'settled', chargeMicros: i });
     const call = appAs(account);
-    const first = await body<UsageListResponse>(await call('/api/billing/usage?limit=2'), 200);
+    const first = await ok<UsageListResponse>(await call('/api/billing/usage?limit=2'), 200);
     expect(first.entries).toHaveLength(2);
     expect(first.nextCursor).not.toBeNull();
-    const rest = await body<UsageListResponse>(
+    const rest = await ok<UsageListResponse>(
       await call(`/api/billing/usage?limit=2&cursor=${encodeURIComponent(first.nextCursor!)}`),
       200,
     );
     expect(rest.entries).toHaveLength(1);
     expect(rest.nextCursor).toBeNull();
     expect(
-      (await body<UsageListResponse>(await call('/api/billing/usage'), 200)).entries,
+      (await ok<UsageListResponse>(await call('/api/billing/usage'), 200)).entries,
     ).toHaveLength(3);
-    await body<ApiError>(await call('/api/billing/usage?limit=101'), 400);
-    await body<ApiError>(await call('/api/billing/usage?limit=0'), 400);
-    await body<ApiError>(await call('/api/billing/usage?cursor=@@@'), 400);
+    await ok<ApiError>(await call('/api/billing/usage?limit=101'), 400);
+    await ok<ApiError>(await call('/api/billing/usage?limit=0'), 400);
+    await ok<ApiError>(await call('/api/billing/usage?cursor=@@@'), 400);
   });
 
   it('POST /checkout validates, is same-origin only, and returns the Checkout URL', async () => {
@@ -134,7 +130,7 @@ describe('billing routes', () => {
     await insertUser(env, { id: account.userId!, email: `${uniq('route')}@example.com` });
     const call = appAs(account);
     for (const amountCents of [499, 50_001, 12.5]) {
-      await body<ApiError>(
+      await ok<ApiError>(
         await call('/api/billing/checkout', { method: 'POST', json: { amountCents } }),
         400,
       );
@@ -144,13 +140,13 @@ describe('billing routes', () => {
       json: { amountCents: 1000 },
       headers: { 'Sec-Fetch-Site': 'cross-site' },
     });
-    await body<ApiError>(cross, 403);
+    await ok<ApiError>(cross, 403);
     const res = await call('/api/billing/checkout', {
       method: 'POST',
       json: { amountCents: 1000 },
       headers: { 'Sec-Fetch-Site': 'same-origin' },
     });
-    expect((await body<CheckoutResponse>(res, 200)).url).toMatch(
+    expect((await ok<CheckoutResponse>(res, 200)).url).toMatch(
       /^https:\/\/fake-pay\.invalid\/checkout#/,
     );
   });
@@ -160,7 +156,7 @@ describe('billing routes', () => {
     await insertUser(env, { id: account.userId!, email: `${uniq('route')}@example.com` });
     const call = appAs(account);
     const same = { method: 'POST', headers: { 'Sec-Fetch-Site': 'same-origin' } };
-    const membership = await body<CheckoutResponse>(
+    const membership = await ok<CheckoutResponse>(
       await call('/api/billing/membership/checkout', same),
       200,
     );
@@ -168,13 +164,13 @@ describe('billing routes', () => {
       page: 'membership',
       input: { successUrl: `${BASE}/learn/billing?checkout=success` },
     });
-    const portal = await body<CheckoutResponse>(await call('/api/billing/portal', same), 200);
+    const portal = await ok<CheckoutResponse>(await call('/api/billing/portal', same), 200);
     expect(decodeFakeUrl(portal.url)).toMatchObject({
       page: 'portal',
       input: { returnUrl: `${BASE}/learn/billing` },
     });
     for (const path of ['/api/billing/membership/checkout', '/api/billing/portal'])
-      await body<ApiError>(
+      await ok<ApiError>(
         await call(path, { method: 'POST', headers: { 'Sec-Fetch-Site': 'cross-site' } }),
         403,
       );
@@ -185,20 +181,20 @@ describe('billing routes', () => {
     await insertUser(env, { id: account.userId!, email: `${uniq('route')}@example.com` });
     const same = { method: 'POST', headers: { 'Sec-Fetch-Site': 'same-origin' } };
     const none = appAs(account, { ...env, FAKE_PAYMENTS: '{"portalCustomer":false}' } as AppEnv);
-    expect((await body<ApiError>(await none('/api/billing/portal', same), 404)).error.code).toBe(
+    expect((await ok<ApiError>(await none('/api/billing/portal', same), 404)).error.code).toBe(
       'no_customer',
     );
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const down = appAs(account, { ...env, FAKE_PAYMENTS: '{"failCheckout":true}' } as AppEnv);
     expect(
-      (await body<ApiError>(await down('/api/billing/membership/checkout', same), 502)).error.code,
+      (await ok<ApiError>(await down('/api/billing/membership/checkout', same), 502)).error.code,
     ).toBe('provider_error');
     error.mockRestore();
   });
 
   it('POST /checkout needs a known user', async () => {
     const call = appAs(simpleAccount());
-    await body<ApiError>(
+    await ok<ApiError>(
       await call('/api/billing/checkout', { method: 'POST', json: { amountCents: 1000 } }),
       401,
     );
@@ -206,6 +202,6 @@ describe('billing routes', () => {
 
   it('is mounted at /api/billing and answers the dev-mode power account', async () => {
     const res = await exports.default.fetch(new Request(`${BASE}/api/billing`));
-    expect(await body<BillingSummary>(res, 200)).toMatchObject({ enabled: true });
+    expect(await ok<BillingSummary>(res, 200)).toMatchObject({ enabled: true });
   });
 });

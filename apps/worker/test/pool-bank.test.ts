@@ -7,26 +7,45 @@ import type {
   ProviderRegistry,
   UsageTag,
 } from '@tangent/shared';
-import { runDurableObjectAlarm } from 'cloudflare:test';
+import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { deleteUser } from '../src/auth/delete-account.js';
 import { getBalance } from '../src/billing/ledger.js';
-import {
-  createPoolUsageMeter,
-  meteredRegistry,
-  type UsageMeterOptions,
-} from '../src/billing/meter.js';
+import { meteredRegistry } from '../src/billing/meter.js';
+import type { UsageMeterOptions } from '../src/billing/meter-run.js';
 import { reconcilePendingUsage, reconcilePoolUsage } from '../src/billing/reconcile.js';
 import { markDispatched, setGenerationId, settleUsage } from '../src/billing/usage-store.js';
 import type { PoolCaps, PoolRateLimits } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
-import { expirePoolReservations } from '../src/pool/expiry.js';
+import {
+  expirePoolReservations,
+  runExpiry,
+  storedExpiry,
+  type ExpiryResult,
+} from '../src/pool/expiry.js';
 import { poolBank } from '../src/pool/ids.js';
-import { resolvePoolParams, type PoolParams } from '../src/pool/params.js';
-import type { PoolReserveRequest, PoolReserveResult } from '../src/pool/pool-bank.js';
-import { ceilingHoldMicros } from '../src/pool/pricing.js';
+import { createPoolUsageMeter } from '../src/pool/meter.js';
+import {
+  POOL_CALL_TIMEOUT_MS,
+  POOL_RESERVATION_TTL_MS,
+  poolReserveRequest,
+  replyCeilingMicros,
+  resolvePoolParams,
+  type PoolParams,
+} from '../src/pool/params.js';
+import type { PoolBank, PoolReserveRequest, PoolReserveResult } from '../src/pool/pool-bank.js';
 import { simpleProviderConfig } from '../src/simple-mode.js';
-import { scriptGeneration, uniq, usageRow, type UsageRow } from './mocks/billing-helpers.js';
+import {
+  ensureUser,
+  newUser,
+  scriptGeneration,
+  uniq,
+  usageRow,
+  type UsageRow,
+} from './mocks/billing-helpers.js';
+import { shippedEnv } from './mocks/wrangler-vars.js';
+import { failRateChecks } from './pool-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
 /** The pool params of the test env (its price is a `MODEL_PRICES` entry: no D1 read). */
@@ -60,6 +79,18 @@ function quiet(): void {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** An expiry pass of `bank`'s alarm at the clock `now` (`runDurableObjectAlarm` takes none). */
+function expire(bank: DurableObjectStub<PoolBank>, now: number): Promise<ExpiryResult | null> {
+  return runInDurableObject(bank, async (_, state) => {
+    const expiry = await storedExpiry(state.storage);
+    return expiry ? runExpiry(env, state.storage, expiry, new Date(now)) : null;
+  });
+}
+
+function alarmOf(bank: DurableObjectStub<PoolBank>): Promise<number | null> {
+  return runInDurableObject(bank, (_, state) => state.storage.getAlarm());
 }
 
 /** A grant to the pool, made long ago by default (so it is in the 00:00 UTC balance). */
@@ -106,7 +137,7 @@ function request(poolId: string, overrides: Partial<PoolReserveRequest> = {}): P
     branchId: 'branch_1',
     nodeId: null,
     providerId: 'openrouter',
-    model: 'simple',
+    model: 'normal',
     holdMicros: 3_000,
     feeBps: 0,
     caps: OPEN_CAPS,
@@ -117,11 +148,13 @@ function request(poolId: string, overrides: Partial<PoolReserveRequest> = {}): P
   };
 }
 
-function reserve(
+async function reserve(
   poolId: string,
   overrides: Partial<PoolReserveRequest> = {},
 ): Promise<PoolReserveResult> {
-  return poolBank(env, poolId).reserve(request(poolId, overrides));
+  const req = request(poolId, overrides);
+  await ensureUser(env, req.userId);
+  return poolBank(env, poolId).reserve(req);
 }
 
 async function reserved(
@@ -143,7 +176,7 @@ async function insertPoolRow(
   await env.DB.prepare(
     `INSERT INTO usage_events (id, account_id, funding, purpose, provider_id, model, status, hold_micros,
        markup_bps, fee_bps, charge_micros, created_at)
-     VALUES (?, ?, 'pool', 'reply', 'openrouter', 'simple', ?, ?, 0, 0, ?, ?)`,
+     VALUES (?, ?, 'pool', 'reply', 'openrouter', 'normal', ?, ?, 0, 0, ?, ?)`,
   )
     .bind(
       id,
@@ -164,7 +197,6 @@ function params(poolId: string, overrides: Partial<PoolParams> = {}): PoolParams
     accountId: poolId,
     caps: OPEN_CAPS,
     limits: OPEN_LIMITS,
-    overage: NO_BREAKER,
     ...overrides,
   };
 }
@@ -194,8 +226,8 @@ function providerOf(stream: (req: GenerateRequest) => AsyncIterable<ProviderEven
     id: 'openrouter',
     kind: 'fake',
     label: 'Tangent',
-    models: () => [{ id: 'simple', label: 'Normal', tier: 'normal' }],
-    defaultModel: () => 'simple',
+    models: () => [{ id: 'normal', label: 'Normal', tier: 'normal' }],
+    defaultModel: () => 'normal',
     capabilities: () => ({
       maxContextTokens: 8192,
       maxOutputTokens: 2048,
@@ -219,7 +251,7 @@ function tag(overrides: Partial<UsageTag> = {}): UsageTag {
 
 function genRequest(t: UsageTag, signal = new AbortController().signal): GenerateRequest {
   return {
-    model: 'simple',
+    model: 'normal',
     system: null,
     messages: [{ role: 'user', content: 'hi' }],
     maxOutputTokens: 2048,
@@ -294,7 +326,7 @@ describe('PoolBank: the never-negative invariant (spec test)', () => {
     const meter = createPoolUsageMeter(
       env,
       params(poolId),
-      uniq('user'),
+      await newUser(env),
       (p) => deferred.push(p),
       FAST,
     );
@@ -322,6 +354,27 @@ describe('PoolBank: the never-negative invariant (spec test)', () => {
   });
 });
 
+describe('PoolBank: as shipped (wrangler.jsonc vars)', () => {
+  it("reserves a new user's first pool reply within the daily caps", async () => {
+    const shipped = shippedEnv(env, { TEST_POOL_ACCOUNT_ID: uniq('pool') });
+    const pool = await resolvePoolParams(shipped, 'ip-key');
+    expect(pool.price).not.toBeNull();
+    await fund(pool.accountId, 100_000_000);
+    const result = await poolBank(shipped, pool.accountId).reserve(
+      poolReserveRequest(pool, await newUser(env), {
+        purpose: 'reply',
+        treeId: 'tree_1',
+        branchId: 'branch_1',
+        nodeId: null,
+        providerId: 'openrouter',
+        holdMicros: replyCeilingMicros(pool, pool.price!),
+        feeBps: pool.price!.feeBps,
+      }),
+    );
+    expect(result).toMatchObject({ ok: true });
+  });
+});
+
 describe('PoolBank: caps inside reserve', () => {
   it('refuses a user past their daily replies, with the reset and the cap', async () => {
     quiet();
@@ -331,9 +384,9 @@ describe('PoolBank: caps inside reserve', () => {
     const caps: PoolCaps = { ...OPEN_CAPS, user: { requestsPerDay: 2, spendMicrosPerDay: 1e12 } };
     await reserved(poolId, { userId, caps });
     await reserved(poolId, { userId, caps });
-    // Summaries and tagging don't count as replies.
+    // Summaries and titles don't count as replies.
     await reserved(poolId, { userId, caps, purpose: 'summary' });
-    await reserved(poolId, { userId, caps, purpose: 'tagging' });
+    await reserved(poolId, { userId, caps, purpose: 'title' });
     const refused = await reserve(poolId, { userId, caps });
     const tomorrow = new Date();
     tomorrow.setUTCHours(24, 0, 0, 0);
@@ -354,7 +407,7 @@ describe('PoolBank: caps inside reserve', () => {
     expect((await reserve(poolId, { userId, caps })).ok).toBe(true);
   });
 
-  it('refuses spend past the daily cap (settled charges plus pending holds); tagging is exempt', async () => {
+  it('refuses spend past the daily cap (settled charges plus pending holds)', async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 1_000_000);
@@ -369,7 +422,6 @@ describe('PoolBank: caps inside reserve', () => {
       reason: 'cap_spend',
       limit: 5_000,
     });
-    expect((await reserve(poolId, { userId, caps, purpose: 'tagging' })).ok).toBe(true);
     // Settling the first at 1_000 frees the rest of its hold.
     await settleUsage(env.DB, first, { costNanos: 1_000_000, markupBps: 0, feeBps: 0 });
     expect((await reserve(poolId, { userId, caps })).ok).toBe(true);
@@ -402,7 +454,7 @@ describe('PoolBank: caps inside reserve', () => {
     });
   });
 
-  it("caps everyone's spend together at a share of the day's base; tagging is not counted", async () => {
+  it("caps everyone's spend together at a share of the day's base", async () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
@@ -411,9 +463,6 @@ describe('PoolBank: caps inside reserve', () => {
       ...OPEN_CAPS,
       global: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 },
     };
-    // Tagging holds count toward no one's caps, the global ceiling included.
-    await reserved(poolId, { caps, purpose: 'tagging' });
-    await reserved(poolId, { caps, purpose: 'tagging' });
     // 9_000 of a 10_000 ceiling, by three different users.
     for (let i = 0; i < 3; i++) await reserved(poolId, { caps });
     expect(await reserve(poolId, { caps })).toMatchObject({
@@ -450,27 +499,6 @@ describe('PoolBank: caps inside reserve', () => {
     });
   });
 
-  it("counts rows from the retired member tier toward today's one ceiling", async () => {
-    quiet();
-    const poolId = uniq('pool');
-    await fund(poolId, 1_000_000);
-    const caps: PoolCaps = {
-      ...OPEN_CAPS,
-      global: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 100 }, // 10_000
-    };
-    // Rows reserved while the pool had tiers carry 'free' or 'member'; newer ones none.
-    for (const tier of ['free', 'member'] as const) {
-      const id = await reserved(poolId, { caps });
-      await env.DB.prepare('UPDATE usage_events SET tier = ? WHERE id = ?').bind(tier, id).run();
-    }
-    await reserved(poolId, { caps }); // 9_000
-    expect(await reserve(poolId, { caps })).toMatchObject({
-      ok: false,
-      reason: 'cap_global',
-      limit: 10_000,
-    });
-  });
-
   it('applies the same caps whatever the caller holds: buying credit changes nothing', async () => {
     quiet();
     const poolId = uniq('pool');
@@ -490,8 +518,6 @@ describe('PoolBank: caps inside reserve', () => {
       reason: 'cap_requests',
       limit: 1,
     });
-    // New rows carry no tier.
-    expect((await poolRows(poolId)).map((r) => r.tier)).toEqual([null]);
   });
 
   it('refuses what the pool cannot cover as empty, and records the reservation row', async () => {
@@ -511,7 +537,6 @@ describe('PoolBank: caps inside reserve', () => {
       funding: 'pool',
       user_id: userId,
       ip_key: 'ipk',
-      tier: null,
       tree_id: 'tree_1',
       branch_id: 'branch_1',
       node_id: 'node_9',
@@ -540,9 +565,9 @@ describe('PoolBank: per-minute rate limits', () => {
 
     expect((await at(t, alice)).ok).toBe(true);
     expect((await at(t + 1, alice)).ok).toBe(true);
-    // Summaries, titles and tagging are part of an admitted reply.
+    // Summaries and titles are part of an admitted reply.
     expect((await at(t + 2, alice, { purpose: 'summary' })).ok).toBe(true);
-    expect((await at(t + 3, alice, { purpose: 'tagging' })).ok).toBe(true);
+    expect((await at(t + 3, alice, { purpose: 'title' })).ok).toBe(true);
     expect(await at(t + 4, alice)).toMatchObject({
       ok: false,
       reason: 'rate',
@@ -590,7 +615,7 @@ describe('PoolBank: per-minute rate limits', () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 1_000_000);
-    await poolBank(env, poolId).failRateChecks(2);
+    await failRateChecks(poolBank(env, poolId), 2);
     expect(await reserve(poolId)).toMatchObject({ ok: false, reason: 'rate' });
     expect(
       await poolBank(env, poolId).admit({
@@ -639,8 +664,8 @@ describe('PoolBank: settlement clamp and the overage breaker', () => {
     const deferred: Promise<unknown>[] = [];
     const meter = createPoolUsageMeter(
       env,
-      params(poolId, { overage }),
-      uniq('user'),
+      params(poolId),
+      await newUser(env),
       (p) => deferred.push(p),
       FAST,
     );
@@ -672,13 +697,13 @@ describe('Pool meter', () => {
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
     const p = params(poolId);
-    const ceiling = ceilingHoldMicros(p.price!, p.maxOutputTokens, p.price!.feeBps);
+    const ceiling = replyCeilingMicros(p, p.price!);
     const reservationId = await reserved(poolId, {
       holdMicros: ceiling,
       feeBps: p.price!.feeBps,
     });
     const deferred: Promise<unknown>[] = [];
-    const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
+    const meter = createPoolUsageMeter(env, p, await newUser(env), (x) => deferred.push(x), FAST);
     const inner = createProviderRegistry([simpleProviderConfig(env)], { secrets: {} });
     const registry = meteredRegistry(inner, meter, () => true);
     let pending: UsageRow | null = null;
@@ -712,7 +737,7 @@ describe('Pool meter', () => {
     const poolId = uniq('pool');
     await fund(poolId, 100_000);
     const p = params(poolId);
-    const ceiling = ceilingHoldMicros(p.price!, p.maxOutputTokens, p.price!.feeBps);
+    const ceiling = replyCeilingMicros(p, p.price!);
     const reservationId = await reserved(poolId, {
       holdMicros: ceiling,
       feeBps: p.price!.feeBps,
@@ -725,7 +750,7 @@ describe('Pool meter', () => {
       yield { type: 'done', stopReason: 'stop' };
     });
     const deferred: Promise<unknown>[] = [];
-    const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
+    const meter = createPoolUsageMeter(env, p, await newUser(env), (x) => deferred.push(x), FAST);
     const events = await drain(
       meteredRegistry(registryOf(provider), meter, () => true)
         .get('openrouter')!
@@ -748,7 +773,13 @@ describe('Pool meter', () => {
       calls++;
       yield { type: 'done', stopReason: 'stop' };
     });
-    const meter = createPoolUsageMeter(env, params(poolId), uniq('user'), () => undefined, FAST);
+    const meter = createPoolUsageMeter(
+      env,
+      params(poolId),
+      await newUser(env),
+      () => undefined,
+      FAST,
+    );
     const registry = meteredRegistry(registryOf(provider), meter, () => true);
     const events = await drain(
       registry.get('openrouter')!.stream(genRequest(tag({ reservationId: 'nope' }))),
@@ -760,6 +791,35 @@ describe('Pool meter', () => {
       { type: 'error', error: { code: 'server', retryable: false, upstream: 'not_sent' } },
     ]);
     expect(calls).toBe(0);
+  });
+
+  it('writes nothing for a user deleted since the reply was admitted (its title, its summaries)', async () => {
+    quiet();
+    const poolId = uniq('pool');
+    await fund(poolId, 100_000);
+    const userId = await newUser(env);
+    let calls = 0;
+    const provider = providerOf(async function* () {
+      calls++;
+      yield { type: 'done', stopReason: 'stop' };
+    });
+    const meter = createPoolUsageMeter(env, params(poolId), userId, () => undefined, FAST);
+    const registry = meteredRegistry(registryOf(provider), meter, () => true);
+    // The reply streamed; the account is deleted before its title is reserved.
+    await deleteUser(env, userId);
+    const title = await drain(
+      registry.get('openrouter')!.stream(genRequest(tag({ purpose: 'title' }))),
+    );
+    expect(title).toMatchObject([{ type: 'error', error: { upstream: 'not_sent' } }]);
+    expect(calls).toBe(0);
+    // A reply the gate let through just before the deletion is refused the same way.
+    expect(await poolBank(env, poolId).reserve(request(poolId, { userId }))).toEqual({
+      ok: false,
+      reason: 'verify',
+      resetAt: null,
+      limit: null,
+    });
+    expect(await poolRows(poolId)).toEqual([]);
   });
 
   it('charges the full hold for a cancel after dispatch, before the first chunk', async () => {
@@ -777,7 +837,7 @@ describe('Pool meter', () => {
     const meter = createPoolUsageMeter(
       env,
       params(poolId),
-      uniq('user'),
+      await newUser(env),
       (p) => deferred.push(p),
       FAST,
     );
@@ -820,7 +880,7 @@ describe('Pool meter', () => {
     const deferred: Promise<unknown>[] = [];
     const p = params(poolId);
     for (const provider of [rejects, tokensOnly]) {
-      const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
+      const meter = createPoolUsageMeter(env, p, await newUser(env), (x) => deferred.push(x), FAST);
       await drain(
         meteredRegistry(registryOf(provider), meter, () => true)
           .get('openrouter')!
@@ -867,7 +927,7 @@ describe('Pool meter', () => {
       yield { type: 'done', stopReason: 'stop' };
     });
     const deferred: Promise<unknown>[] = [];
-    const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
+    const meter = createPoolUsageMeter(env, p, await newUser(env), (x) => deferred.push(x), FAST);
     await drain(
       meteredRegistry(registryOf(cached), meter, () => true)
         .get('openrouter')!
@@ -908,7 +968,7 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     expect(await available(poolId)).toBe(100_000 - 5 * 3_000);
 
     // Not yet expired: nothing happens.
-    expect(await stub.expire(Date.now())).toEqual({
+    expect(await expire(stub, Date.now())).toEqual({
       released: 0,
       charged: 0,
       deferred: 0,
@@ -920,7 +980,7 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     await env.DB.prepare('UPDATE usage_events SET created_at = ? WHERE id = ?')
       .bind(new Date(later - TTL + MIN).toISOString(), young)
       .run();
-    const result = await stub.expire(later);
+    const result = await expire(stub, later);
     expect(result).toEqual({ released: 1, charged: 2, deferred: 1, more: false });
     expect(await usageRow(env, idle)).toMatchObject({
       status: 'settled',
@@ -943,7 +1003,7 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     expect((await usageRow(env, failing)).status).toBe('pending');
 
     // Past the give-up age, the failing lookup gives way to the full hold.
-    const giveUp = await stub.expire(Date.now() + GIVE_UP + 1_000);
+    const giveUp = await expire(stub, Date.now() + GIVE_UP + 1_000);
     expect(giveUp).toMatchObject({ charged: 1, deferred: 0 });
     expect(await usageRow(env, failing)).toMatchObject({
       status: 'settled',
@@ -968,7 +1028,7 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     const gen = uniq('gen-ok');
     await setGenerationId(env.DB, found, gen);
     await scriptGeneration(gen, [{ costUsd: 0.002, inputTokens: 10, outputTokens: 20 }]);
-    await stub.expire(Date.now() + TTL + 1_000);
+    await expire(stub, Date.now() + TTL + 1_000);
     // The pool pays the true cost: 2_000 µ$ × 1.055 = 2_110.
     expect(await usageRow(env, found)).toMatchObject({
       status: 'settled',
@@ -976,28 +1036,6 @@ describe('PoolBank: reservation expiry (spec test)', () => {
       markup_bps: 0,
       fee_bps: 550,
       charge_micros: 2_110,
-    });
-  });
-
-  it('charges a row reserved before the pool went at-cost its stored markup', async () => {
-    quiet();
-    const poolId = uniq('pool');
-    await fund(poolId, 100_000);
-    const stub = poolBank(env, poolId);
-    const found = await reserved(poolId, { holdMicros: 5_000, feeBps: 550 });
-    await env.DB.prepare('UPDATE usage_events SET markup_bps = 500 WHERE id = ?').bind(found).run();
-    await markDispatched(env.DB, found);
-    const gen = uniq('gen-ok');
-    await setGenerationId(env.DB, found, gen);
-    await scriptGeneration(gen, [{ costUsd: 0.002, inputTokens: 10, outputTokens: 20 }]);
-    await stub.expire(Date.now() + TTL + 1_000);
-    // settle = cost × (1 + fee) × (1 + markup): 2_000 µ$ × 1.055 × 1.05 = 2_215.5 → 2_216.
-    expect(await usageRow(env, found)).toMatchObject({
-      status: 'settled',
-      settle_reason: 'generation',
-      markup_bps: 500,
-      fee_bps: 550,
-      charge_micros: 2_216,
     });
   });
 
@@ -1010,11 +1048,11 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     // (due at the TTL) could race it; the alarm then runs at the real clock.
     const expiry = { ttlMs: 2_000, giveUpMs: GIVE_UP, batch: 2 };
     for (let i = 0; i < 5; i++) await reserved(poolId, { expiry });
-    expect((await stub.status()).alarm).not.toBeNull();
+    expect(await alarmOf(stub)).not.toBeNull();
     // One pass settles a batch and asks to come back right away.
-    const first = await stub.expire(Date.now() + 5_000);
+    const first = await expire(stub, Date.now() + 5_000);
     expect(first).toMatchObject({ released: 2, more: true });
-    const alarm = (await stub.status()).alarm;
+    const alarm = await alarmOf(stub);
     expect(alarm).not.toBeNull();
     expect(alarm!).toBeLessThanOrEqual(Date.now() + 1_000);
     // The alarm finishes the job.
@@ -1027,7 +1065,7 @@ describe('PoolBank: reservation expiry (spec test)', () => {
       { timeout: 10_000, interval: 200 },
     );
     expect(await available(poolId)).toBe(100_000);
-    expect((await stub.status()).alarm).toBeNull();
+    expect(await alarmOf(stub)).toBeNull();
   });
 
   it('never blocks a reservation behind slow generation lookups', async () => {
@@ -1042,14 +1080,14 @@ describe('PoolBank: reservation expiry (spec test)', () => {
       await setGenerationId(env.DB, id, gen);
       await scriptGeneration(gen, [{ status: 404, delayMs: 2_000 }]);
     }
-    const pass = stub.expire(Date.now() + TTL + 1_000);
+    const pass = expire(stub, Date.now() + TTL + 1_000);
     await sleep(100);
     const started = Date.now();
     expect((await reserve(poolId)).ok).toBe(true);
     expect(Date.now() - started).toBeLessThan(1_000);
     // A bounded batch of lookups, one attempt each; the rest wait for the re-armed alarm.
     expect(await pass).toEqual({ released: 0, charged: 0, deferred: 20, more: false });
-    expect((await stub.status()).alarm).not.toBeNull();
+    expect(await alarmOf(stub)).not.toBeNull();
   }, 20_000);
 
   it('never releases a reservation dispatched between its read and its settle', async () => {
@@ -1110,8 +1148,9 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     await fund(poolId, 100_000);
     const p = params(poolId);
     const id = await reserved(poolId);
+    const lastStart = POOL_RESERVATION_TTL_MS - POOL_CALL_TIMEOUT_MS;
     await env.DB.prepare('UPDATE usage_events SET created_at = ? WHERE id = ?')
-      .bind(new Date(Date.now() - (p.ttlMs - p.callTimeoutMs) - 1_000).toISOString(), id)
+      .bind(new Date(Date.now() - lastStart - 1_000).toISOString(), id)
       .run();
     let calls = 0;
     const provider = providerOf(async function* () {
@@ -1119,7 +1158,7 @@ describe('PoolBank: reservation expiry (spec test)', () => {
       yield { type: 'done', stopReason: 'stop' };
     });
     const deferred: Promise<unknown>[] = [];
-    const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
+    const meter = createPoolUsageMeter(env, p, await newUser(env), (x) => deferred.push(x), FAST);
     const events = await drain(
       meteredRegistry(registryOf(provider), meter, () => true)
         .get('openrouter')!
@@ -1224,7 +1263,9 @@ describe('PoolBank: balance checkpoint', () => {
       advanced: false,
       checkpoint: null,
     });
-    expect((await stub.status()).checkpoint).toBeNull();
+    expect(await runInDurableObject(stub, (_, state) => state.storage.get('checkpoint'))).toBe(
+      undefined,
+    );
     await settleUsage(env.DB, stale, { costNanos: 0, markupBps: 0, feeBps: 0, reason: 'released' });
     expect(await stub.maintain({ poolId, giveUpMs: GIVE_UP })).toMatchObject({ advanced: true });
   });
@@ -1240,7 +1281,7 @@ describe('Personal reconciliation beside the pool', () => {
       env.DB.prepare(
         `INSERT INTO usage_events (id, account_id, funding, purpose, provider_id, model, status, hold_micros,
            markup_bps, fee_bps, created_at)
-         VALUES (?, ?, 'pool', 'reply', 'openrouter', 'simple', 'pending', 3000, 0, 0, ?)`,
+         VALUES (?, ?, 'pool', 'reply', 'openrouter', 'normal', 'pending', 3000, 0, 0, ?)`,
       ).bind(uniq('use'), poolId, new Date(NOW.getTime() - 30 * MIN + i).toISOString()),
     );
     await env.DB.batch(statements);
@@ -1248,7 +1289,7 @@ describe('Personal reconciliation beside the pool', () => {
     await env.DB.prepare(
       `INSERT INTO usage_events (id, account_id, purpose, provider_id, model, status, hold_micros,
          markup_bps, fee_bps, created_at)
-       VALUES (?, ?, 'reply', 'openrouter', 'smart', 'pending', 20000, 1000, 550, ?)`,
+       VALUES (?, ?, 'reply', 'openrouter', 'max', 'pending', 20000, 1000, 550, ?)`,
     )
       .bind(personal, `u_${uniq('user')}`, new Date(NOW.getTime() - 15 * MIN).toISOString())
       .run();

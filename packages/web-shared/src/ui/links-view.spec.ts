@@ -1,6 +1,6 @@
 import { indexLinks } from '@tangent/core/links';
 import { indexTree } from '@tangent/core/tree';
-import type { Branch, ChatNode, NodeLink, Role } from '@tangent/shared';
+import type { Branch, ChatNode, Role } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import {
   browseRows,
@@ -15,60 +15,42 @@ import {
   searchRows,
   type PickerRow,
 } from './links-view';
+import * as fixtures from '../testing';
 
-const TREE = 'tree-1';
 const at = (s: number) => `2026-01-01T00:00:${String(s).padStart(2, '0')}.000Z`;
 
-function branch(id: string, title: string, parent: Branch | null, point: string | null): Branch {
-  return {
-    id,
-    treeId: TREE,
-    parentBranchId: parent?.id ?? null,
-    branchPointNodeId: point,
-    contextMode: 'path',
-    anchorQuote: null,
+/** Branch `title` off message `point` of `parent`. */
+const branch = (id: string, title: string, parent: Branch | null, point: string | null): Branch =>
+  fixtures.branch(id, {
     title,
     titleSource: 'user',
-    isPrivate: false,
-    providerId: 'p',
-    model: 'm',
-    funding: 'own-key',
+    parentBranchId: parent?.id ?? null,
+    branchPointNodeId: point,
     createdAt: at(0),
     updatedAt: at(0),
-  };
-}
+  });
 
-function node(id: string, b: Branch, seq: number, role: Role, content: string): ChatNode {
-  return {
-    id,
-    treeId: TREE,
+/** Message `id` of `b`, a side branch's messages younger than the trunk's. */
+const node = (id: string, b: Branch, seq: number, role: Role, content: string): ChatNode =>
+  fixtures.node(id, {
     branchId: b.id,
-    parentId: null,
     seq,
     role,
     content,
-    status: 'complete',
-    error: null,
-    providerId: null,
-    model: null,
-    usage: null,
     createdAt: at(seq + (b.parentBranchId === null ? 0 : 10)),
-  };
-}
+  });
 
-function link(id: string, sourceNodeId: string, targetNodeId: string, note: string | null = null) {
-  const out: NodeLink = {
-    id,
-    treeId: TREE,
-    sourceNodeId,
-    targetNodeId,
-    note,
-    origin: 'user',
-    createdAt: at(30),
-    updatedAt: at(30),
-  };
-  return out;
-}
+/** A link made after every message. */
+const link = (
+  id: string,
+  sourceNodeId: string,
+  targetNodeId: string,
+  note: string | null = null,
+) => ({
+  ...fixtures.link(id, sourceNodeId, targetNodeId, note),
+  createdAt: at(30),
+  updatedAt: at(30),
+});
 
 /**
  * trunk "Main thread": q0 "How do owls hum?" r0 "Owls **hum** softly."

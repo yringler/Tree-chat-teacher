@@ -1,13 +1,11 @@
 // SYNTHETIC Polar fixtures: hand-written from the @polar-sh/sdk 1.0.2 types
 // (API version 2026-10), NOT recorded from a real Polar delivery. Every
 // object is checked against the SDK's models by the type checker, but the
-// values of the fields marked PLAUSIBLE in docs/polar-migration/04-verification.md
+// values of the fields read from Polar's docs rather than a live order
 // (`platform_fee_amount` at order.paid, `Refund.amount` being pre-tax,
 // `Dispute.amount` including tax, `Subscription.modified_at`) are assumptions.
-// Replace these with recorded sandbox deliveries (04-verification.md §2).
+// Replace these with recorded sandbox deliveries.
 import type { models, webhooks } from '@polar-sh/sdk/2026-10';
-
-export const SYNTHETIC = true;
 
 const T0 = '2026-10-05T12:00:00.000Z';
 const ORG = '7f0c7f3e-0000-4000-8000-000000000001';

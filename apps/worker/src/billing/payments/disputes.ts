@@ -7,6 +7,7 @@ import type { AppEnv } from '../../env.js';
 import { applyPaymentEvent } from './apply.js';
 import { paymentProvider } from './index.js';
 import type { PaymentProvider } from './port.js';
+import { logEvent } from '../../log.js';
 
 export interface DisputePollResult {
   /** False when there is no provider, or it doesn't need polling. */
@@ -29,14 +30,11 @@ export async function pollDisputes(
       if ((await applyPaymentEvent(env, event, { provider })) === 'applied') result.applied++;
     } catch (err) {
       result.failed++;
-      console.error(
-        JSON.stringify({
-          event: 'dispute_poll_apply_failed',
-          provider: provider.id,
-          disputeRef: event.disputeRef,
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      );
+      logEvent('error', 'dispute_poll_apply_failed', {
+        provider: provider.id,
+        disputeRef: event.disputeRef,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
   return result;

@@ -7,7 +7,7 @@ import {
   type OnInit,
   signal,
 } from '@angular/core';
-import { plainText } from '@tangent/core';
+import { plainText } from '@tangent/shared';
 import {
   CONTEXT_MODES,
   parseRouteKey,
@@ -16,8 +16,7 @@ import {
   splitTangents,
   type ContextMode,
 } from '@tangent/shared';
-import { Icon, Modal } from '@tangent/web-shared';
-import { MODE_LABEL } from '../canvas/lane';
+import { CONTEXT_MODE_META, Icon, Modal, routeSuffix, startingRoute } from '@tangent/web-shared';
 import { ModelField } from './model-field';
 import { CanvasStore, type BranchVariant } from '../state/canvas-store';
 import { UiStore, type BranchDialogState } from '../state/ui-store';
@@ -73,27 +72,28 @@ const MAX_VARIANTS = 6;
                 <span class="sr-only">Context of lane {{ i + 1 }}</span>
                 <select #ms [value]="v.contextMode" (change)="setMode(v.key, ms.value)">
                   @for (m of modes; track m) {
-                    <option [value]="m" [selected]="m === v.contextMode">{{ modeLabel[m] }}</option>
+                    <option [value]="m" [selected]="m === v.contextMode">
+                      {{ meta[m].label }}
+                    </option>
                   }
                 </select>
               </label>
               <label class="field">
                 <span class="sr-only">Provider of lane {{ i + 1 }}</span>
                 <select #ps [value]="routeOf(v)" (change)="setProvider(v.key, ps.value)">
-                  @for (p of store.providers(); track providerKey(p)) {
+                  @for (p of store.account.providers(); track providerKey(p)) {
                     <option
                       [value]="providerKey(p)"
-                      [disabled]="!p.available"
+                      [disabled]="!p.available || store.account.routeLocked(p)"
                       [selected]="providerKey(p) === routeOf(v)"
                     >
-                      {{ p.label
-                      }}{{ p.available ? '' : p.acceptsUserKey ? ' — no key' : ' — unavailable' }}
+                      {{ p.label }}{{ suffix(p, store.account.routeLocked(p)) }}
                     </option>
                   }
                 </select>
               </label>
               <app-model-field
-                [provider]="store.providerMap().get(routeOf(v)) ?? null"
+                [provider]="store.account.providerMap().get(routeOf(v)) ?? null"
                 [label]="'Model of lane ' + (i + 1)"
                 [compact]="true"
                 [model]="v.model"
@@ -185,18 +185,17 @@ export class BranchDialog implements OnInit {
   private readonly ui = inject(UiStore);
   readonly state = input.required<BranchDialogState>();
   protected readonly modes = CONTEXT_MODES;
-  protected readonly modeLabel = MODE_LABEL;
+  protected readonly meta = CONTEXT_MODE_META;
   protected readonly max = MAX_VARIANTS;
   private seq = 0;
 
   protected readonly source = computed(
     () => this.store.index()?.nodes.get(this.state().fromNodeId) ?? null,
   );
-  protected readonly excerpt = computed(() => {
-    // A reply without its <tangents> block (never shown as text).
-    const text = plainText(splitTangents(this.source()?.content ?? '').body);
-    return text.length > 240 ? `${text.slice(0, 240)}…` : text;
-  });
+  // A reply without its <tangents> block (never shown as text).
+  protected readonly excerpt = computed(() =>
+    plainText(splitTangents(this.source()?.content ?? '').body, { max: 240 }),
+  );
   private readonly parent = computed(() => {
     const n = this.source();
     return (n && this.store.index()?.branches.get(n.branchId)) || null;
@@ -219,13 +218,11 @@ export class BranchDialog implements OnInit {
 
   private fresh(contextMode: ContextMode): VariantRow {
     const p = this.parent();
-    const fallback = this.store.defaultProvider();
+    const usable = !!p && this.store.account.routeState(p) === 'open';
     return {
       key: ++this.seq,
       contextMode,
-      providerId: p?.providerId ?? fallback?.id ?? '',
-      funding: p?.funding ?? fallback?.funding ?? 'own-key',
-      model: p?.model ?? fallback?.defaultModel ?? '',
+      ...startingRoute(p, usable, this.store.account.defaultProvider()),
     };
   }
 
@@ -256,11 +253,12 @@ export class BranchDialog implements OnInit {
   }
 
   protected readonly providerKey = providerRouteKey;
+  protected readonly suffix = routeSuffix;
   protected readonly routeOf = routeKey;
 
   /** `route` is a `routeKey`: the provider and who pays for it. */
   protected setProvider(key: number, route: string): void {
-    const p = this.store.providerMap().get(route);
+    const p = this.store.account.providerMap().get(route);
     this.patch(key, { ...parseRouteKey(route), model: p?.defaultModel ?? '' });
   }
 
@@ -273,7 +271,7 @@ export class BranchDialog implements OnInit {
   }
 
   protected close(): void {
-    this.ui.branchDialog.set(null);
+    this.ui.dialogs.close('branch');
   }
 
   /** Ctrl/Cmd+Enter opens the lanes (Enter is a newline). */

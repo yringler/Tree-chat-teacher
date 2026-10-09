@@ -10,17 +10,46 @@ import {
   withTierDefaults,
   type ModelPrice,
   type PoolCaps,
-  type PoolOverage,
+  type PoolConfig,
   type PoolRateLimits,
   type TierRequestConfig,
 } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
-import { modelPrice } from './model-prices.js';
-import type { PoolAdmitRequest, PoolRefusal, PoolReserveRequest } from './pool-bank.js';
+import { modelPrice, withCacheWritePrice } from './price-table.js';
+import type {
+  PoolAdmitRequest,
+  PoolOverage,
+  PoolRefusal,
+  PoolReserveRequest,
+} from './pool-bank.js';
+import { ceilingHoldMicros } from './pricing.js';
+import { logEvent } from '../log.js';
+
+// The pool's timings and breaker: internal mechanics, the same for every
+// deployment. The expiry needs a call to have timed out a while before its
+// reservation may expire (the slack covers the alarm's lag), and a
+// generation lookup must not give up before the reservation could expire.
+
+/** A reservation still pending after this long is expired by the PoolBank alarm. */
+export const POOL_RESERVATION_TTL_MS = 10 * 60_000;
+/** Pool calls are aborted after this long: at most the TTL minus a minute. */
+export const POOL_CALL_TIMEOUT_MS = 120_000;
+/** A dispatched call whose cost is still unknown after this long is charged its full hold (at least the TTL). */
+export const POOL_GIVE_UP_MS = 60 * 60_000;
+/** Reservations one expiry pass settles before it re-arms. */
+export const POOL_EXPIRE_BATCH = 20;
+/**
+ * The overage breaker: settled charges above their holds by more than this
+ * within a day mean a price drifted, and the pool refuses every reservation
+ * until the window clears.
+ */
+export const POOL_OVERAGE: PoolOverage = { windowMs: 24 * 60 * 60_000, maxMicros: 200_000 };
+/** What one "learning session" is shown as on the pool meter (micro-USD). */
+export const POOL_SESSION_ESTIMATE_MICROS = 20_000;
 
 export interface PoolParams {
-  /** The pool's ledger account id (`POOL_ACCOUNT_ID`). */
+  /** The pool's ledger account id (config.ts `POOL_ACCOUNT_ID`). */
   accountId: string;
   /** The one model pool calls use; every pool hold is priced for it. */
   model: string;
@@ -37,20 +66,13 @@ export interface PoolParams {
   summaryEffort: ReasoningEffort | null;
   /** The longest message a pool send accepts (`POOL_MAX_MESSAGE_CHARS`). */
   maxMessageChars: number;
-  ttlMs: number;
-  giveUpMs: number;
-  callTimeoutMs: number;
-  expireBatch: number;
   caps: PoolCaps;
   limits: PoolRateLimits;
-  overage: PoolOverage;
   /** The caller's network key for per-IP caps (pool/ids.ts `ipKey`); null when unknown. */
   ipKey: string | null;
-  /** The pool notice version the caller must have acknowledged (pool/consent.ts). */
-  noticeVersion: number;
 }
 
-/** The pool model: `POOL_MODEL`, else Learn's background model (`simpleFastModel`, SIMPLE_FAST_MODEL). */
+/** The pool model: `POOL_MODEL`, else Learn's background model (`simpleFastModel`, BACKGROUND_MODEL). */
 export function poolModel(env: AppEnv): string {
   return appConfig(env).pool.model ?? simpleFastModel(env, simpleProviderConfig(env));
 }
@@ -85,10 +107,14 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
   const model = poolModel(env);
   const entry = await modelPrice(env, model);
   const request = poolRequest(env, model);
+  const price = entry
+    ? { ...entry, feeBps: entry.feeBps ?? config.billing.openRouterFeeBps }
+    : null;
   return {
     accountId: pool.accountId,
     model,
-    price: entry ? { ...entry, feeBps: entry.feeBps ?? config.billing.openRouterFeeBps } : null,
+    // A price whose reply ceiling no cap admits refuses as `unpriced` (logged), not as the user's cap.
+    price: price && reportCeilingProblem(pool, model, price) === null ? price : null,
     systemPrompt: pool.systemPrompt,
     maxInputTokens: pool.maxInputTokens,
     maxOutputTokens: pool.maxOutputTokens,
@@ -96,16 +122,97 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
     providerOrder: request.providerOrder,
     summaryEffort: backgroundEffort(env, model),
     maxMessageChars: pool.maxMessageChars,
-    ttlMs: pool.reservationTtlMs,
-    giveUpMs: pool.giveUpMs,
-    callTimeoutMs: pool.callTimeoutMs,
-    expireBatch: pool.expireBatch,
     caps: pool.caps,
     limits: pool.limits,
-    overage: pool.overage,
     ipKey,
-    noticeVersion: pool.noticeVersion,
   };
+}
+
+/** A pool reply's hold before its prompt exists: `ceilingHoldMicros` at the pool's caps. */
+export function replyCeilingMicros(
+  pool: Pick<PoolParams, 'maxInputTokens' | 'maxOutputTokens'>,
+  price: ModelPrice & { feeBps: number },
+): number {
+  return ceilingHoldMicros(price, pool.maxInputTokens, pool.maxOutputTokens, price.feeBps);
+}
+
+/**
+ * Why the pool can reserve no reply at `price`, or null. PoolBank refuses a
+ * hold that would take a day's spend over a cap, so a reply ceiling above
+ * the per-user, per-network or fixed global daily cap refuses every reply,
+ * each one looking like a user who hit their cap.
+ */
+function ceilingProblem(
+  pool: Pick<PoolConfig, 'maxInputTokens' | 'maxOutputTokens' | 'caps'>,
+  model: string,
+  price: ModelPrice & { feeBps: number },
+): string | null {
+  const hold = replyCeilingMicros(pool, price);
+  const caps: [string, number][] = [
+    ['POOL_SPEND_MICROS_PER_DAY', pool.caps.user.spendMicrosPerDay],
+    ['POOL_IP_SPEND_MICROS_PER_DAY', pool.caps.ip.spendMicrosPerDay],
+    ['POOL_DAILY_GLOBAL_MICROS', pool.caps.global.spendMicrosPerDay],
+  ];
+  const over = caps.find(([, cap]) => hold > cap);
+  if (!over) return null;
+  return (
+    `A pool reply's ceiling hold (${hold} µ$: POOL_MAX_INPUT_TOKENS in and POOL_MAX_OUTPUT_TOKENS ` +
+    `out at ${model}'s price) is above ${over[0]} (${over[1]} µ$), so the pool would refuse ` +
+    'every reply. Lower those token caps or raise the spend caps.'
+  );
+}
+
+/** Problems already logged by this isolate (each once). */
+const reported = new Set<string>();
+
+/** `ceilingProblem`, logged as an error the first time this isolate sees it. */
+function reportCeilingProblem(
+  pool: PoolConfig,
+  model: string,
+  price: ModelPrice & { feeBps: number },
+): string | null {
+  const problem = ceilingProblem(pool, model, price);
+  if (problem !== null && !reported.has(problem)) {
+    reported.add(problem);
+    logEvent('error', 'pool_misconfigured', { problem });
+  }
+  return problem;
+}
+
+/**
+ * Why the pool cannot serve replies as configured (`ceilingProblem` at the
+ * pool model's configured price), or null; also null for an unpriced model,
+ * which the pool refuses on its own (`unpriced`). Read synchronously, so
+ * `poolAvailable` reports such a pool as off instead of refusing each reply.
+ */
+export function poolConfigProblem(env: AppEnv): string | null {
+  const config = appConfig(env);
+  const model = poolModel(env);
+  const entry = config.prices[model];
+  if (!entry) return null;
+  const price = withCacheWritePrice(model, entry);
+  return reportCeilingProblem(config.pool, model, {
+    ...price,
+    feeBps: price.feeBps ?? config.billing.openRouterFeeBps,
+  });
+}
+
+/**
+ * `poolConfigProblem` at the price pool holds are actually priced at
+ * (`modelPrice`: the synced price unless `MODEL_PRICES` pins one), which
+ * `resolvePoolParams` refuses on: what the pool's own reports read
+ * (pool/status.ts `poolUsable`), so they never say "on" while every reply is
+ * refused.
+ */
+export async function poolPriceProblem(env: AppEnv): Promise<string | null> {
+  const config = appConfig(env);
+  const model = poolModel(env);
+  const entry = await modelPrice(env, model);
+  if (!entry) return null;
+  return reportCeilingProblem(config.pool, model, {
+    ...entry,
+    feeBps: entry.feeBps ?? config.billing.openRouterFeeBps,
+  });
 }
 
 /** One call to reserve for on the pool (see `poolReserveRequest`). */
@@ -134,8 +241,8 @@ export function poolReserveRequest(
     ...call,
     caps: pool.caps,
     limits: pool.limits,
-    overage: pool.overage,
-    expiry: { ttlMs: pool.ttlMs, giveUpMs: pool.giveUpMs, batch: pool.expireBatch },
+    overage: POOL_OVERAGE,
+    expiry: { ttlMs: POOL_RESERVATION_TTL_MS, giveUpMs: POOL_GIVE_UP_MS, batch: POOL_EXPIRE_BATCH },
   };
 }
 
@@ -146,7 +253,7 @@ export function poolAdmitRequest(pool: PoolParams, userId: string): PoolAdmitReq
     userId,
     ipKey: pool.ipKey,
     limits: pool.limits,
-    overage: pool.overage,
+    overage: POOL_OVERAGE,
   };
 }
 

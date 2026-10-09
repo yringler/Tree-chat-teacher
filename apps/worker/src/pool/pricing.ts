@@ -1,26 +1,18 @@
-// Open pool money math (docs/pool/PLAN.md §1.2), on top of the integer
-// helpers in billing/pricing.ts: worst-case holds from the price table,
-// token-priced costs when the provider reports none, and refund shares of a
-// purchase. Every charge is the call's true cost, price × (1 + fee), with no
-// markup (Tangent funds the pool, so a markup on it would be meaningless;
-// rows reserved before carry their stored markup), and every hold is priced
-// the same way, so a hold always covers its charge. Exact integer (BigInt)
-// math, rounded in the pool's favour.
-import type { ChatMessage } from '@tangent/shared';
-import { BPS_SCALE, bpsOf, chargeMicros } from '../billing/pricing.js';
+// Open pool money math, on top of the integer
+// helpers in @tangent/shared's charge.ts: worst-case holds from the price table, and
+// token-priced costs when the provider reports none. Every pool charge is the
+// call's true cost, price × (1 + fee), with no markup (Tangent funds the
+// pool, so a markup on it would be meaningless), and every hold is priced the
+// same way, so a hold always covers its charge. Exact integer (BigInt) math,
+// rounded in the pool's favour.
+import { CHARS_PER_TOKEN, renderOverheadBytes, utf8Bytes } from '@tangent/core';
+import { BPS_SCALE, bpsOf, chargeMicros, type ChatMessage } from '@tangent/shared';
 import type { ModelPrice } from '../config.js';
 
 const TOKENS_PER_PRICE_UNIT = 1_000_000n;
 /** Per-message framing tokens and a constant for the request envelope (generous). */
 const TOKENS_PER_MESSAGE = 4;
 const TOKENS_PER_REQUEST = 16;
-
-const encoder = new TextEncoder();
-
-/** UTF-8 length of `text`. */
-export function utf8Bytes(text: string): number {
-  return encoder.encode(text).length;
-}
 
 function tokensOf(n: number | null | undefined): bigint {
   return BigInt(Math.max(0, Math.ceil(Number.isFinite(n ?? NaN) ? (n as number) : 0)));
@@ -31,30 +23,73 @@ export function feeBpsOf(price: ModelPrice, defaultFeeBps: number): number {
   return price.feeBps ?? defaultFeeBps;
 }
 
+/** The input of a request, as the bounds below read it. */
+export interface InputOf {
+  system: string | null;
+  messages: readonly ChatMessage[];
+  /** Sent after the history (`GenerateRequest.turnInstructions`), at most as a message of its own. */
+  turnInstructions?: string;
+}
+
 /**
  * An upper bound on the input tokens of a request: byte-level BPE tokenizers
  * never emit more tokens than input bytes, so the UTF-8 length (plus framing)
  * bounds any of them, where chars/3.5 (core/tokens.ts) does not.
  */
-export function inputBoundTokens(request: {
-  system: string | null;
-  messages: readonly ChatMessage[];
-}): number {
+export function inputBoundTokens(request: InputOf): number {
   let bytes = request.system === null ? 0 : utf8Bytes(request.system);
+  let messages = request.messages.length;
   for (const m of request.messages) bytes += utf8Bytes(m.content);
-  return bytes + TOKENS_PER_MESSAGE * request.messages.length + TOKENS_PER_REQUEST;
+  if (request.turnInstructions) {
+    bytes += utf8Bytes(request.turnInstructions);
+    messages++;
+  }
+  return bytes + TOKENS_PER_MESSAGE * messages + TOKENS_PER_REQUEST;
 }
 
 /**
- * Whether a request's input bound exceeds the price entry's context window.
- * The pool refuses such a request instead of clamping its hold, so a hold is
- * a true bound even when `contextTokens` is below the model's real window.
+ * The system, summary and anchor sections a prompt's allowance makes room
+ * for (`renderOverheadBytes`): a chain of quoted tangents this deep. A deeper
+ * one can outgrow the pool's limit, and is refused like any request over it.
  */
-export function exceedsContext(
-  price: ModelPrice,
-  request: { system: string | null; messages: readonly ChatMessage[] },
-): boolean {
-  return inputBoundTokens(request) > price.contextTokens;
+const PROMPT_SECTIONS = 32;
+
+/**
+ * What rendering adds to a prompt outside its context budget, in UTF-8 bytes
+ * (an upper bound on tokens too): headings, anchor tags, the continuation
+ * message and per-reply instructions (`renderOverheadBytes` for
+ * `PROMPT_SECTIONS`), and the framing of each message added that way (an
+ * anchor quote per section, the continuation message, the folded system text
+ * and the reply instructions) and of the request.
+ */
+export function renderAllowanceBytes(): number {
+  return (
+    renderOverheadBytes(PROMPT_SECTIONS) +
+    TOKENS_PER_MESSAGE * (PROMPT_SECTIONS + 3) +
+    TOKENS_PER_REQUEST
+  );
+}
+
+/**
+ * The most input tokens a pool request may have (`exceedsInputLimit`
+ * refuses more instead of clamping its hold), so the reply's ceiling hold
+ * (`ceilingHoldMicros`) bounds every pool call. The pool's context budget,
+ * `maxInputTokens` (`POOL_MAX_INPUT_TOKENS`), is measured in UTF-8 bytes / 3.5
+ * (core's `estimateTokensUtf8`), so a prompt within it holds at most
+ * 3.5 × `maxInputTokens` bytes of segment text and framing, plus what
+ * rendering adds outside the budget (`renderAllowanceBytes`). At most the
+ * price entry's context window.
+ */
+export function poolInputLimitTokens(price: ModelPrice, maxInputTokens: number): number {
+  return Math.min(
+    price.contextTokens,
+    Math.ceil(maxInputTokens * CHARS_PER_TOKEN) + renderAllowanceBytes(),
+  );
+}
+
+/** Whether a request's input bound exceeds `limitTokens` (the pool refuses it). */
+export function exceedsInputLimit(limitTokens: number, request: InputOf): boolean {
+  return inputBoundTokens(request) > limitTokens;
 }
 
 /**
@@ -84,12 +119,12 @@ function priceMicros(
 
 /**
  * The most a request can cost on the pool, in micro-USD: its input bound
- * (at most the context window; see `exceedsContext`) and `maxOutputTokens` at
- * the model's price, grossed up by its fee, rounded up.
+ * (at most the context window; see `exceedsInputLimit`) and `maxOutputTokens`
+ * at the model's price, grossed up by its fee, rounded up.
  */
 export function worstCaseHoldMicros(
   price: ModelPrice,
-  request: { system: string | null; messages: readonly ChatMessage[] },
+  request: InputOf,
   maxOutputTokens: number,
   defaultFeeBps: number,
 ): number {
@@ -102,16 +137,22 @@ export function worstCaseHoldMicros(
 }
 
 /**
- * The reply's hold before its prompt is assembled: a full context window in,
- * `maxOutputTokens` out. Never below the worst case of any request on the
- * same model and output cap.
+ * The reply's hold before its prompt is assembled: the pool's input limit
+ * in (`poolInputLimitTokens`), `maxOutputTokens` out. Never below the worst
+ * case of any pool request the limit admits on the same model and output cap.
  */
 export function ceilingHoldMicros(
   price: ModelPrice,
+  maxInputTokens: number,
   maxOutputTokens: number,
   defaultFeeBps: number,
 ): number {
-  return priceMicros(price, price.contextTokens, maxOutputTokens, feeBpsOf(price, defaultFeeBps));
+  return priceMicros(
+    price,
+    poolInputLimitTokens(price, maxInputTokens),
+    maxOutputTokens,
+    feeBpsOf(price, defaultFeeBps),
+  );
 }
 
 /** The prompt-cache share of a call's input tokens, as the provider reported it (null = not reported). */
@@ -162,7 +203,7 @@ export function costFromTokensNanos(
   return Number((raw + 999n) / 1000n);
 }
 
-/** What a token-priced call is charged on the pool: its true cost, plus the row's stored markup (0 since the pool went at-cost). */
+/** What a token-priced call is charged: its true cost plus `markupBps` (0 on the pool). */
 export function chargeFromTokensMicros(
   price: ModelPrice,
   inputTokens: number | null,
@@ -176,22 +217,4 @@ export function chargeFromTokensMicros(
     markupBps,
     feeBps,
   );
-}
-
-/**
- * The pool credit a refund of `refundGrossMicros` (pre-tax) of a pool
- * purchase takes back: the same share of the credit the purchase granted,
- * `round(refund × credit / gross)`, so refunding all of a $10 purchase that
- * added $9.20 (net of the processing fee) takes $9.20 of pool credit, and
- * refunding half of it $4.60. Also the proportion of a membership payment's
- * pool share a refund takes back (`reverseMembershipShare`).
- */
-export function creditEquivalentMicros(
-  refundGrossMicros: number,
-  grant: { amountMicros: number; grossMicros: number },
-): number {
-  if (refundGrossMicros <= 0 || grant.grossMicros <= 0 || grant.amountMicros <= 0) return 0;
-  const num = BigInt(Math.round(refundGrossMicros)) * BigInt(Math.round(grant.amountMicros));
-  const den = BigInt(Math.round(grant.grossMicros));
-  return Number((2n * num + den) / (2n * den));
 }

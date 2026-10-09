@@ -3,7 +3,7 @@
  * (packages/core/src/context/render.ts, packages/providers/src/openai-compatible.ts):
  * the system prompt, then the branch path's turns; anchor quotes quoted into
  * the user turn (or, with anchorMode "system", appended to the system prompt
- * as the old rendering did); consecutive same-role
+ * for comparison); consecutive same-role
  * messages merged; Anthropic models get `cache_control` breakpoints on the
  * system prompt and on the last message (prompt-cache.ts).
  */

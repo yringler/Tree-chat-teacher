@@ -34,7 +34,7 @@ const backup = {
       titleSource: 'default',
       isPrivate: false,
       providerId: 'openrouter',
-      model: 'smart',
+      model: 'max',
       createdAt: AT,
       updatedAt: AT,
     },

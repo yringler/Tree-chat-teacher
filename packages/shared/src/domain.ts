@@ -26,6 +26,31 @@ export type Role = 'user' | 'assistant' | 'system';
 export type NodeStatus = 'streaming' | 'complete' | 'error';
 
 /**
+ * Why a node is `error`, for the apps to act on (the copy in `error` is for
+ * people, and may change):
+ * - `cut_off`: the reply reached its output cap; its partial text is kept;
+ * - `thinking_only`: a reasoning model used the whole cap thinking, no text;
+ * - `empty`: the model finished without any text;
+ * - `cancelled`: the learner stopped it;
+ * - `interrupted`: the generation was lost before it finished (a restart);
+ * - `provider`: the provider failed, or its stream ended early (`error` says how);
+ * - `failed`: the generation failed before or after the provider call.
+ */
+export type NodeErrorKind =
+  'cut_off' | 'thinking_only' | 'empty' | 'cancelled' | 'interrupted' | 'provider' | 'failed';
+
+/** Every `NodeErrorKind`. */
+export const NODE_ERROR_KINDS: readonly NodeErrorKind[] = [
+  'cut_off',
+  'thinking_only',
+  'empty',
+  'cancelled',
+  'interrupted',
+  'provider',
+  'failed',
+];
+
+/**
  * What a branch's subtree sends to the model *before* its own messages.
  * - `path`: whatever the parent branch sent at the branch point (transitively),
  *   i.e. the full root→node path unless an ancestor branch narrowed it.
@@ -39,15 +64,32 @@ export type ContextMode = 'path' | 'summary' | 'message' | 'independent';
 export const CONTEXT_MODES: readonly ContextMode[] = ['path', 'summary', 'message', 'independent'];
 
 /**
- * Who pays for a branch's model calls in power mode (its provider id names
- * only the endpoint):
+ * Who pays for a model call, decided by the server and never by the provider
+ * id (which names only the endpoint):
  * - `own-key`: the user's own key for that provider (bring-your-own-key);
+ *   free, nothing is metered.
  * - `credit`: Tangent credit, i.e. the built-in endpoint on the operator's
- *   key, metered and charged to the user's prepaid credit.
- * Learn decides how to pay per request (its payment header), so it ignores a
- * branch's funding and writes `own-key`, the value that never spends credit.
+ *   key, metered and charged to the user's prepaid credit. Only offered when
+ *   the server has billing and the operator key configured
+ *   (`MeResponse.builtInCredit`).
+ * - `pool`: the open pool (pool.ts): one economical model, a locked system
+ *   prompt and capped output, within daily caps. Learn only.
+ *
+ * Learn picks its payer per request (`PAYMENT_HEADER`); a send (or a context
+ * resolve) whose credit can't cover one call falls back to the open pool
+ * where it is on, reviews never do. Power pays per branch (`BranchFunding`).
  */
-export type BranchFunding = 'own-key' | 'credit';
+export type Payer = 'own-key' | 'credit' | 'pool';
+
+export const PAYERS: readonly Payer[] = ['own-key', 'credit', 'pool'];
+
+/**
+ * Who pays for a branch's model calls in power mode. A branch never names the
+ * pool, which Learn alone picks, per request (its payment header); Learn
+ * ignores a branch's funding and writes `own-key`, the value that never
+ * spends credit.
+ */
+export type BranchFunding = Exclude<Payer, 'pool'>;
 
 export const BRANCH_FUNDINGS: readonly BranchFunding[] = ['own-key', 'credit'];
 
@@ -117,6 +159,8 @@ export interface ChatNode {
   content: string;
   status: NodeStatus;
   error: string | null;
+  /** Why it is `error` (absent or null otherwise); detection keys on this, never on `error`. */
+  errorKind?: NodeErrorKind | null;
   /** Set on assistant nodes: which provider/model produced them. */
   providerId: string | null;
   model: string | null;

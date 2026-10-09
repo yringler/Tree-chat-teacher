@@ -3,11 +3,15 @@
 // OpenRouter model whose provider config names no window, never above a
 // configured one (Tangent credit's, the pool's).
 import { createProviderRegistry } from '@tangent/providers';
-import type { InputBudgetResponse, ProviderConfig, TreeDetail } from '@tangent/shared';
+import {
+  chargeMicros,
+  type InputBudgetResponse,
+  type ProviderConfig,
+  type TreeDetail,
+} from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
-import { chargeMicros } from '../src/billing/pricing.js';
 import { appConfig } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import {
@@ -104,19 +108,17 @@ describe('syncModelWindows', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const broken = envWithFailingDb(env, /model_windows/);
     await expect(syncModelPrices(broken, T1, fetchImpl)).resolves.toBeDefined();
-    expect(error).toHaveBeenCalledWith(
-      'Model window sync failed; the stored windows stay',
-      expect.any(Error),
-    );
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('"event":"window_sync_failed"'));
   });
 });
 
 describe('modelWindow', () => {
   it('a priced model: its price entry’s window, with the synced output limit', async () => {
-    // `simple` is priced with an 8,192-token window (vitest.config.ts MODEL_PRICES).
-    await syncModelWindows(env, T0, body([{ id: 'simple', context: 100_000, out: 4000 }]));
-    expect(await modelWindow(env, 'simple')).toEqual({
-      contextTokens: 8192,
+    // `simple` is priced with a 1,048,576-token window (vitest.config.ts MODEL_PRICES): a larger
+    // synced window never raises it.
+    await syncModelWindows(env, T0, body([{ id: 'normal', context: 2_000_000, out: 4000 }]));
+    expect(await modelWindow(env, 'normal')).toEqual({
+      contextTokens: 1_048_576,
       maxOutputTokens: 4000,
     });
   });
@@ -229,15 +231,15 @@ describe('the input budget of an OpenRouter branch', () => {
     ...env,
     PROVIDERS: JSON.stringify([OPENROUTER]),
     OPENROUTER_API_KEY: 'sk-or-own',
-    SIMPLE_PROVIDER: JSON.stringify({
+    BUILT_IN_PROVIDER: JSON.stringify({
       ...OPENROUTER,
       label: 'Tangent',
-      apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
+      apiKeySecret: 'BUILT_IN_API_KEY',
       models: [{ id: 'x/big', label: 'Normal', tier: 'normal' }],
     }),
     PERSONAL_CREDIT_ENABLED: 'true',
     MODEL_PRICES: JSON.stringify({
-      simple: { in: 1_000_000, out: 1_000_000, context: 8_192 },
+      normal: { in: 1_000_000, out: 1_000_000, context: 8_192 },
       'x/priced': { in: 2_000_000, out: 8_000_000, cacheRead: 200_000, context: 400_000 },
     }),
   };

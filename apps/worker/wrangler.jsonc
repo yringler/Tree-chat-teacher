@@ -1,23 +1,18 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
+  // Every binding and var is explained in docs/configuration.md; vars left at their default aren't listed.
   "name": "tangent",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-15",
-  // enable_request_signal: lets us observe client disconnects on request.signal.
-  // nodejs_compat: Better Auth needs node:async_hooks (AsyncLocalStorage).
+  // enable_request_signal: request.signal sees disconnects; nodejs_compat: for Better Auth.
   "compatibility_flags": ["enable_request_signal", "nodejs_compat"],
-  // Served only on the custom domain, so PUBLIC_BASE_URL is the only origin sign-in works on.
+  // Custom domain only: sign-in works on PUBLIC_BASE_URL alone.
   "workers_dev": false,
   "preview_urls": false,
   "routes": [{ "pattern": "tangentailearning.com", "custom_domain": true }],
-  // Logs never contain user API keys: our code doesn't log request headers or bodies, the sealed key
-  // cookie reaches the Durable Object in a request body, and outbound provider calls aren't logged.
-  // Don't add request logging that dumps headers (Cookie) or bodies of /api/key.
+  // Never add logging that captures request headers or bodies: they carry users' API keys.
   "observability": { "enabled": true },
-  // Builds the Angular apps into ./site (root `pnpm build`) before every `wrangler deploy` and
-  // `wrangler dev`, so a bare `wrangler deploy` can't ship the empty assets directory: that serves
-  // the Worker alone, and /learn/*, /canvas/*, /admin/*, /login and every asset 404. Under `wrangler dev` it reruns when
-  // the apps' sources change. Workers Builds ignores this key: see "Deploying from Git" in the README.
+  // Builds the apps into ./site before every deploy and `wrangler dev`, so assets are never empty.
   "build": {
     "command": "pnpm -w build",
     "watch_dir": [
@@ -29,22 +24,11 @@
     ],
   },
   "assets": {
-    // Assembled by scripts/assemble-assets.mjs (root `pnpm build`): the power app at the
-    // root, the simple app under learn/, the canvas app under canvas/, the admin app under
-    // admin/. Holds only .gitkeep
-    // until something is built.
+    // Assembled by scripts/assemble-assets.mjs: power at /, then learn/, canvas/ and admin/.
     "directory": "./site",
     "binding": "ASSETS",
-    // The power app's deep links. SPA fallback always serves the root index.html, so
-    // the other apps can't use it: /learn*, /canvas* and /admin* go to the Worker (src/http/learn-app.ts).
     "not_found_handling": "single-page-application",
-    // API and public share routes must reach the Worker even for browser navigations;
-    // /learn*, /canvas* and /admin* do too, for those apps' index.html and CSP (the admin app's
-    // only for admins, see ADMIN_USER_IDS). "/welcome" is the
-    // landing page, and "/" (exact path) is too for anonymous visitors (src/http/landing.ts).
-    // "/privacy" and "/terms" are the public legal pages (src/http/legal.ts), "/pool" the
-    // open pool's transparency page (src/http/pool-page.ts), "/pricing" the pricing chart
-    // (src/http/pricing-page.ts).
+    // Paths the Worker serves before static assets; keep "/" an exact path.
     "run_worker_first": [
       "/api/*",
       "/s/*",
@@ -67,8 +51,10 @@
     {
       "binding": "DB",
       "database_name": "tangent",
-      // D1 database "tangent" on the owner's account. Apply new migrations (./migrations) with
-      // `pnpm db:migrate:remote` before deploying code that needs them.
+      // D1 database "tangent" on the owner's account. The deploy job (.github/workflows/ci.yml)
+      // applies new migrations (./migrations) just before it deploys, so each one must also work
+      // with the code still running: expand first, contract in a later release
+      // (docs/operating.md, "Deploying from GitHub"). By hand: `pnpm db:migrate:remote`, then deploy.
       "database_id": "6f9486ed-e5fd-4dfa-b434-10274a650297",
       "migrations_dir": "migrations",
     },
@@ -76,8 +62,6 @@
   "durable_objects": {
     "bindings": [
       { "name": "TREE_SESSION", "class_name": "TreeSession" },
-      // The open credit pool's bank: serialises every reservation against the pool's
-      // balance, one instance per pool account id (src/pool/pool-bank.ts).
       { "name": "POOL_BANK", "class_name": "PoolBank" },
     ],
   },
@@ -86,12 +70,8 @@
     { "tag": "v1", "new_sqlite_classes": ["TreeSession"] },
     { "tag": "v2", "new_sqlite_classes": ["PoolBank"] },
   ],
-  // Every 10 minutes: settles usage the stream couldn't (src/billing/reconcile.ts), expires stale
-  // open pool reservations and maintains the pool's balance checkpoint.
-  // Daily 03:23 UTC: OpenRouter's list prices of the priced models (src/pool/model-prices.ts).
-  // Mondays 04:17 UTC: the open pool's weekly impact snapshot of the ISO week just ended, and
-  // its topic-tag retention (src/pool/impact.ts). src/index.ts dispatches on the cron string.
-  "triggers": { "crons": ["*/10 * * * *", "23 3 * * *", "17 4 * * 1"] },
+  // src/cron.ts dispatches on the cron string: the 10-minute backstops and the daily price sync.
+  "triggers": { "crons": ["*/10 * * * *", "23 3 * * *"] },
   "ratelimits": [
     {
       "name": "SHARE_RATE_LIMITER",
@@ -99,245 +79,35 @@
       "simple": { "limit": 120, "period": 60 },
     },
     {
-      // Requests that spend a user-supplied API key, per key cookie; calls on the built-in provider
-      // (Tangent credit), per user across both apps (see src/byok/guard.ts).
       "name": "CHAT_RATE_LIMITER",
       "namespace_id": "1002",
       "simple": { "limit": 30, "period": 60 },
     },
     {
-      // Saving a key (each save makes one verification call upstream), per account.
       "name": "KEY_RATE_LIMITER",
       "namespace_id": "1003",
       "simple": { "limit": 10, "period": 60 },
     },
+    {
+      "name": "IMPORT_RATE_LIMITER",
+      "namespace_id": "1004",
+      "simple": { "limit": 10, "period": 60 },
+    },
   ],
+  // This deployment's values. Secrets are set with `wrangler secret put` (docs/configuration.md).
   "vars": {
-    // Public origin: share links, sign-in callbacks, magic links and the passkey relying party.
-    // Empty = derive from the request URL (local dev and tests only).
     "PUBLIC_BASE_URL": "https://tangentailearning.com",
-    // Email delivery for magic links: "resend" (needs RESEND_API_KEY) or "log" (localhost only).
-    "EMAIL_PROVIDER": "resend",
-    // Sender for magic links; its domain must be verified in Resend.
     "EMAIL_FROM": "Tangent <login@email.tangentailearning.com>",
-    // ---- Legal pages (/privacy, /terms; src/http/legal.ts and docs/LEGAL.md).
-    // Legal name of whoever runs this deployment (a person or a company); empty = "the operator of <host>".
     "LEGAL_OPERATOR": "Yehuda Ringler",
-    // Where privacy requests, legal notices and copyright complaints go. The mailbox must exist
-    // (Cloudflare Email Routing can forward it for free). Empty = privacy@<PUBLIC_BASE_URL host>.
     "LEGAL_CONTACT_EMAIL": "privacy@tangentailearning.com",
-    // Governing law of the terms, e.g. "the State of New York, USA"; empty = where the operator is established.
     "LEGAL_JURISDICTION": "the Commonwealth of Pennsylvania, USA",
-    // "true" once a DMCA designated agent is registered with the US Copyright Office (docs/LEGAL.md §8).
-    // Anything else = public share links are off: no new links, existing /s/* links don't open, and
-    // users can only download a conversation (Markdown / HTML export) to host it themselves.
-    "DMCA_AGENT_REGISTERED": "false",
-    // Cloudflare Turnstile site key (public) for the magic-link form. Its secret is TURNSTILE_SECRET_KEY.
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFLlFryv5vXul-MG",
-    // JSON array of ProviderConfig for power mode's own-key providers; empty = built-in defaults
-    // (anthropic, openai, openrouter), where openrouter lists the suggested models below first
-    // and takes any OpenRouter model id. The id "tangent" (the built-in provider's legacy id) is reserved.
-    "PROVIDERS": "",
-    // Provider/model for summaries; empty = use the branch's provider/model.
-    "SUMMARY_PROVIDER_ID": "",
-    "SUMMARY_MODEL": "",
-    "AUTO_TITLE": "true",
-    // ---- Grounding: web search through OpenRouter's server tool (docs/DECISIONS.md § Grounding). Applies to
-    // the built-in provider and OpenRouter on the user's own key; other providers can't search.
-    // "auto": offered on turns a free check picks (deep tangents, specific facts, sources asked), and the
-    // model decides whether to search. "always-offer": offered every turn. "explicit": only "Check sources".
-    // "off": never.
-    "GROUNDING": "auto",
-    // Results per search (OpenRouter's Exa fee covers up to 10, so this only trades result tokens for coverage).
-    "GROUNDING_MAX_RESULTS": "5",
-    // OpenRouter search engine: exa (predictable price), parallel, auto (native search where the model has it).
-    "GROUNDING_ENGINE": "exa",
-    // Automatic searches per user per UTC day on Tangent credit; "Check sources" is not capped. 0 = no cap.
-    "GROUNDING_AUTO_DAILY_CAP": "40",
-    // ---- The built-in provider and billing. Anyone may sign up and use both apps. Once payments (Polar,
-    // below) and OPENROUTER_SIMPLE_API_KEY are set, both apps offer the built-in provider (OpenRouter on
-    // the operator's key) on prepaid credit (per user, shared by both apps): Learn as "Use Tangent
-    // credit", power as the provider "Tangent credit" with any OpenRouter model. Otherwise everyone
-    // brings their own key. With ANNUAL_FEE_ENABLED "true" and POLAR_MEMBERSHIP_PRODUCT_ID set,
-    // generating on the user's own keys needs the yearly membership, in Learn and power mode (and
-    // Canvas) alike (waivable per user, see MEMBERSHIP_WAIVER_CODE below and the README); Tangent
-    // credit, bought or spent, and the open pool never do (src/billing/gate.ts `needsMembership`).
-    // The suggested OpenRouter models: Learn's Normal (the default) / Max tiers, listed first in power.
-    // The old SIMPLE_SMART_MODEL is still read as a fallback for Normal (never for Max). The values
-    // below are the code's defaults, from the 2026-10 model eval (docs/DECISIONS.md "Hosted models
-    // from the eval"): one model for Normal and the pool, split by effort, and a top model for Max.
-    "SIMPLE_NORMAL_MODEL": "deepseek/deepseek-v4.1-flash",
-    "SIMPLE_MAX_MODEL": "anthropic/claude-sonnet-5.5",
-    // Summaries, titles and the open pool's default model (not a tier).
-    "SIMPLE_FAST_MODEL": "deepseek/deepseek-v4.1-flash",
-    // How each tier asks its model (src/config.ts `TierRequestConfig`). *_EFFORT: "none" (thinking
-    // off), "low" or "high", sent as OpenRouter's `reasoning`. Never "max" (refused).
-    // *_REPLY_TOKENS: a reply's output cap, thinking and answer together, at most 16384.
-    // *_PROVIDER_ORDER: OpenRouter provider slugs to try first, comma-separated, with fallbacks
-    // allowed; one provider keeps the prompt cache warm (each keeps its own). Don't pin "deepseek":
-    // OpenRouter filters DeepSeek's own endpoint out for an account that denies paid-data training,
-    // and the fallbacks then scatter across ~28 providers and lose the cache. Empty = the default
-    // model's settings below while the tier runs it (src/config.ts `DEFAULT_TIER_REQUESTS`), else the
-    // model's own: no effort sent, 16384 on a reasoning model (else 4096), OpenRouter's routing.
-    // Ignored with SIMPLE_PROVIDER, whose models carry their own `effort` / `providerOrder`.
-    "SIMPLE_NORMAL_EFFORT": "high",
-    "SIMPLE_NORMAL_REPLY_TOKENS": "16384",
-    "SIMPLE_NORMAL_PROVIDER_ORDER": "streamlake/fp8,deepinfra/fp8",
-    "SIMPLE_MAX_EFFORT": "",
-    "SIMPLE_MAX_REPLY_TOKENS": "16384",
-    "SIMPLE_MAX_PROVIDER_ORDER": "",
-    // The effort of summaries and titles, in Learn and on the open pool; empty = "low" on the
-    // default background model, else their model's own. They run on Normal's listing of the model
-    // (or the pool's), so they share its pinned providers; there is no SIMPLE_FAST_PROVIDER_ORDER.
-    "SIMPLE_FAST_EFFORT": "low",
-    // Full ProviderConfig JSON (id "openrouter"; legacy "tangent" is read as it) for the built-in provider;
-    // empty = OpenRouter with the models above.
-    "SIMPLE_PROVIDER": "",
-    // Per-call input-token cap for Learn and for the built-in provider in power (bounds the cost of one call).
-    "SIMPLE_MAX_INPUT_TOKENS": "60000",
-    // Built-in system prompt of new Learn trees whose account has none saved; empty = DEFAULT_SYSTEM_PROMPT
-    // (packages/shared/src/default-prompt.ts), which power mode always uses.
-    "SIMPLE_SYSTEM_PROMPT": "",
-    // Held per in-flight call, and the minimum available balance to start one (micro-USD; 20000 = $0.02).
-    "USAGE_HOLD_MICROS": "20000",
-    // Metered calls (Tangent credit) a user may have in flight at once; a send beyond it is 429. With the
-    // flat hold above this bounds an overdraft: at most this many calls, each within the token caps.
-    "USAGE_MAX_PENDING": "3",
-    // OpenRouter's fee on credit purchases in basis points (550 = 5.5%), passed through as part of
-    // the provider cost: charge = reported cost × (1 + fee) × (1 + markup). Raise it if you top up
-    // OpenRouter in amounts under ~$15, where its $0.80 minimum fee is more than 5.5%.
-    "OPENROUTER_FEE_BPS": "550",
-    // Margin on the true provider cost in basis points (1000 = +10%). Empty = the deprecated
-    // MARKUP_PREPAID_BPS if set (read for one release), else 1000.
-    "MARKUP_BPS": "1000",
-    // ---- Payments (src/billing/payments; README "Membership, credit and billing"). The provider:
-    // "polar" (https://polar.sh, merchant of record). Its secrets are POLAR_ACCESS_TOKEN and
-    // POLAR_WEBHOOK_SECRET (both set = payments on); its webhook endpoint is /api/webhooks/polar.
-    "PAYMENT_PROVIDER": "polar",
-    // "production" or "sandbox"; anything else (or empty) is the sandbox, so a missing value can't
-    // charge real cards. Tokens, products and webhook secrets differ between the two.
     "POLAR_SERVER": "production",
-    // The Polar one-time product personal credit top-ups are sold as (each checkout sets an ad-hoc
-    // USD price, tax exclusive). Empty = no top-ups.
     "POLAR_CREDITS_PRODUCT_ID": "1458ace2-00b3-4710-991e-8d8e04ed4385",
-    // The Polar yearly product of the membership ($10, tax exclusive). Empty = no membership is sold
-    // (nothing needs one); set = required for generating on own keys, in Learn and power mode (and
-    // Canvas), while ANNUAL_FEE_ENABLED is "true".
     "POLAR_MEMBERSHIP_PRODUCT_ID": "21924899-92dc-4d9e-b319-75796649f4e7",
-    // Polar's fee as an estimate, used only when an order reports no usable fee (then logged as
-    // `fee_estimated`): bps of the total charged plus fixed cents. Defaults: Starter, 5% + 50¢.
-    "POLAR_FEE_BPS": "500",
-    "POLAR_FEE_FIXED_CENTS": "50",
-    // "true" charges the yearly membership fee: with the membership product above set, generating on
-    // the user's own keys needs a membership, in Learn and power mode (and Canvas) alike. Without one,
-    // own-key power branches, Canvas lanes and Learn on the user's key are read-only; Tangent credit
-    // (buying and spending it) and the open pool stay open to everyone, and the pool's caps are the
-    // same for members. "false" (default) = nobody needs one, whatever is sold; any signed-in user
-    // may generate on their own keys in both apps.
     "ANNUAL_FEE_ENABLED": "true",
-    // The membership's yearly price in US cents, for display only (Polar charges its product's price).
-    "MEMBERSHIP_PRICE_CENTS": "1000",
-    // Credit included with each paid membership year, in US cents (200 = $2.00); granted only while
-    // the built-in provider is offered. 0 (the default) = none: the membership includes no credit.
-    "MEMBERSHIP_CREDIT_CENTS": "0",
-    // ---- The open credit pool (docs/pool/SPEC.md, src/config.ts). Tangent funds it from its own
-    // revenue (POOL_REVENUE_SHARE_BPS) and admin adjustments; nobody buys credit for it. Any signed-in
-    // Learn user may learn from it on one economical model, at cost, within daily caps. Every value
-    // below is read through src/config.ts; empty or malformed = the default named in the comment.
-    // "true" turns the pool on. Off, nothing spends from it.
     "POOL_ENABLED": "true",
-    // "true": personal credit (e.g. admin-granted) may be spent before payments are configured. With
-    // payments configured it always may; empty or "false" = only then.
-    "PERSONAL_CREDIT_ENABLED": "false",
-    // "true" lets admins simulate purchases without a payment (POST /api/admin/credit, mode
-    // simulated_purchase), for local testing. Keep it "false" in production.
-    "DEV_PURCHASES_ENABLED": "false",
-    // Ledger account id of the pool in credit_grants / usage_events (default "pool").
-    "POOL_ACCOUNT_ID": "pool",
-    // The one model pool replies use; empty = SIMPLE_FAST_MODEL. It must have an entry in the price table.
-    "POOL_MODEL": "deepseek/deepseek-v4.1-flash",
-    // The pool model's effort and provider pinning, like SIMPLE_NORMAL_EFFORT / _PROVIDER_ORDER above
-    // (its reply cap is POOL_MAX_OUTPUT_TOKENS). Empty = the default model's ("low", StreamLake then
-    // DeepInfra) while the pool runs it, else none sent / OpenRouter's routing; pinning keeps the
-    // pool's `max_price` routing.
-    "POOL_EFFORT": "low",
-    "POOL_PROVIDER_ORDER": "streamlake/fp8,deepinfra/fp8",
-    // The locked system prompt of pool replies; empty = SIMPLE_SYSTEM_PROMPT, else the built-in prompt.
-    "POOL_SYSTEM_PROMPT": "",
-    // The share of Tangent's revenue added to the pool, in bps (2000 = 20%; at most 10000; "0" = none):
-    // of each membership payment after tax and the payment fee, at payment time, and of the markup on
-    // personal credit as it is used, once per UTC day (src/pool/revenue-share.ts). The public pages
-    // quote this value. Pool replies are charged at their true cost, with no markup.
-    "POOL_REVENUE_SHARE_BPS": "2000",
-    // Per-call input and output token caps of pool calls, and the longest message a pool send accepts.
-    "POOL_MAX_INPUT_TOKENS": "16000",
-    "POOL_MAX_OUTPUT_TOKENS": "8192",
-    "POOL_MAX_MESSAGE_CHARS": "4000",
-    // A reservation still pending after this long is expired by the PoolBank alarm (10 min).
-    "POOL_RESERVATION_TTL_MS": "600000",
-    // A dispatched call whose cost is still unknown after this long is charged its full hold (1 h).
-    "POOL_GIVE_UP_MS": "3600000",
-    // Pool calls are aborted after this long (120 s; at most the TTL minus a minute).
-    "POOL_CALL_TIMEOUT_MS": "120000",
-    // Reservations one expiry pass settles before it re-arms.
-    "POOL_EXPIRE_BATCH": "20",
-    // Micro-USD one "learning session" is shown as on the pool meter (20000 = $0.02).
-    "POOL_SESSION_ESTIMATE_MICROS": "20000",
-    // Daily caps per user (UTC day): replies and spend in micro-USD. The same for everyone, member or
-    // not, paying or not.
-    "POOL_REQUESTS_PER_DAY": "30",
-    "POOL_SPEND_MICROS_PER_DAY": "100000",
-    // What the pool may spend per UTC day, all users together: the lower of this many micro-USD and
-    // this share (bps) of the pool's balance at 00:00 UTC plus what was added to it since.
-    "POOL_DAILY_GLOBAL_MICROS": "5000000",
-    "POOL_DAILY_GLOBAL_BPS": "2000",
-    // Daily caps per network (IPv4 address or IPv6 /64), all users together.
-    "POOL_IP_REQUESTS_PER_DAY": "60",
-    "POOL_IP_SPEND_MICROS_PER_DAY": "300000",
-    // Per-minute rate limits of pool replies, per user and per network.
-    "POOL_USER_PER_MINUTE": "6",
-    "POOL_IP_PER_MINUTE": "20",
-    // Minimum account age before first pool use, in ms (0 = none).
-    "POOL_MIN_ACCOUNT_AGE_MS": "0",
-    // Overage breaker: when settled charges exceeded their holds by more than this many micro-USD
-    // within the window, the pool refuses every reservation until the window clears (a price drifted).
-    "POOL_OVERAGE_WINDOW_MS": "86400000",
-    "POOL_OVERAGE_MAX_MICROS": "200000",
-    // JSON merged over the built-in price table (src/config.ts), micro-USD per million tokens:
-    // {"<model id>": {"in": 100000, "out": 400000, "context": 131072, "feeBps": 550, "cacheRead": 0,
-    // "cacheWrite": 0}}. feeBps and the cache prices are optional (default OPENROUTER_FEE_BPS; the
-    // input price). A model without a price can't be used by the pool. A daily cron syncs
-    // OpenRouter's list prices of the table's models into D1, replacing the built-in placeholders;
-    // an entry here wins over the synced price (src/pool/model-prices.ts). V4.1 Flash is pinned here
-    // at its pinned providers' price: OpenRouter's model-level list price ($0.0356 in / $1.00 out)
-    // is no route's price, and as the pool's `max_price` it would admit only fp4 endpoints. The sync
-    // still records the list price, and logs `price_override_below_list` (its $1.00 output is above
-    // this $0.60): expected while the pinned providers charge $0.60.
+    // V4.1 Flash at its pinned providers' price, which wins over the daily sync's list price.
     "MODEL_PRICES": "{\"deepseek/deepseek-v4.1-flash\":{\"in\":150000,\"out\":600000,\"context\":1048576,\"cacheRead\":3000}}",
-    // Impact feed: a topic is named publicly only when at least this many distinct learners touched
-    // it in the week (default 5, never below 3); comma-separated topic ids never published; and how
-    // many days topic tags outlive their branch's last pool use.
-    "IMPACT_MIN_DISTINCT_USERS": "5",
-    "POOL_TOPIC_BLOCKLIST": "",
-    "IMPACT_TAG_RETENTION_DAYS": "14",
-    // A future "featured learning" wall of conversations users publish (opt-in per conversation).
-    // Only a stub exists and it stays off: user-published content waits for DMCA_AGENT_REGISTERED.
-    // Either way /api/featured/* is 404, nothing renders and nothing is collected for it.
-    "FEATURED_CONVERSATIONS_ENABLED": "false",
   },
-  // Secrets (wrangler secret put): AI_GATEWAY_TOKEN,
-  //   KEY_ENCRYPTION_SECRET (`openssl rand -base64 32`; enables bring-your-own-key, rotate to revoke all stored keys)
-  //   BETTER_AUTH_SECRET (`openssl rand -base64 32`; signs session cookies, rotate to sign everyone out)
-  //   ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY: not needed in production. Power mode is
-  //     bring-your-own-key for every signed-in user; these serve only the local dev bypass (.dev.vars)
-  //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET (each pair optional)
-  //   TURNSTILE_SECRET_KEY, RESEND_API_KEY
-  //   OPENROUTER_SIMPLE_API_KEY (the built-in provider, sold as credit in both apps; set a credit limit on it in OpenRouter)
-  //   POLAR_ACCESS_TOKEN (an organization access token, polar_oat_…), POLAR_WEBHOOK_SECRET (whsec_…, of
-  //     the endpoint /api/webhooks/polar); both set = payments enabled
-  //   MEMBERSHIP_WAIVER_CODE (optional; a code users redeem to waive the membership fee. Change it if it
-  //     leaks; waived users keep their flag until it is cleared in the database, see README)
-  //   ADMIN_USER_IDS (comma-separated Better Auth user ids: the operator's own accounts, which may
-  //     open /admin/ and /api/admin/*. Each user's id is under Account ID in their account menu)
-  // Local only (.dev.vars): DEV_ALLOW_NO_AUTH=true (honoured only while BETTER_AUTH_SECRET is unset)
 }

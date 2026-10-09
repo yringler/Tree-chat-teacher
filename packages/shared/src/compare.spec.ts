@@ -25,12 +25,6 @@ describe('candidateRequestSchema', () => {
     ).toBe(false);
   });
 
-  it('reads the legacy `tangent` id as the built-in endpoint on credit', () => {
-    expect(
-      candidateRequestSchema.parse({ content: 'q', model: 'm', providerId: 'tangent' }),
-    ).toEqual({ content: 'q', model: 'm', providerId: 'openrouter', funding: 'credit' });
-  });
-
   it('lists the event types and holds a candidate for half an hour', () => {
     expect([...CANDIDATE_EVENT_TYPES].sort()).toEqual(['delta', 'done', 'error', 'status']);
     expect(CANDIDATE_TTL_MS).toBe(1_800_000);

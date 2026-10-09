@@ -1,4 +1,4 @@
-// The credit ledger (PLAN §2.5). Every write is a single idempotent statement,
+// The credit ledger. Every write is a single idempotent statement,
 // so there is no cross-table atomicity to get wrong:
 //
 //   balance = Σ credit_grants.amount_micros − Σ settled usage_events.charge_micros
@@ -6,26 +6,23 @@
 //   pending = number of pending usage_events (metered calls in flight)
 //
 // The open pool is one more account in the same tables (pool/pool-bank.ts).
+import type { SqlRow } from '../db/rows.js';
+import type { creditGrants } from '../db/schema.js';
 
 /**
- * - `purchase`: credit bought (net of the processing fee); `subscription`:
- *   credit included with a membership payment; `refund`: a refund or dispute
- *   taking credit back; `adjustment`: an admin's (or a marker row);
- * - `contribution`: the pool's share of Tangent's revenue
- *   (pool/revenue-share.ts), or, negative, a refund taking it back.
+ * - `purchase`: credit bought (net of the processing fee); `refund`: a refund
+ *   or dispute taking credit back; `adjustment`: an admin's or the operator's.
  */
-export type CreditGrantKind =
-  'purchase' | 'subscription' | 'refund' | 'adjustment' | 'contribution';
+export type CreditGrantKind = SqlRow<typeof creditGrants>['kind'];
 
 export interface CreditGrantInput {
   accountId: string;
   kind: CreditGrantKind;
-  /** Signed micro-USD (refunds are negative); for purchases, net of the processing fee (pool purchases before 2026-10: of the pool margin). */
+  /** Signed micro-USD (refunds are negative); for purchases, net of the processing fee. */
   amountMicros: number;
   /**
    * Purchases: the pre-tax amount paid, before the processing fee. Refunds: minus the refunded
-   * pre-tax amount. Contributions: the revenue they are a share of (a membership payment's
-   * pre-tax amount, or a day's markup); their reversals: minus the refunded pre-tax amount.
+   * pre-tax amount.
    */
   grossMicros?: number | null;
   /** Purchases: the payment provider's actual processing fee (`grossMicros - amountMicros` for personal credit). */
@@ -34,14 +31,12 @@ export interface CreditGrantInput {
   userId?: string | null;
   /**
    * Idempotency key: a payment, refund or dispute ref such as
-   * `polar:order:<id>`, or a ref the domain derives from one (`…:membership-refund`,
-   * `…:pool-share`, `…:reinstated`, `…:lost`, `…:ignored`); `admin:<key>` for an admin's
-   * adjustment, `dev:<key>` for a simulated purchase, `pool-share:usage:<day>`
-   * for the pool's daily usage share (provider refs never start with those);
-   * null for SQL adjustments.
+   * `polar:order:<id>`, or a ref the domain derives from one (`…:reinstated`); `admin:<key>` for an admin's
+   * adjustment, `dev:<key>` for a simulated purchase (provider refs never start
+   * with those); null for SQL adjustments.
    */
   providerRef: string | null;
-  /** Refunds, disputes, reinstatements and revenue-share reversals: the payment they take back from. */
+  /** Refunds, disputes and reinstatements: the payment they take back from. */
   paymentRef?: string | null;
   note?: string;
 }
@@ -99,7 +94,13 @@ export function readBalance(row: BalanceRow | null | undefined): {
   };
 }
 
-/** With `checkpoint`, sums only the rows since it (the pool's hot path); the result is the same. */
+/**
+ * With `checkpoint`, sums only the rows since it (the pool's hot path); the
+ * result is the same. The full sum subtracts `settled` charges and the
+ * checkpointed one every non-pending row's: the only other status,
+ * `unresolved`, is always charged 0 (`markUnresolved`), and no statement
+ * changes a row once it has left `pending`.
+ */
 export async function getBalance(
   db: D1Database,
   accountId: string,
@@ -119,8 +120,8 @@ export async function grantCredit(db: D1Database, g: CreditGrantInput): Promise<
   const result = await db
     .prepare(
       `INSERT INTO credit_grants
-         (id, account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id, provider_ref, payment_ref, note, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+         (id, account_id, kind, amount_micros, gross_micros, fee_micros, user_id, provider_ref, payment_ref, note, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(provider_ref) DO NOTHING`,
     )
     .bind(
@@ -169,10 +170,10 @@ export async function grantTowardCap(
   const result = await db
     .prepare(
       `INSERT INTO credit_grants
-         (id, account_id, kind, amount_micros, gross_micros, fee_micros, margin_bps, user_id, provider_ref, payment_ref, note, created_at)
+         (id, account_id, kind, amount_micros, gross_micros, fee_micros, user_id, provider_ref, payment_ref, note, created_at)
        SELECT ?1, ?2, 'refund',
               CASE WHEN ?3 < 0 THEN MIN(0, t.amount) ELSE MAX(0, t.amount) END,
-              ?3, 0, 0, ?4, ?5, ?6, ?7, ?8
+              ?3, 0, ?4, ?5, ?6, ?7, ?8
        FROM (SELECT -MIN(?9, MAX(0, -(COALESCE(SUM(gross_micros), 0) + ?3)))
                     - COALESCE(SUM(amount_micros), 0) AS amount
              FROM credit_grants WHERE account_id = ?2 AND payment_ref = ?6) AS t
@@ -204,13 +205,10 @@ export async function hasGrant(db: D1Database, providerRef: string): Promise<boo
 }
 
 /** A grant as `grantByRef` reads it. */
-export interface GrantRow {
-  account_id: string;
-  kind: CreditGrantKind;
-  amount_micros: number;
-  gross_micros: number | null;
-  user_id: string | null;
-}
+export type GrantRow = Pick<
+  SqlRow<typeof creditGrants>,
+  'account_id' | 'kind' | 'amount_micros' | 'gross_micros' | 'user_id'
+>;
 
 /** The grant written for `providerRef` (a payment object ref, or `admin:` / `dev:` key), if any. */
 export async function grantByRef(db: D1Database, providerRef: string): Promise<GrantRow | null> {

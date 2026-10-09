@@ -11,7 +11,8 @@ import {
 } from '@tangent/shared';
 import type { ModelPrice } from './config.js';
 import type { AppEnv } from './env.js';
-import { modelPrice } from './pool/model-prices.js';
+import { modelPrice } from './pool/price-table.js';
+import { logEvent } from './log.js';
 
 /**
  * `providers` with `usageFactor` set on the Max model of each entry that lists
@@ -29,7 +30,7 @@ export async function withUsageFactors(
     let price = prices.get(model);
     if (!price) {
       price = modelPrice(env, model).catch((err: unknown) => {
-        console.error(`Price of ${model} could not be read; using the fallback usage factor`, err);
+        logEvent('error', 'price_read_failed', { model, fallback: 'usage_factor', error: err });
         return null;
       });
       prices.set(model, price);

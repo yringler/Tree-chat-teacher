@@ -2,45 +2,21 @@ import { indexTree } from '@tangent/core/tree';
 import type { Branch, ChatNode } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { deleteBranchQuestion, subtreeSize } from './delete-branch';
+import * as fixtures from '../testing';
 
-const T = '2026-01-01T00:00:00.000Z';
+/** Branch `id` off message `at` of `parentBranchId`. */
+const branch = (id: string, parentBranchId: string | null, at: string | null): Branch =>
+  fixtures.branch(id, { parentBranchId, branchPointNodeId: at });
 
-function branch(id: string, parentBranchId: string | null, at: string | null): Branch {
-  return {
-    id,
-    treeId: 't1',
-    parentBranchId,
-    branchPointNodeId: at,
-    contextMode: 'path',
-    anchorQuote: null,
-    title: id,
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'p',
-    model: 'm',
-    funding: 'own-key',
-    createdAt: T,
-    updatedAt: T,
-  };
-}
-
-function node(id: string, branchId: string, parentId: string | null, seq: number): ChatNode {
-  return {
-    id,
-    treeId: 't1',
+/** Message `id`, its text its id: even `seq`s are the user's. */
+const node = (id: string, branchId: string, parentId: string | null, seq: number): ChatNode =>
+  fixtures.node(id, {
     branchId,
     parentId,
     seq,
-    role: seq % 2 === 0 ? 'user' : 'assistant',
     content: id,
-    status: 'complete',
-    error: null,
-    providerId: null,
-    model: null,
-    usage: null,
-    createdAt: T,
-  };
-}
+    role: seq % 2 === 0 ? 'user' : 'assistant',
+  });
 
 // trunk: u1 a1; side from a1 (u2 a2); two lanes below side from a2 (u3 / u4 a4); empty off a1.
 const idx = indexTree(

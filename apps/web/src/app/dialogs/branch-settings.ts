@@ -19,7 +19,7 @@ import {
 } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { deleteBranchQuestion, Icon, Modal } from '@tangent/web-shared';
+import { deleteBranchQuestion, Icon, Modal, ToastStore } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
 import { ModePicker } from '../ui/mode-picker';
 
@@ -139,7 +139,14 @@ export async function confirmDeleteBranch(store: TreeStore, branchId: string): P
 export class BranchSettings implements OnInit {
   private readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
   readonly branch = input.required<Branch>();
+  /**
+   * The branch as the form was filled from it. Saving sends what the user
+   * changed from this, not from the live branch: a reply finishing meanwhile
+   * may have retitled it.
+   */
+  private opened: Branch | null = null;
 
   protected readonly title = signal('');
   protected readonly mode = signal<ContextMode>('path');
@@ -152,7 +159,7 @@ export class BranchSettings implements OnInit {
   protected readonly grounding = signal<GroundingMode>(DEFAULT_GROUNDING_MODE);
   protected readonly canSearch = computed(() => {
     const { providerId, funding } = parseRouteKey(this.route());
-    return this.store
+    return this.store.account
       .providers()
       .some(
         (p) => p.id === providerId && (p.funding ?? 'own-key') === funding && p.webSearch === true,
@@ -167,6 +174,7 @@ export class BranchSettings implements OnInit {
 
   ngOnInit(): void {
     const b = this.branch();
+    this.opened = b;
     this.title.set(b.title);
     this.mode.set(b.contextMode);
     this.quote.set(b.anchorQuote ?? '');
@@ -177,7 +185,7 @@ export class BranchSettings implements OnInit {
   }
 
   protected close(): void {
-    this.ui.branchSettingsOpen.set(false);
+    this.ui.dialogs.close('branch-settings');
   }
 
   protected async remove(): Promise<void> {
@@ -185,7 +193,8 @@ export class BranchSettings implements OnInit {
   }
 
   protected async save(): Promise<void> {
-    const b = this.branch();
+    const b = this.opened;
+    if (!b) return;
     const req: UpdateBranchRequest = {};
     const title = this.title().trim();
     if (title && title !== b.title) req.title = title;
@@ -213,7 +222,7 @@ export class BranchSettings implements OnInit {
     const ok = await this.store.updateBranch(b.id, req);
     this.saving.set(false);
     if (ok) {
-      this.ui.notify('Branch updated');
+      this.toast.notify('Branch updated');
       this.close();
     }
   }

@@ -3,7 +3,9 @@
 // `POST /api/pool/verify`. Magic-link sign-ins are checked by Better Auth's
 // captcha plugin instead (auth/auth.ts). Fails closed: no secret, a network
 // error or an unexpected answer all mean "not verified".
+import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
+import { logEvent } from '../log.js';
 
 export const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 /** Longest token Turnstile issues (its docs: 2048 characters). */
@@ -26,7 +28,8 @@ export interface TurnstileCheck {
 
 /** True when both halves of Turnstile are configured (a widget can be shown and checked). */
 export function turnstileConfigured(env: AppEnv): boolean {
-  return !!env.TURNSTILE_SECRET_KEY?.trim() && !!env.TURNSTILE_SITE_KEY?.trim();
+  const { turnstileSecretKey, turnstileSiteKey } = appConfig(env).auth;
+  return turnstileSecretKey !== null && turnstileSiteKey !== null;
 }
 
 /** Verifies a Turnstile token with Siteverify. False on anything but a clear pass. */
@@ -36,7 +39,7 @@ export async function verifyTurnstile(
   ip: string | null,
   check: TurnstileCheck,
 ): Promise<boolean> {
-  const secret = env.TURNSTILE_SECRET_KEY?.trim();
+  const secret = appConfig(env).auth.turnstileSecretKey;
   if (!secret || !token || token.length > TURNSTILE_TOKEN_MAX) return false;
   let body: SiteverifyResponse;
   try {
@@ -49,7 +52,7 @@ export async function verifyTurnstile(
     if (!res.ok) return false;
     body = await res.json();
   } catch (err) {
-    console.error('Turnstile Siteverify failed', err);
+    logEvent('error', 'turnstile_failed', { error: err });
     return false;
   }
   if (body.success !== true) return false;
@@ -61,7 +64,7 @@ export async function verifyTurnstile(
 
 /**
  * The interstitial that runs Turnstile after a first OAuth sign-in
- * (http/verify-page.ts): magic links are checked when requested, OAuth
+ * (http/verify-page.tsx): magic links are checked when requested, OAuth
  * providers aren't, so their first sign-in lands here before the app.
  */
 export const VERIFY_PAGE_PATH = '/verify';

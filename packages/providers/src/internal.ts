@@ -10,7 +10,7 @@ import type {
   ProviderErrorCode,
   ProviderEvent,
 } from '@tangent/shared';
-import { isReasoningModel, REASONING_MAX_OUTPUT_TOKENS } from '@tangent/shared';
+import { clip, isReasoningModel, REASONING_MAX_OUTPUT_TOKENS } from '@tangent/shared';
 import type { ProviderEnv } from './registry.js';
 
 /** Thrown inside provider internals; converted to an `error` event by `guardStream`. */
@@ -83,7 +83,11 @@ export function isRetryable(code: ProviderErrorCode): boolean {
   return RETRYABLE.has(code);
 }
 
-export function providerError(code: ProviderErrorCode, message: string, status?: number): ProviderError {
+export function providerError(
+  code: ProviderErrorCode,
+  message: string,
+  status?: number,
+): ProviderError {
   const error: ProviderError = { code, message, retryable: isRetryable(code) };
   if (status !== undefined) error.status = status;
   return error;
@@ -117,16 +121,19 @@ export function redact(text: string, secrets: readonly string[]): string {
   return out.replace(/\b(sk-[A-Za-z0-9_*-]{3})[A-Za-z0-9_*-]{5,}/g, '$1…[redacted]');
 }
 
-function truncate(text: string, max = 500): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
+/** The longest provider error message passed on. */
+const ERROR_MESSAGE_MAX = 500;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 /** Pulls `{error:{message,type,code}}` (or `{error:"..."}`, `{message}`) out of a parsed body. */
-export function extractErrorInfo(body: unknown): { message?: string; type?: string; code?: unknown } {
+export function extractErrorInfo(body: unknown): {
+  message?: string;
+  type?: string;
+  code?: unknown;
+} {
   if (!isRecord(body)) return {};
   const err = body['error'];
   if (isRecord(err)) {
@@ -161,17 +168,21 @@ export async function errorFromResponse(
   }
   const status = res.status;
   let code = codeForStatus(status);
-  const raw = info.message ?? (text.trim() || `HTTP ${status}${res.statusText ? ` ${res.statusText}` : ''}`);
+  const raw =
+    info.message ?? (text.trim() || `HTTP ${status}${res.statusText ? ` ${res.statusText}` : ''}`);
   if (info.type === 'overloaded_error') code = 'overloaded';
   if ((code === 'invalid_request' || status === 413) && looksLikeContextLength(raw, info.code)) {
     code = 'context_length';
   }
-  return providerError(code, truncate(redact(raw, secrets)), status);
+  return providerError(code, clip(redact(raw, secrets), ERROR_MESSAGE_MAX), status);
 }
 
 export function networkError(err: unknown, secrets: readonly string[]): ProviderError {
   const msg = err instanceof Error ? err.message : String(err);
-  return providerError('network', truncate(redact(`Network error: ${msg}`, secrets)));
+  return providerError(
+    'network',
+    clip(redact(`Network error: ${msg}`, secrets), ERROR_MESSAGE_MAX),
+  );
 }
 
 /**
@@ -199,10 +210,14 @@ export async function* guardStream(
       } catch (e) {
         if (signal.aborted) terminal = { type: 'error', error: abortedProviderError() };
         else if (e instanceof ProviderFailure) terminal = { type: 'error', error: e.error };
-        else if (e instanceof TypeError) terminal = { type: 'error', error: networkError(e, secrets) };
+        else if (e instanceof TypeError)
+          terminal = { type: 'error', error: networkError(e, secrets) };
         else {
           const msg = e instanceof Error ? e.message : String(e);
-          terminal = { type: 'error', error: providerError('unknown', truncate(redact(msg, secrets))) };
+          terminal = {
+            type: 'error',
+            error: providerError('unknown', clip(redact(msg, secrets), ERROR_MESSAGE_MAX)),
+          };
         }
         break;
       }

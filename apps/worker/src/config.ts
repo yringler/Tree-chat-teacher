@@ -1,58 +1,195 @@
-// The one config module (docs/pool/PLAN.md §4): every cap, price, markup,
-// limit and flag the billing code and the open pool read. Values come
-// from wrangler.jsonc `vars` (strings), parsed once per env object and frozen;
-// empty or malformed values fall back to the defaults below, and the safety
-// clamps at the end log when they change a value.
+// The one module that reads the Worker's vars and secrets: everything else
+// gets typed values from `appConfig(env)` (or `namedSecrets` for the secrets a
+// provider config names), and reads only bindings (DB, ASSETS, Durable
+// Objects, rate limiters) from env itself (test/env-reads.test.ts).
+// docs/configuration.md documents every name in `CONFIG_VARS`.
 //
-// `appConfig` holds raw parsed values only. Anything that needs the provider
+// Values are parsed once per env object and frozen. An empty or unset var is
+// its default; a malformed one throws `ConfigError` naming it, so a typo fails
+// every request loudly instead of silently meaning something else.
+//
+// `appConfig` holds parsed values only. Anything that needs the provider
 // registry (the pool's default model, whether the built-in provider is
 // offered) is resolved by its caller, so this module imports nothing from
-// services.ts or simple-mode.ts.
+// registries.ts or simple-mode.ts.
+import { DEFAULT_GROUNDING_POLICY, GROUNDING_POLICIES, type GroundingPolicy } from '@tangent/core';
 import {
   BUILT_IN_MAX_OUTPUT_TOKENS,
+  DEFAULT_BUILT_IN_MAX_INPUT_TOKENS,
+  DEFAULT_MARKUP_BPS,
+  DEFAULT_OPENROUTER_FEE_BPS,
   DEFAULT_SYSTEM_PROMPT,
   isReasoningEffort,
-  POOL_NOTICE_VERSION,
   type ReasoningEffort,
 } from '@tangent/shared';
 import { z } from 'zod';
+import type { PolarConfig } from './billing/providers/polar/config.js';
 import type { AppEnv } from './env.js';
 
-// The topic taxonomy is code, not env: it lives in its own module.
-export {
-  isSensitive,
-  isValidLeafTopicId,
-  LEAF_TOPIC_IDS,
-  SENSITIVE_TOPIC_ID,
-  topicById,
-  TOPICS,
-  type Topic,
-} from './pool/taxonomy.js';
+// ---- Names
+
+/**
+ * Every var and secret a deployment may set, by group (the order of
+ * docs/configuration.md). The provider keys are read by the name a provider
+ * config gives (`apiKeySecret`, `extraHeaderSecrets`; `namedSecrets`); these
+ * are the names the default configs use.
+ */
+export const CONFIG_VARS = [
+  // Deployment
+  'PUBLIC_BASE_URL',
+  'LEGAL_OPERATOR',
+  'LEGAL_CONTACT_EMAIL',
+  'LEGAL_JURISDICTION',
+  'DMCA_AGENT_REGISTERED',
+  'ADMIN_USER_IDS',
+  // Sign-in and email
+  'BETTER_AUTH_SECRET',
+  'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET',
+  'GITHUB_CLIENT_ID',
+  'GITHUB_CLIENT_SECRET',
+  'TURNSTILE_SITE_KEY',
+  'TURNSTILE_SECRET_KEY',
+  'EMAIL_PROVIDER',
+  'EMAIL_FROM',
+  'RESEND_API_KEY',
+  // Power mode and the user's own keys
+  'KEY_ENCRYPTION_SECRET',
+  'PROVIDERS',
+  'ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY',
+  'OPENROUTER_API_KEY',
+  'AI_GATEWAY_TOKEN',
+  'SUMMARY_PROVIDER_ID',
+  'SUMMARY_MODEL',
+  'AUTO_TITLE',
+  // Web search
+  'GROUNDING',
+  'GROUNDING_MAX_RESULTS',
+  'GROUNDING_ENGINE',
+  'GROUNDING_AUTO_DAILY_CAP',
+  // The built-in provider and Learn's tiers
+  'BUILT_IN_API_KEY',
+  'BUILT_IN_PROVIDER',
+  'BUILT_IN_MAX_INPUT_TOKENS',
+  'LEARN_NORMAL_MODEL',
+  'LEARN_NORMAL_EFFORT',
+  'LEARN_NORMAL_REPLY_TOKENS',
+  'LEARN_NORMAL_PROVIDER_ORDER',
+  'LEARN_MAX_MODEL',
+  'LEARN_MAX_EFFORT',
+  'LEARN_MAX_REPLY_TOKENS',
+  'LEARN_MAX_PROVIDER_ORDER',
+  'LEARN_SYSTEM_PROMPT',
+  'BACKGROUND_MODEL',
+  'BACKGROUND_EFFORT',
+  'MODEL_PRICES',
+  // Credit, membership and payments
+  'MARKUP_BPS',
+  'OPENROUTER_FEE_BPS',
+  'PERSONAL_CREDIT_ENABLED',
+  'ANNUAL_FEE_ENABLED',
+  'MEMBERSHIP_PRICE_CENTS',
+  'MEMBERSHIP_WAIVER_CODE',
+  'PAYMENT_PROVIDER',
+  'POLAR_ACCESS_TOKEN',
+  'POLAR_WEBHOOK_SECRET',
+  'POLAR_SERVER',
+  'POLAR_CREDITS_PRODUCT_ID',
+  'POLAR_MEMBERSHIP_PRODUCT_ID',
+  'POLAR_FEE_BPS',
+  'POLAR_FEE_FIXED_CENTS',
+  // The open pool
+  'POOL_ENABLED',
+  'POOL_MODEL',
+  'POOL_EFFORT',
+  'POOL_PROVIDER_ORDER',
+  'POOL_SYSTEM_PROMPT',
+  'POOL_MAX_INPUT_TOKENS',
+  'POOL_MAX_OUTPUT_TOKENS',
+  'POOL_MAX_MESSAGE_CHARS',
+  'POOL_REQUESTS_PER_DAY',
+  'POOL_SPEND_MICROS_PER_DAY',
+  'POOL_IP_REQUESTS_PER_DAY',
+  'POOL_IP_SPEND_MICROS_PER_DAY',
+  'POOL_DAILY_GLOBAL_MICROS',
+  'POOL_DAILY_GLOBAL_BPS',
+  'POOL_USER_PER_MINUTE',
+  'POOL_IP_PER_MINUTE',
+  'POOL_MIN_ACCOUNT_AGE_MS',
+  // Local development
+  'DEV_ALLOW_NO_AUTH',
+  'DEV_PURCHASES_ENABLED',
+] as const;
+
+/**
+ * Read by the test suites only, and only while `TEST_SEAMS` is exactly
+ * "true" (except `TEST_SEAMS` itself): never documented, never set by a
+ * deployment.
+ * - `FAKE_PAYMENTS`: the fake payment provider's options (billing/providers/fake.ts).
+ * - `TEST_POOL_ACCOUNT_ID`: the pool's ledger id, so each test gets a pool of its own.
+ */
+export const TEST_VARS = ['TEST_SEAMS', 'FAKE_PAYMENTS', 'TEST_POOL_ACCOUNT_ID'] as const;
+
+export type ConfigVarName = (typeof CONFIG_VARS)[number] | (typeof TEST_VARS)[number];
+
+/** The vars and secrets as the Worker receives them: strings, any of them unset. */
+export type ConfigVars = { [K in ConfigVarName]?: string };
+
+/** The names in `CONFIG_VARS` that are secrets (`wrangler secret put`), never wrangler.jsonc vars. */
+export const CONFIG_SECRETS: ReadonlySet<ConfigVarName> = new Set<ConfigVarName>([
+  'ADMIN_USER_IDS',
+  'BETTER_AUTH_SECRET',
+  'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET',
+  'GITHUB_CLIENT_ID',
+  'GITHUB_CLIENT_SECRET',
+  'TURNSTILE_SECRET_KEY',
+  'RESEND_API_KEY',
+  'KEY_ENCRYPTION_SECRET',
+  'ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY',
+  'OPENROUTER_API_KEY',
+  'AI_GATEWAY_TOKEN',
+  'BUILT_IN_API_KEY',
+  'MEMBERSHIP_WAIVER_CODE',
+  'POLAR_ACCESS_TOKEN',
+  'POLAR_WEBHOOK_SECRET',
+]);
+
+/** The secret behind the built-in provider (its default config's `apiKeySecret`). */
+export const BUILT_IN_API_KEY_SECRET = 'BUILT_IN_API_KEY';
 
 // ---- Defaults
 
-export const DEFAULT_USAGE_HOLD_MICROS = 20_000;
-export const DEFAULT_USAGE_MAX_PENDING = 3;
-export const DEFAULT_MARKUP_BPS = 1000;
-/** OpenRouter's fee on credit purchases (5.5%; higher for top-ups under ~$15, see README). */
-export const DEFAULT_OPENROUTER_FEE_BPS = 550;
 export const DEFAULT_MEMBERSHIP_PRICE_CENTS = 1000;
-/** The membership includes no credit (the mechanism stays, `MEMBERSHIP_CREDIT_CENTS`). */
-export const DEFAULT_MEMBERSHIP_CREDIT_CENTS = 0;
-export const DEFAULT_SIMPLE_MAX_INPUT_TOKENS = 60_000;
-
-// ---- The hosted models (docs/DECISIONS.md "Hosted models from the eval")
-
-/** Learn's Normal tier, its default (`SIMPLE_NORMAL_MODEL`). */
-export const DEFAULT_SIMPLE_NORMAL_MODEL = 'deepseek/deepseek-v4.1-flash';
-/** Learn's Max tier (`SIMPLE_MAX_MODEL`). */
-export const DEFAULT_SIMPLE_MAX_MODEL = 'anthropic/claude-sonnet-5.5';
+const DEFAULT_GROUNDING_AUTO_DAILY_CAP = 40;
+const DEFAULT_GROUNDING_MAX_RESULTS = 5;
+const DEFAULT_GROUNDING_ENGINE = 'exa';
+/** OpenRouter accepts 1–25 results per search. */
+const MAX_GROUNDING_RESULTS = 25;
+/** Polar's Starter plan, 5% + 50¢ (international cards add 1.5% that this can't know). */
+const DEFAULT_POLAR_FEE_BPS = 500;
+const DEFAULT_POLAR_FEE_FIXED_CENTS = 50;
 /**
- * The background model (`SIMPLE_FAST_MODEL`): Learn's summaries and titles,
+ * The open pool's ledger account id in `credit_grants` / `usage_events`, and
+ * its PoolBank's name. Not configurable: another id would orphan the pool's
+ * balance and history.
+ */
+export const POOL_ACCOUNT_ID = 'pool';
+
+// ---- The hosted models: the defaults a live eval of the candidates picked (2026-10-08)
+
+/** Learn's Normal tier, its default (`LEARN_NORMAL_MODEL`). */
+export const DEFAULT_LEARN_NORMAL_MODEL = 'deepseek/deepseek-v4.1-flash';
+/** Learn's Max tier (`LEARN_MAX_MODEL`). */
+export const DEFAULT_LEARN_MAX_MODEL = 'anthropic/claude-sonnet-5.5';
+/**
+ * The background model (`BACKGROUND_MODEL`): Learn's summaries and titles,
  * and the open pool's default model. Not a tier, though today it is the same
  * model as Normal, asked differently.
  */
-export const DEFAULT_SIMPLE_FAST_MODEL = 'deepseek/deepseek-v4.1-flash';
+export const DEFAULT_BACKGROUND_MODEL = 'deepseek/deepseek-v4.1-flash';
 
 /**
  * Where V4.1 Flash is pinned: StreamLake, then DeepInfra, both fp8 and both
@@ -70,19 +207,19 @@ export interface DefaultTierRequest {
 }
 
 /**
- * The evaluated settings of each hosted tier's default model (wrangler.jsonc
- * sets the same values): what an empty `*_EFFORT`, `SIMPLE_*_REPLY_TOKENS` or
- * `*_PROVIDER_ORDER` means while the tier runs that model (`withTierDefaults`).
- * A tier moved to another model starts from that model's own defaults (no
- * effort sent, the default cap, OpenRouter's routing): an effort or a pinned
- * provider tuned for one model says nothing about another. The pool's reply
- * cap is `POOL_MAX_OUTPUT_TOKENS` (8,192), whatever its model.
+ * The evaluated settings of each hosted tier's default model: what an empty
+ * `*_EFFORT`, `LEARN_*_REPLY_TOKENS` or `*_PROVIDER_ORDER` means while the
+ * tier runs that model (`withTierDefaults`). A tier moved to another model
+ * starts from that model's own defaults (no effort sent, the default cap,
+ * OpenRouter's routing): an effort or a pinned provider tuned for one model
+ * says nothing about another. The pool's reply cap is
+ * `POOL_MAX_OUTPUT_TOKENS` (8,192), whatever its model.
  */
 export const DEFAULT_TIER_REQUESTS: Readonly<
   Record<'normal' | 'max' | 'pool', DefaultTierRequest>
 > = {
   normal: {
-    model: DEFAULT_SIMPLE_NORMAL_MODEL,
+    model: DEFAULT_LEARN_NORMAL_MODEL,
     request: {
       effort: 'high',
       maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS,
@@ -90,22 +227,22 @@ export const DEFAULT_TIER_REQUESTS: Readonly<
     },
   },
   max: {
-    model: DEFAULT_SIMPLE_MAX_MODEL,
+    model: DEFAULT_LEARN_MAX_MODEL,
     request: { effort: null, maxOutputTokens: BUILT_IN_MAX_OUTPUT_TOKENS, providerOrder: [] },
   },
   pool: {
-    model: DEFAULT_SIMPLE_FAST_MODEL,
+    model: DEFAULT_BACKGROUND_MODEL,
     request: { effort: 'low', maxOutputTokens: null, providerOrder: V4_1_FLASH_PROVIDER_ORDER },
   },
 };
 
 /**
  * The effort of summaries and titles on the default background model when
- * `SIMPLE_FAST_EFFORT` is empty. Without one they would run at the effort of
+ * `BACKGROUND_EFFORT` is empty. Without one they would run at the effort of
  * the model's listing, which on V4.1 Flash is Normal's `high`.
  */
 export const DEFAULT_BACKGROUND_EFFORT: { model: string; effort: ReasoningEffort } = {
-  model: DEFAULT_SIMPLE_FAST_MODEL,
+  model: DEFAULT_BACKGROUND_MODEL,
   effort: 'low',
 };
 
@@ -127,26 +264,13 @@ export function withTierDefaults(
   };
 }
 
-/** `SIMPLE_FAST_EFFORT`, else `DEFAULT_BACKGROUND_EFFORT` while background calls run its model. */
+/** `BACKGROUND_EFFORT`, else `DEFAULT_BACKGROUND_EFFORT` while background calls run its model. */
 export function backgroundEffort(env: AppEnv, model: string): ReasoningEffort | null {
   return (
-    appConfig(env).simple.backgroundEffort ??
+    appConfig(env).background.effort ??
     (model === DEFAULT_BACKGROUND_EFFORT.model ? DEFAULT_BACKGROUND_EFFORT.effort : null)
   );
 }
-
-/** The open pool's ledger account id (`POOL_ACCOUNT_ID`). */
-export const DEFAULT_POOL_ACCOUNT_ID = 'pool';
-/**
- * The share of Tangent's revenue that goes to the open pool, in bps
- * (20%): of each membership payment net of tax and the processing fee, and of
- * the markup on personal credit as it is spent (pool/revenue-share.ts).
- */
-const DEFAULT_POOL_REVENUE_SHARE_BPS = 2000;
-/** A smaller impact threshold would make single learners identifiable. */
-export const MIN_IMPACT_DISTINCT_USERS = 3;
-/** The expiry alarm needs this much slack between a call's timeout and its reservation's TTL. */
-const POOL_TTL_SLACK_MS = 60_000;
 
 /**
  * Price of one model in micro-USD per million tokens. `contextTokens` is the
@@ -182,8 +306,7 @@ export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   // Normal and the pool. The price of StreamLake (and DeepSeek's own): $0.15 / $0.60, cache
   // read $0.003. OpenRouter's model-level list price ($0.0356 / $1.00) is no route's price, and
   // as the pool's `max_price` it would admit only fp4 endpoints, so wrangler.jsonc repeats this
-  // entry in `MODEL_PRICES`, where it wins over the daily sync (docs/DECISIONS.md "Hosted
-  // models from the eval").
+  // entry in `MODEL_PRICES`, where it wins over the daily sync.
   'deepseek/deepseek-v4.1-flash': {
     inMicrosPerMTok: 150_000,
     outMicrosPerMTok: 600_000,
@@ -207,7 +330,7 @@ export const DEFAULT_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
     contextTokens: 1_000_000,
   },
   // A fallback candidate, no default: priced so the pool (`POOL_MODEL`) or a
-  // tier can be moved to it by config alone (docs/DECISIONS.md "Hosted tier config").
+  // tier can be moved to it by config alone, without a code change.
   'minimax/minimax-m3': {
     inMicrosPerMTok: 300_000,
     outMicrosPerMTok: 1_200_000,
@@ -247,15 +370,8 @@ export interface PoolRateLimits {
   ipPerMinute: number;
 }
 
-export interface PoolOverage {
-  /** Window over which clamped overage is summed. */
-  windowMs: number;
-  /** Above this, the pool refuses every reservation (`unpriced`). */
-  maxMicros: number;
-}
-
 /**
- * How one hosted tier asks its model (`SIMPLE_NORMAL_*`, `SIMPLE_MAX_*`,
+ * How one hosted tier asks its model (`LEARN_NORMAL_*`, `LEARN_MAX_*`,
  * `POOL_*`), as parsed: an empty var is null (or no providers). The tier's
  * model is resolved by the caller (simple-mode.ts, pool/params.ts), which
  * fills the empty settings from `DEFAULT_TIER_REQUESTS` while the tier runs
@@ -266,7 +382,7 @@ export interface TierRequestConfig {
   /** `*_EFFORT`: `none`, `low` or `high` (never `max`); null = send none, the model's default. */
   effort: ReasoningEffort | null;
   /**
-   * `SIMPLE_*_REPLY_TOKENS`: the reply's output cap (thinking and answer
+   * `LEARN_*_REPLY_TOKENS`: the reply's output cap (thinking and answer
    * together), at most BUILT_IN_MAX_OUTPUT_TOKENS (16,384); null = the default
    * for the model's kind (16,384 on a reasoning model, 4,096 otherwise). The
    * pool's is `POOL_MAX_OUTPUT_TOKENS` (`PoolConfig.maxOutputTokens`).
@@ -277,42 +393,79 @@ export interface TierRequestConfig {
 }
 
 export interface PoolConfig {
+  /** `POOL_ACCOUNT_ID`; in the tests, `TEST_POOL_ACCOUNT_ID`. */
   accountId: string;
-  /** `POOL_MODEL`; null = the simple provider's fast model, resolved by the caller. */
+  /** `POOL_MODEL`; null = the built-in provider's background model, resolved by the caller. */
   model: string | null;
   /** `POOL_EFFORT` (null = the model's default). */
   effort: ReasoningEffort | null;
   /** `POOL_PROVIDER_ORDER`. */
   providerOrder: readonly string[];
   systemPrompt: string;
-  /**
-   * `POOL_REVENUE_SHARE_BPS` (at most 10,000): the share of each membership
-   * payment (after the processing fee) and of the markup on personal credit
-   * as it is used that Tangent adds to the pool (pool/revenue-share.ts); 0 = none.
-   */
-  revenueShareBps: number;
   maxInputTokens: number;
   maxOutputTokens: number;
   maxMessageChars: number;
-  reservationTtlMs: number;
-  giveUpMs: number;
-  callTimeoutMs: number;
-  expireBatch: number;
-  sessionEstimateMicros: number;
   caps: PoolCaps;
   limits: PoolRateLimits;
   minAccountAgeMs: number;
-  overage: PoolOverage;
-  /**
-   * The pool notice version a pool request needs acknowledged: the code
-   * constant `POOL_NOTICE_VERSION` (packages/shared/src/pool.ts, next to the
-   * text it versions). Not an env var; only tests (`TEST_SEAMS`) may raise it,
-   * with `POOL_NOTICE_VERSION`, to check that a bump asks again.
-   */
-  noticeVersion: number;
+}
+
+/** An OAuth app's credentials; set only when both halves are. */
+export interface OAuthApp {
+  clientId: string;
+  clientSecret: string;
 }
 
 export interface AppConfig {
+  site: {
+    /** `PUBLIC_BASE_URL`; null = derive from the request (local dev and tests). */
+    publicBaseUrl: string | null;
+    legal: {
+      /** `LEGAL_OPERATOR`; null = "the operator of <host>". */
+      operator: string | null;
+      /** `LEGAL_CONTACT_EMAIL`; null = privacy@<host>. */
+      contactEmail: string | null;
+      /** `LEGAL_JURISDICTION`; empty = where the operator is established. */
+      jurisdiction: string;
+    };
+    /** Share links for everyone (`DMCA_AGENT_REGISTERED`). */
+    sharingEnabled: boolean;
+    adminUserIds: readonly string[];
+  };
+  auth: {
+    /**
+     * `BETTER_AUTH_SECRET` exactly as stored (Better Auth signs with it, so
+     * trimming would change every signature); null when blank.
+     */
+    secret: string | null;
+    /** `DEV_ALLOW_NO_AUTH` is exactly "true" (honoured only while `secret` is null). */
+    devAllowNoAuth: boolean;
+    google: OAuthApp | null;
+    github: OAuthApp | null;
+    turnstileSiteKey: string | null;
+    turnstileSecretKey: string | null;
+  };
+  email: {
+    provider: 'resend' | 'log';
+    from: string | null;
+    resendApiKey: string | null;
+  };
+  power: {
+    /** `KEY_ENCRYPTION_SECRET`; null = bring-your-own-key disabled. */
+    keyEncryptionSecret: string | null;
+    /** `PROVIDERS` as JSON text (parsed by provider-configs.ts); null = the default configs. */
+    providers: string | null;
+    summaryProviderId: string | null;
+    summaryModel: string | null;
+    autoTitle: boolean;
+  };
+  grounding: {
+    policy: GroundingPolicy;
+    maxResults: number;
+    engine: string;
+    /** Automatic searches per user per UTC day on credit; 0 = no cap. */
+    autoDailyCap: number;
+  };
   flags: {
     poolEnabled: boolean;
     /**
@@ -334,72 +487,134 @@ export interface AppConfig {
      * Never on in production: a simulated purchase is spendable credit nobody paid for.
      */
     devPurchasesEnabled: boolean;
-    /**
-     * The "featured learning" wall (`FEATURED_CONVERSATIONS_ENABLED`, default
-     * off). Only a stub exists: `/api/featured` is 404 either way and nothing
-     * renders or is collected (`featuredEnabled`, routes/featured.ts).
-     */
-    featuredConversationsEnabled: boolean;
   };
   /** The built-in price table with `MODEL_PRICES` merged over it. */
   prices: Readonly<Record<string, ModelPrice>>;
   /** The models `MODEL_PRICES` prices explicitly: their entry wins over a synced price. */
   priceOverrides: readonly string[];
   billing: {
-    usageHoldMicros: number;
-    usageMaxPending: number;
     markupBps: number;
     openRouterFeeBps: number;
     membershipPriceCents: number;
-    /** Before the built-in-provider check (`membershipCreditCents`). */
-    membershipCreditCentsRaw: number;
+    /** `MEMBERSHIP_WAIVER_CODE`; null = no code redemption. */
+    membershipWaiverCode: string | null;
   };
-  simple: {
+  payments: {
+    provider: 'polar' | 'fake';
+    /** Polar's settings; null unless both of its secrets are set. */
+    polar: PolarConfig | null;
+    /** `FAKE_PAYMENTS` (tests only): the fake provider's options as JSON. */
+    fake: string | null;
+  };
+  builtIn: {
+    /** `BUILT_IN_PROVIDER` as JSON text (parsed by simple-mode.ts); null = OpenRouter with Learn's tiers. */
+    provider: string | null;
+    /** Per-call input cap of Learn and of Tangent credit in power. */
     maxInputTokens: number;
-    /** Learn's tiers' request settings (their models: `SIMPLE_NORMAL_MODEL`, `SIMPLE_MAX_MODEL`). */
+  };
+  learn: {
+    normalModel: string;
+    maxModel: string;
     normal: TierRequestConfig;
     max: TierRequestConfig;
-    /**
-     * `SIMPLE_FAST_EFFORT`: the effort of summaries and titles, in Learn and on
-     * the open pool, as parsed (null = empty: `backgroundEffort` resolves it).
-     */
-    backgroundEffort: ReasoningEffort | null;
+    /** `LEARN_SYSTEM_PROMPT`; null = DEFAULT_SYSTEM_PROMPT. */
+    systemPrompt: string | null;
+  };
+  background: {
+    model: string;
+    /** `BACKGROUND_EFFORT` as parsed (null = empty: `backgroundEffort` resolves it). */
+    effort: ReasoningEffort | null;
   };
   pool: PoolConfig;
-  impact: {
-    minDistinctUsers: number;
-    topicBlocklist: readonly string[];
-    classifierMaxOutputTokens: number;
-    classifierInputChars: number;
-    tagRetentionDays: number;
-  };
 }
 
-// ---- Parsers
+// ---- Parsers: `raw` is the var's value, `name` names it in the error.
 
-/** Parses a var holding a non-negative integer; empty, malformed or unsafe values give `fallback`. */
-export function intVar(raw: string | undefined, fallback: number): number {
+/** A var holding a value its parser can't read. */
+export class ConfigError extends Error {
+  constructor(name: string, raw: string, expected: string) {
+    super(`Invalid ${name}=${JSON.stringify(raw)}: expected ${expected}`);
+    this.name = 'ConfigError';
+  }
+}
+
+/** The trimmed value; null when empty or unset. */
+function textVar(raw: string | undefined): string | null {
+  return raw?.trim() || null;
+}
+
+/** An integer in `[min, max]` (default: non-negative); empty gives `fallback`. */
+export function intVar(
+  name: string,
+  raw: string | undefined,
+  fallback: number,
+  { min = 0, max = Number.MAX_SAFE_INTEGER }: { min?: number; max?: number } = {},
+): number {
   const s = raw?.trim();
-  if (!s || !/^\d+$/.test(s)) return fallback;
-  const n = Number(s);
-  return Number.isSafeInteger(n) ? n : fallback;
+  if (!s) return fallback;
+  const n = /^\d+$/.test(s) ? Number(s) : NaN;
+  if (!Number.isSafeInteger(n) || n < min || n > max)
+    throw new ConfigError(name, s, `an integer from ${min} to ${max}`);
+  return n;
 }
 
-/** A positive safe integer, else `fallback` (0 is rejected). */
-export function positiveInt(raw: string | undefined, fallback: number): number {
-  const n = Number(raw?.trim());
-  return Number.isSafeInteger(n) && n > 0 ? n : fallback;
+/** `true` or `false`, in any case; empty gives `fallback`. */
+export function boolVar(name: string, raw: string | undefined, fallback: boolean): boolean {
+  const s = raw?.trim();
+  if (!s) return fallback;
+  const lower = s.toLowerCase();
+  if (lower === 'true') return true;
+  if (lower === 'false') return false;
+  throw new ConfigError(name, s, 'true or false');
 }
 
-/** "true" / "false" (any case); anything else gives `fallback`. */
-export function boolVar(raw: string | undefined, fallback: boolean): boolean {
-  const s = raw?.trim().toLowerCase();
-  if (s === 'true') return true;
-  if (s === 'false') return false;
-  return fallback;
+/**
+ * A switch that weakens security (`DEV_ALLOW_NO_AUTH`, `TEST_SEAMS`): on only
+ * for exactly `true`, off when empty or exactly `false`. Anything else, even
+ * `TRUE` or ` true`, throws, so a near-miss is never read either way.
+ */
+export function strictFlagVar(name: string, raw: string | undefined): boolean {
+  if (raw === 'true') return true;
+  if (raw === undefined || raw === '' || raw === 'false') return false;
+  throw new ConfigError(name, raw, 'exactly "true", or "false" / empty');
 }
 
-/** JSON validated by `schema`; empty gives `fallback`, invalid logs and gives `fallback`. */
+/** One of `values` (any case); empty gives `fallback`. */
+export function enumVar<T extends string>(
+  name: string,
+  raw: string | undefined,
+  values: readonly T[],
+  fallback: T,
+): T {
+  const s = raw?.trim();
+  if (!s) return fallback;
+  const match = values.find((v) => v === s.toLowerCase());
+  if (match === undefined) throw new ConfigError(name, s, values.join(', '));
+  return match;
+}
+
+/**
+ * `*_EFFORT`: `none`, `low` or `high` (any case); empty gives null (the
+ * model's default). `max` and `xhigh` are refused like any other value:
+ * Tangent never asks for a model's top effort.
+ */
+export function effortVar(name: string, raw: string | undefined): ReasoningEffort | null {
+  const s = raw?.trim();
+  if (!s) return null;
+  const lower = s.toLowerCase();
+  if (isReasoningEffort(lower)) return lower;
+  throw new ConfigError(name, s, 'none, low or high');
+}
+
+/** Comma-separated; blanks dropped. */
+function listVar(raw: string | undefined): string[] {
+  return (raw ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+}
+
+/** JSON validated by `schema`; empty gives `fallback`. */
 export function jsonVar<T>(
   name: string,
   raw: string | undefined,
@@ -412,14 +627,10 @@ export function jsonVar<T>(
   try {
     parsed = JSON.parse(s);
   } catch {
-    console.error(`Invalid ${name}: not JSON; using the default`);
-    return fallback;
+    throw new ConfigError(name, s, 'JSON');
   }
   const result = schema.safeParse(parsed);
-  if (!result.success) {
-    console.error(`Invalid ${name}; using the default`, z.prettifyError(result.error));
-    return fallback;
-  }
+  if (!result.success) throw new ConfigError(name, s, z.prettifyError(result.error));
   return result.data;
 }
 
@@ -460,142 +671,175 @@ function parsePrices(raw: string | undefined): {
   return { prices, overrides: Object.keys(overrides) };
 }
 
-/**
- * `*_EFFORT`: `none`, `low` or `high` (any case); empty gives null (the
- * model's default). `max` and `xhigh` are refused like any other value
- * (logged, null): Tangent never asks for a model's top effort.
- */
-export function effortVar(name: string, raw: string | undefined): ReasoningEffort | null {
-  const s = raw?.trim().toLowerCase();
-  if (!s) return null;
-  if (isReasoningEffort(s)) return s;
-  console.error(`Invalid ${name}=${s}: expected none, low or high; sending no effort`);
-  return null;
-}
-
-/** `SIMPLE_*_REPLY_TOKENS`: a positive cap up to BUILT_IN_MAX_OUTPUT_TOKENS; empty or invalid gives null. */
-function replyTokensVar(name: string, raw: string | undefined): number | null {
-  const n = positiveInt(raw, 0);
-  if (n === 0) return null;
-  return clamped(name, n, Math.min(n, BUILT_IN_MAX_OUTPUT_TOKENS));
-}
-
-function tierRequest(env: AppEnv, prefix: 'SIMPLE_NORMAL' | 'SIMPLE_MAX'): TierRequestConfig {
-  return {
-    effort: effortVar(`${prefix}_EFFORT`, env[`${prefix}_EFFORT`]),
-    maxOutputTokens: replyTokensVar(`${prefix}_REPLY_TOKENS`, env[`${prefix}_REPLY_TOKENS`]),
-    providerOrder: list(env[`${prefix}_PROVIDER_ORDER`]),
-  };
-}
-
-function list(raw: string | undefined): string[] {
-  return (raw ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s !== '');
-}
-
-function clamped(name: string, value: number, safe: number): number {
-  if (value !== safe) console.warn(`${name}=${value} is unsafe; using ${safe}`);
-  return safe;
-}
+// ---- Reading env
 
 function parse(env: AppEnv): AppConfig {
-  const ttl = positiveInt(env.POOL_RESERVATION_TTL_MS, 10 * 60_000);
-  const callTimeout = positiveInt(env.POOL_CALL_TIMEOUT_MS, 120_000);
-  const giveUp = positiveInt(env.POOL_GIVE_UP_MS, 60 * 60_000);
-  const minUsers = intVar(env.IMPACT_MIN_DISTINCT_USERS, 5);
-  const prices = parsePrices(env.MODEL_PRICES);
+  const v = (name: ConfigVarName): string | undefined => env[name];
+  const text = (name: ConfigVarName) => textVar(v(name));
+  const int = (name: ConfigVarName, fallback: number, range?: { min?: number; max?: number }) =>
+    intVar(name, v(name), fallback, range);
+  const bool = (name: ConfigVarName, fallback: boolean) => boolVar(name, v(name), fallback);
+  const effort = (name: ConfigVarName) => effortVar(name, v(name));
+  const oauth = (id: ConfigVarName, secret: ConfigVarName): OAuthApp | null => {
+    const clientId = text(id);
+    const clientSecret = text(secret);
+    return clientId && clientSecret ? { clientId, clientSecret } : null;
+  };
+  const tier = (
+    effortName: ConfigVarName,
+    replyName: ConfigVarName,
+    orderName: ConfigVarName,
+  ): TierRequestConfig => {
+    const reply = int(replyName, 0, { min: 1, max: BUILT_IN_MAX_OUTPUT_TOKENS });
+    return {
+      effort: effort(effortName),
+      maxOutputTokens: reply === 0 ? null : reply,
+      providerOrder: listVar(v(orderName)),
+    };
+  };
+
+  const testSeams = strictFlagVar('TEST_SEAMS', v('TEST_SEAMS'));
+  const paymentProvider = enumVar(
+    'PAYMENT_PROVIDER',
+    v('PAYMENT_PROVIDER'),
+    ['polar', 'fake'],
+    'polar',
+  );
+  if (paymentProvider === 'fake' && !testSeams)
+    throw new Error('PAYMENT_PROVIDER=fake is only allowed in tests (TEST_SEAMS)');
+  const polarAccessToken = text('POLAR_ACCESS_TOKEN');
+  const polarWebhookSecret = text('POLAR_WEBHOOK_SECRET');
+  // Parsed whether or not Polar's secrets are set, so a bad value fails before they are.
+  const polar = {
+    // The sandbox unless set, so a missing var can't charge real cards.
+    server: enumVar('POLAR_SERVER', v('POLAR_SERVER'), ['sandbox', 'production'], 'sandbox'),
+    creditsProductId: text('POLAR_CREDITS_PRODUCT_ID'),
+    membershipProductId: text('POLAR_MEMBERSHIP_PRODUCT_ID'),
+    feeEstimate: {
+      bps: int('POLAR_FEE_BPS', DEFAULT_POLAR_FEE_BPS),
+      fixedCents: int('POLAR_FEE_FIXED_CENTS', DEFAULT_POLAR_FEE_FIXED_CENTS),
+    },
+  };
+  const prices = parsePrices(v('MODEL_PRICES'));
+  const authSecret = v('BETTER_AUTH_SECRET');
+
   return {
+    site: {
+      publicBaseUrl: text('PUBLIC_BASE_URL'),
+      legal: {
+        operator: text('LEGAL_OPERATOR'),
+        contactEmail: text('LEGAL_CONTACT_EMAIL'),
+        jurisdiction: text('LEGAL_JURISDICTION') ?? '',
+      },
+      sharingEnabled: bool('DMCA_AGENT_REGISTERED', false),
+      adminUserIds: listVar(v('ADMIN_USER_IDS')),
+    },
+    auth: {
+      secret: authSecret?.trim() ? authSecret : null,
+      devAllowNoAuth: strictFlagVar('DEV_ALLOW_NO_AUTH', v('DEV_ALLOW_NO_AUTH')),
+      google: oauth('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'),
+      github: oauth('GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET'),
+      turnstileSiteKey: text('TURNSTILE_SITE_KEY'),
+      turnstileSecretKey: text('TURNSTILE_SECRET_KEY'),
+    },
+    email: {
+      provider: enumVar('EMAIL_PROVIDER', v('EMAIL_PROVIDER'), ['resend', 'log'], 'resend'),
+      from: text('EMAIL_FROM'),
+      resendApiKey: text('RESEND_API_KEY'),
+    },
+    power: {
+      keyEncryptionSecret: text('KEY_ENCRYPTION_SECRET'),
+      providers: text('PROVIDERS'),
+      summaryProviderId: text('SUMMARY_PROVIDER_ID'),
+      summaryModel: text('SUMMARY_MODEL'),
+      autoTitle: bool('AUTO_TITLE', true),
+    },
+    grounding: {
+      policy: enumVar('GROUNDING', v('GROUNDING'), GROUNDING_POLICIES, DEFAULT_GROUNDING_POLICY),
+      maxResults: int('GROUNDING_MAX_RESULTS', DEFAULT_GROUNDING_MAX_RESULTS, {
+        min: 1,
+        max: MAX_GROUNDING_RESULTS,
+      }),
+      engine: text('GROUNDING_ENGINE') ?? DEFAULT_GROUNDING_ENGINE,
+      autoDailyCap: int('GROUNDING_AUTO_DAILY_CAP', DEFAULT_GROUNDING_AUTO_DAILY_CAP),
+    },
     flags: {
-      poolEnabled: boolVar(env.POOL_ENABLED, false),
-      annualFeeEnabled: boolVar(env.ANNUAL_FEE_ENABLED, false),
-      personalCreditEnabled: boolVar(env.PERSONAL_CREDIT_ENABLED, false),
-      devPurchasesEnabled: boolVar(env.DEV_PURCHASES_ENABLED, false),
-      featuredConversationsEnabled: boolVar(env.FEATURED_CONVERSATIONS_ENABLED, false),
+      poolEnabled: bool('POOL_ENABLED', false),
+      annualFeeEnabled: bool('ANNUAL_FEE_ENABLED', false),
+      personalCreditEnabled: bool('PERSONAL_CREDIT_ENABLED', false),
+      devPurchasesEnabled: bool('DEV_PURCHASES_ENABLED', false),
     },
     prices: prices.prices,
     priceOverrides: prices.overrides,
     billing: {
-      usageHoldMicros: intVar(env.USAGE_HOLD_MICROS, DEFAULT_USAGE_HOLD_MICROS),
-      usageMaxPending: intVar(env.USAGE_MAX_PENDING, DEFAULT_USAGE_MAX_PENDING),
-      markupBps: intVar(env.MARKUP_BPS, intVar(env.MARKUP_PREPAID_BPS, DEFAULT_MARKUP_BPS)),
-      openRouterFeeBps: intVar(env.OPENROUTER_FEE_BPS, DEFAULT_OPENROUTER_FEE_BPS),
-      membershipPriceCents: intVar(env.MEMBERSHIP_PRICE_CENTS, DEFAULT_MEMBERSHIP_PRICE_CENTS),
-      membershipCreditCentsRaw: intVar(
-        env.MEMBERSHIP_CREDIT_CENTS,
-        DEFAULT_MEMBERSHIP_CREDIT_CENTS,
-      ),
+      markupBps: int('MARKUP_BPS', DEFAULT_MARKUP_BPS),
+      openRouterFeeBps: int('OPENROUTER_FEE_BPS', DEFAULT_OPENROUTER_FEE_BPS),
+      membershipPriceCents: int('MEMBERSHIP_PRICE_CENTS', DEFAULT_MEMBERSHIP_PRICE_CENTS),
+      membershipWaiverCode: text('MEMBERSHIP_WAIVER_CODE'),
     },
-    simple: {
-      maxInputTokens: positiveInt(env.SIMPLE_MAX_INPUT_TOKENS, DEFAULT_SIMPLE_MAX_INPUT_TOKENS),
-      normal: tierRequest(env, 'SIMPLE_NORMAL'),
-      max: tierRequest(env, 'SIMPLE_MAX'),
-      backgroundEffort: effortVar('SIMPLE_FAST_EFFORT', env.SIMPLE_FAST_EFFORT),
+    payments: {
+      provider: paymentProvider,
+      polar:
+        polarAccessToken && polarWebhookSecret
+          ? {
+              accessToken: polarAccessToken,
+              webhookSecret: polarWebhookSecret,
+              // The sandbox unless set, so a missing var can't charge real cards.
+              ...polar,
+            }
+          : null,
+      fake: testSeams ? text('FAKE_PAYMENTS') : null,
+    },
+    builtIn: {
+      provider: text('BUILT_IN_PROVIDER'),
+      maxInputTokens: int('BUILT_IN_MAX_INPUT_TOKENS', DEFAULT_BUILT_IN_MAX_INPUT_TOKENS, {
+        min: 1,
+      }),
+    },
+    learn: {
+      normalModel: text('LEARN_NORMAL_MODEL') ?? DEFAULT_LEARN_NORMAL_MODEL,
+      maxModel: text('LEARN_MAX_MODEL') ?? DEFAULT_LEARN_MAX_MODEL,
+      normal: tier(
+        'LEARN_NORMAL_EFFORT',
+        'LEARN_NORMAL_REPLY_TOKENS',
+        'LEARN_NORMAL_PROVIDER_ORDER',
+      ),
+      max: tier('LEARN_MAX_EFFORT', 'LEARN_MAX_REPLY_TOKENS', 'LEARN_MAX_PROVIDER_ORDER'),
+      systemPrompt: text('LEARN_SYSTEM_PROMPT'),
+    },
+    background: {
+      model: text('BACKGROUND_MODEL') ?? DEFAULT_BACKGROUND_MODEL,
+      effort: effort('BACKGROUND_EFFORT'),
     },
     pool: {
-      accountId: env.POOL_ACCOUNT_ID?.trim() || DEFAULT_POOL_ACCOUNT_ID,
-      model: env.POOL_MODEL?.trim() || null,
-      effort: effortVar('POOL_EFFORT', env.POOL_EFFORT),
-      providerOrder: list(env.POOL_PROVIDER_ORDER),
+      accountId: (testSeams && text('TEST_POOL_ACCOUNT_ID')) || POOL_ACCOUNT_ID,
+      model: text('POOL_MODEL'),
+      effort: effort('POOL_EFFORT'),
+      providerOrder: listVar(v('POOL_PROVIDER_ORDER')),
       systemPrompt:
-        env.POOL_SYSTEM_PROMPT?.trim() || env.SIMPLE_SYSTEM_PROMPT?.trim() || DEFAULT_SYSTEM_PROMPT,
-      revenueShareBps: Math.min(
-        intVar(env.POOL_REVENUE_SHARE_BPS, DEFAULT_POOL_REVENUE_SHARE_BPS),
-        10_000,
-      ),
-      maxInputTokens: positiveInt(env.POOL_MAX_INPUT_TOKENS, 16_000),
-      maxOutputTokens: positiveInt(env.POOL_MAX_OUTPUT_TOKENS, 8192),
-      maxMessageChars: positiveInt(env.POOL_MAX_MESSAGE_CHARS, 4000),
-      reservationTtlMs: ttl,
-      // A call must time out well before the alarm may expire its reservation, and a
-      // generation lookup may not give up before the reservation could expire.
-      callTimeoutMs: clamped(
-        'POOL_CALL_TIMEOUT_MS',
-        callTimeout,
-        Math.min(callTimeout, Math.max(1_000, ttl - POOL_TTL_SLACK_MS)),
-      ),
-      giveUpMs: clamped('POOL_GIVE_UP_MS', giveUp, Math.max(giveUp, ttl)),
-      expireBatch: positiveInt(env.POOL_EXPIRE_BATCH, 20),
-      sessionEstimateMicros: positiveInt(env.POOL_SESSION_ESTIMATE_MICROS, 20_000),
+        text('POOL_SYSTEM_PROMPT') ?? text('LEARN_SYSTEM_PROMPT') ?? DEFAULT_SYSTEM_PROMPT,
+      maxInputTokens: int('POOL_MAX_INPUT_TOKENS', 16_000, { min: 1 }),
+      maxOutputTokens: int('POOL_MAX_OUTPUT_TOKENS', 8192, { min: 1 }),
+      maxMessageChars: int('POOL_MAX_MESSAGE_CHARS', 4000, { min: 1 }),
       caps: {
         user: {
-          requestsPerDay: intVar(env.POOL_REQUESTS_PER_DAY, 30),
-          spendMicrosPerDay: intVar(env.POOL_SPEND_MICROS_PER_DAY, 100_000),
+          requestsPerDay: int('POOL_REQUESTS_PER_DAY', 30),
+          spendMicrosPerDay: int('POOL_SPEND_MICROS_PER_DAY', 100_000),
         },
         global: {
-          spendMicrosPerDay: intVar(env.POOL_DAILY_GLOBAL_MICROS, 5_000_000),
-          bpsOfMorningBalance: intVar(env.POOL_DAILY_GLOBAL_BPS, 2_000),
+          spendMicrosPerDay: int('POOL_DAILY_GLOBAL_MICROS', 5_000_000),
+          bpsOfMorningBalance: int('POOL_DAILY_GLOBAL_BPS', 2_000),
         },
         ip: {
-          requestsPerDay: intVar(env.POOL_IP_REQUESTS_PER_DAY, 60),
-          spendMicrosPerDay: intVar(env.POOL_IP_SPEND_MICROS_PER_DAY, 300_000),
+          requestsPerDay: int('POOL_IP_REQUESTS_PER_DAY', 60),
+          spendMicrosPerDay: int('POOL_IP_SPEND_MICROS_PER_DAY', 300_000),
         },
       },
       limits: {
-        userPerMinute: positiveInt(env.POOL_USER_PER_MINUTE, 6),
-        ipPerMinute: positiveInt(env.POOL_IP_PER_MINUTE, 20),
+        userPerMinute: int('POOL_USER_PER_MINUTE', 6, { min: 1 }),
+        ipPerMinute: int('POOL_IP_PER_MINUTE', 20, { min: 1 }),
       },
-      minAccountAgeMs: intVar(env.POOL_MIN_ACCOUNT_AGE_MS, 0),
-      overage: {
-        windowMs: positiveInt(env.POOL_OVERAGE_WINDOW_MS, 24 * 60 * 60_000),
-        maxMicros: intVar(env.POOL_OVERAGE_MAX_MICROS, 200_000),
-      },
-      noticeVersion:
-        env.TEST_SEAMS === 'true'
-          ? Math.max(POOL_NOTICE_VERSION, intVar(env.POOL_NOTICE_VERSION, POOL_NOTICE_VERSION))
-          : POOL_NOTICE_VERSION,
-    },
-    impact: {
-      minDistinctUsers: clamped(
-        'IMPACT_MIN_DISTINCT_USERS',
-        minUsers,
-        Math.max(MIN_IMPACT_DISTINCT_USERS, minUsers),
-      ),
-      topicBlocklist: list(env.POOL_TOPIC_BLOCKLIST),
-      classifierMaxOutputTokens: 12,
-      classifierInputChars: 2_000,
-      tagRetentionDays: positiveInt(env.IMPACT_TAG_RETENTION_DAYS, 14),
+      minAccountAgeMs: int('POOL_MIN_ACCOUNT_AGE_MS', 0),
     },
   };
 }
@@ -610,7 +854,7 @@ function deepFreeze<T>(value: T): T {
 
 const cache = new WeakMap<AppEnv, AppConfig>();
 
-/** The parsed, frozen config of `env` (parsed once per env object). */
+/** The parsed, frozen config of `env` (parsed once per env object); throws `ConfigError`. */
 export function appConfig(env: AppEnv): AppConfig {
   let config = cache.get(env);
   if (!config) {
@@ -618,4 +862,17 @@ export function appConfig(env: AppEnv): AppConfig {
     cache.set(env, config);
   }
   return config;
+}
+
+/**
+ * The secrets named in `names` that env holds (as stored), and no others:
+ * the keys a provider config names by `apiKeySecret` / `extraHeaderSecrets`,
+ * which may be any name (PROVIDERS, BUILT_IN_PROVIDER).
+ */
+export function namedSecrets(env: AppEnv, names: ReadonlySet<string>): Record<string, string> {
+  const secrets: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (typeof v === 'string' && names.has(k)) secrets[k] = v;
+  }
+  return secrets;
 }

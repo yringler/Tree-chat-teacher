@@ -2,8 +2,10 @@ import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classe
 import { Injector } from '@angular/core';
 import {
   DEFAULT_SYSTEM_PROMPT,
+  REPLY_CUT_OFF_ERROR,
   splitTangents,
   type CandidateEvent,
+  type LlmProvider,
   type ReviewEvent,
   type StreamEvent,
 } from '@tangent/shared';
@@ -66,11 +68,11 @@ describe('demo backend', () => {
     await expect(api.me()).resolves.toMatchObject({ mode: 'simple', devMode: false });
     const [provider, ...others] = await api.providers();
     expect(others).toEqual([]);
-    expect(provider).toMatchObject({ id: 'openrouter', defaultModel: 'simple', available: true });
+    expect(provider).toMatchObject({ id: 'openrouter', defaultModel: 'normal', available: true });
     // Normal first (the default), then Max with its usage factor from the pretend prices.
     expect(provider!.models).toEqual([
-      { id: 'simple', label: 'Normal', tier: 'normal' },
-      { id: 'smart', label: 'Max', tier: 'max', usageFactor: 14 },
+      { id: 'normal', label: 'Normal', tier: 'normal' },
+      { id: 'max', label: 'Max', tier: 'max', usageFactor: 14 },
     ]);
   });
 
@@ -98,7 +100,7 @@ describe('demo backend', () => {
 
   it('creates a lesson, streams a reply over SSE, stores it, titles the lesson and charges for it', async () => {
     const { api } = setup({ seed: false });
-    const detail = await api.createTree({ providerId: 'openrouter', model: 'smart' });
+    const detail = await api.createTree({ providerId: 'openrouter', model: 'max' });
     expect(detail.tree.title).toBe('New conversation');
     expect(detail.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
 
@@ -133,7 +135,7 @@ describe('demo backend', () => {
 
     const after = await api.getTree(detail.tree.id);
     const stored = after.nodes.find((n) => n.id === start.assistantNode.id)!;
-    expect(stored).toMatchObject({ status: 'complete', content: text, model: 'smart' });
+    expect(stored).toMatchObject({ status: 'complete', content: text, model: 'max' });
     expect(stored.usage?.outputTokens).toBeGreaterThan(0);
     // Auto-titled after the first reply, like production.
     expect(after.tree.title).not.toBe('New conversation');
@@ -241,6 +243,17 @@ describe('demo backend', () => {
     expect(replay.map((e) => e.type)).toEqual(['snapshot', 'done']);
   });
 
+  it("answers a route of the table it doesn't offer with 501, and any other path with 404", async () => {
+    const demoFetch = createDemoFetch({ storage: null });
+    const res = await demoFetch('/api/admin/users/u%2F1/shares', { method: 'GET' });
+    expect(res.status).toBe(501);
+    expect(await res.json()).toEqual({
+      error: { code: 'not_implemented', message: "That isn't available in the demo." },
+    });
+    // The method is part of the route.
+    expect((await demoFetch('/api/trees', { method: 'PUT' })).status).toBe(404);
+  });
+
   it('answers unknown routes with a JSON 404 in the API error shape', async () => {
     const demoFetch = createDemoFetch({ storage: null });
     const res = await demoFetch('/api/nope', { method: 'GET' });
@@ -261,9 +274,6 @@ describe('demo backend', () => {
       personalAvailableMicros: DEMO_START_BALANCE_MICROS,
     });
     await expect(api.createCheckout(1000)).rejects.toBeInstanceOf(ApiError);
-    // No impact snapshots either.
-    await expect(api.poolImpact()).rejects.toMatchObject({ status: 404, code: 'not_found' });
-    await expect(api.poolImpactWeeks()).resolves.toEqual({ weeks: [] });
   });
 
   it('rejects invalid bodies with a 400', async () => {
@@ -274,14 +284,46 @@ describe('demo backend', () => {
     });
   });
 
+  it("charges a call what the Worker would: nothing when it cost nothing, never float drift's extra micro", async () => {
+    for (const [costUsd, charge] of [
+      [0, 0],
+      // 300_000_000 nano-USD × 1.055 × 1.10 is exactly 348_150 micro-USD; float math says 348_150.00…01.
+      [0.1 + 0.2, 348_150],
+    ] as const) {
+      const lorem = createLoremProvider({ random: seededRandom(7), sleep: async () => undefined });
+      const provider: LlmProvider = {
+        ...lorem,
+        async *stream(request) {
+          for await (const e of lorem.stream(request))
+            yield e.type === 'billing' ? { ...e, costUsd } : e;
+        },
+      };
+      const { api } = setup({ seed: false, provider });
+      const tree = await api.createTree({});
+      await events(
+        await api.sendMessage(
+          tree.tree.trunkBranchId,
+          { content: 'Hi' },
+          new AbortController().signal,
+        ),
+      );
+      const { entries } = await api.usage();
+      expect(entries.map((e) => [e.status, e.chargeMicros])).toEqual([
+        ['settled', charge],
+        ['settled', charge],
+      ]);
+      expect((await api.billing()).balanceMicros).toBe(DEMO_START_BALANCE_MICROS - 2 * charge);
+    }
+  });
+
   it('answers 402 when the pretend credit is used up', async () => {
     const storage = memoryStorage();
     const { api } = setup({ storage });
     const tree = await api.createTree({});
-    const saved = JSON.parse(storage.data.get('tangent.learn-demo.v1')!) as {
+    const saved = JSON.parse(storage.data.get('tangent.learn-demo')!) as {
       balanceMicros: number;
     };
-    storage.data.set('tangent.learn-demo.v1', JSON.stringify({ ...saved, balanceMicros: 0 }));
+    storage.data.set('tangent.learn-demo', JSON.stringify({ ...saved, balanceMicros: 0 }));
     const { api: next } = setup({ storage });
     await expect(
       next.sendMessage(tree.tree.trunkBranchId, { content: 'Hi' }, new AbortController().signal),
@@ -299,7 +341,7 @@ describe('demo backend', () => {
         new AbortController().signal,
       ),
     );
-    await until(() => storage.data.has('tangent.learn-demo.v1'));
+    await until(() => storage.data.has('tangent.learn-demo'));
 
     const { api: reloaded } = setup({ storage });
     const detail = await reloaded.getTree(tree.tree.id);
@@ -308,7 +350,7 @@ describe('demo backend', () => {
     expect((await reloaded.billing()).balanceMicros).toBeLessThan(DEMO_START_BALANCE_MICROS);
   });
 
-  it('restores a session saved before funding was split from the provider', async () => {
+  it('gives a restored error reply saved without a kind the kind of its message', async () => {
     const storage = memoryStorage();
     const { api } = setup({ storage, seed: false });
     const tree = await api.createTree({});
@@ -319,32 +361,33 @@ describe('demo backend', () => {
         new AbortController().signal,
       ),
     );
-    await until(() => storage.data.has('tangent.learn-demo.v1'));
-    // Rewrite the saved session as an older build stored it: the legacy id, no funding.
-    const saved = JSON.parse(storage.data.get('tangent.learn-demo.v1')!) as {
-      branches: Record<string, unknown>[];
+    await until(() => storage.data.has('tangent.learn-demo'));
+    const saved = JSON.parse(storage.data.get('tangent.learn-demo')!) as {
       nodes: Record<string, unknown>[];
     };
-    const legacy = {
-      ...saved,
-      branches: saved.branches.map(({ funding: _f, ...b }) => ({ ...b, providerId: 'tangent' })),
-      nodes: saved.nodes.map((n) => (n['providerId'] ? { ...n, providerId: 'tangent' } : n)),
-    };
-    storage.data.set('tangent.learn-demo.v1', JSON.stringify(legacy));
+    const nodes = saved.nodes.map((n) => {
+      if (n['role'] !== 'assistant') return n;
+      const { errorKind: _dropped, ...old } = n;
+      return { ...old, status: 'error', error: REPLY_CUT_OFF_ERROR };
+    });
+    storage.data.set('tangent.learn-demo', JSON.stringify({ ...saved, nodes }));
 
     const { api: reloaded } = setup({ storage });
-    const detail = await reloaded.getTree(tree.tree.id);
-    expect(detail.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
-    expect(detail.nodes.find((n) => n.role === 'assistant')?.providerId).toBe('openrouter');
-    // And it still sends.
-    const more = await events(
-      await reloaded.sendMessage(
-        tree.tree.trunkBranchId,
-        { content: 'Again' },
-        new AbortController().signal,
-      ),
-    );
-    expect(more.at(-1)?.type).toBe('done');
+    const reply = (await reloaded.getTree(tree.tree.id)).nodes.find((n) => n.role === 'assistant');
+    expect(reply).toMatchObject({ status: 'error', errorKind: 'cut_off' });
+  });
+
+  it('discards a session saved in another shape', async () => {
+    const storage = memoryStorage();
+    const { api } = setup({ storage, seed: false });
+    const tree = await api.createTree({});
+    await until(() => storage.data.has('tangent.learn-demo'));
+    const saved = JSON.parse(storage.data.get('tangent.learn-demo')!) as object;
+    storage.data.set('tangent.learn-demo', JSON.stringify({ ...saved, version: 1 }));
+
+    const { api: reloaded } = setup({ storage, seed: false });
+    await expect(reloaded.getTree(tree.tree.id)).rejects.toMatchObject({ status: 404 });
+    expect(await reloaded.listTrees()).toEqual([]);
   });
 
   it('reviews a reply over SSE without storing anything', async () => {
@@ -354,13 +397,13 @@ describe('demo backend', () => {
     const reply = before.nodes.find((n) => n.role === 'assistant')!;
     const res = await api.reviewNode(
       reply.id,
-      { providerId: 'openrouter', model: 'smart' },
+      { providerId: 'openrouter', model: 'max' },
       new AbortController().signal,
     );
     const seen: ReviewEvent[] = [];
     for await (const e of readSseEvents(res.body!, parseReviewEvent)) seen.push(e);
     expect(seen.some((e) => e.type === 'delta')).toBe(true);
-    expect(seen.at(-1)).toMatchObject({ type: 'done', providerId: 'openrouter', model: 'smart' });
+    expect(seen.at(-1)).toMatchObject({ type: 'done', providerId: 'openrouter', model: 'max' });
     expect((await api.getTree(lesson!.id)).nodes).toEqual(before.nodes);
   });
 
@@ -378,8 +421,8 @@ describe('demo backend', () => {
       for await (const e of readSseEvents(res.body!, parseCandidateEvent)) out.push(e);
       return out;
     };
-    const normal = await ask('simple');
-    const max = await ask('smart');
+    const normal = await ask('normal');
+    const max = await ask('max');
     for (const stream of [normal, max]) {
       expect(stream.some((e) => e.type === 'delta')).toBe(true);
       expect(stream.at(-1)?.type).toBe('done');
@@ -390,7 +433,7 @@ describe('demo backend', () => {
 
     const picked = max.at(-1) as Extract<CandidateEvent, { type: 'done' }>;
     const other = normal.at(-1) as Extract<CandidateEvent, { type: 'done' }>;
-    expect(picked).toMatchObject({ providerId: 'openrouter', funding: 'own-key', model: 'smart' });
+    expect(picked).toMatchObject({ providerId: 'openrouter', funding: 'own-key', model: 'max' });
     expect(Date.parse(picked.expiresAt)).toBeGreaterThan(Date.now());
     const text = max.flatMap((e) => (e.type === 'delta' ? [e.text] : [])).join('');
 
@@ -400,15 +443,15 @@ describe('demo backend', () => {
       role: 'assistant',
       status: 'complete',
       content: text,
-      model: 'smart',
+      model: 'max',
     });
     const after = await api.getTree(detail.tree.id);
     expect(after.nodes.map((n) => [n.role, n.model])).toEqual([
       ['user', null],
-      ['assistant', 'smart'],
+      ['assistant', 'max'],
     ]);
     // The branch keeps its own model; the lesson was titled after its first exchange.
-    expect(after.branches[0]!.model).toBe('simple');
+    expect(after.branches[0]!.model).toBe('normal');
     expect(after.tree.title).not.toBe('New conversation');
 
     // The sibling was dropped with the commit; a committed one can't be kept twice.
@@ -429,7 +472,7 @@ describe('demo backend', () => {
     const other = await api.createTree({});
     const res = await api.streamCandidate(
       branchId,
-      { content: 'Hi', model: 'simple' },
+      { content: 'Hi', model: 'normal' },
       new AbortController().signal,
     );
     const seen: CandidateEvent[] = [];
@@ -445,15 +488,15 @@ describe('demo backend', () => {
       code: 'conflict',
     });
 
-    const saved = JSON.parse(storage.data.get('tangent.learn-demo.v1')!) as {
+    const saved = JSON.parse(storage.data.get('tangent.learn-demo')!) as {
       balanceMicros: number;
     };
-    storage.data.set('tangent.learn-demo.v1', JSON.stringify({ ...saved, balanceMicros: 0 }));
+    storage.data.set('tangent.learn-demo', JSON.stringify({ ...saved, balanceMicros: 0 }));
     const { api: broke } = setup({ storage });
     await expect(
       broke.streamCandidate(
         branchId,
-        { content: 'Hi', model: 'smart' },
+        { content: 'Hi', model: 'max' },
         new AbortController().signal,
       ),
     ).rejects.toMatchObject({ status: 402, code: 'payment_required' });
@@ -477,14 +520,11 @@ describe('power demo backend', () => {
       membership: { required: false },
       // Nothing needs a membership, so no power branch is ever read-only here.
       membershipNeededFor: [],
-      featuredConversations: false,
     });
     // So "Create a copy in Learn" is never offered: the two demos stay apart.
     const [tree] = await api.listTrees();
-    await expect(api.copyToLearn(tree!.id)).rejects.toMatchObject({
-      status: 400,
-      message: "Copying to Learn isn't available in the demo.",
-    });
+    const unsupported = { status: 501, code: 'not_implemented' };
+    await expect(api.copyToLearn(tree!.id)).rejects.toMatchObject(unsupported);
     await expect(api.keyStatus()).resolves.toEqual({
       enabled: false,
       hasKey: false,
@@ -493,8 +533,8 @@ describe('power demo backend', () => {
     await expect(api.listShares()).resolves.toEqual([]);
     await expect(
       api.createShare({ treeId: 'x', scope: 'tree' } as Parameters<ApiClient['createShare']>[0]),
-    ).rejects.toMatchObject({ status: 400 });
-    await expect(api.saveKey('openai', 'sk-x')).rejects.toMatchObject({ status: 400 });
+    ).rejects.toMatchObject(unsupported);
+    await expect(api.saveKey('openai', 'sk-x')).rejects.toMatchObject(unsupported);
   });
 
   it('starts conversations with the built-in prompt and is never out of credit', async () => {
@@ -502,8 +542,8 @@ describe('power demo backend', () => {
     const { api } = setup({ mode: 'power', storage, seed: false });
     const tree = await api.createTree({});
     expect(tree.tree.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
-    const saved = JSON.parse(storage.data.get('tangent.power-demo.v1')!) as object;
-    storage.data.set('tangent.power-demo.v1', JSON.stringify({ ...saved, balanceMicros: 0 }));
+    const saved = JSON.parse(storage.data.get('tangent.power-demo')!) as object;
+    storage.data.set('tangent.power-demo', JSON.stringify({ ...saved, balanceMicros: 0 }));
     const { api: next } = setup({ mode: 'power', storage });
     const stream = await events(
       await next.sendMessage(
@@ -513,7 +553,7 @@ describe('power demo backend', () => {
       ),
     );
     expect(stream.at(-1)?.type).toBe('done');
-    expect(storage.data.has('tangent.learn-demo.v1')).toBe(false);
+    expect(storage.data.has('tangent.learn-demo')).toBe(false);
   });
 
   it('saves a default system prompt in Settings, keeps it across a reload, and resets it', async () => {
@@ -598,9 +638,11 @@ describe('power demo backend', () => {
     expect(lesson.branches.map((b) => [b.providerId, b.contextMode, b.funding])).toEqual(
       lesson.branches.map(() => ['openrouter', 'path', 'own-key']),
     );
-    expect(lesson.branches[0]!.model).toBe('simple');
+    expect(lesson.branches[0]!.model).toBe('normal');
     expect(lesson.branches.slice(1).map((b) => b.model)).toEqual(rest.map((b) => b.model));
-    expect(lesson.nodes.map((n) => n.content)).toEqual(backup.nodes.map((n) => n.content));
+    // An import gets new ids, and the repositories list nodes by branch id.
+    const contents = (nodes: { content: string }[]) => nodes.map((n) => n.content).sort();
+    expect(contents(lesson.nodes)).toEqual(contents(backup.nodes));
     expect((await learn.api.listTrees()).map((t) => t.id)).toEqual([lesson.tree.id]);
 
     // Learn's Export (fetched through the API transport) imports back as the same lesson.
@@ -609,7 +651,7 @@ describe('power demo backend', () => {
     expect(again.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode])).toEqual(
       lesson.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode]),
     );
-    expect(again.nodes.map((n) => n.content)).toEqual(lesson.nodes.map((n) => n.content));
+    expect(contents(again.nodes)).toEqual(contents(lesson.nodes));
 
     // The Power demo imports the same file as it is.
     const copy = await power.api.importBackup(fromPower);
@@ -695,7 +737,7 @@ describe('demo backend links', () => {
     expect((await api.getTree(detail.tree.id)).links).toEqual([kept]);
   });
 
-  it('keeps links across a reload, and restores sessions saved before links existed', async () => {
+  it('keeps links across a reload', async () => {
     const storage = memoryStorage();
     const { api } = setup({ storage, seed: false });
     const { detail, reply, deeper } = await lesson(api);
@@ -705,19 +747,10 @@ describe('demo backend links', () => {
       note: 'n',
     });
     expect(created).toBe(true);
-    await until(() => storage.data.get('tangent.learn-demo.v1')?.includes(link.id) ?? false);
+    await until(() => storage.data.get('tangent.learn-demo')?.includes(link.id) ?? false);
 
     const { api: reloaded } = setup({ storage });
     expect((await reloaded.getTree(detail.tree.id)).links).toEqual([link]);
-
-    const { links: _links, ...older } = JSON.parse(storage.data.get('tangent.learn-demo.v1')!) as {
-      links: unknown;
-    };
-    storage.data.set('tangent.learn-demo.v1', JSON.stringify(older));
-    const { api: old } = setup({ storage });
-    const restored = await old.getTree(detail.tree.id);
-    expect(restored.links).toEqual([]);
-    expect(restored.nodes).toHaveLength(4);
   });
 });
 

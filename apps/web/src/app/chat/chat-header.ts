@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import type { Branch } from '@tangent/shared';
+import { clip, type Branch } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { DEMO_MODE, Icon, TextSizeMenu } from '@tangent/web-shared';
@@ -38,7 +38,7 @@ interface Crumb {
           <button
             type="button"
             class="btn btn-ghost btn-sm"
-            (click)="ui.branchSettingsOpen.set(true)"
+            (click)="ui.dialogs.open({ kind: 'branch-settings' })"
             title="Branch settings"
           >
             <app-icon name="settings" /> <span class="hide-narrow">Branch</span>
@@ -46,11 +46,11 @@ interface Crumb {
           <!-- Shares and exports are made by the server; the demo has none. Public links
                only while this user may publish them (MeResponse.sharing); export always. -->
           @if (!demo) {
-            @if (store.me()?.sharing) {
+            @if (store.account.me()?.sharing) {
               <button
                 type="button"
                 class="btn btn-ghost btn-sm"
-                (click)="ui.shareDialogOpen.set(true)"
+                (click)="ui.dialogs.open({ kind: 'share' })"
               >
                 <app-icon name="share" /> <span class="hide-narrow">Share…</span>
               </button>
@@ -60,7 +60,7 @@ interface Crumb {
           <button
             type="button"
             class="btn btn-ghost btn-sm"
-            (click)="ui.treeSettingsOpen.set(true)"
+            (click)="ui.dialogs.open({ kind: 'tree-settings' })"
             title="Conversation settings"
           >
             <app-icon name="edit" /> <span class="hide-narrow">Tree</span>
@@ -82,7 +82,7 @@ interface Crumb {
             class="icon-btn"
             aria-label="Keyboard shortcuts (?)"
             title="Keyboard shortcuts (?)"
-            (click)="ui.shortcutsOpen.set(true)"
+            (click)="ui.dialogs.open({ kind: 'shortcuts' })"
           >
             <app-icon name="help" />
           </button>
@@ -97,7 +97,7 @@ interface Crumb {
             [title]="'Back to the linked message in “' + back.label + '”'"
             (click)="goBack()"
           >
-            <app-icon name="back" [size]="13" /> Back to ‘{{ clip(back.label) }}’
+            <app-icon name="back" [size]="13" /> Back to ‘{{ clip(back.label, 32) }}’
           </button>
         }
         <nav aria-label="Branch path" class="crumbs">
@@ -197,9 +197,7 @@ export class ChatHeader {
     return b ? (this.store.firstNodeOf(b.id)?.id ?? null) : null;
   });
 
-  protected clip(title: string): string {
-    return title.length > 32 ? `${title.slice(0, 31).trimEnd()}…` : title;
-  }
+  protected readonly clip = clip;
 
   protected goBack(): void {
     const back = this.ui.linkReturn();
@@ -212,7 +210,7 @@ export class ChatHeader {
     const id = this.firstNodeId();
     if (!id) return;
     this.ui.linkPick.set(null);
-    this.ui.linkDialog.set({ fromNodeId: id });
+    this.ui.dialogs.open({ kind: 'link', fromNodeId: id });
   }
 
   protected async remove(branchId: string): Promise<void> {

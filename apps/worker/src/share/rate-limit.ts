@@ -1,3 +1,4 @@
+import { logEvent } from '../log.js';
 /**
  * Per-IP rate limit for public share routes. Returns true when the request
  * may proceed. A missing binding (e.g. an environment without the rate
@@ -15,7 +16,7 @@ export async function checkShareRateLimit(
     const { success } = await limiter.limit({ key });
     return success;
   } catch (err) {
-    console.warn('Share rate limiter failed; allowing request', err);
+    logEvent('warn', 'rate_limiter_failed', { scope: 'share', error: err });
     return true;
   }
 }

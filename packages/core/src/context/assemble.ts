@@ -90,8 +90,11 @@ interface Ctx {
 }
 
 /**
- * Pure context assembly. See docs/PLAN.md §"Context assembly" for the full
- * algorithm and nested-mode semantics.
+ * Pure context assembly: what a branch's model sees, from the branch's mode
+ * and its ancestors'. `path` inherits the parent's effective context at the
+ * branch point, so a path branch under a summary or independent ancestor
+ * doesn't re-expand what that ancestor dropped (the rules are in
+ * docs/DECISIONS.md, "Context modes").
  *
  * Throws `ValidationError` on inconsistent input (unknown target, broken chain,
  * target node not in target branch, missing path nodes).
@@ -106,10 +109,10 @@ export function assembleContext(input: AssembleInput): ContextPlan {
     blockers: new Map(),
   };
 
-  const chain = resolveChain(input);
-  const ownNodes = resolveOwnNodes(input, chain);
+  const chain = resolveChain(branchIndex(input.branches), input.tree.id, input.targetBranchId);
+  const ownNodes = resolveOwnNodes(indexNodes(input.nodes), chain, input.targetNodeId);
 
-  // ctx(0) … ctx(k), PLAN §4.1.
+  // ctx(0) … ctx(k): the context of each branch on the chain, root first.
   const k = chain.length - 1;
   let effective: Draft[] = [];
   for (let i = 0; i <= k; i++) {
@@ -117,14 +120,26 @@ export function assembleContext(input: AssembleInput): ContextPlan {
     const parent = i > 0 ? chain[i - 1]! : null;
     const next: Draft[] = [];
     if (parent) {
-      if (branch.contextMode === 'path') {
-        next.push(...effective);
-      } else if (branch.contextMode === 'summary') {
-        const summary = branchSummary(ctx, branch, parent, effective);
-        if (summary) next.push(summary);
-      } else if (branch.contextMode === 'message') {
-        const point = branchPointSegment(ctx, branch, parent, ownNodes[i - 1]!);
-        if (point) next.push(point);
+      switch (branch.contextMode) {
+        case 'path':
+          next.push(...effective);
+          break;
+        case 'summary': {
+          const summary = branchSummary(ctx, branch, parent, effective);
+          if (summary) next.push(summary);
+          break;
+        }
+        case 'message': {
+          const point = branchPointSegment(ctx, branch, parent, ownNodes[i - 1]!);
+          if (point) next.push(point);
+          break;
+        }
+        case 'independent':
+          break;
+        default: {
+          // A new mode fails to compile here until it is handled.
+          const _unhandled: never = branch.contextMode;
+        }
       }
       const anchor = anchorSegment(ctx, branch);
       if (anchor) next.push(anchor);
@@ -198,6 +213,7 @@ export function assembleContext(input: AssembleInput): ContextPlan {
       droppedNodeIds: unique(dropped.flatMap((s) => s.sourceNodeIds)),
       tokensBefore: budgeted.truncation.tokensBefore,
       tokensAfter: budgeted.truncation.tokensAfter,
+      compactionFailed: budgeted.truncation.compactionFailed,
     };
   }
 
@@ -227,31 +243,127 @@ export function assembleContext(input: AssembleInput): ContextPlan {
 // ---------------------------------------------------------------------------
 // Chain and node resolution
 
-function resolveChain(input: AssembleInput): Branch[] {
-  const byId = new Map<string, Branch>();
-  for (const b of input.branches) byId.set(b.id, b);
-  const target = byId.get(input.targetBranchId);
-  if (!target) throw new ValidationError(`Unknown target branch ${input.targetBranchId}`);
+/**
+ * Branches or nodes that don't make whole conversations (a damaged tree or
+ * backup). The message names them by id; `problem` says what is wrong in the
+ * user's terms.
+ */
+export class BrokenChainError extends ValidationError {
+  constructor(
+    message: string,
+    readonly problem: string,
+  ) {
+    super(message);
+  }
+}
 
-  const chain: Branch[] = [];
+/**
+ * Checks that `branches` and `nodes` hold every branch's whole conversation,
+ * as planning a reply anywhere in the tree needs: each branch's chain reaches
+ * the trunk and branches off a message of its parent (the checks
+ * `assembleContext` makes), each message belongs to a branch and follows the
+ * one before it (its branch's previous message, or its branch point), and no
+ * message is missing. Throws a `BrokenChainError` naming the first problem.
+ */
+export function checkBranches(
+  tree: Pick<Tree, 'id'>,
+  branches: readonly ChainBranch[],
+  nodes: readonly ChatNode[],
+): void {
+  const byBranchId = branchIndex(branches);
+  const index = indexNodes(nodes);
+  for (const node of nodes) {
+    if (!byBranchId.has(node.branchId)) {
+      throw new BrokenChainError(
+        `Node ${node.id} is in unknown branch ${node.branchId}`,
+        'a message belongs to a branch that is missing',
+      );
+    }
+  }
+  for (const branch of branches) {
+    const chain = resolveChain(byBranchId, tree.id, branch.id);
+    resolveOwnNodes(index, chain, null);
+    let previous = branch.branchPointNodeId;
+    for (const node of index.byBranch.get(branch.id) ?? []) {
+      if (node.parentId !== previous) {
+        throw new BrokenChainError(
+          `Node ${node.id} has parent ${node.parentId ?? 'null'}, not ${previous ?? 'null'}`,
+          'a message does not follow the one before it',
+        );
+      }
+      previous = node.id;
+    }
+  }
+}
+
+/** What resolving a chain reads of a branch. */
+type ChainBranch = Pick<Branch, 'id' | 'treeId' | 'parentBranchId' | 'branchPointNodeId'>;
+
+function branchIndex<B extends ChainBranch>(branches: readonly B[]): Map<string, B> {
+  return new Map(branches.map((b) => [b.id, b]));
+}
+
+/** Nodes by id, and each branch's nodes in seq order. */
+interface NodeIndex {
+  byId: ReadonlyMap<string, ChatNode>;
+  byBranch: ReadonlyMap<string, readonly ChatNode[]>;
+}
+
+function indexNodes(nodes: readonly ChatNode[]): NodeIndex {
+  const byId = new Map<string, ChatNode>();
+  const byBranch = new Map<string, ChatNode[]>();
+  for (const n of nodes) {
+    byId.set(n.id, n);
+    let list = byBranch.get(n.branchId);
+    if (!list) byBranch.set(n.branchId, (list = []));
+    list.push(n);
+  }
+  for (const list of byBranch.values()) list.sort((a, b) => a.seq - b.seq);
+  return { byId, byBranch };
+}
+
+function resolveChain<B extends ChainBranch>(
+  byId: ReadonlyMap<string, B>,
+  treeId: string,
+  targetBranchId: string,
+): B[] {
+  const target = byId.get(targetBranchId);
+  if (!target)
+    throw new BrokenChainError(`Unknown target branch ${targetBranchId}`, 'a branch is missing');
+
+  const chain: B[] = [];
   const seen = new Set<string>();
-  let current: Branch | undefined = target;
+  let current: B | undefined = target;
   while (current) {
-    if (seen.has(current.id))
-      throw new ValidationError(`Branch chain has a cycle at ${current.id}`);
-    if (current.treeId !== input.tree.id) {
-      throw new ValidationError(`Branch ${current.id} does not belong to tree ${input.tree.id}`);
+    if (seen.has(current.id)) {
+      throw new BrokenChainError(
+        `Branch chain has a cycle at ${current.id}`,
+        'its branches branch off each other in a loop',
+      );
+    }
+    if (current.treeId !== treeId) {
+      throw new BrokenChainError(
+        `Branch ${current.id} does not belong to tree ${treeId}`,
+        'a branch belongs to another conversation',
+      );
     }
     seen.add(current.id);
     chain.push(current);
     const parentId: string | null = current.parentBranchId;
     if (parentId === null) break;
     if (current.branchPointNodeId === null) {
-      throw new ValidationError(`Branch ${current.id} has a parent branch but no branch point`);
+      throw new BrokenChainError(
+        `Branch ${current.id} has a parent branch but no branch point`,
+        'a branch has no message it branches off',
+      );
     }
     const parent = byId.get(parentId);
-    if (!parent)
-      throw new ValidationError(`Parent branch ${parentId} of branch ${current.id} is missing`);
+    if (!parent) {
+      throw new BrokenChainError(
+        `Parent branch ${parentId} of branch ${current.id} is missing`,
+        'a branch branches off a branch that is missing',
+      );
+    }
     current = parent;
   }
   return chain.reverse();
@@ -263,41 +375,45 @@ function includeNode(node: ChatNode): boolean {
   return true;
 }
 
-/** Nodes of each chain branch that lie on the ancestor path (skipped nodes removed). */
-function resolveOwnNodes(input: AssembleInput, chain: readonly Branch[]): ChatNode[][] {
-  const nodeById = new Map<string, ChatNode>();
-  const byBranch = new Map<string, ChatNode[]>();
-  for (const n of input.nodes) {
-    nodeById.set(n.id, n);
-    let list = byBranch.get(n.branchId);
-    if (!list) byBranch.set(n.branchId, (list = []));
-    list.push(n);
-  }
-  for (const list of byBranch.values()) list.sort((a, b) => a.seq - b.seq);
-
+/**
+ * Nodes of each chain branch that lie on the ancestor path to `targetNodeId`
+ * (null: the target branch's leaf), skipped nodes removed.
+ */
+function resolveOwnNodes(
+  index: NodeIndex,
+  chain: readonly ChainBranch[],
+  targetNodeId: string | null,
+): ChatNode[][] {
+  const missing = 'a branch is missing some of its messages';
   const k = chain.length - 1;
   const result: ChatNode[][] = [];
   for (let i = 0; i <= k; i++) {
     const branch = chain[i]!;
-    const nodes = byBranch.get(branch.id) ?? [];
+    const nodes = index.byBranch.get(branch.id) ?? [];
     let lastSeq: number;
     if (i < k) {
       const child = chain[i + 1]!;
       const pointId = child.branchPointNodeId!;
-      const point = nodeById.get(pointId);
-      if (!point)
-        throw new ValidationError(`Branch point ${pointId} of branch ${child.id} is missing`);
+      const point = index.byId.get(pointId);
+      if (!point) {
+        throw new BrokenChainError(
+          `Branch point ${pointId} of branch ${child.id} is missing`,
+          'a branch branches off a message that is missing',
+        );
+      }
       if (point.branchId !== branch.id) {
-        throw new ValidationError(
+        throw new BrokenChainError(
           `Branch point ${pointId} of branch ${child.id} is not in parent branch ${branch.id}`,
+          'a branch branches off a message outside its parent branch',
         );
       }
       lastSeq = point.seq;
-    } else if (input.targetNodeId !== null) {
-      const targetNode = nodeById.get(input.targetNodeId);
+    } else if (targetNodeId !== null) {
+      const targetNode = index.byId.get(targetNodeId);
       if (!targetNode || targetNode.branchId !== branch.id) {
-        throw new ValidationError(
-          `Target node ${input.targetNodeId} is not in target branch ${branch.id}`,
+        throw new BrokenChainError(
+          `Target node ${targetNodeId} is not in target branch ${branch.id}`,
+          'a message is not in its branch',
         );
       }
       lastSeq = targetNode.seq;
@@ -307,10 +423,16 @@ function resolveOwnNodes(input: AssembleInput, chain: readonly Branch[]): ChatNo
     const own = nodes.filter((n) => n.seq <= lastSeq);
     own.forEach((n, idx) => {
       if (n.seq !== idx)
-        throw new ValidationError(`Branch ${branch.id} is missing path node at seq ${idx}`);
+        throw new BrokenChainError(
+          `Branch ${branch.id} is missing path node at seq ${idx}`,
+          missing,
+        );
     });
     if (own.length !== lastSeq + 1) {
-      throw new ValidationError(`Branch ${branch.id} is missing path nodes up to seq ${lastSeq}`);
+      throw new BrokenChainError(
+        `Branch ${branch.id} is missing path nodes up to seq ${lastSeq}`,
+        missing,
+      );
     }
     result.push(own.filter(includeNode));
   }
@@ -407,7 +529,7 @@ function anchorSegment(ctx: Ctx, branch: Branch): Draft<AnchorSegment> | null {
 }
 
 /**
- * `flatten(segments)` (PLAN §4.3). Returns null when the transcript is unknown
+ * The segments as one transcript. Returns null when the transcript is unknown
  * because it contains a summary that is not ready yet.
  */
 function flatten(segments: readonly Draft[]): ChatMessage[] | null {
@@ -523,12 +645,17 @@ function branchSummary(
 }
 
 // ---------------------------------------------------------------------------
-// Budget pass (PLAN §4.4)
+// Budget pass
 
 interface BudgetResult {
   segments: Draft[];
   compaction: CompactionRecord | null;
-  truncation: { dropped: Draft[]; tokensBefore: number; tokensAfter: number } | null;
+  truncation: {
+    dropped: Draft[];
+    tokensBefore: number;
+    tokensAfter: number;
+    compactionFailed: boolean;
+  } | null;
 }
 
 function sumTokens(segments: readonly Draft[]): number {
@@ -567,6 +694,7 @@ function applyBudget(
 
   let segments = input;
   let compaction: CompactionRecord | null = null;
+  let compactionFailed = false;
 
   // Candidates: non-system segments before the protected tail (the last
   // `minTail` message segments and the target).
@@ -628,23 +756,29 @@ function applyBudget(
       },
       prefix,
     );
-    const inPrefix = new Set<Draft>(prefix);
-    const next: Draft[] = [];
-    let placed = false;
-    for (const s of segments) {
-      if (!inPrefix.has(s)) next.push(s);
-      else if (!placed) {
-        next.push(summary);
-        placed = true;
+    // A summary that failed, or never can be made, leaves the prefix in
+    // place: dropping all of it would lose more than the truncation below,
+    // which drops only what must go.
+    compactionFailed = unresolvable(ctx, summary);
+    if (!compactionFailed) {
+      const inPrefix = new Set<Draft>(prefix);
+      const next: Draft[] = [];
+      let placed = false;
+      for (const s of segments) {
+        if (!inPrefix.has(s)) next.push(s);
+        else if (!placed) {
+          next.push(summary);
+          placed = true;
+        }
       }
+      segments = next;
+      compaction = {
+        compactedNodeIds,
+        tokensBefore: totalBefore,
+        tokensAfter: sumTokens(segments),
+        key: summary.key,
+      };
     }
-    segments = next;
-    compaction = {
-      compactedNodeIds,
-      tokensBefore: totalBefore,
-      tokensAfter: sumTokens(segments),
-      key: summary.key,
-    };
   }
 
   const beforeTruncation = sumTokens(segments);
@@ -663,8 +797,22 @@ function applyBudget(
   return {
     segments: segments.filter((s) => !dropped.has(s)),
     compaction,
-    truncation: { dropped: [...dropped], tokensBefore: beforeTruncation, tokensAfter: total },
+    truncation: {
+      dropped: [...dropped],
+      tokensBefore: beforeTruncation,
+      tokensAfter: total,
+      compactionFailed,
+    },
   };
+}
+
+/**
+ * Whether `summary` can't be made in this plan: it failed, or its transcript
+ * holds a summary that can't (a failed one, however deeply nested).
+ */
+function unresolvable(ctx: Ctx, summary: DraftSummary): boolean {
+  if (summary.status === 'failed') return true;
+  return (ctx.blockers.get(summary) ?? []).some((inner) => unresolvable(ctx, inner));
 }
 
 function unique(ids: readonly string[]): string[] {

@@ -6,7 +6,10 @@ async function seeded() {
   const ctx = setup({ autoTitle: false });
   const { tree } = await ctx.chat.createTree({ title: 'Shared tree' });
   const first = await send(ctx.chat, tree.trunkBranchId, 'PUBLIC-ROOT');
-  const side = await ctx.chat.createBranch({ fromNodeId: first.begin.assistantNode.id, title: 'Side' });
+  const side = await ctx.chat.createBranch({
+    fromNodeId: first.begin.assistantNode.id,
+    title: 'Side',
+  });
   await send(ctx.chat, side.id, 'PUBLIC-SIDE');
   const secret = await ctx.chat.createBranch({
     fromNodeId: first.begin.assistantNode.id,
@@ -114,7 +117,12 @@ describe('ShareService', () => {
   it('live share whose target becomes private is gone', async () => {
     const { shares, chat, tree, side } = await seeded();
     const nodes = (await chat.getTreeDetail(tree.id)).nodes.filter((n) => n.branchId === side.id);
-    const s = await shares.create({ treeId: tree.id, scope: 'subtree', nodeId: nodes[0]!.id, mode: 'live' });
+    const s = await shares.create({
+      treeId: tree.id,
+      scope: 'subtree',
+      nodeId: nodes[0]!.id,
+      mode: 'live',
+    });
     expect((await shares.resolvePublic(s.token)).ok).toBe(true);
     await chat.updateBranch(side.id, { isPrivate: true });
     expect(await shares.resolvePublic(s.token)).toEqual({ ok: false, reason: 'gone' });
@@ -136,6 +144,8 @@ describe('ShareService', () => {
     const u = await shares.update(s.id, { title: 'New title' });
     expect(u.title).toBe('New title');
     await expect(shares.update('missing', { title: 'x' })).rejects.toBeInstanceOf(NotFoundError);
-    await expect(shares.create({ treeId: 'missing', scope: 'tree' })).rejects.toBeInstanceOf(NotFoundError);
+    await expect(shares.create({ treeId: 'missing', scope: 'tree' })).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
   });
 });

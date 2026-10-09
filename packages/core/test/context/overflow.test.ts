@@ -64,18 +64,47 @@ suite('overflowBudget', () => {
     expect(plan.compaction).toBeNull();
   });
 
-  it('compact whose summary failed leaves the oldest messages out, like truncate', () => {
-    const f = long(10);
-    const input = f.input('T', { estimateTokens: charTokens, budget });
-    const key = f.plan('T', { estimateTokens: charTokens, budget }).compaction!.key;
-    const plan = f.plan('T', {
-      ...input,
-      failedSummaries: new Set([summaryKeyString(key)]),
+  it('compact whose summary failed falls back to truncate, and records it', () => {
+    const f = new Fixture();
+    const Y = 'y'.repeat(1100); // 1104 tokens per message with charTokens
+    for (let i = 0; i < 10; i++) f.add('T', i % 2 === 0 ? 'user' : 'assistant', Y);
+    const options = { estimateTokens: charTokens, budget: { maxInputTokens: 5000 } };
+    const key = f.plan('T', options).compaction!.key;
+    const plan = f.plan('T', { ...options, failedSummaries: new Set([summaryKeyString(key)]) });
+    const truncated = f.plan('T', {
+      estimateTokens: charTokens,
+      budget: { maxInputTokens: 5000, ...overflowBudget('truncate') },
     });
-    expect(describe(plan)[0]).toBe('sum:compaction:failed');
-    const kept = plan.segments.filter((s) => s.kind !== 'summary').map((s) => s.sourceNodeIds[0]!);
-    expect(kept.at(-1)).toBe('T.9');
-    expect([...plan.compaction!.compactedNodeIds, ...kept]).toEqual(ids(10));
-    expect(plan.budget.usedTokens).toBeLessThanOrEqual(500);
+    expect(plan.segments).toEqual(truncated.segments);
+    expect(plan.compaction).toBeNull();
+    // Four messages fit; compacting would have kept two (the step's worth went into the summary).
+    expect(plan.truncation).toEqual({
+      droppedSegmentIds: ['seg-4', 'seg-5', 'seg-6', 'seg-7', 'seg-8', 'seg-9'],
+      droppedNodeIds: ids(6),
+      tokensBefore: 11040,
+      tokensAfter: 4416,
+      compactionFailed: true,
+    });
+    expect(truncated.truncation!.compactionFailed).toBe(false);
+    expect(plan.budget.usedTokens).toBe(4416);
+    expect(plan.pendingSummaries).toEqual([]);
+  });
+
+  it('compact blocked by a failed branch summary falls back to truncate too', () => {
+    const f = new Fixture();
+    f.messages('T', 2);
+    const b = f.fork('T.1', 'summary');
+    const Y = 'y'.repeat(1100);
+    for (let i = 0; i < 10; i++) f.add(b, i % 2 === 0 ? 'user' : 'assistant', Y);
+    const options = { estimateTokens: charTokens, budget: { maxInputTokens: 5000 } };
+    const branchKey = f.plan(b).pendingSummaries[0]!.key;
+    const plan = f.plan(b, { ...options, failedSummaries: new Set([summaryKeyString(branchKey)]) });
+    // The compaction would hold the failed summary, so it could never be made:
+    // no 0-token summary stands in for the oldest messages.
+    expect(plan.compaction).toBeNull();
+    expect(plan.segments.filter((s) => s.kind === 'summary')).toEqual([]);
+    expect(plan.pendingSummaries).toEqual([]);
+    expect(plan.truncation).toMatchObject({ tokensAfter: 4416, compactionFailed: true });
+    expect(plan.budget.usedTokens).toBe(4416);
   });
 });

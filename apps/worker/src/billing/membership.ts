@@ -1,27 +1,34 @@
-// The yearly membership (PLAN §2.3, §13): required for generating on the
+// The yearly membership: required for generating on the
 // user's own keys, in Learn and in power mode alike, once ANNUAL_FEE_ENABLED
 // is "true", the payment provider sells it and the server stores user keys
 // (KEY_ENCRYPTION_SECRET; without it there is nothing for the membership to
 // unlock, so it is neither required nor shown). Nothing else needs it: Tangent
 // credit is bought and spent without one (it carries the markup instead), and
-// the open pool has one set of caps for everyone (billing/gate.ts
-// `needsMembership`)
-// (docs/pool/PLAN.md S7; the flag ships off, gating, not deleting, everything
-// below). Its subscription is a snapshot in `billing_subscriptions`, kept by
+// the open pool has one set of caps for everyone (`needsMembership`). The
+// flag defaults to off, so a self-hosted deployment charges nothing unless its
+// operator opts in. Its subscription is a snapshot in `billing_subscriptions`, kept by
 // the provider's webhooks (billing/payments/apply.ts);
 // `auth_users.membership_waived` lets the operator waive the fee per user,
 // and wins over the subscription. Subscribing and managing it go through the
 // provider's hosted checkout and billing portal.
 import { DomainError, MembershipRequiredError } from '@tangent/core';
-import type { CheckoutResponse, MembershipInfo, SubscriptionStatus } from '@tangent/shared';
-import type { AccountContext, AppEnv } from '../env.js';
+import {
+  BRANCH_FUNDINGS,
+  type BranchFunding,
+  type CheckoutResponse,
+  type MembershipInfo,
+  type SubscriptionStatus,
+} from '@tangent/shared';
+import { callPayer, type AccountContext, type AppEnv } from '../env.js';
 import { keySecret } from '../byok/keys.js';
-import { builtInAvailable } from '../services.js';
 import { appConfig } from '../config.js';
-import { MEMBERSHIP_KIND } from './payments/apply.js';
+import type { SqlRow } from '../db/rows.js';
+import type { authUsers, billingSubscriptions } from '../db/schema.js';
+import { MEMBERSHIP_KIND } from './payments/port.js';
 import { buyerFor, rememberCustomer } from './payments/customers.js';
 import { paymentProvider, type PaymentProvider } from './payments/index.js';
-import { billingPageUrl, checkoutReturnUrl } from './service.js';
+import type { GenerateCheck } from './gate.js';
+import { billingPageUrl, checkoutReturnUrl } from './return-urls.js';
 
 /**
  * Subscription statuses that count as a paid membership. `past_due` does:
@@ -33,7 +40,7 @@ export const ACTIVE_STATUSES: readonly SubscriptionStatus[] = ['active', 'triali
 
 /**
  * True when the membership is required (generating on the user's own keys,
- * in either app; see billing/gate.ts `needsMembership`): the annual fee is on
+ * in either app; see `needsMembership`): the annual fee is on
  * (`ANNUAL_FEE_ENABLED`), the payment provider sells the membership, and the
  * server can store user keys (`KEY_ENCRYPTION_SECRET`, `keySecret`). The
  * membership's only job is unlocking own keys, so where users can't save one
@@ -54,21 +61,14 @@ function membershipPriceCents(env: AppEnv): number {
   return appConfig(env).billing.membershipPriceCents;
 }
 
-/**
- * Credit included with each paid membership year (first payment or renewal), in cents: `MEMBERSHIP_CREDIT_CENTS`
- * (default 0: the membership includes no credit), or 0 when the server doesn't offer
- * the built-in provider (nothing to spend it on, so nothing is promised or granted).
- */
-export function membershipCreditCents(env: AppEnv): number {
-  if (!builtInAvailable(env)) return 0;
-  return appConfig(env).billing.membershipCreditCentsRaw;
-}
+type SubscriptionSql = SqlRow<typeof billingSubscriptions>;
 
+/** The user's waiver, and the subscription columns the LEFT JOIN may leave null. */
 interface MembershipRow {
-  waived: number;
-  status: SubscriptionStatus | null;
-  current_period_end: string | null;
-  cancel_at_period_end: number | null;
+  waived: SqlRow<typeof authUsers>['membership_waived'];
+  status: SubscriptionSql['status'] | null;
+  current_period_end: SubscriptionSql['current_period_end'];
+  cancel_at_period_end: SubscriptionSql['cancel_at_period_end'] | null;
 }
 
 /**
@@ -85,7 +85,6 @@ export async function membershipFor(env: AppEnv, account: AccountContext): Promi
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: membershipPriceCents(env),
-    includedCreditCents: membershipCreditCents(env),
   };
   if (!account.userId || !membershipRequired(env)) return base;
   const active = ACTIVE_STATUSES.map((s) => `'${s}'`).join(', ');
@@ -217,7 +216,7 @@ export async function redeemWaiverCode(
   code: string,
 ): Promise<MembershipInfo> {
   if (!account.userId) throw new DomainError('unauthorized', 'Sign in to redeem a code');
-  const expected = env.MEMBERSHIP_WAIVER_CODE?.trim();
+  const expected = appConfig(env).billing.membershipWaiverCode;
   if (!expected) throw new DomainError('bad_request', 'Membership codes are not offered here');
   if (!(await codeMatches(code.trim(), expected)))
     throw new DomainError('forbidden', 'That code is not valid');
@@ -230,4 +229,48 @@ export async function redeemWaiverCode(
     .bind(account.userId, new Date().toISOString())
     .run();
   return membershipFor(env, account);
+}
+
+/**
+ * True when this request needs the membership (once the fee is on): any call
+ * that isn't metered, that is on the user's own keys (by funding, never by
+ * provider id), in either app. In Learn that is a request paid with the
+ * user's key (`callPayer` by the request's payer, whatever `funding`
+ * says); in power, a review counts both its reviewer (`funding`) and its
+ * branch's summaries (`alsoSpendsOn`), so any own-key call in it needs the
+ * membership, and a context resolve checks the branch's funding. Tangent
+ * credit never needs it, to buy (`startTopUpCheckout`) or to spend, in either
+ * app (it carries the markup instead), and neither does the open pool, which
+ * returns before this is asked. One rule for both apps: the membership is
+ * what own keys pay Tangent, as the markup is what credit pays.
+ */
+export function needsMembership(
+  account: AccountContext,
+  check: Pick<GenerateCheck, 'funding' | 'alsoSpendsOn'>,
+): boolean {
+  const fundings = [check.funding, check.alsoSpendsOn?.funding].filter(
+    (f): f is BranchFunding => f !== undefined,
+  );
+  return fundings.some((f) => callPayer(account, f) === 'own-key');
+}
+
+/**
+ * The fundings on which generating in `account` needs the membership,
+ * whatever the user holds, and nothing at all where no membership is required
+ * (`membership.required` false: the fee off, a server without billing, the
+ * dev bypass). Power: `needsMembership` asked of each funding, so
+ * `['own-key']` (plus `credit` where credit isn't offered, which the gate also
+ * asks the membership for first). Learn: `['own-key']`, whichever payment this
+ * request carries, since Learn picks its payment per request rather than per
+ * branch and only its own-key requests need the membership. `/api/me` sends
+ * it as `MeResponse.membershipNeededFor`, so the apps show a branch or lesson
+ * read-only by the server's rule rather than a copy of it.
+ */
+export function membershipNeededFor(
+  account: AccountContext,
+  membership: Pick<MembershipInfo, 'required'>,
+): BranchFunding[] {
+  if (!membership.required) return [];
+  if (account.mode === 'simple') return ['own-key'];
+  return BRANCH_FUNDINGS.filter((funding) => needsMembership(account, { funding }));
 }
