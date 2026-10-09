@@ -8,15 +8,7 @@ import {
   type OutlineItem,
 } from '@tangent/core';
 import { type BranchFunding } from '@tangent/shared';
-import type {
-  Branch,
-  ChatNode,
-  CreateBranchRequest,
-  NodeLink,
-  ShareScope,
-  TreeBackupInput,
-  UpdateTreeRequest,
-} from '@tangent/shared';
+import type { Branch, ChatNode, NodeLink, ShareScope, UpdateTreeRequest } from '@tangent/shared';
 import {
   ApiClient,
   ComposerController,
@@ -156,51 +148,15 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     }
   }
 
-  async importBackup(backup: TreeBackupInput): Promise<void> {
-    try {
-      const detail = await this.api.importBackup(backup);
-      this.listNewTree(detail);
-      this.toast.notify(`Imported “${detail.tree.title}”`);
-      await this.router.navigate(['/t', detail.tree.id]);
-    } catch (err) {
-      this.fail(err);
-    }
-  }
-
   // Branches
 
-  async createBranch(req: CreateBranchRequest): Promise<Branch | null> {
-    const branch = await this.addBranch(req);
-    if (branch) {
-      this.go(branch.id);
-      this.composer.focus();
-    }
-    return branch;
+  protected override branchOpened(branchId: string): void {
+    this.composer.focus(branchId);
   }
 
-  /**
-   * Follows a tangent the assistant suggested under `fromNodeId`: a `path`
-   * branch titled after it (a user title, so auto-titling keeps it), on the
-   * message's branch's provider and model like "Branch from here", whose
-   * first message is the title. A tangent already followed from that message
-   * just opens its branch.
-   */
-  async followTangent(fromNodeId: string, title: string): Promise<Branch | null> {
-    const existing = this.childBranchesAt(fromNodeId).find((b) => b.title === title);
-    if (existing) {
-      this.go(existing.id, this.firstNodeOf(existing.id)?.id ?? null);
-      return existing;
-    }
-    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null, title }, title);
-  }
-
-  /**
-   * "Ask your own" under a reply: the user's question, asked like a followed
-   * tangent (a `path` branch on the message's provider and model). Untitled:
-   * it reads "Branch: …" until the first reply names it (auto-titling).
-   */
-  askFrom(fromNodeId: string, content: string): Promise<Branch | null> {
-    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null }, content);
+  /** A tangent already followed opens at its first message. */
+  protected override openFollowed(branch: Branch): void {
+    this.go(branch.id, this.firstNodeOf(branch.id)?.id ?? null);
   }
 
   /** Whether replies in `branchId` can be checked against web sources (its provider can search). */

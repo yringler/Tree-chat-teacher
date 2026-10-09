@@ -118,6 +118,7 @@ function fakeApi() {
     listTrees: vi.fn(async (): Promise<TreeSummary[]> => []),
     getTree: vi.fn(async (_id: string) => tree()),
     createTree: vi.fn(async (_req: unknown) => tree('t2')),
+    importBackup: vi.fn(async (_backup: unknown) => tree('t3')),
     sendMessage: vi.fn(async (_b: string, _req: unknown, _signal: AbortSignal): Promise<Response> =>
       stream([]),
     ),
@@ -861,7 +862,8 @@ describe('ConversationStore branches', () => {
     const req = { fromNodeId: 'a1', contextMode: 'path', anchorQuote: null } as const;
     const made = await s.store.startBranch(req, 'Why?');
     expect(made?.id).toBe('new');
-    expect(s.api.createBranch).toHaveBeenCalledWith(req);
+    // On the app's route after the message's branch (`newBranchRoute`), the request naming none.
+    expect(s.api.createBranch).toHaveBeenCalledWith({ ...req, model: 'a/b' });
     expect(s.store.index()?.branches.has('new')).toBe(true);
     expect(s.go).toHaveBeenCalledWith('new');
     expect(s.api.sendMessage).toHaveBeenCalledWith(
@@ -869,6 +871,65 @@ describe('ConversationStore branches', () => {
       { content: 'Why?' },
       expect.any(AbortSignal),
     );
+  });
+
+  it("a request that names a provider keeps its own route, not the app's", async () => {
+    const s = showing();
+    const req = {
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: null,
+      providerId: 'anthropic',
+      model: 'claude',
+    } as const;
+    await s.store.createBranch(req);
+    expect(s.api.createBranch).toHaveBeenCalledWith(req);
+    expect(s.go).toHaveBeenCalledWith('new');
+  });
+
+  it('follows a tangent once: a titled path branch asking it, then just its branch', async () => {
+    const s = showing();
+    await s.store.followTangent('a1', 'Why waves?');
+    expect(s.api.createBranch).toHaveBeenCalledWith({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: null,
+      title: 'Why waves?',
+      model: 'a/b',
+    });
+    expect(s.api.sendMessage).toHaveBeenCalledWith(
+      'new',
+      { content: 'Why waves?' },
+      expect.any(AbortSignal),
+    );
+    s.api.createBranch.mockClear();
+    expect((await s.store.followTangent('a1', 'Why waves?'))?.id).toBe('new');
+    expect(s.api.createBranch).not.toHaveBeenCalled();
+    expect(s.go).toHaveBeenLastCalledWith('new');
+  });
+
+  it("imports a backup, lists it and opens it, in the app's words", async () => {
+    const s = showing();
+    const detail = await s.store.importTree({
+      format: 'tangent-tree-backup',
+      version: 1,
+      exportedAt: T,
+      tree: {
+        id: 't3',
+        title: 'Old',
+        systemPrompt: null,
+        trunkBranchId: 'b3',
+        createdAt: T,
+        updatedAt: T,
+      },
+      branches: [],
+      nodes: [],
+      links: [],
+    });
+    expect(detail?.tree.id).toBe('t3');
+    expect(s.store.trees().map((t) => t.id)).toContain('t3');
+    expect(s.store.toasts.at(-1)?.text).toMatch(/^Imported “/);
+    expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't3']);
   });
 
   it('a branch that cannot be created sends nothing', async () => {

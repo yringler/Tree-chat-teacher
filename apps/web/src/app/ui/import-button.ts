@@ -24,7 +24,7 @@ export class ImportButton {
     if (!f) return;
     this.busy.set(true);
     try {
-      await this.store.importBackup(await readBackupFile(f));
+      await this.store.importTree(await readBackupFile(f));
     } catch (err) {
       this.store.fail(err);
     } finally {

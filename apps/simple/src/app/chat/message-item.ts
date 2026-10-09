@@ -44,7 +44,9 @@ import { branchTitle } from './titles';
             type="button"
             class="btn btn-ghost btn-sm msg-ask"
             title="Start a side question about this message"
-            (click)="store.askAbout(n.id, null)"
+            (click)="
+              store.createBranch({ fromNodeId: n.id, contextMode: 'path', anchorQuote: null })
+            "
           >
             <app-icon name="branch" [size]="14" /> Side question
           </button>

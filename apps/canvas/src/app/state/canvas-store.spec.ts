@@ -666,6 +666,8 @@ describe('CanvasStore links between messages', () => {
     expect(s.ui.linkPick()).toBeNull();
     expect(s.ui.linkPopover()).toBeNull();
     expect(s.ui.linkReturn()).toBeNull();
+    // In the canvas's words.
+    expect(s.toasts.toasts().at(-1)?.text).toMatch(/^Deleted the lane|^Lane deleted$/);
   });
 
   it('a deleted lane leaves linking from elsewhere alone', async () => {

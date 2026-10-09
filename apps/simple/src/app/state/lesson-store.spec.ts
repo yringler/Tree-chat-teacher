@@ -27,6 +27,7 @@ import {
   ComposerController,
   SAVE_FILE,
   ToastStore,
+  type PoolBlock,
 } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
@@ -630,7 +631,11 @@ describe('LessonStore', () => {
     const s = setup();
     const done = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
     await open(s, detail([userNode, done], [branch('trunk', { model: 'max-model' })]));
-    const created = await s.store.askAbout('a1', 'a wave');
+    const created = await s.store.createBranch({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: 'a wave',
+    });
 
     expect(s.api.createBranch).toHaveBeenCalledWith({
       fromNodeId: 'a1',
@@ -883,6 +888,40 @@ describe('LessonStore', () => {
       expect(s.store.linksByNode().has('a2')).toBe(false);
       expect(s.ui.dialogs.get('connect')).toBeNull();
       expect(s.store.linkReturn()).toBeNull();
+      // In Learn's words.
+      expect(s.toasts.toasts().at(-1)?.text).toBe('Deleted the side question and 1 below it');
+    });
+
+    it('drops the message left unsent there, and the pool notice, but not those elsewhere', async () => {
+      const s = setup();
+      await open(s, lesson(), 'other');
+      const block: PoolBlock = {
+        kind: 'empty',
+        details: { reason: 'empty', limit: null, resetAt: null },
+      };
+      s.store.unsentDraft.set({ treeId: 't1', branchId: 'side', text: 'Why?' });
+      s.store.poolBlock.set({ ...block, branchId: 'deeper' });
+      await expect(s.store.deleteSideQuestion('side')).resolves.toBe(true);
+      expect(s.store.unsentDraft()).toBeNull();
+      expect(s.store.poolBlock()).toBeNull();
+
+      const t = setup();
+      await open(t, lesson(), 'other');
+      t.store.unsentDraft.set({ treeId: 't1', branchId: 'other', text: 'Why?' });
+      t.store.poolBlock.set({ ...block, branchId: 'other' });
+      await expect(t.store.deleteSideQuestion('side')).resolves.toBe(true);
+      expect(t.store.unsentDraft()?.branchId).toBe('other');
+      expect(t.store.poolBlock()?.branchId).toBe('other');
+    });
+
+    it('says a connection is removed, or was already, in Learn’s words', async () => {
+      const s = setup();
+      await open(s, { ...lesson(), links: [link('l1', 'a1', 'a2'), link('l2', 'u3', 'u4')] });
+      await expect(s.store.deleteLink('l1')).resolves.toBe(true);
+      expect(s.toasts.toasts().at(-1)?.text).toBe('Connection removed');
+      s.api.deleteLink.mockRejectedValueOnce(new ApiError(404, 'not_found', 'Gone'));
+      await s.store.deleteLink('l2');
+      expect(s.toasts.toasts().at(-1)?.text).toBe('That connection was already removed');
     });
 
     it('never deletes the lesson itself; a refusal changes nothing', async () => {

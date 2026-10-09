@@ -223,7 +223,11 @@ export class ChatPage implements OnDestroy {
   protected async askAbout(q: MessageQuote): Promise<void> {
     this.pendingAsk.clear();
     window.getSelection()?.removeAllRanges();
-    await this.store.askAbout(q.nodeId, q.quote);
+    await this.store.createBranch({
+      fromNodeId: q.nodeId,
+      contextMode: 'path',
+      anchorQuote: q.quote,
+    });
   }
 
   protected async setModel(branchId: string, model: string): Promise<void> {

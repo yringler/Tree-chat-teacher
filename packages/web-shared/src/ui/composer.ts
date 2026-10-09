@@ -48,9 +48,12 @@ export class ComposerController {
     return () => this.boxes.delete(box);
   }
 
-  /** Focuses the box of `branchId` (also once it first renders), or the current one. */
+  /**
+   * Focuses the box of `branchId` (also once it first renders; a page with
+   * one box for every branch has it focused at once), or the current one.
+   */
   focus(branchId: string | null = null): void {
-    const box = this.find(branchId);
+    const box = this.find(branchId) ?? (branchId === null ? undefined : this.single());
     this.pendingFocus = box ? null : branchId;
     box?.focus();
   }
@@ -70,6 +73,11 @@ export class ComposerController {
       const own = box.branchId();
       if (own === null || own === branchId) box.release(text);
     }
+  }
+
+  /** The page's one box, writing in whichever branch is open. */
+  private single(): ComposerBox | undefined {
+    return [...this.boxes].find((b) => b.branchId() === null);
   }
 
   private find(branchId: string | null): ComposerBox | undefined {

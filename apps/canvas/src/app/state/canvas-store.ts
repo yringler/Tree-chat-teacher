@@ -7,7 +7,6 @@ import type {
   Branch,
   ContextMode,
   ContextPlan,
-  CreateBranchRequest,
   ProviderInfo,
   UpdateBranchRequest,
 } from '@tangent/shared';
@@ -231,13 +230,8 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
 
   // Branches
 
-  async createBranch(req: CreateBranchRequest, open = true): Promise<Branch | null> {
-    const branch = await this.addBranch(req);
-    if (branch && open) {
-      this.go(branch.id);
-      this.composer.focus(branch.id);
-    }
-    return branch;
+  protected override branchOpened(branchId: string): void {
+    this.composer.focus(branchId);
   }
 
   /**
@@ -255,19 +249,16 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
       const title = several
         ? `${modelLabel(this.account.providers(), v, v.model)} · ${v.contextMode}`
         : '';
-      const branch = await this.createBranch(
-        {
-          fromNodeId: req.fromNodeId,
-          contextMode: v.contextMode,
-          anchorQuote: req.anchorQuote,
-          providerId: v.providerId,
-          funding: v.funding,
-          model: v.model,
-          isPrivate: req.isPrivate,
-          ...(title ? { title } : {}),
-        },
-        false,
-      );
+      const branch = await this.addBranch({
+        fromNodeId: req.fromNodeId,
+        contextMode: v.contextMode,
+        anchorQuote: req.anchorQuote,
+        providerId: v.providerId,
+        funding: v.funding,
+        model: v.model,
+        isPrivate: req.isPrivate,
+        ...(title ? { title } : {}),
+      });
       if (branch) created.push(branch);
     }
     const first = created[0];
@@ -280,33 +271,6 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
       this.composer.focus(first.id);
     }
     return created;
-  }
-
-  /**
-   * Follows a tangent the assistant suggested under `fromNodeId`: a `path`
-   * branch titled after it whose first message is the title. A tangent
-   * already followed from that message just opens its lane. On a locked lane
-   * nothing new is opened: the lane would start on its route, read-only.
-   */
-  async followTangent(fromNodeId: string, title: string): Promise<Branch | null> {
-    const existing = this.childBranchesAt(fromNodeId).find((b) => b.title === title);
-    if (existing) {
-      this.go(existing.id);
-      return existing;
-    }
-    const idx = this.index();
-    const from = idx?.nodes.get(fromNodeId);
-    const lane = from && idx?.branches.get(from.branchId);
-    if (lane && this.account.routeLocked(lane)) return null;
-    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null, title }, title);
-  }
-
-  /**
-   * "Ask your own" under a reply: the user's question in a new lane, asked
-   * like a followed tangent. Untitled until the first reply names it.
-   */
-  askFrom(fromNodeId: string, content: string): Promise<Branch | null> {
-    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null }, content);
   }
 
   override async updateBranch(branchId: string, req: UpdateBranchRequest): Promise<boolean> {

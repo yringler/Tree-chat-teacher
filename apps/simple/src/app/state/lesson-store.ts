@@ -103,6 +103,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
       link: 'connection',
       linked: { created: 'Connected', existing: 'Already connected' },
       noteSaved: 'Note saved',
+      treeTitle: lessonTitle,
     });
     this.funding.whenSwitched((payer) => this.paymentSwitched(payer));
   }
@@ -285,14 +286,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
         this.toast.notify(errorMessage(err), 'error');
         return false;
       }
-      const detail = await this.api.importBackup(backup);
-      this.listNewTree(detail);
-      this.toast.notify(`Imported “${lessonTitle(detail.tree.title)}”`);
-      await this.router.navigate(['/t', detail.tree.id]);
-      return true;
-    } catch (err) {
-      this.fail(err);
-      return false;
+      return (await this.importTree(backup)) !== null;
     } finally {
       this.importing.set(false);
     }
@@ -300,62 +294,8 @@ export class LessonStore extends ConversationStore<ApiClient> {
 
   // Branches
 
-  /**
-   * "Ask about this": a side question from `fromNodeId`, quoting `quote`,
-   * with the full path as context and the current branch's model.
-   */
-  async askAbout(fromNodeId: string, quote: string | null): Promise<Branch | null> {
-    const branch = await this.addBranch({
-      fromNodeId,
-      contextMode: 'path',
-      anchorQuote: quote,
-      ...this.newBranchRoute(this.selectedBranch()),
-    });
-    if (branch) {
-      this.go(branch.id);
-      this.composer.focus();
-    }
-    return branch;
-  }
-
-  /**
-   * Follows one of the tutor's suggested tangents: a side question from
-   * `fromNodeId` titled after the tangent, whose first message is the
-   * tangent's title. Clicking the same tangent again goes to its branch.
-   */
-  async followTangent(fromNodeId: string, title: string): Promise<Branch | null> {
-    const existing = this.childBranchesAt(fromNodeId).find((b) => b.title === title);
-    if (existing) {
-      this.go(existing.id);
-      return existing;
-    }
-    return this.startSideQuestion(fromNodeId, title, title);
-  }
-
-  /**
-   * "Ask your own" under a reply: the learner's question as a side question,
-   * asked like a followed tangent. Untitled until the first reply names it.
-   */
-  askFrom(fromNodeId: string, content: string): Promise<Branch | null> {
-    return this.startSideQuestion(fromNodeId, null, content);
-  }
-
-  /** A side question from `fromNodeId` on the current model, opened, with `content` sent first. */
-  private startSideQuestion(
-    fromNodeId: string,
-    title: string | null,
-    content: string,
-  ): Promise<Branch | null> {
-    return this.startBranch(
-      {
-        fromNodeId,
-        contextMode: 'path',
-        anchorQuote: null,
-        ...(title ? { title } : {}),
-        ...this.newBranchRoute(this.selectedBranch()),
-      },
-      content,
-    );
+  protected override branchOpened(): void {
+    this.composer.focus();
   }
 
   /** Side questions keep the model of the branch they come from (Normal or Max). */

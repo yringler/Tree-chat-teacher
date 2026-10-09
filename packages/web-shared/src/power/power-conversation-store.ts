@@ -61,6 +61,10 @@ export abstract class PowerConversationStore<
     return !!branch && this.account.routeLocked(branch);
   }
 
+  protected override canBranchFrom(nodeId: string): boolean {
+    return !this.nodeLocked(nodeId);
+  }
+
   /** `me`: the signed-in caller, already fetched by the sign-in check (AuthService.requireUser). */
   async init(me: MeResponse): Promise<void> {
     await Promise.all([this.account.init(me), this.loadTrees()]);

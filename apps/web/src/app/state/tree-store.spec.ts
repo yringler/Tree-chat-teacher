@@ -1017,7 +1017,18 @@ describe('TreeStore links between messages', () => {
     await expect(s.store.deleteBranch('owls')).resolves.toBe(true);
     expect(s.store.links().map((l) => l.id)).toEqual(['l2']);
     expect(s.ui.linkPick()).toBeNull();
-    expect(s.ui.linkReturn()).toBeNull();
+    expect(s.ui.linkReturn()).toBeNull(); // In power's words.
+    expect(s.toasts.toasts().at(-1)?.text).toBe('Deleted the branch and 1 below it');
+  });
+
+  it('says a link is removed, or was already, in power’s words', async () => {
+    const s = open();
+    await expect(s.store.deleteLink('l1')).resolves.toBe(true);
+    expect(s.toasts.toasts().at(-1)?.text).toBe('Link removed');
+    s.store.detail.update((d) => (d ? { ...d, links: [link({ id: 'l3' })] } : d));
+    s.api.deleteLink.mockRejectedValueOnce(new ApiError(404, 'not_found', 'Gone'));
+    await s.store.deleteLink('l3');
+    expect(s.toasts.toasts().at(-1)?.text).toBe('That link was already removed');
   });
 
   it('openNode goes to the other end, focused, and remembers where it came from', () => {
