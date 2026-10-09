@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from './zod.js';
 import type { BranchFunding } from './domain.js';
 import { replyOutputTokens } from './output-tokens.js';
 
@@ -32,11 +32,7 @@ export const MAX_REQUESTED_INPUT_TOKENS = 2_000_000;
 /** The presets power offers; anything else in range is a custom value. */
 export const INPUT_TOKEN_PRESETS: readonly number[] = [16_000, 32_000, 64_000, 128_000];
 
-/**
- * Zod field of a requested input limit (JSON body). Object schemas that use it
- * live in api.ts, after its `z.config({ jitless: true })`: an object schema
- * built before that would still probe `new Function` (a CSP violation).
- */
+/** Zod field of a requested input limit (JSON body). */
 export const requestedInputTokens = z
   .number()
   .int()

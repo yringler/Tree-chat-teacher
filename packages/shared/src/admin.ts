@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from './zod.js';
 
 /**
  * Admin contract (`/api/admin/*`, the admin app at `/admin/`). Only the

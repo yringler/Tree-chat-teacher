@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from './zod.js';
 
 /**
  * The open credit pool (docs/pool/SPEC.md): free credit Tangent provides

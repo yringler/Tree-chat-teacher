@@ -1,9 +1,4 @@
-import { z } from 'zod';
-
-// Neither the web app's CSP nor workerd allows eval. Skip zod's `new Function`
-// JIT probe, which a strict CSP / Trusted Types reports as a violation even
-// though zod catches the error.
-z.config({ jitless: true });
+import { z } from './zod.js';
 import type { ContextPlan } from './context-plan.js';
 import type {
   Branch,
