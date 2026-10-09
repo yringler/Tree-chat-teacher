@@ -570,7 +570,9 @@ describe('power demo backend', () => {
     );
     expect(lesson.branches[0]!.model).toBe('normal');
     expect(lesson.branches.slice(1).map((b) => b.model)).toEqual(rest.map((b) => b.model));
-    expect(lesson.nodes.map((n) => n.content)).toEqual(backup.nodes.map((n) => n.content));
+    // An import gets new ids, and the repositories list nodes by branch id.
+    const contents = (nodes: { content: string }[]) => nodes.map((n) => n.content).sort();
+    expect(contents(lesson.nodes)).toEqual(contents(backup.nodes));
     expect((await learn.api.listTrees()).map((t) => t.id)).toEqual([lesson.tree.id]);
 
     // Learn's Export (fetched through the API transport) imports back as the same lesson.
@@ -579,7 +581,7 @@ describe('power demo backend', () => {
     expect(again.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode])).toEqual(
       lesson.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode]),
     );
-    expect(again.nodes.map((n) => n.content)).toEqual(lesson.nodes.map((n) => n.content));
+    expect(contents(again.nodes)).toEqual(contents(lesson.nodes));
 
     // The Power demo imports the same file as it is.
     const copy = await power.api.importBackup(fromPower);
