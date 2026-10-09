@@ -1,8 +1,8 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { TreeStore } from '../state/tree-store';
+import { KeysDialog } from '@tangent/web-shared';
 import { UiStore } from '../state/ui-store';
 import { AccountDialog } from './account-dialog';
-import { ApiKeys } from './api-keys';
 import { BranchDialog } from './branch-dialog';
 import { BranchSettings } from './branch-settings';
 import { CompareDialog } from './compare-dialog';
@@ -18,7 +18,7 @@ import { TreeSettings } from './tree-settings';
   selector: 'app-dialog-host',
   imports: [
     AccountDialog,
-    ApiKeys,
+    KeysDialog,
     BranchDialog,
     BranchSettings,
     CompareDialog,
@@ -64,7 +64,7 @@ import { TreeSettings } from './tree-settings';
       <app-shortcuts-help />
     }
     @if (ui.dialogs.get('keys'); as keys) {
-      <app-api-keys [initialProvider]="keys.provider" />
+      <app-keys-dialog [initialProvider]="keys.provider" (closed)="ui.dialogs.close('keys')" />
     }
   `,
 })

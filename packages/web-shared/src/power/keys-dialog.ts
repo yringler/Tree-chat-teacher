@@ -7,38 +7,55 @@ import {
   input,
   type OnDestroy,
   type OnInit,
+  output,
   signal,
   viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { LEARN_KEY_PROVIDER, type ProviderInfo } from '@tangent/shared';
-import { TreeStore } from '../state/tree-store';
-import { UiStore } from '../state/ui-store';
-import { formatMicros, Icon, KeyMissingNotice, Modal, ToastStore } from '@tangent/web-shared';
-import { feeSentence } from '../ui/credit';
+import {
+  LEARN_KEY_PROVIDER,
+  type BillingSummary,
+  type Branch,
+  type ProviderInfo,
+} from '@tangent/shared';
+import { formatMicros } from '../billing/format';
+import { KeyMissingNotice } from '../billing/key-missing';
+import { creditFeeText } from '../billing/membership';
+import { Icon } from '../ui/icon';
+import { Modal } from '../ui/modal';
+import { ToastStore } from '../ui/toasts';
+import { PowerConversationStore } from './power-conversation-store';
+
+/** The one line that says what a call on Tangent credit costs. */
+export function creditFeeSentence(
+  b: Pick<BillingSummary, 'openRouterFeeBps' | 'markupBps'>,
+): string {
+  return `Each call costs ${creditFeeText(b.markupBps, b.openRouterFeeBps)}, taken from your credit.`;
+}
 
 /**
- * Keys & credit. Bring-your-own-key: the key is read from the input only at
- * submit time, posted once, and the field is cleared right away: the app
- * never keeps it in a signal, in storage or anywhere else. The server seals
- * it into an HttpOnly cookie this code can't read. Where the server offers
- * the built-in provider, its row shows the user's credit (shared with Learn)
- * and links to `/billing` to add more.
+ * Keys & credit, in power and the canvas (the app provides its store as
+ * `PowerConversationStore`). Bring-your-own-key: the key is read from the
+ * input only at submit time, posted once, and the field is cleared right
+ * away: the app never keeps it in a signal, in storage or anywhere else. The
+ * server seals it into an HttpOnly cookie this code can't read, which both
+ * apps (and Learn, for OpenRouter) use. Where the server offers the built-in
+ * provider, its row shows the user's credit and links to the billing page.
  *
  * Opened by a send the server refused for want of the branch's own key
- * (`TreeStore.blockedSends`), it says so on top and offers to carry the
- * branch on with Tangent credit; that, or saving the key, sends the message.
- * Closed without either, nothing is sent and the message stays in the composer.
+ * (`blockedSends`), it says so on top and offers to carry the branch on
+ * with Tangent credit; that, or saving the key, sends the message. Closed
+ * without either, nothing is sent and the message stays in the composer.
  */
 @Component({
-  selector: 'app-api-keys',
+  selector: 'app-keys-dialog',
   imports: [Modal, Icon, KeyMissingNotice, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal [heading]="credit() ? 'Keys & credit' : 'API keys'" (closed)="close()">
+    <app-modal [heading]="credit() ? 'Keys & credit' : 'API keys'" (closed)="closed.emit()">
       @if (store.blockedBranch(); as b) {
         <app-key-missing-notice
-          [branchTitle]="b.title"
+          [branchTitle]="titleOf()(b)"
           [providerLabel]="store.account.providerOf(b)?.label ?? b.providerId"
           [credit]="store.account.creditRoute() !== null"
           [balance]="balance()"
@@ -96,14 +113,20 @@ import { feeSentence } from '../ui/credit';
             } @else {
               <span class="muted small">Loading…</span>
             }
-            <a routerLink="/billing" class="btn btn-ghost btn-sm" (click)="close()">Add credit</a>
+            @if (billingHref(); as href) {
+              <a [href]="href" class="btn btn-ghost btn-sm">Add credit</a>
+            } @else {
+              <a routerLink="/billing" class="btn btn-ghost btn-sm" (click)="closed.emit()"
+                >Add credit</a
+              >
+            }
           </li>
         }
       </ul>
       @if (credit() && store.account.billing(); as b) {
         <p class="muted small">
           {{ fees(b) }} No key needed: pick “Tangent credit” as the provider, for a new conversation
-          or any branch (its settings, also under the message box).
+          or any {{ noun() }} (its settings, also under the message box).
         </p>
       }
 
@@ -151,7 +174,7 @@ import { feeSentence } from '../ui/credit';
                 <app-icon name="trash" /> Forget all keys
               </button>
             }
-            <button type="button" class="btn btn-ghost" (click)="close()">Close</button>
+            <button type="button" class="btn btn-ghost" (click)="closed.emit()">Close</button>
             <button type="submit" class="btn btn-primary" [disabled]="busy()">
               {{ busy() ? 'Checking…' : 'Save key' }}
             </button>
@@ -161,12 +184,22 @@ import { feeSentence } from '../ui/credit';
     </app-modal>
   `,
 })
-export class ApiKeys implements OnInit, OnDestroy {
-  protected readonly store = inject(TreeStore);
-  private readonly ui = inject(UiStore);
+export class KeysDialog implements OnInit, OnDestroy {
+  protected readonly store = inject(PowerConversationStore);
   private readonly toast = inject(ToastStore);
-  /** Provider to preselect (e.g. the one a failed request needed). */
+  /** Provider to preselect (e.g. the one a refused request needed). */
   readonly initialProvider = input<string | null>(null);
+  /** What the app calls a branch ("branch", "lane"). */
+  readonly noun = input('branch');
+  /** A branch's title as the app shows it (the refused send's notice). */
+  readonly titleOf = input<(branch: Branch) => string>((b) => b.title);
+  /**
+   * The billing page as a page load, for an app without its own `/billing`
+   * route (the canvas uses power's); null: the app's `/billing` route.
+   */
+  readonly billingHref = input<string | null>(null);
+  /** Close, Escape, the backdrop, or a link away: the app closes the dialog. */
+  readonly closed = output();
 
   private readonly keyInput = viewChild<ElementRef<HTMLInputElement>>('keyInput');
   protected readonly provider = signal('');
@@ -176,7 +209,7 @@ export class ApiKeys implements OnInit, OnDestroy {
 
   protected readonly learnKey = LEARN_KEY_PROVIDER;
   protected readonly usd = formatMicros;
-  protected readonly fees = feeSentence;
+  protected readonly fees = creditFeeSentence;
   /** The server offers the built-in provider on the user's credit. */
   protected readonly credit = computed(() => this.store.account.me()?.builtInCredit ?? false);
 
@@ -207,10 +240,6 @@ export class ApiKeys implements OnInit, OnDestroy {
   /** However it closes (Close, Escape, a send carried on): nothing waits on it any more. */
   ngOnDestroy(): void {
     this.store.dropBlockedSends();
-  }
-
-  protected close(): void {
-    this.ui.dialogs.close('keys');
   }
 
   protected async useCredit(): Promise<void> {

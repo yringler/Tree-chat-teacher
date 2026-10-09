@@ -37,6 +37,7 @@ export {
   type RouteState,
 } from './power/power-account';
 export { PowerConversationStore, type PowerApi } from './power/power-conversation-store';
+export { creditFeeSentence, KeysDialog } from './power/keys-dialog';
 export { modelHint, routeSuffix, startingRoute } from './power/routes';
 export { CompareRun, type CompareCandidateState, type CompareSpec } from './core/compare-run';
 export {
