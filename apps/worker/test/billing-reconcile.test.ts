@@ -11,7 +11,7 @@ import {
   usageRow,
 } from './mocks/billing-helpers.js';
 
-const env = { ...(rawEnv as unknown as AppEnv), OPENROUTER_SIMPLE_API_KEY: 'sk-or-cron' } as AppEnv;
+const env = { ...(rawEnv as unknown as AppEnv), BUILT_IN_API_KEY: 'sk-or-cron' } as AppEnv;
 
 /**
  * A fixed clock in the past: every row other tests create (stamped with the
@@ -115,7 +115,7 @@ describe('usage reconciliation cron', () => {
     await reconcilePendingUsage(env, NOW);
     expect(await usageRow(env, erroring)).toMatchObject({ status: 'pending' });
 
-    const noKey = { ...env, OPENROUTER_SIMPLE_API_KEY: '' } as AppEnv;
+    const noKey = { ...env, BUILT_IN_API_KEY: '' } as AppEnv;
     const old = await insertUsage(env, {
       accountId,
       generationId: uniq('gen'),
@@ -125,16 +125,16 @@ describe('usage reconciliation cron', () => {
     expect(await usageRow(env, old)).toMatchObject({ status: 'unresolved', charge_micros: 0 });
   });
 
-  it('resolves the OpenRouter key from SIMPLE_PROVIDER or OPENROUTER_SIMPLE_API_KEY', () => {
-    expect(simpleApiKey({ ...env, SIMPLE_PROVIDER: '' } as AppEnv)).toBe('sk-or-cron');
-    expect(simpleApiKey({ ...env, OPENROUTER_SIMPLE_API_KEY: '' } as AppEnv)).toBeNull();
+  it('resolves the OpenRouter key from BUILT_IN_PROVIDER or BUILT_IN_API_KEY', () => {
+    expect(simpleApiKey({ ...env, BUILT_IN_PROVIDER: '' } as AppEnv)).toBe('sk-or-cron');
+    expect(simpleApiKey({ ...env, BUILT_IN_API_KEY: '' } as AppEnv)).toBeNull();
     const named = {
       ...env,
-      SIMPLE_PROVIDER: JSON.stringify({ id: 'openrouter', apiKeySecret: 'OTHER_KEY' }),
+      BUILT_IN_PROVIDER: JSON.stringify({ id: 'openrouter', apiKeySecret: 'OTHER_KEY' }),
       OTHER_KEY: ' sk-other ',
     } as AppEnv;
     expect(simpleApiKey(named)).toBe('sk-other');
-    expect(simpleApiKey({ ...env, SIMPLE_PROVIDER: '{bad json' } as AppEnv)).toBe('sk-or-cron');
+    expect(simpleApiKey({ ...env, BUILT_IN_PROVIDER: '{bad json' } as AppEnv)).toBe('sk-or-cron');
   });
 
   it('runs as the cron job at the time the trigger gives it', async () => {

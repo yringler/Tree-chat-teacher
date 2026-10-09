@@ -317,7 +317,7 @@ describe('account gates', () => {
       admin.client.call(
         path,
         init,
-        authEnv({ POOL_ACCOUNT_ID: u.poolId, ADMIN_USER_IDS: admin.userId }),
+        authEnv({ TEST_POOL_ACCOUNT_ID: u.poolId, ADMIN_USER_IDS: admin.userId }),
       );
     const { treeId, branchId } = await newTree(u);
 
@@ -397,7 +397,7 @@ describe('account gates', () => {
     const res = await u.client.call(
       '/api/pool/verify',
       { method: 'POST', json: { token: 'pass' } },
-      authEnv({ POOL_ACCOUNT_ID: u.poolId, TURNSTILE_SECRET_KEY: '' }),
+      authEnv({ TEST_POOL_ACCOUNT_ID: u.poolId, TURNSTILE_SECRET_KEY: '' }),
     );
     expect(res.status).toBe(400);
     expect((await poolAccess(u.userId))?.pool_verified_at).toBeNull();
@@ -442,7 +442,7 @@ describe('account gates', () => {
       admin.client.call(
         path,
         init,
-        authEnv({ POOL_ACCOUNT_ID: first.poolId, ADMIN_USER_IDS: admin.userId }),
+        authEnv({ TEST_POOL_ACCOUNT_ID: first.poolId, ADMIN_USER_IDS: admin.userId }),
       );
     for (const [u, email] of [
       [first, `ab${tag}@gmail.com`],
@@ -621,7 +621,7 @@ describe('consumption report', () => {
     const heavy = await poolReadyUser({ ip });
     const light = await poolReadyUser({ ip, poolId: heavy.poolId });
     const admin = await poolReadyUser({ poolId: heavy.poolId });
-    const adminEnv = authEnv({ POOL_ACCOUNT_ID: heavy.poolId, ADMIN_USER_IDS: admin.userId });
+    const adminEnv = authEnv({ TEST_POOL_ACCOUNT_ID: heavy.poolId, ADMIN_USER_IDS: admin.userId });
     const heavyTree = await newTree(heavy);
     await sendOk(heavy, heavyTree.branchId, 'One');
     await sendOk(heavy, heavyTree.branchId, 'Two');

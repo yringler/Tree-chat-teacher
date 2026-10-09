@@ -17,7 +17,7 @@ import { authEnv, client } from './session-client.js';
 /**
  * Power's input limit (`SendMessageRequest.maxInputTokens`, `.inputOverflow`):
  * sent with each message and with the Context preview, clamped to the model's
- * window less the reply, and on Tangent credit to SIMPLE_MAX_INPUT_TOKENS.
+ * window less the reply, and on Tangent credit to BUILT_IN_MAX_INPUT_TOKENS.
  */
 const env = rawEnv as unknown as AppEnv;
 const BASE = 'https://tangent.example.com';

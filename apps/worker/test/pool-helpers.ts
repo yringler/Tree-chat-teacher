@@ -46,7 +46,7 @@ export async function poolAccess(userId: string) {
 }
 
 /**
- * A signed-in user whose Worker env names a pool of its own (`POOL_ACCOUNT_ID`),
+ * A signed-in user whose Worker env names a pool of its own (`TEST_POOL_ACCOUNT_ID`),
  * funded with `funds` µ$ (0 = empty). `overrides` reach the Worker only; the
  * Durable Objects run with the vitest.config.ts bindings, which is why every
  * pool parameter travels in the request's `AccountContext.pool`.
@@ -68,7 +68,7 @@ export async function poolReadyUser(
   } = {},
 ) {
   const poolId = opts.poolId ?? uniq('pool');
-  const c = client(authEnv({ POOL_ACCOUNT_ID: poolId, ...opts.env }), { ip: opts.ip });
+  const c = client(authEnv({ TEST_POOL_ACCOUNT_ID: poolId, ...opts.env }), { ip: opts.ip });
   const email =
     opts.email ?? `pool${++emailSeq}-${Math.random().toString(36).slice(2, 8)}@example.org`;
   await c.signIn(email);

@@ -3,6 +3,8 @@
 // (vitest.config.ts overrides many of them).
 // @ts-expect-error -- `?raw` is a Vite import; the worker tsconfig has no vite/client types.
 import wranglerText from '../../wrangler.jsonc?raw';
+import { CONFIG_SECRETS, CONFIG_VARS } from '../../src/config.js';
+import type { AppEnv } from '../../src/env.js';
 
 /** Calls `outside` for every character of `text` that is not inside a JSON string. */
 function scan(text: string, outside: (i: number) => { skipTo: number } | null): string {
@@ -54,4 +56,21 @@ export function shippedVars(): Record<string, string> {
   const vars = config.vars;
   if (typeof vars !== 'object' || vars === null) throw new Error('wrangler.jsonc has no vars');
   return Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, String(v)]));
+}
+
+/**
+ * `env` as wrangler.jsonc deploys it: its vars, and every other var empty
+ * (its default). The test env's secrets, local-dev vars and test vars stay,
+ * and `overrides` go on top.
+ */
+export function shippedEnv(env: AppEnv, overrides: Partial<AppEnv> = {}): AppEnv {
+  const defaulted = CONFIG_VARS.filter(
+    (name) => !CONFIG_SECRETS.has(name) && !name.startsWith('DEV_'),
+  );
+  return {
+    ...env,
+    ...Object.fromEntries(defaulted.map((name) => [name, ''])),
+    ...shippedVars(),
+    ...overrides,
+  } as AppEnv;
 }

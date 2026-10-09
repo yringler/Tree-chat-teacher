@@ -23,6 +23,8 @@ import type { AppEnv } from '../src/env.js';
 import { expirePoolReservations } from '../src/pool/expiry.js';
 import { poolBank } from '../src/pool/ids.js';
 import {
+  POOL_CALL_TIMEOUT_MS,
+  POOL_RESERVATION_TTL_MS,
   poolReserveRequest,
   replyCeilingMicros,
   resolvePoolParams,
@@ -31,7 +33,7 @@ import {
 import type { PoolReserveRequest, PoolReserveResult } from '../src/pool/pool-bank.js';
 import { simpleProviderConfig } from '../src/simple-mode.js';
 import { scriptGeneration, uniq, usageRow, type UsageRow } from './mocks/billing-helpers.js';
-import { shippedVars } from './mocks/wrangler-vars.js';
+import { shippedEnv } from './mocks/wrangler-vars.js';
 
 const env = rawEnv as unknown as AppEnv;
 /** The pool params of the test env (its price is a `MODEL_PRICES` entry: no D1 read). */
@@ -169,7 +171,6 @@ function params(poolId: string, overrides: Partial<PoolParams> = {}): PoolParams
     accountId: poolId,
     caps: OPEN_CAPS,
     limits: OPEN_LIMITS,
-    overage: NO_BREAKER,
     ...overrides,
   };
 }
@@ -329,7 +330,7 @@ describe('PoolBank: the never-negative invariant (spec test)', () => {
 
 describe('PoolBank: as shipped (wrangler.jsonc vars)', () => {
   it("reserves a new user's first pool reply within the daily caps", async () => {
-    const shipped = { ...env, ...shippedVars(), POOL_ACCOUNT_ID: uniq('pool') } as AppEnv;
+    const shipped = shippedEnv(env, { TEST_POOL_ACCOUNT_ID: uniq('pool') });
     const pool = await resolvePoolParams(shipped, 'ip-key');
     expect(pool.price).not.toBeNull();
     await fund(pool.accountId, 100_000_000);
@@ -640,7 +641,7 @@ describe('PoolBank: settlement clamp and the overage breaker', () => {
     const deferred: Promise<unknown>[] = [];
     const meter = createPoolUsageMeter(
       env,
-      params(poolId, { overage }),
+      params(poolId),
       uniq('user'),
       (p) => deferred.push(p),
       FAST,
@@ -1089,8 +1090,9 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     await fund(poolId, 100_000);
     const p = params(poolId);
     const id = await reserved(poolId);
+    const lastStart = POOL_RESERVATION_TTL_MS - POOL_CALL_TIMEOUT_MS;
     await env.DB.prepare('UPDATE usage_events SET created_at = ? WHERE id = ?')
-      .bind(new Date(Date.now() - (p.ttlMs - p.callTimeoutMs) - 1_000).toISOString(), id)
+      .bind(new Date(Date.now() - lastStart - 1_000).toISOString(), id)
       .run();
     let calls = 0;
     const provider = providerOf(async function* () {

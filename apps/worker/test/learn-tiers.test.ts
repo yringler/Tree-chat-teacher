@@ -8,9 +8,9 @@ import { DEFAULT_MODEL_PRICES } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import {
   builtInPowerConfig,
-  DEFAULT_SIMPLE_FAST_MODEL,
-  DEFAULT_SIMPLE_MAX_MODEL,
-  DEFAULT_SIMPLE_NORMAL_MODEL,
+  DEFAULT_BACKGROUND_MODEL,
+  DEFAULT_LEARN_MAX_MODEL,
+  DEFAULT_LEARN_NORMAL_MODEL,
   learnOffer,
   poolProviderConfig,
   POOL_MODEL_LABEL,
@@ -24,23 +24,23 @@ import { resolvePoolParams } from '../src/pool/params.js';
 import { uniq } from './mocks/billing-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
-/** As deployed: no SIMPLE_PROVIDER override, the tier vars unset (their defaults apply). */
+/** As deployed: no BUILT_IN_PROVIDER override, the tier vars unset (their defaults apply). */
 const deployed = (overrides: Partial<AppEnv> = {}) =>
   ({
     ...env,
-    SIMPLE_PROVIDER: '',
-    SIMPLE_NORMAL_MODEL: '',
-    SIMPLE_MAX_MODEL: '',
-    SIMPLE_FAST_MODEL: '',
+    BUILT_IN_PROVIDER: '',
+    LEARN_NORMAL_MODEL: '',
+    LEARN_MAX_MODEL: '',
+    BACKGROUND_MODEL: '',
     POOL_MODEL: '',
     MODEL_PRICES: '',
-    SIMPLE_NORMAL_EFFORT: '',
-    SIMPLE_NORMAL_REPLY_TOKENS: '',
-    SIMPLE_NORMAL_PROVIDER_ORDER: '',
-    SIMPLE_MAX_EFFORT: '',
-    SIMPLE_MAX_REPLY_TOKENS: '',
-    SIMPLE_MAX_PROVIDER_ORDER: '',
-    SIMPLE_FAST_EFFORT: '',
+    LEARN_NORMAL_EFFORT: '',
+    LEARN_NORMAL_REPLY_TOKENS: '',
+    LEARN_NORMAL_PROVIDER_ORDER: '',
+    LEARN_MAX_EFFORT: '',
+    LEARN_MAX_REPLY_TOKENS: '',
+    LEARN_MAX_PROVIDER_ORDER: '',
+    BACKGROUND_EFFORT: '',
     POOL_EFFORT: '',
     POOL_PROVIDER_ORDER: '',
     ...overrides,
@@ -51,7 +51,7 @@ const PINNED = ['streamlake/fp8', 'deepinfra/fp8'];
 describe("Learn's tiers", () => {
   it('Normal (the default) then Max, tagged with their tier', () => {
     const config = simpleProviderConfig(deployed());
-    expect(config.defaultModel).toBe(DEFAULT_SIMPLE_NORMAL_MODEL);
+    expect(config.defaultModel).toBe(DEFAULT_LEARN_NORMAL_MODEL);
     // Each with its evaluated request settings (docs/DECISIONS.md "Hosted models from the eval").
     expect(config.models).toEqual([
       {
@@ -64,42 +64,42 @@ describe("Learn's tiers", () => {
       },
       { id: 'anthropic/claude-sonnet-5.5', label: 'Max', tier: 'max', maxOutputTokens: 16_384 },
     ]);
-    expect(DEFAULT_SIMPLE_MAX_MODEL).toBe('anthropic/claude-sonnet-5.5');
+    expect(DEFAULT_LEARN_MAX_MODEL).toBe('anthropic/claude-sonnet-5.5');
     // The background model is no tier, but today it is Normal's model, asked differently.
-    expect(DEFAULT_SIMPLE_FAST_MODEL).toBe(DEFAULT_SIMPLE_NORMAL_MODEL);
+    expect(DEFAULT_BACKGROUND_MODEL).toBe(DEFAULT_LEARN_NORMAL_MODEL);
   });
 
-  it('SIMPLE_NORMAL_MODEL and SIMPLE_MAX_MODEL choose them; one model when they are the same', () => {
+  it('LEARN_NORMAL_MODEL and LEARN_MAX_MODEL choose them; one model when they are the same', () => {
     const config = simpleProviderConfig(
-      deployed({ SIMPLE_NORMAL_MODEL: 'a/normal', SIMPLE_MAX_MODEL: 'b/max' }),
+      deployed({ LEARN_NORMAL_MODEL: 'a/normal', LEARN_MAX_MODEL: 'b/max' }),
     );
     expect(config.models.map((m) => [m.id, m.tier])).toEqual([
       ['a/normal', 'normal'],
       ['b/max', 'max'],
     ]);
     const same = simpleProviderConfig(
-      deployed({ SIMPLE_NORMAL_MODEL: 'a/one', SIMPLE_MAX_MODEL: 'a/one' }),
+      deployed({ LEARN_NORMAL_MODEL: 'a/one', LEARN_MAX_MODEL: 'a/one' }),
     );
     expect(same.models).toEqual([{ id: 'a/one', label: 'Normal', tier: 'normal' }]);
   });
 
   it('summaries and titles stay on the background model, at low effort, never on Max', () => {
-    expect(simpleFastModel(deployed())).toBe(DEFAULT_SIMPLE_FAST_MODEL);
+    expect(simpleFastModel(deployed())).toBe(DEFAULT_BACKGROUND_MODEL);
     const settings = simpleChatSettings(deployed());
-    expect(settings.summaryModel).toBe(DEFAULT_SIMPLE_FAST_MODEL);
+    expect(settings.summaryModel).toBe(DEFAULT_BACKGROUND_MODEL);
     // Not Normal's `high`, which its listing of the same model carries.
     expect(settings.summaryEffort).toBe('low');
-    expect(simpleFastModel(deployed({ SIMPLE_FAST_MODEL: 'c/fast' }))).toBe('c/fast');
+    expect(simpleFastModel(deployed({ BACKGROUND_MODEL: 'c/fast' }))).toBe('c/fast');
     // The default effort belongs to the default model.
-    expect(simpleChatSettings(deployed({ SIMPLE_FAST_MODEL: 'c/fast' })).summaryEffort).toBeNull();
-    expect(simpleChatSettings(deployed({ SIMPLE_FAST_EFFORT: 'none' })).summaryEffort).toBe('none');
+    expect(simpleChatSettings(deployed({ BACKGROUND_MODEL: 'c/fast' })).summaryEffort).toBeNull();
+    expect(simpleChatSettings(deployed({ BACKGROUND_EFFORT: 'none' })).summaryEffort).toBe('none');
   });
 
-  it('a SIMPLE_PROVIDER override: its models name their own tiers; its background model', () => {
+  it('a BUILT_IN_PROVIDER override: its models name their own tiers; its background model', () => {
     const override = (models: object[], fast = '') =>
       deployed({
-        SIMPLE_FAST_MODEL: fast,
-        SIMPLE_PROVIDER: JSON.stringify({
+        BACKGROUND_MODEL: fast,
+        BUILT_IN_PROVIDER: JSON.stringify({
           id: 'openrouter',
           kind: 'fake',
           label: 'Tangent',
@@ -145,19 +145,19 @@ describe("Learn's tiers", () => {
 
   it('power suggests both tiers, and Tangent credit keeps their tier', () => {
     expect(suggestedModels(deployed())).toEqual([
-      { id: DEFAULT_SIMPLE_NORMAL_MODEL, label: 'Normal (suggested)', tier: 'normal' },
-      { id: DEFAULT_SIMPLE_MAX_MODEL, label: 'Max (suggested)', tier: 'max' },
+      { id: DEFAULT_LEARN_NORMAL_MODEL, label: 'Normal (suggested)', tier: 'normal' },
+      { id: DEFAULT_LEARN_MAX_MODEL, label: 'Max (suggested)', tier: 'max' },
     ]);
     expect(builtInPowerConfig(deployed()).models).toEqual([
-      { id: DEFAULT_SIMPLE_NORMAL_MODEL, label: 'Normal (suggested)', tier: 'normal' },
-      { id: DEFAULT_SIMPLE_MAX_MODEL, label: 'Max (suggested)', tier: 'max' },
+      { id: DEFAULT_LEARN_NORMAL_MODEL, label: 'Normal (suggested)', tier: 'normal' },
+      { id: DEFAULT_LEARN_MAX_MODEL, label: 'Max (suggested)', tier: 'max' },
     ]);
   });
 
   it('the public pages list Normal, then Max, then models that are no tier', () => {
     const offer = learnOffer(
       deployed({
-        SIMPLE_PROVIDER: JSON.stringify({
+        BUILT_IN_PROVIDER: JSON.stringify({
           id: 'openrouter',
           kind: 'fake',
           label: 'Tangent',
@@ -178,17 +178,17 @@ describe("Learn's tiers", () => {
   });
 
   it("the pool runs the background model by default: Normal's model, asked the pool's way", async () => {
-    const e = deployed({ POOL_ACCOUNT_ID: uniq('pool') });
+    const e = deployed({ TEST_POOL_ACCOUNT_ID: uniq('pool') });
     const pool = await resolvePoolParams(e, null);
-    expect(pool.model).toBe(DEFAULT_SIMPLE_FAST_MODEL);
+    expect(pool.model).toBe(DEFAULT_BACKGROUND_MODEL);
     expect(pool).toMatchObject({ effort: 'low', providerOrder: PINNED, summaryEffort: 'low' });
     expect(poolProviderConfig(e, pool).models).toEqual([
-      { id: DEFAULT_SIMPLE_FAST_MODEL, label: 'Normal', effort: 'low', providerOrder: PINNED },
+      { id: DEFAULT_BACKGROUND_MODEL, label: 'Normal', effort: 'low', providerOrder: PINNED },
     ]);
   });
 
   it('a pool model Learn does not list is labelled Lite, with its own defaults', async () => {
-    const e = deployed({ POOL_ACCOUNT_ID: uniq('pool'), SIMPLE_FAST_MODEL: 'c/fast' });
+    const e = deployed({ TEST_POOL_ACCOUNT_ID: uniq('pool'), BACKGROUND_MODEL: 'c/fast' });
     const pool = await resolvePoolParams(e, null);
     expect(pool).toMatchObject({ model: 'c/fast', effort: null, providerOrder: [] });
     expect(poolProviderConfig(e, pool).models).toEqual([{ id: 'c/fast', label: POOL_MODEL_LABEL }]);
@@ -224,17 +224,17 @@ describe('the Max usage factor', () => {
 
   it('is set on the Max model from the two prices: about 14 for V4.1 Flash and Sonnet 5.5', async () => {
     const [info] = await withUsageFactors(deployed(), [
-      tiers(DEFAULT_SIMPLE_NORMAL_MODEL, DEFAULT_SIMPLE_MAX_MODEL),
+      tiers(DEFAULT_LEARN_NORMAL_MODEL, DEFAULT_LEARN_MAX_MODEL),
     ]);
     expect(info!.models).toEqual([
-      { id: DEFAULT_SIMPLE_NORMAL_MODEL, label: 'Normal', tier: 'normal' },
-      { id: DEFAULT_SIMPLE_MAX_MODEL, label: 'Max', tier: 'max', usageFactor: 14 },
+      { id: DEFAULT_LEARN_NORMAL_MODEL, label: 'Normal', tier: 'normal' },
+      { id: DEFAULT_LEARN_MAX_MODEL, label: 'Max', tier: 'max', usageFactor: 14 },
     ]);
   });
 
   it("the fallback is the default models' factor from the built-in prices", () => {
-    const normal = DEFAULT_MODEL_PRICES[DEFAULT_SIMPLE_NORMAL_MODEL]!;
-    const max = DEFAULT_MODEL_PRICES[DEFAULT_SIMPLE_MAX_MODEL]!;
+    const normal = DEFAULT_MODEL_PRICES[DEFAULT_LEARN_NORMAL_MODEL]!;
+    const max = DEFAULT_MODEL_PRICES[DEFAULT_LEARN_MAX_MODEL]!;
     expect(usageFactorOf(normal, max)).toBe(MAX_USAGE_FACTOR_FALLBACK);
   });
 

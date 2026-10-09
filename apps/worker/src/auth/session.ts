@@ -1,4 +1,5 @@
 import { createMiddleware } from 'hono/factory';
+import { appConfig } from '../config.js';
 import type { AppBindings, AppEnv, Identity } from '../env.js';
 import { apiError } from '../http/errors.js';
 import { authConfigured, getAuth, type AuthDeps } from './auth.js';
@@ -6,7 +7,7 @@ import { authConfigured, getAuth, type AuthDeps } from './auth.js';
 /**
  * Requires a Better Auth session on owner routes (`/api/*` except the auth
  * endpoints and login options). Fails closed: with no BETTER_AUTH_SECRET,
- * requests are refused unless DEV_ALLOW_NO_AUTH === 'true' (local dev only).
+ * requests are refused unless DEV_ALLOW_NO_AUTH is exactly "true" (local dev only).
  *
  * The lookup never refreshes the session: a refresh must also re-issue the
  * cookie, which only Better Auth's own `GET /api/auth/get-session` does (the
@@ -16,7 +17,7 @@ import { authConfigured, getAuth, type AuthDeps } from './auth.js';
 export function sessionMiddleware(deps: AuthDeps = {}) {
   return createMiddleware<AppBindings>(async (c, next) => {
     if (!authConfigured(c.env)) {
-      if (c.env.DEV_ALLOW_NO_AUTH === 'true') {
+      if (appConfig(c.env).auth.devAllowNoAuth) {
         c.set('identity', { userId: null, email: null, devMode: true });
         return next();
       }
@@ -51,7 +52,7 @@ export async function optionalIdentity(
   deps: AuthDeps = {},
 ): Promise<Identity | null> {
   if (!authConfigured(env)) {
-    return env.DEV_ALLOW_NO_AUTH === 'true' ? { userId: null, email: null, devMode: true } : null;
+    return appConfig(env).auth.devAllowNoAuth ? { userId: null, email: null, devMode: true } : null;
   }
   const result = await getAuth(env, request, deps).api.getSession({
     headers: request.headers,

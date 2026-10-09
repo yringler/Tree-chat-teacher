@@ -181,7 +181,7 @@ export default defineConfig({
             // override with auth configured (as auth.test.ts does for BETTER_AUTH_SECRET).
             // The built-in provider (the endpoint `openrouter`): fake, reporting a fixed cost per call.
             // Unlike a deployment, Max is the default, as the suites were written against it.
-            SIMPLE_PROVIDER: JSON.stringify({
+            BUILT_IN_PROVIDER: JSON.stringify({
               id: 'openrouter',
               kind: 'fake',
               label: 'Tangent',
@@ -216,7 +216,7 @@ export default defineConfig({
             MEMBERSHIP_PRICE_CENTS: '1000',
             MEMBERSHIP_WAIVER_CODE: '',
             MARKUP_BPS: '1000',
-            // The open pool, on. Pool tests isolate themselves with a unique POOL_ACCOUNT_ID per
+            // The open pool, on. Pool tests isolate themselves with a unique TEST_POOL_ACCOUNT_ID per
             // test. The pool model is the fake built-in provider's `normal`, priced at 1 µ$ per token
             // each way, so every reply hold (up to 2,048 tokens out) is above the fake's reported
             // cost (0.001234 USD ≈ 1,302 µ$ with the fee) and only the test that targets the clamp
@@ -228,7 +228,6 @@ export default defineConfig({
             PERSONAL_CREDIT_ENABLED: 'false',
             // As deployed: tests that simulate purchases turn it on in an env override.
             DEV_PURCHASES_ENABLED: 'false',
-            POOL_ACCOUNT_ID: 'pool',
             POOL_MODEL: 'normal',
             // `max` is priced too, low, so a credit call on it holds USAGE_HOLD_MICROS like
             // any cheap model (a model without a price can't run on credit).
@@ -243,8 +242,8 @@ export default defineConfig({
             POOL_IP_PER_MINUTE: '100',
             // Generation lookups made inside Durable Objects (PoolBank's expiry) reach the
             // OpenRouter mock with this key; tests that need no key override it with ''.
-            OPENROUTER_SIMPLE_API_KEY: 'sk-or-test',
-            // Test-only RPC methods (PoolBank.expire, PoolBank.status).
+            BUILT_IN_API_KEY: 'sk-or-test',
+            // Test-only RPC methods (PoolBank.expire, PoolBank.status) and vars (config.ts TEST_VARS).
             TEST_SEAMS: 'true',
           },
           d1Databases: { DB: 'tangent-test' },

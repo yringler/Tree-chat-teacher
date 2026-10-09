@@ -7,6 +7,7 @@ import {
   type LearnPayment,
 } from '@tangent/shared';
 import { createMiddleware } from 'hono/factory';
+import { appConfig } from '../config.js';
 import type { AccountContext, AppBindings, AppEnv, Identity } from '../env.js';
 import { ipKey, utcDay } from '../pool/ids.js';
 import { resolvePoolParams } from '../pool/params.js';
@@ -126,7 +127,7 @@ export function resolveAccount(
 
 /** The caller's network key for the pool's per-network caps; null without an address or a secret. */
 async function poolIpKey(env: AppEnv, ip: string | null, now = new Date()): Promise<string | null> {
-  const secret = env.BETTER_AUTH_SECRET?.trim();
+  const secret = appConfig(env).auth.secret?.trim();
   if (!secret || !ip?.trim()) return null;
   return ipKey(secret, utcDay(now), ip);
 }

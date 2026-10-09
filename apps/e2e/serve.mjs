@@ -8,7 +8,7 @@
 //   (EMAIL_PROVIDER=log, localhost only) and Cloudflare's always-pass Turnstile test
 //   keys; the membership on, sold by the fake payment provider (allowed only with
 //   TEST_SEAMS, like the worker tests), so tests set memberships and credit through
-//   its signed webhook; no model is ever called (see PROVIDERS / SIMPLE_PROVIDER).
+//   its signed webhook; no model is ever called (see PROVIDERS / BUILT_IN_PROVIDER).
 // - wrangler/: the local D1 database and Durable Objects, migrated before start.
 // - wrangler.log: the server's output, where tests read magic links (tests/helpers.ts).
 //
@@ -80,12 +80,12 @@ const vars = {
   // Learn on the user's own key asks for one (a fake needs none). It points nowhere:
   // an own-key send without a key is refused before any call, and a send on credit
   // (missing-key-power.spec.ts) gets its message written and its reply fails at once.
-  SIMPLE_PROVIDER: JSON.stringify({
+  BUILT_IN_PROVIDER: JSON.stringify({
     id: 'openrouter',
     kind: 'openai-compatible',
     label: 'Tangent',
     baseUrl: 'http://127.0.0.1:9/v1',
-    apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
+    apiKeySecret: 'BUILT_IN_API_KEY',
     // Learn's tiers: Normal is the default.
     defaultModel: 'normal',
     models: [
@@ -93,7 +93,7 @@ const vars = {
       { id: 'max', label: 'Max', tier: 'max' },
     ],
   }),
-  OPENROUTER_SIMPLE_API_KEY: 'sk-or-e2e-unused',
+  BUILT_IN_API_KEY: 'sk-or-e2e-unused',
   // Credit holds each call at its model's price, and refuses a model without one. The daily
   // sync only lists OpenRouter, which this endpoint isn't, so the tiers are priced here, as a
   // deployment on another endpoint must: Normal at V4.1 Flash's price, Max at Sonnet's.

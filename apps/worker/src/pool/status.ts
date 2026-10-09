@@ -19,7 +19,12 @@ import {
   SIMPLE_RESERVED_OUTPUT_TOKENS,
   simpleProviderConfig,
 } from '../simple-mode.js';
-import { poolModel, poolPriceProblem, poolRequest } from './params.js';
+import {
+  POOL_SESSION_ESTIMATE_MICROS,
+  poolModel,
+  poolPriceProblem,
+  poolRequest,
+} from './params.js';
 import { dayResetAt, dayStart, userDayUsageStatement, type DayRow } from './pool-bank.js';
 
 /** How long the meter is cached at the edge (`caches.default`) and by browsers. */
@@ -88,7 +93,7 @@ export async function poolStatus(env: AppEnv): Promise<PoolStatusResponse> {
   return {
     ...base,
     availableMicros: available,
-    sessionsRemaining: Math.floor(available / pool.sessionEstimateMicros),
+    sessionsRemaining: Math.floor(available / POOL_SESSION_ESTIMATE_MICROS),
   };
 }
 

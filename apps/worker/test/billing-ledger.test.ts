@@ -98,9 +98,9 @@ describe('markupFor', () => {
     expect(markupFor({ ...env, MARKUP_BPS: '0' })).toBe(0);
   });
 
-  it('falls back to 1000 while MARKUP_BPS is empty or malformed', () => {
+  it('is 1000 while MARKUP_BPS is empty, and refuses a malformed one', () => {
     expect(markupFor({ ...env, MARKUP_BPS: '' })).toBe(1000);
-    expect(markupFor({ ...env, MARKUP_BPS: 'oops' })).toBe(1000);
+    expect(() => markupFor({ ...env, MARKUP_BPS: 'oops' })).toThrow('Invalid MARKUP_BPS="oops"');
   });
 });
 
@@ -259,8 +259,8 @@ describe('billing summary', () => {
     });
     const custom = await getBillingSummary({ ...env, OPENROUTER_FEE_BPS: '700' }, simpleAccount());
     expect(custom.openRouterFeeBps).toBe(700);
-    const bad = await getBillingSummary({ ...env, OPENROUTER_FEE_BPS: 'x' }, simpleAccount());
-    expect(bad.openRouterFeeBps).toBe(550);
+    const unset = await getBillingSummary({ ...env, OPENROUTER_FEE_BPS: '' }, simpleAccount());
+    expect(unset.openRouterFeeBps).toBe(550);
   });
 
   it('reports top-ups as unavailable without a credits product, though billing is enabled', async () => {

@@ -20,7 +20,7 @@ const DEPLOYED: Partial<AppEnv> = {
   PROVIDERS: '',
   // The real built-in provider (OpenRouter, with web search), not the test suite's fake,
   // and the pool on its default model (the background model: Normal's, so labelled Normal).
-  SIMPLE_PROVIDER: '',
+  BUILT_IN_PROVIDER: '',
   POOL_MODEL: '',
 };
 
@@ -208,7 +208,7 @@ describe('/pricing', () => {
   it('says on each pool line of the cards that it lasts while the pool has credit, with the balance now', async () => {
     const poolId = uniq('pool');
     await fundPool(poolId, 12_340_000);
-    const funded = (await pricing({ ...MEMBERSHIP, POOL_ACCOUNT_ID: poolId })).html;
+    const funded = (await pricing({ ...MEMBERSHIP, TEST_POOL_ACCOUNT_ID: poolId })).html;
     const pill = '<span class="while">While the pool has credit · currently $12.34</span></li>';
     // One pool line on the cards: the limits are the same whatever you pay with.
     expect(funded.split(pill).length).toBe(2);
@@ -216,7 +216,7 @@ describe('/pricing', () => {
       /free replies a day on the open pool<sup[^]*?<\/sup><span class="while">/,
     );
 
-    const empty = (await pricing({ POOL_ACCOUNT_ID: uniq('pool') })).html;
+    const empty = (await pricing({ TEST_POOL_ACCOUNT_ID: uniq('pool') })).html;
     expect(empty).toContain(
       '<span class="while">While the pool has credit · empty right now</span></li>',
     );

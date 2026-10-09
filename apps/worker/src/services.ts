@@ -25,7 +25,7 @@ import { groundingAllowance, groundingSettings } from './billing/grounding.js';
 import { defaultRouteFacts } from './billing/gate.js';
 import { createPoolUsageMeter, createUsageMeter, meteredRegistry } from './billing/meter.js';
 import { paymentProvider, paymentsConfigured } from './billing/payments/index.js';
-import { appConfig } from './config.js';
+import { appConfig, BUILT_IN_API_KEY_SECRET, namedSecrets } from './config.js';
 import { createD1Repositories } from './db/d1-repositories.js';
 import { withModelWindows } from './model-windows.js';
 import { isPoolFunded, type AccountContext, type AppEnv } from './env.js';
@@ -53,12 +53,13 @@ export type Defer = (p: Promise<unknown>) => void;
  * own (`creditRegistryFor`), even where both name the endpoint `openrouter`.
  */
 export function providerConfigs(env: AppEnv): ProviderConfig[] {
-  if (!env.PROVIDERS?.trim()) {
+  const providers = appConfig(env).power.providers;
+  if (!providers) {
     return DEFAULT_PROVIDER_CONFIGS.map((c) =>
       c.id === LEARN_KEY_PROVIDER ? openrouterWithSuggestions(env, c) : c,
     );
   }
-  return parseProviderConfigs(env.PROVIDERS);
+  return parseProviderConfigs(providers);
 }
 
 /**
@@ -108,19 +109,15 @@ export function providerEnv(
   apiKeys?: UserApiKeys,
   withheld: ReadonlySet<string> = new Set(),
 ): ProviderEnv {
-  const named = new Set([
-    ...apiKeySecrets(configs),
-    ...configs.flatMap((c) => Object.values(c.extraHeaderSecrets ?? {})),
-  ]);
-  const secrets: Record<string, string | undefined> = {};
-  for (const [k, v] of Object.entries(env)) {
-    if (typeof v === 'string' && named.has(k) && !withheld.has(k)) secrets[k] = v;
-  }
+  const named = new Set(
+    [
+      ...apiKeySecrets(configs),
+      ...configs.flatMap((c) => Object.values(c.extraHeaderSecrets ?? {})),
+    ].filter((name) => !withheld.has(name)),
+  );
+  const secrets = namedSecrets(env, named);
   return apiKeys ? { secrets, apiKeys } : { secrets };
 }
-
-/** The secret behind the built-in provider; only ever used through it. */
-const SIMPLE_KEY_SECRET = 'OPENROUTER_SIMPLE_API_KEY';
 
 function apiKeySecrets(configs: readonly ProviderConfig[]): string[] {
   return configs.flatMap((c) => (c.apiKeySecret ? [c.apiKeySecret] : []));
@@ -128,12 +125,12 @@ function apiKeySecrets(configs: readonly ProviderConfig[]): string[] {
 
 /**
  * Public share links are offered only once the operator has registered a DMCA
- * designated agent (`DMCA_AGENT_REGISTERED` = "true"): without it, hosting
+ * designated agent (`DMCA_AGENT_REGISTERED` is true): without it, hosting
  * what users publish carries no safe harbor. Off = no links are created or
  * served; exporting a conversation as a file still works.
  */
 export function sharingEnabled(env: AppEnv): boolean {
-  return env.DMCA_AGENT_REGISTERED?.trim().toLowerCase() === 'true';
+  return appConfig(env).site.sharingEnabled;
 }
 
 /**
@@ -157,7 +154,7 @@ export async function canShare(env: AppEnv, userId: string | null): Promise<bool
 
 /**
  * True when the `tangent` provider is usable with the operator's key (the
- * SIMPLE_PROVIDER override and its `apiKeySecret` respected), whoever pays.
+ * BUILT_IN_PROVIDER override and its `apiKeySecret` respected), whoever pays.
  */
 export function builtInProviderUsable(env: AppEnv): boolean {
   const configs = [simpleProviderConfig(env)];
@@ -255,11 +252,11 @@ export function registryFor(
       env,
       [config],
       own ? { [config.id]: own } : undefined,
-      new Set([SIMPLE_KEY_SECRET, ...apiKeySecrets([config])]),
+      new Set([BUILT_IN_API_KEY_SECRET, ...apiKeySecrets([config])]),
     );
   }
   const configs = providerConfigs(env);
-  const withheld = new Set([SIMPLE_KEY_SECRET]);
+  const withheld = new Set([BUILT_IN_API_KEY_SECRET]);
   if (!account.operatorKeys) for (const name of apiKeySecrets(configs)) withheld.add(name);
   return windowedRegistry(env, configs, apiKeys, withheld);
 }
@@ -338,13 +335,14 @@ export function chatSettingsFor(
   const pool = poolScope(account, scope);
   if (pool) return poolChatSettings(pool);
   if (account.mode === 'simple') return simpleChatSettings(env);
+  const { summaryProviderId, summaryModel, autoTitle } = appConfig(env).power;
   return {
     ...DEFAULT_CHAT_SETTINGS,
     // A summary provider is looked up among the own-key routes only (ChatService), so
     // summaries of branches on the user's own keys never cost credit.
-    summaryProviderId: env.SUMMARY_PROVIDER_ID?.trim() || null,
-    summaryModel: env.SUMMARY_MODEL?.trim() || null,
-    autoTitle: env.AUTO_TITLE !== 'false',
+    summaryProviderId,
+    summaryModel,
+    autoTitle,
     grounding: groundingSettings(env, 'power'),
   };
 }
@@ -353,7 +351,7 @@ export function chatSettingsFor(
  * Built-in system prompt of an account's new trees, used when the request
  * names none and the account has none saved (GET/PATCH /api/settings). Both
  * modes share DEFAULT_SYSTEM_PROMPT; only Learn honours the operator's
- * SIMPLE_SYSTEM_PROMPT, since power users can set their own. A generating
+ * LEARN_SYSTEM_PROMPT, since power users can set their own. A generating
  * pool request uses the pool's locked prompt (which also replaces the tree's).
  */
 export function defaultSystemPromptFor(
@@ -525,7 +523,7 @@ export function chatService(
 }
 
 export function shareService(env: AppEnv, requestUrl: string, accountId?: string): ShareService {
-  const base = env.PUBLIC_BASE_URL?.trim() || new URL(requestUrl).origin;
+  const base = appConfig(env).site.publicBaseUrl ?? new URL(requestUrl).origin;
   return new ShareService({
     repos: createD1Repositories(env.DB),
     publicBaseUrl: base,

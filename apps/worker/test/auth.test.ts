@@ -1,6 +1,6 @@
 import type { LoginOptionsResponse, MeResponse } from '@tangent/shared';
 import { env, exports } from 'cloudflare:workers';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
 import { REMEMBER_COOKIE } from '../src/auth/auth.js';
 import type { EmailMessage, EmailSender } from '../src/email/index.js';
@@ -100,7 +100,7 @@ async function signIn(
 
 describe('fail closed', () => {
   it('500 on /api/* and /api/auth/* with no BETTER_AUTH_SECRET and no dev bypass', async () => {
-    for (const dev of ['', 'false', '1', 'TRUE']) {
+    for (const dev of ['', 'false']) {
       const { call } = setup(authEnv({ BETTER_AUTH_SECRET: '', DEV_ALLOW_NO_AUTH: dev }));
       const me = await call('/api/me');
       expect(me.status).toBe(500);
@@ -109,6 +109,15 @@ describe('fail closed', () => {
       });
       expect((await call('/api/auth/get-session')).status).toBe(500);
     }
+    // A near miss is a config error, never the bypass.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    for (const dev of ['1', 'TRUE', ' true']) {
+      const { call } = setup(authEnv({ BETTER_AUTH_SECRET: '', DEV_ALLOW_NO_AUTH: dev }));
+      const me = await call('/api/me');
+      expect(me.status).toBe(500);
+      expect(((await me.json()) as { error: { code: string } }).error.code).toBe('internal');
+    }
+    error.mockRestore();
   });
 
   it('dev bypass applies only while BETTER_AUTH_SECRET is unset', async () => {

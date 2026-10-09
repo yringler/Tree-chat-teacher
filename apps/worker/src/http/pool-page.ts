@@ -13,7 +13,7 @@ import { membershipRequired } from '../billing/membership.js';
 import { appConfig, type PoolDailyCaps, type PoolGlobalCap } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
 import { modelPrice } from '../pool/model-prices.js';
-import { poolModel } from '../pool/params.js';
+import { POOL_SESSION_ESTIMATE_MICROS, poolModel } from '../pool/params.js';
 import { ceilingHoldMicros } from '../pool/pricing.js';
 import { poolModelInfo } from '../pool/status.js';
 import { creditSold } from '../services.js';
@@ -59,7 +59,7 @@ export async function poolPageFacts(env: AppEnv): Promise<PoolPageFacts> {
   return {
     enabled: config.flags.poolEnabled,
     model: poolModelInfo(env),
-    sessionEstimateMicros: pool.sessionEstimateMicros,
+    sessionEstimateMicros: POOL_SESSION_ESTIMATE_MICROS,
     maxOutputTokens: pool.maxOutputTokens,
     user: pool.caps.user,
     membershipOffered: membershipRequired(env),

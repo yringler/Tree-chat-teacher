@@ -33,6 +33,7 @@ import type { AppBindings, AppEnv } from '../env.js';
 import { apiError, validateJson, validateQuery } from '../http/errors.js';
 import { identitySuspensionStatement } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
+import { POOL_OVERAGE } from '../pool/params.js';
 import { poolOverageMicros } from '../pool/pool-bank.js';
 import { purgeShare } from '../share/cache.js';
 import { poolAvailable, shareService, sharingEnabled } from '../services.js';
@@ -248,9 +249,8 @@ export function adminRoutes(): Hono<AppBindings> {
 
   // The pool's ledger and overage breaker, for the admin pool panel (top-ups: POST /credit).
   r.get('/pool', async (c) => {
-    const config = appConfig(c.env);
-    const poolId = config.pool.accountId;
-    const { overage } = config.pool;
+    const poolId = appConfig(c.env).pool.accountId;
+    const overage = POOL_OVERAGE;
     const [balance, overageMicros] = await Promise.all([
       getBalance(c.env.DB, poolId),
       poolOverageMicros(c.env.DB, poolId, overage.windowMs, new Date()),

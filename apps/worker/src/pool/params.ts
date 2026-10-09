@@ -11,18 +11,44 @@ import {
   type ModelPrice,
   type PoolCaps,
   type PoolConfig,
-  type PoolOverage,
   type PoolRateLimits,
   type TierRequestConfig,
 } from '../config.js';
 import type { AppEnv } from '../env.js';
 import { simpleFastModel, simpleProviderConfig } from '../simple-mode.js';
 import { modelPrice, withCacheWritePrice } from './model-prices.js';
-import type { PoolAdmitRequest, PoolRefusal, PoolReserveRequest } from './pool-bank.js';
+import type {
+  PoolAdmitRequest,
+  PoolOverage,
+  PoolRefusal,
+  PoolReserveRequest,
+} from './pool-bank.js';
 import { ceilingHoldMicros } from './pricing.js';
 
+// The pool's timings and breaker: internal mechanics, the same for every
+// deployment. The expiry needs a call to have timed out a while before its
+// reservation may expire (the slack covers the alarm's lag), and a
+// generation lookup must not give up before the reservation could expire.
+
+/** A reservation still pending after this long is expired by the PoolBank alarm. */
+export const POOL_RESERVATION_TTL_MS = 10 * 60_000;
+/** Pool calls are aborted after this long: at most the TTL minus a minute. */
+export const POOL_CALL_TIMEOUT_MS = 120_000;
+/** A dispatched call whose cost is still unknown after this long is charged its full hold (at least the TTL). */
+export const POOL_GIVE_UP_MS = 60 * 60_000;
+/** Reservations one expiry pass settles before it re-arms. */
+export const POOL_EXPIRE_BATCH = 20;
+/**
+ * The overage breaker: settled charges above their holds by more than this
+ * within a day mean a price drifted, and the pool refuses every reservation
+ * until the window clears.
+ */
+export const POOL_OVERAGE: PoolOverage = { windowMs: 24 * 60 * 60_000, maxMicros: 200_000 };
+/** What one "learning session" is shown as on the pool meter (micro-USD). */
+export const POOL_SESSION_ESTIMATE_MICROS = 20_000;
+
 export interface PoolParams {
-  /** The pool's ledger account id (`POOL_ACCOUNT_ID`). */
+  /** The pool's ledger account id (config.ts `POOL_ACCOUNT_ID`). */
   accountId: string;
   /** The one model pool calls use; every pool hold is priced for it. */
   model: string;
@@ -39,18 +65,13 @@ export interface PoolParams {
   summaryEffort: ReasoningEffort | null;
   /** The longest message a pool send accepts (`POOL_MAX_MESSAGE_CHARS`). */
   maxMessageChars: number;
-  ttlMs: number;
-  giveUpMs: number;
-  callTimeoutMs: number;
-  expireBatch: number;
   caps: PoolCaps;
   limits: PoolRateLimits;
-  overage: PoolOverage;
   /** The caller's network key for per-IP caps (pool/ids.ts `ipKey`); null when unknown. */
   ipKey: string | null;
 }
 
-/** The pool model: `POOL_MODEL`, else Learn's background model (`simpleFastModel`, SIMPLE_FAST_MODEL). */
+/** The pool model: `POOL_MODEL`, else Learn's background model (`simpleFastModel`, BACKGROUND_MODEL). */
 export function poolModel(env: AppEnv): string {
   return appConfig(env).pool.model ?? simpleFastModel(env, simpleProviderConfig(env));
 }
@@ -100,13 +121,8 @@ export async function resolvePoolParams(env: AppEnv, ipKey: string | null): Prom
     providerOrder: request.providerOrder,
     summaryEffort: backgroundEffort(env, model),
     maxMessageChars: pool.maxMessageChars,
-    ttlMs: pool.reservationTtlMs,
-    giveUpMs: pool.giveUpMs,
-    callTimeoutMs: pool.callTimeoutMs,
-    expireBatch: pool.expireBatch,
     caps: pool.caps,
     limits: pool.limits,
-    overage: pool.overage,
     ipKey,
   };
 }
@@ -224,8 +240,8 @@ export function poolReserveRequest(
     ...call,
     caps: pool.caps,
     limits: pool.limits,
-    overage: pool.overage,
-    expiry: { ttlMs: pool.ttlMs, giveUpMs: pool.giveUpMs, batch: pool.expireBatch },
+    overage: POOL_OVERAGE,
+    expiry: { ttlMs: POOL_RESERVATION_TTL_MS, giveUpMs: POOL_GIVE_UP_MS, batch: POOL_EXPIRE_BATCH },
   };
 }
 
@@ -236,7 +252,7 @@ export function poolAdmitRequest(pool: PoolParams, userId: string): PoolAdmitReq
     userId,
     ipKey: pool.ipKey,
     limits: pool.limits,
-    overage: pool.overage,
+    overage: POOL_OVERAGE,
   };
 }
 

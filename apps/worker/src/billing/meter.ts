@@ -52,7 +52,12 @@ import { DomainError, PaymentRequiredError } from '@tangent/core';
 import type { AccountContext, AppEnv } from '../env.js';
 import { poolBank } from '../pool/ids.js';
 import { creditPrice } from '../pool/model-prices.js';
-import { poolReserveRequest, type PoolParams } from '../pool/params.js';
+import {
+  POOL_CALL_TIMEOUT_MS,
+  POOL_RESERVATION_TTL_MS,
+  poolReserveRequest,
+  type PoolParams,
+} from '../pool/params.js';
 import type { PoolRefusal } from '../pool/pool-bank.js';
 import {
   exceedsInputLimit,
@@ -69,7 +74,7 @@ import {
   creditRefusal,
   estimatedInputTokens,
   unpricedOnCredit,
-  usageMaxPending,
+  USAGE_MAX_PENDING,
 } from './service.js';
 import {
   markDispatched,
@@ -354,9 +359,9 @@ class PoolRun extends ObservedRun {
 
   override async dispatch(): Promise<boolean> {
     // Never start a call that could still be running when the expiry alarm
-    // reaches its reservation: the stamp needs `callTimeoutMs` before the TTL.
+    // reaches its reservation: the stamp needs POOL_CALL_TIMEOUT_MS before the TTL.
     const now = new Date();
-    const notBefore = new Date(now.getTime() - (this.pool.ttlMs - this.pool.callTimeoutMs));
+    const notBefore = new Date(now.getTime() - (POOL_RESERVATION_TTL_MS - POOL_CALL_TIMEOUT_MS));
     this.dispatched = await markDispatched(this.env.DB, this.usageId, now, notBefore);
     return this.dispatched;
   }
@@ -466,7 +471,7 @@ export function createUsageMeter(
           createdAt: new Date().toISOString(),
         },
         // A reply's summaries and title, and a reserved reply's retry, ride on its admission.
-        tag?.reservationId || RIDES_ON_A_CALL.has(purpose) ? null : usageMaxPending(env),
+        tag?.reservationId || RIDES_ON_A_CALL.has(purpose) ? null : USAGE_MAX_PENDING,
       );
       if (!reserved) {
         const refusal = await creditRefusal(env, account.billingAccountId, holdMicros);
@@ -483,7 +488,7 @@ export function createUsageMeter(
 /**
  * The open pool's meter for `userId`'s calls. Holds are priced for
  * `pool.model` whatever `request.model` says, output is capped at
- * `pool.maxOutputTokens`, and each call is aborted after `pool.callTimeoutMs`.
+ * `pool.maxOutputTokens`, and each call is aborted after POOL_CALL_TIMEOUT_MS.
  */
 export function createPoolUsageMeter(
   env: AppEnv,
@@ -544,7 +549,7 @@ export function createPoolUsageMeter(
       const upstream: GenerateRequest = {
         ...withoutSearch,
         maxOutputTokens: maxOutput,
-        signal: AbortSignal.any([request.signal, AbortSignal.timeout(pool.callTimeoutMs)]),
+        signal: AbortSignal.any([request.signal, AbortSignal.timeout(POOL_CALL_TIMEOUT_MS)]),
       };
       // The pool pays the true cost: no markup.
       return new PoolRun(env, usageId, 0, feeBps, defer, options, upstream, pool);

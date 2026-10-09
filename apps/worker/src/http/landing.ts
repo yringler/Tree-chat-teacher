@@ -50,7 +50,7 @@ export function hasSessionCookie(cookieHeader: string | null | undefined): boole
 
 /** The local dev bypass (auth/session.ts): everyone is the owner, so `/` is the app. */
 function devBypass(env: AppEnv): boolean {
-  return !authConfigured(env) && env.DEV_ALLOW_NO_AUTH === 'true';
+  return !authConfigured(env) && appConfig(env).auth.devAllowNoAuth;
 }
 
 /**

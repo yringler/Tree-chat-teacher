@@ -98,7 +98,7 @@ describe('createEmailSender', () => {
   it('rejects unknown providers', () => {
     expect(() =>
       createEmailSender(e({ EMAIL_PROVIDER: 'carrier-pigeon' }), 'https://a.example'),
-    ).toThrow('Unknown EMAIL_PROVIDER "carrier-pigeon"');
+    ).toThrow('Invalid EMAIL_PROVIDER="carrier-pigeon": expected resend, log');
   });
 });
 

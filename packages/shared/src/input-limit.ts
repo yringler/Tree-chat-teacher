@@ -55,7 +55,7 @@ export interface InputBudgetResponse {
   reasoning: boolean;
   /**
    * The most input the server sends on this route whatever the setting
-   * (Tangent credit: SIMPLE_MAX_INPUT_TOKENS); null = only the window bounds it.
+   * (Tangent credit: BUILT_IN_MAX_INPUT_TOKENS); null = only the window bounds it.
    */
   serverMaxInputTokens: number | null;
   /**

@@ -1,11 +1,21 @@
 import { DEFAULT_SYSTEM_PROMPT } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-// @ts-expect-error -- `?raw` is a Vite import; the worker tsconfig has no vite/client types.
-import wranglerText from '../wrangler.jsonc?raw';
-import { appConfig, boolVar, DEFAULT_MODEL_PRICES, intVar, positiveInt } from '../src/config.js';
+import {
+  appConfig,
+  boolVar,
+  ConfigError,
+  DEFAULT_MODEL_PRICES,
+  enumVar,
+  intVar,
+  POOL_ACCOUNT_ID,
+  strictFlagVar,
+} from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
 import {
+  POOL_CALL_TIMEOUT_MS,
+  POOL_GIVE_UP_MS,
+  POOL_RESERVATION_TTL_MS,
   poolConfigProblem,
   poolModel,
   replyCeilingMicros,
@@ -17,7 +27,7 @@ import { simpleMaxInputTokens } from '../src/simple-mode.js';
 
 const env = rawEnv as unknown as AppEnv;
 
-/** The deployed defaults: every pool var empty (wrangler.jsonc ships most of them set to these). */
+/** The deployed defaults: every pool var empty. */
 const POOL_VARS = Object.keys(env).filter((k) => k.startsWith('POOL_') || k === 'MODEL_PRICES');
 const blank = (overrides: Record<string, string> = {}): AppEnv =>
   ({ ...env, ...Object.fromEntries(POOL_VARS.map((k) => [k, ''])), ...overrides }) as AppEnv;
@@ -27,23 +37,74 @@ afterEach(() => {
 });
 
 describe('config parsers', () => {
-  it('intVar: non-negative integers only', () => {
-    expect(intVar('42', 7)).toBe(42);
-    expect(intVar(' 0 ', 7)).toBe(0);
-    for (const bad of [undefined, '', '-1', '1.5', '1e3', 'x', '99999999999999999999'])
-      expect(intVar(bad, 7)).toBe(7);
+  it('intVar: empty is the default; anything but an integer in range throws', () => {
+    expect(intVar('N', '42', 7)).toBe(42);
+    expect(intVar('N', ' 0 ', 7)).toBe(0);
+    for (const empty of [undefined, '', '  ']) expect(intVar('N', empty, 7)).toBe(7);
+    for (const bad of ['-1', '1.5', '1e3', 'x', '99999999999999999999'])
+      expect(() => intVar('N', bad, 7)).toThrow(ConfigError);
+    expect(() => intVar('N', '0', 5, { min: 1 })).toThrow(
+      'Invalid N="0": expected an integer from 1',
+    );
+    expect(() => intVar('N', '26', 5, { min: 1, max: 25 })).toThrow(ConfigError);
   });
 
-  it('positiveInt: rejects 0, negatives and fractions', () => {
-    expect(positiveInt('12', 5)).toBe(12);
-    for (const bad of [undefined, '', '0', '-3', '2.5', 'x']) expect(positiveInt(bad, 5)).toBe(5);
+  it('boolVar: true/false in any case; empty is the default; anything else throws', () => {
+    expect(boolVar('B', 'TRUE', false)).toBe(true);
+    expect(boolVar('B', ' False ', true)).toBe(false);
+    expect(boolVar('B', undefined, true)).toBe(true);
+    expect(boolVar('B', '', false)).toBe(false);
+    for (const bad of ['yes', '1', 'on', 'ture'])
+      expect(() => boolVar('B', bad, false)).toThrow('Invalid B=');
   });
 
-  it('boolVar: true/false in any case, else the fallback', () => {
-    expect(boolVar('TRUE', false)).toBe(true);
-    expect(boolVar(' false ', true)).toBe(false);
-    expect(boolVar('yes', false)).toBe(false);
-    expect(boolVar(undefined, true)).toBe(true);
+  it('strictFlagVar: on only for exactly "true"; a near miss throws', () => {
+    expect(strictFlagVar('F', 'true')).toBe(true);
+    for (const off of [undefined, '', 'false']) expect(strictFlagVar('F', off)).toBe(false);
+    for (const bad of ['TRUE', ' true', 'true ', 'yes', '1'])
+      expect(() => strictFlagVar('F', bad)).toThrow(ConfigError);
+  });
+
+  it('enumVar: one of the values, in any case; empty is the default', () => {
+    expect(enumVar('E', ' LOG ', ['resend', 'log'], 'resend')).toBe('log');
+    expect(enumVar('E', '', ['resend', 'log'], 'resend')).toBe('resend');
+    expect(() => enumVar('E', 'smtp', ['resend', 'log'], 'resend')).toThrow(
+      'Invalid E="smtp": expected resend, log',
+    );
+  });
+
+  it('AUTO_TITLE="False" turns titles off, and DEV_ALLOW_NO_AUTH is exact', () => {
+    expect(appConfig(blank({ AUTO_TITLE: 'False' })).power.autoTitle).toBe(false);
+    expect(appConfig(blank({ AUTO_TITLE: '' })).power.autoTitle).toBe(true);
+    expect(appConfig(blank({ DEV_ALLOW_NO_AUTH: 'true' })).auth.devAllowNoAuth).toBe(true);
+    expect(appConfig(blank({ DEV_ALLOW_NO_AUTH: '' })).auth.devAllowNoAuth).toBe(false);
+    expect(() => appConfig(blank({ DEV_ALLOW_NO_AUTH: 'True' }))).toThrow(
+      'Invalid DEV_ALLOW_NO_AUTH="True"',
+    );
+  });
+
+  it('a malformed var fails the whole config, naming it', () => {
+    expect(() => appConfig(blank({ DMCA_AGENT_REGISTERED: 'yes' }))).toThrow(
+      'Invalid DMCA_AGENT_REGISTERED="yes": expected true or false',
+    );
+    expect(() => appConfig(blank({ POLAR_SERVER: 'live' }))).toThrow('Invalid POLAR_SERVER="live"');
+    expect(() => appConfig(blank({ GROUNDING: 'sometimes' }))).toThrow('Invalid GROUNDING=');
+    expect(() => appConfig(blank({ POOL_USER_PER_MINUTE: '0' }))).toThrow(
+      'Invalid POOL_USER_PER_MINUTE="0"',
+    );
+  });
+
+  it('the fake payment provider and the test vars need TEST_SEAMS', () => {
+    expect(() => appConfig(blank({ TEST_SEAMS: '', PAYMENT_PROVIDER: 'fake' }))).toThrow(
+      'PAYMENT_PROVIDER=fake is only allowed in tests (TEST_SEAMS)',
+    );
+    const deployed = blank({
+      TEST_SEAMS: '',
+      PAYMENT_PROVIDER: 'polar',
+      TEST_POOL_ACCOUNT_ID: 'p',
+    });
+    expect(appConfig(deployed).pool.accountId).toBe(POOL_ACCOUNT_ID);
+    expect(appConfig(blank({ TEST_POOL_ACCOUNT_ID: 'p' })).pool.accountId).toBe('p');
   });
 });
 
@@ -63,14 +124,8 @@ describe('appConfig', () => {
       maxInputTokens: 16_000,
       maxOutputTokens: 8192,
       maxMessageChars: 4000,
-      reservationTtlMs: 600_000,
-      giveUpMs: 3_600_000,
-      callTimeoutMs: 120_000,
-      expireBatch: 20,
-      sessionEstimateMicros: 20_000,
       limits: { userPerMinute: 6, ipPerMinute: 20 },
       minAccountAgeMs: 0,
-      overage: { windowMs: 86_400_000, maxMicros: 200_000 },
     });
     // One set of caps for everyone: no member tier.
     expect(c.pool.caps).toEqual({
@@ -79,11 +134,10 @@ describe('appConfig', () => {
       ip: { requestsPerDay: 60, spendMicrosPerDay: 300_000 },
     });
     expect(c.billing).toEqual({
-      usageHoldMicros: 20_000,
-      usageMaxPending: 6,
       markupBps: 1000,
       openRouterFeeBps: 550,
       membershipPriceCents: 1000,
+      membershipWaiverCode: null,
     });
   });
 
@@ -93,7 +147,6 @@ describe('appConfig', () => {
       ANNUAL_FEE_ENABLED: 'true',
       PERSONAL_CREDIT_ENABLED: 'TRUE',
       DEV_PURCHASES_ENABLED: 'true',
-      POOL_ACCOUNT_ID: 'pool-x',
       POOL_REQUESTS_PER_DAY: '9',
       POOL_SPEND_MICROS_PER_DAY: '12',
       POOL_DAILY_GLOBAL_MICROS: '700',
@@ -108,25 +161,23 @@ describe('appConfig', () => {
       personalCreditEnabled: true,
       devPurchasesEnabled: true,
     });
-    expect(c.pool.accountId).toBe('pool-x');
     expect(c.pool.caps.user).toEqual({ requestsPerDay: 9, spendMicrosPerDay: 12 });
     expect(c.pool.caps.global).toEqual({ spendMicrosPerDay: 700, bpsOfMorningBalance: 50 });
     expect(c.pool.systemPrompt).toBe('Teach.');
     expect(Object.isFrozen(c.pool.caps.user)).toBe(true);
-    expect(appConfig(blank({ POOL_REQUESTS_PER_DAY: 'lots' })).pool.caps.user.requestsPerDay).toBe(
-      30,
+    expect(() => appConfig(blank({ POOL_REQUESTS_PER_DAY: 'lots' }))).toThrow(
+      'Invalid POOL_REQUESTS_PER_DAY="lots"',
     );
   });
 
   it('falls back to the Learn prompt, then the built-in one, for the locked pool prompt', () => {
-    expect(appConfig(blank({ SIMPLE_SYSTEM_PROMPT: 'Learn.' })).pool.systemPrompt).toBe('Learn.');
-    expect(appConfig(blank({ SIMPLE_SYSTEM_PROMPT: '' })).pool.systemPrompt).toBe(
+    expect(appConfig(blank({ LEARN_SYSTEM_PROMPT: 'Learn.' })).pool.systemPrompt).toBe('Learn.');
+    expect(appConfig(blank({ LEARN_SYSTEM_PROMPT: '' })).pool.systemPrompt).toBe(
       DEFAULT_SYSTEM_PROMPT,
     );
   });
 
-  it('merges valid MODEL_PRICES over the defaults and ignores invalid ones', () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  it('merges valid MODEL_PRICES over the defaults and refuses invalid ones', () => {
     const merged = appConfig(
       blank({ MODEL_PRICES: JSON.stringify({ m: { in: 5, out: 6, context: 100, feeBps: 0 } }) }),
     ).prices;
@@ -163,42 +214,23 @@ describe('appConfig', () => {
       JSON.stringify({ m: { in: 1, out: 1, context: 1, extra: true } }),
       JSON.stringify([1]),
     ]) {
-      expect(appConfig(blank({ MODEL_PRICES: bad })).prices).toEqual(DEFAULT_MODEL_PRICES);
+      expect(() => appConfig(blank({ MODEL_PRICES: bad }))).toThrow('Invalid MODEL_PRICES=');
     }
-    expect(error).toHaveBeenCalled();
   });
 
-  it('ships no pool purchase, pool markup or revenue share vars', () => {
-    for (const gone of [
-      'POOL_PURCHASES_ENABLED',
-      'POOL_MIN_PURCHASE_CENTS',
-      'POOL_MARKUP_BPS',
-      'POOL_REVENUE_SHARE_BPS',
-    ])
-      expect(wranglerText as string).not.toContain(gone);
+  it("the pool's timings leave the expiry its slack", () => {
+    // A call times out a minute or more before its reservation may expire, and a generation
+    // lookup gives up no earlier than the reservation could.
+    expect(POOL_CALL_TIMEOUT_MS).toBeLessThanOrEqual(POOL_RESERVATION_TTL_MS - 60_000);
+    expect(POOL_GIVE_UP_MS).toBeGreaterThanOrEqual(POOL_RESERVATION_TTL_MS);
   });
 
-  it('clamps unsafe combinations, logging each', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const c = appConfig(
-      blank({
-        POOL_RESERVATION_TTL_MS: '300000',
-        POOL_CALL_TIMEOUT_MS: '600000',
-        POOL_GIVE_UP_MS: '1000',
-      }),
+  it('BUILT_IN_MAX_INPUT_TOKENS is positive', () => {
+    expect(() => simpleMaxInputTokens({ ...env, BUILT_IN_MAX_INPUT_TOKENS: '0' })).toThrow(
+      ConfigError,
     );
-    expect(c.pool.callTimeoutMs).toBe(240_000); // the TTL minus a minute
-    expect(c.pool.giveUpMs).toBe(300_000); // at least the TTL
-    expect(warn).toHaveBeenCalledTimes(2);
-    warn.mockClear();
-    const safe = appConfig(blank());
-    expect(safe.pool.callTimeoutMs).toBe(120_000);
-    expect(warn).not.toHaveBeenCalled();
-  });
-
-  it('SIMPLE_MAX_INPUT_TOKENS is positive', () => {
-    expect(simpleMaxInputTokens({ ...env, SIMPLE_MAX_INPUT_TOKENS: '0' })).toBe(60_000);
-    expect(simpleMaxInputTokens({ ...env, SIMPLE_MAX_INPUT_TOKENS: '1234' })).toBe(1234);
+    expect(simpleMaxInputTokens({ ...env, BUILT_IN_MAX_INPUT_TOKENS: '' })).toBe(60_000);
+    expect(simpleMaxInputTokens({ ...env, BUILT_IN_MAX_INPUT_TOKENS: '1234' })).toBe(1234);
   });
 });
 
@@ -247,7 +279,7 @@ describe('resolvePoolParams', () => {
       ...env,
       POOL_MODEL: model,
       MODEL_PRICES: '',
-      POOL_ACCOUNT_ID: `pool-synced-${Date.now()}`,
+      TEST_POOL_ACCOUNT_ID: `pool-synced-${Date.now()}`,
     } as AppEnv;
     expect(poolAvailable(synced)).toBe(true);
     expect((await poolStatus(synced)).enabled).toBe(true);
@@ -270,8 +302,8 @@ describe('resolvePoolParams', () => {
 
   it("defaults the model to Learn's background model; an unpriced model has no price", async () => {
     const noModel = { ...env, POOL_MODEL: '' } as AppEnv;
-    // SIMPLE_FAST_MODEL when the fake config lists it, else that config's default.
-    expect(poolModel({ ...noModel, SIMPLE_FAST_MODEL: 'normal' } as AppEnv)).toBe('normal');
+    // BACKGROUND_MODEL when the fake config lists it, else that config's default.
+    expect(poolModel({ ...noModel, BACKGROUND_MODEL: 'normal' } as AppEnv)).toBe('normal');
     expect(poolModel(noModel)).toBe('max');
     expect(
       (await resolvePoolParams({ ...env, POOL_MODEL: 'vendor/unpriced' } as AppEnv, null)).price,

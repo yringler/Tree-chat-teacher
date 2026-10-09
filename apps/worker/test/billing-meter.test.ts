@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getBalance, grantCredit } from '../src/billing/ledger.js';
 import { createUsageMeter, meteredRegistry, type UsageMeterOptions } from '../src/billing/meter.js';
 import { chargeMicros, costUsdToNanos } from '../src/billing/pricing.js';
-import { usageHoldMicros } from '../src/billing/service.js';
+import { USAGE_HOLD_MICROS } from '../src/billing/service.js';
 import { costFromTokensNanos } from '../src/pool/pricing.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import {
@@ -28,7 +28,7 @@ import {
 
 const env = {
   ...(rawEnv as unknown as AppEnv),
-  OPENROUTER_SIMPLE_API_KEY: 'sk-or-simple-test',
+  BUILT_IN_API_KEY: 'sk-or-simple-test',
 } as AppEnv;
 const FAST: UsageMeterOptions = { retryDelaysMs: [5, 5, 5, 5], settleRetryDelaysMs: [5, 5] };
 
@@ -331,13 +331,13 @@ describe('usage meter', () => {
     expect((await generationCalls(gen)).count).toBe(4);
   });
 
-  it('uses the key named by SIMPLE_PROVIDER.apiKeySecret', async () => {
+  it('uses the key named by BUILT_IN_PROVIDER.apiKeySecret', async () => {
     const h = await harness();
     const gen = uniq('gen-key');
     await scriptGeneration(gen, [{ costUsd: 0.001 }]);
     const custom = {
       ...env,
-      SIMPLE_PROVIDER: JSON.stringify({
+      BUILT_IN_PROVIDER: JSON.stringify({
         id: 'openrouter',
         kind: 'openai-compatible',
         label: 'T',
@@ -499,7 +499,7 @@ describe('usage meter holds on credit', () => {
       1000,
       550,
     );
-    expect(worst).toBeGreaterThan(usageHoldMicros(env));
+    expect(worst).toBeGreaterThan(USAGE_HOLD_MICROS);
     expect(held).toEqual([expect.objectContaining({ status: 'pending', hold_micros: worst })]);
   });
 
@@ -510,7 +510,7 @@ describe('usage meter holds on credit', () => {
     await grantCredit(env.DB, {
       accountId: h.account.billingAccountId,
       kind: 'adjustment',
-      amountMicros: usageHoldMicros(env) - balanceMicros,
+      amountMicros: USAGE_HOLD_MICROS - balanceMicros,
       providerRef: null,
     });
     const provider = scriptedProvider(reply);

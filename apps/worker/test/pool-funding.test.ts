@@ -11,8 +11,6 @@ import {
 } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
-// @ts-expect-error -- `?raw` is a Vite import; the worker tsconfig has no vite/client types.
-import wranglerText from '../wrangler.jsonc?raw';
 import { getBalance } from '../src/billing/ledger.js';
 import { decodeFakeUrl } from '../src/billing/providers/fake.js';
 import { fulfilPurchase } from '../src/billing/purchases.js';
@@ -22,6 +20,7 @@ import type { AppEnv } from '../src/env.js';
 import { poolBank } from '../src/pool/ids.js';
 import { insertUser, uniq } from './mocks/billing-helpers.js';
 import { paid, refunded } from './mocks/payment-events.js';
+import { shippedVars } from './mocks/wrangler-vars.js';
 import { fundPool, poolReadyUser } from './pool-helpers.js';
 import { authEnv } from './session-client.js';
 
@@ -145,7 +144,7 @@ describe('POST /api/admin/credit', () => {
     const admin = await poolReadyUser({ funds: 0 });
     const user = await poolReadyUser({ poolId: admin.poolId, funds: 0 });
     const e = authEnv({
-      POOL_ACCOUNT_ID: admin.poolId,
+      TEST_POOL_ACCOUNT_ID: admin.poolId,
       ADMIN_USER_IDS: admin.userId,
       DEV_PURCHASES_ENABLED: opts.devPurchases ? 'true' : 'false',
       ...opts.env,
@@ -291,11 +290,8 @@ describe('POST /api/admin/credit', () => {
   });
 
   it('the production config keeps simulated purchases off', async () => {
-    const deployed = /"DEV_PURCHASES_ENABLED"\s*:\s*"([^"]*)"/.exec(wranglerText as string);
-    expect(deployed?.[1]).toBe('false');
-    const prod = { ...env, DEV_PURCHASES_ENABLED: deployed![1]! } as AppEnv;
-    expect(appConfig(prod).flags.devPurchasesEnabled).toBe(false);
-    // Unset is off too.
+    expect(shippedVars()).not.toHaveProperty('DEV_PURCHASES_ENABLED');
+    // Unset is off.
     const unset = { ...env } as Partial<AppEnv>;
     delete unset.DEV_PURCHASES_ENABLED;
     expect(appConfig(unset as AppEnv).flags.devPurchasesEnabled).toBe(false);
@@ -348,11 +344,7 @@ describe('GET /api/admin/pool', () => {
     const admin = await poolReadyUser({ funds: 0 });
     const user = await poolReadyUser({ poolId: admin.poolId, funds: 0 });
     const poolId = admin.poolId;
-    const e = authEnv({
-      POOL_ACCOUNT_ID: poolId,
-      ADMIN_USER_IDS: admin.userId,
-      POOL_OVERAGE_MAX_MICROS: '1000',
-    });
+    const e = authEnv({ TEST_POOL_ACCOUNT_ID: poolId, ADMIN_USER_IDS: admin.userId });
     const read = (as = admin) => as.client.call('/api/admin/pool', {}, e);
     await fundPool(poolId, 5_000_000);
     const now = Date.now();
@@ -371,9 +363,9 @@ describe('GET /api/admin/pool', () => {
       );
     await env.DB.batch([
       usage(null, 0, now),
-      usage(3_000, 600, now - 60_000),
+      usage(3_000, 120_000, now - 60_000),
       // Outside the 24 h window: not in the breaker's sum.
-      usage(3_000, 5_000, now - 25 * 60 * 60_000),
+      usage(3_000, 500_000, now - 25 * 60 * 60_000),
     ]);
 
     const report = await json<AdminPoolResponse>(await read());
@@ -384,12 +376,17 @@ describe('GET /api/admin/pool', () => {
       heldMicros: 3_000,
       pendingCalls: 1,
       availableMicros: 5_000_000 - 9_000,
-      breaker: { overageMicros: 600, maxMicros: 1_000, windowMs: 24 * 60 * 60_000, tripped: false },
+      breaker: {
+        overageMicros: 120_000,
+        maxMicros: 200_000,
+        windowMs: 24 * 60 * 60_000,
+        tripped: false,
+      },
     });
 
-    await usage(3_000, 600, now - 30_000).run();
+    await usage(3_000, 120_000, now - 30_000).run();
     expect((await json<AdminPoolResponse>(await read())).breaker).toMatchObject({
-      overageMicros: 1_200,
+      overageMicros: 240_000,
       tripped: true,
     });
 

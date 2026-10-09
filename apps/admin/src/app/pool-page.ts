@@ -67,8 +67,8 @@ function newKey(): string {
           <span>
             <strong>Overage breaker tripped:</strong> the pool refuses every request. Settled
             overage in the last {{ hours(p.breaker.windowMs) }} h is
-            {{ money(p.breaker.overageMicros) }}, above the {{ money(p.breaker.maxMicros) }} limit
-            (POOL_OVERAGE_MAX_MICROS). Check the model price table.
+            {{ money(p.breaker.overageMicros) }}, above the {{ money(p.breaker.maxMicros) }} limit:
+            a price has drifted. Check the model price table.
           </span>
         </p>
       }

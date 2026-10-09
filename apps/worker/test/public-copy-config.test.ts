@@ -21,10 +21,10 @@ const FAST = 'deepseek/deepseek-v4.1-flash';
 const BASE: Partial<AppEnv> = {
   POOL_MAX_OUTPUT_TOKENS: '1024',
   PROVIDERS: '',
-  SIMPLE_PROVIDER: '',
-  SIMPLE_NORMAL_MODEL: NORMAL,
-  SIMPLE_MAX_MODEL: MAX,
-  SIMPLE_FAST_MODEL: FAST,
+  BUILT_IN_PROVIDER: '',
+  LEARN_NORMAL_MODEL: NORMAL,
+  LEARN_MAX_MODEL: MAX,
+  BACKGROUND_MODEL: FAST,
   POOL_MODEL: '',
   GROUNDING: 'auto',
 };
@@ -41,7 +41,7 @@ async function page(path: string, overrides: Partial<AppEnv> = {}): Promise<stri
   return res.text();
 }
 
-/** A built-in provider config (SIMPLE_PROVIDER) on the operator's key. */
+/** A built-in provider config (BUILT_IN_PROVIDER) on the operator's key. */
 function builtIn(config: {
   baseUrl: string;
   models: { id: string; label: string; tier?: 'normal' | 'max' }[];
@@ -52,7 +52,7 @@ function builtIn(config: {
     kind: 'openai-compatible',
     label: 'Tangent',
     baseUrl: config.baseUrl,
-    apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
+    apiKeySecret: 'BUILT_IN_API_KEY',
     defaultModel: config.models[0]!.id,
     models: config.models,
     ...(config.webSearch ? { options: { webSearch: true } } : {}),
@@ -185,7 +185,10 @@ describe("Learn's tiers", () => {
 
   it('the pool on a background model that is no tier: Lite', async () => {
     // Its own pool account: the landing page's pool status is cached per account.
-    const env = { SIMPLE_FAST_MODEL: 'deepseek/deepseek-v4-flash', POOL_ACCOUNT_ID: uniq('pool') };
+    const env = {
+      BACKGROUND_MODEL: 'deepseek/deepseek-v4-flash',
+      TEST_POOL_ACCOUNT_ID: uniq('pool'),
+    };
     expect(await page('/welcome', env)).toContain(
       '<li>Two tiers: Normal for everyday learning, Max for the hardest questions (the free pool uses Lite)</li>',
     );
@@ -203,7 +206,7 @@ describe("Learn's tiers", () => {
       // admit one, or the pool reports itself off.
       POOL_SPEND_MICROS_PER_DAY: '5000000',
       POOL_IP_SPEND_MICROS_PER_DAY: '5000000',
-      POOL_ACCOUNT_ID: uniq('pool'),
+      TEST_POOL_ACCOUNT_ID: uniq('pool'),
     };
     const pricing = await page('/pricing', env);
     const max = row(pricing, 'The Max tier');
@@ -219,27 +222,27 @@ describe("Learn's tiers", () => {
     const same = {
       POOL_EFFORT: 'high',
       POOL_MAX_OUTPUT_TOKENS: '16384',
-      POOL_ACCOUNT_ID: uniq('pool'),
+      TEST_POOL_ACCOUNT_ID: uniq('pool'),
     };
     expect(await page('/welcome', same)).toContain('(the free pool uses Normal)</li>');
     expect(await page('/pricing', same)).toContain('They use the Normal model, have daily limits');
     const more = {
       POOL_EFFORT: 'high',
       POOL_MAX_OUTPUT_TOKENS: '32000',
-      POOL_ACCOUNT_ID: uniq('pool'),
+      TEST_POOL_ACCOUNT_ID: uniq('pool'),
     };
     expect(await page('/welcome', more)).toContain(
       '(the free pool uses Normal&#39;s model with longer replies)</li>',
     );
-    const unset = { POOL_EFFORT: 'none', POOL_ACCOUNT_ID: uniq('pool') };
+    const unset = { POOL_EFFORT: 'none', TEST_POOL_ACCOUNT_ID: uniq('pool') };
     expect(await page('/welcome', unset)).toContain(
       '(the free pool uses Normal&#39;s model with lighter thinking and shorter replies)</li>',
     );
     // Normal's effort emptied on its default model is its evaluated `high` (withTierDefaults).
     const tierHigher = {
-      SIMPLE_NORMAL_EFFORT: 'low',
+      LEARN_NORMAL_EFFORT: 'low',
       POOL_EFFORT: 'high',
-      POOL_ACCOUNT_ID: uniq('pool'),
+      TEST_POOL_ACCOUNT_ID: uniq('pool'),
     };
     expect(await page('/welcome', tierHigher)).toContain(
       '(the free pool uses Normal&#39;s model with more thinking and shorter replies)</li>',
@@ -247,7 +250,7 @@ describe("Learn's tiers", () => {
   });
 
   it('one model: no tier to choose, so no tier is named', async () => {
-    const env = { SIMPLE_MAX_MODEL: NORMAL };
+    const env = { LEARN_MAX_MODEL: NORMAL };
     const pricing = await page('/pricing', env);
     expect(pricing).not.toContain('<th scope="row">The Max tier');
     expect(pricing).not.toContain('<th scope="row">The Normal tier');
@@ -258,7 +261,7 @@ describe("Learn's tiers", () => {
 
   it('custom tiers are named as configured', async () => {
     const env = {
-      SIMPLE_PROVIDER: builtIn({
+      BUILT_IN_PROVIDER: builtIn({
         baseUrl: 'https://openrouter.ai/api/v1',
         models: [
           { id: 'a/quick', label: 'Quick', tier: 'normal' },
@@ -268,7 +271,7 @@ describe("Learn's tiers", () => {
       }),
       POOL_MODEL: 'a/quick',
       ...ASKED_LIKE_ITS_TIER,
-      POOL_ACCOUNT_ID: uniq('pool'),
+      TEST_POOL_ACCOUNT_ID: uniq('pool'),
     };
     const pricing = await page('/pricing', env);
     expect(pricing).toContain('<th scope="row">The Deep tier, for the hardest questions</th>');
@@ -282,14 +285,14 @@ describe("Learn's tiers", () => {
 
   it('an override that names no tiers offers none', async () => {
     const env = {
-      SIMPLE_PROVIDER: builtIn({
+      BUILT_IN_PROVIDER: builtIn({
         baseUrl: 'https://openrouter.ai/api/v1',
         models: [
           { id: 'a/first', label: 'First' },
           { id: 'a/second', label: 'Second' },
         ],
       }),
-      POOL_ACCOUNT_ID: uniq('pool'),
+      TEST_POOL_ACCOUNT_ID: uniq('pool'),
     };
     const pricing = await page('/pricing', env);
     expect(pricing).not.toContain('<th scope="row">The Second tier');
@@ -298,7 +301,7 @@ describe("Learn's tiers", () => {
 
   it('more models than the two tiers: a choice of models', async () => {
     const env = {
-      SIMPLE_PROVIDER: builtIn({
+      BUILT_IN_PROVIDER: builtIn({
         baseUrl: 'https://openrouter.ai/api/v1',
         models: [
           { id: 'a/quick', label: 'Quick', tier: 'normal' },
@@ -308,7 +311,7 @@ describe("Learn's tiers", () => {
       }),
       POOL_MODEL: 'a/quick',
       ...ASKED_LIKE_ITS_TIER,
-      POOL_ACCOUNT_ID: uniq('pool'),
+      TEST_POOL_ACCOUNT_ID: uniq('pool'),
     };
     expect(await page('/pricing', env)).toContain(
       '<th scope="row">The Deep tier, for the hardest questions</th>',
@@ -321,7 +324,7 @@ describe("Learn's tiers", () => {
 
 describe('credit on another endpoint than OpenRouter', () => {
   const OPENAI: Partial<AppEnv> = {
-    SIMPLE_PROVIDER: builtIn({
+    BUILT_IN_PROVIDER: builtIn({
       baseUrl: 'https://api.openai.com/v1',
       models: [
         { id: 'gpt-5-mini', label: 'Normal' },
@@ -459,11 +462,11 @@ describe('the privacy policy names who handles Tangent-paid requests from the co
   it('follows a changed model, pinning or pool model', async () => {
     const ai = item(
       await page('/privacy', {
-        SIMPLE_NORMAL_PROVIDER_ORDER: 'deepinfra/fp8',
+        LEARN_NORMAL_PROVIDER_ORDER: 'deepinfra/fp8',
         // wrangler.jsonc pins the pool's hosts explicitly; on Max they are OpenRouter's choice.
         POOL_PROVIDER_ORDER: '',
         POOL_MODEL: MAX,
-        POOL_ACCOUNT_ID: uniq('pool'),
+        TEST_POOL_ACCOUNT_ID: uniq('pool'),
       }),
     );
     // Summaries run on Normal's listing of the background model, so they move with it.
@@ -482,12 +485,12 @@ describe('the privacy policy names who handles Tangent-paid requests from the co
   it('pinned hosts without fallbacks, when the operator turns them off', async () => {
     const ai = item(
       await page('/privacy', {
-        SIMPLE_PROVIDER: JSON.stringify({
+        BUILT_IN_PROVIDER: JSON.stringify({
           id: 'openrouter',
           kind: 'openai-compatible',
           label: 'Tangent',
           baseUrl: 'https://openrouter.ai/api/v1',
-          apiKeySecret: 'OPENROUTER_SIMPLE_API_KEY',
+          apiKeySecret: 'BUILT_IN_API_KEY',
           defaultModel: 'a/quick',
           models: [
             { id: 'a/quick', label: 'Quick', tier: 'normal', providerOrder: ['some-host/fp8'] },
@@ -495,7 +498,7 @@ describe('the privacy policy names who handles Tangent-paid requests from the co
           options: { extraBody: { provider: { allow_fallbacks: false } } },
         }),
         POOL_MODEL: 'a/quick',
-        POOL_ACCOUNT_ID: uniq('pool'),
+        TEST_POOL_ACCOUNT_ID: uniq('pool'),
       }),
     );
     expect(ai).toContain(
@@ -505,7 +508,7 @@ describe('the privacy policy names who handles Tangent-paid requests from the co
 
   it('another endpoint than OpenRouter is named by its host, with no hosting claims', async () => {
     const html = await page('/privacy', {
-      SIMPLE_PROVIDER: builtIn({
+      BUILT_IN_PROVIDER: builtIn({
         baseUrl: 'https://api.openai.com/v1',
         models: [
           { id: 'gpt-5-mini', label: 'Normal', tier: 'normal' },
@@ -513,7 +516,7 @@ describe('the privacy policy names who handles Tangent-paid requests from the co
         ],
       }),
       POOL_MODEL: 'gpt-5-mini',
-      POOL_ACCOUNT_ID: uniq('pool'),
+      TEST_POOL_ACCOUNT_ID: uniq('pool'),
     });
     const ai = item(html);
     expect(ai).toContain(

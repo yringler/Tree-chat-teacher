@@ -128,13 +128,13 @@ describe('resolveAccount', () => {
       );
     }
     // Without the operator's OpenRouter key there is nothing to sell.
-    const realProvider = withEnv({ SIMPLE_PROVIDER: '', OPENROUTER_SIMPLE_API_KEY: '' });
+    const realProvider = withEnv({ BUILT_IN_PROVIDER: '', BUILT_IN_API_KEY: '' });
     expect(resolveAccount(realProvider, user('a@example.org'), learn('credit')).builtIn).toBe(
       false,
     );
     expect(
       resolveAccount(
-        { ...realProvider, OPENROUTER_SIMPLE_API_KEY: 'sk-or-operator' } as AppEnv,
+        { ...realProvider, BUILT_IN_API_KEY: 'sk-or-operator' } as AppEnv,
         user('a@example.org'),
         learn('credit'),
       ).builtIn,
@@ -187,7 +187,7 @@ describe('resolveAccount', () => {
     expect(
       resolveAccount(withEnv({ PAYMENT_PROVIDER: 'polar' }), user('a@example.org'), power).builtIn,
     ).toBe(false);
-    const realProvider = withEnv({ SIMPLE_PROVIDER: '', OPENROUTER_SIMPLE_API_KEY: '' });
+    const realProvider = withEnv({ BUILT_IN_PROVIDER: '', BUILT_IN_API_KEY: '' });
     expect(resolveAccount(realProvider, user('a@example.org'), power).builtIn).toBe(false);
   });
 
@@ -212,9 +212,9 @@ describe('power provider configs', () => {
     const openrouter = providerConfigs(
       withEnv({
         PROVIDERS: '',
-        SIMPLE_NORMAL_MODEL: 'a/normal',
-        SIMPLE_MAX_MODEL: 'b/max',
-        SIMPLE_FAST_MODEL: 'c/fast',
+        LEARN_NORMAL_MODEL: 'a/normal',
+        LEARN_MAX_MODEL: 'b/max',
+        BACKGROUND_MODEL: 'c/fast',
       }),
     ).find((c) => c.id === 'openrouter')!;
     expect(openrouter.openModels).toBe(true);

@@ -30,7 +30,7 @@ import {
   type BalanceRow,
 } from '../billing/ledger.js';
 import { insertPendingUsageStatement } from '../billing/usage-store.js';
-import type { PoolCaps, PoolOverage, PoolRateLimits } from '../config.js';
+import { appConfig, type PoolCaps, type PoolRateLimits } from '../config.js';
 import type { AppEnv } from '../env.js';
 import {
   expirePoolReservations,
@@ -40,6 +40,15 @@ import {
 } from './expiry.js';
 
 const DAY_MS = 24 * 60 * 60_000;
+
+/**
+ * The overage breaker: while the clamped overage summed over `windowMs`
+ * exceeds `maxMicros`, the pool refuses every reservation (`unpriced`).
+ */
+export interface PoolOverage {
+  windowMs: number;
+  maxMicros: number;
+}
 /** The rate limits' fixed window. */
 const MINUTE_MS = 60_000;
 /**
@@ -712,6 +721,6 @@ export class PoolBank extends DurableObject<AppEnv> {
   }
 
   private assertTestSeams(): void {
-    if (this.env.TEST_SEAMS !== 'true') throw new Error('Not available');
+    if (!appConfig(this.env).testSeams) throw new Error('Not available');
   }
 }
