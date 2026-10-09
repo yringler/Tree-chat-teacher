@@ -9,9 +9,16 @@
   // Custom domain only: sign-in works on PUBLIC_BASE_URL alone.
   "workers_dev": false,
   "preview_urls": false,
-  "routes": [{ "pattern": "tangentailearning.com", "custom_domain": true }],
+  "routes": [
+    {
+      "pattern": "tangentailearning.com",
+      "custom_domain": true,
+    },
+  ],
   // Never add logging that captures request headers or bodies: they carry users' API keys.
-  "observability": { "enabled": true },
+  "observability": {
+    "enabled": true,
+  },
   // Builds the apps into ./site before every deploy and `wrangler dev`, so assets are never empty.
   "build": {
     "command": "pnpm -w build",
@@ -55,43 +62,69 @@
       // applies new migrations (./migrations) just before it deploys, so each one must also work
       // with the code still running: expand first, contract in a later release
       // (docs/operating.md, "Deploying from GitHub"). By hand: `pnpm db:migrate:remote`, then deploy.
-      "database_id": "6f9486ed-e5fd-4dfa-b434-10274a650297",
+      "database_id": "03397a5f-dad7-49b7-90a1-69c5f3facf5a",
       "migrations_dir": "migrations",
     },
   ],
   "durable_objects": {
     "bindings": [
-      { "name": "TREE_SESSION", "class_name": "TreeSession" },
-      { "name": "POOL_BANK", "class_name": "PoolBank" },
+      {
+        "name": "TREE_SESSION",
+        "class_name": "TreeSession",
+      },
+      {
+        "name": "POOL_BANK",
+        "class_name": "PoolBank",
+      },
     ],
   },
   // Durable Object class migrations: append a new tag, never edit an applied one.
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["TreeSession"] },
-    { "tag": "v2", "new_sqlite_classes": ["PoolBank"] },
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TreeSession"],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["PoolBank"],
+    },
   ],
   // src/cron.ts dispatches on the cron string: the 10-minute backstops and the daily price sync.
-  "triggers": { "crons": ["*/10 * * * *", "23 3 * * *"] },
+  "triggers": {
+    "crons": ["*/10 * * * *", "23 3 * * *"],
+  },
   "ratelimits": [
     {
       "name": "SHARE_RATE_LIMITER",
       "namespace_id": "1001",
-      "simple": { "limit": 120, "period": 60 },
+      "simple": {
+        "limit": 120,
+        "period": 60,
+      },
     },
     {
       "name": "CHAT_RATE_LIMITER",
       "namespace_id": "1002",
-      "simple": { "limit": 30, "period": 60 },
+      "simple": {
+        "limit": 30,
+        "period": 60,
+      },
     },
     {
       "name": "KEY_RATE_LIMITER",
       "namespace_id": "1003",
-      "simple": { "limit": 10, "period": 60 },
+      "simple": {
+        "limit": 10,
+        "period": 60,
+      },
     },
     {
       "name": "IMPORT_RATE_LIMITER",
       "namespace_id": "1004",
-      "simple": { "limit": 10, "period": 60 },
+      "simple": {
+        "limit": 10,
+        "period": 60,
+      },
     },
   ],
   // This deployment's values. Secrets are set with `wrangler secret put` (docs/configuration.md).
