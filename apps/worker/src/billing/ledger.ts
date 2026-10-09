@@ -9,7 +9,7 @@
 
 /**
  * - `purchase`: credit bought (net of the processing fee); `refund`: a refund
- *   or dispute taking credit back; `adjustment`: an admin's (or a marker row).
+ *   or dispute taking credit back; `adjustment`: an admin's or the operator's.
  */
 export type CreditGrantKind = 'purchase' | 'refund' | 'adjustment';
 
