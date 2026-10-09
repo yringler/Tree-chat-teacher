@@ -1,8 +1,4 @@
-import {
-  contextQuerySchema,
-  createBranchRequestSchema,
-  updateBranchRequestSchema,
-} from '@tangent/shared';
+import { API_ROUTES } from '@tangent/shared';
 import { Hono } from 'hono';
 import { assertCanGenerate } from '../billing/gate.js';
 import { sameOriginOnly } from '../byok/guard.js';
@@ -21,10 +17,10 @@ export function branchRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();
 
   // The service resolves the node and the branch through the caller's account (404 otherwise).
-  api.post('/branches', validateJson(createBranchRequestSchema), async (c) =>
+  api.post('/branches', validateJson(API_ROUTES.createBranch), async (c) =>
     c.json(await chatOf(c).createBranch(c.req.valid('json')), 201),
   );
-  api.patch('/branches/:branchId', validateJson(updateBranchRequestSchema), async (c) =>
+  api.patch('/branches/:branchId', validateJson(API_ROUTES.updateBranch), async (c) =>
     c.json(await chatOf(c).updateBranch(c.req.param('branchId'), c.req.valid('json'))),
   );
   api.delete('/branches/:branchId', async (c) => {
@@ -35,7 +31,7 @@ export function branchRoutes(): Hono<AppBindings> {
   api.get(
     '/branches/:branchId/context',
     sameOriginOnly,
-    validateQuery(contextQuerySchema),
+    validateQuery(API_ROUTES.getContext),
     async (c) => {
       const q = c.req.valid('query');
       const keys = await keysOf(c);

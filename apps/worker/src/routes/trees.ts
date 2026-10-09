@@ -1,4 +1,4 @@
-import { createTreeRequestSchema, updateTreeRequestSchema } from '@tangent/shared';
+import { API_ROUTES } from '@tangent/shared';
 import { Hono } from 'hono';
 import { readKeys } from '../byok/keys.js';
 import { treeSession } from '../do/tree-session-client.js';
@@ -16,7 +16,7 @@ export function treeRoutes(): Hono<AppBindings> {
   // A tree that names no provider starts on the default route, whose first choice is a
   // provider the user has a key for: the key cookie is read for it (leniently: an
   // unreadable cookie counts as no keys, since nothing is sent here).
-  api.post('/trees', validateJson(createTreeRequestSchema), async (c) => {
+  api.post('/trees', validateJson(API_ROUTES.createTree), async (c) => {
     const req = c.req.valid('json');
     const keys =
       req.providerId === undefined && callPayer(c.var.account, 'own-key') === 'own-key'
@@ -27,7 +27,7 @@ export function treeRoutes(): Hono<AppBindings> {
   api.get('/trees/:treeId', async (c) =>
     c.json(await chatOf(c).getTreeDetail(c.req.param('treeId'))),
   );
-  api.patch('/trees/:treeId', validateJson(updateTreeRequestSchema), async (c) =>
+  api.patch('/trees/:treeId', validateJson(API_ROUTES.updateTree), async (c) =>
     c.json(await chatOf(c).updateTree(c.req.param('treeId'), c.req.valid('json'))),
   );
   // Through the tree's Durable Object: it stops the tree's generations first and

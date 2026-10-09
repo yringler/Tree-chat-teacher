@@ -1,5 +1,5 @@
 import { DomainError, HTTP_STATUS, PoolBlockedError, ValidationError } from '@tangent/core';
-import type { ApiError, ApiErrorCode } from '@tangent/shared';
+import type { ApiError, ApiErrorCode, RouteSpec } from '@tangent/shared';
 import type { Context, ErrorHandler, NotFoundHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -86,12 +86,26 @@ function parseOrThrow<S extends z.ZodType>(schema: S, value: unknown): z.output<
   return result.data;
 }
 
+/** What a validator checks: one part of an API_ROUTES entry. */
+export interface ValidatedPart {
+  route: RouteSpec;
+  part: 'body' | 'query';
+}
+
+const validated = new WeakMap<object, ValidatedPart>();
+
+/** The API_ROUTES entry `handler` validates requests against (api-routes.test.ts); else undefined. */
+export function validatedPart(handler: object): ValidatedPart | undefined {
+  return validated.get(handler);
+}
+
 /**
- * Validates the JSON body with `schema`; handlers read it with
- * `c.req.valid('json')`. Requires `Content-Type: application/json`.
+ * Validates the JSON body with the body schema of `route`, its API_ROUTES
+ * entry, which the apps' ApiClient types the body against; handlers read it
+ * with `c.req.valid('json')`. Requires `Content-Type: application/json`.
  */
-export function validateJson<S extends z.ZodType>(schema: S) {
-  return validator('json', async (_value, c): Promise<z.output<S>> => {
+export function validateJson<S extends z.ZodType>(route: RouteSpec & { body: S }) {
+  const handler = validator('json', async (_value, c): Promise<z.output<S>> => {
     const type = c.req.header('Content-Type') ?? '';
     if (!/^application\/([a-z.+-]+\+)?json\b/i.test(type)) {
       throw new ValidationError('Expected a JSON body (Content-Type: application/json)');
@@ -102,11 +116,15 @@ export function validateJson<S extends z.ZodType>(schema: S) {
     } catch {
       throw new ValidationError('Malformed JSON in request body');
     }
-    return parseOrThrow(schema, body);
+    return parseOrThrow(route.body, body);
   });
+  validated.set(handler, { route, part: 'body' });
+  return handler;
 }
 
-/** Validates query parameters with `schema`; read with `c.req.valid('query')`. */
-export function validateQuery<S extends z.ZodType>(schema: S) {
-  return validator('query', (value): z.output<S> => parseOrThrow(schema, value));
+/** Validates the query parameters with the query schema of `route`; read with `c.req.valid('query')`. */
+export function validateQuery<S extends z.ZodType>(route: RouteSpec & { query: S }) {
+  const handler = validator('query', (value): z.output<S> => parseOrThrow(route.query, value));
+  validated.set(handler, { route, part: 'query' });
+  return handler;
 }

@@ -69,16 +69,24 @@ describe('error handling and validation', () => {
   app.get('/http', () => {
     throw new HTTPException(429, { message: 'slow down' });
   });
-  const bodySchema = z.object({ title: z.string().min(1), n: z.number().int().default(1) });
-  app.post('/json', validateJson(bodySchema), (c) => {
+  // Route entries of their own, shaped like API_ROUTES' (the validators take one).
+  const bodyRoute = {
+    method: 'POST',
+    path: '/json',
+    body: z.object({ title: z.string().min(1), n: z.number().int().default(1) }),
+    reply: { kind: 'empty' },
+  } as const;
+  const queryRoute = {
+    method: 'GET',
+    path: '/query',
+    query: z.object({ flag: z.enum(['true', 'false']).transform((v) => v === 'true') }),
+    reply: { kind: 'empty' },
+  } as const;
+  app.post('/json', validateJson(bodyRoute), (c) => {
     const body = c.req.valid('json');
     return c.json({ title: body.title, n: body.n });
   });
-  app.get(
-    '/query',
-    validateQuery(z.object({ flag: z.enum(['true', 'false']).transform((v) => v === 'true') })),
-    (c) => c.json(c.req.valid('query')),
-  );
+  app.get('/query', validateQuery(queryRoute), (c) => c.json(c.req.valid('query')));
 
   async function get(path: string, init?: RequestInit) {
     const res = await app.request(path, init);

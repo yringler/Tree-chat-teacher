@@ -1,5 +1,5 @@
 import { DomainError } from '@tangent/core';
-import { createShareRequestSchema, updateShareRequestSchema } from '@tangent/shared';
+import { API_ROUTES } from '@tangent/shared';
 import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { canShare } from '../availability.js';
@@ -30,10 +30,10 @@ export function shareLinkRoutes(): Hono<AppBindings> {
   api.get('/shares', async (c) =>
     c.json(await shareService(c.env, c.req.url, c.var.accountId).list()),
   );
-  api.post('/shares', sharingOn, validateJson(createShareRequestSchema), async (c) =>
+  api.post('/shares', sharingOn, validateJson(API_ROUTES.createShare), async (c) =>
     c.json(await shareService(c.env, c.req.url, c.var.accountId).create(c.req.valid('json')), 201),
   );
-  api.patch('/shares/:shareId', sharingOn, validateJson(updateShareRequestSchema), async (c) =>
+  api.patch('/shares/:shareId', sharingOn, validateJson(API_ROUTES.updateShare), async (c) =>
     c.json(
       await shareService(c.env, c.req.url, c.var.accountId).update(
         c.req.param('shareId'),

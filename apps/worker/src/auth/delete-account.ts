@@ -1,5 +1,5 @@
 import { DomainError, ValidationError } from '@tangent/core';
-import { deleteAccountRequestSchema } from '@tangent/shared';
+import { API_ROUTES } from '@tangent/shared';
 import { Hono } from 'hono';
 import { deleteCookie } from 'hono/cookie';
 import {
@@ -196,7 +196,7 @@ function clearAuthCookies(c: AppContext): void {
  */
 export function accountDeletionRoutes(): Hono<AppBindings> {
   const r = new Hono<AppBindings>();
-  r.delete('/', validateJson(deleteAccountRequestSchema), async (c) => {
+  r.delete('/', validateJson(API_ROUTES.deleteAccount), async (c) => {
     const { userId, email } = c.var.identity;
     if (!userId || !email) {
       throw new ValidationError('There is no account to delete while sign-in is disabled');

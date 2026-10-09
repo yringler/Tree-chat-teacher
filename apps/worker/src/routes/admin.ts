@@ -1,12 +1,9 @@
 import { NotFoundError, ValidationError } from '@tangent/core';
 import {
+  API_ROUTES,
   ADMIN_USERS_PAGE,
-  adminCreditRequestSchema,
-  adminPoolUsageQuerySchema,
   type AdminPoolResponse,
   type AdminCreditResponse,
-  adminUsersQuerySchema,
-  updateAdminUserRequestSchema,
   type AdminPoolIpKeyRow,
   type AdminPoolUsageResponse,
   type AdminPoolUsageRow,
@@ -192,7 +189,7 @@ export function adminRoutes(): Hono<AppBindings> {
     } satisfies AdminStatusResponse),
   );
 
-  r.get('/users', validateQuery(adminUsersQuerySchema), async (c) => {
+  r.get('/users', validateQuery(API_ROUTES.adminUsers), async (c) => {
     const { q, cursor } = c.req.valid('query');
     const after = cursor ? decodeCursor(cursor) : null;
     const where: string[] = [];
@@ -228,7 +225,7 @@ export function adminRoutes(): Hono<AppBindings> {
   // Revoking the share permission takes the user's links down at once: /s/* checks it per
   // request. A pool suspension applies from the user's next pool request (the gate reads it), and
   // a membership waiver from the user's next request (membershipFor reads it each time).
-  r.patch('/users/:userId', validateJson(updateAdminUserRequestSchema), async (c) => {
+  r.patch('/users/:userId', validateJson(API_ROUTES.updateAdminUser), async (c) => {
     const userId = c.req.param('userId');
     const { shareAllowed, poolSuspended, membershipWaived } = c.req.valid('json');
     const sets: string[] = [];
@@ -295,7 +292,7 @@ export function adminRoutes(): Hono<AppBindings> {
   });
 
   // Who consumes the open pool, to spot outliers and account farms.
-  r.get('/pool/usage', validateQuery(adminPoolUsageQuerySchema), async (c) => {
+  r.get('/pool/usage', validateQuery(API_ROUTES.adminPoolUsage), async (c) => {
     const { days, limit } = c.req.valid('query');
     const poolId = appConfig(c.env).pool.accountId;
     const now = new Date();
@@ -344,7 +341,7 @@ export function adminRoutes(): Hono<AppBindings> {
   // Credit without a payment: a signed adjustment of a user's ledger or the pool (a negative pool
   // adjustment is clamped to what the pool has available, under PoolBank's lock), or a simulated
   // purchase, fulfilled exactly as the webhook would. Idempotent on the key.
-  r.post('/credit', validateJson(adminCreditRequestSchema), async (c) => {
+  r.post('/credit', validateJson(API_ROUTES.adminCredit), async (c) => {
     const req = c.req.valid('json');
     const config = appConfig(c.env);
     // Like an unknown route: a production deployment doesn't advertise the dev tool.

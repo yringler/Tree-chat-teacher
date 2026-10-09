@@ -1,8 +1,6 @@
 import { DomainError } from '@tangent/core';
 import {
-  createCheckoutRequestSchema,
-  membershipWaiverRequestSchema,
-  usageQuerySchema,
+  API_ROUTES,
   type BillingSummary,
   type CheckoutResponse,
   type MembershipInfo,
@@ -68,13 +66,13 @@ export function billingRoutes(): Hono<AppBindings> {
     c.json((await getBillingSummary(c.env, c.var.account)) satisfies BillingSummary),
   );
 
-  r.get('/usage', validateQuery(usageQuerySchema), async (c) => {
+  r.get('/usage', validateQuery(API_ROUTES.usage), async (c) => {
     const { cursor, limit } = c.req.valid('query');
     const page = await listUsage(c.env, c.var.account, cursor ?? null, limit ?? DEFAULT_USAGE_PAGE);
     return c.json(page satisfies UsageListResponse);
   });
 
-  r.post('/checkout', validateJson(createCheckoutRequestSchema), async (c) => {
+  r.post('/checkout', validateJson(API_ROUTES.createCheckout), async (c) => {
     const { amountCents } = c.req.valid('json');
     const account = c.var.account;
     const userId = account.userId;
@@ -100,7 +98,7 @@ export function billingRoutes(): Hono<AppBindings> {
   });
 
   // Rate limited per account before the comparison, so the code can't be brute-forced.
-  r.post('/membership/waiver', validateJson(membershipWaiverRequestSchema), async (c) => {
+  r.post('/membership/waiver', validateJson(API_ROUTES.redeemMembershipWaiver), async (c) => {
     const account = c.var.account;
     if (!account.userId) throw new DomainError('unauthorized', 'Sign in to redeem a code');
     await enforceRateLimit(c, null, 'key');

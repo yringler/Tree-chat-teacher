@@ -1,11 +1,10 @@
 import { DomainError, NotFoundError, projectShare, ValidationError } from '@tangent/core';
 import { payloadToMarkdown, renderViewerPage, viewerCsp } from '@tangent/render';
 import {
+  API_ROUTES,
   backupFileName,
   exportFileStem,
-  exportQuerySchema,
   MAX_BACKUP_BYTES,
-  treeBackupSchema,
   type CopyToLearnResponse,
 } from '@tangent/shared';
 import { Hono } from 'hono';
@@ -48,7 +47,7 @@ export function exportRoutes(): Hono<AppBindings> {
         );
       },
     }),
-    validateJson(treeBackupSchema),
+    validateJson(API_ROUTES.importBackup),
     async (c) => c.json(await chatOf(c).importBackup(c.req.valid('json')), 201),
   );
   // "Create a copy in Learn" (docs/DECISIONS.md "Read-only power without a
@@ -74,7 +73,7 @@ export function exportRoutes(): Hono<AppBindings> {
   });
 
   // Markdown or a self-contained HTML page, built on the viewer renderer.
-  api.get('/export', validateQuery(exportQuerySchema), async (c) => {
+  api.get('/export', validateQuery(API_ROUTES.exportTree), async (c) => {
     const q = c.req.valid('query');
     const detail = await chatOf(c).getTreeDetail(q.treeId);
     const result = projectShare({

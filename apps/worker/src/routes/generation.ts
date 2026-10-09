@@ -6,13 +6,7 @@ import {
   type HeldCandidate,
   type PreparedReview,
 } from '@tangent/core';
-import {
-  candidateRequestSchema,
-  reviewRequestSchema,
-  sendMessageRequestSchema,
-  type Branch,
-  type CandidateEvent,
-} from '@tangent/shared';
+import { API_ROUTES, type Branch, type CandidateEvent } from '@tangent/shared';
 import { Hono } from 'hono';
 import { assertCanGenerate } from '../billing/gate.js';
 import { assertCreditCovers, replyHoldMicros } from '../billing/service.js';
@@ -75,11 +69,13 @@ async function assertCreditCoversReply(
  * passes `assertCanGenerate` (billing/gate.ts) before anything is written or
  * sent upstream.
  */
+const { sendMessage, reviewNode, streamCandidate } = API_ROUTES;
+
 export function generationRoutes(): Hono<AppBindings> {
   const api = new Hono<AppBindings>();
 
   // ---- messages (delegated to the tree's Durable Object)
-  api.post('/branches/:branchId/messages', validateJson(sendMessageRequestSchema), async (c) => {
+  api.post('/branches/:branchId/messages', validateJson(sendMessage), async (c) => {
     const keys = await keysOf(c);
     const req = c.req.valid('json');
     const chat = chatOf(c, keys);
@@ -132,7 +128,7 @@ export function generationRoutes(): Hono<AppBindings> {
   // ---- reviews: streamed straight from the Worker. Nothing is persisted, so
   // there is no Durable Object run to reconnect to; a dropped client aborts
   // the upstream request (stops billing) through the request signal.
-  api.post('/nodes/:nodeId/review', validateJson(reviewRequestSchema), async (c) => {
+  api.post('/nodes/:nodeId/review', validateJson(reviewNode), async (c) => {
     const req = c.req.valid('json');
     const keys = await keysOf(c);
     let chat = chatOf(c, keys);
@@ -167,7 +163,7 @@ export function generationRoutes(): Hono<AppBindings> {
   // Worker, like a review, and nothing enters the tree until the user picks one.
   // A finished candidate is held by the tree's Durable Object (for
   // CANDIDATE_TTL_MS), which also appends the picked one, under its send lock.
-  api.post('/branches/:branchId/candidates', validateJson(candidateRequestSchema), async (c) => {
+  api.post('/branches/:branchId/candidates', validateJson(streamCandidate), async (c) => {
     const req = c.req.valid('json');
     const keys = await keysOf(c);
     let chat = chatOf(c, keys);

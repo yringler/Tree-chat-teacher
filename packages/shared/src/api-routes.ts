@@ -72,8 +72,10 @@ import { reviewRequestSchema, type ReviewEvent } from './review.js';
  * method, its path under /api (`:name` marks a path parameter), the zod
  * schemas the Worker validates its JSON body and query with, and what it
  * answers. The apps' ApiClient calls routes from here, the demos' backend
- * must answer or refuse each one, and a Worker test checks that its Hono
- * app serves exactly these. Every other `/api/*` path is Better Auth's
+ * must answer or refuse each one, and the Worker's validators take an entry
+ * (validateJson / validateQuery); a Worker test checks that its Hono app
+ * serves exactly these routes, each validated with its own entry's schemas.
+ * Every other `/api/*` path is Better Auth's
  * (`/api/auth/*`) or a payment provider's webhook.
  *
  * Unless a route says otherwise it needs a session, and acts as the

@@ -1,6 +1,6 @@
 import { DomainError, ValidationError } from '@tangent/core';
 import {
-  poolVerifyRequestSchema,
+  API_ROUTES,
   type PoolMeResponse,
   type PoolStatusResponse,
   type PoolVerifyResponse,
@@ -37,7 +37,7 @@ export function poolRoutes(): Hono<AppBindings> {
 
   r.get('/me', async (c) => c.json((await poolMe(c.env, c.var.account)) satisfies PoolMeResponse));
 
-  r.post('/verify', validateJson(poolVerifyRequestSchema), async (c) => {
+  r.post('/verify', validateJson(API_ROUTES.poolVerify), async (c) => {
     const { userId, email } = c.var.identity;
     if (!userId || !email)
       throw new DomainError('pool_unavailable', 'The open pool needs a signed-in account');

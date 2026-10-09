@@ -1,9 +1,8 @@
 import { DomainError, ValidationError } from '@tangent/core';
 import { acceptsUserKey, verifyApiKey } from '@tangent/providers';
 import {
-  forgetKeyRequestSchema,
+  API_ROUTES,
   OPENROUTER_PROVIDER_ID,
-  saveKeyRequestSchema,
   type KeyStatusResponse,
   type ProviderConfig,
 } from '@tangent/shared';
@@ -49,7 +48,7 @@ export function keyRoutes(): Hono<AppBindings> {
     } satisfies KeyStatusResponse);
   });
 
-  r.post('/', validateJson(saveKeyRequestSchema), async (c) => {
+  r.post('/', validateJson(API_ROUTES.saveKey), async (c) => {
     requireEnabled(c);
     const { provider, apiKey } = c.req.valid('json');
     const config = keyConfig(c, provider);
@@ -79,7 +78,7 @@ export function keyRoutes(): Hono<AppBindings> {
     return c.body(null, 204);
   });
 
-  r.delete('/', validateJson(forgetKeyRequestSchema), async (c) => {
+  r.delete('/', validateJson(API_ROUTES.forgetKey), async (c) => {
     const { provider } = c.req.valid('json');
     const current = await readKeys(c);
     if (!provider || current.state !== 'ok') {

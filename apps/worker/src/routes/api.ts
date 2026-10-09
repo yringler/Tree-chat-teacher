@@ -1,4 +1,4 @@
-import { updateSettingsRequestSchema, type MeResponse } from '@tangent/shared';
+import { API_ROUTES, type MeResponse } from '@tangent/shared';
 import { Hono } from 'hono';
 import { isAdmin } from '../auth/admin.js';
 import { accountDeletionRoutes } from '../auth/delete-account.js';
@@ -72,7 +72,7 @@ export function apiRoutes(): Hono<AppBindings> {
 
   // Account settings (per account, so power and Learn each have their own).
   api.get('/settings', async (c) => c.json(await chatOf(c).getSettings()));
-  api.patch('/settings', validateJson(updateSettingsRequestSchema), async (c) =>
+  api.patch('/settings', validateJson(API_ROUTES.updateSettings), async (c) =>
     c.json(await chatOf(c).updateSettings(c.req.valid('json'))),
   );
 
