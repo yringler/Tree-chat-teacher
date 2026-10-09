@@ -5,6 +5,7 @@ import {
   REVIEW_ACCURACY_VALUES,
   REVIEW_RECOMMENDATION_LABEL,
   REVIEW_RECOMMENDATION_VALUES,
+  foldSystemPrompt,
   type ChatMessage,
   type ContextPlan,
   type RenderedPrompt,
@@ -65,12 +66,8 @@ export function renderPlan(plan: ContextPlan, options: RenderOptions): RenderedP
     messages.unshift({ role: 'user', content: CONTINUATION_MESSAGE });
 
   const system = systemParts.length > 0 ? systemParts.join(SEPARATOR) : null;
-  if (options.supportsSystemPrompt || system === null) return { system, messages };
-
-  const first = messages[0];
-  if (first) first.content = `${system}${SEPARATOR}${first.content}`;
-  else messages.push({ role: 'user', content: system });
-  return { system: null, messages };
+  const prompt = { system, messages };
+  return options.supportsSystemPrompt ? prompt : foldSystemPrompt(prompt);
 }
 
 /**
