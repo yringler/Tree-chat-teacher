@@ -219,10 +219,10 @@ export function poolStepsHtml(memberships: boolean): string {
 
 /**
  * The open pool section: why it exists, where its credit comes from and the
- * meter. It is Tangent's own commitment: nothing here is for sale, and
- * nothing asks the visitor to pay for anyone else (docs/DECISIONS.md,
- * "Revenue-funded open pool"). The free sign-up button shows only while the
- * pool has credit.
+ * meter. It is Tangent's own commitment, funded by the operator's admin
+ * adjustments: nothing here is for sale, and nothing asks the visitor to pay
+ * for anyone else. The free sign-up button shows only while the pool has
+ * credit.
  */
 function poolSection(pool: PoolStatusResponse, memberships: boolean): string {
   const meter =

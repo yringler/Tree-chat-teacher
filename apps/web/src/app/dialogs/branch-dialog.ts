@@ -7,8 +7,13 @@ import {
   type OnInit,
   signal,
 } from '@angular/core';
-import { plainText } from '@tangent/core';
-import { parseRouteKey, routeKey, splitTangents, type ContextMode } from '@tangent/shared';
+import {
+  parseRouteKey,
+  plainText,
+  routeKey,
+  splitTangents,
+  type ContextMode,
+} from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore, type BranchDialogState } from '../state/ui-store';
 import { Modal, startingRoute } from '@tangent/web-shared';

@@ -457,7 +457,13 @@ describe('PowerAccountStore the default route of a new conversation', () => {
   });
 
   it('never a test provider over a usable route', async () => {
-    const fake: ProviderInfo = { ...defaults[0]!, id: 'fake', kind: 'fake', available: true };
+    const fake: ProviderInfo = {
+      ...defaults[0]!,
+      id: 'fake',
+      kind: 'fake',
+      available: true,
+      scripted: true,
+    };
     expect((await start([fake, ...defaults, tangent], me())).defaultProvider()).toBe(tangent);
     expect((await start([fake, ...defaults], me({ builtInCredit: false }))).defaultProvider()).toBe(
       fake,

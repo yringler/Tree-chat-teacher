@@ -1,5 +1,14 @@
 import { ConflictError, NotFoundError } from '@tangent/core';
-import { DEFAULT_ACCOUNT_ID, type Branch, type ChatNode, type Tree } from '@tangent/shared';
+import {
+  DEFAULT_ACCOUNT_ID,
+  REPLY_CANCELLED_ERROR,
+  REPLY_CUT_OFF_ERROR,
+  REPLY_EMPTY_ERROR,
+  REPLY_THINKING_ONLY_ERROR,
+  type Branch,
+  type ChatNode,
+  type Tree,
+} from '@tangent/shared';
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { createD1Repositories, SNAPSHOT_CHUNK_CHARS } from '../src/db/d1-repositories.js';
@@ -622,6 +631,45 @@ describe('grounding columns', () => {
       'auto',
       'always',
     ]);
+  });
+});
+
+describe('node error kinds', () => {
+  it('round-trips errorKind through insert, update and the ancestor path', async () => {
+    const { trunk } = await seedTree();
+    const n = makeNode(trunk, 0, null, { status: 'error', error: 'x', errorKind: 'provider' });
+    await repos.trees.appendNodes([n], 'x');
+    expect((await repos.trees.getNode(n.id))?.errorKind).toBe('provider');
+    await repos.trees.updateNode(n.id, { errorKind: 'cut_off' });
+    expect((await repos.trees.getAncestorPath(n.id))[0]?.errorKind).toBe('cut_off');
+    await repos.trees.updateNode(n.id, { status: 'complete', error: null, errorKind: null });
+    expect((await repos.trees.getNode(n.id))?.errorKind).toBeNull();
+  });
+
+  it('backfills the kind of rows written before the column from their copy', async () => {
+    const { trunk } = await seedTree();
+    const copies = {
+      cut_off: REPLY_CUT_OFF_ERROR,
+      thinking_only: REPLY_THINKING_ONLY_ERROR,
+      empty: REPLY_EMPTY_ERROR,
+      cancelled: REPLY_CANCELLED_ERROR,
+      interrupted: 'Interrupted before the reply finished',
+      provider: 'The provider stream ended unexpectedly',
+    };
+    const rows = Object.values(copies).map((error, i) =>
+      makeNode(trunk, i, null, { status: 'error', error }),
+    );
+    const other = makeNode(trunk, rows.length, null, { status: 'error', error: 'HTTP 500' });
+    const complete = makeNode(trunk, rows.length + 1, null, { error: REPLY_CUT_OFF_ERROR });
+    await repos.trees.appendNodes([...rows, other, complete], 'x');
+    const migration = env.TEST_MIGRATIONS.find((m) => m.name === '0001_node_error_kind.sql');
+    const backfill = migration?.queries.filter((q) => q.trimStart().startsWith('UPDATE')) ?? [];
+    expect(backfill).toHaveLength(6);
+    for (const q of backfill) await env.DB.prepare(q).run();
+    const kinds = await Promise.all(
+      [...rows, other, complete].map(async (n) => (await repos.trees.getNode(n.id))?.errorKind),
+    );
+    expect(kinds).toEqual([...Object.keys(copies), null, null]);
   });
 });
 

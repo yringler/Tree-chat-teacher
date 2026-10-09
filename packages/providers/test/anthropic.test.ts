@@ -160,6 +160,7 @@ describe('anthropic provider', () => {
       supportsSystemPrompt: true,
       supportsTokenCount: true,
       supportsWebSearch: false,
+      requiredWebSearch: false,
       reasoning: true,
     });
     // A reasoning model without a configured limit may write REASONING_MAX_OUTPUT_TOKENS.
@@ -231,7 +232,10 @@ describe('anthropic provider', () => {
         usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
       },
       { type: 'delta', text: 'Why did' },
-      { type: 'error', error: { code: 'overloaded', message: 'Overloaded', retryable: true } },
+      {
+        type: 'error',
+        error: { code: 'overloaded', message: 'Overloaded', retryable: true, upstream: 'stream' },
+      },
     ]);
   });
 
@@ -246,7 +250,10 @@ describe('anthropic provider', () => {
         ]).response,
     );
     expect(await collect(provider.stream(req()))).toEqual([
-      { type: 'error', error: { code: 'server', message: 'Internal error', retryable: true } },
+      {
+        type: 'error',
+        error: { code: 'server', message: 'Internal error', retryable: true, upstream: 'stream' },
+      },
     ]);
   });
 
@@ -313,7 +320,13 @@ describe('anthropic provider', () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
       type: 'error',
-      error: { code, status, retryable, message: (body.error as { message: string }).message },
+      error: {
+        code,
+        status,
+        retryable,
+        message: (body.error as { message: string }).message,
+        upstream: 'rejected',
+      },
     });
   });
 
@@ -332,7 +345,12 @@ describe('anthropic provider', () => {
     expect(await collect(provider.stream(req()))).toEqual([
       {
         type: 'error',
-        error: { code: 'network', message: 'Network error: fetch failed', retryable: true },
+        error: {
+          code: 'network',
+          message: 'Network error: fetch failed',
+          retryable: true,
+          upstream: 'not_sent',
+        },
       },
     ]);
   });
@@ -531,7 +549,7 @@ describe('anthropic prompt caching', () => {
 
 describe('anthropic web search', () => {
   const WS: ProviderConfig = { ...CONFIG, options: { webSearch: true } };
-  const webSearch = { mode: 'auto', maxResults: 5, maxUses: 1, engine: 'exa' } as const;
+  const webSearch = { mode: 'auto', maxUses: 1 } as const;
   const cite = (url: string, title: string, citedText = '') => ({
     type: 'content_block_delta',
     index: 2,
@@ -611,8 +629,11 @@ describe('anthropic web search', () => {
     return { provider, calls: m.calls };
   }
 
-  it('reports the capability only with options.webSearch', () => {
-    expect(setupWs(WS).provider.capabilities('claude-opus-5-5').supportsWebSearch).toBe(true);
+  it('reports the capability only with options.webSearch, and never a required search', () => {
+    expect(setupWs(WS).provider.capabilities('claude-opus-5-5')).toMatchObject({
+      supportsWebSearch: true,
+      requiredWebSearch: false,
+    });
     expect(setupWs(CONFIG).provider.capabilities('claude-opus-5-5').supportsWebSearch).toBe(false);
   });
 

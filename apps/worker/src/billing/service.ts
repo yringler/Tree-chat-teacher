@@ -416,8 +416,9 @@ export function billingPageUrl(baseUrl: string, account: AccountContext): string
  * Opens the payment provider's hosted checkout for a top-up of the user's
  * own credit, in either mode. Anyone signed in may buy credit, member or not
  * (the membership is only for the user's own keys; credit carries the
- * markup instead). The provider carries the ledger to credit and the buyer to
- * its webhook (billing/payments/apply.ts).
+ * markup instead). The provider carries the buyer to its webhook
+ * (billing/payments/apply.ts), which credits the buyer's own ledger,
+ * whichever app the top-up was bought from.
  */
 export async function startTopUpCheckout(
   env: AppEnv,
@@ -439,7 +440,6 @@ export async function startTopUpCheckout(
   if (!provider?.capabilities.topUps) throw notConfigured();
   const buyer = await buyerFor(env.DB, provider.id, userId);
   if (!buyer) throw new DomainError('unauthorized', 'Sign in to add credit');
-  // The user's ledger, whichever app the top-up was bought from.
   const session = await provider.createTopUpCheckout({
     buyer,
     amountCents,

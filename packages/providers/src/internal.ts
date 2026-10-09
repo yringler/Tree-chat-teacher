@@ -10,7 +10,7 @@ import type {
   ProviderErrorCode,
   ProviderEvent,
 } from '@tangent/shared';
-import { isReasoningModel, REASONING_MAX_OUTPUT_TOKENS } from '@tangent/shared';
+import { clip, isReasoningModel, REASONING_MAX_OUTPUT_TOKENS } from '@tangent/shared';
 import type { ProviderEnv } from './registry.js';
 
 /** Thrown inside provider internals; converted to an `error` event by `guardStream`. */
@@ -121,9 +121,8 @@ export function redact(text: string, secrets: readonly string[]): string {
   return out.replace(/\b(sk-[A-Za-z0-9_*-]{3})[A-Za-z0-9_*-]{5,}/g, '$1…[redacted]');
 }
 
-function truncate(text: string, max = 500): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
+/** The longest provider error message passed on. */
+const ERROR_MESSAGE_MAX = 500;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -175,12 +174,15 @@ export async function errorFromResponse(
   if ((code === 'invalid_request' || status === 413) && looksLikeContextLength(raw, info.code)) {
     code = 'context_length';
   }
-  return providerError(code, truncate(redact(raw, secrets)), status);
+  return providerError(code, clip(redact(raw, secrets), ERROR_MESSAGE_MAX), status);
 }
 
 export function networkError(err: unknown, secrets: readonly string[]): ProviderError {
   const msg = err instanceof Error ? err.message : String(err);
-  return providerError('network', truncate(redact(`Network error: ${msg}`, secrets)));
+  return providerError(
+    'network',
+    clip(redact(`Network error: ${msg}`, secrets), ERROR_MESSAGE_MAX),
+  );
 }
 
 /**
@@ -214,7 +216,7 @@ export async function* guardStream(
           const msg = e instanceof Error ? e.message : String(e);
           terminal = {
             type: 'error',
-            error: providerError('unknown', truncate(redact(msg, secrets))),
+            error: providerError('unknown', clip(redact(msg, secrets), ERROR_MESSAGE_MAX)),
           };
         }
         break;

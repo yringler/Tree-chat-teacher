@@ -1,5 +1,11 @@
-import { splitTangents, type Branch, type ChatNode, type NodeLink } from '@tangent/shared';
-import { plainText } from './context/render.js';
+import {
+  clip,
+  plainText,
+  splitTangents,
+  type Branch,
+  type ChatNode,
+  type NodeLink,
+} from '@tangent/shared';
 import { branchChain, type NavTarget, type TreeIndex } from './tree.js';
 
 /**
@@ -167,10 +173,6 @@ function isTangentHead(index: TreeIndex, node: ChatNode): boolean {
 
 function messageText(node: ChatNode): string {
   return plainText(splitTangents(node.content).body);
-}
-
-function clip(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 }
 
 function compare(a: string, b: string): number {

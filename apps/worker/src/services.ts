@@ -4,6 +4,7 @@ import {
   estimateTokensUtf8,
   ShareService,
   type ChatSettings,
+  type GenerationProfile,
 } from '@tangent/core';
 import {
   createProviderRegistry,
@@ -21,7 +22,7 @@ import {
   type ProviderRegistry,
 } from '@tangent/shared';
 import { isAdminUserId } from './auth/admin.js';
-import { groundingAllowance, groundingSettings } from './billing/grounding.js';
+import { groundingAllowance, groundingSettings, withSearchOptions } from './billing/grounding.js';
 import { defaultRouteFacts } from './billing/gate.js';
 import { createPoolUsageMeter, createUsageMeter, meteredRegistry } from './billing/meter.js';
 import { paymentProvider, paymentsConfigured } from './billing/payments/index.js';
@@ -263,8 +264,9 @@ export function registryFor(
 
 /**
  * The providers of `configs`, with OpenRouter models budgeted on their real
- * context windows (model-windows.ts `withModelWindows`): every registry a
- * request generates through is built here. `apiKeys` and `withheld` as in
+ * context windows (model-windows.ts `withModelWindows`) and searching as the
+ * `GROUNDING_*` vars say (`withSearchOptions`): every registry a request
+ * generates through is built here. `apiKeys` and `withheld` as in
  * `providerEnv`.
  */
 function windowedRegistry(
@@ -273,8 +275,12 @@ function windowedRegistry(
   apiKeys?: UserApiKeys,
   withheld?: ReadonlySet<string>,
 ): ProviderRegistry {
-  const registry = createProviderRegistry(configs, providerEnv(env, configs, apiKeys, withheld));
-  return withModelWindows(registry, configs, env);
+  const searching = withSearchOptions(env, configs);
+  const registry = createProviderRegistry(
+    searching,
+    providerEnv(env, searching, apiKeys, withheld),
+  );
+  return withModelWindows(registry, searching, env);
 }
 
 /**
@@ -478,44 +484,44 @@ export function chatService(
   const registry = registryFor(env, account, opts.apiKeys, scope);
   const defer = opts.defer ?? detach;
   let providers = registry;
-  let creditProviders: ProviderRegistry | null = null;
+  let profile: GenerationProfile;
   if (account.mode === 'simple') {
-    // Learn's one registry is on the operator's key exactly when the request pays with credit or the pool.
+    // Learn pays per request: its one registry is on the operator's key exactly when the
+    // request pays with credit or the pool, and branch funding is ignored.
     if (pool) providers = poolGeneratingRegistry(env, { ...account, pool }, defer, registry);
     else if (account.builtIn) providers = meteredLazily(registry, env, account, defer);
+    profile = pool
+      ? {
+          kind: 'pool',
+          model: pool.model,
+          systemPrompt: pool.systemPrompt,
+          // Budgets and summary prompts in UTF-8 bytes, so the pool's context limit is a hard bound.
+          estimateTokens: estimateTokensUtf8,
+          // A client-set anchor quote gets no more room than a message.
+          anchorQuoteMaxChars: pool.maxMessageChars,
+        }
+      : { kind: 'learn' };
   } else {
     // Power: own keys unmetered; Tangent credit, every call metered.
     const credit = creditRegistryFor(env, account);
-    if (credit) creditProviders = meteredLazily(credit, env, account, defer);
+    profile = credit
+      ? {
+          kind: 'power',
+          credit: {
+            providers: meteredLazily(credit, env, account, defer),
+            // A new tree's default route starts on credit only when it can pay (docs/DECISIONS.md).
+            defaultRouteFacts: () => defaultRouteFacts(env, account),
+          },
+        }
+      : { kind: 'power' };
   }
   return new ChatService({
     repos: createD1Repositories(env.DB),
     accountId: account.id,
     providers,
-    ...(creditProviders
-      ? {
-          creditProviders,
-          // A new tree's default route starts on credit only when it can pay (docs/DECISIONS.md).
-          defaultRouteFacts: () => defaultRouteFacts(env, account),
-        }
-      : {}),
-    // Learn pays per request: branch funding is ignored and written as `own-key`.
-    // Imports into Learn are adapted to its provider, models, context and prompt.
-    ...(account.mode === 'simple'
-      ? { fixedFunding: 'own-key' as const, adaptImportsForLearn: true }
-      : {}),
+    profile,
     settings: chatSettingsFor(env, account, scope),
     defaultSystemPrompt: defaultSystemPromptFor(env, account, scope),
-    ...(pool
-      ? {
-          pinnedModel: pool.model,
-          systemPromptOverride: pool.systemPrompt,
-          // Budgets and summary prompts in UTF-8 bytes, so the pool's context limit is a hard bound.
-          inputBound: { estimateTokens: estimateTokensUtf8 },
-          // A client-set anchor quote gets no more room than a message.
-          anchorQuoteMaxChars: pool.maxMessageChars,
-        }
-      : {}),
     groundingAllowance: groundingAllowance(env, account),
     // Failures the service recovers from on its own, as structured log lines.
     log: (event, fields) => console.error(JSON.stringify({ event, ...fields })),

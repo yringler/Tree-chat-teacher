@@ -7,7 +7,7 @@ import {
   type OnInit,
   signal,
 } from '@angular/core';
-import { plainText } from '@tangent/core';
+import { plainText } from '@tangent/shared';
 import { parseReview, parseRouteKey, routeKey, type BranchFunding } from '@tangent/shared';
 import { copyText } from '../core/selection';
 import { Icon, MarkdownService, Modal, TypesetMath } from '@tangent/web-shared';

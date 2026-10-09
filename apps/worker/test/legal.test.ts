@@ -83,6 +83,22 @@ describe('legal pages', () => {
     );
   });
 
+  it('says what the open pool keeps, and that it outlives an account deletion', async () => {
+    const privacy = await (await setup()('/privacy')).text();
+    expect(privacy).toContain('<tr><td>Open pool (if you use it)</td>');
+    expect(privacy).toContain('a keyed hash of your IP address');
+    expect(privacy).toContain('a SHA-256 hash of your email address');
+    expect(privacy).toContain(
+      "Open pool records (the pool's usage records and your pool identity): kept after your account is deleted",
+    );
+  });
+
+  it('the terms promise no credit with the membership', async () => {
+    const terms = await (await setup()('/terms')).text();
+    expect(terms).toContain('The membership includes no credit.');
+    expect(terms).not.toMatch(/credit (it|the membership) included|credit already granted/);
+  });
+
   it('words share links by DMCA_AGENT_REGISTERED', async () => {
     const on = setup({ DMCA_AGENT_REGISTERED: 'true' });
     const off = setup({ DMCA_AGENT_REGISTERED: 'false' });

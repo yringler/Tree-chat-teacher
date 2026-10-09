@@ -197,7 +197,9 @@ describe('createLoremProvider', () => {
       { id: DEMO_MAX_MODEL, label: 'Max', tier: 'max' },
     ]);
     expect(p.defaultModel()).toBe(DEMO_NORMAL_MODEL);
-    expect(p.kind).not.toBe('fake'); // the ChatService only auto-titles with real kinds
+    // Scripted, but its titles are real ones: the ChatService titles branches with it.
+    expect(p.kind).toBe('fake');
+    expect(p.capabilities(p.defaultModel()).titles).toBe(true);
   });
 
   it('prices Max at about 14× Normal, like the default tiers', () => {

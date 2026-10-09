@@ -3,16 +3,18 @@ import { pickDefaultRoute, type DefaultRouteCandidate } from './default-route.js
 
 type Entry = DefaultRouteCandidate & { label: string };
 
-const entry = (
-  id: string,
-  over: Partial<Entry> = {},
-  kind: DefaultRouteCandidate['kind'] = 'openai-compatible',
-): Entry => ({ id, kind, available: false, funding: 'own-key', label: id, ...over });
+const entry = (id: string, over: Partial<Entry> = {}): Entry => ({
+  id,
+  available: false,
+  funding: 'own-key',
+  label: id,
+  ...over,
+});
 
 /** Power's default own-key list (PROVIDERS unset), with keys for `keys`. */
 function defaults(keys: string[] = []): Entry[] {
   return [
-    entry('anthropic', { available: keys.includes('anthropic') }, 'anthropic'),
+    entry('anthropic', { available: keys.includes('anthropic') }),
     entry('openai', { available: keys.includes('openai') }),
     entry('openrouter', { available: keys.includes('openrouter') }),
   ];
@@ -20,7 +22,7 @@ function defaults(keys: string[] = []): Entry[] {
 /** A self-hosted list without OpenRouter. */
 function selfHosted(keys: string[] = []): Entry[] {
   return [
-    entry('anthropic', { available: keys.includes('anthropic') }, 'anthropic'),
+    entry('anthropic', { available: keys.includes('anthropic') }),
     entry('openai', { available: keys.includes('openai') }),
   ];
 }
@@ -87,12 +89,12 @@ describe('pickDefaultRoute (the default route of a new tree)', () => {
     );
   });
 
-  it('test providers (`fake`): never over a usable real route, never on credit, and only as configured', () => {
-    const fake = entry('fake', { available: true }, 'fake');
-    const fakeCredit = { ...credit, kind: 'fake' as const };
+  it('test providers (`scripted`): never over a usable real route, never on credit, and only as configured', () => {
+    const fake = entry('fake', { available: true, scripted: true });
+    const fakeCredit = { ...credit, scripted: true };
     // Only fakes configured: the fake.
     expect(pick([fake])).toBe('fake@own-key');
-    expect(pick([entry('fake', {}, 'fake')])).toBe('fake@own-key');
+    expect(pick([entry('fake', { scripted: true })])).toBe('fake@own-key');
     // A usable real provider or credit that can pay comes first.
     expect(pick([fake, ...defaults(['openai'])])).toBe('openai@own-key');
     expect(pick([fake, ...defaults(), credit], true)).toBe('openrouter@credit');
@@ -102,12 +104,14 @@ describe('pickDefaultRoute (the default route of a new tree)', () => {
     expect(pick([...defaults(), fakeCredit], true)).toBe('openrouter@own-key');
     expect(pick([...selfHosted(), fakeCredit], true, true)).toBe('anthropic@own-key');
     // An `openrouter` id that is a fake is no OpenRouter key to ask for.
-    expect(pick([entry('openrouter', {}, 'fake'), ...selfHosted()])).toBe('anthropic@own-key');
+    expect(pick([entry('openrouter', { scripted: true }), ...selfHosted()])).toBe(
+      'anthropic@own-key',
+    );
   });
 
   it('entries without a funding are own-key (Learn); nothing to pick is null', () => {
     expect(
-      pickDefaultRoute([{ id: 'openrouter', kind: 'openai-compatible', available: false }], {
+      pickDefaultRoute([{ id: 'openrouter', available: false }], {
         creditCanPay: true,
         creditBuyable: true,
         ownKeyLocked: false,

@@ -51,15 +51,17 @@ export interface DeletedUser {
  * (question and answers) are deleted by its alarm within `CANDIDATE_TTL_MS`,
  * as the privacy policy says; a call per tree here would be unbounded.
  *
- * Kept on purpose: the billing ledger (`credit_grants`, `usage_events`),
- * which holds amounts, model names and token counts but no message content.
- * Tax and accounting law require keeping payment records, and once the
- * user row is gone the `u_<userId>` id leads nowhere. The privacy policy
- * (http/legal.ts) says so. Also kept: the open pool's identity records
- * (`pool_identity_holders`, `pool_identities`: a SHA-256 of the normalised
- * email, user ids and a suspension flag, no address), and a suspended user's
- * suspension is written there first, so signing up again with the same
- * mailbox neither lifts a pool suspension nor resets the pool's daily caps.
+ * Kept on purpose: the billing ledger (`credit_grants`, `usage_events`,
+ * the pool's rows among them), which holds amounts, model names and token
+ * counts but no message content. Tax and accounting law require keeping
+ * payment records, and once the user row is gone the `u_<userId>` id leads
+ * nowhere but to the pool identity. Also kept: the open pool's identity
+ * records (`pool_identity_holders`, `pool_identities`: a SHA-256 of the
+ * normalised email, user ids and a suspension flag, no address), and a
+ * suspended user's suspension is written there first, so signing up again
+ * with the same mailbox neither lifts a pool suspension nor resets the
+ * pool's daily caps. The privacy policy (http/legal.ts, "How long we keep
+ * it") describes both.
  */
 export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUser> {
   const accountIds = [POWER_ACCOUNT_PREFIX + userId, accountIdForUser(userId)];

@@ -1,5 +1,5 @@
 import '@angular/compiler'; // JIT: compiles the component below without the Angular CLI.
-import { CONTINUE_MESSAGE, isCutOffReply, REPLY_CUT_OFF_ERROR } from '@tangent/shared';
+import { CONTINUE_MESSAGE, isCutOffReply } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { MessageItem } from './message-item';
 
@@ -21,10 +21,10 @@ describe('MessageItem: a reply cut off at its length limit', () => {
     expect(t.slice(cutOff, failed)).not.toContain('The reply failed.');
   });
 
-  it('is told apart by its fixed message; Continue asks for the rest', () => {
-    expect(isCutOffReply({ status: 'error', error: REPLY_CUT_OFF_ERROR })).toBe(true);
-    expect(isCutOffReply({ status: 'error', error: 'Upstream died' })).toBe(false);
-    expect(isCutOffReply({ status: 'complete', error: null })).toBe(false);
+  it('is told apart by its kind; Continue asks for the rest', () => {
+    expect(isCutOffReply({ status: 'error', errorKind: 'cut_off' })).toBe(true);
+    expect(isCutOffReply({ status: 'error', errorKind: 'provider' })).toBe(false);
+    expect(isCutOffReply({ status: 'complete', errorKind: null })).toBe(false);
     expect(CONTINUE_MESSAGE).toMatch(/continue/i);
   });
 });
