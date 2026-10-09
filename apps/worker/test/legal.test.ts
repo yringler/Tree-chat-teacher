@@ -88,12 +88,13 @@ describe('legal pages', () => {
     expect(privacy).toContain('a keyed hash of your IP address');
     expect(privacy).toContain('a SHA-256 hash of your email address');
     expect(privacy).toContain(
-      "Open pool records: when your account is deleted, the pool's usage records are kept without your user id or network key",
+      "Open pool records: when your account is deleted, the pool's usage records are kept without your user id (the pool's accounts add them up), and without your network key once that UTC day is over",
     );
     expect(privacy).toContain(
       "Your pool identity is kept for 90 days after the deletion, so that deleting an account and signing up again with the same mailbox neither lifts a suspension nor resets that day's caps, and then deleted.",
     );
     expect(privacy).not.toContain('with no set end');
+    expect(privacy).not.toContain('without your user id or network key');
   });
 
   it('the terms promise no credit with the membership', async () => {

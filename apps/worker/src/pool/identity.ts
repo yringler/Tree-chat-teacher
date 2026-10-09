@@ -141,8 +141,9 @@ export async function markPoolVerified(
  * `now`, suspended if the user was or the identity already is, with the
  * user's pool usage of `now`'s UTC day on `poolId` added to that of a
  * deletion earlier the same day, which the next holder's caps count until
- * the day ends. Run it in the deletion's batch before the user's usage rows
- * lose their user id.
+ * the day ends. A row still pending counts at its ceiling hold, though it
+ * may settle lower: the carry errs toward the cap. Run it in the deletion's
+ * batch before the user's usage rows lose their user id.
  */
 export function releasePoolIdentityStatement(
   db: D1Database,

@@ -60,6 +60,27 @@ export async function insertUser(
 }
 
 /**
+ * Gives `userId` an `auth_users` row unless it has one: no reservation is
+ * written for a user who doesn't exist (billing/usage-store.ts).
+ */
+export async function ensureUser(env: AppEnv, userId: string): Promise<void> {
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO auth_users (id, name, email, email_verified, created_at, updated_at)
+     VALUES (?1, 'Test User', ?1 || '@example.com', 1, ?2, ?2)`,
+  )
+    .bind(userId, now)
+    .run();
+}
+
+/** A fresh user id with its `auth_users` row (`ensureUser`). */
+export async function newUser(env: AppEnv): Promise<string> {
+  const userId = uniq('user');
+  await ensureUser(env, userId);
+  return userId;
+}
+
+/**
  * A membership subscription snapshot (`billing_subscriptions`, kind
  * `membership` unless given), as the payment webhook stores it; returns its ref.
  * `periodEnd` is epoch ms.

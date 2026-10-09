@@ -19,7 +19,7 @@ import { poolBank } from '../src/pool/ids.js';
 import { poolReserveRequest, replyCeilingMicros, resolvePoolParams } from '../src/pool/params.js';
 import { poolProviderConfig } from '../src/simple-mode.js';
 import { makeNode } from './fixtures.js';
-import { uniq } from './mocks/billing-helpers.js';
+import { newUser } from './mocks/billing-helpers.js';
 import { poolReadyUser } from './pool-helpers.js';
 import type { CallInit } from './session-client.js';
 import { ok, parseSse } from './http.js';
@@ -442,7 +442,7 @@ describe('pool refusals', () => {
       global: { spendMicrosPerDay: 1e12, bpsOfMorningBalance: 1e9 },
     };
     const taken = await poolBank(env, u.poolId).reserve(
-      poolReserveRequest({ ...params, accountId: u.poolId, caps }, uniq('user'), {
+      poolReserveRequest({ ...params, accountId: u.poolId, caps }, await newUser(env), {
         purpose: 'reply',
         treeId: null,
         branchId: null,

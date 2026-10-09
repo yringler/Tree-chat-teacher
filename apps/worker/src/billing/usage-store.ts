@@ -52,6 +52,18 @@ export interface PendingUsageRow {
   createdAt: string;
 }
 
+/**
+ * The condition on `user_id` (bound as `?6`) of every reservation: none, or
+ * a user who still exists. A call the user started before deleting their
+ * account (a reply's title and summaries, a reply the gate let through)
+ * can't write a row that keeps their id after the deletion stripped it.
+ */
+const USER_EXISTS_SQL = `(?6 IS NULL OR EXISTS (SELECT 1 FROM auth_users WHERE id = ?6))`;
+
+/**
+ * Inserts the pending row unless its user no longer exists (USER_EXISTS_SQL);
+ * the caller reads `meta.changes` to tell.
+ */
 export function insertPendingUsageStatement(
   db: D1Database,
   row: PendingUsageRow,
@@ -61,7 +73,8 @@ export function insertPendingUsageStatement(
       `INSERT INTO usage_events
          (id, account_id, tree_id, node_id, branch_id, user_id, funding, ip_key, purpose,
           provider_id, model, status, hold_micros, markup_bps, fee_bps, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'pending', ?12, ?13, ?14, ?15
+       WHERE ${USER_EXISTS_SQL}`,
     )
     .bind(
       row.id,
@@ -96,7 +109,8 @@ const AVAILABLE_SQL = `(SELECT COALESCE(SUM(amount_micros), 0) FROM credit_grant
  * available balance covers its hold and, with `maxPending`, fewer than that
  * many of its calls are pending. One statement, so calls racing from
  * different trees (different Durable Objects) or Workers can't all pass.
- * Resolves false when nothing was inserted.
+ * Never for a user who no longer exists (USER_EXISTS_SQL). Resolves false
+ * when nothing was inserted.
  */
 export async function reservePersonalUsage(
   db: D1Database,
@@ -110,6 +124,7 @@ export async function reservePersonalUsage(
           provider_id, model, status, hold_micros, markup_bps, fee_bps, created_at)
        SELECT ?2, ?1, ?3, ?4, ?5, ?6, '${STORED_FUNDING.credit}', NULL, ?7, ?8, ?9, 'pending', ?10, ?11, ?12, ?13
        WHERE ${AVAILABLE_SQL} >= ?10
+         AND ${USER_EXISTS_SQL}
          AND (?14 IS NULL OR
               (SELECT COUNT(*) FROM usage_events WHERE account_id = ?1 AND status = 'pending') < ?14)`,
     )

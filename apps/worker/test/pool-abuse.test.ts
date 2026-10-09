@@ -16,6 +16,7 @@ import type {
 } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
+import { sweepDeletedUsers } from '../src/auth/delete-account.js';
 import { getBalance } from '../src/billing/ledger.js';
 import { CRON_JOBS } from '../src/cron.js';
 import type { SqlRow } from '../src/db/rows.js';
@@ -615,7 +616,7 @@ describe('account deletion', () => {
       .run();
   }
 
-  it('strips the user id and network key from the pool rows, and leaves the pool’s sums alone', async () => {
+  it('strips the user id from the pool rows, the network key once the day is over, and leaves the pool’s sums alone', async () => {
     const ip = freshIp();
     const email = `gone-${Math.random().toString(36).slice(2, 8)}@example.org`;
     const stays = await poolReadyUser({ ip });
@@ -655,7 +656,9 @@ describe('account deletion', () => {
     expect(after.filter((r) => r.user_id === gone.userId)).toEqual([]);
     const stripped = after.filter((r) => r.user_id === null);
     expect(stripped).toHaveLength(2);
-    expect(stripped.every((r) => r.ip_key === null)).toBe(true);
+    // Today's rows keep the network key: without the user id it links nothing within the day.
+    const networkKey = before.find((r) => r.user_id === stays.userId)!.ip_key;
+    expect(stripped.every((r) => r.ip_key === networkKey)).toBe(true);
     // The account that stays keeps its rows as they were.
     expect(after.filter((r) => r.user_id === stays.userId)).toEqual(
       before.filter((r) => r.user_id === stays.userId),
@@ -667,14 +670,85 @@ describe('account deletion', () => {
     });
     expect(await bank.rateKeys()).not.toContain(`u:${gone.userId}`);
 
-    // The report lists who remains; the shared network counts one user now.
+    // The report lists who remains; the network keeps its day's replies, from one known user.
     const report = await ok<AdminPoolUsageResponse>(
       await admin.client.call('/api/admin/pool/usage?days=1&limit=10', {}, adminEnv),
     );
     expect(report.rows.map((r) => [r.userId, r.requests])).toEqual([[stays.userId, 1]]);
-    expect(report.ipKeys).toEqual([expect.objectContaining({ users: 1, requests: 1 })]);
-    // The deleted account's replies no longer count toward its network's cap.
-    await sendOk(neighbour, neighbourTree.branchId);
+    expect(report.ipKeys).toEqual([expect.objectContaining({ users: 1, requests: 3 })]);
+    // Deleting the account didn't reset the network's cap: another mailbox on it is still refused.
+    expect(
+      (await refused(await send(neighbour, neighbourTree.branchId), 429, 'pool_cap_reached'))
+        .reason,
+    ).toBe('cap_ip');
+
+    // Once the day is over, the daily sweep takes the network key off the deleted account's rows.
+    const tomorrow = new Date(nextUtcMidnight());
+    await sweepDeletedUsers(env.DB, tomorrow);
+    const swept = await poolRows(poolId);
+    expect(swept.filter((r) => r.user_id === null).map((r) => r.ip_key)).toEqual([null, null]);
+    expect(swept.filter((r) => r.user_id === stays.userId)).toEqual(
+      before.filter((r) => r.user_id === stays.userId),
+    );
+    expect(ledger(swept)).toEqual(ledger(before));
+  });
+
+  it('the daily sweep catches up on a deletion it didn’t see (an older Worker’s)', async () => {
+    const email = `missed-${Math.random().toString(36).slice(2, 8)}@example.org`;
+    const missed = await poolReadyUser({ email, ip: freshIp() });
+    const admin = await poolReadyUser({ poolId: missed.poolId });
+    const poolId = missed.poolId;
+    const identity = await poolIdentity(email);
+    await sendOk(missed, (await newTree(missed)).branchId);
+    // A suspension writes the identity row, as the older Worker did.
+    await ok<AdminUser>(
+      await admin.client.call(
+        `/api/admin/users/${missed.userId}`,
+        { method: 'PATCH', json: { poolSuspended: true } },
+        authEnv({ TEST_POOL_ACCOUNT_ID: poolId, ADMIN_USER_IDS: admin.userId }),
+      ),
+    );
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO credit_grants (id, account_id, kind, amount_micros, user_id, provider_ref, created_at)
+         VALUES (?, ?, 'adjustment', 1, ?, NULL, ?)`,
+      ).bind(uniq('grant'), poolId, missed.userId, new Date().toISOString()),
+      env.DB.prepare(
+        `INSERT INTO pool_identity_holders (user_id, identity, claimed_at) VALUES (?, ?, ?)`,
+      ).bind(missed.userId, identity, new Date().toISOString()),
+      // The older Worker's deletion: the user row goes, everything the pool keeps stays as it was.
+      env.DB.prepare('DELETE FROM auth_users WHERE id = ?').bind(missed.userId),
+    ]);
+    const rows = await settledRows(poolId);
+    expect(rows.map((r) => r.user_id)).toEqual([missed.userId]);
+    const networkKey = rows[0]!.ip_key;
+    expect(networkKey).not.toBeNull();
+    expect(await identityRow(identity)).toMatchObject({ suspended: 1, deleted_at: null });
+
+    const now = new Date();
+    for (let run = 0; run < 2; run++) {
+      await CRON_JOBS.deletedAccounts(env, now);
+      expect((await poolRows(poolId)).map((r) => [r.user_id, r.ip_key])).toEqual([
+        [null, networkKey],
+      ]);
+      const grant = await env.DB.prepare(
+        "SELECT user_id FROM credit_grants WHERE account_id = ? AND kind = 'adjustment' AND amount_micros = 1",
+      )
+        .bind(poolId)
+        .first<{ user_id: string | null }>();
+      expect(grant).toEqual({ user_id: null });
+      const holder = await env.DB.prepare('SELECT 1 FROM pool_identity_holders WHERE user_id = ?')
+        .bind(missed.userId)
+        .first();
+      expect(holder).toBeNull();
+      // Its retention starts now, and a second run doesn't move it.
+      expect(await identityRow(identity)).toMatchObject({
+        suspended: 1,
+        deleted_at: now.toISOString(),
+      });
+    }
+    await sweepDeletedUsers(env.DB, new Date(nextUtcMidnight()));
+    expect((await poolRows(poolId)).map((r) => [r.user_id, r.ip_key])).toEqual([[null, null]]);
   });
 
   it('a new account on the mailbox within the retention is the same identity, suspension and day', async () => {
@@ -697,7 +771,7 @@ describe('account deletion', () => {
 
     // A day short of the retention, the cron keeps it.
     await ageDeletion(identity, POOL_IDENTITY_RETENTION_DAYS - 1);
-    await CRON_JOBS.poolIdentityPurge(env, new Date());
+    await CRON_JOBS.deletedAccounts(env, new Date());
     expect(await identityRow(identity)).toMatchObject({ suspended: 1 });
 
     const again = await poolReadyUser({
@@ -754,7 +828,7 @@ describe('account deletion', () => {
     expect(await identityRow(identity)).toMatchObject({ suspended: 1 });
 
     await ageDeletion(identity, POOL_IDENTITY_RETENTION_DAYS + 1);
-    await CRON_JOBS.poolIdentityPurge(env, new Date());
+    await CRON_JOBS.deletedAccounts(env, new Date());
     expect(await identityRow(identity)).toBeNull();
     // Idempotent: a second run finds nothing.
     expect(await purgeReleasedPoolIdentities(env.DB)).toBe(0);

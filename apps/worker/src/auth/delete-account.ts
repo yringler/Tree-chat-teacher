@@ -16,8 +16,9 @@ import type { AppBindings, AppContext, AppEnv } from '../env.js';
 import { validateJson } from '../http/errors.js';
 import { poolIdentity, releasePoolIdentityStatement } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
+import { dayStart } from '../pool/pool-bank.js';
 import { purgeShare } from '../share/cache.js';
-import { accountIdForUser, POWER_ACCOUNT_PREFIX } from './account.js';
+import { accountIdForUser, POWER_ACCOUNT_PREFIX, SIMPLE_ACCOUNT_PREFIX } from './account.js';
 import { logEvent } from '../log.js';
 
 /**
@@ -26,6 +27,15 @@ import { logEvent } from '../log.js';
  * the browser doesn't keep presenting a session that no longer exists.
  */
 const AUTH_COOKIES = ['session_token', 'session_data', 'dont_remember'].map((n) => `tangent.${n}`);
+
+/**
+ * `ip_key` of a usage row whose user is gone: kept on the rows of the
+ * current UTC day (`dayParam` binds its 00:00), where it still counts toward
+ * the network's daily cap, null on older ones.
+ */
+function todaysIpKey(dayParam: string): string {
+  return `CASE WHEN created_at >= ${dayParam} THEN ip_key END`;
+}
 
 /** What deleting a user removed, for the caller (and tests). */
 export interface DeletedUser {
@@ -60,12 +70,16 @@ export interface DeletedUser {
  * the pool's rows among them), which holds amounts, model names and token
  * counts but no message content. Tax and accounting law require keeping
  * payment records, and the pool's balance, checkpoint and day totals are
- * sums over them. Its usage rows lose their user id and network key
- * (`user_id`, `ip_key`) in the same batch, and so do grants on any ledger
- * but the user's own (pool adjustments), so the pool's records no longer
- * lead to the person, and the deleted account's spend counts toward nobody's
- * per-network caps. The user's own ledger `u_<userId>` leads nowhere once the
- * user row is gone. Also kept, for `POOL_IDENTITY_RETENTION_DAYS` after
+ * sums over them. Its usage rows lose their user id (`user_id`) in the same
+ * batch, and so do grants on any ledger but the user's own (pool
+ * adjustments), so the pool's records no longer lead to the person. The
+ * network key (`ip_key`) goes too, except on today's rows: it is a keyed hash
+ * of the UTC day and the network, so without the user id it links nothing,
+ * and it keeps the network's daily cap from resetting with the deletion;
+ * the daily sweep (`sweepDeletedUsers`) drops it once the day is over. The
+ * user's own ledger `u_<userId>` leads nowhere once the user row is gone, and
+ * no reservation can write a row for a user who no longer exists
+ * (billing/usage-store.ts). Also kept, for `POOL_IDENTITY_RETENTION_DAYS` after
  * this deletion and then purged by the daily cron: the user's pool identity
  * (`pool_identities`: a SHA-256 of the normalised email, its suspension, and
  * the day's pool usage, no address or user id), so signing up again with
@@ -95,6 +109,7 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
   const identity =
     user.pool_identity ?? (user.pool_suspended ? await poolIdentity(user.email) : null);
   const poolId = appConfig(env).pool.accountId;
+  const now = new Date();
 
   const [p, u] = accountIds;
   await env.DB.batch([
@@ -105,13 +120,13 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
             userId,
             poolId,
             suspended: user.pool_suspended === 1,
-            now: new Date(),
+            now,
           }),
         ]
       : []),
-    env.DB.prepare('UPDATE usage_events SET user_id = NULL, ip_key = NULL WHERE user_id = ?1').bind(
-      userId,
-    ),
+    env.DB.prepare(
+      `UPDATE usage_events SET user_id = NULL, ip_key = ${todaysIpKey('?2')} WHERE user_id = ?1`,
+    ).bind(userId, dayStart(now).toISOString()),
     env.DB.prepare(
       'UPDATE credit_grants SET user_id = NULL WHERE user_id = ?1 AND account_id <> ?2',
     ).bind(userId, u),
@@ -148,6 +163,48 @@ async function forgetPoolRateCounter(env: AppEnv, poolId: string, userId: string
   } catch (err) {
     logEvent('warn', 'account_deletion_pool_counter_left', { error: err });
   }
+}
+
+/**
+ * Daily cron: finishes what `deleteUser` leaves for later, and catches up
+ * on deletions it didn't see (an older Worker's, during a deploy). One batch,
+ * idempotent:
+ * - usage rows of users who no longer exist lose `user_id`, and `ip_key`
+ *   on rows from before today;
+ * - usage rows from before today with no user lose `ip_key`, so a deletion's
+ *   network keys go once their day is over;
+ * - grants outside the user's own ledger lose the `user_id` of a user who no
+ *   longer exists, and so does `pool_identity_holders`;
+ * - a pool identity no account holds, with no `deleted_at`, gets `now`, so
+ *   its retention starts.
+ */
+export async function sweepDeletedUsers(db: D1Database, now = new Date()): Promise<void> {
+  const day = dayStart(now).toISOString();
+  const gone = `user_id NOT IN (SELECT id FROM auth_users)`;
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE usage_events SET user_id = NULL, ip_key = ${todaysIpKey('?1')}
+         WHERE user_id IS NOT NULL AND ${gone}`,
+      )
+      .bind(day),
+    db
+      .prepare(
+        'UPDATE usage_events SET ip_key = NULL WHERE user_id IS NULL AND ip_key IS NOT NULL AND created_at < ?',
+      )
+      .bind(day),
+    db.prepare(
+      `UPDATE credit_grants SET user_id = NULL
+       WHERE user_id IS NOT NULL AND account_id <> '${SIMPLE_ACCOUNT_PREFIX}' || user_id AND ${gone}`,
+    ),
+    db.prepare(`DELETE FROM pool_identity_holders WHERE ${gone}`),
+    db
+      .prepare(
+        `UPDATE pool_identities SET deleted_at = ? WHERE deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM auth_users u WHERE u.pool_identity = pool_identities.identity)`,
+      )
+      .bind(now.toISOString()),
+  ]);
 }
 
 /**

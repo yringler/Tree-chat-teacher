@@ -16,6 +16,7 @@ import { USAGE_HOLD_MICROS } from '../src/billing/service.js';
 import { costFromTokensNanos } from '../src/pool/pricing.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
 import {
+  ensureUser,
   envWithFailingDb,
   generationCalls,
   insertSubscription,
@@ -109,6 +110,7 @@ interface Harness {
 
 /** A meter harness on `account`, funded so each call's hold is covered. */
 async function harness(account: AccountContext = simpleAccount()): Promise<Harness> {
+  if (account.userId) await ensureUser(env, account.userId);
   await grantCredit(env.DB, {
     accountId: account.billingAccountId,
     kind: 'adjustment',
@@ -534,6 +536,21 @@ describe('usage meter holds on credit', () => {
         },
       },
     ]);
+    expect(provider.calls).toBe(0);
+    expect(await h.rows()).toEqual([]);
+  });
+
+  it('writes nothing for a user deleted since the call started, though their ledger has credit', async () => {
+    const h = await harness();
+    await env.DB.prepare('DELETE FROM auth_users WHERE id = ?').bind(h.account.userId).run();
+    const provider = scriptedProvider(reply);
+    const meter = createUsageMeter(env, h.account, (p) => h.deferred.push(p), FAST);
+    const events: ProviderEvent[] = [];
+    for await (const e of meteredRegistry(registryOf(provider), meter, onlyBuiltIn)
+      .get('openrouter')!
+      .stream(request()))
+      events.push(e);
+    expect(events).toMatchObject([{ type: 'error', error: { upstream: 'not_sent' } }]);
     expect(provider.calls).toBe(0);
     expect(await h.rows()).toEqual([]);
   });

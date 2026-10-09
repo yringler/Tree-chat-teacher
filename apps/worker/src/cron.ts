@@ -1,5 +1,6 @@
 // The Worker's cron triggers (wrangler.jsonc `triggers.crons`), dispatched on
 // the cron string so each schedule runs only its own jobs.
+import { sweepDeletedUsers } from './auth/delete-account.js';
 import { pollDisputes } from './billing/payments/disputes.js';
 import { reconcilePendingUsage, reconcilePoolUsage } from './billing/reconcile.js';
 import type { AppEnv } from './env.js';
@@ -15,7 +16,9 @@ import { logEvent } from './log.js';
 export const CRON_FREQUENT = '*/10 * * * *';
 /**
  * Daily 03:23 UTC: OpenRouter's list prices and model windows
- * (pool/model-prices.ts), and the purge of pool identities past their
+ * (pool/model-prices.ts), and what account deletion leaves for later: the
+ * sweep of deleted users' ids and past days' network keys
+ * (auth/delete-account.ts), then the purge of pool identities past their
  * retention (pool/identity.ts).
  */
 export const CRON_DAILY = '23 3 * * *';
@@ -26,7 +29,7 @@ export interface CronJobs {
   poolExpiry(env: AppEnv, now: Date): Promise<unknown>;
   paymentDisputes(env: AppEnv, now: Date): Promise<unknown>;
   priceSync(env: AppEnv, now: Date): Promise<unknown>;
-  poolIdentityPurge(env: AppEnv, now: Date): Promise<unknown>;
+  deletedAccounts(env: AppEnv, now: Date): Promise<unknown>;
 }
 
 export const CRON_JOBS: CronJobs = {
@@ -34,7 +37,10 @@ export const CRON_JOBS: CronJobs = {
   poolExpiry: (env, now) => reconcilePoolUsage(env, now),
   paymentDisputes: (env, now) => pollDisputes(env, now),
   priceSync: (env, now) => syncModelPrices(env, now),
-  poolIdentityPurge: (env, now) => purgeReleasedPoolIdentities(env.DB, now),
+  deletedAccounts: async (env, now) => {
+    await sweepDeletedUsers(env.DB, now);
+    await purgeReleasedPoolIdentities(env.DB, now);
+  },
 };
 
 /**
@@ -62,9 +68,9 @@ export function cronTasks(
         jobs.priceSync(env, now).catch((e: unknown) => {
           logEvent('error', 'price_sync_failed', { error: e });
         }),
-        // A missed day is caught up by the next run: the purge takes everything past retention.
-        jobs.poolIdentityPurge(env, now).catch((e: unknown) => {
-          logEvent('error', 'pool_identity_purge_failed', { error: e });
+        // A missed day is caught up by the next run: both take everything that is due.
+        jobs.deletedAccounts(env, now).catch((e: unknown) => {
+          logEvent('error', 'deleted_accounts_sweep_failed', { error: e });
         }),
       ];
     default:
