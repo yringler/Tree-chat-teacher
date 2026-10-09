@@ -9,9 +9,11 @@ import {
 } from '../billing/payments/customers.js';
 import { paymentProvider } from '../billing/payments/index.js';
 import { clearKeyCookie } from '../byok/keys.js';
+import { appConfig } from '../config.js';
 import type { AppBindings, AppContext, AppEnv } from '../env.js';
 import { validateJson } from '../http/errors.js';
-import { poolIdentity } from '../pool/identity.js';
+import { poolIdentity, releasePoolIdentityStatement } from '../pool/identity.js';
+import { poolBank } from '../pool/ids.js';
 import { purgeShare } from '../share/cache.js';
 import { accountIdForUser, POWER_ACCOUNT_PREFIX } from './account.js';
 import { logEvent } from '../log.js';
@@ -55,14 +57,19 @@ export interface DeletedUser {
  * Kept on purpose: the billing ledger (`credit_grants`, `usage_events`,
  * the pool's rows among them), which holds amounts, model names and token
  * counts but no message content. Tax and accounting law require keeping
- * payment records, and once the user row is gone the `u_<userId>` id leads
- * nowhere but to the pool identity. Also kept: the open pool's identity
- * records (`pool_identity_holders`, `pool_identities`: a SHA-256 of the
- * normalised email, user ids and a suspension flag, no address), and a
- * suspended user's suspension is written there first, so signing up again
- * with the same mailbox neither lifts a pool suspension nor resets the
- * pool's daily caps. The privacy policy (http/legal.ts, "How long we keep
- * it") describes both.
+ * payment records, and the pool's balance, checkpoint and day totals are
+ * sums over them. Its usage rows lose their user id and network key
+ * (`user_id`, `ip_key`) in the same batch, and so do grants on any ledger
+ * but the user's own (pool adjustments), so the pool's records no longer
+ * lead to the person, and the deleted account's spend counts toward nobody's
+ * per-network caps. The user's own ledger `u_<userId>` leads nowhere once the
+ * user row is gone. Also kept, for `POOL_IDENTITY_RETENTION_DAYS` after
+ * this deletion and then purged by the daily cron: the user's pool identity
+ * (`pool_identities`: a SHA-256 of the normalised email, its suspension, and
+ * the day's pool usage, no address or user id), so signing up again with
+ * the same mailbox neither lifts a pool suspension nor resets that day's
+ * caps. PoolBank drops the user's per-minute counter. The privacy policy
+ * (http/legal.ts, "How long we keep it") describes all of it.
  */
 export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUser> {
   const accountIds = [POWER_ACCOUNT_PREFIX + userId, accountIdForUser(userId)];
@@ -86,21 +93,31 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
     .bind(...accountIds)
     .all<{ token: string; version: number }>();
 
-  // A pool suspension stays with the mailbox (its pool identity, claimed or not yet).
-  const suspendedIdentity = user.pool_suspended
-    ? (user.pool_identity ?? (await poolIdentity(user.email)))
-    : null;
+  // The pool identity the user claimed; a suspension stays with the mailbox even before a claim.
+  const identity =
+    user.pool_identity ?? (user.pool_suspended ? await poolIdentity(user.email) : null);
+  const poolId = appConfig(env).pool.accountId;
 
   const [p, u] = accountIds;
   await env.DB.batch([
-    ...(suspendedIdentity
+    ...(identity
       ? [
-          env.DB.prepare(
-            `INSERT INTO pool_identities (identity, suspended) VALUES (?1, 1)
-             ON CONFLICT(identity) DO UPDATE SET suspended = 1`,
-          ).bind(suspendedIdentity),
+          releasePoolIdentityStatement(env.DB, {
+            identity,
+            userId,
+            poolId,
+            suspended: user.pool_suspended === 1,
+            now: new Date(),
+          }),
         ]
       : []),
+    env.DB.prepare('UPDATE usage_events SET user_id = NULL, ip_key = NULL WHERE user_id = ?1').bind(
+      userId,
+    ),
+    env.DB.prepare(
+      'UPDATE credit_grants SET user_id = NULL WHERE user_id = ?1 AND account_id <> ?2',
+    ).bind(userId, u),
+    env.DB.prepare('DELETE FROM pool_identity_holders WHERE user_id = ?1').bind(userId),
     env.DB.prepare('DELETE FROM trees WHERE account_id IN (?1, ?2)').bind(p, u),
     env.DB.prepare('DELETE FROM shares WHERE account_id IN (?1, ?2)').bind(p, u),
     env.DB.prepare('DELETE FROM account_settings WHERE account_id IN (?1, ?2)').bind(p, u),
@@ -110,13 +127,29 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
   ]);
 
   // Only the current version can still be cached: a republish purges the one before it.
-  await Promise.all(shares.results.map((s) => purgeShare(s.token, [s.version])));
+  await Promise.all([
+    ...shares.results.map((s) => purgeShare(s.token, [s.version])),
+    forgetPoolRateCounter(env, poolId, userId),
+  ]);
 
   return {
     accountIds,
     shareTokens: shares.results.map((s) => s.token),
     billingCustomerDeleted,
   };
+}
+
+/**
+ * Best effort: the counter holds the user id for at most the minute it
+ * counts and is dropped at the pool's next request after that, so a failure
+ * is logged rather than failing a deletion that already happened.
+ */
+async function forgetPoolRateCounter(env: AppEnv, poolId: string, userId: string): Promise<void> {
+  try {
+    await poolBank(env, poolId).forgetUser(userId);
+  } catch (err) {
+    logEvent('warn', 'account_deletion_pool_counter_left', { error: err });
+  }
 }
 
 /**

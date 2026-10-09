@@ -126,7 +126,7 @@ export async function assertPoolAccess(
   if (row.pool_suspended || row.identity_suspended) refuseAccess('suspended');
   if (!row.pool_verified_at) refuseAccess('verify');
   if (!row.pool_identity) {
-    if ((await claimPoolIdentity(env.DB, userId, row.email, now)) === 'duplicate')
+    if ((await claimPoolIdentity(env.DB, userId, row.email)) === 'duplicate')
       refuseAccess('duplicate_identity');
     // A mailbox whose earlier account was suspended, then deleted.
     if (await identitySuspended(env.DB, await poolIdentity(row.email))) refuseAccess('suspended');

@@ -3,6 +3,7 @@
 import { pollDisputes } from './billing/payments/disputes.js';
 import { reconcilePendingUsage, reconcilePoolUsage } from './billing/reconcile.js';
 import type { AppEnv } from './env.js';
+import { purgeReleasedPoolIdentities } from './pool/identity.js';
 import { syncModelPrices } from './pool/model-prices.js';
 import { logEvent } from './log.js';
 
@@ -12,7 +13,11 @@ import { logEvent } from './log.js';
  * polled (billing/payments/disputes.ts).
  */
 export const CRON_FREQUENT = '*/10 * * * *';
-/** Daily 03:23 UTC: OpenRouter's list prices and model windows (pool/model-prices.ts). */
+/**
+ * Daily 03:23 UTC: OpenRouter's list prices and model windows
+ * (pool/model-prices.ts), and the purge of pool identities past their
+ * retention (pool/identity.ts).
+ */
 export const CRON_DAILY = '23 3 * * *';
 
 /** The jobs, by name (the tests swap them for spies). */
@@ -21,6 +26,7 @@ export interface CronJobs {
   poolExpiry(env: AppEnv, now: Date): Promise<unknown>;
   paymentDisputes(env: AppEnv, now: Date): Promise<unknown>;
   priceSync(env: AppEnv, now: Date): Promise<unknown>;
+  poolIdentityPurge(env: AppEnv, now: Date): Promise<unknown>;
 }
 
 export const CRON_JOBS: CronJobs = {
@@ -28,6 +34,7 @@ export const CRON_JOBS: CronJobs = {
   poolExpiry: (env, now) => reconcilePoolUsage(env, now),
   paymentDisputes: (env, now) => pollDisputes(env, now),
   priceSync: (env, now) => syncModelPrices(env, now),
+  poolIdentityPurge: (env, now) => purgeReleasedPoolIdentities(env.DB, now),
 };
 
 /**
@@ -54,6 +61,10 @@ export function cronTasks(
       return [
         jobs.priceSync(env, now).catch((e: unknown) => {
           logEvent('error', 'price_sync_failed', { error: e });
+        }),
+        // A missed day is caught up by the next run: the purge takes everything past retention.
+        jobs.poolIdentityPurge(env, now).catch((e: unknown) => {
+          logEvent('error', 'pool_identity_purge_failed', { error: e });
         }),
       ];
     default:
