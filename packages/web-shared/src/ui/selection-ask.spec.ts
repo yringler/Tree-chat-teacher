@@ -1,7 +1,5 @@
-import '@angular/compiler'; // JIT: compiles the component below without the Angular CLI.
-import { reflectComponentType } from '@angular/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MAX_QUOTE, PendingQuote, SelectionAsk, selectedMessageQuote } from './selection-ask';
+import { MAX_QUOTE, PendingQuote, selectedMessageQuote } from './selection-ask';
 
 /*
  * A tiny stand-in DOM (the tests run in Node): elements know their parent,
@@ -125,17 +123,5 @@ describe('PendingQuote', () => {
     p.clear();
     expect(p.value()).toBeNull();
     p.destroy();
-  });
-});
-
-describe('SelectionAsk', () => {
-  it('is <app-selection-ask>: the action, and a gear only when labelled', () => {
-    expect(reflectComponentType(SelectionAsk)?.selector).toBe('app-selection-ask');
-    const t = (SelectionAsk as unknown as { __annotations__: { template: string }[] })
-      .__annotations__[0]!.template;
-    expect(t).toContain('{{ label() }}');
-    expect(t).toContain('@if (moreLabel(); as gear)');
-    // Pressing them must not drop the selection they act on.
-    expect(t.match(/\(mousedown\)="\$event.preventDefault\(\)"/g)).toHaveLength(2);
   });
 });

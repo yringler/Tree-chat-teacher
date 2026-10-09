@@ -4,4 +4,4 @@
  * never reaches an app bundle.
  */
 export * from './fixtures';
-export { render, type Rendered } from './render';
+export { provideAnyRoute, render, type Rendered } from './render';

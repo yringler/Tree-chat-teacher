@@ -1,16 +1,7 @@
-import '@angular/compiler'; // JIT: compiles the component below without the Angular CLI.
-import { reflectComponentType } from '@angular/core';
 import type { PoolBlockDetails } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../core/api-client';
-import { PoolBlockNotice } from './pool-block-notice';
 import { poolBlockOf, poolBlockText, untilText, type PoolBlock } from './pool-format';
-
-/** Template of a JIT-compiled component (the decorator's metadata). */
-function templateOf(type: object): string {
-  const annotations = (type as { __annotations__?: { template?: string }[] }).__annotations__;
-  return annotations?.[0]?.template ?? '';
-}
 
 const NOW = new Date('2026-10-05T19:00:00.000Z');
 const RESET = '2026-10-06T00:00:00.000Z';
@@ -102,34 +93,5 @@ describe('poolBlockText', () => {
     expect(untilText('2026-10-05T19:30:00.000Z', NOW)).toBe('30 min');
     expect(untilText('2026-10-05T19:00:10.000Z', NOW)).toBe('a minute');
     expect(untilText(RESET, NOW)).toBe('5 h');
-  });
-});
-
-describe('PoolBlockNotice', () => {
-  it('is <app-pool-block-notice>', () => {
-    expect(reflectComponentType(PoolBlockNotice)?.selector).toBe('app-pool-block-notice');
-  });
-
-  it('shows the state inline with Buy personal credits (when on sale) and How the pool works', () => {
-    const t = templateOf(PoolBlockNotice);
-    expect(t).toContain('role="status"');
-    expect(t).toContain('{{ text().title }}');
-    expect(t).toContain(
-      '@if (creditOpen()) {\n              <a class="btn btn-sm" [routerLink]="billingPath()">Buy personal credits</a>',
-    );
-    expect(t).toContain('<a class="btn btn-sm" href="/pool">How the pool works</a>');
-    // A daily cap offers credit too (it has no daily cap); a rate limit clears in a minute.
-    expect(t).toContain(
-      "@else if (block().kind === 'cap' && block().details.reason !== 'rate' && creditOpen()) {",
-    );
-    // Nobody buys credit for the pool: no pool purchase link, no promise of one.
-    expect(t).not.toContain('fund-pool');
-    expect(t).not.toMatch(/fund the pool|credit for the pool|opens soon/i);
-    // One set of caps for everyone: no member upsell on a cap.
-    expect(t).not.toMatch(/member/i);
-    expect(reflectComponentType(PoolBlockNotice)?.inputs.map((i) => i.propName)).not.toContain(
-      'membershipOpen',
-    );
-    expect(t).toContain('aria-label="Dismiss"');
   });
 });

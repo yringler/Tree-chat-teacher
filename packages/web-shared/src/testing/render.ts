@@ -1,5 +1,11 @@
-import { provideZonelessChangeDetection, type Provider, type Type } from '@angular/core';
+import {
+  provideZonelessChangeDetection,
+  type EnvironmentProviders,
+  type Provider,
+  type Type,
+} from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 
 export interface Rendered<T> {
   fixture: ComponentFixture<T>;
@@ -17,7 +23,7 @@ export interface Rendered<T> {
  */
 export async function render<T>(
   type: Type<T>,
-  opts: { inputs?: Record<string, unknown>; providers?: Provider[] } = {},
+  opts: { inputs?: Record<string, unknown>; providers?: (Provider | EnvironmentProviders)[] } = {},
 ): Promise<Rendered<T>> {
   TestBed.configureTestingModule({
     imports: [type],
@@ -30,4 +36,9 @@ export async function render<T>(
   };
   await set(opts.inputs ?? {});
   return { fixture, component: fixture.componentInstance, host: fixture.nativeElement, set };
+}
+
+/** A router where every link leads to an empty page: for components with `routerLink`s. */
+export function provideAnyRoute(): EnvironmentProviders {
+  return provideRouter([{ path: '**', children: [] }]);
 }
