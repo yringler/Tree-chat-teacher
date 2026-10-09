@@ -232,7 +232,10 @@ describe('anthropic provider', () => {
         usage: { inputTokens: 25, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
       },
       { type: 'delta', text: 'Why did' },
-      { type: 'error', error: { code: 'overloaded', message: 'Overloaded', retryable: true } },
+      {
+        type: 'error',
+        error: { code: 'overloaded', message: 'Overloaded', retryable: true, upstream: 'stream' },
+      },
     ]);
   });
 
@@ -247,7 +250,10 @@ describe('anthropic provider', () => {
         ]).response,
     );
     expect(await collect(provider.stream(req()))).toEqual([
-      { type: 'error', error: { code: 'server', message: 'Internal error', retryable: true } },
+      {
+        type: 'error',
+        error: { code: 'server', message: 'Internal error', retryable: true, upstream: 'stream' },
+      },
     ]);
   });
 
@@ -314,7 +320,13 @@ describe('anthropic provider', () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
       type: 'error',
-      error: { code, status, retryable, message: (body.error as { message: string }).message },
+      error: {
+        code,
+        status,
+        retryable,
+        message: (body.error as { message: string }).message,
+        upstream: 'rejected',
+      },
     });
   });
 
@@ -333,7 +345,12 @@ describe('anthropic provider', () => {
     expect(await collect(provider.stream(req()))).toEqual([
       {
         type: 'error',
-        error: { code: 'network', message: 'Network error: fetch failed', retryable: true },
+        error: {
+          code: 'network',
+          message: 'Network error: fetch failed',
+          retryable: true,
+          upstream: 'not_sent',
+        },
       },
     ]);
   });

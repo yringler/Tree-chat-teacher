@@ -191,7 +191,7 @@ export interface ProviderError {
   /** HTTP status, if the error came from an HTTP response. */
   status?: number;
   retryable: boolean;
-  /** Set by providers that know it (openai-compatible); read by the open pool's settlement. */
+  /** Set by the HTTP providers (anthropic, openai-compatible); read by the open pool's settlement. */
   upstream?: ProviderUpstream;
 }
 

@@ -1,7 +1,4 @@
 import {
-  CITATIONS_MAX,
-  CITATION_EXCERPT_MAX,
-  isCitableUrl,
   type Citation,
   type GenerateRequest,
   type LlmProvider,
@@ -22,18 +19,16 @@ import {
   withTurnInstructions,
 } from './prompt-cache.js';
 import type { ProviderEnv } from './registry.js';
+import { addCitation, num, postJson, streamBody } from './http.js';
 import { parseSse } from './sse.js';
 import {
   ProviderFailure,
-  abortable,
   codeForStatus,
-  errorFromResponse,
   getFetch,
   guardStream,
   isRecord,
   looksLikeContextLength,
   missingSecretError,
-  networkError,
   providerError,
   redact,
   resolveCapabilities,
@@ -123,8 +118,8 @@ function pinnedRouting(routing: unknown, order: readonly string[]): Record<strin
 }
 
 /**
- * Adds the `url_citation` annotations in `raw` to `into` (deduplicated by
- * URL, http(s) only, excerpt clipped). Returns true if anything was added.
+ * Adds the `url_citation` annotations in `raw` to `into` (`addCitation`).
+ * Returns true if anything was added.
  */
 function collectCitations(raw: unknown, into: Map<string, Citation>): boolean {
   if (!Array.isArray(raw)) return false;
@@ -132,20 +127,8 @@ function collectCitations(raw: unknown, into: Map<string, Citation>): boolean {
   for (const a of raw) {
     if (!isRecord(a) || a['type'] !== 'url_citation') continue;
     const c = a['url_citation'];
-    if (!isRecord(c) || typeof c['url'] !== 'string') continue;
-    const url = c['url'].trim();
-    if (!isCitableUrl(url) || into.has(url) || into.size >= CITATIONS_MAX) continue;
-    const title =
-      typeof c['title'] === 'string' && c['title'].trim() ? c['title'].trim().slice(0, 500) : null;
-    const content =
-      typeof c['content'] === 'string' ? c['content'].replace(/\s+/g, ' ').trim() : '';
-    const excerpt = content
-      ? content.length > CITATION_EXCERPT_MAX
-        ? `${content.slice(0, CITATION_EXCERPT_MAX - 1)}…`
-        : content
-      : null;
-    into.set(url, { url, title, excerpt });
-    added = true;
+    if (!isRecord(c)) continue;
+    if (addCitation(into, { url: c['url'], title: c['title'], text: c['content'] })) added = true;
   }
   return added;
 }
@@ -159,10 +142,6 @@ function isWebSearchCall(raw: unknown): boolean {
     const name = isRecord(fn) ? fn['name'] : t['type'];
     return typeof name === 'string' && name.includes('web_search');
   });
-}
-
-function num(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 
 /**
@@ -347,31 +326,13 @@ export function createOpenAiCompatibleProvider(
         [maxTokensParam]: request.maxOutputTokens ?? caps.maxOutputTokens,
       };
 
-      let res: Response;
-      try {
-        res = await abortable(
-          doFetch(`${baseUrl}/chat/completions`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
-            signal,
-          }),
-          signal,
-        );
-      } catch (e) {
-        if (signal.aborted) throw e;
-        throw new ProviderFailure({ ...networkError(e, secrets), upstream: 'not_sent' });
-      }
-      if (!res.ok)
-        throw new ProviderFailure({
-          ...(await errorFromResponse(res, signal, secrets)),
-          upstream: 'rejected',
-        });
-      if (!res.body)
-        throw new ProviderFailure({
-          ...providerError('network', 'Response has no body'),
-          upstream: 'stream',
-        });
+      const res = await postJson(
+        doFetch,
+        `${baseUrl}/chat/completions`,
+        { headers, body, signal },
+        secrets,
+      );
+      const responseBody = streamBody(res);
 
       const headerId = res.headers.get('x-generation-id')?.trim();
       let generationId: string | undefined = headerId || undefined;
@@ -382,7 +343,7 @@ export function createOpenAiCompatibleProvider(
       let servedBy: string | undefined;
       const citations = new Map<string, Citation>();
       let searchReported = false;
-      for await (const msg of parseSse(res.body, signal)) {
+      for await (const msg of parseSse(responseBody, signal)) {
         const raw = msg.data.trim();
         if (raw === '[DONE]') {
           yield { type: 'done', stopReason: finishReason };
