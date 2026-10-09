@@ -17,6 +17,7 @@ import { insertSubscription } from './mocks/billing-helpers.js';
 import { poolReadyUser } from './pool-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
 import { ok, parseSse } from './http.js';
+import { MOCK_UPSTREAM } from './bindings.js';
 
 /**
  * Who pays, and whose key is used, now that a provider id names only the
@@ -40,7 +41,6 @@ import { ok, parseSse } from './http.js';
  */
 
 const env = rawEnv as unknown as AppEnv;
-const MOCK_UPSTREAM = 'https://llm.test';
 const USER_KEY = 'sk-ant-goodUSER-0123456789';
 const MODELS = [
   { id: 'max', label: 'Max', tier: 'max' },

@@ -28,9 +28,7 @@ import { makeNode } from './fixtures.js';
 import { insertSubscription, insertUsage } from './mocks/billing-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
 import { ok, parseSse } from './http.js';
-
-/** The Anthropic-style mock upstream of vitest.config.ts: `sk-ant-good…` keys work, replies echo `key=<rest>`. */
-const MOCK_UPSTREAM = 'https://llm.test';
+import { MOCK_UPSTREAM } from './bindings.js';
 
 async function errorCode(res: Response): Promise<string> {
   return ((await res.json()) as ApiError).error.code;
