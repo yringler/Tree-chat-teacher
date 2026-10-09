@@ -4,6 +4,7 @@ import type {
   MembershipInfo,
   NodeLink,
   ProviderInfo,
+  ShareSummary,
   StreamEvent,
   Tree,
   TreeDetail,
@@ -122,6 +123,32 @@ export function membership(over: Partial<MembershipInfo> = {}): MembershipInfo {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
+    ...over,
+  };
+}
+
+/** An active snapshot share of the whole of tree `t1` ("Primes"). */
+export function share(id: string, over: Partial<ShareSummary> = {}): ShareSummary {
+  return {
+    id,
+    token: `tok-${id}`,
+    accountId: 'p_1',
+    treeId: 't1',
+    scope: 'tree',
+    targetNodeId: null,
+    includeAncestors: false,
+    mode: 'snapshot',
+    title: null,
+    expiresAt: null,
+    revokedAt: null,
+    createdAt: T,
+    updatedAt: T,
+    publishedAt: T,
+    version: 1,
+    viewCount: 0,
+    treeTitle: 'Primes',
+    url: `https://tangent.example/s/tok-${id}`,
+    state: 'active',
     ...over,
   };
 }
