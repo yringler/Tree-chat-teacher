@@ -14,7 +14,7 @@ import wranglerText from '../wrangler.jsonc?raw';
 const env = rawEnv as unknown as AppEnv;
 
 // @ts-expect-error -- `import.meta.glob` is Vite's; the worker tsconfig has no vite/client types.
-const SOURCES = import.meta.glob('../src/**/*.ts', {
+const SOURCES = import.meta.glob('../src/**/*.{ts,tsx}', {
   query: '?raw',
   import: 'default',
   eager: true,

@@ -13,7 +13,7 @@ import type { CoverageOptions } from 'vitest/node';
 export function coverage(provider: 'v8' | 'istanbul' = 'v8'): CoverageOptions {
   return {
     provider,
-    include: ['src/**/*.ts'],
+    include: ['src/**/*.{ts,tsx}'],
     exclude: ['src/**/*.spec.ts', 'src/**/*.d.ts'],
     reporter: ['text-summary', 'json-summary', 'html'],
     reportsDirectory: './coverage',
