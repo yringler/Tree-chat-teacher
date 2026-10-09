@@ -1,5 +1,6 @@
 import {
   BUILT_IN_PROVIDER_ID,
+  clip,
   formatTangents,
   REVIEW_ACCURACY_LABEL,
   REVIEW_RECOMMENDATION_LABEL,
@@ -277,10 +278,8 @@ export function titleFor(messages: readonly { content: string }[], random: Rando
       const line = match[1]?.trim() ?? '';
       if (!line || line.startsWith('Focus: ')) continue;
       const words = line.replace(/\s+/g, ' ').split(' ');
-      let title = words.slice(0, TITLE_WORDS).join(' ');
-      if (title.length > TITLE_CHARS) title = `${title.slice(0, TITLE_CHARS - 1).trimEnd()}…`;
-      else if (words.length > TITLE_WORDS) title += '…';
-      return title;
+      const title = clip(words.slice(0, TITLE_WORDS).join(' '), TITLE_CHARS);
+      return words.length > TITLE_WORDS && !title.endsWith('…') ? `${title}…` : title;
     }
   }
   return loremTitle(random);
@@ -364,6 +363,8 @@ const CAPABILITIES: ProviderCapabilities = {
   supportsSystemPrompt: true,
   supportsTokenCount: false,
   supportsWebSearch: true,
+  requiredWebSearch: true,
+  titles: true,
 };
 
 /** Pretend web search fee per search (USD), like OpenRouter's Exa search. */
@@ -407,9 +408,8 @@ function fakeCostUsd(model: string, inputTokens: number, outputTokens: number): 
  * Follows the provider contract: never throws, ends with exactly one
  * `done` or `error` (`aborted` when the signal fires), reports `usage` and a
  * `billing` cost so the demo's balance moves.
- *
- * Its kind is `openai-compatible` (as the real `tangent` provider) rather
- * than `fake`: the ChatService skips auto-titles for fake providers.
+ * Its replies are scripted (kind `fake`), but its titles name the
+ * conversation, so it keeps the `titles` capability and branches get titled.
  */
 export function createLoremProvider(options: LoremProviderOptions = {}): LlmProvider {
   const random = options.random ?? Math.random;
@@ -487,7 +487,7 @@ export function createLoremProvider(options: LoremProviderOptions = {}): LlmProv
 
   return {
     id: DEMO_PROVIDER_ID,
-    kind: 'openai-compatible',
+    kind: 'fake',
     label: 'Tangent',
     models: () => DEMO_MODELS.map((m) => ({ ...m })),
     defaultModel: () => DEMO_NORMAL_MODEL,

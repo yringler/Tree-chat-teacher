@@ -4,7 +4,7 @@ import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { applyPaymentEvent } from '../src/billing/payments/apply.js';
 import { pollDisputes } from '../src/billing/payments/disputes.js';
-import { getBalance } from '../src/billing/ledger.js';
+import { getBalance, grantCredit } from '../src/billing/ledger.js';
 import { createFakeProvider } from '../src/billing/providers/fake.js';
 import type { AppEnv } from '../src/env.js';
 import { grantDetailsFor, insertUser, uniq } from './mocks/billing-helpers.js';
@@ -102,6 +102,38 @@ describe('disputes', () => {
       grants: [],
     });
     warn.mockRestore();
+  });
+
+  it('leaves a purchase on a ledger that is not a user’s (the pool’s) alone, and logs it once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const poolId = uniq('pool');
+    const paymentRef = fakeRef('order');
+    await grantCredit(env.DB, {
+      accountId: poolId,
+      kind: 'purchase',
+      amountMicros: 9_200_000,
+      grossMicros: 10_000_000,
+      providerRef: paymentRef,
+    });
+    const lost = disputed('dispute.lost', paymentRef, 1000);
+    expect(await apply(lost)).toBe('skipped');
+    expect(await apply(lost)).toBe('duplicate');
+    const logged = warn.mock.calls.map(([line]) => JSON.parse(String(line)) as unknown);
+    warn.mockRestore();
+    expect(logged).toEqual([
+      expect.objectContaining({
+        event: 'dispute_not_debited',
+        reason: 'not_a_user_ledger',
+        disputeRef: lost.disputeRef,
+        paymentRef,
+        accountId: poolId,
+      }),
+    ]);
+    expect(await balance(poolId)).toBe(9_200_000);
+    expect(await markersOf(lost.disputeRef)).toEqual({
+      markers: [`${lost.disputeRef}:ignored`],
+      grants: [],
+    });
   });
 });
 

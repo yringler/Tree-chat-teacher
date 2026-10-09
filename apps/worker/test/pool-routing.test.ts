@@ -256,7 +256,9 @@ describe('the pool ignores client-supplied model and system-prompt overrides', (
     expect(plan.rendered.system).toBe('LOCKED POOL PROMPT');
     const excerpt = plan.rendered.messages.find((m) => m.content.includes('<excerpt>'));
     expect(excerpt?.role).toBe('user');
-    expect(excerpt!.content).toContain(`<excerpt>\n${injected.slice(0, 49)}…\n</excerpt>`);
+    expect(excerpt!.content).toContain(
+      `<excerpt>\n${injected.slice(0, 49).trimEnd()}…\n</excerpt>`,
+    );
     expect(excerpt!.content).not.toContain(injected.slice(0, 51));
   });
 

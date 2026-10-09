@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
-import { plainText } from '@tangent/core';
+import { plainText } from '@tangent/shared';
 import { splitTangents } from '@tangent/shared';
 import { Modal, NodePicker, type LinkPick } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';

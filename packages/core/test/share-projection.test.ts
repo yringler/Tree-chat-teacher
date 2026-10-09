@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { SharePayload, ShareScope } from '@tangent/shared';
-import { plainTextExcerpt, projectShare, type ProjectShareInput } from '../src/share-projection.js';
+import { plainText, type SharePayload, type ShareScope } from '@tangent/shared';
+import { projectShare, type ProjectShareInput } from '../src/share-projection.js';
 import { ID_MARK, MODEL_MARK, PROVIDER_MARK, TreeBuilder } from './tree-fixture.js';
 
 const NOW = '2026-09-29T12:00:00.000Z';
@@ -391,20 +391,20 @@ describe('projectShare: no leakage', () => {
   }
 });
 
-describe('plainTextExcerpt', () => {
+describe('the share description (plainText)', () => {
   it('strips markdown syntax and collapses whitespace', () => {
     const md =
       '## Title\n\n> quoted **bold** _em_ and `code`\n\n- item [link](https://x.y) ![img](a.png)\n\n```ts\nconst snake_case = 1;\n```';
-    expect(plainTextExcerpt(md, 200)).toBe(
+    expect(plainText(md, { max: 200 })).toBe(
       'Title quoted bold em and code item link img const snake_case = 1;',
     );
   });
 
   it('truncates to max chars with an ellipsis', () => {
-    const out = plainTextExcerpt('word '.repeat(100), 200);
+    const out = plainText('word '.repeat(100), { max: 200 });
     expect(out.length).toBeLessThanOrEqual(200);
     expect(out.endsWith('…')).toBe(true);
-    expect(plainTextExcerpt('short', 200)).toBe('short');
+    expect(plainText('short', { max: 200 })).toBe('short');
   });
 
   it('description is capped at 200 chars', () => {

@@ -6,6 +6,7 @@ import {
   type ChatServiceDeps,
 } from '../../src/services/chat-service.js';
 import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
+import { estimateTokens } from '../../src/tokens.js';
 import { collect, registryOf, ScriptedProvider, send } from './helpers.js';
 
 /** A scripted provider (not `fake`, so titles run) whose title calls can be refused. */
@@ -35,9 +36,17 @@ function setup(deps: Partial<ChatServiceDeps> = {}) {
   return { repos, provider, chat };
 }
 
-const PINNED = { pinnedModel: 'pool-model', systemPromptOverride: 'LOCKED PROMPT' };
+const PINNED: Partial<ChatServiceDeps> = {
+  profile: {
+    kind: 'pool',
+    model: 'pool-model',
+    systemPrompt: 'LOCKED PROMPT',
+    estimateTokens,
+    anchorQuoteMaxChars: 10_000,
+  },
+};
 
-describe('ChatService pinnedModel and systemPromptOverride', () => {
+describe('ChatService pool profile: pinned model and locked prompt', () => {
   it("replies, summaries and titles use the pinned model and prompt; the tree and branch don't change", async () => {
     const { chat, provider, repos } = setup(PINNED);
     const { tree } = await chat.createTree({ systemPrompt: 'IGNORE ME', model: 'm1' });

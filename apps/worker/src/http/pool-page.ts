@@ -25,9 +25,9 @@ import { legalResponse, page } from './legal.js';
  * `/pool`: how the open pool works (the transparency page). A
  * static, script-free page like the legal pages, whose numbers (model, caps)
  * come from the config module, so it always describes what this deployment
- * does. The pool is free credit Tangent provides (admin adjustments,
- * docs/polar-migration/05-pool-framing.md): nothing on the page offers pool
- * credit for sale, and it never calls the pool a donation.
+ * does. The pool is free credit Tangent provides (the operator's admin
+ * adjustments): nothing on the page offers pool credit for sale, and it
+ * never calls the pool a donation.
  */
 
 /** Everything the page states, resolved from the config (one place, for the tests too). */

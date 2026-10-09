@@ -17,7 +17,7 @@ import { BUILT_IN_PROVIDER_ID } from './route.js';
 const OPENROUTER = BUILT_IN_PROVIDER_ID;
 
 /** What the rule reads of a provider entry (`/api/providers`, or a registry's list). */
-export type DefaultRouteCandidate = Pick<ProviderInfo, 'id' | 'kind' | 'available' | 'funding'>;
+export type DefaultRouteCandidate = Pick<ProviderInfo, 'id' | 'available' | 'funding' | 'scripted'>;
 
 /** What the rule needs to know beyond the provider list. */
 export interface DefaultRouteFacts {
@@ -50,7 +50,7 @@ export interface DefaultRouteFacts {
  * 2. an own-key provider the user can use (a saved key, or a server key in the
  *    dev bypass), in the configured order;
  * 3. Tangent credit, when it can pay;
- * 4. an own-key test provider (`fake`) the operator configured, which needs no
+ * 4. an own-key test provider (`scripted`) the operator configured, which needs no
  *    key (never offered by default: test and offline setups only);
  * 5. `openrouter` on the user's own key, when configured: one OpenRouter key
  *    unlocks every model and is the key Learn uses, so the first send asks for it;
@@ -65,7 +65,7 @@ export function pickDefaultRoute<P extends DefaultRouteCandidate>(
   facts: DefaultRouteFacts,
 ): P | null {
   const own = entries.filter((p) => p.funding !== 'credit');
-  const real = (p: P) => p.kind !== 'fake';
+  const real = (p: P) => p.scripted !== true;
   const offered = entries.find((p) => p.funding === 'credit' && p.available && real(p));
   if (facts.ownKeyLocked && offered && (facts.creditCanPay || facts.creditBuyable)) return offered;
   const credit = facts.creditCanPay ? offered : undefined;

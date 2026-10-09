@@ -83,6 +83,7 @@ export interface TreeRepository {
       content: string;
       status: ChatNode['status'];
       error: string | null;
+      errorKind: ChatNode['errorKind'];
       usage: TokenUsage | null;
       sources: Citation[] | null;
     }>,

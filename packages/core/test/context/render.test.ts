@@ -18,7 +18,6 @@ import {
   renderPlan,
   replyInstructions,
   SUMMARY_HEADING,
-  plainText,
 } from '../../src/context/render.js';
 import { estimateTokensUtf8, MESSAGE_OVERHEAD_TOKENS, utf8Bytes } from '../../src/tokens.js';
 import { Fixture, resolveAll } from './fixtures.js';
@@ -460,24 +459,6 @@ suite('cleanTitle', () => {
   it('keeps an exactly 80-char title', () => {
     const t = 'a'.repeat(80);
     expect(cleanTitle(t)).toBe(t);
-  });
-});
-
-suite('plainText', () => {
-  it('drops Markdown markup and collapses whitespace', () => {
-    expect(
-      plainText(
-        "Good question! Let's start with **a confident kitten**.\n\n## Habits\n\n- **Listening**: an `owl` hums\n1. _second_ item\n> quoted [link](https://x.test) ![alt](i.png)\n\n```js\ncode();\n```\nend",
-      ),
-    ).toBe(
-      "Good question! Let's start with a confident kitten. Habits Listening: an owl hums second item quoted link alt end",
-    );
-  });
-
-  it('keeps underscores inside identifiers', () => {
-    expect(plainText('use snake_case names, _not_ emphasis')).toBe(
-      'use snake_case names, not emphasis',
-    );
   });
 });
 

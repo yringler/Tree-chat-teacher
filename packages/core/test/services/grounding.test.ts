@@ -25,7 +25,7 @@ describe('ChatService grounding', () => {
     const { b2 } = await deepTree(s);
     const r = await send(s.chat, b2.id, 'tell me more');
     const call = s.provider.chatCalls().at(-1)!;
-    expect(call.webSearch).toEqual({ mode: 'auto', maxResults: 5, maxUses: 1, engine: 'exa' });
+    expect(call.webSearch).toEqual({ mode: 'auto', maxUses: 1 });
     // After the history, never in the system prompt (the cached prefix).
     expect(call.turnInstructions).toBe(replyInstructions(GROUNDING_INSTRUCTIONS));
     expect(call.system ?? '').not.toContain('## Checking facts');
@@ -65,6 +65,20 @@ describe('ChatService grounding', () => {
     expect(call.system ?? '').not.toContain('## Checking facts');
     // Searched but cited nothing: an empty list, not null.
     expect(r.last).toMatchObject({ type: 'done', node: { sources: [] } });
+  });
+
+  it('offers the search for Check sources where it can only be offered, asking for it', async () => {
+    const s = setup(auto);
+    s.provider.webSearch = true;
+    const capabilities = s.provider.capabilities.bind(s.provider);
+    s.provider.capabilities = () => ({ ...capabilities(), requiredWebSearch: false });
+    const { tree } = await s.chat.createTree({});
+    await send(s.chat, tree.trunkBranchId, 'Check your last answer against sources', {
+      ground: 'required',
+    });
+    const call = s.provider.chatCalls().at(-1)!;
+    expect(call.webSearch).toEqual({ mode: 'auto', maxUses: 1 });
+    expect(call.turnInstructions).toBe(replyInstructions(CHECK_SOURCES_INSTRUCTIONS));
   });
 
   it('keeps the system prompt and history the same on turns with and without search', async () => {

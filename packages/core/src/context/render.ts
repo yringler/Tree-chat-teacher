@@ -5,6 +5,8 @@ import {
   REVIEW_ACCURACY_VALUES,
   REVIEW_RECOMMENDATION_LABEL,
   REVIEW_RECOMMENDATION_VALUES,
+  clip,
+  foldSystemPrompt,
   type ChatMessage,
   type ContextPlan,
   type RenderedPrompt,
@@ -65,12 +67,8 @@ export function renderPlan(plan: ContextPlan, options: RenderOptions): RenderedP
     messages.unshift({ role: 'user', content: CONTINUATION_MESSAGE });
 
   const system = systemParts.length > 0 ? systemParts.join(SEPARATOR) : null;
-  if (options.supportsSystemPrompt || system === null) return { system, messages };
-
-  const first = messages[0];
-  if (first) first.content = `${system}${SEPARATOR}${first.content}`;
-  else messages.push({ role: 'user', content: system });
-  return { system: null, messages };
+  const prompt = { system, messages };
+  return options.supportsSystemPrompt ? prompt : foldSystemPrompt(prompt);
 }
 
 /**
@@ -273,10 +271,7 @@ const TITLE_MESSAGE_CHARS = 2000;
 export function buildTitlePrompt(messages: readonly ChatMessage[]): RenderedPrompt {
   const clipped = messages.map((m) => ({
     role: m.role,
-    content:
-      m.content.length > TITLE_MESSAGE_CHARS
-        ? `${m.content.slice(0, TITLE_MESSAGE_CHARS)}…`
-        : m.content,
+    content: clip(m.content, TITLE_MESSAGE_CHARS),
   }));
   return {
     system:
@@ -290,24 +285,6 @@ export function buildTitlePrompt(messages: readonly ChatMessage[]): RenderedProm
       },
     ],
   };
-}
-
-/**
- * The words of a Markdown fragment without its markup, for titles and
- * excerpts: emphasis and code markers, heading and quote prefixes, list
- * bullets and link syntax go; whitespace collapses to single spaces.
- */
-export function plainText(markdown: string): string {
-  return markdown
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/^[ \t]*(?:#{1,6}[ \t]+|>[ \t]*|[-*+][ \t]+|\d+[.)][ \t]+)/gm, '')
-    .replace(/[*`~]+/g, '')
-    .replace(/(^|\s)_+(?=\S)/g, '$1')
-    .replace(/(?<=\S)_+(?=\s|$)/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 const MAX_TITLE_CHARS = 80;

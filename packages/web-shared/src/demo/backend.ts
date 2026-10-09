@@ -273,9 +273,7 @@ export class DemoBackend {
       providers: registry,
       // Like the Worker: Learn pays per request, so its branches are written `own-key`,
       // and imports are adapted to its provider, models, context and prompt.
-      ...(this.mode === 'simple'
-        ? { fixedFunding: 'own-key' as const, adaptImportsForLearn: true }
-        : {}),
+      profile: { kind: this.mode === 'simple' ? 'learn' : 'power' },
       settings: {
         ...DEFAULT_CHAT_SETTINGS,
         maxInputTokens: 60_000,
@@ -926,7 +924,12 @@ export class DemoBackend {
       this.state.nodes.set(
         n.id,
         n.status === 'streaming'
-          ? { ...n, status: 'error', error: 'Interrupted before the reply finished' }
+          ? {
+              ...n,
+              status: 'error',
+              error: 'Interrupted before the reply finished',
+              errorKind: 'interrupted',
+            }
           : n,
       );
     }

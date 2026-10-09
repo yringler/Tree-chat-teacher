@@ -1,6 +1,7 @@
 import {
   citationDomain,
   isCitableUrl,
+  plainText,
   splitTangents,
   tangentsAsMarkdown,
   type ShareBranch,
@@ -9,26 +10,8 @@ import {
   type ShareSource,
 } from '@tangent/shared';
 
+/** Longest "Forked from" excerpt. */
 const EXCERPT_MAX = 80;
-
-/** Single-line plain-text excerpt of markdown (for "Forked from" lines). */
-function excerpt(markdown: string, max = EXCERPT_MAX): string {
-  const text = markdown
-    .replace(/^[ \t]*(```|~~~)[^\n]*$/gm, ' ')
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, '')
-    .replace(/^[ \t]*>[ \t]?/gm, '')
-    .replace(/[*`]+/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const chars = Array.from(text);
-  return chars.length > max
-    ? chars
-        .slice(0, max - 1)
-        .join('')
-        .trimEnd() + '…'
-    : text;
-}
 
 /** Text of a Markdown link: no brackets or newlines that would break it. */
 function linkText(text: string): string {
@@ -118,7 +101,9 @@ export function payloadToMarkdown(payload: SharePayload): string {
     blocks.push(`## ${breadcrumb(branch)}`);
     const fork = branch.forkMessageKey === null ? undefined : messages.get(branch.forkMessageKey);
     if (fork !== undefined) {
-      blocks.push(`Forked from: “${excerpt(splitTangents(fork.content).body)}”`);
+      blocks.push(
+        `Forked from: “${plainText(splitTangents(fork.content).body, { max: EXCERPT_MAX })}”`,
+      );
     }
     if (branch.anchorQuote !== null && branch.anchorQuote.trim() !== '') {
       blocks.push(

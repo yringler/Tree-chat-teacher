@@ -1,3 +1,4 @@
+import type { NodeErrorKind } from '@tangent/shared';
 import { sql } from 'drizzle-orm';
 import {
   check,
@@ -87,6 +88,17 @@ export const branches = sqliteTable(
   ],
 );
 
+/** `NodeErrorKind`, spelled out: drizzle-kit loads this file without the workspace packages. */
+const ERROR_KINDS = [
+  'cut_off',
+  'thinking_only',
+  'empty',
+  'cancelled',
+  'interrupted',
+  'provider',
+  'failed',
+] as const satisfies readonly NodeErrorKind[];
+
 export const nodes = sqliteTable(
   'nodes',
   {
@@ -103,6 +115,8 @@ export const nodes = sqliteTable(
     content: text('content').notNull(),
     status: text('status', { enum: ['streaming', 'complete', 'error'] }).notNull(),
     error: text('error'),
+    /** Why the node is `error` (NodeErrorKind); null otherwise. */
+    errorKind: text('error_kind', { enum: ERROR_KINDS }),
     providerId: text('provider_id'),
     model: text('model'),
     inputTokens: integer('input_tokens'),

@@ -369,11 +369,11 @@ export function learnOffer(env: AppEnv): LearnOffer | null {
     .sort((a, b) => rank(a.tier) - rank(b.tier))
     .map(({ id, label, tier }) => ({ id, label, ...(tier ? { tier } : {}) }));
   const openRouter = config.kind === 'openai-compatible' && isOpenRouter(config.baseUrl);
-  const grounding = groundingSettings(env, 'simple');
+  const { engine, maxResults } = appConfig(env).grounding;
   return {
     tiers,
     openRouter,
     search: config.options?.['webSearch'] === true,
-    searchAboutOneCent: openRouter && grounding.engine === 'exa' && grounding.maxResults <= 10,
+    searchAboutOneCent: openRouter && engine === 'exa' && maxResults <= 10,
   };
 }

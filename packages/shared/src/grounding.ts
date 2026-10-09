@@ -5,6 +5,7 @@
  * (at most once per reply). The learner can force it with "Check sources".
  * See docs/DECISIONS.md § Grounding.
  */
+import { clip } from './text.js';
 
 /** A source a grounded reply cites (OpenRouter `url_citation` annotation). */
 export interface Citation {
@@ -49,8 +50,7 @@ export const CHECK_SOURCES_PREFIX = 'Check your last answer against sources';
 export function checkSourcesMessage(question: string | null): string {
   const q = (question ?? '').replace(/\s+/g, ' ').trim();
   if (!q) return `${CHECK_SOURCES_PREFIX}.`;
-  const clipped = q.length > 200 ? `${q.slice(0, 199)}…` : q;
-  return `${CHECK_SOURCES_PREFIX}: "${clipped}"`;
+  return `${CHECK_SOURCES_PREFIX}: "${clip(q, 200)}"`;
 }
 
 /** Host name without `www.`, for source chips; the raw string if it isn't a URL. */

@@ -5,8 +5,6 @@ import {
   isStoppedReply,
   REPLY_CANCELLED_ERROR,
   REPLY_CUT_OFF_ERROR,
-  REPLY_EMPTY_ERROR,
-  REPLY_THINKING_ONLY_ERROR,
 } from './stop-reason.js';
 
 describe('isLengthStop', () => {
@@ -19,19 +17,24 @@ describe('isLengthStop', () => {
 });
 
 describe('isCutOffReply', () => {
-  it('is an error node with the cut-off message, never another failure', () => {
-    expect(isCutOffReply({ status: 'error', error: REPLY_CUT_OFF_ERROR })).toBe(true);
-    for (const error of [REPLY_THINKING_ONLY_ERROR, REPLY_EMPTY_ERROR, 'Cancelled', null])
-      expect(isCutOffReply({ status: 'error', error })).toBe(false);
-    expect(isCutOffReply({ status: 'complete', error: REPLY_CUT_OFF_ERROR })).toBe(false);
+  it('is an error node of kind cut_off, never another failure, whatever its copy', () => {
+    expect(isCutOffReply({ status: 'error', errorKind: 'cut_off' })).toBe(true);
+    for (const errorKind of ['thinking_only', 'empty', 'cancelled', 'provider', null] as const)
+      expect(isCutOffReply({ status: 'error', errorKind })).toBe(false);
+    // The copy alone (a node without a kind) is no cut-off.
+    const copyOnly = { status: 'error', error: REPLY_CUT_OFF_ERROR } as const;
+    expect(isCutOffReply(copyOnly)).toBe(false);
+    expect(isCutOffReply({ status: 'complete', errorKind: 'cut_off' })).toBe(false);
   });
 });
 
 describe('isStoppedReply', () => {
-  it('is an error node with the message the server writes on abort', () => {
-    expect(isStoppedReply({ status: 'error', error: REPLY_CANCELLED_ERROR })).toBe(true);
-    for (const error of [REPLY_CUT_OFF_ERROR, 'Upstream failed', null])
-      expect(isStoppedReply({ status: 'error', error })).toBe(false);
-    expect(isStoppedReply({ status: 'complete', error: REPLY_CANCELLED_ERROR })).toBe(false);
+  it('is an error node of kind cancelled, the kind the server writes on abort', () => {
+    expect(isStoppedReply({ status: 'error', errorKind: 'cancelled' })).toBe(true);
+    for (const errorKind of ['cut_off', 'provider', 'interrupted', null] as const)
+      expect(isStoppedReply({ status: 'error', errorKind })).toBe(false);
+    const copyOnly = { status: 'error', error: REPLY_CANCELLED_ERROR } as const;
+    expect(isStoppedReply(copyOnly)).toBe(false);
+    expect(isStoppedReply({ status: 'complete', errorKind: 'cancelled' })).toBe(false);
   });
 });
