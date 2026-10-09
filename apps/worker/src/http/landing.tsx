@@ -5,12 +5,10 @@ import {
   POOL_AT_COST_TEXT,
   POOL_EMPTY_TEXT,
   POOL_MOTTO,
-  poolModelText,
   poolSessionsHeadline,
   type PoolStatusResponse,
 } from '@tangent/shared';
 import { Hono, type Context } from 'hono';
-import type { Child } from 'hono/jsx';
 import { authConfigured } from '../auth/auth.js';
 import { appConfig } from '../config.js';
 import type { AppBindings, AppEnv } from '../env.js';
@@ -18,6 +16,7 @@ import { logEvent } from '../log.js';
 import { cachedPoolStatus } from '../pool/status.js';
 import { waitUntilOf } from '../routes/pool.js';
 import { joinList, offerOf, PoolSteps, type Offer } from './copy.js';
+import { LandingDemo } from './landing-demo.js';
 import { pageResponse } from './layout.js';
 import { LEARN_APP_CSP, LEARN_COMMON_HEADERS } from './learn-app.js';
 import { legalInfo } from './legal-info.js';
@@ -50,27 +49,6 @@ function devBypass(env: AppEnv): boolean {
   return !authConfigured(env) && appConfig(env).auth.devAllowNoAuth;
 }
 
-/** A 20×20 stroke icon for a feature card. */
-function Icon(props: { children: Child }) {
-  return (
-    <span class="icon">
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        {props.children}
-      </svg>
-    </span>
-  );
-}
-
 /** What the landing page states: the deployment's offer, and the pool's meter while the pool is on. */
 interface Landing extends Offer {
   /** The open pool's meter; absent when the pool is off or couldn't be read. */
@@ -94,7 +72,6 @@ function PoolSection(props: { pool: PoolStatusResponse; page: Landing }) {
   return (
     <section aria-labelledby="pool">
       <div class="wrap">
-        <p class="eyebrow">The open pool</p>
         <h2 id="pool">Curiosity shouldn’t need a credit card</h2>
         <p class="sub">
           Every AI reply costs real money, so good AI tutoring usually sits behind a paywall.{' '}
@@ -126,51 +103,6 @@ function PoolSection(props: { pool: PoolStatusResponse; page: Landing }) {
 }
 
 /**
- * The feature card on web-search grounding, worded for the operator's ceiling: offered when a reply
- * likely needs it and the model decides (`auto`, `always-offer`), or only on
- * request (`explicit`). Never promises that every answer is checked, and,
- * while the pool is shown, says that pool replies don't search.
- */
-function GroundingCard(props: { page: Landing }) {
-  const { grounding, pool, credit } = props.page;
-  if (grounding === 'off') return null;
-  const notPool = pool
-    ? ` Web search works on your own OpenRouter key${credit ? ' or prepaid credit' : ''}, not on the free open pool.`
-    : '';
-  const icon = (
-    <Icon>
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.5-3.5M8 11l2 2 4-4" />
-    </Icon>
-  );
-  if (grounding === 'explicit') {
-    return (
-      <article class="card">
-        {icon}
-        <h3>Check any answer against the web</h3>
-        <p>
-          Not sure about a detail? Choose <strong>Check sources</strong> under an answer, and the
-          tutor searches the web, rechecks what it said and cites what it found.{notPool}
-        </p>
-      </article>
-    );
-  }
-  return (
-    <article class="card">
-      {icon}
-      <h3>Checked against the web when you go deep</h3>
-      <p>
-        The further down a tangent you go, the likelier an AI is to get a detail wrong. So when a
-        reply needs it (a specific date or figure, something recent, a few branches deep, or when
-        you ask for sources), the tutor can search the web and list its sources under the answer. An
-        answer from the tutor’s own knowledge says so, and <strong>Check sources</strong> has the
-        tutor look it up.{notPool}
-      </p>
-    </article>
-  );
-}
-
-/**
  * The card on how replies are paid for: the open pool while it is on,
  * prepaid credit while it is sold (to anyone, no membership needed), and the
  * user's own OpenRouter key always (with the yearly membership, when one is
@@ -198,10 +130,6 @@ function PayCard(props: { page: Landing }) {
     );
   return (
     <article class="card">
-      <Icon>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.8 0-3 .9-3 2s1 1.7 3 2 3 .9 3 2-1.2 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6.5V8M12 16v1.5" />
-      </Icon>
       <h3>{title}</h3>
       <p>
         {parts.join(' ')} <a href="/pricing">See exactly what’s free and what’s paid</a>
@@ -210,220 +138,94 @@ function PayCard(props: { page: Landing }) {
   );
 }
 
-/** The Learn card's list: what Learn does, then the ways to pay for it. */
-function LearnItems(props: { page: Landing }) {
-  const { pool, credit, membership, tiers } = props.page;
+/** Power mode and Canvas, for the visitor who wants more than Learn. */
+function MoreWays(props: { page: Landing }) {
+  const { providers, sharing } = props.page;
   return (
-    <ul>
-      <li>Straight answers that explain how things work, ready the moment you sign in</li>
-      <li>Suggested tangents after each full answer, one tap away</li>
-      <li>
-        Side questions about any phrase with <strong>Ask about this</strong>
-      </li>
-      {tiers && (
-        <li>
-          Two tiers: {tiers.normal} for everyday learning, {tiers.max} for the hardest questions
-          {pool && ` (the free pool uses ${poolModelText(pool.model)})`}
-        </li>
-      )}
-      {pool && (
-        <li>Learn free on the open pool, within daily limits, on credit Tangent provides</li>
-      )}
-      <li>
-        {pool ? 'Or use your' : 'Your'} own OpenRouter key,{' '}
-        {membership
-          ? `with a ${formatCents(membership.priceCents)} yearly membership and nothing charged per reply`
-          : 'with nothing charged by Tangent'}
-      </li>
-      {credit && (
-        <li>Or pay per reply from prepaid credit{membership && ', no membership needed'}</li>
-      )}
-    </ul>
+    <section aria-labelledby="modes">
+      <div class="wrap">
+        <h2 id="modes">More ways in</h2>
+        <p class="sub">Learn, Power and Canvas share one sign-in.</p>
+        <div class="grid three">
+          <PayCard page={props.page} />
+          <article class="card">
+            <h3>Want every control?</h3>
+            <p>
+              Power mode takes your own API keys for{' '}
+              {providers.length
+                ? joinList(
+                    providers.map((p) => p.label),
+                    'or',
+                  )
+                : 'any provider this server offers'}
+              , and adds context modes, the context inspector and a reviewer
+              {sharing && ', plus read-only share links'}. <a href="/login">Power sign in</a>
+            </p>
+          </article>
+          <article class="card">
+            <h3>Feeling brave?</h3>
+            <p>
+              Canvas lays out a whole conversation as a map, every branch at once. It’s
+              experimental. <a href="/canvas/demo">Try Canvas</a>
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
   );
 }
 
-/** The Power card's list. */
-function PowerItems(props: { page: Landing }) {
-  const { providers, credit, sharing } = props.page;
-  return (
-    <ul>
-      <li>
-        Your own API keys for{' '}
-        {providers.length
-          ? joinList(
-              providers.map((p) => p.label),
-              'or',
-            )
-          : 'any provider this server offers'}
-      </li>
-      {credit && <li>Any OpenRouter model, on prepaid credit</li>}
-      <li>Every control: context modes, the context inspector, a reviewer and system prompts</li>
-      <li>
-        {sharing ? 'Read-only share links, and Markdown or HTML export' : 'Markdown or HTML export'}
-      </li>
-      <li>Self-host it on your own Cloudflare account</li>
-    </ul>
-  );
-}
-
-/** The landing page's body: the hero, the features, the pool and the two modes. */
+/** The landing page's body: the hero and its demo, the problem and fix, the pool and the other ways in. */
 function LandingBody(props: { page: Landing }) {
   const { page } = props;
   const free = poolOpen(page.pool);
-  const start = free ? 'Start learning free' : 'Start learning';
   return (
     <main>
       <div class="wrap hero">
         <div>
-          <p class="eyebrow">An AI tutor built for rabbit holes</p>
-          <h1>Follow every tangent. Never lose the thread.</h1>
-          <p class="lede">
-            Ask anything and get a straight answer that explains how it actually works. Then pick a
-            tangent to follow. Each one opens in its own branch, so you can wander as far as you
-            like and come back to the main thread right where you left it.
-          </p>
+          <h1>Go off on a tangent. Without losing your place.</h1>
+          <p class="lede">An AI tutor where every follow-up question gets its own branch.</p>
           <div class="ctas">
             <a class="btn primary" href="/learn/demo">
               Try the demo
             </a>
             <a class="btn" href="/learn/login">
-              {start}
+              {free ? 'Start learning free' : 'Start learning'}
             </a>
           </div>
           {free && (
             <p class="free">
-              <strong>No credit card needed.</strong> Tangent provides free credit in the open pool,
-              so anyone signed in can learn here free, within daily limits.{' '}
-              <a href="#pool">How it works</a>
+              <strong>No credit card needed.</strong> Learn free on the open pool, within daily
+              limits. <a href="#pool">How it works</a>
             </p>
           )}
           <p class="note">
-            The demo needs no sign-up and runs entirely in your browser. No AI is involved, so its
-            replies and sources are playful nonsense: it’s there to show you how branching works.
-          </p>
-          <p class="power">
-            <a href="/login">Power users: sign in</a> ·{' '}
-            <a href="/canvas/demo">Feeling brave? Try Canvas</a>, an experimental map of a whole
-            conversation
+            The demo needs no sign-up and no AI: its replies are playful nonsense that show how
+            branching works.
           </p>
         </div>
-        <figure
-          class="demo"
-          aria-label="Example: an answer, its tangents, and a side question branching off it"
-        >
-          <p class="msg you">Why does ice float?</p>
-          <p class="msg tutor">
-            Because water expands when it freezes. In the liquid, molecules tumble past each other;
-            in ice, each one locks into a hexagonal lattice held open by <mark>hydrogen bonds</mark>
-            , with more empty space than the liquid had. Same mass, more volume, lower density.
-          </p>
-          <div class="next">
-            <span class="tag">Where next?</span>
-            <span class="on">
-              <b>Why lakes freeze from the top down</b>{' '}
-              <i>— the same fact, seen from a fish's point of view</i>
-            </span>
-            <span>
-              <b>The other substances that expand on freezing</b>{' '}
-              <i>— silicon, gallium, and why they are rare</i>
-            </span>
-            <span>
-              <b>What a hydrogen bond actually is</b> <i>— one layer down</i>
-            </span>
-          </div>
-          <div class="side">
-            <span class="tag">Ask about this</span>
-            <p>Why hexagonal?</p>
-            <p>
-              A side question about a highlighted phrase. It opens in its own branch, and the main
-              thread stays as it was.
-            </p>
-          </div>
-        </figure>
+        <LandingDemo />
       </div>
-      <section aria-labelledby="features">
+      <section aria-labelledby="fix">
         <div class="wrap">
-          <h2 id="features">Learning that follows your curiosity</h2>
-          <p class="sub">
-            Every lesson is a tree of branches, so the conversation stays easy to follow however
-            many detours you take.
+          <h2 id="fix">What happens to your follow-up questions</h2>
+          <p class="sub">In a regular AI chat, then in Tangent.</p>
+          <dl class="pairs">
+            <dt>The answer raises three more questions.</dt>
+            <dd>Each one opens in its own branch.</dd>
+            <dt>You chase one, then another. Your first answer is now 40 messages up.</dt>
+            <dd>Your first answer stays exactly where you left it.</dd>
+            <dt>You scroll back past what you already know and what you don’t care about.</dt>
+            <dd>You see only the branch you’re on. The rest waits until you want it.</dd>
+          </dl>
+          <p class="after">
+            Not sure what to ask next? Full answers end with a few tangents worth following, one tap
+            away.
           </p>
-          <div class="grid four">
-            <article class="card">
-              <Icon>
-                <circle cx="12" cy="12" r="9" />
-                <path d="m15.5 8.5-2.2 5-5 2.2 2.2-5z" />
-              </Icon>
-              <h3>Answers first, tangents next</h3>
-              <p>
-                Ask a question and the tutor answers it straight away, explaining how and why it
-                works instead of quizzing you. Full answers end with a few tangents worth following,
-                and one tap opens any of them in its own branch.
-              </p>
-            </article>
-            <article class="card">
-              <Icon>
-                <circle cx="6" cy="5" r="2" />
-                <circle cx="6" cy="19" r="2" />
-                <circle cx="18" cy="9" r="2" />
-                <path d="M6 7v10M18 11c0 4-6 3-11.5 6.5" />
-              </Icon>
-              <h3>Branch from any message</h3>
-              <p>
-                Highlight a phrase and choose <strong>Ask about this</strong>. Your side question
-                opens in its own branch, so detours never clutter the main thread, and every branch
-                stays one click away.
-              </p>
-            </article>
-            <article class="card">
-              <Icon>
-                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
-                <circle cx="12" cy="12" r="3" />
-              </Icon>
-              <h3>See exactly what the model sees</h3>
-              <p>
-                In power mode, choose how much each branch inherits: the whole conversation so far,
-                a summary of it, or just the passage you branched from. The context inspector shows
-                the exact prompt before it’s sent.
-              </p>
-            </article>
-            <PayCard page={page} />
-            <GroundingCard page={page} />
-          </div>
         </div>
       </section>
       {page.pool && <PoolSection pool={page.pool} page={page} />}
-      <section aria-labelledby="modes">
-        <div class="wrap">
-          <h2 id="modes">Two ways to use it</h2>
-          <p class="sub">
-            Learn and Power share one sign-in. Switch between them any time; each keeps its own
-            conversations.
-          </p>
-          <div class="grid two">
-            <article class="card mode learn">
-              <h3>Learn</h3>
-              <p class="for">For students and the curious. Nothing to set up.</p>
-              <LearnItems page={page} />
-              <a class="btn primary" href="/learn/login">
-                {start}
-              </a>
-            </article>
-            <article class="card mode">
-              <h3>Power</h3>
-              <p class="for">
-                For tinkerers and self-hosters.
-                {page.membership &&
-                  ` Your own keys need the ${formatCents(page.membership.priceCents)} yearly membership, here as in Learn${page.credit ? '; prepaid credit needs none' : ''}.`}
-              </p>
-              <PowerItems page={page} />
-              <a class="btn" href="/login">
-                Power sign in
-              </a>
-            </article>
-          </div>
-        </div>
-      </section>
+      <MoreWays page={page} />
     </main>
   );
 }
@@ -453,9 +255,9 @@ async function landingResponse(
     {
       path: '/',
       origin: info.origin,
-      title: 'Tangent: follow your curiosity, one branch at a time',
+      title: 'Tangent: go off on a tangent without losing your place',
       description:
-        'An AI tutor for rabbit holes. Ask anything, get a straight answer, then follow any tangent in its own branch without losing the main thread.',
+        'An AI tutor where every follow-up question gets its own branch, so your first answer stays right where you left it.',
       social: true,
       style: LANDING_STYLE,
       nav: { label: 'Site', links: ['learn', 'power', 'pricing'] },
