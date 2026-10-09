@@ -7,6 +7,7 @@ export * from './learn-payer.js';
 export * from './share.js';
 export * from './api.js';
 export * from './api-routes.js';
+export * from './auth.js';
 export * from './review.js';
 export * from './compare.js';
 export * from './tiers.js';

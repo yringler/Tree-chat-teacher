@@ -6,6 +6,7 @@ import { setSessionCookie } from 'better-auth/cookies';
 import { captcha } from 'better-auth/plugins';
 import { magicLink } from 'better-auth/plugins/magic-link';
 import { drizzle } from 'drizzle-orm/d1';
+import { AUTH_BASE_PATH, REMEMBER_COOKIE } from '@tangent/shared';
 import {
   authAccounts,
   authPasskeys,
@@ -44,16 +45,6 @@ import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnst
  * Payments don't go through Better Auth: the membership, top-ups and the
  * payment provider's webhooks are billing routes (billing/payments).
  */
-
-export const AUTH_BASE_PATH = '/api/auth';
-
-/**
- * Set by the login page right before a sign-in starts: `1` = remember me
- * (a persistent session cookie), anything else = a browser-session cookie.
- * It's a plain preference cookie because the OAuth callback and the magic
- * link arrive as top-level navigations that can't carry a request body.
- */
-export const REMEMBER_COOKIE = 'tangent-remember';
 
 const DAY_SECONDS = 24 * 60 * 60;
 /** Remembered sessions: 30 days, extended by activity (at most once a day). */

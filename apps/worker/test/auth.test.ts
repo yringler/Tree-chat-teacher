@@ -1,8 +1,7 @@
-import type { LoginOptionsResponse, MeResponse } from '@tangent/shared';
+import { REMEMBER_COOKIE, type LoginOptionsResponse, type MeResponse } from '@tangent/shared';
 import { env, exports } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
-import { REMEMBER_COOKIE } from '../src/auth/auth.js';
 import type { EmailMessage, EmailSender } from '../src/email/index.js';
 import type { AppEnv } from '../src/env.js';
 import { BASE } from './http.js';

@@ -1,5 +1,12 @@
 import { inject, Injectable } from '@angular/core';
-import { API_ROUTES, routeUrl, type LoginOptionsResponse, type MeResponse } from '@tangent/shared';
+import {
+  API_ROUTES,
+  AUTH_BASE_PATH,
+  REMEMBER_COOKIE,
+  routeUrl,
+  type LoginOptionsResponse,
+  type MeResponse,
+} from '@tangent/shared';
 import { ApiClient, ApiError, hasCode } from './api-client';
 import { API_FETCH, defaultApiFetch } from './api-fetch';
 import { AUTH_CLIENT, authErrorMessage as messageFor } from './auth-client';
@@ -15,8 +22,6 @@ export interface PasskeyInfo {
   backedUp: boolean;
 }
 
-/** Must match REMEMBER_COOKIE in apps/worker/src/auth/auth.ts. */
-const REMEMBER_COOKIE = 'tangent-remember';
 const REMEMBER_PREF_KEY = 'tangent.rememberMe';
 /** Long enough to finish an OAuth round trip or open the magic-link email. */
 const REMEMBER_COOKIE_SECONDS = 15 * 60;
@@ -99,7 +104,7 @@ export class AuthService {
       // Storage unavailable: the cookie below still carries the choice.
     }
     const secure = location.protocol === 'https:' ? '; Secure' : '';
-    document.cookie = `${REMEMBER_COOKIE}=${remember ? '1' : '0'}; Path=/api/auth; Max-Age=${REMEMBER_COOKIE_SECONDS}; SameSite=Lax${secure}`;
+    document.cookie = `${REMEMBER_COOKIE}=${remember ? '1' : '0'}; Path=${AUTH_BASE_PATH}; Max-Age=${REMEMBER_COOKIE_SECONDS}; SameSite=Lax${secure}`;
   }
 
   // ---- Sign-in. Each resolves with an error message, or navigates away on success.

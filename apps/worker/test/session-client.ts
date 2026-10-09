@@ -1,9 +1,8 @@
-import { MODE_HEADER, PAYMENT_HEADER, type Payer } from '@tangent/shared';
+import { MODE_HEADER, PAYMENT_HEADER, REMEMBER_COOKIE, type Payer } from '@tangent/shared';
 import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { expect } from 'vitest';
 import { createApp } from '../src/app.js';
-import { REMEMBER_COOKIE } from '../src/auth/auth.js';
 import type { EmailMessage, EmailSender } from '../src/email/index.js';
 import type { AppEnv } from '../src/env.js';
 import { BASE } from './http.js';
