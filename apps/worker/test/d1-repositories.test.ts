@@ -7,9 +7,10 @@ import {
   type Branch,
   type Tree,
 } from '@tangent/shared';
-import { describeRepositories } from '@tangent/core/repository-contract';
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
+// The contract suite is core's test code, not part of its package.
+import { describeRepositories } from '../../../packages/core/test/repository-contract.js';
 import { createD1Repositories, SNAPSHOT_CHUNK_CHARS } from '../src/db/d1-repositories.js';
 import {
   makeBranch,
