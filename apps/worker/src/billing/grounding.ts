@@ -27,7 +27,8 @@ export function groundingSettings(env: AppEnv, mode: AccountContext['mode']): Gr
 /**
  * `configs` with `GROUNDING_ENGINE` and `GROUNDING_MAX_RESULTS` as the search
  * options of every openai-compatible config that searches: OpenRouter runs
- * the search on them. A config's own options win.
+ * the search on them. They replace a config's own, so every search runs as
+ * the vars (and the public pages, `learnOffer`) say.
  */
 export function withSearchOptions(env: AppEnv, configs: ProviderConfig[]): ProviderConfig[] {
   const { engine, maxResults } = appConfig(env).grounding;
@@ -35,7 +36,7 @@ export function withSearchOptions(env: AppEnv, configs: ProviderConfig[]): Provi
     config.kind === 'openai-compatible' && config.options?.['webSearch'] === true
       ? {
           ...config,
-          options: { webSearchEngine: engine, webSearchMaxResults: maxResults, ...config.options },
+          options: { ...config.options, webSearchEngine: engine, webSearchMaxResults: maxResults },
         }
       : config,
   );

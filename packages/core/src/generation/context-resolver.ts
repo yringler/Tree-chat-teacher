@@ -14,7 +14,7 @@ import type {
   Tree,
   UsageTag,
 } from '@tangent/shared';
-import { auxOutputTokens, clip, replyOutputTokens } from '@tangent/shared';
+import { auxOutputTokens, clipUtf16, replyOutputTokens } from '@tangent/shared';
 import { assembleContext, summaryKeyString } from '../context/assemble.js';
 import { overflowBudget } from '../context/overflow.js';
 import { buildSummaryPrompt, renderPlan } from '../context/render.js';
@@ -133,11 +133,14 @@ export function capabilitiesOf(
     : Promise.resolve(provider.capabilities(model));
 }
 
-/** `branch` with its anchor quote cut to `maxChars` (marked with an ellipsis). */
+/**
+ * `branch` with its anchor quote cut to `maxChars` UTF-16 units (marked with
+ * an ellipsis): the unit the pool's message limit is checked in.
+ */
 function clipAnchorQuote(branch: Branch, maxChars: number | undefined): Branch {
   const quote = branch.anchorQuote;
   if (maxChars === undefined || quote === null || quote.length <= maxChars) return branch;
-  return { ...branch, anchorQuote: clip(quote, maxChars) };
+  return { ...branch, anchorQuote: clipUtf16(quote, maxChars) };
 }
 
 /**

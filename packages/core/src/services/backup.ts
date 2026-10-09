@@ -1,4 +1,5 @@
 import {
+  errorKindOf,
   treeBackupSchema,
   type Branch,
   type ChatNode,
@@ -105,6 +106,8 @@ export class BackupService {
       treeId,
       branchId: mapBranch(n.branchId),
       parentId: n.parentId === null ? null : mapNode(n.parentId),
+      // A backup made before nodes had a kind: read it from the message.
+      errorKind: errorKindOf(n),
       ...(n.status === 'streaming' ? INTERRUPTED : {}),
     }));
     const links = importedLinks(data.links ?? [], nodeIds, treeId, newId);

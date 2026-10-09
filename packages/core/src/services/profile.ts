@@ -58,8 +58,9 @@ export interface PoolProfile {
    */
   estimateTokens: TokenEstimator;
   /**
-   * The longest anchor quote generations use; longer ones are clipped (the
-   * quote is client-set free text, so it gets no more room than a message).
+   * The longest anchor quote generations use, in UTF-16 units (`.length`, as
+   * the message limit counts); longer ones are clipped (the quote is client-set
+   * free text, so it gets no more room than a message).
    */
   anchorQuoteMaxChars: number;
 }
