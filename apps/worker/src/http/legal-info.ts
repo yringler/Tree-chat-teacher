@@ -4,7 +4,7 @@ import type { AppEnv } from '../env.js';
 import { sharingEnabled } from '../availability.js';
 
 /**
- * Who runs this deployment and how to reach them, from the LEGAL_* vars: used by the legal pages (http/legal.ts) and the copyright
+ * Who runs this deployment and how to reach them, from the LEGAL_* vars: used by the legal pages (http/legal.tsx) and the copyright
  * line in every page footer.
  */
 

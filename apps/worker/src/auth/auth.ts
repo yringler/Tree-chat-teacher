@@ -35,7 +35,7 @@ import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnst
  * a Turnstile pass, so signing in with one records it
  * (`auth_users.pool_verified_at`); a first OAuth sign-in (or any OAuth
  * sign-in of a user with no pass on record) is sent through the Turnstile
- * interstitial (http/verify-page.ts) on its way to the app. A user needs a
+ * interstitial (http/verify-page.tsx) on its way to the app. A user needs a
  * verified email (OAuth providers report it, a magic link proves it):
  * unverified users are never created. Each user gets
  * their own accounts (auth/account.ts). Power mode is bring-your-own-key for

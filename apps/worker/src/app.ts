@@ -42,13 +42,13 @@ export interface AppOptions {
  * - `/learn`, `/learn/*` serve the simple app, `/canvas`, `/canvas/*` the
  *   canvas app and `/admin`, `/admin/*` the admin app, to admins only
  *   (http/learn-app.ts).
- * - `/privacy` and `/terms` are the public legal pages (http/legal.ts), and
- *   `/pool` explains the open pool (http/pool-page.ts) and `/pricing`
- *   what each plan gets you (http/pricing-page.ts).
+ * - `/privacy` and `/terms` are the public legal pages (http/legal.tsx), and
+ *   `/pool` explains the open pool (http/pool-page.tsx) and `/pricing`
+ *   what each plan gets you (http/pricing-page.tsx).
  * - `/verify` is the Turnstile interstitial after a first OAuth sign-in
- *   (http/verify-page.ts).
+ *   (http/verify-page.tsx).
  * - `/welcome`, and `/` for anonymous visitors, serve the landing page
- *   (http/landing.ts); `/` with a session cookie is the power app's index.
+ *   (http/landing.tsx); `/` with a session cookie is the power app's index.
  * Everything else is served by Workers Static Assets before the Worker runs
  * (see run_worker_first in wrangler.jsonc).
  *

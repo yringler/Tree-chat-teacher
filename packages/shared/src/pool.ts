@@ -194,19 +194,6 @@ export const POOL_FUNDING_TEXT = 'The open pool is free credit Tangent provides.
 /** The pool's motto: Tangent, not its customers, keeps learning open. */
 export const POOL_MOTTO = 'Tangent keeps learning open.';
 
-/**
- * How the pool comes about, as three short steps for the landing and pricing
- * pages. Tangent is the subject of every step that moves money: a customer
- * pays for Tangent, never for someone else's learning (docs/DECISIONS.md).
- */
-export function poolSteps(memberships: boolean): [string, string, string] {
-  return [
-    `Tangent earns money from ${memberships ? 'memberships and credit' : 'the credit people buy'}, like any software business.`,
-    'It sets aside free credit as the open pool.',
-    'Anyone signed in can learn free from the pool, within daily limits, while it has credit.',
-  ];
-}
-
 /** What a pool reply costs the pool: its true cost, with no markup (Tangent funds the pool). */
 export const POOL_AT_COST_TEXT =
   "Each pool reply is charged to the pool at the AI provider's price, with no markup, and costs the learner nothing.";
