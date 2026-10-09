@@ -11,9 +11,6 @@
 } @else {
   <header class="lesson-head">
     <div class="lesson-head-row">
-      <a routerLink="/" class="icon-btn" aria-label="All lessons" title="All lessons">
-        <app-icon name="back" />
-      </a>
       <h1 class="lesson-title" [attr.title]="lessonTitle()">{{ lessonTitle() }}</h1>
       <div class="lesson-tools">
         @if (store.models().length > 1 && store.selectedBranch(); as b) {
@@ -65,27 +62,8 @@
         </button>
       </div>
     </div>
-    @if (store.parentBranch(); as parent) {
+    @if (store.parentBranch()) {
       <nav class="crumbs" aria-label="Side question path">
-        <button type="button" class="btn btn-ghost btn-sm" (click)="store.navigate('parent')">
-          <app-icon name="back" [size]="14" />
-          @if (parent.parentBranchId) {
-            Back to “{{ branchTitle(parent) }}”
-          } @else {
-            Back to the lesson
-          }
-        </button>
-        @if (store.selectedBranch(); as current) {
-          <button
-            type="button"
-            class="icon-btn icon-btn-danger crumbs-delete"
-            [attr.aria-label]="'Delete the side question ' + branchTitle(current)"
-            title="Delete this side question"
-            (click)="deleteSideQuestion(current.id)"
-          >
-            <app-icon name="trash" [size]="14" />
-          </button>
-        }
         <ol>
           @for (c of store.crumbs(); track c.branch.id; let first = $first, i = $index) {
             <li [class.crumb-mid]="!first && i < store.crumbs().length - 2">

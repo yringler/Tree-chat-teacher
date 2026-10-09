@@ -204,7 +204,7 @@ test('power demo: the open branch is deleted from the chat header, back to where
   expect(errors).toEqual([]);
 });
 
-test('Learn demo: a side question is deleted from its chip, or from the header when open', async ({
+test('Learn demo: a side question is deleted from its chip, or from the sidebar when open', async ({
   page,
 }) => {
   const errors = collectErrors(page);
@@ -230,15 +230,15 @@ test('Learn demo: a side question is deleted from its chip, or from the header w
   await expect(chip).toHaveCount(0);
   await expect(page.locator('.toast').filter({ hasText: 'Side question deleted' })).toBeVisible();
 
-  // The open side question (a followed tangent): from the header, back to the lesson.
+  // The open side question (a followed tangent): from the sidebar, back to the lesson.
   const tangent = page.locator('.tangent.is-followed').first();
   const name = (await tangent.locator('.tangent-title').innerText()).trim();
   await tangent.click();
   await expect(page).toHaveURL(/\/b\//);
   page.once('dialog', (d) => d.accept());
   await page
-    .locator('.crumbs')
-    .getByRole('button', { name: `Delete the side question ${name}` })
+    .getByRole('tree', { name: 'Side questions' })
+    .getByRole('button', { name: `Delete ${name}`, exact: true })
     .click();
   await expect(page).not.toHaveURL(/\/b\//);
   await expect(page).toHaveURL(/[?&]m=/);
