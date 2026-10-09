@@ -15,7 +15,7 @@ import {
   type RunGenerationOptions,
 } from '../../src/services/chat-service.js';
 import { ShareService } from '../../src/services/share-service.js';
-import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
+import { createMemoryRepositories } from '../../src/memory/memory-repositories.js';
 
 /**
  * Scripted provider: replies depend on the request so tests can tell

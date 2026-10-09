@@ -2,7 +2,7 @@ import type { TreeBackup, TreeDetail } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { ChatService, DEFAULT_CHAT_SETTINGS } from '../../src/services/chat-service.js';
 import { ANCHOR_HEADING } from '../../src/context/render.js';
-import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
+import { createMemoryRepositories } from '../../src/memory/memory-repositories.js';
 import { registryOf, ScriptedProvider, send } from './helpers.js';
 
 /** Learn's one provider: the built-in endpoint with Normal and Max. */

@@ -1,7 +1,7 @@
 import type { DefaultRouteFacts, ProviderRegistry, TreeBackupInput } from '@tangent/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { ChatService, DEFAULT_CHAT_SETTINGS } from '../../src/services/chat-service.js';
-import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
+import { createMemoryRepositories } from '../../src/memory/memory-repositories.js';
 import { registryOf, ScriptedProvider, send } from './helpers.js';
 
 /**

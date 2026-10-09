@@ -7,7 +7,7 @@ import {
   type ChatSettings,
   type HeldCandidate,
 } from '../../src/services/chat-service.js';
-import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
+import { createMemoryRepositories } from '../../src/memory/memory-repositories.js';
 import { registryOf, ScriptedProvider, send } from './helpers.js';
 
 function setupCompare(settings: Partial<ChatSettings> = {}) {

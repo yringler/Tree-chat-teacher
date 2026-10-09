@@ -1,4 +1,4 @@
-import type { MemoryState } from '@tangent/core/testing';
+import type { MemoryState } from '@tangent/core/memory';
 import type { Branch, ChatNode, NodeLink, Tree, UsageEntry } from '@tangent/shared';
 import { formatTangents } from '@tangent/shared';
 import { DEMO_PROVIDER_ID, DEMO_NORMAL_MODEL } from './lorem';

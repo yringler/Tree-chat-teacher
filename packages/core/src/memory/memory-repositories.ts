@@ -12,9 +12,10 @@ import { pairKey } from '../links.js';
 import type { AccountSettings, Repositories, ShareWithTree } from '../repository.js';
 
 /**
- * In-memory implementation of the repository ports. Used by service tests and
- * as a reference implementation for new storage adapters (a Node port can
- * start from it). Not optimized; everything is copied to avoid aliasing.
+ * In-memory implementation of the repository ports. Used by service tests,
+ * by the in-browser demos' backend, and as a reference implementation for
+ * new storage adapters (a Node port can start from it). Not optimized;
+ * everything is copied to avoid aliasing.
  */
 export function createMemoryRepositories(): Repositories & { dump(): MemoryState } {
   const state: MemoryState = {

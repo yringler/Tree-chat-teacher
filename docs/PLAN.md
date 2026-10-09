@@ -351,7 +351,7 @@ class ChatService { constructor(deps: { repos: Repositories; accountId?; provide
   beginSend(branchId, content): Promise<{ branch; userNode; assistantNode }>;
   runGeneration(begin, signal): AsyncIterable<StreamEvent>;       // never throws; persists final state
   recoverInterrupted(treeId); exportBackup(treeId); importBackup(backup) }
-// packages/core/testing: createMemoryRepositories() — in-memory reference implementation of the ports
+// packages/core/memory: createMemoryRepositories() — in-memory reference implementation of the ports
 class ShareService { constructor(deps: { repos; publicBaseUrl; clock?; newId?; newToken? })
   list(); create(req); update(id, req); republish(id); revoke(id);
   checkPublic(token); resolvePublic(token); recordView(shareId) }

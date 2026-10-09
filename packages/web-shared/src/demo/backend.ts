@@ -12,7 +12,7 @@ import {
   type RunGenerationOptions,
   type Clock,
 } from '@tangent/core';
-import { createMemoryRepositories, type MemoryState } from '@tangent/core/testing';
+import { createMemoryRepositories, type MemoryState } from '@tangent/core/memory';
 import {
   CANDIDATE_TTL_MS,
   candidateRequestSchema,

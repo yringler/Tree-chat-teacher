@@ -2,7 +2,7 @@ import { parseReview, type ReviewEvent } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { NotFoundError, ValidationError } from '../../src/errors.js';
 import { ChatService, DEFAULT_CHAT_SETTINGS } from '../../src/services/chat-service.js';
-import { createMemoryRepositories } from '../../src/testing/memory-repositories.js';
+import { createMemoryRepositories } from '../../src/memory/memory-repositories.js';
 import { registryOf, ScriptedProvider, send } from './helpers.js';
 
 function setupWithReviewer() {
