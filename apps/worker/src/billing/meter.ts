@@ -49,6 +49,7 @@ import {
   type UsageTag,
 } from '@tangent/shared';
 import { DomainError, PaymentRequiredError } from '@tangent/core';
+import { decorateProvider } from '@tangent/providers';
 import type { AccountContext, AppEnv } from '../env.js';
 import { poolBank } from '../pool/ids.js';
 import { creditPrice } from '../pool/model-prices.js';
@@ -732,26 +733,9 @@ async function* meteredStream(
 }
 
 function meteredProvider(provider: LlmProvider, meter: UsageMeter): LlmProvider {
-  const wrapped: LlmProvider = {
-    get id() {
-      return provider.id;
-    },
-    get kind() {
-      return provider.kind;
-    },
-    get label() {
-      return provider.label;
-    },
-    models: () => provider.models(),
-    defaultModel: () => provider.defaultModel(),
-    capabilities: (model) => provider.capabilities(model),
+  return decorateProvider(provider, {
     stream: (request) => meteredStream(provider, request, meter),
-  };
-  const resolve = provider.resolveCapabilities?.bind(provider);
-  if (resolve) wrapped.resolveCapabilities = resolve;
-  const count = provider.countTokens?.bind(provider);
-  if (count) wrapped.countTokens = count;
-  return wrapped;
+  });
 }
 
 /**
