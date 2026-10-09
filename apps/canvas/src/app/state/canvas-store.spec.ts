@@ -17,12 +17,19 @@ import type {
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
-import { ApiClient, ApiError } from '@tangent/web-shared';
+import { ApiClient, ApiError, ComposerController, ToastStore } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CanvasStore, modelLabel } from './canvas-store';
 import { UiStore } from './ui-store';
 
 const T = '2026-01-01T00:00:00.000Z';
+
+/** The composer controller, its calls recorded. */
+function spyComposer(c: ComposerController): ComposerController {
+  vi.spyOn(c, 'sent');
+  vi.spyOn(c, 'focus');
+  return c;
+}
 
 function branch(id: string, over: Partial<Branch> = {}): Branch {
   return {
@@ -178,13 +185,22 @@ function setup() {
     providers: [
       { provide: CanvasStore },
       { provide: UiStore },
+      { provide: ComposerController },
+      { provide: ToastStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: router },
     ],
   });
   const store = injector.get(CanvasStore);
   store.detail.set(detail());
-  return { store, api, router, ui: injector.get(UiStore) };
+  return {
+    store,
+    api,
+    router,
+    ui: injector.get(UiStore),
+    composer: spyComposer(injector.get(ComposerController)),
+    toasts: injector.get(ToastStore),
+  };
 }
 
 describe('CanvasStore', () => {
@@ -224,6 +240,7 @@ describe('CanvasStore', () => {
         userNode,
         assistantNode: reply,
         branch: branch('b', { parentBranchId: 'trunk', branchPointNodeId: 'a1' }),
+        funding: 'own-key',
       },
     ]);
     s.api.sendMessage.mockResolvedValue(live.response);
@@ -268,7 +285,7 @@ describe('CanvasStore', () => {
     const s = setup();
     const createBranch = lanes(s);
     const go = vi.spyOn(s.store, 'go');
-    const before = s.ui.composerFocus();
+    vi.mocked(s.composer.focus).mockClear();
     const lane = await s.store.createBranch({
       fromNodeId: 'a1',
       contextMode: 'path',
@@ -281,8 +298,7 @@ describe('CanvasStore', () => {
     });
     expect(go).toHaveBeenCalledWith('c1');
     // The new lane isn't on the canvas yet: the request names it, for its box to take once rendered.
-    expect(s.ui.composerFocus()).toBe(before + 1);
-    expect(s.ui.composerFocusLane).toBe(lane?.id);
+    expect(s.composer.focus).toHaveBeenCalledWith(lane?.id);
     expect(s.api.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -365,10 +381,10 @@ describe('CanvasStore', () => {
 
       s.store.fail(new ApiError(402, 'membership_required', 'Membership required'));
       expect(s.store.membershipBlocked()).toBe(true);
-      expect(s.ui.toasts()).toEqual([]);
+      expect(s.toasts.toasts()).toEqual([]);
 
       s.store.fail(new ApiError(402, 'payment_required', 'Not enough credit'));
-      expect(s.ui.toasts()[0]?.link).toEqual({ label: 'Add credit', href: '/billing' });
+      expect(s.toasts.toasts()[0]?.link).toEqual({ label: 'Add credit', href: '/billing' });
       await vi.waitFor(() => expect(s.store.account.billing()?.availableMicros).toBe(3_000_000));
       // Credit left: the notice can be dismissed.
       expect(s.store.membershipDismissible()).toBe(true);
@@ -538,10 +554,10 @@ describe('CanvasStore read-only lanes without a membership', () => {
     s.api.sendMessage.mockRejectedValueOnce(new ApiError(401, 'key_required', 'Add your key'));
 
     await expect(s.store.send('trunk', 'Why green?')).resolves.toBe(false);
-    expect(s.ui.keysOpen()).toBe(true);
+    expect(s.ui.dialogs.isOpen('keys')).toBe(true);
     expect(s.store.blockedBranch()?.id).toBe('trunk');
     expect(s.store.unsentDrafts().get('trunk')).toBe('Why green?');
-    expect(s.ui.composerSent()).toBeNull();
+    expect(s.composer.sent).not.toHaveBeenCalled();
 
     await expect(s.store.resumeOnCredit()).resolves.toBe(true);
     expect(updateBranch).toHaveBeenCalledWith('trunk', {
@@ -556,7 +572,7 @@ describe('CanvasStore read-only lanes without a membership', () => {
     );
     expect(s.store.blockedSends()).toEqual([]);
     expect(s.store.unsentDrafts().has('trunk')).toBe(false);
-    expect(s.ui.keysOpen()).toBe(false);
+    expect(s.ui.dialogs.isOpen('keys')).toBe(false);
   });
 });
 
@@ -619,7 +635,7 @@ describe('CanvasStore links between messages', () => {
     expect(s.api.deleteLink).toHaveBeenCalledWith('l1');
     expect(s.store.links().map((l) => l.id)).toEqual(['l2']);
     expect(s.ui.linkPopover()).toBeNull();
-    expect(s.ui.toasts().at(-1)?.text).toBe('Link removed');
+    expect(s.toasts.toasts().at(-1)?.text).toBe('Link removed');
   });
 
   it('a link already removed elsewhere (404) goes here too, popover and all', async () => {
@@ -633,7 +649,7 @@ describe('CanvasStore links between messages', () => {
     await expect(s.store.deleteLink('l1')).resolves.toBe(true);
     expect(s.store.links()).toEqual([]);
     expect(s.ui.linkPopover()).toBeNull();
-    expect(s.ui.toasts().map((t) => t.text)).toEqual([
+    expect(s.toasts.toasts().map((t) => t.text)).toEqual([
       'That link was already removed',
       'That link was already removed',
     ]);
@@ -650,6 +666,8 @@ describe('CanvasStore links between messages', () => {
     expect(s.ui.linkPick()).toBeNull();
     expect(s.ui.linkPopover()).toBeNull();
     expect(s.ui.linkReturn()).toBeNull();
+    // In the canvas's words.
+    expect(s.toasts.toasts().at(-1)?.text).toMatch(/^Deleted the lane|^Lane deleted$/);
   });
 
   it('a deleted lane leaves linking from elsewhere alone', async () => {

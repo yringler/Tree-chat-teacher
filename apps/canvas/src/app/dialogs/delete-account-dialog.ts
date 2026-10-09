@@ -9,7 +9,7 @@ import { UiStore } from '../state/ui-store';
   imports: [Modal, DeleteAccount],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal heading="Delete account" (closed)="ui.deleteAccountOpen.set(false)">
+    <app-modal heading="Delete account" (closed)="ui.dialogs.close('delete-account')">
       @if (store.account.me()?.email; as email) {
         <app-delete-account [email]="email" />
       } @else {

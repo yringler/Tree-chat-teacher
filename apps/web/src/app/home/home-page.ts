@@ -8,11 +8,10 @@ import {
   signal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { Composer } from '../chat/composer';
 import { sameChoice, TierStore, tierOptions } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { Icon, readOnlyText, Segmented } from '@tangent/web-shared';
+import { Composer, Icon, readOnlyText, Segmented } from '@tangent/web-shared';
 import {
   maxUsageNote,
   parseRouteKey,
@@ -86,6 +85,7 @@ import { ModelPicker } from '../ui/model-picker';
             <app-model-picker [(route)]="route" [(modelId)]="modelId" />
           }
           <app-composer
+            sendLabel="Send message"
             placeholder="Start a conversation…"
             [autofocus]="true"
             [disabled]="starting()"

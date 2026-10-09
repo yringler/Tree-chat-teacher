@@ -8,16 +8,14 @@ import {
   type OutlineItem,
 } from '@tangent/core';
 import { type BranchFunding } from '@tangent/shared';
-import type {
-  Branch,
-  ChatNode,
-  CreateBranchRequest,
-  NodeLink,
-  ShareScope,
-  TreeBackupInput,
-  UpdateTreeRequest,
-} from '@tangent/shared';
-import { ApiClient, PowerConversationStore, errorMessage } from '@tangent/web-shared';
+import type { Branch, ChatNode, NodeLink, ShareScope, UpdateTreeRequest } from '@tangent/shared';
+import {
+  ApiClient,
+  ComposerController,
+  errorMessage,
+  PowerConversationStore,
+  ToastStore,
+} from '@tangent/web-shared';
 import { generationLimits, SettingsStore } from './settings-store';
 import { UiStore } from './ui-store';
 
@@ -30,6 +28,8 @@ import { UiStore } from './ui-store';
 @Injectable({ providedIn: 'root' })
 export class TreeStore extends PowerConversationStore<ApiClient> {
   private readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
+  private readonly toast = inject(ToastStore);
   private readonly appSettings = inject(SettingsStore);
 
   constructor() {
@@ -87,13 +87,13 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     const branchBefore = this.selectedBranchId();
     super.setRoute(treeId, branchId, focusNodeId);
     // Branch settings edit the branch on screen: going to another (Back, a link) closes them.
-    if (this.selectedBranchId() !== branchBefore) this.ui.branchSettingsOpen.set(false);
+    if (this.selectedBranchId() !== branchBefore) this.ui.dialogs.close('branch-settings');
   }
 
   protected override treeChanged(): void {
     this.ui.clearLinkState();
     // A comparison belongs to a branch of the tree left behind (Back while it was open).
-    this.ui.compareDialog.set(null);
+    this.ui.dialogs.close('compare');
   }
 
   override go(branchId: string, focusNodeId: string | null = null, replace = false): void {
@@ -148,51 +148,15 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     }
   }
 
-  async importBackup(backup: TreeBackupInput): Promise<void> {
-    try {
-      const detail = await this.api.importBackup(backup);
-      this.listNewTree(detail);
-      this.ui.notify(`Imported “${detail.tree.title}”`);
-      await this.router.navigate(['/t', detail.tree.id]);
-    } catch (err) {
-      this.fail(err);
-    }
-  }
-
   // Branches
 
-  async createBranch(req: CreateBranchRequest): Promise<Branch | null> {
-    const branch = await this.addBranch(req);
-    if (branch) {
-      this.go(branch.id);
-      this.ui.focusComposer();
-    }
-    return branch;
+  protected override branchOpened(branchId: string): void {
+    this.composer.focus(branchId);
   }
 
-  /**
-   * Follows a tangent the assistant suggested under `fromNodeId`: a `path`
-   * branch titled after it (a user title, so auto-titling keeps it), on the
-   * message's branch's provider and model like "Branch from here", whose
-   * first message is the title. A tangent already followed from that message
-   * just opens its branch.
-   */
-  async followTangent(fromNodeId: string, title: string): Promise<Branch | null> {
-    const existing = this.childBranchesAt(fromNodeId).find((b) => b.title === title);
-    if (existing) {
-      this.go(existing.id, this.firstNodeOf(existing.id)?.id ?? null);
-      return existing;
-    }
-    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null, title }, title);
-  }
-
-  /**
-   * "Ask your own" under a reply: the user's question, asked like a followed
-   * tangent (a `path` branch on the message's provider and model). Untitled:
-   * it reads "Branch: …" until the first reply names it (auto-titling).
-   */
-  askFrom(fromNodeId: string, content: string): Promise<Branch | null> {
-    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null }, content);
+  /** A tangent already followed opens at its first message. */
+  protected override openFollowed(branch: Branch): void {
+    this.go(branch.id, this.firstNodeOf(branch.id)?.id ?? null);
   }
 
   /** Whether replies in `branchId` can be checked against web sources (its provider can search). */
@@ -255,8 +219,8 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     return generationLimits(this.appSettings.settings());
   }
 
-  protected override sent(_branchId: string, content: string): void {
-    this.ui.markSent(content);
+  protected override sent(branchId: string, content: string): void {
+    this.composer.sent(branchId, content);
   }
 
   protected override branchesRemoved(
@@ -265,10 +229,10 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
   ): void {
     super.branchesRemoved(branchIds, nodeIds);
     // Linking from a message that is gone, or back to a branch that is.
-    for (const s of [this.ui.linkPick, this.ui.linkDialog]) {
-      const from = s()?.fromNodeId;
-      if (from !== undefined && nodeIds.has(from)) s.set(null);
-    }
+    const pick = this.ui.linkPick()?.fromNodeId;
+    if (pick !== undefined && nodeIds.has(pick)) this.ui.linkPick.set(null);
+    const linking = this.ui.dialogs.get('link')?.fromNodeId;
+    if (linking !== undefined && nodeIds.has(linking)) this.ui.dialogs.close('link');
     const back = this.ui.linkReturn();
     if (back && (branchIds.has(back.branchId) || branchIds.has(back.toBranchId))) {
       this.ui.linkReturn.set(null);
@@ -276,16 +240,16 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
   }
 
   protected notify(text: string, kind?: 'info' | 'error'): void {
-    this.ui.notify(text, kind);
+    this.toast.notify(text, kind);
   }
 
   protected override keysSettled(): void {
-    this.ui.keysDialog.set(null);
+    this.ui.dialogs.close('keys');
   }
 
   protected override movedToCredit(branch: Branch, modelLabel: string): void {
-    this.ui.notify(`“${branch.title}” now uses Tangent credit (${modelLabel})`);
-    this.ui.focusComposer();
+    this.toast.notify(`“${branch.title}” now uses Tangent credit (${modelLabel})`);
+    this.composer.focus();
   }
 
   fail(err: unknown): void {
@@ -295,20 +259,20 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
       // A read-only branch's notice explains it; anything else (a review, say)
       // gets a toast linking to the billing page.
       if (!this.readOnly())
-        this.ui.notify(errorMessage(err), 'error', { label: 'Membership', path: '/billing' });
+        this.toast.notify(errorMessage(err), 'error', { label: 'Membership', path: '/billing' });
       return;
     }
     if (refusal === 'payment_required') {
       // Power's only metered provider is Tangent credit: this means the credit ran out.
-      this.ui.notify(errorMessage(err), 'error', { label: 'Add credit', path: '/billing' });
+      this.toast.notify(errorMessage(err), 'error', { label: 'Add credit', path: '/billing' });
       return;
     }
-    this.ui.notify(errorMessage(err), 'error');
-    if (refusal === 'key_required' && !this.ui.keysDialog()) {
+    this.toast.notify(errorMessage(err), 'error');
+    if (refusal === 'key_required' && !this.ui.dialogs.get('keys')) {
       // Ask for the key of the provider in use (the dialog also offers Tangent
       // credit for a refused send, `blockedSends`).
       const branch = this.blockedBranch() ?? this.selectedBranch();
-      this.ui.keysDialog.set({ provider: branch?.providerId ?? null });
+      this.ui.dialogs.open({ kind: 'keys', provider: branch?.providerId ?? null });
     }
   }
 }

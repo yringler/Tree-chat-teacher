@@ -265,6 +265,8 @@ export class TreeSession extends DurableObject<AppEnv> {
     // Detached: keeps running after the client disconnects (DOs stay alive while I/O is in flight).
     const finished = this.hub.start(
       started,
+      // Who pays, as the gate decided: a Learn send may have moved from credit to the pool.
+      callPayer(account, started.branch.funding),
       sink,
       (signal) => chat.runGeneration(started, signal, options),
       // The reply never reached the provider (the meter settles a dispatched one).

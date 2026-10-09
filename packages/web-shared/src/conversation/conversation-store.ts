@@ -19,8 +19,10 @@ import type {
   CreateTreeRequest,
   DeleteBranchResponse,
   NodeLink,
+  Payer,
   SendMessageRequest,
   StreamEvent,
+  TreeBackupInput,
   TreeDetail,
   TreeSummary,
   UpdateBranchRequest,
@@ -48,6 +50,7 @@ export type ConversationApi = Pick<
   | 'getTree'
   | 'createTree'
   | 'deleteTree'
+  | 'importBackup'
   | 'createBranch'
   | 'updateBranch'
   | 'deleteBranch'
@@ -84,6 +87,8 @@ export interface ConversationCopy {
   linked: { created: string; existing: string };
   /** Said when a link's note is saved, if anything. */
   noteSaved?: string;
+  /** A tree's title as the app shows it (Learn's "New lesson" for an untitled one); as stored by default. */
+  treeTitle?: (title: string) => string;
 }
 
 function capitalized(s: string): string {
@@ -242,8 +247,11 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   /** A send into `branchId` starts: what waited for that branch to send again goes. */
   protected sendStarting(_branchId: string, _options: SendOptions): void {}
 
-  /** The message is in the tree now: the composer may let its text go. */
-  protected sent(_branchId: string, _content: string): void {}
+  /**
+   * The message is in the tree now: the composer may let its text go.
+   * `funding`: who the server says pays for the reply.
+   */
+  protected sent(_branchId: string, _content: string, _funding: Payer): void {}
 
   /** A send failed; by default the app's error policy reports it. */
   protected sendFailed(err: unknown, _send: FailedSend): void {
@@ -256,10 +264,27 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   /** Branches and their messages were deleted: what the app keeps about them goes. */
   protected branchesRemoved(_branchIds: ReadonlySet<string>, _nodeIds: ReadonlySet<string>): void {}
 
+  /** A branch made here was opened (`createBranch`): its composer takes the focus. */
+  protected branchOpened(_branchId: string): void {}
+
+  /** Opens a tangent already followed (`followTangent`): its branch, by default where it ends. */
+  protected openFollowed(branch: Branch): void {
+    this.go(branch.id);
+  }
+
+  /** A branch may be made from `nodeId` (power's: not from a branch the user can't generate on). */
+  protected canBranchFrom(_nodeId: string): boolean {
+    return true;
+  }
+
   /** A link went from the open tree. */
   protected linkDropped(_linkId: string): void {}
 
-  /** The route a branch made here starts on, after `from` (none: the server picks the parent's). */
+  /**
+   * The route a branch made here starts on, after `from`, the branch of the
+   * message it starts from (none: the server picks the parent's). Applied
+   * to every new branch whose request names no provider.
+   */
   protected newBranchRoute(_from: Branch | null): Partial<CreateBranchRequest> {
     return {};
   }
@@ -336,6 +361,20 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     if (!target) return false;
     this.go(target.branchId, target.focusNodeId);
     return true;
+  }
+
+  /** The branch message `nodeId` is in, or null when the open tree hasn't it. */
+  branchOf(nodeId: string): Branch | null {
+    const idx = this.index();
+    const node = idx?.nodes.get(nodeId);
+    return (node && idx?.branches.get(node.branchId)) || null;
+  }
+
+  /** `nodeId` is the newest message of the open branch (where "Continue" and an open "Ask" go). */
+  isLatest(nodeId: string): boolean {
+    return (
+      this.branchOf(nodeId)?.id === this.selectedBranchId() && this.path().at(-1)?.id === nodeId
+    );
   }
 
   childBranchesAt(nodeId: string): readonly Branch[] {
@@ -421,10 +460,65 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
 
   /** Creates a branch into the open tree (null if it could not be created). */
   protected async addBranch(req: CreateBranchRequest): Promise<Branch | null> {
+    const route =
+      req.providerId === undefined ? this.newBranchRoute(this.branchOf(req.fromNodeId)) : {};
     try {
-      const branch = await this.api.createBranch(req);
+      const branch = await this.api.createBranch({ ...route, ...req });
       this.applyBranch(branch);
       return branch;
+    } catch (err) {
+      this.fail(err);
+      return null;
+    }
+  }
+
+  /** A branch from the branch dialog or a selection: made, opened, ready to type in (`branchOpened`). */
+  async createBranch(req: CreateBranchRequest): Promise<Branch | null> {
+    const branch = await this.addBranch(req);
+    if (branch) {
+      this.go(branch.id);
+      this.branchOpened(branch.id);
+    }
+    return branch;
+  }
+
+  /**
+   * Follows a tangent the assistant suggested under `fromNodeId`: a `path`
+   * branch titled after it (a user title, so auto-titling keeps it), on the
+   * route new branches from that message take (`newBranchRoute`), whose
+   * first message is the title. A tangent already followed from that
+   * message just opens its branch (`openFollowed`).
+   */
+  async followTangent(fromNodeId: string, title: string): Promise<Branch | null> {
+    const existing = this.childBranchesAt(fromNodeId).find((b) => b.title === title);
+    if (existing) {
+      this.openFollowed(existing);
+      return existing;
+    }
+    if (!this.canBranchFrom(fromNodeId)) return null;
+    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null, title }, title);
+  }
+
+  /**
+   * "Ask your own" under a reply: the user's question, asked like a followed
+   * tangent. Untitled: it reads "Branch: …" until the first reply names it.
+   */
+  askFrom(fromNodeId: string, content: string): Promise<Branch | null> {
+    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null }, content);
+  }
+
+  /**
+   * Imports a backup (from any of the apps) into this account and opens it;
+   * null when the server refused it (`fail` has reported it).
+   */
+  async importTree(backup: TreeBackupInput): Promise<TreeDetail | null> {
+    try {
+      const detail = await this.api.importBackup(backup);
+      this.listNewTree(detail);
+      const title = this.copy.treeTitle?.(detail.tree.title) ?? detail.tree.title;
+      this.notify(`Imported “${title}”`);
+      await this.router.navigate(['/t', detail.tree.id]);
+      return detail;
     } catch (err) {
       this.fail(err);
       return null;
@@ -534,7 +628,6 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
       contextMode: 'path',
       anchorQuote: null,
       title: 'Checking sources',
-      ...this.newBranchRoute(idx.branches.get(node.branchId) ?? null),
     });
     if (!branch) return false;
     this.go(branch.id);
@@ -631,7 +724,7 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
             nodeId = event.assistantNode.id;
             this.controllers.set(nodeId, ctrl);
             this.markSending(branchId, false);
-            this.sent(branchId, content);
+            this.sent(branchId, content, event.funding);
           }
           this.apply(event, nodeId);
         },
@@ -667,7 +760,7 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
    */
   applyCommitted(result: CommitCandidateResponse): void {
     const { userNode, assistantNode, branch } = result;
-    this.apply({ type: 'start', userNode, assistantNode, branch }, null);
+    this.startReply(userNode, assistantNode, branch);
     this.apply({ type: 'done', node: assistantNode, branch }, assistantNode.id);
     this.finish(assistantNode.id, { kind: 'done' });
   }
@@ -760,16 +853,7 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   protected apply(event: StreamEvent, streamNodeId: string | null): void {
     switch (event.type) {
       case 'start':
-        this.applyNodes([event.userNode, event.assistantNode]);
-        this.applyBranch(event.branch);
-        this.setLive({
-          nodeId: event.assistantNode.id,
-          treeId: event.assistantNode.treeId,
-          branchId: event.assistantNode.branchId,
-          content: event.assistantNode.content,
-          status: null,
-          reconnecting: false,
-        });
+        this.startReply(event.userNode, event.assistantNode, event.branch);
         break;
       case 'snapshot':
         this.patchLive(event.node.id, { content: event.node.content, reconnecting: false });
@@ -804,6 +888,20 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
   }
 
   /** Marks a reply failed, keeping the text it streamed. */
+  /** A reply begins: the message and the reply join the tree, and the reply goes live. */
+  private startReply(userNode: ChatNode, assistantNode: ChatNode, branch: Branch): void {
+    this.applyNodes([userNode, assistantNode]);
+    this.applyBranch(branch);
+    this.setLive({
+      nodeId: assistantNode.id,
+      treeId: assistantNode.treeId,
+      branchId: assistantNode.branchId,
+      content: assistantNode.content,
+      status: null,
+      reconnecting: false,
+    });
+  }
+
   protected markError(nodeId: string, message: string): void {
     const node = this.index()?.nodes.get(nodeId);
     if (node)

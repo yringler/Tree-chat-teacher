@@ -1,4 +1,5 @@
 import { Injectable, signal } from '@angular/core';
+import { Overlays } from '@tangent/web-shared';
 
 export interface BranchDialogState {
   fromNodeId: string;
@@ -38,18 +39,25 @@ export interface LinkReturn {
   toNodeId: string;
 }
 
-/** An in-app link shown in a toast (e.g. "Add credit" → `/billing`). */
-export interface ToastLink {
-  label: string;
-  path: string;
-}
-
-export interface Toast {
-  id: number;
-  kind: 'info' | 'error';
-  text: string;
-  link?: ToastLink;
-}
+/**
+ * A dialog of the power app, with what it was opened with. `keys`: Keys &
+ * credit, `provider` preselecting the provider to enter a key for; `review`:
+ * the review of one assistant message; `compare`: Normal and Max answer
+ * `content` at the leaf of `branchId`, and the user keeps one (the message
+ * stays in the composer until a pick commits).
+ */
+export type Dialog =
+  | ({ kind: 'branch' } & BranchDialogState)
+  | { kind: 'branch-settings' }
+  | { kind: 'tree-settings' }
+  | { kind: 'share' }
+  | { kind: 'shortcuts' }
+  | { kind: 'keys'; provider: string | null }
+  | { kind: 'settings' }
+  | { kind: 'account' }
+  | { kind: 'review'; nodeId: string }
+  | { kind: 'compare'; branchId: string; content: string }
+  | ({ kind: 'link' } & LinkDialogState);
 
 const INSPECTOR_KEY = 'tangent.inspectorOpen';
 
@@ -69,48 +77,21 @@ function writeFlag(key: string, value: boolean): void {
   }
 }
 
-/** View state that is not part of the URL: panels, dialogs, toasts. */
+/** View state that is not part of the URL: panels and dialogs. */
 @Injectable({ providedIn: 'root' })
 export class UiStore {
   readonly drawerOpen = signal(false);
   readonly inspectorOpen = signal(readFlag(INSPECTOR_KEY));
-  readonly shortcutsOpen = signal(false);
-  readonly branchDialog = signal<BranchDialogState | null>(null);
-  readonly branchSettingsOpen = signal(false);
-  readonly treeSettingsOpen = signal(false);
-  readonly shareDialogOpen = signal(false);
   readonly exportMenuOpen = signal(false);
   readonly textSizeMenuOpen = signal(false);
-  /** Keys & credit dialog; `provider` preselects the provider to enter a key for. */
-  readonly keysDialog = signal<{ provider: string | null } | null>(null);
-  readonly settingsOpen = signal(false);
-  readonly accountOpen = signal(false);
-  /** Review dialog for one assistant message. */
-  readonly reviewDialog = signal<{ nodeId: string } | null>(null);
-  /**
-   * Compare: Normal and Max answer `content` at the leaf of `branchId`, and
-   * the user keeps one. The message stays in the composer until a pick commits.
-   */
-  readonly compareDialog = signal<{ branchId: string; content: string } | null>(null);
-  readonly linkDialog = signal<LinkDialogState | null>(null);
+  /** The open dialogs (`Dialog`), top-most last. */
+  readonly dialogs = new Overlays<Dialog>();
   readonly linkPick = signal<LinkPickState | null>(null);
   readonly linkReturn = signal<LinkReturn | null>(null);
   /** Messages whose "N related" list is open (by node id). */
   readonly relatedOpen = signal<ReadonlySet<string>>(new Set());
-  /** Text for the composer to insert; `seq` makes repeated inserts of the same text distinct. */
-  readonly composerInsert = signal<{ seq: number; text: string } | null>(null);
-  /**
-   * A message that reached the server (its reply started): a composer still
-   * holding exactly that text lets it go. Until then the text stays, so a
-   * refused or failed send never loses it.
-   */
-  readonly composerSent = signal<{ seq: number; text: string } | null>(null);
   /** Outline items the user collapsed (by branch id). */
   readonly collapsed = signal<ReadonlySet<string>>(new Set());
-  /** Bumped to ask the composer to take focus. */
-  readonly composerFocus = signal(0);
-  readonly toasts = signal<readonly Toast[]>([]);
-  private toastSeq = 0;
 
   toggleInspector(): void {
     const next = !this.inspectorOpen();
@@ -140,102 +121,27 @@ export class UiStore {
 
   /** Forgets the link dialog, pick mode and the return pill (another tree opened). */
   clearLinkState(): void {
-    this.linkDialog.set(null);
+    this.dialogs.close('link');
     this.linkPick.set(null);
     this.linkReturn.set(null);
   }
 
-  focusComposer(): void {
-    this.composerFocus.update((n) => n + 1);
-  }
-
-  /** Appends `text` to the composer draft and focuses it. */
-  insertIntoComposer(text: string): void {
-    this.composerInsert.update((cur) => ({ seq: (cur?.seq ?? 0) + 1, text }));
-  }
-
-  markSent(text: string): void {
-    this.composerSent.update((cur) => ({ seq: (cur?.seq ?? 0) + 1, text }));
-  }
-
-  anyDialogOpen(): boolean {
-    return (
-      this.branchDialog() !== null ||
-      this.linkDialog() !== null ||
-      this.branchSettingsOpen() ||
-      this.treeSettingsOpen() ||
-      this.shareDialogOpen() ||
-      this.shortcutsOpen() ||
-      this.keysDialog() !== null ||
-      this.settingsOpen() ||
-      this.accountOpen() ||
-      this.reviewDialog() !== null ||
-      this.compareDialog() !== null
-    );
-  }
-
-  /** Escape: closes the top-most overlay. Returns true if something closed. */
+  /**
+   * Escape: closes the top-most overlay (a dialog, then pick mode, a menu,
+   * the drawer). Returns true if something closed.
+   */
   closeTop(): boolean {
-    if (this.keysDialog()) {
-      this.keysDialog.set(null);
-      return true;
-    }
-    if (this.branchDialog()) {
-      this.branchDialog.set(null);
-      return true;
-    }
-    if (this.reviewDialog()) {
-      this.reviewDialog.set(null);
-      return true;
-    }
-    if (this.compareDialog()) {
-      this.compareDialog.set(null);
-      return true;
-    }
-    if (this.linkDialog()) {
-      this.linkDialog.set(null);
-      return true;
-    }
-    for (const s of [
-      this.branchSettingsOpen,
-      this.treeSettingsOpen,
-      this.shareDialogOpen,
-      this.shortcutsOpen,
-      this.settingsOpen,
-      this.accountOpen,
-    ]) {
-      if (s()) {
-        s.set(false);
-        return true;
-      }
-    }
+    if (this.dialogs.closeTop()) return true;
     if (this.linkPick()) {
       this.linkPick.set(null);
       return true;
     }
-    for (const s of [this.exportMenuOpen, this.textSizeMenuOpen]) {
+    for (const s of [this.exportMenuOpen, this.textSizeMenuOpen, this.drawerOpen]) {
       if (s()) {
         s.set(false);
         return true;
       }
     }
-    if (this.drawerOpen()) {
-      this.drawerOpen.set(false);
-      return true;
-    }
     return false;
-  }
-
-  notify(text: string, kind: Toast['kind'] = 'info', link?: ToastLink): void {
-    const id = ++this.toastSeq;
-    this.toasts.update((list) => [
-      ...list.slice(-3),
-      { id, kind, text, ...(link ? { link } : {}) },
-    ]);
-    setTimeout(() => this.dismiss(id), kind === 'error' ? 8000 : 3500);
-  }
-
-  dismiss(id: number): void {
-    this.toasts.update((list) => list.filter((t) => t.id !== id));
   }
 }

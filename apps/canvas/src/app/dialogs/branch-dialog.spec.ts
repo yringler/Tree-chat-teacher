@@ -11,7 +11,7 @@ import type {
   ProviderInfo,
   TreeDetail,
 } from '@tangent/shared';
-import { ApiClient } from '@tangent/web-shared';
+import { ApiClient, ComposerController, ToastStore } from '@tangent/web-shared';
 import { describe, expect, it, vi } from 'vitest';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
@@ -114,6 +114,8 @@ async function open(status: MembershipInfo['status'], providers: ProviderInfo[])
     providers: [
       { provide: CanvasStore },
       { provide: UiStore },
+      { provide: ComposerController },
+      { provide: ToastStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: { navigate: vi.fn(async () => true) } },
     ],

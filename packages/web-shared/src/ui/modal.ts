@@ -12,7 +12,7 @@ import { Icon } from './icon';
 
 let uid = 0;
 
-/** Modal shell: backdrop, title bar, projected body. Escape is handled globally (UiStore.closeTop). */
+/** Modal shell: backdrop, title bar, projected body. Escape closes it from the app's document keydown (`dispatchShortcut`, which closes the top-most of the app's `Overlays`). */
 @Component({
   selector: 'app-modal',
   imports: [Icon],

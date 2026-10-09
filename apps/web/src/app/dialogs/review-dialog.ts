@@ -10,7 +10,14 @@ import {
 import { plainText } from '@tangent/shared';
 import { parseReview, parseRouteKey, routeKey, type BranchFunding } from '@tangent/shared';
 import { copyText } from '../core/selection';
-import { Icon, MarkdownService, Modal, TypesetMath } from '@tangent/web-shared';
+import {
+  ComposerController,
+  Icon,
+  MarkdownService,
+  Modal,
+  ToastStore,
+  TypesetMath,
+} from '@tangent/web-shared';
 import { ReviewStore } from '../state/review-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
@@ -115,7 +122,7 @@ const EXCERPT_CHARS = 280;
                 <button
                   type="button"
                   class="btn btn-ghost btn-left"
-                  (click)="ui.settingsOpen.set(true); close()"
+                  (click)="ui.dialogs.open({ kind: 'settings' }); close()"
                 >
                   <app-icon name="gear" /> Default reviewer…
                 </button>
@@ -142,6 +149,8 @@ export class ReviewDialog implements OnInit {
   protected readonly store = inject(TreeStore);
   protected readonly reviews = inject(ReviewStore);
   protected readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
+  private readonly toast = inject(ToastStore);
   private readonly md = inject(MarkdownService);
 
   readonly nodeId = input.required<string>();
@@ -174,10 +183,9 @@ export class ReviewDialog implements OnInit {
   protected readonly choice = computed(() =>
     this.route() ? { ...parseRouteKey(this.route()), model: this.modelId().trim() } : null,
   );
-  protected readonly excerpt = computed(() => {
-    const text = plainText(this.node()?.content ?? '');
-    return text.length > EXCERPT_CHARS ? `${text.slice(0, EXCERPT_CHARS - 1)}…` : text;
-  });
+  protected readonly excerpt = computed(() =>
+    plainText(this.node()?.content ?? '', { max: EXCERPT_CHARS }),
+  );
   /** The branch already runs on the reviewer's model. */
   protected readonly sameModel = computed(() => {
     const r = this.review();
@@ -207,7 +215,7 @@ export class ReviewDialog implements OnInit {
   protected sendCorrections(): void {
     const r = this.review();
     if (!r) return;
-    this.ui.insertIntoComposer(
+    this.composer.insert(
       `A reviewer (${this.labelOf(r, r.model)}) checked your earlier answer and ` +
         `flagged the following. Please correct course where they are right:\n\n${this.parsed().body}`,
     );
@@ -226,7 +234,7 @@ export class ReviewDialog implements OnInit {
     });
     this.acting.set(false);
     if (ok) {
-      this.ui.notify(`“${b.title}” now uses ${this.labelOf(r, r.model)}`);
+      this.toast.notify(`“${b.title}” now uses ${this.labelOf(r, r.model)}`);
       if (b.id !== this.store.selectedBranchId()) this.store.go(b.id);
       this.close();
     }
@@ -248,15 +256,15 @@ export class ReviewDialog implements OnInit {
   }
 
   protected async copy(): Promise<void> {
-    if (await copyText(this.parsed().body)) this.ui.notify('Review copied');
+    if (await copyText(this.parsed().body)) this.toast.notify('Review copied');
   }
 
   protected openKeys(): void {
     this.close();
-    this.ui.keysDialog.set({ provider: null });
+    this.ui.dialogs.open({ kind: 'keys', provider: null });
   }
 
   protected close(): void {
-    this.ui.reviewDialog.set(null);
+    this.ui.dialogs.close('review');
   }
 }

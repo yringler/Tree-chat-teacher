@@ -2,7 +2,13 @@ import '@angular/compiler'; // JIT: the component metadata and the DI below.
 import { Injector, runInInjectionContext } from '@angular/core';
 import { Router } from '@angular/router';
 import type { TreeSummary } from '@tangent/shared';
-import { ApiClient, ApiError, DEMO_MODE } from '@tangent/web-shared';
+import {
+  ApiClient,
+  ApiError,
+  ComposerController,
+  DEMO_MODE,
+  ToastStore,
+} from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeSettings } from '../dialogs/tree-settings';
 import { Sidebar } from '../sidebar/sidebar';
@@ -50,6 +56,8 @@ function setup() {
     providers: [
       { provide: TreeStore },
       { provide: UiStore },
+      { provide: ComposerController },
+      { provide: ToastStore },
       { provide: SettingsStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: router },
@@ -58,13 +66,14 @@ function setup() {
   });
   const store = injector.get(TreeStore);
   const ui = injector.get(UiStore);
+  const toasts = injector.get(ToastStore);
   store.trees.set([tree('t1', 'Sky colour'), tree('t2', 'Tides')]);
   store.treesLoaded.set(true);
   // HomePage's constructor starts an effect, which needs Angular's change-detection
   // scheduler (absent here); `remove` only reads the store, so the page gets just that.
   const home = Object.assign(Object.create(HomePage.prototype) as HomeView, { store });
   const sidebar = runInInjectionContext(injector, () => new Sidebar()) as unknown as SidebarView;
-  return { api, router, store, ui, home, sidebar };
+  return { api, router, store, ui, toasts, home, sidebar };
 }
 
 describe('Delete on each listed conversation (as in Learn)', () => {
@@ -123,7 +132,7 @@ describe('Delete on each listed conversation (as in Learn)', () => {
     );
     await vi.waitFor(() => expect(s.store.trees().map((t) => t.id)).toEqual(['t2']));
     expect(s.api.deleteTree).toHaveBeenCalledWith('t1');
-    expect(s.ui.toasts().map((t) => t.text)).toEqual(['Conversation deleted']);
+    expect(s.toasts.toasts().map((t) => t.text)).toEqual(['Conversation deleted']);
     // Not the open conversation: nothing navigates.
     expect(s.router.navigate).not.toHaveBeenCalled();
     expect(templateOf(TreeSettings)).toContain('Delete conversation');
@@ -139,7 +148,7 @@ describe('Delete on each listed conversation (as in Learn)', () => {
     expect(s.api.deleteTree).not.toHaveBeenCalled();
     expect(s.store.trees()).toHaveLength(2);
     expect(s.router.navigate).not.toHaveBeenCalled();
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.toasts.toasts()).toEqual([]);
   });
 
   it('deleting the open conversation from the sidebar goes home', async () => {
@@ -155,8 +164,8 @@ describe('Delete on each listed conversation (as in Learn)', () => {
     const s = setup();
     s.api.deleteTree.mockRejectedValueOnce(new ApiError(500, 'internal', 'Something broke'));
     s.home.remove(tree('t1', 'Sky colour'));
-    await vi.waitFor(() => expect(s.ui.toasts()).toHaveLength(1));
-    expect(s.ui.toasts()[0]).toMatchObject({ kind: 'error' });
+    await vi.waitFor(() => expect(s.toasts.toasts()).toHaveLength(1));
+    expect(s.toasts.toasts()[0]).toMatchObject({ kind: 'error' });
     expect(s.store.trees()).toHaveLength(2);
     expect(s.router.navigate).not.toHaveBeenCalled();
   });

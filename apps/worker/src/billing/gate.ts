@@ -3,7 +3,12 @@
 // credit, the open pool or the user's own key) and checks that they can,
 // before anything is written or sent upstream.
 import { DomainError, PoolBlockedError, poolBlock, ValidationError } from '@tangent/core';
-import type { BranchFunding, PoolBlockDetails, ProviderRoute } from '@tangent/shared';
+import {
+  learnPayer,
+  type BranchFunding,
+  type PoolBlockDetails,
+  type ProviderRoute,
+} from '@tangent/shared';
 import { clientIp, withPoolParams } from '../auth/account.js';
 import { assertGenerationAllowed, enforceRateLimit } from '../byok/guard.js';
 import type { UserKeys } from '../byok/keys.js';
@@ -20,7 +25,7 @@ import {
 import { claimPoolIdentity, identitySuspended, poolIdentity } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
 import { poolAdmitRequest, poolBlockDetails } from '../pool/params.js';
-import { poolAvailable } from '../availability.js';
+import { creditSold, poolAvailable } from '../availability.js';
 import { registryFor, routeRegistryFor } from '../registries.js';
 import { LEARN_KEY_LABEL } from '../simple-mode.js';
 import { getBalance } from './ledger.js';
@@ -71,7 +76,16 @@ export async function resolveFunding(
     return account;
   if (!account.userId || !poolAvailable(c.env)) return account;
   const { balanceMicros, heldMicros } = await getBalance(c.env.DB, account.billingAccountId);
-  if (balanceMicros - heldMicros >= USAGE_HOLD_MICROS) return account;
+  // The rule the Learn client asks by, so the payer it shows is the one used.
+  const payer = learnPayer({
+    chosen: 'credit',
+    creditOffered: true,
+    creditCanPay: balanceMicros - heldMicros >= USAGE_HOLD_MICROS,
+    creditBuyable: creditSold(c.env),
+    poolOn: true,
+    ownKeyReady: false,
+  });
+  if (payer !== 'pool') return account;
   return withPoolParams(c.env, account, clientIp(c.req.raw.headers), true);
 }
 

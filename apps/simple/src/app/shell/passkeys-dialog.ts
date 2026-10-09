@@ -1,6 +1,13 @@
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, type OnInit, signal } from '@angular/core';
-import { AuthService, errorMessage, Icon, Modal, type PasskeyInfo } from '@tangent/web-shared';
+import {
+  AuthService,
+  errorMessage,
+  Icon,
+  Modal,
+  ToastStore,
+  type PasskeyInfo,
+} from '@tangent/web-shared';
 import { AccountStore } from '../state/account-store';
 import { UiStore } from '../state/ui-store';
 
@@ -69,6 +76,7 @@ import { UiStore } from '../state/ui-store';
 export class PasskeysDialog implements OnInit {
   protected readonly account = inject(AccountStore);
   private readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
   private readonly auth = inject(AuthService);
 
   protected readonly passkeys = signal<PasskeyInfo[] | null>(null);
@@ -80,14 +88,14 @@ export class PasskeysDialog implements OnInit {
   }
 
   protected close(): void {
-    this.ui.passkeysOpen.set(false);
+    this.ui.dialogs.close('passkeys');
   }
 
   protected async add(name: string): Promise<void> {
     await this.run(async () => {
       const message = await this.auth.addPasskey(name.trim());
       if (message) return message;
-      this.ui.notify('Passkey added');
+      this.toast.notify('Passkey added');
       await this.reload();
       return null;
     });

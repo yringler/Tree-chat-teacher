@@ -5,8 +5,9 @@ import {
   APP_PATHS,
   AuthService,
   DEMO_MODE,
-  Icon,
+  dispatchShortcut,
   PoolFirstUseDialog,
+  Toasts,
 } from '@tangent/web-shared';
 import { CompareDialog } from './chat/compare-dialog';
 import { ConnectDialog } from './chat/connect-dialog';
@@ -19,6 +20,7 @@ import { PasskeysDialog } from './shell/passkeys-dialog';
 import { AccountStore } from './state/account-store';
 import { LessonStore } from './state/lesson-store';
 import { UiStore } from './state/ui-store';
+import { LearnFunding } from './state/learn-funding';
 
 /** Simple-mode shell, served under /learn/. */
 @Component({
@@ -29,10 +31,10 @@ import { UiStore } from './state/ui-store';
     ModelAccessDialog,
     PasskeysDialog,
     DeleteAccountDialog,
-    Icon,
     PoolFirstUseDialog,
     ConnectDialog,
     CompareDialog,
+    Toasts,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -55,43 +57,35 @@ import { UiStore } from './state/ui-store';
           }
         </main>
       </div>
-      @if (ui.passkeysOpen()) {
+      @if (ui.dialogs.isOpen('passkeys')) {
         <app-passkeys-dialog />
       }
-      @if (ui.deleteAccountOpen()) {
+      @if (ui.dialogs.isOpen('delete-account')) {
         <app-delete-account-dialog />
       }
-      @if (ui.accessOpen()) {
+      @if (ui.dialogs.isOpen('access')) {
         <app-model-access-dialog />
       }
-      @if (ui.linkDialog(); as sourceNodeId) {
-        <app-connect-dialog [sourceNodeId]="sourceNodeId" />
+      @if (ui.dialogs.get('connect'); as connect) {
+        <app-connect-dialog [sourceNodeId]="connect.sourceNodeId" />
       }
-      @if (ui.compare(); as c) {
+      @if (ui.dialogs.get('compare'); as c) {
         <app-compare-dialog [branchId]="c.branchId" [content]="c.content" />
       }
-      @if (ui.poolVerifyOpen()) {
-        <app-pool-first-use-dialog (closed)="ui.poolVerifyOpen.set(false)" />
+      @if (ui.dialogs.isOpen('pool-verify')) {
+        <app-pool-first-use-dialog (closed)="ui.dialogs.close('pool-verify')" />
       }
     }
 
-    <div class="toasts" role="status" aria-live="polite">
-      @for (t of ui.toasts(); track t.id) {
-        <div class="toast" [class.toast-error]="t.kind === 'error'">
-          <span>{{ t.text }}</span>
-          <button type="button" class="icon-btn" aria-label="Dismiss" (click)="ui.dismiss(t.id)">
-            <app-icon name="x" [size]="14" />
-          </button>
-        </div>
-      }
-    </div>
+    <app-toasts />
   `,
-  host: { '(document:keydown.escape)': 'ui.closeTop()' },
+  host: { '(document:keydown)': 'onKey($event)' },
 })
 export class App {
   protected readonly ui = inject(UiStore);
   private readonly lessons = inject(LessonStore);
   protected readonly account = inject(AccountStore);
+  protected readonly funding = inject(LearnFunding);
   private readonly routeSync = inject(RouteSync);
   private readonly auth = inject(AuthService);
   private readonly api = inject(ApiClient);
@@ -113,18 +107,26 @@ export class App {
     void this.boot();
   }
 
+  /** Learn has no shortcuts: Escape closes the top-most dialog or the menu. */
+  protected onKey(e: KeyboardEvent): void {
+    dispatchShortcut(e, {
+      closeTop: () => this.ui.closeTop(),
+      dialogOpen: () => this.ui.dialogs.anyOpen(),
+    });
+  }
+
   private async boot(): Promise<void> {
     try {
       // The demo's caller always exists; nothing to redirect to.
       const me = this.demo ? await this.api.me() : await this.auth.requireUser();
       if (!me) return;
-      this.account.setMe(me);
+      this.account.me.set(me);
       await Promise.all([
         this.lessons.init(),
-        this.account.refreshBalance(),
-        this.account.refreshPool(),
+        this.funding.refreshBalance(),
+        this.funding.refreshPool(),
         // The demo has no key cookie (and always runs on pretend credit).
-        this.demo ? Promise.resolve() : this.account.refreshKey(),
+        this.demo ? Promise.resolve() : this.funding.refreshKey(),
       ]);
     } catch (err) {
       this.lessons.fail(err);

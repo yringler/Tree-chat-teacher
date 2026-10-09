@@ -2,7 +2,7 @@ import '@angular/compiler'; // JIT: the component metadata and the DI below.
 import { Injector, runInInjectionContext, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import type { Branch, ChatNode, Tree, TreeDetail, UpdateBranchRequest } from '@tangent/shared';
-import { ApiClient } from '@tangent/web-shared';
+import { ApiClient, ComposerController, ToastStore } from '@tangent/web-shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsStore } from '../state/settings-store';
 import { TreeStore } from '../state/tree-store';
@@ -81,6 +81,8 @@ function setup() {
     providers: [
       { provide: TreeStore },
       { provide: UiStore },
+      { provide: ComposerController },
+      { provide: ToastStore },
       { provide: SettingsStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: { navigate: vi.fn(async () => true) } },
@@ -102,7 +104,7 @@ describe('Branch settings', () => {
     // The dialog host binds the live selected branch.
     Object.defineProperty(d, 'branch', { value: live });
     d.ngOnInit();
-    s.ui.branchSettingsOpen.set(true);
+    s.ui.dialogs.open({ kind: 'branch-settings' });
     return { d, live };
   }
 
@@ -128,9 +130,9 @@ describe('Branch settings', () => {
     const s = setup();
     open(s);
     s.store.setRoute('t1', 'side', 'a1');
-    expect(s.ui.branchSettingsOpen()).toBe(true);
+    expect(s.ui.dialogs.isOpen('branch-settings')).toBe(true);
     s.store.setRoute('t1', null, null);
-    expect(s.ui.branchSettingsOpen()).toBe(false);
+    expect(s.ui.dialogs.isOpen('branch-settings')).toBe(false);
   });
 });
 

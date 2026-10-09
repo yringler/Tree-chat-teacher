@@ -125,8 +125,8 @@ export class ReviewStore {
     } catch (err) {
       if (!current()) return;
       patch({ phase: 'error', status: null, error: errorMessage(err) });
-      if (err instanceof ApiError && err.code === 'key_required' && !this.ui.keysDialog()) {
-        this.ui.keysDialog.set({ provider: choice.providerId });
+      if (err instanceof ApiError && err.code === 'key_required' && !this.ui.dialogs.get('keys')) {
+        this.ui.dialogs.open({ kind: 'keys', provider: choice.providerId });
       }
       this.tree.fail(err);
     } finally {

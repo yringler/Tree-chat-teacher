@@ -16,6 +16,7 @@ export {
 } from './core/api-client';
 export { API_FETCH, API_HEADERS, defaultApiFetch } from './core/api-fetch';
 export { coalesced } from './core/coalesced';
+export { dispatchShortcut, type ShortcutFrame, type ShortcutHelp } from './core/shortcuts';
 export {
   ConversationStore,
   type ConversationApi,
@@ -31,6 +32,7 @@ export {
   type RouteState,
 } from './power/power-account';
 export { PowerConversationStore, type PowerApi } from './power/power-conversation-store';
+export { creditFeeSentence, KeysDialog } from './power/keys-dialog';
 export { modelHint, routeSuffix, startingRoute } from './power/routes';
 export { CompareRun, type CompareCandidateState, type CompareSpec } from './core/compare-run';
 export {
@@ -90,9 +92,13 @@ export {
 
 // UI
 export { Compare, type CompareCandidate } from './ui/compare';
+export { Composer, ComposerController } from './ui/composer';
+export { CONTEXT_MODE_META, type ContextModeMeta } from './ui/context-mode';
 export { Icon, type IconName } from './ui/icon';
+export { Toasts, ToastStore, type Toast, type ToastLink } from './ui/toasts';
 export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';
+export { Overlays } from './ui/overlays';
 export { ModelSuggestions, suggestionText, type SuggestionText } from './ui/model-suggestions';
 export { DEEP_BRANCH_DEPTH, SourcesList } from './ui/sources-list';
 export { RelatedLinks, type LinkNoteEdit } from './ui/related-links';

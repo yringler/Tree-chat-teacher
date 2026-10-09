@@ -6,6 +6,7 @@ import type {
   ChatNode,
   ContextMode,
   LinkOrigin,
+  Payer,
   NodeLink,
   Share,
   ShareMode,
@@ -426,7 +427,14 @@ export interface KeyStatusResponse {
  * A reconnect (`GET /api/nodes/:id/stream`) starts with `snapshot` instead of `start`.
  */
 export type StreamEvent =
-  | { type: 'start'; userNode: ChatNode; assistantNode: ChatNode; branch: Branch }
+  | {
+      type: 'start';
+      userNode: ChatNode;
+      assistantNode: ChatNode;
+      branch: Branch;
+      /** Who pays for the reply, as the server decided (a Learn send may move from credit to the pool). */
+      funding: Payer;
+    }
   | { type: 'snapshot'; node: ChatNode }
   | { type: 'status'; message: string }
   | { type: 'delta'; nodeId: string; text: string }

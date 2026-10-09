@@ -527,6 +527,8 @@ export class DemoBackend {
     // Detached, like the Durable Object: keeps going when the reader goes away.
     void this.hub.start(
       started,
+      // The Learn demo runs on pretend credit; the power demo on each branch's route.
+      this.mode === 'simple' ? 'credit' : started.branch.funding,
       sink,
       (aborted) => this.chat.runGeneration(started, aborted, options),
       { settle: () => this.save() },

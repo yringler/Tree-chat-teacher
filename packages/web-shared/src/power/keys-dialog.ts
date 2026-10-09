@@ -4,40 +4,59 @@ import {
   computed,
   type ElementRef,
   inject,
+  input,
   type OnDestroy,
   type OnInit,
+  output,
   signal,
   viewChild,
 } from '@angular/core';
-import { OPENROUTER_PROVIDER_ID, routeKey, type Branch, type ProviderInfo } from '@tangent/shared';
-import { formatMicros, Icon, KeyMissingNotice, Modal } from '@tangent/web-shared';
-import { laneTitle } from '../canvas/titles';
-import { feeSentence } from '../core/credit';
-import { CanvasStore } from '../state/canvas-store';
-import { UiStore } from '../state/ui-store';
+import { RouterLink } from '@angular/router';
+import {
+  OPENROUTER_PROVIDER_ID,
+  type BillingSummary,
+  type Branch,
+  type ProviderInfo,
+} from '@tangent/shared';
+import { formatMicros } from '../billing/format';
+import { KeyMissingNotice } from '../billing/key-missing';
+import { creditFeeText } from '../billing/membership';
+import { Icon } from '../ui/icon';
+import { Modal } from '../ui/modal';
+import { ToastStore } from '../ui/toasts';
+import { PowerConversationStore } from './power-conversation-store';
+
+/** The one line that says what a call on Tangent credit costs. */
+export function creditFeeSentence(
+  b: Pick<BillingSummary, 'openRouterFeeBps' | 'markupBps'>,
+): string {
+  return `Each call costs ${creditFeeText(b.markupBps, b.openRouterFeeBps)}, taken from your credit.`;
+}
 
 /**
- * Bring-your-own-key, as in the power app: the key is read from the input
- * only at submit time, posted once, and the field is cleared right away.
- * The server seals it into an HttpOnly cookie this code can't read; the
- * same cookie serves the power app. Where the server offers the built-in
- * provider, a row shows the user's credit and links to the power app's
- * `/billing` to add more.
+ * Keys & credit, in power and the canvas (the app provides its store as
+ * `PowerConversationStore`). Bring-your-own-key: the key is read from the
+ * input only at submit time, posted once, and the field is cleared right
+ * away: the app never keeps it in a signal, in storage or anywhere else. The
+ * server seals it into an HttpOnly cookie this code can't read, which both
+ * apps (and Learn, for OpenRouter) use. Where the server offers the built-in
+ * provider, its row shows the user's credit and links to the billing page.
  *
- * Opened by a send the server refused for want of the lane's own key
- * (`CanvasStore.blockedSends`), it says so on top and offers to carry the
- * lane on with Tangent credit; that, or saving the key, sends the message.
+ * Opened by a send the server refused for want of the branch's own key
+ * (`blockedSends`), it says so on top and offers to carry the branch on
+ * with Tangent credit; that, or saving the key, sends the message. Closed
+ * without either, nothing is sent and the message stays in the composer.
  */
 @Component({
   selector: 'app-keys-dialog',
-  imports: [Modal, Icon, KeyMissingNotice],
+  imports: [Modal, Icon, KeyMissingNotice, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal [heading]="credit() ? 'Keys & credit' : 'API keys'" (closed)="close()">
+    <app-modal [heading]="credit() ? 'Keys & credit' : 'API keys'" (closed)="closed.emit()">
       @if (store.blockedBranch(); as b) {
         <app-key-missing-notice
-          [branchTitle]="laneTitle(b)"
-          [providerLabel]="providerLabelOf(b)"
+          [branchTitle]="titleOf()(b)"
+          [providerLabel]="store.account.providerOf(b)?.label ?? b.providerId"
           [credit]="store.account.creditRoute() !== null"
           [balance]="balance()"
           [keyForm]="enabled()"
@@ -85,7 +104,7 @@ import { UiStore } from '../state/ui-store';
           </li>
         }
         @if (credit()) {
-          <li class="key-row">
+          <li class="key-row credit-row">
             <span class="key-name">Tangent credit</span>
             @if (store.account.billing(); as b) {
               <span class="badge" [class.badge-ok]="b.availableMicros > 0"
@@ -94,13 +113,20 @@ import { UiStore } from '../state/ui-store';
             } @else {
               <span class="muted small">Loading…</span>
             }
-            <a href="/billing" class="btn btn-ghost btn-sm">Add credit</a>
+            @if (billingHref(); as href) {
+              <a [href]="href" class="btn btn-ghost btn-sm">Add credit</a>
+            } @else {
+              <a routerLink="/billing" class="btn btn-ghost btn-sm" (click)="closed.emit()"
+                >Add credit</a
+              >
+            }
           </li>
         }
       </ul>
       @if (credit() && store.account.billing(); as b) {
         <p class="muted small">
-          {{ fees(b) }} No key needed: pick “Tangent credit” as the provider.
+          {{ fees(b) }} No key needed: pick “Tangent credit” as the provider, for a new conversation
+          or any {{ noun() }} (its settings, also under the message box).
         </p>
       }
 
@@ -135,7 +161,7 @@ import { UiStore } from '../state/ui-store';
             a server-side secret and stored only in your browser as a cookie that page scripts can't
             read. It is not saved on the server. Every chat request sends it back to the server,
             which decrypts it in memory to call the provider, so you are trusting this server not to
-            log it. The power app in this browser uses the same key. It expires after 7 days.
+            log it. It expires after 7 days.
           </p>
           <div class="form-actions">
             @if (store.account.keyStatus()?.hasKey) {
@@ -148,7 +174,7 @@ import { UiStore } from '../state/ui-store';
                 <app-icon name="trash" /> Forget all keys
               </button>
             }
-            <button type="button" class="btn btn-ghost" (click)="close()">Close</button>
+            <button type="button" class="btn btn-ghost" (click)="closed.emit()">Close</button>
             <button type="submit" class="btn btn-primary" [disabled]="busy()">
               {{ busy() ? 'Checking…' : 'Save key' }}
             </button>
@@ -159,19 +185,31 @@ import { UiStore } from '../state/ui-store';
   `,
 })
 export class KeysDialog implements OnInit, OnDestroy {
-  protected readonly store = inject(CanvasStore);
-  private readonly ui = inject(UiStore);
+  protected readonly store = inject(PowerConversationStore);
+  private readonly toast = inject(ToastStore);
+  /** Provider to preselect (e.g. the one a refused request needed). */
+  readonly initialProvider = input<string | null>(null);
+  /** What the app calls a branch ("branch", "lane"). */
+  readonly noun = input('branch');
+  /** A branch's title as the app shows it (the refused send's notice). */
+  readonly titleOf = input<(branch: Branch) => string>((b) => b.title);
+  /**
+   * The billing page as a page load, for an app without its own `/billing`
+   * route (the canvas uses power's); null: the app's `/billing` route.
+   */
+  readonly billingHref = input<string | null>(null);
+  /** Close, Escape, the backdrop, or a link away: the app closes the dialog. */
+  readonly closed = output();
 
   private readonly keyInput = viewChild<ElementRef<HTMLInputElement>>('keyInput');
   protected readonly provider = signal('');
   protected readonly busy = signal(false);
-  /** "Continue on Tangent credit" is moving the lane. */
+  /** "Continue on Tangent credit" is moving the branch. */
   protected readonly switching = signal(false);
-  protected readonly laneTitle = laneTitle;
 
   protected readonly learnKey = OPENROUTER_PROVIDER_ID;
   protected readonly usd = formatMicros;
-  protected readonly fees = feeSentence;
+  protected readonly fees = creditFeeSentence;
   /** The server offers the built-in provider on the user's credit. */
   protected readonly credit = computed(() => this.store.account.me()?.builtInCredit ?? false);
 
@@ -192,28 +230,16 @@ export class KeysDialog implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     if (this.credit()) void this.store.account.refreshBilling();
+    const wanted = this.initialProvider();
     const list = this.keyProviders();
-    const wanted = (this.store.blockedBranch() ?? this.store.selectedBranch())?.providerId ?? null;
     const pick =
-      list.find((p) => p.id === wanted && !p.available) ??
-      list.find((p) => !p.available) ??
-      list[0] ??
-      null;
+      list.find((p) => p.id === wanted) ?? list.find((p) => !p.available) ?? list[0] ?? null;
     this.provider.set(pick?.id ?? '');
   }
 
-  /** However it closes: nothing waits on it any more (the text stays in its lane's box). */
+  /** However it closes (Close, Escape, a send carried on): nothing waits on it any more. */
   ngOnDestroy(): void {
     this.store.dropBlockedSends();
-  }
-
-  protected close(): void {
-    this.ui.keysOpen.set(false);
-  }
-
-  /** The lane's provider as the provider list labels it. */
-  protected providerLabelOf(b: Branch): string {
-    return this.store.account.providerMap().get(routeKey(b))?.label ?? b.providerId;
   }
 
   protected async useCredit(): Promise<void> {
@@ -230,13 +256,14 @@ export class KeysDialog implements OnInit, OnDestroy {
     const el = this.keyInput()?.nativeElement;
     if (!el || !this.provider()) return;
     const apiKey = el.value.trim();
+    // Clear the field before the request: the value lives only in this call.
     el.value = '';
     if (!apiKey) return;
     this.busy.set(true);
     const ok = await this.store.account.saveKey(this.provider(), apiKey);
     this.busy.set(false);
     if (ok) {
-      this.ui.notify(`${this.providerLabel()} key saved`);
+      this.toast.notify(`${this.providerLabel()} key saved`);
       this.store.resumeAfterKey(this.provider());
     }
   }
@@ -245,6 +272,6 @@ export class KeysDialog implements OnInit, OnDestroy {
     this.busy.set(true);
     await this.store.account.forgetKey(provider);
     this.busy.set(false);
-    this.ui.notify(provider ? 'Key forgotten' : 'All keys forgotten');
+    this.toast.notify(provider ? 'Key forgotten' : 'All keys forgotten');
   }
 }

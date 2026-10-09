@@ -16,8 +16,7 @@ import {
   splitTangents,
   type ContextMode,
 } from '@tangent/shared';
-import { Icon, Modal, routeSuffix, startingRoute } from '@tangent/web-shared';
-import { MODE_LABEL } from '../canvas/lane';
+import { CONTEXT_MODE_META, Icon, Modal, routeSuffix, startingRoute } from '@tangent/web-shared';
 import { ModelField } from './model-field';
 import { CanvasStore, type BranchVariant } from '../state/canvas-store';
 import { UiStore, type BranchDialogState } from '../state/ui-store';
@@ -73,7 +72,9 @@ const MAX_VARIANTS = 6;
                 <span class="sr-only">Context of lane {{ i + 1 }}</span>
                 <select #ms [value]="v.contextMode" (change)="setMode(v.key, ms.value)">
                   @for (m of modes; track m) {
-                    <option [value]="m" [selected]="m === v.contextMode">{{ modeLabel[m] }}</option>
+                    <option [value]="m" [selected]="m === v.contextMode">
+                      {{ meta[m].label }}
+                    </option>
                   }
                 </select>
               </label>
@@ -184,18 +185,17 @@ export class BranchDialog implements OnInit {
   private readonly ui = inject(UiStore);
   readonly state = input.required<BranchDialogState>();
   protected readonly modes = CONTEXT_MODES;
-  protected readonly modeLabel = MODE_LABEL;
+  protected readonly meta = CONTEXT_MODE_META;
   protected readonly max = MAX_VARIANTS;
   private seq = 0;
 
   protected readonly source = computed(
     () => this.store.index()?.nodes.get(this.state().fromNodeId) ?? null,
   );
-  protected readonly excerpt = computed(() => {
-    // A reply without its <tangents> block (never shown as text).
-    const text = plainText(splitTangents(this.source()?.content ?? '').body);
-    return text.length > 240 ? `${text.slice(0, 240)}…` : text;
-  });
+  // A reply without its <tangents> block (never shown as text).
+  protected readonly excerpt = computed(() =>
+    plainText(splitTangents(this.source()?.content ?? '').body, { max: 240 }),
+  );
   private readonly parent = computed(() => {
     const n = this.source();
     return (n && this.store.index()?.branches.get(n.branchId)) || null;
@@ -271,7 +271,7 @@ export class BranchDialog implements OnInit {
   }
 
   protected close(): void {
-    this.ui.branchDialog.set(null);
+    this.ui.dialogs.close('branch');
   }
 
   /** Ctrl/Cmd+Enter opens the lanes (Enter is a newline). */

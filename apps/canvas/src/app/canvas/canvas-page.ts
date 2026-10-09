@@ -372,7 +372,7 @@ export class CanvasPage implements OnDestroy {
   protected moreAbout(q: MessageQuote): void {
     this.selection.clear();
     window.getSelection()?.removeAllRanges();
-    this.ui.branchDialog.set({ fromNodeId: q.nodeId, quote: q.quote });
+    this.ui.dialogs.open({ kind: 'branch', fromNodeId: q.nodeId, quote: q.quote });
   }
 
   /**
@@ -402,7 +402,7 @@ export class CanvasPage implements OnDestroy {
   /** Pick mode's "Search": the picker dialog instead of clicking a card. */
   protected searchInstead(fromNodeId: string): void {
     this.ui.linkPick.set(null);
-    this.ui.linkDialog.set({ fromNodeId });
+    this.ui.dialogs.open({ kind: 'link', fromNodeId });
   }
 
   protected deleteTree(): void {

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 
 /** One choice of a Segmented control. `hint` is its tooltip. */
 export interface SegmentedOption {
@@ -7,11 +7,33 @@ export interface SegmentedOption {
   hint?: string;
 }
 
+/** The option index a key moves to from `at` among `count` (wrapping), or null for another key. */
+export function segmentStep(key: string, at: number, count: number): number | null {
+  switch (key) {
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      return at < 0 ? count - 1 : (at - 1 + count) % count;
+    case 'ArrowRight':
+    case 'ArrowDown':
+      return at < 0 ? 0 : (at + 1) % count;
+    case 'Home':
+      return 0;
+    case 'End':
+      return count - 1;
+    default:
+      return null;
+  }
+}
+
+let uid = 0;
+
 /**
  * A pill of mutually exclusive buttons (`.segmented` / `.segment` in
  * base.css). `kind: 'radio'` is a radiogroup for a setting (e.g. Normal |
  * Max); `kind: 'tab'` is a tablist over panels whose ids are
- * `${controls}-${option.id}`. Left/Right arrows move between options.
+ * `${controls}-${option.id}`. One tab stop (a roving tabindex: the current
+ * option, else the first); the arrow keys, Home and End pick and focus
+ * another option, as ARIA's radiogroup and tablist patterns ask.
  */
 @Component({
   selector: 'app-segmented',
@@ -21,8 +43,9 @@ export interface SegmentedOption {
       class="segmented"
       [attr.role]="kind() === 'tab' ? 'tablist' : 'radiogroup'"
       [attr.aria-label]="label()"
+      [attr.aria-describedby]="description() ? descriptionId : null"
     >
-      @for (o of options(); track o.id) {
+      @for (o of options(); track o.id; let i = $index) {
         <button
           type="button"
           class="segment"
@@ -32,17 +55,19 @@ export interface SegmentedOption {
           [attr.aria-selected]="kind() === 'tab' ? o.id === value() : null"
           [attr.aria-controls]="kind() === 'tab' && controls() ? controls() + '-' + o.id : null"
           [attr.id]="kind() === 'tab' && controls() ? controls() + '-tab-' + o.id : null"
-          [attr.tabindex]="o.id === value() || value() === null ? 0 : -1"
+          [attr.tabindex]="i === tabStop() ? 0 : -1"
           [disabled]="disabled()"
           [title]="o.hint ?? o.label"
           (click)="pick(o.id)"
-          (keydown.arrowLeft)="step($event, -1)"
-          (keydown.arrowRight)="step($event, 1)"
+          (keydown)="onKey($event)"
         >
           {{ o.label }}
         </button>
       }
     </div>
+    @if (description(); as d) {
+      <span class="sr-only" [id]="descriptionId">{{ d }}</span>
+    }
   `,
 })
 export class Segmented {
@@ -51,24 +76,29 @@ export class Segmented {
   readonly disabled = input(false);
   /** The group's accessible name. */
   readonly label = input.required<string>();
+  /** Read after the name (e.g. why the control is disabled). */
+  readonly description = input<string | null>(null);
   readonly kind = input<'radio' | 'tab'>('radio');
   /** Tab kind: the panel id prefix (`${controls}-${option.id}`). */
   readonly controls = input<string | null>(null);
   /** The option picked; only when it differs from `value`. */
   readonly changed = output<string>();
 
+  protected readonly descriptionId = `segmented-description-${++uid}`;
+  private readonly current = computed(() => this.options().findIndex((o) => o.id === this.value()));
+  /** The one option Tab reaches: the current one, else the first. */
+  protected readonly tabStop = computed(() => Math.max(0, this.current()));
+
   protected pick(id: string): void {
     if (id !== this.value()) this.changed.emit(id);
   }
 
-  /** Arrow keys pick the previous/next option (wrapping) and move focus with it. */
-  protected step(event: Event, delta: -1 | 1): void {
+  protected onKey(event: KeyboardEvent): void {
     const options = this.options();
     if (this.disabled() || options.length === 0) return;
+    const next = segmentStep(event.key, this.current(), options.length);
+    if (next === null) return;
     event.preventDefault();
-    const at = options.findIndex((o) => o.id === this.value());
-    const index = at < 0 ? (delta > 0 ? 0 : options.length - 1) : at + delta;
-    const next = (index + options.length) % options.length;
     this.pick(options[next]!.id);
     const group = (event.target as HTMLElement | null)?.parentElement;
     group?.querySelectorAll<HTMLElement>('.segment')[next]?.focus();

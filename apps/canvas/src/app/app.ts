@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { ApiClient, APP_PATHS, AuthService, DEMO_MODE, Icon } from '@tangent/web-shared';
+import { ApiClient, APP_PATHS, AuthService, DEMO_MODE, Toasts } from '@tangent/web-shared';
 import { DEMO_SIGNUP_URL } from './brand';
 import { Keyboard } from './core/keyboard';
 import { RouteSync } from './core/route-sync';
@@ -12,7 +12,7 @@ import { UiStore } from './state/ui-store';
 /** The canvas shell, served under /canvas/. */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, AppHeader, DialogHost, Icon],
+  imports: [RouterOutlet, AppHeader, DialogHost, Toasts],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (loginPage) {
@@ -63,21 +63,7 @@ import { UiStore } from './state/ui-store';
       <app-dialog-host />
     }
 
-    <div class="toasts" role="status" aria-live="polite">
-      @for (t of ui.toasts(); track t.id) {
-        <div class="toast" [class.toast-error]="t.kind === 'error'">
-          <span
-            >{{ t.text }}
-            @if (t.link; as link) {
-              <a class="toast-link" [href]="link.href">{{ link.label }}</a>
-            }
-          </span>
-          <button type="button" class="icon-btn" aria-label="Dismiss" (click)="ui.dismiss(t.id)">
-            <app-icon name="x" [size]="14" />
-          </button>
-        </div>
-      }
-    </div>
+    <app-toasts />
   `,
   host: { '(document:keydown)': 'loginPage || keyboard.handle($event)' },
 })

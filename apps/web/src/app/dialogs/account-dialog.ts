@@ -6,6 +6,7 @@ import {
   DeleteAccount,
   Icon,
   Modal,
+  ToastStore,
   type PasskeyInfo,
 } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
@@ -112,6 +113,7 @@ import { UiStore } from '../state/ui-store';
 export class AccountDialog implements OnInit {
   protected readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
   private readonly auth = inject(AuthService);
 
   protected readonly passkeys = signal<PasskeyInfo[] | null>(null);
@@ -123,14 +125,14 @@ export class AccountDialog implements OnInit {
   }
 
   protected close(): void {
-    this.ui.accountOpen.set(false);
+    this.ui.dialogs.close('account');
   }
 
   protected async add(name: string): Promise<void> {
     await this.run(async () => {
       const message = await this.auth.addPasskey(name.trim());
       if (message) return message;
-      this.ui.notify('Passkey added');
+      this.toast.notify('Passkey added');
       await this.reload();
       return null;
     });

@@ -21,14 +21,29 @@ import type {
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
-import { ApiClient, ApiError, SAVE_FILE } from '@tangent/web-shared';
+import {
+  ApiClient,
+  ApiError,
+  ComposerController,
+  SAVE_FILE,
+  ToastStore,
+  type PoolBlock,
+} from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
 import { COMPARE_OUT_OF_DATE_MESSAGE, LessonStore, OUT_OF_CREDIT_MESSAGE } from './lesson-store';
-import { PaymentStore } from './payment-store';
+import { LearnFunding } from './learn-funding';
+import { PaymentChoice } from './payment-choice';
 import { UiStore } from './ui-store';
 
 const T = '2026-01-01T00:00:00.000Z';
+
+/** The composer controller, its calls recorded. */
+function spyComposer(c: ComposerController): ComposerController {
+  vi.spyOn(c, 'sent');
+  vi.spyOn(c, 'focus');
+  return c;
+}
 
 function branch(id: string, over: Partial<Branch> = {}): Branch {
   return {
@@ -270,8 +285,11 @@ function setup() {
     providers: [
       { provide: LessonStore },
       { provide: UiStore },
+      { provide: ComposerController },
+      { provide: ToastStore },
       { provide: AccountStore },
-      { provide: PaymentStore },
+      { provide: PaymentChoice },
+      { provide: LearnFunding },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: router },
       { provide: SAVE_FILE, useValue: saveFile },
@@ -279,7 +297,9 @@ function setup() {
   });
   const store = injector.get(LessonStore);
   const ui = injector.get(UiStore);
-  return { store, ui, api, router, injector, saveFile };
+  const composer = spyComposer(injector.get(ComposerController));
+  const toasts = injector.get(ToastStore);
+  return { store, ui, composer, toasts, api, router, injector, saveFile };
 }
 
 /** Opens lesson t1 at `branchId` and waits for it to load. */
@@ -318,17 +338,23 @@ describe('LessonStore', () => {
     const s = setup();
     await open(s, detail());
     const live = controlledStream([
-      { type: 'start', userNode, assistantNode: replyNode, branch: branch('trunk') },
+      {
+        type: 'start',
+        userNode,
+        assistantNode: replyNode,
+        branch: branch('trunk'),
+        funding: 'credit',
+      },
       { type: 'status', message: 'Thinking…' },
     ]);
     s.api.sendMessage.mockResolvedValue(live.response);
     const sending = s.store.send('trunk', 'What is light?');
     expect(s.store.busy()).toBe(true);
     // The composer keeps the text until the message is in the lesson.
-    expect(s.ui.composerSent()).toBeNull();
+    expect(s.composer.sent).not.toHaveBeenCalled();
 
     await vi.waitFor(() => expect(s.store.live().get('a1')?.status).toBe('Thinking…'));
-    expect(s.ui.composerSent()).toEqual({ seq: 1, text: 'What is light?' });
+    expect(s.composer.sent).toHaveBeenCalledWith('trunk', 'What is light?');
     expect(s.store.streamingNode()?.id).toBe('a1');
     expect(s.store.sending().size).toBe(0);
 
@@ -375,7 +401,7 @@ describe('LessonStore', () => {
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
 
     expect(s.router.navigate).toHaveBeenCalledWith(['/billing']);
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: OUT_OF_CREDIT_MESSAGE });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: OUT_OF_CREDIT_MESSAGE });
     expect(s.store.unsentDraft()).toEqual({
       treeId: 't1',
       branchId: 'trunk',
@@ -403,8 +429,8 @@ describe('LessonStore', () => {
     );
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
 
-    expect(s.ui.accessOpen()).toBe(true);
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error' });
+    expect(s.ui.dialogs.isOpen('access')).toBe(true);
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error' });
     expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
     expect(s.store.unsentDraft()).toEqual({
       treeId: 't1',
@@ -434,10 +460,32 @@ describe('LessonStore', () => {
     expect(s.store.resumeUnsent()).toBe(false);
   });
 
+  it('switching who pays, from wherever, sends the message the key held back and clears the pool notice', async () => {
+    const s = setup();
+    await open(s, detail());
+    s.api.sendMessage.mockRejectedValueOnce(new ApiError(401, 'key_required', 'Add your key'));
+    await s.store.send('trunk', 'What is light?');
+    expect(s.store.unsentDraft()).toMatchObject({ needsKey: true });
+    s.store.poolBlock.set({
+      kind: 'empty',
+      details: { reason: 'empty', limit: null, resetAt: null },
+      branchId: 'trunk',
+    });
+    const funding = s.injector.get(LearnFunding);
+
+    // The own key needs a key first: nothing is sent yet.
+    expect(funding.switchTo('own-key')).toBe(false);
+    expect(s.store.poolBlock()).toBeNull();
+    expect(s.api.sendMessage).toHaveBeenCalledTimes(1);
+
+    expect(funding.switchTo('pool')).toBe(true);
+    await vi.waitFor(() => expect(s.api.sendMessage).toHaveBeenCalledTimes(2));
+  });
+
   it('402 membership_required on send: locks the own key, no toast, keeps the message', async () => {
     const s = setup();
-    const account = s.injector.get(AccountStore);
-    account.setMembership({ ...BILLING.membership, required: true, status: 'active' });
+    const funding = s.injector.get(LearnFunding);
+    funding.setMembership({ ...BILLING.membership, required: true, status: 'active' });
     s.api.billing.mockResolvedValue({
       ...BILLING,
       membership: { ...BILLING.membership, required: true, status: 'inactive' },
@@ -448,16 +496,16 @@ describe('LessonStore', () => {
     );
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
 
-    expect(account.membershipBlocked()).toBe(true);
+    expect(funding.membershipBlocked()).toBe(true);
     expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.toasts.toasts()).toEqual([]);
     expect(s.store.unsentDraft()).toEqual({
       treeId: 't1',
       branchId: 'trunk',
       text: 'What is light?',
     });
-    await vi.waitFor(() => expect(account.billing()?.membership.status).toBe('inactive'));
-    expect(account.membershipBlocked()).toBe(true);
+    await vi.waitFor(() => expect(funding.billing()?.membership.status).toBe('inactive'));
+    expect(funding.membershipBlocked()).toBe(true);
   });
 
   it('402 pool_empty on send: the inline empty state, no toast, no navigation, message kept', async () => {
@@ -474,7 +522,7 @@ describe('LessonStore', () => {
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
 
     expect(s.store.poolBlock()).toEqual({ kind: 'empty', details: empty, branchId: 'trunk' });
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.toasts.toasts()).toEqual([]);
     expect(s.router.navigate).not.toHaveBeenCalled();
     expect(s.store.unsentDraft()).toEqual({
       treeId: 't1',
@@ -503,7 +551,7 @@ describe('LessonStore', () => {
 
     expect(s.store.poolBlock()).toEqual({ kind: 'cap', details: cap, branchId: 'trunk' });
     expect(s.store.poolBlock()?.details).toMatchObject({ limit: 30, resetAt: cap.resetAt });
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.toasts.toasts()).toEqual([]);
     expect(s.router.navigate).not.toHaveBeenCalled();
     expect(s.store.unsentDraft()?.text).toBe('What is light?');
 
@@ -527,8 +575,8 @@ describe('LessonStore', () => {
       }),
     );
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
-    expect(s.ui.poolVerifyOpen()).toBe(true);
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.ui.dialogs.isOpen('pool-verify')).toBe(true);
+    expect(s.toasts.toasts()).toEqual([]);
     expect(s.store.poolBlock()).toBeNull();
     expect(s.store.unsentDraft()?.text).toBe('What is light?');
   });
@@ -540,8 +588,8 @@ describe('LessonStore', () => {
       new ApiError(403, 'pool_unavailable', 'Open pool access is suspended for this account'),
     );
     await s.store.send('trunk', 'What is light?');
-    expect(s.ui.poolVerifyOpen()).toBe(false);
-    expect(s.ui.toasts().at(-1)).toMatchObject({
+    expect(s.ui.dialogs.isOpen('pool-verify')).toBe(false);
+    expect(s.toasts.toasts().at(-1)).toMatchObject({
       kind: 'error',
       text: 'Open pool access is suspended for this account',
     });
@@ -573,17 +621,21 @@ describe('LessonStore', () => {
     s.api.sendMessage.mockRejectedValue(new ApiError(409, 'conflict', 'Still generating'));
     await expect(s.store.send('trunk', 'Hi')).resolves.toBe(false);
     expect(s.router.navigate).not.toHaveBeenCalled();
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still generating' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still generating' });
     // Nothing was written: the message is offered back, not lost.
     expect(s.store.unsentDraft()).toEqual({ treeId: 't1', branchId: 'trunk', text: 'Hi' });
-    expect(s.ui.composerSent()).toBeNull();
+    expect(s.composer.sent).not.toHaveBeenCalled();
   });
 
   it('"Ask about this" branches with the quote, path context and the current model', async () => {
     const s = setup();
     const done = node('a1', { seq: 1, parentId: 'u1', content: 'Light is a wave.' });
     await open(s, detail([userNode, done], [branch('trunk', { model: 'max-model' })]));
-    const created = await s.store.askAbout('a1', 'a wave');
+    const created = await s.store.createBranch({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: 'a wave',
+    });
 
     expect(s.api.createBranch).toHaveBeenCalledWith({
       fromNodeId: 'a1',
@@ -595,7 +647,7 @@ describe('LessonStore', () => {
     expect(created?.id).toBe('side');
     expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't1', 'b', 'side'], { queryParams: {} });
     expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['side']);
-    expect(s.ui.composerFocus()).toBe(1);
+    expect(s.composer.focus).toHaveBeenCalledTimes(1);
 
     // Following the route into the side question; back goes to the branch point.
     s.store.setRoute('t1', 'side', null);
@@ -653,7 +705,7 @@ describe('LessonStore', () => {
     s.api.createBranch.mockRejectedValueOnce(new ApiError(500, 'internal', 'Nope'));
     await expect(s.store.askFrom('a1', 'Why?')).resolves.toBeNull();
     expect(s.api.sendMessage).not.toHaveBeenCalled();
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
   });
 
   it('the Normal/Max toggle updates the branch model', async () => {
@@ -725,7 +777,7 @@ describe('LessonStore', () => {
       expect(s.store.live().size).toBe(0);
       expect(s.store.streamingNode()).toBeNull();
       // The composer lets the question go, and the lesson list is refreshed (auto-title).
-      expect(s.ui.composerSent()).toMatchObject({ text: question });
+      expect(s.composer.sent).toHaveBeenCalledWith(expect.any(String), question);
       await vi.waitFor(() => expect(s.api.listTrees).toHaveBeenCalled());
     });
 
@@ -740,12 +792,12 @@ describe('LessonStore', () => {
       );
 
       await expect(s.store.commitCompare(run, 'normal')).resolves.toBe('out-of-date');
-      expect(s.ui.toasts().at(-1)).toMatchObject({
+      expect(s.toasts.toasts().at(-1)).toMatchObject({
         kind: 'error',
         text: COMPARE_OUT_OF_DATE_MESSAGE,
       });
       expect(s.store.path()).toEqual([]);
-      expect(s.ui.composerSent()).toBeNull();
+      expect(s.composer.sent).not.toHaveBeenCalled();
       expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
     });
 
@@ -757,7 +809,7 @@ describe('LessonStore', () => {
       await run.start();
       s.api.commitCandidate.mockRejectedValue(new ApiError(409, 'conflict', 'Moved on'));
       await expect(s.store.commitCompare(run, 'max')).resolves.toBe('out-of-date');
-      expect(s.ui.toasts().at(-1)?.text).toBe(COMPARE_OUT_OF_DATE_MESSAGE);
+      expect(s.toasts.toasts().at(-1)?.text).toBe(COMPARE_OUT_OF_DATE_MESSAGE);
     });
 
     it('a refusal is reported like a send’s (out of credit: billing)', async () => {
@@ -765,7 +817,10 @@ describe('LessonStore', () => {
       await s.store.init();
       await open(s, detail());
       s.store.compareRefused(new ApiError(402, 'payment_required', 'Too low'));
-      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: OUT_OF_CREDIT_MESSAGE });
+      expect(s.toasts.toasts().at(-1)).toMatchObject({
+        kind: 'error',
+        text: OUT_OF_CREDIT_MESSAGE,
+      });
       expect(s.router.navigate).toHaveBeenCalledWith(['/billing']);
 
       const run = s.store.newCompare('trunk', question)!;
@@ -774,7 +829,7 @@ describe('LessonStore', () => {
         new ApiError(403, 'pool_unavailable', 'Compare isn’t available on the open pool'),
       );
       await expect(s.store.commitCompare(run, 'max')).resolves.toBe('refused');
-      expect(s.ui.toasts().at(-1)?.text).toBe('Compare isn’t available on the open pool');
+      expect(s.toasts.toasts().at(-1)?.text).toBe('Compare isn’t available on the open pool');
       expect(s.store.path()).toEqual([]);
     });
 
@@ -786,7 +841,7 @@ describe('LessonStore', () => {
       await run.start();
       s.api.commitCandidate.mockRejectedValueOnce(new ApiError(503, 'internal', 'Try again'));
       await expect(s.store.commitCompare(run, 'max')).resolves.toBe('failed');
-      expect(s.ui.toasts().at(-1)?.text).toBe('Try again');
+      expect(s.toasts.toasts().at(-1)?.text).toBe('Try again');
       expect(run.committing()).toBe(false);
       s.api.commitCandidate.mockResolvedValue(committed());
       await expect(s.store.commitCompare(run, 'max')).resolves.toBe('kept');
@@ -821,7 +876,7 @@ describe('LessonStore', () => {
         { ...d, links: [link('l1', 'a1', 'a2'), link('l2', 'u3', 'u4'), link('l3', 'a1', 'u4')] },
         'other',
       );
-      s.ui.linkDialog.set('a2');
+      s.ui.dialogs.open({ kind: 'connect', sourceNodeId: 'a2' });
       s.store.linkReturn.set({
         branchId: 'side',
         nodeId: 'a2',
@@ -831,8 +886,42 @@ describe('LessonStore', () => {
       await expect(s.store.deleteSideQuestion('side')).resolves.toBe(true);
       expect(s.store.links().map((l) => l.id)).toEqual(['l3']);
       expect(s.store.linksByNode().has('a2')).toBe(false);
-      expect(s.ui.linkDialog()).toBeNull();
+      expect(s.ui.dialogs.get('connect')).toBeNull();
       expect(s.store.linkReturn()).toBeNull();
+      // In Learn's words.
+      expect(s.toasts.toasts().at(-1)?.text).toBe('Deleted the side question and 1 below it');
+    });
+
+    it('drops the message left unsent there, and the pool notice, but not those elsewhere', async () => {
+      const s = setup();
+      await open(s, lesson(), 'other');
+      const block: PoolBlock = {
+        kind: 'empty',
+        details: { reason: 'empty', limit: null, resetAt: null },
+      };
+      s.store.unsentDraft.set({ treeId: 't1', branchId: 'side', text: 'Why?' });
+      s.store.poolBlock.set({ ...block, branchId: 'deeper' });
+      await expect(s.store.deleteSideQuestion('side')).resolves.toBe(true);
+      expect(s.store.unsentDraft()).toBeNull();
+      expect(s.store.poolBlock()).toBeNull();
+
+      const t = setup();
+      await open(t, lesson(), 'other');
+      t.store.unsentDraft.set({ treeId: 't1', branchId: 'other', text: 'Why?' });
+      t.store.poolBlock.set({ ...block, branchId: 'other' });
+      await expect(t.store.deleteSideQuestion('side')).resolves.toBe(true);
+      expect(t.store.unsentDraft()?.branchId).toBe('other');
+      expect(t.store.poolBlock()?.branchId).toBe('other');
+    });
+
+    it('says a connection is removed, or was already, in Learn’s words', async () => {
+      const s = setup();
+      await open(s, { ...lesson(), links: [link('l1', 'a1', 'a2'), link('l2', 'u3', 'u4')] });
+      await expect(s.store.deleteLink('l1')).resolves.toBe(true);
+      expect(s.toasts.toasts().at(-1)?.text).toBe('Connection removed');
+      s.api.deleteLink.mockRejectedValueOnce(new ApiError(404, 'not_found', 'Gone'));
+      await s.store.deleteLink('l2');
+      expect(s.toasts.toasts().at(-1)?.text).toBe('That connection was already removed');
     });
 
     it('never deletes the lesson itself; a refusal changes nothing', async () => {
@@ -845,7 +934,7 @@ describe('LessonStore', () => {
       await expect(s.store.deleteSideQuestion('side')).resolves.toBe(false);
       expect(s.router.navigate).not.toHaveBeenCalled();
       expect(s.store.index()?.branches.size).toBe(4);
-      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still writing' });
+      expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still writing' });
     });
   });
   it('Export downloads the lesson as the same JSON backup as power mode, named after it', async () => {
@@ -873,7 +962,7 @@ describe('LessonStore', () => {
     s.api.backup.mockRejectedValue(new ApiError(404, 'not_found', 'Tree not found'));
     await expect(s.store.exportLesson('t1')).resolves.toBe(false);
     expect(s.saveFile).not.toHaveBeenCalled();
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Tree not found' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Tree not found' });
     expect(s.store.exportingId()).toBeNull();
   });
 
@@ -885,7 +974,7 @@ describe('LessonStore', () => {
     await expect(s.store.importLesson(file)).resolves.toBe(true);
     expect(s.api.importBackup).toHaveBeenCalledWith(backupOf(detail()));
     expect(s.store.trees().map((t) => t.id)).toEqual(['t9']);
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Imported “Imported”' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Imported “Imported”' });
     expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't9']);
     expect(s.store.importing()).toBe(false);
   });
@@ -898,7 +987,7 @@ describe('LessonStore', () => {
       [new File([''], 'empty.json'), /^empty\.json is empty\.$/],
     ] as const) {
       await expect(s.store.importLesson(file)).resolves.toBe(false);
-      expect(s.ui.toasts().at(-1)).toMatchObject({
+      expect(s.toasts.toasts().at(-1)).toMatchObject({
         kind: 'error',
         text: expect.stringMatching(text),
       });
@@ -915,7 +1004,7 @@ describe('LessonStore', () => {
     );
     const file = new File([JSON.stringify(backupOf(detail()))], 'lesson.json');
     await expect(s.store.importLesson(file)).resolves.toBe(false);
-    expect(s.ui.toasts().at(-1)).toMatchObject({
+    expect(s.toasts.toasts().at(-1)).toMatchObject({
       kind: 'error',
       text: 'Backup must contain exactly one trunk branch',
     });
@@ -1016,7 +1105,7 @@ describe('LessonStore', () => {
           .get('s2')
           ?.map((l) => l.id),
       ).toEqual(['l-new']);
-      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Connected' });
+      expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Connected' });
     });
 
     it('edits and clears a note', async () => {
@@ -1120,7 +1209,7 @@ describe('LessonStore a refused message across leaving the page', () => {
   /** A new page (a new store) signed in as `userId`, booted as the app boots it. */
   async function page(userId: string) {
     const s = setup();
-    s.injector.get(AccountStore).setMe({
+    s.injector.get(AccountStore).me.set({
       userId,
       builtInCredit: true,
       membership: { ...BILLING.membership, required: false },
@@ -1283,6 +1372,7 @@ describe('LessonStore refreshing after replies', () => {
         userNode: ask,
         assistantNode: { ...reply, status: 'streaming' },
         branch: branch('trunk'),
+        funding: 'credit',
       },
       { type: 'done', node: reply, branch: branch('trunk') },
     ]);

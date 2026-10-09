@@ -2,9 +2,7 @@ import '@angular/compiler'; // JIT: the component metadata below.
 import { compareUsageNote, FORBIDDEN_POOL_COPY, maxUsageNote } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { CompareDialog } from './chat/compare-dialog';
-import { Composer } from './chat/composer';
-import { FundingToggle, FUNDING_OPTIONS } from './chat/funding-toggle';
-import { ModelToggle } from './chat/model-toggle';
+import { FUNDING_OPTIONS, tierSwitch } from './chat/switches';
 import { HomePage } from './home/home-page';
 import { AppHeader } from './shell/app-header';
 import { ModelAccessDialog } from './shell/model-access-dialog';
@@ -18,7 +16,7 @@ function templateOf(type: object): string {
 
 describe('Learn copy rule (open pool)', () => {
   it('funding the pool is a credit purchase: never "donate" or "tax-deductible"', () => {
-    for (const type of [AppHeader, ModelAccessDialog, HomePage, FundingToggle, PaidBy])
+    for (const type of [AppHeader, ModelAccessDialog, HomePage, PaidBy])
       expect(templateOf(type)).not.toMatch(FORBIDDEN_POOL_COPY);
     for (const o of FUNDING_OPTIONS)
       expect(`${o.label} ${o.hint}`).not.toMatch(FORBIDDEN_POOL_COPY);
@@ -33,7 +31,7 @@ describe('Learn copy rule (open pool)', () => {
 
   it('says Tangent provides the pool’s credit, and never sells it', () => {
     const home = templateOf(HomePage);
-    expect(home).toContain('{{ funding }} Any signed-in learner can use it');
+    expect(home).toContain('{{ poolFunding }} Any signed-in learner can use it');
     const dialog = templateOf(ModelAccessDialog);
     expect(dialog).toMatch(/Free credit\s+Tangent provides\./);
     for (const t of [home, dialog]) {
@@ -78,15 +76,16 @@ describe('Learn copy rule (Normal and Max)', () => {
   });
 
   it('on the open pool (Lite, no tier), the switch says so in visible text, not just a title', () => {
-    const t = templateOf(ModelToggle);
-    expect(t).toMatch(
-      /@if \(unlisted\(\); as hint\) \{\s*<span class="model-locked muted small">\{\{ hint \}\}<\/span>/,
+    const hint = 'The open pool uses Lite.';
+    const models = [{ id: 'normal/m', label: 'Normal', tier: 'normal' as const }];
+    expect(tierSwitch(models, 'lite/m', hint).unlisted).toBe(hint);
+    // On a listed model the hint goes with the locked switch instead.
+    expect(tierSwitch(models, 'normal/m', hint)).toMatchObject({
+      unlisted: null,
+      lockedHint: hint,
+    });
+    expect(templateOf(HomePage)).toMatch(
+      /@if \(t\.unlisted; as hint\) \{\s*<span class="model-locked muted small">\{\{ hint \}\}<\/span>/,
     );
-  });
-
-  it('the composer offers Compare beside Send, saying it uses both', () => {
-    const t = templateOf(Composer);
-    expect(t).toContain('title="Ask Normal and Max, then keep one answer (uses both)"');
-    expect(t).toContain('<span class="hide-narrow">Compare</span>');
   });
 });

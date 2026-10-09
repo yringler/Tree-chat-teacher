@@ -10,29 +10,33 @@ import {
   type CommitCandidateResponse,
   type CreateBranchRequest,
   type ModelInfo,
+  type Payer,
   type ProviderInfo,
   type TreeBackupInput,
 } from '@tangent/shared';
 import {
   ApiClient,
   ApiError,
-  ConversationStore,
-  type FailedSend,
-  type SendOptions,
   backupFile,
   CompareRun,
+  ComposerController,
+  ConversationStore,
   errorMessage,
+  hasCode,
   poolBlockOf,
   readBackupFile,
   SAVE_FILE,
+  ToastStore,
   type BackupFile,
+  type FailedSend,
   type PoolBlock,
-  hasCode,
+  type SendOptions,
 } from '@tangent/web-shared';
 import { lessonTitle } from '../chat/titles';
 import { AccountStore } from './account-store';
 import { storedDraft, storeDraft, type UnsentDraft } from './unsent-draft';
 import { UiStore } from './ui-store';
+import { LearnFunding } from './learn-funding';
 
 /**
  * A message the open pool refused (402 `pool_empty`, 429
@@ -86,7 +90,10 @@ export type CompareCommitOutcome = 'kept' | 'out-of-date' | 'refused' | 'failed'
 @Injectable({ providedIn: 'root' })
 export class LessonStore extends ConversationStore<ApiClient> {
   private readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
+  private readonly toast = inject(ToastStore);
   private readonly account = inject(AccountStore);
+  private readonly funding = inject(LearnFunding);
   private readonly saveFile = inject(SAVE_FILE);
 
   constructor() {
@@ -96,7 +103,9 @@ export class LessonStore extends ConversationStore<ApiClient> {
       link: 'connection',
       linked: { created: 'Connected', existing: 'Already connected' },
       noteSaved: 'Note saved',
+      treeTitle: lessonTitle,
     });
+    this.funding.whenSwitched((payer) => this.paymentSwitched(payer));
   }
 
   // Providers (Learn accounts: one provider with a Normal and a Max model, `ModelInfo.tier`).
@@ -132,7 +141,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
 
   // Loading
 
-  /** After `AccountStore.setMe`: whose message left unsent in this tab is offered back. */
+  /** After `AccountStore.me` is set: whose message left unsent in this tab is offered back. */
   async init(): Promise<void> {
     const userId = this.account.me()?.userId;
     if (userId && !this.unsentDraft()) this.unsentDraft.set(storedDraft(userId));
@@ -232,7 +241,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
       });
       const first = topic.trim();
       if (first) void this.send(detail.tree.trunkBranchId, first);
-      else this.ui.focusComposer();
+      else this.composer.focus();
       return true;
     } catch (err) {
       this.fail(err);
@@ -274,17 +283,10 @@ export class LessonStore extends ConversationStore<ApiClient> {
       try {
         backup = await readBackupFile(file);
       } catch (err) {
-        this.ui.notify(errorMessage(err), 'error');
+        this.toast.notify(errorMessage(err), 'error');
         return false;
       }
-      const detail = await this.api.importBackup(backup);
-      this.listNewTree(detail);
-      this.ui.notify(`Imported “${lessonTitle(detail.tree.title)}”`);
-      await this.router.navigate(['/t', detail.tree.id]);
-      return true;
-    } catch (err) {
-      this.fail(err);
-      return false;
+      return (await this.importTree(backup)) !== null;
     } finally {
       this.importing.set(false);
     }
@@ -292,62 +294,8 @@ export class LessonStore extends ConversationStore<ApiClient> {
 
   // Branches
 
-  /**
-   * "Ask about this": a side question from `fromNodeId`, quoting `quote`,
-   * with the full path as context and the current branch's model.
-   */
-  async askAbout(fromNodeId: string, quote: string | null): Promise<Branch | null> {
-    const branch = await this.addBranch({
-      fromNodeId,
-      contextMode: 'path',
-      anchorQuote: quote,
-      ...this.newBranchRoute(this.selectedBranch()),
-    });
-    if (branch) {
-      this.go(branch.id);
-      this.ui.focusComposer();
-    }
-    return branch;
-  }
-
-  /**
-   * Follows one of the tutor's suggested tangents: a side question from
-   * `fromNodeId` titled after the tangent, whose first message is the
-   * tangent's title. Clicking the same tangent again goes to its branch.
-   */
-  async followTangent(fromNodeId: string, title: string): Promise<Branch | null> {
-    const existing = this.childBranchesAt(fromNodeId).find((b) => b.title === title);
-    if (existing) {
-      this.go(existing.id);
-      return existing;
-    }
-    return this.startSideQuestion(fromNodeId, title, title);
-  }
-
-  /**
-   * "Ask your own" under a reply: the learner's question as a side question,
-   * asked like a followed tangent. Untitled until the first reply names it.
-   */
-  askFrom(fromNodeId: string, content: string): Promise<Branch | null> {
-    return this.startSideQuestion(fromNodeId, null, content);
-  }
-
-  /** A side question from `fromNodeId` on the current model, opened, with `content` sent first. */
-  private startSideQuestion(
-    fromNodeId: string,
-    title: string | null,
-    content: string,
-  ): Promise<Branch | null> {
-    return this.startBranch(
-      {
-        fromNodeId,
-        contextMode: 'path',
-        anchorQuote: null,
-        ...(title ? { title } : {}),
-        ...this.newBranchRoute(this.selectedBranch()),
-      },
-      content,
-    );
+  protected override branchOpened(): void {
+    this.composer.focus();
   }
 
   /** Side questions keep the model of the branch they come from (Normal or Max). */
@@ -369,7 +317,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
   canCheckSources(branchId: string): boolean {
     const branch = this.index()?.branches.get(branchId);
     // The open pool can't pay for searches (its holds are priced from tokens alone).
-    if (!branch || this.account.payment.payment() === 'pool') return false;
+    if (!branch || this.funding.payer() === 'pool') return false;
     return this.providers().find((p) => p.id === branch.providerId)?.webSearch === true;
   }
 
@@ -389,8 +337,9 @@ export class LessonStore extends ConversationStore<ApiClient> {
     if (this.poolBlock()?.branchId === branchId) this.poolBlock.set(null);
   }
 
-  protected override sent(_branchId: string, content: string): void {
-    this.ui.markSent(content);
+  protected override sent(branchId: string, content: string, funding: Payer): void {
+    this.composer.sent(branchId, content);
+    this.funding.paidWith(funding);
   }
 
   protected override sendFailed(err: unknown, s: FailedSend): void {
@@ -400,7 +349,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
       // A "Check sources" request isn't text the learner typed: not offered back.
       if (!s.options.ground) this.keepUnsent(s.branchId, s.content, s.options);
       this.poolBlock.set({ ...block, branchId: s.branchId });
-      void this.account.refreshPool();
+      void this.funding.refreshPool();
       return;
     }
     const needsKey = err instanceof ApiError && err.code === 'key_required';
@@ -447,7 +396,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
       res = await run.commit(id);
     } catch (err) {
       if (err instanceof ApiError && COMPARE_GONE_STATUSES.has(err.status)) {
-        this.ui.notify(COMPARE_OUT_OF_DATE_MESSAGE, 'error');
+        this.toast.notify(COMPARE_OUT_OF_DATE_MESSAGE, 'error');
         return 'out-of-date';
       }
       this.fail(err);
@@ -457,7 +406,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
     }
     if (this.unsentDraft()?.branchId === run.branchId) this.setUnsent(null);
     if (this.poolBlock()?.branchId === run.branchId) this.poolBlock.set(null);
-    this.ui.markSent(run.question);
+    this.composer.sent(run.branchId, run.question);
     this.applyCommitted(res);
     return 'kept';
   }
@@ -465,6 +414,16 @@ export class LessonStore extends ConversationStore<ApiClient> {
   /** A Compare refused before any answer (no credit, no key, the pool…): reported like a send's. */
   compareRefused(err: ApiError): void {
     this.fail(err);
+  }
+
+  /**
+   * The learner switched who pays (`LearnFunding.switchTo`): the pool's
+   * notice goes, and on a payer that needs no key, a message refused for
+   * want of the own key is sent. True when it was.
+   */
+  private paymentSwitched(payer: Payer): boolean {
+    this.dismissPoolBlock();
+    return payer !== 'own-key' && this.resumeUnsent();
   }
 
   dismissPoolBlock(): void {
@@ -524,38 +483,38 @@ export class LessonStore extends ConversationStore<ApiClient> {
   /** After a reply: the balance, and the pool meter while the pool is offered. */
   protected override alsoRefreshAfterReply(): Promise<unknown> {
     return Promise.all([
-      this.account.refreshBalance(),
-      this.account.payment.poolAvailable() ? this.account.refreshPool() : null,
+      this.funding.refreshBalance(),
+      this.funding.poolOn() ? this.funding.refreshPool() : null,
     ]);
   }
 
   protected notify(text: string, kind?: 'info' | 'error'): void {
-    this.ui.notify(text, kind);
+    this.toast.notify(text, kind);
   }
 
   fail(err: unknown): void {
     if (hasCode(err, 'membership_required')) {
-      this.account.membershipRequired();
+      this.funding.membershipRequired();
       return;
     }
     if (hasCode(err, 'pool_unavailable') && err.pool?.reason === 'verify') {
-      this.ui.poolVerifyOpen.set(true);
+      this.ui.dialogs.open({ kind: 'pool-verify' });
       return;
     }
     if (err instanceof ApiError && err.code === 'key_required') {
-      this.ui.notify(err.message, 'error');
-      void this.account.refreshKey();
-      this.ui.accessOpen.set(true);
+      this.toast.notify(err.message, 'error');
+      void this.funding.refreshKey();
+      this.ui.dialogs.open({ kind: 'access' });
       return;
     }
     if (hasCode(err, 'payment_required')) {
-      this.ui.notify(OUT_OF_CREDIT_MESSAGE, 'error');
-      void this.account.refreshBalance();
+      this.toast.notify(OUT_OF_CREDIT_MESSAGE, 'error');
+      void this.funding.refreshBalance();
       void this.router.navigate(['/billing']);
       return;
     }
     console.error(err);
-    this.ui.notify(errorMessage(err), 'error');
+    this.toast.notify(errorMessage(err), 'error');
   }
 
   /** Drops deleted branches and their messages, and stops following their replies. */
@@ -568,8 +527,8 @@ export class LessonStore extends ConversationStore<ApiClient> {
     const block = this.poolBlock();
     if (block && branchIds.has(block.branchId)) this.poolBlock.set(null);
     // Connecting from a message that is gone, or back to a side question that is.
-    const from = this.ui.linkDialog();
-    if (from !== null && nodeIds.has(from)) this.ui.linkDialog.set(null);
+    const from = this.ui.dialogs.get('connect')?.sourceNodeId;
+    if (from !== undefined && nodeIds.has(from)) this.ui.dialogs.close('connect');
     const back = this.linkReturn();
     if (back && (branchIds.has(back.branchId) || branchIds.has(back.toBranchId))) {
       this.linkReturn.set(null);

@@ -1,4 +1,4 @@
-import type { Branch, ChatNode, StreamEvent } from '@tangent/shared';
+import type { Branch, ChatNode, Payer, StreamEvent } from '@tangent/shared';
 import type { BeginSendResult } from './send.js';
 
 /**
@@ -50,13 +50,14 @@ export class GenerationHub {
   }
 
   /**
-   * Runs the reply `begin` started: `sink` gets the `start` event, then every
-   * event `generate` yields. Resolves once the generation has ended, stored
+   * Runs the reply `begin` started: `sink` gets the `start` event (which
+   * says who pays, `funding`), then every event `generate` yields. Resolves once the generation has ended, stored
    * its final state and settled (a generation reports its own failures as
    * events; only `settle` can reject it).
    */
   start(
     begin: BeginSendResult,
+    funding: Payer,
     sink: GenerationSink,
     generate: (signal: AbortSignal) => AsyncIterable<StreamEvent>,
     options: RunOptions = {},
@@ -69,7 +70,7 @@ export class GenerationHub {
     };
     const { userNode, assistantNode, branch } = begin;
     this.runs.set(assistantNode.id, run);
-    this.add(run, sink, { type: 'start', userNode, assistantNode, branch });
+    this.add(run, sink, { type: 'start', userNode, assistantNode, branch, funding });
     run.finished = this.pump(assistantNode.id, run, generate, options);
     return run.finished;
   }

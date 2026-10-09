@@ -67,7 +67,7 @@ describe('GenerationHub', () => {
     const hub = new GenerationHub();
     const gen = scripted();
     const first = recorder();
-    const finished = hub.start(begin, first.sink, (s) => gen.generate(s));
+    const finished = hub.start(begin, 'own-key', first.sink, (s) => gen.generate(s));
     expect(hub.size).toBe(1);
     gen.delta('Hel');
     await tick();
@@ -86,7 +86,7 @@ describe('GenerationHub', () => {
     const hub = new GenerationHub();
     const gen = scripted();
     const gone = recorder(true);
-    const finished = hub.start(begin, gone.sink, (s) => gen.generate(s));
+    const finished = hub.start(begin, 'own-key', gone.sink, (s) => gen.generate(s));
     const left = recorder();
     const stays = recorder();
     hub.attach('a', left.sink);
@@ -106,7 +106,7 @@ describe('GenerationHub', () => {
     const gen = scripted();
     const settled: string[] = [];
     const reader = recorder();
-    void hub.start(begin, reader.sink, (s) => gen.generate(s), {
+    void hub.start(begin, 'own-key', reader.sink, (s) => gen.generate(s), {
       settle: async () => {
         await tick();
         settled.push('settled');
@@ -127,7 +127,7 @@ describe('GenerationHub', () => {
     const hub = new GenerationHub({ keepAliveMs: 1000 });
     const gen = scripted();
     const reader = recorder();
-    const finished = hub.start(begin, reader.sink, (s) => gen.generate(s));
+    const finished = hub.start(begin, 'own-key', reader.sink, (s) => gen.generate(s));
     await vi.advanceTimersByTimeAsync(2500);
     gen.end();
     await finished;

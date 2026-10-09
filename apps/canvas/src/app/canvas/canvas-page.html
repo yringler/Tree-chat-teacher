@@ -94,7 +94,7 @@
       class="icon-btn"
       aria-label="Keyboard shortcuts and legend"
       title="Shortcuts and legend (?)"
-      (click)="ui.helpOpen.set(true)"
+      (click)="ui.dialogs.open({ kind: 'help' })"
     >
       <app-icon name="help" />
     </button>

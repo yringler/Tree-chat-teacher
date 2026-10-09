@@ -13,8 +13,8 @@ import {
   provideTextSize,
 } from '@tangent/web-shared';
 import { routes } from './app.routes';
-import { AccountStore } from './state/account-store';
-import { PaymentStore } from './state/payment-store';
+import { PaymentChoice } from './state/payment-choice';
+import { LearnFunding } from './state/learn-funding';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -28,16 +28,16 @@ export const appConfig: ApplicationConfig = {
     {
       provide: API_HEADERS,
       useFactory: () => {
-        const payment = inject(PaymentStore);
-        return () => payment.headers();
+        const choice = inject(PaymentChoice);
+        return () => choice.headers();
       },
     },
     // The billing page's summaries keep the header pill and the locked-key notice current.
     {
       provide: BILLING_SUMMARY_LISTENER,
       useFactory: () => {
-        const account = inject(AccountStore);
-        return (summary: BillingSummary) => account.applyBilling(summary);
+        const funding = inject(LearnFunding);
+        return (summary: BillingSummary) => funding.applyBilling(summary);
       },
     },
     provideRouter(

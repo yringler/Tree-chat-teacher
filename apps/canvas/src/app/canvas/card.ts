@@ -319,7 +319,8 @@ export class Card {
 
   /** The gear: the branch dialog (variants and all), asking the question once the lanes exist. */
   protected askWithSettings(text: string): void {
-    this.ui.branchDialog.set({
+    this.ui.dialogs.open({
+      kind: 'branch',
       fromNodeId: this.node().id,
       quote: null,
       ...(text ? { message: text, onCreated: () => this.askText.set('') } : {}),
@@ -328,7 +329,7 @@ export class Card {
 
   protected branch(e: Event): void {
     e.stopPropagation();
-    this.ui.branchDialog.set({ fromNodeId: this.node().id, quote: null });
+    this.ui.dialogs.open({ kind: 'branch', fromNodeId: this.node().id, quote: null });
   }
 
   protected open(branchId: string, e: Event): void {

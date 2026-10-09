@@ -10,23 +10,22 @@ import {
   type PoolStatusResponse,
   type TreeSummary,
 } from '@tangent/shared';
-import { Icon, PoolMeter } from '@tangent/web-shared';
-import { Composer } from '../chat/composer';
+import { Composer, Icon, PoolMeter, Segmented } from '@tangent/web-shared';
 import { lessonTitle } from '../chat/titles';
-import { ModelToggle } from '../chat/model-toggle';
+import { tierSwitch } from '../chat/switches';
 import { KeyLockedNotice } from '../chat/key-locked-notice';
-import { AccountStore } from '../state/account-store';
 import { ImportLessonButton } from './import-lesson-button';
 import { PaidBy } from '../shell/paid-by';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
+import { LearnFunding } from '../state/learn-funding';
 
 /** `/learn/`: start a new lesson, list the existing ones (Export, Delete) and import one. */
 @Component({
   selector: 'app-home-page',
   imports: [
     Composer,
-    ModelToggle,
+    Segmented,
     PoolMeter,
     RouterLink,
     Icon,
@@ -38,14 +37,12 @@ import { UiStore } from '../state/ui-store';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page-body">
-      @if (account.needsKey()) {
+      @if (funding.needsKey()) {
         <p class="notice" role="status">
           Replies run on your own OpenRouter key, and none is saved in this browser yet.
-          <button type="button" class="link-btn" (click)="ui.accessOpen.set(true)">
+          <button type="button" class="link-btn" (click)="ui.dialogs.open({ kind: 'access' })">
             Add your key{{
-              account.payment.builtInCredit() && account.payment.creditUsable()
-                ? ' or use Tangent credit'
-                : ''
+              funding.creditOffered() && funding.creditUsable() ? ' or use Tangent credit' : ''
             }}
           </button>
         </p>
@@ -58,6 +55,7 @@ import { UiStore } from '../state/ui-store';
         </p>
         <form class="form" (submit)="$event.preventDefault(); start()">
           <app-composer
+            [maxHeight]="280"
             inputId="new-lesson-topic"
             label="Topic or first question"
             placeholder="e.g. Why is the sky blue?"
@@ -68,19 +66,26 @@ import { UiStore } from '../state/ui-store';
             (draft)="topic.set($event)"
             (send)="start()"
           />
-          @if (account.membershipBlocked()) {
+          @if (funding.membershipBlocked()) {
             <!-- The own key needs a membership the learner lacks: the ways out, not Start. -->
             <app-key-locked-notice />
           } @else {
             <div class="new-lesson-actions">
               @if (store.models().length > 1) {
-                <app-model-toggle
-                  [models]="store.models()"
-                  [value]="account.poolModel()?.id ?? model()"
-                  [disabled]="starting()"
-                  [lockedHint]="account.poolModelHint()"
-                  (changed)="pickedModel.set($event)"
-                />
+                @if (tiers(); as t) {
+                  @if (t.unlisted; as hint) {
+                    <span class="model-locked muted small">{{ hint }}</span>
+                  } @else {
+                    <app-segmented
+                      label="Tutor"
+                      [options]="t.options"
+                      [value]="t.value"
+                      [disabled]="starting() || t.lockedHint !== null"
+                      [description]="t.lockedHint"
+                      (changed)="pickedModel.set($event)"
+                    />
+                  }
+                }
               }
               <div class="start-group">
                 <app-paid-by />
@@ -101,8 +106,8 @@ import { UiStore } from '../state/ui-store';
           <h2 id="pool-title">Open pool</h2>
           <app-pool-meter [status]="status" />
           <p class="muted small">
-            {{ funding }} Any signed-in learner can use it, on {{ poolModelName(status) }}, within
-            daily limits. <a href="/pool" target="_blank" rel="noopener">How it works</a>
+            {{ poolFunding }} Any signed-in learner can use it, on {{ poolModelName(status) }},
+            within daily limits. <a href="/pool" target="_blank" rel="noopener">How it works</a>
           </p>
         </section>
       }
@@ -159,7 +164,7 @@ import { UiStore } from '../state/ui-store';
 })
 export class HomePage {
   protected readonly store = inject(LessonStore);
-  protected readonly account = inject(AccountStore);
+  protected readonly funding = inject(LearnFunding);
   protected readonly ui = inject(UiStore);
   protected readonly lessonTitle = lessonTitle;
   protected readonly topic = signal('');
@@ -167,20 +172,28 @@ export class HomePage {
   protected readonly starting = signal(false);
   /** The learner's pick, else the provider's default (Normal). */
   protected readonly model = computed(() => this.pickedModel() ?? this.store.defaultModel());
+  /** The Normal/Max switch for the new lesson (locked to the pool's model on the pool). */
+  protected readonly tiers = computed(() =>
+    tierSwitch(
+      this.store.models(),
+      this.funding.poolModel()?.id ?? this.model(),
+      this.funding.poolModelHint(),
+    ),
+  );
   /** "Max uses about 14× as much as Normal." while Max is picked (not on the pool, which picks for them). */
   protected readonly maxNote = computed(() => {
     const models = this.store.models();
-    if (this.account.poolModel() || tierOf(models, this.model()) !== 'max') return null;
+    if (this.funding.poolModel() || tierOf(models, this.model()) !== 'max') return null;
     return maxUsageNote(tierModel(models, 'max')?.usageFactor);
   });
   /** The open pool's meter while the pool is on (never in the demo, where it is off). */
   protected readonly pool = computed(() => {
-    const status = this.account.poolStatus();
+    const status = this.funding.poolStatus();
     return status?.enabled ? status : null;
   });
 
   /** Where the pool's credit comes from. */
-  protected readonly funding = POOL_FUNDING_TEXT;
+  protected readonly poolFunding = POOL_FUNDING_TEXT;
 
   /** The pool's model, as the copy names it (`poolModelText`). */
   protected poolModelName(status: PoolStatusResponse): string {
@@ -189,7 +202,7 @@ export class HomePage {
 
   protected async start(): Promise<void> {
     // Enter in the topic box while the own key is locked: the notice offers the ways out.
-    if (this.starting() || this.account.membershipBlocked()) return;
+    if (this.starting() || this.funding.membershipBlocked()) return;
     this.starting.set(true);
     try {
       await this.store.startLesson(this.model(), this.topic());

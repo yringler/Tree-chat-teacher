@@ -88,7 +88,7 @@ export class TreeSettings implements OnInit {
   }
 
   protected close(): void {
-    this.ui.treeSettingsOpen.set(false);
+    this.ui.dialogs.close('tree-settings');
   }
 
   protected async save(): Promise<void> {

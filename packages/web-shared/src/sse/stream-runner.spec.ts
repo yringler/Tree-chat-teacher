@@ -66,6 +66,7 @@ const start: StreamEvent = {
   userNode: node('u1', 'user', 'hi', 'complete'),
   assistantNode: node('a1', 'assistant', '', 'streaming'),
   branch,
+  funding: 'own-key',
 };
 const noSleep = (): Promise<void> => Promise.resolve();
 

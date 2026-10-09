@@ -7,15 +7,16 @@ import type {
   Branch,
   ContextMode,
   ContextPlan,
-  CreateBranchRequest,
   ProviderInfo,
   UpdateBranchRequest,
 } from '@tangent/shared';
 import {
   ApiClient,
-  PowerConversationStore,
+  ComposerController,
   errorMessage,
   membershipBlocks,
+  PowerConversationStore,
+  ToastStore,
 } from '@tangent/web-shared';
 import { laneTitle } from '../canvas/titles';
 import { UiStore } from './ui-store';
@@ -85,6 +86,8 @@ export function modelLabel(
 @Injectable({ providedIn: 'root' })
 export class CanvasStore extends PowerConversationStore<ApiClient> {
   private readonly ui = inject(UiStore);
+  private readonly composer = inject(ComposerController);
+  private readonly toast = inject(ToastStore);
 
   constructor() {
     super(inject(ApiClient), inject(Router), {
@@ -227,13 +230,8 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
 
   // Branches
 
-  async createBranch(req: CreateBranchRequest, open = true): Promise<Branch | null> {
-    const branch = await this.addBranch(req);
-    if (branch && open) {
-      this.go(branch.id);
-      this.ui.focusComposer(branch.id);
-    }
-    return branch;
+  protected override branchOpened(branchId: string): void {
+    this.composer.focus(branchId);
   }
 
   /**
@@ -251,19 +249,16 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
       const title = several
         ? `${modelLabel(this.account.providers(), v, v.model)} · ${v.contextMode}`
         : '';
-      const branch = await this.createBranch(
-        {
-          fromNodeId: req.fromNodeId,
-          contextMode: v.contextMode,
-          anchorQuote: req.anchorQuote,
-          providerId: v.providerId,
-          funding: v.funding,
-          model: v.model,
-          isPrivate: req.isPrivate,
-          ...(title ? { title } : {}),
-        },
-        false,
-      );
+      const branch = await this.addBranch({
+        fromNodeId: req.fromNodeId,
+        contextMode: v.contextMode,
+        anchorQuote: req.anchorQuote,
+        providerId: v.providerId,
+        funding: v.funding,
+        model: v.model,
+        isPrivate: req.isPrivate,
+        ...(title ? { title } : {}),
+      });
       if (branch) created.push(branch);
     }
     const first = created[0];
@@ -273,36 +268,9 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
     if (message) {
       for (const b of created) void this.send(b.id, message);
     } else {
-      this.ui.focusComposer(first.id);
+      this.composer.focus(first.id);
     }
     return created;
-  }
-
-  /**
-   * Follows a tangent the assistant suggested under `fromNodeId`: a `path`
-   * branch titled after it whose first message is the title. A tangent
-   * already followed from that message just opens its lane. On a locked lane
-   * nothing new is opened: the lane would start on its route, read-only.
-   */
-  async followTangent(fromNodeId: string, title: string): Promise<Branch | null> {
-    const existing = this.childBranchesAt(fromNodeId).find((b) => b.title === title);
-    if (existing) {
-      this.go(existing.id);
-      return existing;
-    }
-    const idx = this.index();
-    const from = idx?.nodes.get(fromNodeId);
-    const lane = from && idx?.branches.get(from.branchId);
-    if (lane && this.account.routeLocked(lane)) return null;
-    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null, title }, title);
-  }
-
-  /**
-   * "Ask your own" under a reply: the user's question in a new lane, asked
-   * like a followed tangent. Untitled until the first reply names it.
-   */
-  askFrom(fromNodeId: string, content: string): Promise<Branch | null> {
-    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null }, content);
   }
 
   override async updateBranch(branchId: string, req: UpdateBranchRequest): Promise<boolean> {
@@ -378,19 +346,19 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
 
   protected override sent(branchId: string, content: string): void {
     // In the tree now: the lane's box may let the text go.
-    this.ui.markSent(branchId, content);
+    this.composer.sent(branchId, content);
   }
 
   protected notify(text: string, kind?: 'info' | 'error'): void {
-    this.ui.notify(text, kind);
+    this.toast.notify(text, kind);
   }
 
   protected override keysSettled(): void {
-    this.ui.keysOpen.set(false);
+    this.ui.dialogs.close('keys');
   }
 
   protected override movedToCredit(branch: Branch): void {
-    this.ui.notify(`“${branch.title}” now uses Tangent credit`);
+    this.toast.notify(`“${branch.title}” now uses Tangent credit`);
   }
 
   fail(err: unknown): void {
@@ -403,11 +371,11 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
     }
     if (refusal === 'payment_required') {
       // Out of Tangent credit (the only metered provider here).
-      this.ui.notify(errorMessage(err), 'error', { label: 'Add credit', href: '/billing' });
+      this.toast.notify(errorMessage(err), 'error', { label: 'Add credit', href: '/billing' });
       return;
     }
-    this.ui.notify(errorMessage(err), 'error');
-    if (refusal === 'key_required') this.ui.keysOpen.set(true);
+    this.toast.notify(errorMessage(err), 'error');
+    if (refusal === 'key_required') this.ui.dialogs.open({ kind: 'keys' });
   }
 
   // Internals
@@ -423,10 +391,12 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
 
   /** Linking from a message that is gone, its popover, or a way back to a lane that is. */
   private dropLinkState(branchIds: ReadonlySet<string>, nodeIds: ReadonlySet<string>): void {
-    for (const s of [this.ui.linkPick, this.ui.linkDialog, this.ui.linkDrag]) {
+    for (const s of [this.ui.linkPick, this.ui.linkDrag]) {
       const from = s()?.fromNodeId;
       if (from !== undefined && nodeIds.has(from)) s.set(null);
     }
+    const linking = this.ui.dialogs.get('link')?.fromNodeId;
+    if (linking !== undefined && nodeIds.has(linking)) this.ui.dialogs.close('link');
     const open = this.ui.linkPopover();
     if (open && !this.links().some((l) => l.id === open.linkId)) this.ui.linkPopover.set(null);
     const back = this.ui.linkReturn();
