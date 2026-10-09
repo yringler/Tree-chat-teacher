@@ -1,4 +1,4 @@
-import type { BillingSummary, PoolStatusResponse } from '@tangent/shared';
+import type { PoolStatusResponse } from '@tangent/shared';
 import { POOL_FUNDING_TEXT } from '@tangent/shared';
 import { screen, within } from '@testing-library/dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -6,7 +6,7 @@ import { BillingPage } from '../billing/billing-page';
 import { ApiClient } from '../core/api-client';
 import { BillingClient } from '../core/billing-client';
 import { DEMO_MODE } from '../core/demo';
-import { membership, provideAnyRoute, render } from '../testing';
+import { billing, provideAnyRoute, render } from '../testing';
 import { PoolSection } from './pool-section';
 
 const ON: PoolStatusResponse = {
@@ -16,27 +16,13 @@ const ON: PoolStatusResponse = {
   model: { id: 'lite', label: 'Lite' },
 };
 
-const SUMMARY: BillingSummary = {
-  enabled: true,
-  membership: membership({ required: false, status: 'inactive', subscriptionStatus: null }),
-  builtInCredit: true,
-  currency: 'usd',
-  balanceMicros: 0,
-  heldMicros: 0,
-  availableMicros: 0,
-  markupBps: 1000,
-  openRouterFeeBps: 550,
-  minTopUpCents: 500,
-  maxTopUpCents: 50_000,
-};
-
 function api(status: PoolStatusResponse | Error) {
   return {
     poolStatus: vi.fn(async () => {
       if (status instanceof Error) throw status;
       return status;
     }),
-    billing: vi.fn(async () => SUMMARY),
+    billing: vi.fn(async () => billing()),
     usage: vi.fn(async () => ({ entries: [] })),
   };
 }

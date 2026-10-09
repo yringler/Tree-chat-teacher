@@ -1,4 +1,5 @@
 import type {
+  BillingSummary,
   Branch,
   ChatNode,
   MembershipInfo,
@@ -123,6 +124,24 @@ export function membership(over: Partial<MembershipInfo> = {}): MembershipInfo {
     periodEnd: null,
     cancelAtPeriodEnd: false,
     priceCents: 1000,
+    ...over,
+  };
+}
+
+/** A billing summary with Tangent credit on sale and none left, unless `over` says otherwise. */
+export function billing(over: Partial<BillingSummary> = {}): BillingSummary {
+  return {
+    enabled: true,
+    membership: membership({ required: false, status: 'inactive', subscriptionStatus: null }),
+    builtInCredit: true,
+    currency: 'usd',
+    balanceMicros: 0,
+    heldMicros: 0,
+    availableMicros: 0,
+    markupBps: 1000,
+    openRouterFeeBps: 550,
+    minTopUpCents: 500,
+    maxTopUpCents: 50_000,
     ...over,
   };
 }

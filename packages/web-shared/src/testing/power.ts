@@ -7,6 +7,7 @@ import type {
   TreeDetail,
 } from '@tangent/shared';
 import { ApiClient } from '../core/api-client';
+import type { ConversationStore } from '../conversation/conversation-store';
 import { DEMO_MODE } from '../core/demo';
 import { provideTextSize } from '../core/text-size-store';
 import type { PowerAccountStore } from '../power/power-account';
@@ -15,21 +16,24 @@ import { membership, provider } from './fixtures';
 import { provideAnyRoute } from './render';
 
 /**
- * What a power or canvas component needs around it: `api` (a stub of the
- * calls the spec expects) as the ApiClient, the app's store as the shared
- * dialogs' `PowerConversationStore`, a text size and a router.
+ * What an app's component needs around it: `api` (a stub of the calls the
+ * spec expects) as the ApiClient, a text size and a router.
  */
+export function appProviders(api: object): (Provider | EnvironmentProviders)[] {
+  return [
+    { provide: ApiClient, useValue: api },
+    { provide: DEMO_MODE, useValue: false },
+    provideTextSize('tangent.test.textSize'),
+    provideAnyRoute(),
+  ];
+}
+
+/** `appProviders`, with the power or canvas store as the shared dialogs' `PowerConversationStore`. */
 export function powerProviders(
   store: Type<PowerConversationStore>,
   api: object,
 ): (Provider | EnvironmentProviders)[] {
-  return [
-    { provide: ApiClient, useValue: api },
-    { provide: DEMO_MODE, useValue: false },
-    { provide: PowerConversationStore, useExisting: store },
-    provideTextSize('tangent.test.textSize'),
-    provideAnyRoute(),
-  ];
+  return [...appProviders(api), { provide: PowerConversationStore, useExisting: store }];
 }
 
 /** The signed-in user. */
@@ -74,7 +78,7 @@ export function signIn(
 
 /** Opens `d` in `store` (no fetch: it is the tree already loaded), on `branchId` (the trunk). */
 export function openTree(
-  store: PowerConversationStore,
+  store: Pick<ConversationStore, 'selectedTreeId' | 'detail' | 'setRoute'>,
   d: TreeDetail,
   branchId: string | null = null,
 ): void {
