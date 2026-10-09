@@ -117,6 +117,29 @@ describe('ChatService pool profile: pinned model and locked prompt', () => {
     expect(reply.messages[0]?.content).toContain('INJECTED RULES');
   });
 
+  it('clips an anchor quote to the pool message limit in the same units as the message check', async () => {
+    const { chat } = setup({
+      profile: {
+        kind: 'pool',
+        model: 'pool-model',
+        systemPrompt: 'LOCKED PROMPT',
+        estimateTokens,
+        anchorQuoteMaxChars: 20,
+      },
+    });
+    const { tree } = await chat.createTree({});
+    const root = await send(chat, tree.trunkBranchId, 'ROOT');
+    const side = await chat.createBranch({
+      fromNodeId: root.begin.assistantNode.id,
+      anchorQuote: '😀'.repeat(40),
+    });
+    const plan = await chat.planContext(side.id, null, { resolveSummaries: false });
+    const anchor = plan.plan.segments.find((s) => s.kind === 'anchor');
+    // At most 20 UTF-16 units, as `content.length` counts a message: nine emoji (18 units)
+    // and the ellipsis, since a tenth would leave half a pair.
+    expect(anchor?.text).toBe(`${'😀'.repeat(9)}…`);
+  });
+
   it('without them, the branch model and the tree prompt are used', async () => {
     const { chat, provider } = setup();
     const { tree } = await chat.createTree({ systemPrompt: 'MY PROMPT', model: 'm1' });

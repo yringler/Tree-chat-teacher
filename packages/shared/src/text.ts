@@ -15,6 +15,19 @@ export function clip(text: string, max: number): string {
 }
 
 /**
+ * `clip`, but counting UTF-16 units (`text.length`, as a limit checked with
+ * `.length` counts them) instead of code points: at most `max` units with
+ * the ellipsis, and still never half of a surrogate pair.
+ */
+export function clipUtf16(text: string, max: number): string {
+  if (text.length <= max) return text;
+  let end = Math.max(0, max - 1);
+  const last = text.charCodeAt(end - 1);
+  if (end > 0 && last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return `${text.slice(0, end).trimEnd()}…`;
+}
+
+/**
  * Markdown as single-line plain text: code-fence lines, heading, quote and
  * list markers, emphasis and inline-code characters go (a code block's text
  * stays); links and images become their text, autolinks their URL;
