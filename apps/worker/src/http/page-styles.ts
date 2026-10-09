@@ -44,7 +44,8 @@ footer a{color:var(--muted)}
 `;
 
 /**
- * The landing page: the hero, its demo, the problem/fix pairs, the pool and
+ * The landing page: the hero, its demo, the problem/fix pairs (one card
+ * each, labeled when stacked on a phone), the pool and
  * the ways in. The demo plays in CSS alone (the page runs no script): the
  * regular chat fills in on timed animations and stops at a gate, a checkbox
  * whose label is the gate's button switches to the Tangent view, and radio
@@ -134,11 +135,15 @@ label.chip{cursor:pointer}
 .dm-fork::before,.dm-fork::after{content:"";flex:1;height:1px;background:var(--border)}
 .dm-forks{flex:none;margin:6px 0 0;color:var(--muted);font-size:.8rem}
 .dm-note{flex:none;margin:12px 0 0}
-.pairs{display:grid;gap:10px 16px;margin:0}
-.pairs dt,.pairs dd{margin:0;padding:14px 16px;border:1px solid var(--border);border-radius:12px;background:var(--bg-elev)}
-.pairs dt{border-left:3px solid var(--muted);color:var(--muted)}
-.pairs dd{border-left:3px solid var(--accent);font-weight:600}
-.pairs dd+dt{margin-top:10px}
+.pairs-head{display:none}
+.pairs{display:grid;gap:14px;margin:0}
+.pair{display:grid;border:1px solid var(--border);border-radius:12px;background:var(--bg-elev);overflow:hidden}
+.pair dt,.pair dd{margin:0;padding:14px 16px}
+.pair dt{background:var(--bg-sunken);color:var(--muted)}
+.pair dd{position:relative;border-top:1px solid var(--border);font-weight:600}
+.pair dd::before{content:'↓';position:absolute;top:-12px;right:16px;display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--accent-fg);font-size:.85rem;font-weight:700}
+.pair .tag{display:block;margin-bottom:4px;font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+.pair dd .tag{color:var(--accent)}
 .after{margin:28px 0 0;max-width:36rem;color:var(--muted)}
 .grid{display:grid;gap:16px}
 .card{padding:22px;border:1px solid var(--border);border-radius:14px;background:var(--bg-elev)}
@@ -150,7 +155,7 @@ label.chip{cursor:pointer}
 .pool .fee{margin:0;color:var(--muted);font-size:.88rem}
 .pool .ctas{margin:0}
 #pool+.sub{max-width:40rem}
-@media (min-width:720px){.hero{grid-template-columns:1fr 1.1fr;align-items:center;padding-top:48px;padding-bottom:72px}.pairs{grid-template-columns:1fr 1fr}.pairs dd+dt{margin-top:0}.grid.three{grid-template-columns:repeat(3,1fr)}}
+@media (min-width:720px){.hero{grid-template-columns:1fr 1.1fr;align-items:center;padding-top:48px;padding-bottom:72px}.pairs-head,.pair{grid-template-columns:1fr 1fr}.pairs-head{display:grid;margin-bottom:8px;font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.pairs-head span{padding:0 17px}.pairs-head span+span{padding-left:29px;color:var(--accent)}.pair dd{padding-left:28px;border-top:0;border-left:1px solid var(--border)}.pair dd::before{content:'→';top:calc(50% - 12px);right:auto;left:-12px}.pair .tag{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.grid.three{grid-template-columns:repeat(3,1fr)}}
 @media (prefers-reduced-motion:reduce){.dm *,.dm-solve{animation:none!important}}
 `;
 

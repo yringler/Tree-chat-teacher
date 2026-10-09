@@ -175,6 +175,26 @@ function MoreWays(props: { page: Landing }) {
   );
 }
 
+/**
+ * One problem and its fix, as one card: stacked and labeled on a phone, side
+ * by side under the column heads on a wide screen, so each fix reads as the
+ * answer to its own problem at every width.
+ */
+function Pair(props: { problem: string; fix: string }) {
+  return (
+    <div class="pair">
+      <dt>
+        <span class="tag">Regular AI chat</span>
+        {props.problem}
+      </dt>
+      <dd>
+        <span class="tag">Tangent</span>
+        {props.fix}
+      </dd>
+    </div>
+  );
+}
+
 /** The landing page's body: the hero and its demo, the problem and fix, the pool and the other ways in. */
 function LandingBody(props: { page: Landing }) {
   const { page } = props;
@@ -210,13 +230,23 @@ function LandingBody(props: { page: Landing }) {
         <div class="wrap">
           <h2 id="fix">What happens to your follow-up questions</h2>
           <p class="sub">In a regular AI chat, then in Tangent.</p>
+          <div class="pairs-head" aria-hidden="true">
+            <span>Regular AI chat</span>
+            <span>Tangent</span>
+          </div>
           <dl class="pairs">
-            <dt>The answer raises three more questions.</dt>
-            <dd>Each one opens in its own branch.</dd>
-            <dt>You chase one, then another. Your first answer is now 40 messages up.</dt>
-            <dd>Your first answer stays exactly where you left it.</dd>
-            <dt>You scroll back past what you already know and what you don’t care about.</dt>
-            <dd>You see only the branch you’re on. The rest waits until you want it.</dd>
+            <Pair
+              problem="The answer raises three more questions."
+              fix="Each one opens in its own branch."
+            />
+            <Pair
+              problem="You chase one, then another. Your first answer is now 40 messages up."
+              fix="Your first answer stays exactly where you left it."
+            />
+            <Pair
+              problem="You scroll back past what you already know and what you don’t care about."
+              fix="You see only the branch you’re on. The rest waits until you want it."
+            />
           </dl>
           <p class="after">
             Not sure what to ask next? Full answers end with a few tangents worth following, one tap
