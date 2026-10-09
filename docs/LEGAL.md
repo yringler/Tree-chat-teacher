@@ -17,13 +17,13 @@ Status: **done** = handled in code; **you** = an action for the operator (outsid
 
 Set to Yehuda Ringler, governed by the laws of the Commonwealth of Pennsylvania, USA. If you form an LLC, change `LEGAL_OPERATOR` to it and assign it the trademark.
 
-**Keep the policy true.** It describes what the code does: which tables hold what, which cookies exist, which services receive data. When a change adds a table, a cookie, a log, an analytics script or a new service provider, update `renderPrivacyPage` and bump `LEGAL_UPDATED` in the same change. The policy currently promises:
+**Keep the policy true.** It describes what the code does: which tables hold what, which cookies exist, which services receive data. When a change adds a table, a cookie, a log, an analytics script or a new service provider, update `PrivacyPolicy` (`http/legal.tsx`) and bump `LEGAL_UPDATED` in the same change. The policy currently promises:
 
 - no analytics, advertising or tracking cookies (adding any means a cookie-consent banner for EU visitors);
 - API keys never stored server-side and never logged (see the BYOK section of the README);
 - no sale of personal data, no training of models by us;
 - message content never in logs;
-- which models and hosts handle Tangent-paid requests, as the config says today (`http/hosted-ai.ts`; `public-copy-config.test.ts` checks the wording follows the config);
+- which models and hosts handle Tangent-paid requests, as the config says today (`http/hosted-ai.ts`; `legal.test.ts` checks it follows the config);
 
 ## 2. Account deletion
 
