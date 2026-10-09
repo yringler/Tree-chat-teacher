@@ -1,7 +1,7 @@
 import {
+  appChatSettings,
   ChatService,
-  DEFAULT_CHAT_SETTINGS,
-  DEFAULT_GROUNDING_SETTINGS,
+  DEFAULT_GROUNDING_POLICY,
   DomainError,
   HTTP_STATUS,
   newId,
@@ -18,6 +18,7 @@ import {
   candidateRequestSchema,
   chargeMicros,
   costUsdToNanos,
+  DEFAULT_BUILT_IN_MAX_INPUT_TOKENS,
   DEFAULT_MARKUP_BPS,
   DEFAULT_OPENROUTER_FEE_BPS,
   contextLimitsQuerySchema,
@@ -274,16 +275,13 @@ export class DemoBackend {
       // Like the Worker: Learn pays per request, so its branches are written `own-key`,
       // and imports are adapted to its provider, models, context and prompt.
       profile: { kind: this.mode === 'simple' ? 'learn' : 'power' },
-      settings: {
-        ...DEFAULT_CHAT_SETTINGS,
-        maxInputTokens: 60_000,
-        // As deployed (GROUNDING=auto); the demo only has Learn's view of the setting.
-        grounding: {
-          ...DEFAULT_GROUNDING_SETTINGS,
-          policy: 'auto',
-          ignoreBranchSetting: this.mode === 'simple',
-        },
-      },
+      // As a server with the default config, summarizing on each branch's own route.
+      settings: appChatSettings(this.mode === 'simple' ? 'learn' : 'power', {
+        summaryProviderId: null,
+        summaryModel: null,
+        maxInputTokens: DEFAULT_BUILT_IN_MAX_INPUT_TOKENS,
+        groundingPolicy: DEFAULT_GROUNDING_POLICY,
+      }),
       // New conversations get the same built-in prompt as on the server (both modes).
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
       clock: this.clock,

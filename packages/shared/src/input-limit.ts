@@ -23,6 +23,9 @@ export type InputOverflow = (typeof INPUT_OVERFLOWS)[number];
 export const INPUT_OVERFLOWS = ['compact', 'truncate'] as const;
 export const DEFAULT_INPUT_OVERFLOW: InputOverflow = 'compact';
 
+/** The most input one call on the built-in provider sends, unless BUILT_IN_MAX_INPUT_TOKENS says otherwise. */
+export const DEFAULT_BUILT_IN_MAX_INPUT_TOKENS = 60_000;
+
 /** Smallest and largest input limit a client may ask for (`SendMessageRequest.maxInputTokens`). */
 export const MIN_REQUESTED_INPUT_TOKENS = 1000;
 export const MAX_REQUESTED_INPUT_TOKENS = 2_000_000;

@@ -1,4 +1,4 @@
-import { DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
+import { appChatSettings, DEFAULT_CHAT_SETTINGS, type ChatSettings } from '@tangent/core';
 import { parseProviderConfigs } from '@tangent/providers';
 import {
   BUILT_IN_PROVIDER_ID,
@@ -19,7 +19,7 @@ import {
   withTierDefaults,
   type TierRequestConfig,
 } from './config.js';
-import { groundingSettings } from './billing/grounding.js';
+import { groundingPolicy } from './billing/grounding.js';
 import type { AppEnv } from './env.js';
 import type { PoolParams } from './pool/params.js';
 
@@ -212,17 +212,15 @@ export function simpleFastModel(
 export function simpleChatSettings(env: AppEnv): ChatSettings {
   const config = simpleProviderConfig(env);
   const summaryModel = simpleFastModel(env, config);
-  return {
-    ...DEFAULT_CHAT_SETTINGS,
+  return appChatSettings('learn', {
     summaryProviderId: config.id,
     summaryModel,
     summaryEffort: backgroundEffort(env, summaryModel),
     maxInputTokens: simpleMaxInputTokens(env),
     reservedOutputTokens: SIMPLE_RESERVED_OUTPUT_TOKENS,
     reasoningOutputTokens: SIMPLE_MAX_OUTPUT_TOKENS,
-    autoTitle: true,
-    grounding: groundingSettings(env, 'simple'),
-  };
+    groundingPolicy: groundingPolicy(env),
+  });
 }
 
 /**

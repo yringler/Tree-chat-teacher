@@ -4,7 +4,7 @@
 // built on them. What the deployment offers at all is availability.ts.
 import {
   ChatService,
-  DEFAULT_CHAT_SETTINGS,
+  appChatSettings,
   estimateTokensUtf8,
   ShareService,
   type ChatSettings,
@@ -21,7 +21,7 @@ import {
   type ProviderRegistry,
 } from '@tangent/shared';
 import { defaultRouteFacts } from './billing/default-route.js';
-import { groundingAllowance, groundingSettings, withSearchOptions } from './billing/grounding.js';
+import { groundingAllowance, groundingPolicy, withSearchOptions } from './billing/grounding.js';
 import { createPoolUsageMeter, createUsageMeter, meteredRegistry } from './billing/meter.js';
 import { appConfig, BUILT_IN_API_KEY_SECRET } from './config.js';
 import { createD1Repositories } from './db/d1-repositories.js';
@@ -187,15 +187,14 @@ export function chatSettingsFor(
   if (pool) return poolChatSettings(pool);
   if (account.mode === 'simple') return simpleChatSettings(env);
   const { summaryProviderId, summaryModel, autoTitle } = appConfig(env).power;
-  return {
-    ...DEFAULT_CHAT_SETTINGS,
-    // A summary provider is looked up among the own-key routes only (ChatService), so
-    // summaries of branches on the user's own keys never cost credit.
+  // A summary provider is looked up among the own-key routes only (ChatService), so
+  // summaries of branches on the user's own keys never cost credit.
+  return appChatSettings('power', {
     summaryProviderId,
     summaryModel,
     autoTitle,
-    grounding: groundingSettings(env, 'power'),
-  };
+    groundingPolicy: groundingPolicy(env),
+  });
 }
 
 /**

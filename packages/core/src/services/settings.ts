@@ -65,3 +65,45 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   autoTitle: true,
   grounding: DEFAULT_GROUNDING_SETTINGS,
 };
+
+/**
+ * What an app's ChatSettings take from the operator's configuration; every
+ * other field keeps its default. The Worker reads them from its env, the
+ * demos pass their own.
+ */
+export interface AppChatSettingsConfig extends Partial<
+  Pick<
+    ChatSettings,
+    | 'summaryEffort'
+    | 'maxInputTokens'
+    | 'autoTitle'
+    | 'reservedOutputTokens'
+    | 'reasoningOutputTokens'
+  >
+> {
+  summaryProviderId: string | null;
+  summaryModel: string | null;
+  /** The operator's ceiling over each branch's grounding setting (GROUNDING). */
+  groundingPolicy: GroundingPolicy;
+}
+
+/**
+ * The ChatSettings of a Learn or power account. Learn titles every
+ * conversation and ignores each branch's grounding setting (every branch
+ * counts as `auto`: the pedagogy is the operator's, not the learner's).
+ */
+export function appChatSettings(
+  app: 'learn' | 'power',
+  { groundingPolicy, ...config }: AppChatSettingsConfig,
+): ChatSettings {
+  return {
+    ...DEFAULT_CHAT_SETTINGS,
+    ...config,
+    ...(app === 'learn' ? { autoTitle: true } : {}),
+    grounding: {
+      ...DEFAULT_GROUNDING_SETTINGS,
+      policy: groundingPolicy,
+      ignoreBranchSetting: app === 'learn',
+    },
+  };
+}
