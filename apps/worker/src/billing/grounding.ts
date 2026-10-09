@@ -8,7 +8,7 @@ import {
 } from '@tangent/core';
 import type { ProviderConfig, ProviderRoute } from '@tangent/shared';
 import { appConfig } from '../config.js';
-import { isMetered, type AccountContext, type AppEnv } from '../env.js';
+import { callPayer, type AccountContext, type AppEnv } from '../env.js';
 
 /** The operator's `GROUNDING` ceiling (default `auto`). */
 export function groundingPolicy(env: AppEnv): GroundingPolicy {
@@ -73,7 +73,7 @@ export function groundingAllowance(
   account: AccountContext,
 ): (route: ProviderRoute) => Promise<boolean> {
   return async (route) => {
-    if (!isMetered(account, route.funding)) return true;
+    if (callPayer(account, route.funding) === 'own-key') return true;
     const cap = groundingDailyCap(env);
     if (cap === 0) return true;
     return (await searchesToday(env, account.billingAccountId)) < cap;

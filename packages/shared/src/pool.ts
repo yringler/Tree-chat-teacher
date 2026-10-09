@@ -4,14 +4,7 @@ import { z } from 'zod';
  * The open credit pool (docs/pool/SPEC.md): free credit Tangent provides
  * at its discretion (`POOL_FUNDING_TEXT`; nobody buys pool credit), spent at
  * cost by signed-in Learn users on one economical model within daily caps.
- *
- * Who pays for a request's model calls. The server decides it per request
- * from the payment header and the user's credit (never the client alone):
- * - `own-key`: the user's own provider key; nothing is metered.
- * - `personal`: the user's prepaid credit (the built-in provider, metered).
- * - `pool`: the open pool.
  */
-export type FundingSource = 'own-key' | 'personal' | 'pool';
 
 /**
  * Why the pool refused a request:

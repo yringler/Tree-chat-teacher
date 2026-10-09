@@ -4,6 +4,8 @@
 // and the model windows read prices without importing the sync.
 import { EXPLICIT_CACHE_WRITE_MULTIPLIER, usesExplicitCacheControl } from '@tangent/providers';
 import { appConfig, type ModelPrice } from '../config.js';
+import type { SqlRow } from '../db/rows.js';
+import type { modelPrices } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
 import { logEvent } from '../log.js';
 
@@ -19,14 +21,7 @@ export interface ListPrice {
   cacheWriteMicrosPerMTok: number | null;
 }
 
-export interface PriceRow {
-  model: string;
-  in_micros_per_mtok: number;
-  out_micros_per_mtok: number;
-  context_tokens: number | null;
-  cache_read_micros_per_mtok: number | null;
-  cache_write_micros_per_mtok: number | null;
-}
+export type PriceRow = Omit<SqlRow<typeof modelPrices>, 'fetched_at'>;
 
 export function listPriceOf(row: PriceRow): ListPrice {
   return {

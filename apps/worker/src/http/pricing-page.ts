@@ -3,7 +3,7 @@ import {
   formatBps,
   formatCents,
   formatMicros,
-  LEARN_KEY_PROVIDER,
+  OPENROUTER_PROVIDER_ID,
   MAX_TOP_UP_CENTS,
   MIN_TOP_UP_CENTS,
   POOL_FUNDING_TEXT,
@@ -206,7 +206,7 @@ function footnotes(texts: Partial<Record<NoteId, string>>) {
 function otherProviders(f: PricingFacts): string {
   return escapeHtml(
     joinList(
-      f.providers.filter((p) => p.id !== LEARN_KEY_PROVIDER).map((p) => p.label),
+      f.providers.filter((p) => p.id !== OPENROUTER_PROVIDER_ID).map((p) => p.label),
       'and',
     ),
   );

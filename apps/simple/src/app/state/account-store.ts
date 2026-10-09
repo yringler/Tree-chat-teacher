@@ -1,10 +1,10 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import {
-  LEARN_KEY_PROVIDER,
+  OPENROUTER_PROVIDER_ID,
   poolModelText,
   type BillingSummary,
   type KeyStatusResponse,
-  type LearnPayment,
+  type Payer,
   type MembershipInfo,
   type MeResponse,
   type PoolMeResponse,
@@ -16,7 +16,7 @@ import { UiStore } from './ui-store';
 
 /** What Learn's replies run on right now, for the header and the New lesson form. */
 export interface PaidBy {
-  readonly payment: LearnPayment;
+  readonly payment: Payer;
   /** "Your OpenRouter key", "Tangent credit" or "Open pool". */
   readonly label: string;
   /** The header's shorter name: "Your key", "Credit" or "Pool". */
@@ -82,7 +82,7 @@ export class AccountStore {
 
   /** True when the learner's own OpenRouter key is stored in this browser. */
   readonly hasOwnKey = computed(
-    () => this.keyStatus()?.providers.includes(LEARN_KEY_PROVIDER) ?? false,
+    () => this.keyStatus()?.providers.includes(OPENROUTER_PROVIDER_ID) ?? false,
   );
 
   /**
@@ -283,7 +283,7 @@ export class AccountStore {
     try {
       const status = await this.api.keyStatus();
       this.keyStatus.set(status);
-      this.payment.hasOwnKey.set(status.providers.includes(LEARN_KEY_PROVIDER));
+      this.payment.hasOwnKey.set(status.providers.includes(OPENROUTER_PROVIDER_ID));
     } catch (err) {
       console.warn('Could not load the key status', err);
     }
@@ -291,12 +291,12 @@ export class AccountStore {
 
   /** Stores the learner's OpenRouter key (sealed into an HttpOnly cookie by the server). */
   async saveKey(apiKey: string): Promise<void> {
-    await this.api.saveKey(LEARN_KEY_PROVIDER, apiKey);
+    await this.api.saveKey(OPENROUTER_PROVIDER_ID, apiKey);
     await this.refreshKey();
   }
 
   async forgetKey(): Promise<void> {
-    await this.api.forgetKey(LEARN_KEY_PROVIDER);
+    await this.api.forgetKey(OPENROUTER_PROVIDER_ID);
     await this.refreshKey();
   }
 }

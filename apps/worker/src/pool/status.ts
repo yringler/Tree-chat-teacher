@@ -10,6 +10,8 @@ import {
 } from '@tangent/shared';
 import { getBalance } from '../billing/ledger.js';
 import { appConfig } from '../config.js';
+import type { SqlRow } from '../db/rows.js';
+import type { authUsers, poolIdentities } from '../db/schema.js';
 import type { AccountContext, AppEnv } from '../env.js';
 import { poolAvailable } from '../availability.js';
 import { getCached, putCached } from '../share/cache.js';
@@ -119,11 +121,9 @@ export async function cachedPoolStatus(
   return status;
 }
 
-interface PoolAccountRow {
-  pool_suspended: number;
-  pool_verified_at: string | null;
-  identity_suspended: number | null;
-}
+type PoolAccountRow = Pick<SqlRow<typeof authUsers>, 'pool_suspended' | 'pool_verified_at'> & {
+  identity_suspended: SqlRow<typeof poolIdentities>['suspended'] | null;
+};
 
 /** `GET /api/pool/me`: the caller's standing with the pool today. */
 export async function poolMe(

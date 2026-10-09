@@ -6,12 +6,14 @@
 //   pending = number of pending usage_events (metered calls in flight)
 //
 // The open pool is one more account in the same tables (pool/pool-bank.ts).
+import type { SqlRow } from '../db/rows.js';
+import type { creditGrants } from '../db/schema.js';
 
 /**
  * - `purchase`: credit bought (net of the processing fee); `refund`: a refund
  *   or dispute taking credit back; `adjustment`: an admin's or the operator's.
  */
-export type CreditGrantKind = 'purchase' | 'refund' | 'adjustment';
+export type CreditGrantKind = SqlRow<typeof creditGrants>['kind'];
 
 export interface CreditGrantInput {
   accountId: string;
@@ -203,13 +205,10 @@ export async function hasGrant(db: D1Database, providerRef: string): Promise<boo
 }
 
 /** A grant as `grantByRef` reads it. */
-export interface GrantRow {
-  account_id: string;
-  kind: CreditGrantKind;
-  amount_micros: number;
-  gross_micros: number | null;
-  user_id: string | null;
-}
+export type GrantRow = Pick<
+  SqlRow<typeof creditGrants>,
+  'account_id' | 'kind' | 'amount_micros' | 'gross_micros' | 'user_id'
+>;
 
 /** The grant written for `providerRef` (a payment object ref, or `admin:` / `dev:` key), if any. */
 export async function grantByRef(db: D1Database, providerRef: string): Promise<GrantRow | null> {

@@ -13,7 +13,7 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
-  LEARN_KEY_PROVIDER,
+  OPENROUTER_PROVIDER_ID,
   type BillingSummary,
   type Branch,
   type ProviderInfo,
@@ -207,7 +207,7 @@ export class KeysDialog implements OnInit, OnDestroy {
   /** "Continue on Tangent credit" is moving the branch. */
   protected readonly switching = signal(false);
 
-  protected readonly learnKey = LEARN_KEY_PROVIDER;
+  protected readonly learnKey = OPENROUTER_PROVIDER_ID;
   protected readonly usd = formatMicros;
   protected readonly fees = creditFeeSentence;
   /** The server offers the built-in provider on the user's credit. */

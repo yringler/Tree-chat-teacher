@@ -2,7 +2,7 @@ import { createTreeRequestSchema, updateTreeRequestSchema } from '@tangent/share
 import { Hono } from 'hono';
 import { readKeys } from '../byok/keys.js';
 import { treeSession } from '../do/tree-session-client.js';
-import { usesUserKeys, type AppBindings } from '../env.js';
+import { callPayer, type AppBindings } from '../env.js';
 import { validateJson } from '../http/errors.js';
 import { chatOf } from './request-chat.js';
 
@@ -19,7 +19,9 @@ export function treeRoutes(): Hono<AppBindings> {
   api.post('/trees', validateJson(createTreeRequestSchema), async (c) => {
     const req = c.req.valid('json');
     const keys =
-      req.providerId === undefined && usesUserKeys(c.var.account) ? await readKeys(c) : null;
+      req.providerId === undefined && callPayer(c.var.account, 'own-key') === 'own-key'
+        ? await readKeys(c)
+        : null;
     return c.json(await chatOf(c, keys?.state === 'ok' ? keys : null).createTree(req), 201);
   });
   api.get('/trees/:treeId', async (c) =>

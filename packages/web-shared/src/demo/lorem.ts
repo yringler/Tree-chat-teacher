@@ -1,5 +1,5 @@
 import {
-  BUILT_IN_PROVIDER_ID,
+  OPENROUTER_PROVIDER_ID,
   clip,
   formatTangents,
   REVIEW_ACCURACY_LABEL,
@@ -71,10 +71,9 @@ function sentence(): string {
 }
 
 /**
- * The demo provider's id and models, mirroring the real built-in provider
- * (`openrouter`): Normal (the default) and Max.
+ * The demo provider's models, on the real built-in provider's endpoint
+ * (`OPENROUTER_PROVIDER_ID`): Normal (the default) and Max.
  */
-export const DEMO_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
 export const DEMO_NORMAL_MODEL = 'normal';
 export const DEMO_MAX_MODEL = 'max';
 export const DEMO_MODELS: readonly ModelInfo[] = [
@@ -486,7 +485,7 @@ export function createLoremProvider(options: LoremProviderOptions = {}): LlmProv
   }
 
   return {
-    id: DEMO_PROVIDER_ID,
+    id: OPENROUTER_PROVIDER_ID,
     kind: 'fake',
     label: 'Tangent',
     models: () => DEMO_MODELS.map((m) => ({ ...m })),

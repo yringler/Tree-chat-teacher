@@ -3,7 +3,7 @@ import {
   type ApiError,
   type BillingSummary,
   type Branch,
-  type LearnPayment,
+  type Payer,
   type LoginOptionsResponse,
   type MeResponse,
   type MembershipInfo,
@@ -52,7 +52,7 @@ async function newUser(e: AppEnv = authEnv(), email?: string) {
 type User = Awaited<ReturnType<typeof newUser>>;
 
 /** A tree of `owner` (in the given mode) with a user/assistant exchange on its trunk. */
-async function treeWithNodes(owner: User, learn?: LearnPayment, req: Record<string, unknown> = {}) {
+async function treeWithNodes(owner: User, learn?: Payer, req: Record<string, unknown> = {}) {
   const detail = await ok<TreeDetail>(
     await owner.call('/api/trees', {
       method: 'POST',
@@ -154,14 +154,14 @@ describe('switching modes', () => {
 });
 
 describe('account settings: the default system prompt', () => {
-  const newTree = async (u: User, learn?: LearnPayment, body: Record<string, unknown> = {}) =>
+  const newTree = async (u: User, learn?: Payer, body: Record<string, unknown> = {}) =>
     (
       await ok<TreeDetail>(
         await u.call('/api/trees', { method: 'POST', json: body, ...(learn ? { learn } : {}) }),
         201,
       )
     ).tree;
-  const patch = (u: User, systemPrompt: unknown, learn?: LearnPayment) =>
+  const patch = (u: User, systemPrompt: unknown, learn?: Payer) =>
     u.call('/api/settings', {
       method: 'PATCH',
       json: { systemPrompt },
@@ -251,7 +251,7 @@ interface ForeignIds {
 }
 
 /** How B pays in each try: power, then Learn on both payments. */
-type Mode = LearnPayment | undefined;
+type Mode = Payer | undefined;
 const ALL_MODES: readonly Mode[] = [undefined, 'credit', 'own-key'];
 
 /**
@@ -854,7 +854,7 @@ describe('membership', () => {
     });
 
   /** The three generating requests on `owner`'s tree (power on the keyless fake provider, or Learn). */
-  async function generating(owner: User, learn?: LearnPayment) {
+  async function generating(owner: User, learn?: Payer) {
     const { trunk, assistant } = learn
       ? await treeWithNodes(owner, learn)
       : await treeWithNodes(owner, undefined, { providerId: 'fake', model: 'fake-1' });
@@ -1032,7 +1032,7 @@ describe("Learn mode on the user's own OpenRouter key", () => {
     const u = await newUser(ownKeyEnv());
     expect(u.learn.builtInCredit).toBe(true);
     const { assistant } = await treeWithNodes(u, 'own-key');
-    const send = (learn: LearnPayment = 'own-key') =>
+    const send = (learn: Payer = 'own-key') =>
       u.call(`/api/nodes/${assistant.id}/review`, {
         method: 'POST',
         json: { providerId: 'openrouter', model: 'max' },

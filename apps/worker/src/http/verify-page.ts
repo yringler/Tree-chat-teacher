@@ -5,6 +5,8 @@ import { clientIp } from '../auth/account.js';
 import { optionalIdentity } from '../auth/session.js';
 import { sameOriginOnly } from '../byok/guard.js';
 import { appConfig } from '../config.js';
+import type { SqlRow } from '../db/rows.js';
+import type { authUsers } from '../db/schema.js';
 import type { AppBindings } from '../env.js';
 import { markPoolVerified } from '../pool/identity.js';
 import {
@@ -104,7 +106,7 @@ function siteKey(c: Context<AppBindings>): string {
 async function isVerified(c: Context<AppBindings>, userId: string): Promise<boolean> {
   const row = await c.env.DB.prepare('SELECT pool_verified_at FROM auth_users WHERE id = ?')
     .bind(userId)
-    .first<{ pool_verified_at: string | null }>();
+    .first<Pick<SqlRow<typeof authUsers>, 'pool_verified_at'>>();
   return !!row?.pool_verified_at;
 }
 

@@ -301,6 +301,36 @@ describe('nodes', () => {
     expect(await repos.trees.getAncestorPath('missing')).toEqual([]);
   });
 
+  it('the recursive reads map every column as the plain reads do', async () => {
+    const { tree, trunk } = await seedTree();
+    const question = makeNode(trunk, 0, null, { role: 'user', content: 'q' });
+    await repos.trees.appendNodes([question], 'x');
+    const side = makeBranch(tree, {
+      parentBranchId: trunk.id,
+      branchPointNodeId: question.id,
+      contextMode: 'summary',
+      anchorQuote: 'quoted',
+      titleSource: 'user',
+      isPrivate: true,
+      funding: 'credit',
+      grounding: 'off',
+    });
+    await repos.trees.createBranch(side);
+    const answer = makeNode(side, 0, question.id, {
+      role: 'assistant',
+      status: 'error',
+      error: 'cut off',
+      errorKind: 'cut_off',
+      providerId: 'openrouter',
+      model: 'm',
+      usage: { inputTokens: 3, outputTokens: 4 },
+      sources: [{ url: 'https://example.org', title: 'Example', excerpt: null }],
+    });
+    await repos.trees.appendNodes([answer], 'x');
+    expect(await repos.trees.getBranchChain(side.id)).toEqual([trunk, side]);
+    expect(await repos.trees.getAncestorPath(answer.id)).toEqual([question, answer]);
+  });
+
   it('appendNodes is atomic and maps (branch_id, seq) conflicts to ConflictError', async () => {
     const { tree, trunk } = await seedTree();
     const [n0] = makeChain(trunk, 1, null);

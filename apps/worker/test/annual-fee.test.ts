@@ -11,7 +11,7 @@ import type {
   ApiError,
   BillingSummary,
   CheckoutResponse,
-  LearnPayment,
+  Payer,
   MeResponse,
   PoolMeResponse,
   StreamEvent,
@@ -51,7 +51,7 @@ const CREDIT = { providerId: 'openrouter', funding: 'credit' } as const;
  */
 async function treeWithNodes(
   u: User,
-  learn?: LearnPayment,
+  learn?: Payer,
   power: { providerId: string; funding?: 'own-key' | 'credit'; model: string } = {
     providerId: 'fake',
     model: 'fake-1',
@@ -180,7 +180,7 @@ describe('ANNUAL_FEE_ENABLED', () => {
 
   describe('on, with the membership price set', () => {
     /** A Learn send on `learn`: its status, the stream read through. */
-    async function sendStatus(u: User, learn: LearnPayment, content = 'Hi'): Promise<number> {
+    async function sendStatus(u: User, learn: Payer, content = 'Hi'): Promise<number> {
       const { trunk } = await treeWithNodes(u, learn);
       const res = await u.client.call(`/api/branches/${trunk.id}/messages`, {
         method: 'POST',

@@ -5,7 +5,7 @@ import { accountDeletionRoutes } from '../auth/delete-account.js';
 import { builtInAvailable, canShare } from '../availability.js';
 import { membershipFor, membershipNeededFor } from '../billing/membership.js';
 import { readKeys } from '../byok/keys.js';
-import { usesUserKeys, type AppBindings } from '../env.js';
+import { callPayer, type AppBindings } from '../env.js';
 import { validateJson } from '../http/errors.js';
 import { providersFor } from '../registries.js';
 import { withUsageFactors } from '../tiers.js';
@@ -49,7 +49,7 @@ export function apiRoutes(): Hono<AppBindings> {
       devMode: identity.devMode,
       accountId: account.id,
       mode: account.mode,
-      operatorKeys: account.operatorKeys,
+      operatorKeys: account.mode === 'power' && account.operatorKeys,
       builtInCredit: builtInAvailable(c.env),
       sharing,
       isAdmin: isAdmin(c.env, identity),
@@ -62,7 +62,7 @@ export function apiRoutes(): Hono<AppBindings> {
   // The Max model of each entry listing both tiers carries its `usageFactor` (tiers.ts).
   api.get('/providers', async (c) => {
     // An unreadable key cookie simply counts as no user keys here; /key/status clears it.
-    const keys = usesUserKeys(c.var.account) ? await readKeys(c) : null;
+    const keys = callPayer(c.var.account, 'own-key') === 'own-key' ? await readKeys(c) : null;
     const apiKeys = keys?.state === 'ok' ? keys.keys : undefined;
     return c.json(await withUsageFactors(c.env, providersFor(c.env, c.var.account, apiKeys)));
   });

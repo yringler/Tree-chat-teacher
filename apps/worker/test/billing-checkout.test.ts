@@ -9,7 +9,7 @@ import { customerRefFor } from '../src/billing/payments/customers.js';
 import { decodeFakeUrl, type FakeProviderOptions } from '../src/billing/providers/fake.js';
 import { checkoutReturnUrl } from '../src/billing/return-urls.js';
 import { startTopUpCheckout } from '../src/billing/service.js';
-import type { AppEnv } from '../src/env.js';
+import type { AccountContext, AppEnv } from '../src/env.js';
 import { insertUser, powerAccount, simpleAccount, uniq } from './mocks/billing-helpers.js';
 import { membership } from './mocks/payment-events.js';
 import { applyPaymentEvent } from '../src/billing/payments/apply.js';
@@ -19,7 +19,7 @@ const env = rawEnv as unknown as AppEnv;
 const withFake = (o: FakeProviderOptions, e: AppEnv = env) =>
   ({ ...e, FAKE_PAYMENTS: JSON.stringify(o) }) as AppEnv;
 
-async function newUser(account = simpleAccount()) {
+async function newUser(account: AccountContext = simpleAccount()) {
   const user = await insertUser(env, {
     id: account.userId!,
     email: `${uniq('buyer')}@example.com`,
