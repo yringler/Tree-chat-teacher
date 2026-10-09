@@ -20,6 +20,8 @@ import type {
   ProviderConfig,
   ProviderRegistry,
 } from '@tangent/shared';
+import type { SqlRow } from './db/rows.js';
+import type { modelWindows } from './db/schema.js';
 import type { AppEnv } from './env.js';
 import { modelPrice } from './pool/price-table.js';
 import { isOpenRouter } from './simple-mode.js';
@@ -62,11 +64,10 @@ export function parseModelWindows(body: unknown): Map<string, ModelWindow> {
   return windows;
 }
 
-interface WindowRow {
-  model: string;
-  context_tokens: number;
-  max_output_tokens: number | null;
-}
+type WindowRow = Pick<
+  SqlRow<typeof modelWindows>,
+  'model' | 'context_tokens' | 'max_output_tokens'
+>;
 
 /** D1 binds at most 100 parameters a statement; four per row. */
 const ROWS_PER_INSERT = 25;

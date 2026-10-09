@@ -4,11 +4,14 @@
 // deferred reconcile, cron, the pool's expiry alarm), and a replay can never
 // double-charge.
 import type { Payer, UsagePurpose } from '@tangent/shared';
+import type { SqlRow } from '../db/rows.js';
 import type { usageEvents } from '../db/schema.js';
 import { chargeMicros } from './pricing.js';
 
 /** Who pays for a metered call: never the user's own key, which is never metered. */
 export type MeteredPayer = Exclude<Payer, 'own-key'>;
+
+type UsageSql = SqlRow<typeof usageEvents>;
 
 /**
  * `usage_events.funding` as stored, where the payer `credit` is `personal`:
@@ -18,7 +21,7 @@ export type MeteredPayer = Exclude<Payer, 'own-key'>;
 const STORED_FUNDING = {
   credit: 'personal',
   pool: 'pool',
-} as const satisfies Record<MeteredPayer, (typeof usageEvents.$inferInsert)['funding']>;
+} as const satisfies Record<MeteredPayer, UsageSql['funding']>;
 
 /**
  * How a row settled. `cost`: the cost the stream reported; `generation`: from
@@ -155,7 +158,7 @@ export async function repriceReservation(
        RETURNING fee_bps, markup_bps`,
     )
     .bind(accountId, usageId, holdMicros, nodeId)
-    .first<{ fee_bps: number; markup_bps: number }>();
+    .first<Pick<UsageSql, 'fee_bps' | 'markup_bps'>>();
   return row ? { feeBps: row.fee_bps, markupBps: row.markup_bps } : null;
 }
 
@@ -223,7 +226,7 @@ export async function shrinkHold(
        RETURNING hold_micros, fee_bps`,
     )
     .bind(holdMicros, usageId, accountId)
-    .first<{ hold_micros: number; fee_bps: number }>();
+    .first<Pick<UsageSql, 'hold_micros' | 'fee_bps'>>();
   return row ? { holdMicros: row.hold_micros, feeBps: row.fee_bps } : null;
 }
 
@@ -294,7 +297,7 @@ export async function settleUsage(
       s.requireUndispatched ? 1 : 0,
       s.webSearches ?? null,
     )
-    .first<{ overage_micros: number }>();
+    .first<Pick<UsageSql, 'overage_micros'>>();
   return { changed: row !== null, clamped: (row?.overage_micros ?? 0) > 0 };
 }
 

@@ -22,6 +22,8 @@ import {
 import { callPayer, type AccountContext, type AppEnv } from '../env.js';
 import { keySecret } from '../byok/keys.js';
 import { appConfig } from '../config.js';
+import type { SqlRow } from '../db/rows.js';
+import type { authUsers, billingSubscriptions } from '../db/schema.js';
 import { MEMBERSHIP_KIND } from './payments/port.js';
 import { buyerFor, rememberCustomer } from './payments/customers.js';
 import { paymentProvider, type PaymentProvider } from './payments/index.js';
@@ -59,11 +61,14 @@ function membershipPriceCents(env: AppEnv): number {
   return appConfig(env).billing.membershipPriceCents;
 }
 
+type SubscriptionSql = SqlRow<typeof billingSubscriptions>;
+
+/** The user's waiver, and the subscription columns the LEFT JOIN may leave null. */
 interface MembershipRow {
-  waived: number;
-  status: SubscriptionStatus | null;
-  current_period_end: string | null;
-  cancel_at_period_end: number | null;
+  waived: SqlRow<typeof authUsers>['membership_waived'];
+  status: SubscriptionSql['status'] | null;
+  current_period_end: SubscriptionSql['current_period_end'];
+  cancel_at_period_end: SubscriptionSql['cancel_at_period_end'] | null;
 }
 
 /**

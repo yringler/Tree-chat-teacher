@@ -1,4 +1,4 @@
-import type { NodeErrorKind } from '@tangent/shared';
+import type { NodeErrorKind, SubscriptionStatus } from '@tangent/shared';
 import { sql } from 'drizzle-orm';
 import {
   check,
@@ -482,7 +482,7 @@ export const billingSubscriptions = sqliteTable(
     /** What the subscription is for; only `membership` today. */
     kind: text('kind').notNull(),
     /** Normalised `SubscriptionStatus` (@tangent/shared). */
-    status: text('status').notNull(),
+    status: text('status').$type<SubscriptionStatus>().notNull(),
     /** The provider's own status, for support; never sent to the apps. */
     providerStatus: text('provider_status').notNull(),
     /** ISO timestamp of the current period's end. */

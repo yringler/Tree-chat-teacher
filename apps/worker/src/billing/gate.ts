@@ -8,6 +8,8 @@ import { clientIp, withPoolParams } from '../auth/account.js';
 import { assertGenerationAllowed, enforceRateLimit } from '../byok/guard.js';
 import type { UserKeys } from '../byok/keys.js';
 import { appConfig } from '../config.js';
+import type { SqlRow } from '../db/rows.js';
+import type { authUsers, poolIdentities } from '../db/schema.js';
 import {
   callPayer,
   isPoolFunded,
@@ -73,15 +75,13 @@ export async function resolveFunding(
   return withPoolParams(c.env, account, clientIp(c.req.raw.headers), true);
 }
 
-interface PoolAccessRow {
-  email: string;
-  created_at: number;
-  pool_suspended: number;
-  pool_verified_at: string | null;
-  pool_identity: string | null;
+type PoolAccessRow = Pick<
+  SqlRow<typeof authUsers>,
+  'email' | 'created_at' | 'pool_suspended' | 'pool_verified_at' | 'pool_identity'
+> & {
   /** `pool_identities.suspended` of the user's identity (a deleted holder's suspension). */
-  identity_suspended: number | null;
-}
+  identity_suspended: SqlRow<typeof poolIdentities>['suspended'] | null;
+};
 
 const POOL_ACCESS_MESSAGES: Partial<Record<PoolBlockDetails['reason'], string>> = {
   suspended: 'Open pool access is suspended for this account',

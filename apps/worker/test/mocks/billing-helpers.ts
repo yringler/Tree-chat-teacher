@@ -1,6 +1,8 @@
 // Test-side helpers for the billing tests (imported by test files, which run
 // in workerd; not by vitest.config.ts). Ids are unique per call, so files and
 // tests sharing a D1 database or the Node-side mocks never collide.
+import type { SqlRow } from '../../src/db/rows.js';
+import type { usageEvents } from '../../src/db/schema.js';
 import type { AppEnv, LearnAccount, PowerAccount } from '../../src/env.js';
 import type { ScriptedGeneration } from './openrouter.js';
 
@@ -130,34 +132,8 @@ export async function insertUsage(env: AppEnv, row: UsageRowInput): Promise<stri
   return id;
 }
 
-export interface UsageRow {
-  id: string;
-  account_id: string;
-  tree_id: string | null;
-  node_id: string | null;
-  purpose: string;
-  provider_id: string;
-  model: string;
-  generation_id: string | null;
-  status: string;
-  hold_micros: number;
-  markup_bps: number;
-  fee_bps: number;
-  cost_nanos: number | null;
-  charge_micros: number | null;
-  input_tokens: number | null;
-  output_tokens: number | null;
-  web_searches: number;
-  created_at: string;
-  settled_at: string | null;
-  branch_id: string | null;
-  user_id: string | null;
-  funding: 'personal' | 'pool';
-  ip_key: string | null;
-  overage_micros: number;
-  settle_reason: string | null;
-  dispatched_at: string | null;
-}
+/** A `usage_events` row as `SELECT *` reads it. */
+export type UsageRow = SqlRow<typeof usageEvents>;
 
 export async function usageRows(env: AppEnv, accountId: string): Promise<UsageRow[]> {
   const { results } = await env.DB.prepare(

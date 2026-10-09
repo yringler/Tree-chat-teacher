@@ -9,6 +9,8 @@ import {
 } from '../billing/payments/customers.js';
 import { paymentProvider } from '../billing/payments/index.js';
 import { clearKeyCookie } from '../byok/keys.js';
+import type { SqlRow } from '../db/rows.js';
+import type { authUsers, shares as sharesTable } from '../db/schema.js';
 import type { AppBindings, AppContext, AppEnv } from '../env.js';
 import { validateJson } from '../http/errors.js';
 import { poolIdentity } from '../pool/identity.js';
@@ -71,11 +73,7 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
     `SELECT email, pool_suspended, pool_identity FROM auth_users WHERE id = ?1`,
   )
     .bind(userId)
-    .first<{
-      email: string;
-      pool_suspended: number;
-      pool_identity: string | null;
-    }>();
+    .first<Pick<SqlRow<typeof authUsers>, 'email' | 'pool_suspended' | 'pool_identity'>>();
   if (!user) throw new DomainError('not_found', 'Account not found');
 
   const billingCustomerDeleted = await deleteBillingCustomer(env, userId);
@@ -84,7 +82,7 @@ export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUs
     'SELECT token, version FROM shares WHERE account_id IN (?1, ?2)',
   )
     .bind(...accountIds)
-    .all<{ token: string; version: number }>();
+    .all<Pick<SqlRow<typeof sharesTable>, 'token' | 'version'>>();
 
   // A pool suspension stays with the mailbox (its pool identity, claimed or not yet).
   const suspendedIdentity = user.pool_suspended

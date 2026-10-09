@@ -18,11 +18,11 @@ import {
   type BranchFunding,
   type CheckoutResponse,
   type PurchaseInfo,
-  type UsageEntry,
   type UsageListResponse,
-  type UsagePurpose,
 } from '@tangent/shared';
 import type { ModelPrice } from '../config.js';
+import type { SqlRow } from '../db/rows.js';
+import type { creditGrants, usageEvents } from '../db/schema.js';
 import { callPayer, type AccountContext, type AppEnv } from '../env.js';
 import { creditPrice } from '../pool/model-prices.js';
 import { chargeFromTokensMicros, renderAllowanceBytes, type InputOf } from '../pool/pricing.js';
@@ -266,12 +266,11 @@ export async function assertCanSpend(
   if (pendingCalls >= USAGE_MAX_PENDING) throw new DomainError('rate_limited', TOO_MANY_PENDING);
 }
 
-interface PurchaseRow {
-  amount_micros: number;
-  gross_micros: number;
-  fee_micros: number;
-  created_at: string;
-}
+/** `gross_micros` is set: the query asks for it. */
+type PurchaseRow = Pick<
+  SqlRow<typeof creditGrants>,
+  'amount_micros' | 'gross_micros' | 'fee_micros' | 'created_at'
+> & { gross_micros: number };
 
 /** The latest top-up recorded with its gross amount and processing fee. */
 async function lastPurchase(env: AppEnv, accountId: string): Promise<PurchaseInfo | null> {
@@ -322,18 +321,19 @@ export async function getBillingSummary(
   };
 }
 
-interface UsageRow {
-  id: string;
-  created_at: string;
-  purpose: UsagePurpose;
-  model: string;
-  tree_id: string | null;
-  status: UsageEntry['status'];
-  charge_micros: number | null;
-  input_tokens: number | null;
-  output_tokens: number | null;
-  web_searches: number | null;
-}
+type UsageRow = Pick<
+  SqlRow<typeof usageEvents>,
+  | 'id'
+  | 'created_at'
+  | 'purpose'
+  | 'model'
+  | 'tree_id'
+  | 'status'
+  | 'charge_micros'
+  | 'input_tokens'
+  | 'output_tokens'
+  | 'web_searches'
+>;
 
 function encodeCursor(createdAt: string, id: string): string {
   return btoa(`${createdAt}|${id}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -388,7 +388,7 @@ export async function listUsage(
       chargeMicros: r.charge_micros,
       inputTokens: r.input_tokens,
       outputTokens: r.output_tokens,
-      webSearches: r.web_searches ?? 0,
+      webSearches: r.web_searches,
     })),
     nextCursor: results.length > size && last ? encodeCursor(last.created_at, last.id) : null,
   };

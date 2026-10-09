@@ -17,6 +17,7 @@ import {
 import { KEY_COOKIE_ATTRIBUTES, KEY_COOKIE_NAME } from '../byok/keys.js';
 import { appConfig } from '../config.js';
 import { createEmailSender, magicLinkEmail, type EmailSender } from '../email/index.js';
+import type { SqlRow } from '../db/rows.js';
 import type { AppEnv } from '../env.js';
 import { markPoolVerified } from '../pool/identity.js';
 import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnstile.js';
@@ -166,7 +167,7 @@ async function recordFirstSignInCheck(
   if (!location) return;
   const row = await env.DB.prepare('SELECT pool_verified_at FROM auth_users WHERE id = ?')
     .bind(user.id)
-    .first<{ pool_verified_at: string | null }>();
+    .first<Pick<SqlRow<typeof authUsers>, 'pool_verified_at'>>();
   if (row?.pool_verified_at) return;
   // The callback's error redirects (`/login?error=…`) carry no session, so this is a sign-in.
   headers.set('location', verifyPageUrl(safeNextPath(location, origin)));

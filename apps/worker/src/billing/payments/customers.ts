@@ -3,7 +3,11 @@
 // account deletion whether a provider holds a customer, and by adapters that
 // need a stored customer id. Polar addresses customers by our user id
 // (external_id), so for it this is informational.
+import type { SqlRow } from '../../db/rows.js';
+import type { authUsers, billingCustomers } from '../../db/schema.js';
 import type { Buyer, ProviderId } from './port.js';
+
+type CustomerSql = SqlRow<typeof billingCustomers>;
 
 /**
  * Records `customerRef` as `userId`'s customer at `provider` (the latest one
@@ -38,7 +42,7 @@ export async function customerRefFor(
   const row = await db
     .prepare('SELECT customer_ref FROM billing_customers WHERE provider = ? AND user_id = ?')
     .bind(provider, userId)
-    .first<{ customer_ref: string }>();
+    .first<Pick<CustomerSql, 'customer_ref'>>();
   return row?.customer_ref ?? null;
 }
 
@@ -47,7 +51,7 @@ export async function customerProvidersOf(db: D1Database, userId: string): Promi
   const { results } = await db
     .prepare('SELECT provider FROM billing_customers WHERE user_id = ? ORDER BY provider')
     .bind(userId)
-    .all<{ provider: string }>();
+    .all<Pick<CustomerSql, 'provider'>>();
   return results.map((r) => r.provider);
 }
 
@@ -69,7 +73,11 @@ export async function buyerFor(
        WHERE u.id = ?1`,
     )
     .bind(userId, provider)
-    .first<{ email: string; name: string | null; customer_ref: string | null }>();
+    .first<
+      Pick<SqlRow<typeof authUsers>, 'email' | 'name'> & {
+        customer_ref: CustomerSql['customer_ref'] | null;
+      }
+    >();
   if (!row) return null;
   return { userId, email: row.email, name: row.name || null, customerRef: row.customer_ref };
 }

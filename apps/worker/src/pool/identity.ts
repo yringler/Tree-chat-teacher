@@ -2,6 +2,8 @@
 // per mailbox, claimed when the user first passes Turnstile. An email's
 // identity is the SHA-256 of its normalised form, so the aliases one inbox
 // receives (`A.B+pool@gmail.com`, `ab@googlemail.com`) are one free tier.
+import type { SqlRow } from '../db/rows.js';
+import type { authUsers, poolIdentities } from '../db/schema.js';
 
 /** Domains whose mailboxes ignore dots in the local part, mapped to one domain. */
 const DOTLESS_DOMAINS: Readonly<Record<string, string>> = {
@@ -58,7 +60,7 @@ export async function claimPoolIdentity(
   const holder = await db
     .prepare('SELECT id FROM auth_users WHERE pool_identity = ?')
     .bind(identity)
-    .first<{ id: string }>();
+    .first<Pick<SqlRow<typeof authUsers>, 'id'>>();
   if (holder) return holder.id === userId ? 'ok' : 'duplicate';
   try {
     await db.batch([
@@ -91,7 +93,7 @@ export async function identitySuspended(db: D1Database, identity: string): Promi
   const row = await db
     .prepare('SELECT suspended FROM pool_identities WHERE identity = ?')
     .bind(identity)
-    .first<{ suspended: number }>();
+    .first<Pick<SqlRow<typeof poolIdentities>, 'suspended'>>();
   return row?.suspended === 1;
 }
 
