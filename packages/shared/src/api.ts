@@ -726,7 +726,8 @@ export const treeBackupSchema = z.object({
           .string()
           .transform((s) => s.slice(0, MAX_NODE_ERROR_CHARS))
           .nullable(),
-        errorKind: nodeErrorKind.nullable().optional(),
+        // A kind from a later version reads as none: import takes the kind from the message.
+        errorKind: nodeErrorKind.nullable().optional().catch(null),
         providerId: z.string().max(64).nullable(),
         model: z.string().max(200).nullable(),
         usage: z.object({ inputTokens: z.number(), outputTokens: z.number() }).nullable(),

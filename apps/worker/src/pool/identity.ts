@@ -2,6 +2,8 @@
 // per mailbox, claimed when the user first passes Turnstile. An email's
 // identity is the SHA-256 of its normalised form, so the aliases one inbox
 // receives (`A.B+pool@gmail.com`, `ab@googlemail.com`) are one free tier.
+import { logEvent } from '../log.js';
+import { DAY_USAGE_COLUMNS, dayStart } from './pool-bank.js';
 import type { SqlRow } from '../db/rows.js';
 import type { authUsers, poolIdentities } from '../db/schema.js';
 
@@ -42,18 +44,24 @@ export async function poolIdentity(email: string): Promise<string> {
 }
 
 /**
+ * How long a pool identity outlives the deletion of the account that held it
+ * (`pool_identities.deleted_at`), so that deleting the account and signing up
+ * again with the same mailbox can't start a fresh free tier. Then the daily
+ * cron purges it (`purgeReleasedPoolIdentities`). The privacy policy states it.
+ */
+export const POOL_IDENTITY_RETENTION_DAYS = 90;
+
+/**
  * Claims `email`'s pool identity for `userId`. `ok` when the user holds it
  * (now or already), `duplicate` when another user does. A user holds one
- * identity: it is set once and never moves to a changed email. A claim is
- * recorded in `pool_identity_holders`, which outlives the account, so an
- * identity released by a deleted account comes back with its suspension
- * (`pool_identities`) and its day's usage (the caps count every holder).
+ * identity: it is set once and never moves to a changed email. An identity
+ * released by a deleted account within `POOL_IDENTITY_RETENTION_DAYS` comes
+ * back with its suspension and that day's usage (`pool_identities`).
  */
 export async function claimPoolIdentity(
   db: D1Database,
   userId: string,
   email: string,
-  now = new Date(),
 ): Promise<'ok' | 'duplicate'> {
   const identity = await poolIdentity(email);
   // The unique index is the arbiter; a holder other than the user means it's taken.
@@ -63,20 +71,11 @@ export async function claimPoolIdentity(
     .first<Pick<SqlRow<typeof authUsers>, 'id'>>();
   if (holder) return holder.id === userId ? 'ok' : 'duplicate';
   try {
-    await db.batch([
-      db
-        .prepare('UPDATE auth_users SET pool_identity = ?1 WHERE id = ?2 AND pool_identity IS NULL')
-        .bind(identity, userId),
-      // Only when the claim above took (a user who holds another identity keeps it).
-      db
-        .prepare(
-          `INSERT INTO pool_identity_holders (user_id, identity, claimed_at)
-           SELECT ?2, ?1, ?3 WHERE EXISTS
-             (SELECT 1 FROM auth_users WHERE id = ?2 AND pool_identity = ?1)
-           ON CONFLICT(user_id) DO NOTHING`,
-        )
-        .bind(identity, userId, now.toISOString()),
-    ]);
+    // A user who holds another identity keeps it.
+    await db
+      .prepare('UPDATE auth_users SET pool_identity = ?1 WHERE id = ?2 AND pool_identity IS NULL')
+      .bind(identity, userId)
+      .run();
   } catch (err) {
     // Lost a race to another account with the same mailbox.
     if (/UNIQUE/i.test(String(err))) return 'duplicate';
@@ -133,5 +132,67 @@ export async function markPoolVerified(
     .prepare('UPDATE auth_users SET pool_verified_at = COALESCE(pool_verified_at, ?) WHERE id = ?')
     .bind(now.toISOString(), userId)
     .run();
-  return claimPoolIdentity(db, userId, email, now);
+  return claimPoolIdentity(db, userId, email);
+}
+
+/**
+ * Account deletion: the statement that keeps `identity` (the deleted user's
+ * pool identity, claimed or not) for `POOL_IDENTITY_RETENTION_DAYS` from
+ * `now`, suspended if the user was or the identity already is, with the
+ * user's pool usage of `now`'s UTC day on `poolId` added to that of a
+ * deletion earlier the same day, which the next holder's caps count until
+ * the day ends. Run it in the deletion's batch before the user's usage rows
+ * lose their user id.
+ */
+export function releasePoolIdentityStatement(
+  db: D1Database,
+  r: { identity: string; userId: string; poolId: string; suspended: boolean; now: Date },
+): D1PreparedStatement {
+  // SET reads the row as it was, so `deleted_at` below is the earlier deletion's.
+  return db
+    .prepare(
+      `INSERT INTO pool_identities
+         (identity, suspended, deleted_at, deleted_day_requests, deleted_day_spend_micros)
+       SELECT ?4, ?5, ?6, requests, spend FROM (SELECT ${DAY_USAGE_COLUMNS} FROM usage_events
+         WHERE account_id = ?1 AND user_id = ?2 AND created_at >= ?3)
+       WHERE true
+       ON CONFLICT(identity) DO UPDATE SET
+         suspended = MAX(suspended, excluded.suspended),
+         deleted_at = excluded.deleted_at,
+         deleted_day_requests = excluded.deleted_day_requests
+           + CASE WHEN deleted_at >= ?3 THEN deleted_day_requests ELSE 0 END,
+         deleted_day_spend_micros = excluded.deleted_day_spend_micros
+           + CASE WHEN deleted_at >= ?3 THEN deleted_day_spend_micros ELSE 0 END`,
+    )
+    .bind(
+      r.poolId,
+      r.userId,
+      dayStart(r.now).toISOString(),
+      r.identity,
+      r.suspended ? 1 : 0,
+      r.now.toISOString(),
+    );
+}
+
+/**
+ * Daily cron: deletes the pool identities whose last holder was deleted
+ * more than `POOL_IDENTITY_RETENTION_DAYS` before `now` and that no account
+ * holds again, suspension and all; that mailbox then starts afresh.
+ * Idempotent. Returns how many it deleted.
+ */
+export async function purgeReleasedPoolIdentities(
+  db: D1Database,
+  now = new Date(),
+): Promise<number> {
+  const cutoff = new Date(now.getTime() - POOL_IDENTITY_RETENTION_DAYS * 86_400_000);
+  const result = await db
+    .prepare(
+      `DELETE FROM pool_identities WHERE deleted_at < ?
+         AND NOT EXISTS (SELECT 1 FROM auth_users u WHERE u.pool_identity = pool_identities.identity)`,
+    )
+    .bind(cutoff.toISOString())
+    .run();
+  const purged = result.meta.changes;
+  if (purged > 0) logEvent('info', 'pool_identities_purged', { purged });
+  return purged;
 }

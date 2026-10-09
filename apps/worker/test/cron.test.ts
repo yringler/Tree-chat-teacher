@@ -12,6 +12,7 @@ function spies() {
     poolExpiry: vi.fn(() => Promise.resolve()),
     paymentDisputes: vi.fn(() => Promise.resolve()),
     priceSync: vi.fn(() => Promise.resolve()),
+    poolIdentityPurge: vi.fn(() => Promise.resolve()),
   } satisfies CronJobs;
 }
 
@@ -24,10 +25,12 @@ describe('cron dispatch', () => {
     expect(frequent.poolExpiry).toHaveBeenCalledWith(env, now);
     expect(frequent.paymentDisputes).toHaveBeenCalledWith(env, now);
     expect(frequent.priceSync).not.toHaveBeenCalled();
+    expect(frequent.poolIdentityPurge).not.toHaveBeenCalled();
 
     const daily = spies();
     await Promise.all(cronTasks(CRON_DAILY, env, now, daily));
     expect(daily.priceSync).toHaveBeenCalledWith(env, now);
+    expect(daily.poolIdentityPurge).toHaveBeenCalledWith(env, now);
     expect(daily.reconcile).not.toHaveBeenCalled();
     expect(daily.poolExpiry).not.toHaveBeenCalled();
     expect(daily.paymentDisputes).not.toHaveBeenCalled();
@@ -38,6 +41,13 @@ describe('cron dispatch', () => {
     failing.priceSync.mockImplementation(() => Promise.reject(new Error('down')));
     await expect(Promise.all(cronTasks(CRON_DAILY, env, now, failing))).resolves.toBeDefined();
     expect(error).toHaveBeenCalledWith(expect.stringContaining('"event":"price_sync_failed"'));
+    const failingPurge = spies();
+    failingPurge.poolIdentityPurge.mockImplementation(() => Promise.reject(new Error('down')));
+    await expect(Promise.all(cronTasks(CRON_DAILY, env, now, failingPurge))).resolves.toBeDefined();
+    expect(failingPurge.priceSync).toHaveBeenCalledOnce();
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"pool_identity_purge_failed"'),
+    );
     error.mockRestore();
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

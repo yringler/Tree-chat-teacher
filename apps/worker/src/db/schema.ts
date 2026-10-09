@@ -568,19 +568,34 @@ export const usageEvents = sqliteTable(
 // ---- Open pool identities (src/pool/identity.ts)
 //
 // A mailbox's pool identity (`auth_users.pool_identity`, a SHA-256 of the
-// normalised email) outlives the account that claimed it: deleting the
-// account and signing up again with the same mailbox must not lift a
-// suspension or reset the daily caps. These two tables hold only that hash
-// and user ids, and account deletion keeps them, like the ledger.
+// normalised email) outlives the account that claimed it by
+// `POOL_IDENTITY_RETENTION_DAYS`: deleting the account and signing up again
+// with the same mailbox must not lift a suspension or reset the day's caps.
+// Account deletion takes the user id off everything else the pool keeps.
 
-/** Per mailbox: an operator suspension that survives the account's deletion. */
+/**
+ * Per mailbox: an operator suspension, and what a deleted account that held
+ * the identity leaves to the next one. The daily cron deletes the row
+ * `POOL_IDENTITY_RETENTION_DAYS` after `deleted_at`, unless an account holds
+ * the identity again.
+ */
 export const poolIdentities = sqliteTable('pool_identities', {
   identity: text('identity').primaryKey(),
   /** Set with the holder's `pool_suspended` (admin PATCH, account deletion); cleared by an admin unsuspend. */
   suspended: integer('suspended', { mode: 'boolean' }).notNull().default(false),
+  /** ISO time the last account that held the identity was deleted; null while none was. */
+  deletedAt: text('deleted_at'),
+  /** That account's pool replies on `deleted_at`'s UTC day, counted toward the next holder's caps that day. */
+  deletedDayRequests: integer('deleted_day_requests').notNull().default(0),
+  /** Its pool spend that day (micro-USD), likewise. */
+  deletedDaySpendMicros: integer('deleted_day_spend_micros').notNull().default(0),
 });
 
-/** Every account that has held a pool identity, so the daily caps count the mailbox's usage. */
+/**
+ * Unread: account deletion removes the user's row, and nothing writes one.
+ * Kept until a migration can drop it without breaking a Worker that still
+ * runs code writing it.
+ */
 export const poolIdentityHolders = sqliteTable(
   'pool_identity_holders',
   {

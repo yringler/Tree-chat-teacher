@@ -1,5 +1,6 @@
 import {
   foldSystemPrompt,
+  REPLY_STREAM_ENDED_ERROR,
   type BranchFunding,
   type ChatNode,
   type ReviewEvent,
@@ -118,7 +119,7 @@ export class ReviewService {
           return;
         }
       }
-      yield { type: 'error', message: 'The provider stream ended unexpectedly' };
+      yield { type: 'error', message: REPLY_STREAM_ENDED_ERROR };
     } catch (err) {
       yield { type: 'error', message: err instanceof Error ? err.message : 'Review failed' };
     }

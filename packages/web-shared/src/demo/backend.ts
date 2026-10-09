@@ -44,6 +44,8 @@ import {
   type MeResponse,
   type MembershipInfo,
   MAX_USAGE_FACTOR_FALLBACK,
+  errorKindOf,
+  REPLY_INTERRUPTED_ERROR,
   type NodeLink,
   type PoolMeResponse,
   type PoolStatusResponse,
@@ -924,13 +926,9 @@ export class DemoBackend {
       this.state.nodes.set(
         n.id,
         n.status === 'streaming'
-          ? {
-              ...n,
-              status: 'error',
-              error: 'Interrupted before the reply finished',
-              errorKind: 'interrupted',
-            }
-          : n,
+          ? { ...n, status: 'error', error: REPLY_INTERRUPTED_ERROR, errorKind: 'interrupted' }
+          : // A session saved before nodes had a kind: read it from the message.
+            { ...n, errorKind: errorKindOf(n) },
       );
     }
     for (const l of saved.links) this.state.links.set(l.id, l);

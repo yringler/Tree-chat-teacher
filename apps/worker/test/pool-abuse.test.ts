@@ -16,10 +16,19 @@ import type {
 } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
+import { getBalance } from '../src/billing/ledger.js';
+import { CRON_JOBS } from '../src/cron.js';
+import type { SqlRow } from '../src/db/rows.js';
+import type { poolIdentities } from '../src/db/schema.js';
 import type { AppEnv } from '../src/env.js';
-import { normaliseEmail, poolIdentity } from '../src/pool/identity.js';
+import {
+  normaliseEmail,
+  POOL_IDENTITY_RETENTION_DAYS,
+  poolIdentity,
+  purgeReleasedPoolIdentities,
+} from '../src/pool/identity.js';
 import { poolBank } from '../src/pool/ids.js';
-import { replyCeilingMicros, resolvePoolParams } from '../src/pool/params.js';
+import { POOL_GIVE_UP_MS, replyCeilingMicros, resolvePoolParams } from '../src/pool/params.js';
 import { insertSubscription, uniq } from './mocks/billing-helpers.js';
 import { poolAccess, poolReadyUser } from './pool-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
@@ -543,6 +552,218 @@ describe('account gates', () => {
     });
     expect(res.status).toBe(403);
     expect(((await res.json()) as ApiError).error.code).toBe('pool_unavailable');
+  });
+});
+
+describe('account deletion', () => {
+  /** What a deletion must keep of the pool's rows: everything but who and from where. */
+  const LEDGER_COLUMNS =
+    'id, status, hold_micros, charge_micros, cost_nanos, overage_micros, model, input_tokens, output_tokens, created_at';
+
+  async function poolRows(poolId: string) {
+    const { results } = await env.DB.prepare(
+      `SELECT ${LEDGER_COLUMNS}, user_id, ip_key FROM usage_events WHERE account_id = ? ORDER BY id`,
+    )
+      .bind(poolId)
+      .all<Record<string, unknown>>();
+    return results;
+  }
+
+  /** The pool's rows once none is pending (a reply settles after its stream ends). */
+  async function settledRows(poolId: string) {
+    for (let i = 0; i < 50; i++) {
+      const rows = await poolRows(poolId);
+      if (rows.every((r) => r.status !== 'pending')) return rows;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error('pool rows still pending');
+  }
+
+  async function dayTotal(poolId: string): Promise<number> {
+    const day = new Date(nextUtcMidnight()).getTime() - 86_400_000;
+    const row = await env.DB.prepare(
+      `SELECT COALESCE(SUM(CASE WHEN status = 'pending' THEN hold_micros ELSE COALESCE(charge_micros, 0) END), 0) AS spend
+       FROM usage_events WHERE account_id = ? AND created_at >= ?`,
+    )
+      .bind(poolId, new Date(day).toISOString())
+      .first<{ spend: number }>();
+    return Number(row?.spend ?? 0);
+  }
+
+  async function identityRow(identity: string) {
+    return env.DB.prepare(
+      'SELECT suspended, deleted_at, deleted_day_requests FROM pool_identities WHERE identity = ?',
+    )
+      .bind(identity)
+      .first<
+        Pick<SqlRow<typeof poolIdentities>, 'suspended' | 'deleted_at' | 'deleted_day_requests'>
+      >();
+  }
+
+  async function deleteAccount(u: User, email: string): Promise<void> {
+    const res = await u.client.call('/api/account', {
+      method: 'DELETE',
+      json: { confirmEmail: email },
+    });
+    expect(res.status).toBe(204);
+  }
+
+  /** Moves the identity's deletion `days` into the past, as if that much time had gone by. */
+  async function ageDeletion(identity: string, days: number): Promise<void> {
+    await env.DB.prepare('UPDATE pool_identities SET deleted_at = ? WHERE identity = ?')
+      .bind(new Date(Date.now() - days * 86_400_000).toISOString(), identity)
+      .run();
+  }
+
+  it('strips the user id and network key from the pool rows, and leaves the pool’s sums alone', async () => {
+    const ip = freshIp();
+    const email = `gone-${Math.random().toString(36).slice(2, 8)}@example.org`;
+    const stays = await poolReadyUser({ ip });
+    const gone = await poolReadyUser({ ip, email, poolId: stays.poolId });
+    const admin = await poolReadyUser({ poolId: stays.poolId, ip: freshIp() });
+    const adminEnv = authEnv({ TEST_POOL_ACCOUNT_ID: stays.poolId, ADMIN_USER_IDS: admin.userId });
+    const poolId = stays.poolId;
+    await sendOk(stays, (await newTree(stays)).branchId);
+    const { branchId } = await newTree(gone);
+    await sendOk(gone, branchId, 'One');
+    await sendOk(gone, branchId, 'Two');
+    const bank = poolBank(env, poolId);
+    expect(await bank.rateKeys()).toContain(`u:${gone.userId}`);
+    // The network has its 3 replies of the day.
+    const neighbour = await poolReadyUser({
+      ip,
+      poolId,
+      env: { POOL_IP_REQUESTS_PER_DAY: '3' },
+    });
+    const neighbourTree = await newTree(neighbour);
+    expect(
+      (await refused(await send(neighbour, neighbourTree.branchId), 429, 'pool_cap_reached'))
+        .reason,
+    ).toBe('cap_ip');
+
+    const before = await settledRows(poolId);
+    expect(before.filter((r) => r.user_id === gone.userId)).toHaveLength(2);
+    const balance = await getBalance(env.DB, poolId);
+    const total = await dayTotal(poolId);
+
+    await deleteAccount(gone, email);
+
+    const after = await poolRows(poolId);
+    const ledger = (rows: Record<string, unknown>[]) =>
+      rows.map(({ user_id: _u, ip_key: _i, ...kept }) => kept);
+    expect(ledger(after)).toEqual(ledger(before));
+    expect(after.filter((r) => r.user_id === gone.userId)).toEqual([]);
+    const stripped = after.filter((r) => r.user_id === null);
+    expect(stripped).toHaveLength(2);
+    expect(stripped.every((r) => r.ip_key === null)).toBe(true);
+    // The account that stays keeps its rows as they were.
+    expect(after.filter((r) => r.user_id === stays.userId)).toEqual(
+      before.filter((r) => r.user_id === stays.userId),
+    );
+    expect(await getBalance(env.DB, poolId)).toEqual(balance);
+    expect(await dayTotal(poolId)).toBe(total);
+    expect(await bank.maintain({ poolId, giveUpMs: POOL_GIVE_UP_MS })).toMatchObject({
+      mismatchMicros: 0,
+    });
+    expect(await bank.rateKeys()).not.toContain(`u:${gone.userId}`);
+
+    // The report lists who remains; the shared network counts one user now.
+    const report = await ok<AdminPoolUsageResponse>(
+      await admin.client.call('/api/admin/pool/usage?days=1&limit=10', {}, adminEnv),
+    );
+    expect(report.rows.map((r) => [r.userId, r.requests])).toEqual([[stays.userId, 1]]);
+    expect(report.ipKeys).toEqual([expect.objectContaining({ users: 1, requests: 1 })]);
+    // The deleted account's replies no longer count toward its network's cap.
+    await sendOk(neighbour, neighbourTree.branchId);
+  });
+
+  it('a new account on the mailbox within the retention is the same identity, suspension and day', async () => {
+    const tag = Math.random().toString(36).slice(2, 8);
+    const first = await poolReadyUser({ email: `ab${tag}@gmail.com`, ip: freshIp() });
+    const admin = await poolReadyUser({ poolId: first.poolId });
+    const identity = await poolIdentity(`ab${tag}@gmail.com`);
+    await sendOk(first, (await newTree(first)).branchId);
+    await ok<AdminUser>(
+      await admin.client.call(
+        `/api/admin/users/${first.userId}`,
+        { method: 'PATCH', json: { poolSuspended: true } },
+        authEnv({ TEST_POOL_ACCOUNT_ID: first.poolId, ADMIN_USER_IDS: admin.userId }),
+      ),
+    );
+    await deleteAccount(first, `ab${tag}@gmail.com`);
+    const kept = await identityRow(identity);
+    expect(kept).toMatchObject({ suspended: 1, deleted_day_requests: 1 });
+    expect(Date.now() - Date.parse(kept!.deleted_at!)).toBeLessThan(60_000);
+
+    // A day short of the retention, the cron keeps it.
+    await ageDeletion(identity, POOL_IDENTITY_RETENTION_DAYS - 1);
+    await CRON_JOBS.poolIdentityPurge(env, new Date());
+    expect(await identityRow(identity)).toMatchObject({ suspended: 1 });
+
+    const again = await poolReadyUser({
+      email: `a.b${tag}@gmail.com`,
+      poolId: first.poolId,
+      ip: freshIp(),
+    });
+    expect((await poolAccess(again.userId))?.pool_identity).toBe(identity);
+    expect(
+      (await refused(await send(again, (await newTree(again)).branchId), 403, 'pool_unavailable'))
+        .reason,
+    ).toBe('suspended');
+    // Held again, it outlasts the retention: only an identity nobody holds is purged.
+    await ageDeletion(identity, POOL_IDENTITY_RETENTION_DAYS + 1);
+    expect(await purgeReleasedPoolIdentities(env.DB)).toBe(0);
+    expect(await identityRow(identity)).toMatchObject({ suspended: 1 });
+  });
+
+  it('two deletions on one mailbox in a day add up toward the next account’s caps', async () => {
+    const email = `twice-${Math.random().toString(36).slice(2, 8)}@example.org`;
+    const first = await poolReadyUser({ email, ip: freshIp() });
+    const firstTree = await newTree(first);
+    await sendOk(first, firstTree.branchId, 'One');
+    await sendOk(first, firstTree.branchId, 'Two');
+    await deleteAccount(first, email);
+    const second = await poolReadyUser({ email, poolId: first.poolId, ip: freshIp() });
+    await sendOk(second, (await newTree(second)).branchId);
+    await deleteAccount(second, email);
+    expect(await identityRow(await poolIdentity(email))).toMatchObject({
+      deleted_day_requests: DAILY_REPLIES,
+    });
+    const third = await poolReadyUser({ email, poolId: first.poolId, ip: freshIp() });
+    expect(
+      (await refused(await send(third, (await newTree(third)).branchId), 429, 'pool_cap_reached'))
+        .reason,
+    ).toBe('cap_requests');
+  });
+
+  it('the daily cron purges an identity past the retention; the mailbox then starts afresh', async () => {
+    const email = `fresh-${Math.random().toString(36).slice(2, 8)}@example.org`;
+    const first = await poolReadyUser({ email, ip: freshIp() });
+    const admin = await poolReadyUser({ poolId: first.poolId });
+    const identity = await poolIdentity(email);
+    const { branchId } = await newTree(first);
+    for (let i = 0; i < DAILY_REPLIES; i++) await sendOk(first, branchId, `Q${i}`);
+    await ok<AdminUser>(
+      await admin.client.call(
+        `/api/admin/users/${first.userId}`,
+        { method: 'PATCH', json: { poolSuspended: true } },
+        authEnv({ TEST_POOL_ACCOUNT_ID: first.poolId, ADMIN_USER_IDS: admin.userId }),
+      ),
+    );
+    await deleteAccount(first, email);
+    expect(await identityRow(identity)).toMatchObject({ suspended: 1 });
+
+    await ageDeletion(identity, POOL_IDENTITY_RETENTION_DAYS + 1);
+    await CRON_JOBS.poolIdentityPurge(env, new Date());
+    expect(await identityRow(identity)).toBeNull();
+    // Idempotent: a second run finds nothing.
+    expect(await purgeReleasedPoolIdentities(env.DB)).toBe(0);
+
+    // Same mailbox, same hash, but nothing of the old account: no suspension, the day's caps unused.
+    const again = await poolReadyUser({ email, poolId: first.poolId, ip: freshIp() });
+    expect((await poolAccess(again.userId))?.pool_identity).toBe(identity);
+    const { branchId: next } = await newTree(again);
+    for (let i = 0; i < DAILY_REPLIES; i++) await sendOk(again, next, `Q${i}`);
   });
 });
 
