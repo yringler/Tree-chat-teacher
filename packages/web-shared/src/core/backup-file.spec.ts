@@ -1,40 +1,14 @@
 import type { TreeBackup } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { backupFile, readBackupFile } from './backup-file';
-
-const AT = '2026-01-01T00:00:00.000Z';
+import { branch, detail, T } from '../testing';
 
 const BACKUP: TreeBackup = {
   format: 'tangent-tree-backup',
   version: 1,
-  exportedAt: AT,
-  tree: {
-    id: 't',
-    accountId: 'u_1',
-    title: 'Why is the sky blue?',
-    systemPrompt: null,
-    trunkBranchId: 'b',
-    createdAt: AT,
-    updatedAt: AT,
-  },
-  branches: [
-    {
-      id: 'b',
-      treeId: 't',
-      parentBranchId: null,
-      branchPointNodeId: null,
-      contextMode: 'path',
-      anchorQuote: null,
-      title: 'Main thread',
-      titleSource: 'default',
-      isPrivate: false,
-      providerId: 'openrouter',
-      model: 'max',
-      funding: 'own-key',
-      createdAt: AT,
-      updatedAt: AT,
-    },
-  ],
+  exportedAt: T,
+  tree: detail([], [], [], { id: 't', title: 'Why is the sky blue?', trunkBranchId: 'b' }).tree,
+  branches: [branch('b', { treeId: 't', title: 'Main thread', model: 'max' })],
   nodes: [],
 };
 

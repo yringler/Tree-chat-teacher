@@ -14,6 +14,7 @@ import { TierStore, tierOptions } from './tier-store';
 import { TreeStore } from './tree-store';
 import { UiStore } from './ui-store';
 import { ComposerController, ToastStore } from '@tangent/web-shared';
+import * as fixtures from '@tangent/web-shared/testing';
 
 const PRO = 'deepseek/deepseek-v4-pro';
 const SONNET = 'anthropic/claude-sonnet-5.5';
@@ -57,26 +58,9 @@ const anthropic: ProviderInfo = {
   keySource: 'user',
 };
 
-const at = '2026-10-01T00:00:00.000Z';
-function branch(over: Partial<Branch> = {}): Branch {
-  return {
-    id: 'b1',
-    treeId: 't1',
-    parentBranchId: null,
-    branchPointNodeId: null,
-    contextMode: 'path',
-    anchorQuote: null,
-    title: 'Light',
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'openrouter',
-    model: PRO,
-    funding: 'credit',
-    createdAt: at,
-    updatedAt: at,
-    ...over,
-  };
-}
+/** Branch "Light" on Tangent credit and `PRO`, unless `over` says otherwise. */
+const branch = (over: Partial<Branch> = {}): Branch =>
+  fixtures.branch('b1', { title: 'Light', model: PRO, funding: 'credit', ...over });
 
 /** The bits of TreeStore that TierStore reads, over a plain provider list. */
 function setup(

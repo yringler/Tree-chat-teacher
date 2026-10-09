@@ -1,8 +1,10 @@
 import '@angular/compiler'; // JIT: the component metadata and the DI below.
 import { Injector, runInInjectionContext, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import type { Branch, ChatNode, Tree, TreeDetail, UpdateBranchRequest } from '@tangent/shared';
+import type { Branch, Tree, TreeDetail, UpdateBranchRequest } from '@tangent/shared';
 import { ApiClient, ComposerController, ToastStore } from '@tangent/web-shared';
+import * as fixtures from '@tangent/web-shared/testing';
+import { node } from '@tangent/web-shared/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsStore } from '../state/settings-store';
 import { TreeStore } from '../state/tree-store';
@@ -10,53 +12,11 @@ import { UiStore } from '../state/ui-store';
 import { BranchSettings } from './branch-settings';
 import { TreeSettings } from './tree-settings';
 
-const at = '2026-10-01T00:00:00.000Z';
+/** The trunk "Main thread" on Tangent credit, unless `over` says otherwise. */
+const branch = (over: Partial<Branch> = {}): Branch =>
+  fixtures.branch('trunk', { title: 'Main thread', funding: 'credit', ...over });
 
-const tree: Tree = {
-  id: 't1',
-  accountId: 'p_1',
-  title: 'New conversation',
-  systemPrompt: null,
-  trunkBranchId: 'trunk',
-  createdAt: at,
-  updatedAt: at,
-};
-
-function branch(over: Partial<Branch> = {}): Branch {
-  return {
-    id: 'trunk',
-    treeId: 't1',
-    parentBranchId: null,
-    branchPointNodeId: null,
-    contextMode: 'path',
-    anchorQuote: null,
-    title: 'Main thread',
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'openrouter',
-    model: 'a/b',
-    funding: 'credit',
-    createdAt: at,
-    updatedAt: at,
-    ...over,
-  };
-}
-
-const reply: ChatNode = {
-  id: 'a1',
-  treeId: 't1',
-  branchId: 'trunk',
-  parentId: null,
-  seq: 0,
-  role: 'assistant',
-  content: 'A wave.',
-  status: 'complete',
-  error: null,
-  providerId: null,
-  model: null,
-  usage: null,
-  createdAt: at,
-};
+const reply = node('a1', { content: 'A wave.' });
 
 const side = branch({
   id: 'side',
@@ -66,8 +26,10 @@ const side = branch({
 });
 
 function detail(): TreeDetail {
-  return { tree, branches: [branch(), side], nodes: [reply], links: [] };
+  return fixtures.detail([reply], [branch(), side], [], { title: 'New conversation' });
 }
+
+const tree: Tree = detail().tree;
 
 function setup() {
   const api = {

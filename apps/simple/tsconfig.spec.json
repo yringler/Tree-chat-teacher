@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": []
   },
-  "include": ["src/**/*.spec.ts", "vitest.config.ts"]
+  "include": ["src/**/*.spec.ts", "src/**/*.testing.ts", "vitest.config.ts"]
 }

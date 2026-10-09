@@ -9,6 +9,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./demo": "./src/demo/index.ts",
+    "./testing": "./src/testing/index.ts",
     "./styles/base.css": "./src/styles/base.css"
   },
   "scripts": {
@@ -38,7 +39,10 @@
     "@angular/core": "^22.2.0",
     "@angular/platform-browser": "^22.2.0",
     "@angular/router": "^22.2.0",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/user-event": "14.6.7",
     "@vitest/coverage-v8": "~4.1.11",
+    "happy-dom": "20.14.5",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
     "typescript": "~6.0.3",

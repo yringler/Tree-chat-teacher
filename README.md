@@ -52,7 +52,7 @@ The dev servers proxy `/api` and `/s` to the Worker. With real sign-in, set `PUB
 ### Checks
 
 ```bash
-pnpm test           # Vitest everywhere; worker suites run in workerd with real D1 and Durable Objects
+pnpm test           # Vitest everywhere; worker suites run in workerd with real D1 and Durable Objects; Angular *.dom.spec.ts render components with TestBed in happy-dom
 pnpm typecheck      # tsc everywhere, Angular strict templates included
 pnpm lint           # ESLint, plus the provider-neutral, migration and import-cycle checks
 pnpm format:check   # Prettier (`pnpm format` rewrites)
