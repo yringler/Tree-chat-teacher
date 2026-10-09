@@ -20,7 +20,7 @@ export function simpleAccount(userId = uniq('user')): AccountContext {
     billingAccountId: id,
     builtIn: true,
     operatorKeys: false,
-    funding: 'personal',
+    funding: 'credit',
   };
 }
 
@@ -33,7 +33,7 @@ export function powerAccount(userId = uniq('user')): AccountContext {
     billingAccountId: `u_${userId}`,
     builtIn: true,
     operatorKeys: false,
-    funding: 'personal',
+    funding: 'credit',
   };
 }
 
@@ -46,7 +46,7 @@ export function devPowerAccount(overrides: Partial<AccountContext> = {}): Accoun
     billingAccountId: 'default_simple',
     builtIn: true,
     operatorKeys: true,
-    funding: 'personal',
+    funding: 'credit',
     ...overrides,
   };
 }

@@ -72,7 +72,7 @@ describe('resolveAccount', () => {
       billingAccountId: DEV_SIMPLE_ACCOUNT_ID,
       builtIn: true,
       operatorKeys: true,
-      funding: 'personal',
+      funding: 'credit',
     });
     expect(resolveAccount(withEnv(), dev, learn('own-key'))).toEqual({
       id: DEV_SIMPLE_ACCOUNT_ID,
@@ -93,7 +93,7 @@ describe('resolveAccount', () => {
       billingAccountId: 'u_usr1',
       builtIn: true,
       operatorKeys: false,
-      funding: 'personal',
+      funding: 'credit',
     });
     expect(resolveAccount(withEnv(), user('someone@example.org'), learn('own-key'))).toEqual({
       id: 'u_usr1',
@@ -148,9 +148,9 @@ describe('resolveAccount', () => {
         builtIn: false,
       });
     }
-    // Credit is personal where it is offered, else the user's own key.
+    // Credit pays where it is offered, else the user's own key.
     expect(resolveAccount(withEnv(), user('a@example.org'), learn('credit')).funding).toBe(
-      'personal',
+      'credit',
     );
     expect(
       resolveAccount(withEnv({ PAYMENT_PROVIDER: 'polar' }), user('a@example.org'), learn('credit'))
@@ -163,14 +163,14 @@ describe('resolveAccount', () => {
         user('a@example.org'),
         learn('credit'),
       ),
-    ).toMatchObject({ funding: 'personal', builtIn: true });
+    ).toMatchObject({ funding: 'credit', builtIn: true });
   });
 
   it('power never uses the pool, whatever the payment header', () => {
     const pool: AccountRequest = { mode: 'power', payment: 'pool' };
     expect(resolveAccount(withEnv(), user('a@example.org'), pool)).toMatchObject({
       mode: 'power',
-      funding: 'personal',
+      funding: 'credit',
     });
   });
 

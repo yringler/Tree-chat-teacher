@@ -89,7 +89,7 @@ describe('chatSettingsFor: SUMMARY_PROVIDER_ID', () => {
     billingAccountId: 'u_settings',
     builtIn: true,
     operatorKeys: false,
-    funding: 'personal',
+    funding: 'credit',
   };
   const settings = (id: string) =>
     chatSettingsFor({ ...env, SUMMARY_PROVIDER_ID: id } as AppEnv, power);

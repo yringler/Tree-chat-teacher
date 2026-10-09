@@ -3,7 +3,7 @@ import { Router } from '@angular/router';
 // The tree helpers only: the rest of @tangent/core (the ChatService) is for the lazy demo chunk.
 import { linkTarget } from '@tangent/core/links';
 import {
-  BUILT_IN_PROVIDER_ID,
+  OPENROUTER_PROVIDER_ID,
   TIER_LABELS,
   tierModel,
   type Branch,
@@ -56,13 +56,6 @@ export interface LinkReturn {
   toNodeId: string;
 }
 
-/**
- * Learn's endpoint, the built-in provider (`openrouter`); the first
- * provider otherwise. Learn pays per request (its payment header), never per
- * branch, so it names no funding.
- */
-const LEARN_PROVIDER_ID = BUILT_IN_PROVIDER_ID;
-
 export const OUT_OF_CREDIT_MESSAGE = 'Add credit to keep learning';
 /** A Compare pick the server no longer accepts (409 the lesson moved on, 410 expired). */
 export const COMPARE_OUT_OF_DATE_MESSAGE =
@@ -108,10 +101,13 @@ export class LessonStore extends ConversationStore<ApiClient> {
     });
   }
 
-  // Providers (Learn accounts: one provider with a Normal and a Max model, `ModelInfo.tier`)
+  // Providers (Learn accounts: one provider with a Normal and a Max model, `ModelInfo.tier`).
+  // Learn's endpoint is the built-in provider's, else the first; Learn pays per request
+  // (its payment header), never per branch, so it names no funding.
   readonly providers = signal<ProviderInfo[]>([]);
   readonly provider = computed<ProviderInfo | null>(
-    () => this.providers().find((p) => p.id === LEARN_PROVIDER_ID) ?? this.providers()[0] ?? null,
+    () =>
+      this.providers().find((p) => p.id === OPENROUTER_PROVIDER_ID) ?? this.providers()[0] ?? null,
   );
   readonly models = computed<readonly ModelInfo[]>(() => this.provider()?.models ?? []);
   readonly defaultModel = computed<string | null>(() => this.provider()?.defaultModel ?? null);

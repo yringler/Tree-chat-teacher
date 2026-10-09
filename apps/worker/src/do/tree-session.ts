@@ -15,10 +15,11 @@ import {
 import {
   CANDIDATE_TTL_MS,
   DEFAULT_ACCOUNT_ID,
+  OPENROUTER_PROVIDER_ID,
   type ApiError,
   type ChatNode,
   type CommitCandidateResponse,
-  type FundingSource,
+  type Payer,
   type StreamEvent,
 } from '@tangent/shared';
 import { DurableObject } from 'cloudflare:workers';
@@ -37,7 +38,6 @@ import {
   type PoolParams,
 } from '../pool/params.js';
 import { chatService } from '../registries.js';
-import { BUILT_IN_PROVIDER_ID } from '../simple-mode.js';
 import { logEvent } from '../log.js';
 
 const KEEPALIVE_MS = 15_000;
@@ -113,7 +113,7 @@ interface SendTarget extends GenerationLimits {
   creditReply?: CreditReplyHold;
 }
 
-const FUNDING: ReadonlySet<string> = new Set<FundingSource>(['own-key', 'personal', 'pool']);
+const FUNDING: ReadonlySet<string> = new Set<Payer>(['own-key', 'credit', 'pool']);
 
 /** The account `accountParams` (tree-session-client.ts) sent as query parameters. */
 export function accountFromParams(params: URLSearchParams): AccountContext {
@@ -127,7 +127,7 @@ export function accountFromParams(params: URLSearchParams): AccountContext {
     billingAccountId: params.get('billingAccountId') || billingAccountIdFor(userId),
     builtIn: params.get('builtIn') === '1',
     operatorKeys: params.get('operatorKeys') === '1',
-    funding: FUNDING.has(funding) ? (funding as FundingSource) : 'personal',
+    funding: FUNDING.has(funding) ? (funding as Payer) : 'credit',
     ...(pool ? { pool: JSON.parse(pool) as PoolParams } : {}),
   };
 }
@@ -317,7 +317,7 @@ export class TreeSession extends DurableObject<AppEnv> {
         treeId: target.treeId,
         branchId: target.branchId,
         nodeId: null,
-        providerId: BUILT_IN_PROVIDER_ID,
+        providerId: OPENROUTER_PROVIDER_ID,
         holdMicros: replyCeilingMicros(pool, pool.price),
         feeBps: pool.price.feeBps,
       }),

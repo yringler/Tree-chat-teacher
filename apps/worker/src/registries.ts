@@ -13,7 +13,7 @@ import {
 import { createProviderRegistry, decorateProvider } from '@tangent/providers';
 import {
   DEFAULT_SYSTEM_PROMPT,
-  LEARN_KEY_PROVIDER,
+  OPENROUTER_PROVIDER_ID,
   type BranchFunding,
   type LlmProvider,
   type ProviderConfig,
@@ -73,7 +73,7 @@ function poolScope(account: AccountContext, scope: ServiceScope) {
  *   pool's config of it (`poolProviderConfig`). Learn pays per request, so
  *   this is its one registry, whatever a branch's funding says.
  * - simple, own key: the same provider config, on the user's OpenRouter key
- *   (key cookie entry LEARN_KEY_PROVIDER) and never the operator's.
+ *   (key cookie entry OPENROUTER_PROVIDER_ID) and never the operator's.
  * - power: the configured providers, user keys overriding server secrets.
  *   Server secrets only for operatorKeys (the local dev bypass), and never
  *   the built-in key. Tangent credit is not in it: a branch on `credit`
@@ -93,7 +93,7 @@ export function registryFor(
       const pool = poolScope(account, scope);
       return windowedRegistry(env, [pool ? poolProviderConfig(env, pool) : config]);
     }
-    const own = apiKeys?.[LEARN_KEY_PROVIDER];
+    const own = apiKeys?.[OPENROUTER_PROVIDER_ID];
     return windowedRegistry(
       env,
       [config],

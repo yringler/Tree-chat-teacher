@@ -2,7 +2,7 @@ import { DomainError, ValidationError } from '@tangent/core';
 import { acceptsUserKey, verifyApiKey } from '@tangent/providers';
 import {
   forgetKeyRequestSchema,
-  LEARN_KEY_PROVIDER,
+  OPENROUTER_PROVIDER_ID,
   saveKeyRequestSchema,
   type KeyStatusResponse,
   type ProviderConfig,
@@ -27,7 +27,7 @@ import { simpleProviderConfig } from '../simple-mode.js';
  * Bring-your-own-key management, mounted at /api/key. No route ever returns
  * any part of a key; the key is only accepted (POST) and then lives in the
  * sealed HttpOnly cookie. Both apps share the one cookie: Learn mode (simple)
- * stores and uses only the OpenRouter entry (LEARN_KEY_PROVIDER), checked
+ * stores and uses only the OpenRouter entry (OPENROUTER_PROVIDER_ID), checked
  * against its own provider config, so the same key works in both apps.
  */
 export function keyRoutes(): Hono<AppBindings> {
@@ -98,7 +98,7 @@ export function keyRoutes(): Hono<AppBindings> {
 /** The provider config a key for `provider` is checked against, in the request's mode. */
 function keyConfig(c: AppContext, provider: string): ProviderConfig | undefined {
   if (c.var.account.mode === 'simple') {
-    return provider === LEARN_KEY_PROVIDER ? simpleProviderConfig(c.env) : undefined;
+    return provider === OPENROUTER_PROVIDER_ID ? simpleProviderConfig(c.env) : undefined;
   }
   return providerConfigs(c.env).find((p) => p.id === provider);
 }

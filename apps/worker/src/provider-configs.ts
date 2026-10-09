@@ -6,7 +6,7 @@ import {
   parseProviderConfigs,
   type ProviderEnv,
 } from '@tangent/providers';
-import { LEARN_KEY_PROVIDER, type ProviderConfig } from '@tangent/shared';
+import { OPENROUTER_PROVIDER_ID, type ProviderConfig } from '@tangent/shared';
 import { appConfig, namedSecrets } from './config.js';
 import type { AppEnv } from './env.js';
 import { suggestedModels } from './simple-mode.js';
@@ -24,7 +24,7 @@ export function providerConfigs(env: AppEnv): ProviderConfig[] {
   const providers = appConfig(env).power.providers;
   if (!providers) {
     return DEFAULT_PROVIDER_CONFIGS.map((c) =>
-      c.id === LEARN_KEY_PROVIDER ? openrouterWithSuggestions(env, c) : c,
+      c.id === OPENROUTER_PROVIDER_ID ? openrouterWithSuggestions(env, c) : c,
     );
   }
   return parseProviderConfigs(providers);

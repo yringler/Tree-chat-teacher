@@ -3,7 +3,7 @@ import {
   type ApiError,
   type Branch,
   type ContextPlanResponse,
-  type LearnPayment,
+  type Payer,
   type ProviderInfo,
   type StreamEvent,
   type TreeDetail,
@@ -49,7 +49,7 @@ function echoed(text: string): { model: string; maxOutputTokens: string; system:
   return { model: m![1]!, maxOutputTokens: m![2]!, system: JSON.parse(m![3]!) as string | null };
 }
 
-async function createTree(u: User, learn: LearnPayment, req: Record<string, unknown> = {}) {
+async function createTree(u: User, learn: Payer, req: Record<string, unknown> = {}) {
   const detail = await ok<TreeDetail>(
     await u.client.call('/api/trees', { method: 'POST', json: { title: 'T', ...req }, learn }),
     201,
@@ -58,7 +58,7 @@ async function createTree(u: User, learn: LearnPayment, req: Record<string, unkn
 }
 
 /** A Learn tree with a user/assistant exchange on its trunk (written directly). */
-async function treeWithNodes(u: User, learn: LearnPayment, req: Record<string, unknown> = {}) {
+async function treeWithNodes(u: User, learn: Payer, req: Record<string, unknown> = {}) {
   const { detail, trunk } = await createTree(u, learn, req);
   const user = makeNode(trunk, 0, null, { role: 'user', content: 'What is a prime?' });
   const assistant = makeNode(trunk, 1, user.id, {
@@ -70,7 +70,7 @@ async function treeWithNodes(u: User, learn: LearnPayment, req: Record<string, u
 }
 
 /** A summary-mode branch off `nodeId`: its first send (or resolve) summarizes the parent. */
-async function summaryBranch(u: User, learn: LearnPayment, nodeId: string): Promise<Branch> {
+async function summaryBranch(u: User, learn: Payer, nodeId: string): Promise<Branch> {
   return ok<Branch>(
     await u.client.call('/api/branches', {
       method: 'POST',
@@ -330,7 +330,7 @@ describe('funding resolution', () => {
   it('a review never falls back: 402 without credit; refused outright on the pool (403)', async () => {
     const u = await poolReadyUser();
     const { assistant } = await treeWithNodes(u, 'credit');
-    const review = (learn: LearnPayment) =>
+    const review = (learn: Payer) =>
       u.client.call(`/api/nodes/${assistant.id}/review`, {
         method: 'POST',
         json: { providerId: 'openrouter', model: 'max' },
@@ -389,7 +389,7 @@ describe('funding resolution', () => {
       pool,
     };
     expect(accountFromParams(new URLSearchParams(accountParams(account)))).toEqual(account);
-    const personal: AccountContext = { ...account, funding: 'personal' };
+    const personal: AccountContext = { ...account, funding: 'credit' };
     delete personal.pool;
     expect(accountFromParams(new URLSearchParams(accountParams(personal)))).toEqual(personal);
   });

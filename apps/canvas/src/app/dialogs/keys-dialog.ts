@@ -9,7 +9,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { LEARN_KEY_PROVIDER, routeKey, type Branch, type ProviderInfo } from '@tangent/shared';
+import { OPENROUTER_PROVIDER_ID, routeKey, type Branch, type ProviderInfo } from '@tangent/shared';
 import { formatMicros, Icon, KeyMissingNotice, Modal } from '@tangent/web-shared';
 import { laneTitle } from '../canvas/titles';
 import { feeSentence } from '../core/credit';
@@ -169,7 +169,7 @@ export class KeysDialog implements OnInit, OnDestroy {
   protected readonly switching = signal(false);
   protected readonly laneTitle = laneTitle;
 
-  protected readonly learnKey = LEARN_KEY_PROVIDER;
+  protected readonly learnKey = OPENROUTER_PROVIDER_ID;
   protected readonly usd = formatMicros;
   protected readonly fees = feeSentence;
   /** The server offers the built-in provider on the user's credit. */

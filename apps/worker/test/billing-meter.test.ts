@@ -664,7 +664,7 @@ describe('the call log', () => {
       {
         event: 'llm_call',
         usageId: row!.id,
-        funding: 'personal',
+        funding: 'credit',
         purpose: 'reply',
         providerId: 'openrouter',
         model: 'max',

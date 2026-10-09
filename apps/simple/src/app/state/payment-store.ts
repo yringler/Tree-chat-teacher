@@ -1,10 +1,10 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
-import { MODE_HEADER, PAYMENT_HEADER, type LearnPayment } from '@tangent/shared';
+import { MODE_HEADER, PAYMENT_HEADER, type Payer } from '@tangent/shared';
 import { DEMO_MODE } from '@tangent/web-shared';
 
 const STORAGE_KEY = 'tangent.learn.payment';
 
-function stored(): LearnPayment | null {
+function stored(): Payer | null {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
     return v === 'own-key' || v === 'credit' || v === 'pool' ? v : null;
@@ -70,7 +70,7 @@ export class PaymentStore {
     () => this.topUpsEnabled() || (this.creditAvailableMicros() ?? 0) > 0,
   );
   /** The learner's explicit choice; null until they pick one (`payment` then picks what can reply). */
-  private readonly chosen = signal<LearnPayment | null>(stored());
+  private readonly chosen = signal<Payer | null>(stored());
   /** The demo always runs on its pretend credit, whatever this browser chose for real. */
   private readonly demo = inject(DEMO_MODE, { optional: true }) ?? false;
 
@@ -95,7 +95,7 @@ export class PaymentStore {
    * summary that can't be read leaves it so, which the server's rule keeps
    * safe.
    */
-  readonly payment = computed<LearnPayment>(() => {
+  readonly payment = computed<Payer>(() => {
     if (this.demo) return 'credit';
     const chosen = this.chosen();
     const sold = this.builtInCredit();
@@ -111,7 +111,7 @@ export class PaymentStore {
     return credit ? 'credit' : 'own-key';
   });
 
-  choose(payment: LearnPayment): void {
+  choose(payment: Payer): void {
     this.chosen.set(payment);
     try {
       localStorage.setItem(STORAGE_KEY, payment);

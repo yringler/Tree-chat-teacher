@@ -12,13 +12,13 @@ export interface ProviderRoute {
 }
 
 /**
- * The endpoint of the built-in provider: OpenRouter on the operator's key
- * (`BUILT_IN_API_KEY`), which Tangent credit and the open pool
- * pay for, and the endpoint Learn runs on whoever pays. It is the same id as
- * the user's own OpenRouter (`LEARN_KEY_PROVIDER`): the funding, not the id,
- * says whose key a call uses.
+ * The OpenRouter endpoint. It is the built-in provider's (on the operator's
+ * key, `BUILT_IN_API_KEY`, which Tangent credit and the open pool pay for),
+ * the endpoint Learn runs on whoever pays, and the key-cookie entry of the
+ * user's own OpenRouter key, which Learn uses as its own key: the funding,
+ * not the id, says whose key a call uses.
  */
-export const BUILT_IN_PROVIDER_ID = 'openrouter';
+export const OPENROUTER_PROVIDER_ID = 'openrouter';
 
 /** Separator of `routeKey`; provider ids are config ids and never contain it. */
 const CREDIT_SUFFIX = '@credit';

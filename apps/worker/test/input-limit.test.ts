@@ -44,7 +44,7 @@ function account(mode: 'power' | 'simple'): AccountContext {
     billingAccountId: 'b',
     builtIn: true,
     operatorKeys: true,
-    funding: 'personal',
+    funding: 'credit',
   };
 }
 

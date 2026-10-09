@@ -1,4 +1,4 @@
-import { MODE_HEADER, PAYMENT_HEADER, type LearnPayment } from '@tangent/shared';
+import { MODE_HEADER, PAYMENT_HEADER, type Payer } from '@tangent/shared';
 import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { expect } from 'vitest';
@@ -32,7 +32,7 @@ export function authEnv(overrides: Partial<AppEnv> = {}): AppEnv {
   } as AppEnv;
 }
 
-export type CallInit = RequestInit & { json?: unknown; learn?: LearnPayment };
+export type CallInit = RequestInit & { json?: unknown; learn?: Payer };
 
 let ipSeq = 0;
 

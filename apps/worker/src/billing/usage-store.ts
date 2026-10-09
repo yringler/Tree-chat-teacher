@@ -3,10 +3,22 @@
 // so a row settles at most once whoever gets there first (inline settle,
 // deferred reconcile, cron, the pool's expiry alarm), and a replay can never
 // double-charge.
-import type { UsagePurpose } from '@tangent/shared';
+import type { Payer, UsagePurpose } from '@tangent/shared';
+import type { usageEvents } from '../db/schema.js';
 import { chargeMicros } from './pricing.js';
 
-export type UsageFunding = 'personal' | 'pool';
+/** Who pays for a metered call: never the user's own key, which is never metered. */
+export type MeteredPayer = Exclude<Payer, 'own-key'>;
+
+/**
+ * `usage_events.funding` as stored, where the payer `credit` is `personal`:
+ * the rows already written say so, and old and new code agree on it during a
+ * deploy, so the column keeps its own word (the SQL here matches on these).
+ */
+const STORED_FUNDING = {
+  credit: 'personal',
+  pool: 'pool',
+} as const satisfies Record<MeteredPayer, (typeof usageEvents.$inferInsert)['funding']>;
 
 /**
  * How a row settled. `cost`: the cost the stream reported; `generation`: from
@@ -24,8 +36,8 @@ export interface PendingUsageRow {
   nodeId: string | null;
   branchId?: string | null;
   userId?: string | null;
-  /** Default `personal`. */
-  funding?: UsageFunding;
+  /** Default `credit`. */
+  funding?: MeteredPayer;
   /** Pool rows only. */
   ipKey?: string | null;
   purpose: UsagePurpose;
@@ -56,7 +68,7 @@ export function insertPendingUsageStatement(
       row.nodeId,
       row.branchId ?? null,
       row.userId ?? null,
-      row.funding ?? 'personal',
+      STORED_FUNDING[row.funding ?? 'credit'],
       row.ipKey ?? null,
       row.purpose,
       row.providerId,
@@ -94,7 +106,7 @@ export async function reservePersonalUsage(
       `INSERT INTO usage_events
          (id, account_id, tree_id, node_id, branch_id, user_id, funding, ip_key, purpose,
           provider_id, model, status, hold_micros, markup_bps, fee_bps, created_at)
-       SELECT ?2, ?1, ?3, ?4, ?5, ?6, 'personal', NULL, ?7, ?8, ?9, 'pending', ?10, ?11, ?12, ?13
+       SELECT ?2, ?1, ?3, ?4, ?5, ?6, '${STORED_FUNDING.credit}', NULL, ?7, ?8, ?9, 'pending', ?10, ?11, ?12, ?13
        WHERE ${AVAILABLE_SQL} >= ?10
          AND (?14 IS NULL OR
               (SELECT COUNT(*) FROM usage_events WHERE account_id = ?1 AND status = 'pending') < ?14)`,
@@ -137,7 +149,7 @@ export async function repriceReservation(
   const row = await db
     .prepare(
       `UPDATE usage_events SET hold_micros = ?3, node_id = COALESCE(node_id, ?4)
-       WHERE id = ?2 AND account_id = ?1 AND funding = 'personal' AND status = 'pending'
+       WHERE id = ?2 AND account_id = ?1 AND funding = '${STORED_FUNDING.credit}' AND status = 'pending'
          AND dispatched_at IS NULL
          AND (?3 <= hold_micros OR ${AVAILABLE_SQL} + hold_micros >= ?3)
        RETURNING fee_bps, markup_bps`,

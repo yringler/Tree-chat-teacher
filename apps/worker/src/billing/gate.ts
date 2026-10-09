@@ -64,7 +64,7 @@ export async function resolveFunding(
     purpose === 'review' ||
     purpose === 'compare' ||
     account.mode !== 'simple' ||
-    account.funding !== 'personal'
+    account.funding !== 'credit'
   )
     return account;
   if (!account.userId || !poolAvailable(c.env)) return account;

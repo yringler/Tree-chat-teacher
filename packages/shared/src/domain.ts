@@ -64,15 +64,30 @@ export type ContextMode = 'path' | 'summary' | 'message' | 'independent';
 export const CONTEXT_MODES: readonly ContextMode[] = ['path', 'summary', 'message', 'independent'];
 
 /**
- * Who pays for a branch's model calls in power mode (its provider id names
- * only the endpoint):
+ * Who pays for a model call, decided by the server and never by the provider
+ * id (which names only the endpoint):
  * - `own-key`: the user's own key for that provider (bring-your-own-key);
+ *   free, nothing is metered.
  * - `credit`: Tangent credit, i.e. the built-in endpoint on the operator's
- *   key, metered and charged to the user's prepaid credit.
- * Learn decides how to pay per request (its payment header), so it ignores a
- * branch's funding and writes `own-key`, the value that never spends credit.
+ *   key, metered and charged to the user's prepaid credit. Only offered when
+ *   the server has billing and the operator key configured
+ *   (`MeResponse.builtInCredit`).
+ * - `pool`: the open pool (pool.ts): one economical model, a locked system
+ *   prompt and capped output, within daily caps. Learn only.
+ *
+ * Learn picks its payer per request (`PAYMENT_HEADER`); a send (or a context
+ * resolve) whose credit can't cover one call falls back to the open pool
+ * where it is on, reviews never do. Power pays per branch (`BranchFunding`).
  */
-export type BranchFunding = 'own-key' | 'credit';
+export type Payer = 'own-key' | 'credit' | 'pool';
+
+/**
+ * Who pays for a branch's model calls in power mode. A branch never names the
+ * pool, which Learn alone picks, per request (its payment header); Learn
+ * ignores a branch's funding and writes `own-key`, the value that never
+ * spends credit.
+ */
+export type BranchFunding = Exclude<Payer, 'pool'>;
 
 export const BRANCH_FUNDINGS: readonly BranchFunding[] = ['own-key', 'credit'];
 

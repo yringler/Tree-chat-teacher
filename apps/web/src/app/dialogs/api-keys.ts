@@ -11,7 +11,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { LEARN_KEY_PROVIDER, type ProviderInfo } from '@tangent/shared';
+import { OPENROUTER_PROVIDER_ID, type ProviderInfo } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { formatMicros, Icon, KeyMissingNotice, Modal } from '@tangent/web-shared';
@@ -173,7 +173,7 @@ export class ApiKeys implements OnInit, OnDestroy {
   /** "Continue on Tangent credit" is moving the branch. */
   protected readonly switching = signal(false);
 
-  protected readonly learnKey = LEARN_KEY_PROVIDER;
+  protected readonly learnKey = OPENROUTER_PROVIDER_ID;
   protected readonly usd = formatMicros;
   protected readonly fees = feeSentence;
   /** The server offers the built-in provider on the user's credit. */

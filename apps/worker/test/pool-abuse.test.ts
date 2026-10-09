@@ -8,7 +8,7 @@ import type {
   AdminPoolUsageResponse,
   AdminUser,
   ApiError,
-  LearnPayment,
+  Payer,
   PoolBlockDetails,
   PoolMeResponse,
   StreamEvent,
@@ -60,7 +60,7 @@ async function freshMinute(): Promise<void> {
   if (left < 20_000) await new Promise((r) => setTimeout(r, left + 50));
 }
 
-async function newTree(u: User, learn: LearnPayment = 'pool') {
+async function newTree(u: User, learn: Payer = 'pool') {
   const detail = await ok<TreeDetail>(
     await u.client.call('/api/trees', { method: 'POST', json: { title: 'T' }, learn }),
     201,

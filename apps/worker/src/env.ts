@@ -1,4 +1,4 @@
-import type { AccountMode, BranchFunding, FundingSource } from '@tangent/shared';
+import type { AccountMode, BranchFunding, Payer } from '@tangent/shared';
 import type { Context } from 'hono';
 import type { ConfigVars } from './config.js';
 import type { PoolParams } from './pool/params.js';
@@ -47,12 +47,12 @@ export interface AccountContext {
    */
   operatorKeys: boolean;
   /**
-   * Who pays for the built-in provider's calls (auth/account.ts): `personal`
+   * Who pays for the built-in provider's calls (auth/account.ts): `credit`
    * (the ledger at `billingAccountId`), `pool` (the open pool; Learn
    * only, `builtIn` when the pool is on) or `own-key` (Learn on the user's
-   * key, where `builtIn` is false). Power is always `personal`.
+   * key, where `builtIn` is false). Power is always `credit`.
    */
-  funding: FundingSource;
+  funding: Payer;
   /**
    * Pool funding only: what pool calls run with, resolved Worker-side from
    * the config (pool/params.ts). The Durable Objects read it from here, never

@@ -4,7 +4,7 @@ import {
   MODE_HEADER,
   PAYMENT_HEADER,
   type AccountMode,
-  type LearnPayment,
+  type Payer,
 } from '@tangent/shared';
 import { createMiddleware } from 'hono/factory';
 import { appConfig } from '../config.js';
@@ -51,17 +51,17 @@ export function userIdOfAccount(accountId: string): string | null {
 /** What the request asks for: the app it comes from, and how a Learn request pays. */
 export interface AccountRequest {
   mode: AccountMode;
-  payment: LearnPayment;
+  payment: Payer;
 }
 
-const PAYMENTS: ReadonlySet<string> = new Set<LearnPayment>(['own-key', 'credit', 'pool']);
+const PAYMENTS: ReadonlySet<string> = new Set<Payer>(['own-key', 'credit', 'pool']);
 
 /** Reads MODE_HEADER and PAYMENT_HEADER; anything unexpected means power / own-key. */
 export function accountRequest(headers: Headers): AccountRequest {
   const payment = headers.get(PAYMENT_HEADER) ?? '';
   return {
     mode: headers.get(MODE_HEADER) === 'simple' ? 'simple' : 'power',
-    payment: PAYMENTS.has(payment) ? (payment as LearnPayment) : 'own-key',
+    payment: PAYMENTS.has(payment) ? (payment as Payer) : 'own-key',
   };
 }
 
@@ -83,11 +83,11 @@ export function accountRequest(headers: Headers): AccountRequest {
  * operator anything. `operatorKeys` (the power configs' server secrets) is
  * the local dev bypass only.
  *
- * Funding (`AccountContext.funding`): Learn's `credit` is `personal` where
+ * Funding (`AccountContext.funding`): Learn's `credit` is `credit` where
  * credit is offered (else `own-key`, as above); `pool` is the open pool,
  * `builtIn` only while the pool is on (`poolAvailable`) and for a signed-in
  * user (the dev bypass has no user to cap); `own-key` otherwise. Power is
- * always `personal` and never uses the pool, whatever the header says. The
+ * always `credit` and never uses the pool, whatever the header says. The
  * pool's parameters are added by `withPoolParams` (they need the caller's
  * network), and a send whose credit runs out may still move to the pool
  * (billing/gate.ts `resolveFunding`).
@@ -111,7 +111,7 @@ export function resolveAccount(
       ...simple,
       builtIn: credit,
       operatorKeys: false,
-      funding: credit ? 'personal' : 'own-key',
+      funding: credit ? 'credit' : 'own-key',
     };
   }
   return {
@@ -121,7 +121,7 @@ export function resolveAccount(
     billingAccountId,
     builtIn: builtInAvailable(env),
     operatorKeys: identity.devMode,
-    funding: 'personal',
+    funding: 'credit',
   };
 }
 

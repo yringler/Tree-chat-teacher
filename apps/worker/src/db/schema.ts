@@ -515,7 +515,10 @@ export const usageEvents = sqliteTable(
     branchId: text('branch_id'),
     /** Who made the call; null on the oldest rows. */
     userId: text('user_id'),
-    /** `personal` (the user's credit) or `pool` (the open pool, `account_id` = the pool). */
+    /**
+     * `personal` (the user's credit: the payer `credit`, mapped in usage-store.ts) or
+     * `pool` (the open pool, `account_id` = the pool).
+     */
     funding: text('funding', { enum: ['personal', 'pool'] })
       .notNull()
       .default('personal'),
