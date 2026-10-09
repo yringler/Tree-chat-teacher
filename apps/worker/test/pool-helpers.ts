@@ -1,11 +1,14 @@
-// Shared set-up of the open pool's HTTP tests:
-// a signed-in Learn user whose requests go to a pool of their own, so no two
-// tests share a pool balance or its caps.
+// Shared set-up of the open pool's tests: a signed-in Learn user whose
+// requests go to a pool of their own, so no two tests share a pool balance or
+// its caps; and PoolBank's storage, read and broken from inside the object
+// (`runInDurableObject`).
 import type { MeResponse } from '@tangent/shared';
+import { runInDurableObject } from 'cloudflare:test';
 import { env as rawEnv } from 'cloudflare:workers';
-import { expect } from 'vitest';
+import { expect, vi } from 'vitest';
 import type { AppEnv } from '../src/env.js';
 import { markPoolVerified } from '../src/pool/identity.js';
+import type { PoolBank } from '../src/pool/pool-bank.js';
 import { uniq } from './mocks/billing-helpers.js';
 import { authEnv, client } from './session-client.js';
 
@@ -89,4 +92,33 @@ export async function poolReadyUser(
   const funds = opts.funds ?? POOL_FUNDS_MICROS;
   if (funds > 0) await fundPool(poolId, funds);
   return { client: c, poolId, userId };
+}
+
+/**
+ * The next `count` rate checks of `bank` fail as a storage outage would: its
+ * SQLite storage throws, then works again.
+ */
+export async function failRateChecks(
+  bank: DurableObjectStub<PoolBank>,
+  count: number,
+): Promise<void> {
+  await runInDurableObject(bank, (_, state) => {
+    const sql = state.storage.sql;
+    let failures = count;
+    const spy = vi.spyOn(state.storage, 'sql', 'get').mockImplementation(() => {
+      if (failures-- > 0) throw new Error('Rate counters unavailable (test)');
+      spy.mockRestore();
+      return sql;
+    });
+  });
+}
+
+/** The keys of `bank`'s per-minute counters. */
+export function rateKeys(bank: DurableObjectStub<PoolBank>): Promise<string[]> {
+  return runInDurableObject(bank, (_, state) =>
+    state.storage.sql
+      .exec<{ key: string }>('SELECT key FROM rate_windows ORDER BY key')
+      .toArray()
+      .map((r) => r.key),
+  );
 }

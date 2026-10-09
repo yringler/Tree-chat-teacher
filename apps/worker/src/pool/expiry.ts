@@ -9,13 +9,16 @@ import type { SqlRow } from '../db/rows.js';
 import type { usageEvents } from '../db/schema.js';
 import type { AppEnv } from '../env.js';
 import { simpleApiKey } from '../simple-mode.js';
+import type { PoolExpiryParams } from './pool-bank.js';
 import { poolSettlement } from './settle-policy.js';
 import { logEvent } from '../log.js';
 
 /** One generation lookup per expired row, with this timeout: an alarm never waits on a slow upstream for long. */
 export const EXPIRY_LOOKUP_TIMEOUT_MS = 5_000;
 /** How soon the alarm comes back for rows whose cost is still unknown. */
-export const EXPIRY_RETRY_MS = 60_000;
+const EXPIRY_RETRY_MS = 60_000;
+/** When an expiry pass left more expired rows than its batch, the alarm comes back after this. */
+const REARM_SOON_MS = 1_000;
 
 export interface ExpiryOptions {
   /** Reservations older than this are expired. */
@@ -180,4 +183,38 @@ export async function nextExpiryAt(
     .bind(poolId)
     .first<{ oldest: string | null }>();
   return row?.oldest ? Date.parse(row.oldest) + ttlMs : null;
+}
+
+/** The expiry parameters PoolBank's alarm runs with: the latest a reservation brought. */
+export interface StoredExpiry extends PoolExpiryParams {
+  poolId: string;
+}
+
+/** What PoolBank's `storage` holds for its alarm, or null before its first reservation. */
+export async function storedExpiry(storage: DurableObjectStorage): Promise<StoredExpiry | null> {
+  return (await storage.get<StoredExpiry>('expiry')) ?? null;
+}
+
+/** Sets the alarm of `storage` to `at` unless one is already due earlier. */
+export async function ensureAlarmBy(storage: DurableObjectStorage, at: number): Promise<void> {
+  const current = await storage.getAlarm();
+  if (current === null || current > at) await storage.setAlarm(at);
+}
+
+/** PoolBank's alarm at `now`: expires stale reservations, then re-arms for the next one. */
+export async function runExpiry(
+  env: AppEnv,
+  storage: DurableObjectStorage,
+  expiry: StoredExpiry,
+  now: Date,
+): Promise<ExpiryResult> {
+  const result = await expirePoolReservations(env, expiry.poolId, now, expiry);
+  if (result.more) {
+    await ensureAlarmBy(storage, Date.now() + REARM_SOON_MS);
+  } else {
+    const due = await nextExpiryAt(env, expiry.poolId, expiry.ttlMs);
+    // Rows already past their TTL here are waiting on a lookup: come back in a minute.
+    if (due !== null) await ensureAlarmBy(storage, Math.max(due, Date.now() + EXPIRY_RETRY_MS));
+  }
+  return result;
 }

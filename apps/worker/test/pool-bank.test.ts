@@ -7,7 +7,7 @@ import type {
   ProviderRegistry,
   UsageTag,
 } from '@tangent/shared';
-import { runDurableObjectAlarm } from 'cloudflare:test';
+import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deleteUser } from '../src/auth/delete-account.js';
@@ -18,7 +18,12 @@ import { reconcilePendingUsage, reconcilePoolUsage } from '../src/billing/reconc
 import { markDispatched, setGenerationId, settleUsage } from '../src/billing/usage-store.js';
 import type { PoolCaps, PoolRateLimits } from '../src/config.js';
 import type { AppEnv } from '../src/env.js';
-import { expirePoolReservations } from '../src/pool/expiry.js';
+import {
+  expirePoolReservations,
+  runExpiry,
+  storedExpiry,
+  type ExpiryResult,
+} from '../src/pool/expiry.js';
 import { poolBank } from '../src/pool/ids.js';
 import { createPoolUsageMeter } from '../src/pool/meter.js';
 import {
@@ -29,7 +34,7 @@ import {
   resolvePoolParams,
   type PoolParams,
 } from '../src/pool/params.js';
-import type { PoolReserveRequest, PoolReserveResult } from '../src/pool/pool-bank.js';
+import type { PoolBank, PoolReserveRequest, PoolReserveResult } from '../src/pool/pool-bank.js';
 import { simpleProviderConfig } from '../src/simple-mode.js';
 import {
   ensureUser,
@@ -40,6 +45,7 @@ import {
   type UsageRow,
 } from './mocks/billing-helpers.js';
 import { shippedEnv } from './mocks/wrangler-vars.js';
+import { failRateChecks } from './pool-helpers.js';
 
 const env = rawEnv as unknown as AppEnv;
 /** The pool params of the test env (its price is a `MODEL_PRICES` entry: no D1 read). */
@@ -73,6 +79,18 @@ function quiet(): void {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** An expiry pass of `bank`'s alarm at the clock `now` (`runDurableObjectAlarm` takes none). */
+function expire(bank: DurableObjectStub<PoolBank>, now: number): Promise<ExpiryResult | null> {
+  return runInDurableObject(bank, async (_, state) => {
+    const expiry = await storedExpiry(state.storage);
+    return expiry ? runExpiry(env, state.storage, expiry, new Date(now)) : null;
+  });
+}
+
+function alarmOf(bank: DurableObjectStub<PoolBank>): Promise<number | null> {
+  return runInDurableObject(bank, (_, state) => state.storage.getAlarm());
 }
 
 /** A grant to the pool, made long ago by default (so it is in the 00:00 UTC balance). */
@@ -597,7 +615,7 @@ describe('PoolBank: per-minute rate limits', () => {
     quiet();
     const poolId = uniq('pool');
     await fund(poolId, 1_000_000);
-    await poolBank(env, poolId).failRateChecks(2);
+    await failRateChecks(poolBank(env, poolId), 2);
     expect(await reserve(poolId)).toMatchObject({ ok: false, reason: 'rate' });
     expect(
       await poolBank(env, poolId).admit({
@@ -950,7 +968,7 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     expect(await available(poolId)).toBe(100_000 - 5 * 3_000);
 
     // Not yet expired: nothing happens.
-    expect(await stub.expire(Date.now())).toEqual({
+    expect(await expire(stub, Date.now())).toEqual({
       released: 0,
       charged: 0,
       deferred: 0,
@@ -962,7 +980,7 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     await env.DB.prepare('UPDATE usage_events SET created_at = ? WHERE id = ?')
       .bind(new Date(later - TTL + MIN).toISOString(), young)
       .run();
-    const result = await stub.expire(later);
+    const result = await expire(stub, later);
     expect(result).toEqual({ released: 1, charged: 2, deferred: 1, more: false });
     expect(await usageRow(env, idle)).toMatchObject({
       status: 'settled',
@@ -985,7 +1003,7 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     expect((await usageRow(env, failing)).status).toBe('pending');
 
     // Past the give-up age, the failing lookup gives way to the full hold.
-    const giveUp = await stub.expire(Date.now() + GIVE_UP + 1_000);
+    const giveUp = await expire(stub, Date.now() + GIVE_UP + 1_000);
     expect(giveUp).toMatchObject({ charged: 1, deferred: 0 });
     expect(await usageRow(env, failing)).toMatchObject({
       status: 'settled',
@@ -1010,7 +1028,7 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     const gen = uniq('gen-ok');
     await setGenerationId(env.DB, found, gen);
     await scriptGeneration(gen, [{ costUsd: 0.002, inputTokens: 10, outputTokens: 20 }]);
-    await stub.expire(Date.now() + TTL + 1_000);
+    await expire(stub, Date.now() + TTL + 1_000);
     // The pool pays the true cost: 2_000 µ$ × 1.055 = 2_110.
     expect(await usageRow(env, found)).toMatchObject({
       status: 'settled',
@@ -1030,11 +1048,11 @@ describe('PoolBank: reservation expiry (spec test)', () => {
     // (due at the TTL) could race it; the alarm then runs at the real clock.
     const expiry = { ttlMs: 2_000, giveUpMs: GIVE_UP, batch: 2 };
     for (let i = 0; i < 5; i++) await reserved(poolId, { expiry });
-    expect((await stub.status()).alarm).not.toBeNull();
+    expect(await alarmOf(stub)).not.toBeNull();
     // One pass settles a batch and asks to come back right away.
-    const first = await stub.expire(Date.now() + 5_000);
+    const first = await expire(stub, Date.now() + 5_000);
     expect(first).toMatchObject({ released: 2, more: true });
-    const alarm = (await stub.status()).alarm;
+    const alarm = await alarmOf(stub);
     expect(alarm).not.toBeNull();
     expect(alarm!).toBeLessThanOrEqual(Date.now() + 1_000);
     // The alarm finishes the job.
@@ -1047,7 +1065,7 @@ describe('PoolBank: reservation expiry (spec test)', () => {
       { timeout: 10_000, interval: 200 },
     );
     expect(await available(poolId)).toBe(100_000);
-    expect((await stub.status()).alarm).toBeNull();
+    expect(await alarmOf(stub)).toBeNull();
   });
 
   it('never blocks a reservation behind slow generation lookups', async () => {
@@ -1062,14 +1080,14 @@ describe('PoolBank: reservation expiry (spec test)', () => {
       await setGenerationId(env.DB, id, gen);
       await scriptGeneration(gen, [{ status: 404, delayMs: 2_000 }]);
     }
-    const pass = stub.expire(Date.now() + TTL + 1_000);
+    const pass = expire(stub, Date.now() + TTL + 1_000);
     await sleep(100);
     const started = Date.now();
     expect((await reserve(poolId)).ok).toBe(true);
     expect(Date.now() - started).toBeLessThan(1_000);
     // A bounded batch of lookups, one attempt each; the rest wait for the re-armed alarm.
     expect(await pass).toEqual({ released: 0, charged: 0, deferred: 20, more: false });
-    expect((await stub.status()).alarm).not.toBeNull();
+    expect(await alarmOf(stub)).not.toBeNull();
   }, 20_000);
 
   it('never releases a reservation dispatched between its read and its settle', async () => {
@@ -1245,7 +1263,9 @@ describe('PoolBank: balance checkpoint', () => {
       advanced: false,
       checkpoint: null,
     });
-    expect((await stub.status()).checkpoint).toBeNull();
+    expect(await runInDurableObject(stub, (_, state) => state.storage.get('checkpoint'))).toBe(
+      undefined,
+    );
     await settleUsage(env.DB, stale, { costNanos: 0, markupBps: 0, feeBps: 0, reason: 'released' });
     expect(await stub.maintain({ poolId, giveUpMs: GIVE_UP })).toMatchObject({ advanced: true });
   });

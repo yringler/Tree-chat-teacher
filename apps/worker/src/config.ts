@@ -526,8 +526,6 @@ export interface AppConfig {
     effort: ReasoningEffort | null;
   };
   pool: PoolConfig;
-  /** `TEST_SEAMS` is exactly "true": test-only RPC methods and vars. */
-  testSeams: boolean;
 }
 
 // ---- Parsers: `raw` is the var's value, `name` names it in the error.
@@ -843,7 +841,6 @@ function parse(env: AppEnv): AppConfig {
       },
       minAccountAgeMs: int('POOL_MIN_ACCOUNT_AGE_MS', 0),
     },
-    testSeams,
   };
 }
 

@@ -30,14 +30,9 @@ import {
   type BalanceRow,
 } from '../billing/ledger.js';
 import { insertPendingUsageStatement } from '../billing/usage-store.js';
-import { appConfig, type PoolCaps, type PoolRateLimits } from '../config.js';
+import type { PoolCaps, PoolRateLimits } from '../config.js';
 import type { AppEnv } from '../env.js';
-import {
-  expirePoolReservations,
-  EXPIRY_RETRY_MS,
-  nextExpiryAt,
-  type ExpiryResult,
-} from './expiry.js';
+import { ensureAlarmBy, runExpiry, storedExpiry, type StoredExpiry } from './expiry.js';
 import { logEvent } from '../log.js';
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -76,8 +71,6 @@ export async function poolOverageMicros(
 
 /** The overage sum is re-read at most this often (it scans a day of settled rows). */
 const BREAKER_CACHE_MS = 60_000;
-/** When an expiry pass left more expired rows than its batch, the alarm comes back after this. */
-const REARM_SOON_MS = 1_000;
 /** The cron re-verifies the checkpoint against a full ledger sum this often. */
 const VERIFY_EVERY_MS = DAY_MS;
 
@@ -185,16 +178,6 @@ export interface PoolMaintainResult {
   mismatchMicros: number | null;
 }
 
-export interface PoolBankStatus {
-  alarm: number | null;
-  checkpoint: StoredCheckpoint | null;
-  expiry: StoredExpiry | null;
-}
-
-interface StoredExpiry extends PoolExpiryParams {
-  poolId: string;
-}
-
 interface StoredCheckpoint extends BalanceCheckpoint {
   poolId: string;
   verifiedAt: string | null;
@@ -276,8 +259,6 @@ export class PoolBank extends DurableObject<AppEnv> {
   private expiry: StoredExpiry | null = null;
   private breaker: { poolId: string; overageMicros: number; readAt: number } | null = null;
   private rateTableReady = false;
-  /** Tests only (`failRateChecks`): rate checks that throw, to show they fail closed. */
-  private rateFailures = 0;
 
   /**
    * Reserves `holdMicros` of the pool for one call, or refuses it. The pending
@@ -403,7 +384,7 @@ export class PoolBank extends DurableObject<AppEnv> {
       createdAt: now.toISOString(),
     }).run();
     if (inserted.meta.changes === 0) return refuse('verify');
-    await this.ensureAlarmBy(Date.now() + req.expiry.ttlMs);
+    await ensureAlarmBy(this.ctx.storage, Date.now() + req.expiry.ttlMs);
     return { ok: true, usageId };
   }
 
@@ -475,33 +456,10 @@ export class PoolBank extends DurableObject<AppEnv> {
     return run;
   }
 
-  /** Tests only (`TEST_SEAMS`): the next `count` rate checks throw, as a storage failure would. */
-  async failRateChecks(count: number): Promise<void> {
-    this.assertTestSeams();
-    this.rateFailures = count;
-  }
-
   /** Expires stale reservations, then re-arms for the next one. Takes no lock. */
   override async alarm(): Promise<void> {
     const expiry = await this.loadExpiry();
-    if (expiry) await this.runExpiry(expiry, new Date());
-  }
-
-  /** Tests only (`TEST_SEAMS`): an expiry pass at a given clock (`runDurableObjectAlarm` takes none). */
-  async expire(now: number): Promise<ExpiryResult | null> {
-    this.assertTestSeams();
-    const expiry = await this.loadExpiry();
-    return expiry ? this.runExpiry(expiry, new Date(now)) : null;
-  }
-
-  /** Tests only (`TEST_SEAMS`): the alarm and what storage holds. */
-  async status(): Promise<PoolBankStatus> {
-    this.assertTestSeams();
-    return {
-      alarm: await this.ctx.storage.getAlarm(),
-      checkpoint: (await this.ctx.storage.get<StoredCheckpoint>('checkpoint')) ?? null,
-      expiry: await this.loadExpiry(),
-    };
+    if (expiry) await runExpiry(this.env, this.ctx.storage, expiry, new Date());
   }
 
   /**
@@ -586,26 +544,8 @@ export class PoolBank extends DurableObject<AppEnv> {
     return { checkpoint, advanced, mismatchMicros };
   }
 
-  private async runExpiry(expiry: StoredExpiry, now: Date): Promise<ExpiryResult> {
-    const result = await expirePoolReservations(this.env, expiry.poolId, now, expiry);
-    if (result.more) {
-      await this.ensureAlarmBy(Date.now() + REARM_SOON_MS);
-    } else {
-      const due = await nextExpiryAt(this.env, expiry.poolId, expiry.ttlMs);
-      // Rows already past their TTL here are waiting on a lookup: come back in a minute.
-      if (due !== null) await this.ensureAlarmBy(Math.max(due, Date.now() + EXPIRY_RETRY_MS));
-    }
-    return result;
-  }
-
-  /** Sets the alarm to `at` unless one is already due earlier. */
-  private async ensureAlarmBy(at: number): Promise<void> {
-    const current = await this.ctx.storage.getAlarm();
-    if (current === null || current > at) await this.ctx.storage.setAlarm(at);
-  }
-
   private async loadExpiry(): Promise<StoredExpiry | null> {
-    this.expiry ??= (await this.ctx.storage.get<StoredExpiry>('expiry')) ?? null;
+    this.expiry ??= await storedExpiry(this.ctx.storage);
     return this.expiry;
   }
 
@@ -652,10 +592,6 @@ export class PoolBank extends DurableObject<AppEnv> {
     ];
     if (req.ipKey !== null) buckets.push({ key: `ip:${req.ipKey}`, limit: req.limits.ipPerMinute });
     try {
-      if (this.rateFailures > 0) {
-        this.rateFailures--;
-        throw new Error('Rate counters unavailable (test)');
-      }
       const sql = this.rateWindows();
       // Older windows are over: what remains is this minute's counts.
       sql.exec('DELETE FROM rate_windows WHERE minute <> ?', minute);
@@ -701,15 +637,6 @@ export class PoolBank extends DurableObject<AppEnv> {
     this.rateWindows().exec('DELETE FROM rate_windows WHERE key = ?', `u:${userId}`);
   }
 
-  /** Tests only (`TEST_SEAMS`): the keys of the per-minute counters. */
-  async rateKeys(): Promise<string[]> {
-    this.assertTestSeams();
-    return this.rateWindows()
-      .exec<{ key: string }>('SELECT key FROM rate_windows ORDER BY key')
-      .toArray()
-      .map((r) => r.key);
-  }
-
   /**
    * The overage breaker: true while the pool's settled overage (charges
    * clamped to their holds) within `overage.windowMs` exceeds
@@ -737,9 +664,5 @@ export class PoolBank extends DurableObject<AppEnv> {
       }
     }
     return this.breaker!.overageMicros > overage.maxMicros;
-  }
-
-  private assertTestSeams(): void {
-    if (!appConfig(this.env).testSeams) throw new Error('Not available');
   }
 }

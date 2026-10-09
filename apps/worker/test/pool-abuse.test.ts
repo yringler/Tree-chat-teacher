@@ -31,7 +31,7 @@ import {
 import { poolBank } from '../src/pool/ids.js';
 import { POOL_GIVE_UP_MS, replyCeilingMicros, resolvePoolParams } from '../src/pool/params.js';
 import { insertSubscription, uniq } from './mocks/billing-helpers.js';
-import { poolAccess, poolReadyUser } from './pool-helpers.js';
+import { failRateChecks, poolAccess, poolReadyUser, rateKeys } from './pool-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
 import { ok, parseSse } from './http.js';
 
@@ -255,7 +255,7 @@ describe('rate limits', { timeout: 40_000 }, () => {
   it('fails closed: a PoolBank storage error refuses, with nothing written', async () => {
     const u = await poolReadyUser();
     const { treeId, branchId } = await newTree(u);
-    await poolBank(env, u.poolId).failRateChecks(1);
+    await failRateChecks(poolBank(env, u.poolId), 1);
     const pool = await refused(await send(u, branchId), 429, 'pool_cap_reached');
     expect(pool.reason).toBe('rate');
     expect(await nodeCount(u, treeId)).toBe(0);
@@ -629,7 +629,7 @@ describe('account deletion', () => {
     await sendOk(gone, branchId, 'One');
     await sendOk(gone, branchId, 'Two');
     const bank = poolBank(env, poolId);
-    expect(await bank.rateKeys()).toContain(`u:${gone.userId}`);
+    expect(await rateKeys(bank)).toContain(`u:${gone.userId}`);
     // The network has its 3 replies of the day.
     const neighbour = await poolReadyUser({
       ip,
@@ -668,7 +668,7 @@ describe('account deletion', () => {
     expect(await bank.maintain({ poolId, giveUpMs: POOL_GIVE_UP_MS })).toMatchObject({
       mismatchMicros: 0,
     });
-    expect(await bank.rateKeys()).not.toContain(`u:${gone.userId}`);
+    expect(await rateKeys(bank)).not.toContain(`u:${gone.userId}`);
 
     // The report lists who remains; the network keeps its day's replies, from one known user.
     const report = await ok<AdminPoolUsageResponse>(
