@@ -16,7 +16,7 @@ import type { AppBindings, AppContext, AppEnv } from '../env.js';
 import { validateJson } from '../http/errors.js';
 import { poolIdentity, releasePoolIdentityStatement } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
-import { dayStart } from '../pool/pool-bank.js';
+import { dayStart } from '../pool/day-usage.js';
 import { purgeShare } from '../share/cache.js';
 import { accountIdForUser, POWER_ACCOUNT_PREFIX, SIMPLE_ACCOUNT_PREFIX } from './account.js';
 import { logEvent } from '../log.js';

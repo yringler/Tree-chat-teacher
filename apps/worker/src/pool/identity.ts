@@ -3,7 +3,7 @@
 // identity is the SHA-256 of its normalised form, so the aliases one inbox
 // receives (`A.B+pool@gmail.com`, `ab@googlemail.com`) are one free tier.
 import { logEvent } from '../log.js';
-import { DAY_USAGE_COLUMNS, dayStart } from './pool-bank.js';
+import { DAY_USAGE_COLUMNS, dayStart } from './day-usage.js';
 import type { SqlRow } from '../db/rows.js';
 import type { authUsers, poolIdentities } from '../db/schema.js';
 

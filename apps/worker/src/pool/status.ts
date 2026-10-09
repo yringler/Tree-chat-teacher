@@ -27,7 +27,7 @@ import {
   poolPriceProblem,
   poolRequest,
 } from './params.js';
-import { dayResetAt, dayStart, userDayUsageStatement, type DayRow } from './pool-bank.js';
+import { dayResetAt, dayStart, userDayUsageStatement, type DayRow } from './day-usage.js';
 
 /** How long the meter is cached at the edge (`caches.default`) and by browsers. */
 export const POOL_STATUS_MAX_AGE_S = 60;

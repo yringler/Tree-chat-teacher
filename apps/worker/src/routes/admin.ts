@@ -40,7 +40,7 @@ import { apiError, validateJson, validateQuery } from '../http/errors.js';
 import { identitySuspensionStatement } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
 import { POOL_OVERAGE } from '../pool/params.js';
-import { poolOverageMicros } from '../pool/pool-bank.js';
+import { poolOverageMicros } from '../pool/day-usage.js';
 import { purgeShare } from '../share/cache.js';
 import { poolAvailable, sharingEnabled } from '../availability.js';
 import { shareService } from '../registries.js';
