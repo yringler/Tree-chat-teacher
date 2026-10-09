@@ -3,14 +3,16 @@ import {
   ChatService,
   DEFAULT_GROUNDING_POLICY,
   DomainError,
+  GenerationHub,
   HTTP_STATUS,
   newId,
+  replayEvents,
   systemClock,
   type BeginSendResult,
-  type GenerationLimits,
-  type HeldCandidate,
-  type RunGenerationOptions,
   type Clock,
+  type GenerationLimits,
+  type GenerationSink,
+  type HeldCandidate,
 } from '@tangent/core';
 import { createMemoryRepositories, type MemoryState } from '@tangent/core/memory';
 import {
@@ -77,9 +79,10 @@ import { createLoremProvider, DEMO_MODEL_PRICES } from './lorem';
  * demo (`/learn/demo/`) acts as a simple account with pretend credit, the
  * Power demo (`/demo/`) as a power account; shares and keys aren't offered.
  *
- * Streaming mirrors the Worker's TreeSession Durable Object: a generation
- * runs detached from the request, `GET /api/nodes/:id/stream` re-attaches
- * with a `snapshot`, and cancel aborts it (the stream ends with `error`).
+ * Streaming runs on the Worker's TreeSession Durable Object's
+ * GenerationHub: a generation runs detached from the request,
+ * `GET /api/nodes/:id/stream` re-attaches with a `snapshot`, and cancel
+ * aborts it (the stream ends with `error`).
  * Reviews and Compare's candidate answers stream straight back as in the
  * Worker; a finished candidate is held in memory (as the Durable Object
  * holds it) until it is committed or expires.
@@ -146,14 +149,6 @@ export interface DemoBackendOptions {
   storage?: DemoStorage | null;
   /** Start with the example lesson (default true; ignored when a saved session is restored). */
   seed?: boolean;
-}
-
-interface Run {
-  /** Assistant node with the content so far (for reconnect snapshots). */
-  node: ChatNode;
-  subscribers: Set<ReadableStreamDefaultController<Uint8Array>>;
-  controller: AbortController;
-  finished: Promise<void>;
 }
 
 /** A finished compare candidate, waiting to be committed (in memory only, like the DO's TTL'd storage). */
@@ -245,7 +240,7 @@ export class DemoBackend {
   private readonly storage: DemoStorage | null;
   private readonly mode: AccountMode;
   private readonly storageKey: string;
-  private readonly runs = new Map<string, Run>();
+  private readonly hub = new GenerationHub();
   /** Compare candidates by id. */
   private readonly held = new Map<string, Held>();
   private balanceMicros = DEMO_START_BALANCE_MICROS;
@@ -414,7 +409,7 @@ export class DemoBackend {
       }
       if (method === 'DELETE') {
         await this.chat.getTreeDetail(id); // 404 before stopping anything
-        await this.stopRuns((run) => run.node.treeId === id);
+        await this.hub.stop((node) => node.treeId === id);
         await this.chat.deleteTree(id);
         return this.saved(noContent());
       }
@@ -494,9 +489,7 @@ export class DemoBackend {
     }
     if (method === 'POST' && (id = seg(/^\/api\/nodes\/([^/]+)\/cancel$/))) {
       const node = await this.chat.getOwnedNode(id);
-      const run = this.runs.get(node.id);
-      if (run) run.controller.abort();
-      else await this.chat.recoverInterruptedNode(node.id);
+      if (!this.hub.cancel(node.id)) await this.chat.recoverInterruptedNode(node.id);
       return noContent();
     }
 
@@ -517,30 +510,18 @@ export class DemoBackend {
     this.lock = begin.catch(() => undefined);
     const started: BeginSendResult = await begin;
 
-    const run: Run = {
-      node: { ...started.assistantNode },
-      subscribers: new Set(),
-      controller: new AbortController(),
-      finished: Promise.resolve(),
-    };
-    this.runs.set(run.node.id, run);
-    const response = this.subscribe(
-      run,
-      [
-        {
-          type: 'start',
-          userNode: started.userNode,
-          assistantNode: started.assistantNode,
-          branch: started.branch,
-        },
-      ],
-      signal,
-    );
-    // Detached, like the Durable Object: keeps going when the reader goes away.
-    run.finished = this.pump(run, started, {
+    const options = {
       ...(ground === 'required' ? { ground } : {}),
       ...this.powerLimits(requested),
-    });
+    };
+    const { sink, response } = this.sseSink(started.assistantNode.id, signal);
+    // Detached, like the Durable Object: keeps going when the reader goes away.
+    void this.hub.start(
+      started,
+      sink,
+      (aborted) => this.chat.runGeneration(started, aborted, options),
+      { settle: () => this.save() },
+    );
     this.save();
     return response;
   }
@@ -685,51 +666,16 @@ export class DemoBackend {
     return this.saved(json(res));
   }
 
-  private async pump(
-    run: Run,
-    begin: BeginSendResult,
-    options: RunGenerationOptions,
-  ): Promise<void> {
-    try {
-      for await (const event of this.chat.runGeneration(begin, run.controller.signal, options)) {
-        if (event.type === 'delta')
-          run.node = { ...run.node, content: run.node.content + event.text };
-        if ((event.type === 'done' || event.type === 'error') && event.node) run.node = event.node;
-        this.broadcast(run, sseFrame(event));
-      }
-    } finally {
-      this.runs.delete(run.node.id);
-      for (const c of run.subscribers) {
-        try {
-          c.close();
-        } catch {
-          // Already closed or errored.
-        }
-      }
-      run.subscribers.clear();
-      this.save();
-    }
-  }
-
   private async reconnect(nodeId: string, signal: AbortSignal | null): Promise<Response> {
     const node = await this.chat.getOwnedNode(nodeId);
-    const run = this.runs.get(node.id);
-    if (run) return this.subscribe(run, [{ type: 'snapshot', node: run.node }], signal);
+    const { sink, response } = this.sseSink(node.id, signal);
+    if (this.hub.attach(node.id, sink)) return response;
 
     // Not running: replay the stored final state.
     // Still `streaming` means an orphan; only it is recovered (other branches may be live).
     const final = (await this.chat.recoverInterruptedNode(node.id)) ?? node;
     const branch = await this.repos.trees.getBranch(final.branchId);
-    const events: StreamEvent[] = [{ type: 'snapshot', node: final }];
-    if (final.status === 'complete' && branch) events.push({ type: 'done', node: final, branch });
-    else
-      events.push({
-        type: 'error',
-        nodeId: final.id,
-        message: final.error ?? 'Generation failed',
-        node: final,
-      });
-    const text = events.map(sseFrame).join('');
+    const text = replayEvents(final, branch).map(sseFrame).join('');
     return sseResponse(
       new ReadableStream({
         start(c) {
@@ -740,55 +686,46 @@ export class DemoBackend {
     );
   }
 
-  /** A new reader of `run`: `initial` first, then every live frame. Aborting `signal` errors it, like fetch. */
-  private subscribe(run: Run, initial: StreamEvent[], signal: AbortSignal | null): Response {
+  /**
+   * A response streaming the generation of `nodeId` to one reader, and the
+   * hub's reader that writes it. Aborting `signal` errors the stream, like fetch.
+   */
+  private sseSink(
+    nodeId: string,
+    signal: AbortSignal | null,
+  ): { sink: GenerationSink; response: Response } {
+    const hub = this.hub;
     let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const sink: GenerationSink = {
+      write: (event) => controller.enqueue(encoder.encode(sseFrame(event))),
+      close: () => controller.close(),
+    };
     const body = new ReadableStream<Uint8Array>({
       start(c) {
         controller = c;
-        c.enqueue(encoder.encode(initial.map(sseFrame).join('')));
-        run.subscribers.add(c);
       },
       cancel() {
-        run.subscribers.delete(controller);
+        hub.detach(nodeId, sink);
       },
     });
     signal?.addEventListener(
       'abort',
       () => {
-        if (run.subscribers.delete(controller)) controller.error(abortError());
+        if (hub.detach(nodeId, sink)) controller.error(abortError());
       },
       { once: true },
     );
-    return sseResponse(body);
-  }
-
-  private broadcast(run: Run, frame: string): void {
-    const bytes = encoder.encode(frame);
-    for (const c of run.subscribers) {
-      try {
-        c.enqueue(bytes);
-      } catch {
-        run.subscribers.delete(c); // the reader went away; the generation goes on
-      }
-    }
+    return { sink, response: sseResponse(body) };
   }
 
   private async deleteBranch(branchId: string) {
     const deleted = this.lock.then(() =>
       this.chat.deleteBranch(branchId, {
-        stopGenerations: (branchIds) => this.stopRuns((run) => branchIds.has(run.node.branchId)),
+        stopGenerations: (branchIds) => this.hub.stop((node) => branchIds.has(node.branchId)),
       }),
     );
     this.lock = deleted.catch(() => undefined);
     return deleted;
-  }
-
-  /** Cancels the matching generations and waits until they have stored their final state. */
-  private async stopRuns(match: (run: Run) => boolean): Promise<void> {
-    const doomed = [...this.runs.values()].filter(match);
-    for (const run of doomed) run.controller.abort();
-    await Promise.all(doomed.map((run) => run.finished));
   }
 
   // ------------------------------------------------------------- billing
