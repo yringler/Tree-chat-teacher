@@ -17,7 +17,7 @@ const DIRS = ['apps', 'packages'].flatMap((group) =>
 
 const res = await madge(DIRS, {
   baseDir: ROOT,
-  fileExtensions: ['ts', 'mjs'],
+  fileExtensions: ['ts', 'tsx', 'mjs'],
   // Dependencies, build output and generated files.
   excludeRegExp: [
     /\.d\.ts$/,

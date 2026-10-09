@@ -568,10 +568,16 @@ describe('Turnstile on first sign-in', () => {
     expect(csp).toContain('frame-src https://challenges.cloudflare.com');
     expect(csp).toContain("form-action 'self'");
     const html = await page.text();
+    // The one inline stylesheet is the one the CSP allows by hash.
+    const style = /<style>([^]*?)<\/style>/.exec(html)![1]!;
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(style));
+    expect(csp).toContain(
+      `style-src 'sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}'`,
+    );
     expect(html).toContain(
       'class="cf-turnstile" data-sitekey="site-key" data-action="pool-verify"',
     );
-    expect(html).toContain('<input type="hidden" name="next" value="/learn/">');
+    expect(html).toContain('name="next" value="/learn/"');
     expect(html).not.toMatch(/donat|tax[- ]?deductible/i);
 
     const failed = await postVerify(s, cookie, 'not-a-pass');

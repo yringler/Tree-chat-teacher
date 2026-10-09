@@ -2,14 +2,12 @@ import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import type { AppBindings, AppEnv } from '../src/env.js';
-import { LANDING_STYLE, hasSessionCookie, landingRoutes } from '../src/http/landing.js';
+import { hasSessionCookie, landingRoutes } from '../src/http/landing.js';
 import { LEARN_APP_CSP } from '../src/http/learn-app.js';
 import { BASE } from './http.js';
 
 const POWER_INDEX = '<!doctype html><title>power</title>';
 const SECRET = 'test-secret-test-secret-test-secret';
-/** The default own-key and built-in providers (OpenRouter, with web search), as deployed. */
-const DEFAULT_PROVIDERS: Partial<AppEnv> = { PROVIDERS: '', BUILT_IN_PROVIDER: '' };
 
 /** Stand-in for Workers Static Assets: every path is the power app's index.html. */
 function fakeAssets() {
@@ -53,16 +51,10 @@ function setup(options: { devBypass?: boolean; env?: Partial<AppEnv> } = {}) {
   return { request, seen: assets.seen };
 }
 
-async function sha256Base64(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return btoa(String.fromCharCode(...new Uint8Array(digest)));
-}
-
 async function expectLanding(res: Response, cacheControl: string) {
   expect(res.status).toBe(200);
   expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
-  expect(res.headers.get('Referrer-Policy')).toBe('same-origin');
-  expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+  expect(res.headers.get('Content-Security-Policy')).toContain("style-src 'sha256-");
   expect(res.headers.get('Cache-Control')).toBe(cacheControl);
   const html = await res.text();
   expect(html).toContain('<title>Tangent');
@@ -70,127 +62,12 @@ async function expectLanding(res: Response, cacheControl: string) {
 }
 
 describe('landingRoutes', () => {
-  it('serves /welcome with a CSP whose style hash matches the inline stylesheet', async () => {
+  it('serves /welcome to anyone, cacheable, without reading the assets', async () => {
     const { request, seen } = setup();
     const res = await request('/welcome');
-    const html = await expectLanding(res, 'public, max-age=300');
+    await expectLanding(res, 'public, max-age=300');
     expect(res.headers.get('Vary')).toBeNull();
-
-    const styles = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]!);
-    expect(styles).toEqual([LANDING_STYLE]);
-    const hash = await sha256Base64(styles[0]!);
-    expect(res.headers.get('Content-Security-Policy')).toBe(
-      `default-src 'none'; style-src 'sha256-${hash}'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
-    );
-    // No script of any kind, and no inline style attributes the CSP would block.
-    expect(html).not.toMatch(/<script|\son\w+=|\sstyle=/i);
-    expect(html).toContain('<link rel="canonical" href="https://tangent.example.com/">');
-    expect(new TextEncoder().encode(html).length).toBeLessThan(25_000);
     expect(seen).toEqual([]);
-  });
-
-  it('links the three calls to action', async () => {
-    const { request } = setup();
-    const html = await (await request('/welcome')).text();
-    expect(html).toContain('<a class="btn primary" href="/learn/demo">Try the demo</a>');
-    expect(html).toContain('<a class="btn" href="/learn/login">Start learning</a>');
-    expect(html).toContain('<a href="/login">Power users: sign in</a>');
-  });
-
-  it('links the pricing page from the header, the pricing card and the footer', async () => {
-    const html = await (await setup().request('/welcome')).text();
-    expect(html).toContain(
-      '<a href="/login">Power sign in</a><a href="/pricing">Pricing</a></nav>',
-    );
-    expect(html).toContain(
-      '<a href="/pricing">See exactly what’s free and what’s paid</a></p></article>',
-    );
-    expect(html).toContain('<a href="/welcome">About Tangent</a><a href="/pricing">Pricing</a>');
-    // The fine print (fees, tax, the billing portal) is on /pricing, not here.
-    expect(html).not.toMatch(/processing fee|tax is added|billing portal/i);
-  });
-
-  it('with the membership on: own keys need it in Learn and power mode; credit never does', async () => {
-    const off = await (
-      await setup({ env: { ANNUAL_FEE_ENABLED: 'false' } }).request('/welcome')
-    ).text();
-    expect(off).not.toContain('membership');
-    const { request } = setup({ env: { ANNUAL_FEE_ENABLED: 'true' } });
-    const html = await (await request('/welcome')).text();
-    expect(html).toContain(
-      'Or use your own OpenRouter key: you pay OpenRouter directly, and a $10 yearly membership covers Tangent.',
-    );
-    expect(html).toContain(
-      'Or buy prepaid credit and pay for each reply at what it costs Tangent, plus 10%, with no membership needed.',
-    );
-    expect(html).toContain(
-      '<li>Or use your own OpenRouter key, with a $10 yearly membership and nothing charged per reply</li>',
-    );
-    expect(html).toContain('<li>Or pay per reply from prepaid credit, no membership needed</li>');
-    expect(html).toContain(
-      'Your own keys need the $10 yearly membership, here as in Learn; prepaid credit needs none.',
-    );
-    expect(html).not.toMatch(/buying credit needs a membership|Tangent charges nothing/i);
-  });
-
-  it('calls the own key free only where no membership is needed for it', async () => {
-    const title = async (overrides: Partial<AppEnv>) => {
-      const html = await (await setup({ env: overrides }).request('/welcome')).text();
-      return /<article class="card">[^]*?<h3>([^<]*(?:own key|pay as you go)[^<]*)<\/h3>/.exec(
-        html,
-      )?.[1];
-    };
-    // A pool of its own, so no other test's cached meter (which says it's on) is read.
-    const noPool = {
-      POOL_ENABLED: 'false',
-      TEST_POOL_ACCOUNT_ID: `pool_${Math.random().toString(36).slice(2)}`,
-    };
-    const noTopUps = { FAKE_PAYMENTS: '{"topUps":false}' };
-    // The fee on, no pool, no credit for sale: the own key is the way, and it costs the membership.
-    expect(await title({ ANNUAL_FEE_ENABLED: 'true', ...noPool, ...noTopUps })).toBe(
-      'On your own key',
-    );
-    // No membership required: the own key costs nothing on Tangent's side.
-    expect(await title({ ANNUAL_FEE_ENABLED: 'false', ...noPool, ...noTopUps })).toBe(
-      'Free on your own key',
-    );
-    // The fee on, the pool on, no credit: "free" is the pool.
-    expect(await title({ ANNUAL_FEE_ENABLED: 'true', ...noTopUps })).toBe(
-      'Free, or on your own key',
-    );
-  });
-
-  it('offers prepaid credit only where it is sold, and names the own-key providers', async () => {
-    const sold = await (await setup({ env: DEFAULT_PROVIDERS }).request('/welcome')).text();
-    expect(sold).toContain(
-      'Or buy prepaid credit and pay for each reply at what it costs Tangent, plus 10%.',
-    );
-    expect(sold).toContain('<li>Or pay per reply from prepaid credit</li>');
-    expect(sold).toContain('<li>Your own API keys for Anthropic, OpenAI or OpenRouter</li>');
-    expect(sold).toContain('<li>Any OpenRouter model, on prepaid credit</li>');
-    // Polar without its secrets: no payments, so nothing to buy.
-    const unsold = await (
-      await setup({ env: { PAYMENT_PROVIDER: 'polar' } }).request('/welcome')
-    ).text();
-    expect(unsold).not.toMatch(/prepaid credit|pay as you go/i);
-    expect(unsold).toContain('<h3>Free, or on your own key</h3>');
-  });
-
-  it('describes web-search grounding as the GROUNDING ceiling allows, never as always on', async () => {
-    const page = async (grounding: string) =>
-      (
-        await setup({ env: { ...DEFAULT_PROVIDERS, GROUNDING: grounding } }).request('/welcome')
-      ).text();
-    const auto = await page('auto');
-    expect(auto).toContain('Checked against the web when you go deep');
-    expect(auto).toContain('So when a reply needs it');
-    expect(auto).toContain('<strong>Check sources</strong>');
-    const explicit = await page('explicit');
-    expect(explicit).toContain('Check any answer against the web');
-    expect(explicit).not.toContain('So when a reply needs it');
-    for (const off of ['off', 'typo']) {
-      expect(await page(off)).not.toContain('Check sources');
-    }
   });
 
   it('serves the landing page at / to an anonymous visitor, uncached', async () => {

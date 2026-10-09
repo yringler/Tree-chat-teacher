@@ -38,7 +38,7 @@ export default tseslint.config(
   // Promise mistakes need type information: an un-awaited call loses its error, and an async
   // callback where a void one is expected (an event handler, ngOnInit) runs unawaited.
   {
-    files: ['**/*.ts'],
+    files: ['**/*.ts', '**/*.tsx'],
     languageOptions: {
       parserOptions: {
         projectService: {
@@ -63,7 +63,7 @@ export default tseslint.config(
   // translate without reaching into the ledger, purchases, the domain
   // handler or the pool.
   {
-    files: ['**/*.ts'],
+    files: ['**/*.ts', '**/*.tsx'],
     ignores: ['apps/worker/src/billing/providers/polar/**', 'apps/worker/test/**'],
     rules: {
       'no-restricted-imports': [

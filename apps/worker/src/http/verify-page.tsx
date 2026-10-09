@@ -1,4 +1,3 @@
-import { escapeHtml } from '@tangent/render';
 import { Hono, type Context } from 'hono';
 import { authBaseUrl, turnstileHostname, type AuthDeps } from '../auth/auth.js';
 import { clientIp } from '../auth/account.js';
@@ -16,9 +15,8 @@ import {
   VERIFY_PAGE_PATH,
   verifyTurnstile,
 } from '../pool/turnstile.js';
-import { LEARN_COMMON_HEADERS } from './learn-app.js';
-import { LEGAL_STYLE } from './legal.js';
-import { MARK, sha256Base64 } from './landing.js';
+import { pageResponse } from './layout.js';
+import { VERIFY_STYLE } from './page-styles.js';
 
 /**
  * The Turnstile interstitial after a first OAuth sign-in (auth/auth.ts sends
@@ -30,71 +28,49 @@ import { MARK, sha256Base64 } from './landing.js';
  * meets a deployment without Turnstile just continues.
  */
 
-const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com';
+interface VerifyProps {
+  siteKey: string;
+  next: string;
+  failed: boolean;
+}
 
-/** Extra rules on top of the legal pages' stylesheet. Hashed for the CSP. */
-export const VERIFY_STYLE =
-  LEGAL_STYLE +
-  `
-.verify{max-width:30rem;padding-top:48px;padding-bottom:64px}
-.verify form{display:grid;gap:16px;justify-items:start;margin-top:24px}
-.verify .error{color:#c0392b;font-weight:600}
-`;
-
-let csp: Promise<string> | null = null;
-
-/** The page's one hashed stylesheet, Turnstile's script and iframe, and a same-origin form. */
-export function verifyPageCsp(): Promise<string> {
-  csp ??= sha256Base64(VERIFY_STYLE).then(
-    (hash) =>
-      `default-src 'none'; style-src 'sha256-${hash}'; script-src ${TURNSTILE_ORIGIN}; ` +
-      `frame-src ${TURNSTILE_ORIGIN}; img-src 'self' data:; base-uri 'none'; ` +
-      "form-action 'self'; frame-ancestors 'none'",
+function VerifyPage(props: VerifyProps) {
+  return (
+    <main class="wrap doc verify">
+      <h1>One quick check</h1>
+      <p>
+        Before your first visit we check that you're a person, not a script. It keeps the open pool
+        for learners.
+      </p>
+      {props.failed && (
+        <p class="error" role="alert">
+          That check didn't go through. Please try again.
+        </p>
+      )}
+      <form method="post" action={VERIFY_PAGE_PATH}>
+        <input type="hidden" name="next" value={props.next} />
+        <div class="cf-turnstile" data-sitekey={props.siteKey} data-action={TURNSTILE_ACTION}></div>
+        <button class="btn primary" type="submit">
+          Continue
+        </button>
+      </form>
+    </main>
   );
-  return csp;
 }
 
-export function renderVerifyPage(opts: { siteKey: string; next: string; failed: boolean }): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<meta name="robots" content="noindex">
-<title>One quick check · Tangent</title>
-<style>${VERIFY_STYLE}</style>
-<script src="${TURNSTILE_ORIGIN}/turnstile/v0/api.js" async defer></script>
-</head>
-<body>
-<header class="wrap top">
-<a class="brand" href="/welcome">${MARK}Tangent</a>
-</header>
-<main class="wrap doc verify">
-<h1>One quick check</h1>
-<p>Before your first visit we check that you're a person, not a script. It keeps the open pool for learners.</p>
-${opts.failed ? '<p class="error" role="alert">That check didn\'t go through. Please try again.</p>' : ''}
-<form method="post" action="${VERIFY_PAGE_PATH}">
-<input type="hidden" name="next" value="${escapeHtml(opts.next)}">
-<div class="cf-turnstile" data-sitekey="${escapeHtml(opts.siteKey)}" data-action="${TURNSTILE_ACTION}"></div>
-<button class="btn primary" type="submit">Continue</button>
-</form>
-</main>
-</body>
-</html>
-`;
-}
-
-async function pageResponse(html: string, status: 200 | 400): Promise<Response> {
-  return new Response(html, {
-    status,
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Content-Security-Policy': await verifyPageCsp(),
-      'Cache-Control': 'no-store',
-      ...LEARN_COMMON_HEADERS,
+function verifyResponse(c: Context<AppBindings>, page: VerifyProps): Promise<Response> {
+  return pageResponse(
+    {
+      path: VERIFY_PAGE_PATH,
+      origin: authBaseUrl(c.env, c.req.raw),
+      title: 'One quick check · Tangent',
+      noindex: true,
+      style: VERIFY_STYLE,
+      turnstile: true,
     },
-  });
+    <VerifyPage {...page} />,
+    { status: page.failed ? 400 : 200, headers: { 'Cache-Control': 'no-store' } },
+  );
 }
 
 /** The Turnstile site key; set wherever the page is shown (`turnstileConfigured`). */
@@ -120,7 +96,7 @@ export function verifyPageRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
     const identity = await optionalIdentity(c.env, c.req.raw, deps);
     if (!identity?.userId || !turnstileConfigured(c.env) || (await isVerified(c, identity.userId)))
       return c.redirect(next, 303);
-    return pageResponse(renderVerifyPage({ siteKey: siteKey(c), next, failed: false }), 200);
+    return verifyResponse(c, { siteKey: siteKey(c), next, failed: false });
   });
 
   app.post(VERIFY_PAGE_PATH, sameOriginOnly, async (c) => {
@@ -137,8 +113,7 @@ export function verifyPageRoutes(deps: AuthDeps = {}): Hono<AppBindings> {
         action: TURNSTILE_ACTION,
         hostname: turnstileHostname(c.env, c.req.raw),
       }));
-    if (!passed)
-      return pageResponse(renderVerifyPage({ siteKey: siteKey(c), next, failed: true }), 400);
+    if (!passed) return verifyResponse(c, { siteKey: siteKey(c), next, failed: true });
     // A mailbox another account already uses still continues; the pool gate refuses it.
     await markPoolVerified(c.env.DB, identity.userId, identity.email);
     return c.redirect(next, 303);

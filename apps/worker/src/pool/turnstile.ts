@@ -64,7 +64,7 @@ export async function verifyTurnstile(
 
 /**
  * The interstitial that runs Turnstile after a first OAuth sign-in
- * (http/verify-page.ts): magic links are checked when requested, OAuth
+ * (http/verify-page.tsx): magic links are checked when requested, OAuth
  * providers aren't, so their first sign-in lands here before the app.
  */
 export const VERIFY_PAGE_PATH = '/verify';

@@ -85,7 +85,7 @@ export interface DeletedUser {
  * the day's pool usage, no address or user id), so signing up again with
  * the same mailbox neither lifts a pool suspension nor resets that day's
  * caps. PoolBank drops the user's per-minute counter. The privacy policy
- * (http/legal.ts, "How long we keep it") describes all of it.
+ * (http/legal.tsx, "How long we keep it") describes all of it.
  */
 export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUser> {
   const accountIds = [POWER_ACCOUNT_PREFIX + userId, accountIdForUser(userId)];
