@@ -108,11 +108,10 @@ export class BranchDialog implements OnInit {
   protected readonly source = computed(
     () => this.store.index()?.nodes.get(this.state().fromNodeId) ?? null,
   );
-  protected readonly excerpt = computed(() => {
-    // A reply without its <tangents> block (never shown as text).
-    const text = plainText(splitTangents(this.source()?.content ?? '').body);
-    return text.length > 280 ? `${text.slice(0, 280)}…` : text;
-  });
+  // A reply without its <tangents> block (never shown as text).
+  protected readonly excerpt = computed(() =>
+    plainText(splitTangents(this.source()?.content ?? '').body, { max: 280 }),
+  );
   private readonly parent = computed(() => {
     const n = this.source();
     return (n && this.store.index()?.branches.get(n.branchId)) || null;

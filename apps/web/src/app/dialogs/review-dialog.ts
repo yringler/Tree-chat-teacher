@@ -174,10 +174,9 @@ export class ReviewDialog implements OnInit {
   protected readonly choice = computed(() =>
     this.route() ? { ...parseRouteKey(this.route()), model: this.modelId().trim() } : null,
   );
-  protected readonly excerpt = computed(() => {
-    const text = plainText(this.node()?.content ?? '');
-    return text.length > EXCERPT_CHARS ? `${text.slice(0, EXCERPT_CHARS - 1)}…` : text;
-  });
+  protected readonly excerpt = computed(() =>
+    plainText(this.node()?.content ?? '', { max: EXCERPT_CHARS }),
+  );
   /** The branch already runs on the reviewer's model. */
   protected readonly sameModel = computed(() => {
     const r = this.review();

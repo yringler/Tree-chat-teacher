@@ -49,10 +49,9 @@ export class LinkDialog {
   protected readonly source = computed(
     () => this.store.index()?.nodes.get(this.state().fromNodeId) ?? null,
   );
-  protected readonly excerpt = computed(() => {
-    const text = plainText(splitTangents(this.source()?.content ?? '').body);
-    return text.length > 200 ? `${text.slice(0, 200)}…` : text;
-  });
+  protected readonly excerpt = computed(() =>
+    plainText(splitTangents(this.source()?.content ?? '').body, { max: 200 }),
+  );
   private readonly saving = signal(false);
 
   protected close(): void {

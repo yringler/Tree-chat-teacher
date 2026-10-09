@@ -12,7 +12,7 @@ import {
 } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
-import type { Branch, ChatNode, MembershipInfo } from '@tangent/shared';
+import { clip, type Branch, type ChatNode, type MembershipInfo } from '@tangent/shared';
 import { describeEndpoint } from '@tangent/core';
 import {
   endpointTitle,
@@ -151,7 +151,7 @@ export class ChatPage implements OnDestroy {
     const title = endpointTitle(from);
     return {
       fromNodeId: pick.fromNodeId,
-      title: title.length > 60 ? `${title.slice(0, 59).trimEnd()}…` : title,
+      title: clip(title, 60),
     };
   });
 

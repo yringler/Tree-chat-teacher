@@ -95,6 +95,7 @@ export {
 
 // UI
 export { Compare, type CompareCandidate } from './ui/compare';
+export { CONTEXT_MODE_META, type ContextModeMeta } from './ui/context-mode';
 export { Icon, type IconName } from './ui/icon';
 export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';

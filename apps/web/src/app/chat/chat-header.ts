@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import type { Branch } from '@tangent/shared';
+import { clip, type Branch } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
 import { DEMO_MODE, Icon, TextSizeMenu } from '@tangent/web-shared';
@@ -97,7 +97,7 @@ interface Crumb {
             [title]="'Back to the linked message in “' + back.label + '”'"
             (click)="goBack()"
           >
-            <app-icon name="back" [size]="13" /> Back to ‘{{ clip(back.label) }}’
+            <app-icon name="back" [size]="13" /> Back to ‘{{ clip(back.label, 32) }}’
           </button>
         }
         <nav aria-label="Branch path" class="crumbs">
@@ -197,9 +197,7 @@ export class ChatHeader {
     return b ? (this.store.firstNodeOf(b.id)?.id ?? null) : null;
   });
 
-  protected clip(title: string): string {
-    return title.length > 32 ? `${title.slice(0, 31).trimEnd()}…` : title;
-  }
+  protected readonly clip = clip;
 
   protected goBack(): void {
     const back = this.ui.linkReturn();

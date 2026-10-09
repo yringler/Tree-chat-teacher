@@ -15,20 +15,12 @@ import {
   type Branch,
   type ContextMode,
 } from '@tangent/shared';
-import { Icon, Modal, routeSuffix } from '@tangent/web-shared';
-import { MODE_LABEL } from '../canvas/lane';
+import { CONTEXT_MODE_META, Icon, Modal, routeSuffix } from '@tangent/web-shared';
 import { confirmDeleteLane } from '../canvas/delete-lane';
 import { laneTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore, type BranchSettingsState } from '../state/ui-store';
 import { ModelField } from './model-field';
-
-const MODE_HELP: Record<ContextMode, string> = {
-  path: 'Everything the parent lane had at the fork, then this lane.',
-  summary: 'A generated summary of the parent context (focused on the quote), then this lane.',
-  message: 'Only the message this lane forks from and the quote: no other earlier messages.',
-  independent: 'Only the system prompt and the quote: no earlier messages.',
-};
 
 /** A lane's title, context mode, anchor quote, model and privacy; and deleting it. */
 @Component({
@@ -57,8 +49,8 @@ const MODE_HELP: Record<ContextMode, string> = {
                     (change)="mode.set(m)"
                   />
                   <span>
-                    <strong class="mode-text-{{ m }}">{{ modeLabel[m] }}</strong>
-                    <span class="muted small">{{ help[m] }}</span>
+                    <strong class="mode-text-{{ m }}">{{ meta[m].label }}</strong>
+                    <span class="muted small">{{ meta[m].help }}</span>
                   </span>
                 </label>
               }
@@ -131,8 +123,7 @@ export class BranchSettings implements OnInit {
   private readonly ui = inject(UiStore);
   readonly state = input.required<BranchSettingsState>();
   protected readonly modes = CONTEXT_MODES;
-  protected readonly modeLabel = MODE_LABEL;
-  protected readonly help = MODE_HELP;
+  protected readonly meta = CONTEXT_MODE_META;
 
   protected readonly branch = computed(
     () => this.store.index()?.branches.get(this.state().branchId) ?? null,
