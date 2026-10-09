@@ -4,15 +4,14 @@ import { describe, expect, it } from 'vitest';
 import type { AppBindings, AppEnv } from '../src/env.js';
 import { landingRoutes } from '../src/http/landing.js';
 import { LEGAL_STYLE, legalRoutes } from '../src/http/legal.js';
-
-const ORIGIN = 'https://tangent.example.com';
+import { BASE } from './http.js';
 
 function setup(overrides: Partial<AppEnv> = {}) {
   const app = new Hono<AppBindings>();
   app.route('/', legalRoutes());
   app.route('/', landingRoutes());
   const e = { ...env, BETTER_AUTH_SECRET: 'secret', ...overrides } as AppEnv;
-  return (path: string) => app.request(`${ORIGIN}${path}`, {}, e);
+  return (path: string) => app.request(`${BASE}${path}`, {}, e);
 }
 
 async function sha256Base64(text: string): Promise<string> {

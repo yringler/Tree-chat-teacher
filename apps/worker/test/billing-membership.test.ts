@@ -21,9 +21,9 @@ import {
   simpleAccount,
   uniq,
 } from './mocks/billing-helpers.js';
+import { BASE, ok } from './http.js';
 
 const env = rawEnv as unknown as AppEnv;
-const BASE = 'https://tangent.example.com';
 const CODE = 'friends-of-tangent';
 /** The membership sold and required (vitest.config.ts leaves it off), with a waiver code. */
 const memberEnv: AppEnv = {
@@ -69,12 +69,6 @@ function appAs(account: AccountContext, e: AppEnv = memberEnv) {
       e,
     );
   };
-}
-
-async function body<T>(res: Response, status: number): Promise<T> {
-  const text = await res.text();
-  expect(res.status, text).toBe(status);
-  return JSON.parse(text) as T;
 }
 
 const redeem = (code: string) => ({
@@ -176,7 +170,7 @@ describe('membership', () => {
   it('shows in the billing summary', async () => {
     const account = await member();
     await insertSubscription(env, account.userId!, 'active');
-    const summary = await body<BillingSummary>(await appAs(account)('/api/billing'), 200);
+    const summary = await ok<BillingSummary>(await appAs(account)('/api/billing'), 200);
     expect(summary.membership).toMatchObject({ required: true, status: 'active' });
     expect(summary).not.toHaveProperty('monthlyPlans');
     expect(summary).not.toHaveProperty('subscription');
@@ -187,7 +181,7 @@ describe('membership waiver code', () => {
   it('the right code sets the flag (once) and returns the membership', async () => {
     const account = await member();
     const call = appAs(account);
-    const info = await body<MembershipInfo>(
+    const info = await ok<MembershipInfo>(
       await call('/api/billing/membership/waiver', redeem(`  ${CODE} `)),
       200,
     );
@@ -196,7 +190,7 @@ describe('membership waiver code', () => {
     expect(first.waived).toBe(1);
     expect(first.at).toMatch(/^\d{4}-\d\d-\d\dT/);
     // Redeeming again (e.g. from the other app) keeps the original time.
-    await body<MembershipInfo>(
+    await ok<MembershipInfo>(
       await appAs(simpleAccount(account.userId!))('/api/billing/membership/waiver', redeem(CODE)),
       200,
     );
@@ -207,7 +201,7 @@ describe('membership waiver code', () => {
     const account = await member();
     const call = appAs(account);
     for (const code of ['nope', `${CODE}x`, CODE.slice(0, -1)]) {
-      const err = await body<ApiError>(
+      const err = await ok<ApiError>(
         await call('/api/billing/membership/waiver', redeem(code)),
         403,
       );
@@ -219,14 +213,11 @@ describe('membership waiver code', () => {
   it('is 400 when no code is configured, or the body is invalid', async () => {
     const account = await member();
     const none = appAs(account, { ...memberEnv, MEMBERSHIP_WAIVER_CODE: ' ' });
-    const err = await body<ApiError>(
-      await none('/api/billing/membership/waiver', redeem(CODE)),
-      400,
-    );
+    const err = await ok<ApiError>(await none('/api/billing/membership/waiver', redeem(CODE)), 400);
     expect(err.error.code).toBe('bad_request');
     const call = appAs(account);
-    await body<ApiError>(await call('/api/billing/membership/waiver', redeem('   ')), 400);
-    await body<ApiError>(
+    await ok<ApiError>(await call('/api/billing/membership/waiver', redeem('   ')), 400);
+    await ok<ApiError>(
       await call('/api/billing/membership/waiver', { ...redeem(CODE), json: {} }),
       400,
     );
@@ -235,7 +226,7 @@ describe('membership waiver code', () => {
 
   it('is same-origin only, and 401 in the dev bypass', async () => {
     const account = await member();
-    await body<ApiError>(
+    await ok<ApiError>(
       await appAs(account)('/api/billing/membership/waiver', {
         ...redeem(CODE),
         headers: { 'Sec-Fetch-Site': 'cross-site' },
@@ -243,7 +234,7 @@ describe('membership waiver code', () => {
       403,
     );
     expect((await isWaived(account.userId!)).waived).toBe(0);
-    const dev = await body<ApiError>(
+    const dev = await ok<ApiError>(
       await appAs(devPowerAccount())('/api/billing/membership/waiver', redeem(CODE)),
       401,
     );
@@ -261,10 +252,7 @@ describe('membership waiver code', () => {
       },
     };
     const call = appAs(account, { ...memberEnv, KEY_RATE_LIMITER: limiter } as unknown as AppEnv);
-    const err = await body<ApiError>(
-      await call('/api/billing/membership/waiver', redeem(CODE)),
-      429,
-    );
+    const err = await ok<ApiError>(await call('/api/billing/membership/waiver', redeem(CODE)), 429);
     expect(err.error.code).toBe('rate_limited');
     expect(keys).toEqual([`key:account:${account.id}`]);
     expect((await isWaived(account.userId!)).waived).toBe(0);

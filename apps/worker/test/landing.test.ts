@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest';
 import type { AppBindings, AppEnv } from '../src/env.js';
 import { LANDING_STYLE, hasSessionCookie, landingRoutes } from '../src/http/landing.js';
 import { LEARN_APP_CSP } from '../src/http/learn-app.js';
+import { BASE } from './http.js';
 
-const ORIGIN = 'https://tangent.example.com';
 const POWER_INDEX = '<!doctype html><title>power</title>';
 const SECRET = 'test-secret-test-secret-test-secret';
 /** The default own-key and built-in providers (OpenRouter, with web search), as deployed. */
@@ -49,7 +49,7 @@ function setup(options: { devBypass?: boolean; env?: Partial<AppEnv> } = {}) {
     DEV_ALLOW_NO_AUTH: 'true',
     ...options.env,
   } as AppEnv;
-  const request = (path: string, init?: RequestInit) => app.request(`${ORIGIN}${path}`, init, e);
+  const request = (path: string, init?: RequestInit) => app.request(`${BASE}${path}`, init, e);
   return { request, seen: assets.seen };
 }
 

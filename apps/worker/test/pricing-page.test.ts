@@ -8,7 +8,8 @@ import { formatMicros } from '@tangent/shared';
 import { PRICING_STYLE } from '../src/http/pricing-page.js';
 import { uniq } from './mocks/billing-helpers.js';
 import { fundPool } from './pool-helpers.js';
-import { authEnv, ORIGIN } from './session-client.js';
+import { authEnv } from './session-client.js';
+import { BASE } from './http.js';
 
 /**
  * The pool on with 1,024-token replies, credit sold
@@ -27,7 +28,7 @@ const DEPLOYED: Partial<AppEnv> = {
 /** The page as a visitor sees it, with `overrides` on the deployed env. */
 async function pricing(overrides: Partial<AppEnv> = {}): Promise<{ res: Response; html: string }> {
   const res = await createApp().request(
-    `${ORIGIN}/pricing`,
+    `${BASE}/pricing`,
     {},
     authEnv({ ...DEPLOYED, ...overrides }),
   );
@@ -72,7 +73,7 @@ describe('/pricing', () => {
     ]);
     expect(html).not.toMatch(/<script|\son\w+=|\sstyle=/i);
     expect(html).toContain('<title>Pricing · Tangent</title>');
-    expect(html).toContain(`<link rel="canonical" href="${ORIGIN}/pricing">`);
+    expect(html).toContain(`<link rel="canonical" href="${BASE}/pricing">`);
   });
 
   it('numbers its notes in reading order, and every citation has a note and every note a citation', async () => {

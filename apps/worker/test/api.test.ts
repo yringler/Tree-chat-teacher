@@ -9,38 +9,8 @@ import type {
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
-import { exports } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-
-const BASE = 'https://tangent.example.com';
-
-function call(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
-  const { json, ...rest } = init;
-  const headers = new Headers(rest.headers);
-  if (json !== undefined) headers.set('Content-Type', 'application/json');
-  return exports.default.fetch(
-    new Request(BASE + path, {
-      ...rest,
-      headers,
-      body: json !== undefined ? JSON.stringify(json) : rest.body,
-    }),
-  );
-}
-
-async function ok<T>(res: Response | Promise<Response>, status = 200): Promise<T> {
-  const r = await res;
-  const text = await r.text();
-  expect(r.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
-}
-
-function parseSse(text: string): StreamEvent[] {
-  return text
-    .split('\n\n')
-    .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-    .filter((l): l is string => !!l)
-    .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent);
-}
+import { call, ok, parseSse } from './http.js';
 
 async function sendMessage(branchId: string, content: string): Promise<StreamEvent[]> {
   const res = await call(`/api/branches/${branchId}/messages`, {

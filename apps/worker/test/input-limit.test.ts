@@ -5,7 +5,7 @@ import type {
   TreeDetail,
 } from '@tangent/shared';
 import { ChatService } from '@tangent/core';
-import { env as rawEnv, exports } from 'cloudflare:workers';
+import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { grantCredit } from '../src/billing/ledger.js';
 import type { AccountContext, AppEnv } from '../src/env.js';
@@ -13,6 +13,7 @@ import { generationLimits, serverInputCap } from '../src/input-limit.js';
 import { simpleMaxInputTokens } from '../src/simple-mode.js';
 import { uniq } from './mocks/billing-helpers.js';
 import { authEnv, client } from './session-client.js';
+import { call, parseSse } from './http.js';
 
 /**
  * Power's input limit (`SendMessageRequest.maxInputTokens`, `.inputOverflow`):
@@ -20,18 +21,7 @@ import { authEnv, client } from './session-client.js';
  * window less the reply, and on Tangent credit to BUILT_IN_MAX_INPUT_TOKENS.
  */
 const env = rawEnv as unknown as AppEnv;
-const BASE = 'https://tangent.example.com';
 const CREDIT_CAP = simpleMaxInputTokens(env);
-
-function call(path: string, init: { method?: string; json?: unknown } = {}): Promise<Response> {
-  return exports.default.fetch(
-    new Request(BASE + path, {
-      method: init.method ?? (init.json === undefined ? 'GET' : 'POST'),
-      headers: { 'Content-Type': 'application/json' },
-      ...(init.json === undefined ? {} : { body: JSON.stringify(init.json) }),
-    }),
-  );
-}
 
 async function trunk(route: Record<string, string>): Promise<string> {
   const res = await call('/api/trees', { json: { title: 'Limit', ...route } });
@@ -135,19 +125,11 @@ describe('power: the Context preview plans with the limits', () => {
 });
 
 describe('power: a send with an input limit', () => {
-  function events(text: string): StreamEvent[] {
-    return text
-      .split('\n\n')
-      .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-      .filter((l): l is string => !!l)
-      .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent);
-  }
-
   async function send(branchId: string, json: Record<string, unknown>) {
     const res = await call(`/api/branches/${branchId}/messages`, { json });
     const text = await res.text();
     expect(res.status, text).toBe(200);
-    return events(text);
+    return parseSse(text);
   }
 
   it('drops the oldest messages for truncate, and compacts them by default', async () => {
@@ -222,13 +204,8 @@ describe('GET /api/branches/:id/input-budget', () => {
 describe('Compare candidates and reviews take the limits like a send', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  function frames(text: string): { type: string; message?: string; text?: string }[] {
-    return text
-      .split('\n\n')
-      .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-      .filter((l): l is string => !!l)
-      .map((l) => JSON.parse(l.slice(5).trim()) as { type: string; message?: string });
-  }
+  const frames = (text: string) =>
+    parseSse<{ type: string; message?: string; text?: string }>(text);
   const compacting = (evs: { type: string; message?: string }[]) =>
     evs.some((e) => e.type === 'status' && /Compacting/.test(e.message ?? ''));
 

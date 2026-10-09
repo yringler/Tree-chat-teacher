@@ -23,6 +23,7 @@ import { replyCeilingMicros, resolvePoolParams } from '../src/pool/params.js';
 import { insertSubscription, uniq } from './mocks/billing-helpers.js';
 import { poolAccess, poolReadyUser } from './pool-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
+import { ok, parseSse } from './http.js';
 
 const env = rawEnv as unknown as AppEnv;
 const ECHO = '[echo-request]';
@@ -59,14 +60,8 @@ async function freshMinute(): Promise<void> {
   if (left < 20_000) await new Promise((r) => setTimeout(r, left + 50));
 }
 
-async function json<T>(res: Response, status = 200): Promise<T> {
-  const text = await res.text();
-  expect(res.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
-}
-
 async function newTree(u: User, learn: LearnPayment = 'pool') {
-  const detail = await json<TreeDetail>(
+  const detail = await ok<TreeDetail>(
     await u.client.call('/api/trees', { method: 'POST', json: { title: 'T' }, learn }),
     201,
   );
@@ -87,11 +82,7 @@ async function sendOk(u: User, branchId: string, content = 'Hi'): Promise<Stream
   const res = await send(u, branchId, content);
   const text = await res.text();
   expect(res.status, text).toBe(200);
-  const events = text
-    .split('\n\n')
-    .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-    .filter((l): l is string => !!l)
-    .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent);
+  const events = parseSse(text);
   expect(events.at(-1)?.type).toBe('done');
   return events;
 }
@@ -106,7 +97,7 @@ async function refused(res: Response, status: number, code: string): Promise<Poo
 }
 
 async function nodeCount(u: User, treeId: string): Promise<number> {
-  const detail = await json<TreeDetail>(
+  const detail = await ok<TreeDetail>(
     await u.client.call(`/api/trees/${treeId}`, { learn: 'pool' }),
   );
   return detail.nodes.length;
@@ -183,7 +174,7 @@ describe('the same caps for everyone', () => {
     expect(await capped(other)).toEqual(expected);
     // /api/pool/me says the same.
     const caps = async (u: User) =>
-      (await json<PoolMeResponse>(await u.client.call('/api/pool/me', { learn: 'pool' }))).caps;
+      (await ok<PoolMeResponse>(await u.client.call('/api/pool/me', { learn: 'pool' }))).caps;
     expect(await caps(member)).toEqual(await caps(other));
   });
 
@@ -321,7 +312,7 @@ describe('account gates', () => {
       );
     const { treeId, branchId } = await newTree(u);
 
-    const suspended = await json<AdminUser>(
+    const suspended = await ok<AdminUser>(
       await asAdmin(`/api/admin/users/${u.userId}`, {
         method: 'PATCH',
         json: { poolSuspended: true },
@@ -338,7 +329,7 @@ describe('account gates', () => {
     expect((await u.client.call(`/api/trees/${treeId}`, { learn: 'pool' })).status).toBe(200);
 
     // Changing the share permission leaves the suspension alone.
-    await json<AdminUser>(
+    await ok<AdminUser>(
       await asAdmin(`/api/admin/users/${u.userId}`, {
         method: 'PATCH',
         json: { shareAllowed: true },
@@ -346,7 +337,7 @@ describe('account gates', () => {
     );
     expect((await poolAccess(u.userId))?.pool_suspended).toBe(1);
 
-    await json<AdminUser>(
+    await ok<AdminUser>(
       await asAdmin(`/api/admin/users/${u.userId}`, {
         method: 'PATCH',
         json: { poolSuspended: false },
@@ -375,7 +366,7 @@ describe('account gates', () => {
       u.client.call('/api/pool/verify', { method: 'POST', json: { token }, learn: 'pool' });
     expect((await verify('not-a-pass')).status).toBe(400);
     expect((await poolAccess(u.userId))?.pool_verified_at).toBeNull();
-    expect(await json<unknown>(await verify('pass'))).toEqual({ verified: true });
+    expect(await ok<unknown>(await verify('pass'))).toEqual({ verified: true });
     const access = await poolAccess(u.userId);
     expect(access?.pool_verified_at).toBeTruthy();
     expect(access?.pool_identity).toMatch(/^[0-9a-f]{64}$/);
@@ -448,7 +439,7 @@ describe('account gates', () => {
       [first, `ab${tag}@gmail.com`],
       [unverified, `cd${tag}@example.org`],
     ] as const) {
-      await json<AdminUser>(
+      await ok<AdminUser>(
         await asAdmin(`/api/admin/users/${u.userId}`, {
           method: 'PATCH',
           json: { poolSuspended: true },
@@ -481,7 +472,7 @@ describe('account gates', () => {
       expect(await nodeCount(u, treeId)).toBe(0);
     }
     // The admin page shows it on the new account.
-    const shown = await json<AdminUser>(
+    const shown = await ok<AdminUser>(
       await asAdmin(`/api/admin/users/${again.userId}`, {
         method: 'PATCH',
         json: { shareAllowed: false },
@@ -490,7 +481,7 @@ describe('account gates', () => {
     expect(shown.poolSuspended).toBe(true);
 
     // An admin can lift it for the new account.
-    await json<AdminUser>(
+    await ok<AdminUser>(
       await asAdmin(`/api/admin/users/${again.userId}`, {
         method: 'PATCH',
         json: { poolSuspended: false },
@@ -541,7 +532,7 @@ describe('account gates', () => {
 
   it('the dev bypass (no signed-in user) never reaches the pool', async () => {
     const dev = client(env);
-    const created = await json<TreeDetail>(
+    const created = await ok<TreeDetail>(
       await dev.call('/api/trees', { method: 'POST', json: { title: 'T' }, learn: 'pool' }),
       201,
     );
@@ -602,11 +593,7 @@ describe('no OpenAI-compatible shape', () => {
     });
     const text = await res.text();
     expect(res.status, text).toBe(200);
-    const reply = text
-      .split('\n\n')
-      .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-      .filter((l): l is string => !!l)
-      .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent)
+    const reply = parseSse(text)
       .map((ev) => (ev.type === 'delta' ? ev.text : ''))
       .join('');
     expect(reply).toMatch(/^ECHO model=normal maxOutputTokens=2048 system=/);
@@ -627,7 +614,7 @@ describe('consumption report', () => {
     await sendOk(heavy, heavyTree.branchId, 'Two');
     await sendOk(light, (await newTree(light)).branchId);
 
-    const report = await json<AdminPoolUsageResponse>(
+    const report = await ok<AdminPoolUsageResponse>(
       await admin.client.call('/api/admin/pool/usage?days=1&limit=10', {}, adminEnv),
     );
     const now = new Date();
@@ -649,7 +636,7 @@ describe('consumption report', () => {
     // No address is ever stored or reported.
     expect(JSON.stringify(report)).not.toContain(ip);
 
-    const limited = await json<AdminPoolUsageResponse>(
+    const limited = await ok<AdminPoolUsageResponse>(
       await admin.client.call('/api/admin/pool/usage?limit=1', {}, adminEnv),
     );
     expect(limited.rows.map((r) => r.userId)).toEqual([heavy.userId]);

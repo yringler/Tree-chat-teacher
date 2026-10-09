@@ -13,9 +13,9 @@ import type { AppEnv } from '../src/env.js';
 import { insertUser, powerAccount, simpleAccount, uniq } from './mocks/billing-helpers.js';
 import { membership } from './mocks/payment-events.js';
 import { applyPaymentEvent } from '../src/billing/payments/apply.js';
+import { BASE } from './http.js';
 
 const env = rawEnv as unknown as AppEnv;
-const BASE = 'https://tangent.example.com';
 const withFake = (o: FakeProviderOptions, e: AppEnv = env) =>
   ({ ...e, FAKE_PAYMENTS: JSON.stringify(o) }) as AppEnv;
 

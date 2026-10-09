@@ -4,7 +4,6 @@ import {
   type LearnPayment,
   type MeResponse,
   type ProviderInfo,
-  type StreamEvent,
   type TreeDetail,
 } from '@tangent/shared';
 import { env as rawEnv } from 'cloudflare:workers';
@@ -17,6 +16,7 @@ import { makeNode } from './fixtures.js';
 import { insertSubscription } from './mocks/billing-helpers.js';
 import { poolReadyUser } from './pool-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
+import { ok, parseSse } from './http.js';
 
 /**
  * Who pays, and whose key is used, now that a provider id names only the
@@ -83,18 +83,8 @@ function matrixEnv(overrides: Partial<AppEnv> = {}): AppEnv {
   });
 }
 
-async function json<T>(res: Response, status = 200): Promise<T> {
-  const text = await res.text();
-  expect(res.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
-}
-
 function replyOf(text: string): string {
-  return text
-    .split('\n\n')
-    .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-    .filter((l): l is string => !!l)
-    .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent)
+  return parseSse(text)
     .map((ev) => (ev.type === 'delta' ? ev.text : ''))
     .join('');
 }
@@ -113,7 +103,7 @@ let seq = 0;
 async function signedIn(e: AppEnv): Promise<{ c: Client; userId: string }> {
   const c = client(e);
   await c.signIn(`matrix${++seq}-${Math.random().toString(36).slice(2, 8)}@example.org`);
-  const me = await json<MeResponse>(await c.call('/api/me'));
+  const me = await ok<MeResponse>(await c.call('/api/me'));
   return { c, userId: me.userId! };
 }
 
@@ -137,7 +127,7 @@ async function grant(accountId: string, micros = 1_000_000): Promise<void> {
 
 /** A tree on `route` with a finished exchange; returns the reply to review. */
 async function replyOn(c: Client, route: Route, learn?: LearnPayment, as?: AppEnv) {
-  const detail = await json<TreeDetail>(
+  const detail = await ok<TreeDetail>(
     await c.call(
       '/api/trees',
       {
@@ -225,7 +215,7 @@ describe('funding matrix: who pays, and with which key', () => {
 
   it('Learn on the pool: the pinned model and locked prompt, charged to the pool, never the user', async () => {
     const u = await poolReadyUser({ env: { POOL_SYSTEM_PROMPT: 'LOCKED POOL PROMPT' } });
-    const detail = await json<TreeDetail>(
+    const detail = await ok<TreeDetail>(
       await u.client.call('/api/trees', {
         method: 'POST',
         json: { title: 'P', systemPrompt: 'IGNORE ME', model: 'max', funding: 'credit' },
@@ -236,7 +226,7 @@ describe('funding matrix: who pays, and with which key', () => {
     const trunk = detail.branches[0]!;
     // Learn writes `own-key` whatever it is asked: its payment is per request.
     expect(trunk).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
-    const patched = await json<Branch>(
+    const patched = await ok<Branch>(
       await u.client.call(`/api/branches/${trunk.id}`, {
         method: 'PATCH',
         json: { funding: 'credit' },
@@ -345,7 +335,7 @@ describe('funding matrix: who pays, and with which key', () => {
     const e = matrixEnv({ PAYMENT_PROVIDER: 'polar', POOL_ENABLED: 'false' });
     const { c, userId } = await signedIn(e);
     await saveOwnOpenRouterKey(c);
-    const providers = await json<ProviderInfo[]>(await c.call('/api/providers'));
+    const providers = await ok<ProviderInfo[]>(await c.call('/api/providers'));
     expect(providers.map((p) => `${p.id}:${p.funding}`)).toEqual([
       'fake:own-key',
       'openrouter:own-key',

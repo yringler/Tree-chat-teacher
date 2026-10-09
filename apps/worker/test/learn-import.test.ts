@@ -3,7 +3,6 @@ import {
   MAX_BACKUP_BYTES,
   type Branch,
   type MeResponse,
-  type StreamEvent,
   type TreeBackup,
   type TreeDetail,
   type TreeSummary,
@@ -15,6 +14,7 @@ import { createD1Repositories } from '../src/db/d1-repositories.js';
 import type { AppEnv } from '../src/env.js';
 import { makeNode } from './fixtures.js';
 import { authEnv, client } from './session-client.js';
+import { ok, parseSse } from './http.js';
 
 /*
  * Import and export in Learn (docs/DECISIONS.md "Import and export in
@@ -22,18 +22,12 @@ import { authEnv, client } from './session-client.js';
  * app that sends it, and adapted to what Learn can run when that is Learn.
  */
 
-async function json<T>(res: Response, status = 200): Promise<T> {
-  const text = await res.text();
-  expect(res.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
-}
-
 let seq = 0;
 async function newUser(e: AppEnv = authEnv({ POOL_ENABLED: 'false' })) {
   const c = client(e);
   await c.signIn(`learn-import${++seq}-${Math.random().toString(36).slice(2, 8)}@example.org`);
-  const power = await json<MeResponse>(await c.call('/api/me'));
-  const learn = await json<MeResponse>(await c.call('/api/me', { learn: 'own-key' }));
+  const power = await ok<MeResponse>(await c.call('/api/me'));
+  const learn = await ok<MeResponse>(await c.call('/api/me', { learn: 'own-key' }));
   return { ...c, power, learn };
 }
 type User = Awaited<ReturnType<typeof newUser>>;
@@ -44,7 +38,7 @@ type User = Awaited<ReturnType<typeof newUser>>;
  * and an `independent` branch on the test provider `fake`.
  */
 async function powerTree(u: User): Promise<TreeDetail> {
-  const detail = await json<TreeDetail>(
+  const detail = await ok<TreeDetail>(
     await u.call('/api/trees', {
       method: 'POST',
       json: { title: 'Primes', providerId: 'ant', systemPrompt: 'Talk like a pirate.' },
@@ -75,32 +69,24 @@ async function powerTree(u: User): Promise<TreeDetail> {
       title: 'Independent',
     },
   ]) {
-    await json<Branch>(
+    await ok<Branch>(
       await u.call('/api/branches', { method: 'POST', json: { fromNodeId: reply.id, ...req } }),
       201,
     );
   }
-  return json<TreeDetail>(await u.call(`/api/trees/${detail.tree.id}`));
+  return ok<TreeDetail>(await u.call(`/api/trees/${detail.tree.id}`));
 }
 
 const routes = (d: Pick<TreeDetail, 'branches'>) =>
   d.branches.map((b) => [b.title, b.providerId, b.model, b.contextMode, b.funding]);
 
-function parseSse(text: string): StreamEvent[] {
-  return text
-    .split('\n\n')
-    .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-    .filter((l): l is string => !!l)
-    .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent);
-}
-
 describe('importing into Learn', () => {
   it("adapts a power backup to Learn's provider, models, path context and prompt, in the Learn account", async () => {
     const u = await newUser();
     const original = await powerTree(u);
-    const backup = await json<TreeBackup>(await u.call(`/api/trees/${original.tree.id}/backup`));
+    const backup = await ok<TreeBackup>(await u.call(`/api/trees/${original.tree.id}/backup`));
 
-    const lesson = await json<TreeDetail>(
+    const lesson = await ok<TreeDetail>(
       await u.call('/api/import', { method: 'POST', json: backup, learn: 'own-key' }),
       201,
     );
@@ -118,11 +104,11 @@ describe('importing into Learn', () => {
     ]);
 
     // Stored that way, in the Learn account only.
-    const stored = await json<TreeDetail>(
+    const stored = await ok<TreeDetail>(
       await u.call(`/api/trees/${lesson.tree.id}`, { learn: 'own-key' }),
     );
     expect(routes(stored)).toEqual(routes(lesson));
-    const learnList = await json<TreeSummary[]>(await u.call('/api/trees', { learn: 'credit' }));
+    const learnList = await ok<TreeSummary[]>(await u.call('/api/trees', { learn: 'credit' }));
     expect(learnList.map((t) => t.id)).toEqual([lesson.tree.id]);
     expect((await u.call(`/api/trees/${lesson.tree.id}`)).status).toBe(404);
     const row = await env.DB.prepare('SELECT account_id FROM trees WHERE id = ?1')
@@ -134,8 +120,8 @@ describe('importing into Learn', () => {
   it('the imported lesson continues on Learn (here on credit), never on the power providers', async () => {
     const u = await newUser();
     const original = await powerTree(u);
-    const backup = await json<TreeBackup>(await u.call(`/api/trees/${original.tree.id}/backup`));
-    const lesson = await json<TreeDetail>(
+    const backup = await ok<TreeBackup>(await u.call(`/api/trees/${original.tree.id}/backup`));
+    const lesson = await ok<TreeDetail>(
       await u.call('/api/import', { method: 'POST', json: backup, learn: 'credit' }),
       201,
     );
@@ -163,8 +149,8 @@ describe('importing into Learn', () => {
   it('power imports are unchanged: providers, models, context, funding and prompt kept, in the power account', async () => {
     const u = await newUser();
     const original = await powerTree(u);
-    const backup = await json<TreeBackup>(await u.call(`/api/trees/${original.tree.id}/backup`));
-    const copy = await json<TreeDetail>(
+    const backup = await ok<TreeBackup>(await u.call(`/api/trees/${original.tree.id}/backup`));
+    const copy = await ok<TreeDetail>(
       await u.call('/api/import', { method: 'POST', json: backup }),
       201,
     );
@@ -180,7 +166,7 @@ describe('importing into Learn', () => {
 
   it('round-trips: a Learn export imports into Learn and power alike', async () => {
     const u = await newUser();
-    const created = await json<TreeDetail>(
+    const created = await ok<TreeDetail>(
       await u.call('/api/trees', {
         method: 'POST',
         json: { title: 'Light', model: 'normal' },
@@ -197,7 +183,7 @@ describe('importing into Learn', () => {
       model: 'normal',
     });
     await createD1Repositories(env.DB).trees.appendNodes([user, reply], new Date().toISOString());
-    await json<Branch>(
+    await ok<Branch>(
       await u.call('/api/branches', {
         method: 'POST',
         json: { fromNodeId: reply.id, contextMode: 'path', anchorQuote: 'a particle' },
@@ -205,7 +191,7 @@ describe('importing into Learn', () => {
       }),
       201,
     );
-    const original = await json<TreeDetail>(
+    const original = await ok<TreeDetail>(
       await u.call(`/api/trees/${created.tree.id}`, { learn: 'own-key' }),
     );
 
@@ -213,7 +199,7 @@ describe('importing into Learn', () => {
     expect(res.headers.get('Content-Disposition')).toBe(
       'attachment; filename="light.tangent.json"',
     );
-    const backup = await json<TreeBackup>(res);
+    const backup = await ok<TreeBackup>(res);
     expect(backup.format).toBe('tangent-tree-backup');
     // The power app can't download it: it is the Learn account's tree.
     expect((await u.call(`/api/trees/${created.tree.id}/backup`)).status).toBe(404);
@@ -225,14 +211,14 @@ describe('importing into Learn', () => {
       anchors: d.branches.map((b) => b.anchorQuote),
       nodes: d.nodes.map((n) => [n.role, n.content, n.providerId, n.model]),
     });
-    const again = await json<TreeDetail>(
+    const again = await ok<TreeDetail>(
       await u.call('/api/import', { method: 'POST', json: backup, learn: 'own-key' }),
       201,
     );
     expect(again.tree.id).not.toBe(original.tree.id);
     expect(shape(again)).toEqual(shape(original));
 
-    const inPower = await json<TreeDetail>(
+    const inPower = await ok<TreeDetail>(
       await u.call('/api/import', { method: 'POST', json: backup }),
       201,
     );
@@ -336,7 +322,7 @@ describe('a backup naming providers the server does not offer', () => {
 
   it('imports into power as it is, and a send on the fake branch is "Unknown provider"', async () => {
     const u = await newUser(defaults);
-    const copy = await json<TreeDetail>(
+    const copy = await ok<TreeDetail>(
       await u.call('/api/import', { method: 'POST', json: oldBackup() }),
       201,
     );
@@ -348,21 +334,21 @@ describe('a backup naming providers the server does not offer', () => {
       ['On the built-in provider', 'tangent', 'max', 'summary', 'own-key'],
     ]);
     expect(copy.nodes.map((n) => n.providerId)).toEqual([null, 'fake']);
-    const providers = await json<{ id: string }[]>(await u.call('/api/providers'));
+    const providers = await ok<{ id: string }[]>(await u.call('/api/providers'));
     expect(providers.map((p) => p.id)).not.toContain('fake');
 
     const res = await u.call(`/api/branches/${copy.tree.trunkBranchId}/messages`, {
       method: 'POST',
       json: { content: 'Still there?' },
     });
-    const body = await json<{ error: { code: string; message: string } }>(res, 400);
+    const body = await ok<{ error: { code: string; message: string } }>(res, 400);
     expect(body.error).toEqual({ code: 'bad_request', message: 'Unknown provider "fake"' });
     // Nothing was appended.
-    const after = await json<TreeDetail>(await u.call(`/api/trees/${copy.tree.id}`));
+    const after = await ok<TreeDetail>(await u.call(`/api/trees/${copy.tree.id}`));
     expect(after.nodes).toHaveLength(2);
 
     // Branch settings fix it: picking a provider the server offers.
-    const moved = await json<Branch>(
+    const moved = await ok<Branch>(
       await u.call(`/api/branches/${copy.tree.trunkBranchId}`, {
         method: 'PATCH',
         json: { providerId: 'anthropic' },
@@ -373,7 +359,7 @@ describe('a backup naming providers the server does not offer', () => {
 
   it("imported into Learn, it is adapted onto Learn's provider like any other backup", async () => {
     const u = await newUser(defaults);
-    const lesson = await json<TreeDetail>(
+    const lesson = await ok<TreeDetail>(
       await u.call('/api/import', { method: 'POST', json: oldBackup(), learn: 'own-key' }),
       201,
     );
@@ -423,7 +409,7 @@ describe('import limits', () => {
   it('rate limits import and copy-to-learn per account', async () => {
     const u = await newUser();
     const original = await powerTree(u);
-    const backup = await json<TreeBackup>(await u.call(`/api/trees/${original.tree.id}/backup`));
+    const backup = await ok<TreeBackup>(await u.call(`/api/trees/${original.tree.id}/backup`));
     const refusing = limiter(false);
     const limited: AppEnv = { ...u.env, IMPORT_RATE_LIMITER: refusing.binding };
     const post = { method: 'POST', json: backup } as const;
@@ -438,7 +424,7 @@ describe('import limits', () => {
       `import:account:${u.learn.accountId}`,
     ]);
     // Nothing was written.
-    const trees = await json<TreeSummary[]>(await u.call('/api/trees'));
+    const trees = await ok<TreeSummary[]>(await u.call('/api/trees'));
     expect(trees.map((t) => t.id)).toEqual([original.tree.id]);
 
     const allowing = limiter(true);

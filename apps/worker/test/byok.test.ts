@@ -1,35 +1,20 @@
 import type { KeyStatusResponse, ProviderInfo, StreamEvent, TreeDetail } from '@tangent/shared';
-import { env, exports } from 'cloudflare:workers';
+import { env } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { KEY_COOKIE_NAME } from '../src/byok/keys.js';
 import { open, seal, SealConfigError, UnsealError } from '../src/byok/seal.js';
-import { client, ORIGIN } from './session-client.js';
+import { client } from './session-client.js';
+import { BASE, call as callWorker, type CallInit, ok, parseSse } from './http.js';
 
-const BASE = 'https://tangent.example.com';
 const SECRET = env.KEY_ENCRYPTION_SECRET;
 const OTHER_SECRET = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)));
 
-function call(
-  path: string,
-  init: RequestInit & { json?: unknown; cookie?: string } = {},
-): Promise<Response> {
-  const { json, cookie, ...rest } = init;
+/** `cookie`: the key cookie's sealed value. */
+function call(path: string, init: CallInit & { cookie?: string } = {}): Promise<Response> {
+  const { cookie, ...rest } = init;
   const headers = new Headers(rest.headers);
-  if (json !== undefined) headers.set('Content-Type', 'application/json');
   if (cookie !== undefined) headers.set('Cookie', `${KEY_COOKIE_NAME}=${cookie}`);
-  return exports.default.fetch(
-    new Request(BASE + path, {
-      ...rest,
-      headers,
-      body: json !== undefined ? JSON.stringify(json) : rest.body,
-    }),
-  );
-}
-
-async function body<T>(res: Response, status: number): Promise<T> {
-  const text = await res.text();
-  expect(res.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
+  return callWorker(path, { ...rest, headers });
 }
 
 function setCookieOf(res: Response): string | null {
@@ -50,16 +35,8 @@ async function saveKey(apiKey: string, provider = 'ant'): Promise<string> {
   return sealedFrom(res);
 }
 
-function parseSse(text: string): StreamEvent[] {
-  return text
-    .split('\n\n')
-    .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-    .filter((l): l is string => !!l)
-    .map((l) => JSON.parse(l.slice(5).trim()) as StreamEvent);
-}
-
 async function antTree(): Promise<TreeDetail> {
-  return body<TreeDetail>(
+  return ok<TreeDetail>(
     await call('/api/trees', { method: 'POST', json: { title: 'BYOK', providerId: 'ant' } }),
     201,
   );
@@ -103,7 +80,7 @@ describe('bring-your-own-key API', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('status: enabled, no key', async () => {
-    expect(await body<KeyStatusResponse>(await call('/api/key/status'), 200)).toEqual({
+    expect(await ok<KeyStatusResponse>(await call('/api/key/status'), 200)).toEqual({
       enabled: true,
       hasKey: false,
       providers: [],
@@ -130,7 +107,7 @@ describe('bring-your-own-key API', () => {
     expect(JSON.parse(text)).toEqual({ enabled: true, hasKey: true, providers: ['ant'] });
     expect(text).not.toContain('alpha');
 
-    const providers = await body<ProviderInfo[]>(
+    const providers = await ok<ProviderInfo[]>(
       await call('/api/providers', { cookie: sealed }),
       200,
     );
@@ -270,7 +247,7 @@ describe('bring-your-own-key API', () => {
   it('only allow-listed models are proxied', async () => {
     const sealed = await saveKey('sk-ant-good-echo-0123456789');
     const tree = await antTree();
-    await body(
+    await ok(
       await call(`/api/branches/${tree.tree.trunkBranchId}`, {
         method: 'PATCH',
         json: { model: 'claude-expensive' },
@@ -390,7 +367,7 @@ describe('the key cookie belongs to its user', () => {
       json: { provider: 'ant', apiKey },
     });
     expect(saved.status, await saved.clone().text()).toBe(204);
-    const status = await body<KeyStatusResponse>(await browser.call('/api/key/status'), 200);
+    const status = await ok<KeyStatusResponse>(await browser.call('/api/key/status'), 200);
     expect(status.hasKey).toBe(true);
     return browser;
   }
@@ -399,7 +376,7 @@ describe('the key cookie belongs to its user', () => {
     const browser = await withSavedKey();
     // The first user's session lapses without a sign-out; the next one signs in here.
     await browser.signIn(email());
-    const tree = await body<TreeDetail>(
+    const tree = await ok<TreeDetail>(
       await browser.call('/api/trees', { method: 'POST', json: { title: 'T', providerId: 'ant' } }),
       201,
     );
@@ -410,7 +387,7 @@ describe('the key cookie belongs to its user', () => {
     expect(send.status).toBe(401);
     expect(await errorCode(send)).toBe('key_required');
     expect(setCookieOf(send)).toMatch(new RegExp(`^${KEY_COOKIE_NAME}=;.*Max-Age=0`));
-    const status = await body<KeyStatusResponse>(await browser.call('/api/key/status'), 200);
+    const status = await ok<KeyStatusResponse>(await browser.call('/api/key/status'), 200);
     expect(status.hasKey).toBe(false);
   });
 
@@ -418,7 +395,7 @@ describe('the key cookie belongs to its user', () => {
     const browser = await withSavedKey();
     const out = await browser.call('/api/auth/sign-out', {
       method: 'POST',
-      headers: { origin: ORIGIN },
+      headers: { origin: BASE },
     });
     expect(out.status).toBe(200);
     expect(

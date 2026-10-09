@@ -17,8 +17,7 @@ import {
 import type { AppEnv } from '../src/env.js';
 import { providerConfigs, providerEnv } from '../src/provider-configs.js';
 import { creditRegistryFor, providersFor, registryFor } from '../src/registries.js';
-
-const BASE = 'https://tangent.example.com';
+import { BASE } from './http.js';
 
 describe('accounts (dev bypass: the default account)', () => {
   it('/api/me reports the account and new rows are stamped with it', async () => {

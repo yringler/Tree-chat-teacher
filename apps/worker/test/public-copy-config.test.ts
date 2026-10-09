@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import type { AppEnv } from '../src/env.js';
 import { uniq } from './mocks/billing-helpers.js';
-import { authEnv, ORIGIN } from './session-client.js';
+import { BASE } from './http.js';
+import { authEnv } from './session-client.js';
 
 const NORMAL = 'deepseek/deepseek-v4.1-flash';
 const MAX = 'anthropic/claude-sonnet-5.5';
@@ -18,7 +19,7 @@ const FAST = 'deepseek/deepseek-v4.1-flash';
  * default model (the background model, Normal's), automatic search, credit sold
  * (the fake payment provider).
  */
-const BASE: Partial<AppEnv> = {
+const DEPLOYED: Partial<AppEnv> = {
   POOL_MAX_OUTPUT_TOKENS: '1024',
   PROVIDERS: '',
   BUILT_IN_PROVIDER: '',
@@ -36,7 +37,11 @@ const NO_POOL: Partial<AppEnv> = { POOL_ENABLED: 'false' };
 const ASKED_LIKE_ITS_TIER: Partial<AppEnv> = { POOL_EFFORT: '', POOL_MAX_OUTPUT_TOKENS: '4096' };
 
 async function page(path: string, overrides: Partial<AppEnv> = {}): Promise<string> {
-  const res = await createApp().request(`${ORIGIN}${path}`, {}, authEnv({ ...BASE, ...overrides }));
+  const res = await createApp().request(
+    `${BASE}${path}`,
+    {},
+    authEnv({ ...DEPLOYED, ...overrides }),
+  );
   expect(res.status).toBe(200);
   return res.text();
 }

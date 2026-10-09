@@ -6,13 +6,12 @@ import { createApp } from '../src/app.js';
 import { REMEMBER_COOKIE } from '../src/auth/auth.js';
 import type { EmailMessage, EmailSender } from '../src/email/index.js';
 import type { AppEnv } from '../src/env.js';
+import { BASE } from './http.js';
 
 /**
  * Signed-in browsers for the suites that need real sessions (multi-user,
  * admin): auth configured as in production, magic links captured in memory.
  */
-
-export const ORIGIN = 'https://tangent.example.com';
 
 export class CapturingSender implements EmailSender {
   readonly sent: EmailMessage[] = [];
@@ -70,7 +69,7 @@ export function client(e: AppEnv = authEnv(), opts: { ip?: string } = {}) {
     }
     const ctx = createExecutionContext();
     const res = await app.request(
-      `${ORIGIN}${path}`,
+      `${BASE}${path}`,
       { ...rest, headers, ...(json !== undefined ? { body: JSON.stringify(json) } : {}) },
       as,
       ctx,
@@ -85,7 +84,7 @@ export function client(e: AppEnv = authEnv(), opts: { ip?: string } = {}) {
   const signIn = async (email: string) => {
     const res = await call('/api/auth/sign-in/magic-link', {
       method: 'POST',
-      headers: { origin: ORIGIN, 'x-captcha-response': 'pass' },
+      headers: { origin: BASE, 'x-captcha-response': 'pass' },
       json: { email, callbackURL: '/', errorCallbackURL: '/login' },
     });
     expect(res.status).toBe(200);

@@ -17,38 +17,11 @@ import type { AppEnv } from '../src/env.js';
 import { uniq, usageRows } from './mocks/billing-helpers.js';
 import { poolReadyUser } from './pool-helpers.js';
 import { authEnv, client } from './session-client.js';
+import { BASE, call, ok, parseSse } from './http.js';
 
 const env = rawEnv as unknown as AppEnv;
-const BASE = 'https://tangent.example.com';
-
 /** The dev bypass's power account (fake providers, vitest.config.ts). */
-function call(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
-  const { json, ...rest } = init;
-  const headers = new Headers(rest.headers);
-  if (json !== undefined) headers.set('Content-Type', 'application/json');
-  return exports.default.fetch(
-    new Request(BASE + path, {
-      ...rest,
-      headers,
-      body: json !== undefined ? JSON.stringify(json) : rest.body,
-    }),
-  );
-}
-
-async function ok<T>(res: Response | Promise<Response>, status = 200): Promise<T> {
-  const r = await res;
-  const text = await r.text();
-  expect(r.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
-}
-
-function events<T = CandidateEvent>(text: string): T[] {
-  return text
-    .split('\n\n')
-    .map((frame) => frame.split('\n').find((l) => l.startsWith('data:')))
-    .filter((l): l is string => !!l)
-    .map((l) => JSON.parse(l.slice(5).trim()) as T);
-}
+const events = <T = CandidateEvent>(text: string) => parseSse<T>(text);
 
 function textOf(evs: CandidateEvent[]): string {
   return evs.map((e) => (e.type === 'delta' ? e.text : '')).join('');

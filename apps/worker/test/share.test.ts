@@ -1,42 +1,17 @@
-import type { Branch, SharePayload, ShareSummary, StreamEvent, TreeDetail } from '@tangent/shared';
+import type { Branch, SharePayload, ShareSummary, TreeDetail } from '@tangent/shared';
 import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { env, exports } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import type { AppEnv } from '../src/env.js';
-
-const BASE = 'https://tangent.example.com';
-
-function call(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
-  const { json, ...rest } = init;
-  const headers = new Headers(rest.headers);
-  if (json !== undefined) headers.set('Content-Type', 'application/json');
-  return exports.default.fetch(
-    new Request(BASE + path, {
-      ...rest,
-      headers,
-      body: json !== undefined ? JSON.stringify(json) : rest.body,
-    }),
-  );
-}
-
-async function ok<T>(res: Promise<Response>, status = 200): Promise<T> {
-  const r = await res;
-  const text = await r.text();
-  expect(r.status, text).toBe(status);
-  return JSON.parse(text) as T;
-}
+import { BASE, call, ok, parseSse } from './http.js';
 
 async function send(branchId: string, content: string) {
   const res = await call(`/api/branches/${branchId}/messages`, {
     method: 'POST',
     json: { content },
   });
-  const events = (await res.text())
-    .split('\n\n')
-    .map((f) => f.split('\n').find((l) => l.startsWith('data:')))
-    .filter((l): l is string => !!l)
-    .map((l) => JSON.parse(l.slice(5)) as StreamEvent);
+  const events = parseSse(await res.text());
   const start = events[0];
   if (start?.type !== 'start') throw new Error('no start');
   return start;

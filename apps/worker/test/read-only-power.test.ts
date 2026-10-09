@@ -26,12 +26,7 @@ import { DEFAULT_LEARN_NORMAL_MODEL } from '../src/simple-mode.js';
 import { makeNode } from './fixtures.js';
 import { insertSubscription } from './mocks/billing-helpers.js';
 import { authEnv, client } from './session-client.js';
-
-async function json<T>(res: Response, status = 200): Promise<T> {
-  const text = await res.text();
-  expect(res.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
-}
+import { ok } from './http.js';
 
 /** The fee on, sold by the fake payment provider (vitest.config.ts). */
 const FEE_ON: Partial<AppEnv> = { ANNUAL_FEE_ENABLED: 'true', POOL_ENABLED: 'false' };
@@ -40,7 +35,7 @@ let seq = 0;
 async function newUser(overrides: Partial<AppEnv> = FEE_ON) {
   const c = client(authEnv(overrides));
   await c.signIn(`read-only${++seq}-${Math.random().toString(36).slice(2, 8)}@example.org`);
-  const me = await json<MeResponse>(await c.call('/api/me'));
+  const me = await ok<MeResponse>(await c.call('/api/me'));
   return { ...c, me, userId: me.userId! };
 }
 type User = Awaited<ReturnType<typeof newUser>>;
@@ -51,7 +46,7 @@ type User = Awaited<ReturnType<typeof newUser>>;
  * `summary` branch on Tangent credit off the reply.
  */
 async function powerTree(u: User, credit = true): Promise<TreeDetail> {
-  const detail = await json<TreeDetail>(
+  const detail = await ok<TreeDetail>(
     await u.call('/api/trees', {
       method: 'POST',
       json: { title: 'Primes', providerId: 'fake', model: 'fake-1', systemPrompt: 'Be terse.' },
@@ -68,7 +63,7 @@ async function powerTree(u: User, credit = true): Promise<TreeDetail> {
   });
   await createD1Repositories(env.DB).trees.appendNodes([user, reply], new Date().toISOString());
   if (credit)
-    await json<Branch>(
+    await ok<Branch>(
       await u.call('/api/branches', {
         method: 'POST',
         json: {
@@ -82,13 +77,13 @@ async function powerTree(u: User, credit = true): Promise<TreeDetail> {
       }),
       201,
     );
-  return json<TreeDetail>(await u.call(`/api/trees/${detail.tree.id}`));
+  return ok<TreeDetail>(await u.call(`/api/trees/${detail.tree.id}`));
 }
 
 /** Everything about a tree that copying must not change (the list's order aside). */
 async function snapshot(u: User, treeId: string) {
-  const detail = await json<TreeDetail>(await u.call(`/api/trees/${treeId}`));
-  const { exportedAt: _at, ...backup } = await json<TreeBackup>(
+  const detail = await ok<TreeDetail>(await u.call(`/api/trees/${treeId}`));
+  const { exportedAt: _at, ...backup } = await ok<TreeBackup>(
     await u.call(`/api/trees/${treeId}/backup`),
   );
   return { detail, backup };
@@ -109,7 +104,7 @@ describe('a power user without a membership (the fee on)', () => {
     it(`a ${who}: /api/me says own keys need the membership; reads, exports and management stay open`, async () => {
       const u = await newUser();
       if (who === 'lapsed member') await insertSubscription(env, u.userId, 'canceled');
-      const me = await json<MeResponse>(await u.call('/api/me'));
+      const me = await ok<MeResponse>(await u.call('/api/me'));
       expect(me.membership).toMatchObject({
         required: true,
         status: 'inactive',
@@ -118,7 +113,7 @@ describe('a power user without a membership (the fee on)', () => {
       expect(me.membershipNeededFor).toEqual(['own-key']);
       // Learn: its own key needs it too, whichever payment the request carries.
       for (const payment of ['own-key', 'credit', 'pool'] as const) {
-        const learn = await json<MeResponse>(await u.call('/api/me', { learn: payment }));
+        const learn = await ok<MeResponse>(await u.call('/api/me', { learn: payment }));
         expect(learn.membershipNeededFor, payment).toEqual(['own-key']);
       }
 
@@ -126,11 +121,11 @@ describe('a power user without a membership (the fee on)', () => {
       const trunk = tree.branches.find((b) => b.parentBranchId === null)!;
       const reply = tree.nodes.find((n) => n.role === 'assistant')!;
 
-      const list = await json<TreeSummary[]>(await u.call('/api/trees'));
+      const list = await ok<TreeSummary[]>(await u.call('/api/trees'));
       expect(list.map((t) => t.id)).toContain(tree.tree.id);
-      expect(
-        (await json<TreeDetail>(await u.call(`/api/trees/${tree.tree.id}`))).nodes,
-      ).toHaveLength(2);
+      expect((await ok<TreeDetail>(await u.call(`/api/trees/${tree.tree.id}`))).nodes).toHaveLength(
+        2,
+      );
       expect((await u.call(`/api/branches/${trunk.id}/context`)).status).toBe(200);
       const backup = await u.call(`/api/trees/${tree.tree.id}/backup`);
       expect(backup.status).toBe(200);
@@ -155,7 +150,7 @@ describe('a power user without a membership (the fee on)', () => {
 
       // Linking two messages never generates, so it stays open too.
       const user = tree.nodes.find((n) => n.role === 'user')!;
-      const link = await json<NodeLink>(
+      const link = await ok<NodeLink>(
         await u.call('/api/links', {
           method: 'POST',
           json: { fromNodeId: user.id, toNodeId: reply.id, note: 'question and answer' },
@@ -177,14 +172,14 @@ describe('a power user without a membership (the fee on)', () => {
         method: 'POST',
         json: { content: 'And 1?' },
       });
-      expect((await json<ApiError>(send, 402)).error.code).toBe('membership_required');
+      expect((await ok<ApiError>(send, 402)).error.code).toBe('membership_required');
       const review = await u.call(`/api/nodes/${reply.id}/review`, {
         method: 'POST',
         json: { providerId: 'fake', model: 'fake-1' },
       });
-      expect((await json<ApiError>(review, 402)).error.code).toBe('membership_required');
+      expect((await ok<ApiError>(review, 402)).error.code).toBe('membership_required');
       const resolve = await u.call(`/api/branches/${trunk.id}/context?resolve=true`);
-      expect((await json<ApiError>(resolve, 402)).error.code).toBe('membership_required');
+      expect((await ok<ApiError>(resolve, 402)).error.code).toBe('membership_required');
 
       // Deleting stays open too.
       expect((await u.call(`/api/trees/${tree.tree.id}`, { method: 'DELETE' })).status).toBe(204);
@@ -194,7 +189,7 @@ describe('a power user without a membership (the fee on)', () => {
   it('a member: the same fundings need the membership, which they hold', async () => {
     const u = await newUser();
     await insertSubscription(env, u.userId, 'active');
-    const me = await json<MeResponse>(await u.call('/api/me'));
+    const me = await ok<MeResponse>(await u.call('/api/me'));
     expect(me.membership).toMatchObject({ required: true, status: 'active' });
     expect(me.membershipNeededFor).toEqual(['own-key']);
   });
@@ -209,7 +204,7 @@ describe('servers that require no membership are never read-only', () => {
     it(`${label}: nothing needs the membership, and own keys generate`, async () => {
       const u = await newUser({ ...overrides, POOL_ENABLED: 'false' });
       await insertSubscription(env, u.userId, 'canceled');
-      const me = await json<MeResponse>(await u.call('/api/me'));
+      const me = await ok<MeResponse>(await u.call('/api/me'));
       expect(me.membership.required).toBe(false);
       expect(me.membershipNeededFor).toEqual([]);
       const tree = await powerTree(u, label === 'the fee off');
@@ -233,12 +228,12 @@ describe('POST /api/trees/:id/copy-to-learn', () => {
     const balanceBefore = await getBalance(env.DB, learnId);
     expect(balanceBefore.balanceMicros).toBe(0);
 
-    const res = await json<CopyToLearnResponse>(await copy(u, tree.tree.id), 201);
+    const res = await ok<CopyToLearnResponse>(await copy(u, tree.tree.id), 201);
     expect(res.title).toBe('Primes');
     expect(res.treeId).not.toBe(tree.tree.id);
 
     // The lesson, in Learn: adapted like any import into Learn.
-    const lesson = await json<TreeDetail>(
+    const lesson = await ok<TreeDetail>(
       await u.call(`/api/trees/${res.treeId}`, { learn: 'own-key' }),
     );
     expect(lesson.tree.accountId).toBe(learnId);
@@ -253,20 +248,20 @@ describe('POST /api/trees/:id/copy-to-learn', () => {
       ['user', 'What is a prime?'],
       ['assistant', 'A number with exactly two divisors.'],
     ]);
-    const lessons = await json<TreeSummary[]>(await u.call('/api/trees', { learn: 'own-key' }));
+    const lessons = await ok<TreeSummary[]>(await u.call('/api/trees', { learn: 'own-key' }));
     expect(lessons.map((t) => t.id)).toEqual([res.treeId]);
     // Not in the power account.
     expect((await u.call(`/api/trees/${res.treeId}`)).status).toBe(404);
 
     // The power tree is untouched, nothing was spent and no model was called.
     expect(await snapshot(u, tree.tree.id)).toEqual(before);
-    const power = await json<TreeSummary[]>(await u.call('/api/trees'));
+    const power = await ok<TreeSummary[]>(await u.call('/api/trees'));
     expect(power.map((t) => t.id)).toEqual([tree.tree.id]);
     expect(await getBalance(env.DB, learnId)).toEqual(balanceBefore);
     expect(await usageCount(learnId)).toBe(0);
 
     // A second copy is another lesson.
-    const again = await json<CopyToLearnResponse>(await copy(u, tree.tree.id), 201);
+    const again = await ok<CopyToLearnResponse>(await copy(u, tree.tree.id), 201);
     expect(again.treeId).not.toBe(res.treeId);
   });
 
@@ -275,17 +270,17 @@ describe('POST /api/trees/:id/copy-to-learn', () => {
     const other = await newUser();
     const tree = await powerTree(owner);
     const stranger = await copy(other, tree.tree.id);
-    expect((await json<ApiError>(stranger, 404)).error.code).toBe('not_found');
-    expect(await json<TreeSummary[]>(await other.call('/api/trees', { learn: 'own-key' }))).toEqual(
+    expect((await ok<ApiError>(stranger, 404)).error.code).toBe('not_found');
+    expect(await ok<TreeSummary[]>(await other.call('/api/trees', { learn: 'own-key' }))).toEqual(
       [],
     );
-    expect((await json<ApiError>(await copy(owner, 'nope'), 404)).error.code).toBe('not_found');
+    expect((await ok<ApiError>(await copy(owner, 'nope'), 404)).error.code).toBe('not_found');
 
     // A lesson isn't a power tree: from power it's unknown, and Learn can't send the request.
-    const { treeId } = await json<CopyToLearnResponse>(await copy(owner, tree.tree.id), 201);
+    const { treeId } = await ok<CopyToLearnResponse>(await copy(owner, tree.tree.id), 201);
     expect((await copy(owner, treeId)).status).toBe(404);
     const fromLearn = await copy(owner, tree.tree.id, { learn: 'own-key' });
-    expect((await json<ApiError>(fromLearn, 400)).error.code).toBe('bad_request');
+    expect((await ok<ApiError>(fromLearn, 400)).error.code).toBe('bad_request');
   });
 
   it('needs a session, and refuses cross-site requests', async () => {
@@ -297,7 +292,7 @@ describe('POST /api/trees/:id/copy-to-learn', () => {
     });
     expect(res.status).toBe(401);
     const crossSite = await copy(u, tree.tree.id, { headers: { 'Sec-Fetch-Site': 'cross-site' } });
-    expect((await json<ApiError>(crossSite, 403)).error.code).toBe('forbidden');
+    expect((await ok<ApiError>(crossSite, 403)).error.code).toBe('forbidden');
   });
 });
 
@@ -312,7 +307,7 @@ describe('a lapsed member on Tangent credit with nothing left', () => {
       heldMicros: 0,
     });
 
-    const me = await json<MeResponse>(await u.call('/api/me'));
+    const me = await ok<MeResponse>(await u.call('/api/me'));
     expect(me.membership.status).toBe('inactive');
     // Credit never needs the membership, so the branch isn't read-only.
     expect(me.membershipNeededFor).toEqual(['own-key']);
@@ -321,9 +316,9 @@ describe('a lapsed member on Tangent credit with nothing left', () => {
       method: 'POST',
       json: { content: 'More?' },
     });
-    expect((await json<ApiError>(send, 402)).error.code).toBe('payment_required');
+    expect((await ok<ApiError>(send, 402)).error.code).toBe('payment_required');
     // Nothing was appended, nothing held.
-    const after = await json<TreeDetail>(await u.call(`/api/trees/${tree.tree.id}`));
+    const after = await ok<TreeDetail>(await u.call(`/api/trees/${tree.tree.id}`));
     expect(after.nodes.filter((n) => n.branchId === side.id)).toEqual([]);
     expect(await usageCount(`u_${u.userId}`)).toBe(0);
     // The own-key trunk still answers with the membership.
@@ -331,7 +326,7 @@ describe('a lapsed member on Tangent credit with nothing left', () => {
       method: 'POST',
       json: { content: 'And here?' },
     });
-    expect((await json<ApiError>(own, 402)).error.code).toBe('membership_required');
+    expect((await ok<ApiError>(own, 402)).error.code).toBe('membership_required');
   });
 });
 
@@ -342,15 +337,15 @@ describe('copying the same power tree to Learn twice', () => {
     const tree = await powerTree(u);
     const before = await snapshot(u, tree.tree.id);
 
-    const first = await json<CopyToLearnResponse>(await copy(u, tree.tree.id), 201);
-    const second = await json<CopyToLearnResponse>(await copy(u, tree.tree.id), 201);
+    const first = await ok<CopyToLearnResponse>(await copy(u, tree.tree.id), 201);
+    const second = await ok<CopyToLearnResponse>(await copy(u, tree.tree.id), 201);
     expect(second.treeId).not.toBe(first.treeId);
     expect([first.title, second.title]).toEqual(['Primes', 'Primes']);
 
-    const lessons = await json<TreeSummary[]>(await u.call('/api/trees', { learn: 'own-key' }));
+    const lessons = await ok<TreeSummary[]>(await u.call('/api/trees', { learn: 'own-key' }));
     expect(lessons.map((t) => t.id).sort()).toEqual([first.treeId, second.treeId].sort());
     const lesson = async (id: string) =>
-      json<TreeDetail>(await u.call(`/api/trees/${id}`, { learn: 'own-key' }));
+      ok<TreeDetail>(await u.call(`/api/trees/${id}`, { learn: 'own-key' }));
     const a = await lesson(first.treeId);
     const b = await lesson(second.treeId);
     // Separate rows: no branch or node id is shared.
@@ -366,7 +361,7 @@ describe('copying the same power tree to Learn twice', () => {
     expect(shape(b)).toEqual(shape(a));
 
     // Changing one lesson leaves the other (and the power tree) alone.
-    await json(
+    await ok(
       await u.call(`/api/trees/${first.treeId}`, {
         method: 'PATCH',
         json: { title: 'Renamed copy' },
@@ -374,11 +369,11 @@ describe('copying the same power tree to Learn twice', () => {
       }),
     );
     expect(
-      (await json<TreeDetail>(await u.call(`/api/trees/${second.treeId}`, { learn: 'own-key' })))
-        .tree.title,
+      (await ok<TreeDetail>(await u.call(`/api/trees/${second.treeId}`, { learn: 'own-key' }))).tree
+        .title,
     ).toBe('Primes');
     expect(await snapshot(u, tree.tree.id)).toEqual(before);
-    expect((await json<TreeSummary[]>(await u.call('/api/trees'))).map((t) => t.id)).toEqual([
+    expect((await ok<TreeSummary[]>(await u.call('/api/trees'))).map((t) => t.id)).toEqual([
       tree.tree.id,
     ]);
   });
@@ -412,7 +407,7 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
   };
 
   const newTree = async (u: User) =>
-    json<TreeDetail>(await u.call('/api/trees', { method: 'POST', json: {} }), 201);
+    ok<TreeDetail>(await u.call('/api/trees', { method: 'POST', json: {} }), 201);
   const firstSend = (u: User, tree: TreeDetail) =>
     u.call(`/api/branches/${tree.tree.trunkBranchId}/messages`, {
       method: 'POST',
@@ -431,7 +426,7 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
     // No credit offered (payments not configured), so nothing can pay but the user's own key.
     const u = await newUser({ ...DEFAULTS, PAYMENT_PROVIDER: 'polar' });
     expect(u.me.builtInCredit).toBe(false);
-    const providers = await json<{ id: string; available: boolean; funding?: string }[]>(
+    const providers = await ok<{ id: string; available: boolean; funding?: string }[]>(
       await u.call('/api/providers'),
     );
     expect(providers.map((p) => [p.id, p.available, p.funding])).toEqual([
@@ -447,7 +442,7 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
       model: DEFAULT_LEARN_NORMAL_MODEL,
       funding: 'own-key',
     });
-    expect((await json<ApiError>(await firstSend(u, tree), 401)).error).toEqual({
+    expect((await ok<ApiError>(await firstSend(u, tree), 401)).error).toEqual({
       code: 'key_required',
       message: 'Add your OpenRouter API key to continue this conversation.',
     });
@@ -485,7 +480,7 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
       model: 'claude-test',
       funding: 'own-key',
     });
-    expect((await json<ApiError>(await firstSend(u, tree), 401)).error).toEqual({
+    expect((await ok<ApiError>(await firstSend(u, tree), 401)).error).toEqual({
       code: 'key_required',
       message: 'Add your Anthropic API key to continue this conversation.',
     });
@@ -502,7 +497,7 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
       funding: 'own-key',
     });
     const send = await firstSend(u, tree);
-    expect((await json<ApiError>(send, 401)).error).toEqual({
+    expect((await ok<ApiError>(send, 401)).error).toEqual({
       code: 'key_required',
       message: 'Add your OpenRouter API key to continue this conversation.',
     });
@@ -571,7 +566,7 @@ describe('the default route of a new power tree (docs/DECISIONS.md "Default rout
     // key at least leads to the membership.
     const empty = await newTree(u);
     expect(empty.branches[0]).toMatchObject({ providerId: 'openrouter', funding: 'own-key' });
-    expect((await json<ApiError>(await firstSend(u, empty), 402)).error.code).toBe(
+    expect((await ok<ApiError>(await firstSend(u, empty), 402)).error.code).toBe(
       'membership_required',
     );
     // Credit an operator granted can pay: credit again.

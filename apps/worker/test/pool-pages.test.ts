@@ -13,14 +13,15 @@ import { POOL_SESSION_ESTIMATE_MICROS } from '../src/pool/params.js';
 import { poolStatus } from '../src/pool/status.js';
 import { envWithFailingDb, uniq } from './mocks/billing-helpers.js';
 import { fundPool, poolReadyUser } from './pool-helpers.js';
-import { authEnv, ORIGIN } from './session-client.js';
+import { authEnv } from './session-client.js';
+import { BASE } from './http.js';
 
 const env = rawEnv as unknown as AppEnv;
 
 /** A request without a session, as a visitor's browser sends it. */
 function visitor(e: AppEnv) {
   const app = createApp();
-  return (path: string) => app.request(`${ORIGIN}${path}`, {}, e);
+  return (path: string) => app.request(`${BASE}${path}`, {}, e);
 }
 
 /** An env (auth configured) whose pool is `poolId`, asking its model with a low effort as deployed. */

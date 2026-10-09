@@ -23,9 +23,9 @@ import { paid, refunded } from './mocks/payment-events.js';
 import { shippedVars } from './mocks/wrangler-vars.js';
 import { fundPool, poolReadyUser } from './pool-helpers.js';
 import { authEnv } from './session-client.js';
+import { BASE, ok } from './http.js';
 
 const env = rawEnv as unknown as AppEnv;
-const ORIGIN = 'https://tangent.example.com';
 
 interface GrantRow {
   account_id: string;
@@ -49,12 +49,6 @@ async function grants(accountId: string): Promise<GrantRow[]> {
 }
 
 const balance = async (accountId: string) => (await getBalance(env.DB, accountId)).balanceMicros;
-
-async function json<T>(res: Response, status = 200): Promise<T> {
-  const text = await res.text();
-  expect(res.status, text).toBe(status);
-  return (text ? JSON.parse(text) : null) as T;
-}
 
 describe('no pool purchases through the payment webhook', () => {
   it('never credits an order that is not a personal top-up, or its refund', async () => {
@@ -127,13 +121,13 @@ describe('POST /api/billing/checkout', () => {
         learn: 'pool',
       });
     for (const target of ['pool', 'personal', 'charity'])
-      await json<ApiError>(await checkout(1000, target), 400);
-    const personal = decodeFakeUrl((await json<CheckoutResponse>(await checkout(500))).url);
+      await ok<ApiError>(await checkout(1000, target), 400);
+    const personal = decodeFakeUrl((await ok<CheckoutResponse>(await checkout(500))).url);
     expect(personal.input).toMatchObject({
       buyer: { userId },
       amountCents: 500,
-      successUrl: `${ORIGIN}/learn/billing?checkout=success`,
-      cancelUrl: `${ORIGIN}/learn/billing?checkout=cancel`,
+      successUrl: `${BASE}/learn/billing?checkout=success`,
+      cancelUrl: `${BASE}/learn/billing?checkout=cancel`,
     });
   });
 });
@@ -165,12 +159,12 @@ describe('POST /api/admin/credit', () => {
       idempotencyKey: key(),
       note: 'Goodwill',
     };
-    expect(await json<AdminCreditResponse>(await credit(body))).toEqual({
+    expect(await ok<AdminCreditResponse>(await credit(body))).toEqual({
       credited: true,
       amountMicros: 5_000_000,
       balanceMicros: 5_000_000,
     });
-    expect(await json<AdminCreditResponse>(await credit(body))).toEqual({
+    expect(await ok<AdminCreditResponse>(await credit(body))).toEqual({
       credited: false,
       amountMicros: 5_000_000,
       balanceMicros: 5_000_000,
@@ -192,17 +186,17 @@ describe('POST /api/admin/credit', () => {
     // No userId: an anonymous top-up (the same as `userId: null`).
     const add = { target: 'pool', mode: 'adjustment' };
     expect(
-      await json<AdminCreditResponse>(
+      await ok<AdminCreditResponse>(
         await credit({ ...add, amountCents: 300, idempotencyKey: key() }),
       ),
     ).toEqual({ credited: true, amountMicros: 3_000_000, balanceMicros: 3_000_000 });
     const debit = { ...add, amountCents: -500, idempotencyKey: key() };
-    expect(await json<AdminCreditResponse>(await credit(debit))).toEqual({
+    expect(await ok<AdminCreditResponse>(await credit(debit))).toEqual({
       credited: true,
       amountMicros: -3_000_000,
       balanceMicros: 0,
     });
-    expect(await json<AdminCreditResponse>(await credit(debit))).toMatchObject({
+    expect(await ok<AdminCreditResponse>(await credit(debit))).toMatchObject({
       credited: false,
       amountMicros: -3_000_000,
     });
@@ -231,8 +225,8 @@ describe('POST /api/admin/credit', () => {
       // Nobody buys pool credit, not even a simulated purchase.
       { ...base, target: 'pool', mode: 'simulated_purchase', idempotencyKey: key() },
     ])
-      await json<ApiError>(await credit(body), 400);
-    await json<ApiError>(await credit({ ...base, userId: 'nobody', idempotencyKey: key() }), 404);
+      await ok<ApiError>(await credit(body), 400);
+    await ok<ApiError>(await credit({ ...base, userId: 'nobody', idempotencyKey: key() }), 404);
   });
 
   it('is 404 to non-admins and refuses cross-origin requests', async () => {
@@ -244,7 +238,7 @@ describe('POST /api/admin/credit', () => {
       mode: 'adjustment',
       idempotencyKey: key(),
     };
-    expect((await json<ApiError>(await credit(body, user), 404)).error.code).toBe('not_found');
+    expect((await ok<ApiError>(await credit(body, user), 404)).error.code).toBe('not_found');
     const cross = await admin.client.call(
       '/api/admin/credit',
       { method: 'POST', json: body, headers: { 'Sec-Fetch-Site': 'cross-site' } },
@@ -263,19 +257,19 @@ describe('POST /api/admin/credit', () => {
       idempotencyKey: key(),
     });
     const off = await setup();
-    expect(
-      (await json<ApiError>(await off.credit(purchase(off.user.userId)), 404)).error.code,
-    ).toBe('not_found');
+    expect((await ok<ApiError>(await off.credit(purchase(off.user.userId)), 404)).error.code).toBe(
+      'not_found',
+    );
     expect(await balance(`u_${off.user.userId}`)).toBe(0);
 
     const on = await setup({ devPurchases: true });
     const personal = purchase(on.user.userId);
-    expect(await json<AdminCreditResponse>(await on.credit(personal))).toEqual({
+    expect(await ok<AdminCreditResponse>(await on.credit(personal))).toEqual({
       credited: true,
       amountMicros: 10_000_000,
       balanceMicros: 10_000_000,
     });
-    expect(await json<AdminCreditResponse>(await on.credit(personal))).toMatchObject({
+    expect(await ok<AdminCreditResponse>(await on.credit(personal))).toMatchObject({
       credited: false,
     });
     expect(await grants(`u_${on.user.userId}`)).toMatchObject([
@@ -304,7 +298,7 @@ describe('POST /api/admin/credit', () => {
       PERSONAL_CREDIT_ENABLED: 'true',
     };
     const { user, credit, e } = await setup({ env: noPayments });
-    await json<AdminCreditResponse>(
+    await ok<AdminCreditResponse>(
       await credit({
         target: 'personal',
         userId: user.userId,
@@ -313,7 +307,7 @@ describe('POST /api/admin/credit', () => {
         idempotencyKey: key(),
       }),
     );
-    const detail = await json<TreeDetail>(
+    const detail = await ok<TreeDetail>(
       await user.client.call(
         '/api/trees',
         { method: 'POST', json: { title: 'T' }, learn: 'credit' },
@@ -368,7 +362,7 @@ describe('GET /api/admin/pool', () => {
       usage(3_000, 500_000, now - 25 * 60 * 60_000),
     ]);
 
-    const report = await json<AdminPoolResponse>(await read());
+    const report = await ok<AdminPoolResponse>(await read());
     expect(report).toEqual({
       enabled: true,
       accountId: poolId,
@@ -385,11 +379,11 @@ describe('GET /api/admin/pool', () => {
     });
 
     await usage(3_000, 120_000, now - 30_000).run();
-    expect((await json<AdminPoolResponse>(await read())).breaker).toMatchObject({
+    expect((await ok<AdminPoolResponse>(await read())).breaker).toMatchObject({
       overageMicros: 240_000,
       tripped: true,
     });
 
-    expect((await json<ApiError>(await read(user), 404)).error.code).toBe('not_found');
+    expect((await ok<ApiError>(await read(user), 404)).error.code).toBe('not_found');
   });
 });

@@ -5,8 +5,8 @@ import { createApp } from '../src/app.js';
 import { REMEMBER_COOKIE } from '../src/auth/auth.js';
 import type { EmailMessage, EmailSender } from '../src/email/index.js';
 import type { AppEnv } from '../src/env.js';
+import { BASE } from './http.js';
 
-const ORIGIN = 'https://tangent.example.com';
 const SESSION_COOKIE = '__Secure-tangent.session_token';
 const DONT_REMEMBER_COOKIE = '__Secure-tangent.dont_remember';
 
@@ -43,7 +43,7 @@ function setup(e: AppEnv = authEnv()) {
   const call = (path: string, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
     headers.set('cf-connecting-ip', ip);
-    return app.request(`${ORIGIN}${path}`, { ...init, headers }, e);
+    return app.request(`${BASE}${path}`, { ...init, headers }, e);
   };
   return { app, mail, call, env: e };
 }
@@ -70,7 +70,7 @@ async function requestMagicLink(
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      origin: ORIGIN,
+      origin: BASE,
       ...(captcha === null ? {} : { 'x-captcha-response': captcha }),
     },
     body: JSON.stringify({ email, callbackURL: '/', errorCallbackURL: '/login' }),
@@ -159,7 +159,7 @@ describe('fail closed', () => {
   });
 
   it('the deployed entrypoint serves /api/me in dev-bypass mode (test config)', async () => {
-    const res = await exports.default.fetch(`${ORIGIN}/api/me`);
+    const res = await exports.default.fetch(`${BASE}/api/me`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       email: null,
@@ -247,7 +247,7 @@ describe('magic link', () => {
     expect(s.mail.sent[0]!.html).toContain('/api/auth/magic-link/verify');
 
     expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toBe(`${ORIGIN}/`);
+    expect(res.headers.get('location')).toBe(`${BASE}/`);
     const me = await s.call('/api/me', { headers: { cookie: cookieHeader(res) } });
     expect(me.status).toBe(200);
     const body = (await me.json()) as MeResponse;
@@ -268,7 +268,7 @@ describe('magic link', () => {
     const link = new URL(linkFrom(s.mail.sent[0]!));
     const again = await s.call(link.pathname + link.search, { redirect: 'manual' });
     expect(again.status).toBe(302);
-    expect(again.headers.get('location')).toBe(`${ORIGIN}/login?error=INVALID_TOKEN`);
+    expect(again.headers.get('location')).toBe(`${BASE}/login?error=INVALID_TOKEN`);
     expect(findSetCookie(again, SESSION_COOKIE)).toBeUndefined();
   });
 
@@ -346,7 +346,7 @@ describe('social sign-in', () => {
     const { call } = setup(authEnv({ GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gsecret' }));
     const res = await call('/api/auth/sign-in/social', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: ORIGIN },
+      headers: { 'content-type': 'application/json', origin: BASE },
       body: JSON.stringify({ provider: 'google', callbackURL: '/', errorCallbackURL: '/login' }),
     });
     expect(res.status).toBe(200);
@@ -354,14 +354,14 @@ describe('social sign-in', () => {
     const target = new URL(url);
     expect(target.hostname).toBe('accounts.google.com');
     expect(target.searchParams.get('client_id')).toBe('gid');
-    expect(target.searchParams.get('redirect_uri')).toBe(`${ORIGIN}/api/auth/callback/google`);
+    expect(target.searchParams.get('redirect_uri')).toBe(`${BASE}/api/auth/callback/google`);
   });
 
   /** Starts a Google sign-in and comes back through the callback as `email`. */
   async function googleSignIn(s: ReturnType<typeof setup>, email: string, remember: boolean) {
     const start = await s.call('/api/auth/sign-in/social', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: ORIGIN },
+      headers: { 'content-type': 'application/json', origin: BASE },
       body: JSON.stringify({ provider: 'google', callbackURL: '/', errorCallbackURL: '/login' }),
     });
     const state = new URL(((await start.json()) as { url: string }).url).searchParams.get('state')!;
@@ -487,7 +487,7 @@ describe('social sign-in', () => {
     const { call } = setup();
     const res = await call('/api/auth/sign-in/social', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: ORIGIN },
+      headers: { 'content-type': 'application/json', origin: BASE },
       body: JSON.stringify({ provider: 'github', callbackURL: '/' }),
     });
     expect(res.status).toBeGreaterThanOrEqual(400);
@@ -501,7 +501,7 @@ describe('Turnstile on first sign-in', () => {
   async function googleSignIn(s: ReturnType<typeof setup>, email: string) {
     const start = await s.call('/api/auth/sign-in/social', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: ORIGIN },
+      headers: { 'content-type': 'application/json', origin: BASE },
       body: JSON.stringify({
         provider: 'google',
         callbackURL: '/learn/',
@@ -532,7 +532,7 @@ describe('Turnstile on first sign-in', () => {
       headers: {
         cookie,
         'content-type': 'application/x-www-form-urlencoded',
-        origin: ORIGIN,
+        origin: BASE,
         'sec-fetch-site': 'same-origin',
       },
       body: new URLSearchParams({ next, 'cf-turnstile-response': token }).toString(),
@@ -682,7 +682,7 @@ describe('sign out', () => {
     const cookie = cookieHeader(await signIn(s));
     const out = await s.call('/api/auth/sign-out', {
       method: 'POST',
-      headers: { cookie, origin: ORIGIN },
+      headers: { cookie, origin: BASE },
     });
     expect(out.status).toBe(200);
     expect((await s.call('/api/me', { headers: { cookie } })).status).toBe(401);

@@ -19,9 +19,9 @@ import {
 } from './fixtures/polar.js';
 import { grantDetailsFor, insertUser, uniq } from './mocks/billing-helpers.js';
 import { factsOf, membership, paid, refunded } from './mocks/payment-events.js';
+import { BASE } from './http.js';
 
 const base = rawEnv as unknown as AppEnv;
-const ORIGIN = 'https://tangent.example.com';
 const app = createApp();
 /** Auth configured: the route must answer without a session. */
 const AUTH = { BETTER_AUTH_SECRET: 'test-secret-test-secret-test-secret-0123' };
@@ -44,7 +44,7 @@ const polarEnv = {
 const balance = async (accountId: string) => (await getBalance(base.DB, accountId)).balanceMicros;
 
 function post(path: string, body: string, headers: HeadersInit, env: AppEnv) {
-  return app.request(`${ORIGIN}${path}`, { method: 'POST', headers, body }, env);
+  return app.request(`${BASE}${path}`, { method: 'POST', headers, body }, env);
 }
 
 function deliverFake(events: PaymentEvent[], env: AppEnv, signature = FAKE_SIGNATURE) {

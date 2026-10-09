@@ -15,6 +15,7 @@ import type { AppEnv } from '../src/env.js';
 import { makeNode } from './fixtures.js';
 import { insertSubscription } from './mocks/billing-helpers.js';
 import { authEnv, client } from './session-client.js';
+import { ok } from './http.js';
 
 const ADMIN_INDEX = '<!doctype html><title>admin</title>';
 
@@ -36,12 +37,6 @@ function offEnv(adminIds = ''): AppEnv {
   return authEnv({ DMCA_AGENT_REGISTERED: 'false', ADMIN_USER_IDS: adminIds, ASSETS: assets });
 }
 
-async function json<T>(res: Response, status = 200): Promise<T> {
-  const text = await res.text();
-  expect(res.status, text).toBe(status);
-  return JSON.parse(text) as T;
-}
-
 async function errorCode(res: Response): Promise<string> {
   return ((await res.json()) as ApiError).error.code;
 }
@@ -51,7 +46,7 @@ async function newUser(e: AppEnv, prefix = 'user') {
   const c = client(e);
   const email = `${prefix}${++emailSeq}-${Math.random().toString(36).slice(2, 8)}@example.org`;
   await c.signIn(email);
-  const me = await json<MeResponse>(await c.call('/api/me'));
+  const me = await ok<MeResponse>(await c.call('/api/me'));
   return { ...c, me, email, id: me.userId! };
 }
 type User = Awaited<ReturnType<typeof newUser>>;
@@ -76,7 +71,7 @@ async function setup() {
 async function seedTree(
   call: (path: string, init?: Parameters<User['call']>[1]) => Promise<Response>,
 ) {
-  const detail = await json<TreeDetail>(
+  const detail = await ok<TreeDetail>(
     await call('/api/trees', { method: 'POST', json: { title: 'Mine' } }),
     201,
   );
@@ -98,9 +93,9 @@ describe('admin identity', () => {
   it('reports the user id and admin status in /api/me', async () => {
     const { admin, user, asAdmin, asUser } = await setup();
     expect(admin.id).toBe(admin.me.accountId.slice('p_'.length));
-    const a = await json<MeResponse>(await asAdmin('/api/me'));
+    const a = await ok<MeResponse>(await asAdmin('/api/me'));
     expect(a).toMatchObject({ userId: admin.id, isAdmin: true, sharing: true });
-    const u = await json<MeResponse>(await asUser('/api/me'));
+    const u = await ok<MeResponse>(await asUser('/api/me'));
     expect(u).toMatchObject({ userId: user.id, isAdmin: false, sharing: false });
   });
 
@@ -161,11 +156,11 @@ describe('admin identity', () => {
   it('treats the local dev bypass as admin', async () => {
     const dev = client(offEnv());
     const e = { ...offEnv(), BETTER_AUTH_SECRET: '', DEV_ALLOW_NO_AUTH: 'true' } as AppEnv;
-    const me = await json<MeResponse>(await dev.call('/api/me', {}, e));
+    const me = await ok<MeResponse>(await dev.call('/api/me', {}, e));
     // Admin, but sharing follows the global flag in the dev bypass.
     expect(me).toMatchObject({ userId: null, isAdmin: true, sharing: false });
     expect((await dev.call('/admin/', {}, e)).status).toBe(200);
-    expect(await json<AdminStatusResponse>(await dev.call('/api/admin/status', {}, e))).toEqual({
+    expect(await ok<AdminStatusResponse>(await dev.call('/api/admin/status', {}, e))).toEqual({
       dmcaAgentRegistered: false,
       membershipRequired: false,
     });
@@ -175,7 +170,7 @@ describe('admin identity', () => {
 describe('admin API', () => {
   it('reports whether a DMCA agent is registered and the membership required', async () => {
     const { admin, e } = await setup();
-    expect(await json<AdminStatusResponse>(await admin.call('/api/admin/status', {}, e))).toEqual({
+    expect(await ok<AdminStatusResponse>(await admin.call('/api/admin/status', {}, e))).toEqual({
       dmcaAgentRegistered: false,
       membershipRequired: false,
     });
@@ -184,7 +179,7 @@ describe('admin API', () => {
       DMCA_AGENT_REGISTERED: 'true',
       ANNUAL_FEE_ENABLED: 'true',
     } as AppEnv;
-    expect(await json<AdminStatusResponse>(await admin.call('/api/admin/status', {}, on))).toEqual({
+    expect(await ok<AdminStatusResponse>(await admin.call('/api/admin/status', {}, on))).toEqual({
       dmcaAgentRegistered: true,
       membershipRequired: true,
     });
@@ -192,7 +187,7 @@ describe('admin API', () => {
 
   it('lists users newest first, searchable by email', async () => {
     const { admin, user, asAdmin } = await setup();
-    const all = await json<AdminUsersResponse>(await asAdmin('/api/admin/users'));
+    const all = await ok<AdminUsersResponse>(await asAdmin('/api/admin/users'));
     const ids = all.users.map((u) => u.id);
     expect(ids.indexOf(user.id)).toBeLessThan(ids.indexOf(admin.id));
     expect(all.users.find((u) => u.id === admin.id)).toMatchObject({
@@ -205,13 +200,13 @@ describe('admin API', () => {
       membershipPaid: false,
     });
 
-    const found = await json<AdminUsersResponse>(
+    const found = await ok<AdminUsersResponse>(
       await asAdmin(`/api/admin/users?q=${encodeURIComponent(user.email.toUpperCase())}`),
     );
     expect(found.users.map((u) => u.id)).toEqual([user.id]);
     expect(found.nextCursor).toBeNull();
     // `%` and `_` are plain characters, not LIKE wildcards.
-    const none = await json<AdminUsersResponse>(await asAdmin('/api/admin/users?q=%25'));
+    const none = await ok<AdminUsersResponse>(await asAdmin('/api/admin/users?q=%25'));
     expect(none.users).toEqual([]);
 
     expect((await asAdmin('/api/admin/users?cursor=bogus')).status).toBe(400);
@@ -229,11 +224,11 @@ describe('admin API', () => {
         idempotencyKey: `test-${crypto.randomUUID()}`,
       },
     });
-    expect(await json<AdminCreditResponse>(credit)).toMatchObject({
+    expect(await ok<AdminCreditResponse>(credit)).toMatchObject({
       credited: true,
       balanceMicros: 12_500_000,
     });
-    const found = await json<AdminUsersResponse>(
+    const found = await ok<AdminUsersResponse>(
       await asAdmin(`/api/admin/users?q=${encodeURIComponent(user.email)}`),
     );
     expect(found.users).toMatchObject([{ id: user.id, creditBalanceMicros: 12_500_000 }]);
@@ -243,7 +238,7 @@ describe('admin API', () => {
     const { e, user, asAdmin } = await setup();
     const fee = { ...e, ANNUAL_FEE_ENABLED: 'true' } as AppEnv;
     const status = async () =>
-      (await json<MeResponse>(await user.call('/api/me', {}, fee))).membership.status;
+      (await ok<MeResponse>(await user.call('/api/me', {}, fee))).membership.status;
     const waivedAt = async () =>
       (
         await env.DB.prepare('SELECT membership_waived_at AS at FROM auth_users WHERE id = ?')
@@ -251,7 +246,7 @@ describe('admin API', () => {
           .first<{ at: string | null }>()
       )?.at;
     const patch = async (membershipWaived: boolean) =>
-      json<AdminUser>(
+      ok<AdminUser>(
         await asAdmin(`/api/admin/users/${user.id}`, {
           method: 'PATCH',
           json: { membershipWaived },
@@ -289,10 +284,10 @@ describe('admin API', () => {
         ).bind(`bulk-${i}`, 'Bulk', `bulk-${i}@paging.test`, Date.now() + 60_000 + i),
       ),
     );
-    const first = await json<AdminUsersResponse>(await asAdmin('/api/admin/users?q=paging.test'));
+    const first = await ok<AdminUsersResponse>(await asAdmin('/api/admin/users?q=paging.test'));
     expect(first.users).toHaveLength(50);
     expect(first.users[0]!.id).toBe('bulk-54');
-    const next = await json<AdminUsersResponse>(
+    const next = await ok<AdminUsersResponse>(
       await asAdmin(`/api/admin/users?q=paging.test&cursor=${first.nextCursor!}`),
     );
     expect(next.users.map((u) => u.id)).toEqual(['bulk-4', 'bulk-3', 'bulk-2', 'bulk-1', 'bulk-0']);
@@ -327,7 +322,7 @@ describe('admin API', () => {
     });
     expect(res.status, await res.text()).toBe(200);
     expect(await shareAllowedInDb(user.id)).toBe(0);
-    expect((await json<MeResponse>(await asUser('/api/me'))).sharing).toBe(false);
+    expect((await ok<MeResponse>(await asUser('/api/me'))).sharing).toBe(false);
   });
 });
 
@@ -340,16 +335,16 @@ describe('the share allowlist while sharing is off', () => {
     // Not allowed yet.
     expect((await create()).status).toBe(403);
 
-    const allowed = await json<AdminUser>(
+    const allowed = await ok<AdminUser>(
       await asAdmin(`/api/admin/users/${user.id}`, {
         method: 'PATCH',
         json: { shareAllowed: true },
       }),
     );
     expect(allowed).toMatchObject({ id: user.id, shareAllowed: true, activeShares: 0 });
-    expect((await json<MeResponse>(await asUser('/api/me'))).sharing).toBe(true);
+    expect((await ok<MeResponse>(await asUser('/api/me'))).sharing).toBe(true);
 
-    const share = await json<ShareSummary>(await create(), 201);
+    const share = await ok<ShareSummary>(await create(), 201);
     const anon = client(offEnv());
     const page = await anon.call(`/s/${share.token}`);
     expect(page.status).toBe(200);
@@ -364,7 +359,7 @@ describe('the share allowlist while sharing is off', () => {
     ).toBe(200);
 
     // Revoked: the links are gone at once, cached copies included, and nothing new is published.
-    await json<AdminUser>(
+    await ok<AdminUser>(
       await asAdmin(`/api/admin/users/${user.id}`, {
         method: 'PATCH',
         json: { shareAllowed: false },
@@ -375,7 +370,7 @@ describe('the share allowlist while sharing is off', () => {
     expect(await gone.text()).not.toContain('PUBLISHED-QUESTION');
     expect((await anon.call(`/s/${share.token}/data.json`)).status).toBe(404);
     expect((await create()).status).toBe(403);
-    expect((await json<MeResponse>(await asUser('/api/me'))).sharing).toBe(false);
+    expect((await ok<MeResponse>(await asUser('/api/me'))).sharing).toBe(false);
 
     // With a DMCA agent registered the allowlist no longer matters.
     const on = offEnv();
@@ -386,7 +381,7 @@ describe('the share allowlist while sharing is off', () => {
   it("serves an admin's links without any permission row", async () => {
     const { e, asAdmin } = await setup();
     const treeId = await seedTree(asAdmin);
-    const share = await json<ShareSummary>(
+    const share = await ok<ShareSummary>(
       await asAdmin('/api/shares', { method: 'POST', json: { treeId, scope: 'tree' } }),
       201,
     );
@@ -399,15 +394,15 @@ describe('the share allowlist while sharing is off', () => {
     const { e, user, asAdmin, asUser } = await setup();
     await asAdmin(`/api/admin/users/${user.id}`, { method: 'PATCH', json: { shareAllowed: true } });
     const treeId = await seedTree(asUser);
-    const share = await json<ShareSummary>(
+    const share = await ok<ShareSummary>(
       await asUser('/api/shares', { method: 'POST', json: { treeId, scope: 'tree' } }),
       201,
     );
-    const found = await json<AdminUsersResponse>(
+    const found = await ok<AdminUsersResponse>(
       await asAdmin(`/api/admin/users?q=${encodeURIComponent(user.email)}`),
     );
     expect(found.users[0]).toMatchObject({ shareAllowed: true, activeShares: 1 });
-    const listed = await json<ShareSummary[]>(await asAdmin(`/api/admin/users/${user.id}/shares`));
+    const listed = await ok<ShareSummary[]>(await asAdmin(`/api/admin/users/${user.id}/shares`));
     expect(listed.map((s) => s.id)).toEqual([share.id]);
     expect((await asAdmin('/api/admin/users/nobody/shares')).status).toBe(404);
 
@@ -419,13 +414,13 @@ describe('the share allowlist while sharing is off', () => {
         })
       ).status,
     ).toBe(403);
-    const revoked = await json<ShareSummary>(
+    const revoked = await ok<ShareSummary>(
       await asAdmin(`/api/admin/shares/${share.id}/revoke`, { method: 'POST' }),
     );
     expect(revoked.state).toBe('revoked');
     expect((await client(e).call(`/s/${share.token}`)).status).toBe(410);
     expect((await asAdmin('/api/admin/shares/nope/revoke', { method: 'POST' })).status).toBe(404);
-    const after = await json<AdminUsersResponse>(
+    const after = await ok<AdminUsersResponse>(
       await asAdmin(`/api/admin/users?q=${encodeURIComponent(user.email)}`),
     );
     expect(after.users[0]!.activeShares).toBe(0);
