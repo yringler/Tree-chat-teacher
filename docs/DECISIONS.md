@@ -99,7 +99,7 @@ The rules the code follows today, and why. One section per area. When a rule cha
 
 ## Privacy and retention
 
-- **Users' API keys live only in the browser, sealed.** One AES-256-GCM cookie (`__Host-llmkey`, HttpOnly) holds every provider's key, sealed for the signed-in user (`uid`) with an expiry. Another user's cookie opens as no key, and sign-out clears it, so a shared browser never runs on the previous user's keys. The server stores nothing; the Durable Object opens the sealed value itself, in memory, per generation. Rotating `KEY_ENCRYPTION_SECRET` revokes every key.
+- **Users' API keys live only in the browser, sealed.** One AES-256-GCM cookie (`__Host-llmkey`, HttpOnly) holds every provider's key, sealed for the signed-in user (`uid`) with an expiry that slides: using the keys reseals the cookie once it is a day old, so keys lapse after 7 days unused, not 7 days after saving. Another user's cookie opens as no key, and sign-out clears it, so a shared browser never runs on the previous user's keys. The server stores nothing; the Durable Object opens the sealed value itself, in memory, per generation. Rotating `KEY_ENCRYPTION_SECRET` revokes every key.
 - **Nothing logs request headers or bodies.** They carry users' keys. Logs are structured events through one `logEvent` helper.
 - **Providers get only the secrets their configs name,** never the app's other secrets.
 - **Deleting is immediate and goes through the tree's Durable Object.** It aborts the tree's running generations (so nothing keeps billing for discarded text), deletes held Compare answers, then deletes the rows.

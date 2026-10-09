@@ -123,6 +123,8 @@ export interface AppVariables {
   account: AccountContext;
   /** Alias of `account.id`. */
   accountId: string;
+  /** Keys to reseal with a fresh expiry after the handler (byok/keys.ts `keyRenewal`). */
+  renewKeys?: Readonly<Record<string, string>>;
 }
 
 export interface AppBindings {

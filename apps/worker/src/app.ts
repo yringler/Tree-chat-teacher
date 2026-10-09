@@ -4,6 +4,7 @@ import { authConfigured, getAuth, socialProviderFlags, type AuthDeps } from './a
 import { accountMiddleware } from './auth/account.js';
 import { sessionMiddleware } from './auth/session.js';
 import { sameOriginWrites } from './byok/guard.js';
+import { keyRenewal } from './byok/keys.js';
 import { appConfig } from './config.js';
 import type { AppBindings } from './env.js';
 import { apiError, notFound, onError } from './http/errors.js';
@@ -85,6 +86,7 @@ export function createApp(options: AppOptions = {}): Hono<AppBindings> {
 
   app.use('/api/*', sessionMiddleware(options.auth));
   app.use('/api/*', accountMiddleware);
+  app.use('/api/*', keyRenewal);
   app.route('/api/billing', billingRoutes());
   app.route('/api/admin', adminRoutes());
   app.route('/api/pool', poolRoutes());

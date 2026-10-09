@@ -101,7 +101,7 @@ Commit the `.sql` and its `meta/` snapshot together. Never edit a migration that
 
 With `KEY_ENCRYPTION_SECRET` set, users paste their Anthropic, OpenAI or OpenRouter key under **Keys** (**Keys & credit** where credit is sold). Learn uses only the OpenRouter key, from the same cookie.
 
-- The Worker checks the key with one unbilled call, then seals `{ keys, exp, uid }` with AES-256-GCM into the `__Host-llmkey` cookie (HttpOnly, Secure, SameSite=Strict, 7 days). The server stores nothing, and no endpoint returns any part of a key.
+- The Worker checks the key with one unbilled call, then seals `{ keys, exp, uid }` with AES-256-GCM into the `__Host-llmkey` cookie (HttpOnly, Secure, SameSite=Strict). It expires after 7 days unused: using the keys reseals it with a fresh expiry once it is a day old. The server stores nothing, and no endpoint returns any part of a key.
 - A cookie that is tampered with, expired, sealed with an older secret or sealed for another user answers `401 key_required` and is cleared. Signing out clears it too. **Rotating `KEY_ENCRYPTION_SECRET` revokes every stored key.**
 - Limits: same-origin requests only, models limited to the provider config, server-side output caps, and a rate limit per key cookie.
 - The trade-off: the key passes through the Worker on every request, so users trust the operator not to log it. The code never logs request headers or bodies; don't enable anything that does, such as Logpush with headers. An XSS on the origin could spend through the cookie while the page is open, but can't read the key.

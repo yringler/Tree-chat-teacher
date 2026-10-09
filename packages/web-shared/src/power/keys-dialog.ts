@@ -161,7 +161,7 @@ export function creditFeeSentence(
             a server-side secret and stored only in your browser as a cookie that page scripts can't
             read. It is not saved on the server. Every chat request sends it back to the server,
             which decrypts it in memory to call the provider, so you are trusting this server not to
-            log it. It expires after 7 days.
+            log it. It expires after 7 days without use.
           </p>
           <div class="form-actions">
             @if (store.account.keyStatus()?.hasKey) {

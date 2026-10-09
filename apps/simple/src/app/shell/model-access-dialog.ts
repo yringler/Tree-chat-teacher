@@ -199,8 +199,8 @@ import { LearnFunding } from '../state/learn-funding';
                 Create one at
                 <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener"
                   >openrouter.ai</a
-                >. It is stored encrypted in this browser only, for 7 days, and power mode's
-                OpenRouter provider uses it too.
+                >. It is stored encrypted in this browser only until it goes 7 days unused, and
+                power mode's OpenRouter provider uses it too.
               </p>
               <div class="form-actions">
                 <button type="submit" class="btn btn-primary" [disabled]="busy()">
