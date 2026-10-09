@@ -15,7 +15,7 @@ function stored(): Payer | null {
 /**
  * The learner's pick of who pays (remembered in this browser) and the payer
  * every API call names (API_HEADERS, see app.config.ts), with the mode
- * header that makes the server act as the learner's Learn account.
+ * header that makes the server generate as Learn does.
  * LearnFunding resolves the payer from the pick and what it knows
  * (`resolveWith`); it calls the API, which reads these headers, so this
  * holder is what keeps the two apart.

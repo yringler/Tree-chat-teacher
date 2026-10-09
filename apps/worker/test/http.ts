@@ -1,6 +1,6 @@
-// Requests to the Worker under test as the dev bypass (no session: the
-// default power account, vitest.config.ts), and readers of its answers. The
-// suites that need signed-in users use session-client.ts.
+// Requests to the Worker under test as the dev bypass (no session, power
+// mode, vitest.config.ts), and readers of its answers. The suites that need
+// signed-in users use session-client.ts.
 import type { StreamEvent } from '@tangent/shared';
 import { exports } from 'cloudflare:workers';
 import { expect } from 'vitest';

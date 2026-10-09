@@ -268,9 +268,8 @@ export class ApiClient {
   /** Download link for the JSON backup of one tree. */
   backupUrl = (treeId: string) => this.url(R.backup, { params: { treeId } });
   /**
-   * The JSON backup of one tree, fetched with this app's headers. Learn saves
-   * it from here: a plain link sends no mode header, so the server would look
-   * for the tree in the power account.
+   * The JSON backup of one tree, fetched with this app's headers, for an app
+   * that saves it from memory (Learn).
    */
   backup = (treeId: string) => this.call(R.backup, { params: { treeId } });
   importBackup = (backup: TreeBackupInput) => this.call(R.importBackup, { body: backup });

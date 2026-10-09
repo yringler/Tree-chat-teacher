@@ -252,7 +252,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
   /**
    * Export: downloads the lesson's JSON backup, the same file as power
    * mode's, so it can be imported into either app. Fetched with Learn's
-   * headers (a plain link would ask the power account) and saved from memory.
+   * headers and saved from memory.
    */
   async exportLesson(treeId: string): Promise<boolean> {
     if (this.exportingId()) return false;

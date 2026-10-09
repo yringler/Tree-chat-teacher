@@ -16,8 +16,8 @@ import { UiStore } from '../state/ui-store';
  * the server adds after the tutor's own where the learner pays with their own
  * key or credit, and ignores on the open pool. The lesson's stored prompt
  * starts as the tutor prompt, so the box shows only what the learner wrote
- * (`customInstructions`); clearing it puts the tutor prompt back, which
- * power then keeps sending. Opened from the lesson's header
+ * (`customInstructions`); clearing what they wrote puts the tutor prompt
+ * back, which power then keeps sending. Opened from the lesson's header
  * (`UiStore.dialogs`, kind `instructions`); closes when the lesson does.
  */
 @Component({
@@ -101,11 +101,13 @@ export class InstructionsDialog implements OnInit {
     const tree = this.opened;
     const tutor = this.tutorPrompt();
     if (!tree || tutor === undefined) return;
-    const systemPrompt = this.text().trim() ? this.text() : tutor;
-    if (systemPrompt === tree.systemPrompt) {
+    const text = this.text().trim() ? this.text() : null;
+    // Unchanged instructions leave the stored prompt alone (power sends it as it is).
+    if (text === customInstructions(tree.systemPrompt, tutor)) {
       this.close();
       return;
     }
+    const systemPrompt = text ?? tutor;
     this.saving.set(true);
     const ok = await this.store.updateTree(tree.id, { systemPrompt });
     this.saving.set(false);

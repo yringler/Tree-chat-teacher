@@ -40,6 +40,16 @@ describe('Learn: the lesson’s own instructions', () => {
     },
   );
 
+  it.each([null, DEFAULT_SYSTEM_PROMPT])(
+    'leaves a built-in prompt as it is when saved with nothing typed (%#)',
+    async (stored) => {
+      const d = await dialog(stored);
+      await d.user.click(screen.getByRole('button', { name: 'Save' }));
+      expect(d.api.updateTree).not.toHaveBeenCalled();
+      expect(d.ui.dialogs.isOpen('instructions')).toBe(false);
+    },
+  );
+
   it('saves what the learner writes as the lesson’s prompt', async () => {
     const d = await dialog('TUTOR');
     await d.user.type(d.box, 'Answer in French.');
