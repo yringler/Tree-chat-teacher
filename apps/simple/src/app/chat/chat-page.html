@@ -17,13 +17,20 @@
       <h1 class="lesson-title" [attr.title]="lessonTitle()">{{ lessonTitle() }}</h1>
       <div class="lesson-tools">
         @if (store.models().length > 1 && store.selectedBranch(); as b) {
-          <app-model-toggle
-            [models]="store.models()"
-            [value]="account.poolModel()?.id ?? b.model"
-            [disabled]="store.busy() || switching()"
-            [lockedHint]="account.poolModelHint()"
-            (changed)="setModel(b.id, $event)"
-          />
+          @if (tiers(b.model); as t) {
+            @if (t.unlisted; as hint) {
+              <span class="model-locked muted small">{{ hint }}</span>
+            } @else {
+              <app-segmented
+                label="Tutor"
+                [options]="t.options"
+                [value]="t.value"
+                [disabled]="store.busy() || switching() || t.lockedHint !== null"
+                [description]="t.lockedHint"
+                (changed)="setModel(b.id, $event)"
+              />
+            }
+          }
         }
         <app-text-size-menu heading="Lesson text size" />
         <button
@@ -154,7 +161,10 @@
         <p class="tier-note" role="status">{{ note }}</p>
       }
       @if (account.fundingChoice()) {
-        <app-funding-toggle
+        <app-segmented
+          class="funding-toggle"
+          label="Pay for replies with"
+          [options]="fundingOptions"
           [value]="funding()"
           [disabled]="store.busy()"
           (changed)="chooseFunding($event)"

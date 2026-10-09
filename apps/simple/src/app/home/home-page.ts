@@ -10,9 +10,9 @@ import {
   type PoolStatusResponse,
   type TreeSummary,
 } from '@tangent/shared';
-import { Composer, Icon, PoolMeter } from '@tangent/web-shared';
+import { Composer, Icon, PoolMeter, Segmented } from '@tangent/web-shared';
 import { lessonTitle } from '../chat/titles';
-import { ModelToggle } from '../chat/model-toggle';
+import { tierSwitch } from '../chat/switches';
 import { KeyLockedNotice } from '../chat/key-locked-notice';
 import { AccountStore } from '../state/account-store';
 import { ImportLessonButton } from './import-lesson-button';
@@ -25,7 +25,7 @@ import { UiStore } from '../state/ui-store';
   selector: 'app-home-page',
   imports: [
     Composer,
-    ModelToggle,
+    Segmented,
     PoolMeter,
     RouterLink,
     Icon,
@@ -74,13 +74,20 @@ import { UiStore } from '../state/ui-store';
           } @else {
             <div class="new-lesson-actions">
               @if (store.models().length > 1) {
-                <app-model-toggle
-                  [models]="store.models()"
-                  [value]="account.poolModel()?.id ?? model()"
-                  [disabled]="starting()"
-                  [lockedHint]="account.poolModelHint()"
-                  (changed)="pickedModel.set($event)"
-                />
+                @if (tiers(); as t) {
+                  @if (t.unlisted; as hint) {
+                    <span class="model-locked muted small">{{ hint }}</span>
+                  } @else {
+                    <app-segmented
+                      label="Tutor"
+                      [options]="t.options"
+                      [value]="t.value"
+                      [disabled]="starting() || t.lockedHint !== null"
+                      [description]="t.lockedHint"
+                      (changed)="pickedModel.set($event)"
+                    />
+                  }
+                }
               }
               <div class="start-group">
                 <app-paid-by />
@@ -167,6 +174,14 @@ export class HomePage {
   protected readonly starting = signal(false);
   /** The learner's pick, else the provider's default (Normal). */
   protected readonly model = computed(() => this.pickedModel() ?? this.store.defaultModel());
+  /** The Normal/Max switch for the new lesson (locked to the pool's model on the pool). */
+  protected readonly tiers = computed(() =>
+    tierSwitch(
+      this.store.models(),
+      this.account.poolModel()?.id ?? this.model(),
+      this.account.poolModelHint(),
+    ),
+  );
   /** "Max uses about 14× as much as Normal." while Max is picked (not on the pool, which picks for them). */
   protected readonly maxNote = computed(() => {
     const models = this.store.models();

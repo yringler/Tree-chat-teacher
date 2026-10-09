@@ -20,6 +20,7 @@ import {
   Icon,
   PendingQuote,
   PoolBlockNotice,
+  Segmented,
   selectedMessageQuote,
   SelectionAsk,
   TextSizeMenu,
@@ -32,10 +33,9 @@ import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
 import { connectionTitleOf } from './connections';
 import { confirmDeleteSideQuestion } from './delete-side-question';
-import { FundingToggle, type FundingOption } from './funding-toggle';
 import { KeyLockedNotice } from './key-locked-notice';
 import { MessageItem } from './message-item';
-import { ModelToggle } from './model-toggle';
+import { FUNDING_OPTIONS, tierSwitch, type FundingOption } from './switches';
 import { branchTitle, lessonTitle } from './titles';
 
 interface Entry {
@@ -50,9 +50,8 @@ interface Entry {
   selector: 'app-chat-page',
   imports: [
     Composer,
-    FundingToggle,
     MessageItem,
-    ModelToggle,
+    Segmented,
     Icon,
     PoolBlockNotice,
     RouterLink,
@@ -236,7 +235,20 @@ export class ChatPage implements OnDestroy {
     }
   }
 
-  protected chooseFunding(option: FundingOption): void {
+  protected readonly fundingOptions = FUNDING_OPTIONS;
+
+  /** The Normal/Max switch for a branch on `model` (locked to the pool's model on the pool). */
+  protected tiers(model: string) {
+    return tierSwitch(
+      this.store.models(),
+      this.account.poolModel()?.id ?? model,
+      this.account.poolModelHint(),
+    );
+  }
+
+  protected chooseFunding(id: string): void {
+    const option = FUNDING_OPTIONS.find((o) => o.id === id)?.id;
+    if (!option) return;
     this.account.payment.choose(option);
     this.store.dismissPoolBlock();
     if (option === 'pool') void this.account.refreshPool();

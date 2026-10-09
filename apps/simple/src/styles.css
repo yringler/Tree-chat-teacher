@@ -754,7 +754,7 @@ app-related-links.connections {
 
 /* The pool's inline state and the funding switch sit in the composer's column. */
 .composer-dock app-pool-block-notice,
-.composer-dock app-funding-toggle {
+.composer-dock .funding-toggle {
   display: block;
   max-width: var(--col);
   margin: 0 auto 8px;
