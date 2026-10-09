@@ -3,9 +3,7 @@ import {
   DEFAULT_ACCOUNT_ID,
   DEFAULT_GROUNDING_MODE,
   GROUNDING_INSTRUCTIONS,
-  DEFAULT_BRANCH_TITLE_PREFIX,
   DEFAULT_TREE_TITLE,
-  MAX_LINKS_PER_TREE,
   TRUNK_TITLE,
   REPLY_CANCELLED_ERROR,
   REPLY_CUT_OFF_ERROR,
@@ -14,14 +12,6 @@ import {
   auxOutputTokens,
   isLengthStop,
   replyOutputTokens,
-  createBranchRequestSchema,
-  createLinkRequestSchema,
-  createTreeRequestSchema,
-  treeBackupSchema,
-  updateBranchRequestSchema,
-  updateLinkRequestSchema,
-  updateSettingsRequestSchema,
-  updateTreeRequestSchema,
   type Branch,
   type BranchFunding,
   type CandidateEvent,
@@ -63,19 +53,13 @@ import {
   type UpdateTreeRequest,
   type WebSearchRequest,
 } from '@tangent/shared';
-import {
-  assembleContext,
-  BrokenChainError,
-  checkBranches,
-  summaryKeyString,
-} from '../context/assemble.js';
+import { assembleContext, summaryKeyString } from '../context/assemble.js';
 import { overflowBudget } from '../context/overflow.js';
 import {
   buildReviewPrompt,
   buildSummaryPrompt,
   buildTitlePrompt,
   cleanTitle,
-  plainText,
   renderPlan,
   replyInstructions,
   type RenderOptions,
@@ -84,8 +68,9 @@ import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
 import { decideGrounding, type GroundingDecision } from '../grounding/policy.js';
 import { Ownership } from './ownership.js';
 import { RouteResolver } from './routing.js';
-import { adaptBackupForLearn, type LearnImportTarget } from '../learn-import.js';
-import { pairKey } from '../links.js';
+import { BackupService } from './backup.js';
+import { errorText, type ServiceContext } from './context.js';
+import { TreeService } from './tree-service.js';
 import type { Repositories } from '../repository.js';
 import type { TokenEstimator } from '../tokens.js';
 import { newId as defaultNewId, systemClock, type Clock } from '../util.js';
@@ -103,7 +88,6 @@ export { DEFAULT_TREE_TITLE, TRUNK_TITLE };
  */
 const MAX_SUMMARY_CALLS = 16;
 const TITLE_TIMEOUT_MS = 15_000;
-const INTERRUPTED = { status: 'error', error: 'Interrupted before the reply finished' } as const;
 
 export interface ChatServiceDeps {
   repos: Repositories;
@@ -361,6 +345,8 @@ export class ChatService {
   private readonly newId: () => string;
   private readonly owned: Ownership;
   private readonly routes: RouteResolver;
+  private readonly trees: TreeService;
+  private readonly backups: BackupService;
   readonly accountId: string;
 
   constructor(readonly deps: ChatServiceDeps) {
@@ -369,6 +355,23 @@ export class ChatService {
     this.newId = deps.newId ?? (() => defaultNewId());
     this.owned = new Ownership(deps.repos.trees, this.accountId);
     this.routes = new RouteResolver(deps);
+    const ctx: ServiceContext = {
+      repos: deps.repos,
+      accountId: this.accountId,
+      owned: this.owned,
+      routes: this.routes,
+      settings: deps.settings,
+      defaultSystemPrompt: deps.defaultSystemPrompt ?? null,
+      now: () => this.now(),
+      newId: () => this.newId(),
+      log: (event, fields) => this.log(event, fields),
+    };
+    this.trees = new TreeService(ctx);
+    this.backups = new BackupService(
+      ctx,
+      this.trees,
+      deps.adaptImportsForLearn ? deps.providers : null,
+    );
   }
 
   private get repo() {
@@ -377,12 +380,6 @@ export class ChatService {
 
   private now(): string {
     return this.clock().toISOString();
-  }
-
-  // ---------------------------------------------------------------- trees
-
-  listTrees(): Promise<TreeSummary[]> {
-    return this.repo.listTrees(this.accountId);
   }
 
   /**
@@ -401,276 +398,79 @@ export class ChatService {
     return this.owned.node(nodeId);
   }
 
-  /**
-   * Creates the tree and an empty trunk (on the route the request names, else
-   * the default route, `defaultRoute`; the provider's default model unless
-   * one is named). Without a system prompt in the request, the tree gets the
-   * account's saved default, else the built-in one (`deps.defaultSystemPrompt`).
-   */
-  async createTree(request: CreateTreeRequest): Promise<TreeDetail> {
-    const req = createTreeRequestSchema.parse(request);
-    const route = await this.routes.newTreeRoute(req);
-    const provider = this.routes.requireProvider(route);
-    const model = req.model ?? provider.defaultModel();
-    const systemPrompt = emptyToNull(req.systemPrompt) ?? (await this.newTreeSystemPrompt());
-    const now = this.now();
-    const tree: Tree = {
-      id: this.newId(),
-      accountId: this.accountId,
-      title: req.title ?? DEFAULT_TREE_TITLE,
-      systemPrompt,
-      trunkBranchId: this.newId(),
-      createdAt: now,
-      updatedAt: now,
-    };
-    const trunk: Branch = {
-      id: tree.trunkBranchId,
-      treeId: tree.id,
-      parentBranchId: null,
-      branchPointNodeId: null,
-      contextMode: 'path',
-      anchorQuote: null,
-      title: TRUNK_TITLE,
-      titleSource: 'default',
-      isPrivate: false,
-      providerId: route.providerId,
-      model,
-      grounding: DEFAULT_GROUNDING_MODE,
-      funding: route.funding,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await this.repo.createTree(tree, trunk);
-    return { tree, branches: [trunk], nodes: [], links: [] };
+  // ------------------------------------------- trees, branches, links (TreeService)
+
+  listTrees(): Promise<TreeSummary[]> {
+    return this.trees.listTrees();
   }
 
-  async getTreeDetail(treeId: string): Promise<TreeDetail> {
-    const tree = await this.owned.tree(treeId);
-    const [branches, nodes, links] = await Promise.all([
-      this.repo.listBranches(treeId),
-      this.repo.listNodes(treeId),
-      this.repo.listLinks(treeId),
-    ]);
-    return { tree, branches, nodes, links };
+  createTree(request: CreateTreeRequest): Promise<TreeDetail> {
+    return this.trees.createTree(request);
   }
 
-  async updateTree(treeId: string, request: UpdateTreeRequest): Promise<Tree> {
-    const req = updateTreeRequestSchema.parse(request);
-    await this.owned.tree(treeId);
-    const patch: Partial<Pick<Tree, 'title' | 'systemPrompt' | 'updatedAt'>> = {
-      updatedAt: this.now(),
-    };
-    if (req.title !== undefined) patch.title = req.title;
-    if (req.systemPrompt !== undefined) patch.systemPrompt = emptyToNull(req.systemPrompt);
-    const tree = await this.repo.updateTree(treeId, patch);
-    if (!tree) throw new NotFoundError('Tree');
-    return tree;
+  getTreeDetail(treeId: string): Promise<TreeDetail> {
+    return this.trees.getTreeDetail(treeId);
   }
 
-  /**
-   * Deletes a tree with everything in it. `stopGenerations` (the Worker's
-   * Durable Object, which owns generations) runs once the tree is known to be
-   * this account's, to stop its runs before their nodes go.
-   */
-  async deleteTree(
-    treeId: string,
-    options: { stopGenerations?: () => Promise<void> } = {},
-  ): Promise<void> {
-    await this.owned.tree(treeId);
-    await options.stopGenerations?.();
-    const deleted = await this.repo.deleteTree(treeId);
-    if (!deleted) throw new NotFoundError('Tree');
+  updateTree(treeId: string, request: UpdateTreeRequest): Promise<Tree> {
+    return this.trees.updateTree(treeId, request);
   }
 
-  // ------------------------------------------------------------- settings
-
-  /** The account's settings, with the built-in default prompt a client can show ("Use default"). */
-  async getSettings(): Promise<SettingsResponse> {
-    const saved = await this.deps.repos.settings.getSettings(this.accountId);
-    return this.settingsResponse(saved?.systemPrompt ?? null);
+  deleteTree(treeId: string, options?: { stopGenerations?: () => Promise<void> }): Promise<void> {
+    return this.trees.deleteTree(treeId, options);
   }
 
-  /** Saves the account's default system prompt; a blank one means the built-in default (null). */
-  async updateSettings(request: UpdateSettingsRequest): Promise<SettingsResponse> {
-    const req = updateSettingsRequestSchema.parse(request);
-    const systemPrompt = emptyToNull(req.systemPrompt);
-    await this.deps.repos.settings.putSettings(this.accountId, { systemPrompt }, this.now());
-    return this.settingsResponse(systemPrompt);
+  getSettings(): Promise<SettingsResponse> {
+    return this.trees.getSettings();
   }
 
-  private settingsResponse(systemPrompt: string | null): SettingsResponse {
-    return { systemPrompt, defaultSystemPrompt: this.deps.defaultSystemPrompt ?? '' };
+  updateSettings(request: UpdateSettingsRequest): Promise<SettingsResponse> {
+    return this.trees.updateSettings(request);
   }
 
-  /** The account's saved default prompt, else the built-in one. */
-  private async newTreeSystemPrompt(): Promise<string | null> {
-    const saved = await this.deps.repos.settings.getSettings(this.accountId);
-    return emptyToNull(saved?.systemPrompt) ?? emptyToNull(this.deps.defaultSystemPrompt);
+  createBranch(request: CreateBranchRequest): Promise<Branch> {
+    return this.trees.createBranch(request);
   }
 
-  // ------------------------------------------------------------- branches
-
-  /** New branch hanging off `fromNodeId`; inherits provider/model from the parent branch. */
-  async createBranch(request: CreateBranchRequest): Promise<Branch> {
-    const req = createBranchRequestSchema.parse(request);
-    const node = await this.getOwnedNode(req.fromNodeId);
-    const parent = await this.repo.getBranch(node.branchId);
-    if (!parent) throw new NotFoundError('Branch');
-
-    const route = this.routes.requestedRoute(req, parent);
-    const provider = this.routes.requireProvider(route);
-    const model =
-      req.model ??
-      (route.providerId === parent.providerId ? parent.model : provider.defaultModel());
-    const anchorQuote = emptyToNull(req.anchorQuote?.trim());
-    const now = this.now();
-    const branch: Branch = {
-      id: this.newId(),
-      treeId: node.treeId,
-      parentBranchId: parent.id,
-      branchPointNodeId: node.id,
-      contextMode: req.contextMode,
-      anchorQuote,
-      title: req.title ?? defaultBranchTitle(anchorQuote, node),
-      titleSource: req.title ? 'user' : 'default',
-      isPrivate: req.isPrivate ?? false,
-      providerId: route.providerId,
-      model,
-      grounding: req.grounding ?? parent.grounding ?? DEFAULT_GROUNDING_MODE,
-      funding: route.funding,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await this.repo.createBranch(branch);
-    await this.repo.updateTree(branch.treeId, { updatedAt: now });
-    return branch;
+  updateBranch(branchId: string, request: UpdateBranchRequest): Promise<Branch> {
+    return this.trees.updateBranch(branchId, request);
   }
 
-  async updateBranch(branchId: string, request: UpdateBranchRequest): Promise<Branch> {
-    const req = updateBranchRequestSchema.parse(request);
-    const branch = await this.getOwnedBranch(branchId);
-    const isTrunk = branch.parentBranchId === null;
-    if (isTrunk && (req.contextMode !== undefined || req.anchorQuote !== undefined)) {
-      throw new ValidationError('The main thread has no context mode or anchor quote');
-    }
-    const patch: Parameters<Repositories['trees']['updateBranch']>[1] = { updatedAt: this.now() };
-    if (req.title !== undefined) {
-      patch.title = req.title;
-      patch.titleSource = 'user';
-    }
-    if (req.contextMode !== undefined) patch.contextMode = req.contextMode;
-    if (req.anchorQuote !== undefined) patch.anchorQuote = emptyToNull(req.anchorQuote?.trim());
-    if (req.isPrivate !== undefined) patch.isPrivate = req.isPrivate;
-    if (req.grounding !== undefined) patch.grounding = req.grounding;
-    if (req.providerId !== undefined || req.funding !== undefined || req.model !== undefined) {
-      const route = this.routes.requestedRoute(req, branch);
-      const provider = this.routes.requireProvider(route);
-      patch.providerId = route.providerId;
-      patch.funding = route.funding;
-      patch.model =
-        req.model ??
-        (route.providerId === branch.providerId ? branch.model : provider.defaultModel());
-    }
-    const updated = await this.repo.updateBranch(branchId, patch);
-    if (!updated) throw new NotFoundError('Branch');
-    return updated;
-  }
-
-  /**
-   * Deletes a branch with every branch below it: child branches hang off
-   * its messages, so they cannot outlive it. Their messages, the links
-   * touching them, the summaries anchored on them and the shares targeting
-   * them go too. The trunk cannot be deleted (delete the tree instead).
-   *
-   * Without `stopGenerations` it rejects with ConflictError while any of
-   * those branches is generating. With it, the caller (the Worker's Durable
-   * Object, which owns generations) is handed the doomed branch ids to stop
-   * its runs first, and leftover `streaming` nodes are deleted as orphans.
-   */
-  async deleteBranch(
+  deleteBranch(
     branchId: string,
-    options: { stopGenerations?: (branchIds: ReadonlySet<string>) => Promise<void> } = {},
+    options?: { stopGenerations?: (branchIds: ReadonlySet<string>) => Promise<void> },
   ): Promise<DeleteBranchResponse> {
-    const { branch, tree } = await this.owned.branch(branchId);
-    if (branch.parentBranchId === null || branch.id === tree.trunkBranchId) {
-      throw new ValidationError(
-        'The main thread cannot be deleted; delete the conversation instead',
-      );
-    }
-
-    const all = await this.repo.listBranches(tree.id);
-    const branchIds = subtreeBranchIds(all, branch.id);
-    const doomed = new Set(branchIds);
-    if (options.stopGenerations) {
-      await options.stopGenerations(doomed);
-    } else {
-      const streaming = await this.repo.listStreamingNodes(tree.id);
-      if (streaming.some((n) => doomed.has(n.branchId))) {
-        throw new ConflictError('A reply is still being generated in this branch; stop it first');
-      }
-    }
-    const nodeIds = (await this.repo.listNodes(tree.id))
-      .filter((n) => doomed.has(n.branchId))
-      .map((n) => n.id);
-    await this.repo.deleteBranches(tree.id, branchIds, this.now());
-    return { treeId: tree.id, branchIds, nodeIds };
+    return this.trees.deleteBranch(branchId, options);
   }
 
-  // ---------------------------------------------------------------- links
-
-  /**
-   * Links two messages of the same tree (both must be this account's: 404
-   * otherwise). Linking a pair that is already linked, either way round,
-   * changes nothing and returns the existing link with `created: false`.
-   * Never generates, so read-only power branches can be linked too.
-   */
-  async createLink(request: CreateLinkRequest): Promise<{ link: NodeLink; created: boolean }> {
-    const req = createLinkRequestSchema.parse(request);
-    const from = await this.getOwnedNode(req.fromNodeId);
-    const to = await this.getOwnedNode(req.toNodeId);
-    if (from.treeId !== to.treeId) {
-      throw new ValidationError('Only messages of the same conversation can be linked');
-    }
-    const links = await this.repo.listLinks(from.treeId);
-    const key = pairKey(from.id, to.id);
-    const existing = links.find((l) => pairKey(l.sourceNodeId, l.targetNodeId) === key);
-    if (existing) return { link: existing, created: false };
-    if (links.length >= MAX_LINKS_PER_TREE) {
-      throw new ValidationError(
-        `A conversation can hold at most ${MAX_LINKS_PER_TREE} links; remove one first`,
-      );
-    }
-    const now = this.now();
-    return this.repo.createLink(
-      {
-        id: this.newId(),
-        treeId: from.treeId,
-        sourceNodeId: from.id,
-        targetNodeId: to.id,
-        note: emptyToNull(req.note),
-        origin: 'user',
-        createdAt: now,
-        updatedAt: now,
-      },
-      now,
-    );
+  createLink(request: CreateLinkRequest): Promise<{ link: NodeLink; created: boolean }> {
+    return this.trees.createLink(request);
   }
 
-  /** Changes a link's note (blank = none). */
-  async updateLink(linkId: string, request: UpdateLinkRequest): Promise<NodeLink> {
-    const req = updateLinkRequestSchema.parse(request);
-    await this.owned.link(linkId);
-    const updated = await this.repo.updateLink(linkId, {
-      note: emptyToNull(req.note),
-      updatedAt: this.now(),
-    });
-    if (!updated) throw new NotFoundError('Link');
-    return updated;
+  updateLink(linkId: string, request: UpdateLinkRequest): Promise<NodeLink> {
+    return this.trees.updateLink(linkId, request);
   }
 
-  async deleteLink(linkId: string): Promise<void> {
-    await this.owned.link(linkId);
-    if (!(await this.repo.deleteLink(linkId))) throw new NotFoundError('Link');
+  deleteLink(linkId: string): Promise<void> {
+    return this.trees.deleteLink(linkId);
+  }
+
+  recoverInterrupted(treeId: string): Promise<number> {
+    return this.trees.recoverInterrupted(treeId);
+  }
+
+  recoverInterruptedNode(nodeId: string): Promise<ChatNode | null> {
+    return this.trees.recoverInterruptedNode(nodeId);
+  }
+
+  // --------------------------------------------------------- backup (BackupService)
+
+  exportBackup(treeId: string): Promise<TreeBackup> {
+    return this.backups.exportBackup(treeId);
+  }
+
+  importBackup(backup: TreeBackup | TreeBackupInput): Promise<TreeDetail> {
+    return this.backups.importBackup(backup);
   }
 
   // -------------------------------------------------------------- context
@@ -1716,170 +1516,6 @@ export class ChatService {
       return branch;
     }
   }
-
-  /**
-   * Marks leftover `streaming` nodes of a tree as `error` ("interrupted").
-   * Only for a caller that knows no generation of the tree is running (a
-   * fresh process): a live reply in another branch would be failed too.
-   */
-  async recoverInterrupted(treeId: string): Promise<number> {
-    const stale = await this.repo.listStreamingNodes(treeId);
-    for (const node of stale) await this.repo.updateNode(node.id, INTERRUPTED);
-    return stale.length;
-  }
-
-  /**
-   * Marks one node `error` ("interrupted") if it is still `streaming`, for a
-   * caller that knows no generation of it is running. Returns the node as it
-   * now stands (null if there is none).
-   */
-  async recoverInterruptedNode(nodeId: string): Promise<ChatNode | null> {
-    const node = await this.repo.getNode(nodeId);
-    if (node?.status !== 'streaming') return node;
-    await this.repo.updateNode(node.id, INTERRUPTED);
-    return { ...node, ...INTERRUPTED };
-  }
-
-  // --------------------------------------------------------------- backup
-
-  async exportBackup(treeId: string): Promise<TreeBackup> {
-    const detail = await this.getTreeDetail(treeId);
-    return {
-      format: 'tangent-tree-backup',
-      version: 1,
-      exportedAt: this.now(),
-      tree: detail.tree,
-      branches: detail.branches,
-      nodes: detail.nodes,
-      links: detail.links,
-    };
-  }
-
-  /**
-   * Restores a backup under fresh ids, in this instance's account. Learn
-   * (`adaptImportsForLearn`) first adapts it to what Learn can run.
-   */
-  async importBackup(backup: TreeBackup | TreeBackupInput): Promise<TreeDetail> {
-    const parsed = treeBackupSchema.parse(backup);
-    const data = this.deps.adaptImportsForLearn
-      ? adaptBackupForLearn(parsed, await this.learnImportTarget())
-      : parsed;
-    const branchIds = new Map(data.branches.map((b) => [b.id, this.newId()] as const));
-    const nodeIds = new Map(data.nodes.map((n) => [n.id, this.newId()] as const));
-    const mapBranch = (id: string): string => {
-      const mapped = branchIds.get(id);
-      if (!mapped) throw new ValidationError(`Backup references unknown branch ${id}`);
-      return mapped;
-    };
-    const mapNode = (id: string): string => {
-      const mapped = nodeIds.get(id);
-      if (!mapped) throw new ValidationError(`Backup references unknown node ${id}`);
-      return mapped;
-    };
-    const trunks = data.branches.filter((b) => b.parentBranchId === null);
-    if (trunks.length !== 1 || trunks[0]?.id !== data.tree.trunkBranchId) {
-      throw new ValidationError('Backup must contain exactly one trunk branch');
-    }
-    // A broken branch would import, then fail every send on it.
-    try {
-      checkBranches(data.tree, data.branches, data.nodes);
-    } catch (err) {
-      if (!(err instanceof BrokenChainError)) throw err;
-      throw new ValidationError(`This backup can't be restored: ${err.problem}`);
-    }
-    const treeId = this.newId();
-    const now = this.now();
-    const { accountId: _ignored, ...backupTree } = data.tree;
-    const tree: Tree = {
-      ...backupTree,
-      id: treeId,
-      accountId: this.accountId,
-      trunkBranchId: mapBranch(data.tree.trunkBranchId),
-      updatedAt: now,
-    };
-    const branches: Branch[] = data.branches.map((b) => ({
-      ...b,
-      id: mapBranch(b.id),
-      treeId,
-      parentBranchId: b.parentBranchId === null ? null : mapBranch(b.parentBranchId),
-      branchPointNodeId: b.branchPointNodeId === null ? null : mapNode(b.branchPointNodeId),
-      ...importedRoute(b, this.deps.fixedFunding),
-    }));
-    const nodes: ChatNode[] = data.nodes.map((n) => ({
-      ...n,
-      id: mapNode(n.id),
-      treeId,
-      branchId: mapBranch(n.branchId),
-      parentId: n.parentId === null ? null : mapNode(n.parentId),
-      status: n.status === 'streaming' ? 'error' : n.status,
-      error: n.status === 'streaming' ? 'Interrupted before the reply finished' : n.error,
-    }));
-    const links = importedLinks(data.links ?? [], nodeIds, treeId, this.newId);
-    await this.repo.importTree(tree, branches, nodes, links);
-    return { tree, branches, nodes, links };
-  }
-
-  // -------------------------------------------------------------- helpers
-
-  /** What Learn adapts an import to: its one provider and models, and a new tree's prompt. */
-  private async learnImportTarget(): Promise<LearnImportTarget> {
-    const providers = this.deps.providers;
-    const provider = providers.get(providers.defaultProviderId());
-    if (!provider) throw new ValidationError('There is no provider to import onto');
-    return {
-      providerId: provider.id,
-      models: provider.models().map((m) => m.id),
-      defaultModel: provider.defaultModel(),
-      systemPrompt: await this.newTreeSystemPrompt(),
-    };
-  }
-}
-
-/**
- * A backed-up branch's route as import stores it. A backup without a funding
- * is on `own-key`: an imported conversation never spends credit until its
- * owner picks Tangent credit for it. Learn's fixed funding wins, as for any
- * write.
- */
-function importedRoute(
-  b: { providerId: string; funding?: BranchFunding | undefined },
-  fixedFunding: BranchFunding | undefined,
-): ProviderRoute {
-  return { providerId: b.providerId, funding: fixedFunding ?? b.funding ?? 'own-key' };
-}
-
-/**
- * A backup's links under the restored node ids. A link whose ends aren't
- * both in the backup, a self-link and a second link between the same pair
- * are dropped rather than failing the import: they are only cross-references.
- */
-function importedLinks(
-  links: NonNullable<TreeBackupInput['links']>,
-  nodeIds: ReadonlyMap<string, string>,
-  treeId: string,
-  newId: () => string,
-): NodeLink[] {
-  const out: NodeLink[] = [];
-  const pairs = new Set<string>();
-  for (const l of links) {
-    const source = nodeIds.get(l.sourceNodeId);
-    const target = nodeIds.get(l.targetNodeId);
-    if (!source || !target || source === target) continue;
-    const key = pairKey(source, target);
-    if (pairs.has(key)) continue;
-    pairs.add(key);
-    out.push({
-      id: newId(),
-      treeId,
-      sourceNodeId: source,
-      targetNodeId: target,
-      note: emptyToNull(l.note?.trim()),
-      origin: l.origin ?? 'user',
-      createdAt: l.createdAt,
-      updatedAt: l.updatedAt,
-    });
-  }
-  return out;
 }
 
 /** Streams a prompt to completion; returns null on provider error, after passing it to `onError`. */
@@ -1935,15 +1571,6 @@ function foldSystem(prompt: { system: string | null; messages: ChatMessage[] }) 
   };
 }
 
-/** A caught error as a log field: its message (an `Error` serializes as `{}`). */
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-function emptyToNull(value: string | null | undefined): string | null {
-  return value === undefined || value === null || value.trim() === '' ? null : value;
-}
-
 /**
  * The outcome of a reply the provider finished with `stopReason`: complete,
  * unless it stopped at its output cap (`isLengthStop`; with no text at all, a
@@ -1970,30 +1597,4 @@ function stripUndefined(usage: Partial<TokenUsage>): Partial<TokenUsage> {
   if (usage.inputTokens !== undefined) out.inputTokens = usage.inputTokens;
   if (usage.outputTokens !== undefined) out.outputTokens = usage.outputTokens;
   return out;
-}
-
-/** `rootId` first, then its descendants breadth-first (via parentBranchId). */
-function subtreeBranchIds(branches: readonly Branch[], rootId: string): string[] {
-  const children = new Map<string, string[]>();
-  for (const b of branches) {
-    if (b.parentBranchId === null) continue;
-    const list = children.get(b.parentBranchId);
-    if (list) list.push(b.id);
-    else children.set(b.parentBranchId, [b.id]);
-  }
-  const out = [rootId];
-  for (let i = 0; i < out.length; i++) {
-    const id = out[i];
-    if (id !== undefined) out.push(...(children.get(id) ?? []));
-  }
-  return out;
-}
-
-function defaultBranchTitle(anchorQuote: string | null, node: ChatNode): string {
-  // A quote is plain text already; a message is Markdown ("**a confident kitten**").
-  const source = anchorQuote ? anchorQuote.replace(/\s+/g, ' ').trim() : plainText(node.content);
-  if (!source) return 'New branch';
-  const words = source.split(' ').slice(0, 6).join(' ');
-  const clipped = words.length > 48 ? `${words.slice(0, 47)}…` : words;
-  return anchorQuote ? clipped : `${DEFAULT_BRANCH_TITLE_PREFIX}${clipped}`;
 }
