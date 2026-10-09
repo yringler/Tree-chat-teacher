@@ -1,13 +1,7 @@
 import '@angular/compiler'; // JIT: the component metadata and the DI below.
 import { Injector, runInInjectionContext } from '@angular/core';
 import { Router } from '@angular/router';
-import type {
-  Branch,
-  ChatNode,
-  CreateShareRequest,
-  ShareSummary,
-  TreeDetail,
-} from '@tangent/shared';
+import type { CreateShareRequest, ShareSummary, TreeDetail } from '@tangent/shared';
 import {
   ApiClient,
   ApiError,
@@ -15,6 +9,8 @@ import {
   DEMO_MODE,
   ToastStore,
 } from '@tangent/web-shared';
+import * as fixtures from '@tangent/web-shared/testing';
+import { branch, node } from '@tangent/web-shared/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShareCard } from '../shares/share-card';
 import { shareBranchTitle, sharesOfTree } from '../shares/share-list';
@@ -56,68 +52,26 @@ function share(id: string, over: Partial<ShareSummary> = {}): ShareSummary {
   };
 }
 
-/** Tree t1: the trunk (n1, n2) and a side branch "Twin primes" (n3) off n2. */
+/** Tree t1 "Primes": the trunk (n1, n2) and a side branch "Twin primes" (n3) off n2. */
 function detail(): TreeDetail {
-  const branch = (over: Partial<Branch>): Branch => ({
-    id: 'trunk',
-    treeId: 't1',
-    parentBranchId: null,
-    branchPointNodeId: null,
-    contextMode: 'path',
-    anchorQuote: null,
-    title: 'Main thread',
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'fake',
-    model: 'fake-1',
-    funding: 'own-key',
-    createdAt: at,
-    updatedAt: at,
-    ...over,
-  });
-  const node = (over: Partial<ChatNode>): ChatNode => ({
-    id: 'n1',
-    treeId: 't1',
-    branchId: 'trunk',
-    parentId: null,
-    seq: 0,
-    role: 'user',
-    content: 'What is a prime?',
-    status: 'complete',
-    error: null,
-    providerId: null,
-    model: null,
-    usage: null,
-    createdAt: at,
-    ...over,
-  });
-  return {
-    tree: {
-      id: 't1',
-      accountId: 'p_1',
-      title: 'Primes',
-      systemPrompt: null,
-      trunkBranchId: 'trunk',
-      createdAt: at,
-      updatedAt: at,
-    },
-    branches: [
-      branch({}),
-      branch({
-        id: 'side',
+  return fixtures.detail(
+    [
+      node('n1', { role: 'user', content: 'What is a prime?' }),
+      node('n2', { parentId: 'n1', seq: 1, content: 'A number…' }),
+      node('n3', { branchId: 'side', parentId: 'n2', role: 'user', content: 'And twins?' }),
+    ],
+    [
+      branch('trunk', { title: 'Main thread' }),
+      branch('side', {
         parentBranchId: 'trunk',
         branchPointNodeId: 'n2',
         title: 'Twin primes',
         titleSource: 'user',
       }),
     ],
-    nodes: [
-      node({}),
-      node({ id: 'n2', parentId: 'n1', seq: 1, role: 'assistant', content: 'A number…' }),
-      node({ id: 'n3', branchId: 'side', parentId: 'n2', seq: 0, content: 'And twins?' }),
-    ],
-    links: [],
-  };
+    [],
+    { title: 'Primes' },
+  );
 }
 
 /** What the tests call on the dialog (protected in the component). */

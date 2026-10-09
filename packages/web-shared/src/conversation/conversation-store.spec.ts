@@ -5,7 +5,6 @@ import type {
   CreateBranchRequest,
   CreateLinkRequest,
   DeleteBranchResponse,
-  NodeLink,
   StreamEvent,
   TreeDetail,
   TreeSummary,
@@ -14,104 +13,14 @@ import type {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../core/api-client';
 import { ConversationStore, type FailedSend } from './conversation-store';
+import { branch, controlledStream, deferred, detail, link, node, stream, T } from '../testing';
 
-const T = '2026-01-01T00:00:00.000Z';
-
-function branch(id: string, over: Partial<Branch> = {}): Branch {
-  return {
-    id,
-    treeId: 't1',
-    parentBranchId: null,
-    branchPointNodeId: null,
-    contextMode: 'path',
-    anchorQuote: null,
-    title: id,
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'openrouter',
-    model: 'a/b',
-    funding: 'own-key',
-    createdAt: T,
-    updatedAt: T,
-    ...over,
-  };
-}
-
-function node(id: string, over: Partial<ChatNode> = {}): ChatNode {
-  return {
-    id,
-    treeId: 't1',
-    branchId: 'trunk',
-    parentId: null,
-    seq: 0,
-    role: 'assistant',
-    content: '',
-    status: 'complete',
-    error: null,
-    providerId: null,
-    model: null,
-    usage: null,
-    createdAt: T,
-    ...over,
-  };
-}
-
-/** Tree `id`: a trunk with one exchange, and branch `side` off its reply. */
-function tree(
+/** Tree `id` with these messages and branches. */
+const tree = (
   id = 't1',
   nodes: ChatNode[] = [],
   branches: Branch[] = [branch('trunk')],
-): TreeDetail {
-  return {
-    tree: {
-      id,
-      accountId: 'u_1',
-      title: 'Light',
-      systemPrompt: null,
-      trunkBranchId: 'trunk',
-      createdAt: T,
-      updatedAt: T,
-    },
-    branches,
-    nodes,
-    links: [],
-  };
-}
-
-const sse = (events: StreamEvent[]): string =>
-  events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
-
-/** A stream response that emits `events` and then closes. */
-function stream(events: StreamEvent[]): Response {
-  return new Response(sse(events), { headers: { 'content-type': 'text/event-stream' } });
-}
-
-/** A stream response the test drives: `push` more events, then `close`. */
-function controlledStream(first: StreamEvent[]) {
-  const enc = new TextEncoder();
-  let ctrl!: ReadableStreamDefaultController<Uint8Array>;
-  const body = new ReadableStream<Uint8Array>({
-    start(c) {
-      ctrl = c;
-      c.enqueue(enc.encode(sse(first)));
-    },
-  });
-  return {
-    response: new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
-    push: (events: StreamEvent[]) => ctrl.enqueue(enc.encode(sse(events))),
-    close: () => ctrl.close(),
-  };
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (err: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
+): TreeDetail => detail(nodes, branches, [], { id });
 
 function fakeApi() {
   return {
@@ -148,19 +57,6 @@ function fakeApi() {
       link(id, 'a1', 'a2', req.note),
     ),
     deleteLink: vi.fn(async (_id: string) => undefined),
-  };
-}
-
-function link(id: string, source: string, target: string, note: string | null = null): NodeLink {
-  return {
-    id,
-    treeId: 't1',
-    sourceNodeId: source,
-    targetNodeId: target,
-    note,
-    origin: 'user',
-    createdAt: T,
-    updatedAt: T,
   };
 }
 

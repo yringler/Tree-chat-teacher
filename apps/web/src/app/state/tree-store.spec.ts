@@ -11,13 +11,13 @@ import type {
   NodeLink,
   PoolStatusResponse,
   ProviderInfo,
-  StreamEvent,
   TreeDetail,
   TreeSummary,
   UpdateBranchRequest,
 } from '@tangent/shared';
 import { providerRouteKey } from '@tangent/shared';
 import { ApiClient, ApiError, ComposerController, ToastStore } from '@tangent/web-shared';
+import * as fixtures from '@tangent/web-shared/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeStore } from './tree-store';
 import { SettingsStore } from './settings-store';
@@ -145,54 +145,20 @@ describe('TreeStore read-only power without a membership', () => {
 
   /** A tree whose trunk is on the user's OpenRouter key, with a side branch on Tangent credit. */
   function tree(): TreeDetail {
-    const at = '2026-10-01T00:00:00.000Z';
-    const branch = (over: Partial<Branch>): Branch => ({
-      id: 'trunk',
-      treeId: 't1',
-      parentBranchId: null,
-      branchPointNodeId: null,
-      contextMode: 'path',
-      anchorQuote: null,
-      title: 'Main thread',
-      titleSource: 'default',
-      isPrivate: false,
-      providerId: 'openrouter',
-      model: 'a/b',
-      funding: 'own-key',
-      createdAt: at,
-      updatedAt: at,
-      ...over,
-    });
-    const node = (over: Partial<ChatNode>): ChatNode => ({
-      id: 'n1',
-      treeId: 't1',
-      branchId: 'trunk',
-      parentId: null,
-      seq: 0,
-      role: 'user',
-      content: 'Hi',
-      status: 'complete',
-      error: null,
-      providerId: null,
-      model: null,
-      usage: null,
-      createdAt: at,
-      ...over,
-    });
-    return {
-      tree: {
-        id: 't1',
-        accountId: 'p_1',
-        title: 'Primes',
-        systemPrompt: null,
-        trunkBranchId: 'trunk',
-        createdAt: at,
-        updatedAt: at,
-      },
-      branches: [
-        branch({}),
-        branch({
-          id: 'side',
+    return fixtures.detail(
+      [
+        fixtures.node('n1', { role: 'user', content: 'Hi' }),
+        fixtures.node('n2', {
+          parentId: 'n1',
+          seq: 1,
+          content: 'Hello',
+          providerId: 'openrouter',
+          model: 'a/b',
+        }),
+      ],
+      [
+        fixtures.branch('trunk', { title: 'Main thread' }),
+        fixtures.branch('side', {
           parentBranchId: 'trunk',
           branchPointNodeId: 'n2',
           title: 'On credit',
@@ -200,20 +166,9 @@ describe('TreeStore read-only power without a membership', () => {
           model: 'c/d',
         }),
       ],
-      nodes: [
-        node({}),
-        node({
-          id: 'n2',
-          parentId: 'n1',
-          seq: 1,
-          role: 'assistant',
-          content: 'Hello',
-          providerId: 'openrouter',
-          model: 'a/b',
-        }),
-      ],
-      links: [],
-    };
+      [],
+      { title: 'Primes' },
+    );
   }
 
   const ownKey: ProviderInfo = {
@@ -383,10 +338,6 @@ describe('TreeStore read-only power without a membership', () => {
         'key_required',
         'Add your OpenRouter API key to continue this conversation.',
       );
-    const sse = (events: StreamEvent[]): Response =>
-      new Response(events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''), {
-        headers: { 'content-type': 'text/event-stream' },
-      });
 
     async function openNoKey() {
       const s = setup();
@@ -436,7 +387,7 @@ describe('TreeStore read-only power without a membership', () => {
     it('"Continue on Tangent credit" moves the branch onto credit and sends the message there', async () => {
       const s = await openNoKey();
       await s.store.send('trunk', 'Why primes?');
-      s.sendMessage.mockImplementation(async () => sse([]));
+      s.sendMessage.mockImplementation(async () => fixtures.stream([]));
       await expect(s.store.resumeOnCredit()).resolves.toBe(true);
       expect(s.updateBranch).toHaveBeenCalledWith('trunk', {
         providerId: 'openrouter',
@@ -461,7 +412,7 @@ describe('TreeStore read-only power without a membership', () => {
       expect(s.sendMessage).toHaveBeenCalledTimes(1);
 
       s.api.providers.mockResolvedValue([ownKey, credit]);
-      s.sendMessage.mockImplementation(async () => sse([]));
+      s.sendMessage.mockImplementation(async () => fixtures.stream([]));
       await expect(s.store.account.saveKey('openrouter', 'sk-or-1')).resolves.toBe(true);
       s.store.resumeAfterKey('openrouter');
       expect(s.sendMessage).toHaveBeenCalledTimes(2);
@@ -526,26 +477,17 @@ describe('TreeStore read-only power without a membership', () => {
       expect(s.store.unsentDrafts().get('side')).toBe('And twins?');
       expect(s.store.blockedSends()).toEqual([]);
 
-      const at = '2026-10-01T00:00:00.000Z';
-      const userNode: ChatNode = {
-        id: 'u9',
-        treeId: 't1',
+      const userNode = fixtures.node('u9', {
         branchId: 'side',
         parentId: 'n2',
         seq: 2,
         role: 'user',
         content: 'And twins?',
-        status: 'complete',
-        error: null,
-        providerId: null,
-        model: null,
-        usage: null,
-        createdAt: at,
-      };
+      });
       const reply: ChatNode = { ...userNode, id: 'a9', role: 'assistant', content: '' };
       const side = tree().branches[1]!;
       s.sendMessage.mockImplementation(async () =>
-        sse([
+        fixtures.stream([
           {
             type: 'start',
             userNode,
@@ -596,38 +538,18 @@ describe('TreeStore the default route of a new conversation (no keys)', () => {
     expect(first).toBe(defaults[2]);
     expect(first?.defaultModel).toBe('deepseek/deepseek-v4-pro');
 
-    const at = '2026-10-01T00:00:00.000Z';
-    const created: TreeDetail = {
-      tree: {
-        id: 't9',
-        accountId: 'p_1',
-        title: 'New conversation',
-        systemPrompt: null,
-        trunkBranchId: 'b9',
-        createdAt: at,
-        updatedAt: at,
-      },
-      branches: [
-        {
-          id: 'b9',
+    const created = fixtures.detail(
+      [],
+      [
+        fixtures.branch('b9', {
           treeId: 't9',
-          parentBranchId: null,
-          branchPointNodeId: null,
-          contextMode: 'path',
-          anchorQuote: null,
           title: 'Main thread',
-          titleSource: 'default',
-          isPrivate: false,
-          providerId: 'openrouter',
           model: 'deepseek/deepseek-v4-pro',
-          funding: 'own-key',
-          createdAt: at,
-          updatedAt: at,
-        },
+        }),
       ],
-      nodes: [],
-      links: [],
-    };
+      [],
+      { id: 't9', title: 'New conversation', trunkBranchId: 'b9' },
+    );
     const createTree = vi.fn(async () => created);
     const message = 'Add your OpenRouter API key to continue this conversation.';
     const sendMessage = vi.fn(async () => {
@@ -690,38 +612,12 @@ describe('TreeStore routes (provider + funding)', () => {
 });
 
 describe('TreeStore branching with a first message', () => {
-  const at = '2026-10-01T00:00:00.000Z';
-  const trunk: Branch = {
-    id: 'trunk',
-    treeId: 't1',
-    parentBranchId: null,
-    branchPointNodeId: null,
-    contextMode: 'path',
-    anchorQuote: null,
-    title: 'Main thread',
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'openrouter',
-    model: 'a/b',
-    funding: 'own-key',
-    createdAt: at,
-    updatedAt: at,
-  };
-  const reply: ChatNode = {
-    id: 'a1',
-    treeId: 't1',
-    branchId: 'trunk',
-    parentId: null,
-    seq: 0,
-    role: 'assistant',
+  const trunk = fixtures.branch('trunk', { title: 'Main thread' });
+  const reply = fixtures.node('a1', {
     content: 'Light is a wave.',
-    status: 'complete',
-    error: null,
     providerId: 'openrouter',
     model: 'a/b',
-    usage: null,
-    createdAt: at,
-  };
+  });
 
   function open() {
     const s = setup();
@@ -739,20 +635,7 @@ describe('TreeStore branching with a first message', () => {
         new Response('', { headers: { 'content-type': 'text/event-stream' } }),
     );
     Object.assign(s.api, { createBranch, sendMessage, streamNode: vi.fn() });
-    s.store.detail.set({
-      tree: {
-        id: 't1',
-        accountId: 'p_1',
-        title: 'Light',
-        systemPrompt: null,
-        trunkBranchId: 'trunk',
-        createdAt: at,
-        updatedAt: at,
-      },
-      branches: [trunk],
-      nodes: [reply],
-      links: [],
-    });
+    s.store.detail.set(fixtures.detail([reply], [trunk]));
     s.store.setRoute('t1', null, null);
     const go = vi.spyOn(s.store, 'go');
     return { ...s, createBranch, sendMessage, go };
@@ -853,64 +736,19 @@ describe('TreeStore links between messages', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  const at = '2026-10-01T00:00:00.000Z';
-  const branch = (over: Partial<Branch>): Branch => ({
-    id: 'trunk',
-    treeId: 't1',
-    parentBranchId: null,
-    branchPointNodeId: null,
-    contextMode: 'path',
-    anchorQuote: null,
-    title: 'Main thread',
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'openrouter',
-    model: 'a/b',
-    funding: 'own-key',
-    createdAt: at,
-    updatedAt: at,
-    ...over,
-  });
-  const node = (over: Partial<ChatNode>): ChatNode => ({
-    id: 'n1',
-    treeId: 't1',
-    branchId: 'trunk',
-    parentId: null,
-    seq: 0,
-    role: 'user',
-    content: 'Hi',
-    status: 'complete',
-    error: null,
-    providerId: null,
-    model: null,
-    usage: null,
-    createdAt: at,
-    ...over,
-  });
+  const branch = (over: Partial<Branch>): Branch =>
+    fixtures.branch('trunk', { title: 'Main thread', ...over });
+  const node = (over: Partial<ChatNode>): ChatNode =>
+    fixtures.node('n1', { role: 'user', content: 'Hi', ...over });
   const link = (over: Partial<NodeLink>): NodeLink => ({
-    id: 'l1',
-    treeId: 't1',
-    sourceNodeId: 'n2',
-    targetNodeId: 'n3',
-    note: null,
-    origin: 'user',
-    createdAt: at,
-    updatedAt: at,
+    ...fixtures.link('l1', 'n2', 'n3'),
     ...over,
   });
 
   /** Main thread n1 → n2; "Owls" off n2 (n3, n4), "Deeper" off n4 (n5); n2 linked to n3. */
   function tree(): TreeDetail {
     return {
-      tree: {
-        id: 't1',
-        accountId: 'p_1',
-        title: 'Primes',
-        systemPrompt: null,
-        trunkBranchId: 'trunk',
-        createdAt: at,
-        updatedAt: at,
-      },
+      tree: fixtures.detail([], [], [], { title: 'Primes' }).tree,
       branches: [
         branch({}),
         branch({ id: 'owls', parentBranchId: 'trunk', branchPointNodeId: 'n2', title: 'Owls' }),
@@ -1082,55 +920,29 @@ describe('TreeStore links between messages', () => {
 });
 
 describe('TreeStore a committed Compare pick', () => {
-  const at = '2026-10-01T00:00:00.000Z';
-  const trunk: Branch = {
-    id: 'trunk',
-    treeId: 't1',
-    parentBranchId: null,
-    branchPointNodeId: null,
-    contextMode: 'path',
-    anchorQuote: null,
+  const trunk = fixtures.branch('trunk', {
     title: 'Main thread',
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'openrouter',
     model: 'normal/model',
     funding: 'credit',
-    createdAt: at,
-    updatedAt: at,
-  };
-  const msg = (id: string, parentId: string | null, seq: number, model: string): ChatNode => ({
-    id,
-    treeId: 't1',
-    branchId: 'trunk',
-    parentId,
-    seq,
-    role: seq % 2 === 0 ? 'user' : 'assistant',
-    content: id,
-    status: 'complete',
-    error: null,
-    providerId: 'openrouter',
-    model,
-    usage: null,
-    createdAt: at,
   });
+  const msg = (id: string, parentId: string | null, seq: number, model: string): ChatNode =>
+    fixtures.node(id, {
+      parentId,
+      seq,
+      role: seq % 2 === 0 ? 'user' : 'assistant',
+      content: id,
+      providerId: 'openrouter',
+      model,
+    });
 
   function open() {
     const s = setup();
-    s.store.detail.set({
-      tree: {
-        id: 't1',
-        accountId: 'p_1',
-        title: 'Light',
-        systemPrompt: null,
-        trunkBranchId: 'trunk',
-        createdAt: at,
-        updatedAt: at,
-      },
-      branches: [trunk],
-      nodes: [msg('u1', null, 0, 'normal/model'), msg('a1', 'u1', 1, 'normal/model')],
-      links: [],
-    });
+    s.store.detail.set(
+      fixtures.detail(
+        [msg('u1', null, 0, 'normal/model'), msg('a1', 'u1', 1, 'normal/model')],
+        [trunk],
+      ),
+    );
     s.store.setRoute('t1', 'trunk', null);
     return s;
   }

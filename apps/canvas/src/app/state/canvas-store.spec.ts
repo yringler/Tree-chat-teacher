@@ -4,16 +4,13 @@ import { Router } from '@angular/router';
 import type {
   BillingSummary,
   Branch,
-  ChatNode,
   ContextPlanResponse,
   CreateBranchRequest,
   CreateLinkRequest,
   DeleteBranchResponse,
   MeResponse,
-  NodeLink,
   PoolStatusResponse,
   ProviderInfo,
-  StreamEvent,
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
@@ -21,96 +18,32 @@ import { ApiClient, ApiError, ComposerController, ToastStore } from '@tangent/we
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CanvasStore, modelLabel } from './canvas-store';
 import { UiStore } from './ui-store';
+import * as fixtures from '@tangent/web-shared/testing';
+import { controlledStream, link, node } from '@tangent/web-shared/testing';
 
-const T = '2026-01-01T00:00:00.000Z';
+/** A lane on Tangent credit, on Max's model. */
+const branch = (id: string, over: Partial<Branch> = {}): Branch =>
+  fixtures.branch(id, { model: 'max-model', funding: 'credit', ...over });
+
+/** A trunk with one exchange and lane `b` branching off its reply with one of its own. */
+const detail = (): TreeDetail =>
+  fixtures.detail(
+    [
+      node('u1', { role: 'user', content: 'What is light?' }),
+      node('a1', { seq: 1, parentId: 'u1', content: 'A wave.' }),
+      node('u2', { seq: 2, parentId: 'a1', branchId: 'b', role: 'user', content: 'And?' }),
+      node('a2', { seq: 3, parentId: 'u2', branchId: 'b', content: 'A particle.' }),
+    ],
+    [branch('trunk'), branch('b', { parentBranchId: 'trunk', branchPointNodeId: 'a1' })],
+    [],
+    { title: 'Photosynthesis' },
+  );
 
 /** The composer controller, its calls recorded. */
 function spyComposer(c: ComposerController): ComposerController {
   vi.spyOn(c, 'sent');
   vi.spyOn(c, 'focus');
   return c;
-}
-
-function branch(id: string, over: Partial<Branch> = {}): Branch {
-  return {
-    id,
-    treeId: 't1',
-    parentBranchId: null,
-    branchPointNodeId: null,
-    contextMode: 'path',
-    anchorQuote: null,
-    title: id,
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'openrouter',
-    model: 'max-model',
-    funding: 'credit',
-    createdAt: T,
-    updatedAt: T,
-    ...over,
-  };
-}
-
-function node(id: string, over: Partial<ChatNode> = {}): ChatNode {
-  return {
-    id,
-    treeId: 't1',
-    branchId: 'trunk',
-    parentId: null,
-    seq: 0,
-    role: 'assistant',
-    content: '',
-    status: 'complete',
-    error: null,
-    providerId: null,
-    model: null,
-    usage: null,
-    createdAt: T,
-    ...over,
-  };
-}
-
-/** A trunk with one exchange and lane `b` branching off its reply with one of its own. */
-function detail(): TreeDetail {
-  return {
-    tree: {
-      id: 't1',
-      accountId: 'u_1',
-      title: 'Photosynthesis',
-      systemPrompt: null,
-      trunkBranchId: 'trunk',
-      createdAt: T,
-      updatedAt: T,
-    },
-    branches: [branch('trunk'), branch('b', { parentBranchId: 'trunk', branchPointNodeId: 'a1' })],
-    nodes: [
-      node('u1', { role: 'user', content: 'What is light?' }),
-      node('a1', { seq: 1, parentId: 'u1', content: 'A wave.' }),
-      node('u2', { seq: 2, parentId: 'a1', branchId: 'b', role: 'user', content: 'And?' }),
-      node('a2', { seq: 3, parentId: 'u2', branchId: 'b', content: 'A particle.' }),
-    ],
-    links: [],
-  };
-}
-
-const sse = (events: StreamEvent[]): string =>
-  events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
-
-/** A stream response the test drives: `push` more events, then `close`. */
-function controlledStream(first: StreamEvent[]) {
-  const enc = new TextEncoder();
-  let ctrl!: ReadableStreamDefaultController<Uint8Array>;
-  const body = new ReadableStream<Uint8Array>({
-    start(c) {
-      ctrl = c;
-      c.enqueue(enc.encode(sse(first)));
-    },
-  });
-  return {
-    response: new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
-    push: (events: StreamEvent[]) => ctrl.enqueue(enc.encode(sse(events))),
-    close: () => ctrl.close(),
-  };
 }
 
 function fakeApi() {
@@ -162,19 +95,6 @@ function fakeApi() {
       branchIds: [branchId],
       nodeIds: ['u2', 'a2'],
     })),
-  };
-}
-
-function link(id: string, source: string, target: string, note: string | null = null): NodeLink {
-  return {
-    id,
-    treeId: 't1',
-    sourceNodeId: source,
-    targetNodeId: target,
-    note,
-    origin: 'user',
-    createdAt: T,
-    updatedAt: T,
   };
 }
 

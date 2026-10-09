@@ -15,7 +15,6 @@ import type {
   MeResponse,
   NodeLink,
   ProviderInfo,
-  StreamEvent,
   TreeBackup,
   TreeBackupInput,
   TreeDetail,
@@ -35,117 +34,25 @@ import { COMPARE_OUT_OF_DATE_MESSAGE, LessonStore, OUT_OF_CREDIT_MESSAGE } from 
 import { LearnFunding } from './learn-funding';
 import { PaymentChoice } from './payment-choice';
 import { UiStore } from './ui-store';
+import * as fixtures from '@tangent/web-shared/testing';
+import { controlledStream, link, node, stream, T } from '@tangent/web-shared/testing';
 
-const T = '2026-01-01T00:00:00.000Z';
+/** A branch on Normal's model, Learn's default. */
+const branch = (id: string, over: Partial<Branch> = {}): Branch =>
+  fixtures.branch(id, { model: 'normal-model', ...over });
+
+/** The lesson "Photosynthesis". */
+const detail = (
+  nodes: ChatNode[] = [],
+  branches: Branch[] = [branch('trunk')],
+  links: NodeLink[] = [],
+): TreeDetail => fixtures.detail(nodes, branches, links, { title: 'Photosynthesis' });
 
 /** The composer controller, its calls recorded. */
 function spyComposer(c: ComposerController): ComposerController {
   vi.spyOn(c, 'sent');
   vi.spyOn(c, 'focus');
   return c;
-}
-
-function branch(id: string, over: Partial<Branch> = {}): Branch {
-  return {
-    id,
-    treeId: 't1',
-    parentBranchId: null,
-    branchPointNodeId: null,
-    contextMode: 'path',
-    anchorQuote: null,
-    title: id,
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'openrouter',
-    model: 'normal-model',
-    funding: 'own-key',
-    createdAt: T,
-    updatedAt: T,
-    ...over,
-  };
-}
-
-function node(id: string, over: Partial<ChatNode> = {}): ChatNode {
-  return {
-    id,
-    treeId: 't1',
-    branchId: 'trunk',
-    parentId: null,
-    seq: 0,
-    role: 'assistant',
-    content: '',
-    status: 'complete',
-    error: null,
-    providerId: null,
-    model: null,
-    usage: null,
-    createdAt: T,
-    ...over,
-  };
-}
-
-function link(
-  id: string,
-  sourceNodeId: string,
-  targetNodeId: string,
-  note: string | null = null,
-): NodeLink {
-  return {
-    id,
-    treeId: 't1',
-    sourceNodeId,
-    targetNodeId,
-    note,
-    origin: 'user',
-    createdAt: T,
-    updatedAt: T,
-  };
-}
-
-function detail(
-  nodes: ChatNode[] = [],
-  branches: Branch[] = [branch('trunk')],
-  links: NodeLink[] = [],
-): TreeDetail {
-  return {
-    tree: {
-      id: 't1',
-      accountId: 'u_1',
-      title: 'Photosynthesis',
-      systemPrompt: null,
-      trunkBranchId: 'trunk',
-      createdAt: T,
-      updatedAt: T,
-    },
-    branches,
-    nodes,
-    links,
-  };
-}
-
-const sse = (events: StreamEvent[]): string =>
-  events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
-
-/** A stream response that emits `events` and then closes. */
-function stream(events: StreamEvent[]): Response {
-  return new Response(sse(events), { headers: { 'content-type': 'text/event-stream' } });
-}
-
-/** A stream response the test drives: `push` more events, then `close`. */
-function controlledStream(first: StreamEvent[]) {
-  const enc = new TextEncoder();
-  let ctrl!: ReadableStreamDefaultController<Uint8Array>;
-  const body = new ReadableStream<Uint8Array>({
-    start(c) {
-      ctrl = c;
-      c.enqueue(enc.encode(sse(first)));
-    },
-  });
-  return {
-    response: new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
-    push: (events: StreamEvent[]) => ctrl.enqueue(enc.encode(sse(events))),
-    close: () => ctrl.close(),
-  };
 }
 
 const PROVIDER: ProviderInfo = {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../core/api-client';
 import type { FailedSend } from '../conversation/conversation-store';
 import { PowerConversationStore, type PowerApi } from './power-conversation-store';
+import { branch, detail, node } from '../testing';
 
 /** Power's store with no app around it, its hooks reachable from the tests. */
 class Store extends PowerConversationStore {
@@ -78,53 +79,21 @@ describe('PowerConversationStore', () => {
 
   it("answers for a message's branch: which it is, whether it is locked, whether it is the newest", () => {
     const s = setup();
-    const T = '2026-01-01T00:00:00.000Z';
-    const b = (id: string, funding: 'own-key' | 'credit') => ({
-      id,
-      treeId: 't1',
-      parentBranchId: id === 'trunk' ? null : 'trunk',
-      branchPointNodeId: id === 'trunk' ? null : 'a1',
-      contextMode: 'path' as const,
-      anchorQuote: null,
-      title: id,
-      titleSource: 'default' as const,
-      isPrivate: false,
-      providerId: 'openrouter',
-      model: 'a/b',
-      funding,
-      createdAt: T,
-      updatedAt: T,
-    });
-    const n = (id: string, branchId: string, parentId: string | null, seq: number) => ({
-      id,
-      treeId: 't1',
-      branchId,
-      parentId,
-      seq,
-      role: 'assistant' as const,
-      content: '',
-      status: 'complete' as const,
-      error: null,
-      providerId: null,
-      model: null,
-      usage: null,
-      createdAt: T,
-    });
+    const b = (id: string, funding: 'own-key' | 'credit') =>
+      branch(id, {
+        parentBranchId: id === 'trunk' ? null : 'trunk',
+        branchPointNodeId: id === 'trunk' ? null : 'a1',
+        funding,
+      });
+    const n = (id: string, branchId: string, parentId: string | null, seq: number) =>
+      node(id, { branchId, parentId, seq });
     s.selectedTreeId.set('t1');
-    s.detail.set({
-      tree: {
-        id: 't1',
-        accountId: 'p_1',
-        title: 'Light',
-        systemPrompt: null,
-        trunkBranchId: 'trunk',
-        createdAt: T,
-        updatedAt: T,
-      },
-      branches: [b('trunk', 'own-key'), b('side', 'credit')],
-      nodes: [n('a1', 'trunk', null, 0), n('a2', 'side', 'a1', 1)],
-      links: [],
-    });
+    s.detail.set(
+      detail(
+        [n('a1', 'trunk', null, 0), n('a2', 'side', 'a1', 1)],
+        [b('trunk', 'own-key'), b('side', 'credit')],
+      ),
+    );
     s.setRoute('t1', 'side', null);
     expect(s.branchOf('a2')?.id).toBe('side');
     expect(s.branchOf('gone')).toBeNull();

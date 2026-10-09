@@ -1,46 +1,32 @@
 import { indexTree } from '@tangent/core/tree';
-import type { Branch, ChatNode } from '@tangent/shared';
+import type { Branch, ChatNode, ContextMode } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_LAYOUT, layoutTree, type LaneMeasure } from './layout';
+import * as fixtures from '@tangent/web-shared/testing';
 
-const T = 'tree';
-
-function branch(id: string, parent: string | null, point: string | null, mode = 'path'): Branch {
-  return {
-    id,
-    treeId: T,
+/** Lane `id` off message `point` of lane `parent`; the longer its id, the younger it is. */
+const branch = (
+  id: string,
+  parent: string | null,
+  point: string | null,
+  mode: ContextMode = 'path',
+): Branch =>
+  fixtures.branch(id, {
     parentBranchId: parent,
     branchPointNodeId: point,
-    contextMode: mode as Branch['contextMode'],
-    anchorQuote: null,
-    title: id,
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'fake',
-    model: 'm',
-    funding: 'own-key',
+    contextMode: mode,
     createdAt: `2026-01-01T00:00:0${id.length}Z`,
-    updatedAt: '2026-01-01T00:00:00Z',
-  };
-}
+  });
 
-function node(id: string, branchId: string, seq: number, parentId: string | null): ChatNode {
-  return {
-    id,
-    treeId: T,
+/** Message `id` of a lane, its text its id: even `seq`s are the user's. */
+const node = (id: string, branchId: string, seq: number, parentId: string | null): ChatNode =>
+  fixtures.node(id, {
     branchId,
-    parentId,
     seq,
+    parentId,
     role: seq % 2 === 0 ? 'user' : 'assistant',
     content: id,
-    status: 'complete',
-    error: null,
-    providerId: null,
-    model: null,
-    usage: null,
-    createdAt: '2026-01-01T00:00:00Z',
-  };
-}
+  });
 
 function measure(height: number, cards: [string, number, number][]): LaneMeasure {
   return { height, cards: new Map(cards.map(([id, top, h]) => [id, { top, height: h }])) };

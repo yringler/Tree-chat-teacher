@@ -3,49 +3,27 @@ import { Injector, runInInjectionContext, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import type { Branch, TreeDetail, UpdateBranchRequest } from '@tangent/shared';
 import { ApiClient, ComposerController, ToastStore } from '@tangent/web-shared';
+import * as fixtures from '@tangent/web-shared/testing';
+import { branch } from '@tangent/web-shared/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
 import { BranchSettings } from './branch-settings';
 
-const T = '2026-01-01T00:00:00.000Z';
-
-function lane(over: Partial<Branch> = {}): Branch {
-  return {
-    id: 'b',
-    treeId: 't1',
+/** Lane `b` off the trunk's reply, on Tangent credit and Max's model, unless `over` says otherwise. */
+const lane = (over: Partial<Branch> = {}): Branch =>
+  branch('b', {
     parentBranchId: 'trunk',
     branchPointNodeId: 'a1',
-    contextMode: 'path',
-    anchorQuote: null,
     title: 'Branch: A wave.',
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'openrouter',
     model: 'max-model',
     funding: 'credit',
-    createdAt: T,
-    updatedAt: T,
     ...over,
-  };
-}
+  });
 
-function detail(b: Branch): TreeDetail {
-  return {
-    tree: {
-      id: 't1',
-      accountId: 'u_1',
-      title: 'Light',
-      systemPrompt: null,
-      trunkBranchId: 'trunk',
-      createdAt: T,
-      updatedAt: T,
-    },
-    branches: [lane({ id: 'trunk', parentBranchId: null, branchPointNodeId: null }), b],
-    nodes: [],
-    links: [],
-  };
-}
+/** The tree with its trunk and lane `b`. */
+const detail = (b: Branch): TreeDetail =>
+  fixtures.detail([], [lane({ id: 'trunk', parentBranchId: null, branchPointNodeId: null }), b]);
 
 describe('Canvas lane settings', () => {
   afterEach(() => vi.restoreAllMocks());
