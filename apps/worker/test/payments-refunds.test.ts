@@ -4,7 +4,7 @@
 import { env as rawEnv } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import { applyPaymentEvent, RetryLaterError } from '../src/billing/payments/apply.js';
-import { getBalance } from '../src/billing/ledger.js';
+import { getBalance, grantCredit } from '../src/billing/ledger.js';
 import { createFakeProvider } from '../src/billing/providers/fake.js';
 import type { AppEnv } from '../src/env.js';
 import { grantDetailsFor, insertUser, uniq } from './mocks/billing-helpers.js';
@@ -46,6 +46,33 @@ describe('refund.succeeded: personal purchases', () => {
     expect(await apply(refunded(payment.paymentRef, 1000, { currency: 'eur' }))).toBe('skipped');
     warn.mockRestore();
     expect(await balance(`u_${userId}`)).toBe(9_200_000);
+  });
+});
+
+describe('refund.succeeded: a purchase on another ledger', () => {
+  it('leaves a purchase on a ledger that is not a user’s (the pool’s) alone, and logs it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const poolId = uniq('pool');
+    const paymentRef = fakeRef('order');
+    await grantCredit(env.DB, {
+      accountId: poolId,
+      kind: 'purchase',
+      amountMicros: 9_200_000,
+      grossMicros: 10_000_000,
+      providerRef: paymentRef,
+    });
+    expect(await apply(refunded(paymentRef, 1000))).toBe('skipped');
+    const logged = warn.mock.calls.map(([line]) => JSON.parse(String(line)) as unknown);
+    warn.mockRestore();
+    expect(logged).toContainEqual(
+      expect.objectContaining({
+        event: 'refund_not_debited',
+        reason: 'not_a_user_ledger',
+        paymentRef,
+        accountId: poolId,
+      }),
+    );
+    expect(await balance(poolId)).toBe(9_200_000);
   });
 });
 

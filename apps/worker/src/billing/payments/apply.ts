@@ -12,8 +12,9 @@
 //   throws RetryLaterError.
 // - payment.succeeded, membership → nothing on the ledger: the membership is
 //   its subscription snapshot (membership.changed below).
-// - refund.succeeded → a purchase: − the refunded pre-tax amount in full
-//   (the processor keeps its fee, so the refund passes it on). A refund (or dispute) of
+// - refund.succeeded → a purchase on a user's ledger: − the refunded pre-tax
+//   amount in full (the processor keeps its fee, so the refund passes it on).
+//   A purchase on any other ledger is logged and left alone. A refund (or dispute) of
 //   a payment not applied yet throws RetryLaterError only while that payment
 //   will grant something once applied (`grantsOnPayment`); a refund of one
 //   that never grants (a membership payment) is logged (`refund_not_debited`)
@@ -22,13 +23,14 @@
 //   amount (membership disputes are left to the operator); lost also
 //   suspends the buyer's pool access, once. dispute.won → what the dispute
 //   took is credited back, once. A dispute that will never be debited (not
-//   a purchase) gets a `<disputeRef>:ignored` marker (`billing_markers`), so
-//   the poller neither asks the provider about it nor logs it again.
+//   a purchase on a user's ledger) gets a `<disputeRef>:ignored` marker
+//   (`billing_markers`), so the poller neither asks the provider about it nor
+//   logs it again.
 // - membership.changed → the `billing_subscriptions` snapshot, newest wins.
 //
 // Any event that names both our user and the provider's customer records
 // them in `billing_customers`.
-import { userIdOfAccount } from '../../auth/account.js';
+import { accountIdForUser, userIdOfAccount } from '../../auth/account.js';
 import type { AppEnv } from '../../env.js';
 import { identitySuspensionStatement } from '../../pool/identity.js';
 import { grantByRef, grantTowardCap, hasGrant, type GrantRow } from '../ledger.js';
@@ -171,7 +173,25 @@ async function refundSucceeded(
     log('refund_not_debited', { reason: 'currency', refundRef: e.refundRef, currency: e.currency });
     return 'skipped';
   }
-  const result = await refundGrant(env, e, deps);
+  const grant = await paidGrant(env, e.paymentRef, deps);
+  if (grant?.kind === 'purchase' && !onUserLedger(grant)) {
+    log('refund_not_debited', {
+      reason: 'not_a_user_ledger',
+      refundRef: e.refundRef,
+      paymentRef: e.paymentRef,
+      accountId: grant.account_id,
+    });
+    return 'skipped';
+  }
+  const result =
+    grant?.kind === 'purchase'
+      ? await debitPurchase(env, grant, {
+          paymentRef: e.paymentRef,
+          ref: e.refundRef,
+          netCents: e.netCents,
+          note: `Refund of ${e.paymentRef}`,
+        })
+      : 'skipped';
   if (result === 'skipped')
     log('refund_not_debited', {
       reason: 'nothing_granted',
@@ -181,15 +201,15 @@ async function refundSucceeded(
   return result;
 }
 
-async function refundGrant(env: AppEnv, e: RefundSucceeded, deps: ApplyDeps): Promise<ApplyResult> {
-  const grant = await paidGrant(env, e.paymentRef, deps);
-  if (!grant || grant.kind !== 'purchase') return 'skipped';
-  return debitPurchase(env, grant, {
-    paymentRef: e.paymentRef,
-    ref: e.refundRef,
-    netCents: e.netCents,
-    note: `Refund of ${e.paymentRef}`,
-  });
+/**
+ * True when `grant` is on a user's own ledger (`u_<userId>`), the only
+ * ledger refunds and disputes debit here. A purchase on any other ledger (the
+ * pool's) would be debited outside PoolBank's lock, which every write that
+ * lowers the pool's balance must hold.
+ */
+function onUserLedger(grant: GrantRow): boolean {
+  const userId = userIdOfAccount(grant.account_id);
+  return userId !== null && grant.account_id === accountIdForUser(userId);
 }
 
 /**
@@ -258,14 +278,17 @@ async function disputeDebited(env: AppEnv, e: DisputeEvent, deps: ApplyDeps): Pr
   const ignoredRef = `${e.disputeRef}:ignored`;
   if (await hasMarker(env.DB, ignoredRef)) return 'duplicate';
   const grant = await paidGrant(env, e.paymentRef, deps);
-  if (!grant || grant.kind !== 'purchase') {
-    // A membership payment (or one that granted nothing): left to the operator. Final
-    // (`paidGrant` retries a payment that will grant), so recorded once, logged once.
+  if (!grant || grant.kind !== 'purchase' || !onUserLedger(grant)) {
+    // A membership payment, one that granted nothing, or a purchase on another ledger: left
+    // to the operator. Final (`paidGrant` retries a payment that will grant), so recorded
+    // once, logged once.
     if (!(await markOnce(env.DB, ignoredRef))) return 'duplicate';
+    const purchase = grant?.kind === 'purchase';
     log('dispute_not_debited', {
-      reason: 'not_a_purchase',
+      reason: purchase ? 'not_a_user_ledger' : 'not_a_purchase',
       disputeRef: e.disputeRef,
       paymentRef: e.paymentRef,
+      ...(purchase ? { accountId: grant.account_id } : {}),
     });
     return 'skipped';
   }
