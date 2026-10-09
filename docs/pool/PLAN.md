@@ -259,7 +259,7 @@ Docs drift to fix in S2: PLAN.md:110 and README.md:263 omit 0008 and 0009; PLAN.
 
   It is resolved **Worker-side** from `appConfig(c.env)` and carried in `SessionSendBody.account` and `accountParams` (`tree-session.ts:30-58`; `pool` as one JSON param). The DO and `PoolBank` read no pool config of their own. A test asserts the round trip.
 
-**Availability.** `builtInProviderUsable(env)` is split out of `builtInAvailable` (services.ts:130-134): the `simpleProviderConfig(env)` registry entry is available (respects `SIMPLE_PROVIDER` overrides and their `apiKeySecret`). Then:
+**Availability.** `builtInProviderUsable(env)` is split out of `builtInAvailable` (services.ts:130-134): the `simpleProviderConfig(env)` registry entry is available (respects `BUILT_IN_PROVIDER` overrides and their `apiKeySecret`). Then:
 
 * `builtInAvailable = personalCreditReady(env) && builtInProviderUsable(env)`, where `personalCreditReady = billingConfigured || flags.personalCreditEnabled` (`PERSONAL_CREDIT_ENABLED`, default false). This lets admin-granted personal credit be spent before Stripe is live; `assertCanSpend` uses the same predicate.
 * `poolAvailable = flags.poolEnabled && builtInProviderUsable(env)`. No OpenRouter-specific key check.
@@ -419,7 +419,7 @@ Code rather than env: the taxonomy (`pool/taxonomy.ts`, re-exported by `config.t
 * Personal reconcile: 250 old pool pending rows + 1 old personal row → the personal row reconciles.
 * Hold shrink: reserve at ceiling, `begin` with `reservationId` shrinks and inserts no second row.
 * `pool-pricing.test.ts`: ASCII/CJK byte bound, context clamp, rounding up, ceiling ≥ any exact hold, `poolCreditMicros(10_000_000, 800) = 9_259_259`, tokens × price with per-model `feeBps`.
-* `config.test.ts`: defaults, overrides, malformed values, `MODEL_PRICES` validation, the three safety clamps, `MARGIN_PERCENT` alias, `positiveInt` for `SIMPLE_MAX_INPUT_TOKENS`, `membershipCreditCents` still 0 without the built-in provider.
+* `config.test.ts`: defaults, overrides, malformed values, `MODEL_PRICES` validation, the three safety clamps, `MARGIN_PERCENT` alias, `positiveInt` for `BUILT_IN_MAX_INPUT_TOKENS`, `membershipCreditCents` still 0 without the built-in provider.
 * `supporter.test.ts`: gross netting; refund rows with `user_id`; 12-month expiry.
 * Existing `billing-*.test.ts` stay green.
 
