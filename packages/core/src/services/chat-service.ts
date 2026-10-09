@@ -7,8 +7,6 @@ import {
   DEFAULT_TREE_TITLE,
   MAX_LINKS_PER_TREE,
   TRUNK_TITLE,
-  DEFAULT_REPLY_OUTPUT_TOKENS,
-  REASONING_REPLY_OUTPUT_TOKENS,
   REPLY_CANCELLED_ERROR,
   REPLY_CUT_OFF_ERROR,
   REPLY_EMPTY_ERROR,
@@ -18,14 +16,12 @@ import {
   replyOutputTokens,
   createBranchRequestSchema,
   createLinkRequestSchema,
-  pickDefaultRoute,
   createTreeRequestSchema,
   treeBackupSchema,
   updateBranchRequestSchema,
   updateLinkRequestSchema,
   updateSettingsRequestSchema,
   updateTreeRequestSchema,
-  isProviderAvailable,
   type Branch,
   type BranchFunding,
   type CandidateEvent,
@@ -46,7 +42,6 @@ import {
   type NodeLink,
   type ProviderCapabilities,
   type ProviderError,
-  type ProviderInfo,
   type ProviderRegistry,
   type ProviderRoute,
   type ReasoningEffort,
@@ -86,83 +81,17 @@ import {
   type RenderOptions,
 } from '../context/render.js';
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
-import {
-  decideGrounding,
-  type GroundingDecision,
-  type GroundingPolicy,
-} from '../grounding/policy.js';
+import { decideGrounding, type GroundingDecision } from '../grounding/policy.js';
+import { Ownership } from './ownership.js';
+import { RouteResolver } from './routing.js';
 import { adaptBackupForLearn, type LearnImportTarget } from '../learn-import.js';
 import { pairKey } from '../links.js';
 import type { Repositories } from '../repository.js';
 import type { TokenEstimator } from '../tokens.js';
 import { newId as defaultNewId, systemClock, type Clock } from '../util.js';
 
-export interface ChatSettings {
-  /**
-   * Provider/model used for summaries and titles. null provider = use the
-   * branch's own provider/model; null model = that provider's default model.
-   */
-  summaryProviderId: string | null;
-  summaryModel: string | null;
-  /**
-   * Reasoning effort of summaries and titles (`GenerateRequest.reasoning`):
-   * short outputs that need little thinking. null = the summary model's own
-   * (its configured `ModelInfo.effort`, else the model's default).
-   */
-  summaryEffort: ReasoningEffort | null;
-  /**
-   * A reply's output cap (also reserved when computing the input budget) on a
-   * model that doesn't reason. Default DEFAULT_REPLY_OUTPUT_TOKENS (4096).
-   */
-  reservedOutputTokens: number;
-  /**
-   * The same on a reasoning model (`ProviderCapabilities.reasoning`), whose
-   * thinking counts as output. Default REASONING_REPLY_OUTPUT_TOKENS (16384).
-   * Either is capped at the model's `maxOutputTokens`.
-   */
-  reasoningOutputTokens: number;
-  /** Optional cap below the provider's context window (e.g. to save cost). */
-  maxInputTokens: number | null;
-  /** Generate a branch title after the first assistant reply. */
-  autoTitle: boolean;
-  /** Web-search grounding of replies (docs/DECISIONS.md § Grounding). */
-  grounding: GroundingSettings;
-}
-
-export interface GroundingSettings {
-  /** Operator ceiling over the per-branch setting; see GroundingPolicy. */
-  policy: GroundingPolicy;
-  /** Results per search. */
-  maxResults: number;
-  /** Most searches per reply. */
-  maxUses: number;
-  /** Search engine passed to the provider (OpenRouter: `exa`, …). */
-  engine: string;
-  /**
-   * True when the per-branch setting is ignored and every branch counts as
-   * `auto` (Learn: the pedagogy is the operator's, not the learner's).
-   */
-  ignoreBranchSetting: boolean;
-}
-
-export const DEFAULT_GROUNDING_SETTINGS: GroundingSettings = {
-  policy: 'off',
-  maxResults: 5,
-  maxUses: 1,
-  engine: 'exa',
-  ignoreBranchSetting: false,
-};
-
-export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
-  summaryProviderId: null,
-  summaryModel: null,
-  summaryEffort: null,
-  reservedOutputTokens: DEFAULT_REPLY_OUTPUT_TOKENS,
-  reasoningOutputTokens: REASONING_REPLY_OUTPUT_TOKENS,
-  maxInputTokens: null,
-  autoTitle: true,
-  grounding: DEFAULT_GROUNDING_SETTINGS,
-};
+export * from './settings.js';
+import type { ChatSettings } from './settings.js';
 
 export { DEFAULT_TREE_TITLE, TRUNK_TITLE };
 
@@ -430,12 +359,16 @@ interface PlanInputs {
 export class ChatService {
   private readonly clock: Clock;
   private readonly newId: () => string;
+  private readonly owned: Ownership;
+  private readonly routes: RouteResolver;
   readonly accountId: string;
 
   constructor(readonly deps: ChatServiceDeps) {
     this.accountId = deps.accountId ?? DEFAULT_ACCOUNT_ID;
     this.clock = deps.clock ?? systemClock;
     this.newId = deps.newId ?? (() => defaultNewId());
+    this.owned = new Ownership(deps.repos.trees, this.accountId);
+    this.routes = new RouteResolver(deps);
   }
 
   private get repo() {
@@ -453,43 +386,19 @@ export class ChatService {
   }
 
   /**
-   * Loads a tree owned by this service's account. Another account's tree is
-   * reported as not found. Branch- and node-level entry points go through
-   * `getOwnedBranch`/`getOwnedNode`, so every public method is scoped.
-   */
-  private async requireOwnedTree(treeId: string): Promise<Tree> {
-    const tree = await this.repo.getTree(treeId);
-    if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Tree');
-    return tree;
-  }
-
-  /**
    * Loads a branch whose tree is owned by this service's account. A missing
    * branch, or one in another account's tree, is reported as not found.
    */
   async getOwnedBranch(branchId: string): Promise<Branch> {
-    return (await this.requireOwnedBranch(branchId)).branch;
-  }
-
-  /** `getOwnedBranch` that also returns the (already loaded) tree. */
-  private async requireOwnedBranch(branchId: string): Promise<{ branch: Branch; tree: Tree }> {
-    const branch = await this.repo.getBranch(branchId);
-    if (!branch) throw new NotFoundError('Branch');
-    const tree = await this.repo.getTree(branch.treeId);
-    if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Branch');
-    return { branch, tree };
+    return (await this.owned.branch(branchId)).branch;
   }
 
   /**
    * Loads a node whose tree is owned by this service's account. A missing
    * node, or one in another account's tree, is reported as not found.
    */
-  async getOwnedNode(nodeId: string): Promise<ChatNode> {
-    const node = await this.repo.getNode(nodeId);
-    if (!node) throw new NotFoundError('Node');
-    const tree = await this.repo.getTree(node.treeId);
-    if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Node');
-    return node;
+  getOwnedNode(nodeId: string): Promise<ChatNode> {
+    return this.owned.node(nodeId);
   }
 
   /**
@@ -500,8 +409,8 @@ export class ChatService {
    */
   async createTree(request: CreateTreeRequest): Promise<TreeDetail> {
     const req = createTreeRequestSchema.parse(request);
-    const route = await this.newTreeRoute(req);
-    const provider = this.requireProvider(route);
+    const route = await this.routes.newTreeRoute(req);
+    const provider = this.routes.requireProvider(route);
     const model = req.model ?? provider.defaultModel();
     const systemPrompt = emptyToNull(req.systemPrompt) ?? (await this.newTreeSystemPrompt());
     const now = this.now();
@@ -536,7 +445,7 @@ export class ChatService {
   }
 
   async getTreeDetail(treeId: string): Promise<TreeDetail> {
-    const tree = await this.requireOwnedTree(treeId);
+    const tree = await this.owned.tree(treeId);
     const [branches, nodes, links] = await Promise.all([
       this.repo.listBranches(treeId),
       this.repo.listNodes(treeId),
@@ -547,7 +456,7 @@ export class ChatService {
 
   async updateTree(treeId: string, request: UpdateTreeRequest): Promise<Tree> {
     const req = updateTreeRequestSchema.parse(request);
-    await this.requireOwnedTree(treeId);
+    await this.owned.tree(treeId);
     const patch: Partial<Pick<Tree, 'title' | 'systemPrompt' | 'updatedAt'>> = {
       updatedAt: this.now(),
     };
@@ -567,7 +476,7 @@ export class ChatService {
     treeId: string,
     options: { stopGenerations?: () => Promise<void> } = {},
   ): Promise<void> {
-    await this.requireOwnedTree(treeId);
+    await this.owned.tree(treeId);
     await options.stopGenerations?.();
     const deleted = await this.repo.deleteTree(treeId);
     if (!deleted) throw new NotFoundError('Tree');
@@ -608,8 +517,8 @@ export class ChatService {
     const parent = await this.repo.getBranch(node.branchId);
     if (!parent) throw new NotFoundError('Branch');
 
-    const route = this.requestedRoute(req, parent);
-    const provider = this.requireProvider(route);
+    const route = this.routes.requestedRoute(req, parent);
+    const provider = this.routes.requireProvider(route);
     const model =
       req.model ??
       (route.providerId === parent.providerId ? parent.model : provider.defaultModel());
@@ -654,8 +563,8 @@ export class ChatService {
     if (req.isPrivate !== undefined) patch.isPrivate = req.isPrivate;
     if (req.grounding !== undefined) patch.grounding = req.grounding;
     if (req.providerId !== undefined || req.funding !== undefined || req.model !== undefined) {
-      const route = this.requestedRoute(req, branch);
-      const provider = this.requireProvider(route);
+      const route = this.routes.requestedRoute(req, branch);
+      const provider = this.routes.requireProvider(route);
       patch.providerId = route.providerId;
       patch.funding = route.funding;
       patch.model =
@@ -682,7 +591,7 @@ export class ChatService {
     branchId: string,
     options: { stopGenerations?: (branchIds: ReadonlySet<string>) => Promise<void> } = {},
   ): Promise<DeleteBranchResponse> {
-    const { branch, tree } = await this.requireOwnedBranch(branchId);
+    const { branch, tree } = await this.owned.branch(branchId);
     if (branch.parentBranchId === null || branch.id === tree.trunkBranchId) {
       throw new ValidationError(
         'The main thread cannot be deleted; delete the conversation instead',
@@ -750,7 +659,7 @@ export class ChatService {
   /** Changes a link's note (blank = none). */
   async updateLink(linkId: string, request: UpdateLinkRequest): Promise<NodeLink> {
     const req = updateLinkRequestSchema.parse(request);
-    await this.requireOwnedLink(linkId);
+    await this.owned.link(linkId);
     const updated = await this.repo.updateLink(linkId, {
       note: emptyToNull(req.note),
       updatedAt: this.now(),
@@ -760,17 +669,8 @@ export class ChatService {
   }
 
   async deleteLink(linkId: string): Promise<void> {
-    await this.requireOwnedLink(linkId);
+    await this.owned.link(linkId);
     if (!(await this.repo.deleteLink(linkId))) throw new NotFoundError('Link');
-  }
-
-  /** A link in a tree of this account; another account's link is reported as not found. */
-  private async requireOwnedLink(linkId: string): Promise<NodeLink> {
-    const link = await this.repo.getLink(linkId);
-    if (!link) throw new NotFoundError('Link');
-    const tree = await this.repo.getTree(link.treeId);
-    if (!tree || tree.accountId !== this.accountId) throw new NotFoundError('Link');
-    return link;
   }
 
   // -------------------------------------------------------------- context
@@ -794,7 +694,7 @@ export class ChatService {
     let step = await steps.next();
     while (!step.done) step = await steps.next();
     const plan = step.value;
-    const model = this.modelOf(inputs.branch);
+    const model = this.routes.modelOf(inputs.branch);
     const caps = inputs.provider.capabilities(model);
     const rendered = renderPlan(plan, this.renderOptions(caps.supportsSystemPrompt));
     let exactInputTokens: number | null = null;
@@ -823,7 +723,7 @@ export class ChatService {
       plan,
       rendered,
       providerId: inputs.branch.providerId,
-      funding: this.fundingOf(inputs.branch),
+      funding: this.routes.fundingOf(inputs.branch),
       model,
       exactInputTokens,
     };
@@ -845,7 +745,7 @@ export class ChatService {
     nodeId: string | null,
     extra: { tail?: ChatNode; route?: ProviderRoute & { model: string } } = {},
   ): Promise<PlanInputs> {
-    const owned = await this.requireOwnedBranch(branchId);
+    const owned = await this.owned.branch(branchId);
     // The only way into the context's system prompt (the `tree-system-prompt` segment).
     const override = this.deps.systemPromptOverride;
     const tree = override === undefined ? owned.tree : { ...owned.tree, systemPrompt: override };
@@ -879,7 +779,7 @@ export class ChatService {
     if (override !== undefined) {
       path = path.map((n) => (n.role === 'system' ? { ...n, role: 'user' } : n));
     }
-    const provider = this.requireProvider(branch);
+    const provider = this.routes.requireProvider(branch);
     return {
       tree,
       chain,
@@ -897,11 +797,6 @@ export class ChatService {
 
   private renderOptions(supportsSystemPrompt: boolean): RenderOptions {
     return { supportsSystemPrompt };
-  }
-
-  /** The model generations on `branch` use: the pinned one, else the branch's. */
-  private modelOf(branch: Branch): string {
-    return this.deps.pinnedModel ?? branch.model;
   }
 
   /**
@@ -943,8 +838,8 @@ export class ChatService {
     limits: GenerationLimits = {},
   ): Promise<{ maxInputTokens: number; maxOutputTokens: number }> {
     const { maxInputTokens, maxOutput } = await this.budgetFor(
-      this.requireProvider(route),
-      this.deps.pinnedModel ?? model,
+      this.routes.requireProvider(route),
+      this.routes.modelOf({ model }),
       limits.maxOutputTokens,
       limits.maxInputTokens,
     );
@@ -958,30 +853,17 @@ export class ChatService {
    */
   async inputBudget(branchId: string): Promise<BranchInputBudget> {
     const branch = await this.getOwnedBranch(branchId);
-    const model = this.modelOf(branch);
-    const caps = await capabilitiesOf(this.requireProvider(branch), model);
+    const model = this.routes.modelOf(branch);
+    const caps = await capabilitiesOf(this.routes.requireProvider(branch), model);
     return {
       providerId: branch.providerId,
       model,
-      funding: this.fundingOf(branch),
+      funding: this.routes.fundingOf(branch),
       contextTokens: caps.maxContextTokens,
       maxOutputTokens: caps.maxOutputTokens,
       reasoning: caps.reasoning === true,
       maxInputTokens: this.deps.settings.maxInputTokens,
     };
-  }
-
-  private summaryTarget(branch: Branch): { provider: LlmProvider; model: string } {
-    const { summaryProviderId, summaryModel } = this.deps.settings;
-    const providers = this.deps.providers;
-    // A configured summary provider is an own-key route (never credit, in power).
-    if (summaryProviderId && isProviderAvailable(providers, summaryProviderId)) {
-      const provider = providers.get(summaryProviderId);
-      if (provider) return { provider, model: summaryModel ?? provider.defaultModel() };
-    }
-    // No summary provider configured, or not one this user has a key for:
-    // summarize on the branch's own route and model.
-    return { provider: this.requireProvider(branch), model: this.modelOf(branch) };
   }
 
   /**
@@ -1005,12 +887,12 @@ export class ChatService {
   ): AsyncGenerator<string, ContextPlan> {
     const summaries = new Map<string, string>();
     const failed = new Set<string>();
-    const { provider: summaryProvider, model: summaryModel } = this.summaryTarget(
+    const { provider: summaryProvider, model: summaryModel } = this.routes.summaryTarget(
       inputs.summaryBranch,
     );
     const { maxInputTokens } = await this.budgetFor(
       inputs.provider,
-      this.modelOf(inputs.branch),
+      this.routes.modelOf(inputs.branch),
       limits.maxOutputTokens,
       limits.maxInputTokens,
     );
@@ -1150,7 +1032,7 @@ export class ChatService {
   async beginSend(branchId: string, content: string): Promise<BeginSendResult> {
     const branch = await this.getOwnedBranch(branchId);
     if (!content.trim()) throw new ValidationError('Message is empty');
-    this.requireProvider(branch);
+    this.routes.requireProvider(branch);
     const own = await this.repo.listBranchNodes(branchId);
     const leaf = own.at(-1);
     if (leaf?.status === 'streaming') {
@@ -1184,7 +1066,7 @@ export class ChatService {
       status: 'streaming',
       error: null,
       providerId: branch.providerId,
-      model: this.modelOf(branch),
+      model: this.routes.modelOf(branch),
       usage: null,
       createdAt: now,
     };
@@ -1246,7 +1128,7 @@ export class ChatService {
       }
       const plan = step.value;
       if (missesSummary(plan)) yield { type: 'status', message: SUMMARY_MISSING_STATUS };
-      const model = this.modelOf(branch);
+      const model = this.routes.modelOf(branch);
       const caps = inputs.provider.capabilities(model);
       const grounding = await this.decideGrounding(inputs, plan, caps.supportsWebSearch, options);
       const terminal = yield* this.streamReply(
@@ -1402,7 +1284,8 @@ export class ChatService {
   /** Whether replies on `branch` can run a web search ("Check sources"). */
   canSearch(branch: Branch): boolean {
     try {
-      return this.requireProvider(branch).capabilities(this.modelOf(branch)).supportsWebSearch;
+      return this.routes.requireProvider(branch).capabilities(this.routes.modelOf(branch))
+        .supportsWebSearch;
     } catch (err) {
       this.log('can_search_failed', {
         branchId: branch.id,
@@ -1468,7 +1351,7 @@ export class ChatService {
     const titleTree = isTrunk && tree.title === DEFAULT_TREE_TITLE;
     if (!titleBranch && !titleTree) return null;
     try {
-      const { provider, model } = this.summaryTarget(branch);
+      const { provider, model } = this.routes.summaryTarget(branch);
       // The test provider (kind `fake`) would just echo the prompt; keep the readable default title.
       if (provider.kind === 'fake') return null;
       const messages: ChatMessage[] = [];
@@ -1531,8 +1414,8 @@ export class ChatService {
     if (node.role !== 'assistant')
       throw new ValidationError('Only assistant replies can be reviewed');
     if (node.status !== 'complete') throw new ValidationError('That reply has not finished');
-    const route = this.requestedRoute(request, null);
-    this.requireProvider(route);
+    const route = this.routes.requestedRoute(request, null);
+    this.routes.requireProvider(route);
     return { node, ...route, model: request.model, limits: pickGenerationLimits(limits) };
   }
 
@@ -1555,9 +1438,9 @@ export class ChatService {
         yield { type: 'status', message: step.value };
         step = await steps.next();
       }
-      const caps = inputs.provider.capabilities(this.modelOf(inputs.branch));
+      const caps = inputs.provider.capabilities(this.routes.modelOf(inputs.branch));
       const context = renderPlan(step.value, this.renderOptions(caps.supportsSystemPrompt));
-      const reviewer = this.requireProvider(review);
+      const reviewer = this.routes.requireProvider(review);
       const prompt = buildReviewPrompt(context, review.node.model);
       const rendered = reviewer.capabilities(review.model).supportsSystemPrompt
         ? prompt
@@ -1630,8 +1513,8 @@ export class ChatService {
     if (leaf?.status === 'streaming') {
       throw new ConflictError('A reply is still being generated in this branch');
     }
-    const route = this.requestedRoute(request, branch);
-    this.requireProvider(route);
+    const route = this.routes.requestedRoute(request, branch);
+    this.routes.requireProvider(route);
     return {
       id: this.newId(),
       branch,
@@ -1691,7 +1574,7 @@ export class ChatService {
       }
       const plan = step.value;
       if (missesSummary(plan)) yield { type: 'status', message: SUMMARY_MISSING_STATUS };
-      const model = this.modelOf(inputs.branch);
+      const model = this.routes.modelOf(inputs.branch);
       const caps = inputs.provider.capabilities(model);
       const grounding = await this.decideGrounding(inputs, plan, caps.supportsWebSearch, {});
       const state: ReplyState = { content: '', usage: {}, sources: null };
@@ -1766,7 +1649,7 @@ export class ChatService {
    * lock for this only, and auto-titles after releasing it.
    */
   async appendCandidate(held: HeldCandidate): Promise<CommitCandidateResponse> {
-    const owned = await this.requireOwnedBranch(held.branchId);
+    const owned = await this.owned.branch(held.branchId);
     const branch = owned.branch;
     if (branch.treeId !== held.treeId) throw new NotFoundError('Branch');
     const leaf = (await this.repo.listBranchNodes(branch.id)).at(-1);
@@ -1822,7 +1705,7 @@ export class ChatService {
     const { userNode, assistantNode, branch } = committed;
     if (!this.deps.settings.autoTitle || assistantNode.seq !== 1) return branch;
     try {
-      const owned = await this.requireOwnedBranch(branch.id);
+      const owned = await this.owned.branch(branch.id);
       return (await this.autoTitle(owned.tree, owned.branch, userNode, assistantNode)) ?? branch;
     } catch (err) {
       this.log('auto_title_failed', {
@@ -1949,96 +1832,6 @@ export class ChatService {
       defaultModel: provider.defaultModel(),
       systemPrompt: await this.newTreeSystemPrompt(),
     };
-  }
-
-  /** How calls on `branch` are paid as far as this instance knows: Learn's fixed funding, else the branch's. */
-  private fundingOf(branch: Pick<Branch, 'funding'>): BranchFunding {
-    return this.deps.fixedFunding ?? branch.funding;
-  }
-
-  /**
-   * The route a request names, completed from `base` (the parent branch, or
-   * the branch being changed): nothing named keeps `base`'s route; a provider
-   * without a funding is on the user's own key, so naming a provider never
-   * spends credit implicitly; a funding without a provider keeps `base`'s
-   * provider. Without a `base` (a reviewer) a provider must be named; a new
-   * tree that names none gets the default route (`newTreeRoute`). Learn's
-   * fixed funding always wins.
-   */
-  private requestedRoute(
-    req: { providerId?: string | undefined; funding?: BranchFunding | undefined },
-    base: Pick<Branch, 'providerId' | 'funding'> | null,
-  ): ProviderRoute {
-    let route: ProviderRoute;
-    if (req.providerId !== undefined) {
-      route = { providerId: req.providerId, funding: req.funding ?? 'own-key' };
-    } else if (base) {
-      route = { providerId: base.providerId, funding: req.funding ?? base.funding };
-    } else {
-      throw new ValidationError('Name a provider');
-    }
-    return this.withFixedFunding(route);
-  }
-
-  private withFixedFunding(route: ProviderRoute): ProviderRoute {
-    const fixed = this.deps.fixedFunding;
-    return fixed === undefined ? route : { ...route, funding: fixed };
-  }
-
-  /** The trunk route of a new tree: the one the request names, else the default route. */
-  private async newTreeRoute(req: {
-    providerId?: string | undefined;
-    funding?: BranchFunding | undefined;
-  }): Promise<ProviderRoute> {
-    if (req.providerId !== undefined) return this.requestedRoute(req, null);
-    return this.withFixedFunding(await this.defaultRoute(req.funding));
-  }
-
-  /**
-   * The route of a new tree that names no provider (docs/DECISIONS.md
-   * "Default route of a new tree"): `pickDefaultRoute` over the own-key
-   * providers and, where it is offered and nothing named a funding, Tangent
-   * credit, with what `deps.defaultRouteFacts` says about the balance and the
-   * membership (asked only then; without it, credit is never the default).
-   * Naming only `credit` picks the credit registry's default provider;
-   * naming only `own-key` leaves credit out.
-   */
-  private async defaultRoute(funding: BranchFunding | undefined): Promise<ProviderRoute> {
-    const own = this.deps.providers;
-    const credit = this.deps.fixedFunding === undefined ? this.deps.creditProviders : undefined;
-    // Credit asked for where it isn't offered: `requireProvider` refuses the route.
-    if (funding === 'credit') return { providerId: (credit ?? own).defaultProviderId(), funding };
-    const withCredit = funding === undefined && credit !== undefined;
-    const entries: ProviderInfo[] = [
-      ...own.list().map((p) => ({ ...p, funding: 'own-key' as const })),
-      ...(withCredit ? credit.list().map((p) => ({ ...p, funding: 'credit' as const })) : []),
-    ];
-    const facts: DefaultRouteFacts = (withCredit && (await this.deps.defaultRouteFacts?.())) || {
-      creditCanPay: false,
-      creditBuyable: false,
-      ownKeyLocked: false,
-    };
-    const picked = pickDefaultRoute(entries, facts);
-    if (!picked) return { providerId: own.defaultProviderId(), funding: 'own-key' };
-    return { providerId: picked.id, funding: picked.funding ?? 'own-key' };
-  }
-
-  /** The provider of a route (a branch, or a requested route); Learn's routes all come from `providers`. */
-  private requireProvider(route: Pick<Branch, 'providerId' | 'funding'>): LlmProvider {
-    const funding = this.fundingOf(route);
-    const registry =
-      this.deps.fixedFunding !== undefined || funding === 'own-key'
-        ? this.deps.providers
-        : this.deps.creditProviders;
-    const provider = registry?.get(route.providerId);
-    if (!provider) {
-      throw new ValidationError(
-        funding === 'credit' && this.deps.fixedFunding === undefined
-          ? `Unknown provider "${route.providerId}" on Tangent credit`
-          : `Unknown provider "${route.providerId}"`,
-      );
-    }
-    return provider;
   }
 }
 
