@@ -83,7 +83,7 @@ npx wrangler d1 migrations list tangent --remote
 
 ## 7. Deploy
 
-On the waiting run, **Review deployments → production → Approve and deploy**. Its **Apply D1 migrations** step prints `✅ No migrations to apply!`, and **Deploy** ships the new code, which ends the outage (the job takes a few minutes). Open the app, sign in, open a conversation and send a message.
+On the waiting run, **Review deployments → production → Approve and deploy**. Its **Apply D1 migrations** step prints `✅ No migrations to apply!`, and **Deploy** ships the new code, which ends the outage (the job takes a few minutes). Open the app, sign in, open a conversation and send a message. The Worker now hands the account to a conversation's Durable Object in a new encoding, so for the few seconds the deploy rolls out a request that meets an old and a new isolate can answer 500: that's expected and harmless, and a retry works.
 
 ## If something goes wrong
 
