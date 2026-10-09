@@ -71,16 +71,22 @@ export function joinList(items: readonly string[], word: 'and' | 'or'): string {
  * How the pool comes about, as numbered steps for the landing and pricing
  * pages. Tangent is the subject of every step that moves money: a customer
  * pays for Tangent, never for someone else's learning (docs/DECISIONS.md).
+ * Where Tangent sells nothing, it claims no earnings.
  */
-export function PoolSteps(props: { memberships: boolean }) {
+export function PoolSteps(props: { offer: Offer }) {
+  const { membership, credit } = props.offer;
+  const sold =
+    membership && credit
+      ? 'memberships and credit'
+      : membership
+        ? 'memberships'
+        : credit
+          ? 'the credit people buy'
+          : null;
   return (
     <ol class="steps">
-      <li>
-        Tangent earns money from{' '}
-        {props.memberships ? 'memberships and credit' : 'the credit people buy'}, like any software
-        business.
-      </li>
-      <li>It sets aside free credit as the open pool.</li>
+      {sold && <li>Tangent earns money from {sold}, like any software business.</li>}
+      <li>{sold ? 'It' : 'Tangent'} sets aside free credit as the open pool.</li>
       <li>
         Anyone signed in can learn free from the pool, within daily limits, while it has credit.
       </li>

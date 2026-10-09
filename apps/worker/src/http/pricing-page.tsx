@@ -655,7 +655,7 @@ function PricingBody(props: { facts: PricingFacts }) {
               use {poolModelNoun(pool.model)}, have daily limits and are available only while the
               pool has credit. <a href="/pool">How the pool works</a>
             </p>
-            <PoolSteps memberships={membership !== null} />
+            <PoolSteps offer={f} />
           </div>
         </section>
       )}

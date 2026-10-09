@@ -179,6 +179,23 @@ describe('every public page, in every config', () => {
     expect(empty).not.toMatch(/Start learning free|No credit card needed/);
   });
 
+  it('says Tangent earns money only from what it sells', async () => {
+    for (const [name, overrides] of Object.entries(CONFIGS)) {
+      if (overrides.POOL_ENABLED === 'false') continue;
+      const e = deployment(overrides);
+      const membership = overrides.ANNUAL_FEE_ENABLED !== 'false';
+      const credit = overrides.POLAR_CREDITS_PRODUCT_ID !== '';
+      for (const path of ['/welcome', '/pricing']) {
+        const steps = text(/<ol class="steps">[^]*?<\/ol>/.exec((await get(e, path)).html)![0]);
+        const where = `${name} ${path}`;
+        const earns = /earns money from ([^,]*),/.exec(steps)?.[1] ?? '';
+        expect(/membership/.test(earns), where).toBe(membership);
+        expect(/credit/.test(earns), where).toBe(credit);
+        expect(steps.includes('earns money'), where).toBe(membership || credit);
+      }
+    }
+  });
+
   it('never calls the own key free while it needs the membership, and offers credit only where it is sold', async () => {
     for (const [name, overrides] of Object.entries(CONFIGS)) {
       const e = deployment(overrides);

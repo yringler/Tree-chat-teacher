@@ -89,7 +89,7 @@ function poolOpen(pool: PoolStatusResponse | undefined): pool is PoolStatusRespo
  * for anyone else. The free sign-up button shows only while the pool has
  * credit.
  */
-function PoolSection(props: { pool: PoolStatusResponse; memberships: boolean }) {
+function PoolSection(props: { pool: PoolStatusResponse; page: Landing }) {
   const { pool } = props;
   return (
     <section aria-labelledby="pool">
@@ -101,7 +101,7 @@ function PoolSection(props: { pool: PoolStatusResponse; memberships: boolean }) 
           {POOL_MOTTO} Here’s how:
         </p>
         <div class="pool">
-          <PoolSteps memberships={props.memberships} />
+          <PoolSteps offer={props.page} />
           <p class="meter">
             {pool.sessionsRemaining > 0
               ? `${poolSessionsHeadline(pool.sessionsRemaining)} left`
@@ -393,7 +393,7 @@ function LandingBody(props: { page: Landing }) {
           </div>
         </div>
       </section>
-      {page.pool && <PoolSection pool={page.pool} memberships={page.membership !== null} />}
+      {page.pool && <PoolSection pool={page.pool} page={page} />}
       <section aria-labelledby="modes">
         <div class="wrap">
           <h2 id="modes">Two ways to use it</h2>
