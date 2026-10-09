@@ -21,6 +21,7 @@ export {
 } from './core/api-client';
 export { API_FETCH, API_HEADERS, defaultApiFetch } from './core/api-fetch';
 export { coalesced } from './core/coalesced';
+export { dispatchShortcut, type ShortcutFrame, type ShortcutHelp } from './core/shortcuts';
 export {
   ConversationStore,
   type ConversationApi,
@@ -100,6 +101,7 @@ export { Icon, type IconName } from './ui/icon';
 export { Toasts, ToastStore, type Toast, type ToastLink } from './ui/toasts';
 export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';
+export { Overlays } from './ui/overlays';
 export { ModelSuggestions, suggestionText, type SuggestionText } from './ui/model-suggestions';
 export { DEEP_BRANCH_DEPTH, SourcesList } from './ui/sources-list';
 export { RelatedLinks, type LinkNoteEdit } from './ui/related-links';

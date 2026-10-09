@@ -80,7 +80,7 @@ import { ModelField } from '../dialogs/model-field';
           @if (store.account.defaultProvider()?.available === false) {
             <p class="notice">
               No provider has a key yet.
-              <button type="button" class="link-btn" (click)="ui.keysOpen.set(true)">
+              <button type="button" class="link-btn" (click)="ui.dialogs.open({ kind: 'keys' })">
                 Add your API key
               </button>
             </p>

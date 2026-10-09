@@ -1,4 +1,5 @@
-import { computed, Injectable, signal } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
+import { Overlays } from '@tangent/web-shared';
 import type { Point } from '../layout/layout-store';
 
 /** A link shown in a toast; `href` is a full page load (e.g. the power app's `/billing`). */
@@ -54,6 +55,15 @@ export interface LinkReturn {
   toBranchId: string;
 }
 
+/** A dialog of the canvas, with what it was opened with. */
+export type Dialog =
+  | { kind: 'keys' }
+  | ({ kind: 'branch' } & BranchDialogState)
+  | ({ kind: 'branch-settings' } & BranchSettingsState)
+  | { kind: 'help' }
+  | { kind: 'delete-account' }
+  | ({ kind: 'link' } & LinkDialogState);
+
 const EXPERIMENTAL_KEY = 'tangent.canvas.experimental-ack';
 
 function storedAck(): boolean {
@@ -68,11 +78,8 @@ function storedAck(): boolean {
 @Injectable({ providedIn: 'root' })
 export class UiStore {
   readonly menuOpen = signal(false);
-  readonly keysOpen = signal(false);
-  readonly branchDialog = signal<BranchDialogState | null>(null);
-  readonly branchSettings = signal<BranchSettingsState | null>(null);
-  readonly helpOpen = signal(false);
-  readonly deleteAccountOpen = signal(false);
+  /** The open dialogs (`Dialog`), top-most last. */
+  readonly dialogs = new Overlays<Dialog>();
   /** The "experimental" notice until it is dismissed (remembered in this browser). */
   readonly experimentalAck = signal(storedAck());
   /**
@@ -86,7 +93,6 @@ export class UiStore {
   readonly composerFocus = signal(0);
   /** The lines between linked messages (and their glyphs) are drawn. */
   readonly showLinks = signal(true);
-  readonly linkDialog = signal<LinkDialogState | null>(null);
   readonly linkPick = signal<LinkPickState | null>(null);
   readonly linkDrag = signal<LinkDragState | null>(null);
   /** The link whose glyph was clicked: its popover (ends, note, remove). */
@@ -104,16 +110,6 @@ export class UiStore {
    * so a refused or failed send never loses it.
    */
   readonly composerSent = signal<{ seq: number; laneId: string; text: string } | null>(null);
-
-  readonly anyDialogOpen = computed(
-    () =>
-      this.keysOpen() ||
-      this.branchDialog() !== null ||
-      this.branchSettings() !== null ||
-      this.helpOpen() ||
-      this.deleteAccountOpen() ||
-      this.linkDialog() !== null,
-  );
 
   /** Focus the selected lane's composer, or `laneId`'s (also once it first renders). */
   focusComposer(laneId: string | null = null): void {
@@ -137,13 +133,13 @@ export class UiStore {
   /** Pick mode from `fromNodeId`; whatever else was linking from somewhere ends. */
   startLinkPick(fromNodeId: string): void {
     this.linkPopover.set(null);
-    this.linkDialog.set(null);
+    this.dialogs.close('link');
     this.linkPick.set({ fromNodeId });
   }
 
   /** Every link interaction ends (another tree opened). */
   clearLinkState(): void {
-    this.linkDialog.set(null);
+    this.dialogs.close('link');
     this.linkPick.set(null);
     this.linkDrag.set(null);
     this.linkPopover.set(null);
@@ -181,30 +177,7 @@ export class UiStore {
       this.linkPopover.set(null);
       return true;
     }
-    if (this.deleteAccountOpen()) {
-      this.deleteAccountOpen.set(false);
-      return true;
-    }
-    if (this.helpOpen()) {
-      this.helpOpen.set(false);
-      return true;
-    }
-    if (this.linkDialog()) {
-      this.linkDialog.set(null);
-      return true;
-    }
-    if (this.branchDialog()) {
-      this.branchDialog.set(null);
-      return true;
-    }
-    if (this.branchSettings()) {
-      this.branchSettings.set(null);
-      return true;
-    }
-    if (this.keysOpen()) {
-      this.keysOpen.set(false);
-      return true;
-    }
+    if (this.dialogs.closeTop()) return true;
     if (this.menuOpen()) {
       this.menuOpen.set(false);
       return true;

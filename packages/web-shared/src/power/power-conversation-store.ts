@@ -55,6 +55,12 @@ export abstract class PowerConversationStore<
     return (s && this.index()?.branches.get(s.branchId)) || null;
   });
 
+  /** `nodeId`'s branch can't generate: its funding needs the membership the user lacks. */
+  nodeLocked(nodeId: string): boolean {
+    const branch = this.branchOf(nodeId);
+    return !!branch && this.account.routeLocked(branch);
+  }
+
   /** `me`: the signed-in caller, already fetched by the sign-in check (AuthService.requireUser). */
   async init(me: MeResponse): Promise<void> {
     await Promise.all([this.account.init(me), this.loadTrees()]);

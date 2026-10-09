@@ -338,6 +338,20 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     return true;
   }
 
+  /** The branch message `nodeId` is in, or null when the open tree hasn't it. */
+  branchOf(nodeId: string): Branch | null {
+    const idx = this.index();
+    const node = idx?.nodes.get(nodeId);
+    return (node && idx?.branches.get(node.branchId)) || null;
+  }
+
+  /** `nodeId` is the newest message of the open branch (where "Continue" and an open "Ask" go). */
+  isLatest(nodeId: string): boolean {
+    return (
+      this.branchOf(nodeId)?.id === this.selectedBranchId() && this.path().at(-1)?.id === nodeId
+    );
+  }
+
   childBranchesAt(nodeId: string): readonly Branch[] {
     return this.index()?.branchesAtNode.get(nodeId) ?? [];
   }

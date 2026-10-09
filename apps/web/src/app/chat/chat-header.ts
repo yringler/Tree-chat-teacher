@@ -38,7 +38,7 @@ interface Crumb {
           <button
             type="button"
             class="btn btn-ghost btn-sm"
-            (click)="ui.branchSettingsOpen.set(true)"
+            (click)="ui.dialogs.open({ kind: 'branch-settings' })"
             title="Branch settings"
           >
             <app-icon name="settings" /> <span class="hide-narrow">Branch</span>
@@ -50,7 +50,7 @@ interface Crumb {
               <button
                 type="button"
                 class="btn btn-ghost btn-sm"
-                (click)="ui.shareDialogOpen.set(true)"
+                (click)="ui.dialogs.open({ kind: 'share' })"
               >
                 <app-icon name="share" /> <span class="hide-narrow">Share…</span>
               </button>
@@ -60,7 +60,7 @@ interface Crumb {
           <button
             type="button"
             class="btn btn-ghost btn-sm"
-            (click)="ui.treeSettingsOpen.set(true)"
+            (click)="ui.dialogs.open({ kind: 'tree-settings' })"
             title="Conversation settings"
           >
             <app-icon name="edit" /> <span class="hide-narrow">Tree</span>
@@ -82,7 +82,7 @@ interface Crumb {
             class="icon-btn"
             aria-label="Keyboard shortcuts (?)"
             title="Keyboard shortcuts (?)"
-            (click)="ui.shortcutsOpen.set(true)"
+            (click)="ui.dialogs.open({ kind: 'shortcuts' })"
           >
             <app-icon name="help" />
           </button>
@@ -210,7 +210,7 @@ export class ChatHeader {
     const id = this.firstNodeId();
     if (!id) return;
     this.ui.linkPick.set(null);
-    this.ui.linkDialog.set({ fromNodeId: id });
+    this.ui.dialogs.open({ kind: 'link', fromNodeId: id });
   }
 
   protected async remove(branchId: string): Promise<void> {

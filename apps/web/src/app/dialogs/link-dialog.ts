@@ -55,7 +55,7 @@ export class LinkDialog {
   private readonly saving = signal(false);
 
   protected close(): void {
-    this.ui.linkDialog.set(null);
+    this.ui.dialogs.close('link');
   }
 
   protected pickOnPage(): void {

@@ -115,7 +115,7 @@ const EXCERPT_CHARS = 280;
                 <button
                   type="button"
                   class="btn btn-ghost btn-left"
-                  (click)="ui.settingsOpen.set(true); close()"
+                  (click)="ui.dialogs.open({ kind: 'settings' }); close()"
                 >
                   <app-icon name="gear" /> Default reviewer…
                 </button>
@@ -253,10 +253,10 @@ export class ReviewDialog implements OnInit {
 
   protected openKeys(): void {
     this.close();
-    this.ui.keysDialog.set({ provider: null });
+    this.ui.dialogs.open({ kind: 'keys', provider: null });
   }
 
   protected close(): void {
-    this.ui.reviewDialog.set(null);
+    this.ui.dialogs.close('review');
   }
 }

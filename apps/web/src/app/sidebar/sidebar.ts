@@ -102,7 +102,7 @@ import { OutlineItem } from './outline-item';
           type="button"
           class="btn btn-ghost"
           [attr.title]="keyTitle()"
-          (click)="ui.keysDialog.set({ provider: null }); ui.drawerOpen.set(false)"
+          (click)="ui.dialogs.open({ kind: 'keys', provider: null }); ui.drawerOpen.set(false)"
         >
           <app-icon name="key" /> {{ store.account.me()?.builtInCredit ? 'Keys & credit' : 'Keys' }}
           @if (store.account.keyStatus()?.hasKey) {
@@ -126,7 +126,7 @@ import { OutlineItem } from './outline-item';
       <button
         type="button"
         class="btn btn-ghost"
-        (click)="ui.settingsOpen.set(true); ui.drawerOpen.set(false)"
+        (click)="ui.dialogs.open({ kind: 'settings' }); ui.drawerOpen.set(false)"
       >
         <app-icon name="gear" /> Settings
       </button>
@@ -137,7 +137,7 @@ import { OutlineItem } from './outline-item';
           type="button"
           class="btn btn-ghost"
           [attr.title]="store.account.me()?.email ?? 'Account'"
-          (click)="ui.accountOpen.set(true); ui.drawerOpen.set(false)"
+          (click)="ui.dialogs.open({ kind: 'account' }); ui.drawerOpen.set(false)"
         >
           <app-icon name="user" /> Account
         </button>

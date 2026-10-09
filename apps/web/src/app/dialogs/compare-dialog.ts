@@ -160,19 +160,19 @@ export class CompareDialog implements OnInit {
 
   private refused(err: ApiError): void {
     this.close();
-    if (err.code === 'key_required' && !this.ui.keysDialog()) {
+    if (err.code === 'key_required' && !this.ui.dialogs.get('keys')) {
       // Ask for the key of the answer that needed it.
       const id = this.run()
         ?.candidates()
         .find((c) => c.refusal === err)?.id;
       const spec = this.specs.find((s) => s.id === id);
-      this.ui.keysDialog.set({ provider: spec?.request.providerId ?? null });
+      this.ui.dialogs.open({ kind: 'keys', provider: spec?.request.providerId ?? null });
     }
     this.store.fail(err);
   }
 
   protected close(): void {
-    this.ui.compareDialog.set(null);
+    this.ui.dialogs.close('compare');
   }
 
   /** Rendered as a reply is (message-item.ts): Markdown, without the `<tangents>` block. */

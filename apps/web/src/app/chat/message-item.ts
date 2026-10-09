@@ -429,17 +429,17 @@ export class MessageItem {
     e.stopPropagation();
     const quote = this.pendingQuote ?? selectionWithin(this.bodyRef().nativeElement);
     this.pendingQuote = null;
-    this.ui.branchDialog.set({ fromNodeId: this.node().id, quote });
+    this.ui.dialogs.open({ kind: 'branch', fromNodeId: this.node().id, quote });
   }
 
   protected openReview(e: Event): void {
     e.stopPropagation();
-    this.ui.reviewDialog.set({ nodeId: this.node().id });
+    this.ui.dialogs.open({ kind: 'review', nodeId: this.node().id });
   }
 
   protected openLinkDialog(e: Event): void {
     e.stopPropagation();
-    this.ui.linkDialog.set({ fromNodeId: this.node().id });
+    this.ui.dialogs.open({ kind: 'link', fromNodeId: this.node().id });
   }
 
   protected async linkHere(e: Event): Promise<void> {
@@ -522,7 +522,8 @@ export class MessageItem {
 
   /** The gear: the branch dialog, sending the question once the branch is set up. */
   protected askWithSettings(text: string): void {
-    this.ui.branchDialog.set({
+    this.ui.dialogs.open({
+      kind: 'branch',
       fromNodeId: this.node().id,
       quote: null,
       ...(text ? { message: text, onCreated: () => this.askText.set('') } : {}),

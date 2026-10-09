@@ -220,7 +220,7 @@ export class ShareDialog {
   }
 
   protected close(): void {
-    this.ui.shareDialogOpen.set(false);
+    this.ui.dialogs.close('share');
   }
 
   protected async copy(url: string): Promise<void> {

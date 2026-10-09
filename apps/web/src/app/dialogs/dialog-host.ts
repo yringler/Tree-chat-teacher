@@ -31,39 +31,39 @@ import { TreeSettings } from './tree-settings';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (ui.branchDialog(); as state) {
+    @if (ui.dialogs.get('branch'); as state) {
       <app-branch-dialog [state]="state" />
     }
     @if (store.index()) {
-      @if (ui.branchSettingsOpen() && store.selectedBranch(); as branch) {
+      @if (ui.dialogs.isOpen('branch-settings') && store.selectedBranch(); as branch) {
         <app-branch-settings [branch]="branch" />
       }
-      @if (ui.treeSettingsOpen() && store.detail(); as detail) {
+      @if (ui.dialogs.isOpen('tree-settings') && store.detail(); as detail) {
         <app-tree-settings [tree]="detail.tree" />
       }
-      @if (ui.shareDialogOpen()) {
+      @if (ui.dialogs.isOpen('share')) {
         <app-share-dialog />
       }
-      @if (ui.reviewDialog(); as review) {
+      @if (ui.dialogs.get('review'); as review) {
         <app-review-dialog [nodeId]="review.nodeId" />
       }
-      @if (ui.compareDialog(); as compare) {
+      @if (ui.dialogs.get('compare'); as compare) {
         <app-compare-dialog [branchId]="compare.branchId" [content]="compare.content" />
       }
-      @if (ui.linkDialog(); as link) {
+      @if (ui.dialogs.get('link'); as link) {
         <app-link-dialog [state]="link" />
       }
     }
-    @if (ui.settingsOpen()) {
+    @if (ui.dialogs.isOpen('settings')) {
       <app-settings-dialog />
     }
-    @if (ui.accountOpen()) {
+    @if (ui.dialogs.isOpen('account')) {
       <app-account-dialog />
     }
-    @if (ui.shortcutsOpen()) {
+    @if (ui.dialogs.isOpen('shortcuts')) {
       <app-shortcuts-help />
     }
-    @if (ui.keysDialog(); as keys) {
+    @if (ui.dialogs.get('keys'); as keys) {
       <app-api-keys [initialProvider]="keys.provider" />
     }
   `,

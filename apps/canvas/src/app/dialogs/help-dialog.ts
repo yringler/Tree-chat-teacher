@@ -79,6 +79,6 @@ export class HelpDialog {
   protected readonly shortcuts = SHORTCUTS;
 
   protected close(): void {
-    this.ui.helpOpen.set(false);
+    this.ui.dialogs.close('help');
   }
 }

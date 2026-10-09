@@ -87,6 +87,6 @@ export class ConnectDialog {
   }
 
   protected close(): void {
-    this.ui.linkDialog.set(null);
+    this.ui.dialogs.close('connect');
   }
 }

@@ -405,7 +405,7 @@ describe('LessonStore', () => {
     );
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
 
-    expect(s.ui.accessOpen()).toBe(true);
+    expect(s.ui.dialogs.isOpen('access')).toBe(true);
     expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error' });
     expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
     expect(s.store.unsentDraft()).toEqual({
@@ -529,7 +529,7 @@ describe('LessonStore', () => {
       }),
     );
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
-    expect(s.ui.poolVerifyOpen()).toBe(true);
+    expect(s.ui.dialogs.isOpen('pool-verify')).toBe(true);
     expect(s.toasts.toasts()).toEqual([]);
     expect(s.store.poolBlock()).toBeNull();
     expect(s.store.unsentDraft()?.text).toBe('What is light?');
@@ -542,7 +542,7 @@ describe('LessonStore', () => {
       new ApiError(403, 'pool_unavailable', 'Open pool access is suspended for this account'),
     );
     await s.store.send('trunk', 'What is light?');
-    expect(s.ui.poolVerifyOpen()).toBe(false);
+    expect(s.ui.dialogs.isOpen('pool-verify')).toBe(false);
     expect(s.toasts.toasts().at(-1)).toMatchObject({
       kind: 'error',
       text: 'Open pool access is suspended for this account',
@@ -826,7 +826,7 @@ describe('LessonStore', () => {
         { ...d, links: [link('l1', 'a1', 'a2'), link('l2', 'u3', 'u4'), link('l3', 'a1', 'u4')] },
         'other',
       );
-      s.ui.linkDialog.set('a2');
+      s.ui.dialogs.open({ kind: 'connect', sourceNodeId: 'a2' });
       s.store.linkReturn.set({
         branchId: 'side',
         nodeId: 'a2',
@@ -836,7 +836,7 @@ describe('LessonStore', () => {
       await expect(s.store.deleteSideQuestion('side')).resolves.toBe(true);
       expect(s.store.links().map((l) => l.id)).toEqual(['l3']);
       expect(s.store.linksByNode().has('a2')).toBe(false);
-      expect(s.ui.linkDialog()).toBeNull();
+      expect(s.ui.dialogs.get('connect')).toBeNull();
       expect(s.store.linkReturn()).toBeNull();
     });
 

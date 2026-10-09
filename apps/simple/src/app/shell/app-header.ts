@@ -128,17 +128,17 @@ export class AppHeader {
 
   protected openAccess(): void {
     this.close();
-    this.ui.accessOpen.set(true);
+    this.ui.dialogs.open({ kind: 'access' });
   }
 
   protected openPasskeys(): void {
     this.close();
-    this.ui.passkeysOpen.set(true);
+    this.ui.dialogs.open({ kind: 'passkeys' });
   }
 
   protected openDeleteAccount(): void {
     this.close();
-    this.ui.deleteAccountOpen.set(true);
+    this.ui.dialogs.open({ kind: 'delete-account' });
   }
 
   protected async signOut(): Promise<void> {

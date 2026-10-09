@@ -5,6 +5,7 @@ import {
   APP_PATHS,
   AuthService,
   DEMO_MODE,
+  dispatchShortcut,
   PoolFirstUseDialog,
   Toasts,
 } from '@tangent/web-shared';
@@ -55,29 +56,29 @@ import { UiStore } from './state/ui-store';
           }
         </main>
       </div>
-      @if (ui.passkeysOpen()) {
+      @if (ui.dialogs.isOpen('passkeys')) {
         <app-passkeys-dialog />
       }
-      @if (ui.deleteAccountOpen()) {
+      @if (ui.dialogs.isOpen('delete-account')) {
         <app-delete-account-dialog />
       }
-      @if (ui.accessOpen()) {
+      @if (ui.dialogs.isOpen('access')) {
         <app-model-access-dialog />
       }
-      @if (ui.linkDialog(); as sourceNodeId) {
-        <app-connect-dialog [sourceNodeId]="sourceNodeId" />
+      @if (ui.dialogs.get('connect'); as connect) {
+        <app-connect-dialog [sourceNodeId]="connect.sourceNodeId" />
       }
-      @if (ui.compare(); as c) {
+      @if (ui.dialogs.get('compare'); as c) {
         <app-compare-dialog [branchId]="c.branchId" [content]="c.content" />
       }
-      @if (ui.poolVerifyOpen()) {
-        <app-pool-first-use-dialog (closed)="ui.poolVerifyOpen.set(false)" />
+      @if (ui.dialogs.isOpen('pool-verify')) {
+        <app-pool-first-use-dialog (closed)="ui.dialogs.close('pool-verify')" />
       }
     }
 
     <app-toasts />
   `,
-  host: { '(document:keydown.escape)': 'ui.closeTop()' },
+  host: { '(document:keydown)': 'onKey($event)' },
 })
 export class App {
   protected readonly ui = inject(UiStore);
@@ -102,6 +103,14 @@ export class App {
     if (this.loginPage) return;
     this.routeSync.start(inject(DestroyRef));
     void this.boot();
+  }
+
+  /** Learn has no shortcuts: Escape closes the top-most dialog or the menu. */
+  protected onKey(e: KeyboardEvent): void {
+    dispatchShortcut(e, {
+      closeTop: () => this.ui.closeTop(),
+      dialogOpen: () => this.ui.dialogs.anyOpen(),
+    });
   }
 
   private async boot(): Promise<void> {

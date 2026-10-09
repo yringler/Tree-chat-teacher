@@ -125,7 +125,7 @@ export class AccountDialog implements OnInit {
   }
 
   protected close(): void {
-    this.ui.accountOpen.set(false);
+    this.ui.dialogs.close('account');
   }
 
   protected async add(name: string): Promise<void> {

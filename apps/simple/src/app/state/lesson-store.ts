@@ -547,13 +547,13 @@ export class LessonStore extends ConversationStore<ApiClient> {
       return;
     }
     if (isPoolUnavailable(err) && err.pool?.reason === 'verify') {
-      this.ui.poolVerifyOpen.set(true);
+      this.ui.dialogs.open({ kind: 'pool-verify' });
       return;
     }
     if (err instanceof ApiError && err.code === 'key_required') {
       this.toast.notify(err.message, 'error');
       void this.account.refreshKey();
-      this.ui.accessOpen.set(true);
+      this.ui.dialogs.open({ kind: 'access' });
       return;
     }
     if (isPaymentRequired(err)) {
@@ -576,8 +576,8 @@ export class LessonStore extends ConversationStore<ApiClient> {
     const block = this.poolBlock();
     if (block && branchIds.has(block.branchId)) this.poolBlock.set(null);
     // Connecting from a message that is gone, or back to a side question that is.
-    const from = this.ui.linkDialog();
-    if (from !== null && nodeIds.has(from)) this.ui.linkDialog.set(null);
+    const from = this.ui.dialogs.get('connect')?.sourceNodeId;
+    if (from !== undefined && nodeIds.has(from)) this.ui.dialogs.close('connect');
     const back = this.linkReturn();
     if (back && (branchIds.has(back.branchId) || branchIds.has(back.toBranchId))) {
       this.linkReturn.set(null);

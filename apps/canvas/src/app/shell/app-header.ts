@@ -41,7 +41,7 @@ import { UiStore } from '../state/ui-store';
           type="button"
           class="btn btn-ghost btn-sm"
           title="API keys (bring your own)"
-          (click)="ui.keysOpen.set(true)"
+          (click)="ui.dialogs.open({ kind: 'keys' })"
         >
           <app-icon name="key" [size]="15" />
           <span class="hide-narrow">Keys</span>
@@ -120,7 +120,7 @@ export class AppHeader {
 
   protected openDeleteAccount(): void {
     this.ui.menuOpen.set(false);
-    this.ui.deleteAccountOpen.set(true);
+    this.ui.dialogs.open({ kind: 'delete-account' });
   }
 
   protected async signOut(): Promise<void> {

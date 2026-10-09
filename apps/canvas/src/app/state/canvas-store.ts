@@ -388,7 +388,7 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
   }
 
   protected override keysSettled(): void {
-    this.ui.keysOpen.set(false);
+    this.ui.dialogs.close('keys');
   }
 
   protected override movedToCredit(branch: Branch): void {
@@ -409,7 +409,7 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
       return;
     }
     this.toast.notify(errorMessage(err), 'error');
-    if (refusal === 'key_required') this.ui.keysOpen.set(true);
+    if (refusal === 'key_required') this.ui.dialogs.open({ kind: 'keys' });
   }
 
   // Internals
@@ -425,10 +425,12 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
 
   /** Linking from a message that is gone, its popover, or a way back to a lane that is. */
   private dropLinkState(branchIds: ReadonlySet<string>, nodeIds: ReadonlySet<string>): void {
-    for (const s of [this.ui.linkPick, this.ui.linkDialog, this.ui.linkDrag]) {
+    for (const s of [this.ui.linkPick, this.ui.linkDrag]) {
       const from = s()?.fromNodeId;
       if (from !== undefined && nodeIds.has(from)) s.set(null);
     }
+    const linking = this.ui.dialogs.get('link')?.fromNodeId;
+    if (linking !== undefined && nodeIds.has(linking)) this.ui.dialogs.close('link');
     const open = this.ui.linkPopover();
     if (open && !this.links().some((l) => l.id === open.linkId)) this.ui.linkPopover.set(null);
     const back = this.ui.linkReturn();

@@ -275,7 +275,7 @@ export class ChatPage implements OnDestroy {
     if (!id || !this.canCompare()) return;
     this.pinned.set(true);
     if (this.store.focusedNodeId()) this.store.go(id, null, true);
-    this.ui.compare.set({ branchId: id, content });
+    this.ui.dialogs.open({ kind: 'compare', branchId: id, content });
   }
 
   protected stop(): void {

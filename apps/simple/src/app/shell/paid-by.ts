@@ -105,6 +105,6 @@ export class PaidBy {
 
   protected open(): void {
     this.ui.menuOpen.set(false);
-    this.ui.accessOpen.set(true);
+    this.ui.dialogs.open({ kind: 'access' });
   }
 }

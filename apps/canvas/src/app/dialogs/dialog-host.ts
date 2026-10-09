@@ -13,22 +13,22 @@ import { LinkDialog } from './link-dialog';
   imports: [BranchDialog, BranchSettings, DeleteAccountDialog, HelpDialog, KeysDialog, LinkDialog],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (ui.branchDialog(); as s) {
+    @if (ui.dialogs.get('branch'); as s) {
       <app-branch-dialog [state]="s" />
     }
-    @if (ui.branchSettings(); as s) {
+    @if (ui.dialogs.get('branch-settings'); as s) {
       <app-branch-settings [state]="s" />
     }
-    @if (ui.linkDialog(); as s) {
+    @if (ui.dialogs.get('link'); as s) {
       <app-link-dialog [state]="s" />
     }
-    @if (ui.keysOpen()) {
+    @if (ui.dialogs.isOpen('keys')) {
       <app-keys-dialog />
     }
-    @if (ui.helpOpen()) {
+    @if (ui.dialogs.isOpen('help')) {
       <app-help-dialog />
     }
-    @if (ui.deleteAccountOpen()) {
+    @if (ui.dialogs.isOpen('delete-account')) {
       <app-delete-account-dialog />
     }
   `,

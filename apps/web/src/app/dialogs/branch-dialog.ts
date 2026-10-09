@@ -143,7 +143,7 @@ export class BranchDialog implements OnInit {
   }
 
   protected close(): void {
-    this.ui.branchDialog.set(null);
+    this.ui.dialogs.close('branch');
   }
 
   /** Ctrl/Cmd+Enter creates the branch (Enter is a newline, as in the anchor quote). */

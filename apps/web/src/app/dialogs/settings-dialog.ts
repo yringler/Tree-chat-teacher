@@ -314,7 +314,7 @@ export class SettingsDialog implements OnInit {
   }
 
   protected close(): void {
-    this.ui.settingsOpen.set(false);
+    this.ui.dialogs.close('settings');
   }
 
   protected async save(): Promise<void> {

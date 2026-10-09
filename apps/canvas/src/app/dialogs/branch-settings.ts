@@ -164,7 +164,7 @@ export class BranchSettings implements OnInit {
   }
 
   protected close(): void {
-    this.ui.branchSettings.set(null);
+    this.ui.dialogs.close('branch-settings');
   }
 
   protected async save(): Promise<void> {

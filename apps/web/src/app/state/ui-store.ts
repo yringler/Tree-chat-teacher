@@ -1,4 +1,5 @@
 import { Injectable, signal } from '@angular/core';
+import { Overlays } from '@tangent/web-shared';
 
 export interface BranchDialogState {
   fromNodeId: string;
@@ -38,6 +39,26 @@ export interface LinkReturn {
   toNodeId: string;
 }
 
+/**
+ * A dialog of the power app, with what it was opened with. `keys`: Keys &
+ * credit, `provider` preselecting the provider to enter a key for; `review`:
+ * the review of one assistant message; `compare`: Normal and Max answer
+ * `content` at the leaf of `branchId`, and the user keeps one (the message
+ * stays in the composer until a pick commits).
+ */
+export type Dialog =
+  | ({ kind: 'branch' } & BranchDialogState)
+  | { kind: 'branch-settings' }
+  | { kind: 'tree-settings' }
+  | { kind: 'share' }
+  | { kind: 'shortcuts' }
+  | { kind: 'keys'; provider: string | null }
+  | { kind: 'settings' }
+  | { kind: 'account' }
+  | { kind: 'review'; nodeId: string }
+  | { kind: 'compare'; branchId: string; content: string }
+  | ({ kind: 'link' } & LinkDialogState);
+
 const INSPECTOR_KEY = 'tangent.inspectorOpen';
 
 function readFlag(key: string): boolean {
@@ -61,25 +82,10 @@ function writeFlag(key: string, value: boolean): void {
 export class UiStore {
   readonly drawerOpen = signal(false);
   readonly inspectorOpen = signal(readFlag(INSPECTOR_KEY));
-  readonly shortcutsOpen = signal(false);
-  readonly branchDialog = signal<BranchDialogState | null>(null);
-  readonly branchSettingsOpen = signal(false);
-  readonly treeSettingsOpen = signal(false);
-  readonly shareDialogOpen = signal(false);
   readonly exportMenuOpen = signal(false);
   readonly textSizeMenuOpen = signal(false);
-  /** Keys & credit dialog; `provider` preselects the provider to enter a key for. */
-  readonly keysDialog = signal<{ provider: string | null } | null>(null);
-  readonly settingsOpen = signal(false);
-  readonly accountOpen = signal(false);
-  /** Review dialog for one assistant message. */
-  readonly reviewDialog = signal<{ nodeId: string } | null>(null);
-  /**
-   * Compare: Normal and Max answer `content` at the leaf of `branchId`, and
-   * the user keeps one. The message stays in the composer until a pick commits.
-   */
-  readonly compareDialog = signal<{ branchId: string; content: string } | null>(null);
-  readonly linkDialog = signal<LinkDialogState | null>(null);
+  /** The open dialogs (`Dialog`), top-most last. */
+  readonly dialogs = new Overlays<Dialog>();
   readonly linkPick = signal<LinkPickState | null>(null);
   readonly linkReturn = signal<LinkReturn | null>(null);
   /** Messages whose "N related" list is open (by node id). */
@@ -125,7 +131,7 @@ export class UiStore {
 
   /** Forgets the link dialog, pick mode and the return pill (another tree opened). */
   clearLinkState(): void {
-    this.linkDialog.set(null);
+    this.dialogs.close('link');
     this.linkPick.set(null);
     this.linkReturn.set(null);
   }
@@ -143,70 +149,21 @@ export class UiStore {
     this.composerSent.update((cur) => ({ seq: (cur?.seq ?? 0) + 1, text }));
   }
 
-  anyDialogOpen(): boolean {
-    return (
-      this.branchDialog() !== null ||
-      this.linkDialog() !== null ||
-      this.branchSettingsOpen() ||
-      this.treeSettingsOpen() ||
-      this.shareDialogOpen() ||
-      this.shortcutsOpen() ||
-      this.keysDialog() !== null ||
-      this.settingsOpen() ||
-      this.accountOpen() ||
-      this.reviewDialog() !== null ||
-      this.compareDialog() !== null
-    );
-  }
-
-  /** Escape: closes the top-most overlay. Returns true if something closed. */
+  /**
+   * Escape: closes the top-most overlay (a dialog, then pick mode, a menu,
+   * the drawer). Returns true if something closed.
+   */
   closeTop(): boolean {
-    if (this.keysDialog()) {
-      this.keysDialog.set(null);
-      return true;
-    }
-    if (this.branchDialog()) {
-      this.branchDialog.set(null);
-      return true;
-    }
-    if (this.reviewDialog()) {
-      this.reviewDialog.set(null);
-      return true;
-    }
-    if (this.compareDialog()) {
-      this.compareDialog.set(null);
-      return true;
-    }
-    if (this.linkDialog()) {
-      this.linkDialog.set(null);
-      return true;
-    }
-    for (const s of [
-      this.branchSettingsOpen,
-      this.treeSettingsOpen,
-      this.shareDialogOpen,
-      this.shortcutsOpen,
-      this.settingsOpen,
-      this.accountOpen,
-    ]) {
-      if (s()) {
-        s.set(false);
-        return true;
-      }
-    }
+    if (this.dialogs.closeTop()) return true;
     if (this.linkPick()) {
       this.linkPick.set(null);
       return true;
     }
-    for (const s of [this.exportMenuOpen, this.textSizeMenuOpen]) {
+    for (const s of [this.exportMenuOpen, this.textSizeMenuOpen, this.drawerOpen]) {
       if (s()) {
         s.set(false);
         return true;
       }
-    }
-    if (this.drawerOpen()) {
-      this.drawerOpen.set(false);
-      return true;
     }
     return false;
   }

@@ -118,7 +118,7 @@ describe('TreeStore membership and credit', () => {
     const s = setup();
     await s.store.init(me());
     s.store.fail(new ApiError(401, 'key_required', 'Add your key'));
-    expect(s.ui.keysDialog()).toEqual({ provider: null });
+    expect(s.ui.dialogs.get('keys')).toEqual({ kind: 'keys', provider: null });
     expect(s.toasts.toasts()[0]?.link).toBeUndefined();
   });
 });
@@ -340,7 +340,7 @@ describe('TreeStore read-only power without a membership', () => {
     expect(s.store.selectedBranch()?.funding).toBe('credit');
     expect([...s.store.account.lockedFundings()]).toEqual(['own-key']);
     expect(s.store.account.membership()?.status).toBe('inactive');
-    expect(s.ui.keysDialog()).toBeNull();
+    expect(s.ui.dialogs.get('keys')).toBeNull();
     expect(s.api.me).toHaveBeenCalledTimes(0);
     // The balance is read again.
     await vi.waitFor(() => expect(s.api.billing.mock.calls.length).toBeGreaterThan(callsBefore));
@@ -419,7 +419,7 @@ describe('TreeStore read-only power without a membership', () => {
       expect(s.store.blockedSends()).toEqual([{ branchId: 'trunk', content: 'Why primes?' }]);
       expect(s.store.blockedBranch()?.id).toBe('trunk');
       expect(s.store.unsentDrafts().get('trunk')).toBe('Why primes?');
-      expect(s.ui.keysDialog()).toEqual({ provider: 'openrouter' });
+      expect(s.ui.dialogs.get('keys')).toEqual({ kind: 'keys', provider: 'openrouter' });
       // Nothing reached the tree: the composer keeps the text.
       expect(s.ui.composerSent()).toBeNull();
     });
@@ -441,7 +441,7 @@ describe('TreeStore read-only power without a membership', () => {
         expect.any(AbortSignal),
       );
       expect(s.store.blockedSends()).toEqual([]);
-      expect(s.ui.keysDialog()).toBeNull();
+      expect(s.ui.dialogs.get('keys')).toBeNull();
     });
 
     it('saving the key sends the waiting message on it', async () => {
@@ -462,7 +462,7 @@ describe('TreeStore read-only power without a membership', () => {
         expect.any(AbortSignal),
       );
       expect(s.store.blockedSends()).toEqual([]);
-      expect(s.ui.keysDialog()).toBeNull();
+      expect(s.ui.dialogs.get('keys')).toBeNull();
     });
 
     it('sends the reply length set in Settings; Auto sends none', async () => {
@@ -633,7 +633,9 @@ describe('TreeStore the default route of a new conversation (no keys)', () => {
     });
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalled());
     // The keys dialog opens on the OpenRouter key.
-    await vi.waitFor(() => expect(s.ui.keysDialog()).toEqual({ provider: 'openrouter' }));
+    await vi.waitFor(() =>
+      expect(s.ui.dialogs.get('keys')).toEqual({ kind: 'keys', provider: 'openrouter' }),
+    );
     expect(s.toasts.toasts()).toEqual([expect.objectContaining({ kind: 'error', text: message })]);
     expect(s.toasts.toasts()[0]?.text).not.toMatch(/session|sign in/i);
   });
@@ -1034,25 +1036,25 @@ describe('TreeStore links between messages', () => {
   it('opening another tree ends pick mode and forgets the return pill', () => {
     const s = open();
     s.ui.linkPick.set({ fromNodeId: 'n5' });
-    s.ui.linkDialog.set({ fromNodeId: 'n5' });
+    s.ui.dialogs.open({ kind: 'link', fromNodeId: 'n5' });
     s.store.openNode('n2', 'n5');
     s.store.setRoute('t1', 'trunk', 'n2');
     expect(s.ui.linkPick()).not.toBeNull();
     s.store.setRoute('t2', null, null);
     expect(s.ui.linkPick()).toBeNull();
-    expect(s.ui.linkDialog()).toBeNull();
+    expect(s.ui.dialogs.get('link')).toBeNull();
     expect(s.ui.linkReturn()).toBeNull();
   });
 
   it('Escape ends pick mode after closing dialogs', () => {
     const s = open();
     s.ui.linkPick.set({ fromNodeId: 'n5' });
-    s.ui.linkDialog.set({ fromNodeId: 'n5' });
-    expect(s.ui.anyDialogOpen()).toBe(true);
+    s.ui.dialogs.open({ kind: 'link', fromNodeId: 'n5' });
+    expect(s.ui.dialogs.anyOpen()).toBe(true);
     expect(s.ui.closeTop()).toBe(true);
-    expect(s.ui.linkDialog()).toBeNull();
+    expect(s.ui.dialogs.get('link')).toBeNull();
     expect(s.ui.linkPick()).not.toBeNull();
-    expect(s.ui.anyDialogOpen()).toBe(false);
+    expect(s.ui.dialogs.anyOpen()).toBe(false);
     expect(s.ui.closeTop()).toBe(true);
     expect(s.ui.linkPick()).toBeNull();
   });

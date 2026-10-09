@@ -57,7 +57,7 @@ export interface RouteView {
           [attr.aria-label]="
             'Replies on ' + r.label + ', ' + r.model + '. Change them in the branch settings'
           "
-          (click)="ui.branchSettingsOpen.set(true)"
+          (click)="ui.dialogs.open({ kind: 'branch-settings' })"
         >
           <span class="route-chip-text"
             ><strong>{{ r.label }}</strong> · {{ r.model }}</span
@@ -69,7 +69,7 @@ export interface RouteView {
             type="button"
             class="link-btn small"
             title="Choose the models of Normal and Max (Settings)"
-            (click)="ui.settingsOpen.set(true)"
+            (click)="ui.dialogs.open({ kind: 'settings' })"
           >
             Configure
           </button>
@@ -89,7 +89,7 @@ export interface RouteView {
           <button
             type="button"
             class="link-btn small"
-            (click)="ui.keysDialog.set({ provider: r.branch.providerId })"
+            (click)="ui.dialogs.open({ kind: 'keys', provider: r.branch.providerId })"
           >
             Add your key
           </button>

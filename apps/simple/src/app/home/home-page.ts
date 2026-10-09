@@ -41,7 +41,7 @@ import { UiStore } from '../state/ui-store';
       @if (account.needsKey()) {
         <p class="notice" role="status">
           Replies run on your own OpenRouter key, and none is saved in this browser yet.
-          <button type="button" class="link-btn" (click)="ui.accessOpen.set(true)">
+          <button type="button" class="link-btn" (click)="ui.dialogs.open({ kind: 'access' })">
             Add your key{{
               account.payment.builtInCredit() && account.payment.creditUsable()
                 ? ' or use Tangent credit'

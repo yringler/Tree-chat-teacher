@@ -64,6 +64,6 @@ export class LinkDialog {
   }
 
   protected close(): void {
-    this.ui.linkDialog.set(null);
+    this.ui.dialogs.close('link');
   }
 }

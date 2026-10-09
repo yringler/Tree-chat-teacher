@@ -103,7 +103,7 @@ describe('Branch settings', () => {
     // The dialog host binds the live selected branch.
     Object.defineProperty(d, 'branch', { value: live });
     d.ngOnInit();
-    s.ui.branchSettingsOpen.set(true);
+    s.ui.dialogs.open({ kind: 'branch-settings' });
     return { d, live };
   }
 
@@ -129,9 +129,9 @@ describe('Branch settings', () => {
     const s = setup();
     open(s);
     s.store.setRoute('t1', 'side', 'a1');
-    expect(s.ui.branchSettingsOpen()).toBe(true);
+    expect(s.ui.dialogs.isOpen('branch-settings')).toBe(true);
     s.store.setRoute('t1', null, null);
-    expect(s.ui.branchSettingsOpen()).toBe(false);
+    expect(s.ui.dialogs.isOpen('branch-settings')).toBe(false);
   });
 });
 

@@ -210,7 +210,7 @@ export class ApiKeys implements OnInit, OnDestroy {
   }
 
   protected close(): void {
-    this.ui.keysDialog.set(null);
+    this.ui.dialogs.close('keys');
   }
 
   protected async useCredit(): Promise<void> {

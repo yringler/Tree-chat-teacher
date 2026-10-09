@@ -248,7 +248,7 @@ export class ModelAccessDialog {
   protected readonly error = signal<string | null>(null);
 
   protected close(): void {
-    this.ui.accessOpen.set(false);
+    this.ui.dialogs.close('access');
   }
 
   protected choose(payment: LearnPayment): void {

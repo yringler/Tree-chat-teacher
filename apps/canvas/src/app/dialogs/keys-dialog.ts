@@ -209,7 +209,7 @@ export class KeysDialog implements OnInit, OnDestroy {
   }
 
   protected close(): void {
-    this.ui.keysOpen.set(false);
+    this.ui.dialogs.close('keys');
   }
 
   /** The lane's provider as the provider list labels it. */

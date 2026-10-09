@@ -271,7 +271,7 @@ export class BranchDialog implements OnInit {
   }
 
   protected close(): void {
-    this.ui.branchDialog.set(null);
+    this.ui.dialogs.close('branch');
   }
 
   /** Ctrl/Cmd+Enter opens the lanes (Enter is a newline). */

@@ -88,13 +88,13 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     const branchBefore = this.selectedBranchId();
     super.setRoute(treeId, branchId, focusNodeId);
     // Branch settings edit the branch on screen: going to another (Back, a link) closes them.
-    if (this.selectedBranchId() !== branchBefore) this.ui.branchSettingsOpen.set(false);
+    if (this.selectedBranchId() !== branchBefore) this.ui.dialogs.close('branch-settings');
   }
 
   protected override treeChanged(): void {
     this.ui.clearLinkState();
     // A comparison belongs to a branch of the tree left behind (Back while it was open).
-    this.ui.compareDialog.set(null);
+    this.ui.dialogs.close('compare');
   }
 
   override go(branchId: string, focusNodeId: string | null = null, replace = false): void {
@@ -266,10 +266,10 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
   ): void {
     super.branchesRemoved(branchIds, nodeIds);
     // Linking from a message that is gone, or back to a branch that is.
-    for (const s of [this.ui.linkPick, this.ui.linkDialog]) {
-      const from = s()?.fromNodeId;
-      if (from !== undefined && nodeIds.has(from)) s.set(null);
-    }
+    const pick = this.ui.linkPick()?.fromNodeId;
+    if (pick !== undefined && nodeIds.has(pick)) this.ui.linkPick.set(null);
+    const linking = this.ui.dialogs.get('link')?.fromNodeId;
+    if (linking !== undefined && nodeIds.has(linking)) this.ui.dialogs.close('link');
     const back = this.ui.linkReturn();
     if (back && (branchIds.has(back.branchId) || branchIds.has(back.toBranchId))) {
       this.ui.linkReturn.set(null);
@@ -281,7 +281,7 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
   }
 
   protected override keysSettled(): void {
-    this.ui.keysDialog.set(null);
+    this.ui.dialogs.close('keys');
   }
 
   protected override movedToCredit(branch: Branch, modelLabel: string): void {
@@ -305,11 +305,11 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
       return;
     }
     this.toast.notify(errorMessage(err), 'error');
-    if (refusal === 'key_required' && !this.ui.keysDialog()) {
+    if (refusal === 'key_required' && !this.ui.dialogs.get('keys')) {
       // Ask for the key of the provider in use (the dialog also offers Tangent
       // credit for a refused send, `blockedSends`).
       const branch = this.blockedBranch() ?? this.selectedBranch();
-      this.ui.keysDialog.set({ provider: branch?.providerId ?? null });
+      this.ui.dialogs.open({ kind: 'keys', provider: branch?.providerId ?? null });
     }
   }
 }

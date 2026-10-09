@@ -88,7 +88,7 @@ export class PasskeysDialog implements OnInit {
   }
 
   protected close(): void {
-    this.ui.passkeysOpen.set(false);
+    this.ui.dialogs.close('passkeys');
   }
 
   protected async add(name: string): Promise<void> {

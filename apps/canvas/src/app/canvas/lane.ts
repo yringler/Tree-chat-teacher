@@ -294,7 +294,7 @@ export class Lane implements OnDestroy {
 
   protected settings(e: Event): void {
     e.stopPropagation();
-    this.ui.branchSettings.set({ branchId: this.place().branch.id });
+    this.ui.dialogs.open({ kind: 'branch-settings', branchId: this.place().branch.id });
   }
 
   /** The lane with every lane below it, after asking; the selection moves up if it was in there. */

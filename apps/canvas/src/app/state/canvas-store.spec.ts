@@ -539,7 +539,7 @@ describe('CanvasStore read-only lanes without a membership', () => {
     s.api.sendMessage.mockRejectedValueOnce(new ApiError(401, 'key_required', 'Add your key'));
 
     await expect(s.store.send('trunk', 'Why green?')).resolves.toBe(false);
-    expect(s.ui.keysOpen()).toBe(true);
+    expect(s.ui.dialogs.isOpen('keys')).toBe(true);
     expect(s.store.blockedBranch()?.id).toBe('trunk');
     expect(s.store.unsentDrafts().get('trunk')).toBe('Why green?');
     expect(s.ui.composerSent()).toBeNull();
@@ -557,7 +557,7 @@ describe('CanvasStore read-only lanes without a membership', () => {
     );
     expect(s.store.blockedSends()).toEqual([]);
     expect(s.store.unsentDrafts().has('trunk')).toBe(false);
-    expect(s.ui.keysOpen()).toBe(false);
+    expect(s.ui.dialogs.isOpen('keys')).toBe(false);
   });
 });
 
