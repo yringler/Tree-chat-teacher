@@ -7,8 +7,9 @@
  * whatever they don't follow by branching.
  *
  * The one copy of the text. The Worker applies it in `POST /api/trees` when
- * the request carries no prompt and the account has none saved (Learn: unless
- * the operator sets `LEARN_SYSTEM_PROMPT`); the in-browser demo does the same.
+ * the request carries no prompt and, in power, the account has none saved
+ * (Learn: unless the operator sets `LEARN_SYSTEM_PROMPT`); the in-browser
+ * demo does the same.
  */
 export const DEFAULT_SYSTEM_PROMPT = `You are the tutor inside Tangent, a learning app built around branching conversations. The user learns by asking questions. Any message can spawn a branch, so the user will drill into whatever they don't understand on their own. Your job is to give the best possible answer to the question actually asked, then point to where they could go next.
 
@@ -48,3 +49,19 @@ Format them exactly like this, as the last thing in your reply, so the app can t
 </tangents>
 
 Skip the tangents block for very short replies, clarifying questions, or when the user is just chatting.`;
+
+/**
+ * The learner's own instructions in a tree's prompt, which Learn adds after
+ * its tutor prompt: the prompt, unless it is blank or a built-in one
+ * (DEFAULT_SYSTEM_PROMPT, or `tutorPrompt`, the prompt a new lesson gets),
+ * since a built-in prompt there would only repeat the tutor's.
+ */
+export function customInstructions(
+  treePrompt: string | null,
+  tutorPrompt: string | null,
+): string | null {
+  const text = treePrompt?.trim() ?? '';
+  if (text === '' || text === DEFAULT_SYSTEM_PROMPT.trim() || text === tutorPrompt?.trim())
+    return null;
+  return treePrompt;
+}

@@ -1,5 +1,4 @@
 import {
-  DEFAULT_ACCOUNT_ID,
   MODE_HEADER,
   PAYMENT_HEADER,
   type MeResponse,
@@ -10,7 +9,7 @@ import { env, exports } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import {
   accountRequest,
-  DEV_SIMPLE_ACCOUNT_ID,
+  DEV_ACCOUNT_ID,
   resolveAccount,
   withPoolParams,
   type AccountRequest,
@@ -21,10 +20,10 @@ import { creditRegistryFor, providersFor, registryFor } from '../src/registries.
 import { BASE } from './http.js';
 import { devPowerAccount } from './mocks/billing-helpers.js';
 
-describe('accounts (dev bypass: the default account)', () => {
+describe('accounts (dev bypass: one account)', () => {
   it('/api/me reports the account and new rows are stamped with it', async () => {
     const me = (await (await exports.default.fetch(`${BASE}/api/me`)).json()) as MeResponse;
-    expect(me.accountId).toBe(DEFAULT_ACCOUNT_ID);
+    expect(me.accountId).toBe(DEV_ACCOUNT_ID);
 
     const res = await exports.default.fetch(
       new Request(`${BASE}/api/trees`, {
@@ -34,11 +33,11 @@ describe('accounts (dev bypass: the default account)', () => {
       }),
     );
     const detail = (await res.json()) as TreeDetail;
-    expect(detail.tree.accountId).toBe(DEFAULT_ACCOUNT_ID);
+    expect(detail.tree.accountId).toBe(DEV_ACCOUNT_ID);
     const row = await env.DB.prepare('SELECT account_id FROM trees WHERE id = ?1')
       .bind(detail.tree.id)
       .first<{ account_id: string }>();
-    expect(row?.account_id).toBe(DEFAULT_ACCOUNT_ID);
+    expect(row?.account_id).toBe(DEV_ACCOUNT_ID);
   });
 
   it('trees owned by another account are invisible and 404', async () => {
@@ -66,27 +65,27 @@ describe('resolveAccount', () => {
     payment,
   });
 
-  it('dev bypass: the default account for power, default_simple for Learn', () => {
+  it('dev bypass: default_simple in every mode', () => {
     expect(resolveAccount(withEnv(), dev, power)).toEqual({
-      id: DEFAULT_ACCOUNT_ID,
+      id: DEV_ACCOUNT_ID,
       mode: 'power',
       userId: null,
-      billingAccountId: DEV_SIMPLE_ACCOUNT_ID,
+      billingAccountId: DEV_ACCOUNT_ID,
       creditOffered: true,
       operatorKeys: true,
     });
     expect(resolveAccount(withEnv(), dev, learn('own-key'))).toEqual({
-      id: DEV_SIMPLE_ACCOUNT_ID,
+      id: DEV_ACCOUNT_ID,
       mode: 'simple',
       userId: null,
-      billingAccountId: DEV_SIMPLE_ACCOUNT_ID,
+      billingAccountId: DEV_ACCOUNT_ID,
       payer: 'own-key',
     });
   });
 
-  it('every user gets p_<userId> for power and u_<userId> for Learn, one ledger u_<userId>', () => {
+  it('every user gets one account u_<userId> in every mode, also their ledger', () => {
     expect(resolveAccount(withEnv(), user('someone@example.org'), power)).toEqual({
-      id: 'p_usr1',
+      id: 'u_usr1',
       mode: 'power',
       userId: 'usr1',
       billingAccountId: 'u_usr1',

@@ -13,11 +13,11 @@ import {
 import { keyMissing } from '../billing/key-missing';
 import { creditBuyable, creditCanPay, creditCarriesOn } from '../billing/membership';
 import {
-  learnCopyWay,
+  learnWay,
   lockedFundings,
   routeLocked,
   routeOpen,
-  type LearnCopyWay,
+  type LearnWay,
 } from '../billing/read-only';
 import { ApiError, type ApiClient } from '../core/api-client';
 
@@ -94,13 +94,12 @@ export class PowerAccountStore {
   );
 
   /**
-   * How a copy in Learn of a read-only conversation would get replies without
-   * a membership (`learnCopyWay`): the open pool while it is on, else Tangent
-   * credit while it carries on; null when neither, and the read-only notice
-   * then offers no copy.
+   * How Learn would reply to a read-only conversation without a membership
+   * (`learnWay`): the open pool while it is on, else Tangent credit while it
+   * carries on; null when neither, and the read-only notice then leaves Learn out.
    */
-  readonly learnCopyWay = computed<LearnCopyWay | null>(() =>
-    learnCopyWay(this.poolOn(), this.creditCarriesOn()),
+  readonly learnWay = computed<LearnWay | null>(() =>
+    learnWay(this.poolOn(), this.creditCarriesOn()),
   );
 
   /** Provider entries the user can generate on now (see `routeOpen`). */
@@ -257,7 +256,7 @@ export class PowerAccountStore {
 
   /**
    * Whether the open pool is on (`/api/pool/status` is public). Quiet on
-   * failure: no copy in Learn is offered on its account.
+   * failure: the read-only notice then leaves Learn out.
    */
   async refreshPool(): Promise<void> {
     try {

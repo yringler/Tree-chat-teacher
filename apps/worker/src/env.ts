@@ -14,21 +14,16 @@ export type AppEnv = Env & ConfigVars;
 
 /** What every account carries, whichever app it is in. */
 interface AccountIds {
-  /** Owner of trees, shares and settings: `p_<userId>` | `u_<userId>` | `default` | `default_simple`. */
+  /** Owner of trees, shares and settings, the same in every mode: `u_<userId>` | `default_simple`. */
   id: string;
   /** Better Auth user id; null in dev bypass mode. */
   userId: string | null;
-  /**
-   * Ledger id for credit and usage (`credit_grants`, `usage_events`), the
-   * same in both modes: `u_<userId>`, or `default_simple` in the dev bypass.
-   * It is the Learn account's id, so Learn balances from before credit was
-   * shared carry over without a migration.
-   */
+  /** Ledger id for credit and usage (`credit_grants`, `usage_events`): the account's `id`. */
   billingAccountId: string;
 }
 
 /**
- * The full app, `p_<userId>`: the user's own keys, plus Tangent credit per
+ * The full app (power, Canvas): the user's own keys, plus Tangent credit per
  * route (a branch's or reviewer's funding) where the server offers it. It
  * never uses the pool.
  */
@@ -47,7 +42,7 @@ export interface PowerAccount extends AccountIds {
 }
 
 /**
- * Tangent Learn, `u_<userId>`, paying per request whatever a branch says: on
+ * Tangent Learn, paying per request whatever a branch says: on
  * the user's own OpenRouter key, or on credit (the built-in provider on the
  * operator's key, metered) where it is offered.
  */
@@ -82,9 +77,8 @@ export interface UnfundedPoolAccount extends AccountIds {
 }
 
 /**
- * The account a request acts as (see auth/account.ts). Every user has one per
- * mode, each with its own conversations. Credit is per user: both accounts
- * spend the one ledger at `billingAccountId`.
+ * The account a request acts as (see auth/account.ts): every user's one
+ * account, as the request's mode generates and pays for replies.
  */
 export type AccountContext = PowerAccount | LearnAccount | PoolAccount | UnfundedPoolAccount;
 

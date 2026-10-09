@@ -185,7 +185,7 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, Child>> {
         for.
       </>
     );
-    // A copy in Learn can only get replies without a membership on the pool or on credit.
+    // Learn can only reply without a membership on the pool or on credit.
     const learnOn =
       pool && credit
         ? 'the open pool or on Tangent credit'
@@ -200,8 +200,8 @@ function noteTexts(f: PricingFacts): Partial<Record<NoteId, Child>> {
         keys
         {learnOn && (
           <>
-            , and use <strong>Create a copy in Learn</strong> to continue a power-mode conversation
-            there, on {learnOn}
+            , and use <strong>Open in Learn</strong> to continue a power-mode conversation there, on{' '}
+            {learnOn}
           </>
         )}
         .{credit && ' Power mode on Tangent credit needs no membership.'}

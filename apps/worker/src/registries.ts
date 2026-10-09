@@ -207,10 +207,12 @@ export function chatSettingsFor(
 
 /**
  * Built-in system prompt of an account's new trees, used when the request
- * names none and the account has none saved (GET/PATCH /api/settings). Both
- * modes share DEFAULT_SYSTEM_PROMPT; only Learn honours the operator's
- * LEARN_SYSTEM_PROMPT, since power users can set their own. A generating
- * pool request uses the pool's locked prompt (which also replaces the tree's).
+ * names none and, in power, the account has none saved (GET/PATCH
+ * /api/settings). Both modes share DEFAULT_SYSTEM_PROMPT; only Learn honours
+ * the operator's LEARN_SYSTEM_PROMPT, since power users can set their own.
+ * In Learn it is also the tutor prompt every reply starts with (`LearnProfile`).
+ * A generating pool request uses the pool's locked prompt (which also
+ * replaces the tree's).
  */
 export function defaultSystemPromptFor(
   env: AppEnv,
@@ -342,7 +344,8 @@ export function chatService(
           // A client-set anchor quote gets no more room than a message.
           anchorQuoteMaxChars: pool.maxMessageChars,
         }
-      : { kind: 'learn' };
+      : // The tree's own prompt only where the learner pays: the pool keeps its locked prompt.
+        { kind: 'learn', customPrompt: account.payer !== 'pool' };
   } else {
     // Power: own keys unmetered; Tangent credit, every call metered.
     const credit = creditRegistryFor(env, account);

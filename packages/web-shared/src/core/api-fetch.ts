@@ -22,9 +22,9 @@ export const API_FETCH = new InjectionToken<typeof fetch>('API_FETCH', {
 });
 
 /**
- * Extra headers on every `/api/*` call of ApiClient, read per call. The
- * server acts as the caller's power account unless they say otherwise:
- * Tangent Learn sends `x-tangent-mode: simple` and its `x-tangent-payment`
+ * Extra headers on every `/api/*` call of ApiClient, read per call. They
+ * pick how the server generates and who pays, never whose conversations:
+ * power mode unless they say otherwise. Tangent Learn sends `x-tangent-mode: simple` and its `x-tangent-payment`
  * choice (MODE_HEADER / PAYMENT_HEADER in @tangent/shared). Default: none.
  */
 export const API_HEADERS = new InjectionToken<() => Record<string, string>>('API_HEADERS', {

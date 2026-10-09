@@ -1,5 +1,5 @@
-// Links between two messages of a tree (`/api/links`) as the dev bypass's
-// power account; other users' links are covered in multi-user.test.ts and
+// Links between two messages of a tree (`/api/links`) as the dev bypass in
+// power mode; other users' links are covered in multi-user.test.ts and
 // read-only power in read-only-power.test.ts.
 import type {
   ApiError,

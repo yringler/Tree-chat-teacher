@@ -254,14 +254,14 @@ describe('links in backups', () => {
     expect((await chat.importBackup(old)).links).toEqual([]);
   });
 
-  it('carries links into Learn (copy to Learn adapts the backup)', async () => {
+  it('carries links into Learn (an import into Learn adapts the backup)', async () => {
     const { chat, repos, provider, tree, r1, a1 } = await fixture();
     await chat.createLink({ fromNodeId: r1.id, toNodeId: a1.id, note: 'see' });
     const learn = new ChatService({
       repos,
       accountId: 'u_learner',
       providers: registryOf(provider),
-      profile: { kind: 'learn' },
+      profile: { kind: 'learn', customPrompt: true },
       settings: { ...DEFAULT_CHAT_SETTINGS, autoTitle: false },
     });
     const lesson = await learn.importBackup(await chat.exportBackup(tree.id));

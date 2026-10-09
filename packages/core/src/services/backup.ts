@@ -95,7 +95,7 @@ export class BackupService {
       treeId,
       parentBranchId: b.parentBranchId === null ? null : mapBranch(b.parentBranchId),
       branchPointNodeId: b.branchPointNodeId === null ? null : mapNode(b.branchPointNodeId),
-      ...this.ctx.routes.withFixedFunding({
+      ...this.ctx.routes.runnableRoute({
         providerId: b.providerId,
         funding: b.funding ?? 'own-key',
       }),

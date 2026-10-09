@@ -38,8 +38,8 @@ import { safeNextPath, turnstileConfigured, verifyPageUrl } from '../pool/turnst
  * sign-in of a user with no pass on record) is sent through the Turnstile
  * interstitial (http/verify-page.tsx) on its way to the app. A user needs a
  * verified email (OAuth providers report it, a magic link proves it):
- * unverified users are never created. Each user gets
- * their own accounts (auth/account.ts). Power mode is bring-your-own-key for
+ * unverified users are never created. Each user has one
+ * account in every app (auth/account.ts). Power mode is bring-your-own-key for
  * every signed-in user: the server's provider keys serve only the local dev bypass.
  *
  * Payments don't go through Better Auth: the membership, top-ups and the

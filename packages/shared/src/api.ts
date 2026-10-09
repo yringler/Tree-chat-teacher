@@ -83,8 +83,8 @@ export interface MeResponse {
    */
   userId: string | null;
   /**
-   * Account the request acts as: the user's `p_<userId>` (power) or
-   * `u_<userId>` (simple); `default` / `default_simple` in dev bypass mode.
+   * Account the request acts as, the same in every mode: the user's
+   * `u_<userId>`; `default_simple` in dev bypass mode.
    */
   accountId: string;
   /** The app the request came from (the MODE_HEADER): `power` (/) or `simple` (/learn/). */
@@ -156,16 +156,6 @@ export interface TreeSummary {
   messageCount: number;
 }
 
-/**
- * `POST /api/trees/:treeId/copy-to-learn`: the power tree was copied into the
- * caller's Learn account as a new lesson (adapted as any import into Learn).
- */
-export interface CopyToLearnResponse {
-  /** The new lesson's id in the Learn account (`/learn/t/<treeId>`). */
-  treeId: string;
-  title: string;
-}
-
 /** Whole tree in one response; the client builds the outline with @tangent/core. */
 export interface TreeDetail {
   tree: Tree;
@@ -211,8 +201,8 @@ export const createTreeRequestSchema = z.object({
 export type CreateTreeRequest = z.infer<typeof createTreeRequestSchema>;
 
 /**
- * Per-account settings, stored server-side (one row per account). Power and
- * Learn are separate accounts, so each has its own.
+ * Per-account settings, stored server-side (one row per account, the same in
+ * every app).
  */
 export interface SettingsResponse {
   /**

@@ -81,8 +81,9 @@ export interface ChatServiceDeps {
   profile?: GenerationProfile;
   settings: ChatSettings;
   /**
-   * Built-in system prompt of new trees, used when neither the request nor
-   * the account's saved settings name one. Default: none.
+   * Built-in system prompt of new trees, used when neither the request nor,
+   * in power, the account's saved settings name one; in Learn, also the tutor
+   * prompt every generation sends first (`LearnProfile`). Default: none.
    */
   defaultSystemPrompt?: string | null;
   /**
@@ -112,6 +113,7 @@ export interface ChatServiceDeps {
 export class ChatService {
   readonly accountId: string;
   private readonly owned: Ownership;
+  private readonly routes: RouteResolver;
   private readonly trees: TreeService;
   private readonly backups: BackupService;
   private readonly resolver: ContextResolver;
@@ -126,18 +128,19 @@ export class ChatService {
     const newId = deps.newId ?? (() => defaultNewId());
     const profile = deps.profile ?? { kind: 'power' };
     this.owned = new Ownership(deps.repos.trees, this.accountId);
+    this.routes = new RouteResolver(deps.providers, profile, deps.settings);
     const ctx: ServiceContext = {
       repos: deps.repos,
       accountId: this.accountId,
       owned: this.owned,
-      routes: new RouteResolver(deps.providers, profile, deps.settings),
+      routes: this.routes,
       settings: deps.settings,
       defaultSystemPrompt: deps.defaultSystemPrompt ?? null,
       now: () => clock().toISOString(),
       newId,
       log: (event, fields) => deps.log?.(event, fields),
     };
-    this.trees = new TreeService(ctx);
+    this.trees = new TreeService(ctx, !paysPerRequest(profile));
     this.backups = new BackupService(
       ctx,
       this.trees,
@@ -157,6 +160,15 @@ export class ChatService {
    */
   async getOwnedBranch(branchId: string): Promise<Branch> {
     return (await this.owned.branch(branchId)).branch;
+  }
+
+  /**
+   * `branch` on the route and model this service generates on it
+   * (`RouteResolver.runnable`: Learn's own where the branch names one Learn
+   * can't run). The stored branch is not changed.
+   */
+  runnableBranch(branch: Branch): Branch {
+    return this.routes.runnable(branch);
   }
 
   /**

@@ -2,7 +2,7 @@ import { computed, inject, Injectable } from '@angular/core';
 import { Router } from '@angular/router';
 import { branchesWithLinks, linkTarget } from '@tangent/core';
 import { type BranchFunding } from '@tangent/shared';
-import type { Branch, NodeLink, ShareScope, UpdateTreeRequest } from '@tangent/shared';
+import type { Branch, NodeLink, ShareScope } from '@tangent/shared';
 import {
   ApiClient,
   ComposerController,
@@ -42,7 +42,7 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
 
   /**
    * The selected branch is read-only: its funding needs the membership the
-   * user lacks. Its composer becomes the notice (renew, copy to Learn).
+   * user lacks. Its composer becomes the notice (renew, open in Learn).
    */
   readonly readOnly = computed(() => {
     const b = this.selectedBranch();
@@ -90,24 +90,6 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     const b = this.selectedBranch();
     if (!b) return null;
     return this.firstNodeOf(b.id)?.id ?? b.branchPointNodeId;
-  }
-
-  // Trees
-
-  async updateTree(treeId: string, req: UpdateTreeRequest): Promise<boolean> {
-    try {
-      const tree = await this.api.updateTree(treeId, req);
-      this.detail.update((cur) => (cur && cur.tree.id === tree.id ? { ...cur, tree } : cur));
-      this.editTrees((list) =>
-        list.map((t) =>
-          t.id === tree.id ? { ...t, title: tree.title, updatedAt: tree.updatedAt } : t,
-        ),
-      );
-      return true;
-    } catch (err) {
-      this.fail(err);
-      return false;
-    }
   }
 
   // Branches

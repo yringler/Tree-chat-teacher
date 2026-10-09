@@ -32,6 +32,17 @@
             }
           }
         }
+        @if (funding.payer() !== 'pool') {
+          <button
+            type="button"
+            class="icon-btn"
+            aria-label="Your instructions for this lesson"
+            title="Your instructions"
+            (click)="openInstructions()"
+          >
+            <app-icon name="edit" />
+          </button>
+        }
         @if (store.hasSideQuestions()) {
           <button
             type="button"

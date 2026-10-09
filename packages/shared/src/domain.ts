@@ -14,9 +14,9 @@
  */
 
 /**
- * The built-in account of the local dev bypass (DEV_ALLOW_NO_AUTH), and the
- * column default of `account_id`. Signed-in users each get their own accounts
- * (apps/worker/src/auth/account.ts).
+ * The column default of `account_id`, and the account a ChatService acts as
+ * when it is given none. The Worker always names one: one per signed-in user,
+ * or the dev bypass's (apps/worker/src/auth/account.ts).
  */
 export const DEFAULT_ACCOUNT_ID = 'default';
 

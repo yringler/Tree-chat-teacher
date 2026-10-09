@@ -125,7 +125,7 @@ describe('fail closed', () => {
       email: null,
       userId: null,
       devMode: true,
-      accountId: 'default',
+      accountId: 'default_simple',
       mode: 'power',
       operatorKeys: true,
       builtInCredit: true,
@@ -164,7 +164,7 @@ describe('fail closed', () => {
       email: null,
       userId: null,
       devMode: true,
-      accountId: 'default',
+      accountId: 'default_simple',
       mode: 'power',
       operatorKeys: true,
       builtInCredit: true,
@@ -257,8 +257,8 @@ describe('magic link', () => {
       operatorKeys: false,
       isAdmin: false,
     });
-    expect(body.accountId).toMatch(/^p_.+/);
-    expect(body.userId).toBe(body.accountId.slice('p_'.length));
+    expect(body.accountId).toMatch(/^u_.+/);
+    expect(body.userId).toBe(body.accountId.slice('u_'.length));
   });
 
   it('a link works once', async () => {
@@ -277,7 +277,7 @@ describe('magic link', () => {
     expect(s.mail.sent).toHaveLength(1);
     const me = (await (await s.call('/api/me', { headers: { cookie } })).json()) as MeResponse;
     expect(me).toMatchObject({ email: 'stranger@example.com', mode: 'power', operatorKeys: false });
-    expect(me.accountId).toMatch(/^p_.+/);
+    expect(me.accountId).toMatch(/^u_.+/);
   });
 
   it('a user whose email is no longer verified is refused, whatever sessions they hold', async () => {

@@ -64,6 +64,16 @@ const composer = () => screen.queryByRole<HTMLTextAreaElement>('textbox', { name
 const dock = () => composer()?.closest<HTMLElement>('.composer-dock') ?? document.body;
 
 describe('Learn: the lesson page', () => {
+  it.each([
+    ['the own key', {}, true],
+    ['credit', { billing: billing(), chosen: 'credit' }, true],
+    ['the pool', { pool: POOL_ON, chosen: 'pool' }, false],
+  ] as const)('offers the lesson’s own instructions on %s: %s', async (_payer, facts, shown) => {
+    await page(lesson(), facts);
+    const button = screen.queryByRole('button', { name: 'Your instructions for this lesson' });
+    expect(button !== null).toBe(shown);
+  });
+
   it('shows the lesson and continues it from the composer', async () => {
     const p = await page();
     screen.getByRole('heading', { name: 'Light' });

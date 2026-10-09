@@ -31,7 +31,7 @@ Set to Yehuda Ringler, governed by the laws of the Commonwealth of Pennsylvania,
 | ------------------------------------------------------------------------------- | --------------- | --------------------------------------------------- |
 | In-app "Delete account" (Power: Account dialog; Learn and Canvas: account menu) | done            | `packages/web-shared/src/account/delete-account.ts` |
 | `DELETE /api/account`, confirmed by retyping the email, same-origin only        | done            | `apps/worker/src/auth/delete-account.ts`            |
-| Deletes both accounts' trees, branches, messages, summaries, shares, settings   | done            | one D1 batch; `ON DELETE CASCADE` does the children |
+| Deletes the account's trees, branches, messages, summaries, shares, settings    | done            | one D1 batch; `ON DELETE CASCADE` does the children |
 | Deletes the user, sessions, OAuth links, passkeys, plan rows                    | done            | same                                                |
 | Revokes the user's Polar subscriptions and anonymises the Polar customer        | done            | same; a Polar failure aborts the deletion           |
 | Clears session and API-key cookies                                              | done            | same                                                |

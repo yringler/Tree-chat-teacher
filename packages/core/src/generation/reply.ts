@@ -200,7 +200,8 @@ export class Replier {
   }
 
   /** Whether replies on `branch` can run a web search ("Check sources"). */
-  canSearch(branch: Branch): boolean {
+  canSearch(stored: Branch): boolean {
+    const branch = this.ctx.routes.runnable(stored);
     try {
       return this.ctx.routes.requireProvider(branch).capabilities(this.ctx.routes.modelOf(branch))
         .supportsWebSearch;

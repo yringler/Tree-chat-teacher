@@ -72,9 +72,10 @@ import { createLoremProvider, DEMO_MODEL_PRICES } from './lorem';
  * the `/api/*` routes the apps use, on top of the real ChatService with
  * in-memory repositories and the lorem provider. Branching, context
  * assembly, titles, summaries and reviews behave as in production; replies
- * are nonsense and nothing leaves the tab. One backend per app: the Learn
- * demo (`/learn/demo/`) acts as a simple account with pretend credit, the
- * Power demo (`/demo/`) as a power account; shares and keys aren't offered.
+ * are nonsense and nothing leaves the tab. One backend per app over one
+ * stored session, as the apps are views of one account: the Learn demo
+ * (`/learn/demo/`) generates in Learn mode on pretend credit, the Power demo
+ * (`/demo/`) in power mode; shares and keys aren't offered.
  *
  * Streaming runs on the Worker's TreeSession Durable Object's
  * GenerationHub: a generation runs detached from the request,
@@ -121,11 +122,8 @@ const DEMO_POOL_ME: Omit<PoolMeResponse, 'personalAvailableMicros'> = {
 };
 /** Held per in-flight provider call, like the real meter's reservation. */
 const HOLD_MICROS = 20_000;
-/** Per mode, so the two demos keep separate conversations (like the two real accounts). */
-const STORAGE_KEYS: Readonly<Record<AccountMode, string>> = {
-  simple: 'tangent.learn-demo',
-  power: 'tangent.power-demo',
-};
+/** One for every mode, so each demo shows the same conversations (like the one real account). */
+const STORAGE_KEY = 'tangent.demo';
 
 /** The bits of `Storage` the demo uses to survive a reload within the tab. */
 export interface DemoStorage {
@@ -251,7 +249,6 @@ export class DemoBackend {
   private readonly clock: Clock;
   private readonly storage: DemoStorage | null;
   private readonly mode: AccountMode;
-  private readonly storageKey: string;
   private readonly hub = new GenerationHub();
   /** Compare candidates by id. */
   private readonly held = new Map<string, Held>();
@@ -265,7 +262,6 @@ export class DemoBackend {
   constructor(options: DemoBackendOptions = {}) {
     this.clock = options.clock ?? systemClock;
     this.mode = options.mode ?? 'simple';
-    this.storageKey = STORAGE_KEYS[this.mode];
     this.storage = options.storage === undefined ? defaultStorage() : options.storage;
     const inner = options.provider ?? createLoremProvider();
     this.provider = { ...inner, stream: (request) => this.meter(inner, request) };
@@ -280,8 +276,9 @@ export class DemoBackend {
       accountId: DEMO_ACCOUNT_ID,
       providers: registry,
       // Like the Worker: Learn pays per request, so its branches are written `own-key`,
-      // and imports are adapted to its provider, models, context and prompt.
-      profile: { kind: this.mode === 'simple' ? 'learn' : 'power' },
+      // and imports are adapted to its provider, models, context and prompt. The demo
+      // runs on pretend credit, so a lesson's custom prompt applies.
+      profile: this.mode === 'simple' ? { kind: 'learn', customPrompt: true } : { kind: 'power' },
       // As a server with the default config, summarizing on each branch's own route.
       settings: appChatSettings(this.mode === 'simple' ? 'learn' : 'power', {
         summaryProviderId: null,
@@ -412,9 +409,6 @@ export class DemoBackend {
     backup: async ({ params }) => json(await this.chat.exportBackup(params.treeId)),
     importBackup: async ({ body }) =>
       this.saved(json(await this.chat.importBackup(R.importBackup.body.parse(body ?? {})), 201)),
-    // Offered only on a read-only power branch, which the demos never have (they
-    // require no membership): the two demos stay apart.
-    copyToLearn: 'unsupported',
     exportTree: 'unsupported',
 
     // Branches
@@ -845,7 +839,7 @@ export class DemoBackend {
       systemPrompt: this.state.settings.get(DEMO_ACCOUNT_ID)?.systemPrompt ?? null,
     };
     try {
-      this.storage.setItem(this.storageKey, JSON.stringify(saved));
+      this.storage.setItem(STORAGE_KEY, JSON.stringify(saved));
     } catch {
       // Quota or privacy settings: the session stays in memory only.
     }
@@ -855,7 +849,7 @@ export class DemoBackend {
   private restore(): boolean {
     let saved: Saved;
     try {
-      const raw = this.storage?.getItem(this.storageKey);
+      const raw = this.storage?.getItem(STORAGE_KEY);
       if (!raw) return false;
       saved = JSON.parse(raw) as Saved;
       if (saved?.version !== SAVED_VERSION || !Array.isArray(saved.trees)) return false;
