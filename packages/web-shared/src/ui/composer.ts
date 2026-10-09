@@ -200,16 +200,19 @@ export class Composer {
   private readonly box = viewChild.required<ElementRef<HTMLTextAreaElement>>('box');
 
   constructor() {
-    const detach = this.controller.attach({
+    const box = {
       branchId: () => untracked(this.branchId),
       current: () => untracked(this.current),
       focus: () => queueMicrotask(() => this.box().nativeElement.focus({ preventScroll: true })),
-      insert: (text) => this.append(text),
-      release: (text) => {
+      insert: (text: string) => this.append(text),
+      release: (text: string) => {
         if (untracked(this.clearOnSend) && untracked(this.text).trim() === text) this.setText('');
       },
-    });
-    inject(DestroyRef).onDestroy(detach);
+    };
+    // Once rendered, with its inputs: a request for its branch made before it existed is taken then.
+    let detach: (() => void) | null = null;
+    afterNextRender(() => (detach = this.controller.attach(box)));
+    inject(DestroyRef).onDestroy(() => detach?.());
     afterNextRender(() => {
       if (this.autofocus() && hovers()) this.box().nativeElement.focus();
     });
