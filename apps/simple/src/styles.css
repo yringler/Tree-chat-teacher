@@ -19,7 +19,7 @@ body {
   line-height: 1.6;
 }
 
-/* Shell: header on top, one scrolling column below. */
+/* Shell: header on top; below it the sidebar (a drawer on narrow screens) and one scrolling column. */
 
 .shell {
   display: flex;
@@ -49,8 +49,11 @@ body {
 /*
  * Narrow screens: the logo alone stands for the brand (the link keeps its
  * name) and the mode switch is tighter, so the account menu stays on screen.
+ * Phones: the sidebar's button takes the logo's place (the sidebar's "New
+ * lesson" goes home).
  */
-.brand-word {
+.brand-word,
+.app-head .brand {
   display: none;
 }
 
@@ -61,6 +64,10 @@ body {
 @media (min-width: 480px) {
   .brand-word {
     display: inline;
+  }
+
+  .app-head .brand {
+    display: inline-flex;
   }
 
   .app-head .mode-switch-opt {
@@ -138,9 +145,36 @@ body {
   color: var(--danger);
 }
 
-.shell-main {
+.shell-body {
   flex: 1;
   min-height: 0;
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.shell-main {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The sidebar keeps the app's compact type, not the lesson's reading size. */
+.sidebar {
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+/* Wide screens: the header carries the brand, so the sidebar's head (its Close button) goes. */
+@media (min-width: 861px) {
+  .sidebar-head {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .shell-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* The demo's banner (/learn/demo/): under the header, always visible. */
@@ -656,60 +690,6 @@ app-related-links.connections {
 
 .connections .related-chip:hover {
   border-color: var(--accent);
-}
-
-/* The lesson map (LessonMap): one row per side question, nested under the one it came from. */
-.lesson-map {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.lesson-map li {
-  padding-left: calc(var(--depth, 0) * 14px);
-}
-
-.lesson-map-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  width: 100%;
-  border: 0;
-  border-left: 2px solid transparent;
-  background: none;
-  padding: 6px 8px;
-  border-radius: 4px;
-  color: var(--fg);
-  text-align: left;
-  cursor: pointer;
-}
-
-.lesson-map-row:hover {
-  background: var(--bg-hover);
-}
-
-.lesson-map-row.in-chain {
-  border-left-color: var(--accent);
-}
-
-.lesson-map-row[aria-current='page'] {
-  background: var(--accent-soft);
-  font-weight: 600;
-}
-
-.lesson-map-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Touch screens have no keys to point to. */
-@media (hover: none) {
-  .lesson-map-keys {
-    display: none;
-  }
 }
 
 /* The "Connect" sheet (ConnectDialog): full height, the list fills it. */

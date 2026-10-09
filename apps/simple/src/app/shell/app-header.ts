@@ -7,6 +7,7 @@ import {
   Icon,
   Logo,
   ModeSwitch,
+  SidebarToggle,
   ToastStore,
 } from '@tangent/web-shared';
 import { BRAND, BRAND_SHORT } from '../brand';
@@ -18,16 +19,17 @@ import { PaidBy } from './paid-by';
 import { LearnFunding } from '../state/learn-funding';
 
 /**
- * Brand, the Power / Learn switch, what replies are paid by (own key, credit
+ * The sidebar's button (narrow screens), brand, the Power / Learn switch, what replies are paid by (own key, credit
  * or the open pool: a button that opens "How replies are paid for") and
  * the account menu.
  */
 @Component({
   selector: 'app-header',
-  imports: [RouterLink, Icon, Logo, ModeSwitch, AccountId, PaidBy],
+  imports: [RouterLink, Icon, Logo, ModeSwitch, AccountId, PaidBy, SidebarToggle],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="app-head">
+      <app-sidebar-toggle />
       <a routerLink="/" class="brand" [attr.aria-label]="brand">
         <app-logo [size]="22" />
         <span class="brand-word" aria-hidden="true"

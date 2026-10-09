@@ -8,6 +8,7 @@ import {
   ComposerController,
   errorMessage,
   PowerConversationStore,
+  SidebarState,
   ToastStore,
 } from '@tangent/web-shared';
 import { generationLimits, SettingsStore } from './settings-store';
@@ -21,6 +22,7 @@ import { UiStore } from './ui-store';
 @Injectable({ providedIn: 'root' })
 export class TreeStore extends PowerConversationStore<ApiClient> {
   private readonly ui = inject(UiStore);
+  private readonly sidebar = inject(SidebarState);
   private readonly composer = inject(ComposerController);
   private readonly toast = inject(ToastStore);
   private readonly appSettings = inject(SettingsStore);
@@ -75,7 +77,7 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
 
   override go(branchId: string, focusNodeId: string | null = null, replace = false): void {
     super.go(branchId, focusNodeId, replace);
-    this.ui.drawerOpen.set(false);
+    this.sidebar.drawerOpen.set(false);
   }
 
   /**

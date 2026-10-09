@@ -15,6 +15,7 @@ import { lessonTitle } from '../chat/titles';
 import { tierSwitch } from '../chat/switches';
 import { KeyLockedNotice } from '../chat/key-locked-notice';
 import { ImportLessonButton } from './import-lesson-button';
+import { confirmDeleteLesson } from '../shell/delete-lesson';
 import { PaidBy } from '../shell/paid-by';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
@@ -212,8 +213,7 @@ export class HomePage {
   }
 
   protected remove(t: TreeSummary): void {
-    if (!confirm(`Delete the lesson “${lessonTitle(t.title)}” with all its side questions?`))
-      return;
+    if (!confirmDeleteLesson(lessonTitle(t.title))) return;
     void this.store.deleteTree(t.id);
   }
 }

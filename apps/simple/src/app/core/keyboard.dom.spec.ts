@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { appProviders, branch, detail, node, openTree } from '@tangent/web-shared/testing';
+import { appProviders, openTree } from '@tangent/web-shared/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { branchyLesson, learner } from '../learn.testing';
 import { LessonStore } from '../state/lesson-store';
@@ -36,17 +36,6 @@ describe('Learn: keyboard', () => {
     const k = setup();
     k.press('j');
     expect(k.go).toHaveBeenLastCalledWith('trunk', 'u1', true);
-  });
-
-  it('m opens the map only when the lesson has side questions', () => {
-    const one = detail([node('u1', { role: 'user' })], [branch('trunk')]);
-    const k = setup(one);
-    expect(k.press('m').defaultPrevented).toBe(false);
-    expect(k.ui.dialogs.list()).toEqual([]);
-    TestBed.resetTestingModule();
-    const k2 = setup();
-    k2.press('m');
-    expect(k2.ui.dialogs.list()).toEqual([{ kind: 'map' }]);
   });
 
   it('? shows the shortcuts; behind a dialog the other keys wait', () => {

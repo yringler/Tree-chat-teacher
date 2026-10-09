@@ -25,6 +25,7 @@ import {
   ApiError,
   ComposerController,
   SAVE_FILE,
+  SidebarState,
   ToastStore,
   type PoolBlock,
 } from '@tangent/web-shared';
@@ -192,6 +193,7 @@ function setup() {
     providers: [
       { provide: LessonStore },
       { provide: UiStore },
+      { provide: SidebarState },
       { provide: ComposerController },
       { provide: ToastStore },
       { provide: AccountStore },

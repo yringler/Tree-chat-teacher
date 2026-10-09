@@ -1,14 +1,5 @@
 <header class="page-head">
-  <button
-    type="button"
-    class="icon-btn only-narrow"
-    aria-label="Open menu"
-    aria-controls="sidebar"
-    [attr.aria-expanded]="ui.drawerOpen()"
-    (click)="ui.drawerOpen.set(true)"
-  >
-    <app-icon name="menu" />
-  </button>
+  <app-sidebar-toggle />
   <h1>Shares</h1>
   <button
     type="button"

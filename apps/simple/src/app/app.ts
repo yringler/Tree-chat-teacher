@@ -8,15 +8,16 @@ import {
   Modal,
   PoolFirstUseDialog,
   ShortcutsTable,
+  SidebarState,
   Toasts,
 } from '@tangent/web-shared';
 import { CompareDialog } from './chat/compare-dialog';
 import { ConnectDialog } from './chat/connect-dialog';
-import { LessonMap } from './chat/lesson-map';
 import { Keyboard, SHORTCUTS } from './core/keyboard';
 import { RouteSync } from './core/route-sync';
 import { DEMO_SIGNUP_URL } from './demo/demo-mode';
 import { AppHeader } from './shell/app-header';
+import { LessonSidebar } from './shell/lesson-sidebar';
 import { ModelAccessDialog } from './shell/model-access-dialog';
 import { DeleteAccountDialog } from './shell/delete-account-dialog';
 import { PasskeysDialog } from './shell/passkeys-dialog';
@@ -37,7 +38,7 @@ import { LearnFunding } from './state/learn-funding';
     PoolFirstUseDialog,
     ConnectDialog,
     CompareDialog,
-    LessonMap,
+    LessonSidebar,
     Modal,
     ShortcutsTable,
     Toasts,
@@ -47,7 +48,7 @@ import { LearnFunding } from './state/learn-funding';
     @if (loginPage) {
       <router-outlet />
     } @else {
-      <div class="shell">
+      <div class="shell" [class.drawer-open]="sidebar.drawerOpen()">
         <app-header />
         @if (demo) {
           <p class="demo-banner" role="note">
@@ -55,13 +56,21 @@ import { LearnFunding } from './state/learn-funding';
             <a class="demo-banner-cta" [href]="signupUrl">Start learning for real</a>
           </p>
         }
-        <main class="shell-main">
-          @if (ready()) {
-            <router-outlet />
-          } @else {
-            <p class="muted center pad" aria-busy="true">Loading…</p>
+        <div class="shell-body">
+          <aside class="sidebar" id="sidebar" aria-label="Lessons">
+            <app-lesson-sidebar />
+          </aside>
+          @if (sidebar.drawerOpen()) {
+            <div class="scrim" (click)="sidebar.drawerOpen.set(false)"></div>
           }
-        </main>
+          <main class="shell-main">
+            @if (ready()) {
+              <router-outlet />
+            } @else {
+              <p class="muted center pad" aria-busy="true">Loading…</p>
+            }
+          </main>
+        </div>
       </div>
       <!-- In stack order: the dialog opened last is on top, and Escape closes it. -->
       @for (d of ui.dialogs.list(); track d.kind) {
@@ -81,9 +90,6 @@ import { LearnFunding } from './state/learn-funding';
           @case ('compare') {
             <app-compare-dialog [branchId]="d.branchId" [content]="d.content" />
           }
-          @case ('map') {
-            <app-lesson-map />
-          }
           @case ('shortcuts') {
             <app-modal heading="Keyboard shortcuts" (closed)="ui.dialogs.close('shortcuts')">
               <app-shortcuts-table [shortcuts]="shortcuts" />
@@ -102,6 +108,7 @@ import { LearnFunding } from './state/learn-funding';
 })
 export class App {
   protected readonly ui = inject(UiStore);
+  protected readonly sidebar = inject(SidebarState);
   private readonly lessons = inject(LessonStore);
   protected readonly account = inject(AccountStore);
   protected readonly funding = inject(LearnFunding);

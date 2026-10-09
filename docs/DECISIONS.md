@@ -119,6 +119,7 @@ The rules the code follows today, and why. One section per area. When a rule cha
 - **Angular 22, standalone, signals, zoneless, OnPush.** Workspace packages export TypeScript source, so there is no library build.
 - **Shared logic lives once, in `packages/web-shared` or the `packages/*` below it, never copied between apps.** Three copies of the state engine drifted into bugs before October 2026. Today:
   - `ConversationStore` (`web-shared/src/conversation/`) is the engine every app's store extends: tree list, open tree, where the user is in it (path, crumbs, outline, focus on the path, opening a branch at its first message), live replies, the stream reducer, sends per branch, branch and link CRUD, resume. Apps supply hooks for their side effects.
+  - `ConversationSidebar` (`web-shared/src/nav/`) is the conversation list with the open one's outline, in power and Learn. The app's sidebar component provides itself as `SidebarHost` (its store, words, and what opening, renaming and deleting do) and projects its own head and foot; `SidebarState` holds the drawer and collapsed outline items.
   - `PowerConversationStore`, `PowerAccount` and the keys dialog (`web-shared/src/power/`) are shared by power and Canvas.
   - The composer and its `ComposerController`, toasts, the dialog stack (`Overlays`), the shortcut dispatcher and the demo backend are shared by all three; the path keys (`pathKeys`) and the shortcut table by power and Learn.
 - **Each app holds its dialogs in one stack,** so Escape closes the top one and shortcuts never fire behind a modal.

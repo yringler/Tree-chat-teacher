@@ -1,5 +1,5 @@
-import { Injectable, signal } from '@angular/core';
-import { Overlays } from '@tangent/web-shared';
+import { inject, Injectable, signal } from '@angular/core';
+import { Overlays, SidebarState } from '@tangent/web-shared';
 
 export interface BranchDialogState {
   fromNodeId: string;
@@ -80,7 +80,7 @@ function writeFlag(key: string, value: boolean): void {
 /** View state that is not part of the URL: panels and dialogs. */
 @Injectable({ providedIn: 'root' })
 export class UiStore {
-  readonly drawerOpen = signal(false);
+  private readonly sidebar = inject(SidebarState);
   readonly inspectorOpen = signal(readFlag(INSPECTOR_KEY));
   readonly exportMenuOpen = signal(false);
   readonly textSizeMenuOpen = signal(false);
@@ -90,22 +90,11 @@ export class UiStore {
   readonly linkReturn = signal<LinkReturn | null>(null);
   /** Messages whose "N related" list is open (by node id). */
   readonly relatedOpen = signal<ReadonlySet<string>>(new Set());
-  /** Outline items the user collapsed (by branch id). */
-  readonly collapsed = signal<ReadonlySet<string>>(new Set());
 
   toggleInspector(): void {
     const next = !this.inspectorOpen();
     this.inspectorOpen.set(next);
     writeFlag(INSPECTOR_KEY, next);
-  }
-
-  toggleCollapsed(branchId: string): void {
-    this.collapsed.update((set) => {
-      const next = new Set(set);
-      if (next.has(branchId)) next.delete(branchId);
-      else next.add(branchId);
-      return next;
-    });
   }
 
   setRelatedOpen(nodeIds: readonly string[], open: boolean): void {
@@ -128,7 +117,7 @@ export class UiStore {
 
   /**
    * Escape: closes the top-most overlay (a dialog, then pick mode, a menu,
-   * the drawer). Returns true if something closed.
+   * the sidebar's drawer). Returns true if something closed.
    */
   closeTop(): boolean {
     if (this.dialogs.closeTop()) return true;
@@ -136,7 +125,7 @@ export class UiStore {
       this.linkPick.set(null);
       return true;
     }
-    for (const s of [this.exportMenuOpen, this.textSizeMenuOpen, this.drawerOpen]) {
+    for (const s of [this.exportMenuOpen, this.textSizeMenuOpen, this.sidebar.drawerOpen]) {
       if (s()) {
         s.set(false);
         return true;
