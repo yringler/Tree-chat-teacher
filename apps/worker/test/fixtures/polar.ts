@@ -7,8 +7,6 @@
 // Replace these with recorded sandbox deliveries.
 import type { models, webhooks } from '@polar-sh/sdk/2026-10';
 
-export const SYNTHETIC = true;
-
 const T0 = '2026-10-05T12:00:00.000Z';
 const ORG = '7f0c7f3e-0000-4000-8000-000000000001';
 

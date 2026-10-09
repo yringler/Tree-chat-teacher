@@ -16,7 +16,7 @@ pnpm typecheck                                 # tsc and Angular strict template
 pnpm lint                                      # eslint + check-provider-neutral + check-migrations + check-cycles
 pnpm format                                    # Prettier writes; CI runs pnpm format:check
 pnpm build                                     # the four apps into apps/worker/site/
-pnpm knip                                      # unused files, exports and dependencies (not in CI)
+pnpm knip                                      # unused files, exports and dependencies
 pnpm e2e                                       # Playwright, own wrangler dev on :8790 (E2E_PORT), fresh DB
 pnpm --filter @tangent/worker db:generate      # the migration for a schema.ts change
 ```
@@ -47,7 +47,7 @@ These come from what went wrong here before. Follow them unless the owner says o
 - **Shared logic lives once,** in `packages/web-shared` or `packages/*`, never copied between apps. If two apps need it, move it there first.
 - **Money:** integer micro-dollars, never floats; every hold is one conditional statement; never log request headers or bodies (they carry users' API keys).
 - **Strict TypeScript:** no `any`, no `as unknown as`, no `@ts-ignore`, no `eslint-disable`.
-- **Before you finish:** `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, and the tests of what you touched.
+- **Before you finish:** `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm knip`, and the tests of what you touched.
 
 ## Which doc to update
 

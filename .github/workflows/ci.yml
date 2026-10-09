@@ -47,6 +47,8 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       - run: pnpm format:check
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      - run: pnpm knip
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
 
   e2e:
     name: End-to-end

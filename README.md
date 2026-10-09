@@ -57,7 +57,7 @@ pnpm typecheck      # tsc everywhere, Angular strict templates included
 pnpm lint           # ESLint, plus the provider-neutral, migration and import-cycle checks
 pnpm format:check   # Prettier (`pnpm format` rewrites)
 pnpm build          # builds the four apps into apps/worker/site/
-pnpm knip           # unused files, dependencies and exports (not in CI)
+pnpm knip           # unused files, dependencies and exports
 pnpm coverage       # tests with coverage, then a table per package
 pnpm e2e            # Playwright against wrangler dev on port 8790
 ```

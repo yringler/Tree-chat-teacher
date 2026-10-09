@@ -4,8 +4,6 @@ import { expect, type BrowserContext } from '@playwright/test';
 import { seedDemoLesson } from '../../../packages/web-shared/src/demo/seed';
 import { newEmail, paymentWebhook, sameOrigin, signIn, topUp } from './helpers';
 
-export const EXAMPLE_TITLE = 'How do kittens learn to whistle?';
-
 /**
  * Signs `context` in as a new user with $5 of Tangent credit and imports the
  * example lesson into the account of `app` (Learn, or power, whose branches
