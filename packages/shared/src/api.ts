@@ -36,131 +36,10 @@ import {
 } from './grounding.js';
 import type { PoolBlockDetails } from './pool.js';
 
-/**
- * HTTP API contract between the Angular app and the Worker.
- *
- * Authentication (Better Auth, apps/worker/src/auth/auth.ts):
- *
- *   /api/auth/*                                  Better Auth endpoints (sign-in, callbacks, session, passkeys)
- *   GET    /api/login-options                    -> LoginOptionsResponse (public)
- *
- * Owner API (signed-in session required), all JSON unless noted. Each request
- * acts as the caller's account for the app named by the MODE_HEADER (power
- * when absent); Learn requests also send the PAYMENT_HEADER (billing.ts):
- *
- *   GET    /api/me                               -> MeResponse
- *   DELETE /api/account          DeleteAccountRequest -> 204 + cleared cookies (both accounts, same-origin only)
- *   GET    /api/providers                        -> ProviderInfo[]
- *   GET    /api/trees                            -> TreeSummary[]
- *   POST   /api/trees            CreateTreeRequest -> TreeDetail
- *   GET    /api/trees/:treeId                    -> TreeDetail
- *   PATCH  /api/trees/:treeId     UpdateTreeRequest -> Tree
- *   DELETE /api/trees/:treeId                    -> 204
- *   POST   /api/branches          CreateBranchRequest -> Branch
- *   PATCH  /api/branches/:branchId UpdateBranchRequest -> Branch
- *   DELETE /api/branches/:branchId               -> DeleteBranchResponse (not the trunk)
- *   POST   /api/branches/:branchId/messages SendMessageRequest -> text/event-stream of StreamEvent
- *   GET    /api/nodes/:nodeId/stream              -> text/event-stream of StreamEvent (reconnect)
- *   POST   /api/nodes/:nodeId/cancel              -> 204
- *   POST   /api/nodes/:nodeId/review ReviewRequest -> text/event-stream of ReviewEvent (review.ts)
- *   POST   /api/links             CreateLinkRequest -> NodeLink (201 new; 200 with the existing link
- *                                                when the two messages are already linked, either way round)
- *   PATCH  /api/links/:linkId     UpdateLinkRequest -> NodeLink
- *   DELETE /api/links/:linkId                    -> 204
- *   GET    /api/branches/:branchId/context?nodeId=&resolve=true|false -> ContextPlanResponse
- *   GET    /api/shares                            -> ShareSummary[]
- *   POST   /api/shares            CreateShareRequest -> ShareSummary
- *   PATCH  /api/shares/:shareId   UpdateShareRequest -> ShareSummary
- *   POST   /api/shares/:shareId/republish         -> ShareSummary
- *   POST   /api/shares/:shareId/revoke            -> ShareSummary
- *   DELETE /api/shares/:shareId                   -> 204 (the link 404s from then on)
- *   GET    /api/export?treeId=&scope=&nodeId=&format=md|html&includeAncestors= -> file download
- *   GET    /api/trees/:treeId/backup              -> TreeBackup (JSON download)
- *   POST   /api/import            TreeBackup      -> TreeDetail (new ids)
- *   POST   /api/trees/:treeId/copy-to-learn       -> CopyToLearnResponse (power only, same-origin only)
- *   GET    /api/settings                          -> SettingsResponse (the account's own settings)
- *   PATCH  /api/settings         UpdateSettingsRequest -> SettingsResponse
- *   GET    /api/key/status                        -> KeyStatusResponse
- *   POST   /api/key              SaveKeyRequest  -> 204 + Set-Cookie (sealed, HttpOnly)
- *   DELETE /api/key              ForgetKeyRequest -> 204 + Set-Cookie (cleared or re-sealed)
- *                                                (simple: only the `openrouter` key, used as Learn's own key)
- *
- * Billing (both apps; membership and credit are per user, shared by both; billing.ts):
- *
- *   GET    /api/billing                          -> BillingSummary
- *   GET    /api/billing/usage?cursor=&limit=     -> UsageListResponse (newest first, limit <= 100, default 50)
- *   POST   /api/billing/checkout CreateCheckoutRequest -> CheckoutResponse (same-origin only;
- *                                                personal credit only; `target` other than `personal` is 400)
- *   POST   /api/billing/membership/waiver MembershipWaiverRequest -> MembershipInfo (same-origin only;
- *                                                400 no code configured, 403 wrong code, 429 rate limited)
- *   POST   /api/billing/membership/checkout       -> CheckoutResponse (same-origin only; the yearly
- *                                                membership's hosted checkout, or the billing portal
- *                                                when the user already has a paid membership)
- *   POST   /api/billing/portal                    -> PortalResponse (same-origin only; the payment
- *                                                provider's billing portal; 404 `no_customer` when the
- *                                                provider has no customer for the user yet)
- *   POST   /api/webhooks/:provider                Payment provider webhooks (public, signed by the
- *                                                active provider; see the README)
- *
- * Admin (admins only: ADMIN_USER_IDS, or the local dev bypass; 404 `not_found`
- * to anyone else; admin.ts):
- *
- *   GET    /api/admin/status                     -> AdminStatusResponse
- *   GET    /api/admin/users?q=&cursor=           -> AdminUsersResponse (newest first, ADMIN_USERS_PAGE per page,
- *                                                q = email substring)
- *   PATCH  /api/admin/users/:userId UpdateAdminUserRequest -> AdminUser (same-origin only;
- *                                                share permission, pool suspension and/or membership waiver)
- *   GET    /api/admin/pool/usage?days=&limit=    -> AdminPoolUsageResponse (per-user pool consumption,
- *                                                most spend first; today's busiest network keys)
- *   GET    /api/admin/pool                       -> AdminPoolResponse (the pool's balance, holds and
- *                                                overage breaker state)
- *   GET    /api/admin/users/:userId/shares       -> ShareSummary[] (both of the user's accounts, newest first)
- *   POST   /api/admin/shares/:shareId/revoke     -> ShareSummary (any owner's share; same-origin only)
- *   POST   /api/admin/credit AdminCreditRequest -> AdminCreditResponse (same-origin only; personal
- *                                                or pool, idempotent; simulated purchases 404 unless
- *                                                DEV_PURCHASES_ENABLED)
- *
- * Generating routes (messages, review, context?resolve=true) answer 402
- * `membership_required` when the membership is required, the user has none
- * (`MembershipInfo`) and the request runs on the user's own keys, in either
- * app (the open pool and Tangent credit need no membership), then 402 `payment_required` when a call on the
- * built-in provider (`openrouter`, on credit) finds the available credit too
- * low. Calls on the user's own keys never touch credit. Every other route
- * stays open without a membership: nobody is locked out of their data.
- *
- * Open pool (pool.ts; Learn only, PAYMENT_HEADER `pool`, or `credit`
- * whose credit can't cover a call): the server pins the pool's model, system
- * prompt, output cap and context cap, whatever the tree or branch says.
- *
- *   POST /api/branches/:branchId/messages       402 `pool_empty`, 429 `pool_cap_reached`,
- *                                                403 `pool_unavailable` (with `error.pool`), always
- *                                                before any message is written; 400 for a message
- *                                                longer than the pool accepts
- *   GET  /api/branches/:branchId/context?resolve=true   gated the same way; summaries run on the pool
- *   POST /api/nodes/:nodeId/review               403 `pool_unavailable` on the `pool` header (no
- *                                                reviews on the pool); `credit` never falls back
- *   POST /api/pool/verify  PoolVerifyRequest  -> PoolVerifyResponse (same-origin only; a Turnstile
- *                                                pass for accounts with none on record; 400 when the
- *                                                token fails, 403 `pool_unavailable` reason
- *                                                `duplicate_identity` when another account uses the
- *                                                same mailbox)
- *   GET  /api/pool/me                         -> PoolMeResponse (today's caps and use, verified,
- *                                                member, the caller's own credit)
- *
- * A pool send or resolve is refused (403 `pool_unavailable`, before anything
- * is written) for an account that is `suspended` by an admin, has no
- * Turnstile pass on record (`verify`), shares its mailbox with another pool
- * account (`duplicate_identity`) or is newer than POOL_MIN_ACCOUNT_AGE_MS
- * (`too_new`); and with 429 `pool_cap_reached` past a daily cap or a per-minute limit (`rate`). There is no OpenAI-compatible endpoint: the
- * pool is only reachable through the routes above.
- *
- * Public (no sign-in; rate-limited; read-only):
- *
- *   GET /api/pool/status     -> PoolStatusResponse (the pool meter; aggregates only, cached 60 s)
- *   GET /s/:token            -> text/html viewer page (Open Graph tags, self-contained)
- *   GET /s/:token/data.json  -> SharePayload
- *
- * Errors: non-2xx responses carry ApiError.
+/*
+ * The HTTP API's request schemas and reply types. Its routes, with which
+ * schema and type each takes and answers, are API_ROUTES (api-routes.ts).
+ * Every non-2xx response carries an ApiError body.
  */
 
 export interface ApiError {
@@ -195,7 +74,9 @@ export type ApiErrorCode =
   /** 403: the pool can't be used for this request or by this account. */
   | 'pool_unavailable'
   /** 404: the payment provider has no customer for the user yet (`POST /api/billing/portal`). */
-  | 'no_customer';
+  | 'no_customer'
+  /** 501: a route the in-browser demos don't offer (sharing, keys, payments, admin). */
+  | 'not_implemented';
 
 export interface MeResponse {
   /** Signed-in user's email; null only in dev bypass mode. */
@@ -502,6 +383,21 @@ export const contextLimitsQuerySchema = z.object({
   inputOverflow: z.enum(INPUT_OVERFLOWS).optional(),
 });
 export type ContextLimitsQuery = z.infer<typeof contextLimitsQuerySchema>;
+
+/** `GET /api/branches/:id/context`: plan before `nodeId` (default: the leaf), `resolve` missing summaries. */
+export const contextQuerySchema = contextLimitsQuerySchema.extend({
+  nodeId: z.string().min(1).max(64).optional(),
+  resolve: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+});
+
+/** `GET /api/billing/usage`: newest first, from `cursor` (the previous page's `nextCursor`). */
+export const usageQuerySchema = z.object({
+  cursor: z.string().min(1).max(512).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
 
 /**
  * Bring-your-own-key. The key is sent once, sealed by the Worker into an

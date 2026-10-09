@@ -121,6 +121,7 @@ async function mockUpstream(request: Request): Promise<Response> {
  * workerd's (test/node/cloudflare-workers.ts), and skip the workers runtime.
  */
 const NODE_SUITES = [
+  'test/api-routes.test.ts',
   'test/config-surface.test.ts',
   'test/cron.test.ts',
   'test/email.test.ts',

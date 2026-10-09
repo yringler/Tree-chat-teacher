@@ -242,6 +242,17 @@ describe('demo backend', () => {
     expect(replay.map((e) => e.type)).toEqual(['snapshot', 'done']);
   });
 
+  it("answers a route of the table it doesn't offer with 501, and any other path with 404", async () => {
+    const demoFetch = createDemoFetch({ storage: null });
+    const res = await demoFetch('/api/admin/users/u%2F1/shares', { method: 'GET' });
+    expect(res.status).toBe(501);
+    expect(await res.json()).toEqual({
+      error: { code: 'not_implemented', message: "That isn't available in the demo." },
+    });
+    // The method is part of the route.
+    expect((await demoFetch('/api/trees', { method: 'PUT' })).status).toBe(404);
+  });
+
   it('answers unknown routes with a JSON 404 in the API error shape', async () => {
     const demoFetch = createDemoFetch({ storage: null });
     const res = await demoFetch('/api/nope', { method: 'GET' });
@@ -484,10 +495,8 @@ describe('power demo backend', () => {
     });
     // So "Create a copy in Learn" is never offered: the two demos stay apart.
     const [tree] = await api.listTrees();
-    await expect(api.copyToLearn(tree!.id)).rejects.toMatchObject({
-      status: 400,
-      message: "Copying to Learn isn't available in the demo.",
-    });
+    const unsupported = { status: 501, code: 'not_implemented' };
+    await expect(api.copyToLearn(tree!.id)).rejects.toMatchObject(unsupported);
     await expect(api.keyStatus()).resolves.toEqual({
       enabled: false,
       hasKey: false,
@@ -496,8 +505,8 @@ describe('power demo backend', () => {
     await expect(api.listShares()).resolves.toEqual([]);
     await expect(
       api.createShare({ treeId: 'x', scope: 'tree' } as Parameters<ApiClient['createShare']>[0]),
-    ).rejects.toMatchObject({ status: 400 });
-    await expect(api.saveKey('openai', 'sk-x')).rejects.toMatchObject({ status: 400 });
+    ).rejects.toMatchObject(unsupported);
+    await expect(api.saveKey('openai', 'sk-x')).rejects.toMatchObject(unsupported);
   });
 
   it('starts conversations with the built-in prompt and is never out of credit', async () => {

@@ -143,7 +143,7 @@ async function getUser(env: AppEnv, userId: string): Promise<AdminUser> {
  * Admin API, mounted at /api/admin by `createApp` behind the session and
  * account middleware. Every route is admins only (`adminOnly`: 404 to anyone
  * else); the mutating ones are same-origin only. The contract is in
- * packages/shared/src/admin.ts and the route list in api.ts.
+ * packages/shared/src/admin.ts and the route table in api-routes.ts.
  *
  * It manages who may publish share links while DMCA_AGENT_REGISTERED is off
  * (`auth_users.share_allowed`, see `canShare`), takes any share down

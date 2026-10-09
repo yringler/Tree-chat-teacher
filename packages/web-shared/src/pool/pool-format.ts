@@ -5,7 +5,7 @@ import {
   type PoolBlockDetails,
   type PoolStatusResponse,
 } from '@tangent/shared';
-import { ApiError, isPoolCapReached, isPoolEmpty } from '../core/api-client';
+import { hasCode } from '../core/api-client';
 
 /*
  * The open pool as both apps word it: the meter and the inline empty and
@@ -36,9 +36,9 @@ export interface PoolBlock {
 
 /** The inline state of a pool refusal; null for any other error. */
 export function poolBlockOf(err: unknown): PoolBlock | null {
-  if (!isPoolEmpty(err) && !isPoolCapReached(err)) return null;
-  const kind = isPoolEmpty(err) ? 'empty' : 'cap';
-  const details = (err as ApiError).pool ?? {
+  if (!hasCode(err, 'pool_empty') && !hasCode(err, 'pool_cap_reached')) return null;
+  const kind = hasCode(err, 'pool_empty') ? 'empty' : 'cap';
+  const details = err.pool ?? {
     reason: kind === 'empty' ? 'empty' : 'cap_requests',
     limit: null,
     resetAt: null,

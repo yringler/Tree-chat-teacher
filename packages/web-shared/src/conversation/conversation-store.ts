@@ -26,7 +26,7 @@ import type {
   UpdateBranchRequest,
 } from '@tangent/shared';
 import { checkSourcesMessage } from '@tangent/shared';
-import { ApiError, errorMessage, isNotFound, type ApiClient } from '../core/api-client';
+import { ApiError, errorMessage, hasCode, type ApiClient } from '../core/api-client';
 import { coalesced } from '../core/coalesced';
 import { runStream, type StreamOutcome } from '../sse/stream-runner';
 
@@ -572,7 +572,7 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
       if (this.copy.noteSaved) this.notify(this.copy.noteSaved);
       return true;
     } catch (err) {
-      if (isNotFound(err)) this.dropGoneLink(linkId);
+      if (hasCode(err, 'not_found')) this.dropGoneLink(linkId);
       else this.fail(err);
       return false;
     }
@@ -587,7 +587,7 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
       return true;
     } catch (err) {
       // Removed elsewhere already (another tab, or another app): the same outcome.
-      if (isNotFound(err)) {
+      if (hasCode(err, 'not_found')) {
         this.dropGoneLink(linkId);
         return true;
       }

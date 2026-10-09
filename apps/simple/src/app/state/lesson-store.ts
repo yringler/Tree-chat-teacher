@@ -22,14 +22,12 @@ import {
   backupFile,
   CompareRun,
   errorMessage,
-  isMembershipRequired,
-  isPaymentRequired,
-  isPoolUnavailable,
   poolBlockOf,
   readBackupFile,
   SAVE_FILE,
   type BackupFile,
   type PoolBlock,
+  hasCode,
 } from '@tangent/web-shared';
 import { lessonTitle } from '../chat/titles';
 import { AccountStore } from './account-store';
@@ -540,11 +538,11 @@ export class LessonStore extends ConversationStore<ApiClient> {
   }
 
   fail(err: unknown): void {
-    if (isMembershipRequired(err)) {
+    if (hasCode(err, 'membership_required')) {
       this.account.membershipRequired();
       return;
     }
-    if (isPoolUnavailable(err) && err.pool?.reason === 'verify') {
+    if (hasCode(err, 'pool_unavailable') && err.pool?.reason === 'verify') {
       this.ui.poolVerifyOpen.set(true);
       return;
     }
@@ -554,7 +552,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
       this.ui.accessOpen.set(true);
       return;
     }
-    if (isPaymentRequired(err)) {
+    if (hasCode(err, 'payment_required')) {
       this.ui.notify(OUT_OF_CREDIT_MESSAGE, 'error');
       void this.account.refreshBalance();
       void this.router.navigate(['/billing']);

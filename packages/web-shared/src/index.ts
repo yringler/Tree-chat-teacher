@@ -10,12 +10,7 @@ export {
   ApiClient,
   ApiError,
   errorMessage,
-  isMembershipRequired,
-  isNotFound,
-  isPaymentRequired,
-  isPoolCapReached,
-  isPoolEmpty,
-  isPoolUnavailable,
+  hasCode,
   type CreateLinkResult,
   type ExportParams,
 } from './core/api-client';
