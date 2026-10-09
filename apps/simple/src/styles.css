@@ -352,11 +352,11 @@ body {
 }
 
 /*
- * Narrow screens: the title has the first row to itself (after Back), up to
+ * Narrow screens: the title has the first row to itself, up to
  * two lines, and the tools (Normal/Max, Aa, export, delete) the second.
  */
 .lesson-title {
-  flex: 1 1 calc(100% - 48px);
+  flex: 1 1 100%;
   min-width: 0;
   font-size: 1rem;
   display: -webkit-box;
@@ -390,7 +390,6 @@ body {
 }
 
 .crumbs {
-  flex-wrap: wrap;
   padding: 2px 0;
 }
 
@@ -452,7 +451,7 @@ button.crumb:hover {
   text-overflow: ellipsis;
 }
 
-/* Phones: the path on a line of its own, its start and its last two steps. */
+/* Phones: the path on one line, its start and its last two steps. */
 @media (max-width: 639px) {
   .crumbs ol {
     flex: 1 1 100%;
@@ -656,11 +655,6 @@ button.crumb:hover {
   .chip-delete {
     opacity: 1;
   }
-}
-
-.crumbs-delete {
-  width: 28px;
-  height: 28px;
 }
 
 .chip:hover {

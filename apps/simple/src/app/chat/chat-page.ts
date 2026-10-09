@@ -31,7 +31,6 @@ import { BRAND } from '../brand';
 import { LessonStore } from '../state/lesson-store';
 import { UiStore } from '../state/ui-store';
 import { connectionTitleOf } from './connections';
-import { confirmDeleteSideQuestion } from './delete-side-question';
 import { KeyLockedNotice } from './key-locked-notice';
 import { MessageItem } from './message-item';
 import { FUNDING_OPTIONS, tierSwitch, type FundingOption } from './switches';
@@ -235,11 +234,6 @@ export class ChatPage implements OnDestroy {
     if (!confirm(`Delete the lesson “${lessonTitle(d.tree.title)}” with all its side questions?`))
       return;
     void this.store.deleteTree(d.tree.id);
-  }
-
-  /** The open side question, with every side question below it (the lesson stays). */
-  protected deleteSideQuestion(branchId: string): void {
-    void confirmDeleteSideQuestion(this.store, branchId);
   }
 
   protected send(content: string): void {
