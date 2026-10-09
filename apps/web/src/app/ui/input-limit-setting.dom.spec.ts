@@ -1,7 +1,8 @@
-import '@angular/compiler'; // JIT: the component module below is decorated.
-import { Injector, runInInjectionContext } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
 import type { InputBudgetResponse } from '@tangent/shared';
-import { ApiClient } from '@tangent/web-shared';
+import { detail, openTree, powerProviders, render } from '@tangent/web-shared/testing';
+import { screen } from '@testing-library/dom';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { TreeStore } from '../state/tree-store';
 import { InputLimitSetting, inputLimitNotes } from './input-limit-setting';
@@ -87,110 +88,120 @@ describe('inputLimitNotes', () => {
   });
 });
 
-/** The component's protected view state, read the way its template does. */
-interface View {
-  enabled(): boolean;
-  choice(): 'custom' | number;
-  customError(): boolean;
-  notes(): ReturnType<typeof inputLimitNotes>;
-  setEnabled(on: boolean): void;
-  pickPreset(tokens: number): void;
-  pickCustom(): void;
-  setCustom(text: string): void;
-}
-
-function open(info: InputBudgetResponse | Error, branch: { id: string } | null = { id: 'b1' }) {
+/**
+ * The setting as the settings dialog shows it, with a conversation open on
+ * its trunk (unless `conversation` is false) whose numbers load as `info` (an
+ * Error: they fail to). `inputs` are the dialog's bindings.
+ */
+async function open(
+  info: InputBudgetResponse | Error,
+  opts: { conversation?: boolean; inputs?: Record<string, unknown> } = {},
+) {
   const api = {
     inputBudget: vi.fn(async () => {
       if (info instanceof Error) throw info;
       return info;
     }),
   };
-  const injector = Injector.create({
-    providers: [
-      { provide: ApiClient, useValue: api },
-      { provide: TreeStore, useValue: { selectedBranch: () => branch } },
-    ],
+  const r = await render(InputLimitSetting, {
+    inputs: opts.inputs,
+    providers: powerProviders(TreeStore, api),
+    setup: () => {
+      if (opts.conversation !== false) openTree(TestBed.inject(TreeStore), detail());
+    },
   });
-  const setting = runInInjectionContext(injector, () => new InputLimitSetting());
-  setting.ngOnInit();
-  return { setting, view: setting as unknown as View, api };
+  /** The hints under the setting; null where none shows. */
+  const notes = () => {
+    const text = (part: string) =>
+      r.host.querySelector(`.input-limit-${part}`)?.textContent?.trim() ?? null;
+    return { size: text('size'), route: text('route'), cost: text('cost') };
+  };
+  return { ...r, api, notes, user: userEvent.setup() };
 }
+
+const limitBox = () =>
+  screen.getByRole<HTMLInputElement>('checkbox', { name: 'Limit what each message sends' });
+const radio = (name: string | RegExp) => screen.getByRole<HTMLInputElement>('radio', { name });
+const customBox = () => screen.getByRole<HTMLInputElement>('spinbutton', { name: /^Tokens/ });
 
 describe('InputLimitSetting', () => {
   it('loads the open conversation’s numbers, and shows its default while off', async () => {
-    const { setting, view, api } = open(CREDIT);
-    expect(api.inputBudget).toHaveBeenCalledWith('b1');
-    expect(view.enabled()).toBe(false);
-    await vi.waitFor(() => expect(view.notes().route).toContain('On Tangent credit'));
-    expect(view.notes().size).toContain('60,000 tokens');
-    expect(setting.value()).toBeNull();
+    const s = await open(CREDIT);
+    expect(s.api.inputBudget).toHaveBeenCalledWith('trunk');
+    expect(limitBox().checked).toBe(false);
+    await vi.waitFor(() => expect(s.notes().route).toContain('On Tangent credit'));
+    expect(s.notes().size).toContain('60,000 tokens');
+    expect(s.component.value()).toBeNull();
   });
 
   it('turns on at 32,000, follows presets and custom numbers live, and turns off', async () => {
-    const { setting, view } = open(OWN_KEY);
-    await vi.waitFor(() => expect(view.notes().route).not.toBeNull());
-    view.setEnabled(true);
-    expect(setting.value()).toBe(32_000);
-    expect(view.choice()).toBe(32_000);
-    view.pickPreset(128_000);
-    expect(setting.value()).toBe(128_000);
-    expect(view.notes().size).toMatch(/^128,000 tokens ≈ 96,000 words/);
+    const s = await open(OWN_KEY);
+    await vi.waitFor(() => expect(s.notes().route).not.toBeNull());
+    await s.user.click(limitBox());
+    expect(s.component.value()).toBe(32_000);
+    expect(radio('32,000').checked).toBe(true);
+    await s.user.click(radio('128,000'));
+    expect(s.component.value()).toBe(128_000);
+    expect(s.notes().size).toMatch(/^128,000 tokens ≈ 96,000 words/);
 
-    view.pickCustom();
-    expect(view.choice()).toBe('custom');
-    view.setCustom('60000');
-    expect(setting.value()).toBe(60_000);
-    expect(view.notes().size).toBe(
+    await s.user.click(radio('Custom'));
+    expect(radio('Custom').checked).toBe(true);
+    await s.user.clear(customBox());
+    await s.user.type(customBox(), '60000');
+    expect(s.component.value()).toBe(60_000);
+    expect(s.notes().size).toBe(
       '60,000 tokens ≈ 45,000 words ≈ 160 paperback pages, about the length of a short novel.',
     );
-    expect(view.notes().cost).toContain('costs about $0.12 in input');
+    expect(s.notes().cost).toContain('costs about $0.12 in input');
 
     // Out of range: invalid, and the last valid number stays.
-    view.setCustom('50');
-    expect(setting.invalid()).toBe(true);
-    expect(view.customError()).toBe(true);
-    expect(setting.value()).toBe(60_000);
-    view.setCustom('');
-    expect(setting.invalid()).toBe(true);
+    await s.user.clear(customBox());
+    await s.user.type(customBox(), '50');
+    expect(s.component.invalid()).toBe(true);
+    expect(screen.getByRole('alert').textContent).toContain('Enter a whole number');
+    expect(s.component.value()).toBe(60_000);
+    await s.user.clear(customBox());
+    expect(s.component.invalid()).toBe(true);
 
     // Off: no limit (and no error); on again restores the last one.
-    view.setEnabled(false);
-    expect(setting.value()).toBeNull();
-    expect(setting.invalid()).toBe(false);
-    view.setEnabled(true);
-    expect(setting.value()).toBe(60_000);
+    await s.user.click(limitBox());
+    expect(s.component.value()).toBeNull();
+    expect(s.component.invalid()).toBe(false);
+    await s.user.click(limitBox());
+    expect(s.component.value()).toBe(60_000);
   });
 
-  it('starts from a saved limit', () => {
-    const { setting, view } = open(OWN_KEY);
-    setting.value.set(16_000);
-    expect(view.enabled()).toBe(true);
-    expect(view.choice()).toBe(16_000);
-    setting.value.set(50_000);
-    expect(view.choice()).toBe('custom');
+  it('starts from a saved limit', async () => {
+    const s = await open(OWN_KEY, { inputs: { value: 16_000 } });
+    expect(limitBox().checked).toBe(true);
+    expect(radio('16,000').checked).toBe(true);
+    await s.set({ value: 50_000 });
+    expect(radio('Custom').checked).toBe(true);
   });
 
-  it('without a conversation, or when the numbers fail to load, shows the size alone', async () => {
-    const none = open(OWN_KEY, null);
-    expect(none.api.inputBudget).not.toHaveBeenCalled();
-    none.view.setEnabled(true);
-    expect(none.view.notes()).toEqual({
+  it('without a conversation, shows the size alone', async () => {
+    const s = await open(OWN_KEY, { conversation: false });
+    expect(s.api.inputBudget).not.toHaveBeenCalled();
+    await s.user.click(limitBox());
+    expect(s.notes()).toEqual({
       size: expect.stringMatching(/^32,000 tokens/),
       route: null,
       cost: null,
     });
-
-    const failed = open(new Error('offline'));
-    await vi.waitFor(() => expect(failed.api.inputBudget).toHaveBeenCalled());
-    failed.view.setEnabled(true);
-    expect(failed.view.notes().route).toBeNull();
   });
 
-  it('keeps the over-limit choice', () => {
-    const { setting } = open(OWN_KEY);
-    expect(setting.overflow()).toBe('compact');
-    setting.overflow.set('truncate');
-    expect(setting.overflow()).toBe('truncate');
+  it('when the numbers fail to load, shows the size alone', async () => {
+    const s = await open(new Error('offline'));
+    await vi.waitFor(() => expect(s.api.inputBudget).toHaveBeenCalled());
+    await s.user.click(limitBox());
+    expect(s.notes()).toMatchObject({ size: expect.stringMatching(/^32,000 tokens/), route: null });
+  });
+
+  it('keeps the over-limit choice', async () => {
+    const s = await open(OWN_KEY);
+    expect(radio(/^Summarize the oldest part/).checked).toBe(true);
+    expect(s.component.overflow()).toBe('compact');
+    await s.user.click(radio(/^Drop the oldest messages/));
+    expect(s.component.overflow()).toBe('truncate');
   });
 });

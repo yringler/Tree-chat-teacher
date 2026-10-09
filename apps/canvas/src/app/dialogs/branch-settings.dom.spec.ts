@@ -1,13 +1,11 @@
-import '@angular/compiler'; // JIT: the component metadata and the DI below.
-import { Injector, runInInjectionContext, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { TestBed } from '@angular/core/testing';
 import type { Branch, TreeDetail, UpdateBranchRequest } from '@tangent/shared';
-import { ApiClient, ComposerController, ToastStore } from '@tangent/web-shared';
 import * as fixtures from '@tangent/web-shared/testing';
-import { branch } from '@tangent/web-shared/testing';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { branch, openTree, powerProviders, render, signIn } from '@tangent/web-shared/testing';
+import { screen } from '@testing-library/dom';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
 import { CanvasStore } from '../state/canvas-store';
-import { UiStore } from '../state/ui-store';
 import { BranchSettings } from './branch-settings';
 
 /** Lane `b` off the trunk's reply, on Tangent credit and Max's model, unless `over` says otherwise. */
@@ -26,31 +24,25 @@ const detail = (b: Branch): TreeDetail =>
   fixtures.detail([], [lane({ id: 'trunk', parentBranchId: null, branchPointNodeId: null }), b]);
 
 describe('Canvas lane settings', () => {
-  afterEach(() => vi.restoreAllMocks());
-
   it('a title given by a reply while open is not reverted (nor pinned) by Save', async () => {
     const api = {
       updateBranch: vi.fn(async (_id: string, req: UpdateBranchRequest) => ({ ...lane(), ...req })),
     };
-    const injector = Injector.create({
-      providers: [
-        { provide: CanvasStore },
-        { provide: UiStore },
-        { provide: ComposerController },
-        { provide: ToastStore },
-        { provide: ApiClient, useValue: api },
-        { provide: Router, useValue: { navigate: vi.fn(async () => true) } },
-      ],
+    const r = await render(BranchSettings, {
+      inputs: { state: { branchId: 'b' } },
+      providers: powerProviders(CanvasStore, api),
+      setup: () => {
+        const store = TestBed.inject(CanvasStore);
+        signIn(store.account);
+        openTree(store, detail(lane()), 'b');
+      },
     });
-    const store = injector.get(CanvasStore);
-    store.detail.set(detail(lane()));
-    const d = runInInjectionContext(injector, () => new BranchSettings());
-    Object.defineProperty(d, 'state', { value: signal({ branchId: 'b' }) });
-    d.ngOnInit();
-
+    const store = TestBed.inject(CanvasStore);
     store.detail.set(detail(lane({ title: 'Light as a wave', titleSource: 'auto' })));
-    d['isPrivate'].set(true);
-    await d['save']();
+    await r.fixture.whenStable();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('checkbox', { name: /^Private/ }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(api.updateBranch).toHaveBeenCalledWith('b', { isPrivate: true });
   });
 });
