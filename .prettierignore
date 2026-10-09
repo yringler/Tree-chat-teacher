@@ -10,7 +10,5 @@ apps/worker/worker-configuration.d.ts
 apps/worker/migrations/meta/
 
 # Records of finished plans and audits, kept as written.
-docs/PLAN.md
+docs/archive/
 docs/audits/
-docs/polar-migration/
-docs/pool/
