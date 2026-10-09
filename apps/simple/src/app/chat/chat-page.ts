@@ -282,6 +282,11 @@ export class ChatPage implements OnDestroy {
     void this.store.send(id, content);
   }
 
+  /** The lesson's own instructions, offered only where the learner pays (the pool ignores them). */
+  protected openInstructions(): void {
+    this.ui.dialogs.open({ kind: 'instructions' });
+  }
+
   /** Opens the Compare sheet for `content`; the composer keeps it until a pick is kept. */
   protected compare(content: string): void {
     const id = this.store.selectedBranchId();

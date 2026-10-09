@@ -48,7 +48,7 @@ function setup() {
     repos,
     accountId: 'u_user',
     providers: registryOf(learnProvider),
-    profile: { kind: 'learn' },
+    profile: { kind: 'learn', customPrompt: true },
     settings,
     defaultSystemPrompt: 'TUTOR',
     newId,
@@ -107,11 +107,11 @@ describe('importing into Learn (profile learn)', () => {
     expect((await power.listTrees()).map((t) => t.id)).toEqual([original.tree.id]);
   });
 
-  it("uses the Learn account's saved prompt when it has one, like a new lesson", async () => {
+  it("gets the tutor prompt, not the account's saved power prompt, like a new lesson", async () => {
     const { power, learn } = setup();
     await learn.updateSettings({ systemPrompt: 'SAVED' });
     const backup = await power.exportBackup((await powerTree(power)).tree.id);
-    expect((await learn.importBackup(backup)).tree.systemPrompt).toBe('SAVED');
+    expect((await learn.importBackup(backup)).tree.systemPrompt).toBe('TUTOR');
   });
 
   it('continues the lesson on the Learn provider with the whole path as context', async () => {

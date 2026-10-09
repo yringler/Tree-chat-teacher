@@ -276,8 +276,9 @@ export class DemoBackend {
       accountId: DEMO_ACCOUNT_ID,
       providers: registry,
       // Like the Worker: Learn pays per request, so its branches are written `own-key`,
-      // and imports are adapted to its provider, models, context and prompt.
-      profile: { kind: this.mode === 'simple' ? 'learn' : 'power' },
+      // and imports are adapted to its provider, models, context and prompt. The demo
+      // runs on pretend credit, so a lesson's custom prompt applies.
+      profile: this.mode === 'simple' ? { kind: 'learn', customPrompt: true } : { kind: 'power' },
       // As a server with the default config, summarizing on each branch's own route.
       settings: appChatSettings(this.mode === 'simple' ? 'learn' : 'power', {
         summaryProviderId: null,

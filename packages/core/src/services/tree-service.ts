@@ -45,7 +45,14 @@ export const INTERRUPTED = {
 
 /** Trees, branches, links and the account's settings: everything that never calls a model. */
 export class TreeService {
-  constructor(private readonly ctx: ServiceContext) {}
+  /**
+   * `savedPrompt`: the account's saved default prompt starts new trees (power);
+   * Learn's new lessons always start with its tutor prompt.
+   */
+  constructor(
+    private readonly ctx: ServiceContext,
+    private readonly savedPrompt: boolean,
+  ) {}
 
   private get repo() {
     return this.ctx.repos.trees;
@@ -61,7 +68,8 @@ export class TreeService {
    * Creates the tree and an empty trunk (on the route the request names, else
    * the default route, `defaultRoute`; the provider's default model unless
    * one is named). Without a system prompt in the request, the tree gets the
-   * account's saved default, else the built-in one (`deps.defaultSystemPrompt`).
+   * account's saved default (power only), else the built-in one
+   * (`deps.defaultSystemPrompt`).
    */
   async createTree(request: CreateTreeRequest): Promise<TreeDetail> {
     const req = createTreeRequestSchema.parse(request);
@@ -158,9 +166,11 @@ export class TreeService {
     return { systemPrompt, defaultSystemPrompt: this.ctx.defaultSystemPrompt ?? '' };
   }
 
-  /** The account's saved default prompt, else the built-in one. */
+  /** The account's saved default prompt (power only), else the built-in one. */
   async newTreeSystemPrompt(): Promise<string | null> {
-    const saved = await this.ctx.repos.settings.getSettings(this.ctx.accountId);
+    const saved = this.savedPrompt
+      ? await this.ctx.repos.settings.getSettings(this.ctx.accountId)
+      : null;
     return emptyToNull(saved?.systemPrompt) ?? emptyToNull(this.ctx.defaultSystemPrompt);
   }
 

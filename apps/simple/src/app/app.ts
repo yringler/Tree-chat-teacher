@@ -11,6 +11,7 @@ import {
 } from '@tangent/web-shared';
 import { CompareDialog } from './chat/compare-dialog';
 import { ConnectDialog } from './chat/connect-dialog';
+import { InstructionsDialog } from './chat/instructions-dialog';
 import { RouteSync } from './core/route-sync';
 import { DEMO_SIGNUP_URL } from './demo/demo-mode';
 import { AppHeader } from './shell/app-header';
@@ -34,6 +35,7 @@ import { LearnFunding } from './state/learn-funding';
     PoolFirstUseDialog,
     ConnectDialog,
     CompareDialog,
+    InstructionsDialog,
     Toasts,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -74,6 +76,9 @@ import { LearnFunding } from './state/learn-funding';
           }
           @case ('compare') {
             <app-compare-dialog [branchId]="d.branchId" [content]="d.content" />
+          }
+          @case ('instructions') {
+            <app-instructions-dialog />
           }
           @case ('pool-verify') {
             <app-pool-first-use-dialog (closed)="ui.dialogs.close('pool-verify')" />

@@ -9,6 +9,7 @@ import type {
   TreeDetail,
   TreeSummary,
   UpdateBranchRequest,
+  UpdateTreeRequest,
 } from '@tangent/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../core/api-client';
@@ -34,6 +35,7 @@ function fakeApi() {
     streamNode: vi.fn(async (_id: string, _signal: AbortSignal): Promise<Response> => stream([])),
     cancelNode: vi.fn(async (_id: string) => undefined),
     deleteTree: vi.fn(async (_id: string) => undefined),
+    updateTree: vi.fn(async (id: string, _req: UpdateTreeRequest) => tree(id).tree),
     createBranch: vi.fn(async (req: CreateBranchRequest): Promise<Branch> =>
       branch('new', {
         parentBranchId: 'trunk',

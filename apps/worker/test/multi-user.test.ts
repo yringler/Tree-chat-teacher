@@ -29,6 +29,7 @@ import { insertSubscription, insertUsage } from './mocks/billing-helpers.js';
 import { authEnv, client, type CallInit } from './session-client.js';
 import { ok, parseSse } from './http.js';
 import { MOCK_UPSTREAM } from './bindings.js';
+import { poolReadyUser } from './pool-helpers.js';
 
 async function errorCode(res: Response): Promise<string> {
   return ((await res.json()) as ApiError).error.code;
@@ -262,7 +263,7 @@ describe('account settings: the default system prompt', () => {
     expect((await ok<SettingsResponse>(await patch(u, null))).systemPrompt).toBeNull();
   });
 
-  it('is per user: power and Learn share it, other users keep their own', async () => {
+  it('is per user and starts power trees only: new Learn lessons keep the tutor prompt', async () => {
     const u = await newUser();
     const other = await newUser();
     await ok<SettingsResponse>(await patch(u, 'My prompt.'));
@@ -270,7 +271,7 @@ describe('account settings: the default system prompt', () => {
       (await ok<SettingsResponse>(await u.call('/api/settings', { learn: 'own-key' })))
         .systemPrompt,
     ).toBe('My prompt.');
-    expect((await newTree(u, 'own-key')).systemPrompt).toBe('My prompt.');
+    expect((await newTree(u, 'own-key')).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
     await ok<SettingsResponse>(await patch(u, 'Saved in Learn.', 'credit'));
     expect((await newTree(u)).systemPrompt).toBe('Saved in Learn.');
     expect((await ok<SettingsResponse>(await other.call('/api/settings'))).systemPrompt).toBeNull();
@@ -288,9 +289,43 @@ describe('account settings: the default system prompt', () => {
       DEFAULT_SYSTEM_PROMPT,
     );
     expect((await newTree(u)).systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
-    // A saved prompt still wins over the operator's.
+    // A saved prompt starts power trees only.
     await ok<SettingsResponse>(await patch(u, 'My own.', 'credit'));
-    expect((await newTree(u, 'credit')).systemPrompt).toBe('My own.');
+    expect((await newTree(u, 'credit')).systemPrompt).toBe('Operator tutor prompt.');
+  });
+
+  it("Learn adds a tree's own prompt after the tutor prompt on its own key or credit, never on the pool", async () => {
+    const u = await poolReadyUser();
+    const c = u.client;
+    const detail = await ok<TreeDetail>(
+      await c.call('/api/trees', { method: 'POST', json: { systemPrompt: 'Answer in French.' } }),
+      201,
+    );
+    const trunk = detail.branches[0]!;
+    await grantCredit(env.DB, {
+      accountId: `u_${u.userId}`,
+      kind: 'adjustment',
+      amountMicros: 1_000_000,
+      providerRef: null,
+    });
+    const systemSent = async (learn: Payer) => {
+      const sent = await c.call(`/api/branches/${trunk.id}/messages`, {
+        method: 'POST',
+        json: { content: `In ${learn} [echo-request]` },
+        learn,
+      });
+      const text = await sent.text();
+      expect(sent.status, text).toBe(200);
+      return replyText(parseSse(text));
+    };
+    const tutor = JSON.stringify(DEFAULT_SYSTEM_PROMPT).slice(1, 40);
+    for (const learn of ['own-key', 'credit'] as const) {
+      const echoed = await systemSent(learn);
+      expect(echoed).toContain(tutor);
+      expect(echoed).toContain('\\n\\nAnswer in French.');
+    }
+    const pooled = await systemSent('pool');
+    expect(pooled).not.toContain('Answer in French.');
   });
 
   it('rejects malformed updates and needs a session', async () => {

@@ -19,7 +19,7 @@ function setup(options: { credit?: boolean; learn?: boolean } = {}) {
     repos: createMemoryRepositories(),
     providers: registryOf(own, ant),
     profile: options.learn
-      ? { kind: 'learn' }
+      ? { kind: 'learn', customPrompt: true }
       : {
           kind: 'power',
           ...(options.credit === false ? {} : { credit: { providers: registryOf(credit) } }),
@@ -223,7 +223,7 @@ describe('ChatService routes (provider + funding)', () => {
     const learn = new ChatService({
       repos: createMemoryRepositories(),
       providers: unavailable(registryOf(new ScriptedProvider('openrouter'))),
-      profile: { kind: 'learn' },
+      profile: { kind: 'learn', customPrompt: true },
       settings: DEFAULT_CHAT_SETTINGS,
     });
     expect((await learn.createTree({})).branches[0]).toMatchObject({
@@ -412,7 +412,7 @@ function sharedSetup() {
   const learn = new ChatService({
     ...base,
     providers: registryOf(tiers),
-    profile: { kind: 'learn' },
+    profile: { kind: 'learn', customPrompt: true },
   });
   const pool = new ChatService({
     ...base,

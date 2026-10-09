@@ -81,8 +81,9 @@ export interface ChatServiceDeps {
   profile?: GenerationProfile;
   settings: ChatSettings;
   /**
-   * Built-in system prompt of new trees, used when neither the request nor
-   * the account's saved settings name one. Default: none.
+   * Built-in system prompt of new trees, used when neither the request nor,
+   * in power, the account's saved settings name one; in Learn, also the tutor
+   * prompt every generation sends first (`LearnProfile`). Default: none.
    */
   defaultSystemPrompt?: string | null;
   /**
@@ -139,7 +140,7 @@ export class ChatService {
       newId,
       log: (event, fields) => deps.log?.(event, fields),
     };
-    this.trees = new TreeService(ctx);
+    this.trees = new TreeService(ctx, !paysPerRequest(profile));
     this.backups = new BackupService(
       ctx,
       this.trees,

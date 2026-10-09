@@ -261,7 +261,7 @@ describe('links in backups', () => {
       repos,
       accountId: 'u_learner',
       providers: registryOf(provider),
-      profile: { kind: 'learn' },
+      profile: { kind: 'learn', customPrompt: true },
       settings: { ...DEFAULT_CHAT_SETTINGS, autoTitle: false },
     });
     const lesson = await learn.importBackup(await chat.exportBackup(tree.id));
