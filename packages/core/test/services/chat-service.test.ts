@@ -1,3 +1,4 @@
+import { REPLY_CUT_OFF_ERROR } from '@tangent/shared';
 import { describe, expect, it } from 'vitest';
 import { ConflictError, NotFoundError, ValidationError } from '../../src/errors.js';
 import { DEFAULT_TREE_TITLE, TRUNK_TITLE } from '../../src/services/chat-service.js';
@@ -458,6 +459,42 @@ describe('ChatService backup', () => {
     await expect(chat.importBackup(broken)).rejects.toThrow(
       "This backup can't be restored: a message does not follow the one before it",
     );
+  });
+
+  it('gives an error reply from a backup without kinds the kind of its message', async () => {
+    const { chat, provider } = setup({ autoTitle: false });
+    const { tree } = await chat.createTree({});
+    provider.chatStopReason = 'length';
+    await send(chat, tree.trunkBranchId, 'one');
+    const backup = await chat.exportBackup(tree.id);
+    const old = {
+      ...backup,
+      nodes: backup.nodes.map(({ errorKind: _dropped, ...n }) => n),
+    };
+    const restored = await chat.importBackup(old);
+    expect(restored.nodes.find((n) => n.role === 'assistant')).toMatchObject({
+      status: 'error',
+      error: REPLY_CUT_OFF_ERROR,
+      errorKind: 'cut_off',
+    });
+  });
+
+  it('drops a kind it does not know, reading the kind from the message instead', async () => {
+    const { chat, provider } = setup({ autoTitle: false });
+    const { tree } = await chat.createTree({});
+    provider.chatStopReason = 'length';
+    await send(chat, tree.trunkBranchId, 'one');
+    const backup = await chat.exportBackup(tree.id);
+    const nodes = backup.nodes.map((n) =>
+      n.role === 'assistant' ? { ...n, errorKind: 'from_a_later_version' } : n,
+    );
+    const restored = await chat.importBackup({ ...backup, nodes } as never);
+    expect(restored.nodes.find((n) => n.role === 'assistant')?.errorKind).toBe('cut_off');
+    const unknownCopy = backup.nodes.map((n) =>
+      n.role === 'assistant' ? { ...n, error: 'Something new', errorKind: 'later' } : n,
+    );
+    const other = await chat.importBackup({ ...backup, nodes: unknownCopy } as never);
+    expect(other.nodes.find((n) => n.role === 'assistant')?.errorKind).toBeNull();
   });
 
   it('rejects malformed backups', async () => {

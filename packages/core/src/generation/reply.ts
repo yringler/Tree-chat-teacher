@@ -5,6 +5,7 @@ import {
   REPLY_CANCELLED_ERROR,
   REPLY_CUT_OFF_ERROR,
   REPLY_EMPTY_ERROR,
+  REPLY_STREAM_ENDED_ERROR,
   REPLY_THINKING_ONLY_ERROR,
   isLengthStop,
   type Branch,
@@ -192,7 +193,7 @@ export class Replier {
     return (
       terminal ?? {
         status: 'error',
-        message: 'The provider stream ended unexpectedly',
+        message: REPLY_STREAM_ENDED_ERROR,
         kind: 'provider',
       }
     );
