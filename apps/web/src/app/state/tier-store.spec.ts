@@ -86,11 +86,13 @@ function setup(
   const branches = new Map((opts.branches ?? [branch()]).map((b) => [b.id, b]));
   const updateBranch = vi.fn(async (_id: string, _req: UpdateBranchRequest) => true);
   const tree = {
-    providers,
-    providerOf: (r: { providerId: string; funding?: BranchFunding }) => map().get(routeKey(r)),
-    defaultProvider: () =>
-      opts.defaultRoute === null ? null : (map().get(opts.defaultRoute ?? 'openrouter') ?? null),
-    routeLocked: (r: { funding?: BranchFunding }) => locked.has(r.funding ?? 'own-key'),
+    account: {
+      providers,
+      providerOf: (r: { providerId: string; funding?: BranchFunding }) => map().get(routeKey(r)),
+      defaultProvider: () =>
+        opts.defaultRoute === null ? null : (map().get(opts.defaultRoute ?? 'openrouter') ?? null),
+      routeLocked: (r: { funding?: BranchFunding }) => locked.has(r.funding ?? 'own-key'),
+    },
     index: () => ({ branches }),
     updateBranch,
   };

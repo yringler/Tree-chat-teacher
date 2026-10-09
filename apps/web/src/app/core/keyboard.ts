@@ -89,7 +89,7 @@ export class Keyboard {
       case 'b': {
         const node = this.store.focusedInPath() ?? this.store.leaf();
         // Nothing to branch onto without a route to generate on (power is read-only).
-        if (!node || !this.store.canGenerate()) return;
+        if (!node || !this.store.account.canGenerate()) return;
         const body = document.getElementById(`msg-${node.id}`)?.querySelector('.msg-body') ?? null;
         this.ui.branchDialog.set({ fromNodeId: node.id, quote: selectionWithin(body) });
         break;

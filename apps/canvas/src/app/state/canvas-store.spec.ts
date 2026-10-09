@@ -369,7 +369,7 @@ describe('CanvasStore', () => {
 
       s.store.fail(new ApiError(402, 'payment_required', 'Not enough credit'));
       expect(s.ui.toasts()[0]?.link).toEqual({ label: 'Add credit', href: '/billing' });
-      await vi.waitFor(() => expect(s.store.billing()?.availableMicros).toBe(3_000_000));
+      await vi.waitFor(() => expect(s.store.account.billing()?.availableMicros).toBe(3_000_000));
       // Credit left: the notice can be dismissed.
       expect(s.store.membershipDismissible()).toBe(true);
       s.store.dismissMembershipNotice();
@@ -399,7 +399,7 @@ describe('CanvasStore', () => {
       topUpsEnabled: true,
     } as BillingSummary);
     await empty.store.init({ builtInCredit: true, membership: inactive } as MeResponse);
-    expect(empty.store.creditCarriesOn()).toBe(true);
+    expect(empty.store.account.creditCarriesOn()).toBe(true);
     expect(empty.store.membershipBlocked()).toBe(false);
 
     const used = setup();
@@ -414,72 +414,6 @@ describe('CanvasStore', () => {
     const unsold = setup();
     await unsold.store.init({ builtInCredit: false, membership: inactive } as MeResponse);
     expect(unsold.store.membershipBlocked()).toBe(true);
-  });
-});
-
-describe('CanvasStore deleting a lane', () => {
-  // detail(): trunk (u1 a1) and lane `b` from a1 (u2 a2); here also `c` below `b` and `d` off a1.
-  function tree(): TreeDetail {
-    const d = detail();
-    return {
-      ...d,
-      branches: [
-        ...d.branches,
-        branch('c', { parentBranchId: 'b', branchPointNodeId: 'a2' }),
-        branch('d', { parentBranchId: 'trunk', branchPointNodeId: 'a1' }),
-      ],
-      nodes: [
-        ...d.nodes,
-        node('u3', { seq: 4, parentId: 'a2', branchId: 'c', role: 'user' }),
-        node('u4', { seq: 2, parentId: 'a1', branchId: 'd', role: 'user' }),
-      ],
-    };
-  }
-
-  function open(selected: string) {
-    const s = setup();
-    s.store.detail.set(tree());
-    const deleteBranch = vi.fn(async (_id: string) => ({
-      treeId: 't1',
-      branchIds: ['b', 'c'],
-      nodeIds: ['u2', 'a2', 'u3'],
-    }));
-    Object.assign(s.api, { deleteBranch });
-    s.store.setRoute('t1', selected, null);
-    const go = vi.spyOn(s.store, 'go');
-    return { ...s, deleteBranch, go };
-  }
-
-  beforeEach(() => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-  });
-
-  afterEach(() => vi.restoreAllMocks());
-
-  it('takes the lanes below with it; a selection in there moves to the fork', async () => {
-    const s = open('c');
-    await expect(s.store.deleteBranch('b')).resolves.toBe(true);
-    expect(s.deleteBranch).toHaveBeenCalledWith('b');
-    expect(s.go).toHaveBeenCalledWith('trunk', 'a1', true);
-    expect([...(s.store.index()?.branches.keys() ?? [])].sort()).toEqual(['d', 'trunk']);
-    expect(s.store.index()?.nodes.has('u3')).toBe(false);
-    expect(s.ui.toasts().at(-1)?.text).toBe('Deleted the lane and 1 below it');
-  });
-
-  it('a lane selected elsewhere stays selected', async () => {
-    const s = open('d');
-    await s.store.deleteBranch('b');
-    expect(s.go).not.toHaveBeenCalled();
-    expect(s.store.selectedBranchId()).toBe('d');
-  });
-
-  it('a refused delete changes nothing', async () => {
-    const s = open('b');
-    s.deleteBranch.mockRejectedValueOnce(new ApiError(409, 'conflict', 'Still writing'));
-    await expect(s.store.deleteBranch('b')).resolves.toBe(false);
-    expect(s.go).not.toHaveBeenCalled();
-    expect(s.store.index()?.branches.size).toBe(4);
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still writing' });
   });
 });
 
@@ -514,27 +448,6 @@ describe('CanvasStore read-only lanes without a membership', () => {
     };
   }
 
-  it('locks the own-key lanes the server names while the user has no membership; credit lanes keep going', async () => {
-    const s = setup();
-    s.api.providers.mockResolvedValue([credit]);
-    await s.store.init({
-      builtInCredit: true,
-      membership: inactive,
-      membershipNeededFor: ['own-key'],
-    } as MeResponse);
-    s.store.detail.set(ownKeyTrunk());
-    const [trunk, lane] = s.store.detail()!.branches;
-    expect(s.store.routeLocked(trunk!)).toBe(true);
-    expect(s.store.routeLocked(lane!)).toBe(false);
-    expect(s.store.creditRoute()).toBe(credit);
-
-    // A member, or no membership required: nothing is locked.
-    s.store.membership.set({ ...inactive, status: 'active' });
-    expect(s.store.routeLocked(trunk!)).toBe(false);
-    s.store.membership.set({ ...inactive, required: false });
-    expect(s.store.routeLocked(trunk!)).toBe(false);
-  });
-
   it('a tangent of a locked lane opens no lane on its route; one already followed still opens', async () => {
     const s = setup();
     s.api.providers.mockResolvedValue([credit]);
@@ -564,48 +477,16 @@ describe('CanvasStore read-only lanes without a membership', () => {
     } as unknown as MeResponse);
     s.store.detail.set(ownKeyTrunk());
     const trunk = s.store.detail()!.branches[0]!;
-    expect(s.store.routeLocked(trunk)).toBe(false);
+    expect(s.store.account.routeLocked(trunk)).toBe(false);
     s.api.me.mockResolvedValue({
       builtInCredit: true,
       membership: inactive,
       membershipNeededFor: ['own-key'],
     } as MeResponse);
     s.store.fail(new ApiError(402, 'membership_required', 'Membership required'));
-    expect(s.store.routeLocked(trunk)).toBe(true);
+    expect(s.store.account.routeLocked(trunk)).toBe(true);
     await vi.waitFor(() => expect(s.api.me).toHaveBeenCalled());
-    await vi.waitFor(() => expect(s.store.membershipNeededFor()).toEqual(['own-key']));
-  });
-
-  it('offers a copy in Learn only where Learn can reply: on the pool while it is on, else on credit', async () => {
-    const locked = {
-      builtInCredit: true,
-      membership: inactive,
-      membershipNeededFor: ['own-key'],
-    } as MeResponse;
-    const s = setup();
-    await s.store.init(locked);
-    expect(s.api.poolStatus).toHaveBeenCalledTimes(1);
-    expect(s.store.learnCopyWay()).toBe('credit');
-
-    const pool = setup();
-    pool.api.poolStatus.mockResolvedValue({ enabled: true } as PoolStatusResponse);
-    await pool.store.init(locked);
-    expect(pool.store.poolOn()).toBe(true);
-    expect(pool.store.learnCopyWay()).toBe('pool');
-
-    // Credit that can neither be bought nor spent, and the pool off: no copy.
-    const stuck = setup();
-    stuck.api.billing.mockResolvedValue({
-      availableMicros: 0,
-      topUpsEnabled: false,
-    } as BillingSummary);
-    await stuck.store.init(locked);
-    expect(stuck.store.learnCopyWay()).toBeNull();
-    // Credit not offered, and the pool status unreadable: no copy either.
-    const none = setup();
-    none.api.poolStatus.mockRejectedValue(new Error('offline'));
-    await none.store.init({ ...locked, builtInCredit: false });
-    expect(none.store.learnCopyWay()).toBeNull();
+    await vi.waitFor(() => expect(s.store.account.membershipNeededFor()).toEqual(['own-key']));
   });
 
   it('"Continue with Tangent credit" moves a locked lane onto credit', async () => {
@@ -628,7 +509,7 @@ describe('CanvasStore read-only lanes without a membership', () => {
       funding: 'credit',
       model: 'max-model',
     });
-    expect(s.store.routeLocked(s.store.detail()!.branches[0]!)).toBe(false);
+    expect(s.store.account.routeLocked(s.store.detail()!.branches[0]!)).toBe(false);
   });
 
   it('a lane on the own key with no key here: a refused send waits for credit, and keeps its text', async () => {
@@ -648,7 +529,7 @@ describe('CanvasStore read-only lanes without a membership', () => {
       membershipNeededFor: ['own-key'],
     } as MeResponse);
     s.store.detail.set(ownKeyTrunk());
-    expect(s.store.keyMissing(s.store.detail()!.branches[0]!)).toBe(true);
+    expect(s.store.account.keyMissing(s.store.detail()!.branches[0]!)).toBe(true);
     const updateBranch = vi.fn(async (id: string, req: object) => ({
       ...ownKeyTrunk().branches.find((b) => b.id === id)!,
       ...req,
@@ -676,122 +557,6 @@ describe('CanvasStore read-only lanes without a membership', () => {
     expect(s.store.blockedSends()).toEqual([]);
     expect(s.store.unsentDrafts().has('trunk')).toBe(false);
     expect(s.ui.keysOpen()).toBe(false);
-  });
-});
-
-describe('CanvasStore the default route of a new conversation', () => {
-  const member = {
-    required: true,
-    status: 'active',
-    subscriptionStatus: 'active',
-    periodEnd: null,
-    cancelAtPeriodEnd: false,
-    priceCents: 1000,
-  } as const;
-  const own = (id: string, available = false): ProviderInfo => ({
-    id,
-    kind: id === 'anthropic' ? 'anthropic' : 'openai-compatible',
-    label: id,
-    models: [{ id: `${id}-model`, label: id }],
-    defaultModel: `${id}-model`,
-    openModels: id === 'openrouter',
-    available,
-    acceptsUserKey: true,
-    keySource: available ? 'user' : null,
-    funding: 'own-key',
-  });
-  const credit: ProviderInfo = {
-    ...own('openrouter', true),
-    label: 'Tangent credit',
-    acceptsUserKey: false,
-    keySource: 'server',
-    funding: 'credit',
-  };
-  const list = [own('anthropic'), own('openai'), own('openrouter'), credit];
-  const key = (p: ProviderInfo | null) => p && `${p.id}@${p.funding}`;
-
-  async function start(
-    providers: ProviderInfo[],
-    me: Partial<MeResponse>,
-    billing: BillingSummary | Error = { availableMicros: 3_000_000 } as BillingSummary,
-  ) {
-    const s = setup();
-    s.api.providers.mockResolvedValue(providers);
-    if (billing instanceof Error) s.api.billing.mockRejectedValue(billing);
-    else s.api.billing.mockResolvedValue(billing);
-    await s.store.init({ builtInCredit: true, membership: member, ...me } as MeResponse);
-    return s;
-  }
-
-  beforeEach(() => vi.spyOn(console, 'warn').mockImplementation(() => undefined));
-  afterEach(() => vi.restoreAllMocks());
-
-  it('no keys: Tangent credit while the balance can pay, else the user’s own OpenRouter', async () => {
-    expect(key((await start(list, {})).store.defaultProvider())).toBe('openrouter@credit');
-    const zero = await start(list, {}, { availableMicros: 0 } as BillingSummary);
-    expect(key(zero.store.defaultProvider())).toBe('openrouter@own-key');
-    expect(zero.api.billing).toHaveBeenCalled();
-    const unread = await start(list, {}, new Error('boom'));
-    expect(key(unread.store.defaultProvider())).toBe('openrouter@own-key');
-    const unsold = await start(list.slice(0, 3), { builtInCredit: false });
-    expect(key(unsold.store.defaultProvider())).toBe('openrouter@own-key');
-    expect(unsold.api.billing).not.toHaveBeenCalled();
-  });
-
-  it('a provider with a key first; own keys locked by the membership hand it to credit that can pay', async () => {
-    const keyed = [own('anthropic'), own('openai', true), own('openrouter'), credit];
-    expect(key((await start(keyed, {})).store.defaultProvider())).toBe('openai@own-key');
-    const lapsed = await start(keyed, {
-      membership: { ...member, status: 'inactive' },
-      membershipNeededFor: ['own-key'],
-    });
-    expect(key(lapsed.store.defaultProvider())).toBe('openrouter@credit');
-    // An empty balance, but top-ups are sold: still credit (anyone can buy), not a locked key.
-    const buyer = await start(
-      keyed,
-      { membership: { ...member, status: 'inactive' }, membershipNeededFor: ['own-key'] },
-      { availableMicros: 0, topUpsEnabled: true } as BillingSummary,
-    );
-    expect(key(buyer.store.defaultProvider())).toBe('openrouter@credit');
-    expect(buyer.store.creditRoute()?.funding).toBe('credit');
-  });
-
-  it('a non-member: credit only where it can pay or be bought, else the locked own key', async () => {
-    const lapsed = {
-      membership: { ...member, status: 'inactive' },
-      membershipNeededFor: ['own-key'],
-    } as Partial<MeResponse>;
-    // Credit offered, top-ups not sold, nothing left: a dead end, so the own-key route.
-    const stuck = await start(list, lapsed, {
-      availableMicros: 0,
-      topUpsEnabled: false,
-    } as BillingSummary);
-    expect(key(stuck.store.defaultProvider())).toBe('openrouter@own-key');
-    // Top-ups sold: credit, whatever the balance.
-    const buyer = await start(list, lapsed, {
-      availableMicros: 0,
-      topUpsEnabled: true,
-    } as BillingSummary);
-    expect(key(buyer.store.defaultProvider())).toBe('openrouter@credit');
-    // Top-ups off, but a balance left: credit.
-    const holder = await start(list, lapsed, {
-      availableMicros: 500_000,
-      topUpsEnabled: false,
-    } as BillingSummary);
-    expect(key(holder.store.defaultProvider())).toBe('openrouter@credit');
-  });
-
-  it('decides nothing before the balance is read', async () => {
-    const s = setup();
-    s.api.providers.mockResolvedValue(list);
-    let answer!: (b: BillingSummary) => void;
-    s.api.billing.mockReturnValue(new Promise<BillingSummary>((r) => (answer = r)));
-    const started = s.store.init({ builtInCredit: true, membership: member } as MeResponse);
-    await vi.waitFor(() => expect(s.store.providers()).toEqual(list));
-    expect(s.store.defaultProvider()).toBeNull();
-    answer({ availableMicros: 0 } as BillingSummary);
-    await started;
-    expect(key(s.store.defaultProvider())).toBe('openrouter@own-key');
   });
 });
 
@@ -842,56 +607,6 @@ describe('CanvasStore links between messages', () => {
     s.store.setRoute('t1', 'trunk', null);
     return s;
   }
-
-  it('indexes the links under both of their ends', () => {
-    const s = linked();
-    expect(s.store.links().map((l) => l.id)).toEqual(['l1', 'l2']);
-    expect(
-      s.store
-        .linksByNode()
-        .get('a1')
-        ?.map((l) => l.id),
-    ).toEqual(['l1', 'l2']);
-    expect(
-      s.store
-        .linksByNode()
-        .get('a2')
-        ?.map((l) => l.id),
-    ).toEqual(['l1']);
-    expect(s.store.linksByNode().has('u2')).toBe(false);
-  });
-
-  it('creates a link, adds it to the tree and says so', async () => {
-    const s = setup();
-    const created = await s.store.createLink('u2', 'u1', 'Why');
-    expect(s.api.createLink).toHaveBeenCalledWith({
-      fromNodeId: 'u2',
-      toNodeId: 'u1',
-      note: 'Why',
-    });
-    expect(created?.id).toBe('l-new');
-    expect(s.store.links().map((l) => l.id)).toEqual(['l-new']);
-    expect(s.ui.toasts().map((t) => t.text)).toEqual(['Messages linked']);
-  });
-
-  it('a pair already linked (either way round) keeps its one link', async () => {
-    const s = linked();
-    s.api.createLink.mockResolvedValueOnce({
-      link: link('l1', 'a1', 'a2', 'Same idea'),
-      created: false,
-    });
-    await s.store.createLink('a2', 'a1');
-    expect(s.store.links().map((l) => l.id)).toEqual(['l1', 'l2']);
-    expect(s.ui.toasts().map((t) => t.text)).toEqual(['Already linked']);
-  });
-
-  it('a refused link changes nothing and shows the error', async () => {
-    const s = linked();
-    s.api.createLink.mockRejectedValueOnce(new ApiError(400, 'bad_request', 'Too many links'));
-    await expect(s.store.createLink('u1', 'u2')).resolves.toBeNull();
-    expect(s.store.links()).toHaveLength(2);
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error' });
-  });
 
   it('edits a note and removes a link (closing its popover)', async () => {
     const s = linked();
@@ -999,148 +714,5 @@ describe('CanvasStore links between messages', () => {
     s.store.setRoute('t2', null, null);
     expect(s.ui.linkPick()).toBeNull();
     expect(s.ui.linkReturn()).toBeNull();
-  });
-});
-
-describe('CanvasStore refreshing the list after replies', () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  /** A whole exchange in lane `b`, streamed at once. */
-  function exchange(i: number): Response {
-    const userNode = node(`u-${i}`, {
-      seq: 10 + 2 * i,
-      parentId: 'a2',
-      branchId: 'b',
-      role: 'user',
-    });
-    const reply = node(`r-${i}`, { seq: 11 + 2 * i, parentId: `u-${i}`, branchId: 'b' });
-    const lane = branch('b', { parentBranchId: 'trunk', branchPointNodeId: 'a1' });
-    return new Response(
-      sse([
-        { type: 'start', userNode, assistantNode: { ...reply, status: 'streaming' }, branch: lane },
-        { type: 'done', node: reply, branch: lane },
-      ]),
-      { headers: { 'content-type': 'text/event-stream' } },
-    );
-  }
-
-  const summaryOf = (title: string): TreeSummary => ({
-    id: 't1',
-    title,
-    createdAt: T,
-    updatedAt: T,
-    branchCount: 2,
-    messageCount: 4,
-  });
-
-  it('a six-lane fan-out finishing reads the list twice at most; the latest answer stays', async () => {
-    const s = setup();
-    let i = 0;
-    s.api.sendMessage.mockImplementation(async () => exchange(i++));
-    const reads: ((list: TreeSummary[]) => void)[] = [];
-    s.api.listTrees.mockImplementation(() => new Promise<TreeSummary[]>((r) => reads.push(r)));
-    await Promise.all(Array.from({ length: 6 }, () => s.store.send('b', 'Why?')));
-    expect(reads).toHaveLength(1);
-    reads[0]!([summaryOf('Light')]);
-    await vi.waitFor(() => expect(reads).toHaveLength(2));
-    reads[1]!([summaryOf('Light and waves')]);
-    await vi.waitFor(() => expect(s.store.detail()?.tree.title).toBe('Light and waves'));
-    expect(reads).toHaveLength(2);
-  });
-
-  it('a read sent before a delete or a new conversation does not undo them', async () => {
-    const s = setup();
-    const reads: ((list: TreeSummary[]) => void)[] = [];
-    s.api.listTrees.mockImplementation(() => new Promise<TreeSummary[]>((r) => reads.push(r)));
-    const other: TreeDetail = { ...detail(), tree: { ...detail().tree, id: 't2' } };
-    Object.assign(s.api, {
-      deleteTree: vi.fn(async () => undefined),
-      createTree: vi.fn(async () => other),
-    });
-    s.store.trees.set([summaryOf('Light')]);
-    const before = s.store.loadTrees();
-    await s.store.deleteTree('t1');
-    reads[0]!([summaryOf('Light')]);
-    await before;
-    expect(s.store.trees()).toEqual([]);
-
-    const again = s.store.loadTrees();
-    await s.store.startConversation('Hello', null, null);
-    reads[1]!([]);
-    await again;
-    expect(s.store.trees().map((t) => t.id)).toEqual(['t2']);
-  });
-
-  it('a failed refresh after a reply is quiet', async () => {
-    const s = setup();
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    s.api.sendMessage.mockImplementation(async () => exchange(0));
-    s.api.listTrees.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
-    await s.store.send('b', 'Why?');
-    await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
-    expect(s.ui.toasts()).toEqual([]);
-  });
-});
-
-describe('CanvasStore deleting a tree with a reply generating', () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it('stops following its replies', async () => {
-    const s = setup();
-    s.store.detail.set(null);
-    const generating = detail();
-    generating.nodes = generating.nodes.map((n) =>
-      n.id === 'a2' ? { ...n, status: 'streaming' } : n,
-    );
-    s.api.getTree.mockResolvedValue(generating);
-    const signals: AbortSignal[] = [];
-    s.api.streamNode.mockImplementation((_id: string, signal: AbortSignal) => {
-      signals.push(signal);
-      return new Promise<Response>(() => undefined);
-    });
-    Object.assign(s.api, { deleteTree: vi.fn(async () => undefined) });
-    s.store.setRoute('t1', null, null);
-    await vi.waitFor(() => expect(signals).toHaveLength(1));
-    expect(s.store.live().has('a2')).toBe(true);
-    await s.store.deleteTree('t1');
-    expect(signals[0]?.aborted).toBe(true);
-    expect(s.store.live().size).toBe(0);
-  });
-});
-
-describe('CanvasStore a tree load that lands late', () => {
-  beforeEach(() => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-  });
-
-  afterEach(() => vi.restoreAllMocks());
-
-  function slowLoad() {
-    const s = setup();
-    s.store.detail.set(null);
-    let land!: (d: TreeDetail) => void;
-    s.api.getTree.mockReturnValue(new Promise<TreeDetail>((r) => (land = r)));
-    const other: TreeDetail = { ...detail(), tree: { ...detail().tree, id: 't2' } };
-    Object.assign(s.api, { createTree: vi.fn(async () => other) });
-    s.store.setRoute('t1', null, null);
-    return { ...s, land: (d: TreeDetail) => land(d) };
-  }
-
-  it('going home while it loads: home stays empty', async () => {
-    const s = slowLoad();
-    s.store.setRoute(null, null, null);
-    s.land(detail());
-    await new Promise((r) => setTimeout(r, 0));
-    expect(s.store.detail()).toBeNull();
-    expect(s.store.detailLoading()).toBe(false);
-  });
-
-  it('starting a new conversation while it loads: the new one stays open', async () => {
-    const s = slowLoad();
-    await s.store.startConversation('Hello', null, null);
-    s.land(detail());
-    await new Promise((r) => setTimeout(r, 0));
-    expect(s.store.detail()?.tree.id).toBe('t2');
-    expect(s.store.detailLoading()).toBe(false);
   });
 });

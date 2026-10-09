@@ -24,7 +24,7 @@ import { UiStore } from '../state/ui-store';
         title="Canvas is experimental: the same conversations and keys as Power mode, a very different way of looking at them"
         >experimental</span
       >
-      @if (store.me()?.devMode) {
+      @if (store.account.me()?.devMode) {
         <span class="badge badge-warn" title="DEV_ALLOW_NO_AUTH is on">dev: auth disabled</span>
       }
       <span class="spacer"></span>
@@ -37,7 +37,7 @@ import { UiStore } from '../state/ui-store';
         >
           <app-icon name="key" [size]="15" />
           <span class="hide-narrow">Keys</span>
-          @if (store.keyStatus()?.hasKey) {
+          @if (store.account.keyStatus()?.hasKey) {
             <span class="dot-key" aria-label="Your key is stored"></span>
           }
         </button>
@@ -56,10 +56,10 @@ import { UiStore } from '../state/ui-store';
         </button>
         @if (ui.menuOpen()) {
           <div class="menu" id="account-menu" role="menu">
-            @if (store.me()?.email; as email) {
+            @if (store.account.me()?.email; as email) {
               <p class="menu-label muted small">{{ email }}</p>
             }
-            @if (!demo && store.me()?.userId; as id) {
+            @if (!demo && store.account.me()?.userId; as id) {
               <app-account-id class="menu-label" [userId]="id" [menu]="true" />
             }
             <a class="menu-item" role="menuitem" [href]="demo ? '/demo/' : '/'">
@@ -68,7 +68,7 @@ import { UiStore } from '../state/ui-store';
             <button type="button" class="menu-item" role="menuitem" (click)="signOut()">
               {{ demo ? 'Leave the demo' : 'Sign out' }}
             </button>
-            @if (!demo && store.me()?.email) {
+            @if (!demo && store.account.me()?.email) {
               <button
                 type="button"
                 class="menu-item menu-item-danger"

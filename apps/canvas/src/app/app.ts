@@ -89,7 +89,7 @@ export class App {
   private readonly api = inject(ApiClient);
   protected readonly demo = inject(DEMO_MODE);
   protected readonly signupUrl = DEMO_SIGNUP_URL;
-  protected readonly ready = this.store.me;
+  protected readonly ready = this.store.account.me;
   /** The login page is always its own document (see AuthService). */
   protected readonly loginPage =
     !this.demo && location.pathname.replace(/\/+$/, '') === inject(APP_PATHS).login;

@@ -65,7 +65,7 @@ export class TierStore {
   choice(tier: ModelTier, branch?: TierRoute | null): ModelChoice | null {
     const saved = this.settings.settings().tiers[tier];
     if (saved) {
-      const p = this.tree.providerOf(saved);
+      const p = this.tree.account.providerOf(saved);
       if (this.usable(p) && isModelAllowed(p, saved.model)) return choiceOn(p, saved.model);
     }
     return this.suggested(tier, branch);
@@ -85,9 +85,9 @@ export class TierStore {
       return p && m ? choiceOn(p, m.id) : null;
     };
     return (
-      (branch ? listed(this.tree.providerOf(branch)) : null) ??
-      listed(this.tree.defaultProvider()) ??
-      this.tree
+      (branch ? listed(this.tree.account.providerOf(branch)) : null) ??
+      listed(this.tree.account.defaultProvider()) ??
+      this.tree.account
         .providers()
         .filter((p) => this.usable(p))
         .map(listed)
@@ -116,7 +116,7 @@ export class TierStore {
     const normal = this.choice('normal', branch);
     const max = this.choice('max', branch);
     if (!normal || !max) return undefined;
-    const models = this.tree.providerOf(max)?.models ?? [];
+    const models = this.tree.account.providerOf(max)?.models ?? [];
     const suggestedMax = tierModel(models, 'max');
     if (tierModel(models, 'normal')?.id !== normal.model || suggestedMax?.id !== max.model)
       return undefined;
@@ -136,14 +136,14 @@ export class TierStore {
    * (suggested)" reads "claude-sonnet-5.5") or it isn't listed.
    */
   modelLabel(choice: ModelChoice): string {
-    const m = this.tree.providerOf(choice)?.models.find((x) => x.id === choice.model);
+    const m = this.tree.account.providerOf(choice)?.models.find((x) => x.id === choice.model);
     if (!m) return choice.model;
     const text = suggestionText(m);
     return TIERS.some((t) => TIER_LABELS[t] === text.name) ? (text.id ?? m.id) : text.name;
   }
 
   private open(p: ProviderInfo | null | undefined): p is ProviderInfo {
-    return !!p && !this.tree.routeLocked(p);
+    return !!p && !this.tree.account.routeLocked(p);
   }
 
   /** Has a key (or needs none) and isn't locked. */
@@ -169,7 +169,9 @@ export class TierStore {
     });
     if (ok) {
       const moved = routeKey(target) !== routeKey(branch);
-      const where = moved ? ` (${this.tree.providerOf(target)?.label ?? target.providerId})` : '';
+      const where = moved
+        ? ` (${this.tree.account.providerOf(target)?.label ?? target.providerId})`
+        : '';
       this.ui.notify(`Replies now on ${TIER_LABELS[tier]}${where}`);
       this.ui.focusComposer();
     }

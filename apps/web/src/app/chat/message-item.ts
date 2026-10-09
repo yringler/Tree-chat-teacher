@@ -73,7 +73,7 @@ import { ReviewVerdict } from '../ui/review-verdict';
             </button>
           } @else {
             <!-- Without a route to generate on (no membership for own keys, no credit), no new branches or reviews. -->
-            @if (store.canGenerate()) {
+            @if (store.account.canGenerate()) {
               <button
                 type="button"
                 class="btn btn-ghost btn-sm"
@@ -378,7 +378,7 @@ export class MessageItem {
   );
   protected readonly locked = computed(() => {
     const b = this.ownBranch();
-    return !!b && this.store.routeLocked(b);
+    return !!b && this.store.account.routeLocked(b);
   });
   protected readonly canReview = computed(() => this.store.canReview(this.ownBranch()));
   /** The message's links, resolved to their other ends. */
@@ -481,7 +481,7 @@ export class MessageItem {
       this.store.path().at(-1)?.id === n.id &&
       !this.store.busy() &&
       !this.locked() &&
-      this.store.canGenerate()
+      this.store.account.canGenerate()
     );
   });
 
@@ -493,7 +493,7 @@ export class MessageItem {
   }
 
   /** "Ask your own": offered wherever tangents are, while a branch can be generated on. */
-  protected readonly canAsk = computed(() => this.reviewable() && this.store.canGenerate());
+  protected readonly canAsk = computed(() => this.reviewable() && this.store.account.canGenerate());
   protected readonly askText = signal('');
   protected readonly asking = signal(false);
   /** The open branch's newest reply: its "Ask your own" starts open (TangentAsk `latest`). */

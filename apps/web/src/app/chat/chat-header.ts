@@ -46,7 +46,7 @@ interface Crumb {
           <!-- Shares and exports are made by the server; the demo has none. Public links
                only while this user may publish them (MeResponse.sharing); export always. -->
           @if (!demo) {
-            @if (store.me()?.sharing) {
+            @if (store.account.me()?.sharing) {
               <button
                 type="button"
                 class="btn btn-ghost btn-sm"

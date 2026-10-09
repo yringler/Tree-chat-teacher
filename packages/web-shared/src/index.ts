@@ -21,6 +21,22 @@ export {
 } from './core/api-client';
 export { API_FETCH, API_HEADERS, defaultApiFetch } from './core/api-fetch';
 export { coalesced } from './core/coalesced';
+export {
+  ConversationStore,
+  type ConversationApi,
+  type ConversationCopy,
+  type FailedSend,
+  type LiveReply,
+  type SendOptions,
+} from './conversation/conversation-store';
+export {
+  PowerAccountStore,
+  type AccountRefusal,
+  type PowerAccountApi,
+  type RouteState,
+} from './power/power-account';
+export { PowerConversationStore, type PowerApi } from './power/power-conversation-store';
+export { modelHint, routeSuffix, startingRoute } from './power/routes';
 export { CompareRun, type CompareCandidateState, type CompareSpec } from './core/compare-run';
 export {
   backupFile,

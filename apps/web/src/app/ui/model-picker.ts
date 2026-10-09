@@ -1,41 +1,9 @@
 import { ChangeDetectionStrategy, Component, computed, inject, model } from '@angular/core';
-import {
-  isModelAllowed,
-  parseRouteKey,
-  providerRouteKey,
-  type ProviderInfo,
-} from '@tangent/shared';
-import { ModelSuggestions } from '@tangent/web-shared';
+import { parseRouteKey, providerRouteKey } from '@tangent/shared';
+import { modelHint, ModelSuggestions, routeSuffix } from '@tangent/web-shared';
 import { TreeStore } from '../state/tree-store';
 
 let uid = 0;
-
-/**
- * What is wrong with `model` for `provider`, or null when nothing is. Only an
- * `openModels` provider takes typed ids (the others offer a select of their
- * listed models, so their choice is always one the server allows).
- */
-export function modelHint(provider: ProviderInfo | null, model: string): string | null {
-  if (!provider?.openModels) return null;
-  if (model.trim() === '') return 'Enter a model id, or pick one of the suggestions.';
-  if (!isModelAllowed(provider, model))
-    return 'Not a model id: use letters, digits and . _ - : / (like vendor/model-name).';
-  return null;
-}
-
-/** Why a provider can't be picked, appended to its label; empty when it can. */
-export function unavailableSuffix(p: ProviderInfo): string {
-  if (p.available) return '';
-  return p.acceptsUserKey ? ' — missing API key' : ' — unavailable';
-}
-
-/**
- * `unavailableSuffix`, or for a route whose funding needs the membership the
- * user lacks (`locked`, see TreeStore `routeLocked`), that.
- */
-export function routeSuffix(p: ProviderInfo, locked: boolean): string {
-  return locked && p.available ? ' — needs a membership' : unavailableSuffix(p);
-}
 
 /**
  * Provider + model. Providers without an API key, and routes whose funding
@@ -60,8 +28,8 @@ export function routeSuffix(p: ProviderInfo, locked: boolean): string {
           @if (!known()) {
             <option [value]="route()">{{ unknownLabel() }} (not configured)</option>
           }
-          @for (p of store.providers(); track key(p)) {
-            @let locked = store.routeLocked(p);
+          @for (p of store.account.providers(); track key(p)) {
+            @let locked = store.account.routeLocked(p);
             <option
               [value]="key(p)"
               [disabled]="!p.available || locked"
@@ -125,7 +93,9 @@ export class ModelPicker {
   protected readonly suffix = routeSuffix;
   protected readonly key = providerRouteKey;
 
-  private readonly provider = computed(() => this.store.providerMap().get(this.route()) ?? null);
+  private readonly provider = computed(
+    () => this.store.account.providerMap().get(this.route()) ?? null,
+  );
   /** A route no provider offers (e.g. Tangent credit on a server that stopped selling it). */
   protected readonly unknownLabel = computed(() => {
     const { providerId, funding } = parseRouteKey(this.route());
@@ -141,7 +111,7 @@ export class ModelPicker {
 
   protected pickProvider(route: string): void {
     this.route.set(route);
-    const p = this.store.providerMap().get(route);
+    const p = this.store.account.providerMap().get(route);
     if (p) this.modelId.set(p.defaultModel);
   }
 }

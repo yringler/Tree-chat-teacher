@@ -76,7 +76,7 @@ export interface RouteView {
         }
         @if (r.missing) {
           <span class="route-warn small">No {{ r.label }} key in this browser.</span>
-          @if (store.creditRoute()) {
+          @if (store.account.creditRoute()) {
             <button
               type="button"
               class="link-btn small"
@@ -117,12 +117,12 @@ export class RouteBar {
   protected readonly view = computed<RouteView | null>(() => {
     const branch = this.store.selectedBranch();
     if (!branch) return null;
-    const provider = this.store.providerOf(branch);
+    const provider = this.store.account.providerOf(branch);
     return {
       branch,
       label: provider?.label ?? branch.providerId,
       model: provider?.models.find((m) => m.id === branch.model)?.label ?? branch.model,
-      missing: this.store.keyMissing(branch),
+      missing: this.store.account.keyMissing(branch),
       tiers: this.tiers.available(branch),
       tier: this.tiers.tierOfBranch(branch),
     };

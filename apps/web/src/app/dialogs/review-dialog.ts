@@ -195,7 +195,7 @@ export class ReviewDialog implements OnInit {
   }
 
   protected labelOf(route: { providerId: string; funding?: BranchFunding }, model: string): string {
-    const p = this.store.providerOf(route);
+    const p = this.store.account.providerOf(route);
     return p?.models.find((m) => m.id === model)?.label ?? model;
   }
 

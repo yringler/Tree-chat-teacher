@@ -39,15 +39,15 @@ import { feeSentence } from '../ui/credit';
       @if (store.blockedBranch(); as b) {
         <app-key-missing-notice
           [branchTitle]="b.title"
-          [providerLabel]="store.providerOf(b)?.label ?? b.providerId"
-          [credit]="store.creditRoute() !== null"
+          [providerLabel]="store.account.providerOf(b)?.label ?? b.providerId"
+          [credit]="store.account.creditRoute() !== null"
           [balance]="balance()"
           [keyForm]="enabled()"
           [busy]="switching()"
           (useCredit)="useCredit()"
         />
       }
-      @if (store.keyStatus(); as status) {
+      @if (store.account.keyStatus(); as status) {
         @if (!status.enabled) {
           <p class="notice">
             This server isn't set up to store your own API keys (KEY_ENCRYPTION_SECRET is not set).
@@ -89,7 +89,7 @@ import { feeSentence } from '../ui/credit';
         @if (credit()) {
           <li class="key-row credit-row">
             <span class="key-name">Tangent credit</span>
-            @if (store.billing(); as b) {
+            @if (store.account.billing(); as b) {
               <span class="badge" [class.badge-ok]="b.availableMicros > 0"
                 >{{ usd(b.availableMicros) }} available</span
               >
@@ -100,7 +100,7 @@ import { feeSentence } from '../ui/credit';
           </li>
         }
       </ul>
-      @if (credit() && store.billing(); as b) {
+      @if (credit() && store.account.billing(); as b) {
         <p class="muted small">
           {{ fees(b) }} No key needed: pick “Tangent credit” as the provider, for a new conversation
           or any branch (its settings, also under the message box).
@@ -141,7 +141,7 @@ import { feeSentence } from '../ui/credit';
             log it. It expires after 7 days.
           </p>
           <div class="form-actions">
-            @if (store.keyStatus()?.hasKey) {
+            @if (store.account.keyStatus()?.hasKey) {
               <button
                 type="button"
                 class="btn btn-danger-ghost btn-left"
@@ -177,25 +177,25 @@ export class ApiKeys implements OnInit, OnDestroy {
   protected readonly usd = formatMicros;
   protected readonly fees = feeSentence;
   /** The server offers the built-in provider on the user's credit. */
-  protected readonly credit = computed(() => this.store.me()?.builtInCredit ?? false);
+  protected readonly credit = computed(() => this.store.account.me()?.builtInCredit ?? false);
 
   protected readonly keyProviders = computed<ProviderInfo[]>(() =>
-    this.store.providers().filter((p) => p.acceptsUserKey),
+    this.store.account.providers().filter((p) => p.acceptsUserKey),
   );
   protected readonly enabled = computed(
-    () => (this.store.keyStatus()?.enabled ?? false) && this.keyProviders().length > 0,
+    () => (this.store.account.keyStatus()?.enabled ?? false) && this.keyProviders().length > 0,
   );
   protected readonly providerLabel = computed(
     () => this.keyProviders().find((p) => p.id === this.provider())?.label ?? 'the provider',
   );
   /** The credit available, for the refused send's notice. */
   protected readonly balance = computed(() => {
-    const b = this.store.billing();
+    const b = this.store.account.billing();
     return b ? formatMicros(b.availableMicros) : null;
   });
 
   ngOnInit(): void {
-    if (this.credit()) void this.store.refreshBilling();
+    if (this.credit()) void this.store.account.refreshBilling();
     const wanted = this.initialProvider();
     const list = this.keyProviders();
     const pick =
@@ -230,7 +230,7 @@ export class ApiKeys implements OnInit, OnDestroy {
     el.value = '';
     if (!apiKey) return;
     this.busy.set(true);
-    const ok = await this.store.saveKey(this.provider(), apiKey);
+    const ok = await this.store.account.saveKey(this.provider(), apiKey);
     this.busy.set(false);
     if (ok) {
       this.ui.notify(`${this.providerLabel()} key saved`);
@@ -240,7 +240,7 @@ export class ApiKeys implements OnInit, OnDestroy {
 
   protected async forget(provider?: string): Promise<void> {
     this.busy.set(true);
-    await this.store.forgetKey(provider);
+    await this.store.account.forgetKey(provider);
     this.busy.set(false);
     this.ui.notify(provider ? 'Key forgotten' : 'All keys forgotten');
   }

@@ -128,7 +128,7 @@ export class ChatPage implements OnDestroy {
     const q = this.selection.value();
     const node = q ? this.store.index()?.nodes.get(q.nodeId) : undefined;
     const branch = node ? this.store.index()?.branches.get(node.branchId) : undefined;
-    return !!branch && this.store.routeLocked(branch);
+    return !!branch && this.store.account.routeLocked(branch);
   });
 
   /** A message of the open branch that couldn't be sent: the composer takes it back. */
@@ -161,7 +161,7 @@ export class ChatPage implements OnDestroy {
    */
   protected readonly readOnly = computed<{ membership: MembershipInfo; treeId: string } | null>(
     () => {
-      const membership = this.store.membership();
+      const membership = this.store.account.membership();
       const treeId = this.store.detail()?.tree.id;
       return this.store.readOnly() && membership && treeId ? { membership, treeId } : null;
     },
@@ -234,7 +234,7 @@ export class ChatPage implements OnDestroy {
 
   /** The quote under the selection, when it lies in one finished message and branches can be made. */
   private quoteToAsk(): MessageQuote | null {
-    if (!this.store.canGenerate() || this.ui.anyDialogOpen()) return null;
+    if (!this.store.account.canGenerate() || this.ui.anyDialogOpen()) return null;
     const found = selectedMessageQuote(this.scroller()?.nativeElement, window.getSelection());
     const node = found ? this.store.index()?.nodes.get(found.nodeId) : undefined;
     return node?.status === 'complete' ? found : null;

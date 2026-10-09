@@ -98,24 +98,6 @@ describe('TreeStore membership and credit', () => {
     vi.restoreAllMocks();
   });
 
-  it('keeps the membership and what needs it from me; loads the balance wherever credit is offered', async () => {
-    const s = setup();
-    await s.store.init(me({ builtInCredit: false }));
-    expect(s.store.membership()?.status).toBe('active');
-    expect(s.store.membershipNeededFor()).toEqual(['own-key']);
-    expect([...s.store.lockedFundings()]).toEqual([]);
-    expect(s.api.billing).not.toHaveBeenCalled();
-
-    // A member too: the default route of a new conversation needs the balance.
-    await s.store.init(me());
-    expect(s.api.billing).toHaveBeenCalledTimes(1);
-
-    await s.store.init(me({ membership: membership({ status: 'inactive' }) }));
-    expect(s.api.billing).toHaveBeenCalledTimes(2);
-    expect(s.store.creditCarriesOn()).toBe(true);
-    expect([...s.store.lockedFundings()]).toEqual(['own-key']);
-  });
-
   it('a 402 payment_required links to /billing and refreshes the balance', async () => {
     const s = setup();
     await s.store.init(me());
@@ -127,7 +109,7 @@ describe('TreeStore membership and credit', () => {
         link: { label: 'Add credit', path: '/billing' },
       }),
     ]);
-    await vi.waitFor(() => expect(s.store.billing()).toBe(summary));
+    await vi.waitFor(() => expect(s.store.account.billing()).toBe(summary));
   });
 
   it('key_required still opens the keys dialog', async () => {
@@ -136,16 +118,6 @@ describe('TreeStore membership and credit', () => {
     s.store.fail(new ApiError(401, 'key_required', 'Add your key'));
     expect(s.ui.keysDialog()).toEqual({ provider: null });
     expect(s.ui.toasts()[0]?.link).toBeUndefined();
-  });
-
-  it('refreshBilling keeps quiet when the summary fails', async () => {
-    const s = setup();
-    s.api.billing.mockRejectedValueOnce(new ApiError(500, 'internal', 'boom'));
-    await s.store.refreshBilling();
-    expect(s.store.billing()).toBeNull();
-    expect(s.ui.toasts()).toEqual([]);
-    await s.store.refreshBilling();
-    expect(s.store.billing()).toBe(summary);
   });
 });
 
@@ -270,25 +242,8 @@ describe('TreeStore read-only power without a membership', () => {
     const s = setup();
     await open(s, membership());
     expect(s.store.readOnly()).toBe(false);
-    expect(s.store.openRoutes()).toEqual([ownKey, credit]);
+    expect(s.store.account.openRoutes()).toEqual([ownKey, credit]);
     expect(s.store.canReview(s.store.selectedBranch())).toBe(true);
-  });
-
-  it('only the membership hides anything: not a missing key, nor a provider list not read yet', async () => {
-    const s = setup();
-    expect(s.store.canGenerate()).toBe(true);
-    s.api.providers.mockResolvedValue([{ ...ownKey, available: false }]);
-    await s.store.init(me());
-    expect(s.store.openRoutes()).toEqual([]);
-    expect(s.store.canGenerate()).toBe(true);
-
-    const t = setup();
-    t.api.billing.mockResolvedValue(spent);
-    t.store.membership.set(inactive());
-    t.store.membershipNeededFor.set(['own-key']);
-    expect(t.store.canGenerate()).toBe(true); // providers not read yet
-    await t.store.refreshKeys();
-    expect(t.store.canGenerate()).toBe(false);
   });
 
   it('without a membership, a branch on the own key is read-only; one on Tangent credit is not', async () => {
@@ -298,79 +253,14 @@ describe('TreeStore read-only power without a membership', () => {
     expect(s.store.readOnly()).toBe(true);
     expect(s.store.canReview(s.store.selectedBranch())).toBe(false);
     // Credit is left (the balance loaded on init), so it can still pay.
-    expect(s.store.openRoutes()).toEqual([credit]);
-    expect(s.store.canGenerate()).toBe(true);
-    expect(s.store.creditRoute()).toBe(credit);
-    expect(s.store.defaultProvider()).toBe(credit);
+    expect(s.store.account.openRoutes()).toEqual([credit]);
+    expect(s.store.account.canGenerate()).toBe(true);
+    expect(s.store.account.creditRoute()).toBe(credit);
+    expect(s.store.account.defaultProvider()).toBe(credit);
 
     s.store.setRoute('t1', 'side', null);
     expect(s.store.readOnly()).toBe(false);
     expect(s.store.canReview(s.store.selectedBranch())).toBe(true);
-  });
-
-  it('a non-member with an empty balance carries on on credit where top-ups are sold (they can buy)', async () => {
-    const s = setup();
-    s.api.billing.mockResolvedValue(empty);
-    await open(s, inactive({ subscriptionStatus: null }));
-    expect(s.store.creditCarriesOn()).toBe(true);
-    expect(s.store.readOnly()).toBe(true);
-    expect(s.store.openRoutes()).toEqual([credit]);
-    expect(s.store.canGenerate()).toBe(true);
-    expect(s.store.creditRoute()).toBe(credit);
-    // Credit, which can be bought, beats an own key the membership locks.
-    expect(s.store.defaultProvider()).toBe(credit);
-  });
-
-  it('where credit can be neither bought nor spent, power is read-only throughout', async () => {
-    const s = setup();
-    s.api.billing.mockResolvedValue(spent);
-    await open(s, inactive());
-    expect(s.store.readOnly()).toBe(true);
-    expect(s.store.openRoutes()).toEqual([]);
-    expect(s.store.canGenerate()).toBe(false);
-    expect(s.store.creditRoute()).toBeNull();
-    // A credit branch isn't read-only: its sends get the usual 402 payment_required.
-    s.store.setRoute('t1', 'side', null);
-    expect(s.store.readOnly()).toBe(false);
-  });
-
-  it('offers a copy in Learn only where Learn can reply: on the pool while it is on, else on credit', async () => {
-    const s = setup();
-    await open(s, inactive());
-    expect(s.api.poolStatus).toHaveBeenCalledTimes(1);
-    expect(s.store.poolOn()).toBe(false);
-    expect(s.store.learnCopyWay()).toBe('credit');
-
-    const pool = setup();
-    pool.api.poolStatus.mockResolvedValue({ enabled: true } as PoolStatusResponse);
-    await open(pool, inactive());
-    expect(pool.store.poolOn()).toBe(true);
-    expect(pool.store.learnCopyWay()).toBe('pool');
-
-    // Neither the pool nor credit that can pay or be bought: no copy (it could only be read).
-    const stuck = setup();
-    stuck.api.billing.mockResolvedValue(spent);
-    await open(stuck, inactive());
-    expect(stuck.store.learnCopyWay()).toBeNull();
-    // Nor where credit isn't offered at all, or the pool status can't be read.
-    const none = setup();
-    none.api.poolStatus.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
-    await open(none, inactive(), { builtInCredit: false });
-    expect(none.store.poolOn()).toBe(false);
-    expect(none.store.learnCopyWay()).toBeNull();
-  });
-
-  it('never read-only where no membership is required (the fee off, a server without billing)', async () => {
-    const s = setup();
-    await open(s, membership({ required: false, status: 'inactive', subscriptionStatus: null }), {
-      membershipNeededFor: [],
-    });
-    expect([...s.store.lockedFundings()]).toEqual([]);
-    expect(s.store.readOnly()).toBe(false);
-    expect(s.store.canGenerate()).toBe(true);
-    // Whatever a stale list said: without a requirement nothing is locked.
-    s.store.membershipNeededFor.set(['own-key']);
-    expect(s.store.readOnly()).toBe(false);
   });
 
   it('a 402 membership_required turns the branch read-only (no toast), and re-reads me and the balance', async () => {
@@ -385,7 +275,7 @@ describe('TreeStore read-only power without a membership', () => {
     s.store.fail(new ApiError(402, 'membership_required', 'Membership required'));
     expect(s.store.readOnly()).toBe(true);
     expect(s.ui.toasts()).toEqual([]);
-    await vi.waitFor(() => expect(s.store.me()).toBe(fresh));
+    await vi.waitFor(() => expect(s.store.account.me()).toBe(fresh));
     expect(s.store.readOnly()).toBe(true);
     expect(s.api.billing).toHaveBeenCalled();
   });
@@ -405,7 +295,7 @@ describe('TreeStore read-only power without a membership', () => {
     const s = setup();
     await open(s, inactive());
     expect(s.store.readOnly()).toBe(true);
-    s.store.applyBilling({ ...summary, membership: membership({ status: 'waived' }) });
+    s.store.account.applyBilling({ ...summary, membership: membership({ status: 'waived' }) });
     expect(s.store.readOnly()).toBe(false);
   });
 
@@ -446,8 +336,8 @@ describe('TreeStore read-only power without a membership', () => {
     // Not the membership: the credit branch keeps its composer, own keys stay as they were.
     expect(s.store.readOnly()).toBe(false);
     expect(s.store.selectedBranch()?.funding).toBe('credit');
-    expect([...s.store.lockedFundings()]).toEqual(['own-key']);
-    expect(s.store.membership()?.status).toBe('inactive');
+    expect([...s.store.account.lockedFundings()]).toEqual(['own-key']);
+    expect(s.store.account.membership()?.status).toBe('inactive');
     expect(s.ui.keysDialog()).toBeNull();
     expect(s.api.me).toHaveBeenCalledTimes(0);
     // The balance is read again.
@@ -514,9 +404,11 @@ describe('TreeStore read-only power without a membership', () => {
     it('says so before anything is sent', async () => {
       const s = await openNoKey();
       expect(s.store.readOnly()).toBe(false);
-      expect(s.store.keyMissing(s.store.selectedBranch()!)).toBe(true);
+      expect(s.store.account.keyMissing(s.store.selectedBranch()!)).toBe(true);
       // Tangent credit never needs a key.
-      expect(s.store.keyMissing({ providerId: 'openrouter', funding: 'credit' })).toBe(false);
+      expect(s.store.account.keyMissing({ providerId: 'openrouter', funding: 'credit' })).toBe(
+        false,
+      );
     });
 
     it('a refused send keeps the message and opens the keys dialog on the branch’s provider', async () => {
@@ -559,7 +451,7 @@ describe('TreeStore read-only power without a membership', () => {
 
       s.api.providers.mockResolvedValue([ownKey, credit]);
       s.sendMessage.mockImplementation(async () => sse([]));
-      await expect(s.store.saveKey('openrouter', 'sk-or-1')).resolves.toBe(true);
+      await expect(s.store.account.saveKey('openrouter', 'sk-or-1')).resolves.toBe(true);
       s.store.resumeAfterKey('openrouter');
       expect(s.sendMessage).toHaveBeenCalledTimes(2);
       expect(s.sendMessage).toHaveBeenLastCalledWith(
@@ -679,27 +571,16 @@ describe('TreeStore the default route of a new conversation (no keys)', () => {
     keySource: null,
     funding: 'own-key',
   }));
-  /** Tangent credit, as listed where it is offered. */
-  const credit: ProviderInfo = {
-    ...defaults[2]!,
-    label: 'Tangent credit',
-    defaultModel: 'max/model',
-    available: true,
-    acceptsUserKey: false,
-    keySource: 'server',
-    funding: 'credit',
-  };
-  const routeOf = (p: ProviderInfo | null) => p && providerRouteKey(p);
 
   it('no credit offered: the user’s own OpenRouter, and the first send asks for its key (not a sign-in)', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const s = setup();
     s.api.providers.mockResolvedValue(defaults);
     await s.store.init(me({ builtInCredit: false, membershipNeededFor: [] }));
-    expect(s.store.openRoutes()).toEqual([]);
+    expect(s.store.account.openRoutes()).toEqual([]);
     // Nothing to generate on yet, but a missing key never hides anything.
-    expect(s.store.canGenerate()).toBe(true);
-    const first = s.store.defaultProvider();
+    expect(s.store.account.canGenerate()).toBe(true);
+    const first = s.store.account.defaultProvider();
     expect(first).toBe(defaults[2]);
     expect(first?.defaultModel).toBe('deepseek/deepseek-v4-pro');
 
@@ -754,132 +635,6 @@ describe('TreeStore the default route of a new conversation (no keys)', () => {
     expect(s.ui.toasts()).toEqual([expect.objectContaining({ kind: 'error', text: message })]);
     expect(s.ui.toasts()[0]?.text).not.toMatch(/session|sign in/i);
   });
-
-  it('credit offered: Tangent credit only while the balance read is above zero', async () => {
-    const zero = setup();
-    zero.api.providers.mockResolvedValue([...defaults, credit]);
-    zero.api.billing.mockResolvedValue(empty);
-    await zero.store.init(me());
-    // Anyone could buy more, but for a member whose own keys are open, an empty balance would
-    // answer the first send with a 402 for nothing.
-    expect(zero.store.openRoutes()).toEqual([credit]);
-    expect(routeOf(zero.store.defaultProvider())).toBe('openrouter');
-
-    const some = setup();
-    some.api.providers.mockResolvedValue([...defaults, credit]);
-    await some.store.init(me());
-    expect(some.store.defaultProvider()).toBe(credit);
-
-    // A balance that couldn't be read counts as none.
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const unread = setup();
-    unread.api.providers.mockResolvedValue([...defaults, credit]);
-    unread.api.billing.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
-    await unread.store.init(me());
-    expect(routeOf(unread.store.defaultProvider())).toBe('openrouter');
-  });
-
-  it('decides nothing before the providers and the balance are read', async () => {
-    const s = setup();
-    let answer!: (b: BillingSummary) => void;
-    s.api.billing.mockReturnValue(new Promise<BillingSummary>((r) => (answer = r)));
-    s.api.providers.mockResolvedValue([...defaults, credit]);
-    expect(s.store.defaultProvider()).toBeNull();
-    const started = s.store.init(me());
-    await vi.waitFor(() => expect(s.store.providersLoaded()).toBe(true));
-    expect(s.store.defaultProvider()).toBeNull();
-    answer(summary);
-    await started;
-    expect(s.store.defaultProvider()).toBe(credit);
-  });
-
-  it('a provider with a key comes first; own keys locked by the membership hand it to credit', async () => {
-    const keyed = { ...defaults[1]!, available: true, keySource: 'user' as const };
-    const list = [defaults[0]!, keyed, defaults[2]!, credit];
-    const member = setup();
-    member.api.providers.mockResolvedValue(list);
-    await member.store.init(me());
-    expect(member.store.defaultProvider()).toBe(keyed);
-
-    const lapsed = setup();
-    lapsed.api.providers.mockResolvedValue(list);
-    await lapsed.store.init(me({ membership: membership({ status: 'inactive' }) }));
-    expect(lapsed.store.defaultProvider()).toBe(credit);
-
-    // An empty balance, but top-ups are sold: still credit (anyone can buy), not a locked key.
-    const buyer = setup();
-    buyer.api.providers.mockResolvedValue(list);
-    buyer.api.billing.mockResolvedValue(empty);
-    await buyer.store.init(me({ membership: membership({ status: 'inactive' }) }));
-    expect(buyer.store.canGenerate()).toBe(true);
-    expect(buyer.store.defaultProvider()).toBe(credit);
-
-    // A balance left where top-ups aren't sold: credit can pay, so still credit.
-    const holder = setup();
-    holder.api.providers.mockResolvedValue(list);
-    holder.api.billing.mockResolvedValue({
-      availableMicros: 1_000_000,
-      topUpsEnabled: false,
-    } as BillingSummary);
-    await holder.store.init(me({ membership: membership({ status: 'inactive' }) }));
-    expect(holder.store.canGenerate()).toBe(true);
-    expect(holder.store.defaultProvider()).toBe(credit);
-
-    // Nothing can generate (top-ups off, nothing left): the home page shows the notice
-    // instead of the picker. Credit that can neither pay nor be bought is a dead end: the
-    // locked own key stays the default, which at least leads to the membership.
-    const stuck = setup();
-    stuck.api.providers.mockResolvedValue(list);
-    stuck.api.billing.mockResolvedValue(spent);
-    await stuck.store.init(me({ membership: membership({ status: 'inactive' }) }));
-    expect(stuck.store.canGenerate()).toBe(false);
-    expect(stuck.store.defaultProvider()).toBe(keyed);
-  });
-
-  it('a non-member with no key saved: credit only where it can pay or be bought', async () => {
-    const lapsed = me({ membership: membership({ status: 'inactive' }) });
-    // Credit offered, top-ups not sold, nothing left: the own OpenRouter route, not credit.
-    const stuck = setup();
-    stuck.api.providers.mockResolvedValue([...defaults, credit]);
-    stuck.api.billing.mockResolvedValue(spent);
-    await stuck.store.init(lapsed);
-    expect(routeOf(stuck.store.defaultProvider())).toBe('openrouter');
-
-    // Top-ups sold: credit, whatever the balance.
-    const buyer = setup();
-    buyer.api.providers.mockResolvedValue([...defaults, credit]);
-    buyer.api.billing.mockResolvedValue(empty);
-    await buyer.store.init(lapsed);
-    expect(buyer.store.defaultProvider()).toBe(credit);
-
-    // Top-ups off, but a balance left: credit.
-    const holder = setup();
-    holder.api.providers.mockResolvedValue([...defaults, credit]);
-    holder.api.billing.mockResolvedValue({
-      availableMicros: 1,
-      topUpsEnabled: false,
-    } as BillingSummary);
-    await holder.store.init(lapsed);
-    expect(holder.store.defaultProvider()).toBe(credit);
-  });
-
-  it('never a test provider over a usable route', async () => {
-    const fake: ProviderInfo = {
-      ...defaults[0]!,
-      id: 'fake',
-      kind: 'fake',
-      available: true,
-      scripted: true,
-    };
-    const s = setup();
-    s.api.providers.mockResolvedValue([fake, ...defaults, credit]);
-    await s.store.init(me());
-    expect(s.store.defaultProvider()).toBe(credit);
-    const t = setup();
-    t.api.providers.mockResolvedValue([fake, ...defaults]);
-    await t.store.init(me({ builtInCredit: false }));
-    expect(t.store.defaultProvider()).toBe(fake);
-  });
 });
 
 describe('TreeStore routes (provider + funding)', () => {
@@ -898,9 +653,12 @@ describe('TreeStore routes (provider + funding)', () => {
 
   it('tells the built-in endpoint on the user key from Tangent credit, and sends the funding', async () => {
     const s = setup();
-    s.store.providers.set([entry('own-key', 'OpenRouter'), entry('credit', 'Tangent credit')]);
-    expect(s.store.providerOf({ providerId: 'openrouter' })?.label).toBe('OpenRouter');
-    expect(s.store.providerOf({ providerId: 'openrouter', funding: 'credit' })?.label).toBe(
+    s.store.account.providers.set([
+      entry('own-key', 'OpenRouter'),
+      entry('credit', 'Tangent credit'),
+    ]);
+    expect(s.store.account.providerOf({ providerId: 'openrouter' })?.label).toBe('OpenRouter');
+    expect(s.store.account.providerOf({ providerId: 'openrouter', funding: 'credit' })?.label).toBe(
       'Tangent credit',
     );
     const createTree = vi.fn(async () => {
@@ -1074,119 +832,6 @@ describe('TreeStore branching with a first message', () => {
   });
 });
 
-describe('TreeStore deleting a branch', () => {
-  const at = '2026-10-01T00:00:00.000Z';
-  const base: Branch = {
-    id: 'trunk',
-    treeId: 't1',
-    parentBranchId: null,
-    branchPointNodeId: null,
-    contextMode: 'path',
-    anchorQuote: null,
-    title: 'Main thread',
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'openrouter',
-    model: 'a/b',
-    funding: 'own-key',
-    createdAt: at,
-    updatedAt: at,
-  };
-  const msg = (id: string, branchId: string, parentId: string | null, seq: number): ChatNode => ({
-    id,
-    treeId: 't1',
-    branchId,
-    parentId,
-    seq,
-    role: seq % 2 === 0 ? 'user' : 'assistant',
-    content: id,
-    status: 'complete',
-    error: null,
-    providerId: 'openrouter',
-    model: 'a/b',
-    usage: null,
-    createdAt: at,
-  });
-  // trunk: u1 a1; `side` from a1 (u2 a2) with `deep` below it from a2 (u3); `other` from a1 (u4).
-  const branches: Branch[] = [
-    base,
-    { ...base, id: 'side', title: 'Side', parentBranchId: 'trunk', branchPointNodeId: 'a1' },
-    { ...base, id: 'deep', title: 'Deep', parentBranchId: 'side', branchPointNodeId: 'a2' },
-    { ...base, id: 'other', title: 'Other', parentBranchId: 'trunk', branchPointNodeId: 'a1' },
-  ];
-  const nodes: ChatNode[] = [
-    msg('u1', 'trunk', null, 0),
-    msg('a1', 'trunk', 'u1', 1),
-    msg('u2', 'side', 'a1', 2),
-    msg('a2', 'side', 'u2', 3),
-    msg('u3', 'deep', 'a2', 4),
-    msg('u4', 'other', 'a1', 6),
-  ];
-
-  function open(selected: string) {
-    const s = setup();
-    const deleteBranch = vi.fn(async (_id: string) => ({
-      treeId: 't1',
-      branchIds: ['side', 'deep'],
-      nodeIds: ['u2', 'a2', 'u3'],
-    }));
-    Object.assign(s.api, { deleteBranch });
-    s.store.detail.set({
-      tree: {
-        id: 't1',
-        accountId: 'p_1',
-        title: 'Light',
-        systemPrompt: null,
-        trunkBranchId: 'trunk',
-        createdAt: at,
-        updatedAt: at,
-      },
-      branches,
-      nodes,
-      links: [],
-    });
-    s.store.setRoute('t1', selected, null);
-    const go = vi.spyOn(s.store, 'go');
-    return { ...s, deleteBranch, go };
-  }
-
-  beforeEach(() => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-  });
-
-  afterEach(() => vi.restoreAllMocks());
-
-  it('deleting the branch the selection is in (or above it) moves to the message it came from', async () => {
-    const s = open('deep');
-    await expect(s.store.deleteBranch('side')).resolves.toBe(true);
-    expect(s.deleteBranch).toHaveBeenCalledWith('side');
-    expect(s.go).toHaveBeenCalledWith('trunk', 'a1', true);
-    const idx = s.store.index();
-    expect([...(idx?.branches.keys() ?? [])].sort()).toEqual(['other', 'trunk']);
-    expect(idx?.nodes.has('u3')).toBe(false);
-    expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['other']);
-    expect(s.ui.toasts().at(-1)?.text).toBe('Deleted the branch and 1 below it');
-  });
-
-  it('a selection elsewhere stays where it is', async () => {
-    const s = open('other');
-    await s.store.deleteBranch('side');
-    expect(s.go).not.toHaveBeenCalled();
-    expect(s.store.selectedBranchId()).toBe('other');
-    expect(s.store.index()?.branches.has('side')).toBe(false);
-  });
-
-  it('a refused delete leaves everything as it was', async () => {
-    const s = open('side');
-    s.deleteBranch.mockRejectedValueOnce(new ApiError(409, 'conflict', 'Still generating'));
-    await expect(s.store.deleteBranch('side')).resolves.toBe(false);
-    expect(s.go).not.toHaveBeenCalled();
-    expect(s.store.index()?.branches.size).toBe(4);
-    expect(s.store.selectedBranchId()).toBe('side');
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still generating' });
-  });
-});
-
 describe('TreeStore links between messages', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -1331,61 +976,6 @@ describe('TreeStore links between messages', () => {
     expect(s.store.linksByNode().get('n1')?.[0]?.note).toBe('Same question');
     expect([...s.ui.relatedOpen()]).toEqual(['n5', 'n1']);
     expect(s.ui.toasts().at(-1)?.text).toBe('Messages linked');
-  });
-
-  it('createLink on two messages already linked (either way round) keeps the one link', async () => {
-    const s = open();
-    s.api.createLink.mockResolvedValueOnce({ link: link({}), created: false });
-    await s.store.createLink('n3', 'n2');
-    expect(s.store.links()).toEqual([link({})]);
-    expect(s.ui.toasts().at(-1)?.text).toBe('Already linked');
-  });
-
-  it('createLink trusts the server over a stale local index (linked in another tab)', async () => {
-    const s = open();
-    const elsewhere = link({ id: 'l9', sourceNodeId: 'n1', targetNodeId: 'n5' });
-    s.api.createLink.mockResolvedValueOnce({ link: elsewhere, created: false });
-    await s.store.createLink('n5', 'n1');
-    expect(s.store.links().map((l) => l.id)).toEqual(['l1', 'l9']);
-    expect(s.ui.toasts().at(-1)?.text).toBe('Already linked');
-  });
-
-  it('createLink failing toasts the error and changes nothing', async () => {
-    const s = open();
-    s.api.createLink.mockRejectedValueOnce(new ApiError(400, 'bad_request', 'Too many links'));
-    await expect(s.store.createLink('n5', 'n1')).resolves.toBeNull();
-    expect(s.store.links()).toHaveLength(1);
-    expect(s.ui.toasts().at(-1)).toEqual(
-      expect.objectContaining({ kind: 'error', text: 'Too many links' }),
-    );
-  });
-
-  it('updateLinkNote and deleteLink change the open tree', async () => {
-    const s = open();
-    await s.store.updateLinkNote('l1', 'Why owls');
-    expect(s.api.updateLink).toHaveBeenCalledWith('l1', { note: 'Why owls' });
-    expect(s.store.links()[0]?.note).toBe('Why owls');
-    await expect(s.store.deleteLink('l1')).resolves.toBe(true);
-    expect(s.api.deleteLink).toHaveBeenCalledWith('l1');
-    expect(s.store.links()).toEqual([]);
-    expect(s.store.linksByNode().size).toBe(0);
-    expect(s.ui.toasts().at(-1)?.text).toBe('Link removed');
-  });
-
-  it('a link already removed elsewhere (404) leaves both ends here too', async () => {
-    const s = open();
-    s.api.updateLink.mockRejectedValueOnce(new ApiError(404, 'not_found', 'Link not found'));
-    await expect(s.store.updateLinkNote('l1', 'Why owls')).resolves.toBe(false);
-    expect(s.store.links()).toEqual([]);
-    expect(s.ui.toasts().at(-1)).toEqual(
-      expect.objectContaining({ kind: 'info', text: 'That link was already removed' }),
-    );
-
-    const again = open();
-    again.api.deleteLink.mockRejectedValueOnce(new ApiError(404, 'not_found', 'Link not found'));
-    await expect(again.store.deleteLink('l1')).resolves.toBe(true);
-    expect(again.store.linksByNode().size).toBe(0);
-    expect(again.ui.toasts().at(-1)?.text).toBe('That link was already removed');
   });
 
   it('deleting a branch drops the links touching its messages, and pick mode from them', async () => {
@@ -1551,363 +1141,5 @@ describe('TreeStore a committed Compare pick', () => {
       branch: trunk,
     });
     expect(s.store.unsentDrafts().has('trunk')).toBe(false);
-  });
-});
-
-/** Tree `id`: a trunk with one exchange, and a side branch off the reply with one of its own. */
-function smallTree(id: string): TreeDetail {
-  const at = '2026-10-01T00:00:00.000Z';
-  const branch = (over: Partial<Branch>): Branch => ({
-    id: `${id}-trunk`,
-    treeId: id,
-    parentBranchId: null,
-    branchPointNodeId: null,
-    contextMode: 'path',
-    anchorQuote: null,
-    title: 'Main thread',
-    titleSource: 'default',
-    isPrivate: false,
-    providerId: 'openrouter',
-    model: 'a/b',
-    funding: 'credit',
-    createdAt: at,
-    updatedAt: at,
-    ...over,
-  });
-  const node = (over: Partial<ChatNode>): ChatNode => ({
-    id: `${id}-u1`,
-    treeId: id,
-    branchId: `${id}-trunk`,
-    parentId: null,
-    seq: 0,
-    role: 'user',
-    content: 'What is light?',
-    status: 'complete',
-    error: null,
-    providerId: null,
-    model: null,
-    usage: null,
-    createdAt: at,
-    ...over,
-  });
-  return {
-    tree: {
-      id,
-      accountId: 'p_1',
-      title: `Tree ${id}`,
-      systemPrompt: null,
-      trunkBranchId: `${id}-trunk`,
-      createdAt: at,
-      updatedAt: at,
-    },
-    branches: [
-      branch({}),
-      branch({
-        id: `${id}-side`,
-        parentBranchId: `${id}-trunk`,
-        branchPointNodeId: `${id}-a1`,
-        title: 'Side',
-      }),
-    ],
-    nodes: [
-      node({}),
-      node({ id: `${id}-a1`, parentId: `${id}-u1`, seq: 1, role: 'assistant', content: 'A wave.' }),
-      node({
-        id: `${id}-u2`,
-        branchId: `${id}-side`,
-        parentId: `${id}-a1`,
-        seq: 2,
-        content: 'And?',
-      }),
-      node({
-        id: `${id}-a2`,
-        branchId: `${id}-side`,
-        parentId: `${id}-u2`,
-        seq: 3,
-        role: 'assistant',
-        content: 'A particle.',
-      }),
-    ],
-    links: [],
-  };
-}
-
-/** A promise the test settles. */
-function deferred<T>() {
-  let resolve!: (v: T) => void;
-  const promise = new Promise<T>((r) => (resolve = r));
-  return { promise, resolve };
-}
-
-const emptyStream = () => new Response('', { headers: { 'content-type': 'text/event-stream' } });
-
-describe('TreeStore a tree load that lands late', () => {
-  beforeEach(() => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-  });
-
-  afterEach(() => vi.restoreAllMocks());
-
-  function slowLoad() {
-    const s = setup();
-    const pending = deferred<TreeDetail>();
-    const getTree = vi.fn((_id: string) => pending.promise);
-    const sendMessage = vi.fn(async (_b: string, _req: unknown, _signal: AbortSignal) =>
-      emptyStream(),
-    );
-    Object.assign(s.api, {
-      getTree,
-      sendMessage,
-      streamNode: vi.fn(),
-      createTree: vi.fn(async () => smallTree('Y')),
-    });
-    s.store.setRoute('X', null, null);
-    expect(getTree).toHaveBeenCalledWith('X');
-    return { ...s, pending, sendMessage };
-  }
-
-  it('going home while it loads: home stays empty', async () => {
-    const s = slowLoad();
-    s.store.setRoute(null, null, null);
-    expect(s.store.detailLoading()).toBe(false);
-    s.pending.resolve(smallTree('X'));
-    await s.pending.promise;
-    await Promise.resolve();
-    expect(s.store.detail()).toBeNull();
-    expect(s.store.detailLoading()).toBe(false);
-  });
-
-  it('starting a new conversation while it loads: the new one stays open and gets the message', async () => {
-    const s = slowLoad();
-    await s.store.startConversation('Hello', null, null);
-    s.pending.resolve(smallTree('X'));
-    await s.pending.promise;
-    await Promise.resolve();
-    expect(s.store.detail()?.tree.id).toBe('Y');
-    expect(s.store.detailLoading()).toBe(false);
-    await vi.waitFor(() =>
-      expect(s.sendMessage).toHaveBeenCalledWith(
-        'Y-trunk',
-        expect.objectContaining({ content: 'Hello' }),
-        expect.any(AbortSignal),
-      ),
-    );
-    // The composer's next send goes to Y as well.
-    expect(s.store.selectedBranchId()).toBe('Y-trunk');
-  });
-});
-
-describe('TreeStore sends on two branches at once', () => {
-  beforeEach(() => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-  });
-
-  afterEach(() => vi.restoreAllMocks());
-
-  it('a send on another branch leaves the first branch busy until its reply starts', async () => {
-    const s = setup();
-    const posts = new Map<string, ReturnType<typeof deferred<Response>>>();
-    const sendMessage = vi.fn((branchId: string, _req: unknown, _signal: AbortSignal) => {
-      const d = deferred<Response>();
-      posts.set(branchId, d);
-      return d.promise;
-    });
-    Object.assign(s.api, { sendMessage, streamNode: vi.fn() });
-    s.store.detail.set(smallTree('X'));
-    s.store.setRoute('X', 'X-side', null);
-
-    void s.store.send('X-side', 'One');
-    expect(s.store.busy()).toBe(true);
-    const other = s.store.send('X-trunk', 'Two');
-    expect(s.store.busy()).toBe(true);
-    // The other branch's POST ends (refused here) while the first is still out.
-    posts.get('X-trunk')?.resolve(new Response('nope', { status: 500 }));
-    await other;
-    expect(s.store.busy()).toBe(true);
-    expect([...s.store.sending()]).toEqual(['X-side']);
-  });
-});
-
-describe('TreeStore deleting a tree with a reply generating', () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it('stops following its replies', async () => {
-    const s = setup();
-    const generating = smallTree('X');
-    generating.nodes = generating.nodes.map((n) =>
-      n.id === 'X-a2' ? { ...n, status: 'streaming' } : n,
-    );
-    const signals: AbortSignal[] = [];
-    Object.assign(s.api, {
-      getTree: vi.fn(async () => generating),
-      streamNode: vi.fn((_id: string, signal: AbortSignal) => {
-        signals.push(signal);
-        return new Promise<Response>(() => undefined);
-      }),
-      deleteTree: vi.fn(async () => undefined),
-    });
-    s.store.setRoute('X', null, null);
-    await vi.waitFor(() => expect(signals).toHaveLength(1));
-    expect(s.store.live().has('X-a2')).toBe(true);
-    await expect(s.store.deleteTree('X')).resolves.toBe(true);
-    expect(signals[0]?.aborted).toBe(true);
-    expect(s.store.live().size).toBe(0);
-  });
-});
-
-describe('TreeStore refreshing the list after replies', () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  function finished(s: ReturnType<typeof setup>, n: number) {
-    const tree = smallTree('X');
-    const branch = tree.branches[0]!;
-    for (let i = 0; i < n; i++) {
-      const assistantNode: ChatNode = {
-        ...tree.nodes[1]!,
-        id: `done-${i}`,
-        parentId: `ask-${i}`,
-        seq: 10 + 2 * i,
-      };
-      const userNode: ChatNode = { ...tree.nodes[0]!, id: `ask-${i}`, seq: 9 + 2 * i };
-      s.store.applyCommitted({ userNode, assistantNode, branch });
-    }
-  }
-
-  const summaryOf = (title: string) => ({
-    id: 'X',
-    title,
-    createdAt: '2026-10-01T00:00:00.000Z',
-    updatedAt: '2026-10-01T00:00:00.000Z',
-    branchCount: 2,
-    messageCount: 4,
-  });
-
-  it('six replies finishing together read the list twice at most, and the latest answer stays', async () => {
-    const s = setup();
-    s.store.detail.set(smallTree('X'));
-    s.store.setRoute('X', null, null);
-    const reads: ReturnType<typeof deferred<ReturnType<typeof summaryOf>[]>>[] = [];
-    s.api.listTrees.mockImplementation(() => {
-      const d = deferred<ReturnType<typeof summaryOf>[]>();
-      reads.push(d);
-      return d.promise;
-    });
-    finished(s, 6);
-    expect(reads).toHaveLength(1);
-    reads[0]!.resolve([summaryOf('Light')]);
-    await vi.waitFor(() => expect(reads).toHaveLength(2));
-    reads[1]!.resolve([summaryOf('Light and waves')]);
-    await vi.waitFor(() => expect(s.store.detail()?.tree.title).toBe('Light and waves'));
-    expect(reads).toHaveLength(2);
-    expect(s.store.trees().map((t) => t.title)).toEqual(['Light and waves']);
-  });
-
-  it('an older read answering last does not overwrite a newer one', async () => {
-    const s = setup();
-    const reads: ReturnType<typeof deferred<ReturnType<typeof summaryOf>[]>>[] = [];
-    s.api.listTrees.mockImplementation(() => {
-      const d = deferred<ReturnType<typeof summaryOf>[]>();
-      reads.push(d);
-      return d.promise;
-    });
-    const first = s.store.loadTrees();
-    const second = s.store.loadTrees();
-    reads[1]!.resolve([summaryOf('New')]);
-    await second;
-    reads[0]!.resolve([summaryOf('Old')]);
-    await first;
-    expect(s.store.trees().map((t) => t.title)).toEqual(['New']);
-  });
-
-  it('a read sent before a delete or a new conversation does not undo them', async () => {
-    const s = setup();
-    const reads: ((list: TreeSummary[]) => void)[] = [];
-    s.api.listTrees.mockImplementation(() => new Promise<TreeSummary[]>((r) => reads.push(r)));
-    Object.assign(s.api, {
-      deleteTree: vi.fn(async () => undefined),
-      createTree: vi.fn(async () => smallTree('Y')),
-      sendMessage: vi.fn(async () => emptyStream()),
-      streamNode: vi.fn(),
-    });
-    s.store.trees.set([summaryOf('Light')]);
-    const before = s.store.loadTrees();
-    await s.store.deleteTree('X');
-    expect(s.store.trees()).toEqual([]);
-    reads[0]!([summaryOf('Light')]);
-    await before;
-    expect(s.store.trees()).toEqual([]);
-
-    const again = s.store.loadTrees();
-    await s.store.startConversation('Hello', null, null);
-    reads[1]!([]);
-    await again;
-    expect(s.store.trees().map((t) => t.id)).toEqual(['Y']);
-  });
-
-  it('a failed refresh after a reply is quiet', async () => {
-    const s = setup();
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    s.store.detail.set(smallTree('X'));
-    s.api.listTrees.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
-    finished(s, 1);
-    await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
-    expect(s.ui.toasts()).toEqual([]);
-  });
-});
-
-describe('TreeStore Check sources', () => {
-  beforeEach(() => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-  });
-
-  afterEach(() => vi.restoreAllMocks());
-
-  /** Tree X open on its side branch, which follows the trunk's last reply X-a1. */
-  function openSide() {
-    const s = setup();
-    const sendMessage = vi.fn(async (_b: string, _req: unknown, _signal: AbortSignal) =>
-      emptyStream(),
-    );
-    const createBranch = vi.fn(async (req: CreateBranchRequest): Promise<Branch> => ({
-      ...smallTree('X').branches[1]!,
-      id: 'X-check',
-      branchPointNodeId: req.fromNodeId,
-      title: req.title ?? 'Branch',
-    }));
-    Object.assign(s.api, { sendMessage, createBranch, streamNode: vi.fn() });
-    s.store.detail.set(smallTree('X'));
-    s.store.setRoute('X', 'X-side', null);
-    const go = vi.spyOn(s.store, 'go');
-    return { ...s, sendMessage, createBranch, go };
-  }
-
-  it('after the open branch’s last reply, appends the check there', async () => {
-    const s = openSide();
-    await s.store.checkSources('X-a2');
-    expect(s.createBranch).not.toHaveBeenCalled();
-    expect(s.sendMessage).toHaveBeenCalledWith(
-      'X-side',
-      expect.objectContaining({ ground: 'required' }),
-      expect.any(AbortSignal),
-    );
-  });
-
-  it('on an ancestor branch’s last reply, opens a branch from it where the check streams', async () => {
-    const s = openSide();
-    await s.store.checkSources('X-a1');
-    expect(s.createBranch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        fromNodeId: 'X-a1',
-        contextMode: 'path',
-        title: 'Checking sources',
-      }),
-    );
-    expect(s.go).toHaveBeenCalledWith('X-check');
-    expect(s.sendMessage).toHaveBeenCalledTimes(1);
-    expect(s.sendMessage).toHaveBeenCalledWith(
-      'X-check',
-      expect.objectContaining({ ground: 'required' }),
-      expect.any(AbortSignal),
-    );
   });
 });

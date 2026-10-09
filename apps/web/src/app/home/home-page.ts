@@ -146,9 +146,14 @@ export class HomePage {
    * The notice's words, or null.
    */
   protected readonly readOnly = computed(() => {
-    const m = this.store.membership();
-    if (!m || !this.store.providersLoaded() || this.store.lockedFundings().size === 0) return null;
-    if (this.store.canGenerate()) return null;
+    const m = this.store.account.membership();
+    if (
+      !m ||
+      !this.store.account.providersLoaded() ||
+      this.store.account.lockedFundings().size === 0
+    )
+      return null;
+    if (this.store.account.canGenerate()) return null;
     return readOnlyText(m);
   });
 
@@ -171,7 +176,7 @@ export class HomePage {
 
   constructor() {
     effect(() => {
-      const p = this.store.defaultProvider();
+      const p = this.store.account.defaultProvider();
       if (p && this.route() === '') {
         this.route.set(providerRouteKey(p));
         this.modelId.set(p.defaultModel);

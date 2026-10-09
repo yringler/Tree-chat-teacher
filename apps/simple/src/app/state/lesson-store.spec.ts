@@ -366,95 +366,6 @@ describe('LessonStore', () => {
     expect(s.api.listTrees).toHaveBeenCalled();
   });
 
-  it('Stop cancels on the server; the closing error event ends the reply', async () => {
-    const s = setup();
-    await open(s, detail());
-    const live = controlledStream([
-      { type: 'start', userNode, assistantNode: replyNode, branch: branch('trunk') },
-      { type: 'delta', nodeId: 'a1', text: 'Li' },
-    ]);
-    s.api.sendMessage.mockResolvedValue(live.response);
-    s.api.cancelNode.mockImplementation(async (id: string) => {
-      live.push([
-        {
-          type: 'error',
-          nodeId: id,
-          message: 'Cancelled',
-          node: { ...replyNode, status: 'error', error: 'Cancelled', content: 'Li' },
-        },
-      ]);
-      live.close();
-    });
-    const sending = s.store.send('trunk', 'What is light?');
-    await vi.waitFor(() => expect(s.store.live().get('a1')?.content).toBe('Li'));
-
-    await s.store.cancel('a1');
-    await expect(sending).resolves.toBe(true);
-
-    expect(s.api.cancelNode).toHaveBeenCalledWith('a1');
-    expect(s.api.streamNode).not.toHaveBeenCalled();
-    const stopped = s.store.index()?.nodes.get('a1');
-    expect(stopped?.status).toBe('error');
-    expect(stopped?.error).toBe('Cancelled');
-    expect(stopped?.content).toBe('Li');
-    expect(s.store.streamingNode()).toBeNull();
-    expect(s.store.busy()).toBe(false);
-  });
-
-  it('reconnects when the stream drops and finishes from the snapshot', async () => {
-    const s = setup();
-    await open(s, detail());
-    s.api.sendMessage.mockResolvedValue(
-      stream([{ type: 'start', userNode, assistantNode: replyNode, branch: branch('trunk') }]),
-    );
-    s.api.streamNode.mockResolvedValue(
-      stream([
-        { type: 'snapshot', node: { ...replyNode, content: 'Light is' } },
-        { type: 'delta', nodeId: 'a1', text: ' fast.' },
-        {
-          type: 'done',
-          node: { ...replyNode, status: 'complete', content: 'Light is fast.' },
-          branch: branch('trunk'),
-        },
-      ]),
-    );
-    await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(true);
-    expect(s.api.streamNode).toHaveBeenCalledWith('a1', expect.any(AbortSignal));
-    expect(s.store.index()?.nodes.get('a1')?.content).toBe('Light is fast.');
-    expect(s.store.live().size).toBe(0);
-  });
-
-  it('marks the reply failed when the connection cannot be recovered', async () => {
-    const s = setup();
-    await open(s, detail());
-    s.api.sendMessage.mockResolvedValue(
-      stream([{ type: 'start', userNode, assistantNode: replyNode, branch: branch('trunk') }]),
-    );
-    s.api.streamNode.mockRejectedValue(new ApiError(404, 'not_found', 'gone'));
-    await s.store.send('trunk', 'What is light?');
-    expect(s.store.index()?.nodes.get('a1')?.status).toBe('error');
-    expect(s.store.busy()).toBe(false);
-    expect(s.ui.toasts().at(-1)?.text).toContain('Lost the connection');
-  });
-
-  it('re-attaches to a reply still generating when a lesson opens', async () => {
-    const s = setup();
-    s.api.streamNode.mockResolvedValue(
-      stream([
-        { type: 'snapshot', node: { ...replyNode, content: 'Half' } },
-        {
-          type: 'done',
-          node: { ...replyNode, status: 'complete', content: 'Half done.' },
-          branch: branch('trunk'),
-        },
-      ]),
-    );
-    await open(s, detail([userNode, replyNode]));
-    await vi.waitFor(() => expect(s.store.index()?.nodes.get('a1')?.content).toBe('Half done.'));
-    expect(s.api.streamNode).toHaveBeenCalledWith('a1', expect.any(AbortSignal));
-    expect(s.store.live().size).toBe(0);
-  });
-
   it('402 on send: offers billing with a toast and keeps the message', async () => {
     const s = setup();
     await open(s, detail());
@@ -902,33 +813,6 @@ describe('LessonStore', () => {
         ],
       );
 
-    it('takes the side questions below with it, and leaves the open one for where it started', async () => {
-      const s = setup();
-      await open(s, lesson(), 'deeper');
-      s.store.unsentDraft.set({ treeId: 't1', branchId: 'deeper', text: 'kept?' });
-      await expect(s.store.deleteSideQuestion('side')).resolves.toBe(true);
-      expect(s.api.deleteBranch).toHaveBeenCalledWith('side');
-      expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1'], {
-        queryParams: { m: 'a1' },
-        replaceUrl: true,
-      });
-      const idx = s.store.index();
-      expect([...(idx?.branches.keys() ?? [])].sort()).toEqual(['other', 'trunk']);
-      expect(idx?.nodes.has('u3')).toBe(false);
-      expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['other']);
-      expect(s.store.unsentDraft()).toBeNull();
-      expect(s.ui.toasts().at(-1)?.text).toBe('Deleted the side question and 1 below it');
-    });
-
-    it('a side question open elsewhere stays open', async () => {
-      const s = setup();
-      await open(s, lesson(), 'other');
-      s.router.navigate.mockClear();
-      await s.store.deleteSideQuestion('side');
-      expect(s.router.navigate).not.toHaveBeenCalled();
-      expect(s.store.selectedBranchId()).toBe('other');
-    });
-
     it('drops the connections touching its messages, and connecting from them', async () => {
       const s = setup();
       const d = lesson();
@@ -963,26 +847,6 @@ describe('LessonStore', () => {
       expect(s.store.index()?.branches.size).toBe(4);
       expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still writing' });
     });
-  });
-
-  it('deleting the open lesson returns home', async () => {
-    const s = setup();
-    s.api.listTrees.mockResolvedValue([
-      {
-        id: 't1',
-        title: 'Photosynthesis',
-        createdAt: T,
-        updatedAt: T,
-        branchCount: 1,
-        messageCount: 0,
-      },
-    ]);
-    await s.store.init();
-    await open(s, detail());
-    await expect(s.store.deleteLesson('t1')).resolves.toBe(true);
-    expect(s.api.deleteTree).toHaveBeenCalledWith('t1');
-    expect(s.store.trees()).toEqual([]);
-    expect(s.router.navigate).toHaveBeenCalledWith(['/']);
   });
   it('Export downloads the lesson as the same JSON backup as power mode, named after it', async () => {
     const s = setup();
@@ -1074,18 +938,6 @@ describe('LessonStore', () => {
       expect(s.store.depthOf('trunk')).toBe(0);
     });
 
-    it('appends a required check after the branch\u2019s last reply, quoting the question', async () => {
-      const s = setup();
-      await open(s, detail([userNode, done]));
-      await s.store.checkSources('a1');
-      expect(s.api.createBranch).not.toHaveBeenCalled();
-      expect(s.api.sendMessage).toHaveBeenCalledWith(
-        'trunk',
-        { content: 'Check your last answer against sources: "What is light?"', ground: 'required' },
-        expect.any(AbortSignal),
-      );
-    });
-
     it('checks an earlier reply in a side question', async () => {
       const s = setup();
       await open(s, detail([userNode, done, ...later]));
@@ -1167,79 +1019,14 @@ describe('LessonStore', () => {
       expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Connected' });
     });
 
-    it('an already connected pair answers with the existing connection, not a second one', async () => {
-      const s = setup();
-      await open(s, lesson([link('l1', 's2', 'a1')]));
-      s.api.createLink.mockResolvedValue({ link: link('l1', 's2', 'a1'), created: false });
-      await s.store.createLink('a1', 's2', null);
-      expect(s.store.links().map((l) => l.id)).toEqual(['l1']);
-      expect(s.ui.toasts().at(-1)).toMatchObject({ text: 'Already connected' });
-    });
-
-    it('a refused connection is a toast and changes nothing', async () => {
-      const s = setup();
-      await open(s, lesson());
-      s.api.createLink.mockRejectedValue(new ApiError(404, 'not_found', 'Node not found'));
-      await expect(s.store.createLink('a1', 'gone', null)).resolves.toBeNull();
-      expect(s.store.links()).toEqual([]);
-      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Node not found' });
-    });
-
-    it('a connection of another lesson (opened meanwhile) is not applied', async () => {
-      const s = setup();
-      await open(s, lesson());
-      s.api.createLink.mockResolvedValue({
-        link: { ...link('l-new', 'a1', 's2'), treeId: 't2' },
-        created: true,
-      });
-      await s.store.createLink('a1', 's2', null);
-      expect(s.store.links()).toEqual([]);
-    });
-
     it('edits and clears a note', async () => {
       const s = setup();
       await open(s, lesson([link('l1', 'a1', 'a2', 'Old')]));
-      await expect(s.store.updateLink('l1', 'New')).resolves.toBe(true);
+      await expect(s.store.updateLinkNote('l1', 'New')).resolves.toBe(true);
       expect(s.api.updateLink).toHaveBeenCalledWith('l1', { note: 'New' });
       expect(s.store.links()[0]?.note).toBe('New');
-      await s.store.updateLink('l1', null);
+      await s.store.updateLinkNote('l1', null);
       expect(s.store.links()[0]?.note).toBeNull();
-    });
-
-    it('removes a connection from both ends', async () => {
-      const s = setup();
-      await open(s, lesson([link('l1', 'a1', 's2'), link('l2', 'a2', 's1')]));
-      await expect(s.store.deleteLink('l1')).resolves.toBe(true);
-      expect(s.api.deleteLink).toHaveBeenCalledWith('l1');
-      expect(s.store.links().map((l) => l.id)).toEqual(['l2']);
-      expect(s.store.linksByNode().has('a1')).toBe(false);
-      expect(s.store.linksByNode().has('s2')).toBe(false);
-      expect(s.ui.toasts().at(-1)).toMatchObject({ text: 'Connection removed' });
-    });
-
-    it('a failed removal keeps the connection', async () => {
-      const s = setup();
-      await open(s, lesson([link('l1', 'a1', 's2')]));
-      s.api.deleteLink.mockRejectedValue(new ApiError(0, 'network', 'Network error'));
-      await expect(s.store.deleteLink('l1')).resolves.toBe(false);
-      expect(s.store.links().map((l) => l.id)).toEqual(['l1']);
-      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error' });
-    });
-
-    it('a connection already removed elsewhere (404) goes from both ends here too', async () => {
-      const s = setup();
-      await open(s, lesson([link('l1', 'a1', 's2'), link('l2', 'a2', 's1')]));
-      s.api.deleteLink.mockRejectedValue(new ApiError(404, 'not_found', 'Link not found'));
-      await expect(s.store.deleteLink('l1')).resolves.toBe(true);
-      expect(s.store.links().map((l) => l.id)).toEqual(['l2']);
-      expect(s.ui.toasts().at(-1)).toMatchObject({
-        kind: 'info',
-        text: 'That connection was already removed',
-      });
-
-      s.api.updateLink.mockRejectedValue(new ApiError(404, 'not_found', 'Link not found'));
-      await expect(s.store.updateLink('l2', 'Why')).resolves.toBe(false);
-      expect(s.store.links()).toEqual([]);
     });
 
     it('following a connection opens the other end and offers the way back', async () => {
@@ -1305,60 +1092,6 @@ describe('LessonStore', () => {
       expect(s.router.navigate).not.toHaveBeenCalled();
       expect(s.store.linkReturn()).toBeNull();
     });
-  });
-});
-
-describe('LessonStore a lesson load that lands late', () => {
-  beforeEach(() => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-  });
-
-  afterEach(() => vi.restoreAllMocks());
-
-  function slowLoad() {
-    const s = setup();
-    let land!: (d: TreeDetail) => void;
-    s.api.getTree.mockReturnValue(new Promise<TreeDetail>((r) => (land = r)));
-    s.api.createTree.mockResolvedValue({ ...detail(), tree: { ...detail().tree, id: 't2' } });
-    s.store.setRoute('t1', null, null);
-    return { ...s, land: (d: TreeDetail) => land(d) };
-  }
-
-  it('going home while it loads: home stays empty', async () => {
-    const s = slowLoad();
-    s.store.setRoute(null, null, null);
-    s.land(detail());
-    await new Promise((r) => setTimeout(r, 0));
-    expect(s.store.detail()).toBeNull();
-    expect(s.store.detailLoading()).toBe(false);
-  });
-
-  it('starting a new lesson while it loads: the new one stays open', async () => {
-    const s = slowLoad();
-    await s.store.startLesson(null, '');
-    s.land(detail());
-    await new Promise((r) => setTimeout(r, 0));
-    expect(s.store.detail()?.tree.id).toBe('t2');
-    expect(s.store.detailLoading()).toBe(false);
-  });
-});
-
-describe('LessonStore deleting a lesson with a reply generating', () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it('stops following its replies', async () => {
-    const s = setup();
-    const signals: AbortSignal[] = [];
-    s.api.streamNode.mockImplementation((_id: string, signal: AbortSignal) => {
-      signals.push(signal);
-      return new Promise<Response>(() => undefined);
-    });
-    await open(s, detail([userNode, replyNode]));
-    await vi.waitFor(() => expect(signals).toHaveLength(1));
-    expect(s.store.live().has('a1')).toBe(true);
-    await expect(s.store.deleteLesson('t1')).resolves.toBe(true);
-    expect(signals[0]?.aborted).toBe(true);
-    expect(s.store.live().size).toBe(0);
   });
 });
 
@@ -1581,63 +1314,5 @@ describe('LessonStore refreshing after replies', () => {
     await vi.waitFor(() => expect(s.store.detail()?.tree.title).toBe('Light and waves'));
     expect(reads).toHaveLength(2);
     expect(s.api.billing).toHaveBeenCalledTimes(2);
-  });
-
-  it('a read sent before a delete or a new lesson does not undo them', async () => {
-    const s = setup();
-    const reads: ((list: TreeSummary[]) => void)[] = [];
-    s.api.listTrees.mockImplementation(() => new Promise<TreeSummary[]>((r) => reads.push(r)));
-    s.api.createTree.mockResolvedValue({ ...detail(), tree: { ...detail().tree, id: 't2' } });
-    s.store.trees.set([summaryOf('Light')]);
-    const before = s.store.loadTrees();
-    await s.store.deleteLesson('t1');
-    reads[0]!([summaryOf('Light')]);
-    await before;
-    expect(s.store.trees()).toEqual([]);
-
-    const again = s.store.loadTrees();
-    await s.store.startLesson(null, '');
-    reads[1]!([]);
-    await again;
-    expect(s.store.trees().map((t) => t.id)).toEqual(['t2']);
-  });
-
-  it('a failed refresh after a reply is quiet', async () => {
-    const s = setup();
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    await open(s, detail());
-    s.api.sendMessage.mockImplementation(async () => exchange(0));
-    s.api.listTrees.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
-    await s.store.send('trunk', 'Why?');
-    await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
-    expect(s.ui.toasts()).toEqual([]);
-  });
-});
-
-describe('LessonStore sends on two branches at once', () => {
-  beforeEach(() => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
-  });
-
-  afterEach(() => vi.restoreAllMocks());
-
-  it('a send on another branch leaves the first branch busy until its reply starts', async () => {
-    const s = setup();
-    const side = branch('side', { parentBranchId: 'trunk', branchPointNodeId: 'a1' });
-    const reply = node('a1', { seq: 1, parentId: 'u1', content: 'A wave.' });
-    await open(s, detail([userNode, reply], [branch('trunk'), side]), 'side');
-    const posts = new Map<string, (r: Response) => void>();
-    s.api.sendMessage.mockImplementation(
-      (branchId: string) => new Promise<Response>((r) => posts.set(branchId, r)),
-    );
-
-    void s.store.send('side', 'One');
-    expect(s.store.busy()).toBe(true);
-    const other = s.store.send('trunk', 'Two');
-    expect(s.store.busy()).toBe(true);
-    posts.get('trunk')?.(new Response('nope', { status: 500 }));
-    await other;
-    expect(s.store.busy()).toBe(true);
-    expect([...s.store.sending()]).toEqual(['side']);
   });
 });

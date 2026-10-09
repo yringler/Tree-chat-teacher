@@ -7,18 +7,16 @@ import {
   type OnInit,
   signal,
 } from '@angular/core';
-import { plainText } from '@tangent/shared';
 import {
-  isModelAllowed,
   parseRouteKey,
-  providerRouteKey,
+  plainText,
   routeKey,
   splitTangents,
   type ContextMode,
 } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore, type BranchDialogState } from '../state/ui-store';
-import { Modal } from '@tangent/web-shared';
+import { Modal, startingRoute } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
 import { ModePicker } from '../ui/mode-picker';
 
@@ -135,18 +133,14 @@ export class BranchDialog implements OnInit {
 
   ngOnInit(): void {
     this.quote.set(this.state().quote ?? '');
-    // The parent's route, unless its funding needs the membership the user lacks, or
-    // its own key isn't saved in this browser: then the default route of a new
-    // conversation (a provider with a key, else Tangent credit where it can pay or be
-    // bought), keeping the parent's model where that route serves it.
+    // The parent's route, unless it can't generate here: then the default route of a
+    // new conversation (a provider with a key, else Tangent credit where it can pay or
+    // be bought), keeping the parent's model where that route serves it.
     const parent = this.parent();
-    const usable = parent && !this.store.routeLocked(parent) && !this.store.keyMissing(parent);
-    const p = usable ? parent : null;
-    const fallback = this.store.defaultProvider();
-    this.route.set(p ? routeKey(p) : fallback ? providerRouteKey(fallback) : '');
-    const keepModel =
-      !p && parent && fallback?.id === parent.providerId && isModelAllowed(fallback, parent.model);
-    this.modelId.set(p?.model ?? (keepModel ? parent.model : fallback?.defaultModel) ?? '');
+    const usable = !!parent && this.store.account.routeState(parent) === 'open';
+    const start = startingRoute(parent, usable, this.store.account.defaultProvider());
+    this.route.set(start.providerId ? routeKey(start) : '');
+    this.modelId.set(start.model);
   }
 
   protected close(): void {

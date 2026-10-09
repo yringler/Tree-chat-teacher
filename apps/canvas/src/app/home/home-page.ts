@@ -11,11 +11,11 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { providerRouteKey, type TreeSummary } from '@tangent/shared';
-import { Icon } from '@tangent/web-shared';
+import { Icon, routeSuffix } from '@tangent/web-shared';
 import { treeTitle } from '../canvas/titles';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
-import { ModelField, routeSuffix } from '../dialogs/model-field';
+import { ModelField } from '../dialogs/model-field';
 
 /** `/canvas/`: start a conversation and open the existing ones (the power account's). */
 @Component({
@@ -52,13 +52,13 @@ import { ModelField, routeSuffix } from '../dialogs/model-field';
               <label class="field">
                 <span class="field-label">Provider</span>
                 <select #ps [value]="route()" (change)="pickProvider(ps.value)">
-                  @for (p of store.providers(); track key(p)) {
+                  @for (p of store.account.providers(); track key(p)) {
                     <option
                       [value]="key(p)"
-                      [disabled]="!p.available || store.routeLocked(p)"
+                      [disabled]="!p.available || store.account.routeLocked(p)"
                       [selected]="key(p) === route()"
                     >
-                      {{ p.label }}{{ suffix(p, store.routeLocked(p)) }}
+                      {{ p.label }}{{ suffix(p, store.account.routeLocked(p)) }}
                     </option>
                   }
                 </select>
@@ -77,7 +77,7 @@ import { ModelField, routeSuffix } from '../dialogs/model-field';
               <app-icon name="plus" /> Open on the canvas
             </button>
           </div>
-          @if (store.defaultProvider()?.available === false) {
+          @if (store.account.defaultProvider()?.available === false) {
             <p class="notice">
               No provider has a key yet.
               <button type="button" class="link-btn" (click)="ui.keysOpen.set(true)">
@@ -140,10 +140,12 @@ export class HomePage {
   private readonly pickedModel = signal<string | null>(null);
 
   protected readonly route = computed(() => {
-    const fallback = this.store.defaultProvider();
+    const fallback = this.store.account.defaultProvider();
     return this.pickedRoute() ?? (fallback ? providerRouteKey(fallback) : '');
   });
-  protected readonly provider = computed(() => this.store.providerMap().get(this.route()) ?? null);
+  protected readonly provider = computed(
+    () => this.store.account.providerMap().get(this.route()) ?? null,
+  );
   /** The picked model while the provider offers it (any typed id on an `openModels` one). */
   protected readonly model = computed(() => {
     const picked = this.pickedModel();
