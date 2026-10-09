@@ -253,7 +253,7 @@ export class ChatPage implements OnDestroy {
     if (!d) return;
     if (!confirm(`Delete the lesson “${lessonTitle(d.tree.title)}” with all its side questions?`))
       return;
-    void this.store.deleteLesson(d.tree.id);
+    void this.store.deleteTree(d.tree.id);
   }
 
   /** The open side question, with every side question below it (the lesson stays). */

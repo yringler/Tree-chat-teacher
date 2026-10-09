@@ -2,9 +2,14 @@ import type {
   Branch,
   ChatNode,
   CommitCandidateResponse,
+  CreateBranchRequest,
+  CreateLinkRequest,
+  DeleteBranchResponse,
+  NodeLink,
   StreamEvent,
   TreeDetail,
   TreeSummary,
+  UpdateBranchRequest,
 } from '@tangent/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../core/api-client';
@@ -118,6 +123,43 @@ function fakeApi() {
     ),
     streamNode: vi.fn(async (_id: string, _signal: AbortSignal): Promise<Response> => stream([])),
     cancelNode: vi.fn(async (_id: string) => undefined),
+    deleteTree: vi.fn(async (_id: string) => undefined),
+    createBranch: vi.fn(async (req: CreateBranchRequest): Promise<Branch> =>
+      branch('new', {
+        parentBranchId: 'trunk',
+        branchPointNodeId: req.fromNodeId,
+        title: req.title ?? 'Branch',
+      }),
+    ),
+    updateBranch: vi.fn(async (id: string, req: UpdateBranchRequest) =>
+      branch(id, { model: req.model ?? 'a/b' }),
+    ),
+    deleteBranch: vi.fn(async (_id: string): Promise<DeleteBranchResponse> => ({
+      treeId: 't1',
+      branchIds: ['side', 'deep'],
+      nodeIds: ['u2', 'a2', 'u3'],
+    })),
+    createLink: vi.fn(async (req: CreateLinkRequest) => ({
+      link: link('l-new', req.fromNodeId, req.toNodeId, req.note ?? null),
+      created: true,
+    })),
+    updateLink: vi.fn(async (id: string, req: { note: string | null }) =>
+      link(id, 'a1', 'a2', req.note),
+    ),
+    deleteLink: vi.fn(async (_id: string) => undefined),
+  };
+}
+
+function link(id: string, source: string, target: string, note: string | null = null): NodeLink {
+  return {
+    id,
+    treeId: 't1',
+    sourceNodeId: source,
+    targetNodeId: target,
+    note,
+    origin: 'user',
+    createdAt: T,
+    updatedAt: T,
   };
 }
 
@@ -127,6 +169,11 @@ class TestStore extends ConversationStore<ReturnType<typeof fakeApi>> {
   readonly toasts: { text: string; kind: 'info' | 'error' | undefined }[] = [];
   readonly sentTexts: string[] = [];
   readonly failedSends: FailedSend[] = [];
+  readonly removed: { branchIds: string[]; nodeIds: string[] }[] = [];
+  readonly deletedTrees: string[] = [];
+  readonly droppedLinks: string[] = [];
+  readonly treeChanges: (string | null)[] = [];
+  alsoRefreshed = 0;
 
   fail(err: unknown): void {
     this.failures.push(err);
@@ -144,12 +191,51 @@ class TestStore extends ConversationStore<ReturnType<typeof fakeApi>> {
     this.failedSends.push(send);
     super.sendFailed(err, send);
   }
+
+  protected override alsoRefreshAfterReply(): Promise<unknown> | null {
+    this.alsoRefreshed++;
+    return null;
+  }
+
+  protected override branchesRemoved(
+    branchIds: ReadonlySet<string>,
+    nodeIds: ReadonlySet<string>,
+  ): void {
+    this.removed.push({ branchIds: [...branchIds], nodeIds: [...nodeIds] });
+  }
+
+  protected override treeDeleted(treeId: string): void {
+    this.deletedTrees.push(treeId);
+  }
+
+  protected override linkDropped(linkId: string): void {
+    this.droppedLinks.push(linkId);
+  }
+
+  protected override treeChanged(): void {
+    this.treeChanges.push(this.selectedTreeId());
+  }
+
+  /** New branches keep the model of the branch they come from. */
+  protected override newBranchRoute(from: Branch | null): Partial<CreateBranchRequest> {
+    return from ? { model: from.model } : {};
+  }
+
+  /** What an app's "new conversation" does first. */
+  start(): Promise<TreeDetail> {
+    return this.openNewTree({});
+  }
 }
 
 function setup() {
   const api = fakeApi();
   const router = { navigate: vi.fn(async (_commands: unknown[], _extras?: unknown) => true) };
-  const store = new TestStore(api, router, { treeMissing: 'This conversation does not exist.' });
+  const store = new TestStore(api, router, {
+    tree: 'conversation',
+    branch: 'side question',
+    link: 'link',
+    linked: { created: 'Messages linked', existing: 'Already linked' },
+  });
   return { store, api, router };
 }
 
@@ -453,5 +539,581 @@ describe('ConversationStore re-attaching to replies when a tree opens', () => {
     expect(s.store.index()?.nodes.get('a1')?.content).toBe('Ha');
     expect(s.store.live().size).toBe(0);
     expect(s.store.toasts.at(-1)?.text).toContain('Lost the connection');
+  });
+});
+
+/**
+ * trunk: u1 a1; `side` from a1 (u2 a2) with `deep` below it from a2 (u3);
+ * `other` from a1 (u4). Links: a1 ↔ a2, u1 ↔ a1, u3 ↔ u1.
+ */
+function branchy(): TreeDetail {
+  return {
+    ...tree(
+      't1',
+      [
+        node('u1', { role: 'user', content: 'What is light?' }),
+        node('a1', { seq: 1, parentId: 'u1', content: 'A wave.' }),
+        node('u2', { seq: 2, parentId: 'a1', branchId: 'side', role: 'user', content: 'And?' }),
+        node('a2', { seq: 3, parentId: 'u2', branchId: 'side', content: 'A particle.' }),
+        node('u3', { seq: 4, parentId: 'a2', branchId: 'deep', role: 'user', content: 'Both?' }),
+        node('u4', { seq: 2, parentId: 'a1', branchId: 'other', role: 'user', content: 'Why?' }),
+      ],
+      [
+        branch('trunk'),
+        branch('side', { parentBranchId: 'trunk', branchPointNodeId: 'a1', model: 'side/model' }),
+        branch('deep', { parentBranchId: 'side', branchPointNodeId: 'a2' }),
+        branch('other', { parentBranchId: 'trunk', branchPointNodeId: 'a1' }),
+      ],
+    ),
+    links: [link('l1', 'a1', 'a2', 'Same idea'), link('l2', 'u1', 'a1'), link('l3', 'u3', 'u1')],
+  };
+}
+
+/** The store showing `branchy()` at `selected`. */
+function showing(selected: string | null = null) {
+  const s = setup();
+  s.store.detail.set(branchy());
+  s.store.setRoute('t1', selected, null);
+  const go = vi.spyOn(s.store, 'go');
+  return { ...s, go };
+}
+
+const summary = (id: string, title: string): TreeSummary => ({
+  id,
+  title,
+  createdAt: T,
+  updatedAt: T,
+  branchCount: 4,
+  messageCount: 6,
+});
+
+describe('ConversationStore loading and routing', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  /** Tree t1 asked for, its answer held back. */
+  function slowLoad() {
+    const s = setup();
+    const pending = deferred<TreeDetail>();
+    s.api.getTree.mockReturnValue(pending.promise);
+    s.store.setRoute('t1', null, null);
+    expect(s.store.detailLoading()).toBe(true);
+    return { ...s, pending };
+  }
+
+  it('selects the branch in the URL while the tree has it, else the trunk', () => {
+    const s = showing('deep');
+    expect(s.store.selectedBranchId()).toBe('deep');
+    expect(s.store.chain().map((b) => b.id)).toEqual(['trunk', 'side', 'deep']);
+    expect(s.store.path().map((n) => n.id)).toEqual(['u1', 'a1', 'u2', 'a2', 'u3']);
+    expect(s.store.parentBranch()?.id).toBe('side');
+    expect(s.store.leaf()?.id).toBe('u3');
+    expect(s.store.depthOf('deep')).toBe(2);
+    expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['other', 'side']);
+    s.store.setRoute('t1', 'gone', null);
+    expect(s.store.selectedBranchId()).toBe('trunk');
+    expect(s.store.parentBranch()).toBeNull();
+  });
+
+  it('go: the trunk is the tree’s own URL unless a message is focused', () => {
+    const s = showing();
+    s.store.go('trunk');
+    expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1'], {
+      queryParams: {},
+      replaceUrl: false,
+    });
+    s.store.go('trunk', 'a1', true);
+    expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1', 'b', 'trunk'], {
+      queryParams: { m: 'a1' },
+      replaceUrl: true,
+    });
+    s.store.setRoute('t1', 'side', null);
+    expect(s.store.navigate('parent')).toBe(true);
+    expect(s.router.navigate).toHaveBeenLastCalledWith(['/t', 't1', 'b', 'trunk'], {
+      queryParams: { m: 'a1' },
+      replaceUrl: false,
+    });
+  });
+
+  it('tells the app when the open tree changes, and only then', () => {
+    const s = showing('side');
+    expect(s.store.treeChanges).toEqual(['t1']);
+    s.store.setRoute('t1', 'deep', 'u3');
+    expect(s.store.treeChanges).toEqual(['t1']);
+    s.store.setRoute(null, null, null);
+    expect(s.store.treeChanges).toEqual(['t1', null]);
+  });
+
+  it('a tree the server does not know says so in the app’s words', async () => {
+    const s = setup();
+    s.api.getTree.mockRejectedValue(new ApiError(404, 'not_found', 'Not found'));
+    s.store.setRoute('t9', null, null);
+    await vi.waitFor(() => expect(s.store.detailError()).toBe('This conversation does not exist.'));
+    expect(s.store.detailLoading()).toBe(false);
+  });
+
+  it('a load that lands after going home: home stays empty', async () => {
+    const s = slowLoad();
+    s.store.setRoute(null, null, null);
+    expect(s.store.detailLoading()).toBe(false);
+    s.pending.resolve(tree());
+    await s.pending.promise;
+    await Promise.resolve();
+    expect(s.store.detail()).toBeNull();
+    expect(s.store.detailLoading()).toBe(false);
+  });
+
+  it('a load that lands after a new tree opened: the new one stays open', async () => {
+    const s = slowLoad();
+    await s.store.start();
+    expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't2']);
+    s.pending.resolve(tree());
+    await s.pending.promise;
+    await Promise.resolve();
+    expect(s.store.detail()?.tree.id).toBe('t2');
+    expect(s.store.detailLoading()).toBe(false);
+    expect(s.store.selectedBranchId()).toBe('trunk');
+    expect(s.store.trees().map((t) => t.id)).toEqual(['t2']);
+  });
+
+  it('a failure that lands after another tree opened is not shown on it', async () => {
+    const s = slowLoad();
+    s.api.getTree.mockResolvedValue(tree('t2'));
+    s.store.setRoute('t2', null, null);
+    s.pending.reject(new ApiError(500, 'internal', 'boom'));
+    await vi.waitFor(() => expect(s.store.detail()?.tree.id).toBe('t2'));
+    expect(s.store.detailError()).toBeNull();
+  });
+});
+
+describe('ConversationStore the tree list', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  /** Every list read held back, in order. */
+  function heldReads(s: ReturnType<typeof setup>) {
+    const reads: ((list: TreeSummary[]) => void)[] = [];
+    s.api.listTrees.mockImplementation(() => new Promise<TreeSummary[]>((r) => reads.push(r)));
+    return reads;
+  }
+
+  /** `n` replies finishing at once (Compare picks: no stream to wait for). */
+  function finished(s: ReturnType<typeof setup>, n: number) {
+    for (let i = 0; i < n; i++) {
+      s.store.applyCommitted({
+        userNode: node(`ask-${i}`, { seq: 9 + 2 * i, role: 'user' }),
+        assistantNode: node(`done-${i}`, { seq: 10 + 2 * i, parentId: `ask-${i}` }),
+        branch: branch('trunk'),
+      });
+    }
+  }
+
+  it('a failed read goes to the error policy; the list counts as loaded', async () => {
+    const s = setup();
+    const refused = new ApiError(500, 'internal', 'boom');
+    s.api.listTrees.mockRejectedValue(refused);
+    await s.store.loadTrees();
+    expect(s.store.failures).toEqual([refused]);
+    expect(s.store.treesLoaded()).toBe(true);
+  });
+
+  it('six replies finishing together read the list twice at most, and the latest answer stays', async () => {
+    const s = showing();
+    const reads = heldReads(s);
+    finished(s, 6);
+    expect(reads).toHaveLength(1);
+    reads[0]!([summary('t1', 'Light')]);
+    await vi.waitFor(() => expect(reads).toHaveLength(2));
+    reads[1]!([summary('t1', 'Light and waves')]);
+    await vi.waitFor(() => expect(s.store.detail()?.tree.title).toBe('Light and waves'));
+    expect(reads).toHaveLength(2);
+    expect(s.store.trees().map((t) => t.title)).toEqual(['Light and waves']);
+  });
+
+  it('what the app refreshes after a reply goes alongside the list, in the same batch', async () => {
+    const s = showing();
+    const reads = heldReads(s);
+    finished(s, 3);
+    expect(s.store.alsoRefreshed).toBe(1);
+    reads[0]!([]);
+    await vi.waitFor(() => expect(reads).toHaveLength(2));
+    expect(s.store.alsoRefreshed).toBe(2);
+  });
+
+  it('a refresh that hangs is left to itself after 20 seconds', () => {
+    vi.useFakeTimers();
+    try {
+      const s = showing();
+      const reads = heldReads(s);
+      finished(s, 1);
+      finished(s, 1);
+      expect(reads).toHaveLength(1);
+      vi.advanceTimersByTime(21_000);
+      finished(s, 1);
+      expect(reads).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an older read answering last does not overwrite a newer one', async () => {
+    const s = setup();
+    const reads = heldReads(s);
+    const first = s.store.loadTrees();
+    const second = s.store.loadTrees();
+    reads[1]!([summary('t1', 'New')]);
+    await second;
+    reads[0]!([summary('t1', 'Old')]);
+    await first;
+    expect(s.store.trees().map((t) => t.title)).toEqual(['New']);
+  });
+
+  it('a read sent before a delete or a new tree does not undo them', async () => {
+    const s = setup();
+    const reads = heldReads(s);
+    s.store.trees.set([summary('t1', 'Light')]);
+    const before = s.store.loadTrees();
+    await s.store.deleteTree('t1');
+    expect(s.store.trees()).toEqual([]);
+    reads[0]!([summary('t1', 'Light')]);
+    await before;
+    expect(s.store.trees()).toEqual([]);
+
+    const again = s.store.loadTrees();
+    await s.store.start();
+    reads[1]!([]);
+    await again;
+    expect(s.store.trees().map((t) => t.id)).toEqual(['t2']);
+  });
+
+  it('a failed refresh after a reply is quiet', async () => {
+    const s = showing();
+    s.api.listTrees.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
+    finished(s, 1);
+    await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
+    expect(s.store.toasts).toEqual([]);
+    expect(s.store.failures).toEqual([]);
+  });
+});
+
+describe('ConversationStore deleting a tree', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('the open tree goes from the list, the app is told, and home is shown', async () => {
+    const s = showing();
+    s.store.trees.set([summary('t1', 'Light'), summary('t2', 'Owls')]);
+    await expect(s.store.deleteTree('t1')).resolves.toBe(true);
+    expect(s.api.deleteTree).toHaveBeenCalledWith('t1');
+    expect(s.store.trees().map((t) => t.id)).toEqual(['t2']);
+    expect(s.store.deletedTrees).toEqual(['t1']);
+    expect(s.router.navigate).toHaveBeenCalledWith(['/']);
+    expect(s.store.toasts).toEqual([{ text: 'Conversation deleted', kind: undefined }]);
+  });
+
+  it('stops following its replies', async () => {
+    const s = setup();
+    const signals: AbortSignal[] = [];
+    s.api.streamNode.mockImplementation((_id: string, signal: AbortSignal) => {
+      signals.push(signal);
+      return new Promise<Response>(() => undefined);
+    });
+    await open(s, tree('t1', [userNode, replyNode]));
+    await vi.waitFor(() => expect(signals).toHaveLength(1));
+    expect(s.store.live().has('a1')).toBe(true);
+    await expect(s.store.deleteTree('t1')).resolves.toBe(true);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(s.store.live().size).toBe(0);
+  });
+
+  it('a refused delete keeps everything', async () => {
+    const s = showing();
+    s.store.trees.set([summary('t1', 'Light')]);
+    const refused = new ApiError(500, 'internal', 'boom');
+    s.api.deleteTree.mockRejectedValue(refused);
+    await expect(s.store.deleteTree('t1')).resolves.toBe(false);
+    expect(s.store.trees()).toHaveLength(1);
+    expect(s.store.deletedTrees).toEqual([]);
+    expect(s.store.failures).toEqual([refused]);
+  });
+});
+
+describe('ConversationStore branches', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('startBranch creates the branch, opens it and sends its first message', async () => {
+    const s = showing();
+    const req = { fromNodeId: 'a1', contextMode: 'path', anchorQuote: null } as const;
+    const made = await s.store.startBranch(req, 'Why?');
+    expect(made?.id).toBe('new');
+    expect(s.api.createBranch).toHaveBeenCalledWith(req);
+    expect(s.store.index()?.branches.has('new')).toBe(true);
+    expect(s.go).toHaveBeenCalledWith('new');
+    expect(s.api.sendMessage).toHaveBeenCalledWith(
+      'new',
+      { content: 'Why?' },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('a branch that cannot be created sends nothing', async () => {
+    const s = showing();
+    const refused = new ApiError(500, 'internal', 'Nope');
+    s.api.createBranch.mockRejectedValueOnce(refused);
+    await expect(
+      s.store.startBranch({ fromNodeId: 'a1', contextMode: 'path', anchorQuote: null }, 'Why?'),
+    ).resolves.toBeNull();
+    expect(s.api.sendMessage).not.toHaveBeenCalled();
+    expect(s.go).not.toHaveBeenCalled();
+    expect(s.store.failures).toEqual([refused]);
+  });
+
+  it('updateBranch puts the server’s branch in the tree', async () => {
+    const s = showing();
+    const side = branchy().branches.find((b) => b.id === 'side')!;
+    s.api.updateBranch.mockResolvedValueOnce({ ...side, model: 'x/y' });
+    await expect(s.store.updateBranch('side', { model: 'x/y' })).resolves.toBe(true);
+    expect(s.store.index()?.branches.get('side')?.model).toBe('x/y');
+    s.api.updateBranch.mockRejectedValueOnce(new ApiError(400, 'bad_request', 'No'));
+    await expect(s.store.updateBranch('side', { model: 'z/z' })).resolves.toBe(false);
+    expect(s.store.failures).toHaveLength(1);
+  });
+
+  it('deleting the branch the selection is in (or above it) moves to the message it came from', async () => {
+    const s = showing('deep');
+    s.store.trees.set([summary('t1', 'Light')]);
+    await expect(s.store.deleteBranch('side')).resolves.toBe(true);
+    expect(s.api.deleteBranch).toHaveBeenCalledWith('side');
+    expect(s.go).toHaveBeenCalledWith('trunk', 'a1', true);
+    const idx = s.store.index();
+    expect([...(idx?.branches.keys() ?? [])].sort()).toEqual(['other', 'trunk']);
+    expect(idx?.nodes.has('u3')).toBe(false);
+    expect(s.store.childBranchesAt('a1').map((b) => b.id)).toEqual(['other']);
+    // The server dropped the links touching them with them.
+    expect(s.store.links().map((l) => l.id)).toEqual(['l2']);
+    expect(s.store.removed).toEqual([{ branchIds: ['side', 'deep'], nodeIds: ['u2', 'a2', 'u3'] }]);
+    expect(s.store.trees()[0]).toMatchObject({ branchCount: 2, messageCount: 3 });
+    expect(s.store.toasts.at(-1)?.text).toBe('Deleted the side question and 1 below it');
+  });
+
+  it('one branch alone is named so; a selection elsewhere stays where it is', async () => {
+    const s = showing('other');
+    s.api.deleteBranch.mockResolvedValueOnce({
+      treeId: 't1',
+      branchIds: ['deep'],
+      nodeIds: ['u3'],
+    });
+    await s.store.deleteBranch('deep');
+    expect(s.go).not.toHaveBeenCalled();
+    expect(s.store.selectedBranchId()).toBe('other');
+    expect(s.store.toasts.at(-1)?.text).toBe('Side question deleted');
+  });
+
+  it('replies generating in deleted branches stop being followed', async () => {
+    const s = setup();
+    const generating = branchy();
+    generating.nodes = generating.nodes.map((n) =>
+      n.id === 'a2' ? { ...n, status: 'streaming' } : n,
+    );
+    const signals: AbortSignal[] = [];
+    s.api.streamNode.mockImplementation((_id: string, signal: AbortSignal) => {
+      signals.push(signal);
+      return new Promise<Response>(() => undefined);
+    });
+    await open(s, generating);
+    await vi.waitFor(() => expect(signals).toHaveLength(1));
+    await s.store.deleteBranch('side');
+    expect(signals[0]?.aborted).toBe(true);
+    expect(s.store.live().size).toBe(0);
+  });
+
+  it('a refused delete leaves everything as it was', async () => {
+    const s = showing('side');
+    const refused = new ApiError(409, 'conflict', 'Still generating');
+    s.api.deleteBranch.mockRejectedValueOnce(refused);
+    await expect(s.store.deleteBranch('side')).resolves.toBe(false);
+    expect(s.go).not.toHaveBeenCalled();
+    expect(s.store.index()?.branches.size).toBe(4);
+    expect(s.store.selectedBranchId()).toBe('side');
+    expect(s.store.removed).toEqual([]);
+    expect(s.store.failures).toEqual([refused]);
+  });
+});
+
+describe('ConversationStore Check sources', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('after the open branch’s last reply, appends the check there, quoting the question', async () => {
+    const s = showing('side');
+    await expect(s.store.checkSources('a2')).resolves.toBe(true);
+    expect(s.api.createBranch).not.toHaveBeenCalled();
+    expect(s.api.sendMessage).toHaveBeenCalledWith(
+      'side',
+      expect.objectContaining({ ground: 'required', content: expect.stringContaining('And?') }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('on an ancestor branch’s last reply, opens a branch from it where the check streams', async () => {
+    const s = showing('side');
+    await s.store.checkSources('a1');
+    expect(s.api.createBranch).toHaveBeenCalledWith({
+      fromNodeId: 'a1',
+      contextMode: 'path',
+      anchorQuote: null,
+      title: 'Checking sources',
+      // The app's route for a branch off the trunk (`newBranchRoute`).
+      model: 'a/b',
+    });
+    expect(s.go).toHaveBeenCalledWith('new');
+    expect(s.api.sendMessage).toHaveBeenCalledTimes(1);
+    expect(s.api.sendMessage).toHaveBeenCalledWith(
+      'new',
+      expect.objectContaining({ ground: 'required' }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('checks only replies', async () => {
+    const s = showing();
+    await expect(s.store.checkSources('u1')).resolves.toBe(false);
+    await expect(s.store.checkSources('gone')).resolves.toBe(false);
+    expect(s.api.sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('ConversationStore links between messages', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('indexes the links under both of their ends', () => {
+    const s = showing();
+    expect(s.store.links().map((l) => l.id)).toEqual(['l1', 'l2', 'l3']);
+    expect(
+      s.store
+        .linksByNode()
+        .get('a1')
+        ?.map((l) => l.id),
+    ).toEqual(['l1', 'l2']);
+    expect(
+      s.store
+        .linksByNode()
+        .get('u3')
+        ?.map((l) => l.id),
+    ).toEqual(['l3']);
+    expect(s.store.linksByNode().has('u2')).toBe(false);
+  });
+
+  it('creates a link, adds it to the tree and says so', async () => {
+    const s = showing();
+    const made = await s.store.createLink('u4', 'u1', 'Same question');
+    expect(s.api.createLink).toHaveBeenCalledWith({
+      fromNodeId: 'u4',
+      toNodeId: 'u1',
+      note: 'Same question',
+    });
+    expect(made?.id).toBe('l-new');
+    expect(s.store.links().map((l) => l.id)).toEqual(['l1', 'l2', 'l3', 'l-new']);
+    expect(s.store.linksByNode().get('u4')?.[0]?.note).toBe('Same question');
+    expect(s.store.toasts.at(-1)?.text).toBe('Messages linked');
+  });
+
+  it('a pair already linked (either way round) keeps its one link', async () => {
+    const s = showing();
+    s.api.createLink.mockResolvedValueOnce({
+      link: link('l1', 'a1', 'a2', 'Same idea'),
+      created: false,
+    });
+    await s.store.createLink('a2', 'a1');
+    expect(s.store.links().map((l) => l.id)).toEqual(['l1', 'l2', 'l3']);
+    expect(s.store.toasts.at(-1)?.text).toBe('Already linked');
+  });
+
+  it('trusts the server over a stale local index (linked in another tab)', async () => {
+    const s = showing();
+    s.api.createLink.mockResolvedValueOnce({ link: link('l9', 'u4', 'u2'), created: false });
+    await s.store.createLink('u2', 'u4');
+    expect(s.store.links().map((l) => l.id)).toEqual(['l1', 'l2', 'l3', 'l9']);
+    expect(s.store.toasts.at(-1)?.text).toBe('Already linked');
+  });
+
+  it('a link of another tree (opened meanwhile) is not applied', async () => {
+    const s = showing();
+    const elsewhere = { ...link('l9', 'x1', 'x2'), treeId: 't2' };
+    s.api.createLink.mockResolvedValueOnce({ link: elsewhere, created: true });
+    await s.store.createLink('u4', 'u1');
+    expect(s.store.links().map((l) => l.id)).toEqual(['l1', 'l2', 'l3']);
+  });
+
+  it('a refused link changes nothing and goes to the error policy', async () => {
+    const s = showing();
+    const refused = new ApiError(400, 'bad_request', 'Too many links');
+    s.api.createLink.mockRejectedValueOnce(refused);
+    await expect(s.store.createLink('u4', 'u1')).resolves.toBeNull();
+    expect(s.store.links()).toHaveLength(3);
+    expect(s.store.failures).toEqual([refused]);
+  });
+
+  it('edits a note, and removes a link from both of its ends', async () => {
+    const s = showing();
+    await expect(s.store.updateLinkNote('l1', null)).resolves.toBe(true);
+    expect(s.api.updateLink).toHaveBeenCalledWith('l1', { note: null });
+    expect(s.store.links().find((l) => l.id === 'l1')?.note).toBeNull();
+    // This app says nothing when a note is saved.
+    expect(s.store.toasts).toEqual([]);
+
+    await expect(s.store.deleteLink('l1')).resolves.toBe(true);
+    expect(s.api.deleteLink).toHaveBeenCalledWith('l1');
+    expect(s.store.links().map((l) => l.id)).toEqual(['l2', 'l3']);
+    expect(s.store.linksByNode().has('a2')).toBe(false);
+    expect(s.store.droppedLinks).toEqual(['l1']);
+    expect(s.store.toasts.at(-1)?.text).toBe('Link removed');
+  });
+
+  it('a failed removal keeps the link', async () => {
+    const s = showing();
+    s.api.deleteLink.mockRejectedValueOnce(new ApiError(500, 'internal', 'boom'));
+    await expect(s.store.deleteLink('l1')).resolves.toBe(false);
+    expect(s.store.links()).toHaveLength(3);
+    expect(s.store.droppedLinks).toEqual([]);
+    expect(s.store.failures).toHaveLength(1);
+  });
+
+  it('a link already removed elsewhere (404) goes here too', async () => {
+    const s = showing();
+    s.api.updateLink.mockRejectedValueOnce(new ApiError(404, 'not_found', 'Link not found'));
+    await expect(s.store.updateLinkNote('l2', 'Why')).resolves.toBe(false);
+    expect(s.store.links().map((l) => l.id)).toEqual(['l1', 'l3']);
+
+    s.api.deleteLink.mockRejectedValueOnce(new ApiError(404, 'not_found', 'Link not found'));
+    await expect(s.store.deleteLink('l1')).resolves.toBe(true);
+    expect(s.store.links().map((l) => l.id)).toEqual(['l3']);
+    expect(s.store.droppedLinks).toEqual(['l2', 'l1']);
+    expect(s.store.toasts).toEqual([
+      { text: 'That link was already removed', kind: undefined },
+      { text: 'That link was already removed', kind: undefined },
+    ]);
+    expect(s.store.failures).toEqual([]);
   });
 });

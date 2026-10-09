@@ -8,7 +8,6 @@ import {
   type OutlineItem,
 } from '@tangent/core';
 import {
-  checkSourcesMessage,
   isModelAllowed,
   parseRouteKey,
   pickDefaultRoute,
@@ -22,7 +21,6 @@ import type {
   ChatNode,
   CommitCandidateResponse,
   CreateBranchRequest,
-  DeleteBranchResponse,
   KeyStatusResponse,
   MeResponse,
   MembershipInfo,
@@ -30,7 +28,6 @@ import type {
   ProviderInfo,
   ShareScope,
   TreeBackupInput,
-  UpdateBranchRequest,
   UpdateTreeRequest,
 } from '@tangent/shared';
 import {
@@ -43,7 +40,6 @@ import {
   creditCanPay,
   creditCarriesOn,
   errorMessage,
-  isNotFound,
   keyMissing,
   learnCopyWay,
   lockedFundings,
@@ -62,7 +58,12 @@ export class TreeStore extends ConversationStore<ApiClient> {
   private readonly appSettings = inject(SettingsStore);
 
   constructor() {
-    super(inject(ApiClient), inject(Router), { treeMissing: 'This conversation does not exist.' });
+    super(inject(ApiClient), inject(Router), {
+      tree: 'conversation',
+      branch: 'branch',
+      link: 'link',
+      linked: { created: 'Messages linked', existing: 'Already linked' },
+    });
   }
 
   // Global data
@@ -449,25 +450,6 @@ export class TreeStore extends ConversationStore<ApiClient> {
     }
   }
 
-  /**
-   * Deletes a whole conversation (not a generating call: it stays available
-   * while power is read-only). If it is open, goes home. The caller confirms
-   * first. Resolves true if it was deleted.
-   */
-  async deleteTree(treeId: string): Promise<boolean> {
-    try {
-      await this.api.deleteTree(treeId);
-      this.stopTreeStreams(treeId);
-      this.editTrees((list) => list.filter((t) => t.id !== treeId));
-      if (this.selectedTreeId() === treeId) await this.router.navigate(['/']);
-      this.ui.notify('Conversation deleted');
-      return true;
-    } catch (err) {
-      this.fail(err);
-      return false;
-    }
-  }
-
   async importBackup(backup: TreeBackupInput): Promise<void> {
     try {
       const detail = await this.api.importBackup(backup);
@@ -482,16 +464,12 @@ export class TreeStore extends ConversationStore<ApiClient> {
   // Branches
 
   async createBranch(req: CreateBranchRequest): Promise<Branch | null> {
-    try {
-      const branch = await this.api.createBranch(req);
-      this.applyBranch(branch);
+    const branch = await this.addBranch(req);
+    if (branch) {
       this.go(branch.id);
       this.ui.focusComposer();
-      return branch;
-    } catch (err) {
-      this.fail(err);
-      return null;
     }
+    return branch;
   }
 
   /**
@@ -519,24 +497,6 @@ export class TreeStore extends ConversationStore<ApiClient> {
     return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null }, content);
   }
 
-  /**
-   * Creates a branch, opens it and sends `content` as its first message.
-   * Resolves once the branch exists (null if it could not be created); the
-   * reply streams on.
-   */
-  async startBranch(req: CreateBranchRequest, content: string): Promise<Branch | null> {
-    try {
-      const branch = await this.api.createBranch(req);
-      this.applyBranch(branch);
-      this.go(branch.id);
-      void this.send(branch.id, content);
-      return branch;
-    } catch (err) {
-      this.fail(err);
-      return null;
-    }
-  }
-
   /** Whether replies in `branchId` can be checked against web sources (its provider can search). */
   canCheckSources(branchId: string): boolean {
     const branch = this.index()?.branches.get(branchId);
@@ -547,48 +507,6 @@ export class TreeStore extends ConversationStore<ApiClient> {
         (p.funding ?? 'own-key') === branch.funding &&
         p.webSearch === true,
     );
-  }
-
-  /**
-   * "Check sources" on a finished reply: a web-searched check of it. After
-   * the open branch's last reply it is appended there; on an earlier reply,
-   * including one of an ancestor branch (the open branch's messages follow
-   * it on screen), it opens a `path` branch, so later messages keep their
-   * place and the check streams where the user sees it.
-   */
-  async checkSources(nodeId: string): Promise<boolean> {
-    const idx = this.index();
-    const node = idx?.nodes.get(nodeId);
-    if (!idx || !node || node.role !== 'assistant') return false;
-    const parent = node.parentId ? idx.nodes.get(node.parentId) : undefined;
-    const content = checkSourcesMessage(parent?.role === 'user' ? parent.content : null);
-    if (node.branchId === this.selectedBranchId() && this.leaf()?.id === node.id) {
-      return this.send(node.branchId, content, { ground: 'required' });
-    }
-    try {
-      const branch = await this.api.createBranch({
-        fromNodeId: node.id,
-        contextMode: 'path',
-        anchorQuote: null,
-        title: 'Checking sources',
-      });
-      this.applyBranch(branch);
-      this.go(branch.id);
-      return await this.send(branch.id, content, { ground: 'required' });
-    } catch (err) {
-      this.fail(err);
-      return false;
-    }
-  }
-
-  async updateBranch(branchId: string, req: UpdateBranchRequest): Promise<boolean> {
-    try {
-      this.applyBranch(await this.api.updateBranch(branchId, req));
-      return true;
-    } catch (err) {
-      this.fail(err);
-      return false;
-    }
   }
 
   /**
@@ -664,31 +582,6 @@ export class TreeStore extends ConversationStore<ApiClient> {
     if (this.blockedSends().length > 0) this.blockedSends.set([]);
   }
 
-  /**
-   * Deletes a branch with everything below it. If the selection is inside it,
-   * moves to the message it branched from. The caller confirms first.
-   */
-  async deleteBranch(branchId: string): Promise<boolean> {
-    const doomed = this.index()?.branches.get(branchId);
-    try {
-      const res = await this.api.deleteBranch(branchId);
-      const selected = this.selectedBranchId();
-      if (doomed?.parentBranchId && selected && res.branchIds.includes(selected)) {
-        this.go(doomed.parentBranchId, doomed.branchPointNodeId, true);
-      }
-      this.removeBranches(res);
-      this.ui.notify(
-        res.branchIds.length > 1
-          ? `Deleted the branch and ${res.branchIds.length - 1} below it`
-          : 'Branch deleted',
-      );
-      return true;
-    } catch (err) {
-      this.fail(err);
-      return false;
-    }
-  }
-
   // Links between messages
 
   /**
@@ -696,62 +589,14 @@ export class TreeStore extends ConversationStore<ApiClient> {
    * available while power is read-only). Two messages already linked, either
    * way round, keep their link. Opens the "N related" list at both ends.
    */
-  async createLink(
+  override async createLink(
     fromNodeId: string,
     toNodeId: string,
     note: string | null = null,
   ): Promise<NodeLink | null> {
-    try {
-      // The server says whether the pair was linked already (perhaps in another tab).
-      const { link, created } = await this.api.createLink({ fromNodeId, toNodeId, note });
-      this.applyLinks([link]);
-      this.ui.setRelatedOpen([fromNodeId, toNodeId], true);
-      this.ui.notify(created ? 'Messages linked' : 'Already linked');
-      return link;
-    } catch (err) {
-      this.fail(err);
-      return null;
-    }
-  }
-
-  /** The note on a link; null clears it. */
-  async updateLinkNote(linkId: string, note: string | null): Promise<boolean> {
-    try {
-      this.applyLinks([await this.api.updateLink(linkId, { note })]);
-      return true;
-    } catch (err) {
-      if (isNotFound(err)) this.dropGoneLink(linkId);
-      else this.fail(err);
-      return false;
-    }
-  }
-
-  /** Removes a link from both of its messages. The caller confirms first. */
-  async deleteLink(linkId: string): Promise<boolean> {
-    try {
-      await this.api.deleteLink(linkId);
-      this.dropLink(linkId);
-      this.ui.notify('Link removed');
-      return true;
-    } catch (err) {
-      // Removed elsewhere already (another tab, or Canvas): the same outcome.
-      if (isNotFound(err)) {
-        this.dropGoneLink(linkId);
-        return true;
-      }
-      this.fail(err);
-      return false;
-    }
-  }
-
-  private dropLink(linkId: string): void {
-    this.detail.update((d) => (d ? { ...d, links: d.links.filter((l) => l.id !== linkId) } : d));
-  }
-
-  /** A link the server no longer has (removed elsewhere): drop its chips here too. */
-  private dropGoneLink(linkId: string): void {
-    this.dropLink(linkId);
-    this.ui.notify('That link was already removed');
+    const link = await super.createLink(fromNodeId, toNodeId, note);
+    if (link) this.ui.setRelatedOpen([fromNodeId, toNodeId], true);
+    return link;
   }
 
   /**
@@ -823,24 +668,10 @@ export class TreeStore extends ConversationStore<ApiClient> {
     this.unsentDrafts.set(next);
   }
 
-  private removeBranches(res: DeleteBranchResponse): void {
-    const branchIds = new Set(res.branchIds);
-    const nodeIds = new Set(res.nodeIds);
-    // Their generations were stopped server-side; stop following them here too.
-    for (const id of nodeIds) this.stopFollowing(id);
-    this.detail.update((d) =>
-      d && d.tree.id === res.treeId
-        ? {
-            ...d,
-            branches: d.branches.filter((b) => !branchIds.has(b.id)),
-            nodes: d.nodes.filter((n) => !nodeIds.has(n.id)),
-            // The server dropped the links touching them with them.
-            links: d.links.filter(
-              (l) => !nodeIds.has(l.sourceNodeId) && !nodeIds.has(l.targetNodeId),
-            ),
-          }
-        : d,
-    );
+  protected override branchesRemoved(
+    branchIds: ReadonlySet<string>,
+    nodeIds: ReadonlySet<string>,
+  ): void {
     if (this.blockedSends().some((s) => branchIds.has(s.branchId))) {
       this.blockedSends.update((list) => list.filter((s) => !branchIds.has(s.branchId)));
     }
@@ -853,16 +684,6 @@ export class TreeStore extends ConversationStore<ApiClient> {
     const back = this.ui.linkReturn();
     if (back && (branchIds.has(back.branchId) || branchIds.has(back.toBranchId))) {
       this.ui.linkReturn.set(null);
-    }
-    const d = this.detail();
-    if (d && d.tree.id === res.treeId) {
-      this.editTrees((list) =>
-        list.map((t) =>
-          t.id === res.treeId
-            ? { ...t, branchCount: d.branches.length, messageCount: d.nodes.length }
-            : t,
-        ),
-      );
     }
   }
 

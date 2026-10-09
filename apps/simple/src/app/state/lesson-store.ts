@@ -3,15 +3,13 @@ import { Router } from '@angular/router';
 // The tree helpers only: the rest of @tangent/core (the ChatService) is for the lazy demo chunk.
 import { linkTarget } from '@tangent/core/links';
 import {
-  checkSourcesMessage,
   BUILT_IN_PROVIDER_ID,
   TIER_LABELS,
   tierModel,
   type Branch,
   type CommitCandidateResponse,
-  type DeleteBranchResponse,
+  type CreateBranchRequest,
   type ModelInfo,
-  type NodeLink,
   type ProviderInfo,
   type TreeBackupInput,
 } from '@tangent/shared';
@@ -25,7 +23,6 @@ import {
   CompareRun,
   errorMessage,
   isMembershipRequired,
-  isNotFound,
   isPaymentRequired,
   isPoolUnavailable,
   poolBlockOf,
@@ -160,7 +157,13 @@ export class LessonStore extends ConversationStore<ApiClient> {
   private readonly saveFile = inject(SAVE_FILE);
 
   constructor() {
-    super(inject(ApiClient), inject(Router), { treeMissing: 'This lesson does not exist.' });
+    super(inject(ApiClient), inject(Router), {
+      tree: 'lesson',
+      branch: 'side question',
+      link: 'connection',
+      linked: { created: 'Connected', existing: 'Already connected' },
+      noteSaved: 'Note saved',
+    });
   }
 
   // Providers (Learn accounts: one provider with a Normal and a Max model, `ModelInfo.tier`)
@@ -301,22 +304,6 @@ export class LessonStore extends ConversationStore<ApiClient> {
     }
   }
 
-  /** Deletes a lesson; the caller confirms first. */
-  async deleteLesson(treeId: string): Promise<boolean> {
-    try {
-      await this.api.deleteTree(treeId);
-      this.stopTreeStreams(treeId);
-      if (this.unsentDraft()?.treeId === treeId) this.setUnsent(null);
-      this.editTrees((list) => list.filter((t) => t.id !== treeId));
-      if (this.selectedTreeId() === treeId) await this.router.navigate(['/']);
-      this.ui.notify('Lesson deleted');
-      return true;
-    } catch (err) {
-      this.fail(err);
-      return false;
-    }
-  }
-
   /**
    * Export: downloads the lesson's JSON backup, the same file as power
    * mode's, so it can be imported into either app. Fetched with Learn's
@@ -374,22 +361,17 @@ export class LessonStore extends ConversationStore<ApiClient> {
    * with the full path as context and the current branch's model.
    */
   async askAbout(fromNodeId: string, quote: string | null): Promise<Branch | null> {
-    const current = this.selectedBranch();
-    try {
-      const branch = await this.api.createBranch({
-        fromNodeId,
-        contextMode: 'path',
-        anchorQuote: quote,
-        ...(current ? { providerId: current.providerId, model: current.model } : {}),
-      });
-      this.applyBranch(branch);
+    const branch = await this.addBranch({
+      fromNodeId,
+      contextMode: 'path',
+      anchorQuote: quote,
+      ...this.newBranchRoute(this.selectedBranch()),
+    });
+    if (branch) {
       this.go(branch.id);
       this.ui.focusComposer();
-      return branch;
-    } catch (err) {
-      this.fail(err);
-      return null;
     }
+    return branch;
   }
 
   /**
@@ -415,28 +397,26 @@ export class LessonStore extends ConversationStore<ApiClient> {
   }
 
   /** A side question from `fromNodeId` on the current model, opened, with `content` sent first. */
-  private async startSideQuestion(
+  private startSideQuestion(
     fromNodeId: string,
     title: string | null,
     content: string,
   ): Promise<Branch | null> {
-    const current = this.selectedBranch();
-    try {
-      const branch = await this.api.createBranch({
+    return this.startBranch(
+      {
         fromNodeId,
         contextMode: 'path',
         anchorQuote: null,
         ...(title ? { title } : {}),
-        ...(current ? { providerId: current.providerId, model: current.model } : {}),
-      });
-      this.applyBranch(branch);
-      this.go(branch.id);
-      void this.send(branch.id, content);
-      return branch;
-    } catch (err) {
-      this.fail(err);
-      return null;
-    }
+        ...this.newBranchRoute(this.selectedBranch()),
+      },
+      content,
+    );
+  }
+
+  /** Side questions keep the model of the branch they come from (Normal or Max). */
+  protected override newBranchRoute(from: Branch | null): Partial<CreateBranchRequest> {
+    return from ? { providerId: from.providerId, model: from.model } : {};
   }
 
   /**
@@ -444,26 +424,9 @@ export class LessonStore extends ConversationStore<ApiClient> {
    * confirms first. Replies still generating there are stopped. When the
    * open side question goes, the lesson moves to the message it started from.
    */
-  async deleteSideQuestion(branchId: string): Promise<boolean> {
-    const doomed = this.index()?.branches.get(branchId);
-    if (!doomed?.parentBranchId) return false;
-    try {
-      const res = await this.api.deleteBranch(branchId);
-      const selected = this.selectedBranchId();
-      if (selected && res.branchIds.includes(selected)) {
-        this.go(doomed.parentBranchId, doomed.branchPointNodeId, true);
-      }
-      this.removeBranches(res);
-      this.ui.notify(
-        res.branchIds.length > 1
-          ? `Deleted the side question and ${res.branchIds.length - 1} below it`
-          : 'Side question deleted',
-      );
-      return true;
-    } catch (err) {
-      this.fail(err);
-      return false;
-    }
+  deleteSideQuestion(branchId: string): Promise<boolean> {
+    if (!this.index()?.branches.get(branchId)?.parentBranchId) return Promise.resolve(false);
+    return this.deleteBranch(branchId);
   }
 
   /** Whether replies in `branchId` can be checked against web sources (not on the pool). */
@@ -474,115 +437,11 @@ export class LessonStore extends ConversationStore<ApiClient> {
     return this.providers().find((p) => p.id === branch.providerId)?.webSearch === true;
   }
 
-  /**
-   * "Check sources" on a finished reply: asks the tutor to check it with a
-   * web search. On the open branch's last reply the check is appended there;
-   * on an earlier one, including one of an ancestor branch (the open branch's
-   * messages follow it on screen), it opens a side question, so later
-   * messages keep their place and the check streams where the learner sees it.
-   */
-  async checkSources(nodeId: string): Promise<boolean> {
-    const idx = this.index();
-    const node = idx?.nodes.get(nodeId);
-    if (!idx || !node || node.role !== 'assistant') return false;
-    const parent = node.parentId ? idx.nodes.get(node.parentId) : undefined;
-    const content = checkSourcesMessage(parent?.role === 'user' ? parent.content : null);
-    if (node.branchId === this.selectedBranchId() && this.path().at(-1)?.id === node.id) {
-      return this.send(node.branchId, content, { ground: 'required' });
-    }
-    const from = idx.branches.get(node.branchId);
-    try {
-      const branch = await this.api.createBranch({
-        fromNodeId: node.id,
-        contextMode: 'path',
-        anchorQuote: null,
-        title: 'Checking sources',
-        ...(from ? { providerId: from.providerId, model: from.model } : {}),
-      });
-      this.applyBranch(branch);
-      this.go(branch.id);
-      return await this.send(branch.id, content, { ground: 'required' });
-    } catch (err) {
-      this.fail(err);
-      return false;
-    }
-  }
-
   /** The Normal/Max toggle. */
   async setModel(branchId: string, model: string): Promise<boolean> {
     const before = this.index()?.branches.get(branchId);
     if (before?.model === model) return true;
-    try {
-      this.applyBranch(await this.api.updateBranch(branchId, { model }));
-      return true;
-    } catch (err) {
-      this.fail(err);
-      return false;
-    }
-  }
-
-  // Connections (links between messages)
-
-  /**
-   * Connects two messages of the open lesson, with an optional note. Asking
-   * for a pair that is already connected (either way round) answers with the
-   * existing connection.
-   */
-  async createLink(
-    fromNodeId: string,
-    toNodeId: string,
-    note: string | null,
-  ): Promise<NodeLink | null> {
-    try {
-      const { link, created } = await this.api.createLink({ fromNodeId, toNodeId, note });
-      this.applyLinks([link]);
-      this.ui.notify(created ? 'Connected' : 'Already connected');
-      return link;
-    } catch (err) {
-      this.fail(err);
-      return null;
-    }
-  }
-
-  /** Changes a connection's note (null clears it). */
-  async updateLink(linkId: string, note: string | null): Promise<boolean> {
-    try {
-      this.applyLinks([await this.api.updateLink(linkId, { note })]);
-      this.ui.notify('Note saved');
-      return true;
-    } catch (err) {
-      if (isNotFound(err)) this.dropGoneLink(linkId);
-      else this.fail(err);
-      return false;
-    }
-  }
-
-  /** Removes a connection; the caller confirms first. */
-  async deleteLink(linkId: string): Promise<boolean> {
-    try {
-      await this.api.deleteLink(linkId);
-      this.dropLink(linkId);
-      this.ui.notify('Connection removed');
-      return true;
-    } catch (err) {
-      // Removed elsewhere already (another tab): the same outcome.
-      if (isNotFound(err)) {
-        this.dropGoneLink(linkId);
-        return true;
-      }
-      this.fail(err);
-      return false;
-    }
-  }
-
-  private dropLink(linkId: string): void {
-    this.detail.update((d) => (d ? { ...d, links: d.links.filter((l) => l.id !== linkId) } : d));
-  }
-
-  /** A connection the server no longer has (removed elsewhere): drop it here too. */
-  private dropGoneLink(linkId: string): void {
-    this.dropLink(linkId);
-    this.ui.notify('That connection was already removed');
+    return this.updateBranch(branchId, { model });
   }
 
   // Messages and replies
@@ -764,27 +623,14 @@ export class LessonStore extends ConversationStore<ApiClient> {
   }
 
   /** Drops deleted branches and their messages, and stops following their replies. */
-  private removeBranches(res: DeleteBranchResponse): void {
-    const branchIds = new Set(res.branchIds);
-    const nodeIds = new Set(res.nodeIds);
-    for (const id of nodeIds) this.stopFollowing(id);
+  protected override branchesRemoved(
+    branchIds: ReadonlySet<string>,
+    nodeIds: ReadonlySet<string>,
+  ): void {
     const draft = this.unsentDraft();
     if (draft && branchIds.has(draft.branchId)) this.setUnsent(null);
     const block = this.poolBlock();
     if (block && branchIds.has(block.branchId)) this.poolBlock.set(null);
-    this.detail.update((d) =>
-      d && d.tree.id === res.treeId
-        ? {
-            ...d,
-            branches: d.branches.filter((b) => !branchIds.has(b.id)),
-            nodes: d.nodes.filter((n) => !nodeIds.has(n.id)),
-            // The server dropped the connections touching them with them.
-            links: d.links.filter(
-              (l) => !nodeIds.has(l.sourceNodeId) && !nodeIds.has(l.targetNodeId),
-            ),
-          }
-        : d,
-    );
     // Connecting from a message that is gone, or back to a side question that is.
     const from = this.ui.linkDialog();
     if (from !== null && nodeIds.has(from)) this.ui.linkDialog.set(null);
@@ -792,15 +638,9 @@ export class LessonStore extends ConversationStore<ApiClient> {
     if (back && (branchIds.has(back.branchId) || branchIds.has(back.toBranchId))) {
       this.linkReturn.set(null);
     }
-    const d = this.detail();
-    if (d && d.tree.id === res.treeId) {
-      this.editTrees((list) =>
-        list.map((t) =>
-          t.id === res.treeId
-            ? { ...t, branchCount: d.branches.length, messageCount: d.nodes.length }
-            : t,
-        ),
-      );
-    }
+  }
+
+  protected override treeDeleted(treeId: string): void {
+    if (this.unsentDraft()?.treeId === treeId) this.setUnsent(null);
   }
 }

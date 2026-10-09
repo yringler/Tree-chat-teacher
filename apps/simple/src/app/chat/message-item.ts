@@ -284,7 +284,7 @@ export class MessageItem {
   }
 
   protected editNote(edit: LinkNoteEdit): void {
-    void this.store.updateLink(edit.linkId, edit.note);
+    void this.store.updateLinkNote(edit.linkId, edit.note);
   }
 
   /** Title of the tangent whose branch is being created. */

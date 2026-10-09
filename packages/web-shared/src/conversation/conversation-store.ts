@@ -15,14 +15,18 @@ import type {
   Branch,
   ChatNode,
   CommitCandidateResponse,
+  CreateBranchRequest,
   CreateTreeRequest,
+  DeleteBranchResponse,
   NodeLink,
   SendMessageRequest,
   StreamEvent,
   TreeDetail,
   TreeSummary,
+  UpdateBranchRequest,
 } from '@tangent/shared';
-import { ApiError, errorMessage, type ApiClient } from '../core/api-client';
+import { checkSourcesMessage } from '@tangent/shared';
+import { ApiError, errorMessage, isNotFound, type ApiClient } from '../core/api-client';
 import { coalesced } from '../core/coalesced';
 import { runStream, type StreamOutcome } from '../sse/stream-runner';
 
@@ -40,7 +44,19 @@ export interface LiveReply {
 /** The server calls the conversation engine makes. */
 export type ConversationApi = Pick<
   ApiClient,
-  'listTrees' | 'getTree' | 'createTree' | 'sendMessage' | 'streamNode' | 'cancelNode'
+  | 'listTrees'
+  | 'getTree'
+  | 'createTree'
+  | 'deleteTree'
+  | 'createBranch'
+  | 'updateBranch'
+  | 'deleteBranch'
+  | 'createLink'
+  | 'updateLink'
+  | 'deleteLink'
+  | 'sendMessage'
+  | 'streamNode'
+  | 'cancelNode'
 >;
 
 /** How a message is asked: a "Check sources" request is web-searched (`ground`). */
@@ -56,10 +72,22 @@ export interface FailedSend {
   started: boolean;
 }
 
-/** The app's words for what the engine reports. */
+/** The app's words for what the engine reports (its toasts, and the error of a tree that doesn't exist). */
 export interface ConversationCopy {
-  /** The error of a tree the server doesn't know, e.g. "This conversation does not exist." */
-  treeMissing: string;
+  /** What a tree is called: "conversation", "lesson". */
+  tree: string;
+  /** What a branch is called: "branch", "lane", "side question". */
+  branch: string;
+  /** What a link between messages is called: "link", "connection". */
+  link: string;
+  /** Said when two messages are linked, and when they were already. */
+  linked: { created: string; existing: string };
+  /** Said when a link's note is saved, if anything. */
+  noteSaved?: string;
+}
+
+function capitalized(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function summaryOf(d: TreeDetail): TreeSummary {
@@ -222,6 +250,20 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     this.fail(err);
   }
 
+  /** Tree `treeId` was deleted: what the app keeps about it goes. */
+  protected treeDeleted(_treeId: string): void {}
+
+  /** Branches and their messages were deleted: what the app keeps about them goes. */
+  protected branchesRemoved(_branchIds: ReadonlySet<string>, _nodeIds: ReadonlySet<string>): void {}
+
+  /** A link went from the open tree. */
+  protected linkDropped(_linkId: string): void {}
+
+  /** The route a branch made here starts on, after `from` (none: the server picks the parent's). */
+  protected newBranchRoute(_from: Branch | null): Partial<CreateBranchRequest> {
+    return {};
+  }
+
   // The tree list
 
   async loadTrees(): Promise<void> {
@@ -322,7 +364,9 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     } catch (err) {
       if (!this.loadCurrent(seq, treeId)) return;
       this.detailError.set(
-        err instanceof ApiError && err.status === 404 ? this.copy.treeMissing : errorMessage(err),
+        err instanceof ApiError && err.status === 404
+          ? `This ${this.copy.tree} does not exist.`
+          : errorMessage(err),
       );
     } finally {
       if (seq === this.detailSeq) this.detailLoading.set(false);
@@ -351,6 +395,216 @@ export abstract class ConversationStore<A extends ConversationApi = Conversation
     this.listNewTree(detail);
     await this.router.navigate(['/t', detail.tree.id]);
     return detail;
+  }
+
+  /**
+   * Deletes a whole tree (not a generating call: it stays available while
+   * power is read-only), and stops following its replies. If it is open,
+   * goes home. The caller confirms first. Resolves true if it was deleted.
+   */
+  async deleteTree(treeId: string): Promise<boolean> {
+    try {
+      await this.api.deleteTree(treeId);
+      this.stopTreeStreams(treeId);
+      this.treeDeleted(treeId);
+      this.editTrees((list) => list.filter((t) => t.id !== treeId));
+      if (this.selectedTreeId() === treeId) await this.router.navigate(['/']);
+      this.notify(`${capitalized(this.copy.tree)} deleted`);
+      return true;
+    } catch (err) {
+      this.fail(err);
+      return false;
+    }
+  }
+
+  // Branches
+
+  /** Creates a branch into the open tree (null if it could not be created). */
+  protected async addBranch(req: CreateBranchRequest): Promise<Branch | null> {
+    try {
+      const branch = await this.api.createBranch(req);
+      this.applyBranch(branch);
+      return branch;
+    } catch (err) {
+      this.fail(err);
+      return null;
+    }
+  }
+
+  /**
+   * Creates a branch, opens it and sends `content` as its first message.
+   * Resolves once the branch exists (null if it could not be created: the
+   * caller keeps the text); the reply streams on.
+   */
+  async startBranch(req: CreateBranchRequest, content: string): Promise<Branch | null> {
+    const branch = await this.addBranch(req);
+    if (branch) {
+      this.go(branch.id);
+      void this.send(branch.id, content);
+    }
+    return branch;
+  }
+
+  async updateBranch(branchId: string, req: UpdateBranchRequest): Promise<boolean> {
+    try {
+      this.applyBranch(await this.api.updateBranch(branchId, req));
+      return true;
+    } catch (err) {
+      this.fail(err);
+      return false;
+    }
+  }
+
+  /**
+   * Deletes a branch with everything below it; replies generating there stop.
+   * If the selection is inside it, moves to the message it branched from.
+   * The caller confirms first.
+   */
+  async deleteBranch(branchId: string): Promise<boolean> {
+    const doomed = this.index()?.branches.get(branchId);
+    try {
+      const res = await this.api.deleteBranch(branchId);
+      const selected = this.selectedBranchId();
+      if (doomed?.parentBranchId && selected && res.branchIds.includes(selected)) {
+        this.go(doomed.parentBranchId, doomed.branchPointNodeId, true);
+      }
+      this.removeBranches(res);
+      const below = res.branchIds.length - 1;
+      this.notify(
+        below > 0
+          ? `Deleted the ${this.copy.branch} and ${below} below it`
+          : `${capitalized(this.copy.branch)} deleted`,
+      );
+      return true;
+    } catch (err) {
+      this.fail(err);
+      return false;
+    }
+  }
+
+  private removeBranches(res: DeleteBranchResponse): void {
+    const branchIds = new Set(res.branchIds);
+    const nodeIds = new Set(res.nodeIds);
+    // Their generations were stopped server-side; stop following them here too.
+    for (const id of nodeIds) this.stopFollowing(id);
+    this.detail.update((d) =>
+      d && d.tree.id === res.treeId
+        ? {
+            ...d,
+            branches: d.branches.filter((b) => !branchIds.has(b.id)),
+            nodes: d.nodes.filter((n) => !nodeIds.has(n.id)),
+            // The server dropped the links touching them with them.
+            links: d.links.filter(
+              (l) => !nodeIds.has(l.sourceNodeId) && !nodeIds.has(l.targetNodeId),
+            ),
+          }
+        : d,
+    );
+    this.branchesRemoved(branchIds, nodeIds);
+    const d = this.detail();
+    if (d && d.tree.id === res.treeId) {
+      this.editTrees((list) =>
+        list.map((t) =>
+          t.id === res.treeId
+            ? { ...t, branchCount: d.branches.length, messageCount: d.nodes.length }
+            : t,
+        ),
+      );
+    }
+  }
+
+  /**
+   * "Check sources" on a finished reply: a web-searched check of it. After
+   * the open branch's last reply it is appended there; on an earlier reply,
+   * including one of an ancestor branch (the open branch's messages follow
+   * it on screen), it opens a `path` branch, so later messages keep their
+   * place and the check streams where the user sees it.
+   */
+  async checkSources(nodeId: string): Promise<boolean> {
+    const idx = this.index();
+    const node = idx?.nodes.get(nodeId);
+    if (!idx || !node || node.role !== 'assistant') return false;
+    const parent = node.parentId ? idx.nodes.get(node.parentId) : undefined;
+    const content = checkSourcesMessage(parent?.role === 'user' ? parent.content : null);
+    if (node.branchId === this.selectedBranchId() && this.leaf()?.id === node.id) {
+      return this.send(node.branchId, content, { ground: 'required' });
+    }
+    const branch = await this.addBranch({
+      fromNodeId: node.id,
+      contextMode: 'path',
+      anchorQuote: null,
+      title: 'Checking sources',
+      ...this.newBranchRoute(idx.branches.get(node.branchId) ?? null),
+    });
+    if (!branch) return false;
+    this.go(branch.id);
+    return this.send(branch.id, content, { ground: 'required' });
+  }
+
+  // Links between messages
+
+  /**
+   * Links two messages of the open tree (not a generating call: it stays
+   * available while power is read-only). Two messages already linked, either
+   * way round, keep their link.
+   */
+  async createLink(
+    fromNodeId: string,
+    toNodeId: string,
+    note: string | null = null,
+  ): Promise<NodeLink | null> {
+    try {
+      // The server says whether the pair was linked already (perhaps in another tab).
+      const { link, created } = await this.api.createLink({ fromNodeId, toNodeId, note });
+      this.applyLinks([link]);
+      this.notify(created ? this.copy.linked.created : this.copy.linked.existing);
+      return link;
+    } catch (err) {
+      this.fail(err);
+      return null;
+    }
+  }
+
+  /** The note on a link; null clears it. */
+  async updateLinkNote(linkId: string, note: string | null): Promise<boolean> {
+    try {
+      this.applyLinks([await this.api.updateLink(linkId, { note })]);
+      if (this.copy.noteSaved) this.notify(this.copy.noteSaved);
+      return true;
+    } catch (err) {
+      if (isNotFound(err)) this.dropGoneLink(linkId);
+      else this.fail(err);
+      return false;
+    }
+  }
+
+  /** Removes a link from both of its messages. The caller confirms first. */
+  async deleteLink(linkId: string): Promise<boolean> {
+    try {
+      await this.api.deleteLink(linkId);
+      this.dropLink(linkId);
+      this.notify(`${capitalized(this.copy.link)} removed`);
+      return true;
+    } catch (err) {
+      // Removed elsewhere already (another tab, or another app): the same outcome.
+      if (isNotFound(err)) {
+        this.dropGoneLink(linkId);
+        return true;
+      }
+      this.fail(err);
+      return false;
+    }
+  }
+
+  private dropLink(linkId: string): void {
+    this.detail.update((d) => (d ? { ...d, links: d.links.filter((l) => l.id !== linkId) } : d));
+    this.linkDropped(linkId);
+  }
+
+  /** A link the server no longer has (removed elsewhere): it goes here too. */
+  private dropGoneLink(linkId: string): void {
+    this.dropLink(linkId);
+    this.notify(`That ${this.copy.link} was already removed`);
   }
 
   // Replies

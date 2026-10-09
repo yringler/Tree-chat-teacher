@@ -201,6 +201,6 @@ export class HomePage {
   protected remove(t: TreeSummary): void {
     if (!confirm(`Delete the lesson “${lessonTitle(t.title)}” with all its side questions?`))
       return;
-    void this.store.deleteLesson(t.id);
+    void this.store.deleteTree(t.id);
   }
 }

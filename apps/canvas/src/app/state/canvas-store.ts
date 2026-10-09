@@ -16,11 +16,9 @@ import type {
   ContextMode,
   ContextPlan,
   CreateBranchRequest,
-  DeleteBranchResponse,
   KeyStatusResponse,
   MeResponse,
   MembershipInfo,
-  NodeLink,
   ProviderInfo,
   UpdateBranchRequest,
 } from '@tangent/shared';
@@ -34,7 +32,6 @@ import {
   creditCanPay,
   creditCarriesOn,
   errorMessage,
-  isNotFound,
   keyMissing,
   learnCopyWay,
   lockedFundings,
@@ -114,7 +111,12 @@ export class CanvasStore extends ConversationStore<ApiClient> {
   private readonly ui = inject(UiStore);
 
   constructor() {
-    super(inject(ApiClient), inject(Router), { treeMissing: 'This conversation does not exist.' });
+    super(inject(ApiClient), inject(Router), {
+      tree: 'conversation',
+      branch: 'lane',
+      link: 'link',
+      linked: { created: 'Messages linked', existing: 'Already linked' },
+    });
   }
 
   // Global data
@@ -539,33 +541,15 @@ export class CanvasStore extends ConversationStore<ApiClient> {
     }
   }
 
-  async deleteTree(treeId: string): Promise<void> {
-    try {
-      await this.api.deleteTree(treeId);
-      this.stopTreeStreams(treeId);
-      this.editTrees((list) => list.filter((t) => t.id !== treeId));
-      if (this.selectedTreeId() === treeId) await this.router.navigate(['/']);
-      this.ui.notify('Conversation deleted');
-    } catch (err) {
-      this.fail(err);
-    }
-  }
-
   // Branches
 
   async createBranch(req: CreateBranchRequest, open = true): Promise<Branch | null> {
-    try {
-      const branch = await this.api.createBranch(req);
-      this.applyBranch(branch);
-      if (open) {
-        this.go(branch.id);
-        this.ui.focusComposer(branch.id);
-      }
-      return branch;
-    } catch (err) {
-      this.fail(err);
-      return null;
+    const branch = await this.addBranch(req);
+    if (branch && open) {
+      this.go(branch.id);
+      this.ui.focusComposer(branch.id);
     }
+    return branch;
   }
 
   /**
@@ -624,7 +608,7 @@ export class CanvasStore extends ConversationStore<ApiClient> {
     const from = idx?.nodes.get(fromNodeId);
     const lane = from && idx?.branches.get(from.branchId);
     if (lane && this.routeLocked(lane)) return null;
-    return this.startLane({ fromNodeId, contextMode: 'path', anchorQuote: null, title }, title);
+    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null, title }, title);
   }
 
   /**
@@ -632,116 +616,20 @@ export class CanvasStore extends ConversationStore<ApiClient> {
    * like a followed tangent. Untitled until the first reply names it.
    */
   askFrom(fromNodeId: string, content: string): Promise<Branch | null> {
-    return this.startLane({ fromNodeId, contextMode: 'path', anchorQuote: null }, content);
+    return this.startBranch({ fromNodeId, contextMode: 'path', anchorQuote: null }, content);
   }
 
-  /** Creates a lane, opens it and sends `content` as its first message. */
-  private async startLane(req: CreateBranchRequest, content: string): Promise<Branch | null> {
-    const branch = await this.createBranch(req, false);
-    if (branch) {
-      this.go(branch.id);
-      void this.send(branch.id, content);
-    }
-    return branch;
-  }
-
-  async updateBranch(branchId: string, req: UpdateBranchRequest): Promise<boolean> {
-    try {
-      this.applyBranch(await this.api.updateBranch(branchId, req));
-      // The plan depends on mode, quote and model: drop the cached one.
-      this.dropLineage(branchId);
-      return true;
-    } catch (err) {
-      this.fail(err);
-      return false;
-    }
-  }
-
-  /** Deletes a lane with everything below it. The caller confirms first. */
-  async deleteBranch(branchId: string): Promise<boolean> {
-    const doomed = this.index()?.branches.get(branchId);
-    try {
-      const res = await this.api.deleteBranch(branchId);
-      const selected = this.selectedBranchId();
-      if (doomed?.parentBranchId && selected && res.branchIds.includes(selected)) {
-        this.go(doomed.parentBranchId, doomed.branchPointNodeId, true);
-      }
-      this.removeBranches(res);
-      this.ui.notify(
-        res.branchIds.length > 1
-          ? `Deleted the lane and ${res.branchIds.length - 1} below it`
-          : 'Lane deleted',
-      );
-      return true;
-    } catch (err) {
-      this.fail(err);
-      return false;
-    }
+  override async updateBranch(branchId: string, req: UpdateBranchRequest): Promise<boolean> {
+    const ok = await super.updateBranch(branchId, req);
+    // The plan depends on mode, quote and model: drop the cached one.
+    if (ok) this.dropLineage(branchId);
+    return ok;
   }
 
   // Links between messages
 
-  /**
-   * Links two messages of the open tree (not a generating call: it stays
-   * available on read-only lanes). Two messages already linked, either way
-   * round, keep their link.
-   */
-  async createLink(
-    fromNodeId: string,
-    toNodeId: string,
-    note: string | null = null,
-  ): Promise<NodeLink | null> {
-    try {
-      // The server says whether the pair was linked already (perhaps in another tab).
-      const { link, created } = await this.api.createLink({ fromNodeId, toNodeId, note });
-      this.applyLinks([link]);
-      this.ui.notify(created ? 'Messages linked' : 'Already linked');
-      return link;
-    } catch (err) {
-      this.fail(err);
-      return null;
-    }
-  }
-
-  /** The note on a link; null clears it. */
-  async updateLinkNote(linkId: string, note: string | null): Promise<boolean> {
-    try {
-      this.applyLinks([await this.api.updateLink(linkId, { note })]);
-      return true;
-    } catch (err) {
-      if (isNotFound(err)) this.dropGoneLink(linkId);
-      else this.fail(err);
-      return false;
-    }
-  }
-
-  /** Removes a link from both of its messages. The caller confirms first. */
-  async deleteLink(linkId: string): Promise<boolean> {
-    try {
-      await this.api.deleteLink(linkId);
-      this.dropLink(linkId);
-      this.ui.notify('Link removed');
-      return true;
-    } catch (err) {
-      // Removed elsewhere already (another tab, or Power): the same outcome.
-      if (isNotFound(err)) {
-        this.dropGoneLink(linkId);
-        return true;
-      }
-      this.fail(err);
-      return false;
-    }
-  }
-
-  private dropLink(linkId: string): void {
-    this.detail.update((d) => (d ? { ...d, links: d.links.filter((l) => l.id !== linkId) } : d));
+  protected override linkDropped(linkId: string): void {
     if (this.ui.linkPopover()?.linkId === linkId) this.ui.linkPopover.set(null);
-  }
-
-  /** A link the server no longer has (removed elsewhere): drop its line and chips here too. */
-  private dropGoneLink(linkId: string): void {
-    this.dropLink(linkId);
-    this.ui.notify('That link was already removed');
   }
 
   // Lineage
@@ -860,39 +748,16 @@ export class CanvasStore extends ConversationStore<ApiClient> {
 
   // Internals
 
-  private removeBranches(res: DeleteBranchResponse): void {
-    const branchIds = new Set(res.branchIds);
-    const nodeIds = new Set(res.nodeIds);
-    for (const id of nodeIds) this.stopFollowing(id);
+  protected override branchesRemoved(
+    branchIds: ReadonlySet<string>,
+    nodeIds: ReadonlySet<string>,
+  ): void {
     for (const id of branchIds) this.dropLineage(id);
     if (this.blockedSends().some((s) => branchIds.has(s.branchId))) {
       this.blockedSends.update((list) => list.filter((s) => !branchIds.has(s.branchId)));
     }
     for (const id of branchIds) this.setUnsentDraft(id, null);
-    this.detail.update((d) =>
-      d && d.tree.id === res.treeId
-        ? {
-            ...d,
-            branches: d.branches.filter((b) => !branchIds.has(b.id)),
-            nodes: d.nodes.filter((n) => !nodeIds.has(n.id)),
-            // The server dropped the links touching them with them.
-            links: d.links.filter(
-              (l) => !nodeIds.has(l.sourceNodeId) && !nodeIds.has(l.targetNodeId),
-            ),
-          }
-        : d,
-    );
     this.dropLinkState(branchIds, nodeIds);
-    const d = this.detail();
-    if (d && d.tree.id === res.treeId) {
-      this.editTrees((list) =>
-        list.map((t) =>
-          t.id === res.treeId
-            ? { ...t, branchCount: d.branches.length, messageCount: d.nodes.length }
-            : t,
-        ),
-      );
-    }
   }
 
   /** Linking from a message that is gone, its popover, or a way back to a lane that is. */
