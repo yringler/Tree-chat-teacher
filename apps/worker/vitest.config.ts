@@ -179,6 +179,12 @@ export default defineConfig({
           include: ['test/**/*.test.ts'],
           exclude: NODE_SUITES,
           setupFiles: ['./test/apply-migrations.ts'],
+          // One runtime per vitest worker, shared by the suites it runs, instead of a fresh
+          // one per file: starting workerd and loading the Worker was ~90% of the suite's
+          // time. Suites share D1, the Durable Objects and the cache, so each test makes
+          // its own users, trees and pool account (TEST_POOL_ACCOUNT_ID) and never
+          // assumes an empty table.
+          isolate: false,
           ...TIMEOUTS,
         },
       },

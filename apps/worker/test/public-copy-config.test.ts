@@ -166,14 +166,16 @@ describe('read-only power without a membership (the power-read note)', () => {
 
 describe("Learn's tiers", () => {
   it("Normal and Max, with the pool on Normal's model (the default)", async () => {
-    const pricing = await page('/pricing');
+    // Its own pool account: the landing page's pool status is cached per account.
+    const own = { TEST_POOL_ACCOUNT_ID: uniq('pool') };
+    const pricing = await page('/pricing', own);
     expect(row(pricing, 'The Max tier, for the hardest questions')).toContain(
       '<td>On your key</td>',
     );
     expect(pricing).toContain(
       '<li>The Max tier in Learn, and any OpenRouter model in power mode</li>',
     );
-    const landing = await page('/welcome');
+    const landing = await page('/welcome', own);
     expect(landing).toContain(
       '<li>Two tiers: Normal for everyday learning, Max for the hardest questions (the free pool uses Normal&#39;s model with lighter thinking and shorter replies)</li>',
     );
@@ -181,7 +183,7 @@ describe("Learn's tiers", () => {
     expect(pricing).toContain(
       'Pool replies use Normal&#39;s model with lighter thinking, are at most 1,024 tokens long',
     );
-    expect(await page('/pool')).toContain(
+    expect(await page('/pool', own)).toContain(
       `Every reply on the pool uses Normal's model (<code>${NORMAL}</code>) with lighter thinking, a fixed teaching prompt, replies of at most 1,024 tokens`,
     );
     // No claim about models the defaults don't run.
