@@ -21,7 +21,7 @@ import type {
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
-import { ApiClient, ApiError, SAVE_FILE } from '@tangent/web-shared';
+import { ApiClient, ApiError, SAVE_FILE, ToastStore } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
 import { COMPARE_OUT_OF_DATE_MESSAGE, LessonStore, OUT_OF_CREDIT_MESSAGE } from './lesson-store';
@@ -270,6 +270,7 @@ function setup() {
     providers: [
       { provide: LessonStore },
       { provide: UiStore },
+      { provide: ToastStore },
       { provide: AccountStore },
       { provide: PaymentStore },
       { provide: ApiClient, useValue: api },
@@ -279,7 +280,8 @@ function setup() {
   });
   const store = injector.get(LessonStore);
   const ui = injector.get(UiStore);
-  return { store, ui, api, router, injector, saveFile };
+  const toasts = injector.get(ToastStore);
+  return { store, ui, toasts, api, router, injector, saveFile };
 }
 
 /** Opens lesson t1 at `branchId` and waits for it to load. */
@@ -375,7 +377,7 @@ describe('LessonStore', () => {
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
 
     expect(s.router.navigate).toHaveBeenCalledWith(['/billing']);
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: OUT_OF_CREDIT_MESSAGE });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: OUT_OF_CREDIT_MESSAGE });
     expect(s.store.unsentDraft()).toEqual({
       treeId: 't1',
       branchId: 'trunk',
@@ -404,7 +406,7 @@ describe('LessonStore', () => {
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
 
     expect(s.ui.accessOpen()).toBe(true);
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error' });
     expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
     expect(s.store.unsentDraft()).toEqual({
       treeId: 't1',
@@ -450,7 +452,7 @@ describe('LessonStore', () => {
 
     expect(account.membershipBlocked()).toBe(true);
     expect(s.router.navigate).not.toHaveBeenCalledWith(['/billing']);
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.toasts.toasts()).toEqual([]);
     expect(s.store.unsentDraft()).toEqual({
       treeId: 't1',
       branchId: 'trunk',
@@ -474,7 +476,7 @@ describe('LessonStore', () => {
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
 
     expect(s.store.poolBlock()).toEqual({ kind: 'empty', details: empty, branchId: 'trunk' });
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.toasts.toasts()).toEqual([]);
     expect(s.router.navigate).not.toHaveBeenCalled();
     expect(s.store.unsentDraft()).toEqual({
       treeId: 't1',
@@ -503,7 +505,7 @@ describe('LessonStore', () => {
 
     expect(s.store.poolBlock()).toEqual({ kind: 'cap', details: cap, branchId: 'trunk' });
     expect(s.store.poolBlock()?.details).toMatchObject({ limit: 30, resetAt: cap.resetAt });
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.toasts.toasts()).toEqual([]);
     expect(s.router.navigate).not.toHaveBeenCalled();
     expect(s.store.unsentDraft()?.text).toBe('What is light?');
 
@@ -528,7 +530,7 @@ describe('LessonStore', () => {
     );
     await expect(s.store.send('trunk', 'What is light?')).resolves.toBe(false);
     expect(s.ui.poolVerifyOpen()).toBe(true);
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.toasts.toasts()).toEqual([]);
     expect(s.store.poolBlock()).toBeNull();
     expect(s.store.unsentDraft()?.text).toBe('What is light?');
   });
@@ -541,7 +543,7 @@ describe('LessonStore', () => {
     );
     await s.store.send('trunk', 'What is light?');
     expect(s.ui.poolVerifyOpen()).toBe(false);
-    expect(s.ui.toasts().at(-1)).toMatchObject({
+    expect(s.toasts.toasts().at(-1)).toMatchObject({
       kind: 'error',
       text: 'Open pool access is suspended for this account',
     });
@@ -573,7 +575,7 @@ describe('LessonStore', () => {
     s.api.sendMessage.mockRejectedValue(new ApiError(409, 'conflict', 'Still generating'));
     await expect(s.store.send('trunk', 'Hi')).resolves.toBe(false);
     expect(s.router.navigate).not.toHaveBeenCalled();
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still generating' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still generating' });
     // Nothing was written: the message is offered back, not lost.
     expect(s.store.unsentDraft()).toEqual({ treeId: 't1', branchId: 'trunk', text: 'Hi' });
     expect(s.ui.composerSent()).toBeNull();
@@ -653,7 +655,7 @@ describe('LessonStore', () => {
     s.api.createBranch.mockRejectedValueOnce(new ApiError(500, 'internal', 'Nope'));
     await expect(s.store.askFrom('a1', 'Why?')).resolves.toBeNull();
     expect(s.api.sendMessage).not.toHaveBeenCalled();
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
   });
 
   it('the Normal/Max toggle updates the branch model', async () => {
@@ -740,7 +742,7 @@ describe('LessonStore', () => {
       );
 
       await expect(s.store.commitCompare(run, 'normal')).resolves.toBe('out-of-date');
-      expect(s.ui.toasts().at(-1)).toMatchObject({
+      expect(s.toasts.toasts().at(-1)).toMatchObject({
         kind: 'error',
         text: COMPARE_OUT_OF_DATE_MESSAGE,
       });
@@ -757,7 +759,7 @@ describe('LessonStore', () => {
       await run.start();
       s.api.commitCandidate.mockRejectedValue(new ApiError(409, 'conflict', 'Moved on'));
       await expect(s.store.commitCompare(run, 'max')).resolves.toBe('out-of-date');
-      expect(s.ui.toasts().at(-1)?.text).toBe(COMPARE_OUT_OF_DATE_MESSAGE);
+      expect(s.toasts.toasts().at(-1)?.text).toBe(COMPARE_OUT_OF_DATE_MESSAGE);
     });
 
     it('a refusal is reported like a send’s (out of credit: billing)', async () => {
@@ -765,7 +767,10 @@ describe('LessonStore', () => {
       await s.store.init();
       await open(s, detail());
       s.store.compareRefused(new ApiError(402, 'payment_required', 'Too low'));
-      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: OUT_OF_CREDIT_MESSAGE });
+      expect(s.toasts.toasts().at(-1)).toMatchObject({
+        kind: 'error',
+        text: OUT_OF_CREDIT_MESSAGE,
+      });
       expect(s.router.navigate).toHaveBeenCalledWith(['/billing']);
 
       const run = s.store.newCompare('trunk', question)!;
@@ -774,7 +779,7 @@ describe('LessonStore', () => {
         new ApiError(403, 'pool_unavailable', 'Compare isn’t available on the open pool'),
       );
       await expect(s.store.commitCompare(run, 'max')).resolves.toBe('refused');
-      expect(s.ui.toasts().at(-1)?.text).toBe('Compare isn’t available on the open pool');
+      expect(s.toasts.toasts().at(-1)?.text).toBe('Compare isn’t available on the open pool');
       expect(s.store.path()).toEqual([]);
     });
 
@@ -786,7 +791,7 @@ describe('LessonStore', () => {
       await run.start();
       s.api.commitCandidate.mockRejectedValueOnce(new ApiError(503, 'internal', 'Try again'));
       await expect(s.store.commitCompare(run, 'max')).resolves.toBe('failed');
-      expect(s.ui.toasts().at(-1)?.text).toBe('Try again');
+      expect(s.toasts.toasts().at(-1)?.text).toBe('Try again');
       expect(run.committing()).toBe(false);
       s.api.commitCandidate.mockResolvedValue(committed());
       await expect(s.store.commitCompare(run, 'max')).resolves.toBe('kept');
@@ -845,7 +850,7 @@ describe('LessonStore', () => {
       await expect(s.store.deleteSideQuestion('side')).resolves.toBe(false);
       expect(s.router.navigate).not.toHaveBeenCalled();
       expect(s.store.index()?.branches.size).toBe(4);
-      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still writing' });
+      expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Still writing' });
     });
   });
   it('Export downloads the lesson as the same JSON backup as power mode, named after it', async () => {
@@ -873,7 +878,7 @@ describe('LessonStore', () => {
     s.api.backup.mockRejectedValue(new ApiError(404, 'not_found', 'Tree not found'));
     await expect(s.store.exportLesson('t1')).resolves.toBe(false);
     expect(s.saveFile).not.toHaveBeenCalled();
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Tree not found' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Tree not found' });
     expect(s.store.exportingId()).toBeNull();
   });
 
@@ -885,7 +890,7 @@ describe('LessonStore', () => {
     await expect(s.store.importLesson(file)).resolves.toBe(true);
     expect(s.api.importBackup).toHaveBeenCalledWith(backupOf(detail()));
     expect(s.store.trees().map((t) => t.id)).toEqual(['t9']);
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Imported “Imported”' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Imported “Imported”' });
     expect(s.router.navigate).toHaveBeenCalledWith(['/t', 't9']);
     expect(s.store.importing()).toBe(false);
   });
@@ -898,7 +903,7 @@ describe('LessonStore', () => {
       [new File([''], 'empty.json'), /^empty\.json is empty\.$/],
     ] as const) {
       await expect(s.store.importLesson(file)).resolves.toBe(false);
-      expect(s.ui.toasts().at(-1)).toMatchObject({
+      expect(s.toasts.toasts().at(-1)).toMatchObject({
         kind: 'error',
         text: expect.stringMatching(text),
       });
@@ -915,7 +920,7 @@ describe('LessonStore', () => {
     );
     const file = new File([JSON.stringify(backupOf(detail()))], 'lesson.json');
     await expect(s.store.importLesson(file)).resolves.toBe(false);
-    expect(s.ui.toasts().at(-1)).toMatchObject({
+    expect(s.toasts.toasts().at(-1)).toMatchObject({
       kind: 'error',
       text: 'Backup must contain exactly one trunk branch',
     });
@@ -1016,7 +1021,7 @@ describe('LessonStore', () => {
           .get('s2')
           ?.map((l) => l.id),
       ).toEqual(['l-new']);
-      expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Connected' });
+      expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'info', text: 'Connected' });
     });
 
     it('edits and clears a note', async () => {

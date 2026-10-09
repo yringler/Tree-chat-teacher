@@ -2,18 +2,6 @@ import { computed, Injectable, signal } from '@angular/core';
 import type { Point } from '../layout/layout-store';
 
 /** A link shown in a toast; `href` is a full page load (e.g. the power app's `/billing`). */
-export interface ToastLink {
-  label: string;
-  href: string;
-}
-
-export interface Toast {
-  id: number;
-  kind: 'info' | 'error';
-  text: string;
-  link?: ToastLink;
-}
-
 /** The "Branch from here" dialog: one or many variants off one message. */
 export interface BranchDialogState {
   fromNodeId: string;
@@ -76,10 +64,9 @@ function storedAck(): boolean {
   }
 }
 
-/** View state that is not part of the URL: toasts, dialogs, the lineage toggle, collapsed lanes. */
+/** View state that is not part of the URL: dialogs, the lineage toggle, collapsed lanes. */
 @Injectable({ providedIn: 'root' })
 export class UiStore {
-  readonly toasts = signal<readonly Toast[]>([]);
   readonly menuOpen = signal(false);
   readonly keysOpen = signal(false);
   readonly branchDialog = signal<BranchDialogState | null>(null);
@@ -117,7 +104,6 @@ export class UiStore {
    * so a refused or failed send never loses it.
    */
   readonly composerSent = signal<{ seq: number; laneId: string; text: string } | null>(null);
-  private toastSeq = 0;
 
   readonly anyDialogOpen = computed(
     () =>
@@ -128,19 +114,6 @@ export class UiStore {
       this.deleteAccountOpen() ||
       this.linkDialog() !== null,
   );
-
-  notify(text: string, kind: Toast['kind'] = 'info', link?: ToastLink): void {
-    const id = ++this.toastSeq;
-    this.toasts.update((list) => [
-      ...list.slice(-2),
-      { id, kind, text, ...(link ? { link } : {}) },
-    ]);
-    setTimeout(() => this.dismiss(id), kind === 'error' ? 8000 : 3500);
-  }
-
-  dismiss(id: number): void {
-    this.toasts.update((list) => list.filter((t) => t.id !== id));
-  }
 
   /** Focus the selected lane's composer, or `laneId`'s (also once it first renders). */
   focusComposer(laneId: string | null = null): void {

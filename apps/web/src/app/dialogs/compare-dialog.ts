@@ -15,12 +15,13 @@ import {
   ApiClient,
   ApiError,
   Compare,
-  type CompareCandidate,
-  type CompareCandidateState,
   CompareRun,
-  type CompareSpec,
   MarkdownService,
   Modal,
+  ToastStore,
+  type CompareCandidate,
+  type CompareCandidateState,
+  type CompareSpec,
 } from '@tangent/web-shared';
 import { generationLimits, SettingsStore } from '../state/settings-store';
 import { TierStore } from '../state/tier-store';
@@ -69,6 +70,7 @@ export class CompareDialog implements OnInit {
   private readonly tiers = inject(TierStore);
   private readonly settings = inject(SettingsStore);
   private readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
   private readonly md = inject(MarkdownService);
 
   readonly branchId = input.required<string>();
@@ -147,7 +149,7 @@ export class CompareDialog implements OnInit {
       this.close();
     } catch (err) {
       if (err instanceof ApiError && OUT_OF_DATE.has(err.status)) {
-        this.ui.notify('That comparison is out of date. Your message is still in the box.');
+        this.toast.notify('That comparison is out of date. Your message is still in the box.');
         this.close();
         return;
       }

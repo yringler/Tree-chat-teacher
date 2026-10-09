@@ -97,6 +97,7 @@ export {
 export { Compare, type CompareCandidate } from './ui/compare';
 export { CONTEXT_MODE_META, type ContextModeMeta } from './ui/context-mode';
 export { Icon, type IconName } from './ui/icon';
+export { Toasts, ToastStore, type Toast, type ToastLink } from './ui/toasts';
 export { Logo } from './ui/logo';
 export { Modal } from './ui/modal';
 export { ModelSuggestions, suggestionText, type SuggestionText } from './ui/model-suggestions';

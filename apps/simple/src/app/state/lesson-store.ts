@@ -16,11 +16,9 @@ import {
 import {
   ApiClient,
   ApiError,
-  ConversationStore,
-  type FailedSend,
-  type SendOptions,
   backupFile,
   CompareRun,
+  ConversationStore,
   errorMessage,
   isMembershipRequired,
   isPaymentRequired,
@@ -28,8 +26,11 @@ import {
   poolBlockOf,
   readBackupFile,
   SAVE_FILE,
+  ToastStore,
   type BackupFile,
+  type FailedSend,
   type PoolBlock,
+  type SendOptions,
 } from '@tangent/web-shared';
 import { lessonTitle } from '../chat/titles';
 import { AccountStore } from './account-store';
@@ -95,6 +96,7 @@ export type CompareCommitOutcome = 'kept' | 'out-of-date' | 'refused' | 'failed'
 @Injectable({ providedIn: 'root' })
 export class LessonStore extends ConversationStore<ApiClient> {
   private readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
   private readonly account = inject(AccountStore);
   private readonly saveFile = inject(SAVE_FILE);
 
@@ -280,12 +282,12 @@ export class LessonStore extends ConversationStore<ApiClient> {
       try {
         backup = await readBackupFile(file);
       } catch (err) {
-        this.ui.notify(errorMessage(err), 'error');
+        this.toast.notify(errorMessage(err), 'error');
         return false;
       }
       const detail = await this.api.importBackup(backup);
       this.listNewTree(detail);
-      this.ui.notify(`Imported “${lessonTitle(detail.tree.title)}”`);
+      this.toast.notify(`Imported “${lessonTitle(detail.tree.title)}”`);
       await this.router.navigate(['/t', detail.tree.id]);
       return true;
     } catch (err) {
@@ -453,7 +455,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
       res = await run.commit(id);
     } catch (err) {
       if (err instanceof ApiError && COMPARE_GONE_STATUSES.has(err.status)) {
-        this.ui.notify(COMPARE_OUT_OF_DATE_MESSAGE, 'error');
+        this.toast.notify(COMPARE_OUT_OF_DATE_MESSAGE, 'error');
         return 'out-of-date';
       }
       this.fail(err);
@@ -536,7 +538,7 @@ export class LessonStore extends ConversationStore<ApiClient> {
   }
 
   protected notify(text: string, kind?: 'info' | 'error'): void {
-    this.ui.notify(text, kind);
+    this.toast.notify(text, kind);
   }
 
   fail(err: unknown): void {
@@ -549,19 +551,19 @@ export class LessonStore extends ConversationStore<ApiClient> {
       return;
     }
     if (err instanceof ApiError && err.code === 'key_required') {
-      this.ui.notify(err.message, 'error');
+      this.toast.notify(err.message, 'error');
       void this.account.refreshKey();
       this.ui.accessOpen.set(true);
       return;
     }
     if (isPaymentRequired(err)) {
-      this.ui.notify(OUT_OF_CREDIT_MESSAGE, 'error');
+      this.toast.notify(OUT_OF_CREDIT_MESSAGE, 'error');
       void this.account.refreshBalance();
       void this.router.navigate(['/billing']);
       return;
     }
     console.error(err);
-    this.ui.notify(errorMessage(err), 'error');
+    this.toast.notify(errorMessage(err), 'error');
   }
 
   /** Drops deleted branches and their messages, and stops following their replies. */

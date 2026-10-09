@@ -1,15 +1,8 @@
 import { Injectable, signal } from '@angular/core';
 
-export interface Toast {
-  id: number;
-  kind: 'info' | 'error';
-  text: string;
-}
-
-/** View state that is not part of the URL: toasts, the account menu, dialogs, composer focus requests. */
+/** View state that is not part of the URL: the account menu, dialogs, composer focus requests. */
 @Injectable({ providedIn: 'root' })
 export class UiStore {
-  readonly toasts = signal<readonly Toast[]>([]);
   readonly menuOpen = signal(false);
   readonly passkeysOpen = signal(false);
   readonly deleteAccountOpen = signal(false);
@@ -32,17 +25,6 @@ export class UiStore {
    * refused or failed send never loses it.
    */
   readonly composerSent = signal<{ seq: number; text: string } | null>(null);
-  private toastSeq = 0;
-
-  notify(text: string, kind: Toast['kind'] = 'info'): void {
-    const id = ++this.toastSeq;
-    this.toasts.update((list) => [...list.slice(-2), { id, kind, text }]);
-    setTimeout(() => this.dismiss(id), kind === 'error' ? 8000 : 3500);
-  }
-
-  dismiss(id: number): void {
-    this.toasts.update((list) => list.filter((t) => t.id !== id));
-  }
 
   markSent(text: string): void {
     this.composerSent.update((cur) => ({ seq: (cur?.seq ?? 0) + 1, text }));

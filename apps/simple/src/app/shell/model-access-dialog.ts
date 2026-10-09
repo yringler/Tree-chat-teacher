@@ -16,6 +16,7 @@ import {
   Icon,
   Modal,
   PoolMeter,
+  ToastStore,
 } from '@tangent/web-shared';
 import { AccountStore } from '../state/account-store';
 import { LessonStore } from '../state/lesson-store';
@@ -217,6 +218,7 @@ export class ModelAccessDialog {
   protected readonly account = inject(AccountStore);
   private readonly lessons = inject(LessonStore);
   private readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
   /** A message refused for want of the own key waits for a way to pay. */
   protected readonly waiting = computed(() => this.lessons.unsentDraft()?.needsKey ?? false);
   private readonly keyInput = viewChild<ElementRef<HTMLInputElement>>('keyInput');
@@ -265,7 +267,7 @@ export class ModelAccessDialog {
     if (!apiKey) return;
     await this.run(async () => {
       await this.account.saveKey(apiKey);
-      this.ui.notify('Your OpenRouter key is saved');
+      this.toast.notify('Your OpenRouter key is saved');
       if (this.payment() === 'own-key' && this.lessons.resumeUnsent()) this.close();
     });
   }

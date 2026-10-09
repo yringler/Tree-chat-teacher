@@ -17,7 +17,7 @@ import type {
   UpdateBranchRequest,
 } from '@tangent/shared';
 import { providerRouteKey } from '@tangent/shared';
-import { ApiClient, ApiError } from '@tangent/web-shared';
+import { ApiClient, ApiError, ToastStore } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeStore } from './tree-store';
 import { SettingsStore } from './settings-store';
@@ -72,6 +72,7 @@ function setup() {
     providers: [
       { provide: TreeStore },
       { provide: UiStore },
+      { provide: ToastStore },
       { provide: SettingsStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: router },
@@ -80,6 +81,7 @@ function setup() {
   return {
     store: injector.get(TreeStore),
     ui: injector.get(UiStore),
+    toasts: injector.get(ToastStore),
     settings: injector.get(SettingsStore),
     api,
     router,
@@ -102,7 +104,7 @@ describe('TreeStore membership and credit', () => {
     const s = setup();
     await s.store.init(me());
     s.store.fail(new ApiError(402, 'payment_required', 'Not enough credit'));
-    expect(s.ui.toasts()).toEqual([
+    expect(s.toasts.toasts()).toEqual([
       expect.objectContaining({
         kind: 'error',
         text: 'Not enough credit',
@@ -117,7 +119,7 @@ describe('TreeStore membership and credit', () => {
     await s.store.init(me());
     s.store.fail(new ApiError(401, 'key_required', 'Add your key'));
     expect(s.ui.keysDialog()).toEqual({ provider: null });
-    expect(s.ui.toasts()[0]?.link).toBeUndefined();
+    expect(s.toasts.toasts()[0]?.link).toBeUndefined();
   });
 });
 
@@ -274,7 +276,7 @@ describe('TreeStore read-only power without a membership', () => {
     s.api.me.mockResolvedValue(fresh);
     s.store.fail(new ApiError(402, 'membership_required', 'Membership required'));
     expect(s.store.readOnly()).toBe(true);
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.toasts.toasts()).toEqual([]);
     await vi.waitFor(() => expect(s.store.account.me()).toBe(fresh));
     expect(s.store.readOnly()).toBe(true);
     expect(s.api.billing).toHaveBeenCalled();
@@ -286,7 +288,7 @@ describe('TreeStore read-only power without a membership', () => {
     s.store.setRoute('t1', 'side', null);
     s.store.fail(new ApiError(402, 'membership_required', 'Membership required'));
     expect(s.store.readOnly()).toBe(false);
-    expect(s.ui.toasts()).toEqual([
+    expect(s.toasts.toasts()).toEqual([
       expect.objectContaining({ kind: 'error', link: { label: 'Membership', path: '/billing' } }),
     ]);
   });
@@ -315,7 +317,7 @@ describe('TreeStore read-only power without a membership', () => {
       model: 'a/b',
     });
     expect(s.store.readOnly()).toBe(false);
-    expect(s.ui.toasts()[0]?.text).toBe('“Main thread” now uses Tangent credit (a/b)');
+    expect(s.toasts.toasts()[0]?.text).toBe('“Main thread” now uses Tangent credit (a/b)');
   });
 
   it('a lapsed member out of credit on a credit branch: a 402 payment_required toasts to /billing, nothing turns read-only', async () => {
@@ -326,7 +328,7 @@ describe('TreeStore read-only power without a membership', () => {
     expect(s.store.readOnly()).toBe(false);
     const callsBefore = s.api.billing.mock.calls.length;
     s.store.fail(new ApiError(402, 'payment_required', 'Not enough Tangent credit.'));
-    expect(s.ui.toasts()).toEqual([
+    expect(s.toasts.toasts()).toEqual([
       expect.objectContaining({
         kind: 'error',
         text: 'Not enough Tangent credit.',
@@ -632,8 +634,8 @@ describe('TreeStore the default route of a new conversation (no keys)', () => {
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalled());
     // The keys dialog opens on the OpenRouter key.
     await vi.waitFor(() => expect(s.ui.keysDialog()).toEqual({ provider: 'openrouter' }));
-    expect(s.ui.toasts()).toEqual([expect.objectContaining({ kind: 'error', text: message })]);
-    expect(s.ui.toasts()[0]?.text).not.toMatch(/session|sign in/i);
+    expect(s.toasts.toasts()).toEqual([expect.objectContaining({ kind: 'error', text: message })]);
+    expect(s.toasts.toasts()[0]?.text).not.toMatch(/session|sign in/i);
   });
 });
 
@@ -828,7 +830,7 @@ describe('TreeStore branching with a first message', () => {
     s.createBranch.mockRejectedValueOnce(new ApiError(500, 'internal', 'Nope'));
     await expect(s.store.askFrom('a1', 'Why?')).resolves.toBeNull();
     expect(s.sendMessage).not.toHaveBeenCalled();
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
   });
 });
 
@@ -975,7 +977,7 @@ describe('TreeStore links between messages', () => {
     expect(s.store.links().map((l) => l.id)).toEqual(['l1', 'l2']);
     expect(s.store.linksByNode().get('n1')?.[0]?.note).toBe('Same question');
     expect([...s.ui.relatedOpen()]).toEqual(['n5', 'n1']);
-    expect(s.ui.toasts().at(-1)?.text).toBe('Messages linked');
+    expect(s.toasts.toasts().at(-1)?.text).toBe('Messages linked');
   });
 
   it('deleting a branch drops the links touching its messages, and pick mode from them', async () => {

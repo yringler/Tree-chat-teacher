@@ -542,6 +542,54 @@ textarea:focus-visible {
   gap: 8px;
 }
 
+/* Toasts (ui/toasts.ts); an app may lift them with --toast-bottom */
+
+.toasts {
+  position: fixed;
+  bottom: var(--toast-bottom, 16px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+  width: min(520px, calc(100vw - 2 * var(--gutter, 16px)));
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 14px;
+  border-radius: var(--radius);
+  background: var(--fg);
+  color: var(--bg);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+  font-size: 0.9rem;
+}
+
+.toast span {
+  flex: 1;
+}
+
+.toast .icon-btn {
+  color: inherit;
+}
+
+.toast-error {
+  background: var(--danger);
+  color: #fff;
+}
+
+.toast-link {
+  margin-left: 6px;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
 /* Suggested models under a model id field (ui/model-suggestions.ts) */
 .model-suggestions {
   display: flex;

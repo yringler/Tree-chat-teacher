@@ -24,6 +24,7 @@ import {
   relatedLinks,
   SourcesList,
   TangentAsk,
+  ToastStore,
   TypesetMath,
   type LinkNoteEdit,
   type RelatedLink,
@@ -297,6 +298,7 @@ import { ReviewVerdict } from '../ui/review-verdict';
 export class MessageItem {
   protected readonly store = inject(TreeStore);
   protected readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
   private readonly md = inject(MarkdownService);
   private readonly reviews = inject(ReviewStore);
 
@@ -531,7 +533,7 @@ export class MessageItem {
     e.stopPropagation();
     if (await copyText(this.split().body)) {
       this.copied.set(true);
-      this.ui.notify('Copied to clipboard');
+      this.toast.notify('Copied to clipboard');
       setTimeout(() => this.copied.set(false), 1500);
     }
   }

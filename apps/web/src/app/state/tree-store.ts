@@ -17,7 +17,7 @@ import type {
   TreeBackupInput,
   UpdateTreeRequest,
 } from '@tangent/shared';
-import { ApiClient, PowerConversationStore, errorMessage } from '@tangent/web-shared';
+import { ApiClient, errorMessage, PowerConversationStore, ToastStore } from '@tangent/web-shared';
 import { generationLimits, SettingsStore } from './settings-store';
 import { UiStore } from './ui-store';
 
@@ -30,6 +30,7 @@ import { UiStore } from './ui-store';
 @Injectable({ providedIn: 'root' })
 export class TreeStore extends PowerConversationStore<ApiClient> {
   private readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
   private readonly appSettings = inject(SettingsStore);
 
   constructor() {
@@ -152,7 +153,7 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
     try {
       const detail = await this.api.importBackup(backup);
       this.listNewTree(detail);
-      this.ui.notify(`Imported “${detail.tree.title}”`);
+      this.toast.notify(`Imported “${detail.tree.title}”`);
       await this.router.navigate(['/t', detail.tree.id]);
     } catch (err) {
       this.fail(err);
@@ -276,7 +277,7 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
   }
 
   protected notify(text: string, kind?: 'info' | 'error'): void {
-    this.ui.notify(text, kind);
+    this.toast.notify(text, kind);
   }
 
   protected override keysSettled(): void {
@@ -284,7 +285,7 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
   }
 
   protected override movedToCredit(branch: Branch, modelLabel: string): void {
-    this.ui.notify(`“${branch.title}” now uses Tangent credit (${modelLabel})`);
+    this.toast.notify(`“${branch.title}” now uses Tangent credit (${modelLabel})`);
     this.ui.focusComposer();
   }
 
@@ -295,15 +296,15 @@ export class TreeStore extends PowerConversationStore<ApiClient> {
       // A read-only branch's notice explains it; anything else (a review, say)
       // gets a toast linking to the billing page.
       if (!this.readOnly())
-        this.ui.notify(errorMessage(err), 'error', { label: 'Membership', path: '/billing' });
+        this.toast.notify(errorMessage(err), 'error', { label: 'Membership', path: '/billing' });
       return;
     }
     if (refusal === 'payment_required') {
       // Power's only metered provider is Tangent credit: this means the credit ran out.
-      this.ui.notify(errorMessage(err), 'error', { label: 'Add credit', path: '/billing' });
+      this.toast.notify(errorMessage(err), 'error', { label: 'Add credit', path: '/billing' });
       return;
     }
-    this.ui.notify(errorMessage(err), 'error');
+    this.toast.notify(errorMessage(err), 'error');
     if (refusal === 'key_required' && !this.ui.keysDialog()) {
       // Ask for the key of the provider in use (the dialog also offers Tangent
       // credit for a refused send, `blockedSends`).

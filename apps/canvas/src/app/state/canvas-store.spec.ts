@@ -17,7 +17,7 @@ import type {
   TreeDetail,
   TreeSummary,
 } from '@tangent/shared';
-import { ApiClient, ApiError } from '@tangent/web-shared';
+import { ApiClient, ApiError, ToastStore } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CanvasStore, modelLabel } from './canvas-store';
 import { UiStore } from './ui-store';
@@ -178,13 +178,14 @@ function setup() {
     providers: [
       { provide: CanvasStore },
       { provide: UiStore },
+      { provide: ToastStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: router },
     ],
   });
   const store = injector.get(CanvasStore);
   store.detail.set(detail());
-  return { store, api, router, ui: injector.get(UiStore) };
+  return { store, api, router, ui: injector.get(UiStore), toasts: injector.get(ToastStore) };
 }
 
 describe('CanvasStore', () => {
@@ -365,10 +366,10 @@ describe('CanvasStore', () => {
 
       s.store.fail(new ApiError(402, 'membership_required', 'Membership required'));
       expect(s.store.membershipBlocked()).toBe(true);
-      expect(s.ui.toasts()).toEqual([]);
+      expect(s.toasts.toasts()).toEqual([]);
 
       s.store.fail(new ApiError(402, 'payment_required', 'Not enough credit'));
-      expect(s.ui.toasts()[0]?.link).toEqual({ label: 'Add credit', href: '/billing' });
+      expect(s.toasts.toasts()[0]?.link).toEqual({ label: 'Add credit', href: '/billing' });
       await vi.waitFor(() => expect(s.store.account.billing()?.availableMicros).toBe(3_000_000));
       // Credit left: the notice can be dismissed.
       expect(s.store.membershipDismissible()).toBe(true);
@@ -619,7 +620,7 @@ describe('CanvasStore links between messages', () => {
     expect(s.api.deleteLink).toHaveBeenCalledWith('l1');
     expect(s.store.links().map((l) => l.id)).toEqual(['l2']);
     expect(s.ui.linkPopover()).toBeNull();
-    expect(s.ui.toasts().at(-1)?.text).toBe('Link removed');
+    expect(s.toasts.toasts().at(-1)?.text).toBe('Link removed');
   });
 
   it('a link already removed elsewhere (404) goes here too, popover and all', async () => {
@@ -633,7 +634,7 @@ describe('CanvasStore links between messages', () => {
     await expect(s.store.deleteLink('l1')).resolves.toBe(true);
     expect(s.store.links()).toEqual([]);
     expect(s.ui.linkPopover()).toBeNull();
-    expect(s.ui.toasts().map((t) => t.text)).toEqual([
+    expect(s.toasts.toasts().map((t) => t.text)).toEqual([
       'That link was already removed',
       'That link was already removed',
     ]);

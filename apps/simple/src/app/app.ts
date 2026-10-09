@@ -5,8 +5,8 @@ import {
   APP_PATHS,
   AuthService,
   DEMO_MODE,
-  Icon,
   PoolFirstUseDialog,
+  Toasts,
 } from '@tangent/web-shared';
 import { CompareDialog } from './chat/compare-dialog';
 import { ConnectDialog } from './chat/connect-dialog';
@@ -29,10 +29,10 @@ import { UiStore } from './state/ui-store';
     ModelAccessDialog,
     PasskeysDialog,
     DeleteAccountDialog,
-    Icon,
     PoolFirstUseDialog,
     ConnectDialog,
     CompareDialog,
+    Toasts,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -75,16 +75,7 @@ import { UiStore } from './state/ui-store';
       }
     }
 
-    <div class="toasts" role="status" aria-live="polite">
-      @for (t of ui.toasts(); track t.id) {
-        <div class="toast" [class.toast-error]="t.kind === 'error'">
-          <span>{{ t.text }}</span>
-          <button type="button" class="icon-btn" aria-label="Dismiss" (click)="ui.dismiss(t.id)">
-            <app-icon name="x" [size]="14" />
-          </button>
-        </div>
-      }
-    </div>
+    <app-toasts />
   `,
   host: { '(document:keydown.escape)': 'ui.closeTop()' },
 })

@@ -7,7 +7,7 @@ import type {
   PoolMeResponse,
   PoolStatusResponse,
 } from '@tangent/shared';
-import { API_FETCH, ApiClient, DEMO_MODE } from '@tangent/web-shared';
+import { API_FETCH, ApiClient, DEMO_MODE, ToastStore } from '@tangent/web-shared';
 import { createDemoFetch } from '@tangent/web-shared/demo';
 import { describe, expect, it, vi } from 'vitest';
 import { AccountStore } from './account-store';
@@ -96,6 +96,7 @@ function setup(
       { provide: AccountStore },
       { provide: PaymentStore },
       { provide: UiStore },
+      { provide: ToastStore },
       { provide: DEMO_MODE, useValue: false },
       { provide: ApiClient, useValue: api },
     ],
@@ -510,6 +511,7 @@ describe('AccountStore in the demo', () => {
         { provide: AccountStore },
         { provide: PaymentStore },
         { provide: UiStore },
+        { provide: ToastStore },
         { provide: ApiClient },
         { provide: DEMO_MODE, useValue: true },
         { provide: API_FETCH, useValue: createDemoFetch({ mode: 'simple', storage: null }) },

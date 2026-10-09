@@ -23,7 +23,7 @@ import { type ModelChoice, SettingsStore } from '../state/settings-store';
 import { TierStore } from '../state/tier-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { ApiClient, errorMessage, Modal } from '@tangent/web-shared';
+import { ApiClient, errorMessage, Modal, ToastStore } from '@tangent/web-shared';
 import { ModelPicker } from '../ui/model-picker';
 import { InputLimitSetting } from '../ui/input-limit-setting';
 import { OutputCapSetting, type OutputCapModel } from '../ui/output-cap-setting';
@@ -186,6 +186,7 @@ export class SettingsDialog implements OnInit {
   private readonly store = inject(TreeStore);
   private readonly tiers = inject(TierStore);
   private readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
 
   protected readonly tierRows: readonly TierRow[] = TIERS.map((tier) => ({
     tier,
@@ -343,7 +344,7 @@ export class SettingsDialog implements OnInit {
         this.saving.set(false);
       }
     }
-    this.ui.notify('Settings saved');
+    this.toast.notify('Settings saved');
     this.close();
   }
 }

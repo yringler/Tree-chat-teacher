@@ -11,6 +11,7 @@
 :root {
   --col: 760px;
   --gutter: 14px;
+  --toast-bottom: 84px;
 }
 
 body {
@@ -1037,45 +1038,4 @@ app-related-links.connections {
 
 .key-row .btn {
   margin-left: auto;
-}
-
-/* Toasts */
-
-.toasts {
-  position: fixed;
-  bottom: 84px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  z-index: 100;
-  width: min(520px, calc(100vw - 2 * var(--gutter)));
-  pointer-events: none;
-}
-
-.toast {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 8px 8px 14px;
-  border-radius: var(--radius);
-  background: var(--fg);
-  color: var(--bg);
-  box-shadow: var(--shadow);
-  pointer-events: auto;
-  font-size: 0.92rem;
-}
-
-.toast span {
-  flex: 1;
-}
-
-.toast .icon-btn {
-  color: inherit;
-}
-
-.toast-error {
-  background: var(--danger);
-  color: #fff;
 }

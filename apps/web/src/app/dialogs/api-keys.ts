@@ -14,7 +14,7 @@ import { RouterLink } from '@angular/router';
 import { LEARN_KEY_PROVIDER, type ProviderInfo } from '@tangent/shared';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
-import { formatMicros, Icon, KeyMissingNotice, Modal } from '@tangent/web-shared';
+import { formatMicros, Icon, KeyMissingNotice, Modal, ToastStore } from '@tangent/web-shared';
 import { feeSentence } from '../ui/credit';
 
 /**
@@ -164,6 +164,7 @@ import { feeSentence } from '../ui/credit';
 export class ApiKeys implements OnInit, OnDestroy {
   protected readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
   /** Provider to preselect (e.g. the one a failed request needed). */
   readonly initialProvider = input<string | null>(null);
 
@@ -233,7 +234,7 @@ export class ApiKeys implements OnInit, OnDestroy {
     const ok = await this.store.account.saveKey(this.provider(), apiKey);
     this.busy.set(false);
     if (ok) {
-      this.ui.notify(`${this.providerLabel()} key saved`);
+      this.toast.notify(`${this.providerLabel()} key saved`);
       this.store.resumeAfterKey(this.provider());
     }
   }
@@ -242,6 +243,6 @@ export class ApiKeys implements OnInit, OnDestroy {
     this.busy.set(true);
     await this.store.account.forgetKey(provider);
     this.busy.set(false);
-    this.ui.notify(provider ? 'Key forgotten' : 'All keys forgotten');
+    this.toast.notify(provider ? 'Key forgotten' : 'All keys forgotten');
   }
 }

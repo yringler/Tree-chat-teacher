@@ -38,19 +38,6 @@ export interface LinkReturn {
   toNodeId: string;
 }
 
-/** An in-app link shown in a toast (e.g. "Add credit" → `/billing`). */
-export interface ToastLink {
-  label: string;
-  path: string;
-}
-
-export interface Toast {
-  id: number;
-  kind: 'info' | 'error';
-  text: string;
-  link?: ToastLink;
-}
-
 const INSPECTOR_KEY = 'tangent.inspectorOpen';
 
 function readFlag(key: string): boolean {
@@ -69,7 +56,7 @@ function writeFlag(key: string, value: boolean): void {
   }
 }
 
-/** View state that is not part of the URL: panels, dialogs, toasts. */
+/** View state that is not part of the URL: panels and dialogs. */
 @Injectable({ providedIn: 'root' })
 export class UiStore {
   readonly drawerOpen = signal(false);
@@ -109,8 +96,6 @@ export class UiStore {
   readonly collapsed = signal<ReadonlySet<string>>(new Set());
   /** Bumped to ask the composer to take focus. */
   readonly composerFocus = signal(0);
-  readonly toasts = signal<readonly Toast[]>([]);
-  private toastSeq = 0;
 
   toggleInspector(): void {
     const next = !this.inspectorOpen();
@@ -224,18 +209,5 @@ export class UiStore {
       return true;
     }
     return false;
-  }
-
-  notify(text: string, kind: Toast['kind'] = 'info', link?: ToastLink): void {
-    const id = ++this.toastSeq;
-    this.toasts.update((list) => [
-      ...list.slice(-3),
-      { id, kind, text, ...(link ? { link } : {}) },
-    ]);
-    setTimeout(() => this.dismiss(id), kind === 'error' ? 8000 : 3500);
-  }
-
-  dismiss(id: number): void {
-    this.toasts.update((list) => list.filter((t) => t.id !== id));
   }
 }

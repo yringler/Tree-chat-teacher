@@ -10,7 +10,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { LEARN_KEY_PROVIDER, routeKey, type Branch, type ProviderInfo } from '@tangent/shared';
-import { formatMicros, Icon, KeyMissingNotice, Modal } from '@tangent/web-shared';
+import { formatMicros, Icon, KeyMissingNotice, Modal, ToastStore } from '@tangent/web-shared';
 import { laneTitle } from '../canvas/titles';
 import { feeSentence } from '../core/credit';
 import { CanvasStore } from '../state/canvas-store';
@@ -161,6 +161,7 @@ import { UiStore } from '../state/ui-store';
 export class KeysDialog implements OnInit, OnDestroy {
   protected readonly store = inject(CanvasStore);
   private readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
 
   private readonly keyInput = viewChild<ElementRef<HTMLInputElement>>('keyInput');
   protected readonly provider = signal('');
@@ -236,7 +237,7 @@ export class KeysDialog implements OnInit, OnDestroy {
     const ok = await this.store.account.saveKey(this.provider(), apiKey);
     this.busy.set(false);
     if (ok) {
-      this.ui.notify(`${this.providerLabel()} key saved`);
+      this.toast.notify(`${this.providerLabel()} key saved`);
       this.store.resumeAfterKey(this.provider());
     }
   }
@@ -245,6 +246,6 @@ export class KeysDialog implements OnInit, OnDestroy {
     this.busy.set(true);
     await this.store.account.forgetKey(provider);
     this.busy.set(false);
-    this.ui.notify(provider ? 'Key forgotten' : 'All keys forgotten');
+    this.toast.notify(provider ? 'Key forgotten' : 'All keys forgotten');
   }
 }

@@ -10,7 +10,7 @@ import {
 import { plainText } from '@tangent/shared';
 import { parseReview, parseRouteKey, routeKey, type BranchFunding } from '@tangent/shared';
 import { copyText } from '../core/selection';
-import { Icon, MarkdownService, Modal, TypesetMath } from '@tangent/web-shared';
+import { Icon, MarkdownService, Modal, ToastStore, TypesetMath } from '@tangent/web-shared';
 import { ReviewStore } from '../state/review-store';
 import { TreeStore } from '../state/tree-store';
 import { UiStore } from '../state/ui-store';
@@ -142,6 +142,7 @@ export class ReviewDialog implements OnInit {
   protected readonly store = inject(TreeStore);
   protected readonly reviews = inject(ReviewStore);
   protected readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
   private readonly md = inject(MarkdownService);
 
   readonly nodeId = input.required<string>();
@@ -225,7 +226,7 @@ export class ReviewDialog implements OnInit {
     });
     this.acting.set(false);
     if (ok) {
-      this.ui.notify(`“${b.title}” now uses ${this.labelOf(r, r.model)}`);
+      this.toast.notify(`“${b.title}” now uses ${this.labelOf(r, r.model)}`);
       if (b.id !== this.store.selectedBranchId()) this.store.go(b.id);
       this.close();
     }
@@ -247,7 +248,7 @@ export class ReviewDialog implements OnInit {
   }
 
   protected async copy(): Promise<void> {
-    if (await copyText(this.parsed().body)) this.ui.notify('Review copied');
+    if (await copyText(this.parsed().body)) this.toast.notify('Review copied');
   }
 
   protected openKeys(): void {

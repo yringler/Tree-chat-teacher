@@ -13,6 +13,7 @@ import { DEFAULT_SETTINGS, type AppSettings, SettingsStore } from './settings-st
 import { TierStore, tierOptions } from './tier-store';
 import { TreeStore } from './tree-store';
 import { UiStore } from './ui-store';
+import { ToastStore } from '@tangent/web-shared';
 
 const PRO = 'deepseek/deepseek-v4-pro';
 const SONNET = 'anthropic/claude-sonnet-5.5';
@@ -106,6 +107,7 @@ function setup(
     providers: [
       { provide: TierStore },
       { provide: UiStore },
+      { provide: ToastStore },
       { provide: TreeStore, useValue: tree },
       { provide: SettingsStore, useValue: settings },
     ],
@@ -113,6 +115,7 @@ function setup(
   return {
     tiers: injector.get(TierStore),
     ui: injector.get(UiStore),
+    toasts: injector.get(ToastStore),
     providers,
     settings,
     updateBranch,
@@ -269,7 +272,7 @@ describe('TierStore switchTier', () => {
       funding: 'credit',
       model: SONNET,
     });
-    expect(s.ui.toasts().at(-1)?.text).toBe('Replies now on Max');
+    expect(s.toasts.toasts().at(-1)?.text).toBe('Replies now on Max');
     expect(s.ui.composerFocus()).toBe(focus + 1);
   });
 
@@ -296,14 +299,14 @@ describe('TierStore switchTier', () => {
       funding: 'credit',
       model: SONNET,
     });
-    expect(s.ui.toasts().at(-1)?.text).toBe('Replies now on Max (Tangent credit)');
+    expect(s.toasts.toasts().at(-1)?.text).toBe('Replies now on Max (Tangent credit)');
   });
 
   it('a refused update changes nothing here (TreeStore reports it)', async () => {
     const s = setup();
     s.updateBranch.mockResolvedValueOnce(false);
     await expect(s.tiers.switchTier('b1', 'max')).resolves.toBe(false);
-    expect(s.ui.toasts()).toEqual([]);
+    expect(s.toasts.toasts()).toEqual([]);
   });
 });
 

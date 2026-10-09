@@ -1,6 +1,14 @@
 import { ChangeDetectionStrategy, Component, ElementRef, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { AccountId, AuthService, DEMO_MODE, Icon, Logo, ModeSwitch } from '@tangent/web-shared';
+import {
+  AccountId,
+  AuthService,
+  DEMO_MODE,
+  Icon,
+  Logo,
+  ModeSwitch,
+  ToastStore,
+} from '@tangent/web-shared';
 import { BRAND, BRAND_SHORT, DEMO_EXIT_URL } from '../brand';
 import { CanvasStore } from '../state/canvas-store';
 import { UiStore } from '../state/ui-store';
@@ -94,6 +102,7 @@ import { UiStore } from '../state/ui-store';
 export class AppHeader {
   protected readonly store = inject(CanvasStore);
   protected readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
   private readonly auth = inject(AuthService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly brand = BRAND;
@@ -123,7 +132,7 @@ export class AppHeader {
     try {
       await this.auth.signOut();
     } catch (err) {
-      this.ui.notify(err instanceof Error ? err.message : String(err), 'error');
+      this.toast.notify(err instanceof Error ? err.message : String(err), 'error');
     }
   }
 }

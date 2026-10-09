@@ -2,7 +2,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { ShareMode, ShareScope, ShareSummary } from '@tangent/shared';
-import { ApiClient, Icon, Modal } from '@tangent/web-shared';
+import { ApiClient, Icon, Modal, ToastStore } from '@tangent/web-shared';
 import { copyText } from '../core/selection';
 import { ShareCard } from '../shares/share-card';
 import { shareBranchTitle, sharesOfTree } from '../shares/share-list';
@@ -151,6 +151,7 @@ import { ScopePicker } from '../ui/scope-picker';
 export class ShareDialog {
   protected readonly store = inject(TreeStore);
   private readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
   private readonly api = inject(ApiClient);
 
   protected readonly scope = signal<ShareScope>('tree');
@@ -223,7 +224,7 @@ export class ShareDialog {
   }
 
   protected async copy(url: string): Promise<void> {
-    if (await copyText(url)) this.ui.notify('Link copied');
+    if (await copyText(url)) this.toast.notify('Link copied');
   }
 
   protected async create(): Promise<void> {

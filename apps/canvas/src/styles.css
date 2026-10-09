@@ -11,6 +11,7 @@
 :root {
   --col: 720px;
   --gutter: 14px;
+  --toast-bottom: 24px;
   --lane-w: 420px;
   --grid: #d9d9d3;
   --lane-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 6px 20px rgb(0 0 0 / 0.07);
@@ -1543,54 +1544,6 @@ app-node-picker {
 
 .md .plain {
   white-space: pre-wrap;
-}
-
-/* Toasts */
-
-.toasts {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  z-index: 100;
-  width: min(520px, calc(100vw - 2 * var(--gutter)));
-  pointer-events: none;
-}
-
-.toast {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 8px 8px 14px;
-  border-radius: var(--radius);
-  background: var(--fg);
-  color: var(--bg);
-  box-shadow: var(--shadow);
-  pointer-events: auto;
-  font-size: 0.92rem;
-}
-
-.toast span {
-  flex: 1;
-}
-
-.toast .icon-btn {
-  color: inherit;
-}
-
-.toast-error {
-  background: var(--danger);
-  color: #fff;
-}
-
-.toast-link {
-  margin-left: 6px;
-  color: inherit;
-  font-weight: 600;
-  text-decoration: underline;
 }
 
 /* Reduced motion: moves jump instead of sliding, and nothing pulses or blinks. */

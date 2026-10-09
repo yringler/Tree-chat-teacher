@@ -2,7 +2,7 @@ import '@angular/compiler'; // JIT: lets the DI below compile @Injectable classe
 import { Injector, runInInjectionContext } from '@angular/core';
 import { Router } from '@angular/router';
 import type { MeResponse, ProviderInfo } from '@tangent/shared';
-import { ApiClient } from '@tangent/web-shared';
+import { ApiClient, ToastStore } from '@tangent/web-shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TreeStore } from '../state/tree-store';
 import { SettingsStore } from '../state/settings-store';
@@ -37,6 +37,7 @@ function open(builtInCredit: boolean) {
     providers: [
       { provide: TreeStore },
       { provide: UiStore },
+      { provide: ToastStore },
       { provide: SettingsStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: {} },

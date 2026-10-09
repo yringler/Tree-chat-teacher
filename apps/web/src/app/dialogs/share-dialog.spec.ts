@@ -8,7 +8,7 @@ import type {
   ShareSummary,
   TreeDetail,
 } from '@tangent/shared';
-import { ApiClient, ApiError, DEMO_MODE } from '@tangent/web-shared';
+import { ApiClient, ApiError, DEMO_MODE, ToastStore } from '@tangent/web-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShareCard } from '../shares/share-card';
 import { shareBranchTitle, sharesOfTree } from '../shares/share-list';
@@ -147,6 +147,7 @@ function setup(list: ShareSummary[]) {
     providers: [
       { provide: TreeStore },
       { provide: UiStore },
+      { provide: ToastStore },
       { provide: SettingsStore },
       { provide: ApiClient, useValue: api },
       { provide: Router, useValue: { navigate: vi.fn(async () => true) } },
@@ -155,6 +156,7 @@ function setup(list: ShareSummary[]) {
   });
   const store = injector.get(TreeStore);
   const ui = injector.get(UiStore);
+  const toasts = injector.get(ToastStore);
   store.selectedTreeId.set('t1');
   store.detail.set(detail());
   const open = () =>
@@ -167,7 +169,7 @@ function setup(list: ShareSummary[]) {
     c.deleted.subscribe((id) => dialog.drop(id));
     return c as unknown as CardView;
   };
-  return { api, store, ui, open, card };
+  return { api, store, ui, toasts, open, card };
 }
 
 describe('share list helpers', () => {
@@ -289,7 +291,7 @@ describe('Share dialog: this conversation’s existing links', () => {
     );
     expect(s.api.revokeShare).toHaveBeenCalledWith('a');
     expect(d.rows()[0]!.share.state).toBe('revoked');
-    expect(s.ui.toasts().map((t) => t.text)).toEqual(['Link revoked']);
+    expect(s.toasts.toasts().map((t) => t.text)).toEqual(['Link revoked']);
   });
 
   it('deleting from a row asks first, then drops the share; a failure keeps it', async () => {
@@ -308,13 +310,13 @@ describe('Share dialog: this conversation’s existing links', () => {
     );
     expect(s.api.deleteShare).toHaveBeenCalledWith('a');
     expect(d.rows().map((r) => r.share.id)).toEqual(['b']);
-    expect(s.ui.toasts().map((t) => t.text)).toEqual(['Share deleted']);
+    expect(s.toasts.toasts().map((t) => t.text)).toEqual(['Share deleted']);
 
     s.api.deleteShare.mockRejectedValueOnce(new ApiError(500, 'internal', 'Nope'));
     expect(await b!.remove()).toBe(false);
     expect(confirm).toHaveBeenLastCalledWith('Delete “Primes”? This cannot be undone.');
     expect(d.rows().map((r) => r.share.id)).toEqual(['b']);
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
   });
 
   it('republishing from a row swaps in the new version; a failure shows the error', async () => {
@@ -327,6 +329,6 @@ describe('Share dialog: this conversation’s existing links', () => {
 
     s.api.republishShare.mockRejectedValueOnce(new ApiError(500, 'internal', 'Nope'));
     expect(await card.republish()).toBe(false);
-    expect(s.ui.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
+    expect(s.toasts.toasts().at(-1)).toMatchObject({ kind: 'error', text: 'Nope' });
   });
 });

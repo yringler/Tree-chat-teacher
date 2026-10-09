@@ -13,9 +13,10 @@ import type {
 } from '@tangent/shared';
 import {
   ApiClient,
-  PowerConversationStore,
   errorMessage,
   membershipBlocks,
+  PowerConversationStore,
+  ToastStore,
 } from '@tangent/web-shared';
 import { laneTitle } from '../canvas/titles';
 import { UiStore } from './ui-store';
@@ -85,6 +86,7 @@ export function modelLabel(
 @Injectable({ providedIn: 'root' })
 export class CanvasStore extends PowerConversationStore<ApiClient> {
   private readonly ui = inject(UiStore);
+  private readonly toast = inject(ToastStore);
 
   constructor() {
     super(inject(ApiClient), inject(Router), {
@@ -382,7 +384,7 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
   }
 
   protected notify(text: string, kind?: 'info' | 'error'): void {
-    this.ui.notify(text, kind);
+    this.toast.notify(text, kind);
   }
 
   protected override keysSettled(): void {
@@ -390,7 +392,7 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
   }
 
   protected override movedToCredit(branch: Branch): void {
-    this.ui.notify(`“${branch.title}” now uses Tangent credit`);
+    this.toast.notify(`“${branch.title}” now uses Tangent credit`);
   }
 
   fail(err: unknown): void {
@@ -403,10 +405,10 @@ export class CanvasStore extends PowerConversationStore<ApiClient> {
     }
     if (refusal === 'payment_required') {
       // Out of Tangent credit (the only metered provider here).
-      this.ui.notify(errorMessage(err), 'error', { label: 'Add credit', href: '/billing' });
+      this.toast.notify(errorMessage(err), 'error', { label: 'Add credit', href: '/billing' });
       return;
     }
-    this.ui.notify(errorMessage(err), 'error');
+    this.toast.notify(errorMessage(err), 'error');
     if (refusal === 'key_required') this.ui.keysOpen.set(true);
   }
 
