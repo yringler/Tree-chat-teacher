@@ -1,9 +1,9 @@
 import { KeyRequiredError } from '@tangent/core';
 import type { ProviderConfig } from '@tangent/shared';
+import type { MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod';
 import { appConfig } from '../config.js';
-import type { MiddlewareHandler } from 'hono';
 import type { AppBindings, AppContext, AppEnv } from '../env.js';
 import { open, seal, UnsealError } from './seal.js';
 
