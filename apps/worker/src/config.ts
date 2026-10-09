@@ -15,6 +15,8 @@
 import { GROUNDING_POLICIES, type GroundingPolicy } from '@tangent/core';
 import {
   BUILT_IN_MAX_OUTPUT_TOKENS,
+  DEFAULT_MARKUP_BPS,
+  DEFAULT_OPENROUTER_FEE_BPS,
   DEFAULT_SYSTEM_PROMPT,
   isReasoningEffort,
   type ReasoningEffort,
@@ -159,9 +161,6 @@ export const BUILT_IN_API_KEY_SECRET = 'BUILT_IN_API_KEY';
 
 // ---- Defaults
 
-export const DEFAULT_MARKUP_BPS = 1000;
-/** OpenRouter's fee on credit purchases (5.5%; higher for top-ups under ~$15, see docs/configuration.md). */
-export const DEFAULT_OPENROUTER_FEE_BPS = 550;
 export const DEFAULT_MEMBERSHIP_PRICE_CENTS = 1000;
 const DEFAULT_BUILT_IN_MAX_INPUT_TOKENS = 60_000;
 const DEFAULT_GROUNDING_AUTO_DAILY_CAP = 40;

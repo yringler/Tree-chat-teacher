@@ -47,6 +47,7 @@ import {
   type ProviderUsage,
   type UsagePurpose,
   type UsageTag,
+  costUsdToNanos,
 } from '@tangent/shared';
 import { DomainError, PaymentRequiredError } from '@tangent/core';
 import { decorateProvider } from '@tangent/providers';
@@ -67,7 +68,6 @@ import {
   worstCaseHoldMicros,
 } from '../pool/pricing.js';
 import { poolSettlement, type PoolSettlement } from '../pool/settle-policy.js';
-import { costUsdToNanos } from './pricing.js';
 import { reconcileGeneration, RECONCILE_RETRY_DELAYS_MS } from './reconcile.js';
 import {
   creditHoldMicros,

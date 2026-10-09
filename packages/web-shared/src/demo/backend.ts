@@ -16,6 +16,10 @@ import { createMemoryRepositories, type MemoryState } from '@tangent/core/memory
 import {
   CANDIDATE_TTL_MS,
   candidateRequestSchema,
+  chargeMicros,
+  costUsdToNanos,
+  DEFAULT_MARKUP_BPS,
+  DEFAULT_OPENROUTER_FEE_BPS,
   contextLimitsQuerySchema,
   createBranchRequestSchema,
   createLinkRequestSchema,
@@ -86,8 +90,6 @@ export const DEMO_EMAIL = 'demo@example.com';
 export const DEMO_USER_ID = 'demo-user';
 /** Pretend credit the demo starts with ($4.20). */
 export const DEMO_START_BALANCE_MICROS = 4_200_000;
-/** +10%, the pay-as-you-go rate. */
-const MARKUP_BPS = 1000;
 /** The demos sell nothing: no membership is required. */
 const DEMO_MEMBERSHIP: MembershipInfo = {
   required: false,
@@ -116,8 +118,6 @@ const DEMO_POOL_ME: Omit<PoolMeResponse, 'personalAvailableMicros'> = {
     resetAt: '1970-01-02T00:00:00.000Z',
   },
 };
-/** OpenRouter's credit-purchase fee, part of the cost the markup applies to (as in the Worker). */
-const OPENROUTER_FEE_BPS = 550;
 /** Held per in-flight provider call, like the real meter's reservation. */
 const HOLD_MICROS = 20_000;
 /** Per mode, so the two demos keep separate conversations (like the two real accounts). */
@@ -800,7 +800,7 @@ export class DemoBackend {
     return this.mode === 'simple' && this.balanceMicros - this.heldMicros <= 0;
   }
 
-  /** Meters every provider call like the Worker's usage meter: hold, then settle at cost × fee × markup. */
+  /** Meters every provider call like the Worker's usage meter: hold, then settle at the default fee and markup. */
   private async *meter(
     inner: LlmProvider,
     request: GenerateRequest,
@@ -836,12 +836,10 @@ export class DemoBackend {
       if (costUsd === null) {
         entry.status = 'unresolved'; // cancelled or failed: not charged
       } else {
-        const charge = Math.max(
-          1,
-          Math.ceil(
-            (costUsd * MICROS_PER_USD * (10_000 + OPENROUTER_FEE_BPS) * (10_000 + MARKUP_BPS)) /
-              100_000_000,
-          ),
+        const charge = chargeMicros(
+          costUsdToNanos(costUsd),
+          DEFAULT_MARKUP_BPS,
+          DEFAULT_OPENROUTER_FEE_BPS,
         );
         entry.status = 'settled';
         entry.chargeMicros = charge;
@@ -860,8 +858,8 @@ export class DemoBackend {
       balanceMicros: this.balanceMicros,
       heldMicros: this.heldMicros,
       availableMicros: this.balanceMicros - this.heldMicros,
-      markupBps: MARKUP_BPS,
-      openRouterFeeBps: OPENROUTER_FEE_BPS,
+      markupBps: DEFAULT_MARKUP_BPS,
+      openRouterFeeBps: DEFAULT_OPENROUTER_FEE_BPS,
       lastPurchase: null,
       minTopUpCents: MIN_TOP_UP_CENTS,
       maxTopUpCents: MAX_TOP_UP_CENTS,

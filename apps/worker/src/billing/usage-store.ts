@@ -3,8 +3,7 @@
 // so a row settles at most once whoever gets there first (inline settle,
 // deferred reconcile, cron, the pool's expiry alarm), and a replay can never
 // double-charge.
-import type { UsagePurpose } from '@tangent/shared';
-import { chargeMicros } from './pricing.js';
+import { chargeMicros, type UsagePurpose } from '@tangent/shared';
 
 export type UsageFunding = 'personal' | 'pool';
 

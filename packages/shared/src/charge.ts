@@ -1,5 +1,11 @@
 // Integer money math: provider cost in nano-USD, ledger in
-// micro-USD, charges rounded up, never down.
+// micro-USD, charges rounded up, never down. The Worker's meter and the
+// demos' pretend credit charge with the same functions.
+
+/** The margin on Tangent credit by default (+10%), MARKUP_BPS on the server. */
+export const DEFAULT_MARKUP_BPS = 1000;
+/** OpenRouter's fee on credit purchases (5.5%; higher for top-ups under ~$15, see docs/configuration.md). */
+export const DEFAULT_OPENROUTER_FEE_BPS = 550;
 
 const NANOS_PER_USD = 1e9;
 /** 100% in basis points. */

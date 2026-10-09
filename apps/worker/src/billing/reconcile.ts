@@ -1,6 +1,7 @@
 // Settling usage whose cost the stream didn't report (aborted, truncated or
 // evicted generations): OpenRouter's generation endpoint, with retries right
 // after the stream and a cron backstop.
+import { costUsdToNanos } from '@tangent/shared';
 import { fetchOpenRouterGeneration, type GenerationCost } from '@tangent/providers';
 import { appConfig } from '../config.js';
 import type { AppEnv } from '../env.js';
@@ -8,7 +9,6 @@ import { expirePoolReservations, type ExpiryResult } from '../pool/expiry.js';
 import { poolBank } from '../pool/ids.js';
 import { POOL_EXPIRE_BATCH, POOL_GIVE_UP_MS, POOL_RESERVATION_TTL_MS } from '../pool/params.js';
 import { simpleApiKey } from '../simple-mode.js';
-import { costUsdToNanos } from './pricing.js';
 import { markUnresolved, settleUsage } from './usage-store.js';
 import { logEvent } from '../log.js';
 

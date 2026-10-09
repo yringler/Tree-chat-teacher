@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { centsToMicros, chargeMicros, costUsdToNanos } from '../src/billing/pricing.js';
+import { centsToMicros, chargeMicros, costUsdToNanos } from './charge.js';
 
 describe('billing pricing', () => {
   it('converts USD cost to integer nano-USD, rounding to nearest', () => {

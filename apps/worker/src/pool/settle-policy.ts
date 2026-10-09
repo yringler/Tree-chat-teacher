@@ -6,8 +6,7 @@
 // what it is known to have cost (reported cost, a generation lookup, tokens ×
 // the price table), and the full hold when nothing was observed: the operator
 // never pays for upstream work the pool did not pay for.
-import type { ProviderUpstream } from '@tangent/shared';
-import { costUsdToNanos } from '../billing/pricing.js';
+import { costUsdToNanos, type ProviderUpstream } from '@tangent/shared';
 import type { SettleReason } from '../billing/usage-store.js';
 import type { ModelPrice } from '../config.js';
 import { costFromTokensNanos } from './pricing.js';

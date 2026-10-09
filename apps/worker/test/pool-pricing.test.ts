@@ -1,6 +1,6 @@
+import { chargeMicros } from '@tangent/shared';
 import { renderOverheadBytes, utf8Bytes } from '@tangent/core';
 import { describe, expect, it } from 'vitest';
-import { chargeMicros } from '../src/billing/pricing.js';
 import type { ModelPrice } from '../src/config.js';
 import { netOfFee } from '../src/billing/purchases.js';
 import { ipKey, ipPrefix } from '../src/pool/ids.js';

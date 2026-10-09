@@ -10,6 +10,7 @@ export * from './compare.js';
 export * from './tiers.js';
 export * from './billing.js';
 export * from './money.js';
+export * from './charge.js';
 export * from './pool.js';
 export * from './admin.js';
 export * from './tangents.js';
