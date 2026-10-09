@@ -10,6 +10,7 @@ import type {
 import { runDurableObjectAlarm } from 'cloudflare:test';
 import { env as rawEnv } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { deleteUser } from '../src/auth/delete-account.js';
 import { getBalance } from '../src/billing/ledger.js';
 import {
   createPoolUsageMeter,
@@ -32,7 +33,14 @@ import {
 } from '../src/pool/params.js';
 import type { PoolReserveRequest, PoolReserveResult } from '../src/pool/pool-bank.js';
 import { simpleProviderConfig } from '../src/simple-mode.js';
-import { scriptGeneration, uniq, usageRow, type UsageRow } from './mocks/billing-helpers.js';
+import {
+  ensureUser,
+  newUser,
+  scriptGeneration,
+  uniq,
+  usageRow,
+  type UsageRow,
+} from './mocks/billing-helpers.js';
 import { shippedEnv } from './mocks/wrangler-vars.js';
 
 const env = rawEnv as unknown as AppEnv;
@@ -124,11 +132,13 @@ function request(poolId: string, overrides: Partial<PoolReserveRequest> = {}): P
   };
 }
 
-function reserve(
+async function reserve(
   poolId: string,
   overrides: Partial<PoolReserveRequest> = {},
 ): Promise<PoolReserveResult> {
-  return poolBank(env, poolId).reserve(request(poolId, overrides));
+  const req = request(poolId, overrides);
+  await ensureUser(env, req.userId);
+  return poolBank(env, poolId).reserve(req);
 }
 
 async function reserved(
@@ -300,7 +310,7 @@ describe('PoolBank: the never-negative invariant (spec test)', () => {
     const meter = createPoolUsageMeter(
       env,
       params(poolId),
-      uniq('user'),
+      await newUser(env),
       (p) => deferred.push(p),
       FAST,
     );
@@ -335,7 +345,7 @@ describe('PoolBank: as shipped (wrangler.jsonc vars)', () => {
     expect(pool.price).not.toBeNull();
     await fund(pool.accountId, 100_000_000);
     const result = await poolBank(shipped, pool.accountId).reserve(
-      poolReserveRequest(pool, uniq('user'), {
+      poolReserveRequest(pool, await newUser(env), {
         purpose: 'reply',
         treeId: 'tree_1',
         branchId: 'branch_1',
@@ -639,7 +649,7 @@ describe('PoolBank: settlement clamp and the overage breaker', () => {
     const meter = createPoolUsageMeter(
       env,
       params(poolId),
-      uniq('user'),
+      await newUser(env),
       (p) => deferred.push(p),
       FAST,
     );
@@ -677,7 +687,7 @@ describe('Pool meter', () => {
       feeBps: p.price!.feeBps,
     });
     const deferred: Promise<unknown>[] = [];
-    const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
+    const meter = createPoolUsageMeter(env, p, await newUser(env), (x) => deferred.push(x), FAST);
     const inner = createProviderRegistry([simpleProviderConfig(env)], { secrets: {} });
     const registry = meteredRegistry(inner, meter, () => true);
     let pending: UsageRow | null = null;
@@ -724,7 +734,7 @@ describe('Pool meter', () => {
       yield { type: 'done', stopReason: 'stop' };
     });
     const deferred: Promise<unknown>[] = [];
-    const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
+    const meter = createPoolUsageMeter(env, p, await newUser(env), (x) => deferred.push(x), FAST);
     const events = await drain(
       meteredRegistry(registryOf(provider), meter, () => true)
         .get('openrouter')!
@@ -747,7 +757,13 @@ describe('Pool meter', () => {
       calls++;
       yield { type: 'done', stopReason: 'stop' };
     });
-    const meter = createPoolUsageMeter(env, params(poolId), uniq('user'), () => undefined, FAST);
+    const meter = createPoolUsageMeter(
+      env,
+      params(poolId),
+      await newUser(env),
+      () => undefined,
+      FAST,
+    );
     const registry = meteredRegistry(registryOf(provider), meter, () => true);
     const events = await drain(
       registry.get('openrouter')!.stream(genRequest(tag({ reservationId: 'nope' }))),
@@ -759,6 +775,35 @@ describe('Pool meter', () => {
       { type: 'error', error: { code: 'server', retryable: false, upstream: 'not_sent' } },
     ]);
     expect(calls).toBe(0);
+  });
+
+  it('writes nothing for a user deleted since the reply was admitted (its title, its summaries)', async () => {
+    quiet();
+    const poolId = uniq('pool');
+    await fund(poolId, 100_000);
+    const userId = await newUser(env);
+    let calls = 0;
+    const provider = providerOf(async function* () {
+      calls++;
+      yield { type: 'done', stopReason: 'stop' };
+    });
+    const meter = createPoolUsageMeter(env, params(poolId), userId, () => undefined, FAST);
+    const registry = meteredRegistry(registryOf(provider), meter, () => true);
+    // The reply streamed; the account is deleted before its title is reserved.
+    await deleteUser(env, userId);
+    const title = await drain(
+      registry.get('openrouter')!.stream(genRequest(tag({ purpose: 'title' }))),
+    );
+    expect(title).toMatchObject([{ type: 'error', error: { upstream: 'not_sent' } }]);
+    expect(calls).toBe(0);
+    // A reply the gate let through just before the deletion is refused the same way.
+    expect(await poolBank(env, poolId).reserve(request(poolId, { userId }))).toEqual({
+      ok: false,
+      reason: 'verify',
+      resetAt: null,
+      limit: null,
+    });
+    expect(await poolRows(poolId)).toEqual([]);
   });
 
   it('charges the full hold for a cancel after dispatch, before the first chunk', async () => {
@@ -776,7 +821,7 @@ describe('Pool meter', () => {
     const meter = createPoolUsageMeter(
       env,
       params(poolId),
-      uniq('user'),
+      await newUser(env),
       (p) => deferred.push(p),
       FAST,
     );
@@ -819,7 +864,7 @@ describe('Pool meter', () => {
     const deferred: Promise<unknown>[] = [];
     const p = params(poolId);
     for (const provider of [rejects, tokensOnly]) {
-      const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
+      const meter = createPoolUsageMeter(env, p, await newUser(env), (x) => deferred.push(x), FAST);
       await drain(
         meteredRegistry(registryOf(provider), meter, () => true)
           .get('openrouter')!
@@ -866,7 +911,7 @@ describe('Pool meter', () => {
       yield { type: 'done', stopReason: 'stop' };
     });
     const deferred: Promise<unknown>[] = [];
-    const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
+    const meter = createPoolUsageMeter(env, p, await newUser(env), (x) => deferred.push(x), FAST);
     await drain(
       meteredRegistry(registryOf(cached), meter, () => true)
         .get('openrouter')!
@@ -1097,7 +1142,7 @@ describe('PoolBank: reservation expiry (spec test)', () => {
       yield { type: 'done', stopReason: 'stop' };
     });
     const deferred: Promise<unknown>[] = [];
-    const meter = createPoolUsageMeter(env, p, uniq('user'), (x) => deferred.push(x), FAST);
+    const meter = createPoolUsageMeter(env, p, await newUser(env), (x) => deferred.push(x), FAST);
     const events = await drain(
       meteredRegistry(registryOf(provider), meter, () => true)
         .get('openrouter')!

@@ -87,11 +87,13 @@ const VERIFY_EVERY_MS = DAY_MS;
  * their network's requests this minute), the caller's daily caps
  * (`cap_requests`, `cap_spend`), the network's (`cap_ip`), `empty` (the pool
  * can't cover the hold), then the pool's global ceiling (`cap_global`). The
- * caps are the same for every caller: there is no member tier.
+ * caps are the same for every caller: there is no member tier. Last,
+ * `verify`: the caller's account no longer exists (deleted while the call
+ * was on its way), so no row is written for it.
  */
 export type PoolRefusalReason = Extract<
   PoolBlockReason,
-  'unpriced' | 'rate' | 'cap_requests' | 'cap_spend' | 'cap_ip' | 'cap_global' | 'empty'
+  'unpriced' | 'rate' | 'cap_requests' | 'cap_spend' | 'cap_ip' | 'cap_global' | 'empty' | 'verify'
 >;
 
 export interface PoolExpiryParams {
@@ -298,7 +300,8 @@ export class PoolBank extends DurableObject<AppEnv> {
 
     const refuse = (reason: PoolRefusalReason, limit: number | null = null): PoolRefusal =>
       refusal(req, reason, {
-        resetAt: reason !== 'empty' && reason !== 'unpriced' ? resetAt : null,
+        resetAt:
+          reason !== 'empty' && reason !== 'unpriced' && reason !== 'verify' ? resetAt : null,
         limit,
       });
 
@@ -381,7 +384,7 @@ export class PoolBank extends DurableObject<AppEnv> {
     if (spent + hold > ceiling) return refuse('cap_global', ceiling);
 
     const usageId = crypto.randomUUID();
-    await insertPendingUsageStatement(db, {
+    const inserted = await insertPendingUsageStatement(db, {
       id: usageId,
       accountId: req.poolId,
       treeId: req.treeId,
@@ -399,6 +402,7 @@ export class PoolBank extends DurableObject<AppEnv> {
       feeBps: req.feeBps,
       createdAt: now.toISOString(),
     }).run();
+    if (inserted.meta.changes === 0) return refuse('verify');
     await this.ensureAlarmBy(Date.now() + req.expiry.ttlMs);
     return { ok: true, usageId };
   }
