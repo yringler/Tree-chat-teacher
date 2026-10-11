@@ -27,6 +27,8 @@ Selling Tangent credit adds `BUILT_IN_API_KEY` and Polar (`POLAR_*`); the member
 - `LEGAL_CONTACT_EMAIL`: var; default `privacy@<host>`; every deployment. Where privacy requests, legal notices and copyright complaints go. The mailbox must exist (Cloudflare Email Routing can forward it).
 - `LEGAL_JURISDICTION`: var; default empty (where the operator is established); optional. Governing law of the terms, e.g. "the State of New York, USA".
 - `SHARING`: var; default `allowlist`; operators who host share links. Who may publish share links and whose links open: `off` (nobody, admins included: every link is 404 at once, the kill switch), `allowlist` (admins and the users allowed on the admin page) or `everyone` ([LEGAL.md](LEGAL.md) §8). Anyone can export a conversation in every mode.
+- `SHARE_MIN_ACCOUNT_AGE_MS`: var; default `86400000` (a day). How old an account must be before it publishes a share link; admins are exempt. `0` turns it off.
+- `SHARE_CREATES_PER_DAY`: var; default `20`. New share links per user in any 24 hours, admins included; deleting links doesn't give any back.
 - `ADMIN_USER_IDS`: secret; default none; every deployment. Comma-separated Better Auth user ids of the operator's own accounts: they open `/admin/` and `/api/admin/*` and may always share. A user id is not a credential; it is a secret only to keep it out of `wrangler.jsonc`.
 
 ## Sign-in and email

@@ -44,22 +44,26 @@ export function sharingMode(env: AppEnv): SharingMode {
 
 /**
  * Whether the user may publish share links, and whether their links open:
- * nobody under `off`, admins included; everyone under `everyone`; under
- * `allowlist` only admins (ADMIN_USER_IDS) and the users the operator allowed
- * on the admin page (`auth_users.share_allowed`). `userId` null is the dev
- * bypass, which follows the mode only (so the allowlist path can be tried
- * locally), like its account's links. One query, only under `allowlist`.
+ * nobody under `off`, admins included; nobody whose sharing an admin or the
+ * strike rule suspended (`auth_users.sharing_suspended`); everyone else under
+ * `everyone`; under `allowlist` only admins (ADMIN_USER_IDS) and the users
+ * the operator allowed on the admin page (`auth_users.share_allowed`).
+ * `userId` null is the dev bypass, which follows the mode only (so the
+ * allowlist path can be tried locally), like its account's links. One query
+ * unless sharing is off.
  */
 export async function canShare(env: AppEnv, userId: string | null): Promise<boolean> {
   const mode = sharingMode(env);
   if (mode === 'off') return false;
-  if (mode === 'everyone') return true;
-  if (!userId) return false;
-  if (isAdminUserId(env, userId)) return true;
-  const row = await env.DB.prepare('SELECT share_allowed AS allowed FROM auth_users WHERE id = ?')
+  if (!userId) return mode === 'everyone';
+  const row = await env.DB.prepare(
+    'SELECT share_allowed, sharing_suspended FROM auth_users WHERE id = ?',
+  )
     .bind(userId)
-    .first<{ allowed: SqlRow<typeof authUsers>['share_allowed'] }>();
-  return row?.allowed === 1;
+    .first<Pick<SqlRow<typeof authUsers>, 'share_allowed' | 'sharing_suspended'>>();
+  if (row?.sharing_suspended === 1) return false;
+  if (mode === 'everyone' || isAdminUserId(env, userId)) return true;
+  return row?.share_allowed === 1;
 }
 
 /**

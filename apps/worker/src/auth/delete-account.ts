@@ -84,7 +84,9 @@ export interface DeletedUser {
  * (`pool_identities`: a SHA-256 of the normalised email, its suspension, and
  * the day's pool usage, no address or user id), so signing up again with
  * the same mailbox neither lifts a pool suspension nor resets that day's
- * caps. PoolBank drops the user's per-minute counter. The privacy policy
+ * caps. PoolBank drops the user's per-minute counter. Also kept: the
+ * share audit log (share/audit.ts), ids and no message content, the
+ * evidence of how shared content was handled. The privacy policy
  * (http/legal.tsx, "How long we keep it") describes all of it.
  */
 export async function deleteUser(env: AppEnv, userId: string): Promise<DeletedUser> {

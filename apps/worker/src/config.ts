@@ -43,6 +43,8 @@ export const CONFIG_VARS = [
   'LEGAL_CONTACT_EMAIL',
   'LEGAL_JURISDICTION',
   'SHARING',
+  'SHARE_MIN_ACCOUNT_AGE_MS',
+  'SHARE_CREATES_PER_DAY',
   'ADMIN_USER_IDS',
   // Sign-in and email
   'BETTER_AUTH_SECRET',
@@ -432,6 +434,10 @@ export interface AppConfig {
     };
     /** Who may publish share links and whose links open (`SHARING`). */
     sharing: SharingMode;
+    /** `SHARE_MIN_ACCOUNT_AGE_MS`: how old a non-admin account must be to publish a link. */
+    shareMinAccountAgeMs: number;
+    /** `SHARE_CREATES_PER_DAY`: new links per user in any 24 hours. */
+    shareCreatesPerDay: number;
     adminUserIds: readonly string[];
   };
   auth: {
@@ -734,6 +740,8 @@ function parse(env: AppEnv): AppConfig {
         jurisdiction: text('LEGAL_JURISDICTION') ?? '',
       },
       sharing: enumVar('SHARING', v('SHARING'), SHARING_MODES, 'allowlist'),
+      shareMinAccountAgeMs: int('SHARE_MIN_ACCOUNT_AGE_MS', 86_400_000),
+      shareCreatesPerDay: int('SHARE_CREATES_PER_DAY', 20, { min: 1 }),
       adminUserIds: listVar(v('ADMIN_USER_IDS')),
     },
     auth: {

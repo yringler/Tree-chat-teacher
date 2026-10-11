@@ -14,7 +14,12 @@ import {
   centsToMicros,
 } from '@tangent/shared';
 import { Hono } from 'hono';
-import { ACCOUNT_PREFIX, accountIdForUser, billingAccountIdFor } from '../auth/account.js';
+import {
+  ACCOUNT_PREFIX,
+  accountIdForUser,
+  billingAccountIdFor,
+  userIdOfAccount,
+} from '../auth/account.js';
 import { adminOnly, adminUserIds } from '../auth/admin.js';
 import {
   balanceStatement,
@@ -37,6 +42,7 @@ import { identitySuspensionStatement } from '../pool/identity.js';
 import { poolBank } from '../pool/ids.js';
 import { POOL_OVERAGE } from '../pool/params.js';
 import { poolOverageMicros } from '../pool/day-usage.js';
+import { recordAudit } from '../share/audit.js';
 import { purgeShare } from '../share/cache.js';
 import { poolAvailable, sharingMode } from '../availability.js';
 import { shareService } from '../registries.js';
@@ -421,6 +427,14 @@ export function adminRoutes(): Hono<AppBindings> {
     const share = await createD1Repositories(c.env.DB).shares.getShare(c.req.param('shareId'));
     if (!share) throw new NotFoundError('Share');
     const s = await shareService(c.env, c.req.url, share.accountId).revoke(share.id);
+    await recordAudit(c.env.DB, {
+      kind: 'share_revoked',
+      actor: 'admin',
+      actorUserId: c.var.identity.userId,
+      subjectUserId: userIdOfAccount(share.accountId),
+      shareId: s.id,
+      data: { version: s.version, scope: s.scope },
+    });
     c.executionCtx.waitUntil(purgeShare(s.token, [s.version - 1, s.version]));
     return c.json(s satisfies ShareSummary);
   });

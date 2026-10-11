@@ -108,8 +108,10 @@ const vars = {
   PERSONAL_CREDIT_ENABLED: 'false',
   DEV_PURCHASES_ENABLED: 'false',
   AUTO_TITLE: 'false',
-  // Share links for everyone, so the share dialog can be driven (share-dialog.spec.ts).
+  // Share links for everyone, from a fresh account, so the share dialog can be driven
+  // (share-dialog.spec.ts).
   SHARING: 'everyone',
+  SHARE_MIN_ACCOUNT_AGE_MS: '0',
   // Power's providers on the user's "own key": the offline test provider (it needs
   // none), and one that needs a key the tests never save (missing-key-power.spec.ts:
   // a conversation on it, opened in a browser without its key). It points nowhere.

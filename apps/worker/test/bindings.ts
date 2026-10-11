@@ -17,9 +17,10 @@ export const TEST_BINDINGS: Readonly<Record<string, string>> = {
   PUBLIC_BASE_URL: '',
   DEV_ALLOW_NO_AUTH: 'true',
   AUTO_TITLE: 'false',
-  // Sharing for everyone, so the share suites run; test/share.test.ts covers
-  // the other modes.
+  // Sharing for everyone, from accounts made during the test, so the share
+  // suites run; test/share.test.ts covers the other modes and the age gate.
   SHARING: 'everyone',
+  SHARE_MIN_ACCOUNT_AGE_MS: '0',
   PROVIDERS: JSON.stringify([
     {
       id: 'fake',

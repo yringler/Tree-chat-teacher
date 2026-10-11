@@ -22,7 +22,7 @@ import { DOC_STYLE } from './page-styles.js';
  */
 
 /** Bump when either document changes in substance. */
-export const LEGAL_UPDATED = '9 October 2026';
+export const LEGAL_UPDATED = '11 October 2026';
 
 /** A long-form public page (the legal pages, `/pool`), cacheable for five minutes. */
 export function docResponse(
@@ -301,6 +301,11 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
         conversation stops it at once in our database; copies already cached at the network edge
         expire within 24 hours, and we can't recall copies people already saved.
       </p>
+      <p>
+        A new account can publish share links after its first day, and each account can create a
+        limited number a day. We keep a record of each change to a link: which link, which account,
+        when, and whether you or we made it, without what the conversation says.
+      </p>
 
       <h2>Cookies and browser storage</h2>
       <p>We use only cookies needed for the service to work, so we don't ask for cookie consent:</p>
@@ -354,6 +359,11 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           caps, and then deleted. Neither contains message content or an email address.
         </li>
         <li>
+          Records of changes to share links (which link, which account, when, by whom; no message
+          content): kept after the link or your account is deleted, as the record of how we handle
+          reports about shared content.
+        </li>
+        <li>
           Database recovery history: deleted data remains in our hosting provider's point-in-time
           recovery for up to 30 days, after which it is gone for good.
         </li>
@@ -375,7 +385,8 @@ function PrivacyPolicy(props: { info: LegalInfo; ai: HostedAi | null }) {
           which Power, Learn and Canvas share, with every conversation, share link and setting, your
           sign-in methods and sessions, and your customer record at Polar (anonymised; Polar keeps
           the order records tax law requires), which also cancels your membership. Unused credit is
-          forfeited. Payment records and open pool records are kept as described above.
+          forfeited. Payment records, open pool records and records of changes to share links are
+          kept as described above.
         </li>
         <li>
           Depending on where you live (for example the EEA, UK or California) you may also have the
