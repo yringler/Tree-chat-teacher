@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -272,26 +273,35 @@ class _ForkDivider extends StatelessWidget {
   const _ForkDivider({required this.title});
   final String title;
 
+  /// The shortest rule kept on each side of a long title.
+  static const _minRule = 24.0;
+
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 12),
-    child: Row(
-      children: [
-        const Expanded(child: Divider()),
-        Flexible(
-          flex: 3,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
+    // The title takes the width it needs (up to the row less two short
+    // rules), and the rules share the rest, so the title stays centred.
+    child: LayoutBuilder(
+      builder: (context, constraints) => Row(
+        children: [
+          const Expanded(child: Divider()),
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: max(0, constraints.maxWidth - 2 * _minRule),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ),
           ),
-        ),
-        const Expanded(child: Divider()),
-      ],
+          const Expanded(child: Divider()),
+        ],
+      ),
     ),
   );
 }

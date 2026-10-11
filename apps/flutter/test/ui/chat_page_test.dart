@@ -156,6 +156,33 @@ void main() {
     expect(find.text('Main thread'), findsNothing);
   });
 
+  testWidgets('a side question’s divider centres its title in the thread', (
+    tester,
+  ) async {
+    api.details['t1'] = treeDetail(
+      title: 'Tides',
+      branches: [
+        trunk,
+        branch('side-9', parent: 'trunk', fork: 'a1', title: 'Spring tides'),
+      ],
+      nodes: [
+        userNode,
+        node(
+          'a1',
+          branch: 'trunk',
+          seq: 1,
+          role: Role.assistant,
+          content: reply,
+        ),
+        node('s1', branch: 'side-9', seq: 0, content: 'Spring tides'),
+      ],
+    );
+    await pumpApp(tester, api, location: '/t/t1/b/side-9');
+    final title = find.text('Side question · Spring tides');
+    final thread = tester.getRect(find.byType(ListView));
+    expect(tester.getCenter(title).dx, closeTo(thread.center.dx, 1));
+  });
+
   testWidgets('a refusal from the pool shows why and keeps the text', (
     tester,
   ) async {

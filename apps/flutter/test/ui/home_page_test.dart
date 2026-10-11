@@ -59,6 +59,16 @@ void main() {
     expect(find.text('Start lesson'), findsNothing, reason: 'on the chat');
   });
 
+  testWidgets('Start lesson sits at the end of its row', (tester) async {
+    await pumpApp(tester, api);
+    final button = find.ancestor(
+      of: find.text('Start lesson'),
+      matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+    );
+    final topic = find.widgetWithText(TextField, 'Topic or first question');
+    expect(tester.getTopRight(button).dx, tester.getTopRight(topic).dx);
+  });
+
   testWidgets('on the pool there is no tier to pick', (tester) async {
     api.poolStatusAnswer = const PoolStatus(enabled: true, modelLabel: 'M');
     await pumpApp(tester, api);

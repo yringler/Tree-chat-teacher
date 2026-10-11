@@ -169,23 +169,27 @@ class _NewLessonCardState extends State<_NewLessonCard> {
               ),
             ),
             const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              alignment: WrapAlignment.spaceBetween,
-              children: [
-                TierSwitch(
-                  tier: _tier,
-                  enabled: !_starting,
-                  onChanged: (tier) => setState(() => _tier = tier),
-                ),
-                FilledButton.icon(
-                  onPressed: _starting ? null : () => unawaited(_start()),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Start lesson'),
-                ),
-              ],
+            // Full width, so spaceBetween puts the button at the end.
+            SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                alignment: WrapAlignment.spaceBetween,
+                children: [
+                  TierSwitch(
+                    tier: _tier,
+                    enabled: !_starting,
+                    onChanged: (tier) => setState(() => _tier = tier),
+                  ),
+                  FilledButton.icon(
+                    onPressed: _starting ? null : () => unawaited(_start()),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Start lesson'),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
