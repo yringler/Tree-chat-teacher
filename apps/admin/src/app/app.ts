@@ -1,20 +1,24 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import type { AdminStatusResponse, MeResponse } from '@tangent/shared';
 import { ApiClient, AuthService, errorMessage, Logo } from '@tangent/web-shared';
+import { HoldsPage } from './holds-page';
 import { PoolPage } from './pool-page';
 import { PoolUsagePage } from './pool-usage-page';
+import { ReportsPage } from './reports-page';
 import { UsersPage } from './users-page';
 
 /**
  * The admin app, served under /admin/ to admins only (the Worker answers 404
- * to anyone else; ADMIN_USER_IDS). One page: who may publish share links
- * while SHARING is `allowlist`, taking any share down, suspending a
- * user's open pool access, waiving a user's membership, adding credit to a user, the pool's balance and overage breaker with
- * top-ups and corrections, and who uses the pool most.
+ * to anyone else; ADMIN_USER_IDS). One page: the queue of reports from
+ * share pages and the legal holds, then the users (who may publish share
+ * links while SHARING is `allowlist`, whose sharing is suspended, taking any
+ * share down or back up, suspending a user's open pool access, waiving a
+ * user's membership, adding credit to a user), the pool's balance and
+ * overage breaker with top-ups and corrections, and who uses the pool most.
  */
 @Component({
   selector: 'app-root',
-  imports: [Logo, PoolPage, PoolUsagePage, UsersPage],
+  imports: [Logo, HoldsPage, PoolPage, PoolUsagePage, ReportsPage, UsersPage],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="admin-head">
@@ -63,6 +67,14 @@ import { UsersPage } from './users-page';
               </p>
             }
           }
+          @if (s.moderationKeyMissing) {
+            <p class="notice notice-error" role="status">
+              <span>
+                <strong>MODERATION_API_KEY is not set:</strong> SHARING says everyone, but nothing
+                could be screened, so sharing acts as allowlist until the key is set.
+              </span>
+            </p>
+          }
           @if (!s.membershipRequired) {
             <p class="notice" role="status">
               <span>
@@ -73,6 +85,8 @@ import { UsersPage } from './users-page';
             </p>
           }
         }
+        <app-reports-page />
+        <app-holds-page />
         <app-users-page />
         <app-pool-page />
         <app-pool-usage-page />
