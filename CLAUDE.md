@@ -9,7 +9,7 @@ pnpm install                                   # Node 24 (.nvmrc), pnpm 10
 cp apps/worker/.dev.vars.example apps/worker/.dev.vars && pnpm --filter @tangent/worker db:migrate:local
 pnpm dev                                       # wrangler dev on :8787, builds every app first
 pnpm --filter @tangent/web start               # power app with hot reload on :4200 (simple :4201, canvas :4202, admin :4203)
-pnpm test                                      # every package (slow: minutes); prefer one file:
+pnpm test                                      # every package through turbo, cached per package (cold: minutes); prefer one file:
 pnpm --filter @tangent/worker exec vitest run test/billing-ledger.test.ts
 pnpm --filter @tangent/core exec vitest run test/context/assemble.test.ts
 pnpm typecheck                                 # tsc and Angular strict templates everywhere
@@ -21,7 +21,7 @@ pnpm e2e                                       # Playwright, own wrangler dev on
 pnpm --filter @tangent/worker db:generate      # the migration for a schema.ts change
 ```
 
-`pnpm lint` runs ESLint (typescript-eslint strict plus the type-aware promise rules), `scripts/check-provider-neutral.mjs` (no provider names in the apps or shared packages), `scripts/check-migrations.mjs` (fails while `schema.ts` has a change no migration has) and `scripts/check-cycles.mjs` (no runtime import cycles). For e2e while writing tests: `node apps/e2e/serve.mjs` in one terminal, `E2E_REUSE_SERVER=1 pnpm e2e` in another. Never run `playwright install` unless asked.
+`pnpm lint` runs ESLint (typescript-eslint strict plus the type-aware promise rules), `scripts/check-provider-neutral.mjs` (no provider names in the apps or shared packages), `scripts/check-migrations.mjs` (fails while `schema.ts` has a change no migration has), `scripts/check-cycles.mjs` (no runtime import cycles) and `scripts/check-turbo-inputs.mjs` (a test's reads outside its package are in its turbo hash). `pnpm test`, `typecheck`, `coverage` and `build` run through Turborepo (`turbo.json`) and replay a package's cached result when nothing it depends on changed; `--force` reruns everything. For e2e while writing tests: `node apps/e2e/serve.mjs` in one terminal, `E2E_REUSE_SERVER=1 pnpm e2e` in another. Never run `playwright install` unless asked.
 
 ## Module map
 

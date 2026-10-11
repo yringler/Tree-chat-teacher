@@ -139,7 +139,7 @@ The rules the code follows today, and why. One section per area. When a rule cha
 
 ## Deploy and migrations
 
-- **GitHub Actions deploys, after CI passes** (`.github/workflows/ci.yml`). The Deploy job runs on `master` in the `production` environment: build once with no secrets, check that all four apps are in the assets, then `wrangler d1 migrations apply` and `wrangler deploy` with a config that has no `build` step (`scripts/deploy-config.mjs`), so the API token never meets the build toolchain and the upload is the build that was checked. One deploy at a time, never cancelled midway. Workers Builds is not used: it deployed whatever CI said and ran no migrations.
+- **GitHub Actions deploys, after CI passes** (`.github/workflows/ci.yml`). The Deploy job runs on `master` in the `production` environment: build once from source with no secrets and no restored turbo cache, check that all four apps are in the assets, then `wrangler d1 migrations apply` and `wrangler deploy` with a config that has no `build` step (`scripts/deploy-config.mjs`), so the API token never meets the build toolchain and the upload is the build that was checked. One deploy at a time, never cancelled midway. Workers Builds is not used: it deployed whatever CI said and ran no migrations.
 - **The `production` environment allows only `master`.** Without that rule, a pull request that edits `ci.yml` could run a job there and read the deploy secrets.
 - **Migrations are applied before the code, so each must work with the code still running:** expand first (new tables, nullable or defaulted columns), contract in a later release. Re-running an old deploy redeploys old code onto the newest schema.
 - **drizzle-kit writes every migration from `schema.ts`.** Never edit an applied migration, and never hand-write one. `pnpm lint` fails when `schema.ts` has a change no migration has (`scripts/check-migrations.mjs`). The history starts at `0000_baseline.sql` (the 27 earlier migrations were squashed before launch; production was converted once by hand, see [runbooks/d1-baseline.md](runbooks/d1-baseline.md)).
@@ -155,7 +155,8 @@ The rules the code follows today, and why. One section per area. When a rule cha
 
 ## Tooling
 
-- **pnpm workspaces, not Nx;** TypeScript ~6.0 (Angular 22 needs `<6.1`); Vitest 4.1 everywhere; Node 24 (`.nvmrc`).
+- **pnpm workspaces, with Turborepo running each package's tests, typecheck and build, not Nx;** TypeScript ~6.0 (Angular 22 needs `<6.1`); Vitest 4.1 everywhere; Node 24 (`.nvmrc`).
+- **Turbo caches every per-package task** (`turbo.json`), locally in `.turbo/` and in CI through `actions/cache`. A task's hash covers its package's files and, through the `transit` task, its workspace dependencies'. A test that reads a file outside those names it in the task's `inputs`, and `scripts/check-turbo-inputs.mjs` (in `pnpm lint`) checks the globs reach it; a missing one is a stale cached pass.
 - **Worker tests run in real workerd with real D1 and Durable Objects** (`@cloudflare/vitest-pool-workers`); suites that need neither run in plain Node. Every outbound call is mocked in one place. Coverage is reported, not enforced.
 - **End-to-end tests sign in through the real magic link** (links printed to the server log, Turnstile's always-pass test keys) and set billing state through the fake payment provider's signed webhook, so production gains no test-only sign-in route.
-- **Lint includes the type-aware promise rules, the provider-neutral check, the migration check and an import-cycle check** (`scripts/check-cycles.mjs`, runtime imports only).
+- **Lint includes the type-aware promise rules, the provider-neutral check, the migration check, an import-cycle check** (`scripts/check-cycles.mjs`, runtime imports only) **and the turbo inputs check.**

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "agentGuidance": false,
+  "cacheMaxSize": "200MB",
+  "globalDependencies": ["tsconfig.base.json", "vitest.coverage.ts", ".nvmrc"],
+  "tasks": {
+    // No script runs it. Workspace packages export source and have no build, so a task depends
+    // on `transit` to put its dependencies' files in its hash.
+    "transit": { "dependsOn": ["^transit"] },
+    "typecheck": { "dependsOn": ["transit"], "outputs": [] },
+    "test": { "dependsOn": ["transit"], "outputs": [] },
+    "coverage": { "dependsOn": ["transit"], "outputs": ["coverage/**"] },
+    "build": { "dependsOn": ["transit"], "outputs": ["dist/**"] },
+
+    // Tests and imports that read files outside their package and its dependencies.
+    // scripts/check-turbo-inputs.mjs checks these reach the files.
+    "@tangent/web-shared#test": {
+      "dependsOn": ["transit"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/{web,simple,canvas,admin}/src/**"],
+      "outputs": []
+    },
+    "@tangent/web-shared#coverage": {
+      "dependsOn": ["transit"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/{web,simple,canvas,admin}/src/**"],
+      "outputs": ["coverage/**"]
+    },
+    "@tangent/worker#test": {
+      "dependsOn": ["transit"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/web/public/_headers",
+        "$TURBO_ROOT$/docs/configuration.md"
+      ],
+      "outputs": []
+    },
+    "@tangent/worker#coverage": {
+      "dependsOn": ["transit"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/web/public/_headers",
+        "$TURBO_ROOT$/docs/configuration.md"
+      ],
+      "outputs": ["coverage/**"]
+    },
+    "@tangent/e2e#typecheck": {
+      "dependsOn": ["transit"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/*/src/**"],
+      "outputs": []
+    },
+
+    "//#assemble": {
+      "dependsOn": [
+        "@tangent/web#build",
+        "@tangent/simple#build",
+        "@tangent/canvas#build",
+        "@tangent/admin#build"
+      ],
+      "inputs": ["scripts/assemble-assets.mjs"],
+      "outputs": ["apps/worker/site/**"]
+    }
+  }
+}

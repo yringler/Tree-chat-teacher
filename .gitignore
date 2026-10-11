@@ -18,3 +18,5 @@ apps/worker/wrangler.deploy.json
 apps/e2e/.state/
 apps/e2e/test-results/
 apps/e2e/playwright-report/
+# Turborepo's local cache and run logs.
+.turbo/

@@ -35,6 +35,13 @@ jobs:
           cache: pnpm
       - id: install
         run: pnpm install --frozen-lockfile
+      # Turbo's task cache (turbo.json). A run restores the newest one this branch or master saved,
+      # so packages nothing changed skip their tests, typechecks and builds.
+      - uses: actions/cache@v4
+        with:
+          path: .turbo/cache
+          key: turbo-checks-${{ github.sha }}
+          restore-keys: turbo-checks-
       # Every check runs whatever the earlier ones did, so a formatting nit can't hide a failing
       # test; any failure still fails the job.
       - run: pnpm test
@@ -64,6 +71,14 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The apps' builds, from this job's last run or the Checks job's.
+      - uses: actions/cache@v4
+        with:
+          path: .turbo/cache
+          key: turbo-e2e-${{ github.sha }}
+          restore-keys: |
+            turbo-e2e-
+            turbo-checks-
       - name: Install Chromium
         run: pnpm --filter @tangent/e2e exec playwright install --with-deps chromium
       # serve.mjs starts wrangler dev, which builds every app first.
@@ -112,7 +127,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # Runs wrangler.jsonc's build.command (the root `pnpm build`) and bundles the Worker, so a
-      # broken build stops here, before any migration. No secrets in this or any build step.
+      # broken build stops here, before any migration. No secrets in this or any build step. This
+      # job restores no turbo cache, so what deploys is always built from source.
       - name: Build
         run: pnpm --filter @tangent/worker exec wrangler deploy --dry-run
       # If wrangler ever skipped build.command, apps/worker/site would hold only .gitkeep, and that

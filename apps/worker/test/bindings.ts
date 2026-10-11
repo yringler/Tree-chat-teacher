@@ -17,6 +17,9 @@ export const TEST_BINDINGS: Readonly<Record<string, string>> = {
   PUBLIC_BASE_URL: '',
   DEV_ALLOW_NO_AUTH: 'true',
   AUTO_TITLE: 'false',
+  // No sign-up cap: suites make far more users than wrangler.jsonc's MAX_USERS. The cap's own
+  // tests set it in an env override.
+  MAX_USERS: '',
   // Sharing for everyone, from accounts made during the test, so the share
   // suites run; test/share.test.ts covers the other modes and the age gate.
   SHARING: 'everyone',
