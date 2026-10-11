@@ -50,27 +50,35 @@ export function stripJsonc(text: string): string {
   });
 }
 
-/** wrangler.jsonc's top-level `vars`. */
-export function shippedVars(): Record<string, string> {
-  const config = JSON.parse(stripJsonc(wranglerText as string)) as { vars?: unknown };
-  const vars = config.vars;
-  if (typeof vars !== 'object' || vars === null) throw new Error('wrangler.jsonc has no vars');
+/** wrangler.jsonc's `vars`: the top level's (production), or those of the named `env`. */
+export function shippedVars(environment?: string): Record<string, string> {
+  const config = JSON.parse(stripJsonc(wranglerText as string)) as {
+    vars?: unknown;
+    env?: Record<string, { vars?: unknown }>;
+  };
+  const vars = environment === undefined ? config.vars : config.env?.[environment]?.vars;
+  if (typeof vars !== 'object' || vars === null)
+    throw new Error(`wrangler.jsonc has no vars for ${environment ?? 'the top level'}`);
   return Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, String(v)]));
 }
 
 /**
- * `env` as wrangler.jsonc deploys it: its vars, and every other var empty
- * (its default). The test env's secrets, local-dev vars and test vars stay,
- * and `overrides` go on top.
+ * `env` as wrangler.jsonc deploys it (the top level, or the named `env`): its
+ * vars, and every other var empty (its default). The test env's secrets,
+ * local-dev vars and test vars stay, and `overrides` go on top.
  */
-export function shippedEnv(env: AppEnv, overrides: Partial<AppEnv> = {}): AppEnv {
+export function shippedEnv(
+  env: AppEnv,
+  overrides: Partial<AppEnv> = {},
+  environment?: string,
+): AppEnv {
   const defaulted = CONFIG_VARS.filter(
     (name) => !CONFIG_SECRETS.has(name) && !name.startsWith('DEV_'),
   );
   return {
     ...env,
     ...Object.fromEntries(defaulted.map((name) => [name, ''])),
-    ...shippedVars(),
+    ...shippedVars(environment),
     ...overrides,
   } as AppEnv;
 }
