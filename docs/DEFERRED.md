@@ -52,6 +52,8 @@ Known gaps, left out on purpose. Each says where the gap is, why it matters, and
 
 ## The Flutter app (`apps/flutter`)
 
+- **Not yet run on a phone.** The Android build compiles, and native sign-in is covered by unit and widget tests, but no device or emulator was available where it was built. To check on Android and iOS: Turnstile passes in the web view, the keyboard offers the emailed code, the token survives a restart, and (Android) a release build signed with the upload key installs.
+- **Small things seen in the browser run:** a lesson whose first send fails stays in the list as an empty "New lesson"; on a phone, "The open pool uses one model" crowds the lesson title in the chat header; Enter sends on the web on phones too; an unknown branch id in the URL shows the main thread with the bad URL kept; "Stopped." uses the error colour though the learner chose it; the logo's dark square nearly vanishes in dark mode.
 - **Emoji and non-Latin scripts (Chinese, Hebrew, Arabic, …) show as empty boxes.** The app bundles Roboto and subsets of Noto Sans Math, Symbols 2 and Mono, so arrows, maths and code render; for a glyph none of them has, Flutter's web engine fetches a Noto font from `fonts.gstatic.com`; `FLUTTER_APP_CSP` refuses it (`connect-src 'self'`), which also keeps learners' addresses from Google, and the console logs each refusal. Fixing it means serving the fallback fonts from `/app/` and pointing the engine's `fontFallbackBaseUrl` there (a custom `web/flutter_bootstrap.js`); Google serves them as hundreds of subset files, so only the scripts and emoji learners need.
 
 ## Links between messages

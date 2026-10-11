@@ -22,8 +22,8 @@ dart format lib test
 `pnpm dev` from the repo root builds every app, this one included, and serves
 it at <http://localhost:8787/app/>. With the default `.dev.vars` (no sign-in)
 the app opens signed in; real local sign-in is "Option B" in
-`apps/worker/.dev.vars.example`, which prints the magic link to the wrangler
-console.
+`apps/worker/.dev.vars.example`, which prints the sign-in email (the magic
+link and the 6-digit code) to the wrangler console.
 
 ### Android and iOS
 
@@ -35,7 +35,22 @@ flutter build apk --dart-define=TANGENT_BASE_URL=https://tangentailearning.com
 ```
 
 Without `TANGENT_BASE_URL` the app talks to production. For a local Worker
-from an Android emulator, use `http://10.0.2.2:8787`.
+from an Android emulator, use `http://10.0.2.2:8787`. The URL must be the
+deployment's `PUBLIC_BASE_URL`: Turnstile accepts only tokens issued on that
+host.
+
+Sign-in needs no browser on a phone:
+
+- **Captcha:** the Worker's `/app-captcha` page in a web view
+  (`lib/ui/turnstile/turnstile_native.dart`), which posts the Turnstile token
+  to the app's `TangentCaptcha` JavaScript channel.
+- **Code:** the sign-in email carries a 6-digit code next to the link, and
+  the app signs in by typing it. The link would open the phone's browser and
+  sign in the web app there instead.
+- **Session:** the code sign-in answers with a signed token
+  (`set-auth-token`). The app keeps it in the keychain or keystore
+  (`lib/api/token_store.dart`), sends it as `Authorization: Bearer` on every
+  call, and forgets it on sign-out. The web build keeps the HttpOnly cookie.
 
 The icons on every platform come from `assets/icon/` (the brand mark at
 1024px); `dart run flutter_launcher_icons` regenerates them after a change.
